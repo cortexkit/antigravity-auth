@@ -792,19 +792,16 @@ it("removes x-api-key header", () => {
 
       const wrapped = JSON.parse(result.init.body as string);
       const parts = wrapped.request.contents[0].parts as Array<Record<string, unknown>>;
-      const thinkingParts = parts.filter((part) =>
-        part.thought === true
-        || part.type === "thinking"
-        || part.type === "redacted_thinking"
-        || part.type === "reasoning",
-      );
-
-      expect(thinkingParts).toHaveLength(0);
+      // Sentinel replacement: thinking parts are replaced with plain empty text parts (not deleted) to preserve array indices for cache
+      // Plain text sentinels avoid the proxy converting them to Claude thinking blocks with missing fields
+      expect(parts).toHaveLength(2); // Array length preserved (1 sentinel + 1 functionCall)
+      expect(parts[0]).toMatchObject({ text: "." }); // Thinking replaced with plain space text
+      expect(parts[0]).not.toHaveProperty("thought");
+      expect(parts[0]).not.toHaveProperty("thoughtSignature");
       expect(result.needsSignedThinkingWarmup).toBe(false);
     });
 
-    it("strips Claude thinking blocks when keep_thinking is false (wrapped)", () => {
-      const result = withKeepThinking(false, () => prepareAntigravityRequest(
+    it("strips Claude thinking blocks when keep_thinking is false (wrapped)", () => {      const result = withKeepThinking(false, () => prepareAntigravityRequest(
         "https://generativelanguage.googleapis.com/v1beta/models/claude-opus-4-6-thinking:generateContent",
         {
           method: "POST",
@@ -833,19 +830,15 @@ it("removes x-api-key header", () => {
 
       const wrapped = JSON.parse(result.init.body as string);
       const parts = wrapped.request.contents[0].parts as Array<Record<string, unknown>>;
-      const thinkingParts = parts.filter((part) =>
-        part.thought === true
-        || part.type === "thinking"
-        || part.type === "redacted_thinking"
-        || part.type === "reasoning",
-      );
 
-      expect(thinkingParts).toHaveLength(0);
-      expect(result.needsSignedThinkingWarmup).toBe(false);
-    });
+      // Sentinel replacement: thinking parts are replaced with plain empty text parts (not deleted) to preserve array indices for cache
+      expect(parts).toHaveLength(2); // Array length preserved (1 sentinel + 1 functionCall)
+      expect(parts[0]).toMatchObject({ text: "." }); // Thinking replaced with plain space text
+      expect(parts[0]).not.toHaveProperty("thought");
+      expect(parts[0]).not.toHaveProperty("thoughtSignature");
+      expect(result.needsSignedThinkingWarmup).toBe(false);    });
 
-    it("does not trust foreign Gemini thoughtSignature when keep_thinking is true", () => {
-      const foreignSignature = "x".repeat(MIN_SIGNATURE_LENGTH + 8);
+    it("does not trust foreign Gemini thoughtSignature when keep_thinking is true", () => {      const foreignSignature = "x".repeat(MIN_SIGNATURE_LENGTH + 8);
       const result = withKeepThinking(true, () => prepareAntigravityRequest(
         "https://generativelanguage.googleapis.com/v1beta/models/claude-opus-4-6-thinking:generateContent",
         {
@@ -918,13 +911,14 @@ it("removes x-api-key header", () => {
 
       const wrapped = JSON.parse(result.init.body as string);
       const content = wrapped.request.messages[0].content as Array<Record<string, unknown>>;
-      const thinkingBlock = content.find((block) => block.type === "thinking" || block.type === "redacted_thinking");
 
-      expect(thinkingBlock).toBeTruthy();
-      expect(thinkingBlock?.signature).toBe(SKIP_THOUGHT_SIGNATURE);
+      // Sentinel replacement: thinking blocks become plain empty text parts
+      // This avoids the proxy converting them to Claude thinking blocks with missing required fields
+      const textSentinel = content.find((block) => block.text === "." && !block.type);
+      expect(textSentinel).toBeTruthy();
       expect(JSON.stringify(content)).not.toContain(foreignSignature);
-      expect(result.needsSignedThinkingWarmup).toBe(false);
-    });
+      // With plain text sentinels, there's no signed thinking block → warmup is needed
+      expect(result.needsSignedThinkingWarmup).toBe(true);    });
 
     it("returns requestedModel matching URL model", () => {
       const result = prepareAntigravityRequest(
@@ -980,13 +974,16 @@ it("removes x-api-key header", () => {
       );
 
       const wrapped = JSON.parse(result.init.body as string);
-      expect(wrapped.request.contents).toHaveLength(1);
-      expect(wrapped.request.contents[0]).toEqual({
+      // Fix F: content entries preserved (not filtered) to avoid index shifts that bust cache
+      expect(wrapped.request.contents).toHaveLength(3);
+      // Entry with empty parts preserved as-is
+      expect(wrapped.request.contents[0].role).toBe("user");
+      // Entry with valid parts keeps them (null parts filtered within)
+      expect(wrapped.request.contents[1]).toEqual({
         role: "model",
         parts: [{ text: "kept" }],
       });
-      expect(wrapped.request.systemInstruction.parts).toEqual([{ text: "system kept" }]);
-    });
+      expect(wrapped.request.systemInstruction.parts).toEqual([{ text: "system kept" }]);    });
 
     it("drops systemInstruction when all parts are invalid", () => {
       const result = prepareAntigravityRequest(

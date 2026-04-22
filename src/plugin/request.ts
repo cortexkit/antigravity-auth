@@ -50,7 +50,6 @@ import {
 import {
   CLAUDE_TOOL_SYSTEM_INSTRUCTION,
   CLAUDE_DESCRIPTION_PROMPT,
-  ANTIGRAVITY_SYSTEM_INSTRUCTION,
 } from "../constants";
 import {
   analyzeConversationState,
@@ -96,7 +95,56 @@ function buildSignatureSessionKey(
   return `${sessionId}:${modelKey}:${projectPart}:${conversationPart}`;
 }
 
+/**
+ * JSON.stringify replacer — operates AT the serialization layer.
+ * Every key-value pair passes through this function during stringify.
+ * Nothing can bypass it — no code path, no nesting depth, no object structure.
+ *
+ * Preserves Schema objects in tool declarations (e.g., {type: "boolean"})
+ * by checking for JSON Schema primitive types. Everything else that's
+ * a non-string `thinking` value gets flattened to "".
+ */
+const JSON_SCHEMA_TYPES = new Set(["boolean", "string", "number", "integer", "array", "object"])
 
+function thinkingSafeReplacer(key: string, value: unknown): unknown {
+  if (key === "thinking" && typeof value === "object" && value !== null) {
+    // Preserve Schema objects in tool declarations (e.g., {type: "boolean"})
+    const rec = value as Record<string, unknown>
+    if (typeof rec.type === "string" && JSON_SCHEMA_TYPES.has(rec.type)) {
+      return value
+    }
+    // Flatten any non-string, non-Schema thinking to empty string
+    return ""
+  }
+  return value
+}
+
+/** Stringify with built-in thinking sanitization. Impossible to bypass. */
+function ensureThinkingFields(obj: unknown): void {
+  if (!obj || typeof obj !== "object") return
+  if (Array.isArray(obj)) {
+    for (const item of obj) ensureThinkingFields(item)
+    return
+  }
+  const rec = obj as Record<string, unknown>
+  // Fix: check for missing OR undefined OR non-string thinking field.
+  // JSON.stringify silently drops undefined values, so key-exists-but-undefined
+  // produces { type: "thinking", signature: "..." } with NO thinking field.
+  if (rec.type === "thinking" && typeof rec.thinking !== "string") {
+    rec.thinking = ""
+  }
+  if (rec.thought === true && typeof rec.text !== "string") {
+    rec.text = ""
+  }
+  for (const val of Object.values(rec)) {
+    ensureThinkingFields(val)
+  }
+}
+
+function safeStringify(obj: unknown): string {
+  ensureThinkingFields(obj)
+  return JSON.stringify(obj, thinkingSafeReplacer)
+}
 
 
 
@@ -281,9 +329,11 @@ function stripInjectedDebugFromParts(parts: unknown): unknown {
     return parts;
   }
 
-  return parts.filter((part) => {
+  // Use .map() with empty text sentinels instead of .filter() to preserve
+  // array indices and prevent prompt cache invalidation.
+  return parts.map((part) => {
     if (!part || typeof part !== "object") {
-      return true;
+      return part;
     }
 
     const record = part as any;
@@ -294,15 +344,16 @@ function stripInjectedDebugFromParts(parts: unknown): unknown {
           ? record.thinking
           : undefined;
 
-    // Strip debug blocks and synthetic thinking placeholders
+    // Replace debug blocks and synthetic thinking placeholders with empty text sentinel
     if (text && (text.startsWith(DEBUG_MESSAGE_PREFIX) || text.startsWith(SYNTHETIC_THINKING_PLACEHOLDER.trim()))) {
-      return false;
+      const sentinel: Record<string, unknown> = { text: "." };
+      if (record.cache_control !== undefined) sentinel.cache_control = record.cache_control;
+      return sentinel;
     }
 
-    return true;
+    return part;
   });
 }
-
 function stripInjectedDebugFromRequestPayload(payload: Record<string, unknown>): void {
   const anyPayload = payload as any;
 
@@ -362,10 +413,12 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
   const anyPayload = payload as any;
 
   if (Array.isArray(anyPayload.contents)) {
+    // Use .map() instead of .map().filter() to preserve array indices for prompt cache stability
     anyPayload.contents = anyPayload.contents
       .map((content: unknown) => {
         if (!content || typeof content !== "object") {
-          return null;
+          // Preserve non-object entries as empty sentinel instead of filtering
+          return { role: "user", parts: [{ text: "." }] };
         }
 
         const contentRecord = content as Record<string, unknown>;
@@ -403,17 +456,16 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
         });
 
         if (sanitizedParts.length === 0) {
-          return null;
+          // Preserve as empty text sentinel instead of filtering out
+          return { ...contentRecord, parts: [{ text: "." }] };
         }
 
         return {
           ...contentRecord,
           parts: sanitizedParts,
         };
-      })
-      .filter((content: unknown): content is Record<string, unknown> => content !== null);
+      });
   }
-
   const systemInstruction = anyPayload.systemInstruction;
   if (systemInstruction && typeof systemInstruction === "object" && !Array.isArray(systemInstruction)) {
     const sys = systemInstruction as Record<string, unknown>;
@@ -565,33 +617,29 @@ function ensureThinkingBeforeToolUseInContents(contents: any[], signatureSession
       return content;
     }
 
-    const thinkingParts = parts.filter(isGeminiThinkingPart).map((p) => ensureThoughtSignature(p, signatureSessionKey));
-    const otherParts = parts.filter((p) => !isGeminiThinkingPart(p));
-    const hasSignedThinking = thinkingParts.some((part) => hasSignedThinkingPart(part, signatureSessionKey));
+    // Check if any thinking part has a valid signed signature
+    const hasSignedThinking = parts.some(p => isGeminiThinkingPart(p) && hasSignedThinkingPart(ensureThoughtSignature(p, signatureSessionKey), signatureSessionKey));
 
     if (hasSignedThinking) {
-      return { ...content, parts: [...thinkingParts, ...otherParts] };
+      // Ensure signatures on thinking parts in-place — NO reordering to preserve array indices (cache-friendly)
+      return { ...content, parts: parts.map(p => isGeminiThinkingPart(p) ? ensureThoughtSignature(p, signatureSessionKey) : p) };
     }
-
+    // Replace thinking parts with sentinels in-place to preserve array indices (cache-friendly).
+    // Deleting parts via .filter() shifts array indices → changes hash → busts prompt cache.
     const lastThinking = defaultSignatureStore.get(signatureSessionKey);
-    if (!lastThinking) {
-      // No cached signature available - strip thinking blocks entirely
-      // Claude requires valid signatures, and we can't fake them
-      // Return only tool_use parts without any thinking to avoid signature validation errors
-      log.debug("Stripping thinking from tool_use content (no valid cached signature)", { signatureSessionKey });
-      return { ...content, parts: otherParts };
-    }
-
-    const injected = {
-      thought: true,
-      text: lastThinking.text,
-      thoughtSignature: SENTINEL_SIGNATURE,
-    };
-
-    return { ...content, parts: [injected, ...otherParts] };
+    log.debug("Replacing thinking with sentinels in-place", { signatureSessionKey, hasCachedSig: !!lastThinking });
+    const newParts = parts.map(p => {
+      if (!isGeminiThinkingPart(p)) return p;
+      const cc = (p as Record<string, unknown>).cache_control;
+      // Use plain empty text part — thinking-format sentinels get converted by the proxy
+      // into Claude thinking blocks missing the required `thinking` field.
+      const sentinel: Record<string, unknown> = { text: "." };
+      if (cc) sentinel.cache_control = cc;
+      return sentinel;
+    });
+    return { ...content, parts: newParts };
   });
 }
-
 function ensureMessageThinkingSignature(block: any, sessionId: string): any {
   if (!block || typeof block !== "object") {
     return block;
@@ -667,42 +715,32 @@ function ensureThinkingBeforeToolUseInMessages(messages: any[], signatureSession
       return message;
     }
 
-    const thinkingBlocks = blocks
-      .filter((b) => b && typeof b === "object" && (b.type === "thinking" || b.type === "redacted_thinking"))
-      .map((b) => ensureMessageThinkingSignature(b, signatureSessionKey));
+    const isThinkingBlock = (b: any) => b && typeof b === "object" && (b.type === "thinking" || b.type === "redacted_thinking");
 
-    const otherBlocks = blocks.filter((b) => !(b && typeof b === "object" && (b.type === "thinking" || b.type === "redacted_thinking")));
-    const hasSignedThinking = thinkingBlocks.some((block) => hasSignedThinkingPart(block, signatureSessionKey));
+    // Check if any thinking block has a valid signed signature
+    const hasSignedThinking = blocks.some((b) => isThinkingBlock(b) && hasSignedThinkingPart(ensureMessageThinkingSignature(b, signatureSessionKey), signatureSessionKey));
 
     if (hasSignedThinking) {
-      return { ...message, content: [...thinkingBlocks, ...otherBlocks] };
+      // Ensure signatures on thinking blocks in-place — NO reordering to preserve array indices (cache-friendly)
+      return { ...message, content: blocks.map((b) => isThinkingBlock(b) ? ensureMessageThinkingSignature(b, signatureSessionKey) : b) };
     }
 
+    // Replace thinking blocks with sentinels in-place to preserve array indices (cache-friendly).
+    // Deleting/reordering via .filter() shifts indices → changes hash → busts prompt cache.
     const lastThinking = defaultSignatureStore.get(signatureSessionKey);
-    if (!lastThinking) {
-      // No cached signature available - use sentinel to bypass validation
-      // This handles cache miss scenarios (restart, session mismatch, expiry)
-      const existingThinking = thinkingBlocks[0];
-      const thinkingText = existingThinking?.thinking || existingThinking?.text || "";
-      log.debug("Injecting sentinel signature (cache miss)", { signatureSessionKey });
-      const sentinelBlock = {
-        type: "thinking",
-        thinking: thinkingText,
-        signature: SKIP_THOUGHT_SIGNATURE,
-      };
-      return { ...message, content: [sentinelBlock, ...otherBlocks] };
-    }
-
-    const injected = {
-      type: "thinking",
-      thinking: lastThinking.text,
-      signature: SKIP_THOUGHT_SIGNATURE,
-    };
-
-    return { ...message, content: [injected, ...otherBlocks] };
+    log.debug("Replacing thinking with sentinels in-place (Messages format)", { signatureSessionKey, hasCachedSig: !!lastThinking });
+    return { ...message, content: blocks.map((b) => {
+      if (!isThinkingBlock(b)) return b;
+      const thinkingText = lastThinking ? lastThinking.text : (typeof b.thinking === "string" ? b.thinking : typeof b.text === "string" ? b.text : "");
+      const cc = (b as Record<string, unknown>).cache_control;
+      // Use plain empty text part — thinking-format sentinels get converted by the proxy
+      // into Claude thinking blocks missing the required `thinking` field.
+      const sentinel: Record<string, unknown> = { text: "." };
+      if (cc) sentinel.cache_control = cc;
+      return sentinel;
+    }) };
   });
 }
-
 /**
  * Gets the stable session ID for this plugin instance.
  */
@@ -835,8 +873,7 @@ export function prepareAntigravityRequest(
       const parsedBody = JSON.parse(baseInit.body) as Record<string, unknown>;
       const isWrapped = typeof parsedBody.project === "string" && "request" in parsedBody;
 
-      if (isWrapped) {
-        const wrappedBody = {
+      if (isWrapped) {        const wrappedBody = {
           ...parsedBody,
           model: effectiveModel,
         } as Record<string, unknown>;
@@ -907,10 +944,9 @@ export function prepareAntigravityRequest(
           needsSignedThinkingWarmup = hasToolUse && !hasSignedThinking && !hasCachedThinking;
         }
 
-        body = JSON.stringify(wrappedBody);
+        body = safeStringify(wrappedBody);
       } else {
         const requestPayload: Record<string, unknown> = { ...parsedBody };
-
         const rawGenerationConfig = requestPayload.generationConfig as Record<string, unknown> | undefined;
         const extraBody = requestPayload.extra_body as Record<string, unknown> | undefined;
 
@@ -1086,31 +1122,15 @@ export function prepareAntigravityRequest(
           const existing = requestPayload.systemInstruction;
 
           if (typeof existing === "string") {
-            requestPayload.systemInstruction = existing.trim().length > 0 ? `${existing}\n\n${hint}` : hint;
+            // Convert string to parts array, append hint as separate part to avoid mutating cached text
+            requestPayload.systemInstruction = { parts: [{ text: existing }, { text: hint }] };
           } else if (existing && typeof existing === "object") {
             const sys = existing as Record<string, unknown>;
             const partsValue = sys.parts;
 
             if (Array.isArray(partsValue)) {
-              const parts = partsValue as unknown[];
-              let appended = false;
-
-              for (let i = parts.length - 1; i >= 0; i--) {
-                const part = parts[i];
-                if (part && typeof part === "object") {
-                  const partRecord = part as Record<string, unknown>;
-                  const text = partRecord.text;
-                  if (typeof text === "string") {
-                    partRecord.text = `${text}\n\n${hint}`;
-                    appended = true;
-                    break;
-                  }
-                }
-              }
-
-              if (!appended) {
-                parts.push({ text: hint });
-              }
+              // Append hint as a NEW separate part — never mutate existing parts text (cache-friendly)
+              (partsValue as unknown[]).push({ text: hint });
             } else {
               sys.parts = [{ text: hint }];
             }
@@ -1120,7 +1140,8 @@ export function prepareAntigravityRequest(
             requestPayload.systemInstruction = { parts: [{ text: hint }] };
           }
         }
-
+        // Normalize cached_content → cachedContent (camelCase) but preserve the value.
+        // OpenCode uses cachedContent for prompt caching — deleting it busts cache.
         const cachedContentFromExtra =
           typeof requestPayload.extra_body === "object" && requestPayload.extra_body
             ? (requestPayload.extra_body as Record<string, unknown>).cached_content ??
@@ -1134,8 +1155,8 @@ export function prepareAntigravityRequest(
           requestPayload.cachedContent = cachedContent;
         }
 
+        // Only delete the snake_case duplicate — preserve camelCase
         delete requestPayload.cached_content;
-        delete requestPayload.cachedContent;
         if (requestPayload.extra_body && typeof requestPayload.extra_body === "object") {
           delete (requestPayload.extra_body as Record<string, unknown>).cached_content;
           delete (requestPayload.extra_body as Record<string, unknown>).cachedContent;
@@ -1143,7 +1164,6 @@ export function prepareAntigravityRequest(
             delete requestPayload.extra_body;
           }
         }
-
         // Normalize tools. For Claude models, keep full function declarations (names + schemas).
         const hasTools = Array.isArray(requestPayload.tools) && requestPayload.tools.length > 0;
 
@@ -1463,36 +1483,7 @@ export function prepareAntigravityRequest(
         const effectiveProjectId = projectId?.trim() || (headerStyle === "antigravity" ? generateSyntheticProjectId() : "");
         resolvedProjectId = effectiveProjectId;
 
-        // Inject Antigravity system instruction with role "user" (CLIProxyAPI v6.6.89 compatibility)
-        // This sets request.systemInstruction.role = "user" and request.systemInstruction.parts[0].text
-        if (headerStyle === "antigravity") {
-          const existingSystemInstruction = requestPayload.systemInstruction;
-          if (existingSystemInstruction && typeof existingSystemInstruction === "object") {
-            const sys = existingSystemInstruction as Record<string, unknown>;
-            sys.role = "user";
-            if (Array.isArray(sys.parts) && sys.parts.length > 0) {
-              const firstPart = sys.parts[0] as Record<string, unknown>;
-              if (firstPart && typeof firstPart.text === "string") {
-                firstPart.text = ANTIGRAVITY_SYSTEM_INSTRUCTION + "\n\n" + firstPart.text;
-              } else {
-                sys.parts = [{ text: ANTIGRAVITY_SYSTEM_INSTRUCTION }, ...sys.parts];
-              }
-            } else {
-              sys.parts = [{ text: ANTIGRAVITY_SYSTEM_INSTRUCTION }];
-            }
-          } else if (typeof existingSystemInstruction === "string") {
-            requestPayload.systemInstruction = {
-              role: "user",
-              parts: [{ text: ANTIGRAVITY_SYSTEM_INSTRUCTION + "\n\n" + existingSystemInstruction }],
-            };
-          } else {
-            requestPayload.systemInstruction = {
-              role: "user",
-              parts: [{ text: ANTIGRAVITY_SYSTEM_INSTRUCTION }],
-            };
-          }
-        }
-
+        // System instruction injection removed — CLIProxyAPI v6.9.x no longer injects it
         const wrappedBody: Record<string, unknown> = {
           project: effectiveProjectId,
           model: effectiveModel,
@@ -1510,11 +1501,10 @@ export function prepareAntigravityRequest(
           (wrappedBody.request as any).sessionId = signatureSessionKey;
         }
 
-        body = JSON.stringify(wrappedBody);
+        body = safeStringify(wrappedBody);
       }
     } catch (error) {
-      throw error;
-    }
+      throw error;    }
   }
 
   if (streaming) {
@@ -1616,9 +1606,8 @@ export function buildThinkingWarmupBody(
     updateRequest(parsed);
   }
 
-  return JSON.stringify(parsed);
+  return safeStringify(parsed);
 }
-
 /**
  * Normalizes Antigravity responses: applies retry headers, extracts cache usage into headers,
  * rewrites preview errors, flattens streaming payloads, and logs debug metadata.

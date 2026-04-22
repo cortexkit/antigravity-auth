@@ -14,11 +14,11 @@ import * as storageModule from "./storage";
 import type { AccountStorageV4, AccountMetadataV3 } from "./storage";
 
 vi.mock("proper-lockfile", () => ({
+  lock: vi.fn().mockResolvedValue(vi.fn().mockResolvedValue(undefined)),
   default: {
     lock: vi.fn().mockResolvedValue(vi.fn().mockResolvedValue(undefined)),
   },
 }));
-
 vi.mock("node:fs", async () => {
   const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
   return {

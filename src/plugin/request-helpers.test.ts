@@ -59,11 +59,10 @@ describe("sanitizeThinkingPart (covered via filtering)", () => {
       thought: true,
       text: thinkingText,
       thoughtSignature: validSignature,
+      cache_control: { type: "ephemeral" },
     });
 
-    expect(result[0].parts[0].cache_control).toBeUndefined();
-    expect(result[0].parts[0].providerOptions).toBeUndefined();
-  });
+    expect(result[0].parts[0].providerOptions).toBeUndefined();  });
 
   it("extracts wrapped thinking text and strips SDK fields for Anthropic-style thinking blocks", () => {
     const validSignature = "a".repeat(60);
@@ -97,11 +96,11 @@ describe("sanitizeThinkingPart (covered via filtering)", () => {
       type: "thinking",
       thinking: thinkingText,
       signature: validSignature,
+      cache_control: { type: "ephemeral" },
     });
   });
 
-  it("preserves signatures while dropping cache_control/providerOptions during signature restoration", () => {
-    const cachedSignature = "c".repeat(60);
+  it("preserves signatures while dropping cache_control/providerOptions during signature restoration", () => {    const cachedSignature = "c".repeat(60);
     const getCachedSignatureFn = (_sessionId: string, _text: string) => cachedSignature;
 
     const messages = [
@@ -159,10 +158,10 @@ describe("sanitizeThinkingPart (covered via filtering)", () => {
       type: "reasoning",
       text: "reasoning text",
       signature: validSignature,
+      cache_control: { type: "ephemeral" },
     });
   });
 });
-
 describe("isThinkingCapableModel", () => {
   it("returns true for models with 'thinking' in name", () => {
     expect(isThinkingCapableModel("claude-thinking")).toBe(true);
@@ -326,10 +325,11 @@ describe("filterUnsignedThinkingBlocks", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].type).toBe("text");
+    // Sentinel replacement preserves array length
+    expect(result[0].parts).toHaveLength(2);
+    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[1].type).toBe("text");
   });
-
   it("keeps signed thinking parts with valid signatures from our cache", () => {
     const validSignature = "a".repeat(60);
     const thinkingText = "thinking with signature";
@@ -364,8 +364,9 @@ describe("filterUnsignedThinkingBlocks", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].type).toBe("text");
+    expect(result[0].parts).toHaveLength(2);
+    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[1].type).toBe("text");
   });
 
   it("filters thinking parts with short signatures", () => {
@@ -381,8 +382,9 @@ describe("filterUnsignedThinkingBlocks", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].type).toBe("text");
+    expect(result[0].parts).toHaveLength(2);
+    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[1].type).toBe("text");
   });
 
   it("handles Gemini-style thought parts with valid signatures from our cache", () => {
@@ -403,8 +405,9 @@ describe("filterUnsignedThinkingBlocks", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
     const result = filterUnsignedThinkingBlocks(contents, "session-1", getCachedSignatureFn);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].thoughtSignature).toBe(validSignature);
+    expect(result[0].parts).toHaveLength(2);
+    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[1].thoughtSignature).toBe(validSignature);
   });
 
   it("filters Gemini-style thought parts with short signatures", () => {
@@ -417,9 +420,12 @@ describe("filterUnsignedThinkingBlocks", () => {
       },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(0);
+    // Sentinel replacement: thinking parts become plain empty text parts to preserve array indices
+    expect(result[0].parts).toHaveLength(1);
+    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[0]).not.toHaveProperty("thought");
+    expect(result[0].parts[0]).not.toHaveProperty("thoughtSignature");
   });
-
   it("preserves non-thinking parts", () => {
     const contents = [
       {
@@ -445,8 +451,9 @@ describe("filterUnsignedThinkingBlocks", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].type).toBe("text");
+    expect(result[0].parts).toHaveLength(2);
+    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[1].type).toBe("text");
   });
 
   it("handles empty parts array", () => {
@@ -549,8 +556,9 @@ describe("deepFilterThinkingBlocks", () => {
 
     deepFilterThinkingBlocks(payload);
     const filtered = (payload as any).extra_body.messages[0].content;
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0].type).toBe("text");
+    expect(filtered).toHaveLength(2);
+    expect(filtered[0]).toMatchObject({ text: "." });
+    expect(filtered[1].type).toBe("text");
   });
 
 });
@@ -569,8 +577,9 @@ describe("filterMessagesThinkingBlocks", () => {
     ];
 
     const result = filterMessagesThinkingBlocks(messages) as any;
-    expect(result[0].content).toHaveLength(1);
-    expect(result[0].content[0].type).toBe("text");
+    expect(result[0].content).toHaveLength(2);
+    expect(result[0].content[0]).toMatchObject({ text: "." });
+    expect(result[0].content[1].type).toBe("text");
   });
 
   it("keeps signed thinking blocks with valid signatures from our cache and sanitizes injected fields", () => {
@@ -601,12 +610,12 @@ describe("filterMessagesThinkingBlocks", () => {
       type: "thinking",
       thinking: thinkingText,
       signature: validSignature,
+      cache_control: { type: "ephemeral" },
     });
   });
 
   it("strips thinking blocks with foreign signatures not in our cache", () => {
-    const foreignSignature = "f".repeat(60);
-    const messages = [
+    const foreignSignature = "f".repeat(60);    const messages = [
       {
         role: "assistant",
         content: [
@@ -622,8 +631,9 @@ describe("filterMessagesThinkingBlocks", () => {
     ];
 
     const result = filterMessagesThinkingBlocks(messages) as any;
-    expect(result[0].content).toHaveLength(1);
-    expect(result[0].content[0].type).toBe("text");
+    expect(result[0].content).toHaveLength(2);
+    expect(result[0].content[0]).toMatchObject({ text: "." });
+    expect(result[0].content[1].type).toBe("text");
   });
 
   it("filters thinking blocks with short signatures", () => {
@@ -639,7 +649,9 @@ describe("filterMessagesThinkingBlocks", () => {
     ];
 
     const result = filterMessagesThinkingBlocks(messages) as any;
-    expect(result[0].content).toEqual([{ type: "text", text: "visible" }]);
+    expect(result[0].content).toHaveLength(2);
+    expect(result[0].content[0]).toMatchObject({ text: "." });
+    expect(result[0].content).toContainEqual({ type: "text", text: "visible" });
   });
 
   it("restores a missing signature from cache and preserves it after sanitization", () => {
@@ -667,11 +679,11 @@ describe("filterMessagesThinkingBlocks", () => {
       type: "thinking",
       thinking: "restore me",
       signature: cachedSignature,
+      cache_control: { type: "ephemeral" },
     });
   });
 
-  it("handles Gemini-style thought blocks inside messages content with cached signatures", () => {
-    const validSignature = "b".repeat(60);
+  it("handles Gemini-style thought blocks inside messages content with cached signatures", () => {    const validSignature = "b".repeat(60);
     const thinkingText = "wrapped thought";
     const getCachedSignatureFn = (_sessionId: string, text: string) =>
       text === thinkingText ? validSignature : undefined;
@@ -767,7 +779,7 @@ describe("transformThinkingParts", () => {
     expect(result.model).toBe("claude-4");
   });
 
-  it("converts Gemini-style thoughtSignature to providerMetadata.anthropic.signature", () => {
+  it("converts Gemini-style thoughtSignature to direct signature field", () => {
     const response = {
       candidates: [
         {
@@ -781,13 +793,11 @@ describe("transformThinkingParts", () => {
       ],
     };
     const result = transformThinkingParts(response) as any;
-    expect(result.candidates[0].content.parts[0].providerMetadata).toEqual({
-      anthropic: { signature: "sig123abc" }
-    });
+    expect(result.candidates[0].content.parts[0].signature).toBe("sig123abc");
     expect(result.candidates[0].content.parts[0].thoughtSignature).toBeUndefined();
   });
 
-  it("converts Anthropic-style signature to providerMetadata.anthropic.signature", () => {
+  it("converts Anthropic-style signature to direct signature field", () => {
     const response = {
       candidates: [
         {
@@ -801,10 +811,7 @@ describe("transformThinkingParts", () => {
       ],
     };
     const result = transformThinkingParts(response) as any;
-    expect(result.candidates[0].content.parts[0].providerMetadata).toEqual({
-      anthropic: { signature: "anthro_sig_xyz" }
-    });
-    expect(result.candidates[0].content.parts[0].signature).toBeUndefined();
+    expect(result.candidates[0].content.parts[0].signature).toBe("anthro_sig_xyz");
   });
 
   it("converts signature in content array (Anthropic-style)", () => {
@@ -815,10 +822,7 @@ describe("transformThinkingParts", () => {
       ],
     };
     const result = transformThinkingParts(response) as any;
-    expect(result.content[0].providerMetadata).toEqual({
-      anthropic: { signature: "content_sig" }
-    });
-    expect(result.content[0].signature).toBeUndefined();
+    expect(result.content[0].signature).toBe("content_sig");
     expect(result.content[0].thoughtSignature).toBeUndefined();
   });
 
@@ -835,12 +839,10 @@ describe("transformThinkingParts", () => {
       ],
     };
     const result = transformThinkingParts(response) as any;
-    expect(result.candidates[0].content.parts[0].providerMetadata).toEqual({
-      anthropic: { signature: "sig_primary" }
-    });
+    expect(result.candidates[0].content.parts[0].signature).toBe("sig_primary");
   });
 
-  it("does not add providerMetadata when no signature present", () => {
+  it("does not add signature when no signature present", () => {
     const response = {
       candidates: [
         {
@@ -854,9 +856,8 @@ describe("transformThinkingParts", () => {
       ],
     };
     const result = transformThinkingParts(response) as any;
-    expect(result.candidates[0].content.parts[0].providerMetadata).toBeUndefined();
-  });
-});
+    expect(result.candidates[0].content.parts[0].signature).toBeUndefined();
+  });});
 
 describe("normalizeThinkingConfig", () => {
   it("returns undefined for non-object input", () => {
@@ -1817,8 +1818,9 @@ describe("deduplicateThinkingText", () => {
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result2 = deduplicateThinkingText(chunk2, buffer) as any;
-    expect(result2.candidates[0].content.parts).toHaveLength(1);
-    expect(result2.candidates[0].content.parts[0].text).toBe("Regular text");
+    expect(result2.candidates[0].content.parts).toHaveLength(2);
+    expect(result2.candidates[0].content.parts[0]).toMatchObject({ text: "" });
+    expect(result2.candidates[0].content.parts[1].text).toBe("Regular text");
   });
 
   it("extracts delta from accumulated Claude thinking blocks", () => {

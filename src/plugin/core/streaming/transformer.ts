@@ -88,13 +88,14 @@ export function deduplicateThinkingText(
         }
         
         if (p.thought === true || p.type === 'thinking') {
-          const fullText = (p.text || p.thinking || '') as string;
+          const fullText = typeof p.text === "string" ? p.text : typeof p.thinking === "string" ? p.thinking : "";
           
           if (displayedThinkingHashes) {
             const hash = hashString(fullText);
             if (displayedThinkingHashes.has(hash)) {
               sentBuffer.set(index, fullText);
-              return null;
+              // Sentinel instead of null — preserves array length on response path
+              return { text: "" };
             }
             displayedThinkingHashes.add(hash);
           }
@@ -106,24 +107,22 @@ export function deduplicateThinkingText(
             sentBuffer.set(index, fullText);
 
             if (delta) {
-              return { ...p, text: delta, thinking: delta };
+              // Clean object — NO spread to prevent thinking: <object> leaking
+              return { thought: true, text: delta };
             }
-            return null;
+            // Sentinel instead of null — preserves array length on response path
+            return { text: "" };
           }
 
           sentBuffer.set(index, fullText);
           return part;
-        }
-        return part;
+        }        return part;
       });
-
-      const filteredParts = newParts.filter((p) => p !== null);
 
       return {
         ...cand,
-        content: { ...content, parts: filteredParts },
-      };
-    });
+        content: { ...content, parts: newParts },
+      };    });
 
     return { ...resp, candidates: newCandidates };
   }
@@ -133,14 +132,15 @@ export function deduplicateThinkingText(
     const newContent = resp.content.map((block: unknown) => {
       const b = block as Record<string, unknown> | null;
       if (b?.type === 'thinking') {
-        const fullText = (b.thinking || b.text || '') as string;
+        const fullText = typeof b.thinking === "string" ? b.thinking : typeof b.text === "string" ? b.text : "";
         
         if (displayedThinkingHashes) {
           const hash = hashString(fullText);
           if (displayedThinkingHashes.has(hash)) {
             sentBuffer.set(thinkingIndex, fullText);
             thinkingIndex++;
-            return null;
+            // Sentinel instead of null — preserves array length on response path
+            return { type: "text", text: "" };
           }
           displayedThinkingHashes.add(hash);
         }
@@ -153,21 +153,20 @@ export function deduplicateThinkingText(
           thinkingIndex++;
 
           if (delta) {
-            return { ...b, thinking: delta, text: delta };
+            // Clean object — NO spread to prevent thinking: <object> leaking
+            return { type: b.type, thinking: delta, text: delta };
           }
-          return null;
+          // Sentinel instead of null — preserves array length on response path
+          return { type: "text", text: "" };
         }
 
         sentBuffer.set(thinkingIndex, fullText);
         thinkingIndex++;
         return block;
-      }
-      return block;
+      }      return block;
     });
 
-    const filteredContent = newContent.filter((b) => b !== null);
-    return { ...resp, content: filteredContent };
-  }
+    return { ...resp, content: newContent };  }
 
   return response;
 }
@@ -244,13 +243,12 @@ export function cacheThinkingSignaturesFromResponse(
       content.parts.forEach((part: unknown) => {
         const p = part as Record<string, unknown>;
         if (p.thought === true || p.type === 'thinking') {
-          const text = (p.text || p.thinking || '') as string;
+          const text = typeof p.text === "string" ? p.text : typeof p.thinking === "string" ? p.thinking : "";
           if (text) {
             const current = thoughtBuffer.get(index) ?? '';
             thoughtBuffer.set(index, current + text);
           }
         }
-
         if (p.thoughtSignature) {
           const fullText = thoughtBuffer.get(index) ?? '';
           if (fullText) {
@@ -270,7 +268,7 @@ export function cacheThinkingSignaturesFromResponse(
     resp.content.forEach((block: unknown) => {
       const b = block as Record<string, unknown> | null;
       if (b?.type === 'thinking') {
-        const text = (b.thinking || b.text || '') as string;
+        const text = typeof b.thinking === "string" ? b.thinking : typeof b.text === "string" ? b.text : "";
         if (text) {
           const current = thoughtBuffer.get(CLAUDE_BUFFER_KEY) ?? '';
           thoughtBuffer.set(CLAUDE_BUFFER_KEY, current + text);

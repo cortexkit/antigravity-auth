@@ -920,36 +920,45 @@ function isToolBlock(part: Record<string, unknown>): boolean {
  * Claude will generate fresh thinking for each turn.
  */
 function stripAllThinkingBlocks(contentArray: any[]): any[] {
-  return contentArray.filter(item => {
-    if (!item || typeof item !== "object") return true;
-    if (isToolBlock(item)) return true;
-    if (isThinkingPart(item)) return false;
-    if (hasSignatureField(item)) return false;
-    return true;
+  return contentArray.map(item => {
+    if (!item || typeof item !== "object") return item;
+    if (isToolBlock(item)) return item;
+    if (isThinkingPart(item) || hasSignatureField(item)) {
+      // Preserve cache_control from stripped thinking parts
+      const cc = (item as Record<string, unknown>).cache_control;
+      // Use plain empty text part — thinking-format sentinels get converted by the proxy
+      // into Claude thinking blocks missing the required `thinking` field.
+      const sentinel: Record<string, unknown> = { text: "." };
+      if (cc) sentinel.cache_control = cc;
+      return sentinel;
+    }
+    return item;
   });
 }
-
-/**
- * Removes trailing thinking blocks from a content array.
- * Claude API requires that assistant messages don't end with thinking blocks.
- * Only removes unsigned thinking blocks; preserves those with valid signatures.
- */
 function removeTrailingThinkingBlocks(
   contentArray: any[],
   sessionId?: string,
   getCachedSignatureFn?: (sessionId: string, text: string) => string | undefined,
 ): any[] {
+  // Find the last index that is a trailing unsigned thinking block
+  // Work backwards: replace trailing unsigned thinking blocks with sentinels
+  // to preserve array length and cache breakpoints
   const result = [...contentArray];
 
-  while (result.length > 0 && isThinkingPart(result[result.length - 1])) {
-    const part = result[result.length - 1];
+  for (let i = result.length - 1; i >= 0; i--) {
+    if (!isThinkingPart(result[i])) break;
+
+    const part = result[i];
     const isValid = sessionId && getCachedSignatureFn
       ? isOurCachedSignature(part as Record<string, unknown>, sessionId, getCachedSignatureFn)
       : hasValidSignature(part as Record<string, unknown>);
-    if (isValid) {
-      break;
-    }
-    result.pop();
+    if (isValid) break;
+
+    // Replace with sentinel instead of popping — preserves array length
+    const cc = part?.cache_control;
+    const sentinel: Record<string, unknown> = { text: "." };
+    if (cc) sentinel.cache_control = cc;
+    result[i] = sentinel;
   }
 
   return result;
@@ -1057,8 +1066,9 @@ function sanitizeThinkingPart(part: Record<string, unknown>): Record<string, unk
     }
 
     const sanitized: Record<string, unknown> = { thought: true };
-    if (textContent !== undefined) sanitized.text = textContent;
+    sanitized.text = typeof textContent === "string" ? textContent : "";
     if (part.thoughtSignature !== undefined) sanitized.thoughtSignature = part.thoughtSignature;
+    if (part.cache_control !== undefined) sanitized.cache_control = part.cache_control;
     return sanitized;
   }
 
@@ -1076,8 +1086,9 @@ function sanitizeThinkingPart(part: Record<string, unknown>): Record<string, unk
     }
 
     const sanitized: Record<string, unknown> = { type: part.type === "redacted_thinking" ? "redacted_thinking" : "thinking" };
-    if (thinkingContent !== undefined) sanitized.thinking = thinkingContent;
+    sanitized.thinking = typeof thinkingContent === "string" ? thinkingContent : "";
     if (part.signature !== undefined) sanitized.signature = part.signature;
+    if (part.cache_control !== undefined) sanitized.cache_control = part.cache_control;
     return sanitized;
   }
 
@@ -1095,14 +1106,15 @@ function sanitizeThinkingPart(part: Record<string, unknown>): Record<string, unk
     }
 
     const sanitized: Record<string, unknown> = { type: "reasoning" };
-    if (textContent !== undefined) sanitized.text = textContent;
+    sanitized.text = typeof textContent === "string" ? textContent : "";
     if (part.signature !== undefined) sanitized.signature = part.signature;
+    if (part.cache_control !== undefined) sanitized.cache_control = part.cache_control;
     return sanitized;
   }
 
-  // Fallback: strip cache_control recursively.
-  return stripCacheControlRecursively(part) as Record<string, unknown>;
-}
+  // Fallback: only strip cache_control from nested content objects, not part-level markers.
+  // Part-level cache_control is used by OpenCode for prompt caching and must be preserved.
+  return stripCacheControlRecursively(part) as Record<string, unknown>;}
 
 function findLastAssistantIndex(contents: any[], roleValue: "model" | "assistant"): number {
   for (let i = contents.length - 1; i >= 0; i--) {
@@ -1159,16 +1171,13 @@ function filterContentArray(
     }
 
     if (isClaudeModel && (isThinking || hasSignature)) {
-      const thinkingText = getThinkingText(item) || "";
-      const sentinelPart = {
-        type: item.type === "redacted_thinking" ? "redacted_thinking" : "thinking",
-        thinking: thinkingText,
-        signature: SKIP_THOUGHT_SIGNATURE,
-      };
-      filtered.push(sentinelPart);
+      // Use plain empty text part — thinking-format sentinels get converted by the proxy
+      // into Claude thinking blocks with missing required fields
+      const sentinel: Record<string, unknown> = { text: "." };
+      if (item.cache_control) sentinel.cache_control = item.cache_control;
+      filtered.push(sentinel);
       continue;
     }
-
     // For the LAST assistant message with thinking blocks:
     // - If signature is OUR cached signature, pass through unchanged
     // - Otherwise inject sentinel to bypass Antigravity validation
@@ -1178,27 +1187,36 @@ function filterContentArray(
       // First check if it's our cached signature
       if (isOurCachedSignature(item, sessionId, getCachedSignatureFn)) {
         const sanitized = sanitizeThinkingPart(item);
-        if (sanitized) filtered.push(sanitized);
+        if (sanitized) {
+          filtered.push(sanitized);
+        } else {
+          // sanitizeThinkingPart returned null — use sentinel to preserve array length
+          const sentinel: Record<string, unknown> = { text: "." };
+          if (item.cache_control) sentinel.cache_control = item.cache_control;
+          filtered.push(sentinel);
+        }
         continue;
       }
       
-      // Not our signature (or no signature) - inject sentinel
-      const thinkingText = getThinkingText(item) || "";
+      // Not our signature (or no signature) - use plain empty text sentinel      // Thinking-format sentinels get converted by the proxy into Claude thinking blocks with missing required fields
       const existingSignature = item.signature || item.thoughtSignature;
       const signatureInfo = existingSignature ? `foreign signature (${String(existingSignature).length} chars)` : "no signature";
-      log.debug(`Injecting sentinel for last-message thinking block with ${signatureInfo}`);
-      const sentinelPart = {
-        type: item.type || "thinking",
-        thinking: thinkingText,
-        signature: SKIP_THOUGHT_SIGNATURE,
-      };
-      filtered.push(sentinelPart);
-      continue;
-    }
+      log.debug(`Injecting plain text sentinel for last-message thinking block with ${signatureInfo}`);
+      const sentinel: Record<string, unknown> = { text: "." };
+      if (item.cache_control) sentinel.cache_control = item.cache_control;
+      filtered.push(sentinel);
+      continue;    }
 
     if (isOurCachedSignature(item, sessionId, getCachedSignatureFn)) {
       const sanitized = sanitizeThinkingPart(item);
-      if (sanitized) filtered.push(sanitized);
+      if (sanitized) {
+        filtered.push(sanitized);
+      } else {
+        // sanitizeThinkingPart returned null — use sentinel to preserve array length
+        const sentinel: Record<string, unknown> = { text: "." };
+        if (item.cache_control) sentinel.cache_control = item.cache_control;
+        filtered.push(sentinel);
+      }
       continue;
     }
 
@@ -1214,15 +1232,27 @@ function filterContentArray(
             (restoredPart as any).signature = cachedSignature;
           }
           const sanitized = sanitizeThinkingPart(restoredPart as Record<string, unknown>);
-          if (sanitized) filtered.push(sanitized);
+          if (sanitized) {
+            filtered.push(sanitized);
+          } else {
+            // sanitizeThinkingPart returned null — use sentinel to preserve array length
+            const sentinel: Record<string, unknown> = { text: "." };
+            if (item.cache_control) sentinel.cache_control = item.cache_control;
+            filtered.push(sentinel);
+          }
           continue;
         }
       }
     }
+
+    // Catch-all: thinking/signature part that didn't match any branch above
+    // Use sentinel instead of silently dropping to preserve array length
+    const sentinel: Record<string, unknown> = { text: "." };
+    if (item.cache_control) sentinel.cache_control = item.cache_control;
+    filtered.push(sentinel);
   }
 
-  return filtered;
-}
+  return filtered;}
 
 /**
  * Filters thinking blocks from contents unless the signature matches our cache.
@@ -1400,49 +1430,35 @@ function transformGeminiCandidate(candidate: any): any {
 
     // Handle Gemini-style: thought: true
     if (part.thought === true) {
-      const thinkingText = part.text || "";
+      const thinkingText = typeof part.text === "string" ? part.text : "";
       thinkingTexts.push(thinkingText);
-      const transformed: Record<string, unknown> = { ...part, type: "reasoning" };
-      if (part.cache_control) transformed.cache_control = part.cache_control;
-
-      // Convert signature to providerMetadata format for OpenCode
+      // Clean object — NO spread to prevent thinking: <object> leaking into output
+      const transformed: Record<string, unknown> = {
+        type: "reasoning",
+        text: thinkingText,
+        thought: true,
+      };
       const sig = part.signature || part.thoughtSignature;
-      if (sig) {
-        transformed.providerMetadata = {
-          anthropic: { signature: sig }
-        };
-        delete (transformed as any).signature;
-        delete (transformed as any).thoughtSignature;
-      }
-
+      if (typeof sig === "string" && sig) transformed.signature = sig;
+      if (part.cache_control) transformed.cache_control = part.cache_control;
       return transformed;
     }
 
     // Handle Anthropic-style in candidates: type: "thinking"
     if (part.type === "thinking") {
-      const thinkingText = part.thinking || part.text || "";
+      const thinkingText = typeof part.thinking === "string" ? part.thinking : typeof part.text === "string" ? part.text : "";
       thinkingTexts.push(thinkingText);
+      // Clean object — NO spread to prevent thinking: <object> leaking into output
       const transformed: Record<string, unknown> = {
-        ...part,
         type: "reasoning",
         text: thinkingText,
         thought: true,
       };
-      if (part.cache_control) transformed.cache_control = part.cache_control;
-
-      // Convert signature to providerMetadata format for OpenCode
       const sig = part.signature || part.thoughtSignature;
-      if (sig) {
-        transformed.providerMetadata = {
-          anthropic: { signature: sig }
-        };
-        delete (transformed as any).signature;
-        delete (transformed as any).thoughtSignature;
-      }
-
+      if (typeof sig === "string" && sig) transformed.signature = sig;
+      if (part.cache_control) transformed.cache_control = part.cache_control;
       return transformed;
     }
-
     // Handle functionCall: parse JSON strings in args and ensure args is always defined
     // (Ported from LLM-API-Key-Proxy's _extract_tool_call)
     // Fix: When Claude calls a tool with no parameters, args may be undefined.
@@ -1500,27 +1516,19 @@ export function transformThinkingParts(response: unknown): unknown {
     const transformedContent: any[] = [];
     for (const block of resp.content) {
       if (block && typeof block === "object" && (block as any).type === "thinking") {
-        const thinkingText = (block as any).thinking || (block as any).text || "";
+        const thinkingText = typeof (block as any).thinking === "string" ? (block as any).thinking : typeof (block as any).text === "string" ? (block as any).text : "";
         reasoningTexts.push(thinkingText);
+        // Clean object — NO spread to prevent thinking: <object> leaking into output
         const transformed: Record<string, unknown> = {
-          ...block,
           type: "reasoning",
           text: thinkingText,
           thought: true,
         };
-
-        // Convert signature to providerMetadata format for OpenCode
         const sig = (block as any).signature || (block as any).thoughtSignature;
-        if (sig) {
-          transformed.providerMetadata = {
-            anthropic: { signature: sig }
-          };
-          delete (transformed as any).signature;
-          delete (transformed as any).thoughtSignature;
-        }
+        if (typeof sig === "string" && sig) transformed.signature = sig;
+        if ((block as any).cache_control) transformed.cache_control = (block as any).cache_control;
 
-        transformedContent.push(transformed);
-      } else {
+        transformedContent.push(transformed);      } else {
         transformedContent.push(block);
       }
     }

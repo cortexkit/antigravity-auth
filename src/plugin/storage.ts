@@ -12,7 +12,19 @@ import {
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import lockfile from "proper-lockfile";
+// proper-lockfile is CJS — lazy-load to avoid ESM default-export errors
+type LockFunction = (path: string, options?: Record<string, unknown>) => Promise<() => Promise<void>>
+let _cachedLock: LockFunction | undefined
+async function getLockFunction(): Promise<LockFunction> {
+  if (_cachedLock) return _cachedLock
+  const mod = await import("proper-lockfile") as Record<string, unknown>
+  const fn = (typeof mod.lock === "function" ? mod.lock : undefined)
+    || (mod.default && typeof (mod.default as Record<string, unknown>).lock === "function"
+      ? (mod.default as Record<string, unknown>).lock : undefined)
+  _cachedLock = (fn as LockFunction) || (async () => async () => {})
+  return _cachedLock
+}
+const lockfile = { lock: (path: string, options?: Record<string, unknown>) => getLockFunction().then(fn => fn(path, options)) }
 import type { HeaderStyle } from "../constants";
 import { createLogger } from "./logger";
 

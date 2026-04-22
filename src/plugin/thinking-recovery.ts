@@ -184,7 +184,8 @@ export function analyzeConversationState(contents: any[]): ConversationState {
 
 /**
  * Strips all thinking blocks from messages.
- * Used before injecting synthetic messages to avoid invalid thinking patterns.
+ * Uses sentinel replacement (.map) instead of deletion (.filter) to preserve
+ * array indices and prevent prompt cache invalidation.
  */
 function stripAllThinkingBlocks(contents: any[]): any[] {
   return contents.map((content) => {
@@ -192,32 +193,35 @@ function stripAllThinkingBlocks(contents: any[]): any[] {
 
     // Handle Gemini-style parts
     if (Array.isArray(content.parts)) {
-      const filteredParts = content.parts.filter(
-        (part: any) => !isThinkingPart(part),
-      );
-      // Keep at least one part to avoid empty messages
-      if (filteredParts.length === 0 && content.parts.length > 0) {
-        return content;
-      }
-      return { ...content, parts: filteredParts };
+      const mappedParts = content.parts.map((part: any) => {
+        if (!isThinkingPart(part)) return part;
+        // Replace with Gemini-format sentinel preserving cache_control
+        // Use plain empty text part — thinking-format sentinels get converted by the proxy
+        // into Claude thinking blocks missing the required `thinking` field.
+        const sentinel: Record<string, unknown> = { text: "." };
+        if (part.cache_control !== undefined) sentinel.cache_control = part.cache_control;
+        return sentinel;
+      });
+      return { ...content, parts: mappedParts };
     }
 
     // Handle Anthropic-style content
     if (Array.isArray(content.content)) {
-      const filteredContent = content.content.filter(
-        (block: any) =>
-          block?.type !== "thinking" && block?.type !== "redacted_thinking",
-      );
-      if (filteredContent.length === 0 && content.content.length > 0) {
-        return content;
-      }
-      return { ...content, content: filteredContent };
+      const mappedContent = content.content.map((block: any) => {
+        if (block?.type !== "thinking" && block?.type !== "redacted_thinking") return block;
+        // Replace with Anthropic-format sentinel preserving cache_control
+        // Use plain empty text part — thinking-format sentinels get converted by the proxy
+        // into Claude thinking blocks missing the required `thinking` field.
+        const sentinel: Record<string, unknown> = { text: "." };
+        if (block?.cache_control !== undefined) sentinel.cache_control = block.cache_control;
+        return sentinel;
+      });
+      return { ...content, content: mappedContent };
     }
 
     return content;
   });
 }
-
 /**
  * Counts tool results at the end of the conversation.
  */

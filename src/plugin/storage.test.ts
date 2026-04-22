@@ -15,11 +15,11 @@ import {
 } from "node:fs";
 
 vi.mock("proper-lockfile", () => ({
+  lock: vi.fn().mockResolvedValue(vi.fn().mockResolvedValue(undefined)),
   default: {
     lock: vi.fn().mockResolvedValue(vi.fn().mockResolvedValue(undefined)),
   },
 }));
-
 describe("deduplicateAccountsByEmail", () => {
   it("returns empty array for empty input", () => {
     const result = deduplicateAccountsByEmail([]);
