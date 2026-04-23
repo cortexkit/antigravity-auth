@@ -983,7 +983,9 @@ it("removes x-api-key header", () => {
         role: "model",
         parts: [{ text: "." }, { text: "kept" }],
       });
-      expect(wrapped.request.systemInstruction.parts).toEqual([{ text: "system kept" }]);    });
+      // systemInstruction parts: null replaced with sentinel, valid parts kept
+      expect(wrapped.request.systemInstruction.parts).toEqual([{ text: "." }, { text: "system kept" }]);
+    });
 
     it("drops systemInstruction when all parts are invalid", () => {
       const result = prepareAntigravityRequest(

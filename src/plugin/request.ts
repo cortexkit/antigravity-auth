@@ -476,14 +476,25 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
   if (systemInstruction && typeof systemInstruction === "object" && !Array.isArray(systemInstruction)) {
     const sys = systemInstruction as Record<string, unknown>;
     if (Array.isArray(sys.parts)) {
-      const sanitizedSystemParts = sys.parts.filter(isValidRequestPart);
-      if (sanitizedSystemParts.length > 0) {
+      // Use .map() with sentinels instead of .filter() to preserve array indices
+      // and prevent prompt cache invalidation from index shifts.
+      const sanitizedSystemParts = sys.parts.map((part: unknown) => {
+        if (isValidRequestPart(part)) return part;
+        const record = part as Record<string, unknown>;
+        const sentinel: Record<string, unknown> = { text: "." };
+        if (record?.cache_control !== undefined) sentinel.cache_control = record.cache_control;
+        return sentinel;
+      });
+      // Only delete systemInstruction if ALL parts were invalid (all sentinels, no real content)
+      const hasRealContent = sanitizedSystemParts.some((p: any) =>
+        p && typeof p === "object" && typeof p.text === "string" && p.text !== "."
+      );
+      if (hasRealContent) {
         sys.parts = sanitizedSystemParts;
       } else {
         delete anyPayload.systemInstruction;
       }
-    }
-  }
+    }  }
 }
 
 function isGeminiToolUsePart(part: any): boolean {

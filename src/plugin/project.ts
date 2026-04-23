@@ -10,9 +10,16 @@ import type { OAuthAuthDetails, ProjectContextResult } from "./types";
 
 const log = createLogger("project");
 
-const projectContextResultCache = new Map<string, ProjectContextResult>();
-const projectContextPendingCache = new Map<string, Promise<ProjectContextResult>>();
+/** TTL for project context cache entries (30 minutes). */
+const PROJECT_CONTEXT_CACHE_TTL_MS = 30 * 60 * 1000;
 
+interface CachedProjectContext {
+  result: ProjectContextResult;
+  cachedAt: number;
+}
+
+const projectContextResultCache = new Map<string, CachedProjectContext>();
+const projectContextPendingCache = new Map<string, Promise<ProjectContextResult>>();
 const CODE_ASSIST_METADATA = {
   ideType: "ANTIGRAVITY",
   platform: process.platform === "win32" ? "WINDOWS" : "MACOS",
@@ -231,10 +238,13 @@ export async function ensureProjectContext(auth: OAuthAuthDetails): Promise<Proj
   const cacheKey = getCacheKey(auth);
   if (cacheKey) {
     const cached = projectContextResultCache.get(cacheKey);
-    if (cached) {
-      return cached;
+    if (cached && (Date.now() - cached.cachedAt) < PROJECT_CONTEXT_CACHE_TTL_MS) {
+      return cached.result;
     }
-    const pending = projectContextPendingCache.get(cacheKey);
+    if (cached) {
+      // Expired — evict stale entry
+      projectContextResultCache.delete(cacheKey);
+    }    const pending = projectContextPendingCache.get(cacheKey);
     if (pending) {
       return pending;
     }
@@ -304,7 +314,7 @@ export async function ensureProjectContext(auth: OAuthAuthDetails): Promise<Proj
     .then((result) => {
       const nextKey = getCacheKey(result.auth) ?? cacheKey;
       projectContextPendingCache.delete(cacheKey);
-      projectContextResultCache.set(nextKey, result);
+      projectContextResultCache.set(nextKey, { result, cachedAt: Date.now() });
       if (nextKey !== cacheKey) {
         projectContextResultCache.delete(cacheKey);
       }
