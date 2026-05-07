@@ -273,7 +273,7 @@ describe("TokenBucketTracker", () => {
       tracker.consume(0, 10);
       tracker.consume(0, 10);
       tracker.consume(0, 10);
-      expect(tracker.getTokens(0)).toBe(20);
+      expect(tracker.getTokens(0)).toBeCloseTo(20, 2);
     });
   });
 

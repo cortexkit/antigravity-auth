@@ -177,14 +177,14 @@ function parseSearchResponse(data: AntigravitySearchResponse): SearchResult {
 
   // Extract grounding metadata
   if (candidate.groundingMetadata) {
-    const gm = candidate.groundingMetadata;
+    const groundingMeta = candidate.groundingMetadata;
 
-    if (gm.webSearchQueries) {
-      result.searchQueries = gm.webSearchQueries;
+    if (groundingMeta.webSearchQueries) {
+      result.searchQueries = groundingMeta.webSearchQueries;
     }
 
-    if (gm.groundingChunks) {
-      for (const chunk of gm.groundingChunks) {
+    if (groundingMeta.groundingChunks) {
+      for (const chunk of groundingMeta.groundingChunks) {
         if (chunk.web?.uri && chunk.web?.title) {
           result.sources.push({
             title: chunk.web.title,

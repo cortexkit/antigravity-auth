@@ -8,7 +8,7 @@ Create `~/.config/opencode/antigravity.json` (or `.opencode/antigravity.json` in
 }
 ```
 
-Most settings have sensible defaults. Only configure what you need.
+Most settings have sensible defaults — only configure what you need.
 
 ---
 
@@ -85,7 +85,7 @@ Settings for managing multiple Google accounts.
 
 ## App Behavior
 
-Settings for plugin behavior.
+Settings that control plugin behavior.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -109,7 +109,7 @@ Logs are written to `~/.config/opencode/antigravity-logs/` (or `log_dir` if set)
 
 ## Recommended Configs
 
-Copy-paste ready configs with all recommended settings enabled.
+Copy-paste ready configs with recommended settings pre-applied.
 
 ### 1 Account
 

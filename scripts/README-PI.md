@@ -15,7 +15,7 @@ Use your Raspberry Pi as a persistent, self-hosted runner for Opencode Triage. T
 5. Copy the **Token** shown in the "Configure" section (you'll need it in Step 2).
 
 ## Step 2: Run the Setup Script
-Copy the `scripts/` folder to your Pi (or just copy-paste the content).
+Copy the `scripts/` folder to your Pi, or copy-paste the script content directly.
 
 ```bash
 # On your Pi
@@ -26,7 +26,7 @@ chmod +x setup-pi-runner.sh
 ./setup-pi-runner.sh
 ```
 
-Follow the prompts to enter your Repo URL and Token.
+Follow the prompts to enter your repository URL and token.
 
 ## Step 3: Authenticate Tools
 To enable `gh copilot` and other AI tools, run the auth helper:

@@ -70,9 +70,16 @@ export interface FingerprintHeaders {
   "User-Agent": string;
 }
 
+const PLATFORM_CHOICES = ["darwin", "win32"] as const;
+type PlatformChoice = typeof PLATFORM_CHOICES[number];
+
 function randomFrom<T>(arr: readonly T[]): T {
   const index = crypto.getRandomValues(new Uint32Array(1))[0]! % arr.length;
   return arr[index]!;
+}
+
+function platformToDisplayName(platform: string): "WINDOWS" | "MACOS" {
+  return platform === "win32" ? "WINDOWS" : "MACOS";
 }
 function generateDeviceId(): string {
   return crypto.randomUUID();
@@ -87,14 +94,9 @@ function generateSessionToken(): string {
  * Each fingerprint represents a unique "device" identity.
  */
 export function generateFingerprint(): Fingerprint {
-  const platform = randomFrom(["darwin", "win32"] as const);
+  const platform = randomFrom(PLATFORM_CHOICES);
   const arch = randomFrom(ARCHITECTURES);
   const osVersion = randomFrom(OS_VERSIONS[platform] ?? OS_VERSIONS.darwin!);
-
-  const matchingPlatform =
-    platform === "win32"
-      ? "WINDOWS"
-      : "MACOS";
 
   return {
     deviceId: generateDeviceId(),
@@ -103,7 +105,7 @@ export function generateFingerprint(): Fingerprint {
     apiClient: randomFrom(SDK_CLIENTS),
     clientMetadata: {
       ideType: randomFrom(IDE_TYPES),
-      platform: matchingPlatform,
+      platform: platformToDisplayName(platform),
       pluginType: "GEMINI",
     },
     createdAt: Date.now(),
@@ -118,11 +120,6 @@ export function collectCurrentFingerprint(): Fingerprint {
   const platform = os.platform();
   const arch = os.arch();
 
-  const matchingPlatform =
-    platform === "win32"
-      ? "WINDOWS"
-      : "MACOS";
-
   return {
     deviceId: generateDeviceId(),
     sessionToken: generateSessionToken(),
@@ -130,7 +127,7 @@ export function collectCurrentFingerprint(): Fingerprint {
     apiClient: "google-cloud-sdk vscode_cloudshelleditor/0.1",
     clientMetadata: {
       ideType: "ANTIGRAVITY",
-      platform: matchingPlatform,
+      platform: platformToDisplayName(platform),
       pluginType: "GEMINI",
     },
     createdAt: Date.now(),

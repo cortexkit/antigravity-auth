@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Common issues and solutions for the Antigravity Auth plugin.
+Solutions to common issues with the Antigravity Auth plugin.
 
 > **Quick Reset**: Most issues can be resolved by deleting `~/.config/opencode/antigravity-accounts.json` and running `opencode auth login` again.
 
@@ -24,7 +24,7 @@ OpenCode uses `~/.config/opencode/` on **all platforms** including Windows.
 ## Quick Fixes
 
 ### Auth problems
-Delete the token file and re-login:
+Delete the accounts file and re-authenticate:
 ```bash
 rm ~/.config/opencode/antigravity-accounts.json
 opencode auth login
@@ -45,7 +45,7 @@ pkill -f opencode || true
 Stop-Process -Name "opencode" -Force -ErrorAction SilentlyContinue
 ```
 
-2) Clear the plugin caches and re-login:
+2) Clear the plugin caches and re-authenticate:
 
 **macOS/Linux:**
 ```bash
@@ -70,7 +70,7 @@ Add this to your `google` provider config:
 ```
 
 ### Session errors
-Type `continue` to trigger auto-recovery, or use `/undo` to rollback.
+Type `continue` to trigger auto-recovery, or use `/undo` to roll back.
 
 ### Configuration Key Typo
 

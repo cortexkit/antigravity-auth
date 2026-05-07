@@ -1,6 +1,6 @@
 # Multi-Account Setup
 
-Add multiple Google accounts to increase your combined quota. The plugin automatically rotates between accounts when one is rate-limited.
+Add multiple Google accounts to increase your combined quota and improve availability. The plugin automatically rotates between accounts when one is rate-limited.
 
 ```bash
 opencode auth login  # Run again to add more accounts
@@ -57,7 +57,7 @@ This shows remaining quota percentages and reset times for each model family:
 
 ### Standalone Quota Script
 
-For checking quotas outside OpenCode (debugging, CI, etc.):
+For checking quotas outside of OpenCode (for debugging, CI, etc.):
 
 ```bash
 node scripts/check-quota.mjs                    # Check all accounts
@@ -83,8 +83,8 @@ Or select an account from the list and choose "Enable/Disable account".
 - Still appear in quota checks (marked `[disabled]`)
 - Can be re-enabled at any time
 
-This is useful when:
-- An account is temporarily banned or rate-limited for extended periods
+Useful when:
+- An account is temporarily banned or rate-limited for an extended period
 - You want to reserve certain accounts for specific use cases
 - Testing with a subset of accounts
 
