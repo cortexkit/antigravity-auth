@@ -704,8 +704,55 @@ export async function loadAccounts(): Promise<AccountStorageV4 | null> {
   }
 }
 
-export async function saveAccounts(storage: AccountStorageV4): Promise<void> {
-  const path = getStoragePath();
+/**
+ * Atomically write content to a file using temp-file + rename.
+ * Retries the rename up to 3 times with exponential backoff to handle
+ * transient Windows EPERM errors (antivirus, file indexer, watchers).
+ * Falls back to copyFile + unlink if all rename attempts fail.
+ */
+async function atomicWriteFile(targetPath: string, content: string): Promise<void> {
+  const tempPath = `${targetPath}.${randomBytes(6).toString("hex")}.tmp`;
+  await fs.writeFile(tempPath, content, { encoding: "utf-8", mode: 0o600 });
+
+  const RETRY_DELAYS = [50, 100, 200];
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+    try {
+      await fs.rename(tempPath, targetPath);
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "EACCES") {
+        break; // Non-transient error, skip retries
+      }
+      if (attempt < RETRY_DELAYS.length) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]!));
+      }
+    }
+  }
+
+  // All rename attempts failed — fall back to copy + delete
+  try {
+    await fs.copyFile(tempPath, targetPath);
+    try {
+      await fs.unlink(tempPath);
+    } catch {
+      // Ignore temp cleanup errors
+    }
+  } catch {
+    // Copy also failed — clean up temp and throw original rename error
+    try {
+      await fs.unlink(tempPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw lastError;
+  }
+}
+
+export async function saveAccounts(storage: AccountStorageV4): Promise<void> {  const path = getStoragePath();
   const configDir = dirname(path);
   await fs.mkdir(configDir, { recursive: true });
   await ensureGitignore(configDir);
@@ -713,25 +760,10 @@ export async function saveAccounts(storage: AccountStorageV4): Promise<void> {
   await withFileLock(path, async () => {
     const existing = await loadAccountsUnsafe();
     const merged = existing ? mergeAccountStorage(existing, storage) : storage;
-
-    const tempPath = `${path}.${randomBytes(6).toString("hex")}.tmp`;
     const content = JSON.stringify(merged, null, 2);
-
-    try {
-      await fs.writeFile(tempPath, content, { encoding: "utf-8", mode: 0o600 });
-      await fs.rename(tempPath, path);
-    } catch (error) {
-      // Clean up temp file on failure to prevent accumulation
-      try {
-        await fs.unlink(tempPath);
-      } catch {
-        // Ignore cleanup errors (file may not exist)
-      }
-      throw error;
-    }
+    await atomicWriteFile(path, content);
   });
 }
-
 /**
  * Save accounts storage by replacing the entire file (no merge).
  * Use this for destructive operations like delete where we need to
@@ -744,23 +776,10 @@ export async function saveAccountsReplace(storage: AccountStorageV4): Promise<vo
   await ensureGitignore(configDir);
 
   await withFileLock(path, async () => {
-    const tempPath = `${path}.${randomBytes(6).toString("hex")}.tmp`;
     const content = JSON.stringify(storage, null, 2);
-
-    try {
-      await fs.writeFile(tempPath, content, { encoding: "utf-8", mode: 0o600 });
-      await fs.rename(tempPath, path);
-    } catch (error) {
-      try {
-        await fs.unlink(tempPath);
-      } catch {
-        // Ignore cleanup errors
-      }
-      throw error;
-    }
+    await atomicWriteFile(path, content);
   });
 }
-
 async function loadAccountsUnsafe(): Promise<AccountStorageV4 | null> {
   try {
     const path = getStoragePath();
