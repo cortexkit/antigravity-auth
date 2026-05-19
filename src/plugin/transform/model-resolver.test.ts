@@ -146,13 +146,12 @@ describe("resolveModelWithTier", () => {
       expect(result.explicitQuota).toBe(true);
     });
 
-    it("gemini-claude-sonnet-4-6 alias resolves to claude-sonnet-4-6", () => {
+    it("gemini-claude-sonnet-4-6 alias resolves to claude-sonnet-4-6-thinking", () => {
       const result = resolveModelWithTier("gemini-claude-sonnet-4-6");
-      expect(result.actualModel).toBe("claude-sonnet-4-6");
-      expect(result.isThinkingModel).toBe(false);
+      expect(result.actualModel).toBe("claude-sonnet-4-6-thinking");
+      expect(result.isThinkingModel).toBe(true);
       expect(result.quotaPreference).toBe("antigravity");
-    });
-  });
+    });  });
 
   describe("Image models", () => {
     it("marks antigravity-gemini-3-pro-image as explicit quota", () => {

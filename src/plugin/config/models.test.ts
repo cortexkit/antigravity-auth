@@ -16,18 +16,19 @@ describe("OPENCODE_MODEL_DEFINITIONS", () => {
 
     expect(modelNames).toEqual([
       "antigravity-claude-opus-4-6-thinking",
-      "antigravity-claude-sonnet-4-6",
+      "antigravity-claude-sonnet-4-6-thinking",
       "antigravity-gemini-3-flash",
       "antigravity-gemini-3-pro",
       "antigravity-gemini-3.1-pro",
+      "antigravity-gemini-3.5-flash",
+      "antigravity-gpt-oss-120b",
       "gemini-2.5-flash",
       "gemini-2.5-pro",
       "gemini-3-flash-preview",
       "gemini-3-pro-preview",
       "gemini-3.1-pro-preview",
       "gemini-3.1-pro-preview-customtools",
-    ]);
-  });
+    ]);  });
 
   it("defines Gemini 3 variants for Antigravity models", () => {
     expect(getModel("antigravity-gemini-3-pro").variants).toEqual({

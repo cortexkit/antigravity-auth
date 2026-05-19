@@ -48,12 +48,19 @@ export const MODEL_ALIASES: Record<string, string> = {
   "gemini-3-flash-medium": "gemini-3-flash",
   "gemini-3-flash-high": "gemini-3-flash",
 
+  // Gemini 3.5 Flash variants
+  "gemini-3.5-flash-low": "gemini-3.5-flash",
+  "gemini-3.5-flash-medium": "gemini-3.5-flash",
+  "gemini-3.5-flash-high": "gemini-3.5-flash",
+
   // Claude proxy names (gemini- prefix for compatibility)
   "gemini-claude-opus-4-6-thinking-low": "claude-opus-4-6-thinking",
   "gemini-claude-opus-4-6-thinking-medium": "claude-opus-4-6-thinking",
   "gemini-claude-opus-4-6-thinking-high": "claude-opus-4-6-thinking",
-  "gemini-claude-sonnet-4-6": "claude-sonnet-4-6",
-
+  "gemini-claude-sonnet-4-6-thinking-low": "claude-sonnet-4-6-thinking",
+  "gemini-claude-sonnet-4-6-thinking-medium": "claude-sonnet-4-6-thinking",
+  "gemini-claude-sonnet-4-6-thinking-high": "claude-sonnet-4-6-thinking",
+  "gemini-claude-sonnet-4-6": "claude-sonnet-4-6-thinking",
   // Image generation models - only gemini-3-pro-image is available via Antigravity API
   // Note: gemini-2.5-flash-image (Nano Banana) is NOT supported by Antigravity - only Google AI API
   // Reference: Antigravity-Manager/src-tauri/src/proxy/common/model_mapping.rs

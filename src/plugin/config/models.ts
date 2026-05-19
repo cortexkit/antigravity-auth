@@ -100,11 +100,26 @@ export const OPENCODE_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
       high: { thinkingLevel: "high" },
     },
   }),
-  "antigravity-claude-sonnet-4-6": defineModel("antigravity-claude-sonnet-4-6", {
-    name: "Claude Sonnet 4.6 (Antigravity)",
-    reasoning: false,
+  "antigravity-gemini-3.5-flash": defineModel("antigravity-gemini-3.5-flash", {
+    name: "Gemini 3.5 Flash (Antigravity)",
+    reasoning: true,
+    limit: { context: 1048576, output: 65536 },
+    modalities: DEFAULT_MODALITIES,
+    variants: {
+      minimal: { thinkingLevel: "minimal" },
+      low: { thinkingLevel: "low" },
+      medium: { thinkingLevel: "medium" },
+      high: { thinkingLevel: "high" },
+    },
+  }),  "antigravity-claude-sonnet-4-6-thinking": defineModel("antigravity-claude-sonnet-4-6-thinking", {
+    name: "Claude Sonnet 4.6 Thinking (Antigravity)",
+    reasoning: true,
     limit: { context: 200000, output: 64000 },
     modalities: DEFAULT_MODALITIES,
+    variants: {
+      low: { thinkingConfig: { thinkingBudget: 8192 } },
+      max: { thinkingConfig: { thinkingBudget: 32768 } },
+    },
   }),
   "antigravity-claude-opus-4-6-thinking": defineModel("antigravity-claude-opus-4-6-thinking", {
     name: "Claude Opus 4.6 Thinking (Antigravity)",
@@ -114,6 +129,15 @@ export const OPENCODE_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
     variants: {
       low: { thinkingConfig: { thinkingBudget: 8192 } },
       max: { thinkingConfig: { thinkingBudget: 32768 } },
+    },
+  }),
+  "antigravity-gpt-oss-120b": defineModel("antigravity-gpt-oss-120b", {
+    name: "GPT-OSS 120B (Antigravity)",
+    reasoning: false,
+    limit: { context: 128000, output: 16384 },
+    modalities: DEFAULT_MODALITIES,
+    variants: {
+      medium: {},
     },
   }),
   "gemini-2.5-flash": defineModel("gemini-2.5-flash", {
