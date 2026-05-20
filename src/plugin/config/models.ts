@@ -84,9 +84,7 @@ export const OPENCODE_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
     limit: { context: 1048576, output: 65536 },
     modalities: DEFAULT_MODALITIES,
     variants: {
-      minimal: { thinkingLevel: "minimal" },
       low: { thinkingLevel: "low" },
-      medium: { thinkingLevel: "medium" },
       high: { thinkingLevel: "high" },
     },
   }),  "antigravity-claude-sonnet-4-6-thinking": defineModel("antigravity-claude-sonnet-4-6-thinking", {
@@ -155,12 +153,6 @@ export const OPENCODE_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
     name: "Gemini 3.1 Pro Preview (Gemini CLI)",
     reasoning: true,
     limit: { context: 1048576, output: 65535 },
-    modalities: DEFAULT_MODALITIES,
-  }),
-  "gemini-3.5-flash": defineModel("gemini-3.5-flash", {
-    name: "Gemini 3.5 Flash (Gemini CLI)",
-    reasoning: true,
-    limit: { context: 1048576, output: 65536 },
     modalities: DEFAULT_MODALITIES,
   }),
   "gemini-3.1-flash-image-preview": defineModel("gemini-3.1-flash-image-preview", {

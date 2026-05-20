@@ -1036,7 +1036,17 @@ export function prepareAntigravityRequest(
 
         if (variantConfig?.thinkingLevel && isGemini3) {
           // Gemini 3 native format - use thinkingLevel directly
-          tierThinkingLevel = variantConfig.thinkingLevel;
+          const variantModelBase = rawModel
+            .replace(/-preview-customtools$/i, "")
+            .replace(/-preview$/i, "")
+            .replace(/-(minimal|low|medium|high)$/i, "");
+          const variantResolved = resolveModelForHeaderStyle(
+            `${variantModelBase}-${variantConfig.thinkingLevel}`,
+            headerStyle,
+          );
+
+          effectiveModel = variantResolved.actualModel;
+          tierThinkingLevel = variantResolved.thinkingLevel ?? variantConfig.thinkingLevel;
           tierThinkingBudget = undefined;
         } else if (variantConfig?.thinkingBudget) {
           if (isGemini3) {

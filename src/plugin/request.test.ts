@@ -1174,6 +1174,42 @@ it("removes x-api-key header", () => {
         expect(result.effectiveModel).toBe("gemini-3.1-pro-low");
       });
 
+      it("maps Gemini 3.5 Flash to the live Antigravity high-tier model", () => {
+        const result = prepareAntigravityRequest(
+          "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:generateContent",
+          { method: "POST", body: JSON.stringify({ contents: [] }) },
+          mockAccessToken,
+          mockProjectId,
+          undefined,
+          "antigravity"
+        );
+        const wrapped = JSON.parse(result.init.body as string);
+        expect(result.effectiveModel).toBe("gemini-3-flash-agent");
+        expect(wrapped.model).toBe("gemini-3-flash-agent");
+      });
+
+      it("maps Gemini 3.5 Flash medium variant to the live Antigravity medium-tier model", () => {
+        const result = prepareAntigravityRequest(
+          "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:generateContent",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              contents: [],
+              generationConfig: {},
+              providerOptions: { google: { thinkingLevel: "medium" } },
+            }),
+          },
+          mockAccessToken,
+          mockProjectId,
+          undefined,
+          "antigravity"
+        );
+        const wrapped = JSON.parse(result.init.body as string);
+        expect(result.effectiveModel).toBe("gemini-3.5-flash-low");
+        expect(wrapped.model).toBe("gemini-3.5-flash-low");
+        expect(wrapped.request.generationConfig.thinkingConfig.thinkingLevel).toBe("medium");
+      });
+
       it("transforms gemini-3-flash to gemini-3-flash-preview for gemini-cli headerStyle", () => {
         const result = prepareAntigravityRequest(
           "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent",
@@ -1220,6 +1256,20 @@ it("removes x-api-key header", () => {
           "gemini-cli"
         );
         expect(result.effectiveModel).toBe("gemini-3.1-pro-preview-customtools");
+      });
+
+      it("maps Gemini 3.5 Flash to the live Gemini CLI preview model", () => {
+        const result = prepareAntigravityRequest(
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+          { method: "POST", body: JSON.stringify({ contents: [] }) },
+          mockAccessToken,
+          mockProjectId,
+          undefined,
+          "gemini-cli"
+        );
+        const wrapped = JSON.parse(result.init.body as string);
+        expect(result.effectiveModel).toBe("gemini-3-flash-preview");
+        expect(wrapped.model).toBe("gemini-3-flash-preview");
       });
 
       it("keeps non-Gemini-3 models unchanged regardless of headerStyle", () => {

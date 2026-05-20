@@ -144,6 +144,14 @@ function isGemini3FlashModel(model: string): boolean {
   return GEMINI_3_FLASH_REGEX.test(model);
 }
 
+function isGemini35FlashModel(model: string): boolean {
+  return /^gemini-3\.5-flash/i.test(model);
+}
+
+function resolveGemini35FlashAntigravityModel(tier?: ThinkingTier): string {
+  return tier === "low" || tier === "medium" ? "gemini-3.5-flash-low" : "gemini-3-flash-agent";
+}
+
 /**
  * Resolves a model name with optional tier suffix and quota prefix to its actual API model name
  * and corresponding thinking configuration.
@@ -183,13 +191,24 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
   const isGemini3 = modelWithoutQuota.toLowerCase().startsWith("gemini-3");
   const skipAlias = isAntigravity && isGemini3;
 
-  // For Antigravity Gemini 3 models without explicit tier, append default tier
-  // Antigravity API requires tier suffixes for both Pro and Flash:
-  //   gemini-3.1-pro-{low,high}
-  //   gemini-3.5-flash-{medium,high}
-  // Pro defaults to -low, Flash defaults to -medium
+  // For older Antigravity Gemini 3 models without explicit tier, append the
+  // tier to the model id. Gemini 3.5 Flash is different: live Antigravity
+  // exposes high as `gemini-3-flash-agent` and medium/low as
+  // `gemini-3.5-flash-low`.
   const isGemini3Pro = isGemini3ProModel(modelWithoutQuota);
   const isGemini3Flash = isGemini3FlashModel(modelWithoutQuota);
+  const isGemini35Flash = /^gemini-3\.5-flash/i.test(baseName);
+
+  if (isGemini35Flash && quotaPreference === "antigravity") {
+    return {
+      actualModel: resolveGemini35FlashAntigravityModel(tier),
+      thinkingLevel: tier ?? "high",
+      tier,
+      isThinkingModel: true,
+      quotaPreference,
+      explicitQuota,
+    };
+  }
   
   let antigravityModel = modelWithoutQuota;
   if (skipAlias) {
@@ -228,7 +247,7 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
     if (isEffectiveGemini3) {
       return {
         actualModel: resolvedModel,
-        thinkingLevel: "low",
+        thinkingLevel: isGemini35Flash ? "medium" : "low",
         isThinkingModel: true,
         quotaPreference,
         explicitQuota,
@@ -334,11 +353,12 @@ export function resolveModelForHeaderStyle(
     
     const isGemini3Pro = isGemini3ProModel(transformedModel);
     const isGemini3Flash = isGemini3FlashModel(transformedModel);
-    const hasTierSuffix = /-(low|medium|high)$/i.test(transformedModel);
+    const hasTierSuffix = /-(minimal|low|medium|high)$/i.test(transformedModel);
     const isImageModel = IMAGE_GENERATION_MODELS.test(transformedModel);
+    const isGemini35Flash = isGemini35FlashModel(transformedModel.replace(TIER_REGEX, ""));
     
     // Don't add tier suffix to image models - they don't support thinking
-    if ((isGemini3Pro || isGemini3Flash) && !hasTierSuffix && !isImageModel) {
+    if ((isGemini3Pro || isGemini3Flash) && !isGemini35Flash && !hasTierSuffix && !isImageModel) {
       const defaultTier = isGemini3Pro ? "low" : "medium";
       transformedModel = `${transformedModel}-${defaultTier}`;
     }    
@@ -347,19 +367,27 @@ export function resolveModelForHeaderStyle(
   }
   
   if (headerStyle === "gemini-cli") {
+    const requestedTier = extractThinkingTierFromModel(requestedModel.replace(/^antigravity-/i, ""));
     let transformedModel = requestedModel
       .replace(/^antigravity-/i, "")
-      .replace(/-(low|medium|high)$/i, "");
+      .replace(/-(minimal|low|medium|high)$/i, "");
 
     const hasPreviewSuffix = /-preview($|-)/i.test(transformedModel);
-    // Gemini 3.5 Flash shipped as stable — no -preview suffix needed
-    // Other Gemini 3.x models still use -preview (e.g., gemini-3-pro-preview, gemini-3.1-pro-preview)
-    const isGemini35Flash = /^gemini-3\.5-flash/i.test(transformedModel);
-    if (!hasPreviewSuffix && !isGemini35Flash) {
+    // Gemini Code Assist still exposes Gemini 3.5 Flash through the
+    // gemini-3-flash-preview bucket; retrieveUserQuota does not list a
+    // gemini-3.5-flash bucket for the gemini-cli header path.
+    const isGemini35Flash = isGemini35FlashModel(transformedModel);
+    if (isGemini35Flash) {
+      transformedModel = "gemini-3-flash-preview";
+    } else if (!hasPreviewSuffix) {
       transformedModel = `${transformedModel}-preview`;
-    }    
+    }
+
+    const resolved = resolveModelWithTier(transformedModel);
     return {
-      ...resolveModelWithTier(transformedModel),
+      ...resolved,
+      thinkingLevel: requestedTier ?? resolved.thinkingLevel,
+      tier: requestedTier ?? resolved.tier,
       quotaPreference: "gemini-cli",
     };
   }
@@ -396,11 +424,19 @@ export function resolveModelWithVariant(
 
   if (isGemini3) {
     const level = budgetToGemini3Level(budget);
+    const requestedBase = requestedModel
+      .replace(/^antigravity-/i, "")
+      .replace(TIER_REGEX, "");
+    const isGemini35FlashAlias = isGemini35FlashModel(requestedBase) ||
+      base.actualModel === "gemini-3-flash-agent" ||
+      base.actualModel === "gemini-3.5-flash-low";
     const isAntigravityGemini3WithTier = base.quotaPreference === "antigravity" &&
       (isGemini3ProModel(base.actualModel) || isGemini3FlashModel(base.actualModel));
 
     let actualModel = base.actualModel;
-    if (isAntigravityGemini3WithTier) {
+    if (isGemini35FlashAlias) {
+      actualModel = resolveGemini35FlashAntigravityModel(level);
+    } else if (isAntigravityGemini3WithTier) {
       const baseModel = base.actualModel.replace(/-(low|medium|high)$/, "");
       actualModel = `${baseModel}-${level}`;
     }

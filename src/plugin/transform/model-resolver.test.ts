@@ -42,6 +42,29 @@ describe("resolveModelWithTier", () => {
     });
   });
 
+  describe("Gemini 3.5 Flash Antigravity aliases", () => {
+    it("antigravity-gemini-3.5-flash uses the live high-tier Antigravity model", () => {
+      const result = resolveModelWithTier("antigravity-gemini-3.5-flash");
+      expect(result.actualModel).toBe("gemini-3-flash-agent");
+      expect(result.thinkingLevel).toBe("high");
+      expect(result.quotaPreference).toBe("antigravity");
+    });
+
+    it("antigravity-gemini-3.5-flash-high uses the live high-tier Antigravity model", () => {
+      const result = resolveModelWithTier("antigravity-gemini-3.5-flash-high");
+      expect(result.actualModel).toBe("gemini-3-flash-agent");
+      expect(result.thinkingLevel).toBe("high");
+      expect(result.quotaPreference).toBe("antigravity");
+    });
+
+    it("antigravity-gemini-3.5-flash-medium uses the live medium-tier Antigravity model", () => {
+      const result = resolveModelWithTier("antigravity-gemini-3.5-flash-medium");
+      expect(result.actualModel).toBe("gemini-3.5-flash-low");
+      expect(result.thinkingLevel).toBe("medium");
+      expect(result.quotaPreference).toBe("antigravity");
+    });
+  });
+
   describe("All Gemini models default to antigravity quota", () => {
     it("gemini-2.5-flash defaults to antigravity", () => {
       const result = resolveModelWithTier("gemini-2.5-flash");
@@ -279,6 +302,13 @@ describe("Issue #103: resolveModelForHeaderStyle", () => {
       expect(result.actualModel).toBe("gemini-3.1-pro-low");
       expect(result.quotaPreference).toBe("antigravity");
     });
+
+    it("maps gemini-3.5-flash to the live Antigravity high-tier model", () => {
+      const result = resolveModelForHeaderStyle("gemini-3.5-flash", "antigravity");
+      expect(result.actualModel).toBe("gemini-3-flash-agent");
+      expect(result.thinkingLevel).toBe("high");
+      expect(result.quotaPreference).toBe("antigravity");
+    });
   });
 
   describe("quota fallback from antigravity to gemini-cli", () => {
@@ -303,6 +333,13 @@ describe("Issue #103: resolveModelForHeaderStyle", () => {
     it("keeps gemini-3.1-pro-preview-customtools unchanged for gemini-cli", () => {
       const result = resolveModelForHeaderStyle("gemini-3.1-pro-preview-customtools", "gemini-cli");
       expect(result.actualModel).toBe("gemini-3.1-pro-preview-customtools");
+      expect(result.quotaPreference).toBe("gemini-cli");
+    });
+
+    it("maps gemini-3.5-flash aliases to the live Gemini CLI preview model", () => {
+      const result = resolveModelForHeaderStyle("antigravity-gemini-3.5-flash-medium", "gemini-cli");
+      expect(result.actualModel).toBe("gemini-3-flash-preview");
+      expect(result.thinkingLevel).toBe("medium");
       expect(result.quotaPreference).toBe("gemini-cli");
     });
   });
