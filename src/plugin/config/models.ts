@@ -164,6 +164,15 @@ export const OPENCODE_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
       output: ["text", "image"],
     },
   }),
+  "gemini-3-pro-image-preview": defineModel("gemini-3-pro-image-preview", {
+    name: "Gemini 3 Pro Image Preview (Gemini CLI)",
+    reasoning: false,
+    limit: { context: 66000, output: 33000 },
+    modalities: {
+      input: ["text", "image"],
+      output: ["text", "image"],
+    },
+  }),
   "gemini-3.1-pro-preview-customtools": defineModel("gemini-3.1-pro-preview-customtools", {
     name: "Gemini 3.1 Pro Preview Custom Tools (Gemini CLI)",
     reasoning: true,
