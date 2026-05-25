@@ -2,8 +2,8 @@ import {
   ANTIGRAVITY_ENDPOINT_PROD,
   getAntigravityHeaders,
   ANTIGRAVITY_PROVIDER_ID,
-} from "../constants";
-import { accessTokenExpired, formatRefreshParts, parseRefreshParts } from "./auth";
+  buildGeminiCliUserAgent,
+} from "../constants";import { accessTokenExpired, formatRefreshParts, parseRefreshParts } from "./auth";
 import { logQuotaFetch, logQuotaStatus } from "./debug";
 import { ensureProjectContext } from "./project";
 import { getQuotaGroupForModel } from "./model-registry";
@@ -226,10 +226,7 @@ async function fetchGeminiCliQuota(
 ): Promise<RetrieveUserQuotaResponse> {
   const endpoint = ANTIGRAVITY_ENDPOINT_PROD;
   // Use Gemini CLI user-agent to get CLI quota buckets (not Antigravity buckets)
-  const platform = process.platform || "darwin";
-  const arch = process.arch || "arm64";
-  const geminiCliUserAgent = `GeminiCLI/1.0.0/gemini-2.5-pro (${platform}; ${arch})`;
-
+  const geminiCliUserAgent = buildGeminiCliUserAgent();
   const body = projectId ? { project: projectId } : {};
   
   try {

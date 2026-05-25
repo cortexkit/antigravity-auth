@@ -2,14 +2,12 @@ import crypto from "node:crypto";
 import {
   ANTIGRAVITY_ENDPOINT,
   GEMINI_CLI_ENDPOINT,
-  GEMINI_CLI_HEADERS,
   EMPTY_SCHEMA_PLACEHOLDER_NAME,
   EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION,
   SKIP_THOUGHT_SIGNATURE,
   getRandomizedHeaders,
   type HeaderStyle,
-} from "../constants";
-import { cacheSignature, getCachedSignature } from "./cache";
+} from "../constants";import { cacheSignature, getCachedSignature } from "./cache";
 import { getKeepThinking } from "./config";
 import {
   createStreamingTransformer,
@@ -1616,12 +1614,12 @@ export function prepareAntigravityRequest(
 
     headers.set("User-Agent", fingerprintHeaders["User-Agent"] || selectedHeaders["User-Agent"]);
   } else {
-    // Gemini CLI mode: match opencode-gemini-auth Code Assist header set exactly
-    headers.set("User-Agent", GEMINI_CLI_HEADERS["User-Agent"]);
-    headers.set("X-Goog-Api-Client", GEMINI_CLI_HEADERS["X-Goog-Api-Client"]);
-    headers.set("Client-Metadata", GEMINI_CLI_HEADERS["Client-Metadata"]);
-  }
-  return {
+    // Gemini CLI mode: match official google-gemini/gemini-cli User-Agent format
+    const geminiCliHeaders = getRandomizedHeaders("gemini-cli", requestedModel);
+    headers.set("User-Agent", geminiCliHeaders["User-Agent"]);
+    if (geminiCliHeaders["X-Goog-Api-Client"]) headers.set("X-Goog-Api-Client", geminiCliHeaders["X-Goog-Api-Client"]);
+    if (geminiCliHeaders["Client-Metadata"]) headers.set("Client-Metadata", geminiCliHeaders["Client-Metadata"]);
+  }  return {
     request: transformedUrl,
     init: {
       ...baseInit,

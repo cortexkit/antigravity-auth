@@ -3,12 +3,15 @@ import { stdin as input, stdout as output } from "node:process";
 import {
   showAuthMenu,
   showAccountDetails,
+  showFingerprintHistory,
   isTTY,
   type AccountInfo,
   type AccountStatus,
+  type FingerprintHistoryEntry,
 } from "./ui/auth-menu";
 import { updateOpencodeConfig } from "./config/updater";
-
+import type { CooldownReason } from "./accounts.ts";
+import type { QuotaGroupSummary } from "./quota.ts";
 export async function promptProjectId(): Promise<string> {
   const rl = createInterface({ input, output });
   try {
@@ -30,7 +33,7 @@ export async function promptAddAnotherAccount(currentCount: number): Promise<boo
   }
 }
 
-export type LoginMode = "add" | "fresh" | "manage" | "check" | "doctor" | "verify" | "verify-all" | "cancel";
+export type LoginMode = "add" | "fresh" | "manage" | "check" | "doctor" | "repair" | "current" | "restore-fingerprint" | "verify" | "verify-all" | "cancel";
 
 export interface ExistingAccountInfo {
   email?: string;
@@ -41,6 +44,10 @@ export interface ExistingAccountInfo {
   isCurrentAccount?: boolean;
   enabled?: boolean;
   quotaSummary?: string;
+  cooldownMs?: number;
+  cooldownReason?: CooldownReason;
+  cachedQuota?: Partial<Record<string, QuotaGroupSummary>>;
+  fingerprintHistory?: FingerprintHistoryEntry[];
 }
 
 export interface LoginMenuResult {
@@ -49,10 +56,11 @@ export interface LoginMenuResult {
   refreshAccountIndex?: number;
   toggleAccountIndex?: number;
   verifyAccountIndex?: number;
+  restoreFingerprintAccountIndex?: number;
+  restoreFingerprintHistoryIndex?: number;
   verifyAll?: boolean;
   deleteAll?: boolean;
 }
-
 async function promptLoginModeFallback(existingAccounts: ExistingAccountInfo[]): Promise<LoginMenuResult> {
   const rl = createInterface({ input, output });
   try {
@@ -107,8 +115,11 @@ export async function promptLoginMode(existingAccounts: ExistingAccountInfo[]): 
     isCurrentAccount: acc.isCurrentAccount,
     enabled: acc.enabled,
     quotaSummary: acc.quotaSummary,
+    cooldownMs: acc.cooldownMs,
+    cooldownReason: acc.cooldownReason,
+    cachedQuota: acc.cachedQuota,
+    fingerprintHistory: acc.fingerprintHistory,
   }));
-
   console.log("");
 
   while (true) {
@@ -123,6 +134,12 @@ export async function promptLoginMode(existingAccounts: ExistingAccountInfo[]): 
 
       case "doctor":
         return { mode: "doctor" };
+
+      case "repair":
+        return { mode: "repair" };
+
+      case "current":
+        return { mode: "current" };
 
       case "verify":
         return { mode: "verify" };
@@ -144,9 +161,20 @@ export async function promptLoginMode(existingAccounts: ExistingAccountInfo[]): 
         if (accountAction === "verify") {
           return { mode: "verify", verifyAccountIndex: action.account.index };
         }
+        if (accountAction === "restore-fingerprint") {
+          const history = action.account.fingerprintHistory;
+          if (!history || history.length === 0) continue;
+          const accountLabel = action.account.email || `Account ${action.account.index + 1}`;
+          const historyIndex = await showFingerprintHistory(history, accountLabel);
+          if (historyIndex === null) continue;
+          return {
+            mode: "restore-fingerprint",
+            restoreFingerprintAccountIndex: action.account.index,
+            restoreFingerprintHistoryIndex: historyIndex,
+          };
+        }
         continue;
       }
-
       case "delete-all":
         return { mode: "fresh", deleteAll: true };
 

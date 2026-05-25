@@ -47,8 +47,8 @@ import { createAuthDoctorReport, formatAuthDoctorReport } from "./plugin/auth-do
 import { loadConfig, initRuntimeConfig, type AntigravityConfig } from "./plugin/config";
 import { createSessionRecoveryHook, getRecoverySuccessToast } from "./plugin/recovery";
 import { checkAccountsQuota } from "./plugin/quota";
-import { initDiskSignatureCache } from "./plugin/cache";
-import { createProactiveRefreshQueue, type ProactiveRefreshQueue } from "./plugin/refresh-queue";
+import { formatCachedQuotaWithStatus, classifyGroupStatus, formatQuotaStatusBadge } from "./plugin/ui/quota-status";
+import { initDiskSignatureCache } from "./plugin/cache";import { createProactiveRefreshQueue, type ProactiveRefreshQueue } from "./plugin/refresh-queue";
 import { initLogger, createLogger } from "./plugin/logger";
 import { initHealthTracker, getHealthTracker, initTokenTracker, getTokenTracker } from "./plugin/rotation";
 import { getAntigravityVersionResolution, initAntigravityVersion } from "./plugin/version";
@@ -881,26 +881,14 @@ function buildAuthSuccessFromStoredAccount(account: {
   };
 }
 
-function formatCachedQuotaSummary(account: { cachedQuota?: Record<string, { remainingFraction?: number }> }): string | undefined {
+function formatCachedQuotaSummary(account: { cachedQuota?: Record<string, { remainingFraction?: number, resetTime?: string }> }): string | undefined {
   const quota = account.cachedQuota;
   if (!quota) {
     return undefined;
   }
 
-  const entries = [
-    { key: "claude", label: "Claude" },
-    { key: "gemini-pro", label: "Gemini Pro" },
-    { key: "gemini-flash", label: "Gemini Flash" },
-  ].flatMap(({ key, label }) => {
-    const value = quota[key]?.remainingFraction;
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      return [];
-    }
-    const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
-    return [`${label} ${pct}%`];
-  });
-
-  return entries.length > 0 ? entries.join(", ") : undefined;
+  // Use the quota-status module for status-aware formatting
+  return formatCachedQuotaWithStatus(quota);
 }
 
 function retryAfterMsFromResponse(response: Response, defaultRetryMs: number = 60_000): number {
@@ -2694,10 +2682,11 @@ export const createAntigravityPlugin = (providerId: string) => async (
                         const connector = isLast ? "└─" : "├─";
                         const bar = createProgressBar(model.remainingFraction);
                         const reset = formatReset(model.resetTime);
+                        const status = classifyGroupStatus({ remainingFraction: model.remainingFraction, resetTime: model.resetTime, modelCount: 1 });
+                        const badge = formatQuotaStatusBadge(status);
                         const modelName = model.modelId.padEnd(29);
-                        console.log(`  │  ${connector} ${modelName} ${bar}${reset}`);
-                      });
-                    }
+                        console.log(`  │  ${connector} ${modelName} ${bar} ${badge}${reset}`);
+                      });                    }
 
                     // Display Antigravity Quota second
                     const hasAntigravity = res.quota && Object.keys(res.quota.groups).length > 0;
@@ -2719,10 +2708,11 @@ export const createAntigravityPlugin = (providerId: string) => async (
                         const connector = isLast ? "└─" : "├─";
                         const bar = createProgressBar(g.data!.remainingFraction);
                         const reset = formatReset(g.data!.resetTime);
+                        const status = classifyGroupStatus(g.data!);
+                        const badge = formatQuotaStatusBadge(status);
                         const modelName = g.name.padEnd(29);
-                        console.log(`     ${connector} ${modelName} ${bar}${reset}`);
-                      });
-                    }
+                        console.log(`     ${connector} ${modelName} ${bar} ${badge}${reset}`);
+                      });                    }
                     console.log("");
 
                     // Cache quota data for soft quota protection
