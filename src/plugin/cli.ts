@@ -30,7 +30,7 @@ export async function promptAddAnotherAccount(currentCount: number): Promise<boo
   }
 }
 
-export type LoginMode = "add" | "fresh" | "manage" | "check" | "verify" | "verify-all" | "cancel";
+export type LoginMode = "add" | "fresh" | "manage" | "check" | "doctor" | "verify" | "verify-all" | "cancel";
 
 export interface ExistingAccountInfo {
   email?: string;
@@ -40,6 +40,7 @@ export interface ExistingAccountInfo {
   status?: AccountStatus;
   isCurrentAccount?: boolean;
   enabled?: boolean;
+  quotaSummary?: string;
 }
 
 export interface LoginMenuResult {
@@ -63,7 +64,7 @@ async function promptLoginModeFallback(existingAccounts: ExistingAccountInfo[]):
     console.log("");
 
     while (true) {
-      const answer = await rl.question("(a)dd new, (f)resh start, (c)heck quotas, (v)erify account, (va) verify all? [a/f/c/v/va]: ");
+      const answer = await rl.question("(a)dd new, (f)resh start, (c)heck quotas, auth (d)octor, (v)erify account, (va) verify all? [a/f/c/d/v/va]: ");
       const normalized = answer.trim().toLowerCase();
 
       if (normalized === "a" || normalized === "add") {
@@ -75,6 +76,9 @@ async function promptLoginModeFallback(existingAccounts: ExistingAccountInfo[]):
       if (normalized === "c" || normalized === "check") {
         return { mode: "check" };
       }
+      if (normalized === "d" || normalized === "doctor" || normalized === "auth-doctor") {
+        return { mode: "doctor" };
+      }
       if (normalized === "v" || normalized === "verify") {
         return { mode: "verify" };
       }
@@ -82,7 +86,7 @@ async function promptLoginModeFallback(existingAccounts: ExistingAccountInfo[]):
         return { mode: "verify-all", verifyAll: true };
       }
 
-      console.log("Please enter 'a', 'f', 'c', 'v', or 'va'.");
+      console.log("Please enter 'a', 'f', 'c', 'd', 'v', or 'va'.");
     }
   } finally {
     rl.close();
@@ -102,6 +106,7 @@ export async function promptLoginMode(existingAccounts: ExistingAccountInfo[]): 
     status: acc.status,
     isCurrentAccount: acc.isCurrentAccount,
     enabled: acc.enabled,
+    quotaSummary: acc.quotaSummary,
   }));
 
   console.log("");
@@ -115,6 +120,9 @@ export async function promptLoginMode(existingAccounts: ExistingAccountInfo[]): 
 
       case "check":
         return { mode: "check" };
+
+      case "doctor":
+        return { mode: "doctor" };
 
       case "verify":
         return { mode: "verify" };

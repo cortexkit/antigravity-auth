@@ -42,6 +42,8 @@ import { startOAuthListener, type OAuthListener } from "./plugin/server";
 import { clearAccounts, loadAccounts, saveAccounts, saveAccountsReplace } from "./plugin/storage";
 import { AccountManager, type ModelFamily, parseRateLimitReason, calculateBackoffMs, computeSoftQuotaCacheTtlMs } from "./plugin/accounts";
 import { createAutoUpdateCheckerHook } from "./hooks/auto-update-checker";
+import { buildAuthFromStoredAccount, detectAuthStorageDrift } from "./plugin/auth-drift";
+import { createAuthDoctorReport, formatAuthDoctorReport } from "./plugin/auth-doctor";
 import { loadConfig, initRuntimeConfig, type AntigravityConfig } from "./plugin/config";
 import { createSessionRecoveryHook, getRecoverySuccessToast } from "./plugin/recovery";
 import { checkAccountsQuota } from "./plugin/quota";
@@ -49,7 +51,7 @@ import { initDiskSignatureCache } from "./plugin/cache";
 import { createProactiveRefreshQueue, type ProactiveRefreshQueue } from "./plugin/refresh-queue";
 import { initLogger, createLogger } from "./plugin/logger";
 import { initHealthTracker, getHealthTracker, initTokenTracker, getTokenTracker } from "./plugin/rotation";
-import { initAntigravityVersion } from "./plugin/version";
+import { getAntigravityVersionResolution, initAntigravityVersion } from "./plugin/version";
 import { executeSearch } from "./plugin/search";
 import type {
   GetAuth,
@@ -879,6 +881,28 @@ function buildAuthSuccessFromStoredAccount(account: {
   };
 }
 
+function formatCachedQuotaSummary(account: { cachedQuota?: Record<string, { remainingFraction?: number }> }): string | undefined {
+  const quota = account.cachedQuota;
+  if (!quota) {
+    return undefined;
+  }
+
+  const entries = [
+    { key: "claude", label: "Claude" },
+    { key: "gemini-pro", label: "Gemini Pro" },
+    { key: "gemini-flash", label: "Gemini Flash" },
+  ].flatMap(({ key, label }) => {
+    const value = quota[key]?.remainingFraction;
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return [];
+    }
+    const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+    return [`${label} ${pct}%`];
+  });
+
+  return entries.length > 0 ? entries.join(", ") : undefined;
+}
+
 function retryAfterMsFromResponse(response: Response, defaultRetryMs: number = 60_000): number {
   const retryAfterMsHeader = response.headers.get("retry-after-ms");
   if (retryAfterMsHeader) {
@@ -1391,9 +1415,40 @@ export const createAntigravityPlugin = (providerId: string) => async (
       // Cache getAuth for tool access
       cachedGetAuth = getAuth;
 
-      const auth = await getAuth();
+      let auth = await getAuth();
       
-      // If OpenCode has no valid OAuth auth, clear any stale account storage
+      // If OpenCode lost its OAuth auth but account storage is still usable,
+      // restore auth.json from the active stored account instead of deleting
+      // the account pool. This repairs Desktop/TUI auth drift without network I/O.
+      if (!isOAuthAuth(auth)) {
+        const storedAccounts = await loadAccounts();
+        const drift = detectAuthStorageDrift(auth, storedAccounts);
+        if (drift.status === "restorable" && drift.account) {
+          auth = buildAuthFromStoredAccount(drift.account);
+          try {
+            await client.auth.set({
+              path: { id: providerId },
+              body: {
+                type: "oauth",
+                refresh: auth.refresh,
+                access: auth.access ?? "",
+                expires: auth.expires ?? 0,
+              },
+            });
+            log.info("Restored Antigravity OAuth auth from account storage", {
+              reason: drift.reason,
+              email: drift.account.email,
+            });
+          } catch (storeError) {
+            log.warn("Failed to restore Antigravity OAuth auth from account storage", {
+              error: String(storeError),
+            });
+          }
+        }
+      }
+
+      // If OpenCode has no valid OAuth auth and no stored account can restore it,
+      // clear stale account storage and let OpenCode fall back to normal auth setup.
       if (!isOAuthAuth(auth)) {
         try {
           await clearAccounts();
@@ -2558,6 +2613,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     status,
                     isCurrentAccount: idx === (existingStorage.activeIndex ?? 0),
                     enabled: acc.enabled !== false,
+                    quotaSummary: formatCachedQuotaSummary(acc),
                   };
                 });
                 
@@ -2692,6 +2748,21 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     await saveAccounts(existingStorage);
                   }
                   console.log("");
+                  continue;
+                }
+
+                if (menuResult.mode === "doctor") {
+                  const auth = cachedGetAuth ? await cachedGetAuth().catch(() => undefined) : undefined;
+                  const versionResolution = getAntigravityVersionResolution();
+                  const report = createAuthDoctorReport({
+                    auth,
+                    storage: existingStorage,
+                    runtime: {
+                      antigravityVersion: versionResolution.version,
+                      antigravityVersionSource: versionResolution.source,
+                    },
+                  });
+                  console.log(`\n${formatAuthDoctorReport(report)}\n`);
                   continue;
                 }
 

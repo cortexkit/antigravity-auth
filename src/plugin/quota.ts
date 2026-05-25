@@ -6,6 +6,7 @@ import {
 import { accessTokenExpired, formatRefreshParts, parseRefreshParts } from "./auth";
 import { logQuotaFetch, logQuotaStatus } from "./debug";
 import { ensureProjectContext } from "./project";
+import { getQuotaGroupForModel } from "./model-registry";
 import { refreshAccessToken } from "./token";
 import { getModelFamily } from "./transform/model-resolver";
 import type { PluginClient, OAuthAuthDetails } from "./types";
@@ -107,7 +108,12 @@ function parseResetTime(resetTime?: string): number | null {
   return timestamp;
 }
 
-function classifyQuotaGroup(modelName: string, displayName?: string): QuotaGroup | null {
+export function classifyQuotaGroup(modelName: string, displayName?: string): QuotaGroup | null {
+  const registryGroup = getQuotaGroupForModel(modelName);
+  if (registryGroup) {
+    return registryGroup;
+  }
+
   const combined = `${modelName} ${displayName ?? ""}`.toLowerCase();
   if (combined.includes("claude")) {
     return "claude";

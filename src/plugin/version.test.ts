@@ -83,9 +83,23 @@ describe("initAntigravityVersion — network failure path", () => {
 
     const { getAntigravityVersion } = await import("../constants.ts")
     const { initAntigravityVersion } = await import("./version.ts")
-    await initAntigravityVersion()
+    const resolution = await initAntigravityVersion()
 
     expect(getAntigravityVersion()).toBe("1.19.0")
+    expect(resolution).toEqual({ version: "1.19.0", source: "api" })
+  })
+
+  it("exposes the last runtime version resolution for diagnostics", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("timeout")))
+
+    const { ANTIGRAVITY_VERSION_FALLBACK } = await import("../constants.ts")
+    const { getAntigravityVersionResolution, initAntigravityVersion } = await import("./version.ts")
+    await initAntigravityVersion()
+
+    expect(getAntigravityVersionResolution()).toEqual({
+      version: ANTIGRAVITY_VERSION_FALLBACK,
+      source: "fallback",
+    })
   })
 
   it("fallback version appears in User-Agent header", async () => {

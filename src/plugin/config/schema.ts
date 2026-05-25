@@ -146,9 +146,9 @@ export const AntigravityConfigSchema = z.object({
    * When false: Only shows toast notification, user must manually continue.
    * When true: Automatically sends "continue" to resume the session.
    * 
-   * @default false
+   * @default true
    */
-  auto_resume: z.boolean().default(false),
+  auto_resume: z.boolean().default(true),
   
   /**
    * Custom text to send when auto-resuming after recovery.

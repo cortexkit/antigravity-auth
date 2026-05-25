@@ -5,6 +5,11 @@
  * to their actual API model names and corresponding thinking configurations.
  */
 
+import {
+  getGemini35FlashAntigravityModel,
+  getGemini35FlashGeminiCliFallbackModel,
+  getResolverAliasMap,
+} from "../model-registry";
 import type { ResolvedModel, ThinkingTier, GoogleSearchConfig } from "./types";
 
 export interface ModelResolverOptions {
@@ -37,32 +42,7 @@ export const GEMINI_3_THINKING_LEVELS = ["minimal", "low", "medium", "high"] as 
  * - Claude thinking variants: claude-{model}-thinking-{low,medium,high}
  * - Claude non-thinking: claude-{model} (no -thinking suffix)
  */
-export const MODEL_ALIASES: Record<string, string> = {
-  // Gemini 3.x variants - for Gemini CLI only (tier stripped, thinkingLevel used)
-  // For Antigravity, these are bypassed and full model name is kept
-  "gemini-3.1-pro-low": "gemini-3.1-pro",  "gemini-3.1-pro-high": "gemini-3.1-pro",
-  "gemini-3-flash-low": "gemini-3-flash",
-  "gemini-3-flash-medium": "gemini-3-flash",
-  "gemini-3-flash-high": "gemini-3-flash",
-
-  // Gemini 3.5 Flash variants
-  "gemini-3.5-flash-low": "gemini-3.5-flash",
-  "gemini-3.5-flash-medium": "gemini-3.5-flash",
-  "gemini-3.5-flash-high": "gemini-3.5-flash",
-
-  // Claude proxy names (gemini- prefix for compatibility)
-  "gemini-claude-opus-4-6-thinking-low": "claude-opus-4-6-thinking",
-  "gemini-claude-opus-4-6-thinking-medium": "claude-opus-4-6-thinking",
-  "gemini-claude-opus-4-6-thinking-high": "claude-opus-4-6-thinking",
-  "gemini-claude-sonnet-4-6-thinking-low": "claude-sonnet-4-6-thinking",
-  "gemini-claude-sonnet-4-6-thinking-medium": "claude-sonnet-4-6-thinking",
-  "gemini-claude-sonnet-4-6-thinking-high": "claude-sonnet-4-6-thinking",
-  "gemini-claude-sonnet-4-6": "claude-sonnet-4-6-thinking",
-  // Image generation models
-  // gemini-3.1-flash-image (Nano Banana 2) - available via Antigravity API and Gemini CLI
-  // gemini-2.5-flash-image (Nano Banana) - NOT supported by Antigravity, only Google AI API
-  // Reference: Antigravity-Manager/src-tauri/src/proxy/common/model_mapping.rs
-};
+export const MODEL_ALIASES: Record<string, string> = getResolverAliasMap();
 const TIER_REGEX = /-(minimal|low|medium|high)$/;
 const QUOTA_PREFIX_REGEX = /^antigravity-/i;
 const GEMINI_3_PRO_REGEX = /^gemini-3(?:\.\d+)?-pro/i;
@@ -146,7 +126,7 @@ function isGemini35FlashModel(model: string): boolean {
 }
 
 function resolveGemini35FlashAntigravityModel(tier?: ThinkingTier): string {
-  return tier === "low" || tier === "medium" ? "gemini-3.5-flash-low" : "gemini-3-flash-agent";
+  return getGemini35FlashAntigravityModel(tier);
 }
 
 /**
@@ -371,7 +351,7 @@ export function resolveModelForHeaderStyle(
     // gemini-3.5-flash bucket for the gemini-cli header path.
     const isGemini35Flash = isGemini35FlashModel(transformedModel);
     if (isGemini35Flash) {
-      transformedModel = "gemini-3-flash-preview";
+      transformedModel = getGemini35FlashGeminiCliFallbackModel();
     } else if (!hasPreviewSuffix) {
       transformedModel = `${transformedModel}-preview`;
     }

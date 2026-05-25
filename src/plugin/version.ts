@@ -23,6 +23,13 @@ const VERSION_REGEX = /\d+\.\d+\.\d+/;
 
 type VersionSource = "api" | "changelog" | "fallback";
 
+export interface AntigravityVersionResolution {
+  version: string;
+  source: VersionSource;
+}
+
+let lastResolution: AntigravityVersionResolution | null = null;
+
 function parseVersion(text: string): string | null {
   const match = text.match(VERSION_REGEX);
   return match ? match[0] : null;
@@ -48,7 +55,11 @@ async function tryFetchVersion(url: string, maxChars?: number): Promise<string |
  * Fetch the latest Antigravity version and update the global constant.
  * Safe to call before logger is initialized (will silently skip logging).
  */
-export async function initAntigravityVersion(): Promise<void> {
+export function getAntigravityVersionResolution(): AntigravityVersionResolution {
+  return lastResolution ?? { version: getAntigravityVersion(), source: "fallback" };
+}
+
+export async function initAntigravityVersion(): Promise<AntigravityVersionResolution> {
   const log = createLogger("version");
   const fallback = getAntigravityVersion();
   let version: string | null;
@@ -68,7 +79,8 @@ export async function initAntigravityVersion(): Promise<void> {
       source = "fallback";
       setAntigravityVersion(fallback);
       log.info("version-fetch-failed", { fallback });
-      return;
+      lastResolution = { version: fallback, source };
+      return lastResolution;
     }
   }
 
@@ -78,4 +90,6 @@ export async function initAntigravityVersion(): Promise<void> {
     log.debug("version-unchanged", { version, source });
   }
   setAntigravityVersion(version);
+  lastResolution = { version, source };
+  return lastResolution;
 }

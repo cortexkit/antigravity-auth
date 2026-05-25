@@ -12,6 +12,7 @@ export interface AccountInfo {
   status?: AccountStatus;
   isCurrentAccount?: boolean;
   enabled?: boolean;
+  quotaSummary?: string;
 }
 
 export type AuthMenuAction =
@@ -19,6 +20,7 @@ export type AuthMenuAction =
   | { type: 'select-account'; account: AccountInfo }
   | { type: 'delete-all' }
   | { type: 'check' }
+  | { type: 'doctor' }
   | { type: 'verify' }
   | { type: 'verify-all' }
   | { type: 'configure-models' }
@@ -56,6 +58,7 @@ export async function showAuthMenu(accounts: AccountInfo[]): Promise<AuthMenuAct
     { label: 'Actions', value: { type: 'cancel' }, kind: 'heading' },
     { label: 'Add account', value: { type: 'add' }, color: 'cyan' },
     { label: 'Check quotas', value: { type: 'check' }, color: 'cyan' },
+    { label: 'Auth doctor', value: { type: 'doctor' }, color: 'cyan' },
     { label: 'Verify one account', value: { type: 'verify' }, color: 'cyan' },
     { label: 'Verify all accounts', value: { type: 'verify-all' }, color: 'cyan' },
     { label: 'Configure models in opencode.json', value: { type: 'configure-models' }, color: 'cyan' },
@@ -74,7 +77,7 @@ export async function showAuthMenu(accounts: AccountInfo[]): Promise<AuthMenuAct
 
       return {
         label: fullLabel,
-        hint: account.lastUsed ? `used ${formatRelativeTime(account.lastUsed)}` : '',
+        hint: account.quotaSummary ?? (account.lastUsed ? `used ${formatRelativeTime(account.lastUsed)}` : ''),
         value: { type: 'select-account' as const, account },
       };
     }),
