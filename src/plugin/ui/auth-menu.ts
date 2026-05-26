@@ -124,13 +124,13 @@ export async function showAuthMenu(accounts: AccountInfo[]): Promise<AuthMenuAct
         return 4 // expired, verification-required, unknown
       }
       return statusOrder(a) - statusOrder(b)
-    }).map(account => {
+    }).map((account, displayIndex) => {
+      const displayNum = displayIndex + 1;
       const statusBadge = getStatusBadge(account.status, account);
       const currentBadge = account.isCurrentAccount ? ` ${ANSI.cyan}[current]${ANSI.reset}` : '';
       const disabledBadge = account.enabled === false ? ` ${ANSI.red}[disabled]${ANSI.reset}` : '';
-      const baseLabel = account.email || `Account ${account.index + 1}`;
-      const numbered = `${account.index + 1}. ${baseLabel}`;
-      const fullLabel = `${numbered}${currentBadge}${statusBadge}${disabledBadge}`;
+      const baseLabel = account.email || `Account ${displayNum}`;
+      const numbered = `${displayNum}. ${baseLabel}`;      const fullLabel = `${numbered}${currentBadge}${statusBadge}${disabledBadge}`;
       return {
         label: fullLabel,
         hint: account.quotaSummary ?? (account.lastUsed ? `used ${formatRelativeTime(account.lastUsed)}` : ''),

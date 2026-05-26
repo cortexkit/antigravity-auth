@@ -256,7 +256,7 @@ describe("formatCachedQuotaWithStatus", () => {
     const result = formatCachedQuotaWithStatus({
       claude: { remainingFraction: 0.15 },
     })
-    expect(result).toBe("Claude LOW 15%")
+    expect(result).toBe("Claude low 15%")
   })
 
   it("formats EXHAUSTED groups without trailing 0%", () => {
@@ -275,7 +275,7 @@ describe("formatCachedQuotaWithStatus", () => {
       "gemini-flash": { remainingFraction: 0 },
     })
     // Not all exhausted, so per-model breakdown shown
-    expect(result).toBe("Claude 80%, Gemini Pro LOW 10%, Gemini Flash EXHAUSTED")
+    expect(result).toBe("Claude 80%, Gemini Pro low 10%, Gemini Flash exhausted")
   })
 
   it("hides groups at 100% READY", () => {

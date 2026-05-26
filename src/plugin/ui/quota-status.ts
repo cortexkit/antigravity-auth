@@ -248,9 +248,7 @@ export function formatCachedQuotaWithStatus(
   // When all groups are exhausted, don't list each model — the badge handles it
   const overall = classifyOverallQuotaHealth(cachedQuota)
   if (overall.health === "exhausted") {
-    return overall.maxResetMs
-      ? `resets in ${formatWaitDuration(overall.maxResetMs)}`
-      : undefined
+    return undefined
   }
 
   const entries = [
@@ -272,10 +270,11 @@ export function formatCachedQuotaWithStatus(
       return [`${label} ${pct}%`]
     }
     // Skip pct% for EXHAUSTED — the status label already conveys 0%
+    // Use lowercase labels in hints to match account badge style ([active], [exhausted])
     if (status.label === "EXHAUSTED") {
-      return [`${label} ${formatQuotaStatusPlain(status)}`]
+      return [`${label} ${formatQuotaStatusPlain(status).toLowerCase()}`]
     }
-    return [`${label} ${formatQuotaStatusPlain(status)} ${pct}%`]
+    return [`${label} ${formatQuotaStatusPlain(status).toLowerCase()} ${pct}%`]
   })
 
   return entries.length > 0 ? entries.join(", ") : undefined
