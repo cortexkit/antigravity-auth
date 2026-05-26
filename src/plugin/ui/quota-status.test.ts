@@ -178,7 +178,7 @@ describe("formatQuotaStatusBadge", () => {
 
   it("formats EXHAUSTED badge without reset time", () => {
     const badge = formatQuotaStatusBadge({ label: "EXHAUSTED" })
-    expect(badge).toContain("[EXHAUSTED]")
+    expect(badge).toContain("[EXHAUSTED resets in ?h]")
   })
 
   it("formats COOLDOWN badge with reason and wait", () => {
@@ -258,11 +258,11 @@ describe("formatCachedQuotaWithStatus", () => {
     expect(result).toBe("Claude LOW 15%")
   })
 
-  it("formats EXHAUSTED groups", () => {
+  it("formats EXHAUSTED groups without trailing 0%", () => {
     const result = formatCachedQuotaWithStatus({
       "gemini-flash": { remainingFraction: 0 },
     })
-    expect(result).toBe("Gemini Flash EXHAUSTED 0%")
+    expect(result).toBe("Gemini Flash EXHAUSTED resets in ?h")
   })
 
   it("formats multiple groups", () => {
@@ -271,7 +271,25 @@ describe("formatCachedQuotaWithStatus", () => {
       "gemini-pro": { remainingFraction: 0.1 },
       "gemini-flash": { remainingFraction: 0 },
     })
-    expect(result).toBe("Claude 80%, Gemini Pro LOW 10%, Gemini Flash EXHAUSTED 0%")
+    expect(result).toBe("Claude 80%, Gemini Pro LOW 10%, Gemini Flash EXHAUSTED resets in ?h")
+  })
+
+  it("hides groups at 100% READY", () => {
+    const result = formatCachedQuotaWithStatus({
+      claude: { remainingFraction: 1.0 },
+      "gemini-pro": { remainingFraction: 1.0 },
+      "gemini-flash": { remainingFraction: 0.5 },
+    })
+    expect(result).toBe("Gemini Flash 50%")
+  })
+
+  it("returns undefined when all groups are 100% READY", () => {
+    const result = formatCachedQuotaWithStatus({
+      claude: { remainingFraction: 1.0 },
+      "gemini-pro": { remainingFraction: 1.0 },
+      "gemini-flash": { remainingFraction: 1.0 },
+    })
+    expect(result).toBeUndefined()
   })
 
   it("skips groups with non-numeric remaining fraction", () => {
@@ -296,7 +314,7 @@ describe("formatGroupQuotaBadge", () => {
 
   it("returns EXHAUSTED badge for zero remaining", () => {
     const badge = formatGroupQuotaBadge(0)
-    expect(badge).toContain("[EXHAUSTED]")
+    expect(badge).toContain("[EXHAUSTED resets in ?h]")
   })
 
   it("returns READY badge for undefined remaining", () => {

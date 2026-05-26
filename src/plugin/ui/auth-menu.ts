@@ -97,7 +97,16 @@ export async function showAuthMenu(accounts: AccountInfo[]): Promise<AuthMenuAct
 
     { label: 'Accounts', value: { type: 'cancel' }, kind: 'heading' },
 
-    ...accounts.map(account => {
+    ...accounts.slice().sort((a, b) => {
+      // Sort: current → active → rate-limited → expired/exhausted
+      const statusOrder = (acc: AccountInfo): number => {
+        if (acc.isCurrentAccount) return 0
+        if (acc.status === 'active') return 1
+        if (acc.status === 'rate-limited') return 2
+        return 3 // expired, verification-required, unknown
+      }
+      return statusOrder(a) - statusOrder(b)
+    }).map(account => {
       const statusBadge = getStatusBadge(account.status, account);
       const currentBadge = account.isCurrentAccount ? ` ${ANSI.cyan}[current]${ANSI.reset}` : '';
       const disabledBadge = account.enabled === false ? ` ${ANSI.red}[disabled]${ANSI.reset}` : '';

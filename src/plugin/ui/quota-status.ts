@@ -137,7 +137,7 @@ export function formatQuotaStatusBadge(status: QuotaStatusInfo): string {
     case "EXHAUSTED": {
       const suffix = status.waitMs
         ? ` resets in ${formatWaitDuration(status.waitMs)}`
-        : ""
+        : " resets in ?h"
       return `${ANSI.red}[EXHAUSTED${suffix}]${ANSI.reset}`
     }
 
@@ -176,7 +176,7 @@ export function formatQuotaStatusPlain(status: QuotaStatusInfo): string {
     case "EXHAUSTED": {
       const suffix = status.waitMs
         ? ` resets in ${formatWaitDuration(status.waitMs)}`
-        : ""
+        : " resets in ?h"
       return `EXHAUSTED${suffix}`
     }
 
@@ -217,8 +217,16 @@ export function formatCachedQuotaWithStatus(
     }
     const pct = Math.round(Math.max(0, Math.min(1, value)) * 100)
     const status = classifyGroupStatus(cachedQuota[key] as QuotaGroupSummary)
+    // Hide groups at 100% READY — they're noise
+    if (status.label === "READY" && pct >= 100) {
+      return []
+    }
     if (status.label === "READY") {
       return [`${label} ${pct}%`]
+    }
+    // Skip pct% for EXHAUSTED — the status label already conveys 0%
+    if (status.label === "EXHAUSTED") {
+      return [`${label} ${formatQuotaStatusPlain(status)}`]
     }
     return [`${label} ${formatQuotaStatusPlain(status)} ${pct}%`]
   })
