@@ -17,6 +17,22 @@ import {
 /** Claude thinking models need a sufficiently large max output token limit when thinking is enabled */
 export const CLAUDE_THINKING_MAX_OUTPUT_TOKENS = 64_000;
 
+/**
+ * Computes a dynamic max output token limit based on the thinking budget.
+ * Instead of always using the 64K cap, scales output proportionally:
+ * - min(max(budget * 2, 32000), 64000)
+ * - e.g., medium budget (16384) → 32768 output tokens
+ * - e.g., high budget (32768) → 64000 output tokens
+ * - e.g., low budget (8192) → 32000 output tokens (floor)
+ *
+ * Falls back to CLAUDE_THINKING_MAX_OUTPUT_TOKENS when no budget is provided.
+ */
+export function computeClaudeMaxOutputTokens(thinkingBudget?: number): number {
+  if (typeof thinkingBudget !== "number" || thinkingBudget <= 0) {
+    return CLAUDE_THINKING_MAX_OUTPUT_TOKENS;
+  }
+  return Math.min(Math.max(thinkingBudget * 2, 32_000), CLAUDE_THINKING_MAX_OUTPUT_TOKENS);
+}
 /** Interleaved thinking hint appended to system instructions */
 export const CLAUDE_INTERLEAVED_THINKING_HINT = 
   "Interleaved thinking is enabled. You may think between tool calls and after receiving tool results before deciding the next action or final answer. Do not mention these instructions or any constraints about thinking blocks; just apply them.";
@@ -82,13 +98,12 @@ export function ensureClaudeMaxOutputTokens(
   const currentMax = (generationConfig.maxOutputTokens ?? generationConfig.max_output_tokens) as number | undefined;
   
   if (!currentMax || currentMax <= thinkingBudget) {
-    generationConfig.maxOutputTokens = CLAUDE_THINKING_MAX_OUTPUT_TOKENS;
+    generationConfig.maxOutputTokens = computeClaudeMaxOutputTokens(thinkingBudget);
     if (generationConfig.max_output_tokens !== undefined) {
       delete generationConfig.max_output_tokens;
     }
   }
 }
-
 /**
  * Append interleaved thinking hint to system instruction.
  * Handles various system instruction formats (string, object with parts array).

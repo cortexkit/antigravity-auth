@@ -63,6 +63,7 @@ import {
   isClaudeModel,
   isClaudeThinkingModel,
   CLAUDE_THINKING_MAX_OUTPUT_TOKENS,
+  computeClaudeMaxOutputTokens,
   type ThinkingTier,
 } from "./transform";import { detectErrorType } from "./recovery";
 import { getSessionFingerprint, buildFingerprintHeaders, type Fingerprint } from "./fingerprint";
@@ -1163,21 +1164,19 @@ export function prepareAntigravityRequest(
               if (isClaudeThinking && typeof thinkingBudget === "number" && thinkingBudget > 0) {
                 const currentMax = (rawGenerationConfig.maxOutputTokens ?? rawGenerationConfig.max_output_tokens) as number | undefined;
                 if (!currentMax || currentMax <= thinkingBudget) {
-                  rawGenerationConfig.maxOutputTokens = CLAUDE_THINKING_MAX_OUTPUT_TOKENS;
+                  rawGenerationConfig.maxOutputTokens = computeClaudeMaxOutputTokens(thinkingBudget);
                   if (rawGenerationConfig.max_output_tokens !== undefined) {
                     delete rawGenerationConfig.max_output_tokens;
                   }
                 }
               }
-
               requestPayload.generationConfig = rawGenerationConfig;
             } else {
               const generationConfig: Record<string, unknown> = { thinkingConfig };
 
               if (isClaudeThinking && typeof thinkingBudget === "number" && thinkingBudget > 0) {
-                generationConfig.maxOutputTokens = CLAUDE_THINKING_MAX_OUTPUT_TOKENS;
+                generationConfig.maxOutputTokens = computeClaudeMaxOutputTokens(thinkingBudget);
               }
-
               requestPayload.generationConfig = generationConfig;
             }
           } else if (rawGenerationConfig?.thinkingConfig) {
@@ -1664,9 +1663,8 @@ export function buildThinkingWarmupBody(
       include_thoughts: true,
       thinking_budget: DEFAULT_THINKING_BUDGET,
     };
-    generationConfig.maxOutputTokens = CLAUDE_THINKING_MAX_OUTPUT_TOKENS;
-    req.generationConfig = generationConfig;
-  };
+    generationConfig.maxOutputTokens = computeClaudeMaxOutputTokens(DEFAULT_THINKING_BUDGET);
+    req.generationConfig = generationConfig;  };
 
   if (parsed.request && typeof parsed.request === "object") {
     updateRequest(parsed.request as Record<string, unknown>);

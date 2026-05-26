@@ -228,18 +228,18 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
         explicitQuota,
       };
     }
-    // Claude thinking models without explicit tier get max budget (32768)
-    // Per Anthropic docs, budget_tokens is required when enabling extended thinking
+    // Claude thinking models without explicit tier get medium budget (16384)
+    // Saves ~16K thinking tokens/request vs high (32768) with minimal quality impact.
+    // Users can override with :high suffix for complex reasoning tasks.
     if (isClaudeThinking) {
       return {
         actualModel: resolvedModel,
-        thinkingBudget: THINKING_TIER_BUDGETS.claude.high,
+        thinkingBudget: THINKING_TIER_BUDGETS.claude.medium,
         isThinkingModel: true,
         quotaPreference,
         explicitQuota,
       };
-    }
-    return { actualModel: resolvedModel, isThinkingModel: isThinking, quotaPreference, explicitQuota };
+    }    return { actualModel: resolvedModel, isThinkingModel: isThinking, quotaPreference, explicitQuota };
   }
 
   // Gemini 3 models with tier always get thinkingLevel set

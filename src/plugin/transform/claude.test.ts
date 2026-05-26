@@ -5,13 +5,13 @@ import {
   configureClaudeToolConfig,
   buildClaudeThinkingConfig,
   ensureClaudeMaxOutputTokens,
+  computeClaudeMaxOutputTokens,
   appendClaudeThinkingHint,
   normalizeClaudeTools,
   applyClaudeTransforms,
   CLAUDE_THINKING_MAX_OUTPUT_TOKENS,
   CLAUDE_INTERLEAVED_THINKING_HINT,
-} from "./claude";
-import type { RequestPayload } from "./types";
+} from "./claude";import type { RequestPayload } from "./types";
 
 describe("isClaudeModel", () => {
   it("returns true for claude model names", () => {
@@ -183,23 +183,20 @@ describe("ensureClaudeMaxOutputTokens", () => {
     const config: Record<string, unknown> = {};
     ensureClaudeMaxOutputTokens(config, 8192);
     
-    expect(config.maxOutputTokens).toBe(CLAUDE_THINKING_MAX_OUTPUT_TOKENS);
+    expect(config.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192));
   });
-
   it("sets maxOutputTokens when current is less than budget", () => {
     const config: Record<string, unknown> = { maxOutputTokens: 4096 };
     ensureClaudeMaxOutputTokens(config, 8192);
     
-    expect(config.maxOutputTokens).toBe(CLAUDE_THINKING_MAX_OUTPUT_TOKENS);
+    expect(config.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192));
   });
-
   it("sets maxOutputTokens when current equals budget", () => {
     const config: Record<string, unknown> = { maxOutputTokens: 8192 };
     ensureClaudeMaxOutputTokens(config, 8192);
     
-    expect(config.maxOutputTokens).toBe(CLAUDE_THINKING_MAX_OUTPUT_TOKENS);
+    expect(config.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192));
   });
-
   it("does not change maxOutputTokens when current is greater than budget", () => {
     const config: Record<string, unknown> = { maxOutputTokens: 100000 };
     ensureClaudeMaxOutputTokens(config, 8192);
@@ -211,10 +208,9 @@ describe("ensureClaudeMaxOutputTokens", () => {
     const config: Record<string, unknown> = { max_output_tokens: 4096 };
     ensureClaudeMaxOutputTokens(config, 8192);
     
-    expect(config.maxOutputTokens).toBe(CLAUDE_THINKING_MAX_OUTPUT_TOKENS);
+    expect(config.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192));
     expect(config.max_output_tokens).toBeUndefined();
   });
-
   it("removes max_output_tokens when setting maxOutputTokens", () => {
     const config: Record<string, unknown> = { 
       max_output_tokens: 4096,
@@ -222,10 +218,9 @@ describe("ensureClaudeMaxOutputTokens", () => {
     };
     ensureClaudeMaxOutputTokens(config, 8192);
     
-    expect(config.maxOutputTokens).toBe(CLAUDE_THINKING_MAX_OUTPUT_TOKENS);
+    expect(config.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192));
     expect(config.max_output_tokens).toBeUndefined();
   });
-
   it("prefers maxOutputTokens over max_output_tokens for comparison", () => {
     const config: Record<string, unknown> = { 
       maxOutputTokens: 100000,
@@ -755,7 +750,7 @@ describe("applyClaudeTransforms", () => {
     });
     
     const genConfig = payload.generationConfig as any;
-    expect(genConfig.maxOutputTokens).toBe(CLAUDE_THINKING_MAX_OUTPUT_TOKENS);
+    expect(genConfig.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192));
   });
 
   it("does not apply thinking config for non-thinking models", () => {

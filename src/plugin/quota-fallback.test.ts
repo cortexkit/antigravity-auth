@@ -133,10 +133,9 @@ describe("header routing decision", () => {
       cliFirst: false,
       preferredHeaderStyle: "antigravity",
       explicitQuota: false,
-      allowQuotaFallback: true,
+      allowQuotaFallback: false,
     });
   });
-
   it("uses gemini-cli-first for unsuffixed Gemini when cli_first is enabled", () => {
     const decision = resolveHeaderRoutingDecision?.(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:streamGenerateContent",
@@ -150,16 +149,16 @@ describe("header routing decision", () => {
       cliFirst: true,
       preferredHeaderStyle: "gemini-cli",
       explicitQuota: false,
-      allowQuotaFallback: true,
+      allowQuotaFallback: false,
     });
   });
-
-  it("keeps explicit antigravity prefix as primary route while fallback remains available", () => {
+  it("keeps explicit antigravity prefix as primary route while fallback available when quota_style_fallback enabled", () => {
     const decision = resolveHeaderRoutingDecision?.(
       "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3-flash:streamGenerateContent",
       "gemini",
       {
         cli_first: true,
+        quota_style_fallback: true,
       },
     );
 
@@ -170,7 +169,6 @@ describe("header routing decision", () => {
       allowQuotaFallback: true,
     });
   });
-
   it("ignores legacy quota_fallback when deciding Gemini fallback availability", () => {
     const decision = resolveHeaderRoutingDecision?.(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:streamGenerateContent",
@@ -185,7 +183,39 @@ describe("header routing decision", () => {
       cliFirst: false,
       preferredHeaderStyle: "antigravity",
       explicitQuota: false,
+      allowQuotaFallback: false,
+    });
+  });
+
+  it("enables quota style fallback when quota_style_fallback is true", () => {
+    const decision = resolveHeaderRoutingDecision?.(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:streamGenerateContent",
+      "gemini",
+      {
+        cli_first: false,
+        quota_style_fallback: true,
+      },
+    );
+
+    expect(decision).toMatchObject({
+      cliFirst: false,
+      preferredHeaderStyle: "antigravity",
+      explicitQuota: false,
       allowQuotaFallback: true,
     });
   });
-});
+
+  it("never allows quota fallback for Claude regardless of config", () => {
+    const decision = resolveHeaderRoutingDecision?.(
+      "https://generativelanguage.googleapis.com/v1beta/models/claude-sonnet-4-6:streamGenerateContent",
+      "claude",
+      {
+        cli_first: false,
+        quota_style_fallback: true,
+      },
+    );
+
+    expect(decision).toMatchObject({
+      allowQuotaFallback: false,
+    });
+  });});

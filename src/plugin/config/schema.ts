@@ -126,11 +126,23 @@ export const AntigravityConfigSchema = z.object({
    * @default false
    */
   keep_thinking: z.boolean().default(false),
+
+  /**
+   * Enable thinking warmup requests for Claude thinking models.
+   * When enabled, sends a separate API call at session start to warm up
+   * thinking signature validation. Costs 1 full API call per session.
+   *
+   * Disable to save quota — most users don't need this unless using
+   * keep_thinking with signature caching.
+   *
+   * Env override: OPENCODE_ANTIGRAVITY_THINKING_WARMUP=1
+   * @default false
+   */
+  thinking_warmup: z.boolean().default(false),
   
   // =========================================================================
   // Session Recovery
-  // =========================================================================
-  
+  // =========================================================================  
   /**
    * Enable automatic session recovery from tool_result_missing errors.
    * When enabled, shows a toast notification when recoverable errors occur.
@@ -176,10 +188,9 @@ export const AntigravityConfigSchema = z.object({
    * Maximum retry attempts when Antigravity returns an empty response.
    * Empty responses occur when no candidates/choices are returned.
    * 
-   * @default 4
+   * @default 2
    */
-  empty_response_max_attempts: z.number().min(1).max(10).default(4),
-  
+  empty_response_max_attempts: z.number().min(1).max(10).default(2),  
   /**
    * Delay in milliseconds between empty response retries.
    * 
@@ -315,10 +326,32 @@ export const AntigravityConfigSchema = z.object({
       * @default true
       */
     switch_on_first_rate_limit: z.boolean().default(true),
+
+    /**
+     * Maximum number of account switches per request before giving up.
+     * Each switch re-sends the full request payload, consuming quota on the new account.
+     * Lower values reduce quota waste from cascading rate limits across accounts.
+     * 
+     * Env override: OPENCODE_ANTIGRAVITY_MAX_ACCOUNT_SWITCHES
+     * @default 2
+     */
+    max_account_switches: z.number().min(0).max(50).default(2),
+
+    /**
+     * Allow falling back between quota pools (antigravity ↔ gemini-cli) when rate-limited.
+     * When enabled, if one quota pool is exhausted the plugin re-sends the SAME request
+     * using the alternate header style, consuming tokens from BOTH pools.
+     * Disable to prevent double-spending quota across pools — the plugin will only
+     * rotate accounts instead.
+     * Only applies to Gemini models (Claude always uses antigravity).
+     * 
+     * Env override: OPENCODE_ANTIGRAVITY_QUOTA_STYLE_FALLBACK
+     * @default false
+     */
+    quota_style_fallback: z.boolean().default(false),
     
     /**
-     * Scheduling mode for rate limit behavior.
-     * 
+     * Scheduling mode for rate limit behavior.     * 
      * - `cache_first`: Wait for same account to recover (preserves prompt cache). Default.
      * - `balance`: Switch account immediately on rate limit. Maximum availability.
      * - `performance_first`: Round-robin distribution for maximum throughput.
@@ -389,8 +422,7 @@ export const AntigravityConfigSchema = z.object({
     * 
     * @default 15
     */
-   quota_refresh_interval_minutes: z.number().min(0).max(60).default(15),
-   
+    quota_refresh_interval_minutes: z.number().min(0).max(120).default(30),   
    /**
     * How long quota cache is considered fresh for threshold checks (in minutes).
     * After this time, cache is stale and account is allowed (fail-open).
@@ -452,10 +484,10 @@ export const DEFAULT_CONFIG: AntigravityConfig = {
   debug: false,
   debug_tui: false,
   keep_thinking: false,
-  session_recovery: true,
-  auto_resume: true,
+  thinking_warmup: false,
+  session_recovery: true,  auto_resume: true,
   resume_text: "continue",
-  empty_response_max_attempts: 4,
+  empty_response_max_attempts: 2,
   empty_response_retry_delay_ms: 2000,
   tool_id_recovery: true,
   claude_tool_hardening: true,
@@ -469,14 +501,15 @@ export const DEFAULT_CONFIG: AntigravityConfig = {
   account_selection_strategy: 'hybrid',
   pid_offset_enabled: false,
   switch_on_first_rate_limit: true,
-  scheduling_mode: 'cache_first',
-  max_cache_first_wait_seconds: 60,
+  max_account_switches: 2,
+  quota_style_fallback: false,
+  scheduling_mode: 'cache_first',  max_cache_first_wait_seconds: 60,
   failure_ttl_seconds: 3600,
   default_retry_after_seconds: 60,
   max_backoff_seconds: 60,
   request_jitter_max_ms: 0,
   soft_quota_threshold_percent: 90,
-  quota_refresh_interval_minutes: 15,
+  quota_refresh_interval_minutes: 30,
   soft_quota_cache_ttl_minutes: "auto",
   auto_update: true,
   signature_cache: {

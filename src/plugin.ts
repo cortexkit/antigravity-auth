@@ -1583,10 +1583,12 @@ export const createAntigravityPlugin = (providerId: string) => async (
             return accountManager.hasOtherAccountWithAntigravityAvailable(currentAccount.index, family, model);
           };
 
+          let accountSwitchCount = 0;
+          const maxAccountSwitches = config.max_account_switches ?? 2;
+
           while (true) {
             // Check for abort at the start of each iteration
-            checkAborted();
-            
+            checkAborted();            
             const accountCount = accountManager.getAccountCount();
             const routingDecision = resolveHeaderRoutingDecision(urlString, family, config);
             const {
@@ -1851,10 +1853,12 @@ export const createAntigravityPlugin = (providerId: string) => async (
               prepared: ReturnType<typeof prepareAntigravityRequest>,
               projectId: string,
             ): Promise<void> => {
+              if (!config.thinking_warmup) {
+                return;
+              }
               if (!prepared.needsSignedThinkingWarmup || !prepared.sessionId) {
                 return;
               }
-
               if (!trackWarmupAttempt(prepared.sessionId)) {
                 return;
               }
@@ -1990,6 +1994,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
             let capacityRetryCount = 0;
             let lastEndpointIndex = -1;
             
+            // Track total API requests made for this single user message
+            let apiRequestCount = 0;            
             for (let i = 0; i < ANTIGRAVITY_ENDPOINT_FALLBACKS.length; i++) {
               // Reset capacity retry counter when switching to a new endpoint
               if (i !== lastEndpointIndex) {
@@ -2066,8 +2072,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
                 }
 
                 const response = await fetch(prepared.request, prepared.init);
-                pushDebug(`status=${response.status} ${response.statusText}`);
-
+                apiRequestCount++;
+                pushDebug(`status=${response.status} ${response.statusText} (api_request #${apiRequestCount})`);
 
 
 
@@ -2114,13 +2120,12 @@ export const createAntigravityPlugin = (providerId: string) => async (
                      // CRITICAL FIX: Decrement i so that the loop 'continue' retries the SAME endpoint index
                      // (i++ in the loop will bring it back to the current index)
                      // But limit retries to prevent infinite loops (Greptile feedback)
-                     if (capacityRetryCount < 3) {
+                     if (capacityRetryCount < 1) {
                        capacityRetryCount++;
                        i -= 1;
                        continue; 
                       } else {
-                        pushDebug(`Max capacity retries (3) exhausted for endpoint ${currentEndpoint}, regenerating fingerprint...`);
-                        // Regenerate fingerprint to get fresh device identity before trying next endpoint
+                        pushDebug(`Max capacity retries (1) exhausted for endpoint ${currentEndpoint}, regenerating fingerprint...`);                        // Regenerate fingerprint to get fresh device identity before trying next endpoint
                         const newFingerprint = accountManager.regenerateAccountFingerprint(account.index);
                         if (newFingerprint) {
                           pushDebug(`Fingerprint regenerated for account ${account.index}`);
@@ -2438,6 +2443,10 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   }
                 }
 
+                if (apiRequestCount > 1) {
+                  pushDebug(`[Quota] Total API requests for this user message: ${apiRequestCount} (${apiRequestCount - 1} retries)`);
+                }
+
                 return transformedResponse;
               } catch (error) {
                 // Refund token on network/API error (only if consumed)
@@ -2494,9 +2503,32 @@ export const createAntigravityPlugin = (providerId: string) => async (
             } // end headerStyleLoop
             
             if (shouldSwitchAccount) {
-              // Avoid tight retry loops when there's only one account.
-              if (accountCount <= 1) {
+              accountSwitchCount++;
+              
+              // Cap account switches to prevent cascading quota waste
+              if (accountSwitchCount > maxAccountSwitches) {
+                pushDebug(`account-switch-cap: exceeded max_account_switches=${maxAccountSwitches}, giving up`);
                 if (lastFailure) {
+                  return transformAntigravityResponse(
+                    lastFailure.response,
+                    lastFailure.streaming,
+                    lastFailure.debugContext,
+                    lastFailure.requestedModel,
+                    lastFailure.projectId,
+                    lastFailure.endpoint,
+                    lastFailure.effectiveModel,
+                    lastFailure.sessionId,
+                    lastFailure.toolDebugMissing,
+                    lastFailure.toolDebugSummary,
+                    lastFailure.toolDebugPayload,
+                    debugLines,
+                  );
+                }
+                throw lastError || new Error(`Exceeded max account switches (${maxAccountSwitches}). All accounts rate-limited.`);
+              }
+              
+              // Avoid tight retry loops when there's only one account.
+              if (accountCount <= 1) {                if (lastFailure) {
                   return transformAntigravityResponse(
                     lastFailure.response,
                     lastFailure.streaming,
@@ -3472,7 +3504,7 @@ function resolveHeaderRoutingDecision(
     cliFirst,
     preferredHeaderStyle,
     explicitQuota,
-    allowQuotaFallback: family === "gemini",
+    allowQuotaFallback: family === "gemini" && !!(config.quota_style_fallback ?? false),
   };
 }
 

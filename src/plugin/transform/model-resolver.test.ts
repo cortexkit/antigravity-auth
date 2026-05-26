@@ -140,15 +140,14 @@ describe("resolveModelWithTier", () => {
   });
 
   describe("Claude thinking models default budget", () => {
-    it("antigravity-claude-opus-4-6-thinking gets default max budget (32768)", () => {
+    it("antigravity-claude-opus-4-6-thinking gets default medium budget (16384)", () => {
       const result = resolveModelWithTier("antigravity-claude-opus-4-6-thinking");
       expect(result.actualModel).toBe("claude-opus-4-6-thinking");
-      expect(result.thinkingBudget).toBe(32768);
+      expect(result.thinkingBudget).toBe(16384);
       expect(result.isThinkingModel).toBe(true);
       expect(result.quotaPreference).toBe("antigravity");
     });
   });
-
   describe("Claude Sonnet 4.6 (non-thinking)", () => {
     it("claude-sonnet-4-6 resolves as non-thinking model", () => {
       const result = resolveModelWithTier("claude-sonnet-4-6");
