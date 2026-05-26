@@ -88,6 +88,56 @@ describe("showAuthMenu actions", () => {
   })
 })
 
+describe("showAccountDetails switch account", () => {
+  beforeEach(() => {
+    selectMock.mockReset()
+  })
+
+  it("shows switch-account option for non-current accounts", async () => {
+    selectMock.mockResolvedValue("back")
+    const { showAccountDetails } = await import("./auth-menu.ts")
+
+    await showAccountDetails({
+      email: "other@example.com",
+      index: 1,
+      isCurrentAccount: false,
+    })
+
+    const items = selectMock.mock.calls[0]?.[0] as Array<{ label: string; value: string }>
+    const switchItem = items.find(item => item.value === "switch-account")
+    expect(switchItem).toBeDefined()
+    expect(switchItem!.label).toBe("Switch to this account")
+  })
+
+  it("hides switch-account option for current account", async () => {
+    selectMock.mockResolvedValue("back")
+    const { showAccountDetails } = await import("./auth-menu.ts")
+
+    await showAccountDetails({
+      email: "current@example.com",
+      index: 0,
+      isCurrentAccount: true,
+    })
+
+    const items = selectMock.mock.calls[0]?.[0] as Array<{ label: string; value: string }>
+    const switchItem = items.find(item => item.value === "switch-account")
+    expect(switchItem).toBeUndefined()
+  })
+
+  it("returns switch-account when selected", async () => {
+    selectMock.mockResolvedValue("switch-account")
+    const { showAccountDetails } = await import("./auth-menu.ts")
+
+    const result = await showAccountDetails({
+      email: "other@example.com",
+      index: 1,
+      isCurrentAccount: false,
+    })
+
+    expect(result).toBe("switch-account")
+  })
+})
+
 describe("showAccountDetails fingerprint restore", () => {
   beforeEach(() => {
     selectMock.mockReset()

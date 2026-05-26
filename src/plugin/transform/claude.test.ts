@@ -356,10 +356,56 @@ describe("appendClaudeThinkingHint", () => {
       expect(payload.systemInstruction).toBeUndefined();
     });
   });
+
+  describe("idempotency", () => {
+    it("does not duplicate hint when called twice on object systemInstruction", () => {
+      const payload: RequestPayload = {
+        systemInstruction: {
+          parts: [{ text: "You are a helpful assistant." }],
+        },
+      };
+      appendClaudeThinkingHint(payload);
+      appendClaudeThinkingHint(payload);
+
+      const sys = payload.systemInstruction as any;
+      const hintParts = sys.parts.filter(
+        (p: any) => p.text === CLAUDE_INTERLEAVED_THINKING_HINT,
+      );
+      expect(hintParts).toHaveLength(1);
+      expect(sys.parts).toHaveLength(2);
+    });
+
+    it("does not duplicate hint when called twice on string systemInstruction", () => {
+      const payload: RequestPayload = {
+        systemInstruction: "Base instruction.",
+      };
+      appendClaudeThinkingHint(payload);
+      appendClaudeThinkingHint(payload);
+
+      const sys = payload.systemInstruction as any;
+      const hintParts = sys.parts.filter(
+        (p: any) => p.text === CLAUDE_INTERLEAVED_THINKING_HINT,
+      );
+      expect(hintParts).toHaveLength(1);
+    });
+
+    it("does not duplicate hint when called twice with no initial systemInstruction", () => {
+      const payload: RequestPayload = {
+        contents: [{ role: "user", parts: [{ text: "Hello" }] }],
+      };
+      appendClaudeThinkingHint(payload);
+      appendClaudeThinkingHint(payload);
+
+      const sys = payload.systemInstruction as any;
+      const hintParts = sys.parts.filter(
+        (p: any) => p.text === CLAUDE_INTERLEAVED_THINKING_HINT,
+      );
+      expect(hintParts).toHaveLength(1);
+    });
+  });
 });
 
-describe("normalizeClaudeTools", () => {
-  const identityClean = (schema: unknown) => schema as Record<string, unknown>;
+describe("normalizeClaudeTools", () => {  const identityClean = (schema: unknown) => schema as Record<string, unknown>;
   
   const realClean = (schema: unknown): Record<string, unknown> => {
     if (!schema || typeof schema !== "object") return {};

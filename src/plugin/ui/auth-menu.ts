@@ -44,7 +44,7 @@ export interface FingerprintHistoryEntry {
   reason: 'initial' | 'regenerated' | 'restored';
 }
 
-export type AccountAction = 'back' | 'delete' | 'refresh' | 'toggle' | 'verify' | 'restore-fingerprint' | 'cancel';
+export type AccountAction = 'back' | 'delete' | 'refresh' | 'toggle' | 'verify' | 'restore-fingerprint' | 'switch-account' | 'cancel';
 
 export interface FingerprintRestoreResult {
   action: 'restore-fingerprint';
@@ -189,10 +189,21 @@ export async function showAccountDetails(account: AccountInfo): Promise<AccountA
   while (true) {
     const menuItems: MenuItem<AccountAction>[] = [
       { label: 'Back', value: 'back' as const },
+    ];
+
+    if (!account.isCurrentAccount) {
+      menuItems.push({
+        label: 'Switch to this account',
+        value: 'switch-account' as const,
+        color: 'green',
+      });
+    }
+
+    menuItems.push(
       { label: 'Verify account access', value: 'verify' as const, color: 'cyan' },
       { label: account.enabled === false ? 'Enable account' : 'Disable account', value: 'toggle' as const, color: account.enabled === false ? 'green' : 'yellow' },
       { label: 'Refresh token', value: 'refresh' as const, color: 'cyan' },
-    ];
+    );
 
     if (hasHistory) {
       menuItems.push({

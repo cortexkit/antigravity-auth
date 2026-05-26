@@ -92,12 +92,27 @@ export function ensureClaudeMaxOutputTokens(
 /**
  * Append interleaved thinking hint to system instruction.
  * Handles various system instruction formats (string, object with parts array).
+ * Idempotent: skips if the hint text is already present in the system instruction.
  */
 export function appendClaudeThinkingHint(
   payload: RequestPayload,
   hint: string = CLAUDE_INTERLEAVED_THINKING_HINT,
 ): void {
   const existing = payload.systemInstruction;
+
+  // Idempotency guard: check if the hint is already present
+  if (typeof existing === "string" && existing.includes(hint)) {
+    return;
+  }
+  if (existing && typeof existing === "object") {
+    const sys = existing as Record<string, unknown>;
+    if (Array.isArray(sys.parts)) {
+      const alreadyHasHint = sys.parts.some(
+        (p: unknown) => p && typeof p === "object" && (p as Record<string, unknown>).text === hint,
+      );
+      if (alreadyHasHint) return;
+    }
+  }
 
   if (typeof existing === "string") {
     payload.systemInstruction = existing.trim().length > 0

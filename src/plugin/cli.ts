@@ -10,8 +10,8 @@ import {
   type FingerprintHistoryEntry,
 } from "./ui/auth-menu";
 import { updateOpencodeConfig } from "./config/updater";
-import type { CooldownReason } from "./accounts.ts";
-import type { QuotaGroupSummary } from "./quota.ts";
+import type { CooldownReason } from "./accounts";
+import type { QuotaGroupSummary } from "./quota";
 export async function promptProjectId(): Promise<string> {
   const rl = createInterface({ input, output });
   try {
@@ -33,7 +33,7 @@ export async function promptAddAnotherAccount(currentCount: number): Promise<boo
   }
 }
 
-export type LoginMode = "add" | "fresh" | "manage" | "check" | "doctor" | "repair" | "current" | "restore-fingerprint" | "verify" | "verify-all" | "cancel";
+export type LoginMode = "add" | "fresh" | "manage" | "check" | "doctor" | "repair" | "current" | "switch-account" | "restore-fingerprint" | "verify" | "verify-all" | "cancel";
 
 export interface ExistingAccountInfo {
   email?: string;
@@ -56,6 +56,7 @@ export interface LoginMenuResult {
   refreshAccountIndex?: number;
   toggleAccountIndex?: number;
   verifyAccountIndex?: number;
+  switchAccountIndex?: number;
   restoreFingerprintAccountIndex?: number;
   restoreFingerprintHistoryIndex?: number;
   verifyAll?: boolean;
@@ -160,6 +161,11 @@ export async function promptLoginMode(existingAccounts: ExistingAccountInfo[]): 
         }
         if (accountAction === "verify") {
           return { mode: "verify", verifyAccountIndex: action.account.index };
+        }
+        if (accountAction === "switch-account") {
+          const accountLabel = action.account.email || `Account ${action.account.index + 1}`;
+          console.log(`\n✓ Switched to ${accountLabel}. Restart OpenCode for changes to take effect.\n`);
+          return { mode: "switch-account", switchAccountIndex: action.account.index };
         }
         if (accountAction === "restore-fingerprint") {
           const history = action.account.fingerprintHistory;

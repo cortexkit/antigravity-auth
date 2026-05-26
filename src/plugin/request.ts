@@ -63,7 +63,6 @@ import {
   isClaudeModel,
   isClaudeThinkingModel,
   CLAUDE_THINKING_MAX_OUTPUT_TOKENS,
-  appendClaudeThinkingHint,
   type ThinkingTier,
 } from "./transform";import { detectErrorType } from "./recovery";
 import { getSessionFingerprint, buildFingerprintHeaders, type Fingerprint } from "./fingerprint";
@@ -1200,9 +1199,6 @@ export function prepareAntigravityRequest(
           delete requestPayload.system_instruction;
         }
 
-        if (isClaudeThinking && Array.isArray(requestPayload.tools) && requestPayload.tools.length > 0) {
-          appendClaudeThinkingHint(requestPayload);
-        }
         // Normalize cached_content → cachedContent (camelCase) but preserve the value.
         // OpenCode uses cachedContent for prompt caching — deleting it busts cache.
         const cachedContentFromExtra =
