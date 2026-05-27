@@ -98,6 +98,92 @@ function getStatusBadge(status: AccountStatus | undefined, account?: AccountInfo
     default: return '';
   }
 }
+
+function getAccountTier(acc: AccountInfo): number {
+  if (acc.isCurrentAccount) return 0
+  if (acc.enabled === false) return 6
+  if (acc.status === 'active') {
+    const overall = classifyOverallQuotaHealth(acc.cachedQuota)
+    if (overall.health === 'exhausted') return 3
+    if (overall.health === 'partial') return 2
+    return 1
+  }
+  if (acc.status === 'rate-limited') return 4
+  return 5 // expired, verification-required, unknown
+}
+
+function getHealthLabel(acc: AccountInfo): string {
+  if (acc.enabled === false) return 'disabled'
+  if (acc.status === 'active') {
+    const overall = classifyOverallQuotaHealth(acc.cachedQuota)
+    if (overall.health === 'exhausted') return 'exhausted'
+    if (overall.health === 'partial') return 'limited'
+    return 'active'
+  }
+  if (acc.status === 'rate-limited') return 'rate-limited'
+  if (acc.status === 'expired') return 'expired'
+  return 'other'
+}
+
+function buildAccountSummary(accounts: AccountInfo[]): string {
+  const counts: Record<string, number> = {}
+  for (const acc of accounts) {
+    const label = getHealthLabel(acc)
+    counts[label] = (counts[label] ?? 0) + 1
+  }
+  const order = ['active', 'limited', 'exhausted', 'rate-limited', 'expired', 'disabled', 'other']
+  const parts = order
+    .filter(label => (counts[label] ?? 0) > 0)
+    .map(label => `${counts[label]} ${label}`)
+  return parts.length > 0 ? `Accounts (${parts.join(', ')})` : 'Accounts'
+}
+
+function buildAccountHint(account: AccountInfo): string {
+  // For [limited] accounts, the quota summary may contain "resets in X" which
+  // is redundant since the badge already distinguishes them from [active]
+  if (account.quotaSummary) {
+    return account.quotaSummary
+  }
+  if (account.lastUsed) {
+    return `used ${formatRelativeTime(account.lastUsed)}`
+  }
+  return ''
+}
+
+function buildAccountMenuItems(accounts: AccountInfo[]): MenuItem<AuthMenuAction>[] {
+  const sorted = accounts.slice().sort((a, b) => getAccountTier(a) - getAccountTier(b))
+
+  const items: MenuItem<AuthMenuAction>[] = []
+  let prevTier = -1
+
+  for (let i = 0; i < sorted.length; i++) {
+    const account = sorted[i]!
+    const tier = getAccountTier(account)
+
+    // Insert separator between tiers (but not before the first account)
+    if (prevTier !== -1 && tier !== prevTier) {
+      items.push({ label: '', value: { type: 'cancel' }, separator: true })
+    }
+    prevTier = tier
+
+    const displayNum = i + 1
+    const statusBadge = getStatusBadge(account.status, account)
+    const currentBadge = account.isCurrentAccount ? ` ${ANSI.cyan}[current]${ANSI.reset}` : ''
+    const disabledBadge = account.enabled === false ? ` ${ANSI.red}[disabled]${ANSI.reset}` : ''
+    const baseLabel = account.email || `Account ${displayNum}`
+    const numbered = `${displayNum}. ${baseLabel}`
+    const fullLabel = `${numbered}${currentBadge}${statusBadge}${disabledBadge}`
+
+    items.push({
+      label: fullLabel,
+      hint: buildAccountHint(account),
+      value: { type: 'select-account' as const, account },
+    })
+  }
+
+  return items
+}
+
 export async function showAuthMenu(accounts: AccountInfo[]): Promise<AuthMenuAction> {
   const items: MenuItem<AuthMenuAction>[] = [
     { label: 'Actions', value: { type: 'cancel' }, kind: 'heading' },
@@ -111,38 +197,11 @@ export async function showAuthMenu(accounts: AccountInfo[]): Promise<AuthMenuAct
     { label: 'Configure models in opencode.json', value: { type: 'configure-models' }, color: 'cyan' },
     { label: '', value: { type: 'cancel' }, separator: true },
 
-    { label: 'Accounts', value: { type: 'cancel' }, kind: 'heading' },
+    { label: buildAccountSummary(accounts), value: { type: 'cancel' }, kind: 'heading' },
 
-    ...accounts.slice().sort((a, b) => {
-      // Sort: current → active (healthy) → active (limited/partial) → active (exhausted) → rate-limited → expired
-      const statusOrder = (acc: AccountInfo): number => {
-        if (acc.isCurrentAccount) return 0
-        if (acc.status === 'active') {
-          const overall = classifyOverallQuotaHealth(acc.cachedQuota)
-          if (overall.health === 'exhausted') return 3
-          if (overall.health === 'partial') return 2
-          return 1
-        }
-        if (acc.status === 'rate-limited') return 4
-        return 5 // expired, verification-required, unknown
-      }
-      return statusOrder(a) - statusOrder(b)
-    }).map((account, displayIndex) => {
-      const displayNum = displayIndex + 1;
-      const statusBadge = getStatusBadge(account.status, account);
-      const currentBadge = account.isCurrentAccount ? ` ${ANSI.cyan}[current]${ANSI.reset}` : '';
-      const disabledBadge = account.enabled === false ? ` ${ANSI.red}[disabled]${ANSI.reset}` : '';
-      const baseLabel = account.email || `Account ${displayNum}`;
-      const numbered = `${displayNum}. ${baseLabel}`;      const fullLabel = `${numbered}${currentBadge}${statusBadge}${disabledBadge}`;
-      return {
-        label: fullLabel,
-        hint: account.quotaSummary ?? (account.lastUsed ? `used ${formatRelativeTime(account.lastUsed)}` : ''),
-        value: { type: 'select-account' as const, account },
-      };
-    }),
+    ...buildAccountMenuItems(accounts),
 
     { label: '', value: { type: 'cancel' }, separator: true },
-
     { label: 'Danger zone', value: { type: 'cancel' }, kind: 'heading' },
     { label: 'Delete all accounts', value: { type: 'delete-all' }, color: 'red' as const },
   ];
