@@ -65,6 +65,7 @@ import {
   CLAUDE_THINKING_MAX_OUTPUT_TOKENS,
   computeClaudeMaxOutputTokens,
   type ThinkingTier,
+  appendClaudeThinkingHint,
 } from "./transform";import { detectErrorType } from "./recovery";
 import { getSessionFingerprint, buildFingerprintHeaders, type Fingerprint } from "./fingerprint";
 import type { GoogleSearchConfig } from "./transform/types";
@@ -1388,8 +1389,14 @@ export function prepareAntigravityRequest(
               CLAUDE_TOOL_SYSTEM_INSTRUCTION,
             );
           }
-        }
 
+          // Append interleaved thinking hint for Claude thinking models with tools.
+          // Must come AFTER tool hardening so it is the last system instruction part,
+          // preserving the stable prefix for prompt cache matching.
+          if (isClaudeThinking && Array.isArray(requestPayload.tools) && (requestPayload.tools as unknown[]).length > 0) {
+            appendClaudeThinkingHint(requestPayload as Record<string, unknown>);
+          }
+        }
         const conversationKey = resolveConversationKey(requestPayload);
         signatureSessionKey = buildSignatureSessionKey(PLUGIN_SESSION_ID, effectiveModel, conversationKey, resolveProjectKey(projectId));
 

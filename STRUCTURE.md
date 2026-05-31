@@ -13,7 +13,7 @@ opencode-antigravity-auth/
 │   ├── hooks/                    # OpenCode lifecycle hooks
 │   │   └── auto-update-checker/  # Background npm update check + auto-pin
 │   └── plugin/                   # Core plugin subsystems
-│       ├── accounts.ts           # AccountManager: selection, rotation, cooldowns
+│       ├── accounts.ts           # AccountManager: selection, rotation, cooldowns, request counter and session metrics
 │       ├── auth-doctor.ts        # Self-healing diagnostics for auth storage drift
 │       ├── auth-drift.ts         # Detection of drift between active auth and storage
 │       ├── auth.ts               # Token validation, refresh-parts parsing
@@ -27,7 +27,7 @@ opencode-antigravity-auth/
 │       ├── logging-utils.ts      # ANSI helpers, console write utilities
 │       ├── model-registry.ts     # Centralized model specifications and quota groups
 │       ├── project.ts            # Managed project context resolution
-│       ├── quota.ts              # Quota API queries; QuotaGroup types
+│       ├── quota.ts              # Quota API queries; QuotaGroup types, endpoint fallbacks and per-model tracking
 │       ├── recovery.ts           # Thin re-export / error-type detection helpers
 │       ├── refresh-queue.ts      # Proactive background OAuth token refresh
 │       ├── request.ts            # Core request transform & response transform
@@ -35,7 +35,7 @@ opencode-antigravity-auth/
 │       ├── rotation.ts           # HealthScoreTracker, TokenBucketTracker, hybrid selection
 │       ├── search.ts             # Google Search grounding tool (executeSearch)
 │       ├── server.ts             # Local OAuth callback HTTP listener
-│       ├── storage.ts            # Zod schemas for antigravity-accounts.json; file I/O
+│       ├── storage.ts            # Zod schemas for antigravity-accounts.json, file I/O, and daily request counters
 │       ├── thinking-recovery.ts  # Turn-boundary detection, thinking block repair
 │       ├── token.ts              # refreshAccessToken, AntigravityTokenRefreshError
 │       ├── types.ts              # Shared plugin interfaces (PluginResult, AuthDetails, …)
@@ -70,10 +70,10 @@ opencode-antigravity-auth/
 │       │   └── cross-model-sanitizer.ts # Strip incompatible fields when switching models
 │       └── ui/                   # Terminal UI primitives
 │           ├── ansi.ts           # ANSI colour helpers
-│           ├── auth-menu.ts      # Multi-account auth menu with tier separators and breakdowns
+│           ├── auth-menu.ts      # Multi-account auth menu with tier separators and breakdowns showing model availability
 │           ├── confirm.ts        # Y/n prompt
 │           ├── model-status.ts   # Per-model status aggregation across accounts
-│           ├── quota-status.ts   # Quota status labels and ANSI badge formatting
+│           ├── quota-status.ts   # Quota status labels, stale cache fail-open logic, and ANSI badge formatting
 │           └── select.ts         # Arrow-key selection list
 ├── docs/                         # Additional documentation
 │   ├── ARCHITECTURE.md           # Detailed architecture (this repo also has root ARCHITECTURE.md)
@@ -164,8 +164,8 @@ opencode-antigravity-auth/
 **Constants:** `src/constants.ts` — all endpoints, headers, OAuth IDs, system prompts, tool constants
 **Config Schema:** `src/plugin/config/schema.ts` — full `AntigravityConfigSchema` with field docs
 **Config Loader:** `src/plugin/config/loader.ts` — merges project file + user file + env vars
-**Account Store:** `src/plugin/storage.ts` — Zod schemas for `antigravity-accounts.json`; `loadAccounts`/`saveAccounts`
-**Account Manager:** `src/plugin/accounts.ts` — `AccountManager` class; `selectHybridAccount`; `parseRateLimitReason`
+**Account Store:** `src/plugin/storage.ts` — Zod schemas for `antigravity-accounts.json` (version 4 and daily request counter schemas); `loadAccounts`/`saveAccounts`
+**Account Manager:** `src/plugin/accounts.ts` — `AccountManager` class; `selectHybridAccount`; `parseRateLimitReason`; request counting and session diagnostics
 **Request Transform:** `src/plugin/request.ts` — `prepareAntigravityRequest`, `transformAntigravityResponse`
 **Model Resolution:** `src/plugin/transform/model-resolver.ts` — `resolveModelWithTier`, `MODEL_ALIASES`
 **Types:** `src/plugin/types.ts` — `PluginResult`, `AuthDetails`, `PluginContext`, `OAuthAuthDetails`

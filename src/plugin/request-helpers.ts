@@ -2594,14 +2594,13 @@ export function injectToolHardeningInstruction(
     if (existing && typeof existing === "object" && "parts" in existing) {
       const parts = existing.parts as unknown[];
       if (Array.isArray(parts)) {
-        parts.unshift(instructionPart);
+        parts.push(instructionPart);
       }
     } else if (typeof existing === "string") {
       payload.systemInstruction = {
         role: "user",
-        parts: [instructionPart, { text: existing }],
-      };
-    } else {
+        parts: [{ text: existing }, instructionPart],
+      };    } else {
       payload.systemInstruction = {
         role: "user",
         parts: [instructionPart],

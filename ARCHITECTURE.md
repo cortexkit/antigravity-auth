@@ -44,9 +44,9 @@
 - Used by: `src/plugin/request.ts`
 
 **Multi-Account Management:**
-- Purpose: Track per-account OAuth state, rate-limit cooldowns, quota cache, and fingerprints; select the best account for each request; detect and repair auth storage drift
+- Purpose: Track per-account OAuth state, rate-limit cooldowns, quota cache, fingerprints, and daily request usage; select the best account for each request; detect and repair auth storage drift; track session metrics and request rate estimation
 - Location: `src/plugin/accounts.ts`, `src/plugin/storage.ts`, `src/plugin/rotation.ts`, `src/plugin/fingerprint.ts`, `src/plugin/auth-doctor.ts`, `src/plugin/auth-drift.ts`
-- Contains: `AccountManager`, `HealthScoreTracker`, `TokenBucketTracker`, `selectHybridAccount`, `generateFingerprint`, `buildFingerprintHeaders`, `FingerprintVersion` history (max 5), account storage version 4 support with migration, secure POSIX permissions, `detectAuthStorageDrift`, `createAuthDoctorReport`, self-healing repairs
+- Contains: `AccountManager`, `HealthScoreTracker`, `TokenBucketTracker`, `selectHybridAccount`, `generateFingerprint`, `buildFingerprintHeaders`, `FingerprintVersion` history (max 5), account storage version 4 support with migration, secure POSIX permissions, `detectAuthStorageDrift`, `createAuthDoctorReport`, self-healing repairs, per-family daily request tracking, and in-memory session summaries with hourly rate calculations
 - Depends on: `src/plugin/auth.ts`, `src/plugin/quota.ts`, `proper-lockfile`, `xdg-basedir`
 - Used by: `src/plugin.ts`
 
@@ -58,9 +58,9 @@
 - Used by: `src/plugin.ts`
 
 **Quota:**
-- Purpose: Query Antigravity API for per-account quota usage; populate quota cache used by AccountManager for soft-quota gating; fetch Antigravity and Gemini CLI quotas in parallel
+- Purpose: Query Antigravity API for per-account quota usage; populate quota cache used by AccountManager for soft-quota gating; fetch Antigravity and Gemini CLI quotas in parallel; handle sequential endpoint fallback; track per-model quota data; manage stale-cache fail-open scenarios
 - Location: `src/plugin/quota.ts`
-- Contains: `checkAccountsQuota`, `QuotaGroup`, `QuotaGroupSummary`, `fetchGeminiCliQuota`, parallel fetches, wider model matching (gemini-3.5-*, gemini-3.1-*, gemini-2.5-*), gpt-oss quota group tracking
+- Contains: `checkAccountsQuota`, `QuotaGroup`, `QuotaGroupSummary`, `fetchGeminiCliQuota`, parallel fetches, wider model matching (gemini-3.5-*, gemini-3.1-*, gemini-2.5-*), `gpt-oss` quota group tracking, sequential endpoint fallbacks across `ANTIGRAVITY_ENDPOINT_FALLBACKS`, per-model quota tracking (`cachedPerModelQuota`), stale-cache fail-open (treating 0% quota as `READY` when reset time is past or missing), and paywall detection (`(unavailable)` status)
 - Depends on: OAuth token utilities, `src/plugin/model-registry.ts`
 - Used by: `src/plugin.ts` (async background refresh), `src/plugin/accounts.ts`
 
@@ -121,9 +121,9 @@
 - Used by: `src/plugin.ts`, `src/plugin/request.ts`
 
 **CLI / UI:**
-- Purpose: Interactive terminal prompts for login, account selection, project ID entry, and per-model availability display
+- Purpose: Interactive terminal prompts for login, account selection, project ID entry, per-model availability, and aggregate quota health display
 - Location: `src/plugin/cli.ts`, `src/plugin/ui/` (`auth-menu.ts`, `ansi.ts`, `confirm.ts`, `select.ts`, `model-status.ts`, `quota-status.ts`)
-- Contains: `promptLoginMode`, `promptAddAnotherAccount`, `promptProjectId`, `showAuthMenu`, `getModelStatusFromAccounts`, `formatQuotaStatusBadge`
+- Contains: `promptLoginMode`, `promptAddAnotherAccount`, `promptProjectId`, `showAuthMenu` with two-line layout and status/availability breakdown per model group, `getModelStatusFromAccounts`, `formatQuotaStatusBadge`, `classifyGroupStatus` with stale-cache fail-open, and `buildModelBreakdown` showing available/exhausted model counts
 - Depends on: Node.js readline
 - Used by: `src/plugin.ts` auth flow
 
@@ -139,8 +139,9 @@
 5. `prepareAntigravityRequest()` cleans schema, strips thinking blocks for Claude, injects tool-hardening, composes headers — `src/plugin/request.ts`, `src/plugin/request-helpers.ts`
 6. `buildFingerprintHeaders()` attaches per-account device fingerprint — `src/plugin/fingerprint.ts`
 7. `fetch()` is called against Antigravity endpoint with Bearer token — `src/plugin.ts`
-8. `transformAntigravityResponse()` converts SSE stream back to Gemini API format — `src/plugin/request.ts`
-9. Streaming transformer processes each SSE line, caches signatures, injects debug — `src/plugin/core/streaming/`
+8. `accountManager.recordRequest()` tracks daily request usage per account and updates in-memory session request counts for rate consumption estimation — `src/plugin.ts`, `src/plugin/accounts.ts`
+9. `transformAntigravityResponse()` converts SSE stream back to Gemini API format — `src/plugin/request.ts`
+10. Streaming transformer processes each SSE line, caches signatures, injects debug — `src/plugin/core/streaming/`
 
 **Rate-Limit Retry Loop:**
 1. 429 / 503 response received — `src/plugin.ts`
@@ -163,14 +164,21 @@
 3. `handleSessionRecovery()` injects synthetic `tool_result` blocks — `src/plugin/recovery/`
 4. If `auto_resume`, plugin sends a "continue" prompt via `client.session.prompt()` — `src/plugin.ts`
 
+**Quota Tracking & Refresh Flow:**
+1. Background refresh or user-triggered update invokes `checkAccountsQuota()` — `src/plugin.ts`
+2. `fetchAvailableModels()` and `fetchGeminiCliQuota()` query endpoints sequentially across `ANTIGRAVITY_ENDPOINT_FALLBACKS` — `src/plugin/quota.ts`
+3. Quota responses map to group-level (`cachedQuota`) and model-level (`cachedPerModelQuota`) summaries — `src/plugin/quota.ts`
+4. Active storage persists the updated summaries — `src/plugin/storage.ts`
+5. The terminal UI `showAuthMenu()` displays the status, treating stale cache values (0% remaining without a future reset time or reset time in the past) as `READY` (fail-open) and displaying paywalled Pro models as `(unavailable)` — `src/plugin/ui/auth-menu.ts`, `src/plugin/ui/quota-status.ts`
+
 ---
 
 ## Key Abstractions
 
 **`AccountManager`:**
-- Purpose: Single source of truth for all OAuth accounts, their cooldowns, health scores, quota caches, and fingerprints
+- Purpose: Single source of truth for all OAuth accounts, their cooldowns, health scores, quota caches, fingerprints, and daily/session request metrics
 - Location: `src/plugin/accounts.ts`
-- Pattern: Stateful class with selection algorithms (`sticky`, `round-robin`, `hybrid`) delegating to `HealthScoreTracker` and `TokenBucketTracker`
+- Pattern: Stateful class with selection algorithms (`sticky`, `round-robin`, `hybrid`) delegating to `HealthScoreTracker` and `TokenBucketTracker`; tracks in-memory session stats and persists daily request counters on disk
 
 **`AntigravityConfig` / `AntigravityConfigSchema`:**
 - Purpose: Zod-validated runtime configuration with environment variable overrides
@@ -190,7 +198,7 @@
 **`ModelQuotaGroup`:**
 - Purpose: Partition available models into four quota tracking groups (`claude`, `gemini-pro`, `gemini-flash`, and `gpt-oss`)
 - Location: `src/plugin/model-registry.ts` (type), `src/plugin/quota.ts` (tracking)
-- Pattern: String literal union mapping physical model IDs to logical quota partitions, allowing parallel quota fetching and aggregated health reporting
+- Pattern: String literal union mapping physical model IDs to logical quota partitions, allowing parallel quota fetching, aggregated health reporting, and granular per-model status rendering (`cachedPerModelQuota` tracks individual models)
 
 **`AuthDoctor`:**
 - Purpose: Diagnose and self-heal storage inconsistencies and active credentials drift
@@ -231,10 +239,10 @@
 
 ## Cross-Cutting Concerns
 
-**Logging:** `createLogger("module-name")` from `src/plugin/logger.ts` for structured per-module logging with dual sinks: TUI log panel (`debug_tui`) and debug file (`debug`). Per-message API request counters track request volumes for diagnostic visibility. `console.log` only in CLI / interactive auth flows.
+**Logging:** `createLogger("module-name")` from `src/plugin/logger.ts` for structured per-module logging with dual sinks: TUI log panel (`debug_tui`) and debug file (`debug`). Per-message API request counters track request volumes for diagnostic visibility. Post-request logging outputs cached remaining quota percentages and session request rates (average requests per hour). `console.log` only in CLI / interactive auth flows.
 
 **Caching:** In-memory signature store for thinking blocks; optional disk persistence via `SignatureCache` when `keep_thinking` is enabled. Auth tokens cached per-account in `AccountManager`. Quota data cached per-account with configurable TTL and background parallel refreshes.
 
-**Storage:** Accounts persisted to `antigravity-accounts.json` (XDG data dir) via `src/plugin/storage.ts` with `proper-lockfile` for concurrent-write safety. Current format is version 4, featuring automatic migration from older versions (v1, v2, v3), secure POSIX permissions (0600), and legacy Windows path migration. Config loaded from `.opencode/antigravity.json` (project) and `~/.config/opencode/antigravity.json` (user).
+**Storage:** Accounts persisted to `antigravity-accounts.json` (XDG data dir) via `src/plugin/storage.ts` with `proper-lockfile` for concurrent-write safety. Current format is version 4, featuring automatic migration from older versions (v1, v2, v3), secure POSIX permissions (0600), and legacy Windows path migration. Persists per-account daily request counters (`dailyRequestCounts`) and per-model granular quota data (`cachedPerModelQuota`). Config loaded from `.opencode/antigravity.json` (project) and `~/.config/opencode/antigravity.json` (user).
 
 **Configuration:** Two-level config file hierarchy (project overrides user) plus environment variable overrides. All config is read once at startup via `loadConfig()` and made available globally via `initRuntimeConfig()` and module-level getters. Config supports quota fallback disabling via `quota_style_fallback: false`, switches limit via `max_account_switches: 2`, and thinking warmup option `thinking_warmup: false`.

@@ -1334,7 +1334,7 @@ describe("injectToolHardeningInstruction", () => {
     expect(instruction.parts[0].text).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: Test");
   });
 
-  it("prepends to existing system instruction parts", () => {
+  it("appends after existing system instruction parts", () => {
     const payload: Record<string, unknown> = {
       systemInstruction: {
         parts: [{ text: "Existing instruction" }],
@@ -1344,10 +1344,9 @@ describe("injectToolHardeningInstruction", () => {
     
     const instruction = payload.systemInstruction as any;
     expect(instruction.parts).toHaveLength(2);
-    expect(instruction.parts[0].text).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: New");
-    expect(instruction.parts[1].text).toBe("Existing instruction");
+    expect(instruction.parts[0].text).toBe("Existing instruction");
+    expect(instruction.parts[1].text).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: New");
   });
-
   it("skips injection if CRITICAL TOOL USAGE INSTRUCTIONS already present", () => {
     const payload: Record<string, unknown> = {
       systemInstruction: {
@@ -1369,10 +1368,9 @@ describe("injectToolHardeningInstruction", () => {
     
     const instruction = payload.systemInstruction as any;
     expect(instruction.parts).toHaveLength(2);
-    expect(instruction.parts[0].text).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: Test");
-    expect(instruction.parts[1].text).toBe("Existing string instruction");
+    expect(instruction.parts[0].text).toBe("Existing string instruction");
+    expect(instruction.parts[1].text).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: Test");
   });
-
   it("does nothing when instructionText is empty", () => {
     const payload: Record<string, unknown> = {};
     injectToolHardeningInstruction(payload, "");
