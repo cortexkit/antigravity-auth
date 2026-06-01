@@ -1953,11 +1953,12 @@ export const createAntigravityPlugin = (providerId: string) => async (
                 parsed.generationConfig = {
                   ...(parsed.generationConfig ?? {}),
                   maxOutputTokens: 1,
-                  candidateCount: 1,
                 };
+                delete parsed.generationConfig.candidateCount;
                 if (parsed.generationConfig.thinkingConfig) {
+                  // Use minimal positive budget — thinkingBudget:0 is rejected for thinking-required models
                   parsed.generationConfig.thinkingConfig = {
-                    thinkingBudget: 0,
+                    thinkingBudget: 128,
                   };
                 }
 
