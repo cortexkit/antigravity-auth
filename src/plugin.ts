@@ -27,11 +27,11 @@ import {
 } from "./plugin/debug";
 import {
   buildThinkingWarmupBody,
+  getLastCacheStats,
   isGenerativeLanguageRequest,
   prepareAntigravityRequest,
   transformAntigravityResponse,
-} from "./plugin/request";
-import { resolveModelWithTier } from "./plugin/transform/model-resolver";
+} from "./plugin/request";import { resolveModelWithTier } from "./plugin/transform/model-resolver";
 import {
   isEmptyResponseBody,
   createSyntheticErrorResponse,
@@ -1505,8 +1505,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
       return {
         apiKey: "",
-        async fetch(input, init) {
-          if (!isGenerativeLanguageRequest(input)) {
+        async fetch(input, init) {          if (!isGenerativeLanguageRequest(input)) {
             return fetch(input, init);
           }
 
@@ -1528,9 +1527,13 @@ export const createAntigravityPlugin = (providerId: string) => async (
             debugLines.push(line);
           };
           pushDebug(`request=${urlString}`);
+          const cachedStats = getLastCacheStats()
+          if (cachedStats) {
+            const label = cachedStats.hitRate > 0 ? "HIT" : "MISS"
+            pushDebug(`[Cache] ${label} model=${cachedStats.model} read=${cachedStats.read} total=${cachedStats.total} hitRate=${cachedStats.hitRate}%`)
+          }
 
-          type FailureContext = {
-            response: Response;
+          type FailureContext = {            response: Response;
             streaming: boolean;
             debugContext: ReturnType<typeof startAntigravityDebugRequest>;
             requestedModel?: string;
@@ -1596,6 +1599,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
           let accountSwitchCount = 0;
           const maxAccountSwitches = config.max_account_switches ?? 2;
+          let previousAccountIndex = -1;
+          let needsCacheWarmup = false;
 
           while (true) {
             // Check for abort at the start of each iteration
@@ -1732,7 +1737,12 @@ export const createAntigravityPlugin = (providerId: string) => async (
             pushDebug(
               `selected idx=${account.index} email=${account.email ?? ""} family=${family} accounts=${accountCount} strategy=${config.account_selection_strategy}`,
             );
-            if (isDebugEnabled()) {
+
+            if (previousAccountIndex >= 0 && previousAccountIndex !== account.index) {
+              needsCacheWarmup = config.cache_warmup_on_switch;
+              pushDebug(`account-switch: ${previousAccountIndex} → ${account.index}, warmup=${needsCacheWarmup}`);
+            }
+            previousAccountIndex = account.index;            if (isDebugEnabled()) {
               logAccountContext("Selected", {
                 index: account.index,
                 email: account.email,
@@ -1927,6 +1937,54 @@ export const createAntigravityPlugin = (providerId: string) => async (
               }
             };
 
+            const runCacheWarmupProbe = async (
+              prepared: ReturnType<typeof prepareAntigravityRequest>,
+            ): Promise<void> => {
+              if (!needsCacheWarmup) return;
+              needsCacheWarmup = false;
+
+              const bodyStr = typeof prepared.init.body === "string" ? prepared.init.body : undefined;
+              if (!bodyStr) return;
+
+              try {
+                const parsed = JSON.parse(bodyStr);
+                parsed.generationConfig = {
+                  ...(parsed.generationConfig ?? {}),
+                  maxOutputTokens: 1,
+                  candidateCount: 1,
+                };
+                if (parsed.generationConfig.thinkingConfig) {
+                  parsed.generationConfig.thinkingConfig = {
+                    thinkingBudget: 0,
+                  };
+                }
+
+                const probeHeaders = new Headers(prepared.init.headers ?? {});
+                probeHeaders.set("accept", "application/json");
+
+                const probeUrl = toUrlString(prepared.request).replace(
+                  ":streamGenerateContent?alt=sse",
+                  ":generateContent",
+                );
+
+                pushDebug("cache-warmup-probe: start");
+                const probeResponse = await fetch(probeUrl, {
+                  ...prepared.init,
+                  method: "POST",
+                  headers: probeHeaders,
+                  body: JSON.stringify(parsed),
+                });
+
+                await probeResponse.text();
+                const status = probeResponse.status;
+                pushDebug(`cache-warmup-probe: done status=${status}`);
+              } catch (error) {
+                pushDebug(
+                  `cache-warmup-probe: failed ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+            };
+
             // Track total API requests made for this single user message
             let apiRequestCount = 0;
 
@@ -2067,6 +2125,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
                 });
 
                 await runThinkingWarmup(prepared, projectContext.effectiveProjectId);
+
+                await runCacheWarmupProbe(prepared);
 
                 if (config.request_jitter_max_ms > 0) {
                   const jitterMs = Math.floor(Math.random() * config.request_jitter_max_ms);

@@ -807,6 +807,11 @@ export function getPluginSessionId(): string {
   return PLUGIN_SESSION_ID;
 }
 
+let _lastCacheStats: { model: string; read: number; total: number; hitRate: number } | null = null;
+
+export function getLastCacheStats() {
+  return _lastCacheStats;
+}
 function generateSyntheticProjectId(): string {
   const adjectives = ["useful", "bright", "swift", "calm", "bold"];
   const nouns = ["fuze", "wave", "spark", "flow", "core"];
@@ -1746,14 +1751,14 @@ export async function transformAntigravityResponse(
         onInjectDebug: injectDebugThinking,
         onUsageMetadata: (usage) => {
           if (effectiveModel) {
-            logCacheStats(
-              effectiveModel,
-              usage.cachedContentTokenCount,
-              0,
-              usage.promptTokenCount ?? usage.totalTokenCount,
-            );
+            const cacheRead = usage.cachedContentTokenCount
+            const totalInput = usage.promptTokenCount ?? usage.totalTokenCount
+            const hitRate = totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0
+            const status = cacheRead > 0 ? "HIT" : "MISS"
+            logCacheStats(effectiveModel, cacheRead, 0, totalInput);
+            log.debug(`[Cache] ${status} model=${effectiveModel} read=${cacheRead} total=${totalInput} hitRate=${hitRate}%`)
+            _lastCacheStats = { model: effectiveModel, read: cacheRead, total: totalInput, hitRate }
           }
-
         },
         transformThinkingParts,
       },      {
@@ -1867,14 +1872,13 @@ export async function transformAntigravityResponse(
     
     // Log cache stats when available
     if (usage && effectiveModel) {
-      logCacheStats(
-        effectiveModel,
-        usage.cachedContentTokenCount ?? 0,
-        0, // API doesn't provide cache write tokens separately
-        usage.promptTokenCount ?? usage.totalTokenCount ?? 0,
-      );
-    }
-    
+      const cacheRead = usage.cachedContentTokenCount ?? 0
+      const totalInput = usage.promptTokenCount ?? usage.totalTokenCount ?? 0
+      const hitRate = totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0
+      const status = cacheRead > 0 ? "HIT" : "MISS"
+      logCacheStats(effectiveModel, cacheRead, 0, totalInput);
+      log.debug(`[Cache] ${status} model=${effectiveModel} read=${cacheRead} total=${totalInput} hitRate=${hitRate}%`)
+    }    
     if (usage?.cachedContentTokenCount !== undefined) {
       headers.set("x-antigravity-cached-content-token-count", String(usage.cachedContentTokenCount));
       if (usage.totalTokenCount !== undefined) {

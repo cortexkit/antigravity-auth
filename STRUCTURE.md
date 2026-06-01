@@ -52,8 +52,8 @@ opencode-antigravity-auth/
 │       ├── core/                 # Low-level streaming primitives
 │       │   └── streaming/
 │       │       ├── index.ts      # Public exports
-│       │       ├── transformer.ts # SSE line transformer; signature caching
-│       │       └── types.ts      # SignatureStore, StreamingCallbacks, StreamingOptions
+│       │       ├── transformer.ts # SSE line transformer, signature caching, and usage metadata tracking
+│       │       └── types.ts      # SignatureStore, StreamingCallbacks, StreamingOptions, and StreamingUsageMetadata
 │       ├── recovery/             # Session recovery subsystem
 │       │   ├── index.ts          # Public exports + createSessionRecoveryHook
 │       │   ├── constants.ts      # Recovery error strings

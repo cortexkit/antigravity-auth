@@ -139,6 +139,18 @@ export const AntigravityConfigSchema = z.object({
    * @default false
    */
   thinking_warmup: z.boolean().default(false),
+
+  /**
+   * Send a lightweight cache-seeding probe when switching to a different account.
+   * The probe reuses the same request prefix with maxOutputTokens=1 so the
+   * server-side implicit cache warms up before the real request fires.
+   * Costs ~1 quota unit per account switch but eliminates the 0% cold-cache
+   * MISS that otherwise occurs on every rotation.
+   *
+   * Env override: OPENCODE_ANTIGRAVITY_CACHE_WARMUP_ON_SWITCH=1
+   * @default true
+   */
+  cache_warmup_on_switch: z.boolean().default(true),
   
   // =========================================================================
   // Session Recovery
@@ -485,6 +497,7 @@ export const DEFAULT_CONFIG: AntigravityConfig = {
   debug_tui: false,
   keep_thinking: false,
   thinking_warmup: false,
+  cache_warmup_on_switch: true,
   session_recovery: true,  auto_resume: true,
   resume_text: "continue",
   empty_response_max_attempts: 2,

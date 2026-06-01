@@ -32,7 +32,7 @@
 **Request Transform:**
 - Purpose: Convert OpenCode/Anthropic-format request bodies into Antigravity (Cloud Code Assist) wire format and back
 - Location: `src/plugin/request.ts`, `src/plugin/request-helpers.ts`, `src/plugin/transform/`
-- Contains: `prepareAntigravityRequest`, `transformAntigravityResponse`, schema cleaning, thinking-block stripping, tool-hardening injection, cross-model sanitisation
+- Contains: `prepareAntigravityRequest`, `transformAntigravityResponse`, schema cleaning, thinking-block stripping, tool-hardening injection, cross-model sanitisation, stable system-instruction ordering (prompt → tool hardening → thinking hint) for prompt caching, and streaming cache-stats tracking via `onUsageMetadata` callback
 - Depends on: `src/constants.ts`, `src/plugin/transform/`, `src/plugin/thinking-recovery.ts`, `src/plugin/cache/`
 - Used by: `src/plugin.ts`
 
@@ -81,7 +81,7 @@
 **Streaming Core:**
 - Purpose: Transform SSE stream payloads line-by-line; cache signatures; inject debug annotations
 - Location: `src/plugin/core/streaming/` (`transformer.ts`, `types.ts`, `index.ts`)
-- Contains: `createStreamingTransformer`, `transformSseLine`, `transformStreamingPayload`
+- Contains: `createStreamingTransformer`, `transformSseLine`, `transformStreamingPayload`, and `onUsageMetadata` callback to extract usage stats and log cache hit-rate at stream completion
 - Depends on: `src/plugin/stores/signature-store.ts`
 - Used by: `src/plugin/request.ts`
 
@@ -136,12 +136,12 @@
 2. `isGenerativeLanguageRequest()` confirms the URL matches — `src/plugin/request.ts`
 3. `AccountManager.selectAccount()` picks the best OAuth account — `src/plugin/accounts.ts`
 4. `resolveModelWithTier()` maps model name → Antigravity model ID + header style — `src/plugin/transform/model-resolver.ts`
-5. `prepareAntigravityRequest()` cleans schema, strips thinking blocks for Claude, injects tool-hardening, composes headers — `src/plugin/request.ts`, `src/plugin/request-helpers.ts`
+5. `prepareAntigravityRequest()` cleans schema, strips thinking blocks for Claude, injects tool-hardening, and appends Claude thinking hints in a strict stable ordering (original prompt → tool hardening → thinking hint) to maximize prompt cache hits — `src/plugin/request.ts`, `src/plugin/request-helpers.ts`
 6. `buildFingerprintHeaders()` attaches per-account device fingerprint — `src/plugin/fingerprint.ts`
 7. `fetch()` is called against Antigravity endpoint with Bearer token — `src/plugin.ts`
 8. `accountManager.recordRequest()` tracks daily request usage per account and updates in-memory session request counts for rate consumption estimation — `src/plugin.ts`, `src/plugin/accounts.ts`
 9. `transformAntigravityResponse()` converts SSE stream back to Gemini API format — `src/plugin/request.ts`
-10. Streaming transformer processes each SSE line, caches signatures, injects debug — `src/plugin/core/streaming/`
+10. Streaming transformer processes each SSE line, caches signatures, injects debug annotations, and fires `onUsageMetadata` callback to log cache hit statistics upon stream termination — `src/plugin/core/streaming/`
 
 **Rate-Limit Retry Loop:**
 1. 429 / 503 response received — `src/plugin.ts`
@@ -239,9 +239,9 @@
 
 ## Cross-Cutting Concerns
 
-**Logging:** `createLogger("module-name")` from `src/plugin/logger.ts` for structured per-module logging with dual sinks: TUI log panel (`debug_tui`) and debug file (`debug`). Per-message API request counters track request volumes for diagnostic visibility. Post-request logging outputs cached remaining quota percentages and session request rates (average requests per hour). `console.log` only in CLI / interactive auth flows.
+**Logging:** `createLogger("module-name")` from `src/plugin/logger.ts` for structured per-module logging with dual sinks: TUI log panel (`debug_tui`) and debug file (`debug`). Per-message API request counters track request volumes for diagnostic visibility. Post-request logging outputs cached remaining quota percentages, session request rates (average requests per hour), and cache hit/miss statistics (HIT, MISS, WRITE status and hit rate percentage) computed from response usage metadata. `console.log` only in CLI / interactive auth flows.
 
-**Caching:** In-memory signature store for thinking blocks; optional disk persistence via `SignatureCache` when `keep_thinking` is enabled. Auth tokens cached per-account in `AccountManager`. Quota data cached per-account with configurable TTL and background parallel refreshes.
+**Caching:** In-memory signature store for thinking blocks; optional disk persistence via `SignatureCache` when `keep_thinking` is enabled. Auth tokens cached per-account in `AccountManager`. Quota data cached per-account with configurable TTL and background parallel refreshes. Prompt caching utilizes a strict prefix-stabilization ordering (stable system instructions first, dynamic content last) to maximize gateway-level cache hits.
 
 **Storage:** Accounts persisted to `antigravity-accounts.json` (XDG data dir) via `src/plugin/storage.ts` with `proper-lockfile` for concurrent-write safety. Current format is version 4, featuring automatic migration from older versions (v1, v2, v3), secure POSIX permissions (0600), and legacy Windows path migration. Persists per-account daily request counters (`dailyRequestCounts`) and per-model granular quota data (`cachedPerModelQuota`). Config loaded from `.opencode/antigravity.json` (project) and `~/.config/opencode/antigravity.json` (user).
 
