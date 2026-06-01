@@ -1,42 +1,81 @@
 <!-- Project memories below are READ-ONLY reference. Do NOT emit them in output. Drop any session fact already covered by a project memory. -->
 <project-memory>
 <USER_DIRECTIVES>
-- When dispatching delegated tasks, always include `load_skills` and `run_in_background`.
-- In analyze-mode, gather context in parallel before deep work, consult Oracle or Artistry for complex problems, and synthesize findings before proceeding.
 - In search-mode, maximize search effort with parallel explore and librarian agents plus direct grep, ripgrep, and ast-grep; never stop at the first result.
-- User chooses which fix to apply next from the presented list — do not apply all fixes at once.
+- In analyze-mode, gather context in parallel before deep work, consult Oracle or Artistry for complex problems, and synthesize findings before proceeding.
+- When dispatching delegated tasks, always include `load_skills` and `run_in_background`.
 - Apply fixes incrementally: one fix at a time, build, deploy, restart OpenCode, test in fresh conversation, confirm working before applying next fix.
+- User chooses which fix to apply next from the presented list — do not apply all fixes at once.
 </USER_DIRECTIVES>
 <CONFIG_DEFAULTS>
-- `proactive_rotation_threshold_percent` defaults to `20` (triggers proactive account switch when current account's remaining quota drops below this percentage; set to `0` to disable proactive rotation).
-- `cache_warmup_probe` defaults to `true` (sends lightweight probe request on first use of each account to pre-warm server-side cache; set to `false` to disable).
-- `antigravity-gemini-3.5-flash` maps to `gemini-3-flash-agent` (high/default tier) or `gemini-3.5-flash-low` (medium/low tiers) under `antigravity`, falls back to `gemini-3-flash-preview` on `gemini-cli`, and recomputes `effectiveModel` dynamically on `thinkingLevel` changes.
-- Gemini 3 Pro (including `gemini-3-pro-preview`) is removed from the plugin's model registry in `src/plugin/model-registry.ts`.
-- `gemini-3.1-pro-high` and `gemini-3.1-pro-low` map to `gemini-3.1-pro` via `RESOLVER_ALIASES` in `src/plugin/model-registry.ts`.
 - `gemini-3-flash` exists as a separate model quota key in `QUOTA_GROUP_BY_MODEL_ID` and is resolved from its low/medium/high tiers via `RESOLVER_ALIASES` in `src/plugin/model-registry.ts`.
+- `gemini-3.1-pro-high` and `gemini-3.1-pro-low` map to `gemini-3.1-pro` via `RESOLVER_ALIASES` in `src/plugin/model-registry.ts`.
+- Gemini 3 Pro (including `gemini-3-pro-preview`) is removed from the plugin's model registry in `src/plugin/model-registry.ts`.
+- `antigravity-gemini-3.5-flash` maps to `gemini-3-flash-agent` (high/default tier) or `gemini-3.5-flash-low` (medium/low tiers) under `antigravity`, falls back to `gemini-3-flash-preview` on `gemini-cli`, and recomputes `effectiveModel` dynamically on `thinkingLevel` changes.
+- `cache_warmup_probe` defaults to `true` (sends lightweight probe request on first use of each account to pre-warm server-side cache; set to `false` to disable).
+- `proactive_rotation_threshold_percent` defaults to `20` (triggers proactive account switch when current account's remaining quota drops below this percentage; set to `0` to disable proactive rotation).
 </CONFIG_DEFAULTS>
 <CONSTRAINTS>
-- The Antigravity v1internal API does not support the non-streaming `:generateContent` path for Claude models; only `:streamGenerateContent?alt=sse` works. Any lightweight probe or non-streaming target on this endpoint for Claude models must use the streaming URL and drain the SSE response body.
-- The auth menu UI display path (`auth-menu.ts`, `quota-status.ts`) reads `cachedQuota` directly from storage without the ten-minute age gate or reset-time fail-open staleness protections that the `AccountManager` in `accounts.ts` applies. This gap allows stale exhaustion data to persist in the UI.
-- `isValidRequestPart()` in `src/plugin/request.ts` allows parts with these keys only: `text`, `functionCall`, `functionResponse`, `inlineData`, `fileData`, `executableCode`, `codeExecutionResult`, `thought`. Parts lacking these keys are replaced with `{ text: "." }` sentinels.
-- Never assign `thinking: undefined` (as `JSON.stringify` silently drops keys with `undefined` values); always use `thinking: ""` or omit the field entirely.
-- `getThinkingPartText()` in `src/plugin/request.ts` handles both `part.text` and nested/string `part.thinking` for safe string extraction; do not use raw `||` property chains.
-- When extending `systemInstruction` in `src/plugin/request.ts`, append new `{ text }` parts to the parts array rather than mutating the existing text string to avoid corrupting cached prefix text.
-- Sentinel blocks must not use thinking/thought format (`{ thought: true }` or `{ type: "thinking" }`) because the Antigravity proxy converts these to Claude thinking blocks and may drop required fields when text is empty.
-- Never use `.filter()` on `contents` or `parts` arrays in the prompt-cached prefix or system-instruction parts; use `.map()` with `{ text: "." }` sentinels to preserve array indices and prevent cache hash mismatches.
-- `gemini-2.5-flash-image` and `gemini-2.5-flash-image-preview` require the Google AI API path, not Antigravity OAuth.
-- Antigravity Claude requests must not include `cache_control` at top-level or part-level because the Google sandbox proxy rejects both as unknown fields.
-- Sentinel text blocks must contain non-whitespace text; Claude rejects whitespace-only text blocks and the proxy drops empty strings.
-- The Pydantic error `messages.N.content.M.thinking.thinking: Field required` indicates the `thinking` text field is missing entirely from a block matching the thinking union variant.
 - Antigravity quota is compute/token-based (not request-count-based). There is no fixed RPD per account; a short request allows hundreds of prompts while a complex agent task can trigger a limit in 5-50 requests. Quota uses a 5-hour rolling session window (refreshes 5 hours after the first request) and a 7-day hard cap if too many 5-hour cycles are exhausted too quickly.
+- The Pydantic error `messages.N.content.M.thinking.thinking: Field required` indicates the `thinking` text field is missing entirely from a block matching the thinking union variant.
+- Sentinel text blocks must contain non-whitespace text; Claude rejects whitespace-only text blocks and the proxy drops empty strings.
+- Antigravity Claude requests must not include `cache_control` at top-level or part-level because the Google sandbox proxy rejects both as unknown fields.
+- `gemini-2.5-flash-image` and `gemini-2.5-flash-image-preview` require the Google AI API path, not Antigravity OAuth.
+- Never use `.filter()` on `contents` or `parts` arrays in the prompt-cached prefix or system-instruction parts; use `.map()` with `{ text: "." }` sentinels to preserve array indices and prevent cache hash mismatches.
+- Sentinel blocks must not use thinking/thought format (`{ thought: true }` or `{ type: "thinking" }`) because the Antigravity proxy converts these to Claude thinking blocks and may drop required fields when text is empty.
+- When extending `systemInstruction` in `src/plugin/request.ts`, append new `{ text }` parts to the parts array rather than mutating the existing text string to avoid corrupting cached prefix text.
+- `getThinkingPartText()` in `src/plugin/request.ts` handles both `part.text` and nested/string `part.thinking` for safe string extraction; do not use raw `||` property chains.
+- Never assign `thinking: undefined` (as `JSON.stringify` silently drops keys with `undefined` values); always use `thinking: ""` or omit the field entirely.
+- `isValidRequestPart()` in `src/plugin/request.ts` allows parts with these keys only: `text`, `functionCall`, `functionResponse`, `inlineData`, `fileData`, `executableCode`, `codeExecutionResult`, `thought`. Parts lacking these keys are replaced with `{ text: "." }` sentinels.
+- The auth menu UI display path (`auth-menu.ts`, `quota-status.ts`) reads `cachedQuota` directly from storage without the ten-minute age gate or reset-time fail-open staleness protections that the `AccountManager` in `accounts.ts` applies. This gap allows stale exhaustion data to persist in the UI.
+- The Antigravity v1internal API does not support the non-streaming `:generateContent` path for Claude models; only `:streamGenerateContent?alt=sse` works. Any lightweight probe or non-streaming target on this endpoint for Claude models must use the streaming URL and drain the SSE response body.
 </CONSTRAINTS>
 <ARCHITECTURE_DECISIONS>
+- `applyClaudeTransforms()` in `src/plugin/transform/claude.ts` is only called from test files — the production request path in `src/plugin/request.ts` calls individual Claude transform steps directly.
+- `appendClaudeThinkingHint()` in `src/plugin/transform/claude.ts` is wired into `src/plugin/request.ts` and called during request construction for Claude thinking models with tools, appending the thinking hint as a separate `{ text }` part after the tool hardening block to preserve prompt cache prefix stability.
+- `injectToolHardeningInstruction()` in `src/plugin/request-helpers.ts` appends tool hardening instruction AFTER existing system instruction parts (not before) to preserve the stable prefix for prompt cache matching. String systemInstruction is converted with existing text first, instruction appended after.
+- After each API request, the plugin logs per-account daily request counts, total daily requests per model family, remaining quota percentage with reset time, and a running session-level quota usage summary (duration, total requests per model family, requests per hour, accounts used). On session start, the previous session's quota summary is logged for cross-session comparison.
+- Daily per-account request counts are stored in `AccountMetadataV3.dailyRequestCounts` with auto-reset when the date changes, tracked by model family (`claude`/`gemini`). `AccountManager` exposes `recordRequest()`, `getDailyRequestCounts()`, `getTotalDailyRequests()`, and `getDailyRequestSummary()` for request tracking and debugging visibility.
+- Per-model quota data is preserved in account storage as `PerModelQuotaEntry` objects (fields: `modelId`, `displayName`, `remainingFraction`, `resetTime`) alongside the existing group aggregation, enabling granular model-level breakdown in the auth menu.
+- Account display quota reset times parse as ISO timestamps in `parseResetTimeToMs()` within `src/plugin/ui/quota-status.ts`. Past or missing reset times fall back to `READY` (fail-open) status to avoid stale exhaustion displays.
+- The TUI auth menu reads `cachedQuota` directly from storage, bypassing the `AccountManager` staleness and reset-time protections. Stale exhaustion status persists in the UI until quota is refreshed.
+- Gemini 3 Pro models route to `antigravity-gemini-3-pro-low` on the `antigravity` path, while other Pro models resolve their thinking tier via `resolveModelWithTier` in `src/plugin/transform/model-resolver.ts`.
+- Plugin initialization returns `{}` and clears account storage if the credential returned by `getAuth()` is not OAuth (`type: "oauth"`), bypassing the `fetch` interceptor so normal OpenCode auth executes.
+- `quota_style_fallback` in `src/plugin/config/schema.ts` defaults to `false` (disables auto-fallback between different quota pools on rate limits).
+- `thinking_warmup` in `src/plugin/config/schema.ts` defaults to `false` (disables thinking warmup requests at session start).
+- `claude_tool_hardening` in `src/plugin/config/schema.ts` defaults to `true`, injecting parameter signatures and system instructions to improve tool call reliability, and can be disabled to reduce context size.
+- The plugin intercepts `fetch()` after OpenCode's prompt caching hook. Any request payload mutation (like filtering or reordering parts) must preserve array indices and lengths to prevent busting the provider prompt cache.
+- `getStatusBadge` in `src/plugin/ui/auth-menu.ts` uses lowercase hint labels and omits the `resets in` suffix when the reset time is unknown.
+- `ANTIGRAVITY_ENDPOINT_FALLBACKS` in `src/constants.ts` defines the endpoint fallback order as `DAILY` then `PROD`, omitting the `AUTOPUSH` endpoint.
+- `atomicWriteFile` in `src/plugin/storage.ts` writes to a hex-suffixed `.tmp` file, retries `fs.rename` up to 3 times (50/100/200ms delays) on `EPERM` or `EACCES`, and falls back to `fs.copyFile` + `fs.unlink` on failure.
+- `account_selection_strategy` in `src/plugin/config/schema.ts` defaults to `"hybrid"` (health score + token bucket + LRU freshness) and accepts `"sticky"` or `"round-robin"`.
+- Authentication setup in `src/plugin.ts` uses `detectAuthStorageDrift` from `src/plugin/auth-drift.ts` to restore missing or invalid OpenCode OAuth configuration from local accounts.
+- `thinkingSafeReplacer` in `src/plugin/request.ts` flattens non-string thinking objects to `""` during serialization, while preserving JSON Schema objects in tool declarations.
+- `safeStringify` in `src/plugin/request.ts` uses `ensureThinkingFields` to add `thinking: ""` to `type: "thinking"` blocks and `text: ""` to `thought: true` blocks if they are missing or non-string, preventing `JSON.stringify` omission.
+- `gemini-2.5-flash` is functional on `ANTIGRAVITY_ENDPOINT_DAILY` even though it is excluded from `fetchAvailableModels` responses.
+- `proper-lockfile` is dynamically imported and cached in `_cachedLock` within `getLockFunction` in `src/plugin/storage.ts` to prevent ESM/CJS interop/default-export errors.
+- `gemini-3-pro-image-preview` is omitted from the model registry because it is not supported on Antigravity proxy endpoints.
+- Response-path transformers (`transformGeminiCandidate`, `transformThinkingParts`, `deduplicateThinkingText`) must construct thinking parts as clean objects using explicit properties (no object spreading) to prevent the original API `thinking` object from leaking into output.
+- When a request for a Claude model ends on an assistant or model turn, `src/plugin/request.ts` appends a synthetic `{ role: "user", parts: [{ text: "[Continue]" }] }` message to prevent API rejection.
+- Loggers created via `createLogger(module)` in `src/plugin/logger.ts` write to the TUI log panel via `app.log()` when `isDebugTuiEnabled()` is active.
+- Functions in `src/plugin/debug.ts` write request traces and log messages to a timestamped local file via a stream-based log writer when file debug logging is enabled.
+- Local helper `pushDebug` in `src/plugin.ts` collects request trace lines into `debugLines`, which are formatted and injected as a synthetic thinking block into the intercepted response.
+- Quota-fetching functions in `src/plugin/quota.ts` sequentially query `ANTIGRAVITY_ENDPOINT_FALLBACKS`, falling through to subsequent endpoints on network errors, timeouts, or 429/5xx status codes.
+- In `src/plugin/quota.ts`, `fetchAvailableModels` retries without a project parameter if a 403 error is encountered.
+- The request transformation pipeline preserves part-level `cache_control` markers when converting request parts to text sentinels to maintain prompt cache validity.
+- `stripCacheControlRecursively` in `src/plugin/request-helpers.ts` recursively removes `cache_control` and `providerOptions` from content objects to prevent API rejection.
+- `classifyOverallQuotaHealth` in `src/plugin/ui/quota-status.ts` skips quota groups with zero remaining fraction if resetTime is missing or in the past to prevent false partial/exhausted health states.
+- `deduplicateThinkingText` in `src/plugin/core/streaming/transformer.ts` returns `[]` in flatMap to filter out duplicate thinking chunks, preventing empty streaming updates.
+- The request transformation pipeline maps empty, invalid, or thinking parts to a single-period "." text sentinel to preserve array indices and prevent API rejection.
+- System instructions use a strict prefix-stabilization ordering (original prompt → tool hardening → Claude thinking hint) to maximize prompt cache hit rates on the Antigravity gateway.
+- Streaming responses wire the onUsageMetadata callback from createStreamingTransformer to transformAntigravityResponse to log cache hit rate percentages and status on stream termination.
+- v1.6.41-v1.6.43 implement three cache optimization strategies: (1) warmup probe sends a lightweight request on first account use to pre-warm server-side cache; (2) warm-cache-aware selection prefers session-used accounts on forced 429 rotation; (3) proactive rotation pre-switches to warm accounts when current account quota drops below `proactive_rotation_threshold_percent` (default 20%). `sessionUsedAccounts` Set in AccountManager tracks which accounts have been used this session. `proactivelyRotateForFamily()` sorts candidates by warm preference then highest remaining quota.
+- The cache warmup probe (`runCacheWarmupProbe` in `src/plugin.ts`, v1.6.49+) strips output-related fields (`generationConfig`, `thinkingConfig`, `tools`, `toolConfig`, `safetySettings`) from the request body before sending through the streaming endpoint, sending only `contents` and `systemInstruction`. The server-side cache key depends solely on the input prefix, making output config irrelevant for cache seeding. The probe reads the first SSE chunk to confirm the server processed the prefix and aborts the stream. Error body logging (first 200 chars on 400) remains as fallback diagnostics.
+- The cache warmup probe (`runCacheWarmupProbe` in `src/plugin.ts`, v1.6.49+) strips output-related fields (`generationConfig`, `thinkingConfig`, `tools`, `toolConfig`, `safetySettings`) from the request body before sending through the streaming endpoint, sending only `contents` and `systemInstruction`. The server-side cache key depends solely on the input prefix, making output config irrelevant for cache seeding. The probe reads the first SSE chunk to confirm the server processed the prefix and aborts the stream. Error body logging (first 200 chars on 400, added in v1.6.47) remains as fallback diagnostics. This supersedes the v1.6.48 "send body as-is" approach because `prepareAntigravityRequest()` can produce a body containing `generationConfig` that the v1internal endpoint rejects.
+- The cache warmup probe (`runCacheWarmupProbe` in `src/plugin.ts`, v1.6.48+) sends the actual request body as-is through the streaming endpoint (`:streamGenerateContent?alt=sse`), reads the first SSE chunk to confirm the server processed the prefix, and aborts the stream. No `generationConfig`, `thinkingConfig`, or `maxOutputTokens` are injected into the body because `prepareAntigravityRequest()` already produces the correct v1internal format — injecting these extra fields causes 400 `Unknown name "generationConfig"`. The error body logging (first 200 chars on 400, added in v1.6.47) remains as fallback diagnostics.
 - The cache warmup probe (`runCacheWarmupProbe` in `src/plugin.ts`) uses the streaming endpoint (`:streamGenerateContent?alt=sse`), draining the SSE stream body via a reader loop. For thinking models, the probe sends `thinkingConfig: { thinkingBudget: 128 }` with `maxOutputTokens: 256` (must be ≥ thinkingBudget). For non-thinking models, the probe sends `maxOutputTokens: 1` with no thinkingConfig. On 400 errors, the probe logs the first 200 chars of the response body to the debug panel.
 - The cache warmup probe (`runCacheWarmupProbe` in `src/plugin.ts`) uses the streaming endpoint (`:streamGenerateContent?alt=sse`) with `generationConfig: { maxOutputTokens: 1 }` and no thinkingConfig, draining the SSE stream body via a reader loop. The non-streaming `:generateContent` endpoint was abandoned because the Antigravity v1internal API does not support it for Claude models. (Final fix landed in v1.6.46 after two false starts in v1.6.44–v1.6.45.)
 - v1.6.41-v1.6.43 implement three cache optimization strategies working together: (1) warmup probe sends a lightweight request on first account use to pre-warm server-side cache; (2) warm-cache-aware selection prefers session-used accounts on forced 429 rotation; (3) proactive rotation pre-switches to warm accounts when current account quota drops below `proactive_rotation_threshold_percent` (default 20%). `sessionUsedAccounts` Set in AccountManager tracks which accounts have been used this session. `proactivelyRotateForFamily()` sorts candidates by warm preference then highest remaining quota.
-- Streaming responses wire the onUsageMetadata callback from createStreamingTransformer to transformAntigravityResponse to log cache hit rate percentages and status on stream termination.
-- System instructions use a strict prefix-stabilization ordering (original prompt → tool hardening → Claude thinking hint) to maximize prompt cache hit rates on the Antigravity gateway.
-- The request transformation pipeline maps empty, invalid, or thinking parts to a single-period "." text sentinel to preserve array indices and prevent API rejection.
 - deduplicateThinkingText in src/plugin/core/streaming/transformer.ts returns [] in flatMap to filter out duplicate thinking chunks, preventing empty streaming updates.
 - classifyOverallQuotaHealth in src/plugin/ui/quota-status.ts skips quota groups with zero remaining fraction if resetTime is missing or in the past to prevent false partial/exhausted health states.
 - stripCacheControlRecursively in src/plugin/request-helpers.ts recursively removes cache_control and providerOptions from content objects to prevent API rejection.
@@ -46,81 +85,81 @@
 - Local helper pushDebug in src/plugin.ts collects request trace lines into debugLines, which are formatted and injected as a synthetic thinking block into the intercepted response.
 - Functions in src/plugin/debug.ts write request traces and log messages to a timestamped local file via a stream-based log writer when file debug logging is enabled.
 - Loggers created via createLogger(module) in src/plugin/logger.ts write to the TUI log panel via app.log() when isDebugTuiEnabled() is active.
-- When a request for a Claude model ends on an assistant or model turn, `src/plugin/request.ts` appends a synthetic `{ role: "user", parts: [{ text: "[Continue]" }] }` message to prevent API rejection.
 - Response-path transformers (`transformGeminiCandidate` and `transformThinkingParts` in `src/plugin/request-helpers.ts`, and `deduplicateThinkingText` in `src/plugin/core/streaming/transformer.ts`) must construct thinking parts as clean objects using explicit properties (no object spreading) to prevent the original API `thinking` object from leaking into output.
 - `gemini-3-pro-image-preview` is omitted from the model registry in `src/plugin/model-registry.ts` because it is not supported on Antigravity proxy endpoints.
-- `proper-lockfile` is dynamically imported and cached in `_cachedLock` within `getLockFunction` in `src/plugin/storage.ts` to prevent ESM/CJS interop/default-export errors.
-- `gemini-2.5-flash` is functional on `ANTIGRAVITY_ENDPOINT_DAILY` even though it is excluded from `fetchAvailableModels` responses.
-- `safeStringify` in `src/plugin/request.ts` uses `ensureThinkingFields` to add `thinking: ""` to `type: "thinking"` blocks and `text: ""` to `thought: true` blocks if they are missing or non-string, preventing `JSON.stringify` omission.
-- `thinkingSafeReplacer` in `src/plugin/request.ts` flattens non-string thinking objects to `""` during serialization, while preserving JSON Schema objects in tool declarations.
-- Authentication setup in `src/plugin.ts` uses `detectAuthStorageDrift` from `src/plugin/auth-drift.ts` to restore missing or invalid OpenCode OAuth configuration from local accounts.
-- `account_selection_strategy` in `src/plugin/config/schema.ts` defaults to `"hybrid"` (health score + token bucket + LRU freshness) and accepts `"sticky"` or `"round-robin"`.
-- `atomicWriteFile` in `src/plugin/storage.ts` writes to a hex-suffixed `.tmp` file, retries `fs.rename` up to 3 times (50/100/200ms delays) on `EPERM` or `EACCES`, and falls back to `fs.copyFile` + `fs.unlink` on failure.
-- `ANTIGRAVITY_ENDPOINT_FALLBACKS` in `src/constants.ts` defines the endpoint fallback order as `DAILY` then `PROD`, omitting the `AUTOPUSH` endpoint.
-- `getStatusBadge` in `src/plugin/ui/auth-menu.ts` uses lowercase hint labels and omits the `resets in` suffix when the reset time is unknown.
-- The plugin intercepts `fetch()` after OpenCode's prompt caching hook. Any request payload mutation (like filtering or reordering parts) must preserve array indices and lengths to prevent busting the provider prompt cache.
-- `claude_tool_hardening` in `src/plugin/config/schema.ts` defaults to `true`, injecting parameter signatures and system instructions to improve tool call reliability, and can be disabled to reduce context size.
-- `thinking_warmup` in `src/plugin/config/schema.ts` defaults to `false` (disables thinking warmup requests at session start).
-- `quota_style_fallback` in `src/plugin/config/schema.ts` defaults to `false` (disables auto-fallback between different quota pools on rate limits).
-- Plugin initialization returns `{}` and clears account storage if the credential returned by `getAuth()` is not OAuth (`type: "oauth"`), bypassing the `fetch` interceptor so normal OpenCode auth executes.
-- Gemini 3 Pro models route to `antigravity-gemini-3-pro-low` on the `antigravity` path, while other Pro models resolve their thinking tier via `resolveModelWithTier` in `src/plugin/transform/model-resolver.ts`.
 - The TUI auth menu (`src/plugin/ui/auth-menu.ts`, `src/plugin/ui/quota-status.ts`) reads `cachedQuota` directly from storage, bypassing the `AccountManager` staleness and reset-time protections. Stale exhaustion status persists in the UI until quota is refreshed.
-- Account display quota reset times parse as ISO timestamps in `parseResetTimeToMs()` within `src/plugin/ui/quota-status.ts`. Past or missing reset times fall back to `READY` (fail-open) status to avoid stale exhaustion displays.
-- Per-model quota data is preserved in account storage as `PerModelQuotaEntry` objects (fields: `modelId`, `displayName`, `remainingFraction`, `resetTime`) alongside the existing group aggregation, enabling granular model-level breakdown in the auth menu.
-- Daily per-account request counts are stored in `AccountMetadataV3.dailyRequestCounts` with auto-reset when the date changes, tracked by model family (`claude`/`gemini`). `AccountManager` exposes `recordRequest()`, `getDailyRequestCounts()`, `getTotalDailyRequests()`, and `getDailyRequestSummary()` for request tracking and debugging visibility.
-- After each API request, the plugin logs per-account daily request counts, total daily requests per model family, remaining quota percentage with reset time, and a running session-level quota usage summary (duration, total requests per model family, requests per hour, accounts used). On session start, the previous session's quota summary is logged for cross-session comparison.
-- `injectToolHardeningInstruction()` in `src/plugin/request-helpers.ts` appends tool hardening instruction AFTER existing system instruction parts (not before) to preserve the stable prefix for prompt cache matching. String systemInstruction is converted with existing text first, instruction appended after.
-- `appendClaudeThinkingHint()` in `src/plugin/transform/claude.ts` is wired into `src/plugin/request.ts` and called during request construction for Claude thinking models with tools, appending the thinking hint as a separate `{ text }` part after the tool hardening block to preserve prompt cache prefix stability.
 - `applyClaudeTransforms()` in `src/plugin/transform/claude.ts` is only called from test files — the production request path in `src/plugin/request.ts` calls individual Claude transform steps (`injectClaudeContentTypes`, `injectToolHardeningInstruction`, `removeCacheControl`, `appendClaudeThinkingHint`) directly, so the dual-call-site concern for thinking-hint injection does not cause double-fire in production.
 </ARCHITECTURE_DECISIONS>
 <ENVIRONMENT>
-- Magic Context `execute_threshold_tokens`=120000 (default, Sonnet, Opus); `execute_threshold_percentage`=60 (Sonnet, Opus) in `C:\Users\Expiren\.config\opencode\magic-context.jsonc`.
-- User config at `C:\Users\Expiren\.config\opencode\antigravity.json` sets `claude_tool_hardening=false`.
-- Desktop/Electron strict Node ESM rejects extensionless relative imports (e.g., `./src/plugin`); TUI/Bun tolerates them.
-- npm is logged in as `expiren`; publishing requires an npm automation or granular access token with bypass-2FA enabled.
-- GitHub repo `https://github.com/expiren/opencode-antigravity-auth` is the active origin fork containing the `@expiren/opencode-antigravity-auth` scoped-package changes and upstream NoeFabris merges.
-- `proper-lockfile` v4.1.2 is CJS; exports both `module.exports = lock` and `module.exports.lock = lock`.
-- Local installed Magic Context copies in the OpenCode package cache and config `node_modules` contain a manual `message.updated.no_usage` patch for usage-less zero-token `message.updated` events.
-- OpenCode config loads `@expiren/opencode-antigravity-auth@latest`.
-- Magic Context user config path: `C:\Users\Expiren\.config\opencode\magic-context.jsonc`.
-- Antigravity user config path: `C:\Users\Expiren\.config\opencode\antigravity.json`.
-- Magic context SQLite database: `C:\Users\Expiren\.local\share\opencode\storage\plugin\magic-context\context.db`.
-- Magic context log file: `C:\Users\Expiren\AppData\Local\Temp\magic-context.log`.
 - Build output lands in `dist/src/` (mirrors `src/` structure).
+- Magic context log file: `C:\Users\Expiren\AppData\Local\Temp\magic-context.log`.
+- Magic context SQLite database: `C:\Users\Expiren\.local\share\opencode\storage\plugin\magic-context\context.db`.
+- Antigravity user config path: `C:\Users\Expiren\.config\opencode\antigravity.json`.
+- Magic Context user config path: `C:\Users\Expiren\.config\opencode\magic-context.jsonc`.
+- OpenCode config loads `@expiren/opencode-antigravity-auth@latest`.
+- `proper-lockfile` v4.1.2 is CJS; exports both `module.exports = lock` and `module.exports.lock = lock`.
+- GitHub repo `https://github.com/expiren/opencode-antigravity-auth` is the active origin fork containing the `@expiren/opencode-antigravity-auth` scoped-package changes and upstream NoeFabris merges.
+- npm is logged in as `expiren`; publishing requires an npm automation or granular access token with bypass-2FA enabled.
+- Desktop/Electron strict Node ESM rejects extensionless relative imports (e.g., `./src/plugin`); TUI/Bun tolerates them.
+- User config at `C:\Users\Expiren\.config\opencode\antigravity.json` sets `claude_tool_hardening=false`.
+- Magic Context `execute_threshold_tokens`=120000 (default, Sonnet, Opus); `execute_threshold_percentage`=60 (Sonnet, Opus) in `C:\Users\Expiren\.config\opencode\magic-context.jsonc`.
+- Local installed Magic Context copies in the OpenCode package cache and config `node_modules` contain a manual `message.updated.no_usage` patch for usage-less zero-token `message.updated` events.
 - Local workspace is at `D:\Projects\opencode-antigravity-auth`
 </ENVIRONMENT>
 <WORKFLOW_RULES>
-- Deploying uses `npm run build` and `npm publish --access public` to publish `@expiren/opencode-antigravity-auth` to npm; OpenCode resolves it from the local package cache at `C:\Users\Expiren\.cache\opencode\packages\@expiren\` via `@expiren/opencode-antigravity-auth@latest`.
-- When using background bash tasks in TUI mode, run OpenCode as `opencode --port 0` to receive completion reminders (notifications are unavailable without `--port 0` due to anomalyco/opencode#28202); OpenCode Desktop does not require this.
+- Apply fixes incrementally: one fix at a time, build, deploy, restart OpenCode, test in fresh conversation, confirm working before applying next fix. User chooses which fix to apply next from the presented list.
+- In search-mode, maximize search effort with parallel explore and librarian agents plus direct grep, ripgrep, and ast-grep; never stop at the first result.
+- In analyze-mode, gather context in parallel before deep work, consult Oracle or Artistry for complex problems, and synthesize findings before proceeding.
+- When dispatching delegated tasks, always include `load_skills` and `run_in_background`.
 - When debugging persistent issues across many fix iterations, reset to a known-working baseline and apply fixes one at a time with user testing between each.
+- When using background bash tasks in TUI mode, run OpenCode as `opencode --port 0` to receive completion reminders (notifications are unavailable without `--port 0` due to anomalyco/opencode#28202); OpenCode Desktop does not require this.
 - When deploying, run `npm run build` and `npm publish --access public` to publish `@expiren/opencode-antigravity-auth` to npm; OpenCode resolves it from the local package cache at `C:\Users\Expiren\.cache\opencode\packages\@expiren\` via `@expiren/opencode-antigravity-auth@latest`.
+- Deploying uses `npm run build` and `npm publish --access public` to publish `@expiren/opencode-antigravity-auth` to npm; OpenCode resolves it from the local package cache at `C:\Users\Expiren\.cache\opencode\packages\@expiren\` via `@expiren/opencode-antigravity-auth@latest`.
 </WORKFLOW_RULES>
 <KNOWN_ISSUES>
+- On the same account with no account switch or compression, cache can drop from 99% HIT to 0% MISS between consecutive requests. Possible causes: Google's implicit cache TTL (~5 minutes) expired between requests, or Magic Context Phase 1 `chat.messages.transform` changed the request prefix.
+- gemini-3.1-flash-image and gemini-3.1-flash-image-preview are available on the Gemini API, Vertex AI, and Antigravity with image output, but the plugin lacks explicit OPENCODE_MODEL_DEFINITIONS entries for them.
+- gemini-3.5-flash-preview is missing from OPENCODE_MODEL_DEFINITIONS, so no explicit gemini-cli preview path exists despite the resolver being able to generate that fallback id.
+- Desktop/Electron can fall back to native @ai-sdk/google even when auth.json contains google OAuth, because Desktop's utility-process server may bypass the plugin's auth-loader fetch override.
+- Cache stats (cachedContentTokenCount, promptTokenCount) are never logged for streaming responses because logCacheStats() in request.ts only fires on the non-streaming code path; the streaming transformer sees usageMetadata in SSE lines but only uses it as a boolean flag for synthetic usage injection, never extracting actual cache values.
+- Google's implicit prefix caching on the Antigravity proxy requires multiple requests (5-20+) with the same prefix before activating. Each new account starts at 0% cold cache, and with per-account quotas exhausting in ~5-7 requests, most new accounts never reach the cache warmup threshold.
+- Account rotation splits server-side cache buckets by changing auth identity, managed project, fingerprint, or headers. Returning to a previously-used account after rotation finds a stale cache (conversation grew while on other accounts), yielding ~76-79% hit rate on first return. Each new account starts at 0% cold cache. It takes 2-3 messages of consistent account use to warm the cache back to 95-99%.
+- Magic Context history compression (compartmentalization) rewrites the entire conversation when token thresholds are exceeded, changing the request prefix and busting the Antigravity server-side cache. Post-compression, total tokens drop from ~137K to ~26K (10% of context budget), hitRate drops to ~34% (only system prompt + tools survive), recovering to 80%+ the next message as the new prefix stabilizes.
+- Magic Context counts message.updated events with hasUsageTokens=false as cache BUSTs, inflating BUST diagnostics for Antigravity Claude models; a fix is needed in Magic Context to ignore zero-usage events.
+- Magic Context Phase 1 stripping, placeholder replay, and compartment-agent activity can cause alternating cache misses even when the plugin request pipeline is stable. However, when MC parameters are stable (same ctxReduce, same subagent, same stripStructuralNoise pattern), MC per-turn transforms do not bust cache because they use sentinel replacement preserving array indices and guidance injection text is identical each turn.
+- Magic Context guidance injection (hephaestus, sisyphus, sisyphus-junior, or generic guidance) can change the system prompt hash and cause cache busts even after the v0.14.1 sentinel fix.
+- The `quotaUser` field in Fingerprint is marked @deprecated and never set by generateFingerprint() or collectCurrentFingerprint(), causing quotaUser=undefined to appear in TUI debug logs as cosmetic noise.
+- `appendClaudeThinkingHint()` in `src/plugin/transform/claude.ts` mutates the last system text part, destabilizing the Claude prefix cache; it should append a separate `{ text: hint }` part instead.
+- Latest OpenCode versions may cause /provider and /config/providers to return 400 when the Antigravity plugin is loaded; adding provider-model metadata fields (id, release_date, attachment, reasoning, temperature, tool_call) to all model definitions is required to resolve this.
+- Local opencode run may fail before model execution with a stale "Session not found" reference; use a fresh OpenCode TUI session for live validation.
+- TypeScript LSP diagnostics can fail with server exit -4058; use npm run typecheck as the reliable TypeScript validation path.
+- Conversations with persisted thinking: &lt;object&gt; history keep failing with "messages.*.content.*.thinking.thinking: Field required"; test fixes in a fresh conversation after restarting OpenCode.
+- Desktop cannot use the local plugin fork — the plugin fetch interceptor does not activate for Desktop's request path regardless of dummy-key or local-wrapper approaches, causing "API key not valid" errors.
+- Plugin-backed Claude models are more cache-fragile than other providers because Claude tool hardening, interleaved-thinking hints, and tool-description signature injection can change the prompt prefix.
+- OpenCode providerOptions/cache_control markers may be consumed before the fetch body, so the Antigravity proxy can receive no explicit cache-control markers from OpenCode.
+- Upstream npm package opencode-antigravity-auth is archived with unfixed bugs; OpenCode Desktop resolves and caches it separately from local builds.
+- The Antigravity account manager lacks a "Use this account" restore action, so existing stored accounts cannot recreate missing OpenCode google OAuth auth without re-running OAuth.
+- Antigravity Claude prompt-cache markers are unsupported on the current proxy path; enabling Claude auto-caching causes invalid JSON payload 400s.
+- If Magic Context recreates context.db, the duplicate-tag upsert trigger must be re-added.
+- The plugin's gemini-cli path routes to the Antigravity proxy (cloudcode-pa.googleapis.com) with nodejs-client UA headers, NOT to the public Google API. Manual /v1internal API testing returns 401 even for known-working models, so live OpenCode testing is the only reliable verification.
+- OpenCode Desktop may not expose plugin OAuth methods for Google and can fall back to the built-in Google API-key connect screen even when TUI shows the Antigravity OAuth method.
+- Format-Reset() in src/plugin.ts emits "(unavailable)" when remainingFraction ≤ 0 AND resetTime is in the past, while classifyGroupStatus() returns READY for the same condition. This creates a UI contradiction: Pro models show "0% [READY] (unavailable)" on the gemini-cli pool, but the plugin routes them through the Antigravity path where separate quota exists.
+- Magic Context history compression can create two coexisting server-side cache entries for the same account (pre-compression prefix and post-compression prefix), causing hit rate oscillation (e.g., 74%→100%→74%) on consecutive messages. Google's server alternates between entries based on which prefix matches better per request. This is an MC-level artifact, not a plugin bug.
 - Magic Context history compression can create two coexisting server-side cache entries for the same account (pre-compression at ~111K cached tokens and post-compression at ~120K), causing hit rate oscillation (e.g., 74%→100%→74%) on consecutive messages. Google's server alternates between entries based on which prefix matches better per request. This is an MC-level artifact, not a plugin bug — the plugin prefix is stable per v1.6.35.
 - formatReset() in src/plugin.ts emits (unavailable) when remainingFraction ≤ 0 AND resetTime is in the past, while classifyGroupStatus() returns READY for the same condition. This creates a UI contradiction: Pro models (gemini-2.5-pro, gemini-3-pro-preview, gemini-3.1-pro-preview) show 0% [READY] (unavailable) on the gemini-cli pool, but the plugin routes them through the Antigravity path where separate quota exists.
 - Cache stats (cachedContentTokenCount, promptTokenCount) are extracted and logged for streaming responses since v1.6.37 via the onUsageMetadata callback in the streaming transformer. (Resolved)
-- OpenCode Desktop may not expose plugin OAuth methods for Google and can fall back to the built-in Google API-key connect screen even when TUI shows the Antigravity OAuth method.
 - The plugin's gemini-cli path routes to the Antigravity proxy (cloudcode-pa.googleapis.com) with nodejs-client UA headers, NOT to the public Google API — gemini-cli models may only work if the proxy recognizes their model IDs. Manual /v1internal API testing returns 401 even for known-working models, so live OpenCode testing is the only reliable verification method.
-- If Magic Context recreates context.db, the duplicate-tag upsert trigger must be re-added.
-- Antigravity Claude prompt-cache markers are unsupported on the current proxy path; enabling Claude auto-caching causes invalid JSON payload 400s.
 - The Antigravity account manager lacks a Use this account restore action, so existing stored accounts cannot recreate missing OpenCode google OAuth auth without re-running OAuth.
-- Upstream npm package opencode-antigravity-auth is archived with unfixed bugs; OpenCode Desktop resolves and caches it separately from local builds.
-- OpenCode providerOptions/cache_control markers may be consumed before the fetch body, so the Antigravity proxy can receive no explicit cache-control markers from OpenCode.
-- Plugin-backed Claude models are more cache-fragile than other providers because Claude tool hardening, interleaved-thinking hints, and tool-description signature injection can change the prompt prefix.
 - Desktop cannot use the local plugin fork — the plugin fetch interceptor does not activate for Desktop's request path regardless of dummy-key or local-wrapper approaches, causing API key not valid errors.
 - Conversations with persisted thinking: &lt;object&gt; history keep failing with messages.*.content.*.thinking.thinking: Field required; test fixes in a fresh conversation after restarting OpenCode.
-- TypeScript LSP diagnostics can fail with server exit -4058; use npm run typecheck as the reliable TypeScript validation path.
 - Local opencode run may fail before model execution with a stale Session not found reference; use a fresh OpenCode TUI session for live validation if that occurs.
-- Latest OpenCode versions may cause /provider and /config/providers to return 400 when the Antigravity plugin is loaded; adding provider-model metadata fields (id, release_date, attachment, reasoning, temperature, tool_call) to all model definitions is required to resolve this.
 - Claude thinking-hint injection has two call sites (src/plugin/transform/claude.ts and src/plugin/request.ts); verify whether both fire on the same Claude thinking request before consolidating.
 - gemini-3.5-flash-preview is missing from OPENCODE_MODEL_DEFINITIONS, so Gemini 3.5 Flash lacks a defined gemini-cli preview path even though the resolver can generate that fallback id.
 - gemini-3.1-flash-image and gemini-3.1-flash-image-preview lack OPENCODE_MODEL_DEFINITIONS entries despite being available on Gemini API, Vertex AI, and Antigravity.
 - appendClaudeThinkingHint() in src/plugin/transform/claude.ts mutates the last system text part, destabilizing the Claude prefix cache; it should append a separate { text: hint } part instead.
 - The `quotaUser` field in Fingerprint (line 53 of fingerprint.ts) is marked @deprecated and never set by generateFingerprint() or collectCurrentFingerprint(), causing quotaUser=undefined to appear in TUI debug logs as cosmetic noise.
 - The auth menu display path (auth-menu.ts, quota-status.ts) reads cachedQuota directly from storage without the ten-minute age gate or reset-time fail-open staleness protections that the AccountManager in accounts.ts applies. This gap allows stale exhaustion data to persist in the UI until fresh quota is explicitly fetched.
-- Magic Context guidance injection (hephaestus, sisyphus, sisyphus-junior, or generic guidance) can change the system prompt hash and cause cache busts even after the v0.14.1 sentinel fix.
 - Magic Context Phase 1 stripping, placeholder replay, and compartment-agent activity can cause alternating cache misses even when the plugin request pipeline is stable. However, when MC parameters are stable (same ctxReduce, same subagent, same stripStructuralNoise pattern), MC per-turn transforms do not bust cache because they use sentinel replacement preserving array indices and the guidance injection text is identical each turn.
-- Magic Context counts message.updated events with hasUsageTokens=false as cache BUSTs, inflating BUST diagnostics for Antigravity Claude models; a fix is needed in Magic Context to ignore zero-usage events.
 - Magic Context history compression (compartmentalization) rewrites the entire conversation when token thresholds are exceeded, changing the request prefix and busting the Antigravity server-side cache. Post-compression, total tokens drop from ~137K to ~26K (10% of context budget), hitRate drops to ~34% (only system prompt + tools survive), recovering to 80%+ the next message as the new prefix stabilizes. This is a one-time bust per compression cycle, inherent to how the Antigravity proxy cache keys on the full request prefix.
 - Account rotation splits server-side cache buckets by changing auth identity, managed project, fingerprint, or headers. Returning to a previously-used account after rotation finds a stale cache (conversation grew while on other accounts), yielding ~76-79% hit rate on first return (old cache still exists but is partial), recovering to 95-99% after 2-3 messages of consistent use. Sticky account selection reduces voluntary switches but cannot prevent 429 QUOTA_EXHAUSTED forced switches.
 - Google's implicit prefix caching on the Antigravity proxy requires multiple requests (5-20+) with the same prefix before activating — it does not cache on first or second request. Each new account starts at 0% cold cache, and with per-account quotas exhausting in ~5-7 requests (claude_today), most new accounts never reach the cache warmup threshold.
@@ -129,13 +168,11 @@
 - The `quotaUser` field in `Fingerprint` (line 53 of `fingerprint.ts`) is marked `@deprecated` and never set by `generateFingerprint()` or `collectCurrentFingerprint()`, causing `quotaUser=undefined` to appear in TUI debug logs as cosmetic noise.
 - Magic Context history compression (compartmentalization) rewrites the entire conversation when token thresholds are exceeded, changing the request prefix and busting the Antigravity server-side cache. Post-compression, total tokens drop from ~137K to ~26K (10% of context budget), hitRate drops to ~34% (only system prompt + tools survive), recovering to 80%+ the next message as the new prefix stabilizes. This is a one-time bust per compression cycle, inherent to how Antigravity proxy cache keys on the full request prefix.
 - Magic Context counts message.updated events with hasUsageTokens=false as cache BUSTs, inflating BUST diagnostics for Antigravity Claude models.
-- Desktop/Electron can fall back to native @ai-sdk/google even when auth.json contains google OAuth, because Desktop's utility-process server may bypass the plugin's auth-loader fetch override.
 - appendClaudeThinkingHint() in src/plugin/transform/claude.ts mutates the last system text part, destabilizing the Claude prefix cache.
 - Claude thinking-hint injection has two call sites (src/plugin/transform/claude.ts and src/plugin/request.ts); verify both do not double-fire on the same request.
 - Latest OpenCode versions can return 400 from /provider and /config/providers when the Antigravity plugin is loaded; adding provider-model metadata fields to all model definitions is required.
 - Local opencode run may fail with a stale "Session not found" reference before model execution; use a fresh TUI session for validation.
 - TypeScript LSP diagnostics can fail with server exit -4058; use npm run typecheck as the reliable validation path.
-- gemini-3.5-flash-preview is missing from OPENCODE_MODEL_DEFINITIONS, so no explicit gemini-cli preview path exists despite the resolver being able to generate that fallback id.
 - Desktop cannot use the local plugin fork because the fetch interceptor does not activate for Desktop's request path.
 - Plugin-backed Claude models are more cache-fragile than other providers due to tool hardening, interleaved-thinking hints, and tool-description signature injection changing the prompt prefix.
 - OpenCode providerOptions/cache_control markers may be consumed before the fetch body, so the Antigravity proxy receives no explicit cache-control markers from OpenCode.
@@ -153,7 +190,6 @@
 - OpenCode Desktop v1.14.41 can fall back to native `@ai-sdk/google` even when `auth.json` contains `google` OAuth and TUI works, causing `Google Generative AI API key is missing`, likely because Desktop's utility-process server bypasses the plugin's auth-loader `fetch` override.
 - Magic Context counts `message.updated` events with `hasUsageTokens=false` as cache BUSTs, inflating BUST diagnostics for Antigravity Claude models; a fix is needed in Magic Context to ignore zero-usage events.
 - Antigravity API rejects explicit Claude `cache_control` markers, so normal Anthropic cache breakpoints are unavailable.
-- `appendClaudeThinkingHint()` in `src/plugin/transform/claude.ts` mutates the last system text part, destabilizing the Claude prefix cache; it should append a separate `{ text: hint }` part instead.
 - `gemini-3.1-flash-image` and `gemini-3.1-flash-image-preview` are available on the Gemini API, Vertex AI, and Antigravity with image output, but the plugin lacks explicit `OPENCODE_MODEL_DEFINITIONS` entries for them.
 - Claude thinking-hint injection has two call sites (`src/plugin/transform/claude.ts` and `src/plugin/request.ts`); verify whether both fire on the same Claude thinking request before consolidating.
 - Latest OpenCode versions may cause `/provider` and `/config/providers` to return 400 when the Antigravity plugin is loaded; adding provider-model metadata fields (`id`, `release_date`, `attachment`, `reasoning`, `temperature`, `tool_call`) to all model definitions is required to resolve this.
@@ -161,7 +197,6 @@
 - TypeScript LSP diagnostics can fail with server exit `-4058`; use `npm run typecheck` as the reliable TypeScript validation path.
 - `gemini-3.5-flash-preview` is missing from `OPENCODE_MODEL_DEFINITIONS`, so Gemini 3.5 Flash lacks a defined gemini-cli preview path even though the resolver can generate that fallback id.
 - Conversations with persisted `thinking: &lt;object&gt;` history keep failing with `messages.*.content.*.thinking.thinking: Field required`; test fixes in a fresh conversation after restarting OpenCode.
-- Desktop cannot use the local plugin fork — the plugin fetch interceptor does not activate for Desktop's request path regardless of dummy-key or local-wrapper approaches, causing "API key not valid" errors.
 - OpenCode `providerOptions`/`cache_control` markers may be consumed before the fetch body, so the Antigravity proxy can receive no explicit cache-control markers from OpenCode.
 - Magic context Phase 1 stripping, placeholder replay, and compartment-agent activity can cause alternating cache misses even when the plugin request pipeline is stable.
 - Upstream npm package `opencode-antigravity-auth` is archived with unfixed bugs; OpenCode Desktop resolves and caches it separately from local builds.
@@ -386,8 +421,173 @@ Explained that a 74% cache hit rate on a single account is caused by returning a
 The user noticed cache hit rate oscillating 74%→100%→74% on the same account (idx=64) across three consecutive debug blocks. The assistant traced the root cause using the v1.6.40 one-message delay structure: total tokens dropped from 150K to 120K between requests (a Magic Context compression event). The compressed prefix happened to exactly match a cached entry (100% at 120K total), then the next message grew back to 151K and the server hit the older pre-compression cache entry (111K cached of 151K total = 74%). The two cache entries coexist on Google's server and the server alternates between them based on which prefix matches better for each request. Confirmed the plugin's prefix is stable (v1.6.35 fix) — the oscillation is entirely an MC-level artifact. Without MC compression, the same account would achieve 97-99% hit rate consistently. No code changes were made.
 </compartment>
 
+<compartment start="1395" end="1413" title="Investigated MC cache oscillation, fixed warmup probe (v1.6.48)">
+Investigated whether the analyze-mode template originates from Magic Context. Three research agents independently confirmed MC uses `experimental.chat.messages.transform` (Phase 1, before the plugin's fetch interception) to rewrite conversation history and inject system instructions — this is the mechanism for the analyze-mode template and the root cause of cache oscillation. During parallel research, agents discovered the warmup probe was failing with 400 because `prepareAntigravityRequest()` already transforms the body to v1internal format, which has no `generationConfig` field — injecting `generationConfig` caused `Unknown name "generationConfig": Cannot find field`. Fixed (v1.6.48) by sending the actual request body as-is through the streaming endpoint and aborting after the first SSE chunk, eliminating all custom body injection (`generationConfig`, `thinkingConfig`, `maxOutputTokens`). Agents also confirmed the 74%↔100% cache oscillation is caused by MC history compression creating two coexisting server-side cache entries (post-compression ~81K prefix, pre-compression ~113-117K prefix) that Google's server alternates between — unfixable in the plugin because MC modifies the message array before the plugin sees it.
+</compartment>
+
+<compartment start="1414" end="1428" title="MC cache-busting diagnosis and config recommendations">
+The user shared their magic-context.jsonc config and asked what causes cache loss in Magic Context. Four parallel research agents analyzed the MC codebase (scheduler.ts, execute pass triggers, system prompt transforms, message transform pipeline) and identified how MC decides to execute (cache bust) vs defer (cache stable). Three execute triggers found: context usage ≥ threshold (60%/120K tokens), cache TTL expired (59m), and force materialize (hardcoded 85%). Seven config issues were identified and recommended: (1) fix cache_ttl.default typo "59mm" → "59m", (2-3) raise execute_threshold_percentage from 60 to 75 and execute_threshold_tokens from 120K to 150K for Claude models, (4) raise history_budget_percentage from 0.1 to 0.15, (5) raise compressor.cooldown_ms from 600K to 900K, (6) consider switching sidekick model to avoid Antigravity Gemini quota drain, (7) raise GPT/Gemini thresholds from 20-35% to 50-60%. The user asked twice whether that was everything; the second round added items 6-7. Recommendations were presented but not applied.
+</compartment>
+
+<compartment start="1429" end="1456" title="503/429 trace and warmup probe fix (v1.6.49)">
+The user shared debug logs showing a 503 (MODEL_CAPACITY_EXHAUSTED, server capacity) followed by 429 (QUOTA_EXHAUSTED) on the same account. Tracing found the 503 retry consumed a quota unit, accelerating quota exhaustion. The warmup probe was still returning 400 with "Unknown name generationConfig" because prepareAntigravityRequest() produces a body containing generationConfig that the v1internal streaming endpoint rejects. The user corrected the assistant's assumption that quota is request-count-based — Antigravity quota is compute/token-based with no fixed RPD, and claude_today is just a request counter, not a limit. Implemented v1.6.49: strips all output-related config (generationConfig, thinkingConfig, tools, toolConfig, safetySettings) from the probe body before sending, keeping only contents + systemInstruction. Cache warming only needs the input prefix to match the server-side cache key; output config is irrelevant. Probe sends through the streaming endpoint, reads the first SSE chunk, and aborts. All 42 test files pass, typecheck clean. Published, committed, tagged, pushed, OpenCode package cache cleared.
+</compartment>
+
+<compartment start="1457" end="1462" title="MC config threshold regression diagnosed and reverted">
+User tested the raised MC thresholds (75%/150K recommended in compartment 1414-1428) and cache hit rate dropped from 80%+ to 71%. The assistant analyzed the math: higher thresholds delay compression → conversation grows larger between compressions → cached prefix stays the same (112K) → lower hit rate percentage, and when MC finally executes, the bust is more severe. Assistant retracted the recommendation. Reverting to original config (60%/120K) with only the "59mm"→"59m" typo fix kept.
+</compartment>
+
+<compartment start="1463" end="1477" title="v1.6.49 deployment verified, probe fix pending 429 test">
+User shared debug showing warmup probe still 400 from old v1.6.48 still loaded at startup. After restarting OpenCode, v1.6.49 confirmed active. New session shows normal cache progression: no cache line on first message (v1.6.40 one-message delay), MISS (0%) on second, then HIT at 76% climbing. Warmup probe did not fire because no account switch occurred (sticky on account 10 throughout). The v1.6.49 fix — stripping `generationConfig`, `thinkingConfig`, `tools`, `toolConfig`, `safetySettings` from the probe body — can only be exercised when a 429 QUOTA_EXHAUSTED forces an account switch. User is reverting MC config changes incrementally (one value at a time, testing between each).
+</compartment>
+
+<compartment start="1478" end="1482" title="Verified v1.6.49 warmup probe working in live session">
+The user shared debug TUI logs from a fresh OpenCode session showing account switches with cache-warmup-probe. The assistant analyzed the timeline across accounts 10→14→16 and confirmed: the probe returns status=200 (aborted after first chunk) on each account switch, and the first real request on the new account achieves 98% HIT (read=138512 total=140695) — previously 0% MISS before the v1.6.49 probe fix. Cache then drops to ~79% after Magic Context compression creates an older coexisting server-side cache entry (112K cached vs 138K from the probe-seeded prefix). The user questioned whether the probe was working; the assistant re-analyzed and confirmed the probe itself works correctly — the observed 78-79% hit rate is caused by MC compression creating alternating cache buckets (138K vs 112K), not by probe failure. The v1.6.49 approach of stripping output-related config (generationConfig, thinkingConfig, tools, toolConfig, safetySettings) from the probe body is validated.
+</compartment>
+
+<compartment start="1483" end="1484" title="Explained why cache drops back to old 112K entry after warmup probe seeds 138K">
+Magic Context compression rewrites the conversation body between turns, changing the request prefix hash. The probe-seeded 138K cache entry becomes a miss, and Google falls back to an older 112K partial match from a previous compression boundary. This cannot be fixed in the plugin because MC modifies the request before the plugin intercepts fetch().
+</compartment>
+
+<compartment start="1485" end="1488" title="Confirmed warmup probe working, reviewed remaining cache opportunities">
+User confirmed the v1.6.49 warmup probe fix works — returns status=200 (aborted after first chunk). The assistant reviewed all fixed strategies (prefix stability, warmup probe, warm-cache account selection, proactive rotation) and identified Magic Context compression as the final remaining cache bust source. Proposed a post-compression re-probe as a ~1-hour remaining plugin-side win (re-seeds cache after MC compression reduces total tokens), or stopping here since the remaining issues are MC-level.
+</compartment>
+
+<compartment start="1489" end="1492" title="Investigated 99%→0% cache drop on same account with no account switch">
+User shared logs showing account 18 going from 99% Cache HIT (first request after warmup probe) to 0% Cache MISS (next request) with no account change. Tokens grew only 619 tokens — no MC compression. The assistant identified two possible root causes: (1) Google's implicit cache TTL (~5 minutes) expired between requests if there was a pause, or (2) Magic Context's Phase 1 `chat.messages.transform` changed the request prefix between turns. The specific cause could not be confirmed without knowing the time gap between the two requests.
+</compartment>
+
 <!-- Rewrite all facts below into canonical present-tense operational form. Do not copy wording verbatim. Drop stale or task-local facts. Drop facts already covered by project memories above. -->
 
+<ARCHITECTURE_DECISIONS>
+* The cache warmup probe (`runCacheWarmupProbe` in `src/plugin.ts`, v1.6.49+) strips output-related fields (`generationConfig`, `thinkingConfig`, `tools`, `toolConfig`, `safetySettings`) from the request body before sending through the streaming endpoint, sending only `contents` and `systemInstruction`. The server-side cache key depends solely on the input prefix, making output config irrelevant for cache seeding. The probe reads the first SSE chunk to confirm the server processed the prefix and aborts the stream. Error body logging (first 200 chars on 400) remains as fallback diagnostics.
+* v1.6.41-v1.6.43 implement three cache optimization strategies: (1) warmup probe sends a lightweight request on first account use to pre-warm server-side cache; (2) warm-cache-aware selection prefers session-used accounts on forced 429 rotation; (3) proactive rotation pre-switches to warm accounts when current account quota drops below `proactive_rotation_threshold_percent` (default 20%). `sessionUsedAccounts` Set in AccountManager tracks which accounts have been used this session. `proactivelyRotateForFamily()` sorts candidates by warm preference then highest remaining quota.
+* Streaming responses wire the onUsageMetadata callback from createStreamingTransformer to transformAntigravityResponse to log cache hit rate percentages and status on stream termination.
+* System instructions use a strict prefix-stabilization ordering (original prompt → tool hardening → Claude thinking hint) to maximize prompt cache hit rates on the Antigravity gateway.
+* The request transformation pipeline maps empty, invalid, or thinking parts to a single-period "." text sentinel to preserve array indices and prevent API rejection.
+* `deduplicateThinkingText` in `src/plugin/core/streaming/transformer.ts` returns `[]` in flatMap to filter out duplicate thinking chunks, preventing empty streaming updates.
+* `classifyOverallQuotaHealth` in `src/plugin/ui/quota-status.ts` skips quota groups with zero remaining fraction if resetTime is missing or in the past to prevent false partial/exhausted health states.
+* `stripCacheControlRecursively` in `src/plugin/request-helpers.ts` recursively removes `cache_control` and `providerOptions` from content objects to prevent API rejection.
+* The request transformation pipeline preserves part-level `cache_control` markers when converting request parts to text sentinels to maintain prompt cache validity.
+* In `src/plugin/quota.ts`, `fetchAvailableModels` retries without a project parameter if a 403 error is encountered.
+* Quota-fetching functions in `src/plugin/quota.ts` sequentially query `ANTIGRAVITY_ENDPOINT_FALLBACKS`, falling through to subsequent endpoints on network errors, timeouts, or 429/5xx status codes.
+* Local helper `pushDebug` in `src/plugin.ts` collects request trace lines into `debugLines`, which are formatted and injected as a synthetic thinking block into the intercepted response.
+* Functions in `src/plugin/debug.ts` write request traces and log messages to a timestamped local file via a stream-based log writer when file debug logging is enabled.
+* Loggers created via `createLogger(module)` in `src/plugin/logger.ts` write to the TUI log panel via `app.log()` when `isDebugTuiEnabled()` is active.
+* When a request for a Claude model ends on an assistant or model turn, `src/plugin/request.ts` appends a synthetic `{ role: "user", parts: [{ text: "[Continue]" }] }` message to prevent API rejection.
+* Response-path transformers (`transformGeminiCandidate`, `transformThinkingParts`, `deduplicateThinkingText`) must construct thinking parts as clean objects using explicit properties (no object spreading) to prevent the original API `thinking` object from leaking into output.
+* `gemini-3-pro-image-preview` is omitted from the model registry because it is not supported on Antigravity proxy endpoints.
+* `proper-lockfile` is dynamically imported and cached in `_cachedLock` within `getLockFunction` in `src/plugin/storage.ts` to prevent ESM/CJS interop/default-export errors.
+* `gemini-2.5-flash` is functional on `ANTIGRAVITY_ENDPOINT_DAILY` even though it is excluded from `fetchAvailableModels` responses.
+* `safeStringify` in `src/plugin/request.ts` uses `ensureThinkingFields` to add `thinking: ""` to `type: "thinking"` blocks and `text: ""` to `thought: true` blocks if they are missing or non-string, preventing `JSON.stringify` omission.
+* `thinkingSafeReplacer` in `src/plugin/request.ts` flattens non-string thinking objects to `""` during serialization, while preserving JSON Schema objects in tool declarations.
+* Authentication setup in `src/plugin.ts` uses `detectAuthStorageDrift` from `src/plugin/auth-drift.ts` to restore missing or invalid OpenCode OAuth configuration from local accounts.
+* `account_selection_strategy` in `src/plugin/config/schema.ts` defaults to `"hybrid"` (health score + token bucket + LRU freshness) and accepts `"sticky"` or `"round-robin"`.
+* `atomicWriteFile` in `src/plugin/storage.ts` writes to a hex-suffixed `.tmp` file, retries `fs.rename` up to 3 times (50/100/200ms delays) on `EPERM` or `EACCES`, and falls back to `fs.copyFile` + `fs.unlink` on failure.
+* `ANTIGRAVITY_ENDPOINT_FALLBACKS` in `src/constants.ts` defines the endpoint fallback order as `DAILY` then `PROD`, omitting the `AUTOPUSH` endpoint.
+* `getStatusBadge` in `src/plugin/ui/auth-menu.ts` uses lowercase hint labels and omits the `resets in` suffix when the reset time is unknown.
+* The plugin intercepts `fetch()` after OpenCode's prompt caching hook. Any request payload mutation (like filtering or reordering parts) must preserve array indices and lengths to prevent busting the provider prompt cache.
+* `claude_tool_hardening` in `src/plugin/config/schema.ts` defaults to `true`, injecting parameter signatures and system instructions to improve tool call reliability, and can be disabled to reduce context size.
+* `thinking_warmup` in `src/plugin/config/schema.ts` defaults to `false` (disables thinking warmup requests at session start).
+* `quota_style_fallback` in `src/plugin/config/schema.ts` defaults to `false` (disables auto-fallback between different quota pools on rate limits).
+* Plugin initialization returns `{}` and clears account storage if the credential returned by `getAuth()` is not OAuth (`type: "oauth"`), bypassing the `fetch` interceptor so normal OpenCode auth executes.
+* Gemini 3 Pro models route to `antigravity-gemini-3-pro-low` on the `antigravity` path, while other Pro models resolve their thinking tier via `resolveModelWithTier` in `src/plugin/transform/model-resolver.ts`.
+* The TUI auth menu reads `cachedQuota` directly from storage, bypassing the `AccountManager` staleness and reset-time protections. Stale exhaustion status persists in the UI until quota is refreshed.
+* Account display quota reset times parse as ISO timestamps in `parseResetTimeToMs()` within `src/plugin/ui/quota-status.ts`. Past or missing reset times fall back to `READY` (fail-open) status to avoid stale exhaustion displays.
+* Per-model quota data is preserved in account storage as `PerModelQuotaEntry` objects (fields: `modelId`, `displayName`, `remainingFraction`, `resetTime`) alongside the existing group aggregation, enabling granular model-level breakdown in the auth menu.
+* Daily per-account request counts are stored in `AccountMetadataV3.dailyRequestCounts` with auto-reset when the date changes, tracked by model family (`claude`/`gemini`). `AccountManager` exposes `recordRequest()`, `getDailyRequestCounts()`, `getTotalDailyRequests()`, and `getDailyRequestSummary()` for request tracking and debugging visibility.
+* After each API request, the plugin logs per-account daily request counts, total daily requests per model family, remaining quota percentage with reset time, and a running session-level quota usage summary (duration, total requests per model family, requests per hour, accounts used). On session start, the previous session's quota summary is logged for cross-session comparison.
+* `injectToolHardeningInstruction()` in `src/plugin/request-helpers.ts` appends tool hardening instruction AFTER existing system instruction parts (not before) to preserve the stable prefix for prompt cache matching. String systemInstruction is converted with existing text first, instruction appended after.
+* `appendClaudeThinkingHint()` in `src/plugin/transform/claude.ts` is wired into `src/plugin/request.ts` and called during request construction for Claude thinking models with tools, appending the thinking hint as a separate `{ text }` part after the tool hardening block to preserve prompt cache prefix stability.
+* `applyClaudeTransforms()` in `src/plugin/transform/claude.ts` is only called from test files — the production request path in `src/plugin/request.ts` calls individual Claude transform steps directly.
+</ARCHITECTURE_DECISIONS>
+
+<CONFIG_DEFAULTS>
+* `proactive_rotation_threshold_percent` defaults to `20` (triggers proactive account switch when current account's remaining quota drops below this percentage; set to `0` to disable proactive rotation).
+* `cache_warmup_probe` defaults to `true` (sends lightweight probe request on first use of each account to pre-warm server-side cache; set to `false` to disable).
+* `antigravity-gemini-3.5-flash` maps to `gemini-3-flash-agent` (high/default tier) or `gemini-3.5-flash-low` (medium/low tiers) under `antigravity`, falls back to `gemini-3-flash-preview` on `gemini-cli`, and recomputes `effectiveModel` dynamically on `thinkingLevel` changes.
+* Gemini 3 Pro (including `gemini-3-pro-preview`) is removed from the plugin's model registry in `src/plugin/model-registry.ts`.
+* `gemini-3.1-pro-high` and `gemini-3.1-pro-low` map to `gemini-3.1-pro` via `RESOLVER_ALIASES` in `src/plugin/model-registry.ts`.
+* `gemini-3-flash` exists as a separate model quota key in `QUOTA_GROUP_BY_MODEL_ID` and is resolved from its low/medium/high tiers via `RESOLVER_ALIASES` in `src/plugin/model-registry.ts`.
+</CONFIG_DEFAULTS>
+
+<CONSTRAINTS>
+* The Antigravity v1internal API does not support the non-streaming `:generateContent` path for Claude models; only `:streamGenerateContent?alt=sse` works. Any lightweight probe or non-streaming target on this endpoint for Claude models must use the streaming URL and drain the SSE response body.
+* The auth menu UI display path (`auth-menu.ts`, `quota-status.ts`) reads `cachedQuota` directly from storage without the ten-minute age gate or reset-time fail-open staleness protections that the `AccountManager` in `accounts.ts` applies. This gap allows stale exhaustion data to persist in the UI.
+* `isValidRequestPart()` in `src/plugin/request.ts` allows parts with these keys only: `text`, `functionCall`, `functionResponse`, `inlineData`, `fileData`, `executableCode`, `codeExecutionResult`, `thought`. Parts lacking these keys are replaced with `{ text: "." }` sentinels.
+* Never assign `thinking: undefined` (as `JSON.stringify` silently drops keys with `undefined` values); always use `thinking: ""` or omit the field entirely.
+* `getThinkingPartText()` in `src/plugin/request.ts` handles both `part.text` and nested/string `part.thinking` for safe string extraction; do not use raw `||` property chains.
+* When extending `systemInstruction` in `src/plugin/request.ts`, append new `{ text }` parts to the parts array rather than mutating the existing text string to avoid corrupting cached prefix text.
+* Sentinel blocks must not use thinking/thought format (`{ thought: true }` or `{ type: "thinking" }`) because the Antigravity proxy converts these to Claude thinking blocks and may drop required fields when text is empty.
+* Never use `.filter()` on `contents` or `parts` arrays in the prompt-cached prefix or system-instruction parts; use `.map()` with `{ text: "." }` sentinels to preserve array indices and prevent cache hash mismatches.
+* `gemini-2.5-flash-image` and `gemini-2.5-flash-image-preview` require the Google AI API path, not Antigravity OAuth.
+* Antigravity Claude requests must not include `cache_control` at top-level or part-level because the Google sandbox proxy rejects both as unknown fields.
+* Sentinel text blocks must contain non-whitespace text; Claude rejects whitespace-only text blocks and the proxy drops empty strings.
+* The Pydantic error `messages.N.content.M.thinking.thinking: Field required` indicates the `thinking` text field is missing entirely from a block matching the thinking union variant.
+* Antigravity quota is compute/token-based (not request-count-based). There is no fixed RPD per account; a short request allows hundreds of prompts while a complex agent task can trigger a limit in 5-50 requests. Quota uses a 5-hour rolling session window (refreshes 5 hours after the first request) and a 7-day hard cap if too many 5-hour cycles are exhausted too quickly.
+</CONSTRAINTS>
+
+<ENVIRONMENT>
+* Magic Context `execute_threshold_tokens`=120000 (default, Sonnet, Opus); `execute_threshold_percentage`=60 (Sonnet, Opus) in `C:\Users\Expiren\.config\opencode\magic-context.jsonc`.
+* User config at `C:\Users\Expiren\.config\opencode\antigravity.json` sets `claude_tool_hardening=false`.
+* Desktop/Electron strict Node ESM rejects extensionless relative imports (e.g., `./src/plugin`); TUI/Bun tolerates them.
+* npm is logged in as `expiren`; publishing requires an npm automation or granular access token with bypass-2FA enabled.
+* GitHub repo `https://github.com/expiren/opencode-antigravity-auth` is the active origin fork containing the `@expiren/opencode-antigravity-auth` scoped-package changes and upstream NoeFabris merges.
+* `proper-lockfile` v4.1.2 is CJS; exports both `module.exports = lock` and `module.exports.lock = lock`.
+* OpenCode config loads `@expiren/opencode-antigravity-auth@latest`.
+* Magic Context user config path: `C:\Users\Expiren\.config\opencode\magic-context.jsonc`.
+* Antigravity user config path: `C:\Users\Expiren\.config\opencode\antigravity.json`.
+* Magic context SQLite database: `C:\Users\Expiren\.local\share\opencode\storage\plugin\magic-context\context.db`.
+* Magic context log file: `C:\Users\Expiren\AppData\Local\Temp\magic-context.log`.
+* Build output lands in `dist/src/` (mirrors `src/` structure).
+* Local workspace is at `D:\Projects\opencode-antigravity-auth`.
+</ENVIRONMENT>
+
 <KNOWN_ISSUES>
-* Magic Context history compression can create two coexisting server-side cache entries for the same account (pre-compression at ~111K cached tokens and post-compression at ~120K), causing hit rate oscillation (e.g., 74%→100%→74%) on consecutive messages. Google's server alternates between entries based on which prefix matches better per request. This is an MC-level artifact, not a plugin bug — the plugin prefix is stable per v1.6.35.
+* Magic Context history compression can create two coexisting server-side cache entries for the same account (pre-compression prefix and post-compression prefix), causing hit rate oscillation (e.g., 74%→100%→74%) on consecutive messages. Google's server alternates between entries based on which prefix matches better per request. This is an MC-level artifact, not a plugin bug.
+* Format-Reset() in src/plugin.ts emits "(unavailable)" when remainingFraction ≤ 0 AND resetTime is in the past, while classifyGroupStatus() returns READY for the same condition. This creates a UI contradiction: Pro models show "0% [READY] (unavailable)" on the gemini-cli pool, but the plugin routes them through the Antigravity path where separate quota exists.
+* OpenCode Desktop may not expose plugin OAuth methods for Google and can fall back to the built-in Google API-key connect screen even when TUI shows the Antigravity OAuth method.
+* The plugin's gemini-cli path routes to the Antigravity proxy (cloudcode-pa.googleapis.com) with nodejs-client UA headers, NOT to the public Google API. Manual /v1internal API testing returns 401 even for known-working models, so live OpenCode testing is the only reliable verification.
+* If Magic Context recreates context.db, the duplicate-tag upsert trigger must be re-added.
+* Antigravity Claude prompt-cache markers are unsupported on the current proxy path; enabling Claude auto-caching causes invalid JSON payload 400s.
+* The Antigravity account manager lacks a "Use this account" restore action, so existing stored accounts cannot recreate missing OpenCode google OAuth auth without re-running OAuth.
+* Upstream npm package opencode-antigravity-auth is archived with unfixed bugs; OpenCode Desktop resolves and caches it separately from local builds.
+* OpenCode providerOptions/cache_control markers may be consumed before the fetch body, so the Antigravity proxy can receive no explicit cache-control markers from OpenCode.
+* Plugin-backed Claude models are more cache-fragile than other providers because Claude tool hardening, interleaved-thinking hints, and tool-description signature injection can change the prompt prefix.
+* Desktop cannot use the local plugin fork — the plugin fetch interceptor does not activate for Desktop's request path regardless of dummy-key or local-wrapper approaches, causing "API key not valid" errors.
+* Conversations with persisted thinking: &lt;object&gt; history keep failing with "messages.*.content.*.thinking.thinking: Field required"; test fixes in a fresh conversation after restarting OpenCode.
+* TypeScript LSP diagnostics can fail with server exit -4058; use npm run typecheck as the reliable TypeScript validation path.
+* Local opencode run may fail before model execution with a stale "Session not found" reference; use a fresh OpenCode TUI session for live validation.
+* Latest OpenCode versions may cause /provider and /config/providers to return 400 when the Antigravity plugin is loaded; adding provider-model metadata fields (id, release_date, attachment, reasoning, temperature, tool_call) to all model definitions is required to resolve this.
+* `appendClaudeThinkingHint()` in `src/plugin/transform/claude.ts` mutates the last system text part, destabilizing the Claude prefix cache; it should append a separate `{ text: hint }` part instead.
+* The `quotaUser` field in Fingerprint is marked @deprecated and never set by generateFingerprint() or collectCurrentFingerprint(), causing quotaUser=undefined to appear in TUI debug logs as cosmetic noise.
+* Magic Context guidance injection (hephaestus, sisyphus, sisyphus-junior, or generic guidance) can change the system prompt hash and cause cache busts even after the v0.14.1 sentinel fix.
+* Magic Context Phase 1 stripping, placeholder replay, and compartment-agent activity can cause alternating cache misses even when the plugin request pipeline is stable. However, when MC parameters are stable (same ctxReduce, same subagent, same stripStructuralNoise pattern), MC per-turn transforms do not bust cache because they use sentinel replacement preserving array indices and guidance injection text is identical each turn.
+* Magic Context counts message.updated events with hasUsageTokens=false as cache BUSTs, inflating BUST diagnostics for Antigravity Claude models; a fix is needed in Magic Context to ignore zero-usage events.
+* Magic Context history compression (compartmentalization) rewrites the entire conversation when token thresholds are exceeded, changing the request prefix and busting the Antigravity server-side cache. Post-compression, total tokens drop from ~137K to ~26K (10% of context budget), hitRate drops to ~34% (only system prompt + tools survive), recovering to 80%+ the next message as the new prefix stabilizes.
+* Account rotation splits server-side cache buckets by changing auth identity, managed project, fingerprint, or headers. Returning to a previously-used account after rotation finds a stale cache (conversation grew while on other accounts), yielding ~76-79% hit rate on first return. Each new account starts at 0% cold cache. It takes 2-3 messages of consistent account use to warm the cache back to 95-99%.
+* Google's implicit prefix caching on the Antigravity proxy requires multiple requests (5-20+) with the same prefix before activating. Each new account starts at 0% cold cache, and with per-account quotas exhausting in ~5-7 requests, most new accounts never reach the cache warmup threshold.
+* Cache stats (cachedContentTokenCount, promptTokenCount) are never logged for streaming responses because logCacheStats() in request.ts only fires on the non-streaming code path; the streaming transformer sees usageMetadata in SSE lines but only uses it as a boolean flag for synthetic usage injection, never extracting actual cache values.
+* Desktop/Electron can fall back to native @ai-sdk/google even when auth.json contains google OAuth, because Desktop's utility-process server may bypass the plugin's auth-loader fetch override.
+* gemini-3.5-flash-preview is missing from OPENCODE_MODEL_DEFINITIONS, so no explicit gemini-cli preview path exists despite the resolver being able to generate that fallback id.
+* gemini-3.1-flash-image and gemini-3.1-flash-image-preview are available on the Gemini API, Vertex AI, and Antigravity with image output, but the plugin lacks explicit OPENCODE_MODEL_DEFINITIONS entries for them.
+* On the same account with no account switch or compression, cache can drop from 99% HIT to 0% MISS between consecutive requests. Possible causes: Google's implicit cache TTL (~5 minutes) expired between requests, or Magic Context Phase 1 `chat.messages.transform` changed the request prefix.
 </KNOWN_ISSUES>
+
+<USER_DIRECTIVES>
+* User chooses which fix to apply next from the presented list — do not apply all fixes at once.
+* Apply fixes incrementally: one fix at a time, build, deploy, restart OpenCode, test in fresh conversation, confirm working before applying next fix.
+* When dispatching delegated tasks, always include `load_skills` and `run_in_background`.
+* In analyze-mode, gather context in parallel before deep work, consult Oracle or Artistry for complex problems, and synthesize findings before proceeding.
+* In search-mode, maximize search effort with parallel explore and librarian agents plus direct grep, ripgrep, and ast-grep; never stop at the first result.
+</USER_DIRECTIVES>
+
+<WORKFLOW_RULES>
+* When deploying, run `npm run build` and `npm publish --access public` to publish `@expiren/opencode-antigravity-auth` to npm; OpenCode resolves it from the local package cache at `C:\Users\Expiren\.cache\opencode\packages\@expiren\` via `@expiren/opencode-antigravity-auth@latest`.
+* When using background bash tasks in TUI mode, run OpenCode as `opencode --port 0` to receive completion reminders (notifications are unavailable without `--port 0` due to anomalyco/opencode#28202); OpenCode Desktop does not require this.
+* When debugging persistent issues across many fix iterations, reset to a known-working baseline and apply fixes one at a time with user testing between each.
+* When dispatching delegated tasks, always include `load_skills` and `run_in_background`.
+* In analyze-mode, gather context in parallel before deep work, consult Oracle or Artistry for complex problems, and synthesize findings before proceeding.
+* In search-mode, maximize search effort with parallel explore and librarian agents plus direct grep, ripgrep, and ast-grep; never stop at the first result.
+* Apply fixes incrementally: one fix at a time, build, deploy, restart OpenCode, test in fresh conversation, confirm working before applying next fix. User chooses which fix to apply next from the presented list.
+</WORKFLOW_RULES>

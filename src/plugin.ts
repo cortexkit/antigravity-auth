@@ -1952,9 +1952,9 @@ export const createAntigravityPlugin = (providerId: string) => async (
                 pushDebug("cache-warmup-probe: start");
 
                 // Strip output-related config from probe body — cache warming only needs
-                // the input prefix (contents + systemInstruction) to match.
-                // generationConfig, thinkingConfig, tools, toolConfig don't affect
-                // the server-side cache key and can cause 400 errors on v1internal.
+                // the input prefix to match the server-side cache key.
+                // The cache key includes: systemInstruction + tools + contents.
+                // Only strip generation/output config that doesn't affect the key.
                 let probeBody = bodyStr;
                 try {
                   const parsed = JSON.parse(bodyStr) as Record<string, unknown>;
@@ -1962,8 +1962,6 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     const req = { ...(parsed.request as Record<string, unknown>) };
                     delete req.generationConfig;
                     delete req.thinkingConfig;
-                    delete req.tools;
-                    delete req.toolConfig;
                     delete req.safetySettings;
                     probeBody = JSON.stringify({ ...parsed, request: req });
                   }
