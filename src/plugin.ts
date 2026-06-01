@@ -1939,7 +1939,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
               }
             };
 
-                        const runCacheWarmupProbe = async (
+                                    const runCacheWarmupProbe = async (
               prepared: ReturnType<typeof prepareAntigravityRequest>,
             ): Promise<void> => {
               if (!needsCacheWarmup) return;
@@ -1950,10 +1950,31 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
               try {
                 pushDebug("cache-warmup-probe: start");
+
+                // Strip output-related config from probe body — cache warming only needs
+                // the input prefix (contents + systemInstruction) to match.
+                // generationConfig, thinkingConfig, tools, toolConfig don't affect
+                // the server-side cache key and can cause 400 errors on v1internal.
+                let probeBody = bodyStr;
+                try {
+                  const parsed = JSON.parse(bodyStr) as Record<string, unknown>;
+                  if (parsed.request && typeof parsed.request === "object") {
+                    const req = { ...(parsed.request as Record<string, unknown>) };
+                    delete req.generationConfig;
+                    delete req.thinkingConfig;
+                    delete req.tools;
+                    delete req.toolConfig;
+                    delete req.safetySettings;
+                    probeBody = JSON.stringify({ ...parsed, request: req });
+                  }
+                } catch {
+                  // If parse fails, use original body
+                }
+
                 const probeResponse = await fetch(toUrlString(prepared.request), {
                   ...prepared.init,
                   method: "POST",
-                  body: bodyStr,
+                  body: probeBody,
                 });
 
                 if (probeResponse.body) {
@@ -1965,7 +1986,13 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
                 const status = probeResponse.status;
                 if (status >= 400) {
-                  pushDebug(`cache-warmup-probe: done status=${status}`);
+                  // Log error body for diagnosis
+                  let errorSnippet = "";
+                  try {
+                    const errText = await probeResponse.text().catch(() => "");
+                    errorSnippet = errText.slice(0, 200);
+                  } catch { /* ignore */ }
+                  pushDebug(`cache-warmup-probe: done status=${status}${errorSnippet ? ` error=${errorSnippet}` : ""}`);
                 } else {
                   pushDebug(`cache-warmup-probe: done status=${status} (aborted after first chunk)`);
                 }
