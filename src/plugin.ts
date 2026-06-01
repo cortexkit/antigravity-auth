@@ -1950,8 +1950,10 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
               try {
                 const parsed = JSON.parse(bodyStr);
+                const originalThinking = parsed.generationConfig?.thinkingConfig;
                 parsed.generationConfig = {
-                  maxOutputTokens: 1,
+                  maxOutputTokens: originalThinking ? 256 : 1,
+                  ...(originalThinking ? { thinkingConfig: { thinkingBudget: 128 } } : {}),
                 };
 
                 pushDebug("cache-warmup-probe: start");
@@ -1961,14 +1963,24 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   body: JSON.stringify(parsed),
                 });
 
+                let probeBody = "";
                 if (probeResponse.body) {
                   const reader = probeResponse.body.getReader();
-                  while (!(await reader.read()).done) { /* drain */ }
+                  const decoder = new TextDecoder();
+                  let chunk;
+                  while (!(chunk = await reader.read()).done) {
+                    probeBody += decoder.decode(chunk.value, { stream: true });
+                  }
                 } else {
-                  await probeResponse.text();
+                  probeBody = await probeResponse.text();
                 }
                 const status = probeResponse.status;
-                pushDebug(`cache-warmup-probe: done status=${status}`);
+                if (status >= 400) {
+                  const errorSnippet = probeBody.slice(0, 200);
+                  pushDebug(`cache-warmup-probe: done status=${status} error=${errorSnippet}`);
+                } else {
+                  pushDebug(`cache-warmup-probe: done status=${status}`);
+                }
               } catch (error) {
                 pushDebug(
                   `cache-warmup-probe: failed ${error instanceof Error ? error.message : String(error)}`,
