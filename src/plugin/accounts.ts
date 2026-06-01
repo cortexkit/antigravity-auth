@@ -320,6 +320,7 @@ export class AccountManager {
 
   private sessionStartTime: number = Date.now()
   private sessionRequestCounts: Map<string, { claude: number, gemini: number }> = new Map()
+  private sessionUsedAccounts: Set<number> = new Set()
   static async loadFromDisk(authFallback?: OAuthAuthDetails): Promise<AccountManager> {
     const stored = await loadAccounts();
     return new AccountManager(authFallback, stored);
@@ -606,16 +607,17 @@ export class AccountManager {
       return null;
     }
 
-    const account = available[this.cursor % available.length];
+    const sessionUsed = available.filter(a => this.sessionUsedAccounts.has(a.index));
+    const candidates = sessionUsed.length > 0 ? sessionUsed : available;
+
+    const account = candidates[this.cursor % candidates.length];
     if (!account) {
       return null;
     }
 
     this.cursor++;
-    // Note: lastUsed is now updated after successful request via markAccountUsed()
     return account;
   }
-
   markRateLimited(
     account: ManagedAccount,
     retryAfterMs: number,
@@ -639,6 +641,13 @@ export class AccountManager {
     }
   }
 
+  recordSessionUsage(accountIndex: number): void {
+    this.sessionUsedAccounts.add(accountIndex);
+  }
+
+  wasUsedInSession(accountIndex: number): boolean {
+    return this.sessionUsedAccounts.has(accountIndex);
+  }
   markRateLimitedWithReason(
     account: ManagedAccount,
     family: ModelFamily,

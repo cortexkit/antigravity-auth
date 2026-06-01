@@ -1742,7 +1742,9 @@ export const createAntigravityPlugin = (providerId: string) => async (
               needsCacheWarmup = config.cache_warmup_on_switch;
               pushDebug(`account-switch: ${previousAccountIndex} → ${account.index}, warmup=${needsCacheWarmup}`);
             }
-            previousAccountIndex = account.index;            if (isDebugEnabled()) {
+            previousAccountIndex = account.index;
+            accountManager.recordSessionUsage(account.index);
+            if (isDebugEnabled()) {
               logAccountContext("Selected", {
                 index: account.index,
                 email: account.email,
