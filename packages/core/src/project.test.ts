@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("./agy-transport", () => ({
+vi.mock("./agy-transport.ts", () => ({
   fetchWithAgyCliTransport: vi.fn(),
 }))
 
-import { ANTIGRAVITY_ENDPOINT_PROD } from "../constants.ts"
-import { fetchWithAgyCliTransport } from "./agy-transport"
+import { ANTIGRAVITY_ENDPOINT_PROD } from "./constants.ts"
+import { fetchWithAgyCliTransport } from "./agy-transport.ts"
 import {
   clearProvisionFailedKeys,
   ensureProjectContext,
