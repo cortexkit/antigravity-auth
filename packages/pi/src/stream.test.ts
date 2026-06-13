@@ -1,6 +1,36 @@
 import { describe, expect, it } from "vitest"
+import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai"
 
-import { parseGeminiSse } from "./stream.ts"
+import { parseGeminiSse, updateUsage } from "./stream.ts"
+
+function fakeModel(): Model<Api> {
+  return {
+    id: "antigravity-gemini-3.5-flash",
+    api: "google-generative-ai",
+    provider: "google-antigravity",
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  } as unknown as Model<Api>
+}
+
+function emptyOutput(): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [],
+    api: "google-generative-ai",
+    provider: "google-antigravity",
+    model: "antigravity-gemini-3.5-flash",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
+    timestamp: 0,
+  }
+}
 
 function sseResponse(frames: string[]): Response {
   const body = new ReadableStream<Uint8Array>({
@@ -103,5 +133,34 @@ describe("parseGeminiSse", () => {
       chunks.push(chunk)
     }
     expect(chunks).toHaveLength(0)
+  })
+})
+
+describe("updateUsage", () => {
+  it("counts thinking tokens as output and splits cached prompt tokens", () => {
+    const output = emptyOutput()
+    // MITM-observed: total = prompt + candidates + thoughts.
+    updateUsage(fakeModel(), output, {
+      promptTokenCount: 11597,
+      candidatesTokenCount: 16,
+      thoughtsTokenCount: 50,
+      cachedContentTokenCount: 4000,
+      totalTokenCount: 11663,
+    })
+    expect(output.usage.input).toBe(11597 - 4000)
+    expect(output.usage.cacheRead).toBe(4000)
+    expect(output.usage.output).toBe(16 + 50)
+    expect(output.usage.totalTokens).toBe(7597 + 66 + 4000)
+  })
+
+  it("treats promptTokenCount as the full prompt when no cache is reported", () => {
+    const output = emptyOutput()
+    updateUsage(fakeModel(), output, {
+      promptTokenCount: 100,
+      candidatesTokenCount: 10,
+    })
+    expect(output.usage.input).toBe(100)
+    expect(output.usage.cacheRead).toBe(0)
+    expect(output.usage.output).toBe(10)
   })
 })

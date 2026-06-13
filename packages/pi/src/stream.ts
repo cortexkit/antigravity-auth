@@ -58,6 +58,7 @@ interface GeminiUsageMetadata {
   promptTokenCount?: number
   candidatesTokenCount?: number
   cachedContentTokenCount?: number
+  thoughtsTokenCount?: number
   totalTokenCount?: number
 }
 
@@ -92,13 +93,17 @@ interface GeminiResponsePart {
   functionCall?: { name?: string; args?: Record<string, unknown> }
 }
 
-function updateUsage(model: Model<Api>, output: AssistantMessage, usage?: GeminiUsageMetadata): void {
+export function updateUsage(model: Model<Api>, output: AssistantMessage, usage?: GeminiUsageMetadata): void {
   if (!usage) return
   const cacheRead = usage.cachedContentTokenCount ?? output.usage.cacheRead
   // Antigravity reports promptTokenCount as the full (uncached + cached) prompt.
   const promptTotal = usage.promptTokenCount ?? output.usage.input + output.usage.cacheRead
   output.usage.input = Math.max(0, promptTotal - cacheRead)
-  output.usage.output = usage.candidatesTokenCount ?? output.usage.output
+  // candidatesTokenCount excludes thinking; thoughtsTokenCount is billed as
+  // output too. totalTokenCount = prompt + candidates + thoughts (MITM-verified).
+  if (usage.candidatesTokenCount !== undefined || usage.thoughtsTokenCount !== undefined) {
+    output.usage.output = (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0)
+  }
   output.usage.cacheRead = cacheRead
   output.usage.totalTokens =
     output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite
