@@ -1895,7 +1895,9 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   if (removed) {
                     log.warn("Removed revoked account from pool - reauthenticate via `opencode auth login`");
                     try {
-                      await accountManager.saveToDisk();
+                      // Replace (not merge) so the revoked account is not
+                      // resurrected from disk by mergeAccountStorage.
+                      await accountManager.saveToDiskReplace();
                     } catch (persistError) {
                       log.error("Failed to persist revoked account removal", { error: String(persistError) });
                     }

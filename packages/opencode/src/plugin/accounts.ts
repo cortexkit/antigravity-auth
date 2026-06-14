@@ -1,5 +1,5 @@
 import { formatRefreshParts, parseRefreshParts } from "./auth";
-import { loadAccounts, saveAccounts, type AccountStorageV4, type AccountMetadataV3, type RateLimitStateV3, type ModelFamily, type HeaderStyle, type CooldownReason } from "./storage";
+import { loadAccounts, saveAccounts, saveAccountsReplace, type AccountStorageV4, type AccountMetadataV3, type RateLimitStateV3, type ModelFamily, type HeaderStyle, type CooldownReason } from "./storage";
 import type { OAuthAuthDetails, RefreshParts } from "./types";
 import type { AccountSelectionStrategy } from "./config/schema";
 import { getHealthTracker, getTokenTracker, selectHybridAccount, type AccountWithMetrics } from "./rotation";
@@ -1071,11 +1071,11 @@ export class AccountManager {
     return [...this.accounts];
   }
 
-  async saveToDisk(): Promise<void> {
+  private buildStorageSnapshot(): AccountStorageV4 {
     const claudeIndex = Math.max(0, this.currentAccountIndexByFamily.claude);
     const geminiIndex = Math.max(0, this.currentAccountIndexByFamily.gemini);
-    
-    const storage: AccountStorageV4 = {
+
+    return {
       version: 4,
       accounts: this.accounts.map((a) => ({
         email: a.email,
@@ -1095,14 +1095,26 @@ export class AccountManager {
         verificationRequiredAt: a.verificationRequiredAt,
         verificationRequiredReason: a.verificationRequiredReason,
         verificationUrl: a.verificationUrl,
-      })),      activeIndex: claudeIndex,
+      })),
+      activeIndex: claudeIndex,
       activeIndexByFamily: {
         claude: claudeIndex,
         gemini: geminiIndex,
       },
     };
+  }
 
-    await saveAccounts(storage);
+  async saveToDisk(): Promise<void> {
+    await saveAccounts(this.buildStorageSnapshot());
+  }
+
+  /**
+   * Persist via full-file replace (no merge). Required after destructive
+   * operations (account removal) so a deleted account is not resurrected by
+   * mergeAccountStorage re-reading it from disk.
+   */
+  async saveToDiskReplace(): Promise<void> {
+    await saveAccountsReplace(this.buildStorageSnapshot());
   }
 
   requestSaveToDisk(): void {

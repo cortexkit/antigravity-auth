@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountManager, type ModelFamily, type HeaderStyle, parseRateLimitReason, calculateBackoffMs, type RateLimitReason, resolveQuotaGroup } from "./accounts";
-import { saveAccounts, type AccountStorageV4 } from "./storage";
+import { saveAccounts, saveAccountsReplace, type AccountStorageV4 } from "./storage";
 import type { OAuthAuthDetails } from "./types";
 
 // Mock storage to prevent test data from leaking to real config files
@@ -227,6 +227,32 @@ describe("AccountManager", () => {
 
     const next = manager.getNextForFamily(family);
     expect(next?.parts.refreshToken).toBe("r3");
+  });
+
+  it("persists account removal via replace (no merge) so deletions stick", async () => {
+    vi.mocked(saveAccounts).mockClear();
+    vi.mocked(saveAccountsReplace).mockClear();
+
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    };
+
+    const manager = new AccountManager(undefined, stored);
+    const victim = manager.getAccounts().find((a) => a.parts.refreshToken === "r2")!;
+    manager.removeAccount(victim);
+
+    await manager.saveToDiskReplace();
+
+    // Must use replace (full overwrite), not merge — merge re-reads the file and
+    // resurrects the deleted account.
+    expect(saveAccountsReplace).toHaveBeenCalledTimes(1);
+    const saved = vi.mocked(saveAccountsReplace).mock.calls.at(-1)?.[0];
+    expect(saved?.accounts.map((a) => a.refreshToken)).toEqual(["r1"]);
   });
 
   it("keeps round-robin cursors separate by model family", () => {

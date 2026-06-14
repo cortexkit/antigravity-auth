@@ -823,9 +823,13 @@ async function loadAccountsUnsafe(): Promise<AccountStorageV4 | null> {
   }
 }
 export async function clearAccounts(): Promise<void> {
+  const path = getStoragePath();
   try {
-    const path = getStoragePath();
-    await fs.unlink(path);
+    // Acquire the file lock so a concurrent debounced save can't write state
+    // back in between (which would resurrect a just-cleared pool).
+    await withFileLock(path, async () => {
+      await fs.unlink(path);
+    });
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") {
