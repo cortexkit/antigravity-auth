@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import {
   ANTIGRAVITY_ENDPOINT,
+  ANTIGRAVITY_DEFAULT_PROJECT_ID,
   GEMINI_CLI_ENDPOINT,
   EMPTY_SCHEMA_PLACEHOLDER_NAME,
   EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION,
@@ -880,15 +881,6 @@ let _lastCacheStats: { model: string; read: number; total: number; hitRate: numb
 export function getLastCacheStats() {
   return _lastCacheStats;
 }
-function generateSyntheticProjectId(): string {
-  const adjectives = ["useful", "bright", "swift", "calm", "bold"];
-  const nouns = ["fuze", "wave", "spark", "flow", "core"];
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const noun = nouns[Math.floor(Math.random() * nouns.length)];
-  const randomPart = crypto.randomUUID().slice(0, 5).toLowerCase();
-  return `${adj}-${noun}-${randomPart}`;
-}
-
 const STREAM_ACTION = "streamGenerateContent";
 
 /**
@@ -1651,7 +1643,11 @@ export function prepareAntigravityRequest(
 
         stripInjectedDebugFromRequestPayload(requestPayload);
         sanitizeRequestPayloadForAntigravity(requestPayload);
-        const effectiveProjectId = projectId?.trim() || (headerStyle === "antigravity" ? generateSyntheticProjectId() : "");
+        // Use the stable default project ID (never a per-request random one):
+        // a fresh random project each request busts the prompt cache and
+        // fragments server-side quota/session state. ensureProjectContext
+        // already floors empty cases to this default; this is defense in depth.
+        const effectiveProjectId = projectId?.trim() || (headerStyle === "antigravity" ? ANTIGRAVITY_DEFAULT_PROJECT_ID : "");
         resolvedProjectId = effectiveProjectId;
 
         // System instruction injection removed — CLIProxyAPI v6.9.x no longer injects it
@@ -2050,7 +2046,6 @@ export const __testExports = {
   hasToolUseInMessages,
   ensureThinkingBeforeToolUseInContents,
   ensureThinkingBeforeToolUseInMessages,
-  generateSyntheticProjectId,
   MIN_SIGNATURE_LENGTH,
   transformSseLine,
   transformStreamingPayload,
