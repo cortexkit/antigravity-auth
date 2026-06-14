@@ -12,6 +12,10 @@ const DUMP_USAGE_TITLE = "## Gemini Dump Usage"
 const DUMP_USAGE = "Usage: `/gemini-dump`, `/gemini-dump on`, or `/gemini-dump off`."
 const DUMP_DIR_ENV = "OPENCODE_ANTIGRAVITY_GEMINI_DUMP_DIR"
 const DEFAULT_DUMP_DIR = join(tmpdir(), "opencode-antigravity-gemini-dumps")
+// Dumps contain full prompts, tool outputs, and generated content. On shared
+// temp storage these must not be world/group readable.
+const DUMP_DIR_MODE = 0o700
+const DUMP_FILE_MODE = 0o600
 
 let dumpEnabled = process.env.OPENCODE_ANTIGRAVITY_GEMINI_DUMP === "1"
 let nextDumpId = 0
@@ -183,7 +187,7 @@ function bodyStructureSummary(bodyText: string) {
 }
 
 function writeJson(path: string, value: unknown) {
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8")
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: DUMP_FILE_MODE })
 }
 
 function updateMetadata(context: GeminiDumpContext, patch: Record<string, unknown>) {
@@ -214,7 +218,7 @@ export function dumpGeminiRequest(input: {
   const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${String(nextDumpId).padStart(5, "0")}-${input.streaming ? "stream" : "json"}`
   const dumpDir = getGeminiDumpDirectory()
   const prefix = join(dumpDir, id)
-  mkdirSync(dumpDir, { recursive: true })
+  mkdirSync(dumpDir, { recursive: true, mode: DUMP_DIR_MODE })
 
   const context: GeminiDumpContext = {
     id,
@@ -244,8 +248,8 @@ export function dumpGeminiRequest(input: {
     },
   }
 
-  writeFileSync(context.files.request, input.body, "utf8")
-  writeFileSync(context.files.response, "", "utf8")
+  writeFileSync(context.files.request, input.body, { encoding: "utf8", mode: DUMP_FILE_MODE })
+  writeFileSync(context.files.response, "", { encoding: "utf8", mode: DUMP_FILE_MODE })
   writeJson(context.files.metadata, context.metadata)
   return context
 }
