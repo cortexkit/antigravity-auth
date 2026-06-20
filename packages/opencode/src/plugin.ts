@@ -38,6 +38,7 @@ import { resolveModelWithTier } from "./plugin/transform/model-resolver";
 import {
   isEmptyResponseBody,
   createSyntheticErrorResponse,
+  createRateLimitErrorResponse,
 } from "./plugin/request-helpers";
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./plugin/token";
 import { startOAuthListener, type OAuthListener } from "./plugin/server";
@@ -80,16 +81,10 @@ const MAX_OAUTH_ACCOUNTS = 10;
 const MAX_WARMUP_SESSIONS = 1000;
 const MAX_WARMUP_RETRIES = 2;
 const MAX_TOTAL_CAPACITY_RETRIES = 4;
-const CAPACITY_BACKOFF_TIERS_MS = [5000, 10000, 20000, 30000, 60000];
-
 function isCapacityRetryBudgetExhausted(totalCapacityRetries: number): boolean {
   return totalCapacityRetries >= MAX_TOTAL_CAPACITY_RETRIES;
 }
 
-function getCapacityBackoffDelay(consecutiveFailures: number): number {
-  const index = Math.min(consecutiveFailures, CAPACITY_BACKOFF_TIERS_MS.length - 1);
-  return CAPACITY_BACKOFF_TIERS_MS[Math.max(0, index)] ?? 5000;
-}
 const warmupAttemptedSessionIds = new Set<string>();
 const warmupSucceededSessionIds = new Set<string>();
 
@@ -153,7 +148,7 @@ async function triggerAsyncQuotaRefreshForAccount(
   
   const accounts = accountManager.getAccounts();
   const account = accounts[accountIndex];
-  if (!account || account.enabled === false) return;
+  if (!account || !account.enabled) return;
   
   const accountKey = account.email ?? `idx-${accountIndex}`;
   if (quotaRefreshInProgressByEmail.has(accountKey)) return;
@@ -246,16 +241,11 @@ function isWSL2(): boolean {
 }
 
 function isRemoteEnvironment(): boolean {
-  if (process.env.SSH_CLIENT || process.env.SSH_TTY || process.env.SSH_CONNECTION) {
-    return true;
-  }
-  if (process.env.REMOTE_CONTAINERS || process.env.CODESPACES) {
-    return true;
-  }
-  if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY && !isWSL()) {
-    return true;
-  }
-  return false;
+  return !!(
+    process.env.SSH_CLIENT || process.env.SSH_TTY || process.env.SSH_CONNECTION ||
+    process.env.REMOTE_CONTAINERS || process.env.CODESPACES ||
+    (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY && !isWSL())
+  );
 }
 
 function shouldSkipLocalServer(): boolean {
@@ -546,7 +536,7 @@ async function verifyAccountAccess(
   try {
     responseBody = await response.text();
   } catch {
-    responseBody = "";
+    // responseBody stays empty string
   }
 
   if (response.ok) {
@@ -1165,18 +1155,6 @@ function resetRateLimitState(accountIndex: number, quotaKey: string): void {
   rateLimitStateByAccountQuota.delete(stateKey);
 }
 
-/**
- * Reset all rate limit state for an account (all quotas).
- * Used when account is completely healthy.
- */
-function resetAllRateLimitStateForAccount(accountIndex: number): void {
-  for (const key of rateLimitStateByAccountQuota.keys()) {
-    if (key.startsWith(`${accountIndex}:`)) {
-      rateLimitStateByAccountQuota.delete(key);
-    }
-  }
-}
-
 function headerStyleToQuotaKey(headerStyle: HeaderStyle, family: ModelFamily): string {
   if (family === "claude") return "claude";
   return headerStyle === "antigravity" ? "gemini-antigravity" : "gemini-cli";
@@ -1546,8 +1524,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
       // Validate that stored accounts are in sync with OpenCode's auth
       // If OpenCode's refresh token doesn't match any stored account, clear stale storage
-      const authParts = parseRefreshParts(auth.refresh);
-      const storedAccounts = await loadAccounts();
+      // authParts, storedAccounts removed (unused)
       
       // Note: AccountManager now ensures the current auth is always included in accounts
 
@@ -1723,7 +1700,6 @@ export const createAntigravityPlugin = (providerId: string) => async (
             const accountCount = accountManager.getAccountCount();
             const routingDecision = resolveHeaderRoutingDecision(urlString, family, config);
             const {
-              cliFirst,
               preferredHeaderStyle,
               explicitQuota,
               allowQuotaFallback,
@@ -1782,15 +1758,14 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     `All accounts over ${threshold}% quota threshold. Resets in ${waitTimeFormatted}.`,
                     "error"
                   );
-                  return createSyntheticErrorResponse(
+                  return createRateLimitErrorResponse(
                     `Quota protection: All ${accountCount} account(s) are over ${threshold}% usage for ${family}. ` +
                     `Quota resets in ${waitTimeFormatted}. ` +
                     `Add more accounts, wait for quota reset, or set soft_quota_threshold_percent: 100 to disable.`,
-                    model ?? "unknown",
+                    softQuotaWaitMs ?? undefined,
                   );
                 }
                 
-                const waitSecValue = Math.max(1, Math.ceil(softQuotaWaitMs / 1000));
                 pushDebug(`all-over-soft-quota family=${family} accounts=${accountCount} waitMs=${softQuotaWaitMs}`);
                 
                 if (!softQuotaToastShown) {
@@ -1833,11 +1808,11 @@ export const createAntigravityPlugin = (providerId: string) => async (
                 );
                 
                 // Return a proper rate limit error response
-                return createSyntheticErrorResponse(
-                  `All ${accountCount} account(s) rate-limited for ${family}. ` +
+                return createRateLimitErrorResponse(
+                  `All ${accountCount} account(s) rate limited for ${family}. ` +
                   `Quota resets in ${waitTimeFormatted}. ` +
                   `Add more accounts with \`opencode auth login\` or wait and retry.`,
-                  model ?? "unknown",
+                  waitMs,
                 );
               }
 
@@ -2316,7 +2291,6 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   }
 
                   const defaultRetryMs = (config.default_retry_after_seconds ?? 60) * 1000;
-                  const maxBackoffMs = (config.max_backoff_seconds ?? 60) * 1000;
                   const headerRetryMs = retryAfterMsFromResponse(response, defaultRetryMs);
                   const bodyInfo = await extractRetryInfoFromBody(response);
                   const serverRetryMs = bodyInfo.retryDelayMs ?? headerRetryMs;
@@ -2377,7 +2351,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   
                   // Only now do we call getRateLimitBackoff, which increments the global failure tracker
                   const quotaKey = headerStyleToQuotaKey(headerStyle, family);
-                  const { attempt, delayMs, isDuplicate } = getRateLimitBackoff(account.index, quotaKey, serverRetryMs);
+                  const { attempt, delayMs } = getRateLimitBackoff(account.index, quotaKey, serverRetryMs);
                   
                   // Calculate potential backoffs
                   const smartBackoffMs = calculateBackoffMs(rateLimitReason, account.consecutiveFailures ?? 0, serverRetryMs);
@@ -2408,8 +2382,6 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   await logResponseBody(debugContext, response, 429);
 
                   getHealthTracker().recordRateLimit(account.index);
-
-                  const accountLabel = account.email || `Account ${account.index + 1}`;
 
                   // Progressive retry for standard 429s: 1st 429 → 1s then switch (if enabled) or retry same
                   if (attempt === 1 && rateLimitReason !== "QUOTA_EXHAUSTED") {
@@ -2503,8 +2475,6 @@ export const createAntigravityPlugin = (providerId: string) => async (
                       }
                     }
                   }
-
-                  const quotaName = headerStyle === "antigravity" ? "Antigravity" : "Gemini CLI";
 
                   if (accountCount > 1) {
                     const quotaMsg = bodyInfo.quotaResetTime 
@@ -2815,9 +2785,9 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     lastFailure.dumpContext,
                   );
                 }
-                return createSyntheticErrorResponse(
-                  lastError?.message || `Exceeded max account switches (${maxAccountSwitches}). All accounts rate-limited.`,
-                  model ?? "unknown",
+                return createRateLimitErrorResponse(
+                  lastError?.message || `Exceeded max account switches (${maxAccountSwitches}). All accounts rate limited.`,
+                  undefined,
                 );
               }
               
@@ -2840,9 +2810,9 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   );
                 }
 
-                return createSyntheticErrorResponse(
+                return createRateLimitErrorResponse(
                   lastError?.message || "All Antigravity endpoints failed",
-                  model ?? "unknown",
+                  undefined,
                 );
               }
 
@@ -2868,9 +2838,9 @@ export const createAntigravityPlugin = (providerId: string) => async (
               );
             }
 
-            return createSyntheticErrorResponse(
+            return createRateLimitErrorResponse(
               lastError?.message || "All Antigravity accounts failed",
-              model ?? "unknown",
+              undefined,
             );
           }
         },
@@ -2903,7 +2873,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
               while (true) {
                 const now = Date.now();
                 const existingAccounts = existingStorage.accounts.map((acc, idx) => {
-                  let status: 'active' | 'rate-limited' | 'expired' | 'verification-required' | 'unknown' = 'unknown';
+                  let status: 'active' | 'rate-limited' | 'expired' | 'verification-required' | 'unknown';
 
                   if (acc.verificationRequired) {
                     status = 'verification-required';
@@ -3786,12 +3756,12 @@ function toWarmupStreamUrl(value: RequestInfo): string {
 }
 
 function extractModelFromUrl(urlString: string): string | null {
-  const match = urlString.match(/\/models\/([^:\/?]+)(?::\w+)?/);
+  const match = urlString.match(/\/models\/([^:/?]+)(?::\w+)?/);
   return match?.[1] ?? null;
 }
 
 function extractModelFromUrlWithSuffix(urlString: string): string | null {
-  const match = urlString.match(/\/models\/([^:\/\?]+)/);
+  const match = urlString.match(/\/models\/([^:/?]+)/);
   return match?.[1] ?? null;
 }
 
@@ -3840,7 +3810,7 @@ function resolveHeaderRoutingDecision(
     cliFirst,
     preferredHeaderStyle,
     explicitQuota,
-    allowQuotaFallback: family === "gemini" && !!(config.quota_style_fallback ?? false),
+    allowQuotaFallback: family === "gemini" && (config.quota_style_fallback ?? false),
   };
 }
 
