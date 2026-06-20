@@ -503,6 +503,11 @@ export const AntigravityConfigSchema = z.object({
    */
   auto_update: z.boolean().default(true),
 
+  /**
+   * Decoupled model definitions to inject.
+   */
+  models: z.record(z.string(), z.any()).optional(),
+
 });
 
 export type AntigravityConfig = z.infer<typeof AntigravityConfigSchema>;
