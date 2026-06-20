@@ -1464,7 +1464,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
   return {
     config: async (opencodeConfig: Record<string, unknown>) => {
-      applyAntigravityProviderCatalog(opencodeConfig, providerId);
+      applyAntigravityProviderCatalog(opencodeConfig, providerId, config);
       const mutableConfig = opencodeConfig as Record<string, unknown> & {
         command?: Record<string, unknown>;
       };
@@ -3851,16 +3851,29 @@ type OpencodeMutableConfig = Record<string, unknown> & {
   }>;
 };
 
-function applyAntigravityProviderCatalog(config: Record<string, unknown>, providerId: string): void {
-  const mutableConfig = config as OpencodeMutableConfig;
+function applyAntigravityProviderCatalog(
+  opencodeConfig: Record<string, unknown>,
+  providerId: string,
+  pluginConfig: AntigravityConfig
+): void {
+  const mutableConfig = opencodeConfig as OpencodeMutableConfig;
   mutableConfig.provider ??= {};
 
   const providerConfig = mutableConfig.provider[providerId] ?? {};
+  
+  // Merge order (lowest to highest priority):
+  // 1. Built-in defaults: OPENCODE_MODEL_DEFINITIONS
+  // 2. Decoupled models (from antigravity.json / antigravity-models.json): pluginConfig.models
+  // 3. User's main opencode.json models (preserves backwards compatibility / custom overrides)
   providerConfig.models = {
-    ...(providerConfig.models ?? {}),
     ...OPENCODE_MODEL_DEFINITIONS,
+    ...(pluginConfig.models ?? {}),
+    ...(providerConfig.models ?? {}),
   };
-  providerConfig.whitelist = getAntigravityOpencodeModelIds();
+  
+  // Whitelist should be the union of all registered models so they aren't pruned by OpenCode
+  providerConfig.whitelist = Object.keys(providerConfig.models);
+  
   mutableConfig.provider[providerId] = providerConfig;
 }
 

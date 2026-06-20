@@ -112,12 +112,56 @@ function mergeConfigs(
 // Main Loader
 // =============================================================================
 
-/**
- * Load the complete configuration.
- * 
- * @param directory - The project directory (for project-level config)
- * @returns Fully resolved configuration
- */
+function stripJsonCommentsAndTrailingCommas(json: string): string {
+  return json
+    .replace(
+      /\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g,
+      (match: string, group: string | undefined) => (group ? "" : match)
+    )
+    .replace(/,(\s*[}\]])/g, "$1");
+}
+
+function loadModelsFile(path: string): Record<string, any> | null {
+  try {
+    if (!existsSync(path)) {
+      return null;
+    }
+    const content = readFileSync(path, "utf-8");
+    const parsed = JSON.parse(stripJsonCommentsAndTrailingCommas(content));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+    return null;
+  } catch (error) {
+    log.warn("Failed to load decoupled models file", { path, error: String(error) });
+    return null;
+  }
+}
+
+export function loadDecoupledModels(directory: string): Record<string, any> {
+  let mergedModels: Record<string, any> = {};
+
+  const configDir = getConfigDir();
+  const userJsonPath = join(configDir, "antigravity-models.json");
+  const userJsoncPath = join(configDir, "antigravity-models.jsonc");
+  const projectJsonPath = join(directory, ".opencode", "antigravity-models.json");
+  const projectJsoncPath = join(directory, ".opencode", "antigravity-models.jsonc");
+
+  // User level (prefer jsonc if both exist)
+  const userModels = loadModelsFile(existsSync(userJsoncPath) ? userJsoncPath : userJsonPath);
+  if (userModels) {
+    mergedModels = { ...mergedModels, ...userModels };
+  }
+
+  // Project level (prefer jsonc if both exist) - overrides user level
+  const projectModels = loadModelsFile(existsSync(projectJsoncPath) ? projectJsoncPath : projectJsonPath);
+  if (projectModels) {
+    mergedModels = { ...mergedModels, ...projectModels };
+  }
+
+  return mergedModels;
+}
+
 export function loadConfig(directory: string): AntigravityConfig {
   // Start with defaults
   let config: AntigravityConfig = { ...DEFAULT_CONFIG };
@@ -134,6 +178,15 @@ export function loadConfig(directory: string): AntigravityConfig {
   const projectConfig = loadConfigFile(projectConfigPath);
   if (projectConfig) {
     config = mergeConfigs(config, projectConfig);
+  }
+
+  // Load decoupled models from antigravity-models.json(c) and merge into config.models
+  const decoupledModels = loadDecoupledModels(directory);
+  if (Object.keys(decoupledModels).length > 0) {
+    config.models = {
+      ...(config.models ?? {}),
+      ...decoupledModels,
+    };
   }
 
   return config;
