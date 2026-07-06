@@ -40,8 +40,10 @@ const log = createLogger("storage");
  * Files/directories that should be gitignored in the config directory.
  * These contain sensitive data or machine-specific state.
  */
+// NOTE: deliberately no ".gitignore" self-ignore entry — users who track their
+// config dir as a git repo (with .gitignore committed) get endless working-tree
+// drift from re-appending it, and for a tracked file the entry is a no-op anyway.
 export const GITIGNORE_ENTRIES = [
-  ".gitignore",
   "antigravity-accounts.json",
   "antigravity-accounts.json.*.tmp",
   "antigravity-signature-cache.json",
