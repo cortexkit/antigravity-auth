@@ -259,6 +259,7 @@ const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
   "antigravity-gemini-3.1-pro",
   "antigravity-claude-sonnet-4-6-thinking",
   "antigravity-claude-opus-4-6-thinking",
+  "antigravity-gemini-3.1-flash-image",
 ] as const
 
 function pickModelDefinitions(ids: readonly string[]): OpencodeModelDefinitions {
