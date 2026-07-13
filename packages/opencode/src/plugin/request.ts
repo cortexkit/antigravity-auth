@@ -82,6 +82,42 @@ import type { GoogleSearchConfig } from "./transform/types";
 const log = createLogger("request");
 
 const PLUGIN_SESSION_ID = `-${crypto.randomUUID()}`;
+const CONVERSATION_ID = crypto.randomUUID();
+const TRAJECTORY_ID = crypto.randomUUID();
+let requestStepIndex = 0;
+
+// FNV-1a 64-bit hash — deterministic sessionId matching real Antigravity IDE
+// Real IDE computes FNV-1a(workspaceUri) — stable across accounts, restarts, conversations
+const FNV1A_64_OFFSET_BASIS = 0xCBF29CE484222325n
+const FNV1A_64_PRIME = 0x00000100000001B3n
+
+function fnv1a64(input: string): string {
+  let hash = FNV1A_64_OFFSET_BASIS
+  const bytes = Buffer.from(input, "utf-8")
+  for (const byte of bytes) {
+    hash ^= BigInt(byte)
+    hash = BigInt.asUintN(64, hash * FNV1A_64_PRIME)
+  }
+  // Convert to signed 64-bit integer string (matching real IDE format)
+  const signed = hash > 0x7FFFFFFFFFFFFFFFn
+    ? hash - 0x10000000000000000n
+    : hash
+  return signed.toString()
+}
+
+// Deterministic session ID from workspace directory (FNV-1a 64-bit hash)
+// Default: empty string input = FNV-1a offset basis = "-3750763034362895579"
+let NUMERIC_SESSION_ID = fnv1a64("")
+
+export function initSessionId(directory: string): void {
+  NUMERIC_SESSION_ID = fnv1a64(directory)
+}
+
+export function getNumericSessionId(): string {
+  return NUMERIC_SESSION_ID
+}
+
+let lastExecutionId = crypto.randomUUID()
 
 const sessionDisplayedThinkingHashes = new Set<string>();
 
@@ -414,7 +450,7 @@ function stripInjectedDebugFromParts(parts: unknown): unknown {
 
     // Replace debug blocks and synthetic thinking placeholders with empty text sentinel
     if (text && (text.startsWith(DEBUG_MESSAGE_PREFIX) || text.startsWith(SYNTHETIC_THINKING_PLACEHOLDER.trim()))) {
-      const sentinel: Record<string, unknown> = { text: "." };
+      const sentinel: Record<string, unknown> = { text: "" };
       if (record.cache_control !== undefined) sentinel.cache_control = record.cache_control;
       return sentinel;
     }
@@ -477,16 +513,18 @@ function isValidRequestPart(part: unknown): boolean {
   );
 }
 
-function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>): void {
+function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>, isClaudeModel?: boolean): void {
   const anyPayload = payload as any;
-
+  // Claude: normalize empty text to "." (proxy absorbs it during format conversion).
+  // Gemini: keep empty text as "" (Gemini echoes "." as literal dots in output).
+  const emptySentinelText = isClaudeModel === false ? "" : ".";
   if (Array.isArray(anyPayload.contents)) {
     // Use .map() instead of .map().filter() to preserve array indices for prompt cache stability
     anyPayload.contents = anyPayload.contents
       .map((content: unknown) => {
         if (!content || typeof content !== "object") {
           // Preserve non-object entries as empty sentinel instead of filtering
-          return { role: "user", parts: [{ text: "." }] };
+          return { role: "user", parts: [{ text: emptySentinelText }] };
         }
 
         const contentRecord = content as Record<string, unknown>;
@@ -496,7 +534,17 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
         const sanitizedParts = rawParts.map((part: any) => {
           // Replace invalid parts with sentinel to preserve array indices for cache stability
           if (!isValidRequestPart(part)) {
-            return { text: "." };
+            return { text: emptySentinelText };
+          }
+          // Normalize empty/whitespace-only text parts to the model-appropriate sentinel.
+          // MC strips thinking to { text: "" }; Claude plugin strips to { text: "." }.
+          // For Claude: normalize MC's "" → "." so both match and don't bust prompt cache.
+          // For Gemini: both MC and plugin use "" — skip normalization to avoid dot echo.
+          if (part.text !== undefined && (typeof part.text !== "string" || part.text.trim().length === 0)) {
+            const sentinel: Record<string, unknown> = { text: emptySentinelText };
+            if (part.cache_control) sentinel.cache_control = part.cache_control;
+            if (part.cacheControl) sentinel.cacheControl = part.cacheControl;
+            return sentinel;
           }
           return part;
         }).map((part: any) => {
@@ -531,7 +579,7 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
 
         if (sanitizedParts.length === 0) {
           // Preserve as empty text sentinel instead of filtering out
-          return { ...contentRecord, parts: [{ text: "." }] };
+          return { ...contentRecord, parts: [{ text: emptySentinelText }] };
         }
 
         return {
@@ -544,7 +592,7 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
   if (Array.isArray(anyPayload.messages)) {
     anyPayload.messages = anyPayload.messages.map((message: unknown) => {
       if (!message || typeof message !== "object") {
-        return { role: "user", content: [{ type: "text", text: "." }] }
+        return { role: "user", content: [{ type: "text", text: emptySentinelText }] }
       }
 
       const messageRecord = message as Record<string, unknown>
@@ -556,14 +604,14 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
 
       const sanitizedContent = rawContent.map((block: unknown) => {
         if (!block || typeof block !== "object") {
-          return { type: "text", text: "." }
+          return { type: "text", text: emptySentinelText }
         }
 
         const blockRecord = block as Record<string, unknown>
         if (blockRecord.type === "text") {
           const text = blockRecord.text
           if (typeof text !== "string" || text.trim().length === 0) {
-            const sentinel: Record<string, unknown> = { type: "text", text: "." }
+            const sentinel: Record<string, unknown> = { type: "text", text: emptySentinelText }
             if (blockRecord.cache_control !== undefined) sentinel.cache_control = blockRecord.cache_control
             return sentinel
           }
@@ -573,7 +621,7 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
       })
 
       if (sanitizedContent.length === 0) {
-        return { ...messageRecord, content: [{ type: "text", text: "." }] }
+        return { ...messageRecord, content: [{ type: "text", text: emptySentinelText }] }
       }
 
       return {
@@ -592,13 +640,13 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
       const sanitizedSystemParts = sys.parts.map((part: unknown) => {
         if (isValidRequestPart(part)) return part;
         const record = part as Record<string, unknown>;
-        const sentinel: Record<string, unknown> = { text: "." };
+        const sentinel: Record<string, unknown> = { text: emptySentinelText };
         if (record?.cache_control !== undefined) sentinel.cache_control = record.cache_control;
         return sentinel;
       });
       // Only delete systemInstruction if ALL parts were invalid (all sentinels, no real content)
       const hasRealContent = sanitizedSystemParts.some((p: any) =>
-        p && typeof p === "object" && typeof p.text === "string" && p.text !== "."
+        p && typeof p === "object" && typeof p.text === "string" && p.text !== emptySentinelText && p.text.trim().length > 0
       );
       if (hasRealContent) {
         sys.parts = sanitizedSystemParts;
@@ -761,7 +809,7 @@ function ensureThinkingBeforeToolUseInContents(contents: any[], signatureSession
       const cc = (p as Record<string, unknown>).cache_control;
       // Use plain empty text part — thinking-format sentinels get converted by the proxy
       // into Claude thinking blocks missing the required `thinking` field.
-      const sentinel: Record<string, unknown> = { text: "." };
+      const sentinel: Record<string, unknown> = { text: "" };
       if (cc) sentinel.cache_control = cc;
       return sentinel;
     });
@@ -863,7 +911,7 @@ function ensureThinkingBeforeToolUseInMessages(messages: any[], signatureSession
       const cc = (b as Record<string, unknown>).cache_control;
       // Use plain empty text part — thinking-format sentinels get converted by the proxy
       // into Claude thinking blocks missing the required `thinking` field.
-      const sentinel: Record<string, unknown> = { text: "." };
+      const sentinel: Record<string, unknown> = { text: "" };
       if (cc) sentinel.cache_control = cc;
       return sentinel;
     }) };
@@ -994,7 +1042,8 @@ export function prepareAntigravityRequest(
   const transformedUrl = `${baseEndpoint}/v1internal:${rawAction}${streaming ? "?alt=sse" : ""}`;
 
   const isClaude = isClaudeModel(resolved.actualModel);
-  const isClaudeThinking = isClaudeThinkingModel(resolved.actualModel);  const keepThinkingEnabled = getKeepThinking();
+  const isClaudeThinking = headerStyle !== "antigravity" && isClaudeThinkingModel(resolved.actualModel);
+  const keepThinkingEnabled = getKeepThinking();
 
   // Tier-based thinking configuration from model resolver (can be overridden by variant config)
   let tierThinkingBudget = resolved.thinkingBudget;
@@ -1054,8 +1103,8 @@ export function prepareAntigravityRequest(
         }
 
         for (const req of requestObjects) {
-          // Use stable session ID for signature caching across multi-turn conversations
-          (req as any).sessionId = signatureSessionKey;
+          // Set FNV-1a numeric session ID matching real IDE format
+          (req as any).sessionId = NUMERIC_SESSION_ID;
           stripInjectedDebugFromRequestPayload(req as Record<string, unknown>);
 
           if (isClaude) {
@@ -1075,7 +1124,31 @@ export function prepareAntigravityRequest(
 
             // Step 3: Apply tool pairing fixes (ID assignment, response matching, orphan recovery)
             applyToolPairingFixes(req as Record<string, unknown>, true);
+            // Step 4: Sanitize empty/invalid parts with model-appropriate sentinel
+            sanitizeRequestPayloadForAntigravity(req as Record<string, unknown>, isClaude);
           }
+        }
+
+        // Inject labels/toolConfig into wrapped requests (same as unwrapped path)
+        if (headerStyle === "antigravity") {
+          const claudeUsed = isClaude ? "true" : "false"
+          for (const req of requestObjects) {
+            (req as any).labels = {
+              last_execution_id: lastExecutionId,
+              last_step_index: String(requestStepIndex),
+              model_enum: "MODEL_PLACEHOLDER_M132",
+              trajectory_id: TRAJECTORY_ID,
+              used_claude: claudeUsed,
+              used_claude_conservative: claudeUsed,
+            }
+            if (Array.isArray((req as any).tools) && (req as any).tools.length > 0) {
+              (req as any).toolConfig = {
+                functionCallingConfig: { mode: "VALIDATED" },
+              }
+            }
+          }
+          lastExecutionId = crypto.randomUUID()
+          requestStepIndex++
         }
 
         // Guard against assistant prefill: Claude rejects conversations ending
@@ -1125,6 +1198,8 @@ export function prepareAntigravityRequest(
         const isGemini3 = effectiveModel.toLowerCase().includes("gemini-3");
 
         log.debug(`[ThinkingResolution] rawModel=${rawModel} resolvedModel=${effectiveModel} resolvedTier=${tierThinkingLevel ?? "none"} variantLevel=${variantConfig?.thinkingLevel ?? "none"} variantBudget=${variantConfig?.thinkingBudget ?? "none"} providerOptions.google=${JSON.stringify((requestPayload.providerOptions as any)?.google ?? null)} generationConfig.thinkingConfig=${JSON.stringify((rawGenerationConfig as any)?.thinkingConfig ?? null)}`);
+        // Strip providerOptions — AI SDK construct, never sent by real Antigravity IDE
+        delete requestPayload.providerOptions;
 
         if (variantConfig?.thinkingLevel && isGemini3) {
           // Gemini 3 native format - use thinkingLevel directly
@@ -1227,7 +1302,7 @@ export function prepareAntigravityRequest(
             // Build thinking config based on model type
             let thinkingConfig: Record<string, unknown>;
 
-            if (isClaudeThinking && headerStyle !== "antigravity") {
+            if (isClaudeThinking) {
               // Claude-on-Gemini fallback uses snake_case keys.
               thinkingConfig = {
                 include_thoughts: normalizedThinking.includeThoughts ?? true,
@@ -1255,9 +1330,7 @@ export function prepareAntigravityRequest(
 
               if (isClaudeThinking && typeof thinkingBudget === "number" && thinkingBudget > 0) {
                 const currentMax = (rawGenerationConfig.maxOutputTokens ?? rawGenerationConfig.max_output_tokens) as number | undefined;
-                if (headerStyle === "antigravity" && !currentMax) {
-                  rawGenerationConfig.maxOutputTokens = 64000;
-                } else if (!currentMax || currentMax <= thinkingBudget) {
+                if (!currentMax || currentMax <= thinkingBudget) {
                   rawGenerationConfig.maxOutputTokens = computeClaudeMaxOutputTokens(thinkingBudget);
                 }
                 if (rawGenerationConfig.max_output_tokens !== undefined) {
@@ -1269,9 +1342,7 @@ export function prepareAntigravityRequest(
               const generationConfig: Record<string, unknown> = { thinkingConfig };
 
               if (isClaudeThinking && typeof thinkingBudget === "number" && thinkingBudget > 0) {
-                generationConfig.maxOutputTokens = headerStyle === "antigravity"
-                  ? 64000
-                  : computeClaudeMaxOutputTokens(thinkingBudget);
+                generationConfig.maxOutputTokens = computeClaudeMaxOutputTokens(thinkingBudget);
               }
               applyAgyGenerationDefaults(effectiveModel, generationConfig, headerStyle);
               requestPayload.generationConfig = generationConfig;
@@ -1657,7 +1728,33 @@ export function prepareAntigravityRequest(
         }
 
         stripInjectedDebugFromRequestPayload(requestPayload);
-        sanitizeRequestPayloadForAntigravity(requestPayload);
+        sanitizeRequestPayloadForAntigravity(requestPayload, isClaude);
+
+        // Inject fields inside request payload matching real Antigravity IDE format
+        // sessionId, labels, toolConfig go INSIDE request (not envelope top level)
+        if (headerStyle === "antigravity") {
+          // Session ID — stable signed integer string per workspace directory
+          requestPayload.sessionId = NUMERIC_SESSION_ID
+
+          // Labels — tracking metadata for agent requests
+          const claudeUsed = isClaude ? "true" : "false"
+          requestPayload.labels = {
+            last_execution_id: lastExecutionId,
+            last_step_index: String(requestStepIndex),
+            model_enum: "MODEL_PLACEHOLDER_M132",
+            trajectory_id: TRAJECTORY_ID,
+            used_claude: claudeUsed,
+            used_claude_conservative: claudeUsed,
+          }
+          lastExecutionId = crypto.randomUUID()
+
+          // Tool config — only when function declarations are present
+          if (Array.isArray(requestPayload.tools) && requestPayload.tools.length > 0) {
+            requestPayload.toolConfig = {
+              functionCallingConfig: { mode: "VALIDATED" },
+            }
+          }
+        }
         // Use the stable default project ID (never a per-request random one):
         // a fresh random project each request busts the prompt cache and
         // fragments server-side quota/session state. ensureProjectContext
@@ -1683,52 +1780,68 @@ export function prepareAntigravityRequest(
         if (wrappedBody.request && typeof wrappedBody.request === 'object') {
           // Use stable session ID for signature caching across multi-turn conversations
           sessionId = signatureSessionKey;
-          (wrappedBody.request as any).sessionId = signatureSessionKey;
+          // Note: requestPayload.sessionId is already set to NUMERIC_SESSION_ID above
+          // (FNV-1a hash matching real IDE) — do NOT overwrite it here
         }
 
+        requestStepIndex++;
         body = safeStringify(headerStyle === "antigravity" ? orderAntigravityEnvelope(wrappedBody) : wrappedBody);
       }
     } catch {
       throw new Error("Failed to build Antigravity request body");
     }
   }
-  // agy CLI does not send an Accept header on streamGenerateContent requests.
-  // Avoid adding one here; the response is selected by ?alt=sse.
-
-  // Add interleaved thinking header for Claude thinking models
-  // This enables real-time streaming of thinking tokens
-  if (isClaudeThinking) {
-    const existing = headers.get("anthropic-beta");
-    const interleavedHeader = "interleaved-thinking-2025-05-14";
-
-    if (existing) {
-      if (!existing.includes(interleavedHeader)) {
-        headers.set("anthropic-beta", `${existing},${interleavedHeader}`);
-      }
-    } else {
-      headers.set("anthropic-beta", interleavedHeader);
-    }
-  }
-
   if (headerStyle === "antigravity") {
-    // Use randomized headers as the fallback pool for Antigravity mode
-    const selectedHeaders = getRandomizedHeaders("antigravity", requestedModel);
-
-    // Antigravity mode: Match Antigravity Manager behavior
-    // AM only sends User-Agent on content requests — no X-Goog-Api-Client, no Client-Metadata header
-    // (ideType=ANTIGRAVITY goes in request body metadata via project.ts, not as a header)
+    // Real Antigravity IDE content requests send ONLY these headers:
+    //   Host, User-Agent, Authorization, Content-Type, Transfer-Encoding, Accept-Encoding
+    // Host, Transfer-Encoding, and Accept-Encoding are auto-set by the fetch runtime.
+    // Strip ALL inherited OpenCode/AI SDK headers (x-session-affinity, x-parent-session-id,
+    //   x-stainless-*, anthropic-version, anthropic-beta, Accept, etc.)
+    // to match real IDE signature exactly.
+    // The streaming format is signaled by ?alt=sse in the URL, not by Accept header.
     const fingerprint = options?.fingerprint ?? getSessionFingerprint();
     const fingerprintHeaders = buildFingerprintHeaders(fingerprint);
+    const selectedHeaders = getRandomizedHeaders("antigravity", requestedModel);
+    const cleanUA = fingerprintHeaders["User-Agent"] || selectedHeaders["User-Agent"];
+    const authValue = headers.get("Authorization");
 
-    headers.set("User-Agent", fingerprintHeaders["User-Agent"] || selectedHeaders["User-Agent"]);
-    headers.set("Accept-Encoding", "gzip");
+    // Clear all inherited headers and rebuild with only real-IDE-matching set
+    const keysToDelete: string[] = [];
+    headers.forEach((_value, key) => { keysToDelete.push(key); });
+    for (const key of keysToDelete) { headers.delete(key); }
+
+    if (authValue) headers.set("Authorization", authValue);
+    headers.set("Content-Type", "application/json");
+    headers.set("User-Agent", cleanUA);
   } else {
     // Gemini CLI mode: match official google-gemini/gemini-cli User-Agent format
+    // Accept: text/event-stream only for gemini-cli mode (antigravity uses ?alt=sse URL param)
+    if (streaming) {
+      headers.set("Accept", "text/event-stream");
+    }
+
+    // Add interleaved thinking header for Claude thinking models (gemini-cli only)
+    // Real Antigravity IDE does NOT send anthropic-beta — proxy handles it server-side
+    if (isClaudeThinking) {
+      const existing = headers.get("anthropic-beta");
+      const interleavedHeader = "interleaved-thinking-2025-05-14";
+
+      if (existing) {
+        if (!existing.includes(interleavedHeader)) {
+          headers.set("anthropic-beta", `${existing},${interleavedHeader}`);
+        }
+      } else {
+        headers.set("anthropic-beta", interleavedHeader);
+      }
+    }
+
     const geminiCliHeaders = getRandomizedHeaders("gemini-cli", requestedModel);
     headers.set("User-Agent", geminiCliHeaders["User-Agent"]);
     if (geminiCliHeaders["X-Goog-Api-Client"]) headers.set("X-Goog-Api-Client", geminiCliHeaders["X-Goog-Api-Client"]);
     if (geminiCliHeaders["Client-Metadata"]) headers.set("Client-Metadata", geminiCliHeaders["Client-Metadata"]);
-  }  return {
+  }
+
+  return {
     request: transformedUrl,
     init: {
       ...baseInit,

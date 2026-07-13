@@ -1165,7 +1165,7 @@ it("removes x-api-key header", () => {
       // Sentinel replacement: thinking parts are replaced with plain empty text parts (not deleted) to preserve array indices for cache
       // Plain text sentinels avoid the proxy converting them to Claude thinking blocks with missing fields
       expect(parts).toHaveLength(2); // Array length preserved (1 sentinel + 1 functionCall)
-      expect(parts[0]).toMatchObject({ text: "." }); // Thinking replaced with plain space text
+      expect(parts[0]).toMatchObject({ text: "." }); // Thinking replaced with sentinel (Claude uses "." — proxy absorbs it)
       expect(parts[0]).not.toHaveProperty("thought");
       expect(parts[0]).not.toHaveProperty("thoughtSignature");
       expect(result.needsSignedThinkingWarmup).toBe(false);
@@ -1203,7 +1203,7 @@ it("removes x-api-key header", () => {
 
       // Sentinel replacement: thinking parts are replaced with plain empty text parts (not deleted) to preserve array indices for cache
       expect(parts).toHaveLength(2); // Array length preserved (1 sentinel + 1 functionCall)
-      expect(parts[0]).toMatchObject({ text: "." }); // Thinking replaced with plain space text
+      expect(parts[0]).toMatchObject({ text: "." }); // Thinking replaced with sentinel (Claude uses "." — proxy absorbs it)
       expect(parts[0]).not.toHaveProperty("thought");
       expect(parts[0]).not.toHaveProperty("thoughtSignature");
       expect(result.needsSignedThinkingWarmup).toBe(false);    });
@@ -1284,11 +1284,12 @@ it("removes x-api-key header", () => {
 
       // Sentinel replacement: thinking blocks become plain empty text parts
       // This avoids the proxy converting them to Claude thinking blocks with missing required fields
-      const textSentinel = content.find((block) => block.text === "." && !block.type);
+      const textSentinel = content.find((block) => block.text === "" && !block.type);
       expect(textSentinel).toBeTruthy();
       expect(JSON.stringify(content)).not.toContain(foreignSignature);
-      // With plain text sentinels, there's no signed thinking block → warmup is needed
-      expect(result.needsSignedThinkingWarmup).toBe(true);    });
+      // In antigravity mode, the proxy handles signed thinking warmup — client skips it
+      expect(result.needsSignedThinkingWarmup).toBe(false);
+    });
 
     it("returns requestedModel matching URL model", () => {
       const result = prepareAntigravityRequest(
@@ -1351,10 +1352,10 @@ it("removes x-api-key header", () => {
       // Entry with valid parts keeps them (invalid parts replaced with sentinel to preserve indices)
       expect(wrapped.request.contents[1]).toEqual({
         role: "model",
-        parts: [{ text: "." }, { text: "kept" }],
+        parts: [{ text: "" }, { text: "kept" }],
       });
       // systemInstruction parts: null replaced with sentinel, valid parts kept
-      expect(wrapped.request.systemInstruction.parts).toEqual([{ text: "." }, { text: "system kept" }]);
+      expect(wrapped.request.systemInstruction.parts).toEqual([{ text: "" }, { text: "system kept" }]);
     });
 
     it("drops systemInstruction when all parts are invalid", () => {

@@ -198,7 +198,7 @@ function stripAllThinkingBlocks(contents: any[]): any[] {
         // Replace with Gemini-format sentinel preserving cache_control
         // Use plain empty text part — thinking-format sentinels get converted by the proxy
         // into Claude thinking blocks missing the required `thinking` field.
-        const sentinel: Record<string, unknown> = { text: "." };
+        const sentinel: Record<string, unknown> = { text: "" };
         if (part.cache_control !== undefined) sentinel.cache_control = part.cache_control;
         return sentinel;
       });
@@ -212,7 +212,7 @@ function stripAllThinkingBlocks(contents: any[]): any[] {
         // Replace with Anthropic-format sentinel preserving cache_control
         // Use plain empty text part — thinking-format sentinels get converted by the proxy
         // into Claude thinking blocks missing the required `thinking` field.
-        const sentinel: Record<string, unknown> = { text: "." };
+        const sentinel: Record<string, unknown> = { text: "" };
         if (block?.cache_control !== undefined) sentinel.cache_control = block.cache_control;
         return sentinel;
       });

@@ -327,7 +327,7 @@ describe("filterUnsignedThinkingBlocks", () => {
     const result = filterUnsignedThinkingBlocks(contents);
     // Sentinel replacement preserves array length
     expect(result[0].parts).toHaveLength(2);
-    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[0]).toMatchObject({ text: "" });
     expect(result[0].parts[1].type).toBe("text");
   });
   it("keeps signed thinking parts with valid signatures from our cache", () => {
@@ -365,7 +365,7 @@ describe("filterUnsignedThinkingBlocks", () => {
     ];
     const result = filterUnsignedThinkingBlocks(contents);
     expect(result[0].parts).toHaveLength(2);
-    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[0]).toMatchObject({ text: "" });
     expect(result[0].parts[1].type).toBe("text");
   });
 
@@ -383,7 +383,7 @@ describe("filterUnsignedThinkingBlocks", () => {
     ];
     const result = filterUnsignedThinkingBlocks(contents);
     expect(result[0].parts).toHaveLength(2);
-    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[0]).toMatchObject({ text: "" });
     expect(result[0].parts[1].type).toBe("text");
   });
 
@@ -406,7 +406,7 @@ describe("filterUnsignedThinkingBlocks", () => {
     ];
     const result = filterUnsignedThinkingBlocks(contents, "session-1", getCachedSignatureFn);
     expect(result[0].parts).toHaveLength(2);
-    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[0]).toMatchObject({ text: "" });
     expect(result[0].parts[1].thoughtSignature).toBe(validSignature);
   });
 
@@ -422,7 +422,7 @@ describe("filterUnsignedThinkingBlocks", () => {
     const result = filterUnsignedThinkingBlocks(contents);
     // Sentinel replacement: thinking parts become plain empty text parts to preserve array indices
     expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[0]).toMatchObject({ text: "" });
     expect(result[0].parts[0]).not.toHaveProperty("thought");
     expect(result[0].parts[0]).not.toHaveProperty("thoughtSignature");
   });
@@ -452,7 +452,7 @@ describe("filterUnsignedThinkingBlocks", () => {
     ];
     const result = filterUnsignedThinkingBlocks(contents);
     expect(result[0].parts).toHaveLength(2);
-    expect(result[0].parts[0]).toMatchObject({ text: "." });
+    expect(result[0].parts[0]).toMatchObject({ text: "" });
     expect(result[0].parts[1].type).toBe("text");
   });
 
@@ -557,7 +557,7 @@ describe("deepFilterThinkingBlocks", () => {
     deepFilterThinkingBlocks(payload);
     const filtered = (payload as any).extra_body.messages[0].content;
     expect(filtered).toHaveLength(2);
-    expect(filtered[0]).toMatchObject({ text: "." });
+    expect(filtered[0]).toMatchObject({ text: "" });
     expect(filtered[1].type).toBe("text");
   });
 
@@ -578,7 +578,7 @@ describe("filterMessagesThinkingBlocks", () => {
 
     const result = filterMessagesThinkingBlocks(messages) as any;
     expect(result[0].content).toHaveLength(2);
-    expect(result[0].content[0]).toMatchObject({ text: "." });
+    expect(result[0].content[0]).toMatchObject({ text: "" });
     expect(result[0].content[1].type).toBe("text");
   });
 
@@ -632,7 +632,7 @@ describe("filterMessagesThinkingBlocks", () => {
 
     const result = filterMessagesThinkingBlocks(messages) as any;
     expect(result[0].content).toHaveLength(2);
-    expect(result[0].content[0]).toMatchObject({ text: "." });
+    expect(result[0].content[0]).toMatchObject({ text: "" });
     expect(result[0].content[1].type).toBe("text");
   });
 
@@ -650,7 +650,7 @@ describe("filterMessagesThinkingBlocks", () => {
 
     const result = filterMessagesThinkingBlocks(messages) as any;
     expect(result[0].content).toHaveLength(2);
-    expect(result[0].content[0]).toMatchObject({ text: "." });
+    expect(result[0].content[0]).toMatchObject({ text: "" });
     expect(result[0].content).toContainEqual({ type: "text", text: "visible" });
   });
 
