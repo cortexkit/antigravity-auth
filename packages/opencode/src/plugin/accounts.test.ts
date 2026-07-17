@@ -57,6 +57,143 @@ describe("AccountManager", () => {
     expect(account?.index).toBe(0);
   });
 
+  it("pins round-robin selection per exact root session", () => {
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    };
+    const manager = new AccountManager(undefined, stored);
+    const select = (id: string) => manager.getCurrentOrNextForFamily(
+      "gemini",
+      null,
+      "round-robin",
+      "antigravity",
+      false,
+      100,
+      600_000,
+      { id },
+    );
+
+    expect(select("session-a")?.index).toBe(0);
+    expect(select("session-a")?.index).toBe(0);
+    expect(select("session-b")?.index).toBe(1);
+    expect(select("session-b")?.index).toBe(1);
+  });
+
+  it.each(["sticky", "hybrid"] as const)(
+    "keeps %s selection pinned when another root session selects independently",
+    (strategy) => {
+      const stored: AccountStorageV4 = {
+        version: 4,
+        accounts: [
+          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+        ],
+        activeIndex: 0,
+      };
+      const manager = new AccountManager(undefined, stored);
+      const select = (id: string) => manager.getCurrentOrNextForFamily(
+        "gemini",
+        null,
+        strategy,
+        "antigravity",
+        false,
+        100,
+        600_000,
+        { id },
+      );
+
+      const first = select("session-a");
+      select("session-b");
+      expect(select("session-a")?.index).toBe(first?.index);
+    },
+  );
+
+  it("isolates each child from its exact parent's pinned account", () => {
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    };
+    const manager = new AccountManager(undefined, stored);
+    const select = (id: string, parentId: string | null = null) =>
+      manager.getCurrentOrNextForFamily(
+        "gemini",
+        null,
+        "round-robin",
+        "antigravity",
+        false,
+        100,
+        600_000,
+        { id, parentId },
+      );
+
+    expect(select("root-a")?.index).toBe(0);
+    expect(select("root-b")?.index).toBe(1);
+    expect(select("child-a", "root-a")?.index).toBe(1);
+    expect(select("child-b", "root-b")?.index).toBe(0);
+  });
+
+  it("lets a child reuse its parent's account when no alternative is usable", () => {
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    };
+    const manager = new AccountManager(undefined, stored);
+
+    expect(manager.getCurrentOrNextForFamily(
+      "gemini",
+      null,
+      "sticky",
+      "antigravity",
+      false,
+      100,
+      600_000,
+      { id: "root" },
+    )?.index).toBe(0);
+    expect(manager.getCurrentOrNextForFamily(
+      "gemini",
+      null,
+      "sticky",
+      "antigravity",
+      false,
+      100,
+      600_000,
+      { id: "child", parentId: "root" },
+    )?.index).toBe(0);
+  });
+
+  it("releases an exact session pin when its session is deleted", () => {
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    };
+    const manager = new AccountManager(undefined, stored);
+    const identity = { id: "session-a" };
+
+    expect(manager.getCurrentOrNextForFamily(
+      "gemini", null, "round-robin", "antigravity", false, 100, 600_000, identity,
+    )?.index).toBe(0);
+    manager.deleteSessionState(identity.id);
+    expect(manager.getCurrentOrNextForFamily(
+      "gemini", null, "round-robin", "antigravity", false, 100, 600_000, identity,
+    )?.index).toBe(1);
+  });
+
   it("switches to next account when current is rate-limited for family", () => {
     const stored: AccountStorageV4 = {
       version: 4,

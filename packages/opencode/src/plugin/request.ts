@@ -28,7 +28,6 @@ import {
 import { createLogger } from "./logger";
 import {
   cleanJSONSchemaForAntigravity,
-  DEFAULT_THINKING_BUDGET,
   deepFilterThinkingBlocks,
   extractThinkingConfig,
   extractVariantThinkingConfig,
@@ -72,6 +71,12 @@ import {
 import { detectErrorType } from "./recovery";
 import { getSessionFingerprint, buildFingerprintHeaders, type Fingerprint } from "./fingerprint";
 import {
+  buildAgyAgentRequestMetadata,
+  createAgyRequestSessionContext,
+  orderAgyRequestPayloadInPlace,
+  type AgyRequestSessionContext,
+} from "./agy-request-metadata";
+import {
   appendGeminiDumpResponseText,
   createGeminiDumpResponseTransform,
   noteGeminiDumpResponse,
@@ -82,10 +87,12 @@ import type { GoogleSearchConfig } from "./transform/types";
 const log = createLogger("request");
 
 const PLUGIN_SESSION_ID = `-${crypto.randomUUID()}`;
+const DEFAULT_AGY_REQUEST_SESSION = createAgyRequestSessionContext("");
 
 const sessionDisplayedThinkingHashes = new Set<string>();
 
 const MIN_SIGNATURE_LENGTH = 50;
+const AGY_CLAUDE_THINKING_BUDGET = 1024;
 
 const ANTIGRAVITY_ENVELOPE_FIELD_ORDER = [
   "project",
@@ -94,15 +101,7 @@ const ANTIGRAVITY_ENVELOPE_FIELD_ORDER = [
   "model",
   "userAgent",
   "requestType",
-  "enabledCreditTypes",
 ] as const;
-
-function buildAntigravityRequestId(type: "agent" | "checkpoint" = "agent"): string {
-  if (type === "checkpoint") {
-    return `checkpoint/${crypto.randomUUID()}`;
-  }
-  return `agent/${crypto.randomUUID()}/${Date.now()}/${crypto.randomUUID()}/2`;
-}
 
 function getAgyMaxOutputTokens(model: string): number | undefined {
   const lower = model.toLowerCase();
@@ -995,6 +994,10 @@ export interface PrepareRequestOptions {
   googleSearch?: GoogleSearchConfig;
   /** Per-account fingerprint for rate limit mitigation. Falls back to session fingerprint if not provided. */
   fingerprint?: Fingerprint;
+  /** Stable AGY wire identity scoped to the exact OpenCode session. */
+  agySession?: AgyRequestSessionContext;
+  /** Monotonic request timestamp allocated once and reused across endpoint retries. */
+  agyRequestTimestamp?: number;
 }
 
 export function prepareAntigravityRequest(
@@ -1045,6 +1048,8 @@ export function prepareAntigravityRequest(
   headers.delete("x-api-key");
   headers.delete("x-goog-api-key");
   headers.delete("x-session-affinity");
+  headers.delete("x-session-id");
+  headers.delete("x-parent-session-id");
   // Strip x-goog-user-project header to prevent 403 auth/license conflicts.
   // This header is added by OpenCode/AI SDK and can force project-level checks
   // that are not required for Antigravity/Gemini CLI OAuth requests.
@@ -1098,9 +1103,6 @@ export function prepareAntigravityRequest(
         } as Record<string, unknown>;
 
         if (headerStyle === "antigravity") {
-          if (typeof wrappedBody.requestId !== "string" || !wrappedBody.requestId) {
-            wrappedBody.requestId = buildAntigravityRequestId("agent");
-          }
           if (typeof wrappedBody.userAgent !== "string" || !wrappedBody.userAgent) {
             wrappedBody.userAgent = "antigravity";
           }
@@ -1134,8 +1136,6 @@ export function prepareAntigravityRequest(
         }
 
         for (const req of requestObjects) {
-          // Use stable session ID for signature caching across multi-turn conversations
-          (req as any).sessionId = signatureSessionKey;
           stripInjectedDebugFromRequestPayload(req as Record<string, unknown>);
 
           if (isClaude) {
@@ -1196,6 +1196,24 @@ export function prepareAntigravityRequest(
           );
           const hasCachedThinking = defaultSignatureStore.has(signatureSessionKey);
           needsSignedThinkingWarmup = hasToolUse && !hasSignedThinking && !hasCachedThinking;
+        }
+
+        const wireRequest = requestObjects.at(-1);
+        if (wireRequest) {
+          if (headerStyle === "antigravity") {
+            const metadata = buildAgyAgentRequestMetadata(
+              options?.agySession ?? DEFAULT_AGY_REQUEST_SESSION,
+              wireRequest,
+              effectiveModel,
+              options?.agyRequestTimestamp,
+            );
+            wrappedBody.requestId = metadata.requestId;
+            wireRequest.sessionId = metadata.sessionId;
+            wireRequest.labels = metadata.labels;
+            orderAgyRequestPayloadInPlace(wireRequest);
+          } else {
+            wireRequest.sessionId = signatureSessionKey;
+          }
         }
 
         body = safeStringify(headerStyle === "antigravity" ? orderAntigravityEnvelope(wrappedBody) : wrappedBody);
@@ -1745,11 +1763,26 @@ export function prepareAntigravityRequest(
         const effectiveProjectId = projectId?.trim() || (headerStyle === "antigravity" ? ANTIGRAVITY_DEFAULT_PROJECT_ID : "");
         resolvedProjectId = effectiveProjectId;
 
-        // System instruction injection removed — CLIProxyAPI v6.9.x no longer injects it
+        // Keep internal signature-cache identity separate from AGY wire session metadata.
+        sessionId = signatureSessionKey;
+        const agyMetadata = headerStyle === "antigravity"
+          ? buildAgyAgentRequestMetadata(
+              options?.agySession ?? DEFAULT_AGY_REQUEST_SESSION,
+              requestPayload,
+              effectiveModel,
+              options?.agyRequestTimestamp,
+            )
+          : null;
+        requestPayload.sessionId = agyMetadata?.sessionId ?? signatureSessionKey;
+        if (agyMetadata) {
+          requestPayload.labels = agyMetadata.labels;
+          orderAgyRequestPayloadInPlace(requestPayload);
+        }
+
         const wrappedBody: Record<string, unknown> = headerStyle === "antigravity"
           ? {
               project: effectiveProjectId,
-              requestId: buildAntigravityRequestId("agent"),
+              requestId: agyMetadata!.requestId,
               request: requestPayload,
               model: effectiveModel,
               userAgent: "antigravity",
@@ -1760,11 +1793,6 @@ export function prepareAntigravityRequest(
               model: effectiveModel,
               request: requestPayload,
             };
-        if (wrappedBody.request && typeof wrappedBody.request === 'object') {
-          // Use stable session ID for signature caching across multi-turn conversations
-          sessionId = signatureSessionKey;
-          (wrappedBody.request as any).sessionId = signatureSessionKey;
-        }
 
         body = safeStringify(headerStyle === "antigravity" ? orderAntigravityEnvelope(wrappedBody) : wrappedBody);
       }
@@ -1847,27 +1875,49 @@ export function buildThinkingWarmupBody(
 
   const warmupPrompt = "Warmup request for thinking signature.";
 
+  const wireModel = typeof parsed.model === "string" ? parsed.model : "claude-sonnet-4-6";
+  const requestObjects: Record<string, unknown>[] = [];
   const updateRequest = (req: Record<string, unknown>) => {
     req.contents = [{ role: "user", parts: [{ text: warmupPrompt }] }];
     delete req.tools;
-    delete (req as any).toolConfig;
+    delete req.toolConfig;
 
     const generationConfig = (req.generationConfig ?? {}) as Record<string, unknown>;
     generationConfig.thinkingConfig = {
-      include_thoughts: true,
-      thinking_budget: DEFAULT_THINKING_BUDGET,
+      includeThoughts: true,
+      thinkingBudget: AGY_CLAUDE_THINKING_BUDGET,
     };
-    generationConfig.maxOutputTokens = computeClaudeMaxOutputTokens(DEFAULT_THINKING_BUDGET);
-    req.generationConfig = generationConfig;  };
+    generationConfig.maxOutputTokens = getAgyMaxOutputTokens(wireModel) ??
+      computeClaudeMaxOutputTokens(AGY_CLAUDE_THINKING_BUDGET);
+    req.generationConfig = generationConfig;
+    requestObjects.push(req);
+  };
 
   if (parsed.request && typeof parsed.request === "object") {
     updateRequest(parsed.request as Record<string, unknown>);
-    const nested = (parsed.request as any).request;
+    const nested = (parsed.request as Record<string, unknown>).request;
     if (nested && typeof nested === "object") {
       updateRequest(nested as Record<string, unknown>);
     }
   } else {
     updateRequest(parsed);
+  }
+
+  const wireRequest = requestObjects.at(-1);
+  if (wireRequest) {
+    const numericSessionId = typeof wireRequest.sessionId === "string"
+      ? wireRequest.sessionId
+      : DEFAULT_AGY_REQUEST_SESSION.numericSessionId;
+    const warmupSession: AgyRequestSessionContext = {
+      conversationId: crypto.randomUUID(),
+      trajectoryId: crypto.randomUUID(),
+      numericSessionId,
+    };
+    const metadata = buildAgyAgentRequestMetadata(warmupSession, wireRequest, wireModel);
+    parsed.requestId = metadata.requestId;
+    wireRequest.sessionId = metadata.sessionId;
+    wireRequest.labels = metadata.labels;
+    orderAgyRequestPayloadInPlace(wireRequest);
   }
 
   return safeStringify(parsed);

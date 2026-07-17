@@ -57,6 +57,7 @@ import { initHealthTracker, getHealthTracker, initTokenTracker, getTokenTracker 
 import { getAntigravityVersionResolution, initAntigravityVersion } from "./plugin/version";
 import { executeSearch } from "./plugin/search";
 import { resolvePromptContext } from "./plugin/prompt-context";
+import { AgySessionRegistry, extractOpenCodeSessionIdentity } from "./plugin/session-context";
 import {
   dumpGeminiRequest,
   executeGeminiDumpCommand,
@@ -92,11 +93,6 @@ function getCapacityBackoffDelay(consecutiveFailures: number): number {
 }
 const warmupAttemptedSessionIds = new Set<string>();
 const warmupSucceededSessionIds = new Set<string>();
-
-// Track if this plugin instance is running in a child session (subagent, background task)
-// Used to filter toasts based on toast_scope config
-let isChildSession = false;
-let childSessionParentID: string | undefined = undefined;
 
 const log = createLogger("plugin");
 
@@ -1287,6 +1283,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
   // Load configuration from files and environment variables
   const config = loadConfig(directory);
   initRuntimeConfig(config);
+  const agySessionRegistry = new AgySessionRegistry(directory);
 
   // Cached getAuth function for tool access
   let cachedGetAuth: GetAuth | null = null;
@@ -1341,30 +1338,42 @@ export const createAntigravityPlugin = (providerId: string) => async (
     // Forward to update checker
     await updateChecker.event(input);
     
-    // Track if this is a child session (subagent, background task)
-    // This is used to filter toasts based on toast_scope config
     if (input.event.type === "session.created") {
-      // Log previous session's quota summary before resetting for new session
-      const prevSummary = activeAccountManager?.getSessionSummary()
-      if (prevSummary && (prevSummary.totalClaude > 0 || prevSummary.totalGemini > 0)) {
-        log.debug("prev-session-quota-summary", {
-          durationMinutes: prevSummary.durationMinutes,
-          totalClaude: prevSummary.totalClaude,
-          totalGemini: prevSummary.totalGemini,
-          requestsPerHour: prevSummary.requestsPerHour,
-          accountsUsed: prevSummary.accountsUsed,
-        })
+      const props = input.event.properties as {
+        info?: { id?: string; parentID?: string }
+      } | undefined;
+      const sessionId = props?.info?.id;
+      const parentSessionId = props?.info?.parentID ?? null;
+      if (sessionId) {
+        agySessionRegistry.register(sessionId, parentSessionId);
       }
 
-      const props = input.event.properties as { info?: { parentID?: string } } | undefined;      if (props?.info?.parentID) {
-        isChildSession = true;
-        childSessionParentID = props.info.parentID;
-        log.debug("child-session-detected", { parentID: props.info.parentID });
+      if (parentSessionId) {
+        log.debug("child-session-detected", { sessionId, parentID: parentSessionId });
       } else {
-        // Reset for root sessions - important when plugin instance is reused
-        isChildSession = false;
-        childSessionParentID = undefined;
-        log.debug("root-session-detected", {});
+        const prevSummary = activeAccountManager?.getSessionSummary();
+        if (prevSummary && (prevSummary.totalClaude > 0 || prevSummary.totalGemini > 0)) {
+          log.debug("prev-session-quota-summary", {
+            durationMinutes: prevSummary.durationMinutes,
+            totalClaude: prevSummary.totalClaude,
+            totalGemini: prevSummary.totalGemini,
+            requestsPerHour: prevSummary.requestsPerHour,
+            accountsUsed: prevSummary.accountsUsed,
+          });
+        }
+        log.debug("root-session-detected", { sessionId });
+      }
+    }
+
+    if (input.event.type === "session.deleted") {
+      const props = input.event.properties as {
+        sessionID?: string
+        info?: { id?: string }
+      } | undefined;
+      const sessionId = props?.sessionID ?? props?.info?.id;
+      if (sessionId) {
+        agySessionRegistry.delete(sessionId);
+        activeAccountManager?.deleteSessionState(sessionId);
       }
     }
     
@@ -1398,8 +1407,13 @@ export const createAntigravityPlugin = (providerId: string) => async (
           
           // Show success toast (respects toast_scope for child sessions)
           const successToast = getRecoverySuccessToast();
-          log.debug("recovery-toast", { ...successToast, isChildSession, toastScope: config.toast_scope });
-          if (!(config.toast_scope === "root_only" && isChildSession)) {
+          const isChildRecovery = agySessionRegistry.getParentSessionId(sessionID) !== null;
+          log.debug("recovery-toast", {
+            ...successToast,
+            isChildSession: isChildRecovery,
+            toastScope: config.toast_scope,
+          });
+          if (!(config.toast_scope === "root_only" && isChildRecovery)) {
             await client.tui.showToast({
               body: {
                 title: successToast.title,
@@ -1625,6 +1639,17 @@ export const createAntigravityPlugin = (providerId: string) => async (
             }
           }
 
+          const requestSessionIdentity = extractOpenCodeSessionIdentity(init?.headers);
+          const agyRequestScope = agySessionRegistry.beginRequest(requestSessionIdentity);
+          const agyRequestSession = agyRequestScope.session;
+          const accountSessionIdentity = requestSessionIdentity.sessionId
+            ? {
+                id: requestSessionIdentity.sessionId,
+                parentId: requestSessionIdentity.parentSessionId,
+              }
+            : undefined;
+          const isChildRequest = requestSessionIdentity.parentSessionId !== null;
+
           if (accountManager.getAccountCount() === 0) {
             return createSyntheticErrorResponse(
               "No Antigravity accounts configured. Run `opencode auth login`.",
@@ -1641,6 +1666,13 @@ export const createAntigravityPlugin = (providerId: string) => async (
             debugLines.push(line);
           };
           pushDebug(`request=${urlString}`);
+          if (requestSessionIdentity.sessionId) {
+            pushDebug(
+              `[Session] id=${requestSessionIdentity.sessionId}` +
+              ` parent=${requestSessionIdentity.parentSessionId ?? "none"}` +
+              ` child=${isChildRequest}`,
+            );
+          }
           const cachedStats = getLastCacheStats()
           if (cachedStats) {
             const label = cachedStats.hitRate > 0 ? "HIT" : "MISS"
@@ -1680,14 +1712,18 @@ export const createAntigravityPlugin = (providerId: string) => async (
           // Helper to show toast without blocking on abort (respects quiet_mode and toast_scope)
           const showToast = async (message: string, variant: "info" | "warning" | "success" | "error") => {
             // Always log to debug regardless of toast filtering
-            log.debug("toast", { message, variant, isChildSession, toastScope });
+            log.debug("toast", { message, variant, isChildSession: isChildRequest, toastScope });
             
             if (quietMode) return;
             if (abortSignal?.aborted) return;
             
             // Filter toasts for child sessions when toast_scope is "root_only"
-            if (toastScope === "root_only" && isChildSession) {
-              log.debug("toast-suppressed-child-session", { message, variant, parentID: childSessionParentID });
+            if (toastScope === "root_only" && isChildRequest) {
+              log.debug("toast-suppressed-child-session", {
+                message,
+                variant,
+                parentID: requestSessionIdentity.parentSessionId,
+              });
               return;
             }
             
@@ -1741,28 +1777,30 @@ export const createAntigravityPlugin = (providerId: string) => async (
               config.quota_refresh_interval_minutes,
             );
 
-            let account = accountManager.getCurrentOrNextForFamily(
-              family, 
-              model, 
-              config.account_selection_strategy,
-              preferredHeaderStyle,
-              config.pid_offset_enabled,
-              config.soft_quota_threshold_percent,
-              softQuotaCacheTtlMs,
-            );
+             let account = accountManager.getCurrentOrNextForFamily(
+               family,
+               model,
+               config.account_selection_strategy,
+               preferredHeaderStyle,
+               config.pid_offset_enabled,
+               config.soft_quota_threshold_percent,
+               softQuotaCacheTtlMs,
+               accountSessionIdentity,
+             );
 
             if (!account && allowQuotaFallback) {
               const alternateHeaderStyle: HeaderStyle =
                 preferredHeaderStyle === "antigravity" ? "gemini-cli" : "antigravity";
-              account = accountManager.getCurrentOrNextForFamily(
-                family,
-                model,
-                config.account_selection_strategy,
-                alternateHeaderStyle,
-                config.pid_offset_enabled,
-                config.soft_quota_threshold_percent,
-                softQuotaCacheTtlMs,
-              );
+               account = accountManager.getCurrentOrNextForFamily(
+                 family,
+                 model,
+                 config.account_selection_strategy,
+                 alternateHeaderStyle,
+                 config.pid_offset_enabled,
+                 config.soft_quota_threshold_percent,
+                 softQuotaCacheTtlMs,
+                 accountSessionIdentity,
+               );
               if (account) {
                 pushDebug(
                   `selected-by-fallback idx=${account.index} preferred=${preferredHeaderStyle} alternate=${alternateHeaderStyle}`,
@@ -1863,7 +1901,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
               pushDebug(`account-switch: ${previousAccountIndex} → ${account.index}, warmup=${needsCacheWarmup}`);
             }
             previousAccountIndex = account.index;
-            accountManager.recordSessionUsage(account.index);
+             accountManager.recordSessionUsage(account.index, accountSessionIdentity);
             if (isDebugEnabled()) {
               logAccountContext("Selected", {
                 index: account.index,
@@ -2233,6 +2271,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     claudeToolHardening: config.claude_tool_hardening,
                     claudePromptAutoCaching: config.claude_prompt_auto_caching,
                     fingerprint: account.fingerprint,
+                    agySession: agyRequestSession,
+                    agyRequestTimestamp: agyRequestScope.timestamp,
                   },
                 );
 
@@ -2592,21 +2632,26 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   if (proactiveThreshold > 0 && accountManager.shouldProactivelyRotate(
                     family,
                     model,
-                    proactiveThreshold,
-                    softQuotaCacheTtlMs,
-                  )) {
+                     proactiveThreshold,
+                     softQuotaCacheTtlMs,
+                     accountSessionIdentity,
+                   )) {
                     const rotated = accountManager.proactivelyRotateForFamily(
                       family,
                       model,
                       headerStyle,
-                      config.soft_quota_threshold_percent,
-                      softQuotaCacheTtlMs,
-                    );
+                       config.soft_quota_threshold_percent,
+                       softQuotaCacheTtlMs,
+                       accountSessionIdentity,
+                     );
                     if (rotated) {
                       const remaining = account.cachedQuota?.[resolveQuotaGroup(family, model)]?.remainingFraction;
                       const remainingPct = remaining != null ? `${(remaining * 100).toFixed(1)}%` : "?";
                       pushDebug(`[ProactiveRotation] account ${account.index} quota ${remainingPct} < ${proactiveThreshold}%, pre-switched to account ${rotated.index} for next request`);
-                      pushDebug(`[ProactiveRotation] ${account.index} → ${rotated.index} (warm=${accountManager.wasUsedInSession(rotated.index)})`);
+                       pushDebug(
+                         `[ProactiveRotation] ${account.index} → ${rotated.index}` +
+                         ` (warm=${accountManager.wasUsedInSession(rotated.index, accountSessionIdentity)})`,
+                       );
                     }
                   }
                 }                logAntigravityDebugResponse(debugContext, response, {

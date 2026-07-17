@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, it, expect, vi } from "vitest";
 import {
+  buildThinkingWarmupBody,
   prepareAntigravityRequest,
   transformAntigravityResponse,
   getPluginSessionId,
@@ -937,6 +938,64 @@ it("removes x-api-key header", () => {
       expect(headers.get("x-api-key")).toBeNull();
     });
 
+    it("uses session-scoped AGY metadata and strips internal OpenCode session headers", () => {
+      const result = prepareAntigravityRequest(
+        "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash-high:generateContent",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            contents: [
+              { role: "user", parts: [{ text: "prompt" }] },
+              {
+                role: "model",
+                parts: [
+                  { text: "thinking", thought: true },
+                  { functionCall: { name: "read", args: {} } },
+                ],
+              },
+              { role: "user", parts: [{ functionResponse: { name: "read", response: {} } }] },
+            ],
+          }),
+          headers: {
+            "x-session-affinity": "session-child",
+            "X-Session-Id": "session-child",
+            "x-parent-session-id": "session-parent",
+          },
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "antigravity",
+        false,
+        {
+          agySession: {
+            conversationId: "conversation-id",
+            trajectoryId: "trajectory-id",
+            numericSessionId: "-3750763034362895579",
+          },
+          agyRequestTimestamp: 1_784_285_195_116,
+        },
+      );
+
+      const headers = result.init.headers as Headers;
+      expect(headers.get("x-session-affinity")).toBeNull();
+      expect(headers.get("x-session-id")).toBeNull();
+      expect(headers.get("x-parent-session-id")).toBeNull();
+
+      const wrapped = JSON.parse(result.init.body as string);
+      expect(wrapped.requestId).toBe("agent/conversation-id/1784285195116/trajectory-id/5");
+      expect(wrapped.request.sessionId).toBe("-3750763034362895579");
+      expect(wrapped.request.labels).toEqual({
+        last_step_index: "4",
+        model_enum: "MODEL_PLACEHOLDER_M84",
+        trajectory_id: "trajectory-id",
+        used_claude: "false",
+        used_claude_conservative: "false",
+        used_non_gemini_model: "false",
+      });
+      expect(result.sessionId).not.toBe(wrapped.request.sessionId);
+    });
+
     it("removes x-goog-user-project header for antigravity headerStyle", () => {
       const result = prepareAntigravityRequest(
         "https://generativelanguage.googleapis.com/v1beta/models/claude-opus-4-6-thinking:generateContent",
@@ -995,10 +1054,28 @@ it("removes x-api-key header", () => {
       expect(parsed.requestId).toBeUndefined();
     });
 
-    it("orders antigravity envelope fields like captured agy CLI", () => {
+    it("orders antigravity envelope and request fields like captured agy CLI", () => {
       const result = prepareAntigravityRequest(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent",
-        { method: "POST", body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "hi" }] }] }) },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: "hi" }] }],
+            systemInstruction: { parts: [{ text: "system" }] },
+            tools: [{
+              functionDeclarations: [{
+                name: "read",
+                description: "Read a file",
+                parameters: {
+                  type: "object",
+                  properties: { path: { type: "string" } },
+                  required: ["path"],
+                },
+              }],
+            }],
+            generationConfig: { temperature: 0 },
+          }),
+        },
         mockAccessToken,
         mockProjectId,
         undefined,
@@ -1008,6 +1085,7 @@ it("removes x-api-key header", () => {
       const body = result.init.body as string;
       const parsed = JSON.parse(body);
       expect(Object.keys(parsed)).toEqual(AGY_1_1_3_WIRE_FIXTURE.envelopeKeys);
+      expect(Object.keys(parsed.request)).toEqual(AGY_1_1_3_WIRE_FIXTURE.requestKeys);
       expect(parsed.requestId).toMatch(/^agent\/.+\/2$/);
       expect(parsed.userAgent).toBe("antigravity");
       expect(parsed.requestType).toBe("agent");
@@ -1770,6 +1848,50 @@ it("removes x-api-key header", () => {
           "antigravity"
         );
         expect(result.effectiveModel).toBe("gemini-2.5-flash");
+      });
+    });
+  });
+
+  describe("buildThinkingWarmupBody", () => {
+    it("uses a separate valid AGY trajectory instead of reusing stale main-request metadata", () => {
+      const body = JSON.stringify({
+        project: "project",
+        requestId: "agent/main-conversation/100/main-trajectory/5",
+        request: {
+          contents: [
+            { role: "user", parts: [{ text: "prompt" }] },
+            { role: "model", parts: [{ text: "thought" }, { functionCall: { name: "read" } }] },
+            { role: "user", parts: [{ functionResponse: { name: "read" } }] },
+          ],
+          tools: [{ functionDeclarations: [{ name: "read" }] }],
+          toolConfig: { functionCallingConfig: { mode: "VALIDATED" } },
+          labels: {
+            last_step_index: "4",
+            model_enum: "MODEL_PLACEHOLDER_M35",
+            trajectory_id: "main-trajectory",
+          },
+          generationConfig: {},
+          sessionId: "-3750763034362895579",
+        },
+        model: "claude-sonnet-4-6",
+        userAgent: "antigravity",
+        requestType: "agent",
+      });
+
+      const warmup = JSON.parse(buildThinkingWarmupBody(body, true)!);
+
+      expect(warmup.requestId).toMatch(/^agent\/[0-9a-f-]+\/\d+\/[0-9a-f-]+\/2$/);
+      expect(warmup.requestId).not.toContain("main-trajectory");
+      expect(warmup.request.contents).toHaveLength(1);
+      expect(warmup.request.tools).toBeUndefined();
+      expect(warmup.request.toolConfig).toBeUndefined();
+      expect(warmup.request.labels.last_step_index).toBe("1");
+      expect(warmup.request.labels.model_enum).toBe("MODEL_PLACEHOLDER_M35");
+      expect(warmup.request.labels.trajectory_id).not.toBe("main-trajectory");
+      expect(warmup.request.sessionId).toBe("-3750763034362895579");
+      expect(warmup.request.generationConfig).toEqual({
+        thinkingConfig: { includeThoughts: true, thinkingBudget: 1024 },
+        maxOutputTokens: 64000,
       });
     });
   });

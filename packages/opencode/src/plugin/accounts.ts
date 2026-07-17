@@ -296,6 +296,23 @@ export function computeSoftQuotaCacheTtlMs(
   return ttlConfig * 60 * 1000;
 }
 
+export interface AccountSessionIdentity {
+  id: string
+  parentId?: string | null
+}
+
+interface AccountSessionState {
+  parentId: string | null
+  currentAccountIndexByFamily: Record<ModelFamily, number>
+  cursorByFamily: Record<ModelFamily, number>
+  offsetAppliedByFamily: Record<ModelFamily, boolean>
+  usedAccounts: Set<number>
+  lastAccessedAt: number
+}
+
+const ACCOUNT_SESSION_STATE_TTL_MS = 24 * 60 * 60 * 1000
+const MAX_ACCOUNT_SESSION_STATES = 256
+
 /**
  * In-memory multi-account manager with sticky account selection.
  *
@@ -326,6 +343,8 @@ export class AccountManager {
   private sessionStartTime: number = Date.now()
   private sessionRequestCounts: Map<string, { claude: number, gemini: number }> = new Map()
   private sessionUsedAccounts: Set<number> = new Set()
+  private requestSessionStates = new Map<string, AccountSessionState>()
+
   static async loadFromDisk(authFallback?: OAuthAuthDetails): Promise<AccountManager> {
     const stored = await loadAccounts();
     return new AccountManager(authFallback, stored);
@@ -486,8 +505,124 @@ export class AccountManager {
     return this.accounts.map((a) => ({ ...a, parts: { ...a.parts }, rateLimitResetTimes: { ...a.rateLimitResetTimes } }));
   }
 
-  getCurrentAccountForFamily(family: ModelFamily): ManagedAccount | null {
-    const currentIndex = this.currentAccountIndexByFamily[family];
+  private getRequestSessionState(identity: AccountSessionIdentity): AccountSessionState {
+    const now = nowMs()
+    this.pruneRequestSessionStates(now, identity.id)
+
+    const existing = this.requestSessionStates.get(identity.id)
+    if (existing) {
+      existing.lastAccessedAt = now
+      if (identity.parentId) {
+        existing.parentId = identity.parentId
+      }
+      return existing
+    }
+
+    const state: AccountSessionState = {
+      parentId: identity.parentId ?? null,
+      currentAccountIndexByFamily: { claude: -1, gemini: -1 },
+      cursorByFamily: { ...this.cursorByFamily },
+      offsetAppliedByFamily: { claude: false, gemini: false },
+      usedAccounts: new Set<number>(),
+      lastAccessedAt: now,
+    }
+    this.requestSessionStates.set(identity.id, state)
+    return state
+  }
+
+  private pruneRequestSessionStates(now: number, preservedId: string): void {
+    const expiry = now - ACCOUNT_SESSION_STATE_TTL_MS
+    for (const [id, state] of this.requestSessionStates) {
+      if (id !== preservedId && state.lastAccessedAt < expiry) {
+        this.requestSessionStates.delete(id)
+      }
+    }
+
+    if (this.requestSessionStates.size < MAX_ACCOUNT_SESSION_STATES || this.requestSessionStates.has(preservedId)) {
+      return
+    }
+
+    let oldestId: string | null = null
+    let oldestAccess = Number.POSITIVE_INFINITY
+    for (const [id, state] of this.requestSessionStates) {
+      if (id !== preservedId && state.lastAccessedAt < oldestAccess) {
+        oldestId = id
+        oldestAccess = state.lastAccessedAt
+      }
+    }
+    if (oldestId) {
+      this.requestSessionStates.delete(oldestId)
+    }
+  }
+
+  private getActiveIndex(family: ModelFamily, identity?: AccountSessionIdentity): number {
+    return identity
+      ? this.getRequestSessionState(identity).currentAccountIndexByFamily[family]
+      : this.currentAccountIndexByFamily[family]
+  }
+
+  private setActiveIndex(family: ModelFamily, index: number, identity?: AccountSessionIdentity): void {
+    if (!identity) {
+      this.currentAccountIndexByFamily[family] = index
+      return
+    }
+
+    const state = this.getRequestSessionState(identity)
+    state.currentAccountIndexByFamily[family] = index
+    if (!state.parentId) {
+      // Preserve a useful persisted starting point without coupling active root sessions.
+      this.currentAccountIndexByFamily[family] = index
+    }
+  }
+
+  private getCursor(family: ModelFamily, identity?: AccountSessionIdentity): number {
+    return identity
+      ? this.getRequestSessionState(identity).cursorByFamily[family]
+      : this.cursorByFamily[family]
+  }
+
+  private advanceCursor(family: ModelFamily, identity?: AccountSessionIdentity): void {
+    const nextGlobalCursor = this.cursorByFamily[family] + 1
+    this.cursorByFamily[family] = nextGlobalCursor
+    if (identity) {
+      this.getRequestSessionState(identity).cursorByFamily[family] += 1
+    }
+  }
+
+  private getUsedAccounts(identity?: AccountSessionIdentity): Set<number> {
+    return identity ? this.getRequestSessionState(identity).usedAccounts : this.sessionUsedAccounts
+  }
+
+  private preferAccountOutsideParent(
+    accounts: ManagedAccount[],
+    family: ModelFamily,
+    identity?: AccountSessionIdentity,
+  ): ManagedAccount[] {
+    if (!identity) {
+      return accounts
+    }
+    const parentId = this.getRequestSessionState(identity).parentId
+    if (!parentId) {
+      return accounts
+    }
+    const parentState = this.requestSessionStates.get(parentId)
+    const parentIndex = parentState?.currentAccountIndexByFamily[family] ?? -1
+    if (parentIndex < 0) {
+      return accounts
+    }
+    const isolated = accounts.filter((account) => account.index !== parentIndex)
+    return isolated.length > 0 ? isolated : accounts
+  }
+
+  deleteSessionState(sessionId: string): void {
+    this.requestSessionStates.delete(sessionId)
+  }
+
+  getCurrentAccountForFamily(
+    family: ModelFamily,
+    identity?: AccountSessionIdentity,
+  ): ManagedAccount | null {
+    const currentIndex = this.getActiveIndex(family, identity);
     if (currentIndex >= 0 && currentIndex < this.accounts.length) {
       const account = this.accounts[currentIndex] ?? null;
       // Only return account if it's enabled - disabled accounts should not be selected
@@ -498,9 +633,14 @@ export class AccountManager {
     return null;
   }
 
-  markSwitched(account: ManagedAccount, reason: "rate-limit" | "initial" | "rotation", family: ModelFamily): void {
+  markSwitched(
+    account: ManagedAccount,
+    reason: "rate-limit" | "initial" | "rotation",
+    family: ModelFamily,
+    identity?: AccountSessionIdentity,
+  ): void {
     account.lastSwitchReason = reason;
-    this.currentAccountIndexByFamily[family] = account.index;
+    this.setActiveIndex(family, account.index, identity);
   }
 
   /**
@@ -528,15 +668,33 @@ export class AccountManager {
     pidOffsetEnabled: boolean = false,
     softQuotaThresholdPercent: number = 100,
     softQuotaCacheTtlMs: number = 10 * 60 * 1000,
+    identity?: AccountSessionIdentity,
   ): ManagedAccount | null {
     const quotaKey = getQuotaKey(family, headerStyle, model);
     const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(softQuotaThresholdPercent);
 
+    // OpenCode may run many root and child sessions concurrently in one plugin
+    // process. Pin each exact session until its account becomes unavailable.
+    if (identity) {
+      const pinned = this.getCurrentAccountForFamily(family, identity)
+      if (pinned) {
+        clearExpiredRateLimits(pinned)
+        const unavailable =
+          isRateLimitedForHeaderStyle(pinned, family, headerStyle, model) ||
+          isOverSoftQuotaThreshold(pinned, family, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs, model) ||
+          this.isAccountCoolingDown(pinned)
+        if (!unavailable) {
+          this.markTouchedForQuota(pinned, quotaKey)
+          return pinned
+        }
+      }
+    }
+
     if (strategy === 'round-robin') {
-      const next = this.getNextForFamily(family, model, headerStyle, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs);
+      const next = this.getNextForFamily(family, model, headerStyle, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs, identity);
       if (next) {
         this.markTouchedForQuota(next, quotaKey);
-        this.currentAccountIndexByFamily[family] = next.index;
+        this.setActiveIndex(family, next.index, identity);
       }
       return next;
     }
@@ -545,9 +703,12 @@ export class AccountManager {
       const healthTracker = getHealthTracker();
       const tokenTracker = getTokenTracker();
       
-      const accountsWithMetrics: AccountWithMetrics[] = this.accounts
-        .filter(acc => acc.enabled !== false)
-        .map(acc => {
+      const eligibleAccounts = this.preferAccountOutsideParent(
+        this.accounts.filter(acc => acc.enabled !== false),
+        family,
+        identity,
+      )
+      const accountsWithMetrics: AccountWithMetrics[] = eligibleAccounts.map(acc => {
           clearExpiredRateLimits(acc);
           return {
             index: acc.index,
@@ -560,7 +721,7 @@ export class AccountManager {
         });
 
       // Get current account index for stickiness
-      const currentIndex = this.currentAccountIndexByFamily[family] ?? null;
+      const currentIndex = this.getActiveIndex(family, identity);
       
       const selectedIndex = selectHybridAccount(accountsWithMetrics, tokenTracker, currentIndex);
       if (selectedIndex !== null) {
@@ -568,7 +729,7 @@ export class AccountManager {
         if (selected) {
           selected.lastUsed = nowMs();
           this.markTouchedForQuota(selected, quotaKey);
-          this.currentAccountIndexByFamily[family] = selected.index;
+          this.setActiveIndex(family, selected.index, identity);
           return selected;
         }
       }
@@ -577,18 +738,22 @@ export class AccountManager {
     // Fallback: sticky selection (used when hybrid finds no candidates)
     // PID-based offset for multi-session distribution (opt-in)
     // Different sessions (PIDs) will prefer different starting accounts
-    if (pidOffsetEnabled && !this.sessionOffsetApplied[family] && this.accounts.length > 1) {
+    const offsetApplied = identity
+      ? this.getRequestSessionState(identity).offsetAppliedByFamily
+      : this.sessionOffsetApplied;
+    if (pidOffsetEnabled && !offsetApplied[family] && this.accounts.length > 1) {
       const pidOffset = process.pid % this.accounts.length;
-      const baseIndex = this.currentAccountIndexByFamily[family] ?? 0;
+      const activeIndex = this.getActiveIndex(family, identity);
+      const baseIndex = activeIndex >= 0 ? activeIndex : this.getCursor(family, identity);
       const newIndex = (baseIndex + pidOffset) % this.accounts.length;
       
       debugLogToFile(`[Account] Applying PID offset: pid=${process.pid} offset=${pidOffset} family=${family} index=${baseIndex}->${newIndex}`);
       
-      this.currentAccountIndexByFamily[family] = newIndex;
-      this.sessionOffsetApplied[family] = true;
+      this.setActiveIndex(family, newIndex, identity);
+      offsetApplied[family] = true;
     }
 
-    const current = this.getCurrentAccountForFamily(family);
+    const current = this.getCurrentAccountForFamily(family, identity);
     if (current) {
       clearExpiredRateLimits(current);
       const isLimitedForRequestedStyle = isRateLimitedForHeaderStyle(current, family, headerStyle, model);
@@ -599,38 +764,54 @@ export class AccountManager {
       }
     }
 
-    const next = this.getNextForFamily(family, model, headerStyle, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs);
+    const next = this.getNextForFamily(
+      family,
+      model,
+      headerStyle,
+      effectiveSoftQuotaThreshold,
+      softQuotaCacheTtlMs,
+      identity,
+    );
     if (next) {
       this.markTouchedForQuota(next, quotaKey);
-      this.currentAccountIndexByFamily[family] = next.index;
+      this.setActiveIndex(family, next.index, identity);
     }
     return next;
   }
 
-  getNextForFamily(family: ModelFamily, model?: string | null, headerStyle: HeaderStyle = "antigravity", softQuotaThresholdPercent: number = 100, softQuotaCacheTtlMs: number = 10 * 60 * 1000): ManagedAccount | null {
+  getNextForFamily(
+    family: ModelFamily,
+    model?: string | null,
+    headerStyle: HeaderStyle = "antigravity",
+    softQuotaThresholdPercent: number = 100,
+    softQuotaCacheTtlMs: number = 10 * 60 * 1000,
+    identity?: AccountSessionIdentity,
+  ): ManagedAccount | null {
     const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(softQuotaThresholdPercent);
-    const available = this.accounts.filter((a) => {
-      clearExpiredRateLimits(a);
-      return a.enabled !== false && 
-             !isRateLimitedForHeaderStyle(a, family, headerStyle, model) && 
-             !isOverSoftQuotaThreshold(a, family, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs, model) &&
-             !this.isAccountCoolingDown(a);
+    const allAvailable = this.accounts.filter((account) => {
+      clearExpiredRateLimits(account);
+      return account.enabled !== false &&
+        !isRateLimitedForHeaderStyle(account, family, headerStyle, model) &&
+        !isOverSoftQuotaThreshold(account, family, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs, model) &&
+        !this.isAccountCoolingDown(account);
     });
+    const available = this.preferAccountOutsideParent(allAvailable, family, identity)
 
     if (available.length === 0) {
       return null;
     }
 
-    const sessionUsed = available.filter(a => this.sessionUsedAccounts.has(a.index));
+    const usedAccounts = this.getUsedAccounts(identity)
+    const sessionUsed = available.filter(account => usedAccounts.has(account.index));
     const candidates = sessionUsed.length > 0 ? sessionUsed : available;
 
-    const cursor = this.cursorByFamily[family];
+    const cursor = this.getCursor(family, identity)
     const account = candidates[cursor % candidates.length];
     if (!account) {
       return null;
     }
 
-    this.cursorByFamily[family] = cursor + 1;
+    this.advanceCursor(family, identity)
     return account;
   }
   markRateLimited(
@@ -656,12 +837,12 @@ export class AccountManager {
     }
   }
 
-  recordSessionUsage(accountIndex: number): void {
-    this.sessionUsedAccounts.add(accountIndex);
+  recordSessionUsage(accountIndex: number, identity?: AccountSessionIdentity): void {
+    this.getUsedAccounts(identity).add(accountIndex);
   }
 
-  wasUsedInSession(accountIndex: number): boolean {
-    return this.sessionUsedAccounts.has(accountIndex);
+  wasUsedInSession(accountIndex: number, identity?: AccountSessionIdentity): boolean {
+    return this.getUsedAccounts(identity).has(accountIndex);
   }
 
   shouldProactivelyRotate(
@@ -669,10 +850,11 @@ export class AccountManager {
     model: string | null | undefined,
     thresholdPercent: number,
     cacheTtlMs: number,
+    identity?: AccountSessionIdentity,
   ): boolean {
     if (thresholdPercent <= 0) return false;
 
-    const current = this.getCurrentAccountForFamily(family);
+    const current = this.getCurrentAccountForFamily(family, identity);
     if (!current || !current.cachedQuota || current.cachedQuotaUpdatedAt == null) return false;
 
     const age = nowMs() - current.cachedQuotaUpdatedAt;
@@ -692,10 +874,11 @@ export class AccountManager {
     headerStyle: HeaderStyle,
     softQuotaThresholdPercent: number,
     softQuotaCacheTtlMs: number,
+    identity?: AccountSessionIdentity,
   ): ManagedAccount | null {
-    const currentIndex = this.currentAccountIndexByFamily[family];
+    const currentIndex = this.getActiveIndex(family, identity);
 
-    const candidates = this.accounts.filter(acc => {
+    const candidates = this.preferAccountOutsideParent(this.accounts.filter(acc => {
       if (acc.enabled === false) return false;
       if (acc.index === currentIndex) return false;
       clearExpiredRateLimits(acc);
@@ -703,11 +886,12 @@ export class AccountManager {
       if (isOverSoftQuotaThreshold(acc, family, softQuotaThresholdPercent, softQuotaCacheTtlMs, model)) return false;
       if (this.isAccountCoolingDown(acc)) return false;
       return true;
-    });
+    }), family, identity);
 
     if (candidates.length === 0) return null;
 
-    const warmCandidates = candidates.filter(a => this.sessionUsedAccounts.has(a.index));
+    const usedAccounts = this.getUsedAccounts(identity)
+    const warmCandidates = candidates.filter(account => usedAccounts.has(account.index));
     const pool = warmCandidates.length > 0 ? warmCandidates : candidates;
 
     const quotaGroup = resolveQuotaGroup(family, model);
@@ -722,7 +906,7 @@ export class AccountManager {
 
     const quotaKey = getQuotaKey(family, headerStyle, model);
     this.markTouchedForQuota(selected, quotaKey);
-    this.currentAccountIndexByFamily[family] = selected.index;
+    this.setActiveIndex(family, selected.index, identity);
 
     return selected;
   }
@@ -990,6 +1174,7 @@ export class AccountManager {
       this.cursorByFamily = { claude: 0, gemini: 0 };
       this.currentAccountIndexByFamily.claude = -1;
       this.currentAccountIndexByFamily.gemini = -1;
+      this.requestSessionStates.clear();
       return true;
     }
 
@@ -1005,6 +1190,27 @@ export class AccountManager {
       if (this.currentAccountIndexByFamily[family] >= this.accounts.length) {
         this.currentAccountIndexByFamily[family] = -1;
       }
+
+      for (const state of this.requestSessionStates.values()) {
+        const currentIndex = state.currentAccountIndexByFamily[family]
+        if (currentIndex === idx) {
+          state.currentAccountIndexByFamily[family] = -1
+        } else if (currentIndex > idx) {
+          state.currentAccountIndexByFamily[family] -= 1
+        }
+        if (state.cursorByFamily[family] > idx) {
+          state.cursorByFamily[family] -= 1
+        }
+        state.cursorByFamily[family] %= this.accounts.length
+      }
+    }
+
+    for (const state of this.requestSessionStates.values()) {
+      state.usedAccounts = new Set(
+        [...state.usedAccounts]
+          .filter((accountIndex) => accountIndex !== idx)
+          .map((accountIndex) => accountIndex > idx ? accountIndex - 1 : accountIndex),
+      )
     }
 
     return true;

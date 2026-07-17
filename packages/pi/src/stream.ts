@@ -1,9 +1,13 @@
 import {
   ANTIGRAVITY_ENDPOINT,
+  AgyRequestSessionStore,
+  buildAgyAgentRequestMetadata,
   buildAntigravityHarnessUserAgent,
   ensureProjectContext,
   fetchWithAgyCliTransport,
+  orderAgyRequestPayloadInPlace,
   resolveModelForHeaderStyle,
+  type AgyRequestScope,
 } from "@cortexkit/antigravity-auth-core"
 import {
   type Api,
@@ -23,6 +27,8 @@ import { buildGeminiRequest } from "./convert.ts"
 import { getPackedRefresh } from "./credential-cache.ts"
 
 const STREAM_ACTION = "streamGenerateContent"
+const FALLBACK_SESSION_KEY = "__default__"
+const requestSessions = new AgyRequestSessionStore("")
 
 function mapFinishReason(reason: string | null | undefined): StopReason {
   switch (reason) {
@@ -154,8 +160,33 @@ export async function* parseGeminiSse(response: Response): AsyncGenerator<Gemini
   }
 }
 
-function buildRequestId(): string {
-  return `agent/${crypto.randomUUID()}/${Date.now()}/${crypto.randomUUID()}/2`
+function getRequestSessionKey(context: Context, options?: SimpleStreamOptions): string {
+  if (options?.sessionId) {
+    return options.sessionId
+  }
+  const firstTimestamp = context.messages[0]?.timestamp
+  return firstTimestamp !== undefined ? `message:${firstTimestamp}` : FALLBACK_SESSION_KEY
+}
+
+export function finalizePiAntigravityRequest(
+  request: Record<string, unknown>,
+  wireModel: string,
+  scope: AgyRequestScope,
+): string {
+  if (Array.isArray(request.tools) && request.tools.length > 0) {
+    request.toolConfig = { functionCallingConfig: { mode: "VALIDATED" } }
+  }
+
+  const metadata = buildAgyAgentRequestMetadata(
+    scope.session,
+    request,
+    wireModel,
+    scope.timestamp,
+  )
+  request.labels = metadata.labels
+  request.sessionId = metadata.sessionId
+  orderAgyRequestPayloadInPlace(request)
+  return metadata.requestId
 }
 
 async function sendAntigravityRequest(options: {
@@ -203,9 +234,14 @@ async function sendAntigravityRequest(options: {
     request.generationConfig = generationConfig
   }
 
+  const requestScope = requestSessions.beginRequest(
+    getRequestSessionKey(options.context, options.streamOptions),
+  )
+  const requestId = finalizePiAntigravityRequest(request, wireModel, requestScope)
+
   const envelope = {
     project: projectContext.effectiveProjectId,
-    requestId: buildRequestId(),
+    requestId,
     request,
     model: wireModel,
     userAgent: "antigravity",
