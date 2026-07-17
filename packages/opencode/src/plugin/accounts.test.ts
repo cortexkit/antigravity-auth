@@ -1700,6 +1700,40 @@ describe("AccountManager", () => {
       expect(account?.parts.refreshToken).toBe("r1");
     });
 
+    it("never applies soft quota protection when only one account is enabled", () => {
+      const stored: AccountStorageV4 = {
+        version: 4,
+        accounts: [
+          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: "disabled", projectId: "p2", addedAt: 2, lastUsed: 0, enabled: false },
+        ],
+        activeIndex: 0,
+      };
+
+      for (const strategy of ["sticky", "round-robin", "hybrid"] as const) {
+        const manager = new AccountManager(undefined, stored);
+        manager.updateQuotaCache(0, {
+          claude: {
+            remainingFraction: 0.01,
+            resetTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+            modelCount: 1,
+          },
+        });
+
+        const account = manager.getCurrentOrNextForFamily(
+          "claude",
+          null,
+          strategy,
+          "antigravity",
+          false,
+          80,
+        );
+        expect(account?.parts.refreshToken).toBe("r1");
+        expect(manager.areAllAccountsOverSoftQuota("claude", 80, 10 * 60 * 1000)).toBe(false);
+        expect(manager.getMinWaitTimeForSoftQuota("claude", 80, 10 * 60 * 1000)).toBe(0);
+      }
+    });
+
     it("threshold of 100 disables soft quota protection", () => {
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1842,17 +1876,19 @@ describe("AccountManager", () => {
       expect(waitMs).toBe(0);
     });
 
-    it("returns null when no resetTime available", () => {
+    it("returns null when no resetTime is available for a protected multi-account pool", () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
           { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
         ],
         activeIndex: 0,
       };
 
       const manager = new AccountManager(undefined, stored);
       manager.updateQuotaCache(0, { claude: { remainingFraction: 0.05, modelCount: 1 } });
+      manager.updateQuotaCache(1, { claude: { remainingFraction: 0.05, modelCount: 1 } });
 
       const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);
       expect(waitMs).toBeNull();
@@ -1866,6 +1902,7 @@ describe("AccountManager", () => {
         version: 4,
         accounts: [
           { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
         ],
         activeIndex: 0,
       };
@@ -1877,6 +1914,13 @@ describe("AccountManager", () => {
           resetTime: "2026-01-28T15:00:00Z",
           modelCount: 1 
         } 
+      });
+      manager.updateQuotaCache(1, {
+        claude: {
+          remainingFraction: 0.05,
+          resetTime: "2026-01-28T15:00:00Z",
+          modelCount: 1,
+        },
       });
 
       const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);
@@ -1893,6 +1937,7 @@ describe("AccountManager", () => {
         version: 4,
         accounts: [
           { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
         ],
         activeIndex: 0,
       };
@@ -1904,6 +1949,13 @@ describe("AccountManager", () => {
           resetTime: "2026-01-28T15:00:00Z",
           modelCount: 1 
         } 
+      });
+      manager.updateQuotaCache(1, {
+        claude: {
+          remainingFraction: 0.05,
+          resetTime: "2026-01-28T15:00:00Z",
+          modelCount: 1,
+        },
       });
 
       const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);

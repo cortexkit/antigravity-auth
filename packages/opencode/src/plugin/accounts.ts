@@ -476,6 +476,12 @@ export class AccountManager {
     return this.accounts.filter((account) => account.enabled !== false);
   }
 
+  private getEffectiveSoftQuotaThreshold(thresholdPercent: number): number {
+    // Soft-quota protection only has a purpose when another enabled account
+    // exists to rotate to. Never block the sole usable account.
+    return this.getEnabledAccounts().length > 1 ? thresholdPercent : 100;
+  }
+
   getAccountsSnapshot(): ManagedAccount[] {
     return this.accounts.map((a) => ({ ...a, parts: { ...a.parts }, rateLimitResetTimes: { ...a.rateLimitResetTimes } }));
   }
@@ -524,9 +530,10 @@ export class AccountManager {
     softQuotaCacheTtlMs: number = 10 * 60 * 1000,
   ): ManagedAccount | null {
     const quotaKey = getQuotaKey(family, headerStyle, model);
+    const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(softQuotaThresholdPercent);
 
     if (strategy === 'round-robin') {
-      const next = this.getNextForFamily(family, model, headerStyle, softQuotaThresholdPercent, softQuotaCacheTtlMs);
+      const next = this.getNextForFamily(family, model, headerStyle, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs);
       if (next) {
         this.markTouchedForQuota(next, quotaKey);
         this.currentAccountIndexByFamily[family] = next.index;
@@ -547,7 +554,7 @@ export class AccountManager {
             lastUsed: acc.lastUsed,
             healthScore: healthTracker.getScore(acc.index),
             isRateLimited: isRateLimitedForFamily(acc, family, model) || 
-                          isOverSoftQuotaThreshold(acc, family, softQuotaThresholdPercent, softQuotaCacheTtlMs, model),
+                          isOverSoftQuotaThreshold(acc, family, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs, model),
             isCoolingDown: this.isAccountCoolingDown(acc),
           };
         });
@@ -585,14 +592,14 @@ export class AccountManager {
     if (current) {
       clearExpiredRateLimits(current);
       const isLimitedForRequestedStyle = isRateLimitedForHeaderStyle(current, family, headerStyle, model);
-      const isOverThreshold = isOverSoftQuotaThreshold(current, family, softQuotaThresholdPercent, softQuotaCacheTtlMs, model);
+      const isOverThreshold = isOverSoftQuotaThreshold(current, family, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs, model);
       if (!isLimitedForRequestedStyle && !isOverThreshold && !this.isAccountCoolingDown(current)) {
         this.markTouchedForQuota(current, quotaKey);
         return current;
       }
     }
 
-    const next = this.getNextForFamily(family, model, headerStyle, softQuotaThresholdPercent, softQuotaCacheTtlMs);
+    const next = this.getNextForFamily(family, model, headerStyle, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs);
     if (next) {
       this.markTouchedForQuota(next, quotaKey);
       this.currentAccountIndexByFamily[family] = next.index;
@@ -601,11 +608,12 @@ export class AccountManager {
   }
 
   getNextForFamily(family: ModelFamily, model?: string | null, headerStyle: HeaderStyle = "antigravity", softQuotaThresholdPercent: number = 100, softQuotaCacheTtlMs: number = 10 * 60 * 1000): ManagedAccount | null {
+    const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(softQuotaThresholdPercent);
     const available = this.accounts.filter((a) => {
       clearExpiredRateLimits(a);
       return a.enabled !== false && 
              !isRateLimitedForHeaderStyle(a, family, headerStyle, model) && 
-             !isOverSoftQuotaThreshold(a, family, softQuotaThresholdPercent, softQuotaCacheTtlMs, model) &&
+             !isOverSoftQuotaThreshold(a, family, effectiveSoftQuotaThreshold, softQuotaCacheTtlMs, model) &&
              !this.isAccountCoolingDown(a);
     });
 
@@ -1385,7 +1393,13 @@ export class AccountManager {
   }
 
   isAccountOverSoftQuota(account: ManagedAccount, family: ModelFamily, thresholdPercent: number, cacheTtlMs: number, model?: string | null): boolean {
-    return isOverSoftQuotaThreshold(account, family, thresholdPercent, cacheTtlMs, model);
+    return isOverSoftQuotaThreshold(
+      account,
+      family,
+      this.getEffectiveSoftQuotaThreshold(thresholdPercent),
+      cacheTtlMs,
+      model,
+    );
   }
 
   getAccountsForQuotaCheck(): AccountMetadataV3[] {
@@ -1414,7 +1428,7 @@ export class AccountManager {
   areAllAccountsOverSoftQuota(family: ModelFamily, thresholdPercent: number, cacheTtlMs: number, model?: string | null): boolean {
     if (thresholdPercent >= 100) return false;
     const enabled = this.accounts.filter(a => a.enabled !== false);
-    if (enabled.length === 0) return false;
+    if (enabled.length <= 1) return false;
     return enabled.every(a => isOverSoftQuotaThreshold(a, family, thresholdPercent, cacheTtlMs, model));
   }
 
@@ -1434,6 +1448,7 @@ export class AccountManager {
     
     const enabled = this.accounts.filter(a => a.enabled !== false);
     if (enabled.length === 0) return null;
+    if (enabled.length === 1) return 0;
     
     // If any account is available (not over threshold), no wait needed
     const available = enabled.filter(a => !isOverSoftQuotaThreshold(a, family, thresholdPercent, cacheTtlMs, model));
