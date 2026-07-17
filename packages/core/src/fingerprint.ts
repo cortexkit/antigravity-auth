@@ -1,15 +1,15 @@
 /**
  * Device Fingerprint Generator for Rate Limit Mitigation
  *
- * Uses the agy CLI content-request identity captured with mitmproxy:
- * a short Antigravity CLI User-Agent with a normalized runtime platform tuple.
+ * Uses the agy CLI 1.1.3 content-request identity captured with mitmproxy:
+ * an Antigravity CLI User-Agent with explicit client, OS, architecture, and auth metadata.
  * The stored deviceId/sessionToken fields are
  * retained for account history, but content requests only send User-Agent.
  */
 
 import * as crypto from "node:crypto";
 
-export const AGY_CLI_VERSION = "1.0.4";
+export const AGY_CLI_VERSION = "1.1.3";
 const ANTIGRAVITY_API_CLIENT = "antigravity-cli";
 
 export interface ClientMetadata {
@@ -69,8 +69,11 @@ export function buildAntigravityHarnessUserAgent(
   version = AGY_CLI_VERSION,
   platform = process.platform,
   arch = process.arch,
+  authMethod = "consumer",
 ): string {
-  return `antigravity/cli/${version} ${buildAntigravityHarnessPlatformArch(platform, arch)}`;
+  const osType = normalizeHarnessPlatform(platform);
+  const normalizedArch = normalizeHarnessArch(arch);
+  return `antigravity/cli/${version} (aidev_client; os_type=${osType}; arch=${normalizedArch}; auth_method=${authMethod})`;
 }
 
 export function buildAntigravityHarnessLoadCodeAssistUserAgent(version = AGY_CLI_VERSION): string {
@@ -130,8 +133,8 @@ export function collectCurrentFingerprint(): Fingerprint {
 
 /**
  * Update a saved fingerprint's User-Agent to the current Antigravity
- * agy CLI identity. This migrates older randomized fingerprints such as
- * win32/x64 to the captured CLI-compatible platform/arch form.
+ * agy CLI identity. This migrates older randomized fingerprints and the
+ * pre-1.1.3 platform/arch-only User-Agent to the captured metadata form.
  * Returns true if the User-Agent was changed.
  */
 export function updateFingerprintVersion(fingerprint: Fingerprint): boolean {

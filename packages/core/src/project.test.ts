@@ -42,7 +42,9 @@ describe("project bootstrap", () => {
     const body = JSON.parse(init.body as string)
 
     expect(headers).toEqual({
-      "User-Agent": expect.stringMatching(/^antigravity\/cli\/1\.0\.4 .+$/),
+      "User-Agent": expect.stringMatching(
+        /^antigravity\/cli\/1\.1\.3 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
+      ),
       Authorization: "Bearer token",
       "Content-Type": "application/json",
       "Accept-Encoding": "gzip",

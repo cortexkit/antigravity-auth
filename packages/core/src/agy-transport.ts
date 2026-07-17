@@ -4,6 +4,8 @@ import { Buffer } from "node:buffer"
 import { PassThrough, Readable, Transform } from "node:stream"
 import { createGunzip } from "node:zlib"
 
+import { buildAntigravityHarnessUserAgent } from "./fingerprint.ts"
+
 const DEFAULT_HTTPS_PORT = 443
 const DEFAULT_PROXY_PORT = 8080
 
@@ -72,7 +74,7 @@ export function buildAgyCliHeaderPairs(url: string, init: RequestInit = {}): Hea
   const headers = headersToRecord(init.headers)
   const body = bodyToBuffer(init.body)
   const host = parsedUrl.port ? `${parsedUrl.hostname}:${parsedUrl.port}` : parsedUrl.hostname
-  const userAgent = getHeader(headers, "User-Agent") ?? "antigravity/cli/1.0.4 darwin/arm64"
+  const userAgent = getHeader(headers, "User-Agent") ?? buildAntigravityHarnessUserAgent()
   const authorization = getHeader(headers, "Authorization")
   const contentType = getHeader(headers, "Content-Type") ?? "application/json"
   const acceptEncoding = getHeader(headers, "Accept-Encoding") ?? "gzip"

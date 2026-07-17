@@ -1,0 +1,34 @@
+{
+  "capture": {
+    "client": "agy",
+    "version": "1.1.3",
+    "capturedAt": "2026-07-17",
+    "httpVersion": "HTTP/1.1",
+    "endpoint": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse"
+  },
+  "headers": [
+    ["Host", "daily-cloudcode-pa.googleapis.com"],
+    ["User-Agent", "antigravity/cli/1.1.3 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)"],
+    ["Transfer-Encoding", "chunked"],
+    ["Authorization", "<redacted>"],
+    ["Content-Type", "application/json"],
+    ["Accept-Encoding", "gzip"]
+  ],
+  "envelopeKeys": [
+    "project",
+    "requestId",
+    "request",
+    "model",
+    "userAgent",
+    "requestType"
+  ],
+  "requestKeys": [
+    "contents",
+    "systemInstruction",
+    "tools",
+    "toolConfig",
+    "labels",
+    "generationConfig",
+    "sessionId"
+  ]
+}

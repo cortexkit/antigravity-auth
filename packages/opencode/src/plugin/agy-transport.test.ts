@@ -62,7 +62,7 @@ describe("agy transport", () => {
         headers: {
           Authorization: "Bearer token",
           "Content-Type": "application/json",
-          "User-Agent": "antigravity/cli/1.0.4 darwin/arm64",
+          "User-Agent": "antigravity/cli/1.1.3 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
         },
         body: JSON.stringify({ request: { contents: [] } }),
       }, {

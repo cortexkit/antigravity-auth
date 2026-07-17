@@ -78,7 +78,9 @@ describe("getRandomizedHeaders", () => {
   describe("antigravity style", () => {
     it("returns only the captured agy CLI User-Agent", () => {
       const headers = getRandomizedHeaders("antigravity")
-      expect(headers["User-Agent"]).toMatch(/^antigravity\/cli\/1\.0\.4 /)
+      expect(headers["User-Agent"]).toMatch(
+        /^antigravity\/cli\/1\.1\.3 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
+      )
       expect(headers["X-Goog-Api-Client"]).toBeUndefined()
       expect(headers["Client-Metadata"]).toBeUndefined()
     })
@@ -87,7 +89,7 @@ describe("getRandomizedHeaders", () => {
       const headers = getRandomizedHeaders("antigravity")
       const platform = process.platform === "win32" ? "windows" : process.platform
       const arch = process.arch === "x64" ? "amd64" : process.arch === "ia32" ? "386" : process.arch
-      expect(headers["User-Agent"]).toContain(`${platform}/${arch}`)
+      expect(headers["User-Agent"]).toContain(`os_type=${platform}; arch=${arch}`)
     })
   })
 })

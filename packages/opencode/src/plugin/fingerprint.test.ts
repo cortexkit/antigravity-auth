@@ -13,7 +13,12 @@ describe("Antigravity fingerprint", () => {
 
     expect(buildAntigravityHarnessPlatformArch("darwin", "arm64")).toBe("darwin/arm64")
     expect(buildAntigravityHarnessPlatformArch("win32", "x64")).toBe("windows/amd64")
-    expect(buildAntigravityHarnessUserAgent("1.0.4", "darwin", "arm64")).toBe("antigravity/cli/1.0.4 darwin/arm64")
+    expect(buildAntigravityHarnessUserAgent("1.1.3", "darwin", "arm64")).toBe(
+      "antigravity/cli/1.1.3 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
+    )
+    expect(buildAntigravityHarnessUserAgent("1.1.3", "win32", "x64")).toBe(
+      "antigravity/cli/1.1.3 (aidev_client; os_type=windows; arch=amd64; auth_method=consumer)",
+    )
   })
 
   it("builds captured agy CLI loadCodeAssist headers", async () => {
@@ -22,7 +27,9 @@ describe("Antigravity fingerprint", () => {
     const headers = buildAntigravityHarnessBootstrapHeaders("token")
 
     expect(headers).toEqual({
-      "User-Agent": expect.stringMatching(/^antigravity\/cli\/1\.0\.4 .+$/),
+      "User-Agent": expect.stringMatching(
+        /^antigravity\/cli\/1\.1\.3 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
+      ),
       Authorization: "Bearer token",
       "Content-Type": "application/json",
       "Accept-Encoding": "gzip",
@@ -32,11 +39,11 @@ describe("Antigravity fingerprint", () => {
   })
 
   it("generates fingerprints with the captured agy CLI User-Agent", async () => {
-    const { buildAntigravityHarnessPlatformArch, generateFingerprint } = await import("./fingerprint.ts")
+    const { buildAntigravityHarnessUserAgent, generateFingerprint } = await import("./fingerprint.ts")
 
     const fingerprint = generateFingerprint()
 
-    expect(fingerprint.userAgent).toBe(`antigravity/cli/1.0.4 ${buildAntigravityHarnessPlatformArch()}`)
+    expect(fingerprint.userAgent).toBe(buildAntigravityHarnessUserAgent())
     expect(fingerprint.apiClient).toBe("antigravity-cli")
     expect(fingerprint.clientMetadata).toEqual({
       ideType: "ANTIGRAVITY",
@@ -46,7 +53,7 @@ describe("Antigravity fingerprint", () => {
   })
 
   it("migrates old randomized saved fingerprints to the agy CLI platform/arch", async () => {
-    const { buildAntigravityHarnessPlatformArch, updateFingerprintVersion } = await import("./fingerprint.ts")
+    const { buildAntigravityHarnessUserAgent, updateFingerprintVersion } = await import("./fingerprint.ts")
     const fingerprint = {
       deviceId: "device",
       sessionToken: "session",
@@ -61,6 +68,6 @@ describe("Antigravity fingerprint", () => {
     }
 
     expect(updateFingerprintVersion(fingerprint)).toBe(true)
-    expect(fingerprint.userAgent).toBe(`antigravity/cli/1.0.4 ${buildAntigravityHarnessPlatformArch()}`)
+    expect(fingerprint.userAgent).toBe(buildAntigravityHarnessUserAgent())
   })
 })

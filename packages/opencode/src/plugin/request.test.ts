@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, it, expect, vi } from "vitest";
 import {
   prepareAntigravityRequest,
@@ -11,6 +13,10 @@ import { initializeDebug } from "./debug";
 import { SKIP_THOUGHT_SIGNATURE } from "../constants";
 import * as config from "./config";
 import type { SignatureStore, ThoughtBuffer, StreamingCallbacks, StreamingOptions } from "./core/streaming/types";
+
+const AGY_1_1_3_WIRE_FIXTURE = JSON.parse(
+  readFileSync(new URL("../../../../test-fixtures/agy-cli-1.1.3-stream-request.json", import.meta.url), "utf8"),
+) as { envelopeKeys: string[]; requestKeys: string[] };
 
 const {
   buildSignatureSessionKey,
@@ -1001,7 +1007,7 @@ it("removes x-api-key header", () => {
 
       const body = result.init.body as string;
       const parsed = JSON.parse(body);
-      expect(Object.keys(parsed)).toEqual(["project", "requestId", "request", "model", "userAgent", "requestType"]);
+      expect(Object.keys(parsed)).toEqual(AGY_1_1_3_WIRE_FIXTURE.envelopeKeys);
       expect(parsed.requestId).toMatch(/^agent\/.+\/2$/);
       expect(parsed.userAgent).toBe("antigravity");
       expect(parsed.requestType).toBe("agent");
@@ -1133,6 +1139,145 @@ it("removes x-api-key header", () => {
       const wrapped = JSON.parse(result.init.body as string);
       expect(wrapped.request.cache_control).toBeUndefined();
       expect(wrapped.request.messages[0].content[0].cache_control).toBeUndefined();
+    });
+
+    it("strips host-only cache fields and configures VALIDATED tool calls on the agy path", () => {
+      const result = prepareAntigravityRequest(
+        "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:generateContent",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            providerOptions: { google: { thinkingLevel: "high" } },
+            cached_content: "top-snake",
+            cachedContent: "top-camel",
+            extra_body: {
+              cached_content: "extra-snake",
+              cachedContent: "extra-camel",
+              keep: "preserved",
+            },
+            systemInstruction: {
+              parts: [{ text: "system", cacheControl: { type: "ephemeral" } }],
+            },
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: "hello", cache_control: { type: "ephemeral" } }],
+              },
+              {
+                role: "model",
+                parts: [{ functionCall: { name: "lookup", args: { cacheControl: "tool-data" } } }],
+              },
+            ],
+            tools: [{
+              functionDeclarations: [{
+                name: "lookup",
+                description: "Look something up",
+                parameters: {
+                  type: "object",
+                  properties: { query: { type: "string" } },
+                  required: ["query"],
+                },
+              }],
+            }],
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "antigravity",
+      );
+
+      const wrapped = JSON.parse(result.init.body as string);
+      const request = wrapped.request;
+      expect(result.effectiveModel).toBe("gemini-3-flash-agent");
+      expect(request.providerOptions).toBeUndefined();
+      expect(request.cached_content).toBeUndefined();
+      expect(request.cachedContent).toBeUndefined();
+      expect(request.extra_body).toEqual({ keep: "preserved" });
+      expect(request.systemInstruction.parts[0].cacheControl).toBeUndefined();
+      expect(request.contents[0].parts[0].cache_control).toBeUndefined();
+      expect(request.contents[1].parts[0].functionCall.args.cacheControl).toBe("tool-data");
+      expect(request.toolConfig).toEqual({
+        functionCallingConfig: { mode: "VALIDATED" },
+      });
+    });
+
+    it("sanitizes already-wrapped agy requests and preserves existing tool config fields", () => {
+      const result = prepareAntigravityRequest(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            project: mockProjectId,
+            request: {
+              providerOptions: { google: { thinkingLevel: "medium" } },
+              cachedContent: "cached-resource",
+              contents: [{ role: "user", parts: [{ text: "hi", cacheControl: { type: "ephemeral" } }] }],
+              tools: [{ functionDeclarations: [{ name: "read", parameters: { type: "OBJECT", properties: {} } }] }],
+              toolConfig: {
+                functionCallingConfig: { allowedFunctionNames: ["read"] },
+              },
+            },
+            model: "gemini-3-flash-agent",
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "antigravity",
+      );
+
+      const wrapped = JSON.parse(result.init.body as string);
+      expect(wrapped.request.providerOptions).toBeUndefined();
+      expect(wrapped.request.cachedContent).toBeUndefined();
+      expect(wrapped.request.contents[0].parts[0].cacheControl).toBeUndefined();
+      expect(wrapped.request.toolConfig).toEqual({
+        functionCallingConfig: {
+          allowedFunctionNames: ["read"],
+          mode: "VALIDATED",
+        },
+      });
+    });
+
+    it("keeps explicit cachedContent references on the Gemini CLI path", () => {
+      const result = prepareAntigravityRequest(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: "hello" }] }],
+            cached_content: "cachedContents/example",
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "gemini-cli",
+      );
+
+      const wrapped = JSON.parse(result.init.body as string);
+      expect(wrapped.request.cached_content).toBeUndefined();
+      expect(wrapped.request.cachedContent).toBe("cachedContents/example");
+    });
+
+    it("does not send toolConfig when an agy request has no tools", () => {
+      const result = prepareAntigravityRequest(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: "hello" }] }],
+            toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "antigravity",
+      );
+
+      const wrapped = JSON.parse(result.init.body as string);
+      expect(wrapped.request.toolConfig).toBeUndefined();
     });
 
     it("strips Claude thinking blocks when keep_thinking is false (unwrapped)", () => {
@@ -1287,7 +1432,7 @@ it("removes x-api-key header", () => {
       const textSentinel = content.find((block) => block.text === "." && !block.type);
       expect(textSentinel).toBeTruthy();
       expect(JSON.stringify(content)).not.toContain(foreignSignature);
-      // With plain text sentinels, there's no signed thinking block → warmup is needed
+      // Without a signed replayable block, the compatibility path requests a warmup.
       expect(result.needsSignedThinkingWarmup).toBe(true);    });
 
     it("returns requestedModel matching URL model", () => {
@@ -1474,6 +1619,59 @@ it("removes x-api-key header", () => {
           thinkingBudget: 1024,
         });
         expect(wrapped.request.generationConfig.maxOutputTokens).toBe(64000);
+      });
+
+      it("uses captured agy Claude Opus config while retaining the OpenCode cache boundary", () => {
+        const result = prepareAntigravityRequest(
+          "https://generativelanguage.googleapis.com/v1beta/models/antigravity-claude-opus-4-6-thinking:generateContent",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              generationConfig: {},
+              systemInstruction: { parts: [{ text: "base system" }] },
+              contents: [
+                { role: "user", parts: [{ text: "read the file" }] },
+                { role: "model", parts: [{ functionCall: { name: "read", args: {} } }] },
+                { role: "user", parts: [{ functionResponse: { name: "read", response: { output: "ok" } } }] },
+              ],
+              tools: [{
+                functionDeclarations: [{
+                  name: "read",
+                  description: "Read a file",
+                  parameters: {
+                    type: "object",
+                    properties: { filePath: { type: "string" } },
+                    required: ["filePath"],
+                  },
+                }],
+              }],
+            }),
+          },
+          mockAccessToken,
+          mockProjectId,
+          undefined,
+          "antigravity",
+        );
+
+        const wrapped = JSON.parse(result.init.body as string);
+        const serialized = JSON.stringify(wrapped.request);
+        expect(result.effectiveModel).toBe("claude-opus-4-6-thinking");
+        expect(result.needsSignedThinkingWarmup).toBe(false);
+        expect(wrapped.request.generationConfig.thinkingConfig).toEqual({
+          includeThoughts: true,
+          thinkingBudget: 1024,
+        });
+        expect(wrapped.request.generationConfig.maxOutputTokens).toBe(64000);
+        expect(wrapped.request.contents.map((content: { role: string }) => content.role)).toEqual([
+          "user",
+          "model",
+          "user",
+          "model",
+          "user",
+        ]);
+        expect(serialized).toContain("Interleaved thinking is enabled");
+        expect(serialized).toContain("[Tool execution completed.]");
+        expect(serialized).toContain("[Continue]");
       });
 
       it("maps Gemini 3.5 Flash medium variant to the live Antigravity medium-tier model", () => {

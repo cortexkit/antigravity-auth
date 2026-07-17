@@ -1,6 +1,9 @@
 /**
  * Constants used for Antigravity OAuth flows and Cloud Code Assist API integration.
  */
+
+import { buildAntigravityHarnessUserAgent } from "./fingerprint.ts";
+
 export const ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
 
 /**
@@ -26,7 +29,7 @@ export const ANTIGRAVITY_REDIRECT_URI = "http://localhost:51121/oauth-callback";
 
 /**
  * Root endpoints for the Antigravity API (in fallback order).
- * Live agy CLI 1.0.4 traffic uses daily-cloudcode-pa.googleapis.com.
+ * Live agy CLI 1.1.3 traffic uses daily-cloudcode-pa.googleapis.com.
  */
 export const ANTIGRAVITY_ENDPOINT_DAILY = "https://daily-cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_ENDPOINT_AUTOPUSH = "https://autopush-cloudcode-pa.sandbox.googleapis.com";
@@ -126,12 +129,6 @@ export const GEMINI_CLI_HEADERS = {
   "X-Goog-Api-Client": "gl-node/22.17.0",
   "Client-Metadata": "ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI",
 } as const;
-function buildAntigravityPlatformArch(): string {
-  const platform = process.platform === "win32" ? "windows" : process.platform || "unknown";
-  const arch = process.arch === "x64" ? "amd64" : process.arch === "ia32" ? "386" : process.arch || "unknown";
-  return `${platform}/${arch}`;
-}
-
 export type HeaderSet = {
   "User-Agent": string;
   "X-Goog-Api-Client"?: string;
@@ -146,9 +143,8 @@ export function getRandomizedHeaders(style: HeaderStyle, model?: string): Header
       "Client-Metadata": GEMINI_CLI_HEADERS["Client-Metadata"],
     };
   }
-  const platform = buildAntigravityPlatformArch();
   return {
-    "User-Agent": `antigravity/cli/1.0.4 ${platform}`,
+    "User-Agent": buildAntigravityHarnessUserAgent(),
   };
 }
 

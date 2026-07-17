@@ -135,7 +135,9 @@ describe("executeSearch", () => {
     const body = JSON.parse(init.body as string);
 
     expect(headers["Authorization"]).toBe("Bearer bearer-token-xyz");
-    expect(headers["User-Agent"]).toMatch(/^antigravity\/cli\/1\.0\.4 /);
+    expect(headers["User-Agent"]).toMatch(
+      /^antigravity\/cli\/1\.1\.3 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
+    );
     expect(headers["X-Goog-Api-Client"]).toBeUndefined();
     expect(headers["Client-Metadata"]).toBeUndefined();
     expect(Object.keys(body)).toEqual(["project", "requestId", "request", "model", "userAgent", "requestType"]);

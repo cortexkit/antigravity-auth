@@ -477,6 +477,85 @@ function isValidRequestPart(part: unknown): boolean {
   );
 }
 
+function stripCacheControlFromParts(parts: unknown): void {
+  if (!Array.isArray(parts)) {
+    return;
+  }
+
+  for (const part of parts) {
+    if (!part || typeof part !== "object" || Array.isArray(part)) {
+      continue;
+    }
+    const record = part as Record<string, unknown>;
+    delete record.cache_control;
+    delete record.cacheControl;
+  }
+}
+
+function stripUnsupportedAntigravityFields(payload: Record<string, unknown>): void {
+  delete payload.providerOptions;
+  delete payload.cached_content;
+  delete payload.cachedContent;
+  delete payload.cache_control;
+  delete payload.cacheControl;
+
+  const extraBody = payload.extra_body;
+  if (extraBody && typeof extraBody === "object" && !Array.isArray(extraBody)) {
+    const extraBodyRecord = extraBody as Record<string, unknown>;
+    delete extraBodyRecord.cached_content;
+    delete extraBodyRecord.cachedContent;
+    delete extraBodyRecord.cache_control;
+    delete extraBodyRecord.cacheControl;
+    if (Object.keys(extraBodyRecord).length === 0) {
+      delete payload.extra_body;
+    }
+  }
+
+  const stripContentParts = (items: unknown): void => {
+    if (!Array.isArray(items)) {
+      return;
+    }
+    for (const item of items) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        continue;
+      }
+      const record = item as Record<string, unknown>;
+      stripCacheControlFromParts(record.parts);
+      stripCacheControlFromParts(record.content);
+    }
+  };
+
+  stripContentParts(payload.contents);
+  stripContentParts(payload.messages);
+
+  for (const instructionKey of ["systemInstruction", "system_instruction"] as const) {
+    const instruction = payload[instructionKey];
+    if (instruction && typeof instruction === "object" && !Array.isArray(instruction)) {
+      stripCacheControlFromParts((instruction as Record<string, unknown>).parts);
+    }
+  }
+}
+
+function configureAntigravityToolCalling(payload: Record<string, unknown>): void {
+  if (!Array.isArray(payload.tools) || payload.tools.length === 0) {
+    delete payload.toolConfig;
+    return;
+  }
+
+  const toolConfig = payload.toolConfig && typeof payload.toolConfig === "object" && !Array.isArray(payload.toolConfig)
+    ? payload.toolConfig as Record<string, unknown>
+    : {};
+  const functionCallingConfig = toolConfig.functionCallingConfig &&
+    typeof toolConfig.functionCallingConfig === "object" &&
+    !Array.isArray(toolConfig.functionCallingConfig)
+    ? toolConfig.functionCallingConfig as Record<string, unknown>
+    : {};
+
+  functionCallingConfig.mode = "VALIDATED";
+  toolConfig.functionCallingConfig = functionCallingConfig;
+  payload.toolConfig = toolConfig;
+}
+
 function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>): void {
   const anyPayload = payload as any;
 
@@ -994,7 +1073,8 @@ export function prepareAntigravityRequest(
   const transformedUrl = `${baseEndpoint}/v1internal:${rawAction}${streaming ? "?alt=sse" : ""}`;
 
   const isClaude = isClaudeModel(resolved.actualModel);
-  const isClaudeThinking = isClaudeThinkingModel(resolved.actualModel);  const keepThinkingEnabled = getKeepThinking();
+  const isClaudeThinking = isClaudeThinkingModel(resolved.actualModel);
+  const keepThinkingEnabled = getKeepThinking();
 
   // Tier-based thinking configuration from model resolver (can be overridden by variant config)
   let tierThinkingBudget = resolved.thinkingBudget;
@@ -1076,6 +1156,12 @@ export function prepareAntigravityRequest(
             // Step 3: Apply tool pairing fixes (ID assignment, response matching, orphan recovery)
             applyToolPairingFixes(req as Record<string, unknown>, true);
           }
+
+          if (headerStyle === "antigravity") {
+            sanitizeRequestPayloadForAntigravity(req);
+            stripUnsupportedAntigravityFields(req);
+            configureAntigravityToolCalling(req);
+          }
         }
 
         // Guard against assistant prefill: Claude rejects conversations ending
@@ -1125,6 +1211,9 @@ export function prepareAntigravityRequest(
         const isGemini3 = effectiveModel.toLowerCase().includes("gemini-3");
 
         log.debug(`[ThinkingResolution] rawModel=${rawModel} resolvedModel=${effectiveModel} resolvedTier=${tierThinkingLevel ?? "none"} variantLevel=${variantConfig?.thinkingLevel ?? "none"} variantBudget=${variantConfig?.thinkingBudget ?? "none"} providerOptions.google=${JSON.stringify((requestPayload.providerOptions as any)?.google ?? null)} generationConfig.thinkingConfig=${JSON.stringify((rawGenerationConfig as any)?.thinkingConfig ?? null)}`);
+        // providerOptions belongs to the host AI SDK and is only used above to
+        // resolve the requested variant. It is never part of the Google wire schema.
+        delete requestPayload.providerOptions;
 
         if (variantConfig?.thinkingLevel && isGemini3) {
           // Gemini 3 native format - use thinkingLevel directly
@@ -1151,21 +1240,6 @@ export function prepareAntigravityRequest(
             // Claude / Gemini 2.5 - use budget directly
             tierThinkingBudget = variantConfig.thinkingBudget;
             tierThinkingLevel = undefined;
-          }
-        }
-
-        if (isClaude) {
-          if (!requestPayload.toolConfig) {
-            requestPayload.toolConfig = {};
-          }
-          if (typeof requestPayload.toolConfig === "object" && requestPayload.toolConfig !== null) {
-            const toolConfig = requestPayload.toolConfig as Record<string, unknown>;
-            if (!toolConfig.functionCallingConfig) {
-              toolConfig.functionCallingConfig = {};
-            }
-            if (typeof toolConfig.functionCallingConfig === "object" && toolConfig.functionCallingConfig !== null) {
-              (toolConfig.functionCallingConfig as Record<string, unknown>).mode = "VALIDATED";
-            }
           }
         }
 
@@ -1299,28 +1373,30 @@ export function prepareAntigravityRequest(
           delete requestPayload.system_instruction;
         }
 
-        // Normalize cached_content → cachedContent (camelCase) but preserve the value.
-        // OpenCode uses cachedContent for prompt caching — deleting it busts cache.
-        const cachedContentFromExtra =
-          typeof requestPayload.extra_body === "object" && requestPayload.extra_body
-            ? (requestPayload.extra_body as Record<string, unknown>).cached_content ??
-            (requestPayload.extra_body as Record<string, unknown>).cachedContent
-            : undefined;
-        const cachedContent =
-          (requestPayload.cached_content as string | undefined) ??
-          (requestPayload.cachedContent as string | undefined) ??
-          (cachedContentFromExtra as string | undefined);
-        if (cachedContent) {
-          requestPayload.cachedContent = cachedContent;
-        }
+        if (headerStyle !== "antigravity") {
+          // Gemini CLI accepts explicit cachedContent references. Normalize its
+          // snake_case aliases only on that transport; agy relies on implicit
+          // prefix caching and does not send any of these fields.
+          const cachedContentFromExtra =
+            typeof requestPayload.extra_body === "object" && requestPayload.extra_body
+              ? (requestPayload.extra_body as Record<string, unknown>).cached_content ??
+                (requestPayload.extra_body as Record<string, unknown>).cachedContent
+              : undefined;
+          const cachedContent =
+            (requestPayload.cached_content as string | undefined) ??
+            (requestPayload.cachedContent as string | undefined) ??
+            (cachedContentFromExtra as string | undefined);
+          if (cachedContent) {
+            requestPayload.cachedContent = cachedContent;
+          }
 
-        // Only delete the snake_case duplicate — preserve camelCase
-        delete requestPayload.cached_content;
-        if (requestPayload.extra_body && typeof requestPayload.extra_body === "object") {
-          delete (requestPayload.extra_body as Record<string, unknown>).cached_content;
-          delete (requestPayload.extra_body as Record<string, unknown>).cachedContent;
-          if (Object.keys(requestPayload.extra_body as Record<string, unknown>).length === 0) {
-            delete requestPayload.extra_body;
+          delete requestPayload.cached_content;
+          if (requestPayload.extra_body && typeof requestPayload.extra_body === "object") {
+            delete (requestPayload.extra_body as Record<string, unknown>).cached_content;
+            delete (requestPayload.extra_body as Record<string, unknown>).cachedContent;
+            if (Object.keys(requestPayload.extra_body as Record<string, unknown>).length === 0) {
+              delete requestPayload.extra_body;
+            }
           }
         }
         // Normalize tools. For Claude models, keep full function declarations (names + schemas).
@@ -1658,6 +1734,10 @@ export function prepareAntigravityRequest(
 
         stripInjectedDebugFromRequestPayload(requestPayload);
         sanitizeRequestPayloadForAntigravity(requestPayload);
+        if (headerStyle === "antigravity") {
+          stripUnsupportedAntigravityFields(requestPayload);
+          configureAntigravityToolCalling(requestPayload);
+        }
         // Use the stable default project ID (never a per-request random one):
         // a fresh random project each request busts the prompt cache and
         // fragments server-side quota/session state. ensureProjectContext
