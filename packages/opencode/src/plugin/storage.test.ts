@@ -3,8 +3,10 @@ import {
   deduplicateAccountsByEmail,
   migrateV2ToV3,
   loadAccounts,
+  mergeAccountStorage,
   type AccountMetadata,
   type AccountStorage,
+  type AccountStorageV4,
 } from "./storage";
 import { promises as fs } from "node:fs";
 import {
@@ -206,6 +208,71 @@ describe("deduplicateAccountsByEmail", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.refreshToken).toBe("token-10"); // The newest one
     expect(result[0]?.email).toBe("user@example.com");
+  });
+});
+
+describe("mergeAccountStorage eligibility state", () => {
+  const storage = (account: AccountStorageV4["accounts"][number]): AccountStorageV4 => ({
+    version: 4,
+    accounts: [account],
+    activeIndex: 0,
+    activeIndexByFamily: { claude: 0, gemini: 0 },
+  });
+
+  it("preserves a newer ineligible decision against a stale concurrent writer", () => {
+    const existing = storage({
+      refreshToken: "r1",
+      addedAt: 1,
+      lastUsed: 1,
+      enabled: false,
+      accountIneligible: true,
+      accountIneligibleAt: 200,
+      accountIneligibleReason: "ACCOUNT_INELIGIBLE",
+      eligibilityStateUpdatedAt: 200,
+    });
+    const staleIncoming = storage({
+      refreshToken: "r1",
+      addedAt: 1,
+      lastUsed: 2,
+      enabled: true,
+      accountIneligible: false,
+      eligibilityStateUpdatedAt: 100,
+    });
+
+    expect(mergeAccountStorage(existing, staleIncoming).accounts[0]).toMatchObject({
+      enabled: false,
+      accountIneligible: true,
+      accountIneligibleAt: 200,
+      accountIneligibleReason: "ACCOUNT_INELIGIBLE",
+      eligibilityStateUpdatedAt: 200,
+    });
+  });
+
+  it("accepts a newer successful eligibility recheck", () => {
+    const existing = storage({
+      refreshToken: "r1",
+      addedAt: 1,
+      lastUsed: 1,
+      enabled: false,
+      accountIneligible: true,
+      accountIneligibleAt: 200,
+      accountIneligibleReason: "ACCOUNT_INELIGIBLE",
+      eligibilityStateUpdatedAt: 200,
+    });
+    const rechecked = storage({
+      refreshToken: "r1",
+      addedAt: 1,
+      lastUsed: 2,
+      enabled: true,
+      accountIneligible: false,
+      eligibilityStateUpdatedAt: 300,
+    });
+
+    expect(mergeAccountStorage(existing, rechecked).accounts[0]).toMatchObject({
+      enabled: true,
+      accountIneligible: false,
+      eligibilityStateUpdatedAt: 300,
+    });
   });
 });
 

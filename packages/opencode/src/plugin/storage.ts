@@ -219,6 +219,11 @@ export interface AccountMetadataV3 {
   verificationRequiredAt?: number;
   verificationRequiredReason?: string;
   verificationUrl?: string;
+  /** Set when the API explicitly returns ACCOUNT_INELIGIBLE. */
+  accountIneligible?: boolean;
+  accountIneligibleAt?: number;
+  accountIneligibleReason?: string;
+  eligibilityStateUpdatedAt?: number;
   /** Cached soft quota data (group-level aggregation) */
   cachedQuota?: Record<string, { remainingFraction?: number; resetTime?: string; modelCount: number }>;
   /** Cached per-model quota data (individual model granularity) */
@@ -426,7 +431,7 @@ async function withFileLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function mergeAccountStorage(
+export function mergeAccountStorage(
   existing: AccountStorageV4,
   incoming: AccountStorageV4,
 ): AccountStorageV4 {
@@ -442,7 +447,11 @@ function mergeAccountStorage(
     if (acc.refreshToken) {
       const existingAcc = accountMap.get(acc.refreshToken);
       if (existingAcc) {
-        accountMap.set(acc.refreshToken, {
+        const eligibilitySource =
+          (acc.eligibilityStateUpdatedAt ?? 0) >= (existingAcc.eligibilityStateUpdatedAt ?? 0)
+            ? acc
+            : existingAcc;
+        const merged: AccountMetadataV3 = {
           ...existingAcc,
           ...acc,
           // Preserve manually configured projectId/managedProjectId if not in incoming
@@ -453,7 +462,15 @@ function mergeAccountStorage(
             ...acc.rateLimitResetTimes,
           },
           lastUsed: Math.max(existingAcc.lastUsed || 0, acc.lastUsed || 0),
-        });
+          accountIneligible: eligibilitySource.accountIneligible,
+          accountIneligibleAt: eligibilitySource.accountIneligibleAt,
+          accountIneligibleReason: eligibilitySource.accountIneligibleReason,
+          eligibilityStateUpdatedAt: eligibilitySource.eligibilityStateUpdatedAt,
+        };
+        if (merged.accountIneligible) {
+          merged.enabled = false;
+        }
+        accountMap.set(acc.refreshToken, merged);
       } else {
         accountMap.set(acc.refreshToken, acc);
       }

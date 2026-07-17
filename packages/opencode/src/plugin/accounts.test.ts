@@ -16,6 +16,7 @@ vi.mock("./storage", async (importOriginal) => {
 
 describe("AccountManager", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.useRealTimers();
     vi.stubGlobal("process", { ...process, pid: 0 });
   });
@@ -36,6 +37,88 @@ describe("AccountManager", () => {
 
     const manager = new AccountManager(fallback, stored);
     expect(manager.getAccountCount()).toBe(0);
+  });
+
+  it("persists explicit ineligibility, rejects manual enable, and recovers only after a successful recheck", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    };
+    const manager = new AccountManager(undefined, stored);
+
+    expect(manager.markAccountIneligible(0, "ACCOUNT_INELIGIBLE")).toBe(true);
+    expect(manager.getAccountsSnapshot()[0]).toMatchObject({
+      enabled: false,
+      accountIneligible: true,
+      accountIneligibleAt: 1_000,
+      accountIneligibleReason: "ACCOUNT_INELIGIBLE",
+      eligibilityStateUpdatedAt: 1_000,
+    });
+    expect(manager.setAccountEnabled(0, true)).toBe(false);
+
+    await manager.saveToDisk();
+    expect(vi.mocked(saveAccounts)).toHaveBeenCalledWith(expect.objectContaining({
+      accounts: [expect.objectContaining({
+        enabled: false,
+        accountIneligible: true,
+        eligibilityStateUpdatedAt: 1_000,
+      })],
+    }));
+
+    vi.setSystemTime(2_000);
+    expect(manager.clearAccountAccessBlocks(0, true)).toBe(true);
+    expect(manager.getAccountsSnapshot()[0]).toMatchObject({
+      enabled: true,
+      accountIneligible: false,
+      eligibilityStateUpdatedAt: 2_000,
+    });
+    await manager.saveToDisk();
+    vi.clearAllTimers();
+  });
+
+  it("keeps ineligible and verification-required states mutually exclusive", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const manager = new AccountManager(undefined, {
+      version: 4,
+      accounts: [
+        {
+          refreshToken: "r1",
+          projectId: "p1",
+          addedAt: 1,
+          lastUsed: 0,
+          verificationRequired: true,
+          verificationRequiredAt: 500,
+          verificationRequiredReason: "verify",
+          verificationUrl: "https://example.com/verify",
+        },
+      ],
+      activeIndex: 0,
+    });
+
+    manager.markAccountIneligible(0, "ACCOUNT_INELIGIBLE");
+    expect(manager.getAccountsSnapshot()[0]).toMatchObject({
+      verificationRequired: false,
+      accountIneligible: true,
+    });
+    expect(manager.getAccountsSnapshot()[0]?.verificationUrl).toBeUndefined();
+
+    vi.setSystemTime(2_000);
+    manager.markAccountVerificationRequired(0, "Verify again", "https://example.com/new");
+    expect(manager.getAccountsSnapshot()[0]).toMatchObject({
+      enabled: false,
+      verificationRequired: true,
+      verificationRequiredReason: "Verify again",
+      accountIneligible: false,
+      eligibilityStateUpdatedAt: 2_000,
+    });
+    expect(manager.getAccountsSnapshot()[0]?.accountIneligibleReason).toBeUndefined();
+    vi.clearAllTimers();
   });
 
   it("returns current account when not rate-limited for family", () => {

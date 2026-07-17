@@ -14,6 +14,7 @@ export type AuthDoctorFindingCode =
   | "active-index-out-of-range"
   | "active-account-disabled"
   | "verification-required"
+  | "account-ineligible"
 
 export type AuthDoctorRepair =
   | "restore-opencode-auth"
@@ -156,6 +157,15 @@ export function createAuthDoctorReport(input: CreateAuthDoctorReportInput): Auth
     }
 
     for (const account of storage.accounts) {
+      if (account.accountIneligible) {
+        findings.push({
+          code: "account-ineligible",
+          severity: "warning",
+          message: account.accountIneligibleReason ?? "Google marked this account as ineligible for Antigravity.",
+          repair: "verify-account",
+          accountEmail: account.email,
+        })
+      }
       if (account.verificationRequired) {
         findings.push({
           code: "verification-required",

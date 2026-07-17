@@ -158,6 +158,10 @@ export interface ManagedAccount {
   verificationRequiredAt?: number;
   verificationRequiredReason?: string;
   verificationUrl?: string;
+  accountIneligible?: boolean;
+  accountIneligibleAt?: number;
+  accountIneligibleReason?: string;
+  eligibilityStateUpdatedAt?: number;
   /** Daily request counts per model family */
   dailyRequestCounts?: {
     date: string
@@ -396,9 +400,14 @@ export class AccountManager {
             cachedQuota: acc.cachedQuota as Partial<Record<QuotaGroup, QuotaGroupSummary>> | undefined,
             cachedQuotaUpdatedAt: acc.cachedQuotaUpdatedAt,
             dailyRequestCounts: acc.dailyRequestCounts,
-            verificationRequired: acc.verificationRequired,            verificationRequiredAt: acc.verificationRequiredAt,
+            verificationRequired: acc.verificationRequired,
+            verificationRequiredAt: acc.verificationRequiredAt,
             verificationRequiredReason: acc.verificationRequiredReason,
             verificationUrl: acc.verificationUrl,
+            accountIneligible: acc.accountIneligible,
+            accountIneligibleAt: acc.accountIneligibleAt,
+            accountIneligibleReason: acc.accountIneligibleReason,
+            eligibilityStateUpdatedAt: acc.eligibilityStateUpdatedAt,
           };
         })
         .filter((a): a is ManagedAccount => a !== null);
@@ -1082,6 +1091,9 @@ export class AccountManager {
     if (!account) {
       return false;
     }
+    if (enabled && account.accountIneligible) {
+      return false;
+    }
     account.enabled = enabled;
 
     if (!enabled) {
@@ -1103,9 +1115,20 @@ export class AccountManager {
       return false;
     }
 
+    const timestamp = nowMs();
     account.verificationRequired = true;
-    account.verificationRequiredAt = nowMs();
+    account.verificationRequiredAt = timestamp;
     account.verificationRequiredReason = reason?.trim() || undefined;
+    if (
+      account.accountIneligible === true ||
+      account.accountIneligibleAt !== undefined ||
+      account.accountIneligibleReason !== undefined
+    ) {
+      account.accountIneligible = false;
+      account.accountIneligibleAt = undefined;
+      account.accountIneligibleReason = undefined;
+      account.eligibilityStateUpdatedAt = timestamp;
+    }
 
     const normalizedVerifyUrl = verifyUrl?.trim();
     if (normalizedVerifyUrl) {
@@ -1121,31 +1144,63 @@ export class AccountManager {
     return true;
   }
 
-  clearAccountVerificationRequired(accountIndex: number, enableAccount = false): boolean {
-    const account = this.accounts[accountIndex];
+  markAccountIneligible(accountIndex: number, reason?: string): boolean {
+    const account = this.accounts[accountIndex]
     if (!account) {
-      return false;
+      return false
     }
 
-    const wasVerificationRequired = account.verificationRequired === true;
-    const hadMetadata = (
+    const timestamp = nowMs()
+    account.accountIneligible = true
+    account.accountIneligibleAt = timestamp
+    account.accountIneligibleReason = reason?.trim() || "Google marked this account as ineligible."
+    account.eligibilityStateUpdatedAt = timestamp
+    account.verificationRequired = false
+    account.verificationRequiredAt = undefined
+    account.verificationRequiredReason = undefined
+    account.verificationUrl = undefined
+
+    if (account.enabled !== false) {
+      this.setAccountEnabled(accountIndex, false)
+    } else {
+      this.requestSaveToDisk()
+    }
+    return true
+  }
+
+  clearAccountAccessBlocks(accountIndex: number, enableAccount = false): boolean {
+    const account = this.accounts[accountIndex]
+    if (!account) {
+      return false
+    }
+
+    const wasVerificationRequired = account.verificationRequired === true
+    const wasIneligible = account.accountIneligible === true
+    const hadMetadata = wasVerificationRequired || wasIneligible ||
       account.verificationRequiredAt !== undefined ||
       account.verificationRequiredReason !== undefined ||
-      account.verificationUrl !== undefined
-    );
+      account.verificationUrl !== undefined ||
+      account.accountIneligibleAt !== undefined ||
+      account.accountIneligibleReason !== undefined ||
+      account.eligibilityStateUpdatedAt !== undefined
 
-    account.verificationRequired = false;
-    account.verificationRequiredAt = undefined;
-    account.verificationRequiredReason = undefined;
-    account.verificationUrl = undefined;
-
-    if (enableAccount && wasVerificationRequired && account.enabled === false) {
-      this.setAccountEnabled(accountIndex, true);
-    } else if (wasVerificationRequired || hadMetadata) {
-      this.requestSaveToDisk();
+    account.verificationRequired = false
+    account.verificationRequiredAt = undefined
+    account.verificationRequiredReason = undefined
+    account.verificationUrl = undefined
+    account.accountIneligible = false
+    account.accountIneligibleAt = undefined
+    account.accountIneligibleReason = undefined
+    if (wasIneligible || account.eligibilityStateUpdatedAt !== undefined) {
+      account.eligibilityStateUpdatedAt = nowMs()
     }
 
-    return true;
+    if (enableAccount && (wasVerificationRequired || wasIneligible) && account.enabled === false) {
+      this.setAccountEnabled(accountIndex, true)
+    } else if (hadMetadata) {
+      this.requestSaveToDisk()
+    }
+    return true
   }
 
   removeAccountByIndex(accountIndex: number): boolean {
@@ -1309,6 +1364,10 @@ export class AccountManager {
         verificationRequiredAt: a.verificationRequiredAt,
         verificationRequiredReason: a.verificationRequiredReason,
         verificationUrl: a.verificationUrl,
+        accountIneligible: a.accountIneligible,
+        accountIneligibleAt: a.accountIneligibleAt,
+        accountIneligibleReason: a.accountIneligibleReason,
+        eligibilityStateUpdatedAt: a.eligibilityStateUpdatedAt,
       })),
       activeIndex: claudeIndex,
       activeIndexByFamily: {

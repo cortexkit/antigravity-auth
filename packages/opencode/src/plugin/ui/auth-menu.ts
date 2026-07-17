@@ -11,7 +11,7 @@ import {
 } from './quota-status';
 import type { QuotaGroupSummary } from '../quota';
 import type { FingerprintVersion } from '../fingerprint';
-export type AccountStatus = 'active' | 'rate-limited' | 'expired' | 'verification-required' | 'unknown';
+export type AccountStatus = 'active' | 'rate-limited' | 'expired' | 'verification-required' | 'ineligible' | 'unknown';
 
 export interface AccountInfo {
   email?: string;
@@ -90,6 +90,7 @@ function getStatusBadge(status: AccountStatus | undefined, account?: AccountInfo
     case 'rate-limited': return ` ${ANSI.yellow}[rate-limited]${ANSI.reset}`;
     case 'expired': return ` ${ANSI.red}[expired]${ANSI.reset}`;
     case 'verification-required': return ` ${ANSI.red}[needs verification]${ANSI.reset}`;
+    case 'ineligible': return ` ${ANSI.red}[ineligible]${ANSI.reset}`;
     default: return '';
   }
 }
@@ -104,7 +105,7 @@ function getAccountTier(acc: AccountInfo): number {
     return 1
   }
   if (acc.status === 'rate-limited') return 4
-  return 5 // expired, verification-required, unknown
+  return 5 // expired, verification-required, ineligible, unknown
 }
 
 function getHealthLabel(acc: AccountInfo): string {

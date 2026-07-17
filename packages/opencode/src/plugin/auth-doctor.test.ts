@@ -118,6 +118,37 @@ describe("createAuthDoctorReport", () => {
     }))
   })
 
+  it("reports explicitly ineligible accounts with a recheck repair", () => {
+    const auth: AuthDetails = {
+      type: "oauth",
+      refresh: "active-refresh|project-a",
+    }
+    const report = createAuthDoctorReport({
+      auth,
+      storage: storage({
+        accounts: [
+          {
+            email: "blocked@example.com",
+            refreshToken: "active-refresh",
+            addedAt: 1,
+            lastUsed: 2,
+            enabled: false,
+            accountIneligible: true,
+            accountIneligibleReason: "ACCOUNT_INELIGIBLE",
+            eligibilityStateUpdatedAt: 100,
+          },
+        ],
+      }),
+    })
+
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: "account-ineligible",
+      severity: "warning",
+      repair: "verify-account",
+      accountEmail: "blocked@example.com",
+    }))
+  })
+
   it("reports healthy auth and storage", () => {
     const auth: AuthDetails = {
       type: "oauth",

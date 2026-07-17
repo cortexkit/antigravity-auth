@@ -59,6 +59,11 @@ import { executeSearch } from "./plugin/search";
 import { resolvePromptContext } from "./plugin/prompt-context";
 import { AgySessionRegistry, extractOpenCodeSessionIdentity } from "./plugin/session-context";
 import {
+  buildAgyAgentRequestMetadata,
+  createAgyRequestSessionContext,
+  orderAgyRequestPayloadInPlace,
+} from "./plugin/agy-request-metadata";
+import {
   dumpGeminiRequest,
   executeGeminiDumpCommand,
   GEMINI_DUMP_COMMAND_NAME,
@@ -285,7 +290,7 @@ async function openBrowser(url: string): Promise<boolean> {
 }
 
 type VerificationProbeResult = {
-  status: "ok" | "blocked" | "error";
+  status: "ok" | "verification-required" | "ineligible" | "error";
   message: string;
   verifyUrl?: string;
 };
@@ -331,14 +336,17 @@ function selectBestVerificationUrl(urls: string[]): string | undefined {
   return unique[0];
 }
 
-function extractVerificationErrorDetails(bodyText: string): {
+function extractAccountAccessErrorDetails(bodyText: string): {
   validationRequired: boolean;
+  accountIneligible: boolean;
   message?: string;
   verifyUrl?: string;
 } {
   const decodedBody = decodeEscapedText(bodyText);
   const lowerBody = decodedBody.toLowerCase();
   let validationRequired = lowerBody.includes("validation_required");
+  const ineligiblePattern = /(^|[^a-z0-9_])account_ineligible([^a-z0-9_]|$)/i;
+  let accountIneligible = ineligiblePattern.test(decodedBody);
   let message: string | undefined;
   const verificationUrls = new Set<string>();
 
@@ -386,6 +394,9 @@ function extractVerificationErrorDetails(bodyText: string): {
 
       if (lowerValue.includes("validation_required")) {
         validationRequired = true;
+      }
+      if (ineligiblePattern.test(normalizedValue)) {
+        accountIneligible = true;
       }
       if (
         !message &&
@@ -438,7 +449,7 @@ function extractVerificationErrorDetails(bodyText: string): {
     const fallback = decodedBody
       .split("\n")
       .map((line) => line.trim())
-      .find((line) => line && !line.startsWith("data:") && /(verify|validation|required)/i.test(line));
+      .find((line) => line && !line.startsWith("data:") && /(verify|validation|required|ineligible)/i.test(line));
     if (fallback) {
       message = fallback;
     }
@@ -446,8 +457,68 @@ function extractVerificationErrorDetails(bodyText: string): {
 
   return {
     validationRequired,
+    accountIneligible,
     message,
     verifyUrl: selectBestVerificationUrl([...verificationUrls]),
+  };
+}
+
+function buildAccountAccessProbeRequest(projectId: string): Record<string, unknown> {
+  const wireModel = "gemini-3.5-flash-low";
+  const request: Record<string, unknown> = {
+    contents: [{ role: "user", parts: [{ text: "ping" }] }],
+    generationConfig: { maxOutputTokens: 1, temperature: 0 },
+  };
+  const requestMetadata = buildAgyAgentRequestMetadata(
+    createAgyRequestSessionContext(""),
+    request,
+    wireModel,
+  );
+  request.labels = requestMetadata.labels;
+  request.sessionId = requestMetadata.sessionId;
+  orderAgyRequestPayloadInPlace(request);
+
+  return {
+    project: projectId,
+    requestId: requestMetadata.requestId,
+    request,
+    model: wireModel,
+    userAgent: "antigravity",
+    requestType: "agent",
+  };
+}
+
+async function interpretAccountAccessProbeResponse(response: Response): Promise<VerificationProbeResult> {
+  if (response.ok) {
+    await response.body?.cancel().catch(() => {});
+    return { status: "ok", message: "Account verification check passed." };
+  }
+
+  let responseBody = "";
+  try {
+    responseBody = await response.text();
+  } catch {
+    responseBody = "";
+  }
+
+  const extracted = extractAccountAccessErrorDetails(responseBody);
+  if (response.status === 403 && extracted.accountIneligible) {
+    return {
+      status: "ineligible",
+      message: extracted.message ?? "Google marked this account as ineligible for Antigravity.",
+    };
+  }
+  if (response.status === 403 && extracted.validationRequired) {
+    return {
+      status: "verification-required",
+      message: extracted.message ?? "Google requires additional account verification.",
+      verifyUrl: extracted.verifyUrl,
+    };
+  }
+
+  return {
+    status: "error",
+    message: extracted.message ?? `Request failed (${response.status} ${response.statusText}).`,
   };
 }
 
@@ -506,18 +577,7 @@ async function verifyAccountAccess(
     "Accept-Encoding": "gzip",
   };
 
-  const requestBody = {
-    project: projectId,
-    requestId: `agent/${crypto.randomUUID()}/${Date.now()}/${crypto.randomUUID()}/2`,
-    request: {
-      model: "gemini-3-flash",
-      contents: [{ role: "user", parts: [{ text: "ping" }] }],
-      generationConfig: { maxOutputTokens: 1, temperature: 0 },
-    },
-    model: "gemini-3-flash",
-    userAgent: "antigravity",
-    requestType: "agent",
-  };
+  const requestBody = buildAccountAccessProbeRequest(projectId);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 20000);
@@ -538,31 +598,7 @@ async function verifyAccountAccess(
     clearTimeout(timeoutId);
   }
 
-  let responseBody = "";
-  try {
-    responseBody = await response.text();
-  } catch {
-    responseBody = "";
-  }
-
-  if (response.ok) {
-    return { status: "ok", message: "Account verification check passed." };
-  }
-
-  const extracted = extractVerificationErrorDetails(responseBody);
-  if (response.status === 403 && extracted.validationRequired) {
-    return {
-      status: "blocked",
-      message: extracted.message ?? "Google requires additional account verification.",
-      verifyUrl: extracted.verifyUrl,
-    };
-  }
-
-  const fallbackMessage = extracted.message ?? `Request failed (${response.status} ${response.statusText}).`;
-  return {
-    status: "error",
-    message: fallbackMessage,
-  };
+  return interpretAccountAccessProbeResponse(response);
 }
 
 async function promptAccountIndexForVerification(
@@ -613,6 +649,10 @@ type VerificationStoredAccount = {
   verificationRequiredAt?: number;
   verificationRequiredReason?: string;
   verificationUrl?: string;
+  accountIneligible?: boolean;
+  accountIneligibleAt?: number;
+  accountIneligibleReason?: string;
+  eligibilityStateUpdatedAt?: number;
 };
 
 function markStoredAccountVerificationRequired(
@@ -622,6 +662,7 @@ function markStoredAccountVerificationRequired(
 ): boolean {
   let changed = false;
   const wasVerificationRequired = account.verificationRequired === true;
+  const timestamp = Date.now();
 
   if (!wasVerificationRequired) {
     account.verificationRequired = true;
@@ -629,7 +670,19 @@ function markStoredAccountVerificationRequired(
   }
 
   if (!wasVerificationRequired || account.verificationRequiredAt === undefined) {
-    account.verificationRequiredAt = Date.now();
+    account.verificationRequiredAt = timestamp;
+    changed = true;
+  }
+
+  if (
+    account.accountIneligible === true ||
+    account.accountIneligibleAt !== undefined ||
+    account.accountIneligibleReason !== undefined
+  ) {
+    account.accountIneligible = false;
+    account.accountIneligibleAt = undefined;
+    account.accountIneligibleReason = undefined;
+    account.eligibilityStateUpdatedAt = timestamp;
     changed = true;
   }
 
@@ -653,11 +706,40 @@ function markStoredAccountVerificationRequired(
   return changed;
 }
 
-function clearStoredAccountVerificationRequired(
+function markStoredAccountIneligible(
   account: VerificationStoredAccount,
-  enableIfRequired = false,
-): { changed: boolean; wasVerificationRequired: boolean } {
+  reason: string,
+): boolean {
+  const timestamp = Date.now();
+  const normalizedReason = reason.trim() || "Google marked this account as ineligible.";
+  const changed =
+    account.accountIneligible !== true ||
+    account.accountIneligibleReason !== normalizedReason ||
+    account.verificationRequired === true ||
+    account.verificationRequiredAt !== undefined ||
+    account.verificationRequiredReason !== undefined ||
+    account.verificationUrl !== undefined ||
+    account.enabled !== false;
+
+  account.accountIneligible = true;
+  account.accountIneligibleAt = timestamp;
+  account.accountIneligibleReason = normalizedReason;
+  account.eligibilityStateUpdatedAt = timestamp;
+  account.verificationRequired = false;
+  account.verificationRequiredAt = undefined;
+  account.verificationRequiredReason = undefined;
+  account.verificationUrl = undefined;
+  account.enabled = false;
+  return changed;
+}
+
+function clearStoredAccountAccessBlocks(
+  account: VerificationStoredAccount,
+  enableIfBlocked = false,
+): { changed: boolean; wasAccessBlocked: boolean } {
   const wasVerificationRequired = account.verificationRequired === true;
+  const wasIneligible = account.accountIneligible === true;
+  const wasAccessBlocked = wasVerificationRequired || wasIneligible;
   let changed = false;
 
   if (account.verificationRequired !== false) {
@@ -676,13 +758,29 @@ function clearStoredAccountVerificationRequired(
     account.verificationUrl = undefined;
     changed = true;
   }
+  if (account.accountIneligible !== false) {
+    account.accountIneligible = false;
+    changed = true;
+  }
+  if (account.accountIneligibleAt !== undefined) {
+    account.accountIneligibleAt = undefined;
+    changed = true;
+  }
+  if (account.accountIneligibleReason !== undefined) {
+    account.accountIneligibleReason = undefined;
+    changed = true;
+  }
+  if (wasIneligible || account.eligibilityStateUpdatedAt !== undefined) {
+    account.eligibilityStateUpdatedAt = Date.now();
+    changed = true;
+  }
 
-  if (enableIfRequired && wasVerificationRequired && account.enabled === false) {
+  if (enableIfBlocked && wasAccessBlocked && account.enabled === false) {
     account.enabled = true;
     changed = true;
   }
 
-  return { changed, wasVerificationRequired };
+  return { changed, wasAccessBlocked };
 }
 
 async function promptOAuthCallbackValue(message: string): Promise<string> {
@@ -2572,7 +2670,29 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
                 if (response.status === 403) {
                   const errorBodyText = await response.clone().text().catch(() => "");
-                  const extracted = extractVerificationErrorDetails(errorBodyText);
+                  const extracted = extractAccountAccessErrorDetails(errorBodyText);
+
+                  if (extracted.accountIneligible) {
+                    const ineligibleReason = extracted.message ??
+                      "Google marked this account as ineligible for Antigravity.";
+                    accountManager.markAccountIneligible(account.index, ineligibleReason);
+
+                    const label = account.email || `Account ${account.index + 1}`;
+                    if (accountManager.shouldShowAccountToast(account.index, 60000)) {
+                      await showToast(
+                        `${label} is not eligible for Antigravity and has been disabled. ` +
+                          "Recheck it from opencode auth login > Verify accounts.",
+                        "warning",
+                      );
+                      accountManager.markToastShown(account.index);
+                    }
+
+                    pushDebug(`account-ineligible: disabled account ${account.index}`);
+                    getHealthTracker().recordFailure(account.index);
+                    lastFailure = createFailureContext(response);
+                    shouldSwitchAccount = true;
+                    break;
+                  }
 
                   if (extracted.validationRequired) {
                     const verificationReason = extracted.message ?? "Google requires account verification.";
@@ -2640,21 +2760,22 @@ export const createAntigravityPlugin = (providerId: string) => async (
                       family,
                       model,
                       headerStyle,
-                       config.soft_quota_threshold_percent,
-                       softQuotaCacheTtlMs,
-                       accountSessionIdentity,
-                     );
+                      config.soft_quota_threshold_percent,
+                      softQuotaCacheTtlMs,
+                      accountSessionIdentity,
+                    );
                     if (rotated) {
                       const remaining = account.cachedQuota?.[resolveQuotaGroup(family, model)]?.remainingFraction;
                       const remainingPct = remaining != null ? `${(remaining * 100).toFixed(1)}%` : "?";
                       pushDebug(`[ProactiveRotation] account ${account.index} quota ${remainingPct} < ${proactiveThreshold}%, pre-switched to account ${rotated.index} for next request`);
-                       pushDebug(
-                         `[ProactiveRotation] ${account.index} → ${rotated.index}` +
-                         ` (warm=${accountManager.wasUsedInSession(rotated.index, accountSessionIdentity)})`,
-                       );
+                      pushDebug(
+                        `[ProactiveRotation] ${account.index} → ${rotated.index}` +
+                          ` (warm=${accountManager.wasUsedInSession(rotated.index, accountSessionIdentity)})`,
+                      );
                     }
                   }
-                }                logAntigravityDebugResponse(debugContext, response, {
+                }
+                logAntigravityDebugResponse(debugContext, response, {
                   note: response.ok ? "Success" : `Error ${response.status}`,
                 });
                 if (response.ok && !prepared.streaming) {
@@ -2662,7 +2783,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                 }
                 if (!response.ok) {
                   await logResponseBody(debugContext, response, response.status);
-                  
+
                   // Handle 400 "Prompt too long" with synthetic response to avoid session lock
                   if (response.status === 400) {
                     const cloned = response.clone();
@@ -2867,7 +2988,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
               }
               
               // Avoid tight retry loops when there's only one account.
-              if (accountCount <= 1) {                if (lastFailure) {
+              if (accountCount <= 1) {
+                if (lastFailure) {
                   return transformAntigravityResponse(
                     lastFailure.response,
                     lastFailure.streaming,
@@ -2948,27 +3070,29 @@ export const createAntigravityPlugin = (providerId: string) => async (
               while (true) {
                 const now = Date.now();
                 const existingAccounts = existingStorage.accounts.map((acc, idx) => {
-                  let status: 'active' | 'rate-limited' | 'expired' | 'verification-required' | 'unknown' = 'unknown';
+                  let status: "active" | "rate-limited" | "expired" | "verification-required" | "ineligible" | "unknown" = "unknown";
 
-                  if (acc.verificationRequired) {
-                    status = 'verification-required';
+                  if (acc.accountIneligible) {
+                    status = "ineligible";
+                  } else if (acc.verificationRequired) {
+                    status = "verification-required";
                   } else {
                     const rateLimits = acc.rateLimitResetTimes;
                     if (rateLimits) {
                       const isRateLimited = Object.values(rateLimits).some(
-                        (resetTime) => typeof resetTime === 'number' && resetTime > now
+                        (resetTime) => typeof resetTime === "number" && resetTime > now,
                       );
                       if (isRateLimited) {
-                        status = 'rate-limited';
+                        status = "rate-limited";
                       } else {
-                        status = 'active';
+                        status = "active";
                       }
                     } else {
-                      status = 'active';
+                      status = "active";
                     }
 
                     if (acc.coolingDownUntil && acc.coolingDownUntil > now) {
-                      status = 'rate-limited';
+                      status = "rate-limited";
                     }
                   }
 
@@ -2985,13 +3109,13 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   const displayQuota = quotaIsStale ? undefined : acc.cachedQuota;
                   const displayPerModelQuota = quotaIsStale ? undefined : acc.cachedPerModelQuota;
 
-                  if (status === 'active' && displayQuota) {
+                  if (status === "active" && displayQuota) {
                     const groups = Object.values(displayQuota);
                     const allExhausted = groups.length > 0 && groups.every(
                       (group) => typeof group.remainingFraction === "number" && group.remainingFraction <= 0,
                     );
                     if (allExhausted) {
-                      status = 'rate-limited';
+                      status = "rate-limited";
                     }
                   }
 
@@ -3009,7 +3133,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     cachedQuota: displayQuota,
                     cachedPerModelQuota: displayPerModelQuota,
                     fingerprintHistory: acc.fingerprintHistory,
-                  };                });
+                  };
+                });
                 
                 menuResult = await promptLoginMode(existingAccounts);
 
@@ -3098,7 +3223,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
                         const badge = formatQuotaStatusBadge(status);
                         const modelName = model.modelId.padEnd(29);
                         console.log(`  │  ${connector} ${modelName} ${bar} ${badge}${reset}`);
-                      });                    }
+                      });
+                    }
 
                     // Display Antigravity Quota second
                     const hasAntigravity = res.quota && Object.keys(res.quota.groups).length > 0;
@@ -3124,7 +3250,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
                         const badge = formatQuotaStatusBadge(status);
                         const modelName = g.name.padEnd(29);
                         console.log(`     ${connector} ${modelName} ${bar} ${badge}${reset}`);
-                      });                    }
+                      });
+                    }
                     console.log("");
 
                     // Cache quota data for soft quota protection
@@ -3146,7 +3273,8 @@ export const createAntigravityPlugin = (providerId: string) => async (
                         cachedQuotaUpdatedAt: Date.now(),
                       };
                       storageUpdated = true;
-                    }                  }
+                    }
+                  }
                   if (storageUpdated) {
                     await saveAccounts(existingStorage);
                   }
@@ -3173,10 +3301,18 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   if (menuResult.toggleAccountIndex !== undefined) {
                     const acc = existingStorage.accounts[menuResult.toggleAccountIndex];
                     if (acc) {
-                      acc.enabled = acc.enabled === false;
+                      const shouldEnable = acc.enabled === false;
+                      if (shouldEnable && acc.accountIneligible) {
+                        console.log(
+                          `\n${acc.email || `Account ${menuResult.toggleAccountIndex + 1}`} remains disabled. ` +
+                            "Use Verify accounts to recheck eligibility.\n",
+                        );
+                        continue;
+                      }
+                      acc.enabled = shouldEnable;
                       await saveAccounts(existingStorage);
                       activeAccountManager?.setAccountEnabled(menuResult.toggleAccountIndex, acc.enabled);
-                      console.log(`\nAccount ${acc.email || menuResult.toggleAccountIndex + 1} ${acc.enabled ? 'enabled' : 'disabled'}.\n`);
+                      console.log(`\nAccount ${acc.email || menuResult.toggleAccountIndex + 1} ${acc.enabled ? "enabled" : "disabled"}.\n`);
                     }
                   }
                   continue;
@@ -3195,6 +3331,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
                     let okCount = 0;
                     let blockedCount = 0;
+                    let ineligibleCount = 0;
                     let errorCount = 0;
                     let storageUpdated = false;
 
@@ -3209,17 +3346,17 @@ export const createAntigravityPlugin = (providerId: string) => async (
 
                       const verification = await verifyAccountAccess(account, client, providerId);
                       if (verification.status === "ok") {
-                        const { changed, wasVerificationRequired } = clearStoredAccountVerificationRequired(account, true);
+                        const { changed, wasAccessBlocked } = clearStoredAccountAccessBlocks(account, true);
                         if (changed) {
                           storageUpdated = true;
                         }
-                        activeAccountManager?.clearAccountVerificationRequired(i, wasVerificationRequired);
+                        activeAccountManager?.clearAccountAccessBlocks(i, wasAccessBlocked);
                         okCount += 1;
                         console.log("ok");
                         continue;
                       }
 
-                      if (verification.status === "blocked") {
+                      if (verification.status === "verification-required") {
                         const changed = markStoredAccountVerificationRequired(
                           account,
                           verification.message,
@@ -3241,6 +3378,17 @@ export const createAntigravityPlugin = (providerId: string) => async (
                         continue;
                       }
 
+                      if (verification.status === "ineligible") {
+                        const changed = markStoredAccountIneligible(account, verification.message);
+                        if (changed) {
+                          storageUpdated = true;
+                        }
+                        activeAccountManager?.markAccountIneligible(i, verification.message);
+                        ineligibleCount += 1;
+                        console.log("ineligible");
+                        continue;
+                      }
+
                       errorCount += 1;
                       console.log(`error (${verification.message})`);
                     }
@@ -3249,7 +3397,10 @@ export const createAntigravityPlugin = (providerId: string) => async (
                       await saveAccounts(existingStorage);
                     }
 
-                    console.log(`\nVerification summary: ${okCount} ready, ${blockedCount} need verification, ${errorCount} errors.`);
+                    console.log(
+                      `\nVerification summary: ${okCount} ready, ${blockedCount} need verification, ` +
+                      `${ineligibleCount} ineligible, ${errorCount} errors.`,
+                    );
 
                     if (blockedResults.length > 0) {
                       console.log("\nAccounts needing verification:");
@@ -3292,13 +3443,13 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   const verification = await verifyAccountAccess(account, client, providerId);
 
                   if (verification.status === "ok") {
-                    const { changed, wasVerificationRequired } = clearStoredAccountVerificationRequired(account, true);
+                    const { changed, wasAccessBlocked } = clearStoredAccountAccessBlocks(account, true);
                     if (changed) {
                       await saveAccounts(existingStorage);
                     }
-                    activeAccountManager?.clearAccountVerificationRequired(verifyAccountIndex, wasVerificationRequired);
+                    activeAccountManager?.clearAccountAccessBlocks(verifyAccountIndex, wasAccessBlocked);
 
-                    if (wasVerificationRequired) {
+                    if (wasAccessBlocked) {
                       console.log(`✓ ${label} is ready for requests and has been re-enabled.\n`);
                     } else {
                       console.log(`✓ ${label} is ready for requests.\n`);
@@ -3306,7 +3457,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     continue;
                   }
 
-                  if (verification.status === "blocked") {
+                  if (verification.status === "verification-required") {
                     const changed = markStoredAccountVerificationRequired(
                       account,
                       verification.message,
@@ -3343,13 +3494,27 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     continue;
                   }
 
+                  if (verification.status === "ineligible") {
+                    const changed = markStoredAccountIneligible(account, verification.message);
+                    if (changed) {
+                      await saveAccounts(existingStorage);
+                    }
+                    activeAccountManager?.markAccountIneligible(
+                      verifyAccountIndex,
+                      verification.message,
+                    );
+                    console.log(`⚠ ${label} is not eligible for Antigravity and has been disabled.`);
+                    console.log(`${verification.message}\n`);
+                    continue;
+                  }
+
                   console.log(`✗ ${label}: ${verification.message}\n`);
                   continue;
                 }
 
                 break;
               }
-              
+
               if (menuResult.mode === "cancel") {
                 return {
                   url: "",
@@ -3358,7 +3523,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   callback: async () => ({ type: "failed", error: "Authentication cancelled" }),
                 };
               }
-              
+
               if (menuResult.deleteAccountIndex !== undefined) {
                 const updatedAccounts = existingStorage.accounts.filter(
                   (_, idx) => idx !== menuResult.deleteAccountIndex
@@ -3939,6 +4104,9 @@ function isExplicitQuotaFromUrl(urlString: string): boolean {
 }
 
 export const __testExports = {
+  buildAccountAccessProbeRequest,
+  extractAccountAccessErrorDetails,
+  interpretAccountAccessProbeResponse,
   getHeaderStyleFromUrl,
   isCapacityRetryBudgetExhausted,
   resolveHeaderRoutingDecision,
