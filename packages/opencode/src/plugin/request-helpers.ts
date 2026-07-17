@@ -2771,17 +2771,17 @@ export function applyToolPairingFixes(
  * Returning Anthropic-style SSE here can make the downstream parser fail before
  * it records a normal `step-finish`.
  */
-export function createSyntheticErrorResponse(
-  errorMessage: string,
-  _requestedModel: string = "unknown",
+export function createSyntheticTextResponse(
+  text: string,
+  extraHeaders: Record<string, string> = {},
 ): Response {
-  const outputTokens = Math.max(1, Math.ceil(errorMessage.length / 4));
+  const outputTokens = Math.max(1, Math.ceil(text.length / 4));
   const event = {
     candidates: [
       {
         content: {
           role: "model",
-          parts: [{ text: errorMessage }],
+          parts: [{ text }],
         },
         finishReason: "STOP",
       },
@@ -2800,7 +2800,16 @@ export function createSyntheticErrorResponse(
       "Cache-Control": "no-cache",
       "Connection": "keep-alive",
       "X-Antigravity-Synthetic": "true",
-      "X-Antigravity-Error-Type": "synthetic_error",
+      ...extraHeaders,
     },
+  });
+}
+
+export function createSyntheticErrorResponse(
+  errorMessage: string,
+  _requestedModel: string = "unknown",
+): Response {
+  return createSyntheticTextResponse(errorMessage, {
+    "X-Antigravity-Error-Type": "synthetic_error",
   });
 }

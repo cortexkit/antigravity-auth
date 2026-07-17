@@ -22,6 +22,7 @@ import {
   injectToolHardeningInstruction,
   cleanJSONSchemaForAntigravity,
   createSyntheticErrorResponse,
+  createSyntheticTextResponse,
   recursivelyParseJsonStrings,
 } from "./request-helpers";
 import { deduplicateThinkingText, createThoughtBuffer } from "./core/streaming/transformer";
@@ -1561,6 +1562,25 @@ describe("cleanJSONSchemaForAntigravity", () => {
     const result = cleanJSONSchemaForAntigravity(schema);
 
     expect(result.properties.level.enum).toEqual(["low", "medium", "high"]);
+  });
+});
+
+describe("createSyntheticTextResponse", () => {
+  it("returns a complete non-error Gemini SSE frame", async () => {
+    const response = createSyntheticTextResponse("Image generation", {
+      "X-Antigravity-Response-Type": "local_title",
+    });
+    const text = await response.text();
+    const event = JSON.parse(text.slice("data: ".length).trim());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Antigravity-Response-Type")).toBe("local_title");
+    expect(response.headers.get("X-Antigravity-Error-Type")).toBeNull();
+    expect(event.candidates[0]).toMatchObject({
+      content: { parts: [{ text: "Image generation" }] },
+      finishReason: "STOP",
+    });
+    expect(text.endsWith("\n\n")).toBe(true);
   });
 });
 

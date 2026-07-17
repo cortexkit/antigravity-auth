@@ -207,7 +207,7 @@ export function classifyOverallQuotaHealth(
     return { health: "unknown" }
   }
 
-  const QUOTA_KEYS = ["claude", "gemini-pro", "gemini-flash"]
+  const QUOTA_KEYS = ["claude", "gemini-pro", "gemini-flash", "gpt-oss"]
   let groupsWithData = 0
   let exhaustedCount = 0
   let maxResetMs: number | undefined
@@ -261,6 +261,7 @@ export function formatCachedQuotaWithStatus(
     { key: "claude", label: "Claude" },
     { key: "gemini-pro", label: "Gemini Pro" },
     { key: "gemini-flash", label: "Gemini Flash" },
+    { key: "gpt-oss", label: "GPT-OSS" },
   ].flatMap(({ key, label }) => {
     const value = cachedQuota[key]?.remainingFraction
     if (typeof value !== "number" || !Number.isFinite(value)) {

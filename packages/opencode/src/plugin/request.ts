@@ -103,6 +103,75 @@ const ANTIGRAVITY_ENVELOPE_FIELD_ORDER = [
   "requestType",
 ] as const;
 
+const OPENCODE_TITLE_PROMPT_PREFIX = "Generate a title for this conversation:"
+
+function getOpenCodeTitleSourceText(payload: Record<string, unknown>): string | undefined {
+  if (!Array.isArray(payload.contents)) {
+    return undefined
+  }
+
+  const texts = payload.contents.flatMap((content) => {
+    if (!content || typeof content !== "object") {
+      return []
+    }
+    const parts = (content as Record<string, unknown>).parts
+    if (!Array.isArray(parts)) {
+      return []
+    }
+    return parts.flatMap((part) =>
+      !!part && typeof part === "object" && typeof (part as Record<string, unknown>).text === "string"
+        ? [(part as Record<string, unknown>).text as string]
+        : []
+    )
+  })
+
+  const promptIndex = texts.findIndex((text) => text.startsWith(OPENCODE_TITLE_PROMPT_PREFIX))
+  return promptIndex >= 0 ? texts.slice(promptIndex + 1).find((text) => text.trim().length > 0) : undefined
+}
+
+function isOpenCodeTitleGenerationRequest(payload: Record<string, unknown>): boolean {
+  return getOpenCodeTitleSourceText(payload) !== undefined
+}
+
+function formatLocalImageTitle(sourceText: string): string {
+  const normalized = sourceText
+    .trim()
+    .replace(/^(["“])(.*)(["”])$/s, "$2")
+    .replace(/\s+/g, " ")
+  const characters = Array.from(normalized)
+  if (characters.length <= 50) {
+    return normalized || "Image generation"
+  }
+  return `${characters.slice(0, 47).join("").trimEnd()}...`
+}
+
+export function getImageModelLocalTitle(
+  input: RequestInfo,
+  init?: RequestInit,
+): string | undefined {
+  const url = fetchInputToUrl(input);
+  if (!/\/models\/[^/:]*(?:image|imagen)[^/:]*:streamGenerateContent/i.test(url)) {
+    return undefined;
+  }
+
+  const body = init?.body;
+  const bodyText = typeof body === "string"
+    ? body
+    : body instanceof Uint8Array
+      ? new TextDecoder().decode(body)
+      : "";
+  if (!bodyText) {
+    return undefined;
+  }
+
+  try {
+    const sourceText = getOpenCodeTitleSourceText(JSON.parse(bodyText) as Record<string, unknown>)
+    return sourceText === undefined ? undefined : formatLocalImageTitle(sourceText)
+  } catch {
+    return undefined;
+  }
+}
+
 function getAgyMaxOutputTokens(model: string): number | undefined {
   const lower = model.toLowerCase();
   if (lower === "gemini-3.5-flash-low" || lower === "gemini-3.5-flash-extra-low" || lower === "gemini-3-flash-agent") {
@@ -113,6 +182,9 @@ function getAgyMaxOutputTokens(model: string): number | undefined {
   }
   if (lower === "claude-sonnet-4-6" || lower === "claude-opus-4-6-thinking") {
     return 64000;
+  }
+  if (lower === "gpt-oss-120b-medium") {
+    return 32768;
   }
   return undefined;
 }
@@ -1219,6 +1291,18 @@ export function prepareAntigravityRequest(
         body = safeStringify(headerStyle === "antigravity" ? orderAntigravityEnvelope(wrappedBody) : wrappedBody);
       } else {
         const requestPayload: Record<string, unknown> = { ...parsedBody };
+        if (
+          headerStyle === "antigravity" &&
+          isImageGenerationModel(effectiveModel) &&
+          isOpenCodeTitleGenerationRequest(requestPayload)
+        ) {
+          // OpenCode runs title generation through the active model. Route that
+          // text-only helper call away from image generation to avoid consuming
+          // image quota and writing unrelated image files.
+          effectiveModel = "gemini-3.5-flash-low";
+          tierThinkingBudget = 4000;
+          tierThinkingLevel = undefined;
+        }
         const rawGenerationConfig = requestPayload.generationConfig as Record<string, unknown> | undefined;
         const extraBody = requestPayload.extra_body as Record<string, unknown> | undefined;
 

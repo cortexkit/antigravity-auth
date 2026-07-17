@@ -8,6 +8,7 @@ import {
   formatQuotaStatusBadge,
   formatQuotaStatusPlain,
   formatCachedQuotaWithStatus,
+  classifyOverallQuotaHealth,
   formatGroupQuotaBadge,
 } from "./quota-status.ts"
 import type { QuotaGroupSummary } from "../quota.ts"
@@ -295,6 +296,17 @@ describe("formatCachedQuotaWithStatus", () => {
     })
     // Not all exhausted, so per-model breakdown shown; EXHAUSTED includes reset time
     expect(result).toMatch(/^Claude 80%, Gemini Pro low 10%, Gemini Flash exhausted resets in \dh/)
+  })
+
+  it("includes GPT-OSS quota in account health and summaries", () => {
+    const futureTime = new Date(Date.now() + 7200000).toISOString()
+    const quota = {
+      claude: { remainingFraction: 1 },
+      "gpt-oss": { remainingFraction: 0, resetTime: futureTime },
+    }
+
+    expect(classifyOverallQuotaHealth(quota).health).toBe("partial")
+    expect(formatCachedQuotaWithStatus(quota)).toMatch(/^GPT-OSS exhausted resets in \dh/)
   })
 
   it("hides groups at 100% READY", () => {

@@ -17,8 +17,10 @@ describe("OPENCODE_MODEL_DEFINITIONS", () => {
     expect(modelNames).toEqual([
       "antigravity-claude-opus-4-6-thinking",
       "antigravity-claude-sonnet-4-6-thinking",
+      "antigravity-gemini-3.1-flash-image",
       "antigravity-gemini-3.1-pro",
       "antigravity-gemini-3.5-flash",
+      "antigravity-gpt-oss-120b-medium",
     ]);
   });
 
@@ -33,6 +35,17 @@ describe("OPENCODE_MODEL_DEFINITIONS", () => {
       high: { thinkingLevel: "high" },
     });
   });
+  it("exposes image output and live GPT-OSS capabilities", () => {
+    expect(getModel("antigravity-gemini-3.1-flash-image")).toMatchObject({
+      reasoning: false,
+      modalities: { output: ["text", "image"] },
+    });
+    expect(getModel("antigravity-gpt-oss-120b-medium")).toMatchObject({
+      reasoning: true,
+      limit: { context: 131072, output: 32768 },
+    });
+  });
+
   it("disables unsupported automatic Claude budget variants", () => {
     expect(getModel("antigravity-claude-opus-4-6-thinking").variants).toEqual({
       low: { disabled: true },

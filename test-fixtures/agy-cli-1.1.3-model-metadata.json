@@ -40,6 +40,11 @@
       "thinkingBudget": 1024,
       "maxOutputTokens": 64000
     },
+    "gemini-3.1-flash-image": {
+      "modelEnum": "MODEL_PLACEHOLDER_M21",
+      "thinkingBudget": null,
+      "maxOutputTokens": null
+    },
     "gpt-oss-120b-medium": {
       "modelEnum": "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
       "thinkingBudget": 8192,

@@ -28,8 +28,10 @@ describe("model registry", () => {
     expect(modelNames).toEqual([
       "antigravity-claude-opus-4-6-thinking",
       "antigravity-claude-sonnet-4-6-thinking",
+      "antigravity-gemini-3.1-flash-image",
       "antigravity-gemini-3.1-pro",
       "antigravity-gemini-3.5-flash",
+      "antigravity-gpt-oss-120b-medium",
     ])
 
     for (const definition of Object.values(definitions)) {
@@ -53,7 +55,23 @@ describe("model registry", () => {
     expect(aliases["gemini-3.5-flash-medium"]).toBe("gemini-3.5-flash")
     expect(aliases["gemini-claude-opus-4-6-thinking-medium"]).toBe("claude-opus-4-6-thinking")
     expect(aliases["gemini-claude-sonnet-4-6-thinking-high"]).toBe("claude-sonnet-4-6")
+    expect(aliases["gpt-oss-120b"]).toBe("gpt-oss-120b-medium")
+  })
 
-    expect(getPublicModelDefinitions()["antigravity-gpt-oss-120b"]).toBeUndefined()
+  it("matches the live GPT-OSS capability metadata", () => {
+    expect(getPublicModelDefinitions()["antigravity-gpt-oss-120b-medium"]).toMatchObject({
+      reasoning: true,
+      limit: { context: 131072, output: 32768 },
+    })
+  })
+
+  it("advertises image output only on the image route", () => {
+    expect(getPublicModelDefinitions()["antigravity-gemini-3.1-flash-image"]).toMatchObject({
+      reasoning: false,
+      modalities: {
+        input: ["text", "image"],
+        output: ["text", "image"],
+      },
+    })
   })
 })

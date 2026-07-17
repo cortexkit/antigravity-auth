@@ -15,8 +15,8 @@ import {
 type ModelMetadataFixture = {
   models: Record<string, {
     modelEnum: string
-    thinkingBudget: number
-    maxOutputTokens: number
+    thinkingBudget: number | null
+    maxOutputTokens: number | null
   }>
 }
 

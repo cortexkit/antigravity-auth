@@ -137,14 +137,11 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
       output: ["text", "image"],
     },
   }),
-  "antigravity-gpt-oss-120b": defineModel("antigravity-gpt-oss-120b", {
-    name: "GPT-OSS 120B (Antigravity)",
-    reasoning: false,
-    limit: { context: 128000, output: 16384 },
+  "antigravity-gpt-oss-120b-medium": defineModel("antigravity-gpt-oss-120b-medium", {
+    name: "GPT-OSS 120B Medium (Antigravity)",
+    reasoning: true,
+    limit: { context: 131072, output: 32768 },
     modalities: DEFAULT_MODALITIES,
-    variants: {
-      medium: {},
-    },
   }),
   "gemini-2.5-flash": defineModel("gemini-2.5-flash", {
     name: "Gemini 2.5 Flash (Gemini CLI)",
@@ -222,6 +219,7 @@ const RESOLVER_ALIASES: Record<string, string> = {
   "claude-sonnet-4-6-thinking-low": "claude-sonnet-4-6",
   "claude-sonnet-4-6-thinking-medium": "claude-sonnet-4-6",
   "claude-sonnet-4-6-thinking-high": "claude-sonnet-4-6",
+  "gpt-oss-120b": "gpt-oss-120b-medium",
 }
 
 const GEMINI_35_FLASH_ROUTES: Gemini35FlashRouteMetadata = {
@@ -259,6 +257,8 @@ const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
   "antigravity-gemini-3.1-pro",
   "antigravity-claude-sonnet-4-6-thinking",
   "antigravity-claude-opus-4-6-thinking",
+  "antigravity-gemini-3.1-flash-image",
+  "antigravity-gpt-oss-120b-medium",
 ] as const
 
 function pickModelDefinitions(ids: readonly string[]): OpencodeModelDefinitions {

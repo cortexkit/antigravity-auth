@@ -1,8 +1,8 @@
 # Antigravity Auth
 
 Google Antigravity OAuth for coding agents. Authenticate with your Google
-account and access **Gemini 3** and **Claude 4.6** models through Antigravity's
-endpoints.
+account and access **Gemini 3**, **Claude 4.6**, and **GPT-OSS 120B** models through
+Antigravity's endpoints.
 
 This is a monorepo publishing three packages:
 
@@ -33,7 +33,7 @@ configuration, login, and troubleshooting.
 **pi** — install the extension package:
 
 ```bash
-pi package add @cortexkit/pi-antigravity-auth
+pi install npm:@cortexkit/pi-antigravity-auth
 ```
 
 Then `/login google-antigravity`. See the [pi package README](packages/pi/README.md).

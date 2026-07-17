@@ -24,6 +24,7 @@ const AGY_MODEL_ENUM_BY_WIRE_MODEL: Readonly<Record<string, string>> = {
   "gemini-pro-agent": "MODEL_PLACEHOLDER_M16",
   "claude-sonnet-4-6": "MODEL_PLACEHOLDER_M35",
   "claude-opus-4-6-thinking": "MODEL_PLACEHOLDER_M26",
+  "gemini-3.1-flash-image": "MODEL_PLACEHOLDER_M21",
   "gpt-oss-120b-medium": "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
 }
 

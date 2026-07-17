@@ -7,6 +7,7 @@ import {
   transformAntigravityResponse,
   getPluginSessionId,
   isGenerativeLanguageRequest,
+  getImageModelLocalTitle,
   __testExports,
 } from "./request";
 import { DEFAULT_CONFIG } from "./config";
@@ -1277,6 +1278,112 @@ it("removes x-api-key header", () => {
       expect(request.contents[1].parts[0].functionCall.args.cacheControl).toBe("tool-data");
       expect(request.toolConfig).toEqual({
         functionCallingConfig: { mode: "VALIDATED" },
+      });
+    });
+
+    it("builds the live Gemini 3.1 Flash Image request shape", () => {
+      const result = prepareAntigravityRequest(
+        "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.1-flash-image:generateContent",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: "Generate a blue circle" }] }],
+            generationConfig: {
+              thinkingConfig: { includeThoughts: true, thinkingBudget: 1000 },
+            },
+            tools: [{ functionDeclarations: [{ name: "read", parameters: { type: "OBJECT" } }] }],
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "antigravity",
+      );
+
+      const wrapped = JSON.parse(result.init.body as string);
+      expect(result.effectiveModel).toBe("gemini-3.1-flash-image");
+      expect(wrapped.request.generationConfig).toMatchObject({
+        candidateCount: 1,
+        imageConfig: { aspectRatio: "1:1" },
+      });
+      expect(wrapped.request.generationConfig.thinkingConfig).toBeUndefined();
+      expect(wrapped.request.tools).toBeUndefined();
+      expect(wrapped.request.toolConfig).toBeUndefined();
+      expect(wrapped.request.labels.model_enum).toBe("MODEL_PLACEHOLDER_M21");
+    });
+
+    it("routes OpenCode title generation away from the image model", () => {
+      const input = "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.1-flash-image:streamGenerateContent";
+      const init = {
+        method: "POST",
+        body: JSON.stringify({
+          contents: [
+            { role: "user", parts: [{ text: "Generate a title for this conversation:\n" }] },
+            { role: "user", parts: [{ text: '"Generate a red triangle"' }] },
+          ],
+        }),
+      };
+      expect(getImageModelLocalTitle(input, init)).toBe("Generate a red triangle");
+      expect(getImageModelLocalTitle(
+        input,
+        { method: "POST", body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Generate image" }] }] }) },
+      )).toBeUndefined();
+
+      const result = prepareAntigravityRequest(
+        input,
+        init,
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "antigravity",
+      );
+
+      const wrapped = JSON.parse(result.init.body as string);
+      expect(result.effectiveModel).toBe("gemini-3.5-flash-low");
+      expect(wrapped.model).toBe("gemini-3.5-flash-low");
+      expect(wrapped.request.labels.model_enum).toBe("MODEL_PLACEHOLDER_M20");
+      expect(wrapped.request.generationConfig?.imageConfig).toBeUndefined();
+    });
+
+    it("builds the captured GPT-OSS medium generation config", () => {
+      const result = prepareAntigravityRequest(
+        "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gpt-oss-120b-medium:generateContent",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: "Reply GPT_OK" }] }],
+            tools: [{
+              functionDeclarations: [{
+                name: "prompt_tool",
+                parameters: {
+                  type: "object",
+                  properties: { prompt: { type: "string", minLength: "1" } },
+                  required: ["prompt"],
+                },
+              }],
+            }],
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "antigravity",
+      );
+
+      const wrapped = JSON.parse(result.init.body as string);
+      expect(result.effectiveModel).toBe("gpt-oss-120b-medium");
+      expect(wrapped.request.generationConfig).toEqual({
+        thinkingConfig: { includeThoughts: true, thinkingBudget: 8192 },
+        maxOutputTokens: 32768,
+      });
+      expect(wrapped.request.labels).toMatchObject({
+        model_enum: "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
+        used_non_gemini_model: "true",
+      });
+      expect(wrapped.request.tools[0].functionDeclarations[0].parameters).toEqual({
+        type: "OBJECT",
+        properties: { prompt: { type: "STRING", description: "minLength: 1" } },
+        required: ["prompt"],
       });
     });
 

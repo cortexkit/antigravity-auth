@@ -75,15 +75,20 @@ async function refreshAntigravityCredentials(
 }
 
 export default function cortexKitPiAntigravityAuth(pi: ExtensionAPI): void {
-  const models = Object.values(getPublicModelDefinitions()).map((model) => ({
-    id: model.id,
-    name: model.name,
-    reasoning: model.reasoning,
-    input: textImageInput(),
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: model.limit.context,
-    maxTokens: model.limit.output,
-  }))
+  const models = Object.values(getPublicModelDefinitions())
+    // Pi's AssistantMessage protocol has no image-output content type. Keep
+    // generation-only image routes out of the chat model catalog rather than
+    // advertising output that the stream contract cannot represent.
+    .filter((model) => !model.modalities.output.includes("image"))
+    .map((model) => ({
+      id: model.id,
+      name: model.name,
+      reasoning: model.reasoning,
+      input: textImageInput(),
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: model.limit.context,
+      maxTokens: model.limit.output,
+    }))
 
   pi.registerProvider(ANTIGRAVITY_PROVIDER_ID, {
     name: "Google Antigravity (CortexKit OAuth)",

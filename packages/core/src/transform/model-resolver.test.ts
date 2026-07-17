@@ -177,7 +177,8 @@ describe("resolveModelWithTier", () => {
       expect(result.isThinkingModel).toBe(true);
       expect(result.thinkingBudget).toBe(1024);
       expect(result.quotaPreference).toBe("antigravity");
-    });  });
+    });
+  });
 
   describe("Image models", () => {
     it("marks antigravity-gemini-3-pro-image as explicit quota", () => {
@@ -194,6 +195,32 @@ describe("resolveModelWithTier", () => {
       expect(result.isImageModel).toBe(true);
       expect(result.explicitQuota).toBe(true);
       expect(result.quotaPreference).toBe("antigravity");
+    });
+
+    it("resolves the live Gemini 3.1 Flash Image route without thinking", () => {
+      expect(resolveModelWithTier("antigravity-gemini-3.1-flash-image")).toMatchObject({
+        actualModel: "gemini-3.1-flash-image",
+        isThinkingModel: false,
+        isImageModel: true,
+        quotaPreference: "antigravity",
+        explicitQuota: true,
+      });
+    });
+  });
+
+  describe("GPT-OSS", () => {
+    it("resolves the only live GPT-OSS route with its captured thinking budget", () => {
+      expect(resolveModelWithTier("antigravity-gpt-oss-120b-medium")).toMatchObject({
+        actualModel: "gpt-oss-120b-medium",
+        thinkingBudget: 8192,
+        isThinkingModel: true,
+        quotaPreference: "antigravity",
+        explicitQuota: true,
+      });
+    });
+
+    it("maps the short GPT-OSS alias to the medium route", () => {
+      expect(resolveModelWithTier("antigravity-gpt-oss-120b").actualModel).toBe("gpt-oss-120b-medium");
     });
   });
 });

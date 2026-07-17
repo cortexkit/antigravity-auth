@@ -194,6 +194,7 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
   const isGemini3Flash = isGemini3FlashModel(modelWithoutQuota);
   const isGemini31Pro = /^gemini-3\.1-pro/i.test(baseName);
   const isGemini35Flash = /^gemini-3\.5-flash/i.test(baseName);
+  const isGptOss120b = /^gpt-oss-120b(?:-medium)?$/i.test(baseName);
 
   if (isGemini31Pro && quotaPreference === "antigravity") {
     return {
@@ -211,6 +212,16 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
       actualModel: resolveGemini35FlashAntigravityModel(tier ?? "medium"),
       thinkingBudget: getAgyGemini35FlashThinkingBudget(tier),
       tier: tier ?? "medium",
+      isThinkingModel: true,
+      quotaPreference,
+      explicitQuota,
+    };
+  }
+
+  if (isGptOss120b && quotaPreference === "antigravity") {
+    return {
+      actualModel: "gpt-oss-120b-medium",
+      thinkingBudget: 8192,
       isThinkingModel: true,
       quotaPreference,
       explicitQuota,

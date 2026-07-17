@@ -49,7 +49,29 @@ const UNSUPPORTED_SCHEMA_FIELDS = new Set([
   "maxContains",
 ]);
 
-export function toGeminiSchema(schema: unknown): unknown {
+const NUMERIC_SCHEMA_CONSTRAINTS = new Set([
+  "minLength",
+  "maxLength",
+  "minItems",
+  "maxItems",
+  "minProperties",
+  "maxProperties",
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+])
+
+export interface GeminiSchemaOptions {
+  /**
+   * AGY's GPT bridge re-encodes protobuf numeric constraints as strings before
+   * OpenAI JSON Schema validation. Move them to descriptions instead.
+   */
+  moveNumericConstraintsToDescription?: boolean
+}
+
+export function toGeminiSchema(schema: unknown, options: GeminiSchemaOptions = {}): unknown {
   // Return primitives and arrays as-is
   if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
     return schema;
@@ -57,6 +79,7 @@ export function toGeminiSchema(schema: unknown): unknown {
 
   const inputSchema = schema as Record<string, unknown>;
   const result: Record<string, unknown> = {};
+  const numericConstraintHints: string[] = [];
 
   // First pass: collect all property names for required validation
   const propertyNames = new Set<string>();
@@ -79,18 +102,25 @@ export function toGeminiSchema(schema: unknown): unknown {
       // Recursively transform nested property schemas
       const props: Record<string, unknown> = {};
       for (const [propName, propSchema] of Object.entries(value as Record<string, unknown>)) {
-        props[propName] = toGeminiSchema(propSchema);
+        props[propName] = toGeminiSchema(propSchema, options);
       }
       result[key] = props;
     } else if (key === "items" && typeof value === "object") {
       // Transform array items schema
-      result[key] = toGeminiSchema(value);
+      result[key] = toGeminiSchema(value, options);
     } else if ((key === "anyOf" || key === "oneOf" || key === "allOf") && Array.isArray(value)) {
       // Transform union type schemas
-      result[key] = value.map((item) => toGeminiSchema(item));
+      result[key] = value.map((item) => toGeminiSchema(item, options));
     } else if (key === "enum" && Array.isArray(value)) {
       // Keep enum values as-is
       result[key] = value;
+    } else if (
+      options.moveNumericConstraintsToDescription &&
+      NUMERIC_SCHEMA_CONSTRAINTS.has(key)
+    ) {
+      if (typeof value === "string" || typeof value === "number") {
+        numericConstraintHints.push(`${key}: ${value}`)
+      }
     } else if (key === "default" || key === "examples") {
       // Keep default and examples as-is
       result[key] = value;
@@ -112,6 +142,13 @@ export function toGeminiSchema(schema: unknown): unknown {
     } else {
       result[key] = value;
     }
+  }
+
+  if (numericConstraintHints.length > 0) {
+    const hint = numericConstraintHints.join(", ")
+    result.description = typeof result.description === "string" && result.description
+      ? `${result.description} (${hint})`
+      : hint
   }
 
   // Issue #80: Ensure array schemas have an 'items' field
@@ -229,6 +266,7 @@ export function buildImageGenerationConfig(): ImageConfig {
  */
 export function normalizeGeminiTools(
   payload: RequestPayload,
+  schemaOptions: GeminiSchemaOptions = {},
 ): { toolDebugMissing: number; toolDebugSummaries: string[] } {
   let toolDebugMissing = 0;
   const toolDebugSummaries: string[] = [];
@@ -243,6 +281,22 @@ export function normalizeGeminiTools(
     // Skip normalization for Google Search tools (both old and new API)
     if (t.googleSearch || t.googleSearchRetrieval) {
       return t;
+    }
+
+    if (Array.isArray(t.functionDeclarations)) {
+      return {
+        ...t,
+        functionDeclarations: t.functionDeclarations.map((declaration) => {
+          const normalized = { ...(declaration as Record<string, unknown>) }
+          const rawSchema = normalized.parameters ?? normalized.parametersJsonSchema ?? {
+            type: "OBJECT",
+            properties: {},
+          }
+          normalized.parameters = toGeminiSchema(rawSchema, schemaOptions)
+          delete normalized.parametersJsonSchema
+          return normalized
+        }),
+      }
     }
 
     const newTool = { ...t };
@@ -276,7 +330,7 @@ export function normalizeGeminiTools(
       toolDebugMissing += 1;
     } else {
       // Transform existing schema to Gemini-compatible format
-      schema = toGeminiSchema(schema) as Record<string, unknown>;
+      schema = toGeminiSchema(schema, schemaOptions) as Record<string, unknown>;
     }
 
     const nameCandidate =
@@ -417,7 +471,9 @@ export function applyGeminiTransforms(
   }
 
   // 3. Normalize tools
-  const result = normalizeGeminiTools(payload);
+  const result = normalizeGeminiTools(payload, {
+    moveNumericConstraintsToDescription: model.toLowerCase().startsWith("gpt-oss-"),
+  });
 
   // 4. Wrap tools in functionDeclarations format (fixes #203, #206)
   // Antigravity strict protobuf validation rejects wrapper-level 'parameters' field

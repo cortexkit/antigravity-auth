@@ -8,7 +8,7 @@ Enable Opencode to authenticate against **Antigravity** (Google's IDE) via OAuth
 
 ## What You Get
 
-- **Claude Opus 4.6, Sonnet 4.6** and **Gemini 3.1 Pro/Flash** via Google OAuth
+- **Claude Opus 4.6, Sonnet 4.6, Gemini 3.5 Flash, Gemini 3.1 Pro/Image, and GPT-OSS 120B** via Google OAuth
 - **Multi-account support** — add multiple Google accounts, auto-rotates when rate-limited
 - **Dual quota system** — access both Antigravity and Gemini CLI quotas from one plugin
 - **Thinking models** — extended thinking for Claude and Gemini 3 with configurable budgets
@@ -104,15 +104,16 @@ opencode run "Hello" --model=google/antigravity-claude-opus-4-6-thinking --varia
 
 ### Model Reference
 
-**Antigravity quota** (default routing for Claude and Gemini):
+**Antigravity quota:**
 
 | Model | Variants | Notes |
 |-------|----------|-------|
-| `antigravity-gemini-3-pro` | low, high | Gemini 3 Pro with thinking |
-| `antigravity-gemini-3.1-pro` | low, high | Gemini 3.1 Pro with thinking (rollout-dependent) |
-| `antigravity-gemini-3-flash` | minimal, low, medium, high | Gemini 3 Flash with thinking |
-| `antigravity-claude-sonnet-4-6` | — | Claude Sonnet 4.6 |
-| `antigravity-claude-opus-4-6-thinking` | low, max | Claude Opus 4.6 with extended thinking |
+| `antigravity-gemini-3.5-flash` | low, high | Gemini 3.5 Flash with medium as the default |
+| `antigravity-gemini-3.1-pro` | low, high | Gemini 3.1 Pro with thinking |
+| `antigravity-gemini-3.1-flash-image` | — | Gemini 3.1 image generation |
+| `antigravity-claude-sonnet-4-6-thinking` | — | Claude Sonnet 4.6 with thinking |
+| `antigravity-claude-opus-4-6-thinking` | — | Claude Opus 4.6 with thinking |
+| `antigravity-gpt-oss-120b-medium` | — | GPT-OSS 120B medium reasoning |
 
 **Gemini CLI quota** (separate from Antigravity; used when `cli_first` is true or as fallback):
 

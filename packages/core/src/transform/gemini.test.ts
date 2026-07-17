@@ -1458,6 +1458,34 @@ describe("transform/gemini", () => {
       expect(props["x"]!.type).toBe("STRING");
     });
 
+    it("normalizes existing GPT-OSS function declarations and numeric constraints", () => {
+      const payload: RequestPayload = {
+        contents: [],
+        tools: [{
+          functionDeclarations: [{
+            name: "prompt_tool",
+            parametersJsonSchema: {
+              type: "object",
+              properties: {
+                prompt: { type: "string", minLength: "1" },
+              },
+              required: ["prompt"],
+            },
+          }],
+        }],
+      };
+
+      applyGeminiTransforms(payload, { model: "gpt-oss-120b-medium" });
+
+      const tools = payload.tools as Array<Record<string, unknown>>;
+      const declarations = tools[0]!.functionDeclarations as Array<Record<string, unknown>>;
+      const parameters = declarations[0]!.parameters as Record<string, unknown>;
+      const properties = parameters.properties as Record<string, Record<string, unknown>>;
+      expect(parameters.type).toBe("OBJECT");
+      expect(properties.prompt).toEqual({ type: "STRING", description: "minLength: 1" });
+      expect(declarations[0]).not.toHaveProperty("parametersJsonSchema");
+    });
+
     it("handles mixed tools and googleSearch", () => {
       const payload: RequestPayload = {
         contents: [],
