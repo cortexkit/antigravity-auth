@@ -1,6 +1,6 @@
 {
   "name": "@cortexkit/pi-antigravity-auth",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Google Antigravity OAuth extension for pi - access Gemini 3 and Claude 4.6 using Google credentials",
   "type": "module",
   "license": "MIT",
@@ -43,7 +43,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@cortexkit/antigravity-auth-core": "1.0.1"
+    "@cortexkit/antigravity-auth-core": "1.1.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
