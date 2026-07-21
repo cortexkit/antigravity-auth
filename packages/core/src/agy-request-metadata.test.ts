@@ -20,9 +20,9 @@ type ModelMetadataFixture = {
   }>
 }
 
-const MODEL_METADATA_FIXTURE = JSON.parse(
-  readFileSync(new URL("../../../test-fixtures/agy-cli-1.1.3-model-metadata.json", import.meta.url), "utf8"),
-) as ModelMetadataFixture
+const MODEL_METADATA_FIXTURES = ["1.1.3", "1.1.5"].map((version) => JSON.parse(
+  readFileSync(new URL(`../../../test-fixtures/agy-cli-${version}-model-metadata.json`, import.meta.url), "utf8"),
+) as ModelMetadataFixture)
 
 describe("agy request metadata", () => {
   it("matches the captured signed FNV-1a session ID for an empty workspace URI", () => {
@@ -54,7 +54,7 @@ describe("agy request metadata", () => {
     })
   })
 
-  it("orders request fields like captured agy 1.1.3 payloads", () => {
+  it("orders request fields like captured agy 1.1.5 payloads", () => {
     const payload: Record<string, unknown> = {
       generationConfig: {},
       sessionId: "session",
@@ -132,9 +132,11 @@ describe("agy request metadata", () => {
     })
   })
 
-  it("matches every captured agy 1.1.3 model enum fixture", () => {
-    for (const [model, expected] of Object.entries(MODEL_METADATA_FIXTURE.models)) {
-      expect(getAgyModelEnum(model), model).toBe(expected.modelEnum)
+  it("matches every captured agy model enum fixture", () => {
+    for (const fixture of MODEL_METADATA_FIXTURES) {
+      for (const [model, expected] of Object.entries(fixture.models)) {
+        expect(getAgyModelEnum(model), model).toBe(expected.modelEnum)
+      }
     }
   })
 

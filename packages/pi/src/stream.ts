@@ -20,6 +20,7 @@ import {
   type SimpleStreamOptions,
   type StopReason,
   type TextContent,
+  type ThinkingLevel,
   type ToolCall,
 } from "@earendil-works/pi-ai"
 
@@ -189,13 +190,33 @@ export function finalizePiAntigravityRequest(
   return metadata.requestId
 }
 
+export function resolvePiAntigravityModel(model: Model<Api>, reasoning?: ThinkingLevel) {
+  const lower = model.id.toLowerCase()
+  const supportsAgyTiers = model.reasoning && (
+    lower.includes("gemini-3")
+    || (lower.includes("claude") && lower.includes("thinking"))
+  )
+
+  if (!supportsAgyTiers || !reasoning) {
+    return resolveModelForHeaderStyle(model.id, "antigravity")
+  }
+
+  const tier = reasoning === "minimal"
+    ? "low"
+    : reasoning === "xhigh"
+      ? "high"
+      : reasoning
+  const baseModel = model.id.replace(/-(minimal|low|medium|high|xhigh)$/i, "")
+  return resolveModelForHeaderStyle(`${baseModel}-${tier}`, "antigravity")
+}
+
 async function sendAntigravityRequest(options: {
   model: Model<Api>
   context: Context
   streamOptions?: SimpleStreamOptions
   accessToken: string
 }): Promise<Response> {
-  const resolved = resolveModelForHeaderStyle(options.model.id, "antigravity")
+  const resolved = resolvePiAntigravityModel(options.model, options.streamOptions?.reasoning)
   const wireModel = resolved.actualModel
 
   // Recover the packed refresh (refreshToken|projectId|managedProjectId) that

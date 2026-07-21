@@ -16,8 +16,8 @@ import { SKIP_THOUGHT_SIGNATURE } from "../constants";
 import * as config from "./config";
 import type { SignatureStore, ThoughtBuffer, StreamingCallbacks, StreamingOptions } from "./core/streaming/types";
 
-const AGY_1_1_3_WIRE_FIXTURE = JSON.parse(
-  readFileSync(new URL("../../../../test-fixtures/agy-cli-1.1.3-stream-request.json", import.meta.url), "utf8"),
+const AGY_1_1_5_WIRE_FIXTURE = JSON.parse(
+  readFileSync(new URL("../../../../test-fixtures/agy-cli-1.1.5-stream-request.json", import.meta.url), "utf8"),
 ) as { envelopeKeys: string[]; requestKeys: string[] };
 
 const {
@@ -1085,8 +1085,8 @@ it("removes x-api-key header", () => {
 
       const body = result.init.body as string;
       const parsed = JSON.parse(body);
-      expect(Object.keys(parsed)).toEqual(AGY_1_1_3_WIRE_FIXTURE.envelopeKeys);
-      expect(Object.keys(parsed.request)).toEqual(AGY_1_1_3_WIRE_FIXTURE.requestKeys);
+      expect(Object.keys(parsed)).toEqual(AGY_1_1_5_WIRE_FIXTURE.envelopeKeys);
+      expect(Object.keys(parsed.request)).toEqual(AGY_1_1_5_WIRE_FIXTURE.requestKeys);
       expect(parsed.requestId).toMatch(/^agent\/.+\/2$/);
       expect(parsed.userAgent).toBe("antigravity");
       expect(parsed.requestType).toBe("agent");
@@ -1278,6 +1278,72 @@ it("removes x-api-key header", () => {
       expect(request.contents[1].parts[0].functionCall.args.cacheControl).toBe("tool-data");
       expect(request.toolConfig).toEqual({
         functionCallingConfig: { mode: "VALIDATED" },
+      });
+    });
+
+    it.each([
+      ["antigravity-gemini-3.6-flash", "gemini-3.6-flash-medium", 4000, "MODEL_PLACEHOLDER_M265"],
+      ["antigravity-gemini-3.6-flash-low", "gemini-3.6-flash-low", 1000, "MODEL_PLACEHOLDER_M266"],
+      ["antigravity-gemini-3.6-flash-medium", "gemini-3.6-flash-medium", 4000, "MODEL_PLACEHOLDER_M265"],
+      ["antigravity-gemini-3.6-flash-high", "gemini-3.6-flash-high", 10000, "MODEL_PLACEHOLDER_M264"],
+    ])("builds the captured AGY 1.1.5 request for %s", (requestedModel, wireModel, thinkingBudget, modelEnum) => {
+      const result = prepareAntigravityRequest(
+        `https://generativelanguage.googleapis.com/v1beta/models/${requestedModel}:generateContent`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: "Reply with AGY36_OK" }] }],
+            generationConfig: { maxOutputTokens: 1024 },
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "antigravity",
+      );
+
+      const wrapped = JSON.parse(result.init.body as string);
+      expect(result.effectiveModel).toBe(wireModel);
+      expect(wrapped.model).toBe(wireModel);
+      expect(wrapped.request.generationConfig).toMatchObject({
+        maxOutputTokens: 65536,
+        thinkingConfig: { includeThoughts: true, thinkingBudget },
+      });
+      expect(wrapped.request.generationConfig.thinkingConfig).not.toHaveProperty("thinkingLevel");
+      expect(wrapped.request.labels.model_enum).toBe(modelEnum);
+    });
+
+    it("preserves uppercase Gemini schemas for properties named thinking", () => {
+      const result = prepareAntigravityRequest(
+        "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.6-flash:generateContent",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: "Search" }] }],
+            tools: [{
+              functionDeclarations: [{
+                name: "google_search",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    query: { type: "string" },
+                    thinking: { type: "string" },
+                  },
+                  required: ["query"],
+                },
+              }],
+            }],
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "antigravity",
+      );
+
+      const wrapped = JSON.parse(result.init.body as string);
+      expect(wrapped.request.tools[0].functionDeclarations[0].parameters.properties.thinking).toEqual({
+        type: "STRING",
       });
     });
 

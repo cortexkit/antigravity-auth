@@ -13,11 +13,11 @@ describe("Antigravity fingerprint", () => {
 
     expect(buildAntigravityHarnessPlatformArch("darwin", "arm64")).toBe("darwin/arm64")
     expect(buildAntigravityHarnessPlatformArch("win32", "x64")).toBe("windows/amd64")
-    expect(buildAntigravityHarnessUserAgent("1.1.3", "darwin", "arm64")).toBe(
-      "antigravity/cli/1.1.3 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
+    expect(buildAntigravityHarnessUserAgent("1.1.5", "darwin", "arm64")).toBe(
+      "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
     )
-    expect(buildAntigravityHarnessUserAgent("1.1.3", "win32", "x64")).toBe(
-      "antigravity/cli/1.1.3 (aidev_client; os_type=windows; arch=amd64; auth_method=consumer)",
+    expect(buildAntigravityHarnessUserAgent("1.1.5", "win32", "x64")).toBe(
+      "antigravity/cli/1.1.5 (aidev_client; os_type=windows; arch=amd64; auth_method=consumer)",
     )
   })
 
@@ -28,7 +28,7 @@ describe("Antigravity fingerprint", () => {
 
     expect(headers).toEqual({
       "User-Agent": expect.stringMatching(
-        /^antigravity\/cli\/1\.1\.3 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
+        /^antigravity\/cli\/1\.1\.5 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
       ),
       Authorization: "Bearer token",
       "Content-Type": "application/json",

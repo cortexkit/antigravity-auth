@@ -79,7 +79,7 @@ describe("getRandomizedHeaders", () => {
     it("returns only the captured agy CLI User-Agent", () => {
       const headers = getRandomizedHeaders("antigravity")
       expect(headers["User-Agent"]).toMatch(
-        /^antigravity\/cli\/1\.1\.3 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
+        /^antigravity\/cli\/1\.1\.5 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
       )
       expect(headers["X-Goog-Api-Client"]).toBeUndefined()
       expect(headers["Client-Metadata"]).toBeUndefined()

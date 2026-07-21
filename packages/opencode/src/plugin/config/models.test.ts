@@ -20,6 +20,7 @@ describe("OPENCODE_MODEL_DEFINITIONS", () => {
       "antigravity-gemini-3.1-flash-image",
       "antigravity-gemini-3.1-pro",
       "antigravity-gemini-3.5-flash",
+      "antigravity-gemini-3.6-flash",
       "antigravity-gpt-oss-120b-medium",
     ]);
   });
@@ -31,6 +32,11 @@ describe("OPENCODE_MODEL_DEFINITIONS", () => {
     });
 
     expect(getModel("antigravity-gemini-3.5-flash").variants).toEqual({
+      low: { thinkingLevel: "low" },
+      high: { thinkingLevel: "high" },
+    });
+
+    expect(getModel("antigravity-gemini-3.6-flash").variants).toEqual({
       low: { thinkingLevel: "low" },
       high: { thinkingLevel: "high" },
     });

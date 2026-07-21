@@ -4,11 +4,11 @@
 [![npm downloads](https://img.shields.io/npm/dw/@cortexkit/opencode-antigravity-auth.svg)](https://www.npmjs.com/package/@cortexkit/opencode-antigravity-auth)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Enable Opencode to authenticate against **Antigravity** (Google's IDE) via OAuth so you can use Antigravity rate limits and access models like `gemini-3.1-pro` and `claude-opus-4-6-thinking` with your Google credentials.
+Enable Opencode to authenticate against **Antigravity** (Google's IDE) via OAuth so you can use Antigravity rate limits and access models like `gemini-3.6-flash` and `claude-opus-4-6-thinking` with your Google credentials.
 
 ## What You Get
 
-- **Claude Opus 4.6, Sonnet 4.6, Gemini 3.5 Flash, Gemini 3.1 Pro/Image, and GPT-OSS 120B** via Google OAuth
+- **Claude Opus 4.6, Sonnet 4.6, Gemini 3.6/3.5 Flash, Gemini 3.1 Pro/Image, and GPT-OSS 120B** via Google OAuth
 - **Multi-account support** — add multiple Google accounts, auto-rotates when rate-limited
 - **Dual quota system** — access both Antigravity and Gemini CLI quotas from one plugin
 - **Thinking models** — extended thinking for Claude and Gemini 3 with configurable budgets
@@ -108,12 +108,18 @@ opencode run "Hello" --model=google/antigravity-claude-opus-4-6-thinking --varia
 
 | Model | Variants | Notes |
 |-------|----------|-------|
+| `antigravity-gemini-3.6-flash` | low, high | Gemini 3.6 Flash with medium as the default |
 | `antigravity-gemini-3.5-flash` | low, high | Gemini 3.5 Flash with medium as the default |
 | `antigravity-gemini-3.1-pro` | low, high | Gemini 3.1 Pro with thinking |
 | `antigravity-gemini-3.1-flash-image` | — | Gemini 3.1 image generation |
 | `antigravity-claude-sonnet-4-6-thinking` | — | Claude Sonnet 4.6 with thinking |
 | `antigravity-claude-opus-4-6-thinking` | — | Claude Opus 4.6 with thinking |
 | `antigravity-gpt-oss-120b-medium` | — | GPT-OSS 120B medium reasoning |
+
+> Gemini 3.5 Flash-Lite is available through the Gemini API but is not present in
+> the AGY 1.1.5 Antigravity or Gemini CLI quota catalogs. Gemini 3.5 Flash Cyber
+> is restricted to a limited-access CodeMender pilot. Neither model is advertised
+> by this plugin.
 
 **Gemini CLI quota** (separate from Antigravity; used when `cli_first` is true or as fallback):
 
@@ -155,6 +161,15 @@ Add this to your `~/.config/opencode/opencode.json`:
         "antigravity-gemini-3-pro": {
           "name": "Gemini 3 Pro (Antigravity)",
           "limit": { "context": 1048576, "output": 65535 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "variants": {
+            "low": { "thinkingLevel": "low" },
+            "high": { "thinkingLevel": "high" }
+          }
+        },
+        "antigravity-gemini-3.6-flash": {
+          "name": "Gemini 3.6 Flash (Antigravity)",
+          "limit": { "context": 1048576, "output": 65536 },
           "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
           "variants": {
             "low": { "thinkingLevel": "low" },

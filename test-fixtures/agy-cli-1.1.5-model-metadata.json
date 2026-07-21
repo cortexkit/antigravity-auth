@@ -1,0 +1,24 @@
+{
+  "capture": {
+    "client": "agy",
+    "version": "1.1.5",
+    "capturedAt": "2026-07-21"
+  },
+  "models": {
+    "gemini-3.6-flash-low": {
+      "modelEnum": "MODEL_PLACEHOLDER_M266",
+      "thinkingBudget": 1000,
+      "maxOutputTokens": 65536
+    },
+    "gemini-3.6-flash-medium": {
+      "modelEnum": "MODEL_PLACEHOLDER_M265",
+      "thinkingBudget": 4000,
+      "maxOutputTokens": 65536
+    },
+    "gemini-3.6-flash-high": {
+      "modelEnum": "MODEL_PLACEHOLDER_M264",
+      "thinkingBudget": 10000,
+      "maxOutputTokens": 65536
+    }
+  }
+}

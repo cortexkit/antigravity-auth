@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   getGemini35FlashAntigravityModel,
   getGemini35FlashGeminiCliFallbackModel,
+  getGemini36FlashAntigravityModel,
   getPublicModelDefinitions,
   getResolverAliasMap,
 } from "./model-registry.ts"
@@ -31,6 +32,7 @@ describe("model registry", () => {
       "antigravity-gemini-3.1-flash-image",
       "antigravity-gemini-3.1-pro",
       "antigravity-gemini-3.5-flash",
+      "antigravity-gemini-3.6-flash",
       "antigravity-gpt-oss-120b-medium",
     ])
 
@@ -49,10 +51,18 @@ describe("model registry", () => {
     expect(getGemini35FlashGeminiCliFallbackModel()).toBe("gemini-3-flash-preview")
   })
 
+  it("preserves live Gemini 3.6 Flash route mappings", () => {
+    expect(getGemini36FlashAntigravityModel()).toBe("gemini-3.6-flash-medium")
+    expect(getGemini36FlashAntigravityModel("high")).toBe("gemini-3.6-flash-high")
+    expect(getGemini36FlashAntigravityModel("medium")).toBe("gemini-3.6-flash-medium")
+    expect(getGemini36FlashAntigravityModel("low")).toBe("gemini-3.6-flash-low")
+  })
+
   it("keeps resolver aliases for supported agy CLI variants", () => {
     const aliases = getResolverAliasMap()
 
     expect(aliases["gemini-3.5-flash-medium"]).toBe("gemini-3.5-flash")
+    expect(aliases["gemini-3.6-flash-medium"]).toBe("gemini-3.6-flash")
     expect(aliases["gemini-claude-opus-4-6-thinking-medium"]).toBe("claude-opus-4-6-thinking")
     expect(aliases["gemini-claude-sonnet-4-6-thinking-high"]).toBe("claude-sonnet-4-6")
     expect(aliases["gpt-oss-120b"]).toBe("gpt-oss-120b-medium")

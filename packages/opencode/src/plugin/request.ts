@@ -174,7 +174,14 @@ export function getImageModelLocalTitle(
 
 function getAgyMaxOutputTokens(model: string): number | undefined {
   const lower = model.toLowerCase();
-  if (lower === "gemini-3.5-flash-low" || lower === "gemini-3.5-flash-extra-low" || lower === "gemini-3-flash-agent") {
+  if (
+    lower === "gemini-3.5-flash-low"
+    || lower === "gemini-3.5-flash-extra-low"
+    || lower === "gemini-3-flash-agent"
+    || lower === "gemini-3.6-flash-low"
+    || lower === "gemini-3.6-flash-medium"
+    || lower === "gemini-3.6-flash-high"
+  ) {
     return 65536;
   }
   if (lower === "gemini-3.1-pro-low" || lower === "gemini-pro-agent") {
@@ -247,9 +254,9 @@ const JSON_SCHEMA_TYPES = new Set(["boolean", "string", "number", "integer", "ar
 
 function thinkingSafeReplacer(key: string, value: unknown): unknown {
   if (key === "thinking" && typeof value === "object" && value !== null) {
-    // Preserve Schema objects in tool declarations (e.g., {type: "boolean"})
+    // Preserve tool schemas before and after Gemini uppercases their type.
     const rec = value as Record<string, unknown>
-    if (typeof rec.type === "string" && JSON_SCHEMA_TYPES.has(rec.type)) {
+    if (typeof rec.type === "string" && JSON_SCHEMA_TYPES.has(rec.type.toLowerCase())) {
       return value
     }
     // Flatten any non-string, non-Schema thinking to empty string

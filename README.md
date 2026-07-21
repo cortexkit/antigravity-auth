@@ -1,7 +1,7 @@
 # Antigravity Auth
 
 Google Antigravity OAuth for coding agents. Authenticate with your Google
-account and access **Gemini 3**, **Claude 4.6**, and **GPT-OSS 120B** models through
+account and access **Gemini 3.6**, **Claude 4.6**, and **GPT-OSS 120B** models through
 Antigravity's endpoints.
 
 This is a monorepo publishing three packages:
