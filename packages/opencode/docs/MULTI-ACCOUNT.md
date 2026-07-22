@@ -57,13 +57,9 @@ This shows remaining quota percentages and reset times for each model family:
 
 ### Standalone Quota Script
 
-For checking quotas outside of OpenCode (for debugging, CI, etc.):
-
-```bash
-node scripts/check-quota.mjs                    # Check all accounts
-node scripts/check-quota.mjs --account 2        # Check specific account
-node scripts/check-quota.mjs --path /path/to/accounts.json  # Custom path
-```
+For checking quotas outside of OpenCode (for debugging, CI, etc.), use the
+in-app **Check quotas** menu shown above. There is no longer a standalone
+script shipped with the plugin.
 
 ---
 

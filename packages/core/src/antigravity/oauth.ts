@@ -10,6 +10,7 @@ import {
   ANTIGRAVITY_SCOPES,
   GEMINI_CLI_HEADERS,
 } from '../constants.ts'
+import { fetchWithActiveTimeout } from '../fetch-timeout.ts'
 import {
   buildAntigravityHarnessBootstrapHeaders,
   buildAntigravityLoadCodeAssistMetadata,
@@ -70,16 +71,19 @@ export async function refreshAntigravityToken(
   refreshToken: string,
 ): Promise<AntigravityRefreshResult> {
   const startTime = Date.now()
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-      client_id: ANTIGRAVITY_CLIENT_ID,
-      client_secret: ANTIGRAVITY_CLIENT_SECRET,
-    }),
-  })
+  const response = await fetchWithActiveTimeout(
+    'https://oauth2.googleapis.com/token',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: ANTIGRAVITY_CLIENT_ID,
+        client_secret: ANTIGRAVITY_CLIENT_SECRET,
+      }),
+    },
+  )
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')
@@ -247,23 +251,26 @@ export async function exchangeAntigravity(
     const { verifier, projectId } = decodeState(state)
 
     const startTime = Date.now()
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        Accept: '*/*',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'User-Agent': GEMINI_CLI_HEADERS['User-Agent'],
+    const tokenResponse = await fetchWithActiveTimeout(
+      'https://oauth2.googleapis.com/token',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+          Accept: '*/*',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'User-Agent': GEMINI_CLI_HEADERS['User-Agent'],
+        },
+        body: new URLSearchParams({
+          client_id: ANTIGRAVITY_CLIENT_ID,
+          client_secret: ANTIGRAVITY_CLIENT_SECRET,
+          code,
+          grant_type: 'authorization_code',
+          redirect_uri: ANTIGRAVITY_REDIRECT_URI,
+          code_verifier: verifier,
+        }),
       },
-      body: new URLSearchParams({
-        client_id: ANTIGRAVITY_CLIENT_ID,
-        client_secret: ANTIGRAVITY_CLIENT_SECRET,
-        code,
-        grant_type: 'authorization_code',
-        redirect_uri: ANTIGRAVITY_REDIRECT_URI,
-        code_verifier: verifier,
-      }),
-    })
+    )
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text()
@@ -273,7 +280,7 @@ export async function exchangeAntigravity(
     const tokenPayload =
       (await tokenResponse.json()) as AntigravityTokenResponse
 
-    const userInfoResponse = await fetch(
+    const userInfoResponse = await fetchWithActiveTimeout(
       'https://www.googleapis.com/oauth2/v1/userinfo?alt=json',
       {
         headers: {

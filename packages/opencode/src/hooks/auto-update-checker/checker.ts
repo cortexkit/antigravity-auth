@@ -1,6 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { fetchWithActiveTimeout } from '@cortexkit/antigravity-auth-core'
 import {
   INSTALLED_PACKAGE_JSON,
   NPM_FETCH_TIMEOUT,
@@ -232,14 +233,12 @@ export function updatePinnedVersion(
 }
 
 export async function getLatestVersion(): Promise<string | null> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), NPM_FETCH_TIMEOUT)
-
   try {
-    const response = await fetch(NPM_REGISTRY_URL, {
-      signal: controller.signal,
-      headers: { Accept: 'application/json' },
-    })
+    const response = await fetchWithActiveTimeout(
+      NPM_REGISTRY_URL,
+      { headers: { Accept: 'application/json' } },
+      { timeoutMs: NPM_FETCH_TIMEOUT },
+    )
 
     if (!response.ok) return null
 
@@ -247,8 +246,6 @@ export async function getLatestVersion(): Promise<string | null> {
     return data.latest ?? null
   } catch {
     return null
-  } finally {
-    clearTimeout(timeoutId)
   }
 }
 

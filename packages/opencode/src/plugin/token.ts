@@ -1,3 +1,4 @@
+import { fetchWithActiveTimeout } from '@cortexkit/antigravity-auth-core'
 import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET } from '../constants'
 import {
   calculateTokenExpiry,
@@ -105,18 +106,21 @@ export async function refreshAccessToken(
 
   try {
     const startTime = Date.now()
-    const response = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+    const response = await fetchWithActiveTimeout(
+      'https://oauth2.googleapis.com/token',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: parts.refreshToken,
+          client_id: ANTIGRAVITY_CLIENT_ID,
+          client_secret: ANTIGRAVITY_CLIENT_SECRET,
+        }),
       },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: parts.refreshToken,
-        client_id: ANTIGRAVITY_CLIENT_ID,
-        client_secret: ANTIGRAVITY_CLIENT_SECRET,
-      }),
-    })
+    )
 
     if (!response.ok) {
       let errorText: string | undefined

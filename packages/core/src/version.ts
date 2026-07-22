@@ -13,6 +13,7 @@
  */
 
 import { getAntigravityVersion, setAntigravityVersion } from './constants.ts'
+import { fetchWithActiveTimeout } from './fetch-timeout.ts'
 import { createLogger } from './logger.ts'
 
 const VERSION_URL =
@@ -40,18 +41,16 @@ async function tryFetchVersion(
   url: string,
   maxChars?: number,
 ): Promise<string | null> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   try {
-    const response = await fetch(url, { signal: controller.signal })
+    const response = await fetchWithActiveTimeout(url, undefined, {
+      timeoutMs: FETCH_TIMEOUT_MS,
+    })
     if (!response.ok) return null
     let text = await response.text()
     if (maxChars) text = text.slice(0, maxChars)
     return parseVersion(text)
   } catch {
     return null
-  } finally {
-    clearTimeout(timeout)
   }
 }
 

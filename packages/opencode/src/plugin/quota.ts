@@ -1,3 +1,4 @@
+import { fetchWithActiveTimeout } from '@cortexkit/antigravity-auth-core'
 import {
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
   ANTIGRAVITY_PROVIDER_ID,
@@ -220,13 +221,7 @@ async function fetchWithTimeout(
   options: RequestInit,
   timeoutMs = FETCH_TIMEOUT_MS,
 ): Promise<Response> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    return await fetch(url, { ...options, signal: controller.signal })
-  } finally {
-    clearTimeout(timeout)
-  }
+  return fetchWithActiveTimeout(url, options, { timeoutMs })
 }
 
 async function fetchAvailableModels(
