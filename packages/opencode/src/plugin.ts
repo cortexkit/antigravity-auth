@@ -1,7 +1,6 @@
 import { exec } from 'node:child_process'
 import crypto from 'node:crypto'
-import { tool } from '@opencode-ai/plugin'
-import type { AccountMetadataV3 } from './plugin/storage'
+
 import type { AntigravityTokenExchangeResult } from './antigravity/oauth'
 import { authorizeAntigravity, exchangeAntigravity } from './antigravity/oauth'
 import {
@@ -44,11 +43,16 @@ import {
   initDiskSignatureCache,
   shutdownDiskSignatureCache,
 } from './plugin/cache'
+import { applyAntigravityProviderCatalog } from './plugin/catalog'
 import {
   promptAddAnotherAccount,
   promptLoginMode,
   promptProjectId,
 } from './plugin/cli'
+import {
+  createCommandExecuteBefore,
+  registerAntigravityCommands,
+} from './plugin/commands'
 import {
   type AntigravityConfig,
   initRuntimeConfig,
@@ -67,28 +71,28 @@ import {
   startAntigravityDebugRequest,
 } from './plugin/debug'
 import {
+  extractModelFromUrl,
+  getModelFamilyFromUrl,
+  isCapacityRetryBudgetExhausted,
+  MAX_TOTAL_CAPACITY_RETRIES,
+  resolveHeaderRoutingDecision,
+  resolveQuotaFallbackHeaderStyle,
+  toUrlString,
+  toWarmupStreamUrl,
+} from './plugin/fetch-routing'
+import {
   buildFingerprintHeaders,
   getSessionFingerprint,
 } from './plugin/fingerprint'
-import {
-  dumpGeminiRequest,
-  executeGeminiDumpCommand,
-  GEMINI_DUMP_COMMAND_NAME,
-  noteGeminiDumpResponse,
-  parseGeminiDumpCommandAction,
-  setGeminiDumpEnabled,
-} from './plugin/gemini-dump'
+import { dumpGeminiRequest, noteGeminiDumpResponse } from './plugin/gemini-dump'
+import { createGoogleSearchTool } from './plugin/google-search-tool'
 import { createPluginLifecycle } from './plugin/lifecycle'
 import { createLogger, initLogger } from './plugin/logger'
-import {
-  getAntigravityOpencodeModelIds,
-  OPENCODE_MODEL_DEFINITIONS,
-} from './plugin/model-registry'
+import { persistAccountPool } from './plugin/persist-account-pool'
 import {
   clearProvisionFailedKeys,
   ensureProjectContext,
 } from './plugin/project'
-import { resolvePromptContext } from './plugin/prompt-context'
 import { createOpenCodeQuotaManager, type QuotaManager } from './plugin/quota'
 import {
   createSessionRecoveryHook,
@@ -117,13 +121,12 @@ import {
   initHealthTracker,
   initTokenTracker,
 } from './plugin/rotation'
-import { executeSearch } from './plugin/search'
 import { type OAuthListener, startOAuthListener } from './plugin/server'
 import {
   AgySessionRegistry,
   extractOpenCodeSessionIdentity,
 } from './plugin/session-context'
-import { persistAccountPool } from './plugin/persist-account-pool'
+import type { AccountMetadataV3 } from './plugin/storage'
 import {
   clearAccounts,
   getStoragePath,
@@ -136,7 +139,6 @@ import {
   AntigravityTokenRefreshError,
   refreshAccessToken,
 } from './plugin/token'
-import { resolveModelWithTier } from './plugin/transform/model-resolver'
 import type {
   GetAuth,
   LoaderResult,
@@ -159,20 +161,6 @@ import {
 const MAX_OAUTH_ACCOUNTS = 10
 const MAX_WARMUP_SESSIONS = 1000
 const MAX_WARMUP_RETRIES = 2
-const MAX_TOTAL_CAPACITY_RETRIES = 4
-const CAPACITY_BACKOFF_TIERS_MS = [5000, 10000, 20000, 30000, 60000]
-
-function isCapacityRetryBudgetExhausted(totalCapacityRetries: number): boolean {
-  return totalCapacityRetries >= MAX_TOTAL_CAPACITY_RETRIES
-}
-
-function getCapacityBackoffDelay(consecutiveFailures: number): number {
-  const index = Math.min(
-    consecutiveFailures,
-    CAPACITY_BACKOFF_TIERS_MS.length - 1,
-  )
-  return CAPACITY_BACKOFF_TIERS_MS[Math.max(0, index)] ?? 5000
-}
 const warmupAttemptedSessionIds = new Set<string>()
 const warmupSucceededSessionIds = new Set<string>()
 
@@ -430,7 +418,7 @@ function selectBestVerificationUrl(urls: string[]): string | undefined {
   return unique[0]
 }
 
-function extractAccountAccessErrorDetails(bodyText: string): {
+export function extractAccountAccessErrorDetails(bodyText: string): {
   validationRequired: boolean
   accountIneligible: boolean
   message?: string
@@ -567,7 +555,7 @@ function extractAccountAccessErrorDetails(bodyText: string): {
   }
 }
 
-function buildAccountAccessProbeRequest(
+export function buildAccountAccessProbeRequest(
   projectId: string,
 ): Record<string, unknown> {
   const wireModel = 'gemini-3.5-flash-low'
@@ -594,7 +582,7 @@ function buildAccountAccessProbeRequest(
   }
 }
 
-async function interpretAccountAccessProbeResponse(
+export async function interpretAccountAccessProbeResponse(
   response: Response,
 ): Promise<VerificationProbeResult> {
   if (response.ok) {
@@ -1403,50 +1391,6 @@ function resetAccountFailureState(accountIndex: number): void {
 /**
  * Sleep for a given number of milliseconds, respecting an abort signal.
  */
-const HANDLED_COMMAND_SENTINEL = 'ANTIGRAVITY_COMMAND_HANDLED'
-
-async function sendIgnoredMessage(
-  client: PluginClient,
-  sessionID: string,
-  text: string,
-): Promise<void> {
-  const session = client.session as
-    | {
-        promptAsync?: (input: unknown) => Promise<unknown>
-        prompt?: (input: unknown) => Promise<unknown> | unknown
-      }
-    | undefined
-  const promptContext = await resolvePromptContext(client, sessionID)
-  const request = {
-    path: { id: sessionID },
-    body: {
-      noReply: true,
-      parts: [{ type: 'text', text, ignored: true }],
-      ...(promptContext?.agent ? { agent: promptContext.agent } : {}),
-      ...(promptContext?.model ? { model: promptContext.model } : {}),
-      ...(promptContext?.variant ? { variant: promptContext.variant } : {}),
-    },
-  }
-
-  if (typeof session?.promptAsync === 'function') {
-    await session.promptAsync(request)
-    return
-  }
-
-  if (typeof session?.prompt === 'function') {
-    await Promise.resolve(session.prompt(request))
-    return
-  }
-
-  throw new Error(
-    'OpenCode session prompt API is unavailable for ignored replies.',
-  )
-}
-
-function throwHandledCommandSentinel(): never {
-  throw new Error(HANDLED_COMMAND_SENTINEL)
-}
-
 function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -1672,107 +1616,19 @@ export const createAntigravityPlugin =
       }
     }
 
-    // Create google_search tool with access to auth context
-    const googleSearchTool = tool({
-      description:
-        "Search the web using Google Search and analyze URLs. Returns real-time information from the internet with source citations. Use this when you need up-to-date information about current events, recent developments, or any topic that may have changed. You can also provide specific URLs to analyze. IMPORTANT: If the user mentions or provides any URLs in their query, you MUST extract those URLs and pass them in the 'urls' parameter for direct analysis.",
-      args: {
-        query: tool.schema
-          .string()
-          .describe('The search query or question to answer using web search'),
-        urls: tool.schema
-          .array(tool.schema.string())
-          .optional()
-          .describe(
-            'List of specific URLs to fetch and analyze. IMPORTANT: Always extract and include any URLs mentioned by the user in their query here.',
-          ),
-        thinking: tool.schema
-          .boolean()
-          .optional()
-          .default(true)
-          .describe(
-            'Enable deep thinking for more thorough analysis (default: true)',
-          ),
-      },
-      async execute(args, ctx) {
-        log.debug('Google Search tool called', {
-          query: args.query,
-          urlCount: args.urls?.length ?? 0,
-        })
-
-        // Get current auth context
-        const auth = cachedGetAuth ? await cachedGetAuth() : null
-        if (!auth || !isOAuthAuth(auth)) {
-          return 'Error: Not authenticated with Antigravity. Please run `opencode auth login` to authenticate.'
-        }
-
-        // Get access token and project ID
-        const parts = parseRefreshParts(auth.refresh)
-        const projectId = parts.managedProjectId || parts.projectId || 'unknown'
-
-        // Ensure we have a valid access token
-        let accessToken = auth.access
-        if (!accessToken || accessTokenExpired(auth)) {
-          try {
-            const refreshed = await refreshAccessToken(auth, client, providerId)
-            accessToken = refreshed?.access
-          } catch (error) {
-            return `Error: Failed to refresh access token: ${error instanceof Error ? error.message : String(error)}`
-          }
-        }
-
-        if (!accessToken) {
-          return 'Error: No valid access token available. Please run `opencode auth login` to re-authenticate.'
-        }
-
-        return executeSearch(
-          {
-            query: args.query,
-            urls: args.urls,
-            thinking: args.thinking,
-          },
-          accessToken,
-          projectId,
-          ctx.abort,
-        )
-      },
+    const googleSearchTool = createGoogleSearchTool({
+      getAuth: async () => (cachedGetAuth ? cachedGetAuth() : null),
+      client,
+      providerId,
     })
 
     return {
       dispose: () => lifecycle.dispose(),
       config: async (opencodeConfig: Record<string, unknown>) => {
         applyAntigravityProviderCatalog(opencodeConfig, providerId)
-        const mutableConfig = opencodeConfig as Record<string, unknown> & {
-          command?: Record<string, unknown>
-        }
-        mutableConfig.command = {
-          ...(mutableConfig.command ?? {}),
-          [GEMINI_DUMP_COMMAND_NAME]: {
-            template: GEMINI_DUMP_COMMAND_NAME,
-            description:
-              'Show or toggle Gemini/Antigravity wire dump capture for debugging.',
-          },
-        }
+        registerAntigravityCommands(opencodeConfig)
       },
-      'command.execute.before': async (input: {
-        command: string
-        arguments: string
-        sessionID: string
-      }) => {
-        if (input.command !== GEMINI_DUMP_COMMAND_NAME) return
-
-        const action = parseGeminiDumpCommandAction(input.arguments)
-        if (action.type === 'enable' || action.type === 'disable') {
-          setGeminiDumpEnabled(action.type === 'enable')
-        }
-
-        await sendIgnoredMessage(
-          client,
-          input.sessionID,
-          executeGeminiDumpCommand({ argumentsText: input.arguments }),
-        )
-        throwHandledCommandSentinel()
-      },
+      'command.execute.before': createCommandExecuteBefore(client),
       event: eventHandler,
       tool: {
         google_search: googleSearchTool,
@@ -5054,164 +4910,3 @@ export const AntigravityCLIOAuthPlugin = createAntigravityPlugin(
   ANTIGRAVITY_PROVIDER_ID,
 )
 export const GoogleOAuthPlugin = AntigravityCLIOAuthPlugin
-
-function toUrlString(value: RequestInfo): string {
-  if (typeof value === 'string') {
-    return value
-  }
-  const candidate = (value as Request).url
-  if (candidate) {
-    return candidate
-  }
-  return value.toString()
-}
-
-function toWarmupStreamUrl(value: RequestInfo): string {
-  const urlString = toUrlString(value)
-  try {
-    const url = new URL(urlString)
-    if (!url.pathname.includes(':streamGenerateContent')) {
-      url.pathname = url.pathname.replace(
-        ':generateContent',
-        ':streamGenerateContent',
-      )
-    }
-    url.searchParams.set('alt', 'sse')
-    return url.toString()
-  } catch {
-    return urlString
-  }
-}
-
-function extractModelFromUrl(urlString: string): string | null {
-  const match = urlString.match(/\/models\/([^:/?]+)(?::\w+)?/)
-  return match?.[1] ?? null
-}
-
-function extractModelFromUrlWithSuffix(urlString: string): string | null {
-  const match = urlString.match(/\/models\/([^:/?]+)/)
-  return match?.[1] ?? null
-}
-
-function getModelFamilyFromUrl(urlString: string): ModelFamily {
-  const model = extractModelFromUrl(urlString)
-  let family: ModelFamily = 'gemini'
-  if (model && model.includes('claude')) {
-    family = 'claude'
-  }
-  if (isDebugEnabled()) {
-    logModelFamily(urlString, model, family)
-  }
-  return family
-}
-
-function resolveQuotaFallbackHeaderStyle(input: {
-  family: ModelFamily
-  headerStyle: HeaderStyle
-  alternateStyle: HeaderStyle | null
-}): HeaderStyle | null {
-  if (input.family !== 'gemini') {
-    return null
-  }
-  if (!input.alternateStyle || input.alternateStyle === input.headerStyle) {
-    return null
-  }
-  return input.alternateStyle
-}
-
-type HeaderRoutingDecision = {
-  cliFirst: boolean
-  preferredHeaderStyle: HeaderStyle
-  explicitQuota: boolean
-  allowQuotaFallback: boolean
-}
-
-function resolveHeaderRoutingDecision(
-  urlString: string,
-  family: ModelFamily,
-  config: AntigravityConfig,
-): HeaderRoutingDecision {
-  const cliFirst = getCliFirst(config)
-  const preferredHeaderStyle = getHeaderStyleFromUrl(
-    urlString,
-    family,
-    cliFirst,
-  )
-  const explicitQuota = isExplicitQuotaFromUrl(urlString)
-  return {
-    cliFirst,
-    preferredHeaderStyle,
-    explicitQuota,
-    allowQuotaFallback:
-      family === 'gemini' && !!(config.quota_style_fallback ?? false),
-  }
-}
-
-type OpencodeMutableConfig = Record<string, unknown> & {
-  provider?: Record<
-    string,
-    Record<string, unknown> & {
-      models?: Record<string, unknown>
-      whitelist?: string[]
-    }
-  >
-}
-
-function applyAntigravityProviderCatalog(
-  config: Record<string, unknown>,
-  providerId: string,
-): void {
-  const mutableConfig = config as OpencodeMutableConfig
-  mutableConfig.provider ??= {}
-
-  const providerConfig = mutableConfig.provider[providerId] ?? {}
-  providerConfig.models = {
-    ...(providerConfig.models ?? {}),
-    ...OPENCODE_MODEL_DEFINITIONS,
-  }
-  providerConfig.whitelist = getAntigravityOpencodeModelIds()
-  mutableConfig.provider[providerId] = providerConfig
-}
-
-function getCliFirst(config: AntigravityConfig): boolean {
-  return (
-    (config as AntigravityConfig & { cli_first?: boolean }).cli_first ?? false
-  )
-}
-
-function getHeaderStyleFromUrl(
-  urlString: string,
-  family: ModelFamily,
-  cliFirst: boolean = false,
-): HeaderStyle {
-  if (family === 'claude') {
-    return 'antigravity'
-  }
-  const modelWithSuffix = extractModelFromUrlWithSuffix(urlString)
-  if (!modelWithSuffix) {
-    return cliFirst ? 'gemini-cli' : 'antigravity'
-  }
-  const { quotaPreference } = resolveModelWithTier(modelWithSuffix, {
-    cli_first: cliFirst,
-  })
-  return quotaPreference ?? 'antigravity'
-}
-
-function isExplicitQuotaFromUrl(urlString: string): boolean {
-  const modelWithSuffix = extractModelFromUrlWithSuffix(urlString)
-  if (!modelWithSuffix) {
-    return false
-  }
-  const { explicitQuota } = resolveModelWithTier(modelWithSuffix)
-  return explicitQuota ?? false
-}
-
-export const __testExports = {
-  buildAccountAccessProbeRequest,
-  extractAccountAccessErrorDetails,
-  interpretAccountAccessProbeResponse,
-  getHeaderStyleFromUrl,
-  isCapacityRetryBudgetExhausted,
-  resolveHeaderRoutingDecision,
-  resolveQuotaFallbackHeaderStyle,
-}

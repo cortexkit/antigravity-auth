@@ -1,63 +1,11 @@
-import { beforeAll, describe, expect, it, mock } from 'bun:test'
-import type { HeaderStyle, ModelFamily } from './accounts'
+import { describe, expect, it } from 'bun:test'
 
-type ResolveQuotaFallbackHeaderStyle = (input: {
-  family: ModelFamily
-  headerStyle: HeaderStyle
-  alternateStyle: HeaderStyle | null
-}) => HeaderStyle | null
-
-type GetHeaderStyleFromUrl = (
-  urlString: string,
-  family: ModelFamily,
-  cliFirst?: boolean,
-) => HeaderStyle
-
-type ResolveHeaderRoutingDecision = (
-  urlString: string,
-  family: ModelFamily,
-  config: unknown,
-) => {
-  cliFirst: boolean
-  preferredHeaderStyle: HeaderStyle
-  explicitQuota: boolean
-  allowQuotaFallback: boolean
-}
-
-let resolveQuotaFallbackHeaderStyle: ResolveQuotaFallbackHeaderStyle | undefined
-let getHeaderStyleFromUrl: GetHeaderStyleFromUrl | undefined
-let resolveHeaderRoutingDecision: ResolveHeaderRoutingDecision | undefined
-let isCapacityRetryBudgetExhausted:
-  | ((totalCapacityRetries: number) => boolean)
-  | undefined
-
-beforeAll(async () => {
-  mock.module('@opencode-ai/plugin', () => ({
-    tool: mock(),
-  }))
-
-  const { __testExports } = await import('../plugin')
-  resolveQuotaFallbackHeaderStyle = (
-    __testExports as {
-      resolveQuotaFallbackHeaderStyle?: ResolveQuotaFallbackHeaderStyle
-    }
-  ).resolveQuotaFallbackHeaderStyle
-  getHeaderStyleFromUrl = (
-    __testExports as {
-      getHeaderStyleFromUrl?: GetHeaderStyleFromUrl
-    }
-  ).getHeaderStyleFromUrl
-  resolveHeaderRoutingDecision = (
-    __testExports as {
-      resolveHeaderRoutingDecision?: ResolveHeaderRoutingDecision
-    }
-  ).resolveHeaderRoutingDecision
-  isCapacityRetryBudgetExhausted = (
-    __testExports as {
-      isCapacityRetryBudgetExhausted?: (totalCapacityRetries: number) => boolean
-    }
-  ).isCapacityRetryBudgetExhausted
-})
+import {
+  getHeaderStyleFromUrl,
+  isCapacityRetryBudgetExhausted,
+  resolveHeaderRoutingDecision,
+  resolveQuotaFallbackHeaderStyle,
+} from './fetch-routing'
 
 describe('quota fallback direction', () => {
   it('falls back from gemini-cli to antigravity when alternate quota is available', () => {

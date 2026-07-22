@@ -1,40 +1,10 @@
-import { beforeAll, describe, expect, it, mock } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 
-type ExtractAccessBlock = (body: string) => {
-  validationRequired: boolean
-  accountIneligible: boolean
-  message?: string
-  verifyUrl?: string
-}
-
-let extractAccessBlock: ExtractAccessBlock | undefined
-let buildProbeRequest:
-  | ((projectId: string) => Record<string, unknown>)
-  | undefined
-let interpretProbeResponse:
-  | ((response: Response) => Promise<{
-      status: 'ok' | 'verification-required' | 'ineligible' | 'error'
-      message: string
-    }>)
-  | undefined
-
-beforeAll(async () => {
-  mock.module('@opencode-ai/plugin', () => ({ tool: mock() }))
-  const { __testExports } = await import('../plugin')
-  const exports = __testExports as {
-    buildAccountAccessProbeRequest?: (
-      projectId: string,
-    ) => Record<string, unknown>
-    extractAccountAccessErrorDetails?: ExtractAccessBlock
-    interpretAccountAccessProbeResponse?: (response: Response) => Promise<{
-      status: 'ok' | 'verification-required' | 'ineligible' | 'error'
-      message: string
-    }>
-  }
-  buildProbeRequest = exports.buildAccountAccessProbeRequest
-  extractAccessBlock = exports.extractAccountAccessErrorDetails
-  interpretProbeResponse = exports.interpretAccountAccessProbeResponse
-})
+import {
+  buildAccountAccessProbeRequest as buildProbeRequest,
+  extractAccountAccessErrorDetails as extractAccessBlock,
+  interpretAccountAccessProbeResponse as interpretProbeResponse,
+} from '../plugin'
 
 describe('account eligibility recovery', () => {
   it('finishes a successful probe without waiting for an open SSE body', async () => {
