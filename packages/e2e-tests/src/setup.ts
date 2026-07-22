@@ -1,21 +1,23 @@
 /**
  * E2E workspace test preload.
  *
- * Per-test isolation only — no fetch guard is installed here because
- * the bun-test isolated runtime proved fragile when wrapping
- * `globalThis.fetch` (the wrap would hang or return undefined for
- * loopback targets). The e2e tests rely on the plugin's
- * `dependencies.agyTransport` and `dependencies.fetchImpl`
- * overrides to route every outbound call through the mock — a
- * regression that re-introduces a live URL is caught by the mock
- * server's request recorder.
+ * Per-test isolation + an unconditional non-loopback deny guard on
+ * `globalThis.fetch`. The guard is installed in `beforeEach` and
+ * restored in `afterEach` so a stray `fetch('https://example.com')`
+ * inside the production plugin surfaces as `LiveNetworkDeniedError`
+ * instead of silently leaking to the live network.
+ *
+ * The plugin's `dependencies.agyTransport` and `dependencies.fetchImpl`
+ * still own the loopback rewrite to the mock server — the deny guard
+ * only blocks non-loopback targets.
  *
  * Responsibilities:
- *   1. Allocate a per-test `mkdtemp` root with HOME / XDG_*
+ *   1. Wrap `globalThis.fetch` with a loopback-only guard.
+ *   2. Allocate a per-test `mkdtemp` root with HOME / XDG_*
  *      overrides so tests never touch the host filesystem.
- *   2. Tear down the root in `afterEach` so cross-test pollution
- *      cannot leak.
- *   3. Defensive final sweep in `afterAll` to reap any temp roots
+ *   3. Tear down the root + restore the original fetch in `afterEach`
+ *      so cross-test pollution cannot leak.
+ *   4. Defensive final sweep in `afterAll` to reap any temp roots
  *      left behind by crashed tests.
  */
 
@@ -25,16 +27,64 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 /**
- * Test name tag attached to deny records so a regression points at
- * the offending scenario. Currently unused — the network guard is
- * disabled because it interfered with the loopback mock in this
- * harness — but kept exported so future iterations can re-enable
- * it without churning call sites.
+ * Thrown when a request targets anything other than the loopback
+ * allowlist. Surfaced as a real exception so the failing test
+ * pinpoints the offending call site.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _setCurrentTestName = (_name: string): void => undefined
+export class LiveNetworkDeniedError extends Error {
+  readonly url: string
+  constructor(url: string) {
+    super(`Live network access denied by e2e harness: ${url}`)
+    this.name = 'LiveNetworkDeniedError'
+    this.url = url
+  }
+}
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', '[::1]', 'localhost'])
+
+/**
+ * Per-test snapshot of the original `globalThis.fetch` so the guard
+ * can be restored in `afterEach`.
+ */
+let originalFetch: typeof globalThis.fetch | null = null
+
+function installFetchGuard(): void {
+  if (originalFetch) return
+  originalFetch = globalThis.fetch
+  const hostFetch = originalFetch
+  globalThis.fetch = async function guardedFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const urlString =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url
+    let parsed: URL | null = null
+    try {
+      parsed = new URL(urlString)
+    } catch {
+      // Unparseable URL — let the host fetch surface its own error.
+      return hostFetch(input as RequestInfo, init)
+    }
+    if (!LOOPBACK_HOSTS.has(parsed.hostname)) {
+      throw new LiveNetworkDeniedError(parsed.href)
+    }
+    return hostFetch(input as RequestInfo, init)
+  } as typeof globalThis.fetch
+}
+
+function restoreFetchGuard(): void {
+  if (originalFetch) {
+    globalThis.fetch = originalFetch
+    originalFetch = null
+  }
+}
 
 beforeEach(() => {
+  installFetchGuard()
   // Per-test temp root + env reset. Tests must not touch the host HOME.
   const root = fs.mkdtempSync(join(tmpdir(), 'agy-e2e-'))
   const home = join(root, 'home')
@@ -68,6 +118,10 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Restore the unwrapped fetch FIRST so a teardown-step fetch reaching
+  // the host (e.g. a tmpdir cleanup that uses a relative path) does not
+  // collide with the guard.
+  restoreFetchGuard()
   // Tear down the temp root — even on assertion failure. We use the
   // `force` flag because some child files (sockets, fifos) may be
   // unreadable on platforms that hold advisory locks.
@@ -98,4 +152,3 @@ afterAll(() => {
     }
   }
 })
-void _setCurrentTestName

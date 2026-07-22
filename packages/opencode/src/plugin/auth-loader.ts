@@ -80,13 +80,16 @@ export function createAuthLoader({
   }
   let fetchRuntime: AuthFetchRuntime | null = null
 
-  lifecycle.register({
-    async dispose() {
-      const runtime = fetchRuntime
-      fetchRuntime = null
-      await runtime?.dispose()
+  lifecycle.register(
+    {
+      async dispose() {
+        const runtime = fetchRuntime
+        fetchRuntime = null
+        await runtime?.dispose()
+      },
     },
-  })
+    'producer',
+  )
 
   return async (
     getAuth: GetAuth,

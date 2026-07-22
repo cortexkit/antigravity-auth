@@ -94,8 +94,11 @@ describe('plugin flow (e2e)', () => {
 
   it('returns a 401 envelope when no accounts are configured', async () => {
     await withHarness(async (h) => {
-      // Overwrite the seeded accounts with an empty pool.
-      saveAccountsReplace({
+      // Overwrite the seeded accounts with an empty pool. Awaits the
+      // write so the next step (createPlugin) loads the empty pool
+      // instead of the seeded two-account snapshot — a fire-and-forget
+      // here is a race against the plugin's loadAccounts read.
+      await saveAccountsReplace({
         version: 4,
         accounts: [],
         activeIndex: 0,

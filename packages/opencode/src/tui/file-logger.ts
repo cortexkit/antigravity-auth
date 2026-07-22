@@ -108,7 +108,13 @@ function createFileLogger(options: FileLoggerOptions): TuiLogger {
   ): void => {
     try {
       rotateIfNeeded()
-      mkdirSync(dirname(filePath), { recursive: true })
+      // Enforce 0o700 on the parent directory even when it already
+      // exists — `mkdirSync({ recursive: true, mode })` only sets the
+      // mode on the leaf directory it creates, so an existing leaky
+      // directory would keep its old mode. The post-hoc chmodSync
+      // closes the gap.
+      mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 })
+      chmodSync(dirname(filePath), 0o700)
       const payload: Record<string, unknown> = {
         ts: Date.now(),
         level,
@@ -118,11 +124,13 @@ function createFileLogger(options: FileLoggerOptions): TuiLogger {
       // `mode: 0o600` so the log file is owner-only — the same default the
       // plugin's account storage applies. `appendFileSync` only honours the
       // mode flag when the file is created, so existing files keep whatever
-      // mode they had (rotation re-asserts the mode below).
+      // mode they had. `chmodSync` below re-asserts the mode after every
+      // append so a leaked-permissions file is repaired on the next write.
       appendFileSync(filePath, `${LOG_PREFIX} ${JSON.stringify(payload)}\n`, {
         encoding: 'utf-8',
         mode: FILE_MODE,
       })
+      chmodSync(filePath, FILE_MODE)
     } catch {
       // Drop the line — file logging must never throw into the render path.
     }

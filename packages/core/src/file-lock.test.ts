@@ -13,18 +13,31 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
-  acquireFencedFileLock,
+  acquireFencedFileLock as acquireFencedFileLockUntracked,
+  type FencedFileLock,
+  type FencedFileLockOptions,
   FileLockOwnershipError,
   type FileLockStep,
 } from './file-lock.ts'
 
 let root: string
+const activeLocks = new Set<FencedFileLock>()
+
+async function acquireFencedFileLock(
+  options: FencedFileLockOptions,
+): Promise<FencedFileLock | null> {
+  const lock = await acquireFencedFileLockUntracked(options)
+  if (lock) activeLocks.add(lock)
+  return lock
+}
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'file-lock-'))
 })
 
 afterEach(async () => {
+  await Promise.all(Array.from(activeLocks, (lock) => lock.release()))
+  activeLocks.clear()
   await rm(root, { recursive: true, force: true })
 })
 
@@ -351,7 +364,7 @@ describe('acquireFencedFileLock — release deletes only its own lock', () => {
       // stuck mid-writeFile) when we trigger release().
       await new Promise((resolve) => setTimeout(resolve, 30))
 
-      await lock.release()
+      await lock!.release()
 
       // With the fix: release awaits the in-flight renewal, then unlinks.
       // Without the fix: release unlinks first, the still-pending renewal
@@ -686,5 +699,232 @@ describe('acquireFencedFileLock — onStep interleavings', () => {
     })
     expect(lock).toBeNull()
     expect(observed).toEqual([])
+  })
+})
+
+describe('acquireFencedFileLock — eviction marker TTL/PID reclamation', () => {
+  it('reclaims a stale eviction marker whose PID is dead', async () => {
+    const target = join(root, 'state.json')
+    const lockPath = `${target}.accounts.lock`
+    const evictingDir = `${lockPath}.evicting`
+    const markerPath = join(evictingDir, 'owner.json')
+
+    // Drop a stale marker with a dead PID (init(1) is always present on
+    // POSIX but its recycled quit claim is rare; use a clearly bogus PID
+    // to guarantee `process.kill(pid, 0)` throws ESRCH).
+    await mkdir(evictingDir, { recursive: true, mode: 0o700 })
+    await writeFile(
+      markerPath,
+      JSON.stringify({
+        ownerId: 'dead-evicter',
+        pid: 2_000_000_000,
+        createdAt: Date.now() - 60_000,
+      }),
+      'utf8',
+    )
+
+    // The lock itself is genuinely stale, so the contender will hit
+    // the eviction path. With the stale-marker reclamation logic, the
+    // first waiter removes the dead-PID marker and proceeds.
+    await writeLock(lockPath, 'zombie', Date.now() - 60_000)
+
+    const lock = await acquireFencedFileLock({
+      path: target,
+      name: 'accounts',
+      ttlMs: 60_000,
+    })
+    expect(lock).not.toBeNull()
+    // The lock is now ours — proves the reclamation worked.
+    const contents = await readLock(lockPath)
+    expect(contents?.ownerId).toBe(lock!.ownerId)
+    await lock!.release()
+  })
+
+  it('reclaims a marker older than 30 seconds regardless of PID liveness', async () => {
+    const target = join(root, 'state.json')
+    const lockPath = `${target}.accounts.lock`
+    const evictingDir = `${lockPath}.evicting`
+    const markerPath = join(evictingDir, 'owner.json')
+
+    // Marker is fresh-but-just-tipping-over the TTL. Use our own pid
+    // so the liveness check is positive — only the age triggers the
+    // reclaim.
+    await mkdir(evictingDir, { recursive: true, mode: 0o700 })
+    await writeFile(
+      markerPath,
+      JSON.stringify({
+        ownerId: 'old-but-alive',
+        pid: process.pid,
+        createdAt: Date.now() - 31_000,
+      }),
+      'utf8',
+    )
+
+    await writeLock(lockPath, 'zombie', Date.now() - 60_000)
+
+    const lock = await acquireFencedFileLock({
+      path: target,
+      name: 'accounts',
+      ttlMs: 60_000,
+    })
+    expect(lock).not.toBeNull()
+    const contents = await readLock(lockPath)
+    expect(contents?.ownerId).toBe(lock!.ownerId)
+    await lock!.release()
+  })
+
+  it('respects a fresh, live marker (does not reclaim an in-progress eviction)', async () => {
+    const target = join(root, 'state.json')
+    const lockPath = `${target}.accounts.lock`
+    const evictingDir = `${lockPath}.evicting`
+    const markerPath = join(evictingDir, 'owner.json')
+
+    // Live marker — fresh AND alive. The contender must respect it.
+    await mkdir(evictingDir, { recursive: true, mode: 0o700 })
+    await writeFile(
+      markerPath,
+      JSON.stringify({
+        ownerId: 'live-evicter',
+        pid: process.pid,
+        createdAt: Date.now(),
+      }),
+      'utf8',
+    )
+
+    await writeLock(lockPath, 'zombie', Date.now() - 60_000)
+
+    const lock = await acquireFencedFileLock({
+      path: target,
+      name: 'accounts',
+      ttlMs: 60_000,
+    })
+    // Bounded retries exhausted — the contender backs off.
+    expect(lock).toBeNull()
+    // The live marker is still in place.
+    const stillThere = await readFile(markerPath, 'utf8')
+    expect(JSON.parse(stillThere).ownerId).toBe('live-evicter')
+
+    // Clean up.
+    await rm(evictingDir, { recursive: true, force: true })
+    await rm(lockPath, { force: true })
+  })
+})
+
+describe('acquireFencedFileLock — renewal TOCTOU', () => {
+  it('makes release terminal and resolves existing whenLost waiters', async () => {
+    const target = join(root, 'state.json')
+    const lockPath = `${target}.accounts.lock`
+    const lock = await acquireFencedFileLock({
+      path: target,
+      name: 'accounts',
+      ttlMs: 60_000,
+      renewIntervalMs: 10,
+    })
+    expect(lock).not.toBeNull()
+    const lost = lock!.whenLost()
+
+    await lock!.release()
+
+    await expect(lost).resolves.toBeUndefined()
+    await expect(lock!.whenLost()).resolves.toBeUndefined()
+    expect(lock!.hasLost()).toBe(true)
+    expect(await readLock(lockPath)).toBeNull()
+    await lock!.release()
+  })
+
+  it('stops the renewal interval as soon as ownership is lost', async () => {
+    const target = join(root, 'state.json')
+    const lockPath = `${target}.accounts.lock`
+    const clearIntervalSpy = spyOn(globalThis, 'clearInterval')
+
+    try {
+      const lock = await acquireFencedFileLock({
+        path: target,
+        name: 'accounts',
+        ttlMs: 60_000,
+        renewIntervalMs: 10,
+      })
+      expect(lock).not.toBeNull()
+
+      await writeLock(lockPath, 'thief', Date.now() + 60_000)
+      await lock!.whenLost()
+
+      expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
+      await lock!.release()
+    } finally {
+      clearIntervalSpy.mockRestore()
+      await rm(lockPath, { force: true })
+    }
+  })
+
+  it('detects ownership change between async read and write — does not clobber the new owner', async () => {
+    const target = join(root, 'state.json')
+    const lockPath = `${target}.accounts.lock`
+
+    const lock = await acquireFencedFileLock({
+      path: target,
+      name: 'accounts',
+      ttlMs: 60_000,
+      renewIntervalMs: 10,
+    })
+    expect(lock).not.toBeNull()
+
+    // Owner B evicts A and takes over the lock with a live expiry.
+    // This is the "A pauses between read and write" moment: the moment
+    // A's renewal is mid-cycle, B rips the lock file out and rewrites
+    // it with B's ownerId. A's renewal must NOT clobber B's lock.
+    await writeLock(lockPath, 'owner-B', Date.now() + 60_000)
+
+    // Wait for A's renewal tick to fire and notice the mismatch.
+    await lock!.whenLost()
+
+    // B's lock must be intact — A's renewal must NOT have overwritten it.
+    const contents = await readLock(lockPath)
+    expect(contents?.ownerId).toBe('owner-B')
+
+    // A must report itself as lost.
+    expect(lock!.hasLost()).toBe(true)
+
+    // Release should refuse to delete (the lock is B's).
+    await lock!.release()
+    const afterRelease = await readLock(lockPath)
+    expect(afterRelease?.ownerId).toBe('owner-B')
+
+    await rm(lockPath, { force: true })
+  })
+
+  it('whenLost() resolves promptly when the lock is taken over mid-renewal', async () => {
+    const target = join(root, 'state.json')
+    const lockPath = `${target}.accounts.lock`
+
+    const lock = await acquireFencedFileLock({
+      path: target,
+      name: 'accounts',
+      ttlMs: 60_000,
+      renewIntervalMs: 10,
+    })
+    expect(lock).not.toBeNull()
+    expect(lock!.hasLost()).toBe(false)
+
+    // Write a different owner into the lock. Note: this happens AFTER
+    // the initial acquire, so ownership is "fresh-stolen" — the renewal
+    // must detect and bail.
+    await writeLock(lockPath, 'thief', Date.now() + 60_000)
+
+    // Bounded wait — if whenLost() never resolves, the pipeline is
+    // broken. 500ms is generous for the 10ms tick + sync re-read.
+    const lostPromise = lock!.whenLost()
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve('timeout'), 1000)
+    })
+    const result = await Promise.race([lostPromise, timeout]).finally(() => {
+      if (timeoutHandle !== null) clearTimeout(timeoutHandle)
+    })
+    expect(result).toBeUndefined()
+    expect(lock!.hasLost()).toBe(true)
+
+    await lock!.release()
+    await rm(lockPath, { force: true })
   })
 })

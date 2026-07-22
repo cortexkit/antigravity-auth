@@ -1,4 +1,4 @@
-import { afterAll, jest, type Mock, mock, spyOn } from 'bun:test'
+import { afterAll, afterEach, jest, type Mock, mock, spyOn } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -94,5 +94,14 @@ jest.useRealTimers = (() => {
   }
   originalUseRealTimers()
 }) as typeof jest.useRealTimers
+
+// Restore real timers after every test so a stray `jest.useFakeTimers()`
+// in a test that forgets to clean up after itself does not leak into
+// subsequent test files — bun runs all `--isolate` files in one
+// process, and leftover fake timers would block the event loop from
+// exiting cleanly between the lock renewal / RPC server tests.
+afterEach(() => {
+  jest.useRealTimers()
+})
 
 afterAll(() => rmSync(root, { recursive: true, force: true }))

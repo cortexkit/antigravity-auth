@@ -1,10 +1,12 @@
-import { describe, expect, it, mock, spyOn } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
 import {
   deriveDebugPolicy,
   formatAccountContextLabel,
   formatAccountLabel,
   formatBodyPreviewForLog,
   formatErrorForLog,
+  redactSensitive,
+  redactSensitiveFields,
   truncateTextForLog,
   writeConsoleLog,
 } from './logging-utils'
@@ -98,5 +100,62 @@ describe('writeConsoleLog', () => {
     infoSpy.mockRestore()
     warnSpy.mockRestore()
     errorSpy.mockRestore()
+  })
+})
+
+describe('redactSensitive', () => {
+  it('masks all but the first 4 and last 4 characters', () => {
+    expect(redactSensitive('my-project-1234567890abcdef')).toBe('my-p****cdef')
+  })
+
+  it('collapses short values to a placeholder so the full identifier never leaks', () => {
+    expect(redactSensitive('short')).toBe('****')
+    expect(redactSensitive('12345678')).toBe('****')
+  })
+
+  it('returns empty string for missing inputs', () => {
+    expect(redactSensitive(undefined)).toBe('')
+    expect(redactSensitive(null)).toBe('')
+    expect(redactSensitive('')).toBe('')
+  })
+})
+
+describe('redactSensitiveFields', () => {
+  it('walks a deep object and masks every credential-shaped field', () => {
+    const input = {
+      projectId: 'my-project-1234567890abcdef',
+      accessToken: 'ya29.abcdef-real-token-real-token',
+      refreshToken: '1//abc-real-refresh-token',
+      deviceId: 'dev-1234567890abcdef',
+      fingerprint: 'fpr-1234567890abcdef',
+      quota: {
+        claude: 0.5,
+        gemini: 0.9,
+      },
+      nested: {
+        sessionId: 'sess-1234567890abcdef',
+        unrelated: 'visible',
+      },
+    }
+    const redacted = redactSensitiveFields(input) as Record<string, unknown>
+    expect(redacted.projectId).toBe('my-p****cdef')
+    expect(redacted.accessToken).toBe('ya29****oken')
+    expect(redacted.refreshToken).toBe('1//a****oken')
+    expect(redacted.deviceId).toBe('dev-****cdef')
+    expect(redacted.fingerprint).toBe('fpr-****cdef')
+    expect((redacted.quota as Record<string, unknown>).claude).toBe(0.5)
+    expect((redacted.nested as Record<string, unknown>).sessionId).toBe(
+      'sess****cdef',
+    )
+    expect((redacted.nested as Record<string, unknown>).unrelated).toBe(
+      'visible',
+    )
+  })
+
+  it('does not mutate the original', () => {
+    const input = { projectId: 'my-project-1234567890abcdef' }
+    const snapshot = JSON.stringify(input)
+    redactSensitiveFields(input)
+    expect(JSON.stringify(input)).toBe(snapshot)
   })
 })

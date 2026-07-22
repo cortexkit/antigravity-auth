@@ -21,7 +21,15 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 const RENEW_MIN_INTERVAL_MS = 1_000
@@ -64,6 +72,13 @@ export interface FencedFileLock {
   ownerId: string
   assertOwned(): Promise<void>
   release(): Promise<void>
+  /**
+   * Resolves when the renewal loop detects the lock has been taken over
+   * by another owner (or otherwise lost before `release()`). Resolves
+   * immediately if the lock is already lost.
+   */
+  whenLost(): Promise<void>
+  hasLost(): boolean
 }
 
 /**
@@ -92,7 +107,13 @@ interface LockPayload {
 
 interface MarkerPayload {
   ownerId: string
+  /** Owning process ID — used to detect a dead/in-progress evicter. */
+  pid: number
+  /** Wall-clock time (ms) the marker was created. Used for the TTL floor. */
+  createdAt: number
 }
+
+const MARKER_TTL_MS = 30_000
 
 async function readLockPayload(path: string): Promise<LockPayload | null> {
   try {
@@ -112,20 +133,40 @@ async function readLockPayload(path: string): Promise<LockPayload | null> {
   }
 }
 
-async function readMarkerOwner(path: string): Promise<string | null> {
+async function readMarkerPayload(path: string): Promise<MarkerPayload | null> {
   try {
     const text = await readFile(path, 'utf8')
     const parsed: unknown = JSON.parse(text)
     if (
       typeof parsed === 'object' &&
       parsed !== null &&
-      typeof (parsed as Record<string, unknown>).ownerId === 'string'
+      typeof (parsed as Record<string, unknown>).ownerId === 'string' &&
+      typeof (parsed as Record<string, unknown>).pid === 'number' &&
+      typeof (parsed as Record<string, unknown>).createdAt === 'number'
     ) {
-      return (parsed as MarkerPayload).ownerId
+      return parsed as MarkerPayload
     }
     return null
   } catch {
     return null
+  }
+}
+
+/**
+ * Best-effort liveness check for a PID. Returns `true` when the process
+ * is alive or when the platform lacks a reliable probe (Windows), so
+ * the marker is only reclaimed when we have positive evidence of death.
+ */
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'ESRCH') return false
+    // EPERM (process exists but we cannot signal it) still counts as alive.
+    return true
   }
 }
 
@@ -202,20 +243,41 @@ export async function acquireFencedFileLock(
     await options.onStep?.('stale-marker-stat')
 
     // Claim the exclusive evicting marker (bounded retries so a stuck
-    // contender cannot trap us in an infinite loop).
+    // contender cannot trap us in an infinite loop). Before each retry,
+    // inspect the existing marker: if its PID is dead or the marker is
+    // older than MARKER_TTL_MS, it is abandoned and we reclaim it.
     let markerClaimed = false
     for (let attempt = 0; attempt < MARKER_CLAIM_MAX_ATTEMPTS; attempt++) {
       try {
         await mkdir(evictingDir, { recursive: true, mode: 0o700 })
-        await writeFile(evictingPath, JSON.stringify({ ownerId }), {
-          flag: 'wx',
-          encoding: 'utf8',
-          mode: 0o600,
-        })
+        await writeFile(
+          evictingPath,
+          JSON.stringify({
+            ownerId,
+            pid: process.pid,
+            createdAt: now(),
+          }),
+          {
+            flag: 'wx',
+            encoding: 'utf8',
+            mode: 0o600,
+          },
+        )
         markerClaimed = true
         break
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+        // Existing marker — check whether it is reclaimed-able.
+        const existing = await readMarkerPayload(evictingPath)
+        if (existing) {
+          const ageMs = now() - existing.createdAt
+          const deadPid = !isProcessAlive(existing.pid)
+          if (deadPid || ageMs > MARKER_TTL_MS) {
+            // Stale marker — recycle the directory and retry the claim.
+            await rmEvictingDir(evictingPath)
+            continue
+          }
+        }
         await sleep(MARKER_CLAIM_BACKOFF_MS)
       }
     }
@@ -227,8 +289,8 @@ export async function acquireFencedFileLock(
 
     // First re-check boundary: confirm the marker is still ours AND
     // the lock still looks stale (its real owner may have refreshed).
-    let markerOwner = await readMarkerOwner(evictingPath)
-    if (markerOwner !== ownerId) continue
+    let markerPayload = await readMarkerPayload(evictingPath)
+    if (markerPayload?.ownerId !== ownerId) continue
 
     const observedAgain = await readLockPayload(lockPath)
     const refreshed =
@@ -245,8 +307,8 @@ export async function acquireFencedFileLock(
     // Second re-check boundary: marker must still be ours before
     // unlinking. If we lost ownership between the previous check and
     // this one, the winner is now responsible for the lock file.
-    markerOwner = await readMarkerOwner(evictingPath)
-    if (markerOwner !== ownerId) continue
+    markerPayload = await readMarkerPayload(evictingPath)
+    if (markerPayload?.ownerId !== ownerId) continue
 
     try {
       await unlink(lockPath)
@@ -282,6 +344,23 @@ function buildLock(
   let renewTimer: ReturnType<typeof setInterval> | null = null
   let inFlightRenew: Promise<void> | null = null
   let released = false
+  let lost = false
+  let lostResolve: (() => void) | null = null
+  let lostPromise: Promise<void> | null = new Promise<void>((resolve) => {
+    lostResolve = resolve
+  })
+
+  const markLost = (): void => {
+    if (lost) return
+    lost = true
+    if (renewTimer !== null) {
+      clearInterval(renewTimer)
+      renewTimer = null
+    }
+    const resolve = lostResolve
+    lostResolve = null
+    resolve?.()
+  }
 
   const setupRenew = (): void => {
     if (options.renew === false) return
@@ -290,21 +369,69 @@ function buildLock(
       Math.max(RENEW_MIN_INTERVAL_MS, Math.floor(options.ttlMs / 3))
 
     const renew = async (): Promise<void> => {
-      if (released) return
+      if (released || lost) return
       try {
         const observed = await readLockPayload(lockPath)
-        if (released) return
-        if (
-          observed &&
-          observed.ownerId === ownerId &&
-          observed.expiresAt > now()
-        ) {
-          if (released) return
-          await writeFile(
-            lockPath,
-            JSON.stringify({ ownerId, expiresAt: now() + options.ttlMs }),
-            { encoding: 'utf8', mode: 0o600 },
-          )
+        if (released || lost) return
+        // If the lock file is gone or carries a different ownerId, the
+        // lock has been taken over. Mark it lost so the next iteration
+        // stops renewing — this is the case the dispatch's TOCTOU test
+        // exercises (owner B evicts and replaces the lock while owner
+        // A's renewal is paused).
+        if (observed === null) {
+          markLost()
+          return
+        }
+        if (observed.ownerId !== ownerId) {
+          markLost()
+          return
+        }
+        if (observed.expiresAt > now()) {
+          if (released || lost) return
+          // TOCTOU protection: the lock file may have been swapped out
+          // from under us between the read above and the write below.
+          // Compare-and-swap via a sibling temp file + atomic rename so
+          // we never overwrite a fresh owner's lock content directly.
+          // The remaining race window — between the re-read and the
+          // rename — collapses to a single inode replace that POSIX
+          // rename(2) makes atomic at the filesystem level.
+          const tempPath = `${lockPath}.${ownerId}.tmp`
+          let shouldCommit = false
+          try {
+            await writeFile(
+              tempPath,
+              JSON.stringify({
+                ownerId,
+                expiresAt: now() + options.ttlMs,
+              }),
+              { encoding: 'utf8', mode: 0o600 },
+            )
+            if (released || lost) {
+              await unlink(tempPath).catch(() => {})
+              return
+            }
+            const currentObserved = await readLockPayload(lockPath)
+            if (released || lost) {
+              await unlink(tempPath).catch(() => {})
+              return
+            }
+            if (!currentObserved || currentObserved.ownerId !== ownerId) {
+              // Another owner slipped in — leave their content intact,
+              // mark lost, drop our temp draft.
+              markLost()
+              await unlink(tempPath).catch(() => {})
+              return
+            }
+            shouldCommit = true
+            await rename(tempPath, lockPath)
+          } catch {
+            // Lost the race against a rename/evict — mark lost so the
+            // next iteration stops renewing, and clean up any temp draft.
+            markLost()
+            if (!shouldCommit) {
+              await unlink(tempPath).catch(() => {})
+            }
+          }
         }
       } catch {
         // best-effort renewal; nothing to do on failure
@@ -333,33 +460,42 @@ function buildLock(
   }
 
   const release = async (): Promise<void> => {
-    // Stop scheduling new renewals, then await any in-flight one so its
-    // writeFile cannot resurrect the lock after we unlink it below.
+    if (released) return
     released = true
     if (renewTimer !== null) {
       clearInterval(renewTimer)
       renewTimer = null
     }
-    if (inFlightRenew) {
+    const pendingRenew = inFlightRenew
+    inFlightRenew = null
+    if (pendingRenew) {
       try {
-        await inFlightRenew
+        await pendingRenew
       } catch {
         // renewal swallows its own errors; awaiting is just a fence
       }
     }
 
-    const observed = await readLockPayload(lockPath)
-    if (!observed || observed.ownerId !== ownerId) {
-      // Not ours anymore — refuse to delete.
-      await rmEvictingDir(evictingPath).catch(() => {})
-      return
-    }
     try {
-      await unlink(lockPath)
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+      const observed = await readLockPayload(lockPath)
+      if (!observed || observed.ownerId !== ownerId) {
+        // Not ours anymore — refuse to delete.
+        await rmEvictingDir(evictingPath).catch(() => {})
+        return
+      }
+      try {
+        await unlink(lockPath)
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+      }
+      await rmEvictingDir(evictingPath).catch(() => {})
+    } finally {
+      markLost()
+      renewTimer = null
+      inFlightRenew = null
+      lostResolve = null
+      lostPromise = null
     }
-    await rmEvictingDir(evictingPath).catch(() => {})
   }
 
   const assertOwned = async (): Promise<void> => {
@@ -386,5 +522,11 @@ function buildLock(
   }
 
   setupRenew()
-  return { ownerId, assertOwned, release }
+  return {
+    ownerId,
+    assertOwned,
+    release,
+    whenLost: () => lostPromise ?? Promise.resolve(),
+    hasLost: () => lost,
+  }
 }

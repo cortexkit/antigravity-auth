@@ -116,6 +116,26 @@ function hashText(value: string) {
   return createHash('sha256').update(value).digest('hex')
 }
 
+/**
+ * Mask all but the first 4 and last 4 chars of a sensitive identifier.
+ * Short inputs collapse to `****` so a UUID / project ID never appears
+ * in full in a debug log or dump file. Returns `undefined` for
+ * undefined inputs so the caller can drop the field.
+ */
+function maskIdentifier(value: string | undefined): string | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined
+  if (value.length <= 8) return '****'
+  return `${value.slice(0, 4)}****${value.slice(-4)}`
+}
+
+function redactProjectId(value: string | undefined): string | undefined {
+  return maskIdentifier(value)
+}
+
+function redactSessionId(value: string | undefined): string | undefined {
+  return maskIdentifier(value)
+}
+
 function redactForDump(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactForDump)
   if (value == null || typeof value !== 'object') return value
@@ -130,6 +150,13 @@ function redactForDump(value: unknown): unknown {
       lower === 'set-cookie'
     ) {
       redacted[key] = '[redacted]'
+      continue
+    }
+    if (lower === 'user-agent') {
+      // Fingerprint User-Agent strings are stable identifiers. Mask
+      // the body but keep the header shape so the dump still tells
+      // operators a UA was sent.
+      redacted[key] = typeof entry === 'string' ? maskIdentifier(entry) : entry
       continue
     }
     redacted[key] = redactForDump(entry)
@@ -271,8 +298,8 @@ export function dumpGeminiRequest(input: {
       streaming: input.streaming,
       requestedModel: input.requestedModel,
       effectiveModel: input.effectiveModel,
-      sessionId: input.sessionId,
-      projectId: input.projectId,
+      sessionId: redactSessionId(input.sessionId),
+      projectId: redactProjectId(input.projectId),
       headers: redactForDump(headersToRecord(input.headers)),
       request: bodyStructureSummary(input.body),
       files: {

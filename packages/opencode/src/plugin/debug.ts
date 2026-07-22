@@ -16,6 +16,8 @@ import {
   formatBodyPreviewForLog,
   formatErrorForLog,
   isTruthyFlag,
+  redactSensitive,
+  redactSensitiveFields,
   truncateTextForLog,
 } from './logging-utils'
 import { ensureGitignoreSync } from './storage'
@@ -34,9 +36,28 @@ interface DebugState {
   debugTuiEnabled: boolean
   logFilePath: string | undefined
   logWriter: (line: string) => void
+  /**
+   * Owning stream for the underlying file (when debug is enabled). The
+   * previous stream is closed when initializeDebug is called again so
+   * tests that re-initialize the debug state don't leak file
+   * descriptors; the OS-level "file descriptor" alone does not keep
+   * the process alive, but the writeStream's underlying socket pair
+   * does, and a long-lived test suite can starve.
+   */
+  logStream: import('node:fs').WriteStream | null
 }
 
 let debugState: DebugState | null = null
+
+function closeDebugStream(): void {
+  const current = debugState?.logStream
+  if (!current) return
+  try {
+    current.end()
+  } catch {
+    // best-effort; the stream is already detached
+  }
+}
 
 /**
  * Get the OS-specific config directory.
@@ -117,21 +138,27 @@ function cleanupOldLogs(logsDir: string, maxFiles: number): void {
 /**
  * Creates a log writer function that writes to a file.
  */
-function createLogWriter(filePath?: string): (line: string) => void {
+function createLogWriter(filePath?: string): {
+  writer: (line: string) => void
+  stream: import('node:fs').WriteStream | null
+} {
   if (!filePath) {
-    return () => {}
+    return { writer: () => {}, stream: null }
   }
 
   try {
     const stream = createWriteStream(filePath, { flags: 'a', mode: 0o600 })
     stream.on('error', () => {})
-    return (line: string) => {
-      const timestamp = new Date().toISOString()
-      const formatted = `[${timestamp}] ${line}`
-      stream.write(`${formatted}\n`)
+    return {
+      stream,
+      writer: (line: string) => {
+        const timestamp = new Date().toISOString()
+        const formatted = `[${timestamp}] ${line}`
+        stream.write(`${formatted}\n`)
+      },
     }
   } catch {
-    return () => {}
+    return { writer: () => {}, stream: null }
   }
 }
 
@@ -140,6 +167,11 @@ function createLogWriter(filePath?: string): (line: string) => void {
  * Call this once at plugin startup after loading config.
  */
 export function initializeDebug(config: AntigravityConfig): void {
+  // Close any previously opened log stream so re-initialized state
+  // does not leak file descriptors (each open writeStream keeps the
+  // process alive through its duplex pair).
+  closeDebugStream()
+
   // Config takes precedence, but env var can force enable for debugging
   const envDebugFlag = env.OPENCODE_ANTIGRAVITY_DEBUG ?? ''
   const { debugEnabled } = deriveDebugPolicy({
@@ -153,7 +185,7 @@ export function initializeDebug(config: AntigravityConfig): void {
   const logFilePath = debugEnabled
     ? createLogFilePath(config.log_dir)
     : undefined
-  const logWriter = createLogWriter(logFilePath)
+  const { writer: logWriter, stream: logStream } = createLogWriter(logFilePath)
 
   if (debugEnabled) {
     ensureGitignoreSync(getConfigDir())
@@ -164,6 +196,7 @@ export function initializeDebug(config: AntigravityConfig): void {
     debugTuiEnabled,
     logFilePath,
     logWriter,
+    logStream,
   }
 }
 
@@ -182,16 +215,18 @@ function getDebugState(): DebugState {
     })
     const debugTuiEnabled = isTruthyFlag(env.OPENCODE_ANTIGRAVITY_DEBUG_TUI)
     const logFilePath = debugEnabled ? createLogFilePath() : undefined
-    const logWriter = createLogWriter(logFilePath)
+    const { writer: logWriter, stream: logStream } =
+      createLogWriter(logFilePath)
 
     debugState = {
       debugEnabled,
       debugTuiEnabled,
       logFilePath,
       logWriter,
+      logStream,
     }
   }
-  return debugState
+  return debugState!
 }
 
 // =============================================================================
@@ -255,7 +290,9 @@ export function startAntigravityDebugRequest(
     logDebug(`[Antigravity Debug ${id}] Original URL: ${meta.originalUrl}`)
   }
   if (meta.projectId) {
-    logDebug(`[Antigravity Debug ${id}] Project: ${meta.projectId}`)
+    logDebug(
+      `[Antigravity Debug ${id}] Project: ${redactSensitive(meta.projectId)}`,
+    )
   }
   logDebug(
     `[Antigravity Debug ${id}] Streaming: ${meta.streaming ? 'yes' : 'no'}`,
@@ -331,11 +368,16 @@ function maskHeaders(headers?: HeadersInit | Headers): Record<string, string> {
   parsed.forEach((value, key) => {
     if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
       result[key] = '[redacted]'
+    } else if (key.toLowerCase() === 'user-agent') {
+      // Fingerprint User-Agent strings are stable identifiers that
+      // could be replayed. Mask the body but keep the header shape
+      // so the log still tells operators a UA was sent.
+      result[key] = redactSensitive(value)
     } else {
       result[key] = value
     }
   })
-  return result
+  return redactSensitiveFields(result) as Record<string, string>
 }
 
 /**

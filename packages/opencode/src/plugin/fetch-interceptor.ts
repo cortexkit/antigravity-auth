@@ -544,31 +544,43 @@ export function createFetchInterceptor(
       // Operator killswitch — drop candidates whose freshest cached
       // quota remaining-percent is below the configured floor. Fail
       // open on missing/stale quota so a cold start cannot deadlock
-      // the pipeline.
+      // the pipeline. The evaluation is model-aware: a `gemini-pro`
+      // request checks ONLY the `gemini-pro` quota group, not the max
+      // of pro+flash.
       const operatorKillswitch = operatorSettings?.get().killswitch
-      const eligibleAccounts = accountManager.getAccounts().filter((entry) => {
-        if (!operatorKillswitch?.enabled) return true
-        const decision = evaluateKillswitchForAccount(
-          entry,
-          family,
-          {
-            routing:
-              effectiveConfig.cli_first !== undefined
-                ? {
-                    cli_first: effectiveConfig.cli_first,
-                    quota_style_fallback:
-                      !!effectiveConfig.quota_style_fallback,
-                  }
-                : { cli_first: false, quota_style_fallback: false },
-            killswitch: operatorKillswitch,
-            log_level: 'info',
-          },
-          { now: Date.now() },
-        )
-        return decision.allowed
-      })
+      const eligibleIndexes = operatorKillswitch?.enabled
+        ? new Set(
+            accountManager
+              .getAccounts()
+              .filter((entry) => {
+                const decision = evaluateKillswitchForAccount(
+                  entry,
+                  family,
+                  {
+                    routing:
+                      effectiveConfig.cli_first !== undefined
+                        ? {
+                            cli_first: effectiveConfig.cli_first,
+                            quota_style_fallback:
+                              !!effectiveConfig.quota_style_fallback,
+                          }
+                        : { cli_first: false, quota_style_fallback: false },
+                    killswitch: operatorKillswitch,
+                    log_level: 'info',
+                  },
+                  { now: Date.now(), model },
+                )
+                return decision.allowed
+              })
+              .map((entry) => entry.index),
+          )
+        : null
 
-      if (eligibleAccounts.length === 0 && accountCount > 0) {
+      if (
+        eligibleIndexes !== null &&
+        eligibleIndexes.size === 0 &&
+        accountCount > 0
+      ) {
         try {
           throwIfAllKilled({
             family,
@@ -582,6 +594,7 @@ export function createFetchInterceptor(
               },
               log_level: 'info',
             },
+            quotaModel: model,
           })
         } catch (error) {
           if (error instanceof AntigravityKillswitchError) {
@@ -612,24 +625,20 @@ export function createFetchInterceptor(
       )
 
       // After core selection, re-check the killswitch on the chosen
-      // candidate. If it's killed, mark ineligible and retry.
-      if (account && operatorKillswitch?.enabled) {
-        const decision = evaluateKillswitchForAccount(
-          account,
-          family,
-          {
-            routing: { cli_first: false, quota_style_fallback: false },
-            killswitch: operatorKillswitch,
-            log_level: 'info',
-          },
-          { now: Date.now() },
+      // candidate using the precomputed eligible set. If the candidate
+      // is killed, mark ineligible and retry. The precomputed set is
+      // the source of truth — we do NOT re-evaluate here so a
+      // long-running request cannot see a different answer than the
+      // pre-filter above.
+      if (
+        account &&
+        eligibleIndexes !== null &&
+        !eligibleIndexes.has(account.index)
+      ) {
+        pushDebug(
+          `killswitch-excluded idx=${account.index} (precomputed eligible set)`,
         )
-        if (!decision.allowed) {
-          pushDebug(
-            `killswitch-excluded idx=${account.index} remaining=${decision.remainingPercent} threshold=${decision.thresholdPercent}`,
-          )
-          account = null
-        }
+        account = null
       }
 
       if (!account && allowQuotaFallback) {
@@ -649,6 +658,19 @@ export function createFetchInterceptor(
           pushDebug(
             `selected-by-fallback idx=${account.index} preferred=${preferredHeaderStyle} alternate=${alternateHeaderStyle}`,
           )
+        }
+        // The fallback path also has to clear the killswitch — a
+        // previous pre-filter scoped to the preferred-header accounts
+        // may have allowed an account only on the fallback header.
+        if (
+          account &&
+          eligibleIndexes !== null &&
+          !eligibleIndexes.has(account.index)
+        ) {
+          pushDebug(
+            `killswitch-excluded idx=${account.index} after fallback (precomputed eligible set)`,
+          )
+          account = null
         }
       }
 

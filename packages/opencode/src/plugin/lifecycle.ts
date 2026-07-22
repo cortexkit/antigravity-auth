@@ -5,15 +5,30 @@ export interface Disposable {
   dispose(): Promise<void> | void
 }
 
+/**
+ * Lifecycle phase for a registered disposable.
+ *
+ * - `producer`: runs on the same side of the sidebar drain as the
+ *   fetch interceptor — the lifecycle disposes producers BEFORE the
+ *   sidebar drain so a producer racing with shutdown cannot enqueue
+ *   a write that lands after the drain asserts the queue is empty.
+ * - `consumer`: runs AFTER the sidebar drain. These are the sinks
+ *   (RPC server, file logger) that the TUI / host talk to and that
+ *   must stay alive until every queued write has landed.
+ */
+export type LifecyclePhase = 'producer' | 'consumer'
+
 export interface PluginLifecycleOptions {
   sessionRegistry: { clear(): void }
   shutdownDiskSignatureCache: () => Promise<void>
   clearFetchState: () => void
   /**
    * Optional drain hook for in-flight sidebar-state writes. Lifecycle
-   * awaits this BEFORE disposing registered disposables (RPC server, file
-   * logger) so the TUI's last frame can still observe a fully landed
-   * snapshot if the user immediately reopens the sidebar.
+   * awaits this AFTER producers are disposed but BEFORE consumers are
+   * disposed, so:
+   *   1. producers have stopped (no new writes can land)
+   *   2. every queued write has flushed
+   *   3. the file logger + RPC server are still alive
    */
   drainSidebarWrites?: () => Promise<void>
 }
@@ -24,7 +39,7 @@ export interface PluginLifecycle extends Disposable {
     manager: AccountManager,
     refreshQueue: ProactiveRefreshQueue | null,
   ): Promise<void>
-  register(disposable: Disposable): void
+  register(disposable: Disposable, phase?: LifecyclePhase): void
 }
 
 const NOOP_DRAIN = async (): Promise<void> => {}
@@ -35,7 +50,8 @@ export function createPluginLifecycle(
   let accountManager: AccountManager | null = null
   let refreshQueue: ProactiveRefreshQueue | null = null
   let disposal: Promise<void> | null = null
-  const registered: Disposable[] = []
+  const producers: Disposable[] = []
+  const consumers: Disposable[] = []
   const drainSidebarWrites = options.drainSidebarWrites ?? NOOP_DRAIN
 
   const disposeAccountRuntime = async (): Promise<void> => {
@@ -48,12 +64,19 @@ export function createPluginLifecycle(
     await oldManager?.dispose()
   }
 
-  const register = (disposable: Disposable): void => {
+  const register = (
+    disposable: Disposable,
+    phase: LifecyclePhase = 'consumer',
+  ): void => {
     if (disposal) {
       void disposable.dispose()
       return
     }
-    registered.push(disposable)
+    if (phase === 'producer') {
+      producers.push(disposable)
+    } else {
+      consumers.push(disposable)
+    }
   }
 
   return {
@@ -76,15 +99,24 @@ export function createPluginLifecycle(
           await options.shutdownDiskSignatureCache()
           options.sessionRegistry.clear()
           options.clearFetchState()
-          // Drain pending sidebar writes BEFORE tearing down the RPC server
-          // and file logger — a write enqueued by a fetch-interceptor call
-          // that resolves during shutdown must land before the host closes
-          // the terminal frame buffer.
-          await drainSidebarWrites()
-          for (const disposable of registered) {
+          // 1. Stop and await all producers (e.g. fetch interceptor).
+          //    This prevents NEW sidebar writes from being enqueued
+          //    while the drain is in flight.
+          for (const disposable of producers) {
             await disposable.dispose()
           }
-          registered.length = 0
+          producers.length = 0
+          // 2. Drain sidebar writes. Every write enqueued by a now-stopped
+          //    producer lands here before the consumers (RPC server, file
+          //    logger) are torn down.
+          await drainSidebarWrites()
+          // 3. Stop consumers. The TUI's last frame can still observe a
+          //    fully landed snapshot because the file logger is still alive
+          //    during the drain.
+          for (const disposable of consumers) {
+            await disposable.dispose()
+          }
+          consumers.length = 0
         })()
       }
       return disposal

@@ -8,8 +8,8 @@
   "scripts": {
     "build": "bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/pi build",
     "typecheck": "bun run --cwd packages/core build && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck && tsc -p tsconfig.scripts.json",
-    "test": "bun run --cwd packages/core build && bun test --isolate",
-    "test:e2e": "bun test --isolate ./packages/e2e-tests/src/plugin-flow.e2e.test.ts ./packages/e2e-tests/src/cli-flow.e2e.test.ts ./packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts",
+    "test": "bun run --cwd packages/core build && bun test --isolate packages/core/src packages/opencode/src packages/pi/src test/",
+    "test:e2e": "bun test --isolate ./packages/e2e-tests/src/plugin-flow.e2e.test.ts ./packages/e2e-tests/src/cli-flow.e2e.test.ts ./packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts ./packages/e2e-tests/src/fetch-guard.test.ts",
     "test:e2e:models": "bun run --cwd packages/opencode test:e2e:models",
     "test:e2e:regression": "bun run --cwd packages/opencode test:e2e:regression",
     "prepublishOnly": "bun run build",

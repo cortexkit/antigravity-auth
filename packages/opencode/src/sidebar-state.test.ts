@@ -407,11 +407,13 @@ describe('lock contention retry', () => {
     )
 
     // Release after a short delay so the retry budget isn't exhausted.
-    setTimeout(() => {
-      void blockingLock!.release()
-    }, 250)
+    const release = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        blockingLock!.release().then(resolve, reject)
+      }, 250)
+    })
 
-    await write
+    await Promise.all([write, release])
 
     const after = readSidebarState(fixture.stateFile)
     expect(after.accounts.map((entry) => entry.id)).toEqual(['acct-released'])

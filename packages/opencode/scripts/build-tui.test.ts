@@ -199,3 +199,53 @@ describe('standalone CLI isolation', () => {
     expect(reachable).not.toContain(join(PACKAGE_ROOT, 'src/cli.ts'))
   })
 })
+
+describe('TUI import graph — credential modules stay out', () => {
+  // Modules that store credentials, manage OAuth, or persist account state
+  // must never appear in the TUI's transitive import graph. The shipped
+  // TUI is transformed (not tree-shaken), so a single stray import pulls
+  // the whole module into the host's render path.
+  const FORBIDDEN = [
+    'src/plugin/account-manager.ts',
+    'src/plugin/account-storage.ts',
+    'src/plugin/quota-manager.ts',
+    'src/plugin/rotation.ts',
+  ]
+  const FORBIDDEN_PATTERNS = [
+    /\/account-manager\.ts$/,
+    /\/account-storage\.ts$/,
+    /\/(?:antigravity\/)?oauth\.ts$/,
+    /\/quota-manager\.ts$/,
+    /\/rotation\.ts$/,
+  ]
+
+  it('never reaches account-manager, account-storage, oauth, quota-manager, or rotation modules', async () => {
+    const reachable = await collectRelativeImportGraph(
+      [
+        join(PACKAGE_ROOT, 'src/tui.tsx'),
+        join(PACKAGE_ROOT, 'src/tui/entry.mjs'),
+      ],
+      PACKAGE_ROOT,
+    )
+    const offending = reachable.filter((path) =>
+      FORBIDDEN_PATTERNS.some((pattern) => pattern.test(path)),
+    )
+    expect(offending).toEqual([])
+  })
+
+  it('does not import the core barrel or any credentials module', async () => {
+    const reachable = await collectRelativeImportGraph(
+      [
+        join(PACKAGE_ROOT, 'src/tui.tsx'),
+        join(PACKAGE_ROOT, 'src/tui/entry.mjs'),
+      ],
+      PACKAGE_ROOT,
+    )
+    // Belt-and-suspenders: FORBIDDEN is the canonical list but the
+    // declaring names matter too — if a future contributor moves a
+    // caller, the exact path moves with it.
+    for (const rel of FORBIDDEN) {
+      expect(reachable).not.toContain(join(PACKAGE_ROOT, rel))
+    }
+  })
+})

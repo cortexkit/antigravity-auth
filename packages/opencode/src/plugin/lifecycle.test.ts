@@ -72,6 +72,103 @@ describe('PluginLifecycle', () => {
     expect(lifecycle.getAccountManager()).toBeNull()
   })
 
+  it('disposes producers BEFORE the sidebar drain and consumers AFTER', async () => {
+    const events: string[] = []
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {},
+      clearFetchState: () => {},
+      drainSidebarWrites: async () => {
+        events.push('sidebar:drain')
+      },
+    })
+    lifecycle.register(
+      {
+        dispose: () => {
+          events.push('producer:fetch-interceptor-dispose')
+        },
+      },
+      'producer',
+    )
+    lifecycle.register(
+      {
+        dispose: () => {
+          events.push('consumer:rpc-stop')
+        },
+      },
+      'consumer',
+    )
+    lifecycle.register(
+      {
+        dispose: () => {
+          events.push('consumer:logger-close')
+        },
+      },
+      'consumer',
+    )
+
+    await lifecycle.dispose()
+
+    expect(events).toEqual([
+      'producer:fetch-interceptor-dispose',
+      'sidebar:drain',
+      'consumer:rpc-stop',
+      'consumer:logger-close',
+    ])
+  })
+
+  it('a producer that enqueues a sidebar write during dispose lands before drain', async () => {
+    const events: string[] = []
+    let producerEnqueue: (() => void) | null = null
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {},
+      clearFetchState: () => {},
+      drainSidebarWrites: async () => {
+        // The drain observes the producer's last enqueue — by the time
+        // the drain runs, producerEnqueue should already have fired.
+        if (producerEnqueue) {
+          events.push('drain:producer-enqueued')
+        }
+        events.push('sidebar:drain')
+      },
+    })
+    lifecycle.register(
+      {
+        dispose: () => {
+          events.push('producer:start')
+          // Simulate an in-flight fetch that enqueues a sidebar write
+          // before disposing itself.
+          producerEnqueue = () => {
+            events.push('producer:enqueue-sidebar-write')
+          }
+          producerEnqueue()
+          events.push('producer:end')
+        },
+      },
+      'producer',
+    )
+    lifecycle.register(
+      {
+        dispose: () => {
+          events.push('consumer:close')
+        },
+      },
+      'consumer',
+    )
+
+    await lifecycle.dispose()
+
+    expect(events).toEqual([
+      'producer:start',
+      'producer:enqueue-sidebar-write',
+      'producer:end',
+      'drain:producer-enqueued',
+      'sidebar:drain',
+      'consumer:close',
+    ])
+  })
+
   it('performs disposal only once', async () => {
     const events: string[] = []
     const lifecycle = createPluginLifecycle({
@@ -122,6 +219,8 @@ describe('PluginLifecycle', () => {
       'old-manager:dispose',
     ])
     expect(lifecycle.getAccountManager()).toBe(newManager)
+
+    await lifecycle.dispose()
   })
 
   it('drains sidebar writes before tearing down the RPC server (file logger / RPC)', async () => {

@@ -120,4 +120,42 @@ describe('createTuiFileLogger', () => {
     expect(() => logger.error('dropped')).not.toThrow()
     expect(existsSync(impossible)).toBe(false)
   })
+
+  it.skipIf(isWindows)(
+    'tightens an existing 0644 file to 0600 on the next append',
+    () => {
+      // Pre-create the file with a permissive mode so we can prove the
+      // logger re-asserts the owner-only mode on every append.
+      mkdirSync(join(fixture.logPath, '..'), { recursive: true })
+      const f = Bun.file(fixture.logPath)
+      Bun.write(f, 'pre-existing log line\n')
+      chmodSync(fixture.logPath, 0o644)
+
+      const before = statSync(fixture.logPath).mode & 0o777
+      expect(before).toBe(0o644)
+
+      const logger = createTuiFileLogger({ filePath: fixture.logPath })
+      logger.info('after-append')
+
+      const after = statSync(fixture.logPath).mode & 0o777
+      expect(after).toBe(0o600)
+    },
+  )
+
+  it.skipIf(isWindows)(
+    'tightens an existing permissive parent directory to 0o700',
+    () => {
+      mkdirSync(join(fixture.logPath, '..'), { recursive: true, mode: 0o755 })
+      chmodSync(join(fixture.logPath, '..'), 0o755)
+
+      const before = statSync(join(fixture.logPath, '..')).mode & 0o777
+      expect(before).toBe(0o755)
+
+      const logger = createTuiFileLogger({ filePath: fixture.logPath })
+      logger.info('after-append')
+
+      const after = statSync(join(fixture.logPath, '..')).mode & 0o777
+      expect(after).toBe(0o700)
+    },
+  )
 })
