@@ -1,8 +1,16 @@
-import { beforeEach, describe, expect, it, jest, mock } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+  mock,
+} from 'bun:test'
 import { AccountManager } from './accounts'
 import { ProactiveRefreshQueue } from './refresh-queue'
 import type { AccountStorageV4 } from './storage'
-import type { PluginClient } from './types'
+import type { OAuthAuthDetails, PluginClient } from './types'
 
 // Mock PluginClient
 const mockClient: PluginClient = {
@@ -172,5 +180,93 @@ describe('ProactiveRefreshQueue', () => {
 
       expect(needsRefresh.length).toBe(0)
     })
+  })
+})
+
+describe('ProactiveRefreshQueue disposal', () => {
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('waits for an in-flight refresh before resolving', async () => {
+    jest.useFakeTimers()
+    const now = Date.now()
+    const manager = new AccountManager(undefined, {
+      version: 4,
+      accounts: [
+        {
+          refreshToken: 'refresh-token',
+          projectId: 'project-id',
+          addedAt: now,
+          lastUsed: 0,
+          enabled: true,
+        },
+      ],
+      activeIndex: 0,
+    })
+    manager.getAccounts()[0]!.expires = now + 60_000
+    const events: string[] = []
+    let resolveRefresh!: (auth: {
+      type: 'oauth'
+      refresh: string
+      access: string
+      expires: number
+    }) => void
+    const refreshResult = new Promise<{
+      type: 'oauth'
+      refresh: string
+      access: string
+      expires: number
+    }>((resolve) => {
+      resolveRefresh = resolve
+    })
+    const queue = new ProactiveRefreshQueue(mockClient, 'test-provider', {
+      enabled: true,
+      bufferSeconds: 1800,
+      checkIntervalSeconds: 300,
+    })
+    queue.setAccountManager(manager)
+    ;(
+      queue as unknown as {
+        refreshToken: () => Promise<OAuthAuthDetails | undefined>
+      }
+    ).refreshToken = mock(async () => {
+      events.push('refresh:started')
+      return refreshResult
+    })
+    manager.updateFromAuth = mock(() => {
+      events.push('manager:update')
+    })
+    manager.saveToDisk = mock(async () => {
+      events.push('manager:save')
+    })
+
+    queue.start()
+    jest.advanceTimersByTime(5000)
+    await Promise.resolve()
+    const disposal = Promise.resolve(queue.dispose()).then(() => {
+      events.push('queue:disposed-returned')
+    })
+    await Promise.resolve()
+
+    expect(events).toEqual(['refresh:started'])
+
+    events.push('refresh:resolved')
+    resolveRefresh({
+      type: 'oauth',
+      refresh: 'refresh-token|project-id',
+      access: 'new-access-token',
+      expires: now + 3_600_000,
+    })
+    await disposal
+
+    expect(events).toEqual([
+      'refresh:started',
+      'refresh:resolved',
+      'manager:update',
+      'manager:save',
+      'queue:disposed-returned',
+    ])
+    expect(jest.getTimerCount()).toBe(0)
   })
 })

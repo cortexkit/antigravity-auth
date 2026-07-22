@@ -2685,3 +2685,32 @@ describe('resolveQuotaGroup', () => {
     expect(resolveQuotaGroup('gemini', 'gemini-3-pro')).toBe('gemini-pro')
   })
 })
+
+describe('AccountManager disposal', () => {
+  it('cancels the debounce timer and persists a pending save immediately', async () => {
+    jest.useFakeTimers()
+    const manager = new AccountManager()
+    const save = spyOn(manager, 'saveToDisk').mockResolvedValue(undefined)
+    manager.requestSaveToDisk()
+    const waiter = manager.flushSaveToDisk()
+
+    await manager.dispose()
+    await waiter
+
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('ignores save requests after disposal', async () => {
+    jest.useFakeTimers()
+    const manager = new AccountManager()
+    const save = spyOn(manager, 'saveToDisk').mockResolvedValue(undefined)
+
+    await manager.dispose()
+    manager.requestSaveToDisk()
+    jest.runAllTimers()
+
+    expect(save).not.toHaveBeenCalled()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+})

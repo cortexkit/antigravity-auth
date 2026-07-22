@@ -420,6 +420,8 @@ export class AccountManager {
 
   private savePending = false
   private saveTimeout: ReturnType<typeof setTimeout> | null = null
+  private saveInFlight: Promise<void> | null = null
+  private disposed = false
   private savePromiseResolvers: Array<{
     resolve: () => void
     reject: (err: unknown) => void
@@ -1674,23 +1676,39 @@ export class AccountManager {
   }
 
   requestSaveToDisk(): void {
-    if (this.savePending) {
+    if (this.disposed || this.savePending) {
       return
     }
     this.savePending = true
     this.saveTimeout = setTimeout(() => {
-      void this.executeSave()
+      this.saveInFlight = this.executeSave().finally(() => {
+        this.saveInFlight = null
+      })
     }, 1000)
   }
 
   async flushSaveToDisk(): Promise<void> {
     if (!this.savePending) {
+      await this.saveInFlight
       return
     }
     return new Promise<void>((resolve, reject) => {
       this.savePromiseResolvers.push({ resolve, reject })
     })
   }
+  async dispose(): Promise<void> {
+    if (this.disposed) return
+    this.disposed = true
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout)
+      this.saveTimeout = null
+    }
+    if (this.savePending) {
+      await this.executeSave()
+    }
+    await this.saveInFlight
+  }
+
   private async executeSave(): Promise<void> {
     this.savePending = false
     this.saveTimeout = null

@@ -70,6 +70,11 @@ export class AgySessionRegistry {
     this.parentSessionIds.delete(sessionId)
   }
 
+  clear(): void {
+    this.requestSessions.clear()
+    this.parentSessionIds.clear()
+  }
+
   get size(): number {
     return this.requestSessions.size
   }

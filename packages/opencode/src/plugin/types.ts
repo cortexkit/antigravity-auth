@@ -82,6 +82,7 @@ export interface PluginEventPayload {
 }
 
 export interface PluginResult {
+  dispose?: () => Promise<void> | void
   config?: (input: Record<string, unknown>) => Promise<void> | void
   'command.execute.before'?: (input: {
     command: string

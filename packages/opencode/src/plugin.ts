@@ -39,7 +39,10 @@ import {
   buildAuthFromStoredAccount,
   detectAuthStorageDrift,
 } from './plugin/auth-drift'
-import { initDiskSignatureCache } from './plugin/cache'
+import {
+  initDiskSignatureCache,
+  shutdownDiskSignatureCache,
+} from './plugin/cache'
 import {
   promptAddAnotherAccount,
   promptLoginMode,
@@ -74,6 +77,7 @@ import {
   parseGeminiDumpCommandAction,
   setGeminiDumpEnabled,
 } from './plugin/gemini-dump'
+import { createPluginLifecycle } from './plugin/lifecycle'
 import { createLogger, initLogger } from './plugin/logger'
 import {
   getAntigravityOpencodeModelIds,
@@ -178,10 +182,6 @@ const MAX_TOAST_COOLDOWN_ENTRIES = 100
 // Track if "all accounts blocked" toasts were shown to prevent spam in while loop
 let softQuotaToastShown = false
 let rateLimitToastShown = false
-
-// Module-level reference to AccountManager for access from auth.login
-let activeAccountManager: import('./plugin/accounts').AccountManager | null =
-  null
 
 function cleanupToastCooldowns(): void {
   if (rateLimitToastCooldowns.size > MAX_TOAST_COOLDOWN_ENTRIES) {
@@ -1603,9 +1603,26 @@ export const createAntigravityPlugin =
     const config = loadConfig(directory)
     initRuntimeConfig(config)
     const agySessionRegistry = new AgySessionRegistry(directory)
-
-    // Cached getAuth function for tool access
     let cachedGetAuth: GetAuth | null = null
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: agySessionRegistry,
+      shutdownDiskSignatureCache,
+      clearFetchState: () => {
+        cachedGetAuth = null
+      },
+    })
+    lifecycle.register({
+      dispose: () => {
+        warmupAttemptedSessionIds.clear()
+        warmupSucceededSessionIds.clear()
+        quotaRefreshInProgressByEmail.clear()
+        rateLimitToastCooldowns.clear()
+        rateLimitStateByAccountQuota.clear()
+        emptyResponseAttempts.clear()
+        accountFailureState.clear()
+        resetAllAccountsBlockedToasts()
+      },
+    })
 
     // Initialize debug with config
     initializeDebug(config)
@@ -1681,7 +1698,7 @@ export const createAntigravityPlugin =
             parentID: parentSessionId,
           })
         } else {
-          const prevSummary = activeAccountManager?.getSessionSummary()
+          const prevSummary = lifecycle.getAccountManager()?.getSessionSummary()
           if (
             prevSummary &&
             (prevSummary.totalClaude > 0 || prevSummary.totalGemini > 0)
@@ -1708,7 +1725,7 @@ export const createAntigravityPlugin =
         const sessionId = props?.sessionID ?? props?.info?.id
         if (sessionId) {
           agySessionRegistry.delete(sessionId)
-          activeAccountManager?.deleteSessionState(sessionId)
+          lifecycle.getAccountManager()?.deleteSessionState(sessionId)
         }
       }
 
@@ -1837,6 +1854,7 @@ export const createAntigravityPlugin =
     })
 
     return {
+      dispose: () => lifecycle.dispose(),
       config: async (opencodeConfig: Record<string, unknown>) => {
         applyAntigravityProviderCatalog(opencodeConfig, providerId)
         const mutableConfig = opencodeConfig as Record<string, unknown> & {
@@ -1940,7 +1958,6 @@ export const createAntigravityPlugin =
           // Note: AccountManager now ensures the current auth is always included in accounts
 
           const accountManager = await AccountManager.loadFromDisk(auth)
-          activeAccountManager = accountManager
           if (accountManager.getAccountCount() > 0) {
             accountManager.requestSaveToDisk()
           }
@@ -1958,8 +1975,9 @@ export const createAntigravityPlugin =
                 config.proactive_refresh_check_interval_seconds,
             })
             refreshQueue.setAccountManager(accountManager)
-            refreshQueue.start()
           }
+          await lifecycle.replaceAccountRuntime(accountManager, refreshQueue)
+          refreshQueue?.start()
 
           if (isDebugEnabled()) {
             const logPath = getLogFilePath()
@@ -4216,10 +4234,12 @@ export const createAntigravityPlugin =
                           }
                           acc.enabled = shouldEnable
                           await saveAccounts(existingStorage)
-                          activeAccountManager?.setAccountEnabled(
-                            menuResult.toggleAccountIndex,
-                            acc.enabled,
-                          )
+                          lifecycle
+                            .getAccountManager()
+                            ?.setAccountEnabled(
+                              menuResult.toggleAccountIndex,
+                              acc.enabled,
+                            )
                           console.log(
                             `\nAccount ${acc.email || menuResult.toggleAccountIndex + 1} ${acc.enabled ? 'enabled' : 'disabled'}.\n`,
                           )
@@ -4282,10 +4302,9 @@ export const createAntigravityPlugin =
                             if (changed) {
                               storageUpdated = true
                             }
-                            activeAccountManager?.clearAccountAccessBlocks(
-                              i,
-                              wasAccessBlocked,
-                            )
+                            lifecycle
+                              .getAccountManager()
+                              ?.clearAccountAccessBlocks(i, wasAccessBlocked)
                             okCount += 1
                             console.log('ok')
                             continue
@@ -4301,11 +4320,13 @@ export const createAntigravityPlugin =
                             if (changed) {
                               storageUpdated = true
                             }
-                            activeAccountManager?.markAccountVerificationRequired(
-                              i,
-                              verification.message,
-                              verification.verifyUrl,
-                            )
+                            lifecycle
+                              .getAccountManager()
+                              ?.markAccountVerificationRequired(
+                                i,
+                                verification.message,
+                                verification.verifyUrl,
+                              )
 
                             blockedCount += 1
                             console.log('needs verification')
@@ -4327,10 +4348,9 @@ export const createAntigravityPlugin =
                             if (changed) {
                               storageUpdated = true
                             }
-                            activeAccountManager?.markAccountIneligible(
-                              i,
-                              verification.message,
-                            )
+                            lifecycle
+                              .getAccountManager()
+                              ?.markAccountIneligible(i, verification.message)
                             ineligibleCount += 1
                             console.log('ineligible')
                             continue
@@ -4408,10 +4428,12 @@ export const createAntigravityPlugin =
                         if (changed) {
                           await saveAccounts(existingStorage)
                         }
-                        activeAccountManager?.clearAccountAccessBlocks(
-                          verifyAccountIndex,
-                          wasAccessBlocked,
-                        )
+                        lifecycle
+                          .getAccountManager()
+                          ?.clearAccountAccessBlocks(
+                            verifyAccountIndex,
+                            wasAccessBlocked,
+                          )
 
                         if (wasAccessBlocked) {
                           console.log(
@@ -4432,11 +4454,13 @@ export const createAntigravityPlugin =
                         if (changed) {
                           await saveAccounts(existingStorage)
                         }
-                        activeAccountManager?.markAccountVerificationRequired(
-                          verifyAccountIndex,
-                          verification.message,
-                          verification.verifyUrl,
-                        )
+                        lifecycle
+                          .getAccountManager()
+                          ?.markAccountVerificationRequired(
+                            verifyAccountIndex,
+                            verification.message,
+                            verification.verifyUrl,
+                          )
 
                         const verifyUrl =
                           verification.verifyUrl ?? account.verificationUrl
@@ -4479,10 +4503,12 @@ export const createAntigravityPlugin =
                         if (changed) {
                           await saveAccounts(existingStorage)
                         }
-                        activeAccountManager?.markAccountIneligible(
-                          verifyAccountIndex,
-                          verification.message,
-                        )
+                        lifecycle
+                          .getAccountManager()
+                          ?.markAccountIneligible(
+                            verifyAccountIndex,
+                            verification.message,
+                          )
                         console.log(
                           `⚠ ${label} is not eligible for Antigravity and has been disabled.`,
                         )
@@ -4521,9 +4547,9 @@ export const createAntigravityPlugin =
                       activeIndexByFamily: { claude: 0, gemini: 0 },
                     })
                     // Sync in-memory state so deleted account stops being used immediately
-                    activeAccountManager?.removeAccountByIndex(
-                      menuResult.deleteAccountIndex,
-                    )
+                    lifecycle
+                      .getAccountManager()
+                      ?.removeAccountByIndex(menuResult.deleteAccountIndex)
                     console.log('\nAccount deleted.\n')
 
                     if (updatedAccounts.length > 0) {

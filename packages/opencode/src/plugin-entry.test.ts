@@ -74,6 +74,7 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
 
     const plugin = await createAntigravityPlugin(ANTIGRAVITY_PROVIDER_ID)(ctx)
 
+    expect(typeof plugin.dispose).toBe('function')
     expect(typeof plugin.config).toBe('function')
     expect(typeof plugin['command.execute.before']).toBe('function')
     expect(typeof plugin.event).toBe('function')

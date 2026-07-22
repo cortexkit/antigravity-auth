@@ -115,6 +115,18 @@ export function getDiskSignatureCache(): SignatureCache | null {
   return diskCache
 }
 
+export async function shutdownDiskSignatureCache(): Promise<void> {
+  const cache = diskCache
+  try {
+    await cache?.flush()
+  } finally {
+    cache?.shutdown()
+    diskCache = null
+    clearCachedAuth()
+    clearSignatureCache()
+  }
+}
+
 /**
  * Hashes text content into a stable, Unicode-safe key.
  *
