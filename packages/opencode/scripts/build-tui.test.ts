@@ -186,3 +186,16 @@ describe('RPC source shipping', () => {
     )
   })
 })
+
+describe('standalone CLI isolation', () => {
+  it('keeps cli.ts out of the TUI import graph', async () => {
+    const reachable = await collectRelativeImportGraph(
+      [
+        join(PACKAGE_ROOT, 'src/tui.tsx'),
+        join(PACKAGE_ROOT, 'src/tui/entry.mjs'),
+      ],
+      PACKAGE_ROOT,
+    )
+    expect(reachable).not.toContain(join(PACKAGE_ROOT, 'src/cli.ts'))
+  })
+})

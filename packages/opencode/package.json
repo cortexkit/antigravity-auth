@@ -46,15 +46,21 @@
   "files": [
     "dist/",
     "src/tui.tsx",
-    "src/tui/",
-    "src/rpc/",
-    "src/tui-compiled/",
+    "src/tui/entry.mjs",
+    "src/tui/ansi.ts",
+    "src/tui/command-dialogs.tsx",
+    "src/tui/file-logger.ts",
     "src/sidebar-state.ts",
+    "src/rpc/rpc-client.ts",
+    "src/rpc/rpc-dir.ts",
+    "src/rpc/port-file.ts",
+    "src/rpc/protocol.ts",
+    "src/tui-compiled/",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && esbuild index.ts --bundle --platform=node --format=esm --external:@openauthjs/* --external:zod --external:@opencode-ai/plugin --external:@opencode-ai/plugin/* --outfile=dist/index.js --sourcemap && bun run build:tui",
+    "build": "tsc -p tsconfig.build.json && esbuild index.ts --bundle --platform=node --format=esm --external:@openauthjs/* --external:zod --external:@opencode-ai/plugin --external:@opencode-ai/plugin/* --outfile=dist/index.js --sourcemap && esbuild src/cli.ts --bundle --platform=node --format=esm --external:@openauthjs/* --external:zod --banner:js=\"#!/usr/bin/env node\" --outfile=dist/cli.js --sourcemap && chmod 0755 dist/cli.js && bun run build:tui",
     "build:tui": "bunx tsx scripts/build-tui.ts",
     "build:schema": "bunx tsx script/build-schema.ts",
     "smoke:tui": "bun scripts/smoke-tui-pack-install.ts",
@@ -82,5 +88,8 @@
     "solid-js": "1.9.12",
     "xdg-basedir": "^5.1.0",
     "zod": "^4.0.0"
+  },
+  "bin": {
+    "antigravity-auth": "./dist/cli.js"
   }
 }

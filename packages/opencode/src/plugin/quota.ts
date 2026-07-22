@@ -165,12 +165,14 @@ export function createOpenCodeQuotaManager(
  * manual quota dialogs always reflect the latest data even if the background
  * manager has backed off.
  */
-export async function checkAccountsQuota(
+export async function checkAccountsQuotaWith(
   accounts: AccountMetadataV3[],
-  client: PluginClient,
-  providerId: string = ANTIGRAVITY_PROVIDER_ID,
+  fetchAccountQuota: FetchAccountQuota,
 ): Promise<AccountQuotaResult[]> {
-  const manager = createOpenCodeQuotaManager(client, providerId)
+  const manager = createQuotaManager({
+    fetchAccountQuota,
+    keyOf: defaultKeyOf,
+  })
   try {
     return await manager.refreshAccounts(accounts, {
       indexFor: (account) => accounts.indexOf(account),
@@ -179,6 +181,39 @@ export async function checkAccountsQuota(
   } finally {
     manager.dispose()
   }
+}
+
+export async function checkAccountsQuotaStandalone(
+  accounts: AccountMetadataV3[],
+  options: { refresh: boolean },
+): Promise<AccountQuotaResult[]> {
+  if (!options.refresh) {
+    return accounts.map((account, index) => ({
+      index,
+      email: account.email,
+      status: account.enabled === false ? 'disabled' : 'ok',
+      disabled: account.enabled === false,
+      quota: {
+        groups: account.cachedQuota ?? {},
+        modelCount: Object.keys(account.cachedQuota ?? {}).length,
+      },
+    }))
+  }
+  return checkAccountsQuotaWith(
+    accounts,
+    makeFetchAccountQuota(undefined, ANTIGRAVITY_PROVIDER_ID),
+  )
+}
+
+export async function checkAccountsQuota(
+  accounts: AccountMetadataV3[],
+  client: PluginClient,
+  providerId: string = ANTIGRAVITY_PROVIDER_ID,
+): Promise<AccountQuotaResult[]> {
+  return checkAccountsQuotaWith(
+    accounts,
+    makeFetchAccountQuota(client, providerId),
+  )
 }
 
 /**
@@ -230,7 +265,7 @@ export async function pushSidebarQuotaSnapshot(
 }
 
 function makeFetchAccountQuota(
-  client: PluginClient,
+  client: PluginClient | undefined,
   providerId: string,
 ): FetchAccountQuota {
   return async (account, signal) => {
@@ -260,7 +295,11 @@ function makeFetchAccountQuota(
 
     try {
       if (accessTokenExpired(auth)) {
-        const refreshed = await refreshAccessToken(auth, client, providerId)
+        const refreshed = await refreshAccessToken(
+          auth,
+          client as PluginClient,
+          providerId,
+        )
         if (!refreshed) {
           throw new Error('Token refresh failed')
         }
@@ -274,11 +313,8 @@ function makeFetchAccountQuota(
       auth = projectContext.auth
       const updatedAccount = applyAccountUpdates(account, auth)
 
-      if (rotatedRefresh) {
-        await persistRotatedRefresh(client, providerId, auth).catch(() => {
-          // Quota fetch must succeed even if persist fails — the next quota
-          // check will re-read from the in-memory cached auth.
-        })
+      if (rotatedRefresh && client) {
+        await persistRotatedRefresh(client, providerId, auth).catch(() => {})
       }
 
       const [antigravityResponse, geminiCliResponse] = await Promise.all([

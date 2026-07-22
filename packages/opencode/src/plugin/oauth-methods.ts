@@ -22,6 +22,7 @@ import {
 import type { AntigravityConfig } from './config'
 import type { PluginLifecycle } from './lifecycle'
 import { createLogger } from './logger'
+import { type OAuthLoginRequest, performOAuthLogin } from './oauth-login'
 import { clearProvisionFailedKeys } from './project'
 import { createOpenCodeQuotaManager, type QuotaManager } from './quota'
 import {
@@ -57,6 +58,13 @@ function toV1AuthCallbackResult(
 
 const MAX_OAUTH_ACCOUNTS = 10
 const log = createLogger('oauth-methods')
+
+export {
+  type AntigravityTokenExchangeSuccess,
+  type OAuthLoginDependencies,
+  type OAuthLoginRequest,
+  performOAuthLogin,
+} from './oauth-login'
 
 export interface OAuthMethodDependencies {
   authorize: typeof defaultAuthorizeAntigravity
@@ -1185,8 +1193,43 @@ export function createOAuthMethods({
 
             const projectId = await promptProjectId()
 
+            let persistedBySharedService = false
+            const loginRequest: OAuthLoginRequest = {
+              projectId,
+              noBrowser,
+              isHeadless,
+              refreshAccountIndex,
+              accounts: [...accounts],
+              startFresh,
+            }
             const result =
               await (async (): Promise<AntigravityTokenExchangeResult> => {
+                if (!useManualMode && refreshAccountIndex === undefined) {
+                  try {
+                    return await performOAuthLogin(loginRequest, {
+                      authorize: authorizeAntigravity,
+                      exchange: exchangeAntigravity,
+                      startListener: startOAuthListener,
+                      openBrowser: async (url) => {
+                        await openBrowser(url)
+                      },
+                      upsert: async (loginResult) => {
+                        await persistAccountPool(
+                          [loginResult],
+                          accounts.length === 0 && startFresh,
+                        )
+                        persistedBySharedService = true
+                      },
+                    })
+                  } catch (error) {
+                    return {
+                      type: 'failed',
+                      error:
+                        error instanceof Error ? error.message : String(error),
+                    }
+                  }
+                }
+
                 const authorization = await authorizeAntigravity(projectId)
                 const fallbackState = getStateFromAuthorizationUrl(
                   authorization.url,
@@ -1325,7 +1368,10 @@ export function createOAuthMethods({
             } catch {}
 
             try {
-              if (refreshAccountIndex !== undefined) {
+              if (
+                !persistedBySharedService &&
+                refreshAccountIndex !== undefined
+              ) {
                 const currentStorage = await loadAccounts()
                 if (currentStorage) {
                   const targetRefreshToken =
@@ -1359,7 +1405,7 @@ export function createOAuthMethods({
                     })
                   }
                 }
-              } else {
+              } else if (!persistedBySharedService) {
                 const isFirstAccount = accounts.length === 1
                 await persistAccountPool([result], isFirstAccount && startFresh)
               }
