@@ -9,6 +9,7 @@
  * Environment variables always override config file values.
  */
 
+import type { AccountSelectionStrategy } from '@cortexkit/antigravity-auth-core'
 import { z } from 'zod'
 
 /**
@@ -23,9 +24,7 @@ export const AccountSelectionStrategySchema = z.enum([
   'round-robin',
   'hybrid',
 ])
-export type AccountSelectionStrategy = z.infer<
-  typeof AccountSelectionStrategySchema
->
+export type { AccountSelectionStrategy }
 
 /**
  * Toast notification scope for controlling which sessions show toasts.
