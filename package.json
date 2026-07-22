@@ -6,13 +6,13 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "cd packages/core && npm run build && cd ../opencode && npm run build && cd ../pi && npm run build",
-    "typecheck": "cd packages/core && npm run build && cd ../opencode && npm run typecheck && cd ../pi && npm run typecheck",
-    "test": "cd packages/core && npm test && cd ../opencode && npm test && cd ../pi && npm test",
-    "prepublishOnly": "npm run build"
+    "build": "bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/pi build",
+    "typecheck": "bun run --cwd packages/core build && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck",
+    "test": "bun run --cwd packages/core test && bun run --cwd packages/opencode test && bun run --cwd packages/pi test",
+    "prepublishOnly": "bun run build"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
-    "typescript": "^5.0.0"
+    "@types/node": "24.10.1",
+    "typescript": "6.0.3"
   }
 }

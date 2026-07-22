@@ -41,10 +41,10 @@ Then `/login google-antigravity`. See the [pi package README](packages/pi/README
 ## Development
 
 ```bash
-npm install         # install workspace dependencies
-npm run build       # build core, then opencode + pi
-npm run typecheck   # typecheck all packages
-npm test            # run all package test suites
+bun install                  # install workspace dependencies
+bun run build                # build core, then opencode + pi
+bun run typecheck            # typecheck all packages
+bun run test                 # run all package test suites
 ```
 
 ## Releasing

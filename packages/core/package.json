@@ -27,7 +27,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "@openauthjs/openauth": "^0.4.3",
@@ -36,9 +36,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
     "@types/proper-lockfile": "^4.1.4",
-    "typescript": "^5.0.0",
     "vitest": "^3.0.0"
   }
 }

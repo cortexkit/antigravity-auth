@@ -13,6 +13,7 @@
     // Bundler mode
     "moduleResolution": "bundler",
     "typeRoots": ["./node_modules/@types", "../../node_modules/@types"],
+    "types": ["node"],
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,

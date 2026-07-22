@@ -36,26 +36,24 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && esbuild index.ts --bundle --platform=node --format=esm --external:@openauthjs/* --external:proper-lockfile --external:zod --outfile=dist/index.js --sourcemap",
-    "build:schema": "npx tsx script/build-schema.ts",
+    "build:schema": "bunx tsx script/build-schema.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run build",
-    "test:e2e:models": "npx tsx script/test-models.ts",
-    "test:e2e:regression": "npx tsx script/test-regression.ts"
+    "prepublishOnly": "bun run build",
+    "test:e2e:models": "bunx tsx script/test-models.ts",
+    "test:e2e:regression": "bunx tsx script/test-regression.ts"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5 || ^6"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
     "@types/proper-lockfile": "^4.1.4",
     "@vitest/coverage-v8": "^3.0.0",
     "@vitest/ui": "^3.0.0",
     "esbuild": "^0.27.7",
-    "typescript": "^5.0.0",
     "vitest": "^3.0.0",
     "zod-to-json-schema": "^3.25.1"
   },
