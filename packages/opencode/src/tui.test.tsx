@@ -8,6 +8,7 @@
  * the same way production hosts transform it.
  */
 
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import {
   existsSync,
   mkdirSync,
@@ -17,17 +18,14 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { testRender } from '@opentui/solid'
-
-import SidebarPanel from './tui'
 import {
   DEFAULT_SIDEBAR_STATE,
   SIDEBAR_STATE_ENV,
   SIDEBAR_STATE_VERSION,
   type SidebarStateV1,
 } from './sidebar-state'
+import { SidebarPanel } from './tui'
 import type { TuiLogger } from './tui/file-logger'
 
 interface LogEntry {
@@ -334,5 +332,55 @@ describe('SidebarPanel', () => {
     expect(frame).toContain('Awaiting Antigravity state')
     expect(existsSync(fixture.logPath)).toBe(false)
     testSetup.renderer.destroy()
+  })
+})
+
+describe('RPC notification polling', () => {
+  it('polls by session and clears the interval on unmount', async () => {
+    const calls: Array<{ lastReceivedId: number; sessionId?: string }> = []
+    const received: number[] = []
+    const rpcClient = {
+      apply: async () => ({ text: '', knobs: {} }),
+      pendingNotifications: async (
+        lastReceivedId: number,
+        sessionId?: string,
+      ) => {
+        calls.push({ lastReceivedId, sessionId })
+        return calls.length === 1
+          ? [
+              {
+                id: 7,
+                command: 'antigravity-quota' as const,
+                text: 'quota changed',
+                knobs: {},
+                sessionId,
+              },
+            ]
+          : []
+      },
+    }
+    const testSetup = await testRender(
+      () => (
+        <SidebarPanel
+          logger={makeCapturingLogger()}
+          stateFile={join(tmpdir(), 'agy-rpc-poll-missing-state.json')}
+          rpcClient={rpcClient}
+          rpcPollIntervalMs={10}
+          sessionId='session-a'
+          onRpcNotification={(notification) => received.push(notification.id)}
+        />
+      ),
+      { width: 40, height: 10 },
+    )
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 35))
+    expect(calls[0]).toEqual({ lastReceivedId: 0, sessionId: 'session-a' })
+    expect(calls.some(({ lastReceivedId }) => lastReceivedId === 7)).toBe(true)
+    expect(received).toEqual([7])
+
+    testSetup.renderer.destroy()
+    const afterDestroy = calls.length
+    await new Promise<void>((resolve) => setTimeout(resolve, 30))
+    expect(calls).toHaveLength(afterDestroy)
   })
 })
