@@ -21,6 +21,7 @@
       "packages/*/src/**",
       "!packages/opencode/src/tui-compiled",
       "packages/*/script/**",
+      "packages/*/scripts/**",
       "scripts/**",
       "test/**",
       "*.json",

@@ -29,17 +29,37 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "oc-plugin": [
+    "server",
+    "tui"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./tui": {
+      "import": "./src/tui/entry.mjs",
+      "types": "./dist/src/tui.d.ts"
+    }
+  },
   "files": [
     "dist/",
+    "src/tui.tsx",
+    "src/tui/",
+    "src/tui-compiled/",
+    "src/sidebar-state.ts",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && esbuild index.ts --bundle --platform=node --format=esm --external:@openauthjs/* --external:zod --external:@opencode-ai/plugin --external:@opencode-ai/plugin/* --outfile=dist/index.js --sourcemap",
+    "build": "tsc -p tsconfig.build.json && esbuild index.ts --bundle --platform=node --format=esm --external:@openauthjs/* --external:zod --external:@opencode-ai/plugin --external:@opencode-ai/plugin/* --outfile=dist/index.js --sourcemap && bun run build:tui",
+    "build:tui": "bunx tsx scripts/build-tui.ts",
     "build:schema": "bunx tsx script/build-schema.ts",
+    "smoke:tui": "bun scripts/smoke-tui-pack-install.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test --isolate ./src",
-    "prepublishOnly": "bun run build",
+    "prepublishOnly": "bun run build && bun run build:tui",
     "test:e2e:models": "bunx tsx script/test-models.ts",
     "test:e2e:regression": "bunx tsx script/test-regression.ts"
   },
