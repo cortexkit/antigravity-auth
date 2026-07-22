@@ -8,25 +8,10 @@
  * @see https://github.com/cortexkit/antigravity-auth/issues/89
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  jest,
-  mock,
-} from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
-mock.module('proper-lockfile', () => ({
-  lock: mock().mockResolvedValue(mock().mockResolvedValue(undefined)),
-  default: {
-    lock: mock().mockResolvedValue(mock().mockResolvedValue(undefined)),
-  },
-}))
 
 import type { AccountMetadataV3, AccountStorageV4 } from './storage'
 import * as storageModule from './storage'

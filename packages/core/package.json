@@ -31,11 +31,8 @@
   },
   "dependencies": {
     "@openauthjs/openauth": "^0.4.3",
-    "proper-lockfile": "^4.1.2",
     "xdg-basedir": "^5.1.0",
     "zod": "^4.0.0"
   },
-  "devDependencies": {
-    "@types/proper-lockfile": "^4.1.4"
-  }
+  "devDependencies": {}
 }

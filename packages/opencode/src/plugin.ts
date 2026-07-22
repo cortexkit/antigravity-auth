@@ -1,6 +1,7 @@
 import { exec } from 'node:child_process'
 import crypto from 'node:crypto'
 import { tool } from '@opencode-ai/plugin'
+import type { AccountMetadataV3 } from './plugin/storage'
 import type { AntigravityTokenExchangeResult } from './antigravity/oauth'
 import { authorizeAntigravity, exchangeAntigravity } from './antigravity/oauth'
 import {
@@ -122,11 +123,14 @@ import {
   AgySessionRegistry,
   extractOpenCodeSessionIdentity,
 } from './plugin/session-context'
+import { persistAccountPool } from './plugin/persist-account-pool'
 import {
   clearAccounts,
+  getStoragePath,
   loadAccounts,
+  mutateAccountByRefreshToken,
+  mutateAccountStorage,
   saveAccounts,
-  saveAccountsReplace,
 } from './plugin/storage'
 import {
   AntigravityTokenRefreshError,
@@ -1011,122 +1015,6 @@ async function promptManualOAuthInput(
   }
 
   return exchangeAntigravity(params.code, params.state)
-}
-
-function clampInt(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) {
-    return min
-  }
-  return Math.min(max, Math.max(min, Math.floor(value)))
-}
-
-async function persistAccountPool(
-  results: Array<Extract<AntigravityTokenExchangeResult, { type: 'success' }>>,
-  replaceAll: boolean = false,
-): Promise<void> {
-  if (results.length === 0) {
-    return
-  }
-
-  const now = Date.now()
-
-  // If replaceAll is true (fresh login), start with empty accounts
-  // Otherwise, load existing accounts and merge
-  const stored = replaceAll ? null : await loadAccounts()
-  const accounts = stored?.accounts ? [...stored.accounts] : []
-
-  const indexByRefreshToken = new Map<string, number>()
-  const indexByEmail = new Map<string, number>()
-  for (let i = 0; i < accounts.length; i++) {
-    const acc = accounts[i]
-    if (acc?.refreshToken) {
-      indexByRefreshToken.set(acc.refreshToken, i)
-    }
-    if (acc?.email) {
-      indexByEmail.set(acc.email, i)
-    }
-  }
-
-  for (const result of results) {
-    const parts = parseRefreshParts(result.refresh)
-    if (!parts.refreshToken) {
-      continue
-    }
-
-    // First, check for existing account by email (prevents duplicates when refresh token changes)
-    // Only use email-based deduplication if the new account has an email
-    const existingByEmail = result.email
-      ? indexByEmail.get(result.email)
-      : undefined
-    const existingByToken = indexByRefreshToken.get(parts.refreshToken)
-
-    // Prefer email-based match to handle refresh token rotation
-    const existingIndex = existingByEmail ?? existingByToken
-
-    if (existingIndex === undefined) {
-      // New account - add it
-      const newIndex = accounts.length
-      indexByRefreshToken.set(parts.refreshToken, newIndex)
-      if (result.email) {
-        indexByEmail.set(result.email, newIndex)
-      }
-      accounts.push({
-        email: result.email,
-        refreshToken: parts.refreshToken,
-        projectId: parts.projectId,
-        managedProjectId: parts.managedProjectId,
-        addedAt: now,
-        lastUsed: now,
-        enabled: true,
-      })
-      continue
-    }
-
-    const existing = accounts[existingIndex]
-    if (!existing) {
-      continue
-    }
-
-    // Update existing account (this handles both email match and token match cases)
-    // When email matches but token differs, this effectively replaces the old token
-    const oldToken = existing.refreshToken
-    accounts[existingIndex] = {
-      ...existing,
-      email: result.email ?? existing.email,
-      refreshToken: parts.refreshToken,
-      projectId: parts.projectId ?? existing.projectId,
-      managedProjectId: parts.managedProjectId ?? existing.managedProjectId,
-      lastUsed: now,
-    }
-
-    // Update the token index if the token changed
-    if (oldToken !== parts.refreshToken) {
-      indexByRefreshToken.delete(oldToken)
-      indexByRefreshToken.set(parts.refreshToken, existingIndex)
-    }
-  }
-
-  if (accounts.length === 0) {
-    return
-  }
-
-  // For fresh logins, always start at index 0
-  const activeIndex = replaceAll
-    ? 0
-    : typeof stored?.activeIndex === 'number' &&
-        Number.isFinite(stored.activeIndex)
-      ? stored.activeIndex
-      : 0
-
-  await saveAccounts({
-    version: 4,
-    accounts,
-    activeIndex: clampInt(activeIndex, 0, accounts.length - 1),
-    activeIndexByFamily: {
-      claude: clampInt(activeIndex, 0, accounts.length - 1),
-      gemini: clampInt(activeIndex, 0, accounts.length - 1),
-    },
-  })
 }
 
 function buildAuthSuccessFromStoredAccount(account: {
@@ -4013,7 +3901,18 @@ export const createAntigravityPlugin =
                         client,
                         providerId,
                       )
-                      let storageUpdated = false
+                      // Collect quota cache updates keyed by refresh token so a
+                      // concurrent add cannot shift our index and let us
+                      // overwrite the wrong account's quota cache.
+                      const quotaUpdates = new Map<
+                        string,
+                        {
+                          quota?: AccountMetadataV3['cachedQuota']
+                          perModel?: AccountMetadataV3['cachedPerModelQuota']
+                          updatedAccount?: AccountMetadataV3
+                          updatedAt: number
+                        }
+                      >()
 
                       for (const res of results) {
                         const label = res.email || `Account ${res.index + 1}`
@@ -4172,28 +4071,43 @@ export const createAntigravityPlugin =
                         console.log('')
 
                         // Cache quota data for soft quota protection
-                        if (res.quota?.groups) {
-                          const acc = existingStorage.accounts[res.index]
-                          if (acc) {
-                            acc.cachedQuota = res.quota.groups
-                            acc.cachedPerModelQuota = res.quota.perModel
-                            acc.cachedQuotaUpdatedAt = Date.now()
-                            storageUpdated = true
-                          }
-                        }
-
-                        if (res.updatedAccount) {
-                          existingStorage.accounts[res.index] = {
-                            ...res.updatedAccount,
-                            cachedQuota: res.quota?.groups,
-                            cachedPerModelQuota: res.quota?.perModel,
-                            cachedQuotaUpdatedAt: Date.now(),
-                          }
-                          storageUpdated = true
-                        }
+                        const targetRefreshToken =
+                          existingStorage.accounts[res.index]?.refreshToken
+                        if (!targetRefreshToken) continue
+                        const updatedAt = Date.now()
+                        const existing = quotaUpdates.get(targetRefreshToken)
+                        quotaUpdates.set(targetRefreshToken, {
+                          quota: res.quota?.groups,
+                          perModel: res.quota?.perModel,
+                          updatedAccount: res.updatedAccount,
+                          updatedAt:
+                            existing && existing.updatedAt > updatedAt
+                              ? existing.updatedAt
+                              : updatedAt,
+                        })
                       }
-                      if (storageUpdated) {
-                        await saveAccounts(existingStorage)
+                      if (quotaUpdates.size > 0) {
+                        const path = getStoragePath()
+                        await mutateAccountStorage(path, (current) => {
+                          let changed = false
+                          for (const [refreshToken, update] of quotaUpdates) {
+                            const idx = current.accounts.findIndex(
+                              (acc) => acc.refreshToken === refreshToken,
+                            )
+                            if (idx === -1) continue
+                            const target = current.accounts[idx]
+                            if (!target) continue
+                            current.accounts[idx] = {
+                              ...target,
+                              ...(update.updatedAccount ?? {}),
+                              cachedQuota: update.quota,
+                              cachedPerModelQuota: update.perModel,
+                              cachedQuotaUpdatedAt: update.updatedAt,
+                            }
+                            changed = true
+                          }
+                          return changed ? current : current
+                        })
                       }
                       console.log('')
                       continue
@@ -4232,16 +4146,23 @@ export const createAntigravityPlugin =
                             )
                             continue
                           }
-                          acc.enabled = shouldEnable
-                          await saveAccounts(existingStorage)
+                          if (acc.refreshToken) {
+                            await mutateAccountByRefreshToken(
+                              acc.refreshToken,
+                              (target) => {
+                                target.enabled = shouldEnable
+                                return true
+                              },
+                            )
+                          }
                           lifecycle
                             .getAccountManager()
                             ?.setAccountEnabled(
                               menuResult.toggleAccountIndex,
-                              acc.enabled,
+                              shouldEnable,
                             )
                           console.log(
-                            `\nAccount ${acc.email || menuResult.toggleAccountIndex + 1} ${acc.enabled ? 'enabled' : 'disabled'}.\n`,
+                            `\nAccount ${acc.email || menuResult.toggleAccountIndex + 1} ${shouldEnable ? 'enabled' : 'disabled'}.\n`,
                           )
                         }
                       }
@@ -4270,7 +4191,6 @@ export const createAntigravityPlugin =
                         let blockedCount = 0
                         let ineligibleCount = 0
                         let errorCount = 0
-                        let storageUpdated = false
 
                         const blockedResults: Array<{
                           label: string
@@ -4297,10 +4217,16 @@ export const createAntigravityPlugin =
                             providerId,
                           )
                           if (verification.status === 'ok') {
-                            const { changed, wasAccessBlocked } =
-                              clearStoredAccountAccessBlocks(account, true)
-                            if (changed) {
-                              storageUpdated = true
+                            const wasAccessBlocked =
+                              account.verificationRequired === true ||
+                              account.accountIneligible === true
+                            if (account.refreshToken) {
+                              await mutateAccountByRefreshToken(
+                                account.refreshToken,
+                                (acc) =>
+                                  clearStoredAccountAccessBlocks(acc, true)
+                                    .changed,
+                              )
                             }
                             lifecycle
                               .getAccountManager()
@@ -4311,14 +4237,16 @@ export const createAntigravityPlugin =
                           }
 
                           if (verification.status === 'verification-required') {
-                            const changed =
-                              markStoredAccountVerificationRequired(
-                                account,
-                                verification.message,
-                                verification.verifyUrl,
+                            if (account.refreshToken) {
+                              await mutateAccountByRefreshToken(
+                                account.refreshToken,
+                                (acc) =>
+                                  markStoredAccountVerificationRequired(
+                                    acc,
+                                    verification.message,
+                                    verification.verifyUrl,
+                                  ),
                               )
-                            if (changed) {
-                              storageUpdated = true
                             }
                             lifecycle
                               .getAccountManager()
@@ -4341,12 +4269,15 @@ export const createAntigravityPlugin =
                           }
 
                           if (verification.status === 'ineligible') {
-                            const changed = markStoredAccountIneligible(
-                              account,
-                              verification.message,
-                            )
-                            if (changed) {
-                              storageUpdated = true
+                            if (account.refreshToken) {
+                              await mutateAccountByRefreshToken(
+                                account.refreshToken,
+                                (acc) =>
+                                  markStoredAccountIneligible(
+                                    acc,
+                                    verification.message,
+                                  ),
+                              )
                             }
                             lifecycle
                               .getAccountManager()
@@ -4358,10 +4289,6 @@ export const createAntigravityPlugin =
 
                           errorCount += 1
                           console.log(`error (${verification.message})`)
-                        }
-
-                        if (storageUpdated) {
-                          await saveAccounts(existingStorage)
                         }
 
                         console.log(
@@ -4423,10 +4350,15 @@ export const createAntigravityPlugin =
                       )
 
                       if (verification.status === 'ok') {
-                        const { changed, wasAccessBlocked } =
-                          clearStoredAccountAccessBlocks(account, true)
-                        if (changed) {
-                          await saveAccounts(existingStorage)
+                        const wasAccessBlocked =
+                          account.verificationRequired === true ||
+                          account.accountIneligible === true
+                        if (account.refreshToken) {
+                          await mutateAccountByRefreshToken(
+                            account.refreshToken,
+                            (acc) =>
+                              clearStoredAccountAccessBlocks(acc, true).changed,
+                          )
                         }
                         lifecycle
                           .getAccountManager()
@@ -4446,13 +4378,16 @@ export const createAntigravityPlugin =
                       }
 
                       if (verification.status === 'verification-required') {
-                        const changed = markStoredAccountVerificationRequired(
-                          account,
-                          verification.message,
-                          verification.verifyUrl,
-                        )
-                        if (changed) {
-                          await saveAccounts(existingStorage)
+                        if (account.refreshToken) {
+                          await mutateAccountByRefreshToken(
+                            account.refreshToken,
+                            (acc) =>
+                              markStoredAccountVerificationRequired(
+                                acc,
+                                verification.message,
+                                verification.verifyUrl,
+                              ),
+                          )
                         }
                         lifecycle
                           .getAccountManager()
@@ -4496,12 +4431,15 @@ export const createAntigravityPlugin =
                       }
 
                       if (verification.status === 'ineligible') {
-                        const changed = markStoredAccountIneligible(
-                          account,
-                          verification.message,
-                        )
-                        if (changed) {
-                          await saveAccounts(existingStorage)
+                        if (account.refreshToken) {
+                          await mutateAccountByRefreshToken(
+                            account.refreshToken,
+                            (acc) =>
+                              markStoredAccountIneligible(
+                                acc,
+                                verification.message,
+                              ),
+                          )
                         }
                         lifecycle
                           .getAccountManager()
@@ -4536,16 +4474,29 @@ export const createAntigravityPlugin =
                   }
 
                   if (menuResult.deleteAccountIndex !== undefined) {
-                    const updatedAccounts = existingStorage.accounts.filter(
-                      (_, idx) => idx !== menuResult.deleteAccountIndex,
+                    // Locate the to-be-deleted account by refresh token so a
+                    // concurrent add cannot shift our index and let us
+                    // remove the wrong account.
+                    const targetRefreshToken =
+                      existingStorage.accounts[menuResult.deleteAccountIndex]
+                        ?.refreshToken
+                    const path = getStoragePath()
+                    const nextStorage = await mutateAccountStorage(
+                      path,
+                      (current) => ({
+                        ...current,
+                        accounts: targetRefreshToken
+                          ? current.accounts.filter(
+                              (acc) => acc.refreshToken !== targetRefreshToken,
+                            )
+                          : current.accounts.filter(
+                              (_, idx) => idx !== menuResult.deleteAccountIndex,
+                            ),
+                        activeIndex: 0,
+                        activeIndexByFamily: { claude: 0, gemini: 0 },
+                      }),
                     )
-                    // Use saveAccountsReplace to bypass merge (otherwise deleted account gets merged back)
-                    await saveAccountsReplace({
-                      version: 4,
-                      accounts: updatedAccounts,
-                      activeIndex: 0,
-                      activeIndexByFamily: { claude: 0, gemini: 0 },
-                    })
+                    const updatedAccounts = nextStorage.accounts
                     // Sync in-memory state so deleted account stops being used immediately
                     lifecycle
                       .getAccountManager()
@@ -4810,32 +4761,37 @@ export const createAntigravityPlugin =
                     if (refreshAccountIndex !== undefined) {
                       const currentStorage = await loadAccounts()
                       if (currentStorage) {
-                        const updatedAccounts = [...currentStorage.accounts]
+                        const targetRefreshToken =
+                          currentStorage.accounts[refreshAccountIndex]
+                            ?.refreshToken
                         const parts = parseRefreshParts(result.refresh)
-                        if (parts.refreshToken) {
-                          updatedAccounts[refreshAccountIndex] = {
-                            email:
-                              result.email ??
-                              updatedAccounts[refreshAccountIndex]?.email,
-                            refreshToken: parts.refreshToken,
-                            projectId:
-                              parts.projectId ??
-                              updatedAccounts[refreshAccountIndex]?.projectId,
-                            managedProjectId:
-                              parts.managedProjectId ??
-                              updatedAccounts[refreshAccountIndex]
-                                ?.managedProjectId,
-                            addedAt:
-                              updatedAccounts[refreshAccountIndex]?.addedAt ??
-                              Date.now(),
-                            lastUsed: Date.now(),
-                          }
-                          await saveAccounts({
-                            version: 4,
-                            accounts: updatedAccounts,
-                            activeIndex: currentStorage.activeIndex,
-                            activeIndexByFamily:
-                              currentStorage.activeIndexByFamily,
+                        if (targetRefreshToken && parts.refreshToken) {
+                          // Build the replacement INSIDE the locked
+                          // callback from the freshest stored account.
+                          // A pre-lock snapshot would clobber any
+                          // concurrent quota/verification/fingerprint
+                          // update that landed between loadAccounts
+                          // and the mutate call.
+                          const path = getStoragePath()
+                          await mutateAccountStorage(path, (current) => {
+                            const idx = current.accounts.findIndex(
+                              (acc) => acc.refreshToken === targetRefreshToken,
+                            )
+                            if (idx === -1) return current
+                            const target = current.accounts[idx]
+                            if (!target) return current
+                            current.accounts[idx] = {
+                              ...target,
+                              email: result.email ?? target.email,
+                              refreshToken: parts.refreshToken,
+                              projectId: parts.projectId ?? target.projectId,
+                              managedProjectId:
+                                parts.managedProjectId ??
+                                target.managedProjectId,
+                              addedAt: target.addedAt ?? Date.now(),
+                              lastUsed: Date.now(),
+                            }
+                            return current
                           })
                         }
                       }

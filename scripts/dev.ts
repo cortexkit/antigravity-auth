@@ -13,7 +13,6 @@ const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const BUN_COMMAND = process.platform === 'win32' ? 'bun.exe' : 'bun'
 const OPENCODE_EXTERNALS = [
   '--external:@openauthjs/*',
-  '--external:proper-lockfile',
   '--external:zod',
 ] as const
 

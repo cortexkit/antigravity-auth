@@ -1,3 +1,4 @@
+import { AccountStorageLockContentionError } from '@cortexkit/antigravity-auth-core'
 import { formatRefreshParts, parseRefreshParts } from './auth'
 import type { AccountSelectionStrategy } from './config/schema'
 import { debugLogToFile } from './debug'
@@ -57,6 +58,10 @@ const UNKNOWN_BACKOFF = 60_000
 const MIN_BACKOFF_MS = 2_000
 
 function isStorageLockContention(error: unknown): boolean {
+  if (error instanceof AccountStorageLockContentionError) return true
+  // Fallback string-shape match for any pre-migration lock libraries
+  // that might still surface through transitive dependencies: the
+  // prior silent-skip behavior is preserved for legacy callers.
   const message = String(error)
   return (
     message.includes('Lock file is already being held') ||
