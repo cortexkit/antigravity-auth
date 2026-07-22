@@ -18,17 +18,17 @@
 import {
   type AccountMetadataV3,
   type AccountQuotaResult,
-  type FetchAccountQuota,
-  type FetchAvailableModelsResponse,
-  type GeminiCliQuotaSummary,
-  type QuotaManager,
-  type QuotaSummary,
   aggregateGeminiCliQuota,
   aggregateQuota,
   createQuotaManager,
   defaultKeyOf,
+  type FetchAccountQuota,
+  type FetchAvailableModelsResponse,
   fetchAvailableModels,
   fetchGeminiCliQuota,
+  type GeminiCliQuotaSummary,
+  type QuotaManager,
+  type QuotaSummary,
 } from '@cortexkit/antigravity-auth-core'
 
 import {
@@ -37,17 +37,24 @@ import {
   buildGeminiCliUserAgent,
 } from '../constants'
 import {
+  buildSidebarMachineStateFromAccounts,
+  setSidebarMachineState,
+} from '../sidebar-state'
+import {
   accessTokenExpired,
   formatRefreshParts,
   parseRefreshParts,
 } from './auth'
 import { logQuotaFetch, logQuotaStatus } from './debug'
 import { buildAntigravityHarnessUserAgent } from './fingerprint'
+import { createLogger } from './logger'
 import { ensureProjectContext } from './project'
 import { refreshAccessToken } from './token'
 import type { OAuthAuthDetails, PluginClient } from './types'
 
 // Re-export the public surface so existing imports from `./quota` keep working.
+const log = createLogger('quota')
+
 export type {
   AccountQuotaResult,
   AccountQuotaStatus,
@@ -80,20 +87,74 @@ export interface CreateOpenCodeQuotaManagerOptions {
  * The returned manager owns its cache, in-flight dedupe, and backoff state.
  * Register its `dispose()` with `PluginLifecycle` so refreshes abort on plugin
  * shutdown.
+ *
+ * The wrapper observes `refreshAccount` / `refreshAccounts` and pushes a
+ * redacted sidebar snapshot after every refresh (success or backoff) so
+ * the TUI's next poll renders the freshest cached quota. The snapshot is
+ * sourced from the live AccountManager view (`getAccountsForSidebar`) so
+ * it carries the just-updated percentages; before bootstrapping it is a
+ * no-op.
  */
 export function createOpenCodeQuotaManager(
   client: PluginClient,
   providerId: string = ANTIGRAVITY_PROVIDER_ID,
-  options: CreateOpenCodeQuotaManagerOptions = {},
+  options: CreateOpenCodeQuotaManagerOptions & {
+    /**
+     * Optional account-snapshot provider. Wired by the plugin entry to
+     * the live `AccountManager.getAccounts()` so each refresh can build
+     * a sidebar snapshot from the actual cached quota + cooldown. When
+     * omitted, the wrapper falls back to a no-op snapshot push.
+     */
+    getAccountsForSidebar?: () => Array<{
+      index: number
+      email?: string
+      enabled?: boolean
+      coolingDownUntil?: number
+      cachedQuota?: AccountMetadataV3['cachedQuota']
+    }> | null
+  } = {},
 ): QuotaManager {
   const fetchAccountQuota = makeFetchAccountQuota(client, providerId)
-  return createQuotaManager({
+  const manager = createQuotaManager({
     fetchAccountQuota,
     keyOf: options.keyOf ?? defaultKeyOf,
     baseBackoffMs: options.baseBackoffMs,
     maxBackoffMs: options.maxBackoffMs,
     fetchTimeoutMs: options.fetchTimeoutMs,
   })
+  const originalRefreshAccount = manager.refreshAccount
+  const originalRefreshAccounts = manager.refreshAccounts
+  const getAccountsForSidebar = options.getAccountsForSidebar
+
+  const pushAfterRefresh = (account: AccountMetadataV3): void => {
+    if (!getAccountsForSidebar) return
+    void pushSidebarQuotaSnapshot(
+      getAccountsForSidebar,
+      manager.getBackoffUntil(account),
+    ).catch(() => {
+      // pushSidebarQuotaSnapshot already swallows and logs; the .catch
+      // here is just to keep the Promise from surfacing as an unhandled
+      // rejection when the lock was retried past the 2s budget.
+    })
+  }
+
+  return {
+    ...manager,
+    async refreshAccount(account, refreshOptions) {
+      const result = await originalRefreshAccount(account, refreshOptions)
+      pushAfterRefresh(account)
+      return result
+    },
+    async refreshAccounts(accounts, refreshOptions) {
+      const results = await originalRefreshAccounts(accounts, refreshOptions)
+      // Push one snapshot per batch — the AccountManager's view is updated
+      // by the caller (oauth-methods / fetch-interceptor) BEFORE we read
+      // here, so a single post-batch snapshot captures the full diff.
+      const lastAccount = accounts[accounts.length - 1]
+      if (lastAccount) pushAfterRefresh(lastAccount)
+      return results
+    },
+  }
 }
 
 /**
@@ -117,6 +178,54 @@ export async function checkAccountsQuota(
     })
   } finally {
     manager.dispose()
+  }
+}
+
+/**
+ * Push a quota refresh into the sidebar. Called by every quota refresh
+ * call site (manual `/antigravity-quota`, the `check` menu action, and the
+ * background refresh in `fetch-interceptor`) AFTER the results have been
+ * folded back into the AccountManager's cached quota. The function reads
+ * the live account snapshot through `getAccounts` so the redacted entry
+ * carries the just-refreshed percentages — not the previous tick's stale
+ * numbers and not `undefined`.
+ *
+ * The mapping is deliberately tolerant: if `getAccounts` returns `null`
+ * (e.g. before the plugin has finished bootstrapping) the call is a no-op.
+ * On lock contention the error is logged-and-swallowed so a quota dialog
+ * never fails just because the sidebar file is busy.
+ */
+export async function pushSidebarQuotaSnapshot(
+  getAccounts: () => Array<{
+    index: number
+    email?: string
+    enabled?: boolean
+    coolingDownUntil?: number
+    cachedQuota?: AccountMetadataV3['cachedQuota']
+  }> | null,
+  backoffUntil: number = 0,
+): Promise<void> {
+  const accounts = getAccounts()
+  if (!accounts || accounts.length === 0) return
+  try {
+    await setSidebarMachineState(
+      buildSidebarMachineStateFromAccounts(
+        accounts.map((entry) => ({
+          index: entry.index,
+          email: entry.email,
+          enabled: entry.enabled,
+          current: false,
+          coolingDownUntil: entry.coolingDownUntil,
+          cachedQuota: entry.cachedQuota,
+        })),
+        {
+          checkedAt: Date.now(),
+          quotaBackoffUntil: backoffUntil > 0 ? backoffUntil : undefined,
+        },
+      ),
+    )
+  } catch (error) {
+    log.debug('sidebar-quota-write-failed', { error: String(error) })
   }
 }
 

@@ -1,4 +1,8 @@
 import { ANTIGRAVITY_ENDPOINT_FALLBACKS } from '../constants'
+import {
+  type SidebarRoutingEntry,
+  upsertSidebarActiveRouting,
+} from '../sidebar-state'
 import { extractAccountAccessErrorDetails } from './account-access'
 import type { AccountManager } from './accounts'
 import {
@@ -1274,6 +1278,27 @@ export function createFetchInterceptor(
               `status=${response.status} ${response.statusText} (api_request #${apiRequestCount})`,
             )
             noteGeminiDumpResponse(dumpContext, response)
+
+            // Record the final route selection so the sidebar renders the
+            // actual account/header-style used by this request. Fire-and-
+            // forget — the dispatch path must not wait on a state write.
+            const sessionKey = requestSessionIdentity.sessionId
+            if (sessionKey) {
+              const routingEntry: SidebarRoutingEntry = {
+                accountId: `acct-${account.index}`,
+                modelFamily: family,
+                headerStyle: prepared.headerStyle,
+                updatedAt: Date.now(),
+              }
+              void upsertSidebarActiveRouting(sessionKey, routingEntry, {
+                authoritative: true,
+              }).catch((error: unknown) => {
+                log.debug('sidebar-routing-upsert-failed', {
+                  sessionId: sessionKey,
+                  error: String(error),
+                })
+              })
+            }
 
             if (
               response.status === 429 ||

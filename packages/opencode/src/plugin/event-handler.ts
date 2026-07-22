@@ -1,3 +1,4 @@
+import { removeSidebarActiveRouting } from '../sidebar-state'
 import type { AntigravityConfig } from './config'
 import type { Logger } from './logger'
 import { getRecoverySuccessToast } from './recovery'
@@ -112,6 +113,16 @@ export function createEventHandler({
       if (sessionId) {
         sessionRegistry.delete(sessionId)
         lifecycle.getAccountManager()?.deleteSessionState(sessionId)
+        // Drop the session's sidebar route so the TUI does not retain a
+        // dead route after the session ends. Fire-and-forget; the next
+        // sidebar poll will see the pruned map.
+        const eventLogger = logger as Pick<Logger, 'debug'>
+        void removeSidebarActiveRouting(sessionId).catch((error: unknown) => {
+          eventLogger.debug('sidebar-route-remove-failed', {
+            sessionId,
+            error: String(error),
+          })
+        })
       }
     }
 

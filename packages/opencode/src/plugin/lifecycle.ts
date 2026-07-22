@@ -9,6 +9,13 @@ export interface PluginLifecycleOptions {
   sessionRegistry: { clear(): void }
   shutdownDiskSignatureCache: () => Promise<void>
   clearFetchState: () => void
+  /**
+   * Optional drain hook for in-flight sidebar-state writes. Lifecycle
+   * awaits this BEFORE disposing registered disposables (RPC server, file
+   * logger) so the TUI's last frame can still observe a fully landed
+   * snapshot if the user immediately reopens the sidebar.
+   */
+  drainSidebarWrites?: () => Promise<void>
 }
 
 export interface PluginLifecycle extends Disposable {
@@ -20,6 +27,8 @@ export interface PluginLifecycle extends Disposable {
   register(disposable: Disposable): void
 }
 
+const NOOP_DRAIN = async (): Promise<void> => {}
+
 export function createPluginLifecycle(
   options: PluginLifecycleOptions,
 ): PluginLifecycle {
@@ -27,6 +36,7 @@ export function createPluginLifecycle(
   let refreshQueue: ProactiveRefreshQueue | null = null
   let disposal: Promise<void> | null = null
   const registered: Disposable[] = []
+  const drainSidebarWrites = options.drainSidebarWrites ?? NOOP_DRAIN
 
   const disposeAccountRuntime = async (): Promise<void> => {
     const oldQueue = refreshQueue
@@ -66,6 +76,11 @@ export function createPluginLifecycle(
           await options.shutdownDiskSignatureCache()
           options.sessionRegistry.clear()
           options.clearFetchState()
+          // Drain pending sidebar writes BEFORE tearing down the RPC server
+          // and file logger — a write enqueued by a fetch-interceptor call
+          // that resolves during shutdown must land before the host closes
+          // the terminal frame buffer.
+          await drainSidebarWrites()
           for (const disposable of registered) {
             await disposable.dispose()
           }

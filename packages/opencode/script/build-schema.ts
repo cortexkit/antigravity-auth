@@ -64,6 +64,28 @@ const optionDescriptions: Record<string, string> = {
     'Interval in minutes between quota usage checks. Set to 0 to disable periodic checks.',
   soft_quota_cache_ttl_minutes:
     "TTL for cached soft quota data. 'auto' (default) calculates from refresh interval, or set a fixed number of minutes.",
+  operator:
+    'Runtime operator-controlled settings (mutable from /antigravity-* slash commands). Persists across restarts.',
+}
+
+const operatorRoutingDescriptions: Record<string, string> = {
+  cli_first:
+    'Override cli_first routing flag live (read by the fetch interceptor per request).',
+  quota_style_fallback: 'Override quota_style_fallback routing flag live.',
+}
+
+const operatorKillswitchDescriptions: Record<string, string> = {
+  enabled:
+    'Enable the quota killswitch. Accounts whose freshest cached quota is below the threshold are excluded before dispatch.',
+  minimum_remaining_percent:
+    'Global threshold in percent (0-100). Accounts with freshest cached quota remaining at or below this value are excluded.',
+  accounts:
+    'Per-account overrides keyed by sha256(refreshToken).slice(0,12). No raw OAuth tokens are ever written.',
+}
+
+const operatorDescriptions: Record<string, string> = {
+  log_level:
+    'Runtime log level filter. Reads take effect immediately; persisted across restarts.',
 }
 
 const signatureCacheDescriptions: Record<string, string> = {
@@ -96,6 +118,41 @@ function addDescriptions(schema: Record<string, unknown>): void {
       }
       prop.description =
         'Signature cache configuration for persisting thinking block signatures. Only used when keep_thinking is enabled.'
+    }
+
+    if (key === 'operator' && prop.properties) {
+      const opProps = prop.properties as Record<string, Record<string, unknown>>
+      for (const [opKey, opProp] of Object.entries(opProps)) {
+        if (operatorDescriptions[opKey]) {
+          opProp.description = operatorDescriptions[opKey]
+        }
+      }
+      if (opProps.routing?.properties) {
+        const routingProps = opProps.routing.properties as Record<
+          string,
+          Record<string, unknown>
+        >
+        for (const [rKey, rProp] of Object.entries(routingProps)) {
+          if (operatorRoutingDescriptions[rKey]) {
+            rProp.description = operatorRoutingDescriptions[rKey]
+          }
+        }
+        opProps.routing.description =
+          'Routing overrides applied live by the fetch interceptor.'
+      }
+      if (opProps.killswitch?.properties) {
+        const ksProps = opProps.killswitch.properties as Record<
+          string,
+          Record<string, unknown>
+        >
+        for (const [kKey, kProp] of Object.entries(ksProps)) {
+          if (operatorKillswitchDescriptions[kKey]) {
+            kProp.description = operatorKillswitchDescriptions[kKey]
+          }
+        }
+        opProps.killswitch.description =
+          'Quota killswitch — drops candidates below the threshold before dispatch.'
+      }
     }
   }
 }

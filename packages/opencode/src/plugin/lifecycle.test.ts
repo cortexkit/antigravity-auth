@@ -43,6 +43,9 @@ describe('PluginLifecycle', () => {
       clearFetchState: mock(() => {
         events.push('fetch:clear')
       }),
+      drainSidebarWrites: mock(async () => {
+        events.push('sidebar:drain')
+      }),
     })
     lifecycle.register({
       dispose: () => {
@@ -63,6 +66,7 @@ describe('PluginLifecycle', () => {
       'cache:shutdown',
       'sessions:clear',
       'fetch:clear',
+      'sidebar:drain',
       'registered:dispose',
     ])
     expect(lifecycle.getAccountManager()).toBeNull()
@@ -76,6 +80,9 @@ describe('PluginLifecycle', () => {
         events.push('cache:shutdown')
       },
       clearFetchState: () => events.push('fetch:clear'),
+      drainSidebarWrites: async () => {
+        events.push('sidebar:drain')
+      },
     })
     await lifecycle.replaceAccountRuntime(
       createAccountManager(events),
@@ -85,7 +92,7 @@ describe('PluginLifecycle', () => {
     await lifecycle.dispose()
     await lifecycle.dispose()
 
-    expect(events).toHaveLength(6)
+    expect(events).toHaveLength(7)
   })
 
   it('disposes the previous runtime before publishing its replacement', async () => {
@@ -115,6 +122,60 @@ describe('PluginLifecycle', () => {
       'old-manager:dispose',
     ])
     expect(lifecycle.getAccountManager()).toBe(newManager)
+  })
+
+  it('drains sidebar writes before tearing down the RPC server (file logger / RPC)', async () => {
+    const events: string[] = []
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {},
+      clearFetchState: () => {},
+      drainSidebarWrites: async () => {
+        // Simulate a real drain: await a microtask flush, like the real
+        // implementation does for in-flight writes.
+        await Promise.resolve()
+        events.push('sidebar:drain')
+      },
+    })
+    lifecycle.register({
+      dispose: () => {
+        events.push('rpc:stop')
+      },
+    })
+    lifecycle.register({
+      dispose: () => {
+        events.push('logger:close')
+      },
+    })
+
+    await lifecycle.dispose()
+
+    expect(events).toEqual(['sidebar:drain', 'rpc:stop', 'logger:close'])
+  })
+
+  it('treats drainSidebarWrites as a no-op when omitted (back-compat)', async () => {
+    const events: string[] = []
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => events.push('sessions:clear') },
+      shutdownDiskSignatureCache: async () => {
+        events.push('cache:shutdown')
+      },
+      clearFetchState: () => events.push('fetch:clear'),
+    })
+    lifecycle.register({
+      dispose: () => {
+        events.push('registered:dispose')
+      },
+    })
+
+    await lifecycle.dispose()
+
+    expect(events).toEqual([
+      'cache:shutdown',
+      'sessions:clear',
+      'fetch:clear',
+      'registered:dispose',
+    ])
   })
 })
 

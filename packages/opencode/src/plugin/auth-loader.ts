@@ -1,3 +1,7 @@
+import {
+  buildSidebarMachineStateFromAccounts,
+  setSidebarMachineState,
+} from '../sidebar-state'
 import { AccountManager } from './accounts'
 import { isOAuthAuth } from './auth'
 import {
@@ -17,8 +21,8 @@ import type {
   GetAuth,
   LoaderResult,
   PluginClient,
-  ProviderModel,
   Provider,
+  ProviderModel,
 } from './types'
 
 const log = createLogger('auth-loader')
@@ -150,6 +154,22 @@ export function createAuthLoader({
     const previousRuntime = fetchRuntime
     fetchRuntime = createFetch({ accountManager, getAuth })
     await previousRuntime?.dispose()
+
+    // Push the freshly materialized account pool into the sidebar so the
+    // TUI's next poll renders the labels / health / cooldown it needs
+    // without waiting for the first fetch to complete.
+    await setSidebarMachineState(
+      buildSidebarMachineStateFromAccounts(
+        accountManager.getAccounts().map((entry) => ({
+          index: entry.index,
+          email: entry.email,
+          enabled: entry.enabled,
+          current: false,
+          coolingDownUntil: entry.coolingDownUntil,
+          cachedQuota: entry.cachedQuota,
+        })),
+      ),
+    )
 
     if (deps.isDebugEnabled()) {
       const logPath = deps.getLogFilePath()

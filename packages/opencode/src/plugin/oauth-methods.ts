@@ -1,6 +1,6 @@
 import { exec } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-
+import type { AuthOAuthResult as V1AuthOAuthResult } from '@opencode-ai/plugin'
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
 import {
   authorizeAntigravity as defaultAuthorizeAntigravity,
@@ -36,7 +36,6 @@ import {
   formatQuotaStatusBadge,
 } from './ui/quota-status'
 import { getAntigravityVersionResolution } from './version'
-import type { AuthOAuthResult as V1AuthOAuthResult } from '@opencode-ai/plugin'
 
 type V1AuthCallbackResult = Awaited<
   ReturnType<NonNullable<V1AuthOAuthResult['callback']>>
@@ -301,7 +300,24 @@ export function createOAuthMethods({
       }),
   }
   const quotaManager =
-    injectedQuotaManager ?? createOpenCodeQuotaManager(client, providerId)
+    injectedQuotaManager ??
+    createOpenCodeQuotaManager(client, providerId, {
+      // Bind to the live AccountManager so the menu `check` action's
+      // `refreshAccounts` pushes the refreshed percentages into the
+      // sidebar. The lifecycle reference is stable for the lifetime of
+      // the plugin so this closure is safe to capture.
+      getAccountsForSidebar: () => {
+        const manager = lifecycle.getAccountManager()
+        if (!manager) return null
+        return manager.getAccounts().map((entry) => ({
+          index: entry.index,
+          email: entry.email,
+          enabled: entry.enabled,
+          coolingDownUntil: entry.coolingDownUntil,
+          cachedQuota: entry.cachedQuota,
+        }))
+      },
+    })
   if (!injectedQuotaManager) {
     lifecycle.register({ dispose: () => quotaManager.dispose() })
   }

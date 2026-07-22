@@ -23,6 +23,10 @@
 
 import type { CommandModalName } from '../rpc/protocol'
 import {
+  buildSidebarMachineStateFromAccounts,
+  setSidebarMachineState,
+} from '../sidebar-state'
+import {
   executeGeminiDumpCommand,
   GEMINI_DUMP_COMMAND_NAME,
   parseGeminiDumpCommandAction,
@@ -100,6 +104,14 @@ interface CommandContext {
   sessionID: string
   client: PluginClient
   settings: OperatorSettingsController
+  /**
+   * Optional callback invoked AFTER `applyCommand` mutates persistent
+   * state. The plugin entry injects a callback that pushes the current
+   * account pool into the sidebar so the TUI sees a fresh snapshot.
+   * Commands that need to chain side effects (e.g. account add which
+   * triggers an OAuth flow) hook their own refresh.
+   */
+  onApplied?: () => Promise<void> | void
 }
 
 /**
@@ -298,6 +310,22 @@ export async function applyCommand(
   request: ApplyRequest,
   context: CommandContext,
 ): Promise<ApplyResult> {
+  const result = await applyCommandInner(request, context)
+  // Push a sidebar refresh after every mutation so the TUI's next poll
+  // sees a fresh `checkedAt`. The refresher is optional; tests and
+  // read-only contexts leave it undefined and skip the write entirely.
+  if (context.onApplied) {
+    await Promise.resolve(context.onApplied()).catch(() => {
+      // Sidebar refresh must never break the command's apply response.
+    })
+  }
+  return result
+}
+
+async function applyCommandInner(
+  request: ApplyRequest,
+  context: CommandContext,
+): Promise<ApplyResult> {
   switch (request.command) {
     case 'antigravity-quota': {
       return {
@@ -368,6 +396,48 @@ export async function applyCommand(
     default: {
       const exhaustiveCheck: never = request.command
       throw new Error(`Unknown command ${exhaustiveCheck as string}`)
+    }
+  }
+}
+
+/**
+ * Build a sidebar refresher bound to the supplied account-snapshot provider.
+ * The plugin entry passes `lifecycle.getAccountManager()`'s snapshot getter so
+ * every `/antigravity-*` apply that mutates persistent state also bumps the
+ * sidebar's `checkedAt`. The refresher is best-effort: a lock-contention
+ * error or missing manager is swallowed by the caller.
+ */
+export function createSidebarRefresher(
+  getAccounts: () => Array<{
+    index: number
+    email?: string
+    enabled?: boolean
+    coolingDownUntil?: number
+    cachedQuota?: {
+      claude?: { remainingFraction?: number; resetTime?: string }
+      'gemini-pro'?: { remainingFraction?: number; resetTime?: string }
+      'gemini-flash'?: { remainingFraction?: number; resetTime?: string }
+    }
+  }> | null,
+): () => Promise<void> {
+  return async () => {
+    const accounts = getAccounts()
+    if (!accounts || accounts.length === 0) return
+    try {
+      await setSidebarMachineState(
+        buildSidebarMachineStateFromAccounts(
+          accounts.map((entry) => ({
+            index: entry.index,
+            email: entry.email,
+            enabled: entry.enabled,
+            coolingDownUntil: entry.coolingDownUntil,
+            cachedQuota: entry.cachedQuota,
+          })),
+        ),
+      )
+    } catch {
+      // Lock contention is the only realistic failure — sidebar refresh
+      // is best-effort and the next periodic writer will catch up.
     }
   }
 }

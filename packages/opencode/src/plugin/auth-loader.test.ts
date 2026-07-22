@@ -49,6 +49,13 @@ describe('createAuthLoader', () => {
     const clearAccounts = mock(async () => {})
     const manager = {
       getAccountCount: () => 1,
+      getAccounts: () => [
+        {
+          index: 0,
+          email: 'stored@example.com',
+          enabled: true,
+        },
+      ],
       requestSaveToDisk: mock(() => {}),
       dispose: mock(async () => {}),
     }
@@ -140,12 +147,18 @@ describe('createAuthLoader', () => {
     const firstManager = {
       name: 'first',
       getAccountCount: () => 1,
+      getAccounts: () => [
+        { index: 0, email: 'first@example.test', enabled: true },
+      ],
       requestSaveToDisk: mock(() => {}),
       dispose: mock(async () => {}),
     }
     const secondManager = {
       name: 'second',
       getAccountCount: () => 1,
+      getAccounts: () => [
+        { index: 0, email: 'second@example.test', enabled: true },
+      ],
       requestSaveToDisk: mock(() => {}),
       dispose: mock(async () => {}),
     }
