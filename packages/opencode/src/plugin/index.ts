@@ -1,5 +1,8 @@
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
 import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
+import { drainNotifications } from '../rpc/notifications'
+import { getRpcDir } from '../rpc/rpc-dir'
+import { startRpcServer } from '../rpc/rpc-server'
 import {
   createAccountAccessService,
   promptAccountIndexForVerification,
@@ -151,6 +154,16 @@ export const createAntigravityPlugin =
           agySessionRegistry: sessionRegistry,
         }),
     })
+
+    const rpcServer = await startRpcServer({
+      dir: getRpcDir(directory),
+      apply: async () => ({
+        text: 'Command surface is initializing',
+        knobs: {},
+      }),
+      drain: drainNotifications,
+    })
+    lifecycle.register({ dispose: () => rpcServer.stop() })
 
     return {
       dispose: async () => {

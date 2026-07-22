@@ -94,6 +94,10 @@ export const SHIPPED_SOURCE_FILES: readonly string[] = [
   'src/tui/ansi.ts',
   'src/tui/file-logger.ts',
   'src/sidebar-state.ts',
+  'src/rpc/rpc-client.ts',
+  'src/rpc/rpc-dir.ts',
+  'src/rpc/port-file.ts',
+  'src/rpc/protocol.ts',
 ]
 
 /**

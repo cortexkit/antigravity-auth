@@ -47,6 +47,7 @@
     "dist/",
     "src/tui.tsx",
     "src/tui/",
+    "src/rpc/",
     "src/tui-compiled/",
     "src/sidebar-state.ts",
     "README.md",

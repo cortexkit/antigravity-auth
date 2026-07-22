@@ -38,6 +38,14 @@ export function createPluginLifecycle(
     await oldManager?.dispose()
   }
 
+  const register = (disposable: Disposable): void => {
+    if (disposal) {
+      void disposable.dispose()
+      return
+    }
+    registered.push(disposable)
+  }
+
   return {
     getAccountManager: () => accountManager,
     async replaceAccountRuntime(manager, queue) {
@@ -50,13 +58,7 @@ export function createPluginLifecycle(
       accountManager = manager
       refreshQueue = queue
     },
-    register(disposable) {
-      if (disposal) {
-        void disposable.dispose()
-        return
-      }
-      registered.push(disposable)
-    },
+    register,
     dispose() {
       if (!disposal) {
         disposal = (async () => {

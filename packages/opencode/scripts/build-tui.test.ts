@@ -173,3 +173,16 @@ function resolveRelativeInTree(
   }
   return direct
 }
+
+describe('RPC source shipping', () => {
+  it('ships every RPC module imported by the TUI tree', () => {
+    expect(SHIPPED_SOURCE_FILES).toEqual(
+      expect.arrayContaining([
+        'src/rpc/rpc-client.ts',
+        'src/rpc/rpc-dir.ts',
+        'src/rpc/port-file.ts',
+        'src/rpc/protocol.ts',
+      ]),
+    )
+  })
+})

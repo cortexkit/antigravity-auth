@@ -117,3 +117,20 @@ describe('PluginLifecycle', () => {
     expect(lifecycle.getAccountManager()).toBe(newManager)
   })
 })
+
+describe('PluginLifecycle RPC ownership', () => {
+  it('stops a registered RPC server during disposal', async () => {
+    const stop = mock(async () => {})
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {},
+      clearFetchState: () => {},
+    })
+    lifecycle.register({ dispose: stop })
+
+    await lifecycle.dispose()
+    await lifecycle.dispose()
+
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+})
