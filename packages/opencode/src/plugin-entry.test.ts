@@ -10,16 +10,16 @@ import {
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
 import {
   getAntigravityOpencodeModelIds,
   OPENCODE_MODEL_DEFINITIONS,
 } from '@cortexkit/antigravity-auth-core'
+import * as packageRoot from '../index'
 
 import { ANTIGRAVITY_PROVIDER_ID } from './constants.ts'
 import { GEMINI_DUMP_COMMAND_NAME } from './plugin/gemini-dump.ts'
+import { createAntigravityPlugin } from './plugin/index'
 import type { PluginClient, PluginContext } from './plugin/types.ts'
-import { createAntigravityPlugin } from './plugin.ts'
 
 /**
  * Minimal client stub: createAntigravityPlugin only touches the client during
@@ -183,5 +183,16 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
         sessionID: 'ses_test',
       }),
     ).rejects.toBeDefined()
+  })
+})
+
+describe('package root exports', () => {
+  it('exports only the two plugin factory aliases', () => {
+    expect(Object.keys(packageRoot).sort()).toEqual([
+      'AntigravityCLIOAuthPlugin',
+      'GoogleOAuthPlugin',
+    ])
+    expect('authorizeAntigravity' in packageRoot).toBe(false)
+    expect('exchangeAntigravity' in packageRoot).toBe(false)
   })
 })

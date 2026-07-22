@@ -1,6 +1,6 @@
 {
   "name": "@cortexkit/pi-antigravity-auth",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "Google Antigravity OAuth extension for pi - access Gemini 3 and Claude 4.6 using Google credentials",
   "type": "module",
   "license": "MIT",
@@ -37,13 +37,13 @@
     ]
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=esm --external:@earendil-works/* --alias:@cortexkit/antigravity-auth-core=../core/src/index.ts --outfile=dist/index.js --sourcemap",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=esm --external:@earendil-works/* --external:@cortexkit/antigravity-auth-core --outfile=dist/index.js --sourcemap",
     "typecheck": "tsc --noEmit",
     "test": "bun test --isolate ./src",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@cortexkit/antigravity-auth-core": "1.1.0"
+    "@cortexkit/antigravity-auth-core": "2.0.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

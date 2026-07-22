@@ -4,7 +4,7 @@ import {
   buildAccountAccessProbeRequest as buildProbeRequest,
   extractAccountAccessErrorDetails as extractAccessBlock,
   interpretAccountAccessProbeResponse as interpretProbeResponse,
-} from '../plugin'
+} from './account-access'
 
 describe('account eligibility recovery', () => {
   it('finishes a successful probe without waiting for an open SSE body', async () => {
