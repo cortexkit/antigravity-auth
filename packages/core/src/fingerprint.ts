@@ -197,3 +197,12 @@ export function regenerateSessionFingerprint(): Fingerprint {
   sessionFingerprint = generateFingerprint()
   return sessionFingerprint
 }
+
+/**
+ * Clear the cached session fingerprint so the next `getSessionFingerprint`
+ * call generates a fresh one. Test-only escape hatch — production code should
+ * use `regenerateSessionFingerprint` to also return the new value.
+ */
+export function clearSessionFingerprint(): void {
+  sessionFingerprint = null
+}
