@@ -1,14 +1,14 @@
 // Harness-agnostic auth/credential types shared by core and harness packages.
 
 export interface OAuthAuthDetails {
-  type: "oauth"
+  type: 'oauth'
   refresh: string
   access?: string
   expires?: number
 }
 
 export interface ApiKeyAuthDetails {
-  type: "api_key"
+  type: 'api_key'
   key: string
 }
 
@@ -17,7 +17,10 @@ export interface NonOAuthAuthDetails {
   [key: string]: unknown
 }
 
-export type AuthDetails = OAuthAuthDetails | ApiKeyAuthDetails | NonOAuthAuthDetails
+export type AuthDetails =
+  | OAuthAuthDetails
+  | ApiKeyAuthDetails
+  | NonOAuthAuthDetails
 
 export type GetAuth = () => Promise<AuthDetails>
 

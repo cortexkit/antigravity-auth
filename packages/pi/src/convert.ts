@@ -1,4 +1,4 @@
-import { toGeminiSchema } from "@cortexkit/antigravity-auth-core"
+import { toGeminiSchema } from '@cortexkit/antigravity-auth-core'
 import type {
   Context,
   ImageContent,
@@ -8,17 +8,20 @@ import type {
   Tool,
   ToolCall,
   ToolResultMessage,
-} from "@earendil-works/pi-ai"
+} from '@earendil-works/pi-ai'
 
 /** Gemini `contents` part shapes. */
 type GeminiPart =
   | { text: string }
   | { inlineData: { mimeType: string; data: string } }
-  | { functionCall: { name: string; args: Record<string, unknown> }; thoughtSignature?: string }
+  | {
+      functionCall: { name: string; args: Record<string, unknown> }
+      thoughtSignature?: string
+    }
   | { functionResponse: { name: string; response: Record<string, unknown> } }
 
 interface GeminiContent {
-  role: "user" | "model"
+  role: 'user' | 'model'
   parts: GeminiPart[]
 }
 
@@ -37,27 +40,31 @@ export interface GeminiRequest {
 }
 
 function sanitize(text: string): string {
-  return text.replace(/[\uD800-\uDFFF]/gu, "\uFFFD")
+  return text.replace(/[\uD800-\uDFFF]/gu, '\uFFFD')
 }
 
-function convertUserParts(content: Array<TextContent | ImageContent>): GeminiPart[] {
+function convertUserParts(
+  content: Array<TextContent | ImageContent>,
+): GeminiPart[] {
   const parts: GeminiPart[] = []
   for (const item of content) {
-    if (item.type === "text") {
+    if (item.type === 'text') {
       if (item.text) parts.push({ text: sanitize(item.text) })
-    } else if (item.type === "image" && item.data) {
+    } else if (item.type === 'image' && item.data) {
       parts.push({ inlineData: { mimeType: item.mimeType, data: item.data } })
     }
   }
   return parts
 }
 
-function convertAssistantParts(content: Array<TextContent | ThinkingContent | ToolCall>): GeminiPart[] {
+function convertAssistantParts(
+  content: Array<TextContent | ThinkingContent | ToolCall>,
+): GeminiPart[] {
   const parts: GeminiPart[] = []
   for (const block of content) {
-    if (block.type === "text" && block.text.trim()) {
+    if (block.type === 'text' && block.text.trim()) {
       parts.push({ text: sanitize(block.text) })
-    } else if (block.type === "toolCall") {
+    } else if (block.type === 'toolCall') {
       // Antigravity requires the prior functionCall to echo its
       // thoughtSignature on replay (400 INVALID_ARGUMENT otherwise).
       parts.push({
@@ -65,7 +72,9 @@ function convertAssistantParts(content: Array<TextContent | ThinkingContent | To
           name: block.name,
           args: (block.arguments ?? {}) as Record<string, unknown>,
         },
-        ...(block.thoughtSignature ? { thoughtSignature: block.thoughtSignature } : {}),
+        ...(block.thoughtSignature
+          ? { thoughtSignature: block.thoughtSignature }
+          : {}),
       })
     }
     // Thinking blocks are intentionally not replayed: OpenCode/pi history does
@@ -75,13 +84,15 @@ function convertAssistantParts(content: Array<TextContent | ThinkingContent | To
   return parts
 }
 
-function toolResultResponse(message: ToolResultMessage): Record<string, unknown> {
+function toolResultResponse(
+  message: ToolResultMessage,
+): Record<string, unknown> {
   const text = message.content
-    .filter((item): item is TextContent => item.type === "text")
+    .filter((item): item is TextContent => item.type === 'text')
     .map((item) => item.text)
-    .join("\n")
+    .join('\n')
   if (message.isError) {
-    return { error: text || "Error" }
+    return { error: text || 'Error' }
   }
   return { output: text }
 }
@@ -92,24 +103,26 @@ function convertMessages(messages: Message[]): GeminiContent[] {
   for (const message of messages) {
     if (!message) continue
 
-    if (message.role === "user") {
+    if (message.role === 'user') {
       const parts =
-        typeof message.content === "string"
+        typeof message.content === 'string'
           ? message.content.trim()
             ? [{ text: sanitize(message.content) }]
             : []
-          : convertUserParts(message.content as Array<TextContent | ImageContent>)
-      if (parts.length) contents.push({ role: "user", parts })
+          : convertUserParts(
+              message.content as Array<TextContent | ImageContent>,
+            )
+      if (parts.length) contents.push({ role: 'user', parts })
       continue
     }
 
-    if (message.role === "assistant") {
+    if (message.role === 'assistant') {
       const parts = convertAssistantParts(message.content)
-      if (parts.length) contents.push({ role: "model", parts })
+      if (parts.length) contents.push({ role: 'model', parts })
       continue
     }
 
-    if (message.role === "toolResult") {
+    if (message.role === 'toolResult') {
       const part: GeminiPart = {
         functionResponse: {
           name: message.toolName,
@@ -118,10 +131,14 @@ function convertMessages(messages: Message[]): GeminiContent[] {
       }
       // Gemini groups consecutive function responses into one user turn.
       const last = contents[contents.length - 1]
-      if (last && last.role === "user" && last.parts.every((p) => "functionResponse" in p)) {
+      if (
+        last &&
+        last.role === 'user' &&
+        last.parts.every((p) => 'functionResponse' in p)
+      ) {
         last.parts.push(part)
       } else {
-        contents.push({ role: "user", parts: [part] })
+        contents.push({ role: 'user', parts: [part] })
       }
     }
   }
@@ -158,7 +175,9 @@ export function buildGeminiRequest(context: Context): GeminiRequest {
   if (tools) request.tools = tools
 
   if (context.systemPrompt?.trim()) {
-    request.systemInstruction = { parts: [{ text: sanitize(context.systemPrompt) }] }
+    request.systemInstruction = {
+      parts: [{ text: sanitize(context.systemPrompt) }],
+    }
   }
 
   return request

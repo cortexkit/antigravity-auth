@@ -1,2242 +1,2687 @@
-import { afterEach, beforeEach, describe, expect, it, jest, mock, spyOn } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+  mock,
+  spyOn,
+} from 'bun:test'
 
-import { AccountManager, type ModelFamily, type HeaderStyle, parseRateLimitReason, calculateBackoffMs, type RateLimitReason, resolveQuotaGroup } from "./accounts";
-import { saveAccounts, saveAccountsReplace, type AccountStorageV4 } from "./storage";
-import type { OAuthAuthDetails } from "./types";
-
+import {
+  AccountManager,
+  calculateBackoffMs,
+  type HeaderStyle,
+  type ModelFamily,
+  parseRateLimitReason,
+  type RateLimitReason,
+  resolveQuotaGroup,
+} from './accounts'
 // Mock storage to prevent test data from leaking to real config files.
 // Bun's `mock.module` doesn't support the `importOriginal` callback that
 // Vitest exposes, so we capture the real exports first and merge.
-import * as realStorage from "./storage";
-mock.module("./storage", () => ({
+import * as realStorage from './storage'
+import {
+  type AccountStorageV4,
+  saveAccounts,
+  saveAccountsReplace,
+} from './storage'
+import type { OAuthAuthDetails } from './types'
+
+mock.module('./storage', () => ({
   ...realStorage,
   saveAccounts: mock().mockResolvedValue(undefined),
   saveAccountsReplace: mock().mockResolvedValue(undefined),
-}));
+}))
 
-describe("AccountManager", () => {
+describe('AccountManager', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    jest.useRealTimers();
-    globalThis.stubbed("process", { ...process, pid: 0 });
-  });
+    jest.clearAllMocks()
+    jest.useRealTimers()
+    globalThis.stubbed('process', { ...process, pid: 0 })
+  })
 
   afterEach(() => {
-    globalThis.unstubAllGlobals();
-  });
+    globalThis.unstubAllGlobals()
+  })
 
-  it("treats on-disk storage as source of truth, even when empty", () => {
+  it('treats on-disk storage as source of truth, even when empty', () => {
     const fallback: OAuthAuthDetails = {
-      type: "oauth",
-      refresh: "r1|p1",
-      access: "access",
+      type: 'oauth',
+      refresh: 'r1|p1',
+      access: 'access',
       expires: 123,
-    };
+    }
 
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [],
       activeIndex: 0,
-    };
+    }
 
-    const manager = new AccountManager(fallback, stored);
-    expect(manager.getAccountCount()).toBe(0);
-  });
+    const manager = new AccountManager(fallback, stored)
+    expect(manager.getAccountCount()).toBe(0)
+  })
 
-  it("persists explicit ineligibility, rejects manual enable, and recovers only after a successful recheck", async () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(1_000);
+  it('persists explicit ineligibility, rejects manual enable, and recovers only after a successful recheck', async () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(1_000)
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
-    const manager = new AccountManager(undefined, stored);
+    }
+    const manager = new AccountManager(undefined, stored)
 
-    expect(manager.markAccountIneligible(0, "ACCOUNT_INELIGIBLE")).toBe(true);
+    expect(manager.markAccountIneligible(0, 'ACCOUNT_INELIGIBLE')).toBe(true)
     expect(manager.getAccountsSnapshot()[0]).toMatchObject({
       enabled: false,
       accountIneligible: true,
       accountIneligibleAt: 1_000,
-      accountIneligibleReason: "ACCOUNT_INELIGIBLE",
+      accountIneligibleReason: 'ACCOUNT_INELIGIBLE',
       eligibilityStateUpdatedAt: 1_000,
-    });
-    expect(manager.setAccountEnabled(0, true)).toBe(false);
+    })
+    expect(manager.setAccountEnabled(0, true)).toBe(false)
 
-    await manager.saveToDisk();
-    expect((saveAccounts as any)).toHaveBeenCalledWith(expect.objectContaining({
-      accounts: [expect.objectContaining({
-        enabled: false,
-        accountIneligible: true,
-        eligibilityStateUpdatedAt: 1_000,
-      })],
-    }));
+    await manager.saveToDisk()
+    expect(saveAccounts as any).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accounts: [
+          expect.objectContaining({
+            enabled: false,
+            accountIneligible: true,
+            eligibilityStateUpdatedAt: 1_000,
+          }),
+        ],
+      }),
+    )
 
-    jest.setSystemTime(2_000);
-    expect(manager.clearAccountAccessBlocks(0, true)).toBe(true);
+    jest.setSystemTime(2_000)
+    expect(manager.clearAccountAccessBlocks(0, true)).toBe(true)
     expect(manager.getAccountsSnapshot()[0]).toMatchObject({
       enabled: true,
       accountIneligible: false,
       eligibilityStateUpdatedAt: 2_000,
-    });
-    await manager.saveToDisk();
-    jest.clearAllTimers();
-  });
+    })
+    await manager.saveToDisk()
+    jest.clearAllTimers()
+  })
 
-  it("keeps ineligible and verification-required states mutually exclusive", () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(1_000);
+  it('keeps ineligible and verification-required states mutually exclusive', () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(1_000)
     const manager = new AccountManager(undefined, {
       version: 4,
       accounts: [
         {
-          refreshToken: "r1",
-          projectId: "p1",
+          refreshToken: 'r1',
+          projectId: 'p1',
           addedAt: 1,
           lastUsed: 0,
           verificationRequired: true,
           verificationRequiredAt: 500,
-          verificationRequiredReason: "verify",
-          verificationUrl: "https://example.com/verify",
+          verificationRequiredReason: 'verify',
+          verificationUrl: 'https://example.com/verify',
         },
       ],
       activeIndex: 0,
-    });
+    })
 
-    manager.markAccountIneligible(0, "ACCOUNT_INELIGIBLE");
+    manager.markAccountIneligible(0, 'ACCOUNT_INELIGIBLE')
     expect(manager.getAccountsSnapshot()[0]).toMatchObject({
       verificationRequired: false,
       accountIneligible: true,
-    });
-    expect(manager.getAccountsSnapshot()[0]?.verificationUrl).toBeUndefined();
+    })
+    expect(manager.getAccountsSnapshot()[0]?.verificationUrl).toBeUndefined()
 
-    jest.setSystemTime(2_000);
-    manager.markAccountVerificationRequired(0, "Verify again", "https://example.com/new");
+    jest.setSystemTime(2_000)
+    manager.markAccountVerificationRequired(
+      0,
+      'Verify again',
+      'https://example.com/new',
+    )
     expect(manager.getAccountsSnapshot()[0]).toMatchObject({
       enabled: false,
       verificationRequired: true,
-      verificationRequiredReason: "Verify again",
+      verificationRequiredReason: 'Verify again',
       accountIneligible: false,
       eligibilityStateUpdatedAt: 2_000,
-    });
-    expect(manager.getAccountsSnapshot()[0]?.accountIneligibleReason).toBeUndefined();
-    jest.clearAllTimers();
-  });
+    })
+    expect(
+      manager.getAccountsSnapshot()[0]?.accountIneligibleReason,
+    ).toBeUndefined()
+    jest.clearAllTimers()
+  })
 
-  it("returns current account when not rate-limited for family", () => {
+  it('returns current account when not rate-limited for family', () => {
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
+    }
 
-    const manager = new AccountManager(undefined, stored);
-    const family: ModelFamily = "claude";
+    const manager = new AccountManager(undefined, stored)
+    const family: ModelFamily = 'claude'
 
-    const account = manager.getCurrentOrNextForFamily(family);
+    const account = manager.getCurrentOrNextForFamily(family)
 
-    expect(account).not.toBeNull();
-    expect(account?.index).toBe(0);
-  });
+    expect(account).not.toBeNull()
+    expect(account?.index).toBe(0)
+  })
 
-  it("pins round-robin selection per exact root session", () => {
+  it('pins round-robin selection per exact root session', () => {
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
-    const manager = new AccountManager(undefined, stored);
-    const select = (id: string) => manager.getCurrentOrNextForFamily(
-      "gemini",
-      null,
-      "round-robin",
-      "antigravity",
-      false,
-      100,
-      600_000,
-      { id },
-    );
-
-    expect(select("session-a")?.index).toBe(0);
-    expect(select("session-a")?.index).toBe(0);
-    expect(select("session-b")?.index).toBe(1);
-    expect(select("session-b")?.index).toBe(1);
-  });
-
-  it.each(["sticky", "hybrid"] as const)(
-    "keeps %s selection pinned when another root session selects independently",
-    (strategy) => {
-      const stored: AccountStorageV4 = {
-        version: 4,
-        accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
-        ],
-        activeIndex: 0,
-      };
-      const manager = new AccountManager(undefined, stored);
-      const select = (id: string) => manager.getCurrentOrNextForFamily(
-        "gemini",
+    }
+    const manager = new AccountManager(undefined, stored)
+    const select = (id: string) =>
+      manager.getCurrentOrNextForFamily(
+        'gemini',
         null,
-        strategy,
-        "antigravity",
+        'round-robin',
+        'antigravity',
         false,
         100,
         600_000,
         { id },
-      );
+      )
 
-      const first = select("session-a");
-      select("session-b");
-      expect(select("session-a")?.index).toBe(first?.index);
-    },
-  );
+    expect(select('session-a')?.index).toBe(0)
+    expect(select('session-a')?.index).toBe(0)
+    expect(select('session-b')?.index).toBe(1)
+    expect(select('session-b')?.index).toBe(1)
+  })
+
+  it.each([
+    'sticky',
+    'hybrid',
+  ] as const)('keeps %s selection pinned when another root session selects independently', (strategy) => {
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    }
+    const manager = new AccountManager(undefined, stored)
+    const select = (id: string) =>
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        null,
+        strategy,
+        'antigravity',
+        false,
+        100,
+        600_000,
+        { id },
+      )
+
+    const first = select('session-a')
+    select('session-b')
+    expect(select('session-a')?.index).toBe(first?.index)
+  })
 
   it("isolates each child from its exact parent's pinned account", () => {
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
-    const manager = new AccountManager(undefined, stored);
+    }
+    const manager = new AccountManager(undefined, stored)
     const select = (id: string, parentId: string | null = null) =>
       manager.getCurrentOrNextForFamily(
-        "gemini",
+        'gemini',
         null,
-        "round-robin",
-        "antigravity",
+        'round-robin',
+        'antigravity',
         false,
         100,
         600_000,
         { id, parentId },
-      );
+      )
 
-    expect(select("root-a")?.index).toBe(0);
-    expect(select("root-b")?.index).toBe(1);
-    expect(select("child-a", "root-a")?.index).toBe(1);
-    expect(select("child-b", "root-b")?.index).toBe(0);
-  });
+    expect(select('root-a')?.index).toBe(0)
+    expect(select('root-b')?.index).toBe(1)
+    expect(select('child-a', 'root-a')?.index).toBe(1)
+    expect(select('child-b', 'root-b')?.index).toBe(0)
+  })
 
   it("lets a child reuse its parent's account when no alternative is usable", () => {
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
-    const manager = new AccountManager(undefined, stored);
+    }
+    const manager = new AccountManager(undefined, stored)
 
-    expect(manager.getCurrentOrNextForFamily(
-      "gemini",
-      null,
-      "sticky",
-      "antigravity",
-      false,
-      100,
-      600_000,
-      { id: "root" },
-    )?.index).toBe(0);
-    expect(manager.getCurrentOrNextForFamily(
-      "gemini",
-      null,
-      "sticky",
-      "antigravity",
-      false,
-      100,
-      600_000,
-      { id: "child", parentId: "root" },
-    )?.index).toBe(0);
-  });
+    expect(
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        100,
+        600_000,
+        { id: 'root' },
+      )?.index,
+    ).toBe(0)
+    expect(
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        100,
+        600_000,
+        { id: 'child', parentId: 'root' },
+      )?.index,
+    ).toBe(0)
+  })
 
-  it("releases an exact session pin when its session is deleted", () => {
+  it('releases an exact session pin when its session is deleted', () => {
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
-    const manager = new AccountManager(undefined, stored);
-    const identity = { id: "session-a" };
+    }
+    const manager = new AccountManager(undefined, stored)
+    const identity = { id: 'session-a' }
 
-    expect(manager.getCurrentOrNextForFamily(
-      "gemini", null, "round-robin", "antigravity", false, 100, 600_000, identity,
-    )?.index).toBe(0);
-    manager.deleteSessionState(identity.id);
-    expect(manager.getCurrentOrNextForFamily(
-      "gemini", null, "round-robin", "antigravity", false, 100, 600_000, identity,
-    )?.index).toBe(1);
-  });
+    expect(
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        null,
+        'round-robin',
+        'antigravity',
+        false,
+        100,
+        600_000,
+        identity,
+      )?.index,
+    ).toBe(0)
+    manager.deleteSessionState(identity.id)
+    expect(
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        null,
+        'round-robin',
+        'antigravity',
+        false,
+        100,
+        600_000,
+        identity,
+      )?.index,
+    ).toBe(1)
+  })
 
-  it("switches to next account when current is rate-limited for family", () => {
+  it('switches to next account when current is rate-limited for family', () => {
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
+    }
 
-    const manager = new AccountManager(undefined, stored);
-    const family: ModelFamily = "claude";
+    const manager = new AccountManager(undefined, stored)
+    const family: ModelFamily = 'claude'
 
-    const firstAccount = manager.getCurrentOrNextForFamily(family);
-    manager.markRateLimited(firstAccount!, 60000, family);
+    const firstAccount = manager.getCurrentOrNextForFamily(family)
+    manager.markRateLimited(firstAccount!, 60000, family)
 
-    const secondAccount = manager.getCurrentOrNextForFamily(family);
-    expect(secondAccount?.index).toBe(1);
-  });
+    const secondAccount = manager.getCurrentOrNextForFamily(family)
+    expect(secondAccount?.index).toBe(1)
+  })
 
-  it("returns null when all accounts are rate-limited for family", () => {
+  it('returns null when all accounts are rate-limited for family', () => {
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
+    }
 
-    const manager = new AccountManager(undefined, stored);
-    const family: ModelFamily = "claude";
+    const manager = new AccountManager(undefined, stored)
+    const family: ModelFamily = 'claude'
 
-    const accounts = manager.getAccounts();
-    accounts.forEach((acc) => manager.markRateLimited(acc, 60000, family));
+    const accounts = manager.getAccounts()
+    accounts.forEach((acc) => {
+      manager.markRateLimited(acc, 60000, family)
+    })
 
-    const next = manager.getCurrentOrNextForFamily(family);
-    expect(next).toBeNull();
-  });
+    const next = manager.getCurrentOrNextForFamily(family)
+    expect(next).toBeNull()
+  })
 
-  it("un-rate-limits accounts after timeout expires", () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(0));
-
-    const stored: AccountStorageV4 = {
-      version: 4,
-      accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-      ],
-      activeIndex: 0,
-    };
-
-    const manager = new AccountManager(undefined, stored);
-    const family: ModelFamily = "claude";
-    const account = manager.getCurrentOrNextForFamily(family);
-
-    account!.rateLimitResetTimes[family] = Date.now() - 10000;
-
-    const next = manager.getCurrentOrNextForFamily(family);
-    expect(next?.parts.refreshToken).toBe("r1");
-  });
-
-  it("returns minimum wait time for family", () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(0));
-
-    const stored: AccountStorageV4 = {
-      version: 4,
-      accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
-      ],
-      activeIndex: 0,
-    };
-
-    const manager = new AccountManager(undefined, stored);
-    const family: ModelFamily = "claude";
-    const accounts = manager.getAccounts();
-
-    manager.markRateLimited(accounts[0]!, 30000, family);
-    manager.markRateLimited(accounts[1]!, 60000, family);
-
-    expect(manager.getMinWaitTimeForFamily(family)).toBe(30000);
-  });
-
-  it("tracks rate limits per model family independently", () => {
-    const stored: AccountStorageV4 = {
-      version: 4,
-      accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-      ],
-      activeIndex: 0,
-    };
-
-    const manager = new AccountManager(undefined, stored);
-
-    const account = manager.getCurrentOrNextForFamily("claude");
-    expect(account?.index).toBe(0);
-
-    manager.markRateLimited(account!, 60000, "claude");
-
-    expect(manager.getMinWaitTimeForFamily("claude")).toBeGreaterThan(0);
-    expect(manager.getMinWaitTimeForFamily("gemini")).toBe(0);
-
-    const geminiOnAccount0 = manager.getNextForFamily("gemini");
-    expect(geminiOnAccount0?.index).toBe(0);
-
-    const claudeBlocked = manager.getNextForFamily("claude");
-    expect(claudeBlocked).toBeNull();
-  });
-
-  it("getCurrentOrNextForFamily sticks to same account until rate-limited", () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(0));
+  it('un-rate-limits accounts after timeout expires', () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date(0))
 
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
+    }
 
-    const manager = new AccountManager(undefined, stored);
-    const family: ModelFamily = "claude";
+    const manager = new AccountManager(undefined, stored)
+    const family: ModelFamily = 'claude'
+    const account = manager.getCurrentOrNextForFamily(family)
 
-    const first = manager.getCurrentOrNextForFamily(family);
-    expect(first?.parts.refreshToken).toBe("r1");
+    account!.rateLimitResetTimes[family] = Date.now() - 10000
 
-    const second = manager.getCurrentOrNextForFamily(family);
-    expect(second?.parts.refreshToken).toBe("r1");
+    const next = manager.getCurrentOrNextForFamily(family)
+    expect(next?.parts.refreshToken).toBe('r1')
+  })
 
-    const third = manager.getCurrentOrNextForFamily(family);
-    expect(third?.parts.refreshToken).toBe("r1");
-
-    manager.markRateLimited(first!, 60_000, family);
-
-    const fourth = manager.getCurrentOrNextForFamily(family);
-    expect(fourth?.parts.refreshToken).toBe("r2");
-
-    const fifth = manager.getCurrentOrNextForFamily(family);
-    expect(fifth?.parts.refreshToken).toBe("r2");
-  });
-
-  it("removes an account and keeps cursor consistent", () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(0));
+  it('returns minimum wait time for family', () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date(0))
 
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r3", projectId: "p3", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    }
+
+    const manager = new AccountManager(undefined, stored)
+    const family: ModelFamily = 'claude'
+    const accounts = manager.getAccounts()
+
+    manager.markRateLimited(accounts[0]!, 30000, family)
+    manager.markRateLimited(accounts[1]!, 60000, family)
+
+    expect(manager.getMinWaitTimeForFamily(family)).toBe(30000)
+  })
+
+  it('tracks rate limits per model family independently', () => {
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    }
+
+    const manager = new AccountManager(undefined, stored)
+
+    const account = manager.getCurrentOrNextForFamily('claude')
+    expect(account?.index).toBe(0)
+
+    manager.markRateLimited(account!, 60000, 'claude')
+
+    expect(manager.getMinWaitTimeForFamily('claude')).toBeGreaterThan(0)
+    expect(manager.getMinWaitTimeForFamily('gemini')).toBe(0)
+
+    const geminiOnAccount0 = manager.getNextForFamily('gemini')
+    expect(geminiOnAccount0?.index).toBe(0)
+
+    const claudeBlocked = manager.getNextForFamily('claude')
+    expect(claudeBlocked).toBeNull()
+  })
+
+  it('getCurrentOrNextForFamily sticks to same account until rate-limited', () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date(0))
+
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    }
+
+    const manager = new AccountManager(undefined, stored)
+    const family: ModelFamily = 'claude'
+
+    const first = manager.getCurrentOrNextForFamily(family)
+    expect(first?.parts.refreshToken).toBe('r1')
+
+    const second = manager.getCurrentOrNextForFamily(family)
+    expect(second?.parts.refreshToken).toBe('r1')
+
+    const third = manager.getCurrentOrNextForFamily(family)
+    expect(third?.parts.refreshToken).toBe('r1')
+
+    manager.markRateLimited(first!, 60_000, family)
+
+    const fourth = manager.getCurrentOrNextForFamily(family)
+    expect(fourth?.parts.refreshToken).toBe('r2')
+
+    const fifth = manager.getCurrentOrNextForFamily(family)
+    expect(fifth?.parts.refreshToken).toBe('r2')
+  })
+
+  it('removes an account and keeps cursor consistent', () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date(0))
+
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 1,
-    };
+    }
 
-    const manager = new AccountManager(undefined, stored);
-    const family: ModelFamily = "claude";
+    const manager = new AccountManager(undefined, stored)
+    const family: ModelFamily = 'claude'
 
-    const picked = manager.getCurrentOrNextForFamily(family);
-    expect(picked?.parts.refreshToken).toBe("r2");
+    const picked = manager.getCurrentOrNextForFamily(family)
+    expect(picked?.parts.refreshToken).toBe('r2')
 
-    manager.removeAccount(picked!);
-    expect(manager.getAccountCount()).toBe(2);
+    manager.removeAccount(picked!)
+    expect(manager.getAccountCount()).toBe(2)
 
-    const next = manager.getNextForFamily(family);
-    expect(next?.parts.refreshToken).toBe("r3");
-  });
+    const next = manager.getNextForFamily(family)
+    expect(next?.parts.refreshToken).toBe('r3')
+  })
 
-  it("persists account removal via replace (no merge) so deletions stick", async () => {
-    (saveAccounts as any).mockClear();
-    (saveAccountsReplace as any).mockClear();
+  it('persists account removal via replace (no merge) so deletions stick', async () => {
+    ;(saveAccounts as any).mockClear()
+    ;(saveAccountsReplace as any).mockClear()
 
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
+    }
 
-    const manager = new AccountManager(undefined, stored);
-    const victim = manager.getAccounts().find((a) => a.parts.refreshToken === "r2")!;
-    manager.removeAccount(victim);
+    const manager = new AccountManager(undefined, stored)
+    const victim = manager
+      .getAccounts()
+      .find((a) => a.parts.refreshToken === 'r2')!
+    manager.removeAccount(victim)
 
-    await manager.saveToDiskReplace();
+    await manager.saveToDiskReplace()
 
     // Must use replace (full overwrite), not merge — merge re-reads the file and
     // resurrects the deleted account.
-    expect(saveAccountsReplace).toHaveBeenCalledTimes(1);
-    const saved = (saveAccountsReplace as any).mock.calls.at(-1)?.[0];
-    expect(saved?.accounts.map((a: { refreshToken: string }) => a.refreshToken)).toEqual(["r1"]);
-  });
+    expect(saveAccountsReplace).toHaveBeenCalledTimes(1)
+    const saved = (saveAccountsReplace as any).mock.calls.at(-1)?.[0]
+    expect(
+      saved?.accounts.map((a: { refreshToken: string }) => a.refreshToken),
+    ).toEqual(['r1'])
+  })
 
-  it("keeps round-robin cursors separate by model family", () => {
+  it('keeps round-robin cursors separate by model family', () => {
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r3", projectId: "p3", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
+    }
 
-    const manager = new AccountManager(undefined, stored);
+    const manager = new AccountManager(undefined, stored)
 
-    expect(manager.getCurrentOrNextForFamily("claude", null, "round-robin")?.index).toBe(0);
-    expect(manager.getCurrentOrNextForFamily("claude", null, "round-robin")?.index).toBe(1);
-    expect(manager.getCurrentOrNextForFamily("gemini", null, "round-robin")?.index).toBe(0);
-  });
+    expect(
+      manager.getCurrentOrNextForFamily('claude', null, 'round-robin')?.index,
+    ).toBe(0)
+    expect(
+      manager.getCurrentOrNextForFamily('claude', null, 'round-robin')?.index,
+    ).toBe(1)
+    expect(
+      manager.getCurrentOrNextForFamily('gemini', null, 'round-robin')?.index,
+    ).toBe(0)
+  })
 
-  it("does not persist transient cooldown and switch metadata", async () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(0));
-    (saveAccounts as any).mockClear();
+  it('does not persist transient cooldown and switch metadata', async () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date(0))
+    ;(saveAccounts as any).mockClear()
 
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
+    }
 
-    const manager = new AccountManager(undefined, stored);
-    const account = manager.getCurrentOrNextForFamily("claude")!;
-    manager.markSwitched(account, "rate-limit", "claude");
-    manager.markAccountCoolingDown(account, 30_000, "auth-failure");
+    const manager = new AccountManager(undefined, stored)
+    const account = manager.getCurrentOrNextForFamily('claude')!
+    manager.markSwitched(account, 'rate-limit', 'claude')
+    manager.markAccountCoolingDown(account, 30_000, 'auth-failure')
 
-    await manager.saveToDisk();
+    await manager.saveToDisk()
 
-    const saved = (saveAccounts as any).mock.calls.at(-1)?.[0];
-    expect(saved?.accounts[0]).not.toHaveProperty("lastSwitchReason");
-    expect(saved?.accounts[0]).not.toHaveProperty("coolingDownUntil");
-    expect(saved?.accounts[0]).not.toHaveProperty("cooldownReason");
-  });
+    const saved = (saveAccounts as any).mock.calls.at(-1)?.[0]
+    expect(saved?.accounts[0]).not.toHaveProperty('lastSwitchReason')
+    expect(saved?.accounts[0]).not.toHaveProperty('coolingDownUntil')
+    expect(saved?.accounts[0]).not.toHaveProperty('cooldownReason')
+  })
 
-  it("attaches fallback access tokens only to the matching stored account", () => {
+  it('attaches fallback access tokens only to the matching stored account', () => {
     const fallback: OAuthAuthDetails = {
-      type: "oauth",
-      refresh: "r2|p2",
-      access: "access-2",
+      type: 'oauth',
+      refresh: 'r2|p2',
+      access: 'access-2',
       expires: 123,
-    };
+    }
 
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
+    }
 
-    const manager = new AccountManager(fallback, stored);
-    const snapshot = manager.getAccountsSnapshot();
+    const manager = new AccountManager(fallback, stored)
+    const snapshot = manager.getAccountsSnapshot()
 
-    expect(snapshot[0]?.access).toBeUndefined();
-    expect(snapshot[0]?.expires).toBeUndefined();
-    expect(snapshot[1]?.access).toBe("access-2");
-    expect(snapshot[1]?.expires).toBe(123);
-  });
+    expect(snapshot[0]?.access).toBeUndefined()
+    expect(snapshot[0]?.expires).toBeUndefined()
+    expect(snapshot[1]?.access).toBe('access-2')
+    expect(snapshot[1]?.expires).toBe(123)
+  })
 
-  it("debounces toast display for same account", () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(0));
+  it('debounces toast display for same account', () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date(0))
 
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
-        { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
       ],
       activeIndex: 0,
-    };
+    }
 
-    const manager = new AccountManager(undefined, stored);
+    const manager = new AccountManager(undefined, stored)
 
-    expect(manager.shouldShowAccountToast(0)).toBe(true);
-    manager.markToastShown(0);
+    expect(manager.shouldShowAccountToast(0)).toBe(true)
+    manager.markToastShown(0)
 
-    expect(manager.shouldShowAccountToast(0)).toBe(false);
+    expect(manager.shouldShowAccountToast(0)).toBe(false)
 
-    expect(manager.shouldShowAccountToast(1)).toBe(true);
+    expect(manager.shouldShowAccountToast(1)).toBe(true)
 
-    jest.setSystemTime(new Date(31000));
-    expect(manager.shouldShowAccountToast(0)).toBe(true);
-  });
+    jest.setSystemTime(new Date(31000))
+    expect(manager.shouldShowAccountToast(0)).toBe(true)
+  })
 
-  describe("header style fallback for Gemini", () => {
-    it("tracks rate limits separately for each header style", () => {
+  describe('header style fallback for Gemini', () => {
+    it('tracks rate limits separately for each header style', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("gemini");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('gemini')
 
-      manager.markRateLimited(account!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(account!, 60000, 'gemini', 'antigravity')
 
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "antigravity")).toBe(true);
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "gemini-cli")).toBe(false);
-    });
+      expect(
+        manager.isRateLimitedForHeaderStyle(account!, 'gemini', 'antigravity'),
+      ).toBe(true)
+      expect(
+        manager.isRateLimitedForHeaderStyle(account!, 'gemini', 'gemini-cli'),
+      ).toBe(false)
+    })
 
-    it("getAvailableHeaderStyle returns antigravity first for Gemini", () => {
+    it('getAvailableHeaderStyle returns antigravity first for Gemini', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("gemini");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('gemini')
 
-      expect(manager.getAvailableHeaderStyle(account!, "gemini")).toBe("antigravity");
-    });
+      expect(manager.getAvailableHeaderStyle(account!, 'gemini')).toBe(
+        'antigravity',
+      )
+    })
 
-    it("getAvailableHeaderStyle returns gemini-cli when antigravity is rate-limited", () => {
+    it('getAvailableHeaderStyle returns gemini-cli when antigravity is rate-limited', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("gemini");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('gemini')
 
-      manager.markRateLimited(account!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(account!, 60000, 'gemini', 'antigravity')
 
-      expect(manager.getAvailableHeaderStyle(account!, "gemini")).toBe("gemini-cli");
-    });
+      expect(manager.getAvailableHeaderStyle(account!, 'gemini')).toBe(
+        'gemini-cli',
+      )
+    })
 
-    it("getAvailableHeaderStyle returns null when both header styles are rate-limited", () => {
+    it('getAvailableHeaderStyle returns null when both header styles are rate-limited', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("gemini");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('gemini')
 
-      manager.markRateLimited(account!, 60000, "gemini", "antigravity");
-      manager.markRateLimited(account!, 60000, "gemini", "gemini-cli");
+      manager.markRateLimited(account!, 60000, 'gemini', 'antigravity')
+      manager.markRateLimited(account!, 60000, 'gemini', 'gemini-cli')
 
-      expect(manager.getAvailableHeaderStyle(account!, "gemini")).toBeNull();
-    });
+      expect(manager.getAvailableHeaderStyle(account!, 'gemini')).toBeNull()
+    })
 
-    it("getAvailableHeaderStyle always returns antigravity for Claude", () => {
+    it('getAvailableHeaderStyle always returns antigravity for Claude', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("claude");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('claude')
 
-      expect(manager.getAvailableHeaderStyle(account!, "claude")).toBe("antigravity");
-    });
+      expect(manager.getAvailableHeaderStyle(account!, 'claude')).toBe(
+        'antigravity',
+      )
+    })
 
-    it("getAvailableHeaderStyle returns null for Claude when rate-limited", () => {
+    it('getAvailableHeaderStyle returns null for Claude when rate-limited', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("claude");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('claude')
 
-      manager.markRateLimited(account!, 60000, "claude", "antigravity");
+      manager.markRateLimited(account!, 60000, 'claude', 'antigravity')
 
-      expect(manager.getAvailableHeaderStyle(account!, "claude")).toBeNull();
-    });
+      expect(manager.getAvailableHeaderStyle(account!, 'claude')).toBeNull()
+    })
 
-    it("Gemini rate limits expire independently per header style", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(0));
+    it('Gemini rate limits expire independently per header style', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(0))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("gemini");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('gemini')
 
-      manager.markRateLimited(account!, 30000, "gemini", "antigravity");
-      manager.markRateLimited(account!, 60000, "gemini", "gemini-cli");
+      manager.markRateLimited(account!, 30000, 'gemini', 'antigravity')
+      manager.markRateLimited(account!, 60000, 'gemini', 'gemini-cli')
 
-      jest.setSystemTime(new Date(35000));
+      jest.setSystemTime(new Date(35000))
 
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "antigravity")).toBe(false);
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "gemini-cli")).toBe(true);
+      expect(
+        manager.isRateLimitedForHeaderStyle(account!, 'gemini', 'antigravity'),
+      ).toBe(false)
+      expect(
+        manager.isRateLimitedForHeaderStyle(account!, 'gemini', 'gemini-cli'),
+      ).toBe(true)
 
-      expect(manager.getAvailableHeaderStyle(account!, "gemini")).toBe("antigravity");
-    });
+      expect(manager.getAvailableHeaderStyle(account!, 'gemini')).toBe(
+        'antigravity',
+      )
+    })
 
-    it("getMinWaitTimeForFamily considers both Gemini header styles", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(0));
+    it('getMinWaitTimeForFamily considers both Gemini header styles', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(0))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("gemini");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('gemini')
 
-      manager.markRateLimited(account!, 30000, "gemini", "antigravity");
+      manager.markRateLimited(account!, 30000, 'gemini', 'antigravity')
 
-      expect(manager.getMinWaitTimeForFamily("gemini")).toBe(0);
+      expect(manager.getMinWaitTimeForFamily('gemini')).toBe(0)
 
-      manager.markRateLimited(account!, 60000, "gemini", "gemini-cli");
+      manager.markRateLimited(account!, 60000, 'gemini', 'gemini-cli')
 
-      expect(manager.getMinWaitTimeForFamily("gemini")).toBe(30000);
-    });
-  });
+      expect(manager.getMinWaitTimeForFamily('gemini')).toBe(30000)
+    })
+  })
 
-  describe("per-family account tracking", () => {
-    it("tracks current account independently per model family", () => {
+  describe('per-family account tracking', () => {
+    it('tracks current account independently per model family', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
+      const manager = new AccountManager(undefined, stored)
 
-      const claudeAccount = manager.getCurrentOrNextForFamily("claude");
-      expect(claudeAccount?.parts.refreshToken).toBe("r1");
+      const claudeAccount = manager.getCurrentOrNextForFamily('claude')
+      expect(claudeAccount?.parts.refreshToken).toBe('r1')
 
-      manager.markRateLimited(claudeAccount!, 60000, "claude");
+      manager.markRateLimited(claudeAccount!, 60000, 'claude')
 
-      const nextClaude = manager.getCurrentOrNextForFamily("claude");
-      expect(nextClaude?.parts.refreshToken).toBe("r2");
+      const nextClaude = manager.getCurrentOrNextForFamily('claude')
+      expect(nextClaude?.parts.refreshToken).toBe('r2')
 
-      const geminiAccount = manager.getCurrentOrNextForFamily("gemini");
-      expect(geminiAccount?.parts.refreshToken).toBe("r1");
-    });
+      const geminiAccount = manager.getCurrentOrNextForFamily('gemini')
+      expect(geminiAccount?.parts.refreshToken).toBe('r1')
+    })
 
-    it("switching Claude account does not affect Gemini account selection", () => {
+    it('switching Claude account does not affect Gemini account selection', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r3", projectId: "p3", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
+      const manager = new AccountManager(undefined, stored)
 
-      expect(manager.getCurrentOrNextForFamily("gemini")?.parts.refreshToken).toBe("r1");
+      expect(
+        manager.getCurrentOrNextForFamily('gemini')?.parts.refreshToken,
+      ).toBe('r1')
 
-      const claude1 = manager.getCurrentOrNextForFamily("claude");
-      manager.markRateLimited(claude1!, 60000, "claude");
+      const claude1 = manager.getCurrentOrNextForFamily('claude')
+      manager.markRateLimited(claude1!, 60000, 'claude')
 
-      expect(manager.getCurrentOrNextForFamily("claude")?.parts.refreshToken).toBe("r2");
-      expect(manager.getCurrentOrNextForFamily("gemini")?.parts.refreshToken).toBe("r1");
+      expect(
+        manager.getCurrentOrNextForFamily('claude')?.parts.refreshToken,
+      ).toBe('r2')
+      expect(
+        manager.getCurrentOrNextForFamily('gemini')?.parts.refreshToken,
+      ).toBe('r1')
 
-      const claude2 = manager.getCurrentOrNextForFamily("claude");
-      manager.markRateLimited(claude2!, 60000, "claude");
+      const claude2 = manager.getCurrentOrNextForFamily('claude')
+      manager.markRateLimited(claude2!, 60000, 'claude')
 
-      expect(manager.getCurrentOrNextForFamily("claude")?.parts.refreshToken).toBe("r3");
-      expect(manager.getCurrentOrNextForFamily("gemini")?.parts.refreshToken).toBe("r1");
-    });
+      expect(
+        manager.getCurrentOrNextForFamily('claude')?.parts.refreshToken,
+      ).toBe('r3')
+      expect(
+        manager.getCurrentOrNextForFamily('gemini')?.parts.refreshToken,
+      ).toBe('r1')
+    })
 
-    it("persists per-family indices to storage", async () => {
+    it('persists per-family indices to storage', async () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
+      const manager = new AccountManager(undefined, stored)
 
-      const claude = manager.getCurrentOrNextForFamily("claude");
-      manager.markRateLimited(claude!, 60000, "claude");
-      manager.getCurrentOrNextForFamily("claude");
+      const claude = manager.getCurrentOrNextForFamily('claude')
+      manager.markRateLimited(claude!, 60000, 'claude')
+      manager.getCurrentOrNextForFamily('claude')
 
-      expect(manager.getCurrentAccountForFamily("claude")?.index).toBe(1);
-      expect(manager.getCurrentAccountForFamily("gemini")?.index).toBe(0);
-    });
+      expect(manager.getCurrentAccountForFamily('claude')?.index).toBe(1)
+      expect(manager.getCurrentAccountForFamily('gemini')?.index).toBe(0)
+    })
 
-    it("loads per-family indices from storage", () => {
+    it('loads per-family indices from storage', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r3", projectId: "p3", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
         activeIndexByFamily: {
           claude: 2,
           gemini: 1,
         },
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
+      const manager = new AccountManager(undefined, stored)
 
-      expect(manager.getCurrentAccountForFamily("claude")?.parts.refreshToken).toBe("r3");
-      expect(manager.getCurrentAccountForFamily("gemini")?.parts.refreshToken).toBe("r2");
-    });
+      expect(
+        manager.getCurrentAccountForFamily('claude')?.parts.refreshToken,
+      ).toBe('r3')
+      expect(
+        manager.getCurrentAccountForFamily('gemini')?.parts.refreshToken,
+      ).toBe('r2')
+    })
 
-    it("falls back to activeIndex when activeIndexByFamily is not present", () => {
+    it('falls back to activeIndex when activeIndexByFamily is not present', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 1,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
+      const manager = new AccountManager(undefined, stored)
 
-      expect(manager.getCurrentAccountForFamily("claude")?.parts.refreshToken).toBe("r2");
-      expect(manager.getCurrentAccountForFamily("gemini")?.parts.refreshToken).toBe("r2");
-    });
-  });
+      expect(
+        manager.getCurrentAccountForFamily('claude')?.parts.refreshToken,
+      ).toBe('r2')
+      expect(
+        manager.getCurrentAccountForFamily('gemini')?.parts.refreshToken,
+      ).toBe('r2')
+    })
+  })
 
-  describe("account cooldown (non-429 errors)", () => {
-    it("marks account as cooling down with reason", () => {
+  describe('account cooldown (non-429 errors)', () => {
+    it('marks account as cooling down with reason', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("claude");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('claude')
 
-      manager.markAccountCoolingDown(account!, 30000, "auth-failure");
+      manager.markAccountCoolingDown(account!, 30000, 'auth-failure')
 
-      expect(manager.isAccountCoolingDown(account!)).toBe(true);
-    });
+      expect(manager.isAccountCoolingDown(account!)).toBe(true)
+    })
 
-    it("cooldown expires after duration", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(0));
+    it('cooldown expires after duration', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(0))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("claude");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('claude')
 
-      manager.markAccountCoolingDown(account!, 30000, "network-error");
+      manager.markAccountCoolingDown(account!, 30000, 'network-error')
 
-      expect(manager.isAccountCoolingDown(account!)).toBe(true);
+      expect(manager.isAccountCoolingDown(account!)).toBe(true)
 
-      jest.setSystemTime(new Date(35000));
+      jest.setSystemTime(new Date(35000))
 
-      expect(manager.isAccountCoolingDown(account!)).toBe(false);
-    });
+      expect(manager.isAccountCoolingDown(account!)).toBe(false)
+    })
 
-    it("clearAccountCooldown removes cooldown state", () => {
+    it('clearAccountCooldown removes cooldown state', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("claude");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('claude')
 
-      manager.markAccountCoolingDown(account!, 30000, "auth-failure");
-      expect(manager.isAccountCoolingDown(account!)).toBe(true);
+      manager.markAccountCoolingDown(account!, 30000, 'auth-failure')
+      expect(manager.isAccountCoolingDown(account!)).toBe(true)
 
-      manager.clearAccountCooldown(account!);
-      expect(manager.isAccountCoolingDown(account!)).toBe(false);
-    });
+      manager.clearAccountCooldown(account!)
+      expect(manager.isAccountCoolingDown(account!)).toBe(false)
+    })
 
-    it("cooling down account is skipped in getCurrentOrNextForFamily", () => {
+    it('cooling down account is skipped in getCurrentOrNextForFamily', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account1 = manager.getCurrentOrNextForFamily("claude");
+      const manager = new AccountManager(undefined, stored)
+      const account1 = manager.getCurrentOrNextForFamily('claude')
 
-      manager.markAccountCoolingDown(account1!, 30000, "project-error");
+      manager.markAccountCoolingDown(account1!, 30000, 'project-error')
 
-      const next = manager.getCurrentOrNextForFamily("claude");
-      expect(next?.parts.refreshToken).toBe("r2");
-    });
+      const next = manager.getCurrentOrNextForFamily('claude')
+      expect(next?.parts.refreshToken).toBe('r2')
+    })
 
-    it("cooldown is independent from rate limits", () => {
+    it('cooldown is independent from rate limits', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("gemini");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('gemini')
 
-      manager.markAccountCoolingDown(account!, 30000, "auth-failure");
+      manager.markAccountCoolingDown(account!, 30000, 'auth-failure')
 
-      expect(manager.isAccountCoolingDown(account!)).toBe(true);
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "antigravity")).toBe(false);
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "gemini-cli")).toBe(false);
-    });
-  });
+      expect(manager.isAccountCoolingDown(account!)).toBe(true)
+      expect(
+        manager.isRateLimitedForHeaderStyle(account!, 'gemini', 'antigravity'),
+      ).toBe(false)
+      expect(
+        manager.isRateLimitedForHeaderStyle(account!, 'gemini', 'gemini-cli'),
+      ).toBe(false)
+    })
+  })
 
-  describe("account selection strategies", () => {
-    describe("sticky strategy (default)", () => {
-      it("returns same account on consecutive calls", () => {
+  describe('account selection strategies', () => {
+    describe('sticky strategy (default)', () => {
+      it('returns same account on consecutive calls', () => {
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
+        const manager = new AccountManager(undefined, stored)
 
-        const first = manager.getCurrentOrNextForFamily("claude", null, "sticky");
-        const second = manager.getCurrentOrNextForFamily("claude", null, "sticky");
-        const third = manager.getCurrentOrNextForFamily("claude", null, "sticky");
+        const first = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'sticky',
+        )
+        const second = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'sticky',
+        )
+        const third = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'sticky',
+        )
 
-        expect(first?.index).toBe(0);
-        expect(second?.index).toBe(0);
-        expect(third?.index).toBe(0);
-      });
+        expect(first?.index).toBe(0)
+        expect(second?.index).toBe(0)
+        expect(third?.index).toBe(0)
+      })
 
-      it("switches account only when current is rate-limited", () => {
+      it('switches account only when current is rate-limited', () => {
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
+        const manager = new AccountManager(undefined, stored)
 
-        const first = manager.getCurrentOrNextForFamily("claude", null, "sticky");
-        expect(first?.index).toBe(0);
+        const first = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'sticky',
+        )
+        expect(first?.index).toBe(0)
 
-        manager.markRateLimited(first!, 60000, "claude");
+        manager.markRateLimited(first!, 60000, 'claude')
 
-        const second = manager.getCurrentOrNextForFamily("claude", null, "sticky");
-        expect(second?.index).toBe(1);
-      });
-    });
+        const second = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'sticky',
+        )
+        expect(second?.index).toBe(1)
+      })
+    })
 
-    describe("round-robin strategy", () => {
-      it("rotates to next account on each call", () => {
+    describe('round-robin strategy', () => {
+      it('rotates to next account on each call', () => {
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r3", projectId: "p3", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
+        const manager = new AccountManager(undefined, stored)
 
-        const first = manager.getCurrentOrNextForFamily("claude", null, "round-robin");
-        const second = manager.getCurrentOrNextForFamily("claude", null, "round-robin");
-        const third = manager.getCurrentOrNextForFamily("claude", null, "round-robin");
-        const fourth = manager.getCurrentOrNextForFamily("claude", null, "round-robin");
+        const first = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'round-robin',
+        )
+        const second = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'round-robin',
+        )
+        const third = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'round-robin',
+        )
+        const fourth = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'round-robin',
+        )
 
-        const indices = [first?.index, second?.index, third?.index, fourth?.index];
-        expect(new Set(indices).size).toBeGreaterThanOrEqual(2);
-      });
+        const indices = [
+          first?.index,
+          second?.index,
+          third?.index,
+          fourth?.index,
+        ]
+        expect(new Set(indices).size).toBeGreaterThanOrEqual(2)
+      })
 
-      it("skips rate-limited accounts", () => {
+      it('skips rate-limited accounts', () => {
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r3", projectId: "p3", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
-        const accounts = manager.getAccounts();
-        manager.markRateLimited(accounts[1]!, 60000, "claude");
+        const manager = new AccountManager(undefined, stored)
+        const accounts = manager.getAccounts()
+        manager.markRateLimited(accounts[1]!, 60000, 'claude')
 
-        const first = manager.getCurrentOrNextForFamily("claude", null, "round-robin");
-        const second = manager.getCurrentOrNextForFamily("claude", null, "round-robin");
+        const first = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'round-robin',
+        )
+        const second = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'round-robin',
+        )
 
-        expect(first?.index).not.toBe(1);
-        expect(second?.index).not.toBe(1);
-      });
-    });
+        expect(first?.index).not.toBe(1)
+        expect(second?.index).not.toBe(1)
+      })
+    })
 
-    describe("hybrid strategy", () => {
-      it("returns fresh (untouched) accounts first", () => {
+    describe('hybrid strategy', () => {
+      it('returns fresh (untouched) accounts first', () => {
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r3", projectId: "p3", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
+        const manager = new AccountManager(undefined, stored)
 
-        const first = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
-        const second = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
-        const third = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
+        const first = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'hybrid',
+        )
+        const second = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'hybrid',
+        )
+        const third = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'hybrid',
+        )
 
-        const indices = [first?.index, second?.index, third?.index];
-        expect(indices).toContain(0);
-        expect(indices).toContain(1);
-        expect(indices).toContain(2);
-      });
+        const indices = [first?.index, second?.index, third?.index]
+        expect(indices).toContain(0)
+        expect(indices).toContain(1)
+        expect(indices).toContain(2)
+      })
 
-      it("continues to return valid accounts after all touched", () => {
+      it('continues to return valid accounts after all touched', () => {
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
+        const manager = new AccountManager(undefined, stored)
 
-        manager.getCurrentOrNextForFamily("claude", null, "hybrid");
-        manager.getCurrentOrNextForFamily("claude", null, "hybrid");
+        manager.getCurrentOrNextForFamily('claude', null, 'hybrid')
+        manager.getCurrentOrNextForFamily('claude', null, 'hybrid')
 
-        const third = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
-        const fourth = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
+        const third = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'hybrid',
+        )
+        const fourth = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'hybrid',
+        )
 
-        expect(third).not.toBeNull();
-        expect(fourth).not.toBeNull();
-        expect([0, 1]).toContain(third?.index ?? -1);
-        expect([0, 1]).toContain(fourth?.index ?? -1);
-      });
-    });
+        expect(third).not.toBeNull()
+        expect(fourth).not.toBeNull()
+        expect([0, 1]).toContain(third?.index ?? -1)
+        expect([0, 1]).toContain(fourth?.index ?? -1)
+      })
+    })
 
-    describe("hybrid strategy with token bucket", () => {
-      it("returns account based on health and token availability", () => {
+    describe('hybrid strategy with token bucket', () => {
+      it('returns account based on health and token availability', () => {
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r3", projectId: "p3", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
+        const manager = new AccountManager(undefined, stored)
 
-        const first = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
-        expect(first).not.toBeNull();
-        expect([0, 1, 2]).toContain(first?.index ?? -1);
-      });
+        const first = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'hybrid',
+        )
+        expect(first).not.toBeNull()
+        expect([0, 1, 2]).toContain(first?.index ?? -1)
+      })
 
-      it("skips rate-limited accounts", () => {
+      it('skips rate-limited accounts', () => {
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
-        const accounts = manager.getAccounts();
-        manager.markRateLimited(accounts[0]!, 60000, "claude");
+        const manager = new AccountManager(undefined, stored)
+        const accounts = manager.getAccounts()
+        manager.markRateLimited(accounts[0]!, 60000, 'claude')
 
-        const selected = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
-        expect(selected?.index).toBe(1);
-      });
+        const selected = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'hybrid',
+        )
+        expect(selected?.index).toBe(1)
+      })
 
-      it("skips cooling down accounts", () => {
+      it('skips cooling down accounts', () => {
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
-        const accounts = manager.getAccounts();
-        manager.markAccountCoolingDown(accounts[0]!, 60000, "auth-failure");
+        const manager = new AccountManager(undefined, stored)
+        const accounts = manager.getAccounts()
+        manager.markAccountCoolingDown(accounts[0]!, 60000, 'auth-failure')
 
-        const selected = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
-        expect(selected?.index).toBe(1);
-      });
+        const selected = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'hybrid',
+        )
+        expect(selected?.index).toBe(1)
+      })
 
-      it("falls back to sticky when all accounts unavailable", () => {
-        jest.useFakeTimers();
-        jest.setSystemTime(new Date(0));
-
-        const stored: AccountStorageV4 = {
-          version: 4,
-          accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          ],
-          activeIndex: 0,
-        };
-
-        const manager = new AccountManager(undefined, stored);
-
-        const selected = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
-        expect(selected?.index).toBe(0);
-      });
-
-      it("updates lastUsed and currentAccountIndexByFamily on selection", () => {
-        jest.useFakeTimers();
-        jest.setSystemTime(new Date(5000));
+      it('falls back to sticky when all accounts unavailable', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(0))
 
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-            { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
-        const selected = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
+        const manager = new AccountManager(undefined, stored)
 
-        expect(selected).not.toBeNull();
-        expect(selected!.lastUsed).toBe(5000);
-        expect(manager.getCurrentAccountForFamily("claude")?.index).toBe(selected?.index);
-      });
-    });
-  });
+        const selected = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'hybrid',
+        )
+        expect(selected?.index).toBe(0)
+      })
 
-  describe("touchedForQuota tracking", () => {
-    it("marks account as touched with timestamp", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(1000));
+      it('updates lastUsed and currentAccountIndexByFamily on selection', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(5000))
+
+        const stored: AccountStorageV4 = {
+          version: 4,
+          accounts: [
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+          ],
+          activeIndex: 0,
+        }
+
+        const manager = new AccountManager(undefined, stored)
+        const selected = manager.getCurrentOrNextForFamily(
+          'claude',
+          null,
+          'hybrid',
+        )
+
+        expect(selected).not.toBeNull()
+        expect(selected!.lastUsed).toBe(5000)
+        expect(manager.getCurrentAccountForFamily('claude')?.index).toBe(
+          selected?.index,
+        )
+      })
+    })
+  })
+
+  describe('touchedForQuota tracking', () => {
+    it('marks account as touched with timestamp', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(1000))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getAccounts()[0]!
 
-      manager.markTouchedForQuota(account, "claude:antigravity");
+      manager.markTouchedForQuota(account, 'claude:antigravity')
 
-      expect(account.touchedForQuota["claude:antigravity"]).toBe(1000);
-    });
+      expect(account.touchedForQuota['claude:antigravity']).toBe(1000)
+    })
 
-    it("isFreshForQuota returns true for untouched accounts", () => {
+    it('isFreshForQuota returns true for untouched accounts', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getAccounts()[0]!
 
-      expect(manager.isFreshForQuota(account, "claude:antigravity")).toBe(true);
-    });
+      expect(manager.isFreshForQuota(account, 'claude:antigravity')).toBe(true)
+    })
 
-    it("isFreshForQuota returns false for recently touched accounts", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(1000));
+    it('isFreshForQuota returns false for recently touched accounts', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(1000))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getAccounts()[0]!
 
-      manager.markTouchedForQuota(account, "claude:antigravity");
+      manager.markTouchedForQuota(account, 'claude:antigravity')
 
-      expect(manager.isFreshForQuota(account, "claude:antigravity")).toBe(false);
-    });
+      expect(manager.isFreshForQuota(account, 'claude:antigravity')).toBe(false)
+    })
 
-    it("isFreshForQuota returns true after quota reset time passes", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(1000));
+    it('isFreshForQuota returns true after quota reset time passes', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(1000))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getAccounts()[0]!
 
-      manager.markTouchedForQuota(account, "claude");
-      expect(manager.isFreshForQuota(account, "claude")).toBe(false);
-      
-      manager.markRateLimited(account, 60000, "claude", "antigravity");
-      
-      jest.setSystemTime(new Date(70000));
-      expect(manager.isFreshForQuota(account, "claude")).toBe(true);
-    });
-  });
+      manager.markTouchedForQuota(account, 'claude')
+      expect(manager.isFreshForQuota(account, 'claude')).toBe(false)
 
-  describe("consecutiveFailures tracking", () => {
-    it("initializes consecutiveFailures as undefined", () => {
+      manager.markRateLimited(account, 60000, 'claude', 'antigravity')
+
+      jest.setSystemTime(new Date(70000))
+      expect(manager.isFreshForQuota(account, 'claude')).toBe(true)
+    })
+  })
+
+  describe('consecutiveFailures tracking', () => {
+    it('initializes consecutiveFailures as undefined', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getAccounts()[0]!
 
-      expect(account.consecutiveFailures).toBeUndefined();
-    });
+      expect(account.consecutiveFailures).toBeUndefined()
+    })
 
-    it("can increment and reset consecutiveFailures", () => {
+    it('can increment and reset consecutiveFailures', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getAccounts()[0]!
 
-      account.consecutiveFailures = (account.consecutiveFailures ?? 0) + 1;
-      expect(account.consecutiveFailures).toBe(1);
+      account.consecutiveFailures = (account.consecutiveFailures ?? 0) + 1
+      expect(account.consecutiveFailures).toBe(1)
 
-      account.consecutiveFailures = (account.consecutiveFailures ?? 0) + 1;
-      expect(account.consecutiveFailures).toBe(2);
+      account.consecutiveFailures = (account.consecutiveFailures ?? 0) + 1
+      expect(account.consecutiveFailures).toBe(2)
 
-      account.consecutiveFailures = 0;
-      expect(account.consecutiveFailures).toBe(0);
-    });
-  });
+      account.consecutiveFailures = 0
+      expect(account.consecutiveFailures).toBe(0)
+    })
+  })
 
-  describe("Issue #147: headerStyle-aware account selection", () => {
-    it("skips account when requested headerStyle is rate-limited even if other style is available", () => {
+  describe('Issue #147: headerStyle-aware account selection', () => {
+    it('skips account when requested headerStyle is rate-limited even if other style is available', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
         activeIndexByFamily: { claude: 0, gemini: 0 },
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const firstAccount = manager.getCurrentOrNextForFamily("gemini");
+      const manager = new AccountManager(undefined, stored)
+      const firstAccount = manager.getCurrentOrNextForFamily('gemini')
 
       // Mark ONLY antigravity as rate-limited (gemini-cli is still available)
-      manager.markRateLimited(firstAccount!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(firstAccount!, 60000, 'gemini', 'antigravity')
 
       // Verify: antigravity is limited, gemini-cli is not
-      expect(manager.isRateLimitedForHeaderStyle(firstAccount!, "gemini", "antigravity")).toBe(true);
-      expect(manager.isRateLimitedForHeaderStyle(firstAccount!, "gemini", "gemini-cli")).toBe(false);
+      expect(
+        manager.isRateLimitedForHeaderStyle(
+          firstAccount!,
+          'gemini',
+          'antigravity',
+        ),
+      ).toBe(true)
+      expect(
+        manager.isRateLimitedForHeaderStyle(
+          firstAccount!,
+          'gemini',
+          'gemini-cli',
+        ),
+      ).toBe(false)
 
-      // BUG: When we explicitly request antigravity headerStyle, 
+      // BUG: When we explicitly request antigravity headerStyle,
       // we should skip this account and get the next one
       // Current behavior: returns the same account because "family" is not fully limited
       const nextAccount = manager.getCurrentOrNextForFamily(
-        "gemini", 
-        null, 
-        "sticky", 
-        "antigravity"  // Explicitly requesting antigravity
-      );
+        'gemini',
+        null,
+        'sticky',
+        'antigravity', // Explicitly requesting antigravity
+      )
 
       // Verifies headerStyle-aware account selection: should skip account 0
       // because its antigravity quota is limited, even though gemini-cli is available
-      expect(nextAccount?.index).toBe(1);
-    });
+      expect(nextAccount?.index).toBe(1)
+    })
 
-    it("returns same account when a different headerStyle is rate-limited", () => {
+    it('returns same account when a different headerStyle is rate-limited', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
         activeIndexByFamily: { claude: 0, gemini: 0 },
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const firstAccount = manager.getCurrentOrNextForFamily("gemini");
+      const manager = new AccountManager(undefined, stored)
+      const firstAccount = manager.getCurrentOrNextForFamily('gemini')
 
       // Mark gemini-cli as rate-limited (antigravity is still available)
-      manager.markRateLimited(firstAccount!, 60000, "gemini", "gemini-cli");
+      manager.markRateLimited(firstAccount!, 60000, 'gemini', 'gemini-cli')
 
       // When requesting antigravity, should return the same account
       // because antigravity quota is still available
       const nextAccount = manager.getCurrentOrNextForFamily(
-        "gemini", 
-        null, 
-        "sticky", 
-        "antigravity"  // Requesting antigravity which is NOT limited
-      );
+        'gemini',
+        null,
+        'sticky',
+        'antigravity', // Requesting antigravity which is NOT limited
+      )
 
-      expect(nextAccount?.index).toBe(0); // Should stay on account 0
-    });
-  });
+      expect(nextAccount?.index).toBe(0) // Should stay on account 0
+    })
+  })
 
-  describe("Issue #174: saveToDisk throttling", () => {
-    it("requestSaveToDisk coalesces multiple calls into one write", async () => {
-      jest.useFakeTimers();
-
-      const stored: AccountStorageV4 = {
-        version: 4,
-        accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        ],
-        activeIndex: 0,
-      };
-
-      const manager = new AccountManager(undefined, stored);
-      const saveSpy = spyOn(manager, "saveToDisk").mockResolvedValue();
-
-      manager.requestSaveToDisk();
-      manager.requestSaveToDisk();
-      manager.requestSaveToDisk();
-
-      expect(saveSpy).not.toHaveBeenCalled();
-
-      await jest.advanceTimersByTime(1500);
-
-      expect(saveSpy).toHaveBeenCalledTimes(1);
-
-      saveSpy.mockRestore();
-    });
-
-    it("flushSaveToDisk waits for pending save to complete", async () => {
-      jest.useFakeTimers();
+  describe('Issue #174: saveToDisk throttling', () => {
+    it('requestSaveToDisk coalesces multiple calls into one write', async () => {
+      jest.useFakeTimers()
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const saveSpy = spyOn(manager, "saveToDisk").mockResolvedValue();
+      const manager = new AccountManager(undefined, stored)
+      const saveSpy = spyOn(manager, 'saveToDisk').mockResolvedValue()
 
-      manager.requestSaveToDisk();
+      manager.requestSaveToDisk()
+      manager.requestSaveToDisk()
+      manager.requestSaveToDisk()
 
-      const flushPromise = manager.flushSaveToDisk();
+      expect(saveSpy).not.toHaveBeenCalled()
 
-      await jest.advanceTimersByTime(1500);
-      await flushPromise;
+      await jest.advanceTimersByTime(1500)
 
-      expect(saveSpy).toHaveBeenCalledTimes(1);
+      expect(saveSpy).toHaveBeenCalledTimes(1)
 
-      saveSpy.mockRestore();
-    });
+      saveSpy.mockRestore()
+    })
 
-    it("does not save again if no new requestSaveToDisk after flush", async () => {
-      jest.useFakeTimers();
+    it('flushSaveToDisk waits for pending save to complete', async () => {
+      jest.useFakeTimers()
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const saveSpy = spyOn(manager, "saveToDisk").mockResolvedValue();
+      const manager = new AccountManager(undefined, stored)
+      const saveSpy = spyOn(manager, 'saveToDisk').mockResolvedValue()
 
-      manager.requestSaveToDisk();
-      await jest.advanceTimersByTime(1500);
+      manager.requestSaveToDisk()
 
-      expect(saveSpy).toHaveBeenCalledTimes(1);
+      const flushPromise = manager.flushSaveToDisk()
 
-      await jest.advanceTimersByTime(3000);
+      await jest.advanceTimersByTime(1500)
+      await flushPromise
 
-      expect(saveSpy).toHaveBeenCalledTimes(1);
+      expect(saveSpy).toHaveBeenCalledTimes(1)
 
-      saveSpy.mockRestore();
-    });
+      saveSpy.mockRestore()
+    })
 
-    it("treats account storage lock contention as non-fatal debug noise", async () => {
-      jest.useFakeTimers();
+    it('does not save again if no new requestSaveToDisk after flush', async () => {
+      jest.useFakeTimers()
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const saveSpy = spyOn(manager, "saveToDisk").mockRejectedValue(
-        new Error("Lock file is already being held"),
-      );
-      const warnSpy = spyOn(console, "warn").mockImplementation(() => undefined);
+      const manager = new AccountManager(undefined, stored)
+      const saveSpy = spyOn(manager, 'saveToDisk').mockResolvedValue()
 
-      manager.requestSaveToDisk();
-      const flushPromise = manager.flushSaveToDisk();
-      await jest.advanceTimersByTime(1500);
+      manager.requestSaveToDisk()
+      await jest.advanceTimersByTime(1500)
 
-      await expect(flushPromise).resolves.toBeUndefined();
-      expect(warnSpy).not.toHaveBeenCalled();
+      expect(saveSpy).toHaveBeenCalledTimes(1)
 
-      warnSpy.mockRestore();
-      saveSpy.mockRestore();
-    });
-  });
+      await jest.advanceTimersByTime(3000)
 
-  describe("Rate Limit Reason Classification", () => {
-    it("getMinWaitTimeForFamily respects strict header style", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(0));
+      expect(saveSpy).toHaveBeenCalledTimes(1)
+
+      saveSpy.mockRestore()
+    })
+
+    it('treats account storage lock contention as non-fatal debug noise', async () => {
+      jest.useFakeTimers()
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("gemini");
+      const manager = new AccountManager(undefined, stored)
+      const saveSpy = spyOn(manager, 'saveToDisk').mockRejectedValue(
+        new Error('Lock file is already being held'),
+      )
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined)
 
-      manager.markRateLimited(account!, 30000, "gemini", "antigravity", "gemini-3-pro-image");
+      manager.requestSaveToDisk()
+      const flushPromise = manager.flushSaveToDisk()
+      await jest.advanceTimersByTime(1500)
+
+      await expect(flushPromise).resolves.toBeUndefined()
+      expect(warnSpy).not.toHaveBeenCalled()
+
+      warnSpy.mockRestore()
+      saveSpy.mockRestore()
+    })
+  })
+
+  describe('Rate Limit Reason Classification', () => {
+    it('getMinWaitTimeForFamily respects strict header style', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(0))
+
+      const stored: AccountStorageV4 = {
+        version: 4,
+        accounts: [
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        ],
+        activeIndex: 0,
+      }
+
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('gemini')
+
+      manager.markRateLimited(
+        account!,
+        30000,
+        'gemini',
+        'antigravity',
+        'gemini-3-pro-image',
+      )
 
       expect(
         manager.getMinWaitTimeForFamily(
-          "gemini",
-          "gemini-3-pro-image",
-          "antigravity",
+          'gemini',
+          'gemini-3-pro-image',
+          'antigravity',
           true,
         ),
-      ).toBe(30000);
+      ).toBe(30000)
 
-      expect(manager.getMinWaitTimeForFamily("gemini", "gemini-3-pro-image")).toBe(0);
-    });
+      expect(
+        manager.getMinWaitTimeForFamily('gemini', 'gemini-3-pro-image'),
+      ).toBe(0)
+    })
 
-    describe("parseRateLimitReason", () => {
-      it("parses QUOTA_EXHAUSTED from reason field", () => {
-        expect(parseRateLimitReason("QUOTA_EXHAUSTED", undefined)).toBe("QUOTA_EXHAUSTED");
-        expect(parseRateLimitReason("quota_exhausted", undefined)).toBe("QUOTA_EXHAUSTED");
-      });
+    describe('parseRateLimitReason', () => {
+      it('parses QUOTA_EXHAUSTED from reason field', () => {
+        expect(parseRateLimitReason('QUOTA_EXHAUSTED', undefined)).toBe(
+          'QUOTA_EXHAUSTED',
+        )
+        expect(parseRateLimitReason('quota_exhausted', undefined)).toBe(
+          'QUOTA_EXHAUSTED',
+        )
+      })
 
-      it("parses RATE_LIMIT_EXCEEDED from reason field", () => {
-        expect(parseRateLimitReason("RATE_LIMIT_EXCEEDED", undefined)).toBe("RATE_LIMIT_EXCEEDED");
-      });
+      it('parses RATE_LIMIT_EXCEEDED from reason field', () => {
+        expect(parseRateLimitReason('RATE_LIMIT_EXCEEDED', undefined)).toBe(
+          'RATE_LIMIT_EXCEEDED',
+        )
+      })
 
-      it("parses MODEL_CAPACITY_EXHAUSTED from reason field", () => {
-        expect(parseRateLimitReason("MODEL_CAPACITY_EXHAUSTED", undefined)).toBe("MODEL_CAPACITY_EXHAUSTED");
-      });
+      it('parses MODEL_CAPACITY_EXHAUSTED from reason field', () => {
+        expect(
+          parseRateLimitReason('MODEL_CAPACITY_EXHAUSTED', undefined),
+        ).toBe('MODEL_CAPACITY_EXHAUSTED')
+      })
 
-      it("falls back to message parsing when reason is absent", () => {
-        expect(parseRateLimitReason(undefined, "Rate limit exceeded per minute")).toBe("RATE_LIMIT_EXCEEDED");
-        expect(parseRateLimitReason(undefined, "Too many requests")).toBe("RATE_LIMIT_EXCEEDED");
-        expect(parseRateLimitReason(undefined, "Quota exhausted for today")).toBe("QUOTA_EXHAUSTED");
-      });
+      it('falls back to message parsing when reason is absent', () => {
+        expect(
+          parseRateLimitReason(undefined, 'Rate limit exceeded per minute'),
+        ).toBe('RATE_LIMIT_EXCEEDED')
+        expect(parseRateLimitReason(undefined, 'Too many requests')).toBe(
+          'RATE_LIMIT_EXCEEDED',
+        )
+        expect(
+          parseRateLimitReason(undefined, 'Quota exhausted for today'),
+        ).toBe('QUOTA_EXHAUSTED')
+      })
 
-      it("returns UNKNOWN when no pattern matches", () => {
-        expect(parseRateLimitReason(undefined, "Some other error")).toBe("UNKNOWN");
-        expect(parseRateLimitReason(undefined, undefined)).toBe("UNKNOWN");
-      });
-    });
+      it('returns UNKNOWN when no pattern matches', () => {
+        expect(parseRateLimitReason(undefined, 'Some other error')).toBe(
+          'UNKNOWN',
+        )
+        expect(parseRateLimitReason(undefined, undefined)).toBe('UNKNOWN')
+      })
+    })
 
-    describe("calculateBackoffMs", () => {
-      it("uses retryAfterMs when provided", () => {
-        expect(calculateBackoffMs("QUOTA_EXHAUSTED", 0, 120_000)).toBe(120_000);
-        expect(calculateBackoffMs("RATE_LIMIT_EXCEEDED", 0, 45_000)).toBe(45_000);
-      });
+    describe('calculateBackoffMs', () => {
+      it('uses retryAfterMs when provided', () => {
+        expect(calculateBackoffMs('QUOTA_EXHAUSTED', 0, 120_000)).toBe(120_000)
+        expect(calculateBackoffMs('RATE_LIMIT_EXCEEDED', 0, 45_000)).toBe(
+          45_000,
+        )
+      })
 
-      it("enforces minimum 2s backoff", () => {
-        expect(calculateBackoffMs("QUOTA_EXHAUSTED", 0, 500)).toBe(2_000);
-        expect(calculateBackoffMs("RATE_LIMIT_EXCEEDED", 0, 1_000)).toBe(2_000);
-      });
+      it('enforces minimum 2s backoff', () => {
+        expect(calculateBackoffMs('QUOTA_EXHAUSTED', 0, 500)).toBe(2_000)
+        expect(calculateBackoffMs('RATE_LIMIT_EXCEEDED', 0, 1_000)).toBe(2_000)
+      })
 
-      it("applies exponential backoff for QUOTA_EXHAUSTED", () => {
-        expect(calculateBackoffMs("QUOTA_EXHAUSTED", 0)).toBe(60_000);
-        expect(calculateBackoffMs("QUOTA_EXHAUSTED", 1)).toBe(300_000);
-        expect(calculateBackoffMs("QUOTA_EXHAUSTED", 2)).toBe(1_800_000);
-        expect(calculateBackoffMs("QUOTA_EXHAUSTED", 3)).toBe(7_200_000);
-        expect(calculateBackoffMs("QUOTA_EXHAUSTED", 10)).toBe(7_200_000);
-      });
+      it('applies exponential backoff for QUOTA_EXHAUSTED', () => {
+        expect(calculateBackoffMs('QUOTA_EXHAUSTED', 0)).toBe(60_000)
+        expect(calculateBackoffMs('QUOTA_EXHAUSTED', 1)).toBe(300_000)
+        expect(calculateBackoffMs('QUOTA_EXHAUSTED', 2)).toBe(1_800_000)
+        expect(calculateBackoffMs('QUOTA_EXHAUSTED', 3)).toBe(7_200_000)
+        expect(calculateBackoffMs('QUOTA_EXHAUSTED', 10)).toBe(7_200_000)
+      })
 
-      it("returns fixed backoff for RATE_LIMIT_EXCEEDED", () => {
-        expect(calculateBackoffMs("RATE_LIMIT_EXCEEDED", 0)).toBe(30_000);
-        expect(calculateBackoffMs("RATE_LIMIT_EXCEEDED", 5)).toBe(30_000);
-      });
+      it('returns fixed backoff for RATE_LIMIT_EXCEEDED', () => {
+        expect(calculateBackoffMs('RATE_LIMIT_EXCEEDED', 0)).toBe(30_000)
+        expect(calculateBackoffMs('RATE_LIMIT_EXCEEDED', 5)).toBe(30_000)
+      })
 
-      it("returns short backoff for MODEL_CAPACITY_EXHAUSTED", () => {
+      it('returns short backoff for MODEL_CAPACITY_EXHAUSTED', () => {
         // Base backoff is 45s with ±15s jitter (range: 30s to 60s)
-        const result = calculateBackoffMs("MODEL_CAPACITY_EXHAUSTED", 0);
-        expect(result).toBeGreaterThanOrEqual(30_000);
-        expect(result).toBeLessThanOrEqual(60_000);
-      });
+        const result = calculateBackoffMs('MODEL_CAPACITY_EXHAUSTED', 0)
+        expect(result).toBeGreaterThanOrEqual(30_000)
+        expect(result).toBeLessThanOrEqual(60_000)
+      })
 
-      it("returns soft retry for SERVER_ERROR", () => {
-        expect(calculateBackoffMs("SERVER_ERROR", 0)).toBe(20_000);
-      });
+      it('returns soft retry for SERVER_ERROR', () => {
+        expect(calculateBackoffMs('SERVER_ERROR', 0)).toBe(20_000)
+      })
 
-      it("returns default backoff for UNKNOWN", () => {
-        expect(calculateBackoffMs("UNKNOWN", 0)).toBe(60_000);
-      });
-    });
+      it('returns default backoff for UNKNOWN', () => {
+        expect(calculateBackoffMs('UNKNOWN', 0)).toBe(60_000)
+      })
+    })
 
-    describe("markRateLimitedWithReason", () => {
-      it("tracks consecutive failures and applies escalating backoff", () => {
-        jest.useFakeTimers();
-        jest.setSystemTime(1000);
+    describe('markRateLimitedWithReason', () => {
+      it('tracks consecutive failures and applies escalating backoff', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(1000)
 
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
-        const account = manager.getAccounts()[0]!;
+        const manager = new AccountManager(undefined, stored)
+        const account = manager.getAccounts()[0]!
 
         const backoff1 = manager.markRateLimitedWithReason(
-          account, "gemini", "antigravity", null, "QUOTA_EXHAUSTED"
-        );
-        expect(backoff1).toBe(60_000);
-        expect(account.consecutiveFailures).toBe(1);
+          account,
+          'gemini',
+          'antigravity',
+          null,
+          'QUOTA_EXHAUSTED',
+        )
+        expect(backoff1).toBe(60_000)
+        expect(account.consecutiveFailures).toBe(1)
 
         const backoff2 = manager.markRateLimitedWithReason(
-          account, "gemini", "antigravity", null, "QUOTA_EXHAUSTED"
-        );
-        expect(backoff2).toBe(300_000);
-        expect(account.consecutiveFailures).toBe(2);
+          account,
+          'gemini',
+          'antigravity',
+          null,
+          'QUOTA_EXHAUSTED',
+        )
+        expect(backoff2).toBe(300_000)
+        expect(account.consecutiveFailures).toBe(2)
 
         const backoff3 = manager.markRateLimitedWithReason(
-          account, "gemini", "antigravity", null, "QUOTA_EXHAUSTED"
-        );
-        expect(backoff3).toBe(1_800_000);
-        expect(account.consecutiveFailures).toBe(3);
+          account,
+          'gemini',
+          'antigravity',
+          null,
+          'QUOTA_EXHAUSTED',
+        )
+        expect(backoff3).toBe(1_800_000)
+        expect(account.consecutiveFailures).toBe(3)
 
-        jest.useRealTimers();
-      });
+        jest.useRealTimers()
+      })
 
-      it("uses provided retryAfterMs over calculated backoff", () => {
-        jest.useFakeTimers();
-        jest.setSystemTime(1000);
+      it('uses provided retryAfterMs over calculated backoff', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(1000)
 
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
-        const account = manager.getAccounts()[0]!;
+        const manager = new AccountManager(undefined, stored)
+        const account = manager.getAccounts()[0]!
 
         const backoff = manager.markRateLimitedWithReason(
-          account, "gemini", "antigravity", null, "QUOTA_EXHAUSTED", 180_000
-        );
-        expect(backoff).toBe(180_000);
+          account,
+          'gemini',
+          'antigravity',
+          null,
+          'QUOTA_EXHAUSTED',
+          180_000,
+        )
+        expect(backoff).toBe(180_000)
 
-        jest.useRealTimers();
-      });
-    });
+        jest.useRealTimers()
+      })
+    })
 
-    describe("markRequestSuccess", () => {
-      it("resets consecutive failure counter", () => {
+    describe('markRequestSuccess', () => {
+      it('resets consecutive failure counter', () => {
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
-        const account = manager.getAccounts()[0]!;
+        const manager = new AccountManager(undefined, stored)
+        const account = manager.getAccounts()[0]!
 
-        account.consecutiveFailures = 5;
-        manager.markRequestSuccess(account);
-        expect(account.consecutiveFailures).toBe(0);
-      });
-    });
+        account.consecutiveFailures = 5
+        manager.markRequestSuccess(account)
+        expect(account.consecutiveFailures).toBe(0)
+      })
+    })
 
-    describe("Optimistic Reset", () => {
-      it("shouldTryOptimisticReset returns true when min wait time <= 2s", () => {
-        jest.useFakeTimers();
-        jest.setSystemTime(10_000);
-
-        const stored: AccountStorageV4 = {
-          version: 4,
-          accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0, rateLimitResetTimes: { "gemini-antigravity": 11_500, "gemini-cli": 11_500 } },
-          ],
-          activeIndex: 0,
-        };
-
-        const manager = new AccountManager(undefined, stored);
-        expect(manager.shouldTryOptimisticReset("gemini")).toBe(true);
-
-        jest.useRealTimers();
-      });
-
-      it("shouldTryOptimisticReset returns false when min wait time > 2s", () => {
-        jest.useFakeTimers();
-        jest.setSystemTime(10_000);
+    describe('Optimistic Reset', () => {
+      it('shouldTryOptimisticReset returns true when min wait time <= 2s', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(10_000)
 
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0, rateLimitResetTimes: { "gemini-antigravity": 15_000, "gemini-cli": 15_000 } },
+            {
+              refreshToken: 'r1',
+              projectId: 'p1',
+              addedAt: 1,
+              lastUsed: 0,
+              rateLimitResetTimes: {
+                'gemini-antigravity': 11_500,
+                'gemini-cli': 11_500,
+              },
+            },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
-        expect(manager.shouldTryOptimisticReset("gemini")).toBe(false);
+        const manager = new AccountManager(undefined, stored)
+        expect(manager.shouldTryOptimisticReset('gemini')).toBe(true)
 
-        jest.useRealTimers();
-      });
+        jest.useRealTimers()
+      })
 
-      it("shouldTryOptimisticReset returns false when accounts are available", () => {
-        const stored: AccountStorageV4 = {
-          version: 4,
-          accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          ],
-          activeIndex: 0,
-        };
-
-        const manager = new AccountManager(undefined, stored);
-        expect(manager.shouldTryOptimisticReset("gemini")).toBe(false);
-      });
-
-      it("clearAllRateLimitsForFamily clears rate limits and failure counters", () => {
-        jest.useFakeTimers();
-        jest.setSystemTime(10_000);
+      it('shouldTryOptimisticReset returns false when min wait time > 2s', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(10_000)
 
         const stored: AccountStorageV4 = {
           version: 4,
           accounts: [
-            { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0, rateLimitResetTimes: { "gemini-antigravity": 70_000, "gemini-cli": 80_000 } },
-            { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0, rateLimitResetTimes: { "gemini-antigravity": 90_000 } },
+            {
+              refreshToken: 'r1',
+              projectId: 'p1',
+              addedAt: 1,
+              lastUsed: 0,
+              rateLimitResetTimes: {
+                'gemini-antigravity': 15_000,
+                'gemini-cli': 15_000,
+              },
+            },
           ],
           activeIndex: 0,
-        };
+        }
 
-        const manager = new AccountManager(undefined, stored);
-        const accounts = manager.getAccounts();
-        accounts[0]!.consecutiveFailures = 3;
-        accounts[1]!.consecutiveFailures = 2;
+        const manager = new AccountManager(undefined, stored)
+        expect(manager.shouldTryOptimisticReset('gemini')).toBe(false)
 
-        manager.clearAllRateLimitsForFamily("gemini");
+        jest.useRealTimers()
+      })
 
-        expect(accounts[0]!.rateLimitResetTimes["gemini-antigravity"]).toBeUndefined();
-        expect(accounts[0]!.rateLimitResetTimes["gemini-cli"]).toBeUndefined();
-        expect(accounts[1]!.rateLimitResetTimes["gemini-antigravity"]).toBeUndefined();
-        expect(accounts[0]!.consecutiveFailures).toBe(0);
-        expect(accounts[1]!.consecutiveFailures).toBe(0);
+      it('shouldTryOptimisticReset returns false when accounts are available', () => {
+        const stored: AccountStorageV4 = {
+          version: 4,
+          accounts: [
+            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          ],
+          activeIndex: 0,
+        }
 
-        jest.useRealTimers();
-      });
-    });
-  });
+        const manager = new AccountManager(undefined, stored)
+        expect(manager.shouldTryOptimisticReset('gemini')).toBe(false)
+      })
 
-  describe("Failure TTL Expiration", () => {
-    it("resets consecutiveFailures when lastFailureTime exceeds TTL", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(0));
+      it('clearAllRateLimitsForFamily clears rate limits and failure counters', () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(10_000)
+
+        const stored: AccountStorageV4 = {
+          version: 4,
+          accounts: [
+            {
+              refreshToken: 'r1',
+              projectId: 'p1',
+              addedAt: 1,
+              lastUsed: 0,
+              rateLimitResetTimes: {
+                'gemini-antigravity': 70_000,
+                'gemini-cli': 80_000,
+              },
+            },
+            {
+              refreshToken: 'r2',
+              projectId: 'p2',
+              addedAt: 2,
+              lastUsed: 0,
+              rateLimitResetTimes: { 'gemini-antigravity': 90_000 },
+            },
+          ],
+          activeIndex: 0,
+        }
+
+        const manager = new AccountManager(undefined, stored)
+        const accounts = manager.getAccounts()
+        accounts[0]!.consecutiveFailures = 3
+        accounts[1]!.consecutiveFailures = 2
+
+        manager.clearAllRateLimitsForFamily('gemini')
+
+        expect(
+          accounts[0]!.rateLimitResetTimes['gemini-antigravity'],
+        ).toBeUndefined()
+        expect(accounts[0]!.rateLimitResetTimes['gemini-cli']).toBeUndefined()
+        expect(
+          accounts[1]!.rateLimitResetTimes['gemini-antigravity'],
+        ).toBeUndefined()
+        expect(accounts[0]!.consecutiveFailures).toBe(0)
+        expect(accounts[1]!.consecutiveFailures).toBe(0)
+
+        jest.useRealTimers()
+      })
+    })
+  })
+
+  describe('Failure TTL Expiration', () => {
+    it('resets consecutiveFailures when lastFailureTime exceeds TTL', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(0))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("claude");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('claude')
 
       // First failure
-      manager.markRateLimitedWithReason(account!, "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
-      expect(account!.consecutiveFailures).toBe(1);
-      expect(account!.lastFailureTime).toBe(0);
+      manager.markRateLimitedWithReason(
+        account!,
+        'claude',
+        'antigravity',
+        null,
+        'QUOTA_EXHAUSTED',
+        null,
+        3600_000,
+      )
+      expect(account!.consecutiveFailures).toBe(1)
+      expect(account!.lastFailureTime).toBe(0)
 
       // Advance time past TTL (1 hour = 3600s)
-      jest.setSystemTime(new Date(3700_000)); // 3700 seconds later
+      jest.setSystemTime(new Date(3700_000)) // 3700 seconds later
 
       // Next failure should reset count because TTL expired
-      manager.markRateLimitedWithReason(account!, "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
-      expect(account!.consecutiveFailures).toBe(1); // Reset to 0, then +1
+      manager.markRateLimitedWithReason(
+        account!,
+        'claude',
+        'antigravity',
+        null,
+        'QUOTA_EXHAUSTED',
+        null,
+        3600_000,
+      )
+      expect(account!.consecutiveFailures).toBe(1) // Reset to 0, then +1
 
-      jest.useRealTimers();
-    });
+      jest.useRealTimers()
+    })
 
-    it("keeps consecutiveFailures when within TTL", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(0));
+    it('keeps consecutiveFailures when within TTL', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(0))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("claude");
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('claude')
 
       // First failure
-      manager.markRateLimitedWithReason(account!, "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
-      expect(account!.consecutiveFailures).toBe(1);
+      manager.markRateLimitedWithReason(
+        account!,
+        'claude',
+        'antigravity',
+        null,
+        'QUOTA_EXHAUSTED',
+        null,
+        3600_000,
+      )
+      expect(account!.consecutiveFailures).toBe(1)
 
       // Advance time within TTL
-      jest.setSystemTime(new Date(1800_000)); // 30 minutes later (within 1 hour TTL)
+      jest.setSystemTime(new Date(1800_000)) // 30 minutes later (within 1 hour TTL)
 
       // Next failure should increment
-      manager.markRateLimitedWithReason(account!, "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
-      expect(account!.consecutiveFailures).toBe(2);
+      manager.markRateLimitedWithReason(
+        account!,
+        'claude',
+        'antigravity',
+        null,
+        'QUOTA_EXHAUSTED',
+        null,
+        3600_000,
+      )
+      expect(account!.consecutiveFailures).toBe(2)
 
-      jest.useRealTimers();
-    });
-  });
+      jest.useRealTimers()
+    })
+  })
 
-  describe("Fingerprint History", () => {
-    it("regenerateAccountFingerprint saves old fingerprint to history", () => {
+  describe('Fingerprint History', () => {
+    it('regenerateAccountFingerprint saves old fingerprint to history', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      const account = manager.getCurrentOrNextForFamily("claude");
-      
+      const manager = new AccountManager(undefined, stored)
+      const account = manager.getCurrentOrNextForFamily('claude')
+
       // Set initial fingerprint
-      const originalFingerprint = account!.fingerprint;
-      
-      // Regenerate
-      const newFingerprint = manager.regenerateAccountFingerprint(0);
-      
-      expect(newFingerprint).not.toBeNull();
-      expect(newFingerprint).not.toEqual(originalFingerprint);
-      expect(account!.fingerprintHistory?.length).toBeGreaterThanOrEqual(0);
-    });
+      const originalFingerprint = account!.fingerprint
 
-    it("restoreAccountFingerprint restores from history", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(1000)); // Start at 1000 to avoid 0 being falsy
+      // Regenerate
+      const newFingerprint = manager.regenerateAccountFingerprint(0)
+
+      expect(newFingerprint).not.toBeNull()
+      expect(newFingerprint).not.toEqual(originalFingerprint)
+      expect(account!.fingerprintHistory?.length).toBeGreaterThanOrEqual(0)
+    })
+
+    it('restoreAccountFingerprint restores from history', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(1000)) // Start at 1000 to avoid 0 being falsy
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      manager.getCurrentOrNextForFamily("claude");
-      
+      const manager = new AccountManager(undefined, stored)
+      manager.getCurrentOrNextForFamily('claude')
+
       // Generate initial fingerprint
-      const original = manager.regenerateAccountFingerprint(0);
-      const originalDeviceId = original?.deviceId;
-      
-      jest.setSystemTime(new Date(2000));
-      
+      const original = manager.regenerateAccountFingerprint(0)
+      const originalDeviceId = original?.deviceId
+
+      jest.setSystemTime(new Date(2000))
+
       // Generate second fingerprint (pushes first to history at index 0)
-      manager.regenerateAccountFingerprint(0);
-      
+      manager.regenerateAccountFingerprint(0)
+
       // History[0] should be the "original" fingerprint
-      const history = manager.getAccountFingerprintHistory(0);
-      expect(history.length).toBeGreaterThanOrEqual(1);
-      expect(history[0]?.fingerprint.deviceId).toBe(originalDeviceId);
-      
-      jest.setSystemTime(new Date(3000));
-      
+      const history = manager.getAccountFingerprintHistory(0)
+      expect(history.length).toBeGreaterThanOrEqual(1)
+      expect(history[0]?.fingerprint.deviceId).toBe(originalDeviceId)
+
+      jest.setSystemTime(new Date(3000))
+
       // Restore from history[0] - should get the "original" back
       // Note: restore also pushes current to history, so after restore:
       // - Current = original fingerprint
       // - History[0] = what was current before restore
-      const restored = manager.restoreAccountFingerprint(0, 0);
-      
-      expect(restored).not.toBeNull();
-      expect(restored?.deviceId).toBe(originalDeviceId);
+      const restored = manager.restoreAccountFingerprint(0, 0)
 
-      jest.useRealTimers();
-    });
+      expect(restored).not.toBeNull()
+      expect(restored?.deviceId).toBe(originalDeviceId)
 
-    it("getAccountFingerprintHistory returns empty array for new account", () => {
+      jest.useRealTimers()
+    })
+
+    it('getAccountFingerprintHistory returns empty array for new account', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      
-      const history = manager.getAccountFingerprintHistory(0);
-      expect(history).toEqual([]);
-    });
+      const manager = new AccountManager(undefined, stored)
 
-    it("limits fingerprint history to MAX_FINGERPRINT_HISTORY", () => {
+      const history = manager.getAccountFingerprintHistory(0)
+      expect(history).toEqual([])
+    })
+
+    it('limits fingerprint history to MAX_FINGERPRINT_HISTORY', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      
+      const manager = new AccountManager(undefined, stored)
+
       // Regenerate 7 times (should only keep 5 in history)
       for (let i = 0; i < 7; i++) {
-        manager.regenerateAccountFingerprint(0);
+        manager.regenerateAccountFingerprint(0)
       }
-      
-      const history = manager.getAccountFingerprintHistory(0);
-      expect(history.length).toBeLessThanOrEqual(5);
-    });
-  });
 
-  describe("soft quota threshold", () => {
-    it("skips account over soft quota threshold in sticky mode", () => {
+      const history = manager.getAccountFingerprintHistory(0)
+      expect(history.length).toBeLessThanOrEqual(5)
+    })
+  })
+
+  describe('soft quota threshold', () => {
+    it('skips account over soft quota threshold in sticky mode', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 2, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { claude: { remainingFraction: 0.05, modelCount: 1 } });
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: { remainingFraction: 0.05, modelCount: 1 },
+      })
 
-      const account = manager.getCurrentOrNextForFamily("claude", null, "sticky", "antigravity", false, 90);
-      expect(account?.parts.refreshToken).toBe("r2");
-    });
+      const account = manager.getCurrentOrNextForFamily(
+        'claude',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        90,
+      )
+      expect(account?.parts.refreshToken).toBe('r2')
+    })
 
-    it("allows account under soft quota threshold", () => {
+    it('allows account under soft quota threshold', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { claude: { remainingFraction: 0.15, modelCount: 1 } });
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: { remainingFraction: 0.15, modelCount: 1 },
+      })
 
-      const account = manager.getCurrentOrNextForFamily("claude", null, "sticky", "antigravity", false, 90);
-      expect(account?.parts.refreshToken).toBe("r1");
-    });
+      const account = manager.getCurrentOrNextForFamily(
+        'claude',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        90,
+      )
+      expect(account?.parts.refreshToken).toBe('r1')
+    })
 
-    it("never applies soft quota protection when only one account is enabled", () => {
+    it('never applies soft quota protection when only one account is enabled', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "disabled", projectId: "p2", addedAt: 2, lastUsed: 0, enabled: false },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          {
+            refreshToken: 'disabled',
+            projectId: 'p2',
+            addedAt: 2,
+            lastUsed: 0,
+            enabled: false,
+          },
         ],
         activeIndex: 0,
-      };
+      }
 
-      for (const strategy of ["sticky", "round-robin", "hybrid"] as const) {
-        const manager = new AccountManager(undefined, stored);
+      for (const strategy of ['sticky', 'round-robin', 'hybrid'] as const) {
+        const manager = new AccountManager(undefined, stored)
         manager.updateQuotaCache(0, {
           claude: {
             remainingFraction: 0.01,
             resetTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
             modelCount: 1,
           },
-        });
+        })
 
         const account = manager.getCurrentOrNextForFamily(
-          "claude",
+          'claude',
           null,
           strategy,
-          "antigravity",
+          'antigravity',
           false,
           80,
-        );
-        expect(account?.parts.refreshToken).toBe("r1");
-        expect(manager.areAllAccountsOverSoftQuota("claude", 80, 10 * 60 * 1000)).toBe(false);
-        expect(manager.getMinWaitTimeForSoftQuota("claude", 80, 10 * 60 * 1000)).toBe(0);
+        )
+        expect(account?.parts.refreshToken).toBe('r1')
+        expect(
+          manager.areAllAccountsOverSoftQuota('claude', 80, 10 * 60 * 1000),
+        ).toBe(false)
+        expect(
+          manager.getMinWaitTimeForSoftQuota('claude', 80, 10 * 60 * 1000),
+        ).toBe(0)
       }
-    });
+    })
 
-    it("threshold of 100 disables soft quota protection", () => {
+    it('threshold of 100 disables soft quota protection', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { claude: { remainingFraction: 0.01, modelCount: 1 } });
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: { remainingFraction: 0.01, modelCount: 1 },
+      })
 
-      const account = manager.getCurrentOrNextForFamily("claude", null, "sticky", "antigravity", false, 100);
-      expect(account?.parts.refreshToken).toBe("r1");
-    });
+      const account = manager.getCurrentOrNextForFamily(
+        'claude',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        100,
+      )
+      expect(account?.parts.refreshToken).toBe('r1')
+    })
 
-    it("returns null when all accounts over threshold", () => {
+    it('returns null when all accounts over threshold', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 2, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { claude: { remainingFraction: 0.05, modelCount: 1 } });
-      manager.updateQuotaCache(1, { claude: { remainingFraction: 0.08, modelCount: 1 } });
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: { remainingFraction: 0.05, modelCount: 1 },
+      })
+      manager.updateQuotaCache(1, {
+        claude: { remainingFraction: 0.08, modelCount: 1 },
+      })
 
-      const account = manager.getCurrentOrNextForFamily("claude", null, "sticky", "antigravity", false, 90);
-      expect(account).toBeNull();
-    });
+      const account = manager.getCurrentOrNextForFamily(
+        'claude',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        90,
+      )
+      expect(account).toBeNull()
+    })
 
-    it("skips account over threshold in round-robin mode", () => {
+    it('skips account over threshold in round-robin mode', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 2, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { claude: { remainingFraction: 0.05, modelCount: 1 } });
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: { remainingFraction: 0.05, modelCount: 1 },
+      })
 
-      const account = manager.getCurrentOrNextForFamily("claude", null, "round-robin", "antigravity", false, 90);
-      expect(account?.parts.refreshToken).toBe("r2");
-    });
+      const account = manager.getCurrentOrNextForFamily(
+        'claude',
+        null,
+        'round-robin',
+        'antigravity',
+        false,
+        90,
+      )
+      expect(account?.parts.refreshToken).toBe('r2')
+    })
 
-    it("account without cached quota is not skipped", () => {
+    it('account without cached quota is not skipped', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
+      const manager = new AccountManager(undefined, stored)
 
-      const account = manager.getCurrentOrNextForFamily("claude", null, "sticky", "antigravity", false, 90);
-      expect(account?.parts.refreshToken).toBe("r1");
-    });
+      const account = manager.getCurrentOrNextForFamily(
+        'claude',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        90,
+      )
+      expect(account?.parts.refreshToken).toBe('r1')
+    })
 
-    it("handles remainingFraction of 0 (fully exhausted)", () => {
+    it('handles remainingFraction of 0 (fully exhausted)', () => {
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 2, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { claude: { remainingFraction: 0, modelCount: 1 } });
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: { remainingFraction: 0, modelCount: 1 },
+      })
 
-      const account = manager.getCurrentOrNextForFamily("claude", null, "sticky", "antigravity", false, 90);
-      expect(account?.parts.refreshToken).toBe("r2");
-    });
+      const account = manager.getCurrentOrNextForFamily(
+        'claude',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        90,
+      )
+      expect(account?.parts.refreshToken).toBe('r2')
+    })
 
-    it("ignores stale quota cache (over 10 minutes old)", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date(0));
-
-      const stored: AccountStorageV4 = {
-        version: 4,
-        accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        ],
-        activeIndex: 0,
-      };
-
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { claude: { remainingFraction: 0.05, modelCount: 1 } });
-
-      jest.setSystemTime(new Date(11 * 60 * 1000));
-
-      const account = manager.getCurrentOrNextForFamily("claude", null, "sticky", "antigravity", false, 90);
-      expect(account?.parts.refreshToken).toBe("r1");
-
-      jest.useRealTimers();
-    });
-
-    it("fails open when cachedQuotaUpdatedAt is missing", () => {
-      const stored: AccountStorageV4 = {
-        version: 4,
-        accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        ],
-        activeIndex: 0,
-      };
-
-      const manager = new AccountManager(undefined, stored);
-      const acc = (manager as any).accounts[0];
-      acc.cachedQuota = { claude: { remainingFraction: 0.05, modelCount: 1 } };
-      acc.cachedQuotaUpdatedAt = undefined;
-
-      const account = manager.getCurrentOrNextForFamily("claude", null, "sticky", "antigravity", false, 90);
-      expect(account?.parts.refreshToken).toBe("r1");
-    });
-  });
-
-  describe("getMinWaitTimeForSoftQuota", () => {
-    it("returns 0 when accounts are available (under threshold)", () => {
-      const stored: AccountStorageV4 = {
-        version: 4,
-        accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-        ],
-        activeIndex: 0,
-      };
-
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { claude: { remainingFraction: 0.15, modelCount: 1 } });
-
-      const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);
-      expect(waitMs).toBe(0);
-    });
-
-    it("returns null when no resetTime is available for a protected multi-account pool", () => {
-      const stored: AccountStorageV4 = {
-        version: 4,
-        accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
-        ],
-        activeIndex: 0,
-      };
-
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { claude: { remainingFraction: 0.05, modelCount: 1 } });
-      manager.updateQuotaCache(1, { claude: { remainingFraction: 0.05, modelCount: 1 } });
-
-      const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);
-      expect(waitMs).toBeNull();
-    });
-
-    it("returns wait time from resetTime when over threshold", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date("2026-01-28T10:00:00Z"));
+    it('ignores stale quota cache (over 10 minutes old)', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date(0))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { 
-        claude: { 
-          remainingFraction: 0.05, 
-          resetTime: "2026-01-28T15:00:00Z",
-          modelCount: 1 
-        } 
-      });
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: { remainingFraction: 0.05, modelCount: 1 },
+      })
+
+      jest.setSystemTime(new Date(11 * 60 * 1000))
+
+      const account = manager.getCurrentOrNextForFamily(
+        'claude',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        90,
+      )
+      expect(account?.parts.refreshToken).toBe('r1')
+
+      jest.useRealTimers()
+    })
+
+    it('fails open when cachedQuotaUpdatedAt is missing', () => {
+      const stored: AccountStorageV4 = {
+        version: 4,
+        accounts: [
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        ],
+        activeIndex: 0,
+      }
+
+      const manager = new AccountManager(undefined, stored)
+      const acc = (manager as any).accounts[0]
+      acc.cachedQuota = { claude: { remainingFraction: 0.05, modelCount: 1 } }
+      acc.cachedQuotaUpdatedAt = undefined
+
+      const account = manager.getCurrentOrNextForFamily(
+        'claude',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        90,
+      )
+      expect(account?.parts.refreshToken).toBe('r1')
+    })
+  })
+
+  describe('getMinWaitTimeForSoftQuota', () => {
+    it('returns 0 when accounts are available (under threshold)', () => {
+      const stored: AccountStorageV4 = {
+        version: 4,
+        accounts: [
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        ],
+        activeIndex: 0,
+      }
+
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: { remainingFraction: 0.15, modelCount: 1 },
+      })
+
+      const waitMs = manager.getMinWaitTimeForSoftQuota(
+        'claude',
+        90,
+        10 * 60 * 1000,
+      )
+      expect(waitMs).toBe(0)
+    })
+
+    it('returns null when no resetTime is available for a protected multi-account pool', () => {
+      const stored: AccountStorageV4 = {
+        version: 4,
+        accounts: [
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 2, lastUsed: 0 },
+        ],
+        activeIndex: 0,
+      }
+
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: { remainingFraction: 0.05, modelCount: 1 },
+      })
+      manager.updateQuotaCache(1, {
+        claude: { remainingFraction: 0.05, modelCount: 1 },
+      })
+
+      const waitMs = manager.getMinWaitTimeForSoftQuota(
+        'claude',
+        90,
+        10 * 60 * 1000,
+      )
+      expect(waitMs).toBeNull()
+    })
+
+    it('returns wait time from resetTime when over threshold', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2026-01-28T10:00:00Z'))
+
+      const stored: AccountStorageV4 = {
+        version: 4,
+        accounts: [
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 2, lastUsed: 0 },
+        ],
+        activeIndex: 0,
+      }
+
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: {
+          remainingFraction: 0.05,
+          resetTime: '2026-01-28T15:00:00Z',
+          modelCount: 1,
+        },
+      })
       manager.updateQuotaCache(1, {
         claude: {
           remainingFraction: 0.05,
-          resetTime: "2026-01-28T15:00:00Z",
+          resetTime: '2026-01-28T15:00:00Z',
           modelCount: 1,
         },
-      });
+      })
 
-      const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);
-      expect(waitMs).toBe(5 * 60 * 60 * 1000);
+      const waitMs = manager.getMinWaitTimeForSoftQuota(
+        'claude',
+        90,
+        10 * 60 * 1000,
+      )
+      expect(waitMs).toBe(5 * 60 * 60 * 1000)
 
-      jest.useRealTimers();
-    });
+      jest.useRealTimers()
+    })
 
-    it("returns null (fail-open) when resetTime is in the past", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date("2026-01-28T16:00:00Z"));
+    it('returns null (fail-open) when resetTime is in the past', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2026-01-28T16:00:00Z'))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 2, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { 
-        claude: { 
-          remainingFraction: 0.05, 
-          resetTime: "2026-01-28T15:00:00Z",
-          modelCount: 1 
-        } 
-      });
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: {
+          remainingFraction: 0.05,
+          resetTime: '2026-01-28T15:00:00Z',
+          modelCount: 1,
+        },
+      })
       manager.updateQuotaCache(1, {
         claude: {
           remainingFraction: 0.05,
-          resetTime: "2026-01-28T15:00:00Z",
+          resetTime: '2026-01-28T15:00:00Z',
           modelCount: 1,
         },
-      });
+      })
 
-      const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);
-      expect(waitMs).toBe(null);
+      const waitMs = manager.getMinWaitTimeForSoftQuota(
+        'claude',
+        90,
+        10 * 60 * 1000,
+      )
+      expect(waitMs).toBe(null)
 
-      jest.useRealTimers();
-    });
+      jest.useRealTimers()
+    })
 
-    it("returns minimum wait time across multiple accounts", () => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date("2026-01-28T10:00:00Z"));
+    it('returns minimum wait time across multiple accounts', () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(new Date('2026-01-28T10:00:00Z'))
 
       const stored: AccountStorageV4 = {
         version: 4,
         accounts: [
-          { refreshToken: "r1", projectId: "p1", addedAt: 1, lastUsed: 0 },
-          { refreshToken: "r2", projectId: "p2", addedAt: 2, lastUsed: 0 },
+          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+          { refreshToken: 'r2', projectId: 'p2', addedAt: 2, lastUsed: 0 },
         ],
         activeIndex: 0,
-      };
+      }
 
-      const manager = new AccountManager(undefined, stored);
-      manager.updateQuotaCache(0, { 
-        claude: { remainingFraction: 0.05, resetTime: "2026-01-28T15:00:00Z", modelCount: 1 } 
-      });
-      manager.updateQuotaCache(1, { 
-        claude: { remainingFraction: 0.08, resetTime: "2026-01-28T12:00:00Z", modelCount: 1 } 
-      });
+      const manager = new AccountManager(undefined, stored)
+      manager.updateQuotaCache(0, {
+        claude: {
+          remainingFraction: 0.05,
+          resetTime: '2026-01-28T15:00:00Z',
+          modelCount: 1,
+        },
+      })
+      manager.updateQuotaCache(1, {
+        claude: {
+          remainingFraction: 0.08,
+          resetTime: '2026-01-28T12:00:00Z',
+          modelCount: 1,
+        },
+      })
 
-      const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);
-      expect(waitMs).toBe(2 * 60 * 60 * 1000);
+      const waitMs = manager.getMinWaitTimeForSoftQuota(
+        'claude',
+        90,
+        10 * 60 * 1000,
+      )
+      expect(waitMs).toBe(2 * 60 * 60 * 1000)
 
-      jest.useRealTimers();
-    });
-  });
-});
+      jest.useRealTimers()
+    })
+  })
+})
 
-describe("resolveQuotaGroup", () => {
-  it("returns model-based quota group when model is provided", () => {
-    expect(resolveQuotaGroup("claude", "claude-opus-4-6-thinking")).toBe("claude");
-    expect(resolveQuotaGroup("gemini", "gemini-2.5-pro")).toBe("gemini-pro");
-    expect(resolveQuotaGroup("gemini", "gemini-2.5-flash")).toBe("gemini-flash");
-  });
+describe('resolveQuotaGroup', () => {
+  it('returns model-based quota group when model is provided', () => {
+    expect(resolveQuotaGroup('claude', 'claude-opus-4-6-thinking')).toBe(
+      'claude',
+    )
+    expect(resolveQuotaGroup('gemini', 'gemini-2.5-pro')).toBe('gemini-pro')
+    expect(resolveQuotaGroup('gemini', 'gemini-2.5-flash')).toBe('gemini-flash')
+  })
 
-  it("falls back to claude for claude family when no model", () => {
-    expect(resolveQuotaGroup("claude", null)).toBe("claude");
-    expect(resolveQuotaGroup("claude", undefined)).toBe("claude");
-  });
+  it('falls back to claude for claude family when no model', () => {
+    expect(resolveQuotaGroup('claude', null)).toBe('claude')
+    expect(resolveQuotaGroup('claude', undefined)).toBe('claude')
+  })
 
-  it("falls back to gemini-pro for gemini family when no model", () => {
-    expect(resolveQuotaGroup("gemini", null)).toBe("gemini-pro");
-    expect(resolveQuotaGroup("gemini", undefined)).toBe("gemini-pro");
-  });
+  it('falls back to gemini-pro for gemini family when no model', () => {
+    expect(resolveQuotaGroup('gemini', null)).toBe('gemini-pro')
+    expect(resolveQuotaGroup('gemini', undefined)).toBe('gemini-pro')
+  })
 
-  it("model takes precedence over family", () => {
+  it('model takes precedence over family', () => {
     // Even if family says claude, model determines the quota group
-    expect(resolveQuotaGroup("gemini", "gemini-2.5-flash")).toBe("gemini-flash");
-    expect(resolveQuotaGroup("gemini", "gemini-3-pro")).toBe("gemini-pro");
-  });
-});
+    expect(resolveQuotaGroup('gemini', 'gemini-2.5-flash')).toBe('gemini-flash')
+    expect(resolveQuotaGroup('gemini', 'gemini-3-pro')).toBe('gemini-pro')
+  })
+})

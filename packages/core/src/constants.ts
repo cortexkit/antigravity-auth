@@ -2,38 +2,41 @@
  * Constants used for Antigravity OAuth flows and Cloud Code Assist API integration.
  */
 
-import { buildAntigravityHarnessUserAgent } from "./fingerprint.ts";
+import { buildAntigravityHarnessUserAgent } from './fingerprint.ts'
 
-export const ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
+export const ANTIGRAVITY_CLIENT_ID =
+  '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com'
 
 /**
  * Client secret issued for the Antigravity OAuth application.
  */
-export const ANTIGRAVITY_CLIENT_SECRET = "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";
+export const ANTIGRAVITY_CLIENT_SECRET = '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'
 
 /**
  * Scopes required for Antigravity integrations.
  */
 export const ANTIGRAVITY_SCOPES: readonly string[] = [
-  "https://www.googleapis.com/auth/cloud-platform",
-  "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/userinfo.profile",
-  "https://www.googleapis.com/auth/cclog",
-  "https://www.googleapis.com/auth/experimentsandconfigs",
-];
+  'https://www.googleapis.com/auth/cloud-platform',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile',
+  'https://www.googleapis.com/auth/cclog',
+  'https://www.googleapis.com/auth/experimentsandconfigs',
+]
 
 /**
  * OAuth redirect URI used by the local CLI callback server.
  */
-export const ANTIGRAVITY_REDIRECT_URI = "http://localhost:51121/oauth-callback";
+export const ANTIGRAVITY_REDIRECT_URI = 'http://localhost:51121/oauth-callback'
 
 /**
  * Root endpoints for the Antigravity API (in fallback order).
  * Live agy CLI 1.1.5 traffic uses daily-cloudcode-pa.googleapis.com.
  */
-export const ANTIGRAVITY_ENDPOINT_DAILY = "https://daily-cloudcode-pa.googleapis.com";
-export const ANTIGRAVITY_ENDPOINT_AUTOPUSH = "https://autopush-cloudcode-pa.sandbox.googleapis.com";
-export const ANTIGRAVITY_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com";
+export const ANTIGRAVITY_ENDPOINT_DAILY =
+  'https://daily-cloudcode-pa.googleapis.com'
+export const ANTIGRAVITY_ENDPOINT_AUTOPUSH =
+  'https://autopush-cloudcode-pa.sandbox.googleapis.com'
+export const ANTIGRAVITY_ENDPOINT_PROD = 'https://cloudcode-pa.googleapis.com'
 
 /**
  * Endpoint fallback order (daily → prod).
@@ -43,7 +46,7 @@ export const ANTIGRAVITY_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_ENDPOINT_FALLBACKS = [
   ANTIGRAVITY_ENDPOINT_DAILY,
   ANTIGRAVITY_ENDPOINT_PROD,
-] as const;
+] as const
 /**
  * Preferred endpoint order for project discovery.
  * agy CLI probes daily-cloudcode-pa.googleapis.com first.
@@ -51,38 +54,40 @@ export const ANTIGRAVITY_ENDPOINT_FALLBACKS = [
 export const ANTIGRAVITY_LOAD_ENDPOINTS = [
   ANTIGRAVITY_ENDPOINT_DAILY,
   ANTIGRAVITY_ENDPOINT_PROD,
-] as const;
+] as const
 /**
  * Primary endpoint to use (captured agy CLI daily endpoint).
  */
-export const ANTIGRAVITY_ENDPOINT = ANTIGRAVITY_ENDPOINT_DAILY;
+export const ANTIGRAVITY_ENDPOINT = ANTIGRAVITY_ENDPOINT_DAILY
 
 /**
  * Gemini CLI endpoint (production).
  * Used for models without :antigravity suffix.
  * Same as opencode-gemini-auth's GEMINI_CODE_ASSIST_ENDPOINT.
  */
-export const GEMINI_CLI_ENDPOINT = ANTIGRAVITY_ENDPOINT_PROD;
+export const GEMINI_CLI_ENDPOINT = ANTIGRAVITY_ENDPOINT_PROD
 
 /**
  * Hardcoded project id used when Antigravity does not return one (e.g., business/workspace accounts).
  */
-export const ANTIGRAVITY_DEFAULT_PROJECT_ID = "rising-fact-p41fc";
+export const ANTIGRAVITY_DEFAULT_PROJECT_ID = 'rising-fact-p41fc'
 
-export const ANTIGRAVITY_VERSION_FALLBACK = "1.18.3";
-let antigravityVersion = ANTIGRAVITY_VERSION_FALLBACK;
-let versionLocked = false;
+export const ANTIGRAVITY_VERSION_FALLBACK = '1.18.3'
+let antigravityVersion = ANTIGRAVITY_VERSION_FALLBACK
+let versionLocked = false
 
-export function getAntigravityVersion(): string { return antigravityVersion; }
+export function getAntigravityVersion(): string {
+  return antigravityVersion
+}
 
 /**
  * Set the runtime Antigravity version. Can only be called once (at startup).
  * Subsequent calls are silently ignored to prevent accidental mutation.
  */
 export function setAntigravityVersion(version: string): void {
-  if (versionLocked) return;
-  antigravityVersion = version;
-  versionLocked = true;
+  if (versionLocked) return
+  antigravityVersion = version
+  versionLocked = true
 }
 
 /**
@@ -92,34 +97,36 @@ export function setAntigravityVersion(version: string): void {
  * scenario.
  */
 export function __resetAntigravityVersionForTesting(): void {
-  antigravityVersion = ANTIGRAVITY_VERSION_FALLBACK;
-  versionLocked = false;
+  antigravityVersion = ANTIGRAVITY_VERSION_FALLBACK
+  versionLocked = false
 }
 
 /** @deprecated Use getAntigravityVersion() for runtime access. */
-export const ANTIGRAVITY_VERSION = ANTIGRAVITY_VERSION_FALLBACK;
+export const ANTIGRAVITY_VERSION = ANTIGRAVITY_VERSION_FALLBACK
 
-export function getAntigravityHeaders(): HeaderSet & { "Client-Metadata": string } {
+export function getAntigravityHeaders(): HeaderSet & {
+  'Client-Metadata': string
+} {
   return {
-    "User-Agent": `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Antigravity/${getAntigravityVersion()} Chrome/138.0.7204.235 Electron/37.3.1 Safari/537.36`,
-    "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
-    "Client-Metadata": `{"ideType":"ANTIGRAVITY","platform":"${process.platform === "win32" ? "WINDOWS" : "MACOS"}","pluginType":"GEMINI"}`,
-  };
+    'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Antigravity/${getAntigravityVersion()} Chrome/138.0.7204.235 Electron/37.3.1 Safari/537.36`,
+    'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
+    'Client-Metadata': `{"ideType":"ANTIGRAVITY","platform":"${process.platform === 'win32' ? 'WINDOWS' : 'MACOS'}","pluginType":"GEMINI"}`,
+  }
 }
 
 /** @deprecated Use getAntigravityHeaders() for runtime access. */
 export const ANTIGRAVITY_HEADERS = {
-  "User-Agent": `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Antigravity/${ANTIGRAVITY_VERSION} Chrome/138.0.7204.235 Electron/37.3.1 Safari/537.36`,
-  "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
-  "Client-Metadata": `{"ideType":"ANTIGRAVITY","platform":"${process.platform === "win32" ? "WINDOWS" : "MACOS"}","pluginType":"GEMINI"}`,
-} as const;
+  'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Antigravity/${ANTIGRAVITY_VERSION} Chrome/138.0.7204.235 Electron/37.3.1 Safari/537.36`,
+  'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
+  'Client-Metadata': `{"ideType":"ANTIGRAVITY","platform":"${process.platform === 'win32' ? 'WINDOWS' : 'MACOS'}","pluginType":"GEMINI"}`,
+} as const
 
-export const GEMINI_CLI_VERSION = "1.0.0";
+export const GEMINI_CLI_VERSION = '1.0.0'
 
 /**
  * Default model used in Gemini CLI User-Agent when no model is specified.
  */
-export const GEMINI_CLI_DEFAULT_MODEL = "gemini-2.5-pro";
+export const GEMINI_CLI_DEFAULT_MODEL = 'gemini-2.5-pro'
 
 /**
  * Build Gemini CLI User-Agent string matching the official google-gemini/gemini-cli format.
@@ -128,43 +135,47 @@ export const GEMINI_CLI_DEFAULT_MODEL = "gemini-2.5-pro";
  * @see https://github.com/google-gemini/gemini-cli
  */
 export function buildGeminiCliUserAgent(model?: string): string {
-  const effectiveModel = model || GEMINI_CLI_DEFAULT_MODEL;
-  const platform = process.platform || "darwin";
-  const arch = process.arch || "arm64";
-  return `GeminiCLI/${GEMINI_CLI_VERSION}/${effectiveModel} (${platform}; ${arch})`;
+  const effectiveModel = model || GEMINI_CLI_DEFAULT_MODEL
+  const platform = process.platform || 'darwin'
+  const arch = process.arch || 'arm64'
+  return `GeminiCLI/${GEMINI_CLI_VERSION}/${effectiveModel} (${platform}; ${arch})`
 }
 
 /** @deprecated Use buildGeminiCliUserAgent() for runtime access. */
 export const GEMINI_CLI_HEADERS = {
-  "User-Agent": "google-api-nodejs-client/9.15.1",
-  "X-Goog-Api-Client": "gl-node/22.17.0",
-  "Client-Metadata": "ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI",
-} as const;
+  'User-Agent': 'google-api-nodejs-client/9.15.1',
+  'X-Goog-Api-Client': 'gl-node/22.17.0',
+  'Client-Metadata':
+    'ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI',
+} as const
 export type HeaderSet = {
-  "User-Agent": string;
-  "X-Goog-Api-Client"?: string;
-  "Client-Metadata"?: string;
-};
-
-export function getRandomizedHeaders(style: HeaderStyle, model?: string): HeaderSet {
-  if (style === "gemini-cli") {
-    return {
-      "User-Agent": buildGeminiCliUserAgent(model),
-      "X-Goog-Api-Client": GEMINI_CLI_HEADERS["X-Goog-Api-Client"],
-      "Client-Metadata": GEMINI_CLI_HEADERS["Client-Metadata"],
-    };
-  }
-  return {
-    "User-Agent": buildAntigravityHarnessUserAgent(),
-  };
+  'User-Agent': string
+  'X-Goog-Api-Client'?: string
+  'Client-Metadata'?: string
 }
 
-export type HeaderStyle = "antigravity" | "gemini-cli";
+export function getRandomizedHeaders(
+  style: HeaderStyle,
+  model?: string,
+): HeaderSet {
+  if (style === 'gemini-cli') {
+    return {
+      'User-Agent': buildGeminiCliUserAgent(model),
+      'X-Goog-Api-Client': GEMINI_CLI_HEADERS['X-Goog-Api-Client'],
+      'Client-Metadata': GEMINI_CLI_HEADERS['Client-Metadata'],
+    }
+  }
+  return {
+    'User-Agent': buildAntigravityHarnessUserAgent(),
+  }
+}
+
+export type HeaderStyle = 'antigravity' | 'gemini-cli'
 
 /**
  * Provider identifier shared between the plugin loader and credential store.
  */
-export const ANTIGRAVITY_PROVIDER_ID = "google";
+export const ANTIGRAVITY_PROVIDER_ID = 'google'
 
 // ============================================================================
 // TOOL HALLUCINATION PREVENTION (Ported from LLM-API-Key-Proxy)
@@ -173,7 +184,7 @@ export const ANTIGRAVITY_PROVIDER_ID = "google";
 /**
  * System instruction for Claude tool usage hardening.
  * Prevents hallucinated parameters by explicitly stating the rules.
- * 
+ *
  * This is injected when tools are present to reduce cases where Claude
  * uses parameter names from its training data instead of the actual schema.
  */
@@ -188,31 +199,32 @@ You MUST follow these rules strictly:
 5. When you see "STRICT PARAMETERS" in a tool description, those type definitions override any assumptions
 6. Tool use in agentic workflows is REQUIRED - you must call tools with the exact parameters specified
 
-If you are unsure about a tool's parameters, YOU MUST read the schema definition carefully.`;
+If you are unsure about a tool's parameters, YOU MUST read the schema definition carefully.`
 
 /**
  * Template for parameter signature injection into tool descriptions.
  * {params} will be replaced with the actual parameter list.
  */
-export const CLAUDE_DESCRIPTION_PROMPT = "\n\n⚠️ STRICT PARAMETERS: {params}.";
+export const CLAUDE_DESCRIPTION_PROMPT = '\n\n⚠️ STRICT PARAMETERS: {params}.'
 
-export const EMPTY_SCHEMA_PLACEHOLDER_NAME = "_placeholder";
-export const EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION = "Placeholder. Always pass true.";
+export const EMPTY_SCHEMA_PLACEHOLDER_NAME = '_placeholder'
+export const EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION =
+  'Placeholder. Always pass true.'
 
 /**
  * Sentinel value to bypass thought signature validation.
- * 
+ *
  * When a thinking block has an invalid or missing signature (e.g., cache miss,
  * session mismatch, plugin restart), this sentinel can be injected to skip
  * validation instead of failing with "Invalid signature in thinking block".
- * 
+ *
  * This is an officially supported Google API feature, used by:
  * - gemini-cli: https://github.com/google-gemini/gemini-cli
  * - Google .NET SDK: PredictionServiceChatClient.cs
- * 
+ *
  * @see https://ai.google.dev/gemini-api/docs/thought-signatures
  */
-export const SKIP_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
+export const SKIP_THOUGHT_SIGNATURE = 'skip_thought_signature_validator'
 
 // ============================================================================
 // GOOGLE SEARCH TOOL CONSTANTS
@@ -222,22 +234,22 @@ export const SKIP_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
  * Model used for Google Search grounding requests.
  * Uses gemini-2.5-flash for fast, cost-effective search operations. (3-flash is always at capacity and doesn't support souce citation).
  */
-export const SEARCH_MODEL = "gemini-2.5-flash";
+export const SEARCH_MODEL = 'gemini-2.5-flash'
 
 /**
  * Thinking budget for deep search (more thorough analysis).
  */
-export const SEARCH_THINKING_BUDGET_DEEP = 16384;
+export const SEARCH_THINKING_BUDGET_DEEP = 16384
 
 /**
  * Thinking budget for fast search (quick results).
  */
-export const SEARCH_THINKING_BUDGET_FAST = 4096;
+export const SEARCH_THINKING_BUDGET_FAST = 4096
 
 /**
  * Timeout for search requests in milliseconds (60 seconds).
  */
-export const SEARCH_TIMEOUT_MS = 60000;
+export const SEARCH_TIMEOUT_MS = 60000
 
 /**
  * System instruction for the Google Search tool.
@@ -254,5 +266,4 @@ Guidelines:
 - If analyzing URLs, extract the most relevant information
 - Be concise but comprehensive in your responses
 - If information is uncertain or conflicting, acknowledge it
-- Focus on answering the user's question directly`;
-
+- Focus on answering the user's question directly`

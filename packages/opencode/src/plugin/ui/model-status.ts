@@ -1,11 +1,11 @@
-import type { CooldownReason } from "../accounts"
-import type { QuotaGroupSummary } from "../quota"
+import type { CooldownReason } from '../accounts'
+import type { QuotaGroupSummary } from '../quota'
+import type { QuotaLabel, QuotaStatusInfo } from './quota-status'
 import {
-  classifyGroupStatus,
   buildCooldownStatus,
   buildWaitStatus,
-} from "./quota-status"
-import type { QuotaStatusInfo, QuotaLabel } from "./quota-status"
+  classifyGroupStatus,
+} from './quota-status'
 
 /**
  * Per-account status data for a specific model family.
@@ -47,7 +47,7 @@ export function getModelStatusFromAccounts(
   accounts: readonly ModelAccountStatus[],
 ): QuotaStatusInfo {
   if (accounts.length === 0) {
-    return { label: "READY" }
+    return { label: 'READY' }
   }
 
   const available: ModelAccountStatus[] = []
@@ -85,7 +85,7 @@ function resolveAvailableStatus(
     }
   }
 
-  return best ?? { label: "READY" }
+  return best ?? { label: 'READY' }
 }
 
 /**

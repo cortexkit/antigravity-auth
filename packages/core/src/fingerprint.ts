@@ -7,54 +7,54 @@
  * retained for account history, but content requests only send User-Agent.
  */
 
-import * as crypto from "node:crypto";
+import * as crypto from 'node:crypto'
 
-export const AGY_CLI_VERSION = "1.1.5";
-const ANTIGRAVITY_API_CLIENT = "antigravity-cli";
+export const AGY_CLI_VERSION = '1.1.5'
+const ANTIGRAVITY_API_CLIENT = 'antigravity-cli'
 
 export interface ClientMetadata {
-  ideType: string;
-  platform: string;
-  pluginType: string;
+  ideType: string
+  platform: string
+  pluginType: string
 }
 
 export interface Fingerprint {
-  deviceId: string;
-  sessionToken: string;
-  userAgent: string;
-  apiClient: string;
-  clientMetadata: ClientMetadata;
-  createdAt: number;
+  deviceId: string
+  sessionToken: string
+  userAgent: string
+  apiClient: string
+  clientMetadata: ClientMetadata
+  createdAt: number
 }
 /**
  * Fingerprint version for history tracking.
  * Stores a snapshot of a fingerprint with metadata about when/why it was saved.
  */
 export interface FingerprintVersion {
-  fingerprint: Fingerprint;
-  timestamp: number;
-  reason: 'initial' | 'regenerated' | 'restored';
+  fingerprint: Fingerprint
+  timestamp: number
+  reason: 'initial' | 'regenerated' | 'restored'
 }
 
 /** Maximum number of fingerprint versions to keep per account */
-export const MAX_FINGERPRINT_HISTORY = 5;
+export const MAX_FINGERPRINT_HISTORY = 5
 
 export interface FingerprintHeaders {
-  "User-Agent": string;
+  'User-Agent': string
 }
 
 function normalizeHarnessPlatform(platform = process.platform): string {
-  return platform === "win32" ? "windows" : platform || "unknown";
+  return platform === 'win32' ? 'windows' : platform || 'unknown'
 }
 
 function normalizeHarnessArch(arch = process.arch): string {
   switch (arch) {
-    case "x64":
-      return "amd64";
-    case "ia32":
-      return "386";
+    case 'x64':
+      return 'amd64'
+    case 'ia32':
+      return '386'
     default:
-      return arch || "unknown";
+      return arch || 'unknown'
   }
 }
 
@@ -62,47 +62,56 @@ export function buildAntigravityHarnessPlatformArch(
   platform = process.platform,
   arch = process.arch,
 ): string {
-  return `${normalizeHarnessPlatform(platform)}/${normalizeHarnessArch(arch)}`;
+  return `${normalizeHarnessPlatform(platform)}/${normalizeHarnessArch(arch)}`
 }
 
 export function buildAntigravityHarnessUserAgent(
   version = AGY_CLI_VERSION,
   platform = process.platform,
   arch = process.arch,
-  authMethod = "consumer",
+  authMethod = 'consumer',
 ): string {
-  const osType = normalizeHarnessPlatform(platform);
-  const normalizedArch = normalizeHarnessArch(arch);
-  return `antigravity/cli/${version} (aidev_client; os_type=${osType}; arch=${normalizedArch}; auth_method=${authMethod})`;
+  const osType = normalizeHarnessPlatform(platform)
+  const normalizedArch = normalizeHarnessArch(arch)
+  return `antigravity/cli/${version} (aidev_client; os_type=${osType}; arch=${normalizedArch}; auth_method=${authMethod})`
 }
 
-export function buildAntigravityHarnessLoadCodeAssistUserAgent(version = AGY_CLI_VERSION): string {
-  return buildAntigravityHarnessUserAgent(version);
+export function buildAntigravityHarnessLoadCodeAssistUserAgent(
+  version = AGY_CLI_VERSION,
+): string {
+  return buildAntigravityHarnessUserAgent(version)
 }
 
-function platformToMetadataPlatform(platform: string = process.platform): "WINDOWS" | "MACOS" {
-  return platform === "win32" ? "WINDOWS" : "MACOS";
+function platformToMetadataPlatform(
+  platform: string = process.platform,
+): 'WINDOWS' | 'MACOS' {
+  return platform === 'win32' ? 'WINDOWS' : 'MACOS'
 }
 
-export function buildAntigravityLoadCodeAssistMetadata(): Record<string, string> {
-  return { ideType: "ANTIGRAVITY" };
+export function buildAntigravityLoadCodeAssistMetadata(): Record<
+  string,
+  string
+> {
+  return { ideType: 'ANTIGRAVITY' }
 }
 
-export function buildAntigravityHarnessBootstrapHeaders(accessToken: string): Record<string, string> {
+export function buildAntigravityHarnessBootstrapHeaders(
+  accessToken: string,
+): Record<string, string> {
   return {
-    "User-Agent": buildAntigravityHarnessLoadCodeAssistUserAgent(),
+    'User-Agent': buildAntigravityHarnessLoadCodeAssistUserAgent(),
     Authorization: `Bearer ${accessToken}`,
-    "Content-Type": "application/json",
-    "Accept-Encoding": "gzip",
-  };
+    'Content-Type': 'application/json',
+    'Accept-Encoding': 'gzip',
+  }
 }
 
 function generateDeviceId(): string {
-  return crypto.randomUUID();
+  return crypto.randomUUID()
 }
 
 function generateSessionToken(): string {
-  return crypto.randomBytes(16).toString("hex");
+  return crypto.randomBytes(16).toString('hex')
 }
 
 /**
@@ -116,19 +125,19 @@ export function generateFingerprint(): Fingerprint {
     userAgent: buildAntigravityHarnessUserAgent(),
     apiClient: ANTIGRAVITY_API_CLIENT,
     clientMetadata: {
-      ideType: "ANTIGRAVITY",
+      ideType: 'ANTIGRAVITY',
       platform: platformToMetadataPlatform(),
-      pluginType: "GEMINI",
+      pluginType: 'GEMINI',
     },
     createdAt: Date.now(),
-  };
+  }
 }
 
 /**
  * Collect the current content-request fingerprint.
  */
 export function collectCurrentFingerprint(): Fingerprint {
-  return generateFingerprint();
+  return generateFingerprint()
 }
 
 /**
@@ -138,34 +147,36 @@ export function collectCurrentFingerprint(): Fingerprint {
  * Returns true if the User-Agent was changed.
  */
 export function updateFingerprintVersion(fingerprint: Fingerprint): boolean {
-  const userAgent = buildAntigravityHarnessUserAgent();
+  const userAgent = buildAntigravityHarnessUserAgent()
   if (fingerprint.userAgent === userAgent) {
-    return false;
+    return false
   }
 
-  fingerprint.userAgent = userAgent;
-  return true;
+  fingerprint.userAgent = userAgent
+  return true
 }
 
 /**
  * Build HTTP headers from a fingerprint object.
  * These headers are used to identify the "device" making API requests.
  */
-export function buildFingerprintHeaders(fingerprint: Fingerprint | null): Partial<FingerprintHeaders> {
+export function buildFingerprintHeaders(
+  fingerprint: Fingerprint | null,
+): Partial<FingerprintHeaders> {
   if (!fingerprint) {
-    return {};
+    return {}
   }
 
   return {
-    "User-Agent": fingerprint.userAgent,
-  };
+    'User-Agent': fingerprint.userAgent,
+  }
 }
 
 /**
  * Session-level fingerprint instance.
  * Generated once at module load, persists for the lifetime of the process.
  */
-let sessionFingerprint: Fingerprint | null = null;
+let sessionFingerprint: Fingerprint | null = null
 
 /**
  * Get or create the session fingerprint.
@@ -173,9 +184,9 @@ let sessionFingerprint: Fingerprint | null = null;
  */
 export function getSessionFingerprint(): Fingerprint {
   if (!sessionFingerprint) {
-    sessionFingerprint = generateFingerprint();
+    sessionFingerprint = generateFingerprint()
   }
-  return sessionFingerprint;
+  return sessionFingerprint
 }
 
 /**
@@ -183,6 +194,6 @@ export function getSessionFingerprint(): Fingerprint {
  * Call this to get a fresh identity (e.g., after rate limiting).
  */
 export function regenerateSessionFingerprint(): Fingerprint {
-  sessionFingerprint = generateFingerprint();
-  return sessionFingerprint;
+  sessionFingerprint = generateFingerprint()
+  return sessionFingerprint
 }

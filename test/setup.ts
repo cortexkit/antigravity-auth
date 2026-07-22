@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { afterAll, jest, type Mock, mock, spyOn } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, jest, mock, spyOn, type Mock } from 'bun:test'
 
 const root = mkdtempSync(join(tmpdir(), 'antigravity-auth-test-'))
 const home = join(root, 'home')
@@ -10,7 +10,8 @@ const cache = join(root, 'cache')
 const data = join(root, 'data')
 const pi = join(root, 'pi-agent')
 
-for (const path of [home, config, cache, data, pi]) mkdirSync(path, { recursive: true })
+for (const path of [home, config, cache, data, pi])
+  mkdirSync(path, { recursive: true })
 
 process.env.ANTIGRAVITY_TEST_ROOT = root
 process.env.HOME = home
@@ -33,7 +34,10 @@ const dateNowSpyState: { active: boolean } = { active: false }
  * whatever was there before. Bun has no direct stubGlobal helper, so tests
  * use this — paired with `globalThis.unstubAllGlobals()` in `afterEach`.
  */
-;(globalThis as Record<string, unknown>).stubbed = (name: string, value: unknown) => {
+;(globalThis as Record<string, unknown>).stubbed = (
+  name: string,
+  value: unknown,
+) => {
   if (!stubbedGlobals.has(name)) {
     stubbedGlobals.set(name, (globalThis as Record<string, unknown>)[name])
   }
@@ -56,7 +60,9 @@ const dateNowSpyState: { active: boolean } = { active: false }
  * mutable state (e.g. `versionLocked`) resets between tests. Stands in for
  * the Vitest resetModules-style API which Bun does not provide.
  */
-;(globalThis as Record<string, unknown>).freshImport = async (specifier: string) => {
+;(globalThis as Record<string, unknown>).freshImport = async (
+  specifier: string,
+) => {
   const busted = `${specifier}?bust=${Math.random().toString(36).slice(2)}`
   return import(busted)
 }
@@ -70,10 +76,11 @@ const originalSetSystemTime = jest.setSystemTime.bind(jest)
 const originalUseRealTimers = jest.useRealTimers.bind(jest)
 
 jest.setSystemTime = ((dateOrEpochMs: Date | number) => {
-  const epoch = typeof dateOrEpochMs === "number" ? dateOrEpochMs : dateOrEpochMs.getTime()
+  const epoch =
+    typeof dateOrEpochMs === 'number' ? dateOrEpochMs : dateOrEpochMs.getTime()
   originalSetSystemTime(dateOrEpochMs)
   if (!dateNowSpyState.active) {
-    spyOn(Date, "now").mockImplementation(() => epoch)
+    spyOn(Date, 'now').mockImplementation(() => epoch)
     dateNowSpyState.active = true
   } else {
     ;(Date.now as unknown as Mock<() => number>).mockImplementation(() => epoch)

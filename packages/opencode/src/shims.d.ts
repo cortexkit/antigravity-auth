@@ -1,8 +1,8 @@
-declare module "@openauthjs/openauth/pkce" {
+declare module '@openauthjs/openauth/pkce' {
   interface PkcePair {
-    challenge: string;
-    verifier: string;
+    challenge: string
+    verifier: string
   }
 
-  export function generatePKCE(): Promise<PkcePair>;
+  export function generatePKCE(): Promise<PkcePair>
 }

@@ -9,17 +9,17 @@
  *   node scripts/version-sync.mjs 1.7.0 --dry-run
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..")
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?$/
-const CORE_PACKAGE = "@cortexkit/antigravity-auth-core"
+const CORE_PACKAGE = '@cortexkit/antigravity-auth-core'
 const packageJsonPaths = [
-  join(root, "packages", "core", "package.json"),
-  join(root, "packages", "opencode", "package.json"),
-  join(root, "packages", "pi", "package.json"),
+  join(root, 'packages', 'core', 'package.json'),
+  join(root, 'packages', 'opencode', 'package.json'),
+  join(root, 'packages', 'pi', 'package.json'),
 ]
 
 function parseArgs(argv) {
@@ -29,11 +29,11 @@ function parseArgs(argv) {
   let dryRun = false
 
   for (const arg of args) {
-    if (arg === "--from-tag") {
+    if (arg === '--from-tag') {
       fromTag = true
-    } else if (arg === "--dry-run") {
+    } else if (arg === '--dry-run') {
       dryRun = true
-    } else if (!version && !arg.startsWith("-")) {
+    } else if (!version && !arg.startsWith('-')) {
       version = arg
     } else {
       console.error(`Unknown argument: ${arg}`)
@@ -44,16 +44,16 @@ function parseArgs(argv) {
   if (fromTag) {
     const ref = process.env.GITHUB_REF_NAME
     if (!ref) {
-      console.error("--from-tag requires GITHUB_REF_NAME environment variable")
+      console.error('--from-tag requires GITHUB_REF_NAME environment variable')
       process.exit(1)
     }
-    version = ref.replace(/^v/, "")
+    version = ref.replace(/^v/, '')
   }
 
   if (!version) {
     console.error(
-      "Usage: version-sync.mjs <version> [--dry-run]\n" +
-        "       version-sync.mjs --from-tag [--dry-run]",
+      'Usage: version-sync.mjs <version> [--dry-run]\n' +
+        '       version-sync.mjs --from-tag [--dry-run]',
     )
     process.exit(1)
   }
@@ -69,7 +69,7 @@ function parseArgs(argv) {
 const { version, dryRun } = parseArgs(process.argv)
 
 console.log(
-  `${dryRun ? "[DRY RUN] " : ""}Syncing publishable package versions to ${version}\n`,
+  `${dryRun ? '[DRY RUN] ' : ''}Syncing publishable package versions to ${version}\n`,
 )
 
 for (const pkgPath of packageJsonPaths) {
@@ -78,7 +78,7 @@ for (const pkgPath of packageJsonPaths) {
     process.exit(1)
   }
 
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"))
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
   const relativePath = pkgPath.slice(root.length + 1)
 
   let changed = false
@@ -95,7 +95,9 @@ for (const pkgPath of packageJsonPaths) {
   if (pkg.dependencies && CORE_PACKAGE in pkg.dependencies) {
     const current = pkg.dependencies[CORE_PACKAGE]
     if (current !== version) {
-      console.log(`${relativePath}: ${CORE_PACKAGE} ${current ?? "(missing)"} → ${version}`)
+      console.log(
+        `${relativePath}: ${CORE_PACKAGE} ${current ?? '(missing)'} → ${version}`,
+      )
       pkg.dependencies[CORE_PACKAGE] = version
       changed = true
     }
@@ -107,8 +109,8 @@ for (const pkgPath of packageJsonPaths) {
   }
 
   if (!dryRun) {
-    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf-8")
+    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, 'utf-8')
   }
 }
 
-console.log(`\n${dryRun ? "[DRY RUN] " : ""}Done.`)
+console.log(`\n${dryRun ? '[DRY RUN] ' : ''}Done.`)

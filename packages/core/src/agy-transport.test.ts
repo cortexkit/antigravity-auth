@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs"
-import * as net from "node:net"
-
-import { afterEach, describe, expect, it } from "bun:test"
+import { afterEach, describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import * as net from 'node:net'
 
 import {
   buildAgyCliHeaderPairs,
@@ -9,7 +8,7 @@ import {
   DEFAULT_AGY_IDLE_TIMEOUT_MS,
   DEFAULT_AGY_RESPONSE_HEADER_TIMEOUT_MS,
   fetchWithAgyCliTransport,
-} from "./agy-transport.ts"
+} from './agy-transport.ts'
 
 type AgyWireFixture = {
   capture: {
@@ -23,7 +22,13 @@ type AgyWireFixture = {
 }
 
 const AGY_1_1_5_WIRE_FIXTURE = JSON.parse(
-  readFileSync(new URL("../../../test-fixtures/agy-cli-1.1.5-stream-request.json", import.meta.url), "utf8"),
+  readFileSync(
+    new URL(
+      '../../../test-fixtures/agy-cli-1.1.5-stream-request.json',
+      import.meta.url,
+    ),
+    'utf8',
+  ),
 ) as AgyWireFixture
 
 const savedProxyEnv = {
@@ -45,65 +50,76 @@ function restoreProxyEnv(): void {
   }
 }
 
-async function collect(stream: ContentLengthStream, inputs: Buffer[]): Promise<Buffer> {
+async function collect(
+  stream: ContentLengthStream,
+  inputs: Buffer[],
+): Promise<Buffer> {
   const chunks: Buffer[] = []
-  stream.on("data", (c: Buffer) => chunks.push(c))
-  const done = new Promise<void>((resolve) => stream.on("end", resolve))
+  stream.on('data', (c: Buffer) => chunks.push(c))
+  const done = new Promise<void>((resolve) => stream.on('end', resolve))
   for (const input of inputs) stream.write(input)
   stream.end()
   await done
   return Buffer.concat(chunks)
 }
 
-describe("agy transport", () => {
+describe('agy transport', () => {
   afterEach(() => {
     restoreProxyEnv()
   })
 
-  it("has bounded default header and idle timeouts", () => {
+  it('has bounded default header and idle timeouts', () => {
     expect(DEFAULT_AGY_RESPONSE_HEADER_TIMEOUT_MS).toBe(180_000)
     expect(DEFAULT_AGY_IDLE_TIMEOUT_MS).toBe(180_000)
   })
 
-  it("serializes the captured agy CLI 1.1.5 stream header contract", () => {
-    const pairs = buildAgyCliHeaderPairs(AGY_1_1_5_WIRE_FIXTURE.capture.endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer token",
-        "Content-Type": "application/json",
-        "User-Agent": "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
-        "Accept-Encoding": "gzip",
+  it('serializes the captured agy CLI 1.1.5 stream header contract', () => {
+    const pairs = buildAgyCliHeaderPairs(
+      AGY_1_1_5_WIRE_FIXTURE.capture.endpoint,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer token',
+          'Content-Type': 'application/json',
+          'User-Agent':
+            'antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)',
+          'Accept-Encoding': 'gzip',
+        },
+        body: JSON.stringify({ request: { contents: [] } }),
       },
-      body: JSON.stringify({ request: { contents: [] } }),
-    }).map(([name, value]) => [
+    ).map(([name, value]) => [
       name,
-      name === "Authorization" ? "<redacted>" : value,
+      name === 'Authorization' ? '<redacted>' : value,
     ])
 
     expect(AGY_1_1_5_WIRE_FIXTURE.capture).toMatchObject({
-      version: "1.1.5",
-      httpVersion: "HTTP/1.1",
+      version: '1.1.5',
+      httpVersion: 'HTTP/1.1',
     })
     expect(pairs).toEqual(AGY_1_1_5_WIRE_FIXTURE.headers)
   })
 
-  it("rejects immediately when the signal is already aborted", async () => {
+  it('rejects immediately when the signal is already aborted', async () => {
     const controller = new AbortController()
     controller.abort()
     await expect(
-      fetchWithAgyCliTransport("https://example.com/x", { method: "POST" }, { signal: controller.signal }),
+      fetchWithAgyCliTransport(
+        'https://example.com/x',
+        { method: 'POST' },
+        { signal: controller.signal },
+      ),
     ).rejects.toThrow(/aborted/i)
   })
 
-  it("times out while waiting for response headers", async () => {
+  it('times out while waiting for response headers', async () => {
     const server = net.createServer((socket) => {
-      socket.on("data", () => {
+      socket.on('data', () => {
         // Accept the connection but never respond.
       })
     })
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const address = server.address()
-    if (!address || typeof address === "string") throw new Error("no port")
+    if (!address || typeof address === 'string') throw new Error('no port')
 
     process.env.HTTPS_PROXY = `http://127.0.0.1:${address.port}`
     delete process.env.https_proxy
@@ -114,37 +130,60 @@ describe("agy transport", () => {
 
     const debugLines: string[] = []
     try {
-      await expect(fetchWithAgyCliTransport("https://example.com/v1internal:streamGenerateContent", {
-        method: "POST",
-        headers: {
-          "User-Agent": "antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
-        },
-        body: JSON.stringify({ x: 1 }),
-      }, {
-        timeoutMs: 20,
-        onDebug: (line) => debugLines.push(line),
-      })).rejects.toThrow("Antigravity request timed out waiting for response headers after 20ms")
+      await expect(
+        fetchWithAgyCliTransport(
+          'https://example.com/v1internal:streamGenerateContent',
+          {
+            method: 'POST',
+            headers: {
+              'User-Agent':
+                'antigravity/cli/1.1.5 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)',
+            },
+            body: JSON.stringify({ x: 1 }),
+          },
+          {
+            timeoutMs: 20,
+            onDebug: (line) => debugLines.push(line),
+          },
+        ),
+      ).rejects.toThrow(
+        'Antigravity request timed out waiting for response headers after 20ms',
+      )
 
-      expect(debugLines.some((l) => l.includes("proxy CONNECT response timeout after 20ms"))).toBe(true)
+      expect(
+        debugLines.some((l) =>
+          l.includes('proxy CONNECT response timeout after 20ms'),
+        ),
+      ).toBe(true)
     } finally {
-      await new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve())))
+      await new Promise<void>((resolve, reject) =>
+        server.close((e) => (e ? reject(e) : resolve())),
+      )
     }
   })
 
-  describe("ContentLengthStream", () => {
-    it("emits exactly contentLength bytes and ends", async () => {
-      const out = await collect(new ContentLengthStream(5), [Buffer.from("hello")])
-      expect(out.toString()).toBe("hello")
+  describe('ContentLengthStream', () => {
+    it('emits exactly contentLength bytes and ends', async () => {
+      const out = await collect(new ContentLengthStream(5), [
+        Buffer.from('hello'),
+      ])
+      expect(out.toString()).toBe('hello')
     })
 
-    it("discards trailing bytes belonging to the next keep-alive response", async () => {
-      const out = await collect(new ContentLengthStream(5), [Buffer.from("helloEXTRA_NEXT_RESPONSE")])
-      expect(out.toString()).toBe("hello")
+    it('discards trailing bytes belonging to the next keep-alive response', async () => {
+      const out = await collect(new ContentLengthStream(5), [
+        Buffer.from('helloEXTRA_NEXT_RESPONSE'),
+      ])
+      expect(out.toString()).toBe('hello')
     })
 
-    it("reassembles a body split across chunks", async () => {
-      const out = await collect(new ContentLengthStream(6), [Buffer.from("foo"), Buffer.from("bar"), Buffer.from("baz")])
-      expect(out.toString()).toBe("foobar")
+    it('reassembles a body split across chunks', async () => {
+      const out = await collect(new ContentLengthStream(6), [
+        Buffer.from('foo'),
+        Buffer.from('bar'),
+        Buffer.from('baz'),
+      ])
+      expect(out.toString()).toBe('foobar')
     })
   })
 })

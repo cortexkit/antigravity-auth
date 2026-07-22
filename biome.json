@@ -1,0 +1,54 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.3/schema.json",
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "javascript": {
+    "formatter": {
+      "semicolons": "asNeeded",
+      "jsxQuoteStyle": "single",
+      "trailingCommas": "all",
+      "quoteStyle": "single"
+    }
+  },
+  "linter": {
+    "enabled": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "packages/*/src/**",
+      "!packages/opencode/src/tui-compiled",
+      "packages/*/script/**",
+      "scripts/**",
+      "test/**",
+      "*.json",
+      "packages/*/*.json",
+      ".github/**/*.yml"
+    ]
+  },
+  "overrides": [
+    {
+      "includes": ["**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noThenProperty": "off"
+          },
+          "style": { "noNonNullAssertion": "off" },
+          "correctness": { "noUnusedFunctionParameters": "off" }
+        }
+      }
+    },
+    {
+      "includes": ["packages/opencode/src/plugin/ui/select.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": { "noControlCharactersInRegex": "off" }
+        }
+      }
+    }
+  ]
+}

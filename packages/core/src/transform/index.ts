@@ -1,70 +1,72 @@
 /**
  * Transform Module Index
- * 
+ *
  * Re-exports transform functions and types for request transformation.
  */
 
-// Types
-export type {
-  ModelFamily,
-  ThinkingTier,
-  TransformContext,
-  TransformResult,
-  TransformDebugInfo,
-  RequestPayload,
-  ThinkingConfig,
-  ResolvedModel,
-  GoogleSearchConfig,
-} from "./types.ts";
-
-// Model resolution
-export {
-  resolveModelWithTier,
-  resolveModelWithVariant,
-  resolveModelForHeaderStyle,
-  getModelFamily,
-  MODEL_ALIASES,
-  THINKING_TIER_BUDGETS,
-  GEMINI_3_THINKING_LEVELS,
-} from "./model-resolver.ts";
-export type { VariantConfig } from "./model-resolver.ts";
-
+export type { ClaudeTransformOptions, ClaudeTransformResult } from './claude.ts'
 // Claude transforms
 export {
+  appendClaudeThinkingHint,
+  applyClaudeTransforms,
+  buildClaudeThinkingConfig,
+  CLAUDE_INTERLEAVED_THINKING_HINT,
+  CLAUDE_THINKING_MAX_OUTPUT_TOKENS,
+  computeClaudeMaxOutputTokens,
+  configureClaudeToolConfig,
+  ensureClaudeMaxOutputTokens,
   isClaudeModel,
   isClaudeThinkingModel,
-  configureClaudeToolConfig,
-  buildClaudeThinkingConfig,
-  ensureClaudeMaxOutputTokens,
-  appendClaudeThinkingHint,
   normalizeClaudeTools,
-  applyClaudeTransforms,
-  CLAUDE_THINKING_MAX_OUTPUT_TOKENS,
-  CLAUDE_INTERLEAVED_THINKING_HINT,
-  computeClaudeMaxOutputTokens,
-} from "./claude.ts";export type { ClaudeTransformOptions, ClaudeTransformResult } from "./claude.ts";
+} from './claude.ts'
+export type { SanitizerOptions } from './cross-model-sanitizer.ts'
+// Cross-model sanitization
+export {
+  getModelFamily as getCrossModelFamily,
+  sanitizeCrossModelPayload,
+  sanitizeCrossModelPayloadInPlace,
+  stripClaudeThinkingFields,
+  stripGeminiThinkingMetadata,
+} from './cross-model-sanitizer.ts'
+export type {
+  GeminiTransformOptions,
+  GeminiTransformResult,
+  ImageConfig,
+} from './gemini.ts'
 
 // Gemini transforms
 export {
-  isGeminiModel,
-  isGemini3Model,
-  isGemini25Model,
-  isImageGenerationModel,
+  applyGeminiTransforms,
   buildGemini3ThinkingConfig,
   buildGemini25ThinkingConfig,
   buildImageGenerationConfig,
+  isGemini3Model,
+  isGemini25Model,
+  isGeminiModel,
+  isImageGenerationModel,
   normalizeGeminiTools,
   toGeminiSchema,
-  applyGeminiTransforms,
-} from "./gemini.ts";
-export type { GeminiTransformOptions, GeminiTransformResult, ImageConfig } from "./gemini.ts";
-
-// Cross-model sanitization
+} from './gemini.ts'
+export type { VariantConfig } from './model-resolver.ts'
+// Model resolution
 export {
-  sanitizeCrossModelPayload,
-  sanitizeCrossModelPayloadInPlace,
-  getModelFamily as getCrossModelFamily,
-  stripGeminiThinkingMetadata,
-  stripClaudeThinkingFields,
-} from "./cross-model-sanitizer.ts";
-export type { SanitizerOptions } from "./cross-model-sanitizer.ts";
+  GEMINI_3_THINKING_LEVELS,
+  getModelFamily,
+  MODEL_ALIASES,
+  resolveModelForHeaderStyle,
+  resolveModelWithTier,
+  resolveModelWithVariant,
+  THINKING_TIER_BUDGETS,
+} from './model-resolver.ts'
+// Types
+export type {
+  GoogleSearchConfig,
+  ModelFamily,
+  RequestPayload,
+  ResolvedModel,
+  ThinkingConfig,
+  ThinkingTier,
+  TransformContext,
+  TransformDebugInfo,
+  TransformResult,
+} from './types.ts'

@@ -1,6 +1,9 @@
-import { select } from './select';
+import { select } from './select'
 
-export async function confirm(message: string, defaultYes = false): Promise<boolean> {
+export async function confirm(
+  message: string,
+  defaultYes = false,
+): Promise<boolean> {
   const items = defaultYes
     ? [
         { label: 'Yes', value: true },
@@ -9,8 +12,8 @@ export async function confirm(message: string, defaultYes = false): Promise<bool
     : [
         { label: 'No', value: false },
         { label: 'Yes', value: true },
-      ];
+      ]
 
-  const result = await select(items, { message });
-  return result ?? false;
+  const result = await select(items, { message })
+  return result ?? false
 }

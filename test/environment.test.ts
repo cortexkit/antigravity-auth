@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 
 import { getConfigDir as getStorageConfigDir } from '../packages/opencode/src/plugin/storage.ts'
-import { getPiConfigDir, getPiAntigravityAuthFile } from '../packages/pi/src/paths.ts'
+import {
+  getPiAntigravityAuthFile,
+  getPiConfigDir,
+} from '../packages/pi/src/paths.ts'
 
 describe('test environment isolation', () => {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
@@ -34,7 +37,9 @@ describe('test environment isolation', () => {
 
   it('sets PI_AGENT_DIR and PI_ANTIGRAVITY_AUTH_FILE under the test root', () => {
     expect(process.env.PI_AGENT_DIR).toBe(`${root}/pi-agent`)
-    expect(process.env.PI_ANTIGRAVITY_AUTH_FILE).toBe(`${root}/pi-agent/antigravity-accounts.json`)
+    expect(process.env.PI_ANTIGRAVITY_AUTH_FILE).toBe(
+      `${root}/pi-agent/antigravity-accounts.json`,
+    )
   })
 
   it('pi path helpers return paths under the test root', () => {

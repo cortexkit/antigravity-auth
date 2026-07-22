@@ -1,54 +1,54 @@
-import { accessTokenExpired } from "./auth";
-import type { OAuthAuthDetails } from "./types";
-import { createHash } from "node:crypto";
+import { createHash } from 'node:crypto'
+import { accessTokenExpired } from './auth'
+import type { OAuthAuthDetails } from './types'
 
-const authCache = new Map<string, OAuthAuthDetails>();
+const authCache = new Map<string, OAuthAuthDetails>()
 
 /**
  * Produces a stable cache key from a refresh token string.
  */
 function normalizeRefreshKey(refresh?: string): string | undefined {
-  const key = refresh?.trim();
-  return key ? key : undefined;
+  const key = refresh?.trim()
+  return key ? key : undefined
 }
 
 /**
  * Returns a cached auth snapshot when available, favoring unexpired tokens.
  */
 export function resolveCachedAuth(auth: OAuthAuthDetails): OAuthAuthDetails {
-  const key = normalizeRefreshKey(auth.refresh);
+  const key = normalizeRefreshKey(auth.refresh)
   if (!key) {
-    return auth;
+    return auth
   }
 
-  const cached = authCache.get(key);
+  const cached = authCache.get(key)
   if (!cached) {
-    authCache.set(key, auth);
-    return auth;
+    authCache.set(key, auth)
+    return auth
   }
 
   if (!accessTokenExpired(auth)) {
-    authCache.set(key, auth);
-    return auth;
+    authCache.set(key, auth)
+    return auth
   }
 
   if (!accessTokenExpired(cached)) {
-    return cached;
+    return cached
   }
 
-  authCache.set(key, auth);
-  return auth;
+  authCache.set(key, auth)
+  return auth
 }
 
 /**
  * Stores the latest auth snapshot keyed by refresh token.
  */
 export function storeCachedAuth(auth: OAuthAuthDetails): void {
-  const key = normalizeRefreshKey(auth.refresh);
+  const key = normalizeRefreshKey(auth.refresh)
   if (!key) {
-    return;
+    return
   }
-  authCache.set(key, auth);
+  authCache.set(key, auth)
 }
 
 /**
@@ -56,12 +56,12 @@ export function storeCachedAuth(auth: OAuthAuthDetails): void {
  */
 export function clearCachedAuth(refresh?: string): void {
   if (!refresh) {
-    authCache.clear();
-    return;
+    authCache.clear()
+    return
   }
-  const key = normalizeRefreshKey(refresh);
+  const key = normalizeRefreshKey(refresh)
   if (key) {
-    authCache.delete(key);
+    authCache.delete(key)
   }
 }
 
@@ -69,45 +69,50 @@ export function clearCachedAuth(refresh?: string): void {
 // Thinking Signature Cache (for Claude multi-turn conversations)
 // ============================================================================
 
-import { SignatureCache, createSignatureCache } from "./cache/signature-cache";
-import type { SignatureCacheConfig } from "./config";
+import {
+  createSignatureCache,
+  type SignatureCache,
+} from './cache/signature-cache'
+import type { SignatureCacheConfig } from './config'
 
 interface SignatureEntry {
-  signature: string;
-  timestamp: number;
+  signature: string
+  timestamp: number
 }
 
 // Map: sessionId -> Map<textHash, SignatureEntry>
-const signatureCache = new Map<string, Map<string, SignatureEntry>>();
+const signatureCache = new Map<string, Map<string, SignatureEntry>>()
 
 // Cache entries expire after 1 hour
-const SIGNATURE_CACHE_TTL_MS = 60 * 60 * 1000;
+const SIGNATURE_CACHE_TTL_MS = 60 * 60 * 1000
 
 // Maximum entries per session to prevent memory bloat
-const MAX_ENTRIES_PER_SESSION = 100;
+const MAX_ENTRIES_PER_SESSION = 100
 
 // Maximum sessions tracked in the outer Map to prevent unbounded growth
-const MAX_CACHED_SESSIONS = 10;
+const MAX_CACHED_SESSIONS = 10
 // 16 hex chars = 64-bit key space; keeps memory bounded while making collisions extremely unlikely.
-const SIGNATURE_TEXT_HASH_HEX_LEN = 16;
+const SIGNATURE_TEXT_HASH_HEX_LEN = 16
 
 // Disk cache instance (initialized via initDiskSignatureCache)
-let diskCache: SignatureCache | null = null;
+let diskCache: SignatureCache | null = null
 
 /**
  * Initialize the disk-based signature cache.
  * Call this from plugin initialization when keep_thinking is enabled.
  */
-export function initDiskSignatureCache(config: SignatureCacheConfig | undefined): SignatureCache | null {
-  diskCache = createSignatureCache(config);
-  return diskCache;
+export function initDiskSignatureCache(
+  config: SignatureCacheConfig | undefined,
+): SignatureCache | null {
+  diskCache = createSignatureCache(config)
+  return diskCache
 }
 
 /**
  * Get the disk cache instance (for testing/debugging).
  */
 export function getDiskSignatureCache(): SignatureCache | null {
-  return diskCache;
+  return diskCache
 }
 
 /**
@@ -116,14 +121,17 @@ export function getDiskSignatureCache(): SignatureCache | null {
  * Uses SHA-256 over UTF-8 bytes and truncates to keep memory usage bounded.
  */
 function hashText(text: string): string {
-  return createHash("sha256").update(text, "utf8").digest("hex").slice(0, SIGNATURE_TEXT_HASH_HEX_LEN);
+  return createHash('sha256')
+    .update(text, 'utf8')
+    .digest('hex')
+    .slice(0, SIGNATURE_TEXT_HASH_HEX_LEN)
 }
 
 /**
  * Create a disk cache key from sessionId and textHash.
  */
 function makeDiskKey(sessionId: string, textHash: string): string {
-  return `${sessionId}:${textHash}`;
+  return `${sessionId}:${textHash}`
 }
 
 /**
@@ -132,40 +140,40 @@ function makeDiskKey(sessionId: string, textHash: string): string {
  * oldest sessions if the Map still exceeds MAX_CACHED_SESSIONS.
  */
 function pruneSignatureSessions(): void {
-  if (signatureCache.size <= MAX_CACHED_SESSIONS) return;
+  if (signatureCache.size <= MAX_CACHED_SESSIONS) return
 
-  const now = Date.now();
+  const now = Date.now()
 
   // First pass: remove sessions where ALL entries are expired
   for (const [sid, innerMap] of signatureCache) {
-    let allExpired = true;
+    let allExpired = true
     for (const entry of innerMap.values()) {
       if (now - entry.timestamp <= SIGNATURE_CACHE_TTL_MS) {
-        allExpired = false;
-        break;
+        allExpired = false
+        break
       }
     }
     if (allExpired) {
-      signatureCache.delete(sid);
+      signatureCache.delete(sid)
     }
   }
 
   // Second pass: if still over cap, evict oldest sessions by newest entry timestamp
   if (signatureCache.size > MAX_CACHED_SESSIONS) {
-    const sessionsByAge: Array<{ sid: string; newestTs: number }> = [];
+    const sessionsByAge: Array<{ sid: string; newestTs: number }> = []
     for (const [sid, innerMap] of signatureCache) {
-      let newestTs = 0;
+      let newestTs = 0
       for (const entry of innerMap.values()) {
-        if (entry.timestamp > newestTs) newestTs = entry.timestamp;
+        if (entry.timestamp > newestTs) newestTs = entry.timestamp
       }
-      sessionsByAge.push({ sid, newestTs });
+      sessionsByAge.push({ sid, newestTs })
     }
     // Sort oldest-first, evict until at cap
-    sessionsByAge.sort((a, b) => a.newestTs - b.newestTs);
-    const toEvict = signatureCache.size - MAX_CACHED_SESSIONS;
+    sessionsByAge.sort((a, b) => a.newestTs - b.newestTs)
+    const toEvict = signatureCache.size - MAX_CACHED_SESSIONS
     for (let i = 0; i < toEvict; i++) {
-      const entry = sessionsByAge[i];
-      if (entry) signatureCache.delete(entry.sid);
+      const entry = sessionsByAge[i]
+      if (entry) signatureCache.delete(entry.sid)
     }
   }
 }
@@ -175,44 +183,49 @@ function pruneSignatureSessions(): void {
  * Used for Claude models that require signed thinking blocks in multi-turn conversations.
  * Also writes to disk cache if enabled.
  */
-export function cacheSignature(sessionId: string, text: string, signature: string): void {
-  if (!sessionId || !text || !signature) return;
+export function cacheSignature(
+  sessionId: string,
+  text: string,
+  signature: string,
+): void {
+  if (!sessionId || !text || !signature) return
 
-  const textHash = hashText(text);
+  const textHash = hashText(text)
 
   // Write to memory cache
-  let sessionMemCache = signatureCache.get(sessionId);
+  let sessionMemCache = signatureCache.get(sessionId)
   if (!sessionMemCache) {
     // About to add a new session — prune stale ones first
-    pruneSignatureSessions();
-    sessionMemCache = new Map();
-    signatureCache.set(sessionId, sessionMemCache);
+    pruneSignatureSessions()
+    sessionMemCache = new Map()
+    signatureCache.set(sessionId, sessionMemCache)
   }
   // Evict old entries if we're at capacity
   if (sessionMemCache.size >= MAX_ENTRIES_PER_SESSION) {
-    const now = Date.now();
+    const now = Date.now()
     for (const [key, entry] of sessionMemCache.entries()) {
       if (now - entry.timestamp > SIGNATURE_CACHE_TTL_MS) {
-        sessionMemCache.delete(key);
+        sessionMemCache.delete(key)
       }
     }
     // If still at capacity, remove oldest entries
     if (sessionMemCache.size >= MAX_ENTRIES_PER_SESSION) {
-      const entries = Array.from(sessionMemCache.entries())
-        .sort((a, b) => a[1].timestamp - b[1].timestamp);
-      const toRemove = entries.slice(0, Math.floor(MAX_ENTRIES_PER_SESSION / 4));
+      const entries = Array.from(sessionMemCache.entries()).sort(
+        (a, b) => a[1].timestamp - b[1].timestamp,
+      )
+      const toRemove = entries.slice(0, Math.floor(MAX_ENTRIES_PER_SESSION / 4))
       for (const [key] of toRemove) {
-        sessionMemCache.delete(key);
+        sessionMemCache.delete(key)
       }
     }
   }
 
-  sessionMemCache.set(textHash, { signature, timestamp: Date.now() });
+  sessionMemCache.set(textHash, { signature, timestamp: Date.now() })
 
   // Write to disk cache if enabled
   if (diskCache) {
-    const diskKey = makeDiskKey(sessionId, textHash);
-    diskCache.store(diskKey, signature);
+    const diskKey = makeDiskKey(sessionId, textHash)
+    diskCache.store(diskKey, signature)
   }
 }
 
@@ -221,42 +234,45 @@ export function cacheSignature(sessionId: string, text: string, signature: strin
  * Checks memory first, then falls back to disk cache.
  * Returns undefined if not found or expired.
  */
-export function getCachedSignature(sessionId: string, text: string): string | undefined {
-  if (!sessionId || !text) return undefined;
+export function getCachedSignature(
+  sessionId: string,
+  text: string,
+): string | undefined {
+  if (!sessionId || !text) return undefined
 
-  const textHash = hashText(text);
+  const textHash = hashText(text)
 
   // Check memory cache first
-  const sessionMemCache = signatureCache.get(sessionId);
+  const sessionMemCache = signatureCache.get(sessionId)
   if (sessionMemCache) {
-    const entry = sessionMemCache.get(textHash);
+    const entry = sessionMemCache.get(textHash)
     if (entry) {
       // Check if expired
       if (Date.now() - entry.timestamp > SIGNATURE_CACHE_TTL_MS) {
-        sessionMemCache.delete(textHash);
+        sessionMemCache.delete(textHash)
       } else {
-        return entry.signature;
+        return entry.signature
       }
     }
   }
 
   // Fall back to disk cache
   if (diskCache) {
-    const diskKey = makeDiskKey(sessionId, textHash);
-    const diskValue = diskCache.retrieve(diskKey);
+    const diskKey = makeDiskKey(sessionId, textHash)
+    const diskValue = diskCache.retrieve(diskKey)
     if (diskValue) {
       // Promote to memory cache for faster subsequent access
-      let memCache = signatureCache.get(sessionId);
+      let memCache = signatureCache.get(sessionId)
       if (!memCache) {
-        memCache = new Map();
-        signatureCache.set(sessionId, memCache);
+        memCache = new Map()
+        signatureCache.set(sessionId, memCache)
       }
-      memCache.set(textHash, { signature: diskValue, timestamp: Date.now() });
-      return diskValue;
+      memCache.set(textHash, { signature: diskValue, timestamp: Date.now() })
+      return diskValue
     }
   }
 
-  return undefined;
+  return undefined
 }
 
 /**
@@ -265,11 +281,11 @@ export function getCachedSignature(sessionId: string, text: string): string | un
  */
 export function clearSignatureCache(sessionId?: string): void {
   if (sessionId) {
-    signatureCache.delete(sessionId);
+    signatureCache.delete(sessionId)
     // Note: We don't clear individual sessions from disk cache to avoid
     // expensive iteration. Disk cache entries will expire naturally.
   } else {
-    signatureCache.clear();
+    signatureCache.clear()
     // For full clear, we could clear disk cache, but leaving it for now
     // since entries have TTL and will expire naturally.
   }
@@ -280,5 +296,5 @@ export function clearSignatureCache(sessionId?: string): void {
 // ============================================================================
 
 // Re-export SignatureCache class and factory for direct use
-export { SignatureCache, createSignatureCache } from "./cache/signature-cache";
-export type { SignatureCacheConfig } from "./config";
+export { createSignatureCache, SignatureCache } from './cache/signature-cache'
+export type { SignatureCacheConfig } from './config'
