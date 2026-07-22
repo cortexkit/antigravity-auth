@@ -31,14 +31,15 @@ import {
   loadAccounts,
   mutateAccountStorage,
 } from './storage'
-import type { GetAuth, PluginContext, PluginResult } from './types'
+import type { GetAuth, PluginContext, PluginInput, PluginResult } from './types'
 import { initAntigravityVersion } from './version'
 
 const logger = createLogger('plugin')
 
 export const createAntigravityPlugin =
   (providerId: string) =>
-  async ({ client, directory }: PluginContext): Promise<PluginResult> => {
+  async (input: PluginInput): Promise<PluginResult> => {
+    const { client, directory } = input as PluginContext
     const config = loadConfig(directory)
     initRuntimeConfig(config)
     initializeDebug(config)
@@ -152,17 +153,24 @@ export const createAntigravityPlugin =
     })
 
     return {
-      dispose: () => lifecycle.dispose(),
-      config: async (opencodeConfig: Record<string, unknown>) => {
-        applyAntigravityProviderCatalog(opencodeConfig, providerId)
-        registerAntigravityCommands(opencodeConfig)
+      dispose: async () => {
+        await lifecycle.dispose()
+      },
+      config: async (opencodeConfig) => {
+        applyAntigravityProviderCatalog(
+          opencodeConfig as unknown as Record<string, unknown>,
+          providerId,
+        )
+        registerAntigravityCommands(
+          opencodeConfig as unknown as Record<string, unknown>,
+        )
       },
       'command.execute.before': commandExecuteBefore,
       event,
       tool: { google_search: googleSearchTool },
       auth: {
         provider: providerId,
-        loader: authLoader,
+        loader: authLoader as PluginResult['auth']['loader'],
         methods: oauthMethods,
       },
     }

@@ -13,7 +13,13 @@ import {
   type ProactiveRefreshQueue,
 } from './refresh-queue'
 import { clearAccounts, loadAccounts } from './storage'
-import type { GetAuth, LoaderResult, PluginClient, PluginResult } from './types'
+import type {
+  GetAuth,
+  LoaderResult,
+  PluginClient,
+  ProviderModel,
+  Provider,
+} from './types'
 
 const log = createLogger('auth-loader')
 
@@ -56,7 +62,7 @@ export function createAuthLoader({
   createFetch,
   onGetAuth,
   dependencies,
-}: CreateAuthLoaderOptions): PluginResult['auth']['loader'] {
+}: CreateAuthLoaderOptions) {
   const deps: AuthLoaderDependencies = {
     loadAccounts: dependencies?.loadAccounts ?? loadAccounts,
     clearAccounts: dependencies?.clearAccounts ?? clearAccounts,
@@ -78,7 +84,10 @@ export function createAuthLoader({
     },
   })
 
-  return async (getAuth, provider) => {
+  return async (
+    getAuth: GetAuth,
+    provider: Provider,
+  ): Promise<LoaderResult | Record<string, unknown>> => {
     onGetAuth?.(getAuth)
     let auth = await getAuth()
 
@@ -155,7 +164,7 @@ export function createAuthLoader({
 
     if (provider.models) {
       for (const model of Object.values(provider.models)) {
-        if (model) model.cost = { input: 0, output: 0 }
+        if (model) (model as ProviderModel).cost = { input: 0, output: 0 }
       }
     }
 

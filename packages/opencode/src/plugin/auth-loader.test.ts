@@ -74,7 +74,14 @@ describe('createAuthLoader', () => {
     })
     const getAuth = mock(async () => undefined) as unknown as GetAuth
 
-    const result = await loader(getAuth, { models: {} })
+    const result = await loader(getAuth, {
+      id: 'g',
+      name: 'G',
+      source: 'custom',
+      env: [],
+      options: {},
+      models: {},
+    } as never)
 
     expect(result).toMatchObject({ apiKey: '' })
     expect(authSet).toHaveBeenCalledWith({
@@ -114,7 +121,14 @@ describe('createAuthLoader', () => {
 
     const result = await loader(
       mock(async () => ({ type: 'api', key: 'not-oauth' })) as never,
-      { models: {} },
+      {
+        id: 'g',
+        name: 'G',
+        source: 'custom',
+        env: [],
+        options: {},
+        models: {},
+      } as never,
     )
 
     expect(result).toEqual({})
@@ -185,8 +199,8 @@ describe('createAuthLoader', () => {
     await loader(getAuth, provider)
     await loader(getAuth, provider)
 
-    expect(provider.models?.alpha?.cost).toEqual({ input: 0, output: 0 })
-    expect(provider.models?.beta?.cost).toEqual({ input: 0, output: 0 })
+    expect(provider.models?.alpha?.cost).toMatchObject({ input: 0, output: 0 })
+    expect(provider.models?.beta?.cost).toMatchObject({ input: 0, output: 0 })
     expect(lifecycle.getAccountManager()).toBe(
       secondManager as unknown as AccountManager,
     )

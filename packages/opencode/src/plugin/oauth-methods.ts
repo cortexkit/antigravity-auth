@@ -36,6 +36,25 @@ import {
   formatQuotaStatusBadge,
 } from './ui/quota-status'
 import { getAntigravityVersionResolution } from './version'
+import type { AuthOAuthResult as V1AuthOAuthResult } from '@opencode-ai/plugin'
+
+type V1AuthCallbackResult = Awaited<
+  ReturnType<NonNullable<V1AuthOAuthResult['callback']>>
+>
+
+function toV1AuthCallbackResult(
+  result: AntigravityTokenExchangeResult,
+): V1AuthCallbackResult {
+  if (result.type === 'failed') {
+    return { type: 'failed' }
+  }
+  return {
+    type: 'success',
+    refresh: result.refresh,
+    access: result.access ?? '',
+    expires: result.expires ?? 0,
+  }
+}
 
 const MAX_OAUTH_ACCOUNTS = 10
 const log = createLogger('oauth-methods')
@@ -1000,10 +1019,11 @@ export function createOAuthMethods({
                 url: '',
                 instructions: 'Authentication cancelled',
                 method: 'auto',
-                callback: async () => ({
-                  type: 'failed',
-                  error: 'Authentication cancelled',
-                }),
+                callback: async () =>
+                  toV1AuthCallbackResult({
+                    type: 'failed',
+                    error: 'Authentication cancelled',
+                  }),
               }
             }
 
@@ -1063,7 +1083,8 @@ export function createOAuthMethods({
                     url: '',
                     instructions: `Account deleted. Using ${label} for future requests.`,
                     method: 'auto',
-                    callback: async () => fallbackResult,
+                    callback: async () =>
+                      toV1AuthCallbackResult(fallbackResult),
                   }
                 }
               }
@@ -1090,10 +1111,11 @@ export function createOAuthMethods({
                 instructions:
                   'All accounts deleted. Run `opencode auth login` to reauthenticate.',
                 method: 'auto',
-                callback: async () => ({
-                  type: 'failed',
-                  error: 'All accounts deleted. Reauthentication required.',
-                }),
+                callback: async () =>
+                  toV1AuthCallbackResult({
+                    type: 'failed',
+                    error: 'All accounts deleted. Reauthentication required.',
+                  }),
               }
             }
 
@@ -1265,7 +1287,7 @@ export function createOAuthMethods({
                   url: '',
                   instructions: `Authentication failed: ${result.error}`,
                   method: 'auto',
-                  callback: async () => result,
+                  callback: async () => toV1AuthCallbackResult(result),
                 }
               }
 
@@ -1359,10 +1381,11 @@ export function createOAuthMethods({
               url: '',
               instructions: 'Authentication cancelled',
               method: 'auto',
-              callback: async () => ({
-                type: 'failed',
-                error: 'Authentication cancelled',
-              }),
+              callback: async () =>
+                toV1AuthCallbackResult({
+                  type: 'failed',
+                  error: 'Authentication cancelled',
+                }),
             }
           }
 

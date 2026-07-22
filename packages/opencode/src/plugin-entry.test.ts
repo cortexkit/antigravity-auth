@@ -19,7 +19,7 @@ import * as packageRoot from '../index'
 import { ANTIGRAVITY_PROVIDER_ID } from './constants.ts'
 import { GEMINI_DUMP_COMMAND_NAME } from './plugin/gemini-dump.ts'
 import { createAntigravityPlugin } from './plugin/index'
-import type { PluginClient, PluginContext } from './plugin/types.ts'
+import type { PluginClient, PluginInput } from './plugin/types.ts'
 
 /**
  * Minimal client stub: createAntigravityPlugin only touches the client during
@@ -41,6 +41,21 @@ function createMinimalClient(): PluginClient {
       showToast: mock(async () => {}),
     },
   } as unknown as PluginClient
+}
+
+function createPluginInput(
+  client: PluginClient,
+  directory: string,
+): PluginInput {
+  return {
+    client,
+    project: {} as PluginInput['project'],
+    directory,
+    worktree: directory,
+    experimental_workspace: { register: mock(() => {}) },
+    serverUrl: new URL('http://localhost:4096'),
+    $: (() => {}) as unknown as PluginInput['$'],
+  }
 }
 
 describe('createAntigravityPlugin (plugin entry surface)', () => {
@@ -70,7 +85,7 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
 
   it('exposes the host-visible hook contract (config, command.execute.before, event, tool.google_search, auth)', async () => {
     const client = createMinimalClient()
-    const ctx: PluginContext = { client, directory: tempProjectDir }
+    const ctx = createPluginInput(client, tempProjectDir)
 
     const plugin = await createAntigravityPlugin(ANTIGRAVITY_PROVIDER_ID)(ctx)
 
@@ -102,34 +117,33 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
 
   it('config hook registers the antigravity model catalog, whitelist, and gemini-dump command without deleting existing entries', async () => {
     const client = createMinimalClient()
-    const ctx: PluginContext = { client, directory: tempProjectDir }
+    const ctx = createPluginInput(client, tempProjectDir)
     const plugin = await createAntigravityPlugin(ANTIGRAVITY_PROVIDER_ID)(ctx)
 
     // Pre-populate the opencode config with a stub provider + command so
     // the plugin must merge rather than overwrite.
-    const opencodeConfig: Record<string, unknown> & {
-      provider?: Record<string, Record<string, unknown>>
-      command?: Record<string, unknown>
-    } = {
+    const opencodeConfig = {
       provider: {
         'other-provider': { models: { foo: { name: 'foo' } } },
       },
       command: {
         existing: { template: 'existing', description: 'pre-existing' },
       },
-    }
+    } as unknown as Parameters<typeof plugin.config>[0]
 
     await plugin.config?.(opencodeConfig)
 
     // Provider catalog: the antigravity provider now carries every model
     // listed in the core model registry, and a whitelist matching those ids.
     const expectedModelIds = getAntigravityOpencodeModelIds()
-    const provider = opencodeConfig.provider?.[ANTIGRAVITY_PROVIDER_ID] as
-      | {
-          models: Record<string, unknown>
-          whitelist: string[]
-        }
-      | undefined
+    const provider = (
+      opencodeConfig as unknown as {
+        provider?: Record<
+          string,
+          { models: Record<string, unknown>; whitelist: string[] }
+        >
+      }
+    ).provider?.[ANTIGRAVITY_PROVIDER_ID]
     expect(provider).toBeDefined()
     expect(Object.keys(provider!.models).sort()).toEqual(
       [...expectedModelIds].sort(),
@@ -142,16 +156,20 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
     }
 
     // Existing providers and commands are preserved alongside the additions.
-    expect(opencodeConfig.provider?.['other-provider']?.models).toEqual({
+    const finalConfig = opencodeConfig as unknown as {
+      provider?: Record<string, { models: Record<string, unknown> }>
+      command?: Record<string, unknown>
+    }
+    expect(finalConfig.provider?.['other-provider']?.models).toEqual({
       foo: { name: 'foo' },
     })
-    expect(opencodeConfig.command?.existing).toEqual({
+    expect(finalConfig.command?.existing).toEqual({
       template: 'existing',
       description: 'pre-existing',
     })
 
     // The gemini-dump command is registered under the well-known name.
-    const dumpCommand = opencodeConfig.command?.[GEMINI_DUMP_COMMAND_NAME] as
+    const dumpCommand = finalConfig.command?.[GEMINI_DUMP_COMMAND_NAME] as
       | { template: string; description: string }
       | undefined
     expect(dumpCommand).toBeDefined()
@@ -161,27 +179,29 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
 
   it('command.execute.before ignores non-gemini-dump commands and routes gemini-dump to the dump command handler', async () => {
     const client = createMinimalClient()
-    const ctx: PluginContext = { client, directory: tempProjectDir }
+    const ctx = createPluginInput(client, tempProjectDir)
     const plugin = await createAntigravityPlugin(ANTIGRAVITY_PROVIDER_ID)(ctx)
 
     // Non-matching command is a no-op — must return without throwing.
     await expect(
-      plugin['command.execute.before']?.({
-        command: 'unrelated-command',
-        arguments: '',
-        sessionID: 'ses_test',
-      }),
+      plugin['command.execute.before']?.(
+        { command: 'unrelated-command', arguments: '', sessionID: 'ses_test' },
+        { parts: [] },
+      ),
     ).resolves.toBeUndefined()
 
     // gemini-dump command with a recognized action throws the handled sentinel.
     // The handler ignores the no-op "status" subcommand and re-throws the
     // sentinel because it considers the message handled.
     await expect(
-      plugin['command.execute.before']?.({
-        command: GEMINI_DUMP_COMMAND_NAME,
-        arguments: 'status',
-        sessionID: 'ses_test',
-      }),
+      plugin['command.execute.before']?.(
+        {
+          command: GEMINI_DUMP_COMMAND_NAME,
+          arguments: 'status',
+          sessionID: 'ses_test',
+        },
+        { parts: [] },
+      ),
     ).rejects.toBeDefined()
   })
 })

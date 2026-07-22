@@ -3,7 +3,7 @@ import { accessTokenExpired, isOAuthAuth, parseRefreshParts } from './auth'
 import { createLogger } from './logger'
 import { executeSearch } from './search'
 import { refreshAccessToken } from './token'
-import type { GetAuth, PluginClient } from './types'
+import type { GetAuth, PluginClient, PluginTool } from './types'
 
 const log = createLogger('plugin')
 
@@ -19,7 +19,7 @@ export function createGoogleSearchTool({
   getAuth: GoogleSearchAuthLoader
   client: PluginClient
   providerId: string
-}): unknown {
+}): PluginTool {
   return tool({
     description:
       "Search the web using Google Search and analyze URLs. Returns real-time information from the internet with source citations. Use this when you need up-to-date information about current events, recent developments, or any topic that may have changed. You can also provide specific URLs to analyze. IMPORTANT: If the user mentions or provides any URLs in their query, you MUST extract those URLs and pass them in the 'urls' parameter for direct analysis.",

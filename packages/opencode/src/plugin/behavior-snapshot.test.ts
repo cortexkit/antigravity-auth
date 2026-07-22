@@ -2,6 +2,7 @@ import { expect, it, mock, spyOn } from 'bun:test'
 
 import type { AccountStorageV4 } from './storage'
 import { loadAccounts, saveAccountsReplace } from './storage'
+import type { PluginInput, Provider } from './types'
 
 const transport = mock(
   async (...args: Parameters<typeof fetch>): Promise<Response> =>
@@ -66,6 +67,17 @@ function fakeClient() {
   }
 }
 
+function emptyProvider(): Provider {
+  return {
+    id: 'google',
+    name: 'Google',
+    source: 'custom',
+    env: [],
+    options: {},
+    models: {},
+  }
+}
+
 function normalizedStorage(storage: AccountStorageV4) {
   const resetEntry = Object.entries(
     storage.accounts[0]?.rateLimitResetTimes ?? {},
@@ -87,6 +99,21 @@ function normalizedStorage(storage: AccountStorageV4) {
       lastUsed: storage.accounts[1]?.lastUsed,
       dailyRequestCounts: storage.accounts[1]?.dailyRequestCounts,
     },
+  }
+}
+
+function buildInput(
+  client: ReturnType<typeof fakeClient>,
+  directory: string,
+): PluginInput {
+  return {
+    client: client as never,
+    project: {} as PluginInput['project'],
+    directory,
+    worktree: directory,
+    experimental_workspace: { register: mock(() => {}) },
+    serverUrl: new URL('http://localhost:4096'),
+    $: (() => {}) as unknown as PluginInput['$'],
   }
 }
 
@@ -171,10 +198,9 @@ it('preserves the plugin hook mutation sequence across extraction', async () => 
 
   const { createAntigravityPlugin } = await import('../plugin')
   const firstClient = fakeClient()
-  const first = await createAntigravityPlugin('google')({
-    client: firstClient as never,
-    directory: projectDirectory,
-  })
+  const first = await createAntigravityPlugin('google')(
+    buildInput(firstClient, projectDirectory),
+  )
 
   const mutableConfig = {
     provider: {
@@ -183,15 +209,19 @@ it('preserves the plugin hook mutation sequence across extraction', async () => 
       },
     },
     command: { existing: { template: 'existing' } },
-  }
+  } as unknown as Parameters<NonNullable<typeof first.config>>[0]
   await first.config?.(mutableConfig)
-  expect(mutableConfig.provider.google.models.existing).toEqual({
+  const postConfig = mutableConfig as unknown as {
+    provider: { google: { models: Record<string, unknown> } }
+    command: Record<string, unknown>
+  }
+  expect(postConfig.provider.google.models.existing).toEqual({
     name: 'Existing',
   })
-  expect(mutableConfig.command.existing).toEqual({ template: 'existing' })
+  expect(postConfig.command.existing).toEqual({ template: 'existing' })
   events.push('config catalog merge')
 
-  const loader = await first.auth.loader(getAuth, { models: {} })
+  const loader = await first.auth.loader(getAuth, emptyProvider())
   expect('fetch' in loader).toBe(true)
   const fetchHook = (loader as { fetch: typeof fetch }).fetch
   const response = await fetchHook(GENERATIVE_URL, {
@@ -215,7 +245,7 @@ it('preserves the plugin hook mutation sequence across extraction', async () => 
   expect(beforeDispose?.accounts[1]?.dailyRequestCounts?.gemini).toBe(1)
   events.push('usage/quota state recorded')
 
-  await (first as { dispose?: () => Promise<void> | void }).dispose?.()
+  await first.dispose?.()
   const finalStorage = await loadAccounts()
   if (!finalStorage) throw new Error('account storage missing after dispose')
   events.push('dispose flushes storage and timers')
@@ -257,11 +287,10 @@ it('preserves the plugin hook mutation sequence across extraction', async () => 
 
   await saveAccountsReplace(storedAccounts())
   const secondClient = fakeClient()
-  const second = await createAntigravityPlugin('google')({
-    client: secondClient as never,
-    directory: projectDirectory,
-  })
-  const secondAuth = await second.auth.loader(getAuth, { models: {} })
+  const second = await createAntigravityPlugin('google')(
+    buildInput(secondClient, projectDirectory),
+  )
+  const secondAuth = await second.auth.loader(getAuth, emptyProvider())
   const secondCalls: string[] = []
   transportHandler = async (_input, init) => {
     secondCalls.push(
@@ -287,7 +316,7 @@ it('preserves the plugin hook mutation sequence across extraction', async () => 
     },
   )
   expect(await secondResponse.text()).toContain('"finishReason":"STOP"')
-  await (second as { dispose?: () => Promise<void> | void }).dispose?.()
+  await second.dispose?.()
 
   expect({
     transportCalls: secondCalls,

@@ -23,7 +23,7 @@ function toolWith(
     getAuth,
     client: { auth: { set: mock(async () => {}) } } as never,
     providerId: 'google',
-  }) as SearchTool
+  }) as unknown as SearchTool
 }
 
 beforeEach(() => {

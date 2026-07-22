@@ -35,7 +35,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && esbuild index.ts --bundle --platform=node --format=esm --external:@openauthjs/* --external:zod --outfile=dist/index.js --sourcemap",
+    "build": "tsc -p tsconfig.build.json && esbuild index.ts --bundle --platform=node --format=esm --external:@openauthjs/* --external:zod --external:@opencode-ai/plugin --external:@opencode-ai/plugin/* --outfile=dist/index.js --sourcemap",
     "build:schema": "bunx tsx script/build-schema.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test --isolate ./src",
@@ -52,11 +52,13 @@
   },
   "devDependencies": {
     "esbuild": "^0.27.7",
-    "zod-to-json-schema": "^3.25.1"
+    "zod-to-json-schema": "^3.25.1",
+    "@opencode-ai/sdk": "1.17.13"
   },
   "dependencies": {
     "@cortexkit/antigravity-auth-core": "2.0.0",
     "@openauthjs/openauth": "^0.4.3",
+    "solid-js": "1.9.12",
     "xdg-basedir": "^5.1.0",
     "zod": "^4.0.0"
   }

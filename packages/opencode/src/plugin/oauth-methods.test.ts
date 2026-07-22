@@ -4,6 +4,7 @@ import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
 import type { AccountAccessService } from './account-access'
 import { DEFAULT_CONFIG } from './config'
 import type { PluginLifecycle } from './lifecycle'
+import type { AuthOAuthResult } from '@opencode-ai/plugin'
 import { createOAuthMethods, parseOAuthCallbackInput } from './oauth-methods'
 import type { OAuthListener } from './server'
 import type { AccountStorageV4 } from './storage'
@@ -146,8 +147,11 @@ describe('createOAuthMethods', () => {
     })
 
     const result = await methods[0]!.authorize?.({ noBrowser: 'true' })
+    const oauthResult = result as
+      | Extract<AuthOAuthResult, { method: 'code' }>
+      | undefined
 
-    expect(await result?.callback('')).toMatchObject({
+    expect(await oauthResult?.callback('')).toMatchObject({
       type: 'success',
       email: 'a@example.com',
     })
@@ -189,7 +193,9 @@ describe('createOAuthMethods', () => {
     })
 
     const authorization = await methods[0]!.authorize?.()
-    const result = await authorization?.callback('code')
+    const result = await (
+      authorization as Extract<AuthOAuthResult, { method: 'code' }> | undefined
+    )?.callback('code')
 
     expect(result).toMatchObject({ type: 'success' })
     expect(persistCalls).toEqual([
@@ -231,7 +237,11 @@ describe('createOAuthMethods', () => {
       })
 
       const authorization = await methods[0]!.authorize?.()
-      const result = await authorization?.callback('')
+      const result = await (
+        authorization as
+          | Extract<AuthOAuthResult, { method: 'code' }>
+          | undefined
+      )?.callback('')
 
       expect(close).toHaveBeenCalledTimes(1)
       expect(result?.type).toBe(state === EXPECTED_STATE ? 'success' : 'failed')

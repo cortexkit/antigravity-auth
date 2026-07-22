@@ -36,7 +36,10 @@ describe('createCommandExecuteBefore', () => {
     } as never)
 
     await expect(
-      handler?.({ command: 'other', arguments: '', sessionID: 'session-1' }),
+      handler?.(
+        { command: 'other', arguments: '', sessionID: 'session-1' },
+        { parts: [] },
+      ),
     ).resolves.toBeUndefined()
     expect(promptAsync).not.toHaveBeenCalled()
   })
@@ -49,11 +52,14 @@ describe('createCommandExecuteBefore', () => {
     } as never)
 
     await expect(
-      handler?.({
-        command: GEMINI_DUMP_COMMAND_NAME,
-        arguments: '',
-        sessionID: 'session-1',
-      }),
+      handler?.(
+        {
+          command: GEMINI_DUMP_COMMAND_NAME,
+          arguments: '',
+          sessionID: 'session-1',
+        },
+        { parts: [] },
+      ),
     ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
     expect(promptAsync).toHaveBeenCalledTimes(1)
     expect(promptAsync).toHaveBeenCalledWith({
