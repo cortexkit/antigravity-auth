@@ -113,6 +113,16 @@ describe('detectAuthStorageDrift', () => {
     expect(report.account?.email).toBe('active@example.com')
   })
 
+  it('reports non-OAuth OpenCode auth as restorable from enabled storage', () => {
+    expect(
+      detectAuthStorageDrift({ type: 'api', key: 'stale-api-key' }, storage()),
+    ).toMatchObject({
+      status: 'restorable',
+      reason: 'non-oauth-opencode-auth',
+      account: { refreshToken: 'active-refresh' },
+    })
+  })
+
   it('reports refresh token mismatch between OpenCode auth and account storage', () => {
     const auth: AuthDetails = {
       type: 'oauth',

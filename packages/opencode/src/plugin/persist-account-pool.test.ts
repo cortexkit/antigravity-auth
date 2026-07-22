@@ -13,6 +13,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { persistAccountPool } from './persist-account-pool'
 import type { AccountMetadataV3, AccountStorageV4 } from './storage'
 import * as storageModule from './storage'
 
@@ -233,22 +234,62 @@ describe('saveAccounts', () => {
 /**
  * Tests for the expected behavior of persistAccountPool
  *
- * NOTE: persistAccountPool is currently a private function in plugin.ts.
- * These tests document the EXPECTED behavior after the fix.
- * To run these tests, persistAccountPool should be exported.
+ * These tests exercise the extracted lock-held persistence helper directly.
  */
 describe('persistAccountPool behavior (Issue #89)', () => {
-  beforeEach(() => {
+  let configDir: string
+  let previousConfigDir: string | undefined
+
+  beforeEach(async () => {
     jest.useFakeTimers()
     jest.setSystemTime(new Date('2026-01-01T12:00:00Z'))
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    configDir = await mkdtemp(join(tmpdir(), 'antigravity-pool-test-'))
+    process.env.OPENCODE_CONFIG_DIR = configDir
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     jest.useRealTimers()
+    if (previousConfigDir === undefined) {
+      delete process.env.OPENCODE_CONFIG_DIR
+    } else {
+      process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+    }
+    await rm(configDir, { recursive: true, force: true })
   })
 
   describe('merging behavior (replaceAll=false)', () => {
-    it.todo('merges new account with existing accounts', () => {})
+    it('merges a newly authenticated account with existing accounts', async () => {
+      await storageModule.saveAccountsReplace(
+        createMockStorage([
+          createMockAccount({
+            email: 'existing@example.com',
+            refreshToken: 'existing-token',
+          }),
+        ]),
+      )
+
+      await persistAccountPool(
+        [
+          {
+            type: 'success',
+            refresh: 'new-token|new-project',
+            access: 'new-access',
+            expires: Date.now() + 3_600_000,
+            email: 'new@example.com',
+            projectId: 'new-project',
+          },
+        ],
+        false,
+      )
+
+      expect(await storageModule.loadAccounts()).toMatchObject({
+        accounts: [
+          { email: 'existing@example.com', refreshToken: 'existing-token' },
+          { email: 'new@example.com', refreshToken: 'new-token' },
+        ],
+      })
+    })
 
     it.todo('deduplicates by email, keeping the newest token', () => {})
 
@@ -260,7 +301,35 @@ describe('persistAccountPool behavior (Issue #89)', () => {
   })
 
   describe('fresh start behavior (replaceAll=true)', () => {
-    it.todo('replaces all existing accounts with new ones', () => {})
+    it('replaces existing accounts for an explicit fresh start', async () => {
+      await storageModule.saveAccountsReplace(
+        createMockStorage([
+          createMockAccount({
+            email: 'existing@example.com',
+            refreshToken: 'existing-token',
+          }),
+        ]),
+      )
+
+      await persistAccountPool(
+        [
+          {
+            type: 'success',
+            refresh: 'fresh-token|fresh-project',
+            access: 'fresh-access',
+            expires: Date.now() + 3_600_000,
+            email: 'fresh@example.com',
+            projectId: 'fresh-project',
+          },
+        ],
+        true,
+      )
+
+      expect(await storageModule.loadAccounts()).toMatchObject({
+        activeIndex: 0,
+        accounts: [{ email: 'fresh@example.com', refreshToken: 'fresh-token' }],
+      })
+    })
 
     it.todo('resets activeIndex to 0', () => {})
 

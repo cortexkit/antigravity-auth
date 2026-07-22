@@ -89,6 +89,11 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
     expect(labels).toContain('OAuth with Google (Antigravity)')
     expect(labels).toContain('Manually enter API Key')
     expect(plugin.auth.methods).toHaveLength(2)
+    const oauthMethod = plugin.auth.methods.find(
+      (method) => method.label === 'OAuth with Google (Antigravity)',
+    )
+    expect(oauthMethod?.type).toBe('oauth')
+    expect(typeof oauthMethod?.authorize).toBe('function')
 
     // No network call should leak from initialization — the version check
     // falls back to the hardcoded version on non-OK.
