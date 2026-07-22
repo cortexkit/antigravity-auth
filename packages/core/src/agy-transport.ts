@@ -213,7 +213,7 @@ async function connectViaProxy(proxyUrl: URL, targetUrl: URL, timeoutMs: number,
       cleanup()
       resolve(tlsSocket)
     })
-    tlsSocket.once("error", (error) => {
+    tlsSocket.once("error", (error: Error) => {
       cleanup()
       reject(error)
     })
@@ -237,7 +237,7 @@ async function connectDirect(targetUrl: URL, timeoutMs: number, onDebug?: (messa
       cleanup()
       resolve(socket)
     })
-    socket.once("error", (error) => {
+    socket.once("error", (error: Error) => {
       cleanup()
       reject(error)
     })
@@ -466,7 +466,7 @@ function buildResponseStream(
     socket.destroy()
   })
   responseBody.once("close", cleanup)
-  return Readable.toWeb(responseBody) as ReadableStream<Uint8Array>
+  return Readable.toWeb(responseBody) as unknown as ReadableStream<Uint8Array>
 }
 
 export async function fetchWithAgyCliTransport(

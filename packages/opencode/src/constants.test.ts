@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect } from "bun:test"
 import {
   GEMINI_CLI_HEADERS,
   GEMINI_CLI_VERSION,

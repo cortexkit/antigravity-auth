@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, mock } from "bun:test";
 import type { HeaderStyle, ModelFamily } from "./accounts";
 
 type ResolveQuotaFallbackHeaderStyle = (input: {
@@ -30,8 +30,8 @@ let resolveHeaderRoutingDecision: ResolveHeaderRoutingDecision | undefined;
 let isCapacityRetryBudgetExhausted: ((totalCapacityRetries: number) => boolean) | undefined;
 
 beforeAll(async () => {
-  vi.mock("@opencode-ai/plugin", () => ({
-    tool: vi.fn(),
+  mock.module("@opencode-ai/plugin", () => ({
+    tool: mock(),
   }));
 
   const { __testExports } = await import("../plugin");

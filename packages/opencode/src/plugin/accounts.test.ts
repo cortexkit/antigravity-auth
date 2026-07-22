@@ -1,24 +1,28 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, jest, mock, spyOn } from "bun:test";
 
 import { AccountManager, type ModelFamily, type HeaderStyle, parseRateLimitReason, calculateBackoffMs, type RateLimitReason, resolveQuotaGroup } from "./accounts";
 import { saveAccounts, saveAccountsReplace, type AccountStorageV4 } from "./storage";
 import type { OAuthAuthDetails } from "./types";
 
-// Mock storage to prevent test data from leaking to real config files
-vi.mock("./storage", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./storage")>();
-  return {
-    ...original,
-    saveAccounts: vi.fn().mockResolvedValue(undefined),
-    saveAccountsReplace: vi.fn().mockResolvedValue(undefined),
-  };
-});
+// Mock storage to prevent test data from leaking to real config files.
+// Bun's `mock.module` doesn't support the `importOriginal` callback that
+// Vitest exposes, so we capture the real exports first and merge.
+import * as realStorage from "./storage";
+mock.module("./storage", () => ({
+  ...realStorage,
+  saveAccounts: mock().mockResolvedValue(undefined),
+  saveAccountsReplace: mock().mockResolvedValue(undefined),
+}));
 
 describe("AccountManager", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useRealTimers();
-    vi.stubGlobal("process", { ...process, pid: 0 });
+    jest.clearAllMocks();
+    jest.useRealTimers();
+    globalThis.stubbed("process", { ...process, pid: 0 });
+  });
+
+  afterEach(() => {
+    globalThis.unstubAllGlobals();
   });
 
   it("treats on-disk storage as source of truth, even when empty", () => {
@@ -40,8 +44,8 @@ describe("AccountManager", () => {
   });
 
   it("persists explicit ineligibility, rejects manual enable, and recovers only after a successful recheck", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1_000);
+    jest.useFakeTimers();
+    jest.setSystemTime(1_000);
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
@@ -62,7 +66,7 @@ describe("AccountManager", () => {
     expect(manager.setAccountEnabled(0, true)).toBe(false);
 
     await manager.saveToDisk();
-    expect(vi.mocked(saveAccounts)).toHaveBeenCalledWith(expect.objectContaining({
+    expect((saveAccounts as any)).toHaveBeenCalledWith(expect.objectContaining({
       accounts: [expect.objectContaining({
         enabled: false,
         accountIneligible: true,
@@ -70,7 +74,7 @@ describe("AccountManager", () => {
       })],
     }));
 
-    vi.setSystemTime(2_000);
+    jest.setSystemTime(2_000);
     expect(manager.clearAccountAccessBlocks(0, true)).toBe(true);
     expect(manager.getAccountsSnapshot()[0]).toMatchObject({
       enabled: true,
@@ -78,12 +82,12 @@ describe("AccountManager", () => {
       eligibilityStateUpdatedAt: 2_000,
     });
     await manager.saveToDisk();
-    vi.clearAllTimers();
+    jest.clearAllTimers();
   });
 
   it("keeps ineligible and verification-required states mutually exclusive", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1_000);
+    jest.useFakeTimers();
+    jest.setSystemTime(1_000);
     const manager = new AccountManager(undefined, {
       version: 4,
       accounts: [
@@ -108,7 +112,7 @@ describe("AccountManager", () => {
     });
     expect(manager.getAccountsSnapshot()[0]?.verificationUrl).toBeUndefined();
 
-    vi.setSystemTime(2_000);
+    jest.setSystemTime(2_000);
     manager.markAccountVerificationRequired(0, "Verify again", "https://example.com/new");
     expect(manager.getAccountsSnapshot()[0]).toMatchObject({
       enabled: false,
@@ -118,7 +122,7 @@ describe("AccountManager", () => {
       eligibilityStateUpdatedAt: 2_000,
     });
     expect(manager.getAccountsSnapshot()[0]?.accountIneligibleReason).toBeUndefined();
-    vi.clearAllTimers();
+    jest.clearAllTimers();
   });
 
   it("returns current account when not rate-limited for family", () => {
@@ -318,8 +322,8 @@ describe("AccountManager", () => {
   });
 
   it("un-rate-limits accounts after timeout expires", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(0));
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
 
     const stored: AccountStorageV4 = {
       version: 4,
@@ -340,8 +344,8 @@ describe("AccountManager", () => {
   });
 
   it("returns minimum wait time for family", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(0));
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
 
     const stored: AccountStorageV4 = {
       version: 4,
@@ -389,8 +393,8 @@ describe("AccountManager", () => {
   });
 
   it("getCurrentOrNextForFamily sticks to same account until rate-limited", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(0));
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
 
     const stored: AccountStorageV4 = {
       version: 4,
@@ -423,8 +427,8 @@ describe("AccountManager", () => {
   });
 
   it("removes an account and keeps cursor consistent", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(0));
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
 
     const stored: AccountStorageV4 = {
       version: 4,
@@ -450,8 +454,8 @@ describe("AccountManager", () => {
   });
 
   it("persists account removal via replace (no merge) so deletions stick", async () => {
-    vi.mocked(saveAccounts).mockClear();
-    vi.mocked(saveAccountsReplace).mockClear();
+    (saveAccounts as any).mockClear();
+    (saveAccountsReplace as any).mockClear();
 
     const stored: AccountStorageV4 = {
       version: 4,
@@ -471,8 +475,8 @@ describe("AccountManager", () => {
     // Must use replace (full overwrite), not merge — merge re-reads the file and
     // resurrects the deleted account.
     expect(saveAccountsReplace).toHaveBeenCalledTimes(1);
-    const saved = vi.mocked(saveAccountsReplace).mock.calls.at(-1)?.[0];
-    expect(saved?.accounts.map((a) => a.refreshToken)).toEqual(["r1"]);
+    const saved = (saveAccountsReplace as any).mock.calls.at(-1)?.[0];
+    expect(saved?.accounts.map((a: { refreshToken: string }) => a.refreshToken)).toEqual(["r1"]);
   });
 
   it("keeps round-robin cursors separate by model family", () => {
@@ -494,9 +498,9 @@ describe("AccountManager", () => {
   });
 
   it("does not persist transient cooldown and switch metadata", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(0));
-    vi.mocked(saveAccounts).mockClear();
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
+    (saveAccounts as any).mockClear();
 
     const stored: AccountStorageV4 = {
       version: 4,
@@ -513,7 +517,7 @@ describe("AccountManager", () => {
 
     await manager.saveToDisk();
 
-    const saved = vi.mocked(saveAccounts).mock.calls.at(-1)?.[0];
+    const saved = (saveAccounts as any).mock.calls.at(-1)?.[0];
     expect(saved?.accounts[0]).not.toHaveProperty("lastSwitchReason");
     expect(saved?.accounts[0]).not.toHaveProperty("coolingDownUntil");
     expect(saved?.accounts[0]).not.toHaveProperty("cooldownReason");
@@ -546,8 +550,8 @@ describe("AccountManager", () => {
   });
 
   it("debounces toast display for same account", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(0));
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
 
     const stored: AccountStorageV4 = {
       version: 4,
@@ -566,7 +570,7 @@ describe("AccountManager", () => {
 
     expect(manager.shouldShowAccountToast(1)).toBe(true);
 
-    vi.setSystemTime(new Date(31000));
+    jest.setSystemTime(new Date(31000));
     expect(manager.shouldShowAccountToast(0)).toBe(true);
   });
 
@@ -672,8 +676,8 @@ describe("AccountManager", () => {
     });
 
     it("Gemini rate limits expire independently per header style", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -689,7 +693,7 @@ describe("AccountManager", () => {
       manager.markRateLimited(account!, 30000, "gemini", "antigravity");
       manager.markRateLimited(account!, 60000, "gemini", "gemini-cli");
 
-      vi.setSystemTime(new Date(35000));
+      jest.setSystemTime(new Date(35000));
 
       expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "antigravity")).toBe(false);
       expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "gemini-cli")).toBe(true);
@@ -698,8 +702,8 @@ describe("AccountManager", () => {
     });
 
     it("getMinWaitTimeForFamily considers both Gemini header styles", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -852,8 +856,8 @@ describe("AccountManager", () => {
     });
 
     it("cooldown expires after duration", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -870,7 +874,7 @@ describe("AccountManager", () => {
 
       expect(manager.isAccountCoolingDown(account!)).toBe(true);
 
-      vi.setSystemTime(new Date(35000));
+      jest.setSystemTime(new Date(35000));
 
       expect(manager.isAccountCoolingDown(account!)).toBe(false);
     });
@@ -1068,8 +1072,8 @@ describe("AccountManager", () => {
 
         expect(third).not.toBeNull();
         expect(fourth).not.toBeNull();
-        expect([0, 1]).toContain(third?.index);
-        expect([0, 1]).toContain(fourth?.index);
+        expect([0, 1]).toContain(third?.index ?? -1);
+        expect([0, 1]).toContain(fourth?.index ?? -1);
       });
     });
 
@@ -1089,7 +1093,7 @@ describe("AccountManager", () => {
 
         const first = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
         expect(first).not.toBeNull();
-        expect([0, 1, 2]).toContain(first?.index);
+        expect([0, 1, 2]).toContain(first?.index ?? -1);
       });
 
       it("skips rate-limited accounts", () => {
@@ -1129,8 +1133,8 @@ describe("AccountManager", () => {
       });
 
       it("falls back to sticky when all accounts unavailable", () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(new Date(0));
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date(0));
 
         const stored: AccountStorageV4 = {
           version: 4,
@@ -1147,8 +1151,8 @@ describe("AccountManager", () => {
       });
 
       it("updates lastUsed and currentAccountIndexByFamily on selection", () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(new Date(5000));
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date(5000));
 
         const stored: AccountStorageV4 = {
           version: 4,
@@ -1171,8 +1175,8 @@ describe("AccountManager", () => {
 
   describe("touchedForQuota tracking", () => {
     it("marks account as touched with timestamp", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(1000));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(1000));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1206,8 +1210,8 @@ describe("AccountManager", () => {
     });
 
     it("isFreshForQuota returns false for recently touched accounts", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(1000));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(1000));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1226,8 +1230,8 @@ describe("AccountManager", () => {
     });
 
     it("isFreshForQuota returns true after quota reset time passes", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(1000));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(1000));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1245,7 +1249,7 @@ describe("AccountManager", () => {
       
       manager.markRateLimited(account, 60000, "claude", "antigravity");
       
-      vi.setSystemTime(new Date(70000));
+      jest.setSystemTime(new Date(70000));
       expect(manager.isFreshForQuota(account, "claude")).toBe(true);
     });
   });
@@ -1358,7 +1362,7 @@ describe("AccountManager", () => {
 
   describe("Issue #174: saveToDisk throttling", () => {
     it("requestSaveToDisk coalesces multiple calls into one write", async () => {
-      vi.useFakeTimers();
+      jest.useFakeTimers();
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1369,7 +1373,7 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const saveSpy = vi.spyOn(manager, "saveToDisk").mockResolvedValue();
+      const saveSpy = spyOn(manager, "saveToDisk").mockResolvedValue();
 
       manager.requestSaveToDisk();
       manager.requestSaveToDisk();
@@ -1377,7 +1381,7 @@ describe("AccountManager", () => {
 
       expect(saveSpy).not.toHaveBeenCalled();
 
-      await vi.advanceTimersByTimeAsync(1500);
+      await jest.advanceTimersByTime(1500);
 
       expect(saveSpy).toHaveBeenCalledTimes(1);
 
@@ -1385,7 +1389,7 @@ describe("AccountManager", () => {
     });
 
     it("flushSaveToDisk waits for pending save to complete", async () => {
-      vi.useFakeTimers();
+      jest.useFakeTimers();
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1396,13 +1400,13 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const saveSpy = vi.spyOn(manager, "saveToDisk").mockResolvedValue();
+      const saveSpy = spyOn(manager, "saveToDisk").mockResolvedValue();
 
       manager.requestSaveToDisk();
 
       const flushPromise = manager.flushSaveToDisk();
 
-      await vi.advanceTimersByTimeAsync(1500);
+      await jest.advanceTimersByTime(1500);
       await flushPromise;
 
       expect(saveSpy).toHaveBeenCalledTimes(1);
@@ -1411,7 +1415,7 @@ describe("AccountManager", () => {
     });
 
     it("does not save again if no new requestSaveToDisk after flush", async () => {
-      vi.useFakeTimers();
+      jest.useFakeTimers();
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1422,14 +1426,14 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const saveSpy = vi.spyOn(manager, "saveToDisk").mockResolvedValue();
+      const saveSpy = spyOn(manager, "saveToDisk").mockResolvedValue();
 
       manager.requestSaveToDisk();
-      await vi.advanceTimersByTimeAsync(1500);
+      await jest.advanceTimersByTime(1500);
 
       expect(saveSpy).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(3000);
+      await jest.advanceTimersByTime(3000);
 
       expect(saveSpy).toHaveBeenCalledTimes(1);
 
@@ -1437,7 +1441,7 @@ describe("AccountManager", () => {
     });
 
     it("treats account storage lock contention as non-fatal debug noise", async () => {
-      vi.useFakeTimers();
+      jest.useFakeTimers();
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1448,14 +1452,14 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const saveSpy = vi.spyOn(manager, "saveToDisk").mockRejectedValue(
+      const saveSpy = spyOn(manager, "saveToDisk").mockRejectedValue(
         new Error("Lock file is already being held"),
       );
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => undefined);
 
       manager.requestSaveToDisk();
       const flushPromise = manager.flushSaveToDisk();
-      await vi.advanceTimersByTimeAsync(1500);
+      await jest.advanceTimersByTime(1500);
 
       await expect(flushPromise).resolves.toBeUndefined();
       expect(warnSpy).not.toHaveBeenCalled();
@@ -1467,8 +1471,8 @@ describe("AccountManager", () => {
 
   describe("Rate Limit Reason Classification", () => {
     it("getMinWaitTimeForFamily respects strict header style", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1563,8 +1567,8 @@ describe("AccountManager", () => {
 
     describe("markRateLimitedWithReason", () => {
       it("tracks consecutive failures and applies escalating backoff", () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(1000);
+        jest.useFakeTimers();
+        jest.setSystemTime(1000);
 
         const stored: AccountStorageV4 = {
           version: 4,
@@ -1595,12 +1599,12 @@ describe("AccountManager", () => {
         expect(backoff3).toBe(1_800_000);
         expect(account.consecutiveFailures).toBe(3);
 
-        vi.useRealTimers();
+        jest.useRealTimers();
       });
 
       it("uses provided retryAfterMs over calculated backoff", () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(1000);
+        jest.useFakeTimers();
+        jest.setSystemTime(1000);
 
         const stored: AccountStorageV4 = {
           version: 4,
@@ -1618,7 +1622,7 @@ describe("AccountManager", () => {
         );
         expect(backoff).toBe(180_000);
 
-        vi.useRealTimers();
+        jest.useRealTimers();
       });
     });
 
@@ -1643,8 +1647,8 @@ describe("AccountManager", () => {
 
     describe("Optimistic Reset", () => {
       it("shouldTryOptimisticReset returns true when min wait time <= 2s", () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(10_000);
+        jest.useFakeTimers();
+        jest.setSystemTime(10_000);
 
         const stored: AccountStorageV4 = {
           version: 4,
@@ -1657,12 +1661,12 @@ describe("AccountManager", () => {
         const manager = new AccountManager(undefined, stored);
         expect(manager.shouldTryOptimisticReset("gemini")).toBe(true);
 
-        vi.useRealTimers();
+        jest.useRealTimers();
       });
 
       it("shouldTryOptimisticReset returns false when min wait time > 2s", () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(10_000);
+        jest.useFakeTimers();
+        jest.setSystemTime(10_000);
 
         const stored: AccountStorageV4 = {
           version: 4,
@@ -1675,7 +1679,7 @@ describe("AccountManager", () => {
         const manager = new AccountManager(undefined, stored);
         expect(manager.shouldTryOptimisticReset("gemini")).toBe(false);
 
-        vi.useRealTimers();
+        jest.useRealTimers();
       });
 
       it("shouldTryOptimisticReset returns false when accounts are available", () => {
@@ -1692,8 +1696,8 @@ describe("AccountManager", () => {
       });
 
       it("clearAllRateLimitsForFamily clears rate limits and failure counters", () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(10_000);
+        jest.useFakeTimers();
+        jest.setSystemTime(10_000);
 
         const stored: AccountStorageV4 = {
           version: 4,
@@ -1717,15 +1721,15 @@ describe("AccountManager", () => {
         expect(accounts[0]!.consecutiveFailures).toBe(0);
         expect(accounts[1]!.consecutiveFailures).toBe(0);
 
-        vi.useRealTimers();
+        jest.useRealTimers();
       });
     });
   });
 
   describe("Failure TTL Expiration", () => {
     it("resets consecutiveFailures when lastFailureTime exceeds TTL", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1744,18 +1748,18 @@ describe("AccountManager", () => {
       expect(account!.lastFailureTime).toBe(0);
 
       // Advance time past TTL (1 hour = 3600s)
-      vi.setSystemTime(new Date(3700_000)); // 3700 seconds later
+      jest.setSystemTime(new Date(3700_000)); // 3700 seconds later
 
       // Next failure should reset count because TTL expired
       manager.markRateLimitedWithReason(account!, "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
       expect(account!.consecutiveFailures).toBe(1); // Reset to 0, then +1
 
-      vi.useRealTimers();
+      jest.useRealTimers();
     });
 
     it("keeps consecutiveFailures when within TTL", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1773,13 +1777,13 @@ describe("AccountManager", () => {
       expect(account!.consecutiveFailures).toBe(1);
 
       // Advance time within TTL
-      vi.setSystemTime(new Date(1800_000)); // 30 minutes later (within 1 hour TTL)
+      jest.setSystemTime(new Date(1800_000)); // 30 minutes later (within 1 hour TTL)
 
       // Next failure should increment
       manager.markRateLimitedWithReason(account!, "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
       expect(account!.consecutiveFailures).toBe(2);
 
-      vi.useRealTimers();
+      jest.useRealTimers();
     });
   });
 
@@ -1808,8 +1812,8 @@ describe("AccountManager", () => {
     });
 
     it("restoreAccountFingerprint restores from history", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(1000)); // Start at 1000 to avoid 0 being falsy
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(1000)); // Start at 1000 to avoid 0 being falsy
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -1826,7 +1830,7 @@ describe("AccountManager", () => {
       const original = manager.regenerateAccountFingerprint(0);
       const originalDeviceId = original?.deviceId;
       
-      vi.setSystemTime(new Date(2000));
+      jest.setSystemTime(new Date(2000));
       
       // Generate second fingerprint (pushes first to history at index 0)
       manager.regenerateAccountFingerprint(0);
@@ -1836,7 +1840,7 @@ describe("AccountManager", () => {
       expect(history.length).toBeGreaterThanOrEqual(1);
       expect(history[0]?.fingerprint.deviceId).toBe(originalDeviceId);
       
-      vi.setSystemTime(new Date(3000));
+      jest.setSystemTime(new Date(3000));
       
       // Restore from history[0] - should get the "original" back
       // Note: restore also pushes current to history, so after restore:
@@ -1847,7 +1851,7 @@ describe("AccountManager", () => {
       expect(restored).not.toBeNull();
       expect(restored?.deviceId).toBe(originalDeviceId);
 
-      vi.useRealTimers();
+      jest.useRealTimers();
     });
 
     it("getAccountFingerprintHistory returns empty array for new account", () => {
@@ -2038,8 +2042,8 @@ describe("AccountManager", () => {
     });
 
     it("ignores stale quota cache (over 10 minutes old)", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -2052,12 +2056,12 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       manager.updateQuotaCache(0, { claude: { remainingFraction: 0.05, modelCount: 1 } });
 
-      vi.setSystemTime(new Date(11 * 60 * 1000));
+      jest.setSystemTime(new Date(11 * 60 * 1000));
 
       const account = manager.getCurrentOrNextForFamily("claude", null, "sticky", "antigravity", false, 90);
       expect(account?.parts.refreshToken).toBe("r1");
 
-      vi.useRealTimers();
+      jest.useRealTimers();
     });
 
     it("fails open when cachedQuotaUpdatedAt is missing", () => {
@@ -2115,8 +2119,8 @@ describe("AccountManager", () => {
     });
 
     it("returns wait time from resetTime when over threshold", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2026-01-28T10:00:00Z"));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date("2026-01-28T10:00:00Z"));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -2146,12 +2150,12 @@ describe("AccountManager", () => {
       const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);
       expect(waitMs).toBe(5 * 60 * 60 * 1000);
 
-      vi.useRealTimers();
+      jest.useRealTimers();
     });
 
     it("returns null (fail-open) when resetTime is in the past", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2026-01-28T16:00:00Z"));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date("2026-01-28T16:00:00Z"));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -2181,12 +2185,12 @@ describe("AccountManager", () => {
       const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);
       expect(waitMs).toBe(null);
 
-      vi.useRealTimers();
+      jest.useRealTimers();
     });
 
     it("returns minimum wait time across multiple accounts", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2026-01-28T10:00:00Z"));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date("2026-01-28T10:00:00Z"));
 
       const stored: AccountStorageV4 = {
         version: 4,
@@ -2208,7 +2212,7 @@ describe("AccountManager", () => {
       const waitMs = manager.getMinWaitTimeForSoftQuota("claude", 90, 10 * 60 * 1000);
       expect(waitMs).toBe(2 * 60 * 60 * 1000);
 
-      vi.useRealTimers();
+      jest.useRealTimers();
     });
   });
 });

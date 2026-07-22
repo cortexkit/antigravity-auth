@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 import { ANTIGRAVITY_PROVIDER_ID } from "../constants";
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./token";
@@ -14,21 +14,21 @@ const baseAuth: OAuthAuthDetails = {
 function createClient() {
   return {
     auth: {
-      set: vi.fn(async () => {}),
+      set: mock(async () => {}),
     },
   } as PluginClient & {
-    auth: { set: ReturnType<typeof vi.fn> };
+    auth: { set: ReturnType<typeof mock> };
   };
 }
 
 describe("refreshAccessToken", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it("updates the caller when refresh token is unchanged", async () => {
     const client = createClient();
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({
           access_token: "new-access",
@@ -47,7 +47,7 @@ describe("refreshAccessToken", () => {
 
   it("handles Google refresh token rotation", async () => {
     const client = createClient();
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({
           access_token: "next-access",
@@ -68,7 +68,7 @@ describe("refreshAccessToken", () => {
 
   it("throws a typed error on invalid_grant", async () => {
     const client = createClient();
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({
           error: "invalid_grant",

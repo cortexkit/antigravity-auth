@@ -26,7 +26,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "bun test --isolate ./src",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
@@ -36,7 +36,6 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@types/proper-lockfile": "^4.1.4",
-    "vitest": "^3.0.0"
+    "@types/proper-lockfile": "^4.1.4"
   }
 }

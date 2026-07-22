@@ -1,25 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { DEFAULT_CONFIG } from "./config"
-
-const { ensureGitignoreSyncMock } = vi.hoisted(() => ({
-  ensureGitignoreSyncMock: vi.fn(),
-}))
-
-vi.mock("./storage", () => ({
-  ensureGitignoreSync: ensureGitignoreSyncMock,
-}))
 
 describe("debug sink policy", () => {
   let originalDebugEnv: string | undefined
   let originalDebugTuiEnv: string | undefined
 
   beforeEach(() => {
-    vi.resetModules()
     originalDebugEnv = process.env.OPENCODE_ANTIGRAVITY_DEBUG
     originalDebugTuiEnv = process.env.OPENCODE_ANTIGRAVITY_DEBUG_TUI
     delete process.env.OPENCODE_ANTIGRAVITY_DEBUG
     delete process.env.OPENCODE_ANTIGRAVITY_DEBUG_TUI
-    ensureGitignoreSyncMock.mockReset()
   })
 
   afterEach(() => {
@@ -64,11 +54,17 @@ describe("debug sink policy", () => {
   it("keeps file debug enabled without TUI when only debug is true", async () => {
     const { initializeDebug, isDebugEnabled, isDebugTuiEnabled, getLogFilePath } = await import("./debug")
 
+    // log_dir inside the isolated ANTIGRAVITY_TEST_ROOT so we don't touch the
+    // host filesystem. The preloaded `OPENCODE_CONFIG_DIR` is also under
+    // ANTIGRAVITY_TEST_ROOT, so the implicit `ensureGitignoreSync` call is
+    // safe — nothing escapes the temp dir.
+    const logDir = `${process.env.ANTIGRAVITY_TEST_ROOT}/opencode-antigravity-debug-tests`
+
     initializeDebug({
       ...DEFAULT_CONFIG,
       debug: true,
       debug_tui: false,
-      log_dir: "/tmp/opencode-antigravity-debug-tests",
+      log_dir: logDir,
     })
 
     expect(isDebugEnabled()).toBe(true)

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, jest, mock } from "bun:test";
 import { ProactiveRefreshQueue } from "./refresh-queue";
 import { AccountManager } from "./accounts";
 import type { AccountStorageV4 } from "./storage";
@@ -6,17 +6,17 @@ import type { PluginClient } from "./types";
 
 // Mock PluginClient
 const mockClient: PluginClient = {
-  toast: vi.fn(),
+  toast: mock(),
   auth: {
-    get: vi.fn(),
-    set: vi.fn(),
-    remove: vi.fn(),
+    get: mock(),
+    set: mock(),
+    remove: mock(),
   },
 } as unknown as PluginClient;
 
 describe("ProactiveRefreshQueue", () => {
   beforeEach(() => {
-    vi.useRealTimers();
+    jest.useRealTimers();
   });
 
   describe("getAccountsNeedingRefresh", () => {

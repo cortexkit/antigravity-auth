@@ -1,19 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
-vi.mock("./checker", () => ({
-  getCachedVersion: vi.fn(),
-  getLocalDevVersion: vi.fn(),
-  findPluginEntry: vi.fn(),
-  getLatestVersion: vi.fn(),
-  updatePinnedVersion: vi.fn(),
+mock.module("./checker", () => ({
+  getCachedVersion: mock(),
+  getLocalDevVersion: mock(),
+  findPluginEntry: mock(),
+  getLatestVersion: mock(),
+  updatePinnedVersion: mock(),
 }));
 
-vi.mock("./cache", () => ({
-  invalidatePackage: vi.fn(),
+mock.module("./cache", () => ({
+  invalidatePackage: mock(),
 }));
 
-vi.mock("../../plugin/debug", () => ({
-  debugLogToFile: vi.fn(),
+mock.module("../../plugin/debug", () => ({
+  debugLogToFile: mock(),
 }));
 
 import { createAutoUpdateCheckerHook } from "./index";
@@ -23,7 +23,7 @@ import { invalidatePackage } from "./cache";
 function createMockClient() {
   return {
     tui: {
-      showToast: vi.fn().mockResolvedValue(undefined),
+      showToast: mock().mockResolvedValue(undefined),
     },
   };
 }
@@ -40,29 +40,29 @@ function createPluginInfo(overrides: Partial<ReturnType<typeof findPluginEntry>>
 
 describe("Auto Update Checker", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useFakeTimers();
+    jest.clearAllMocks();
+    jest.useFakeTimers();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    jest.useRealTimers();
   });
 
   describe("prerelease version handling", () => {
     it("skips auto-update for beta versions", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue(null);
-      vi.mocked(findPluginEntry).mockReturnValue(createPluginInfo({
+      (getLocalDevVersion as any).mockReturnValue(null);
+      (findPluginEntry as any).mockReturnValue(createPluginInfo({
         pinnedVersion: "1.2.7-beta.1",
         entry: "opencode-antigravity-auth@1.2.7-beta.1",
       }));
-      vi.mocked(getCachedVersion).mockReturnValue(null);
-      vi.mocked(getLatestVersion).mockResolvedValue("1.2.6");
+      (getCachedVersion as any).mockReturnValue(null);
+      (getLatestVersion as any).mockResolvedValue("1.2.6");
 
       const hook = createAutoUpdateCheckerHook(client, "/test", { autoUpdate: true });
       hook.event({ event: { type: "session.created" } });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(getLatestVersion).not.toHaveBeenCalled();
       expect(updatePinnedVersion).not.toHaveBeenCalled();
@@ -72,68 +72,68 @@ describe("Auto Update Checker", () => {
 
     it("skips auto-update for alpha versions", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue(null);
-      vi.mocked(findPluginEntry).mockReturnValue(createPluginInfo({
+      (getLocalDevVersion as any).mockReturnValue(null);
+      (findPluginEntry as any).mockReturnValue(createPluginInfo({
         pinnedVersion: "2.0.0-alpha.3",
         entry: "opencode-antigravity-auth@2.0.0-alpha.3",
       }));
-      vi.mocked(getCachedVersion).mockReturnValue(null);
+      (getCachedVersion as any).mockReturnValue(null);
 
       const hook = createAutoUpdateCheckerHook(client, "/test", { autoUpdate: true });
       hook.event({ event: { type: "session.created" } });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(getLatestVersion).not.toHaveBeenCalled();
     });
 
     it("skips auto-update for rc versions", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue(null);
-      vi.mocked(findPluginEntry).mockReturnValue(createPluginInfo({
+      (getLocalDevVersion as any).mockReturnValue(null);
+      (findPluginEntry as any).mockReturnValue(createPluginInfo({
         pinnedVersion: "1.3.0-rc.1",
         entry: "opencode-antigravity-auth@1.3.0-rc.1",
       }));
-      vi.mocked(getCachedVersion).mockReturnValue(null);
+      (getCachedVersion as any).mockReturnValue(null);
 
       const hook = createAutoUpdateCheckerHook(client, "/test", { autoUpdate: true });
       hook.event({ event: { type: "session.created" } });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(getLatestVersion).not.toHaveBeenCalled();
     });
 
     it("skips auto-update when cached version is prerelease", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue(null);
-      vi.mocked(findPluginEntry).mockReturnValue(createPluginInfo({
+      (getLocalDevVersion as any).mockReturnValue(null);
+      (findPluginEntry as any).mockReturnValue(createPluginInfo({
         pinnedVersion: "1.2.6",
       }));
-      vi.mocked(getCachedVersion).mockReturnValue("1.2.7-beta.2");
+      (getCachedVersion as any).mockReturnValue("1.2.7-beta.2");
 
       const hook = createAutoUpdateCheckerHook(client, "/test", { autoUpdate: true });
       hook.event({ event: { type: "session.created" } });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(getLatestVersion).not.toHaveBeenCalled();
     });
 
     it("proceeds with update check for stable versions", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue(null);
-      vi.mocked(findPluginEntry).mockReturnValue(createPluginInfo({
+      (getLocalDevVersion as any).mockReturnValue(null);
+      (findPluginEntry as any).mockReturnValue(createPluginInfo({
         pinnedVersion: "1.2.5",
       }));
-      vi.mocked(getCachedVersion).mockReturnValue(null);
-      vi.mocked(getLatestVersion).mockResolvedValue("1.2.6");
-      vi.mocked(updatePinnedVersion).mockReturnValue(true);
+      (getCachedVersion as any).mockReturnValue(null);
+      (getLatestVersion as any).mockResolvedValue("1.2.6");
+      (updatePinnedVersion as any).mockReturnValue(true);
 
       const hook = createAutoUpdateCheckerHook(client, "/test", { autoUpdate: true });
       hook.event({ event: { type: "session.created" } });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(getLatestVersion).toHaveBeenCalled();
     });
@@ -142,17 +142,17 @@ describe("Auto Update Checker", () => {
   describe("auto-update disabled", () => {
     it("shows notification but does not update when autoUpdate is false", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue(null);
-      vi.mocked(findPluginEntry).mockReturnValue(createPluginInfo({
+      (getLocalDevVersion as any).mockReturnValue(null);
+      (findPluginEntry as any).mockReturnValue(createPluginInfo({
         pinnedVersion: "1.2.5",
       }));
-      vi.mocked(getCachedVersion).mockReturnValue(null);
-      vi.mocked(getLatestVersion).mockResolvedValue("1.2.6");
+      (getCachedVersion as any).mockReturnValue(null);
+      (getLatestVersion as any).mockResolvedValue("1.2.6");
 
       const hook = createAutoUpdateCheckerHook(client, "/test", { autoUpdate: false });
       hook.event({ event: { type: "session.created" } });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(getLatestVersion).toHaveBeenCalled();
       expect(updatePinnedVersion).not.toHaveBeenCalled();
@@ -170,10 +170,10 @@ describe("Auto Update Checker", () => {
   describe("session handling", () => {
     it("only checks once per hook instance", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue(null);
-      vi.mocked(findPluginEntry).mockReturnValue(createPluginInfo());
-      vi.mocked(getCachedVersion).mockReturnValue(null);
-      vi.mocked(getLatestVersion).mockResolvedValue("1.2.6");
+      (getLocalDevVersion as any).mockReturnValue(null);
+      (findPluginEntry as any).mockReturnValue(createPluginInfo());
+      (getCachedVersion as any).mockReturnValue(null);
+      (getLatestVersion as any).mockResolvedValue("1.2.6");
 
       const hook = createAutoUpdateCheckerHook(client, "/test");
       
@@ -181,14 +181,14 @@ describe("Auto Update Checker", () => {
       hook.event({ event: { type: "session.created" } });
       hook.event({ event: { type: "session.created" } });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(findPluginEntry).toHaveBeenCalledTimes(1);
     });
 
     it("ignores child sessions (with parentID)", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue(null);
+      (getLocalDevVersion as any).mockReturnValue(null);
 
       const hook = createAutoUpdateCheckerHook(client, "/test");
       hook.event({
@@ -198,19 +198,19 @@ describe("Auto Update Checker", () => {
         },
       });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(findPluginEntry).not.toHaveBeenCalled();
     });
 
     it("ignores non-session.created events", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue(null);
+      (getLocalDevVersion as any).mockReturnValue(null);
 
       const hook = createAutoUpdateCheckerHook(client, "/test");
       hook.event({ event: { type: "message.created" } });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(findPluginEntry).not.toHaveBeenCalled();
     });
@@ -219,12 +219,12 @@ describe("Auto Update Checker", () => {
   describe("local development mode", () => {
     it("skips update check in local dev mode", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue("1.2.7-dev");
+      (getLocalDevVersion as any).mockReturnValue("1.2.7-dev");
 
       const hook = createAutoUpdateCheckerHook(client, "/test");
       hook.event({ event: { type: "session.created" } });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(findPluginEntry).not.toHaveBeenCalled();
       expect(getLatestVersion).not.toHaveBeenCalled();
@@ -232,12 +232,12 @@ describe("Auto Update Checker", () => {
 
     it("shows local dev toast when showStartupToast is true", async () => {
       const client = createMockClient();
-      vi.mocked(getLocalDevVersion).mockReturnValue("1.2.7-dev");
+      (getLocalDevVersion as any).mockReturnValue("1.2.7-dev");
 
       const hook = createAutoUpdateCheckerHook(client, "/test", { showStartupToast: true });
       hook.event({ event: { type: "session.created" } });
 
-      await vi.runAllTimersAsync();
+      await jest.runAllTimers();
 
       expect(client.tui.showToast).toHaveBeenCalledWith(
         expect.objectContaining({

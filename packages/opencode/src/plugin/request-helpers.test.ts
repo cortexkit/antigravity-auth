@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 import {
   isThinkingCapableModel,
@@ -1199,8 +1199,8 @@ describe("fixClaudeToolPairing", () => {
   });
 
   it("handles non-array input", () => {
-    expect(fixClaudeToolPairing(null as any)).toEqual(null);
-    expect(fixClaudeToolPairing(undefined as any)).toEqual(undefined);
+    expect(fixClaudeToolPairing(null as unknown as never[])).toBeNull();
+    expect(fixClaudeToolPairing(undefined as unknown as never[])).toBeUndefined();
   });
 });
 

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, jest } from "bun:test";
 
 import {
   resolveCachedAuth,
@@ -22,7 +22,7 @@ function createAuth(overrides: Partial<OAuthAuthDetails> = {}): OAuthAuthDetails
 
 describe("Auth Cache", () => {
   beforeEach(() => {
-    vi.useRealTimers();
+    jest.useRealTimers();
     clearCachedAuth();
   });
 
@@ -53,8 +53,8 @@ describe("Auth Cache", () => {
     });
 
     it("returns cached auth when input auth is expired but cached is valid", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       const validAuth = createAuth({
         access: "valid-access",
@@ -73,8 +73,8 @@ describe("Auth Cache", () => {
     });
 
     it("returns input auth when both are expired (updates cache)", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       const expiredCached = createAuth({
         access: "cached-expired",
@@ -155,7 +155,7 @@ describe("Auth Cache", () => {
 
 describe("Signature Cache", () => {
   beforeEach(() => {
-    vi.useRealTimers();
+    jest.useRealTimers();
     clearSignatureCache();
   });
 
@@ -221,25 +221,25 @@ describe("Signature Cache", () => {
     });
 
     it("returns undefined when signature is expired", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       cacheSignature("session", "text", "sig");
 
       // Advance time past TTL (1 hour = 3600000ms)
-      vi.setSystemTime(new Date(3600001));
+      jest.setSystemTime(new Date(3600001));
 
       expect(getCachedSignature("session", "text")).toBeUndefined();
     });
 
     it("returns signature when not expired", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       cacheSignature("session", "text", "sig");
 
       // Advance time but stay within TTL
-      vi.setSystemTime(new Date(3599999));
+      jest.setSystemTime(new Date(3599999));
 
       expect(getCachedSignature("session", "text")).toBe("sig");
     });
@@ -269,17 +269,17 @@ describe("Signature Cache", () => {
 
   describe("cache eviction", () => {
     it("evicts entries when at capacity", () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(0));
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(0));
 
       // Fill cache with 100 entries (MAX_ENTRIES_PER_SESSION)
       for (let i = 0; i < 100; i++) {
-        vi.setSystemTime(new Date(i * 1000)); // stagger timestamps
+        jest.setSystemTime(new Date(i * 1000)); // stagger timestamps
         cacheSignature("session", `text-${i}`, `sig-${i}`);
       }
 
       // Reset time to check entries
-      vi.setSystemTime(new Date(100 * 1000));
+      jest.setSystemTime(new Date(100 * 1000));
 
       // Adding one more should trigger eviction
       cacheSignature("session", "new-text", "new-sig");

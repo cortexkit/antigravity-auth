@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, mock, spyOn, vi } from "bun:test";
 import {
   buildThinkingWarmupBody,
   prepareAntigravityRequest,
@@ -65,7 +65,7 @@ const defaultOptions: StreamingOptions = {};
 const defaultDebugState = { injected: false };
 
 function withKeepThinking<T>(enabled: boolean, fn: () => T): T {
-  const keepThinkingSpy = vi.spyOn(config, "getKeepThinking").mockReturnValue(enabled);
+  const keepThinkingSpy = spyOn(config, "getKeepThinking").mockReturnValue(enabled);
   try {
     return fn();
   } finally {

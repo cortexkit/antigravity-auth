@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, mock } from "bun:test"
 
 type ExtractAccessBlock = (body: string) => {
   validationRequired: boolean
@@ -15,7 +15,7 @@ let interpretProbeResponse: ((response: Response) => Promise<{
 }>) | undefined
 
 beforeAll(async () => {
-  vi.mock("@opencode-ai/plugin", () => ({ tool: vi.fn() }))
+  mock.module("@opencode-ai/plugin", () => ({ tool: mock() }))
   const { __testExports } = await import("../plugin")
   const exports = __testExports as {
     buildAccountAccessProbeRequest?: (projectId: string) => Record<string, unknown>

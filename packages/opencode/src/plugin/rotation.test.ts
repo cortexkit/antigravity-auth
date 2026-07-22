@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, jest, mock, spyOn } from "bun:test";
 
 import {
   HealthScoreTracker,
@@ -12,7 +12,7 @@ import {
 
 describe("HealthScoreTracker", () => {
   beforeEach(() => {
-    vi.useRealTimers();
+    jest.useRealTimers();
   });
 
   describe("initial state", () => {
@@ -128,7 +128,7 @@ describe("HealthScoreTracker", () => {
   describe("time-based recovery", () => {
     it("recovers points over time", () => {
       let mockTime = 0;
-      vi.spyOn(Date, 'now').mockImplementation(() => mockTime);
+      spyOn(Date, 'now').mockImplementation(() => mockTime);
 
       const tracker = new HealthScoreTracker({ 
         initial: 70, 
@@ -142,12 +142,12 @@ describe("HealthScoreTracker", () => {
       mockTime = 2 * 60 * 60 * 1000;
       expect(tracker.getScore(0)).toBe(70);
 
-      vi.restoreAllMocks();
+      mock.restore();
     });
 
     it("caps recovery at maxScore", () => {
       let mockTime = 0;
-      vi.spyOn(Date, 'now').mockImplementation(() => mockTime);
+      spyOn(Date, 'now').mockImplementation(() => mockTime);
 
       const tracker = new HealthScoreTracker({ 
         initial: 90, 
@@ -162,12 +162,12 @@ describe("HealthScoreTracker", () => {
       mockTime = 60 * 60 * 1000;
       expect(tracker.getScore(0)).toBe(100);
 
-      vi.restoreAllMocks();
+      mock.restore();
     });
 
     it("floors recovered points (no partial points)", () => {
       let mockTime = 0;
-      vi.spyOn(Date, 'now').mockImplementation(() => mockTime);
+      spyOn(Date, 'now').mockImplementation(() => mockTime);
 
       const tracker = new HealthScoreTracker({ 
         initial: 70, 
@@ -184,7 +184,7 @@ describe("HealthScoreTracker", () => {
       mockTime = 30 * 60 * 1000;
       expect(tracker.getScore(0)).toBe(61);
 
-      vi.restoreAllMocks();
+      mock.restore();
     });
   });
 
@@ -217,7 +217,7 @@ describe("HealthScoreTracker", () => {
 
 describe("TokenBucketTracker", () => {
   beforeEach(() => {
-    vi.useRealTimers();
+    jest.useRealTimers();
   });
 
   describe("initial state", () => {
@@ -317,7 +317,7 @@ describe("TokenBucketTracker", () => {
   describe("token regeneration", () => {
     it("regenerates tokens over time", () => {
       let mockTime = 0;
-      vi.spyOn(Date, 'now').mockImplementation(() => mockTime);
+      spyOn(Date, 'now').mockImplementation(() => mockTime);
 
       const tracker = new TokenBucketTracker({ 
         initialTokens: 50, 
@@ -331,12 +331,12 @@ describe("TokenBucketTracker", () => {
       mockTime = 5 * 60 * 1000;
       expect(tracker.getTokens(0)).toBe(50);
 
-      vi.restoreAllMocks();
+      mock.restore();
     });
 
     it("caps regeneration at maxTokens", () => {
       let mockTime = 0;
-      vi.spyOn(Date, 'now').mockImplementation(() => mockTime);
+      spyOn(Date, 'now').mockImplementation(() => mockTime);
 
       const tracker = new TokenBucketTracker({ 
         initialTokens: 40, 
@@ -349,7 +349,7 @@ describe("TokenBucketTracker", () => {
       mockTime = 10 * 60 * 1000;
       expect(tracker.getTokens(0)).toBe(50);
 
-      vi.restoreAllMocks();
+      mock.restore();
     });
   });
 });
@@ -506,7 +506,7 @@ describe("selectHybridAccount", () => {
     ];
 
     const result = selectHybridAccount(accounts, tokenTracker);
-    expect([0, 1, 2]).toContain(result);
+    expect([0, 1, 2]).toContain(result ?? -1);
   });
 
   it("filters out rate-limited accounts", () => {
@@ -576,7 +576,7 @@ describe("selectHybridAccount", () => {
 
     for (let i = 0; i < 10; i++) {
       const result = selectHybridAccount(accounts, tokenTracker);
-      expect([0, 1, 2]).toContain(result);
+      expect([0, 1, 2]).toContain(result ?? -1);
     }
   });
 });

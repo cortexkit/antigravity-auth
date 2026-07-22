@@ -39,7 +39,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=esm --external:@earendil-works/* --alias:@cortexkit/antigravity-auth-core=../core/src/index.ts --outfile=dist/index.js --sourcemap",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "bun test --isolate ./src",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
@@ -54,7 +54,6 @@
     "@earendil-works/pi-ai": "^0.79.1",
     "@earendil-works/pi-coding-agent": "^0.79.1",
     "@earendil-works/pi-tui": "^0.79.1",
-    "esbuild": "^0.27.7",
-    "vitest": "^3.0.0"
+    "esbuild": "^0.27.7"
   }
 }

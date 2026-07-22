@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "bun:test"
 
 import { createAuthDoctorReport, formatAuthDoctorReport } from "./auth-doctor.ts"
 import type { AccountStorageV4 } from "./storage.ts"

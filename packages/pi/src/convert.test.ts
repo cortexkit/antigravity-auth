@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "bun:test"
 import type { Context } from "@earendil-works/pi-ai"
 
 import { buildGeminiRequest } from "./convert.ts"

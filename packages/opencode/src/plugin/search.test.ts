@@ -1,11 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
-vi.mock("./agy-transport", () => ({
-  fetchWithAgyCliTransport: vi.fn(),
-}));
-
-import { fetchWithAgyCliTransport } from "./agy-transport";
 import { executeSearch } from "./search";
+
+mock.module("./agy-transport", () => ({
+  fetchWithAgyCliTransport: mock(),
+}));
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,7 +34,7 @@ function makeResponse(
 }
 
 function mockFetch(body: unknown, status = 200) {
-  return vi.fn().mockResolvedValue({
+  return mock().mockResolvedValue({
     ok: status >= 200 && status < 300,
     status,
     statusText: status === 200 ? "OK" : "Error",
@@ -44,33 +43,37 @@ function mockFetch(body: unknown, status = 200) {
   });
 }
 
-function mockAgyTransport(body: unknown, status = 200) {
-  const spy = mockFetch(body, status)
-  vi.mocked(fetchWithAgyCliTransport).mockImplementation(spy)
-  return spy
+async function mockAgyTransport(body: unknown, status = 200) {
+  const { fetchWithAgyCliTransport } = await import("./agy-transport");
+  const spy = mockFetch(body, status);
+  (fetchWithAgyCliTransport as any).mockImplementation(spy);
+  return spy;
 }
 
 // ─── executeSearch ────────────────────────────────────────────────────────────
 
 describe("executeSearch", () => {
-  beforeEach(() => {
-    vi.mocked(fetchWithAgyCliTransport).mockReset()
-    mockAgyTransport(makeResponse("Default result"))
+  let fetchWithAgyCliTransport: any;
+
+  beforeEach(async () => {
+    ({ fetchWithAgyCliTransport } = await import("./agy-transport"));
+    fetchWithAgyCliTransport.mockReset();
+    mockAgyTransport(makeResponse("Default result"));
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it("returns formatted text from the response", async () => {
-    mockAgyTransport(makeResponse("The answer is 42."));
+    await mockAgyTransport(makeResponse("The answer is 42."));
     const result = await executeSearch({ query: "what is 42?" }, "tok", "proj");
     expect(result).toContain("The answer is 42.");
     expect(result).toContain("## Search Results");
   });
 
   it("lists sources from groundingChunks (uses groundingMeta internally)", async () => {
-    mockAgyTransport(
+    await mockAgyTransport(
       makeResponse("answer", {
         chunks: [{ title: "Example", uri: "https://example.com/page" }],
       }),
@@ -82,14 +85,14 @@ describe("executeSearch", () => {
   });
 
   it("includes search queries section when queries are present", async () => {
-    mockAgyTransport(makeResponse("res", { searchQueries: ["my query"] }));
+    await mockAgyTransport(makeResponse("res", { searchQueries: ["my query"] }));
     const result = await executeSearch({ query: "my query" }, "tok", "proj");
     expect(result).toContain("### Search Queries Used");
     expect(result).toContain('"my query"');
   });
 
   it("marks successful URL retrieval with ✓", async () => {
-    mockAgyTransport(
+    await mockAgyTransport(
       makeResponse("ok", {
         urlMetadata: [
           { retrieved_url: "https://docs.example.com", url_retrieval_status: "URL_RETRIEVAL_STATUS_SUCCESS" },
@@ -102,7 +105,7 @@ describe("executeSearch", () => {
   });
 
   it("marks failed URL retrieval with ✗", async () => {
-    mockAgyTransport(
+    await mockAgyTransport(
       makeResponse("ok", {
         urlMetadata: [
           { retrieved_url: "https://broken.example.com", url_retrieval_status: "URL_RETRIEVAL_STATUS_ERROR" },
@@ -114,21 +117,21 @@ describe("executeSearch", () => {
   });
 
   it("returns error block on non-OK HTTP response", async () => {
-    mockAgyTransport({ error: "bad" }, 400);
+    await mockAgyTransport({ error: "bad" }, 400);
     const result = await executeSearch({ query: "q" }, "tok", "proj");
     expect(result).toContain("## Search Error");
     expect(result).toContain("400");
   });
 
   it("returns error block when fetch throws", async () => {
-    vi.mocked(fetchWithAgyCliTransport).mockRejectedValue(new Error("Network down"));
+    fetchWithAgyCliTransport.mockRejectedValue(new Error("Network down"));
     const result = await executeSearch({ query: "q" }, "tok", "proj");
     expect(result).toContain("## Search Error");
     expect(result).toContain("Network down");
   });
 
   it("uses captured agy CLI content headers and envelope ordering", async () => {
-    const spy = mockAgyTransport(makeResponse("ok"));
+    const spy = await mockAgyTransport(makeResponse("ok"));
     await executeSearch({ query: "q" }, "bearer-token-xyz", "proj");
     const [, init] = spy.mock.calls[0] as [string, RequestInit];
     const headers = init.headers as Record<string, string>;

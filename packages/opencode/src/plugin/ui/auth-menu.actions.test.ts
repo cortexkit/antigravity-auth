@@ -1,13 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, mock } from "bun:test"
 
-const selectMock = vi.fn()
+const selectMock = mock()
 
-vi.mock("./select", () => ({
+mock.module("./select", () => ({
   select: selectMock,
 }))
 
-vi.mock("./confirm", () => ({
-  confirm: vi.fn(),
+mock.module("./confirm", () => ({
+  confirm: mock(),
 }))
 
 describe("showAuthMenu actions", () => {

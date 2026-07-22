@@ -85,6 +85,17 @@ export function setAntigravityVersion(version: string): void {
   versionLocked = true;
 }
 
+/**
+ * Test-only: reset the version lock so `setAntigravityVersion` can run again.
+ * Bun has no Vitest-style module reset hook, and module state lives in this
+ * singleton — tests that exercise the lock need a way to start clean per
+ * scenario.
+ */
+export function __resetAntigravityVersionForTesting(): void {
+  antigravityVersion = ANTIGRAVITY_VERSION_FALLBACK;
+  versionLocked = false;
+}
+
 /** @deprecated Use getAntigravityVersion() for runtime access. */
 export const ANTIGRAVITY_VERSION = ANTIGRAVITY_VERSION_FALLBACK;
 

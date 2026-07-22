@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import * as net from "node:net"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "bun:test"
 
 import {
   buildAgyCliHeaderPairs,

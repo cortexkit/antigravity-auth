@@ -8,10 +8,12 @@
   "scripts": {
     "build": "bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/pi build",
     "typecheck": "bun run --cwd packages/core build && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck",
-    "test": "bun run --cwd packages/core test && bun run --cwd packages/opencode test && bun run --cwd packages/pi test",
+    "test": "bun run --cwd packages/core build && bun test --isolate",
     "prepublishOnly": "bun run build"
   },
   "devDependencies": {
+    "@types/bun": "1.3",
+    "@tsconfig/bun": "1.0.10",
     "@types/node": "24.10.1",
     "typescript": "6.0.3"
   }

@@ -1,19 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test"
 import { DEFAULT_CONFIG } from "./config"
 import type { PluginClient } from "./types"
 
-const { ensureGitignoreSyncMock } = vi.hoisted(() => ({
-  ensureGitignoreSyncMock: vi.fn(),
-}))
-
-vi.mock("./storage", () => ({
-  ensureGitignoreSync: ensureGitignoreSyncMock,
-}))
-
 describe("logger sink routing", () => {
   beforeEach(() => {
-    vi.resetModules()
-    ensureGitignoreSyncMock.mockReset()
+    // Each test re-imports the modules to start with a clean debug state.
   })
 
   afterEach(async () => {
@@ -31,7 +22,7 @@ describe("logger sink routing", () => {
       debug_tui: true,
     })
 
-    const appLog = vi.fn().mockResolvedValue(undefined)
+    const appLog = mock().mockResolvedValue(undefined)
     const client = {
       app: {
         log: appLog,
@@ -57,14 +48,16 @@ describe("logger sink routing", () => {
     const { initializeDebug } = await import("./debug")
     const { createLogger, initLogger } = await import("./logger")
 
+    const logDir = `${process.env.ANTIGRAVITY_TEST_ROOT}/opencode-antigravity-logger-tests`
+
     initializeDebug({
       ...DEFAULT_CONFIG,
       debug: true,
       debug_tui: false,
-      log_dir: "/tmp/opencode-antigravity-logger-tests",
+      log_dir: logDir,
     })
 
-    const appLog = vi.fn().mockResolvedValue(undefined)
+    const appLog = mock().mockResolvedValue(undefined)
     const client = {
       app: {
         log: appLog,

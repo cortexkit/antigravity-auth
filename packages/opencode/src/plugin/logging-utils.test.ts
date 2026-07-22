@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, mock, spyOn } from "bun:test"
 import {
   deriveDebugPolicy,
   formatAccountContextLabel,
@@ -71,10 +71,10 @@ describe("format helpers", () => {
 
 describe("writeConsoleLog", () => {
   it("routes to the level-specific console method", () => {
-    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {})
-    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {})
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const debugSpy = spyOn(console, "debug").mockImplementation(() => {})
+    const infoSpy = spyOn(console, "info").mockImplementation(() => {})
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {})
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {})
 
     writeConsoleLog("debug", "dbg")
     writeConsoleLog("info", "inf")

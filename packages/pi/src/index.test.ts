@@ -1,13 +1,13 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, mock } from "bun:test"
 
 import cortexKitPiAntigravityAuth from "./index.ts"
 
 describe("Pi Antigravity model catalog", () => {
   it("exposes the live GPT-OSS route but not unsupported image-output chat models", () => {
-    const registerProvider = vi.fn()
+    const registerProvider = mock()
     cortexKitPiAntigravityAuth({ registerProvider } as never)
 
-    expect(registerProvider).toHaveBeenCalledOnce()
+    expect(registerProvider).toHaveBeenCalledTimes(1)
     const [, config] = registerProvider.mock.calls[0] as [string, {
       models: Array<{
         id: string

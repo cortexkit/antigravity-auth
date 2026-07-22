@@ -1,6 +1,6 @@
 import * as net from "node:net"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "bun:test"
 
 import {
   DEFAULT_AGY_RESPONSE_HEADER_TIMEOUT_MS,

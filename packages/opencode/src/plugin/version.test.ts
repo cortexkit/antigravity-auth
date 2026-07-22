@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test"
 
 /**
  * Regression tests for the version fallback mechanism.
@@ -13,13 +13,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
  * network-failure path correctly uses it.
  */
 
-// Reset module state between tests so versionLocked starts fresh
-beforeEach(() => {
-  vi.resetModules()
+beforeEach(async () => {
+  // `versionLocked` is module-level singleton state — reset between tests
+  // so the "first call locks" semantics can be exercised per scenario.
+  const { __resetAntigravityVersionForTesting } = await import("../constants.ts")
+  __resetAntigravityVersionForTesting()
 })
 
 afterEach(() => {
-  vi.unstubAllGlobals()
+  globalThis.unstubAllGlobals()
 })
 
 describe("ANTIGRAVITY_VERSION_FALLBACK", () => {
@@ -53,7 +55,7 @@ describe("setAntigravityVersion", () => {
 
 describe("initAntigravityVersion — network failure path", () => {
   it("falls back to hardcoded version when both fetches throw", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network unreachable")))
+    globalThis.stubbed("fetch", mock().mockRejectedValue(new Error("network unreachable")))
 
     const { ANTIGRAVITY_VERSION_FALLBACK, getAntigravityVersion } = await import("../constants.ts")
     const { initAntigravityVersion } = await import("./version.ts")
@@ -63,9 +65,9 @@ describe("initAntigravityVersion — network failure path", () => {
   })
 
   it("falls back to hardcoded version when both fetches return non-ok", async () => {
-    vi.stubGlobal(
+    globalThis.stubbed(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => "" }),
+      mock().mockResolvedValue({ ok: false, status: 503, text: async () => "" }),
     )
 
     const { ANTIGRAVITY_VERSION_FALLBACK, getAntigravityVersion } = await import("../constants.ts")
@@ -76,9 +78,9 @@ describe("initAntigravityVersion — network failure path", () => {
   })
 
   it("uses API version when auto-updater responds", async () => {
-    vi.stubGlobal(
+    globalThis.stubbed(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: true, text: async () => "1.19.0" }),
+      mock().mockResolvedValue({ ok: true, text: async () => "1.19.0" }),
     )
 
     const { getAntigravityVersion } = await import("../constants.ts")
@@ -90,7 +92,7 @@ describe("initAntigravityVersion — network failure path", () => {
   })
 
   it("exposes the last runtime version resolution for diagnostics", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("timeout")))
+    globalThis.stubbed("fetch", mock().mockRejectedValue(new Error("timeout")))
 
     const { ANTIGRAVITY_VERSION_FALLBACK } = await import("../constants.ts")
     const { getAntigravityVersionResolution, initAntigravityVersion } = await import("./version.ts")
@@ -103,7 +105,7 @@ describe("initAntigravityVersion — network failure path", () => {
   })
 
   it("fallback version appears in User-Agent header", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("timeout")))
+    globalThis.stubbed("fetch", mock().mockRejectedValue(new Error("timeout")))
 
     const { ANTIGRAVITY_VERSION_FALLBACK, getAntigravityHeaders } = await import("../constants.ts")
     const { initAntigravityVersion } = await import("./version.ts")

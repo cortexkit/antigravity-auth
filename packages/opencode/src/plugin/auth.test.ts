@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, jest } from "bun:test";
 
 import { isOAuthAuth, parseRefreshParts, formatRefreshParts, accessTokenExpired } from "./auth";
 import type { OAuthAuthDetails, ApiKeyAuthDetails } from "./types";
@@ -132,7 +132,7 @@ describe("formatRefreshParts", () => {
 
 describe("accessTokenExpired", () => {
   beforeEach(() => {
-    vi.useRealTimers();
+    jest.useRealTimers();
   });
 
   it("returns true when access token is missing", () => {
@@ -186,8 +186,8 @@ describe("accessTokenExpired", () => {
   });
 
   it("returns false when token expires exactly at buffer boundary", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(0));
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
 
     const auth: OAuthAuthDetails = {
       type: "oauth",

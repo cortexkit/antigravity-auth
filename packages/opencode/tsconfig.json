@@ -1,5 +1,5 @@
 {
-  "include": ["src/**/*", "scripts/**/*"],
+  "include": ["src/**/*", "scripts/**/*", "../../test/**/*"],
   "exclude": ["node_modules", "dist", "temp_research", "script"],
   "compilerOptions": {
     // Environment setup & latest features
@@ -13,7 +13,7 @@
     // Bundler mode
     "moduleResolution": "bundler",
     "typeRoots": ["./node_modules/@types", "../../node_modules/@types"],
-    "types": ["node"],
+    "types": ["bun", "node"],
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,

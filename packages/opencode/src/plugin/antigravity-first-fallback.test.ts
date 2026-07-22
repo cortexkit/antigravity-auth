@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, jest } from "bun:test";
 
 import { AccountManager, type ModelFamily, type HeaderStyle } from "./accounts";
 import type { AccountStorageV4 } from "./storage";
@@ -16,7 +16,7 @@ import type { AccountStorageV4 } from "./storage";
  */
 describe("Antigravity-first fallback", () => {
   beforeEach(() => {
-    vi.useRealTimers();
+    jest.useRealTimers();
   });
 
   describe("hasOtherAccountWithAntigravityAvailable", () => {

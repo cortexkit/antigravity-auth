@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   isGeminiModel,
   isGemini3Model,
@@ -622,7 +622,6 @@ describe("transform/gemini", () => {
 
     beforeEach(() => {
       // Reset environment before each test
-      vi.resetModules();
       process.env = { ...originalEnv };
     });
 

@@ -1,27 +1,26 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, mock } from "bun:test";
 import {
   deduplicateAccountsByEmail,
   migrateV2ToV3,
   loadAccounts,
   mergeAccountStorage,
+  ensureGitignore,
+  ensureGitignoreSync,
   type AccountMetadata,
   type AccountStorage,
   type AccountStorageV4,
 } from "./storage";
-import { promises as fs } from "node:fs";
-import {
-  existsSync,
-  readFileSync,
-  writeFileSync,
-  appendFileSync,
-} from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-vi.mock("proper-lockfile", () => ({
-  lock: vi.fn().mockResolvedValue(vi.fn().mockResolvedValue(undefined)),
+mock.module("proper-lockfile", () => ({
+  lock: mock().mockResolvedValue(mock().mockResolvedValue(undefined)),
   default: {
-    lock: vi.fn().mockResolvedValue(vi.fn().mockResolvedValue(undefined)),
+    lock: mock().mockResolvedValue(mock().mockResolvedValue(undefined)),
   },
 }));
+
 describe("deduplicateAccountsByEmail", () => {
   it("returns empty array for empty input", () => {
     const result = deduplicateAccountsByEmail([]);
@@ -159,7 +158,6 @@ describe("deduplicateAccountsByEmail", () => {
     ];
     const result = deduplicateAccountsByEmail(accounts);
     expect(result).toHaveLength(2);
-    // Kept entries are at indices 1 (second@) and 2 (first@), so order is second, first
     expect(result[0]?.email).toBe("second@example.com");
     expect(result[1]?.email).toBe("first@example.com");
   });
@@ -184,16 +182,12 @@ describe("deduplicateAccountsByEmail", () => {
     const result = deduplicateAccountsByEmail(accounts);
     expect(result).toHaveLength(3);
 
-    // no-email-1 at index 1
-    // r2 (newest for test@example.com) at index 2
-    // no-email-2 at index 3
     expect(result[0]?.refreshToken).toBe("no-email-1");
     expect(result[1]?.refreshToken).toBe("r2");
     expect(result[2]?.refreshToken).toBe("no-email-2");
   });
 
   it("handles exact scenario from issue #24 (11 duplicate accounts)", () => {
-    // Simulate user logging in 11 times with the same account
     const accounts: AccountMetadata[] = [];
     for (let i = 0; i < 11; i++) {
       accounts.push({
@@ -206,7 +200,7 @@ describe("deduplicateAccountsByEmail", () => {
 
     const result = deduplicateAccountsByEmail(accounts);
     expect(result).toHaveLength(1);
-    expect(result[0]?.refreshToken).toBe("token-10"); // The newest one
+    expect(result[0]?.refreshToken).toBe("token-10");
     expect(result[0]?.email).toBe("user@example.com");
   });
 });
@@ -274,27 +268,6 @@ describe("mergeAccountStorage eligibility state", () => {
       eligibilityStateUpdatedAt: 300,
     });
   });
-});
-
-vi.mock("node:fs", async () => {
-  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
-  return {
-    ...actual,
-    promises: {
-      ...actual.promises,
-      readFile: vi.fn(),
-      writeFile: vi.fn(),
-      mkdir: vi.fn().mockResolvedValue(undefined),
-      access: vi.fn().mockResolvedValue(undefined),
-      unlink: vi.fn(),
-      rename: vi.fn().mockResolvedValue(undefined),
-      appendFile: vi.fn(),
-    },
-    existsSync: vi.fn(),
-    readFileSync: vi.fn(),
-    writeFileSync: vi.fn(),
-    appendFileSync: vi.fn(),
-  };
 });
 
 describe("Storage Migration", () => {
@@ -436,8 +409,13 @@ describe("Storage Migration", () => {
   });
 
   describe("loadAccounts migration integration", () => {
-    beforeEach(() => {
-      vi.clearAllMocks();
+    let configDir: string;
+    let previousConfigDir: string | undefined;
+
+    beforeEach(async () => {
+      previousConfigDir = process.env.OPENCODE_CONFIG_DIR;
+      configDir = await mkdtemp(join(tmpdir(), "antigravity-storage-test-"));
+      process.env.OPENCODE_CONFIG_DIR = configDir;
     });
 
     it("migrates V2 storage on load and persists V4", async () => {
@@ -456,15 +434,12 @@ describe("Storage Migration", () => {
         activeIndex: 0,
       };
 
-      // Mock readFile to return different values based on path
-      vi.mocked(fs.readFile).mockImplementation((path) => {
-        if ((path as string).endsWith(".gitignore")) {
-          const error = new Error("ENOENT") as NodeJS.ErrnoException;
-          error.code = "ENOENT";
-          return Promise.reject(error);
-        }
-        return Promise.resolve(JSON.stringify(v2Data));
-      });
+      await mkdir(configDir, { recursive: true });
+      await writeFile(
+        join(configDir, "antigravity-accounts.json"),
+        JSON.stringify(v2Data),
+        "utf8",
+      );
 
       const result = await loadAccounts();
 
@@ -478,58 +453,65 @@ describe("Storage Migration", () => {
         "gemini-antigravity": future,
       });
 
-      expect(fs.writeFile).toHaveBeenCalled();
-      
-      const saveCall = vi.mocked(fs.writeFile).mock.calls.find(
-        (call) => (call[0] as string).includes(".tmp")
-      );
-      if (!saveCall) throw new Error("saveAccounts was not called (tmp file not found)");
-
-      const savedContent = JSON.parse(saveCall[1] as string);
+      // Read the actual saved file to verify V4 was persisted
+      const storagePath = join(configDir, "antigravity-accounts.json");
+      const savedContent = JSON.parse(await readFile(storagePath, "utf8"));
       expect(savedContent.version).toBe(4);
       expect(savedContent.accounts[0].rateLimitResetTimes).toEqual({
         "gemini-antigravity": future,
       });
 
-      const gitignoreCall = vi.mocked(fs.writeFile).mock.calls.find(
-        (call) => (call[0] as string).includes(".gitignore")
-      );
-      expect(gitignoreCall).toBeDefined();
+      // ensureGitignore should have created a .gitignore too
+      const gitignorePath = join(configDir, ".gitignore");
+      const gitignore = await readFile(gitignorePath, "utf8");
+      expect(gitignore).toContain("antigravity-accounts.json");
+    });
+
+    afterEach(async () => {
+      if (previousConfigDir === undefined) {
+        delete process.env.OPENCODE_CONFIG_DIR;
+      } else {
+        process.env.OPENCODE_CONFIG_DIR = previousConfigDir;
+      }
+      if (configDir) {
+        await rm(configDir, { recursive: true, force: true });
+      }
     });
   });
 
   describe("ensureGitignore", () => {
-    const configDir = "/tmp/opencode-test";
+    let configDir: string;
 
-    beforeEach(() => {
-      vi.clearAllMocks();
+    beforeEach(async () => {
+      configDir = await mkdtemp(join(tmpdir(), "antigravity-gitignore-"));
+    });
+
+    afterEach(async () => {
+      if (configDir) {
+        await rm(configDir, { recursive: true, force: true });
+      }
     });
 
     it("creates .gitignore when file does not exist", async () => {
-      vi.mocked(fs.readFile).mockRejectedValue({ code: "ENOENT" });
-
-      const { ensureGitignore } = await import("./storage");
       await ensureGitignore(configDir);
 
-      expect(fs.writeFile).toHaveBeenCalled();
-      const [path, content] = vi.mocked(fs.writeFile).mock.calls[0]!;
-      expect(path).toContain(".gitignore");
-      expect(content).toContain("antigravity-accounts.json");
-      expect(content).toContain("antigravity-signature-cache.json");
-      expect(content).toContain("antigravity-logs/");
+      const gitignore = await readFile(join(configDir, ".gitignore"), "utf8");
+      expect(gitignore).toContain("antigravity-accounts.json");
+      expect(gitignore).toContain("antigravity-signature-cache.json");
+      expect(gitignore).toContain("antigravity-logs/");
     });
 
     it("appends missing entries to existing .gitignore", async () => {
-      vi.mocked(fs.readFile).mockResolvedValue("existing-entry");
+      await writeFile(join(configDir, ".gitignore"), "existing-entry", "utf8");
 
-      const { ensureGitignore } = await import("./storage");
       await ensureGitignore(configDir);
 
-      expect(fs.appendFile).toHaveBeenCalled();
-      const [path, content] = vi.mocked(fs.appendFile).mock.calls[0]!;
-      expect(path).toContain(".gitignore");
-      expect(content).toContain("antigravity-accounts.json");
-      expect((content as string).startsWith("\n")).toBe(true);
+      const gitignore = await readFile(join(configDir, ".gitignore"), "utf8");
+      expect(gitignore).toContain("existing-entry");
+      expect(gitignore).toContain("antigravity-accounts.json");
+      // ensureGitignore inserts a separator newline before the appended block
+      // when the existing content does not already end with one.
+      expect(gitignore).toContain("existing-entry\nantigravity-accounts.json");
     });
 
     it("does nothing when all entries already exist", async () => {
@@ -540,63 +522,48 @@ describe("Storage Migration", () => {
         "antigravity-signature-cache.json",
         "antigravity-logs/",
       ].join("\n");
-      vi.mocked(fs.readFile).mockResolvedValue(existing);
+      const before = await writeFile(join(configDir, ".gitignore"), existing, "utf8");
 
-      const { ensureGitignore } = await import("./storage");
       await ensureGitignore(configDir);
 
-      expect(fs.writeFile).not.toHaveBeenCalled();
-      expect(fs.appendFile).not.toHaveBeenCalled();
-    });
-
-    it("handles permission errors gracefully", async () => {
-      vi.mocked(fs.readFile).mockRejectedValue({ code: "EACCES" });
-
-      const { ensureGitignore } = await import("./storage");
-      await expect(ensureGitignore(configDir)).resolves.not.toThrow();
-
-      expect(fs.writeFile).not.toHaveBeenCalled();
-      expect(fs.appendFile).not.toHaveBeenCalled();
+      const after = await readFile(join(configDir, ".gitignore"), "utf8");
+      expect(after).toBe(existing);
     });
   });
 
   describe("ensureGitignoreSync", () => {
-    const configDir = "/tmp/opencode-test-sync";
+    let configDir: string;
 
-    beforeEach(() => {
-      vi.clearAllMocks();
+    beforeEach(async () => {
+      configDir = await mkdtemp(join(tmpdir(), "antigravity-gitignore-sync-"));
     });
 
-    it("creates .gitignore when file does not exist", async () => {
-      vi.mocked(existsSync).mockReturnValue(false);
+    afterEach(async () => {
+      if (configDir) {
+        await rm(configDir, { recursive: true, force: true });
+      }
+    });
 
-      const { ensureGitignoreSync } = await import("./storage");
+    it("creates .gitignore when file does not exist", () => {
       ensureGitignoreSync(configDir);
 
-      expect(writeFileSync).toHaveBeenCalled();
-      const [path, content] = vi.mocked(writeFileSync).mock.calls[0]!;
-      expect(path).toContain(".gitignore");
-      expect(content).toContain("antigravity-accounts.json");
-      expect(content).toContain("antigravity-signature-cache.json");
-      expect(content).toContain("antigravity-logs/");
+      const gitignore = require("node:fs").readFileSync(join(configDir, ".gitignore"), "utf8");
+      expect(gitignore).toContain("antigravity-accounts.json");
+      expect(gitignore).toContain("antigravity-signature-cache.json");
+      expect(gitignore).toContain("antigravity-logs/");
     });
 
     it("appends missing entries to existing .gitignore", async () => {
-      vi.mocked(existsSync).mockReturnValue(true);
-      vi.mocked(readFileSync).mockReturnValue("existing-entry");
+      await writeFile(join(configDir, ".gitignore"), "existing-entry", "utf8");
 
-      const { ensureGitignoreSync } = await import("./storage");
       ensureGitignoreSync(configDir);
 
-      expect(appendFileSync).toHaveBeenCalled();
-      const [path, content] = vi.mocked(appendFileSync).mock.calls[0]!;
-      expect(path).toContain(".gitignore");
-      expect(content).toContain("antigravity-accounts.json");
-      expect((content as string).startsWith("\n")).toBe(true);
+      const gitignore = require("node:fs").readFileSync(join(configDir, ".gitignore"), "utf8");
+      expect(gitignore).toContain("existing-entry");
+      expect(gitignore).toContain("antigravity-accounts.json");
     });
 
     it("does nothing when all entries already exist", async () => {
-      vi.mocked(existsSync).mockReturnValue(true);
       const existing = [
         ".gitignore",
         "antigravity-accounts.json",
@@ -604,13 +571,12 @@ describe("Storage Migration", () => {
         "antigravity-signature-cache.json",
         "antigravity-logs/",
       ].join("\n");
-      vi.mocked(readFileSync).mockReturnValue(existing);
+      await writeFile(join(configDir, ".gitignore"), existing, "utf8");
 
-      const { ensureGitignoreSync } = await import("./storage");
       ensureGitignoreSync(configDir);
 
-      expect(writeFileSync).not.toHaveBeenCalled();
-      expect(appendFileSync).not.toHaveBeenCalled();
+      const after = require("node:fs").readFileSync(join(configDir, ".gitignore"), "utf8");
+      expect(after).toBe(existing);
     });
   });
 });

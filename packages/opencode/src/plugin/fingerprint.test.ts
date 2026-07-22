@@ -1,8 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
-
-beforeEach(() => {
-  vi.resetModules()
-})
+import { describe, expect, it } from "bun:test"
 
 describe("Antigravity fingerprint", () => {
   it("builds the captured agy CLI User-Agent with normalized platform and arch", async () => {
