@@ -89,7 +89,7 @@ import {
   ensureProjectContext,
 } from './plugin/project'
 import { resolvePromptContext } from './plugin/prompt-context'
-import { checkAccountsQuota } from './plugin/quota'
+import { createOpenCodeQuotaManager, type QuotaManager } from './plugin/quota'
 import {
   createSessionRecoveryHook,
   getRecoverySuccessToast,
@@ -215,23 +215,17 @@ function resetAllAccountsBlockedToasts(): void {
   rateLimitToastShown = false
 }
 
-const quotaRefreshInProgressByEmail = new Set<string>()
-
 async function triggerAsyncQuotaRefreshForAccount(
   accountManager: AccountManager,
   accountIndex: number,
-  client: PluginClient,
-  providerId: string,
   intervalMinutes: number,
+  quotaManager: QuotaManager,
 ): Promise<void> {
   if (intervalMinutes <= 0) return
 
   const accounts = accountManager.getAccounts()
   const account = accounts[accountIndex]
   if (!account || account.enabled === false) return
-
-  const accountKey = account.email ?? `idx-${accountIndex}`
-  if (quotaRefreshInProgressByEmail.has(accountKey)) return
 
   const intervalMs = intervalMinutes * 60 * 1000
   const age =
@@ -241,32 +235,34 @@ async function triggerAsyncQuotaRefreshForAccount(
 
   if (age < intervalMs) return
 
-  quotaRefreshInProgressByEmail.add(accountKey)
-
+  let singleAccount:
+    | ReturnType<AccountManager['getAccountsForQuotaCheck']>[number]
+    | undefined
   try {
     const accountsForCheck = accountManager.getAccountsForQuotaCheck()
-    const singleAccount = accountsForCheck[accountIndex]
-    if (!singleAccount) {
-      quotaRefreshInProgressByEmail.delete(accountKey)
-      return
-    }
+    singleAccount = accountsForCheck[accountIndex]
+    if (!singleAccount) return
 
-    const results = await checkAccountsQuota(
-      [singleAccount],
-      client,
-      providerId,
-    )
+    // Manager handles in-flight dedupe + backoff internally. Even if the
+    // background refresh is currently backed off, we still call into the
+    // manager so the cache is updated once the backoff expires — though
+    // for proactive background refreshes we want the manager's backoff to
+    // take precedence so we don't hammer a failing account.
+    const result = await quotaManager.refreshAccount(singleAccount, {
+      index: accountIndex,
+    })
 
-    if (results[0]?.status === 'ok' && results[0]?.quota?.groups) {
-      accountManager.updateQuotaCache(accountIndex, results[0].quota.groups)
+    if (result.status === 'ok' && result.quota?.groups) {
+      accountManager.updateQuotaCache(accountIndex, result.quota.groups)
       accountManager.requestSaveToDisk()
     }
   } catch (err) {
-    log.debug(`quota-refresh-failed email=${accountKey}`, {
-      error: String(err),
-    })
-  } finally {
-    quotaRefreshInProgressByEmail.delete(accountKey)
+    log.debug(
+      `quota-refresh-failed ${singleAccount ? quotaManager.hashedLogLabel('account', singleAccount) : `idx-${accountIndex}`}`,
+      {
+        error: String(err),
+      },
+    )
   }
 }
 
@@ -1492,6 +1488,7 @@ export const createAntigravityPlugin =
     initRuntimeConfig(config)
     const agySessionRegistry = new AgySessionRegistry(directory)
     let cachedGetAuth: GetAuth | null = null
+    const quotaManager = createOpenCodeQuotaManager(client, providerId)
     const lifecycle = createPluginLifecycle({
       sessionRegistry: agySessionRegistry,
       shutdownDiskSignatureCache,
@@ -1503,12 +1500,12 @@ export const createAntigravityPlugin =
       dispose: () => {
         warmupAttemptedSessionIds.clear()
         warmupSucceededSessionIds.clear()
-        quotaRefreshInProgressByEmail.clear()
         rateLimitToastCooldowns.clear()
         rateLimitStateByAccountQuota.clear()
         emptyResponseAttempts.clear()
         accountFailureState.clear()
         resetAllAccountsBlockedToasts()
+        quotaManager.dispose()
       },
     })
 
@@ -3371,9 +3368,8 @@ export const createAntigravityPlugin =
                         void triggerAsyncQuotaRefreshForAccount(
                           accountManager,
                           account.index,
-                          client,
-                          providerId,
                           config.quota_refresh_interval_minutes,
+                          quotaManager,
                         )
 
                         // Proactive rotation: if current account quota is low, pre-switch
@@ -3896,10 +3892,16 @@ export const createAntigravityPlugin =
                     if (menuResult.mode === 'check') {
                       console.log('\n📊 Checking quotas for all accounts...\n')
                       clearProvisionFailedKeys()
-                      const results = await checkAccountsQuota(
+                      // Manual quota dialog must always bypass backoff so the
+                      // user sees fresh numbers even if a background refresh
+                      // recently failed.
+                      const results = await quotaManager.refreshAccounts(
                         existingStorage.accounts,
-                        client,
-                        providerId,
+                        {
+                          indexFor: (account) =>
+                            existingStorage.accounts.indexOf(account),
+                          force: true,
+                        },
                       )
                       // Collect quota cache updates keyed by refresh token so a
                       // concurrent add cannot shift our index and let us
