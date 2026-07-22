@@ -9,6 +9,9 @@
     "build": "bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/pi build",
     "typecheck": "bun run --cwd packages/core build && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck && tsc -p tsconfig.scripts.json",
     "test": "bun run --cwd packages/core build && bun test --isolate",
+    "test:e2e": "bun test --isolate ./packages/e2e-tests/src/plugin-flow.e2e.test.ts ./packages/e2e-tests/src/cli-flow.e2e.test.ts ./packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts",
+    "test:e2e:models": "bun run --cwd packages/opencode test:e2e:models",
+    "test:e2e:regression": "bun run --cwd packages/opencode test:e2e:regression",
     "prepublishOnly": "bun run build",
     "dev": "bun scripts/dev.ts",
     "dev:clean": "bun scripts/dev-clean.ts",
@@ -16,8 +19,8 @@
     "format:check": "biome format .",
     "lint": "biome lint .",
     "pack:core:dry": "cd packages/core && bun pm pack --dry-run",
-    "pack:opencode:dry": "cd packages/opencode && bun pm pack --dry-run",
-    "pack:pi:dry": "cd packages/pi && bun pm pack --dry-run"
+    "pack:opencode-dry": "cd packages/opencode && bun pm pack --dry-run",
+    "pack:pi-dry": "cd packages/pi && bun pm pack --dry-run"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",

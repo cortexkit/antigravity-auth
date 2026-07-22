@@ -23,6 +23,7 @@ import {
   createQuotaManager,
   defaultKeyOf,
   type FetchAccountQuota,
+  type FetchAvailableModelsOptions,
   type FetchAvailableModelsResponse,
   fetchAvailableModels,
   fetchGeminiCliQuota,
@@ -51,6 +52,8 @@ import { createLogger } from './logger'
 import { ensureProjectContext } from './project'
 import { refreshAccessToken } from './token'
 import type { OAuthAuthDetails, PluginClient } from './types'
+
+type QuotaFetch = NonNullable<FetchAvailableModelsOptions['fetchVia']>
 
 // Re-export the public surface so existing imports from `./quota` keep working.
 const log = createLogger('quota')
@@ -112,9 +115,21 @@ export function createOpenCodeQuotaManager(
       coolingDownUntil?: number
       cachedQuota?: AccountMetadataV3['cachedQuota']
     }> | null
+    /**
+     * Optional transport adapter used for both `fetchAvailableModels`
+     * and the project-context lookup. When omitted, the production
+     * `fetchWithAgyCliTransport` runs and binds to the real
+     * Antigravity endpoints; the e2e harness injects a mock here so
+     * quota refresh + project discovery stay on the loopback server.
+     */
+    fetchVia?: QuotaFetch
   } = {},
 ): QuotaManager {
-  const fetchAccountQuota = makeFetchAccountQuota(client, providerId)
+  const fetchAccountQuota = makeFetchAccountQuota(
+    client,
+    providerId,
+    options.fetchVia,
+  )
   const manager = createQuotaManager({
     fetchAccountQuota,
     keyOf: options.keyOf ?? defaultKeyOf,
@@ -267,6 +282,7 @@ export async function pushSidebarQuotaSnapshot(
 function makeFetchAccountQuota(
   client: PluginClient | undefined,
   providerId: string,
+  fetchVia?: QuotaFetch,
 ): FetchAccountQuota {
   return async (account, signal) => {
     const index = 0
@@ -324,6 +340,7 @@ function makeFetchAccountQuota(
           endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
           userAgent: buildAntigravityHarnessUserAgent(),
           timeoutMs: 10_000,
+          ...(fetchVia ? { fetchVia } : {}),
         }).catch((): FetchAvailableModelsResponse => ({ models: undefined })),
         fetchGeminiCliQuota({
           accessToken: auth.access ?? '',
@@ -331,6 +348,7 @@ function makeFetchAccountQuota(
           endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
           userAgent: buildGeminiCliUserAgent(),
           timeoutMs: 10_000,
+          ...(fetchVia ? { fetchVia } : {}),
         }),
       ])
 

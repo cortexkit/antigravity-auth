@@ -26,9 +26,25 @@
         "zod": "^4.0.0",
       },
     },
+    "packages/e2e-tests": {
+      "name": "@cortexkit/antigravity-auth-e2e",
+      "version": "0.0.0",
+      "dependencies": {
+        "@cortexkit/antigravity-auth-core": "workspace:*",
+        "@cortexkit/opencode-antigravity-auth": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3",
+        "@types/node": "24.10.1",
+        "typescript": "6.0.3",
+      },
+    },
     "packages/opencode": {
       "name": "@cortexkit/opencode-antigravity-auth",
       "version": "2.0.0",
+      "bin": {
+        "antigravity-auth": "./dist/cli.js",
+      },
       "dependencies": {
         "@cortexkit/antigravity-auth-core": "2.0.0",
         "@openauthjs/openauth": "^0.4.3",
@@ -200,6 +216,8 @@
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.3", "", { "os": "win32", "cpu": "x64" }, "sha512-ExSaJWi4/u6+GXCszlSKpWSjKNbDseAYqqkCznsCsZ/4uidZ/BEqsCc5/3ctlq6dfIubdIIRSVLC/PG9xPl70Q=="],
 
     "@cortexkit/antigravity-auth-core": ["@cortexkit/antigravity-auth-core@workspace:packages/core"],
+
+    "@cortexkit/antigravity-auth-e2e": ["@cortexkit/antigravity-auth-e2e@workspace:packages/e2e-tests"],
 
     "@cortexkit/opencode-antigravity-auth": ["@cortexkit/opencode-antigravity-auth@workspace:packages/opencode"],
 

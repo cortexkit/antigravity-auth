@@ -1,0 +1,20 @@
+{
+  "name": "@cortexkit/antigravity-auth-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Private deterministic end-to-end workspace for the Antigravity auth plugin.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test --isolate ./src"
+  },
+  "dependencies": {
+    "@cortexkit/antigravity-auth-core": "workspace:*",
+    "@cortexkit/opencode-antigravity-auth": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3",
+    "@types/node": "24.10.1",
+    "typescript": "6.0.3"
+  }
+}

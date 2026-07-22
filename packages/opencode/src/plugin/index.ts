@@ -24,6 +24,11 @@ import {
 import { initRuntimeConfig, loadConfig } from './config'
 import { getUserConfigPath as getUserConfigDir } from './config/loader'
 import { initializeDebug } from './debug'
+import {
+  type PluginDependencies,
+  type PluginDependencyOverrides,
+  resolvePluginDependencies,
+} from './dependencies'
 import { createEventHandler } from './event-handler'
 import { createFetchInterceptor } from './fetch-interceptor'
 import { createGoogleSearchTool } from './google-search-tool'
@@ -46,13 +51,33 @@ import {
   mutateAccountStorage,
 } from './storage'
 import type { GetAuth, PluginContext, PluginInput, PluginResult } from './types'
+
+export type { PluginResult } from './types'
+
 import { initAntigravityVersion } from './version'
 
 const logger = createLogger('plugin')
 
+/**
+ * High-level options for the plugin factory. Production callers omit it
+ * entirely; the e2e workspace injects overrides so the same factory can
+ * build against a mock Antigravity server bound to 127.0.0.1.
+ */
+export interface CreateAntigravityPluginOptions {
+  /**
+   * Dependency overrides for the composition seam — fetch implementation,
+   * Antigravity transport, OAuth primitives, filesystem roots, clock, and
+   * randomness. Defaults to production implementations.
+   */
+  dependencies?: PluginDependencyOverrides
+}
+
 export const createAntigravityPlugin =
-  (providerId: string) =>
+  (providerId: string, options: CreateAntigravityPluginOptions = {}) =>
   async (input: PluginInput): Promise<PluginResult> => {
+    const dependencies: PluginDependencies = resolvePluginDependencies(
+      options.dependencies,
+    )
     const { client, directory } = input as PluginContext
     const config = loadConfig(directory)
     initRuntimeConfig(config)
@@ -200,6 +225,8 @@ export const createAntigravityPlugin =
           getAuth,
           agySessionRegistry: sessionRegistry,
           operatorSettings,
+          agyTransport: dependencies.agyTransport,
+          fetchImpl: dependencies.fetchImpl,
         }),
     })
 

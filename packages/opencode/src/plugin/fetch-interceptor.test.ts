@@ -3,12 +3,13 @@ import { join } from 'node:path'
 
 import { AccountManager } from './accounts'
 import { DEFAULT_CONFIG } from './config'
+import type { AgyTransport } from './dependencies'
 import { createFetchInterceptor } from './fetch-interceptor'
 import { AgySessionRegistry } from './session-context'
 import { type AccountStorageV4, saveAccountsReplace } from './storage'
 import type { GetAuth, PluginClient } from './types'
 
-const transport = mock(
+const transportMock = mock(
   async (...args: Parameters<typeof fetch>): Promise<Response> =>
     transportHandler(...args),
 )
@@ -19,9 +20,8 @@ let transportHandler = async (
   throw new Error('transport handler not configured')
 }
 
-mock.module('./agy-transport', () => ({
-  fetchWithAgyCliTransport: transport,
-}))
+const transport: AgyTransport = (url, init) =>
+  transportMock(url, init) as unknown as Promise<Response>
 
 const FIXED_NOW = Date.parse('2026-07-22T12:00:00.000Z')
 
@@ -65,6 +65,8 @@ interface ContextOverrides {
   getAuth?: GetAuth
   client?: PluginClient
   directory?: string
+  agyTransport?: AgyTransport
+  fetchImpl?: Parameters<typeof createFetchInterceptor>[0]['fetchImpl']
 }
 
 async function makeContext(overrides: ContextOverrides = {}) {
@@ -96,7 +98,7 @@ async function makeContext(overrides: ContextOverrides = {}) {
         type: 'oauth' as const,
         refresh: 'refresh-a|project-a|managed-a',
         access: 'access-a',
-        expires: FIXED_NOW + 3_600_000,
+        expires: Date.now() + 3_600_000,
       },
       storedAccounts(),
     )
@@ -118,9 +120,13 @@ async function makeContext(overrides: ContextOverrides = {}) {
         type: 'oauth' as const,
         refresh: 'refresh-a|project-a|managed-a',
         access: 'access-a',
-        expires: FIXED_NOW + 3_600_000,
+        expires: Date.now() + 3_600_000,
       })),
     agySessionRegistry: new AgySessionRegistry(directory),
+    // Default to the shared `transport` mock so tests that exercise the
+    // dispatch path do not need to opt in to transport mocking explicitly.
+    agyTransport: overrides.agyTransport ?? transport,
+    ...(overrides.fetchImpl ? { fetchImpl: overrides.fetchImpl } : {}),
   }
 }
 

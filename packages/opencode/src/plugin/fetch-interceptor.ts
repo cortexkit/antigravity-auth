@@ -1,3 +1,4 @@
+import { fetchWithAgyCliTransport } from '@cortexkit/antigravity-auth-core'
 import { ANTIGRAVITY_ENDPOINT_FALLBACKS } from '../constants'
 import {
   type SidebarRoutingEntry,
@@ -11,7 +12,6 @@ import {
   parseRateLimitReason,
   resolveQuotaGroup,
 } from './accounts'
-import { fetchWithAgyCliTransport } from './agy-transport'
 import type { GetAuth } from './auth'
 import { accessTokenExpired, isOAuthAuth } from './auth'
 import type { AntigravityConfig } from './config'
@@ -24,6 +24,7 @@ import {
   logResponseBody,
   startAntigravityDebugRequest,
 } from './debug'
+import type { AgyTransport, FetchImpl } from './dependencies'
 import { AntigravityKillswitchError } from './errors'
 import {
   createRetryState,
@@ -75,6 +76,14 @@ const log = createLogger('fetch-interceptor')
  * Matches the legacy plugin so callers that compare timing logs see parity.
  */
 const FIRST_RETRY_DELAY_MS = 1000
+
+/** Production transport — used when the interceptor context omits one. */
+const defaultAgyTransport: AgyTransport = (url, init, options) =>
+  fetchWithAgyCliTransport(url, init, options)
+
+/** Default `fetchImpl` used when the interceptor context omits one. */
+const defaultFetchImpl: FetchImpl = (input, init) =>
+  globalThis.fetch(input as RequestInfo, init)
 
 /**
  * Builds a Google-style 401 envelope describing a missing-account failure.
@@ -200,6 +209,20 @@ export interface FetchInterceptorContext {
    * overrides and killswitch thresholds per request.
    */
   readonly operatorSettings?: OperatorSettingsController
+  /**
+   * Transport adapter used for Antigravity HTTPS requests. Defaults to
+   * the production `fetchWithAgyCliTransport` when omitted; tests inject
+   * a deterministic stub so the e2e workspace can route calls at a mock
+   * server bound to 127.0.0.1.
+   */
+  readonly agyTransport?: AgyTransport
+  /**
+   * HTTP primitive used for non-Antigravity URLs. Defaults to
+   * `globalThis.fetch`; tests inject a guarded stub that refuses any
+   * non-loopback target so a regression cannot silently leak a real
+   * network call.
+   */
+  readonly fetchImpl?: FetchImpl
 }
 
 /**
@@ -228,6 +251,8 @@ export function createFetchInterceptor(
     getAuth,
     agySessionRegistry,
     operatorSettings,
+    agyTransport = defaultAgyTransport,
+    fetchImpl = defaultFetchImpl,
     // directory is part of the contract but not consumed by this interceptor;
     // callers use it when constructing sibling services (e.g. project context).
   } = context
@@ -239,8 +264,17 @@ export function createFetchInterceptor(
 
   // Capture the host fetch at factory time so the interceptor never shadows
   // it with its own (recursive) fetch binding. Production wires this up via
-  // the OpenCode plugin runtime; tests inject a mock by stubbing globalThis.
-  const upstreamFetch = globalThis.fetch.bind(globalThis)
+  // the OpenCode plugin runtime; tests inject a mock by stubbing globalThis
+  // OR — preferred for e2e — pass `fetchImpl` through the context so the
+  // stub survives a process-wide fetch replacement.
+  const upstreamFetch = fetchImpl
+
+  // Cache the bound transport so the three call sites (warmup, probe,
+  // dispatch) reuse the same closure. The binding happens once per
+  // interceptor to mirror the historical `fetchWithAgyCliTransport`
+  // import behavior — call sites used the function reference, not a
+  // re-bind per request.
+  const transport = agyTransport
 
   async function triggerAsyncQuotaRefreshForAccount(
     accountIndex: number,
@@ -974,7 +1008,7 @@ export function createFetchInterceptor(
           pushDebug('thinking-warmup: start')
           const warmupResponse =
             prepared.headerStyle === 'antigravity'
-              ? await fetchWithAgyCliTransport(warmupUrl, warmupInit, {
+              ? await transport(warmupUrl, warmupInit, {
                   signal: abortSignal,
                   onDebug: pushDebug,
                 })
@@ -1022,14 +1056,10 @@ export function createFetchInterceptor(
           }
           const probeResponse =
             prepared.headerStyle === 'antigravity'
-              ? await fetchWithAgyCliTransport(
-                  toUrlString(prepared.request),
-                  probeInit,
-                  {
-                    signal: abortSignal,
-                    onDebug: pushDebug,
-                  },
-                )
+              ? await transport(toUrlString(prepared.request), probeInit, {
+                  signal: abortSignal,
+                  onDebug: pushDebug,
+                })
               : await upstreamFetch(toUrlString(prepared.request), probeInit)
 
           if (probeResponse.body) {
@@ -1258,7 +1288,7 @@ export function createFetchInterceptor(
             )
             const response =
               prepared.headerStyle === 'antigravity'
-                ? await fetchWithAgyCliTransport(
+                ? await transport(
                     toUrlString(prepared.request),
                     prepared.init,
                     { signal: abortSignal, onDebug: pushDebug },

@@ -1,5 +1,6 @@
 import { expect, it, mock, spyOn } from 'bun:test'
 
+import type { AgyTransport } from './dependencies'
 import type { AccountStorageV4 } from './storage'
 import { loadAccounts, saveAccountsReplace } from './storage'
 import type { PluginInput, Provider } from './types'
@@ -15,9 +16,8 @@ let transportHandler = async (
   throw new Error('transport handler not configured')
 }
 
-mock.module('./agy-transport', () => ({
-  fetchWithAgyCliTransport: transport,
-}))
+const agyTransport: AgyTransport = (url, init) =>
+  transport(url, init) as unknown as Promise<Response>
 
 const FIXED_NOW = Date.parse('2026-07-22T12:00:00.000Z')
 const GENERATIVE_URL =
@@ -198,9 +198,9 @@ it('preserves the plugin hook mutation sequence across extraction', async () => 
 
   const { createAntigravityPlugin } = await import('../plugin')
   const firstClient = fakeClient()
-  const first = await createAntigravityPlugin('google')(
-    buildInput(firstClient, projectDirectory),
-  )
+  const first = await createAntigravityPlugin('google', {
+    dependencies: { agyTransport },
+  })(buildInput(firstClient, projectDirectory))
 
   const mutableConfig = {
     provider: {
@@ -287,9 +287,9 @@ it('preserves the plugin hook mutation sequence across extraction', async () => 
 
   await saveAccountsReplace(storedAccounts())
   const secondClient = fakeClient()
-  const second = await createAntigravityPlugin('google')(
-    buildInput(secondClient, projectDirectory),
-  )
+  const second = await createAntigravityPlugin('google', {
+    dependencies: { agyTransport },
+  })(buildInput(secondClient, projectDirectory))
   const secondAuth = await second.auth.loader(getAuth, emptyProvider())
   const secondCalls: string[] = []
   transportHandler = async (_input, init) => {
