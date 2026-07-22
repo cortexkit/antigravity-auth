@@ -6,16 +6,34 @@
  * - debug_tui controls TUI log panel only
  * - either sink can be enabled independently
  * - OPENCODE_ANTIGRAVITY_CONSOLE_LOG=1 → console output (independent of debug flags)
+ * - operator.log_level filters the level at which log entries are emitted
  */
 
 import { setLogSink } from '@cortexkit/antigravity-auth-core'
 import { isDebugTuiEnabled } from './debug'
 import { isTruthyFlag, writeConsoleLog } from './logging-utils'
+import type { OperatorSettings } from './operator-settings'
 import type { PluginClient } from './types'
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 const ENV_CONSOLE_LOG = 'OPENCODE_ANTIGRAVITY_CONSOLE_LOG'
+
+const LEVEL_PRIORITY: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+}
+
+const LOG_LEVEL_FROM_OPERATOR: Record<OperatorSettings['log_level'], LogLevel> =
+  {
+    error: 'error',
+    warn: 'warn',
+    info: 'info',
+    debug: 'debug',
+    trace: 'debug',
+  }
 
 export interface Logger {
   debug(message: string, extra?: Record<string, unknown>): void
@@ -25,12 +43,20 @@ export interface Logger {
 }
 
 let _client: PluginClient | null = null
+let _configuredLevel: LogLevel = 'debug'
+
+function shouldEmit(level: LogLevel): boolean {
+  return LEVEL_PRIORITY[level] >= LEVEL_PRIORITY[_configuredLevel]
+}
 
 /**
- * Check if console logging is enabled via environment variable.
+ * Set the runtime log level. Reads from the operator settings controller
+ * on each call so a /antigravity-logging dialog flip takes effect
+ * immediately. Falls back to "debug" when the operator level is not
+ * yet known.
  */
-function isConsoleLogEnabled(): boolean {
-  return isTruthyFlag(process.env[ENV_CONSOLE_LOG])
+export function setRuntimeLogLevel(level: OperatorSettings['log_level']): void {
+  _configuredLevel = LOG_LEVEL_FROM_OPERATOR[level] ?? 'debug'
 }
 
 /**
@@ -65,6 +91,8 @@ function emitLog(
   message: string,
   extra?: Record<string, unknown>,
 ): void {
+  if (!shouldEmit(level)) return
+
   // TUI logging: controlled only by debug_tui policy
   if (isDebugTuiEnabled()) {
     const app = _client?.app
@@ -86,6 +114,10 @@ function emitLog(
     writeConsoleLog(level, ...args)
   }
   // If neither TUI nor console logging is enabled, log is silently discarded
+}
+
+function isConsoleLogEnabled(): boolean {
+  return isTruthyFlag(process.env[ENV_CONSOLE_LOG])
 }
 
 export function createLogger(module: string): Logger {

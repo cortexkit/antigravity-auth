@@ -1,6 +1,7 @@
+import { join } from 'node:path'
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
 import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
-import { drainNotifications } from '../rpc/notifications'
+import { drainNotifications, pushNotification } from '../rpc/notifications'
 import { getRpcDir } from '../rpc/rpc-dir'
 import { startRpcServer } from '../rpc/rpc-server'
 import {
@@ -10,19 +11,24 @@ import {
 } from './account-access'
 import { createAuthLoader } from './auth-loader'
 import { initDiskSignatureCache, shutdownDiskSignatureCache } from './cache'
-import { applyAntigravityProviderCatalog } from './catalog'
 import {
-  createCommandExecuteBefore,
+  applyAntigravityProviderCatalog,
   registerAntigravityCommands,
-} from './commands'
+} from './catalog'
+import { applyCommand, createCommandExecuteBefore } from './commands'
 import { initRuntimeConfig, loadConfig } from './config'
+import { getUserConfigPath as getUserConfigDir } from './config/loader'
 import { initializeDebug } from './debug'
 import { createEventHandler } from './event-handler'
 import { createFetchInterceptor } from './fetch-interceptor'
 import { createGoogleSearchTool } from './google-search-tool'
 import { createPluginLifecycle } from './lifecycle'
-import { createLogger, initLogger } from './logger'
+import { createLogger, initLogger, setRuntimeLogLevel } from './logger'
 import { createOAuthMethods, openBrowserWithSystem } from './oauth-methods'
+import {
+  createOperatorSettingsController,
+  type OperatorSettingsController,
+} from './operator-settings'
 import { persistAccountPool } from './persist-account-pool'
 import { createOpenCodeQuotaManager } from './quota'
 import { createSessionRecoveryHook } from './recovery'
@@ -86,6 +92,18 @@ export const createAntigravityPlugin =
     const quotaManager = createOpenCodeQuotaManager(client, providerId)
     lifecycle.register({ dispose: () => quotaManager.dispose() })
 
+    // Operator settings controller backs the /antigravity-* slash commands.
+    // The controller loads existing persisted settings at first read, mutates
+    // runtime config immediately, and serializes through the fenced-lock
+    // writer so a crash mid-write cannot corrupt the file.
+    const operatorSettings: OperatorSettingsController =
+      createOperatorSettingsController({
+        projectConfigPath: join(directory, '.opencode', 'antigravity.json'),
+        userConfigPath: join(getUserConfigDir(), 'antigravity.json'),
+      })
+    setRuntimeLogLevel(operatorSettings.get().log_level)
+    lifecycle.register({ dispose: () => operatorSettings.dispose() })
+
     const sessionRecovery = createSessionRecoveryHook(
       { client, directory },
       config,
@@ -104,7 +122,11 @@ export const createAntigravityPlugin =
       updateChecker,
       logger,
     })
-    const commandExecuteBefore = createCommandExecuteBefore(client)
+    const commandExecuteBefore = createCommandExecuteBefore(
+      client,
+      operatorSettings,
+      pushNotification,
+    )
     const googleSearchTool = createGoogleSearchTool({
       getAuth: async () => (cachedGetAuth ? cachedGetAuth() : null),
       client,
@@ -152,15 +174,23 @@ export const createAntigravityPlugin =
           quotaManager,
           getAuth,
           agySessionRegistry: sessionRegistry,
+          operatorSettings,
         }),
     })
 
     const rpcServer = await startRpcServer({
       dir: getRpcDir(directory),
-      apply: async () => ({
-        text: 'Command surface is initializing',
-        knobs: {},
-      }),
+      apply: async (request) => {
+        const result = await applyCommand(request, {
+          client,
+          sessionID: request.sessionId ?? '',
+          settings: operatorSettings,
+        })
+        // /antigravity-logging mutates the log level — propagate
+        // immediately so subsequent log calls in this session respect it.
+        setRuntimeLogLevel(operatorSettings.get().log_level)
+        return result
+      },
       drain: drainNotifications,
     })
     lifecycle.register({ dispose: () => rpcServer.stop() })

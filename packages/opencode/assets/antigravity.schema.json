@@ -37,6 +37,14 @@
       "type": "boolean",
       "description": "Preserve thinking blocks for Claude models using signature caching. May cause signature errors."
     },
+    "thinking_warmup": {
+      "default": false,
+      "type": "boolean"
+    },
+    "cache_warmup_on_switch": {
+      "default": true,
+      "type": "boolean"
+    },
     "session_recovery": {
       "default": true,
       "type": "boolean",
@@ -92,7 +100,7 @@
       "description": "Signature cache configuration for persisting thinking block signatures. Only used when keep_thinking is enabled."
     },
     "empty_response_max_attempts": {
-      "default": 4,
+      "default": 2,
       "type": "number",
       "minimum": 1,
       "maximum": 10,
@@ -176,8 +184,11 @@
       "default": 10,
       "type": "number",
       "minimum": 0,
-      "maximum": 500,
-      "description": "Maximum number of account switches per request before giving up."
+      "maximum": 500
+    },
+    "quota_style_fallback": {
+      "default": false,
+      "type": "boolean"
     },
     "scheduling_mode": {
       "default": "cache_first",
@@ -226,8 +237,7 @@
       "default": 500,
       "type": "number",
       "minimum": 0,
-      "maximum": 10000,
-      "description": "Delay in milliseconds before switching to another account after a rate limit."
+      "maximum": 10000
     },
     "soft_quota_threshold_percent": {
       "default": 80,
@@ -237,10 +247,10 @@
       "description": "Percentage of quota usage that triggers soft quota warnings and preemptive account switching."
     },
     "quota_refresh_interval_minutes": {
-      "default": 15,
+      "default": 30,
       "type": "number",
       "minimum": 0,
-      "maximum": 60,
+      "maximum": 120,
       "description": "Interval in minutes between quota usage checks. Set to 0 to disable periodic checks."
     },
     "soft_quota_cache_ttl_minutes": {
@@ -257,6 +267,12 @@
         }
       ],
       "description": "TTL for cached soft quota data. 'auto' (default) calculates from refresh interval, or set a fixed number of minutes."
+    },
+    "proactive_rotation_threshold_percent": {
+      "default": 20,
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
     },
     "health_score": {
       "type": "object",
@@ -348,6 +364,84 @@
       "default": true,
       "type": "boolean",
       "description": "Enable automatic plugin updates."
+    },
+    "operator": {
+      "type": "object",
+      "properties": {
+        "routing": {
+          "type": "object",
+          "properties": {
+            "cli_first": {
+              "default": false,
+              "type": "boolean",
+              "description": "Override cli_first routing flag live (read by the fetch interceptor per request)."
+            },
+            "quota_style_fallback": {
+              "default": false,
+              "type": "boolean",
+              "description": "Override quota_style_fallback routing flag live."
+            }
+          },
+          "required": [
+            "cli_first",
+            "quota_style_fallback"
+          ],
+          "additionalProperties": false,
+          "description": "Routing overrides applied live by the fetch interceptor."
+        },
+        "killswitch": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "type": "boolean",
+              "description": "Enable the quota killswitch. Accounts whose freshest cached quota is below the threshold are excluded before dispatch."
+            },
+            "minimum_remaining_percent": {
+              "default": 5,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Global threshold in percent (0-100). Accounts with freshest cached quota remaining at or below this value are excluded."
+            },
+            "accounts": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "description": "Per-account overrides keyed by sha256(refreshToken).slice(0,12). No raw OAuth tokens are ever written."
+            }
+          },
+          "required": [
+            "enabled",
+            "minimum_remaining_percent"
+          ],
+          "additionalProperties": false,
+          "description": "Quota killswitch — drops candidates below the threshold before dispatch."
+        },
+        "log_level": {
+          "default": "info",
+          "type": "string",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "description": "Runtime log level filter. Reads take effect immediately; persisted across restarts."
+        }
+      },
+      "required": [
+        "log_level"
+      ],
+      "additionalProperties": false,
+      "description": "Runtime operator-controlled settings (mutable from /antigravity-* slash commands). Persists across restarts."
     }
   },
   "additionalProperties": false

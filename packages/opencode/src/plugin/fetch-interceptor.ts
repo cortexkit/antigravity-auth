@@ -20,6 +20,7 @@ import {
   logResponseBody,
   startAntigravityDebugRequest,
 } from './debug'
+import { AntigravityKillswitchError } from './errors'
 import {
   createRetryState,
   type RateLimitBackoffResult,
@@ -37,7 +38,9 @@ import {
   toWarmupStreamUrl,
 } from './fetch-routing'
 import { dumpGeminiRequest, noteGeminiDumpResponse } from './gemini-dump'
+import { evaluateKillswitchForAccount, throwIfAllKilled } from './killswitch'
 import { createLogger } from './logger'
+import type { OperatorSettingsController } from './operator-settings'
 import { ensureProjectContext } from './project'
 import type { QuotaManager } from './quota'
 import {
@@ -187,6 +190,12 @@ export interface FetchInterceptorContext {
   readonly quotaManager: QuotaManager
   readonly getAuth: GetAuth
   readonly agySessionRegistry: AgySessionRegistry
+  /**
+   * Live operator settings controller. Optional for backward
+   * compatibility — when present, the interceptor reads routing
+   * overrides and killswitch thresholds per request.
+   */
+  readonly operatorSettings?: OperatorSettingsController
 }
 
 /**
@@ -214,6 +223,7 @@ export function createFetchInterceptor(
     quotaManager,
     getAuth,
     agySessionRegistry,
+    operatorSettings,
     // directory is part of the contract but not consumed by this interceptor;
     // callers use it when constructing sibling services (e.g. project context).
   } = context
@@ -405,6 +415,18 @@ export function createFetchInterceptor(
     const quietMode = config.quiet_mode
     const toastScope = config.toast_scope
 
+    // Apply operator-controlled routing overrides live. The slash
+    // commands mutate these values through `applyCommand`; reading
+    // them per-request means a runtime flip takes effect on the next
+    // dispatched call without restarting the plugin.
+    const operatorRouting = operatorSettings?.get().routing
+    const effectiveConfig: AntigravityConfig = {
+      ...config,
+      cli_first: operatorRouting?.cli_first ?? config.cli_first,
+      quota_style_fallback:
+        operatorRouting?.quota_style_fallback ?? config.quota_style_fallback,
+    }
+
     const showToast = async (
       message: string,
       variant: 'info' | 'warning' | 'success' | 'error',
@@ -461,7 +483,7 @@ export function createFetchInterceptor(
       const routingDecision = resolveHeaderRoutingDecision(
         urlString,
         family,
-        config,
+        effectiveConfig,
       )
       const { preferredHeaderStyle, explicitQuota, allowQuotaFallback } =
         routingDecision
@@ -481,6 +503,65 @@ export function createFetchInterceptor(
         config.quota_refresh_interval_minutes,
       )
 
+      // Operator killswitch — drop candidates whose freshest cached
+      // quota remaining-percent is below the configured floor. Fail
+      // open on missing/stale quota so a cold start cannot deadlock
+      // the pipeline.
+      const operatorKillswitch = operatorSettings?.get().killswitch
+      const eligibleAccounts = accountManager.getAccounts().filter((entry) => {
+        if (!operatorKillswitch?.enabled) return true
+        const decision = evaluateKillswitchForAccount(
+          entry,
+          family,
+          {
+            routing:
+              effectiveConfig.cli_first !== undefined
+                ? {
+                    cli_first: effectiveConfig.cli_first,
+                    quota_style_fallback:
+                      !!effectiveConfig.quota_style_fallback,
+                  }
+                : { cli_first: false, quota_style_fallback: false },
+            killswitch: operatorKillswitch,
+            log_level: 'info',
+          },
+          { now: Date.now() },
+        )
+        return decision.allowed
+      })
+
+      if (eligibleAccounts.length === 0 && accountCount > 0) {
+        try {
+          throwIfAllKilled({
+            family,
+            model: model ?? 'unknown',
+            accounts: accountManager.getAccounts(),
+            settings: {
+              routing: { cli_first: false, quota_style_fallback: false },
+              killswitch: operatorKillswitch ?? {
+                enabled: false,
+                minimum_remaining_percent: 0,
+              },
+              log_level: 'info',
+            },
+          })
+        } catch (error) {
+          if (error instanceof AntigravityKillswitchError) {
+            log.warn('killswitch-all-excluded', {
+              family,
+              model,
+              threshold: error.thresholdPercent,
+              summaries: error.summaries,
+            })
+            return createSyntheticErrorResponse(
+              error.message,
+              model ?? 'unknown',
+            )
+          }
+          throw error
+        }
+      }
+
       let account = accountManager.getCurrentOrNextForFamily(
         family,
         model,
@@ -491,6 +572,27 @@ export function createFetchInterceptor(
         softQuotaCacheTtlMs,
         accountSessionIdentity,
       )
+
+      // After core selection, re-check the killswitch on the chosen
+      // candidate. If it's killed, mark ineligible and retry.
+      if (account && operatorKillswitch?.enabled) {
+        const decision = evaluateKillswitchForAccount(
+          account,
+          family,
+          {
+            routing: { cli_first: false, quota_style_fallback: false },
+            killswitch: operatorKillswitch,
+            log_level: 'info',
+          },
+          { now: Date.now() },
+        )
+        if (!decision.allowed) {
+          pushDebug(
+            `killswitch-excluded idx=${account.index} remaining=${decision.remainingPercent} threshold=${decision.thresholdPercent}`,
+          )
+          account = null
+        }
+      }
 
       if (!account && allowQuotaFallback) {
         const alternateHeaderStyle: 'antigravity' | 'gemini-cli' =

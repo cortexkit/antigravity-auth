@@ -518,6 +518,45 @@ export const AntigravityConfigSchema = z.object({
    * @default true
    */
   auto_update: z.boolean().default(true),
+
+  // =========================================================================
+  // Operator Settings (Task 18: persistent runtime controls)
+  // =========================================================================
+  //
+  // These fields back the slash-command dialogs. They are mutable from the
+  // TUI and MUST persist across restarts. Writes go through
+  // `config/writer.ts` so they use the same fenced lock + atomic rename the
+  // account pool uses — concurrent writers do not silently corrupt state.
+
+  /**
+   * Routing overrides the static `cli_first` / `quota_style_fallback` flags
+   * when the operator toggles them through `/antigravity-routing`.
+   */
+  operator: z
+    .object({
+      routing: z
+        .object({
+          cli_first: z.boolean().default(false),
+          quota_style_fallback: z.boolean().default(false),
+        })
+        .optional(),
+      killswitch: z
+        .object({
+          enabled: z.boolean().default(false),
+          minimum_remaining_percent: z.number().min(0).max(100).default(5),
+          /**
+           * Per-account override keyed by sha256(refreshToken).slice(0,12).
+           * No raw token ever lands in the config file, sidebar, RPC, or
+           * apply arguments.
+           */
+          accounts: z.record(z.string(), z.number().min(0).max(100)).optional(),
+        })
+        .optional(),
+      log_level: z
+        .enum(['error', 'warn', 'info', 'debug', 'trace'])
+        .default('info'),
+    })
+    .optional(),
 })
 
 export type AntigravityConfig = z.infer<typeof AntigravityConfigSchema>
@@ -584,5 +623,10 @@ export const DEFAULT_CONFIG: AntigravityConfig = {
     max_tokens: 50,
     regeneration_rate_per_minute: 6,
     initial_tokens: 50,
+  },
+  operator: {
+    routing: { cli_first: false, quota_style_fallback: false },
+    killswitch: { enabled: false, minimum_remaining_percent: 5 },
+    log_level: 'info',
   },
 }

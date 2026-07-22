@@ -44,6 +44,7 @@ import {
   type SidebarStateV1,
 } from './sidebar-state'
 import { ANSI } from './tui/ansi'
+import { collectDialogFlow, renderDialogFlow } from './tui/command-dialogs'
 import { createTuiFileLogger, type TuiLogger } from './tui/file-logger'
 
 const POLL_INTERVAL_MS = 2000
@@ -464,17 +465,69 @@ const tui: TuiPlugin = async (api) => {
           logger={logger}
           rpcClient={rpcClient}
           sessionId={sessionID}
-          onRpcNotification={(notification) => {
+          onRpcNotification={async (notification) => {
             logger.debug('rpc-notification-received', {
               command: notification.command,
               id: notification.id,
               sessionId: notification.sessionId,
             })
+            await openCommandDialogFromNotification(
+              api,
+              rpcClient,
+              notification,
+            )
           }}
         />
       ),
     },
   })
+}
+
+/**
+ * Mount the OpenTUI dialog for an inbound RPC notification.
+ *
+ * Each modal command maps to a single-dialog flow rendered through
+ * the host's `DialogSelect` (or confirm/prompt for sub-steps). Errors
+ * here are deliberately swallowed — the host may have multiple
+ * incoming notifications queued and one bad render must not break
+ * the next one.
+ */
+async function openCommandDialogFromNotification(
+  api: Parameters<TuiPlugin>[0],
+  rpcClient: RpcClient,
+  notification: RpcNotification,
+): Promise<void> {
+  try {
+    const flow = await collectDialogFlow(notification.command, '', {
+      settings: {
+        get: () => ({ log_level: 'info' }),
+      },
+    })
+    await renderDialogFlow({
+      api: api as unknown as Parameters<typeof renderDialogFlow>[0]['api'],
+      flow,
+      apply: async (command, args) => {
+        const result = await rpcClient.apply({
+          command,
+          arguments: args,
+          sessionId: notification.sessionId,
+        })
+        return { text: result.text }
+      },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    try {
+      await api.client.app.log({
+        service: 'antigravity.tui',
+        level: 'warn',
+        message: 'dialog-open-failed',
+        extra: { command: notification.command, error: message },
+      })
+    } catch {
+      // ignore — host may not expose app.log
+    }
+  }
 }
 
 export default tui
