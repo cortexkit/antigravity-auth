@@ -38,7 +38,7 @@ jobs:
         run: bun run --cwd packages/opencode smoke:tui
 
       - name: Run tests
-        run: bun test
+        run: bun run test
 
       - name: Run E2E tests
         run: bun run test:e2e
