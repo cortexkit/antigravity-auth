@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   AccountStorageLockContentionError,
+  AccountStorageUnreadableError,
   clearAccountStorage,
   deduplicateAccountsByEmail,
   loadAccountStorage,
@@ -291,32 +292,89 @@ describe('loadAccountStorage migrations', () => {
   })
 })
 
-describe('loadAccountStorage malformed input', () => {
-  it('returns null when the file is missing', async () => {
+describe('loadAccountStorage missing-vs-unreadable', () => {
+  it('returns null when the file is missing (ENOENT is not an error)', async () => {
     expect(await loadAccountStorage(storagePath())).toBeNull()
   })
 
-  it('returns null on JSON parse error', async () => {
-    await writeFile(storagePath(), '{ invalid json }', 'utf8')
-    expect(await loadAccountStorage(storagePath())).toBeNull()
+  it('throws AccountStorageUnreadableError on JSON parse error and creates a backup', async () => {
+    const path = storagePath()
+    await writeFile(path, '{ invalid json }', 'utf8')
+
+    let captured: unknown
+    try {
+      await loadAccountStorage(path)
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
+    const err = captured as AccountStorageUnreadableError
+    expect(err.details.path).toBe(path)
+    expect(err.details.reason).toBe('malformed-json')
+    expect(err.details.backupPath).not.toBeNull()
+    // The original file must remain on disk for the user to recover.
+    const onDisk = await readFile(path, 'utf8')
+    expect(onDisk).toBe('{ invalid json }')
+    // The backup sidecar must hold a verbatim copy.
+    if (err.details.backupPath) {
+      const backup = await readFile(err.details.backupPath, 'utf8')
+      expect(backup).toBe('{ invalid json }')
+    }
   })
 
-  it('returns null when accounts is not an array', async () => {
+  it('throws AccountStorageUnreadableError when accounts is not an array', async () => {
+    const path = storagePath()
     await writeFile(
-      storagePath(),
+      path,
       JSON.stringify({ version: 4, notAccounts: [] }),
       'utf8',
     )
-    expect(await loadAccountStorage(storagePath())).toBeNull()
+
+    let captured: unknown
+    try {
+      await loadAccountStorage(path)
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
+    const err = captured as AccountStorageUnreadableError
+    expect(err.details.reason).toBe('invalid-shape')
+    expect(err.details.backupPath).not.toBeNull()
   })
 
-  it('returns null on unknown version', async () => {
+  it('throws AccountStorageUnreadableError on unknown version', async () => {
+    const path = storagePath()
     await writeFile(
-      storagePath(),
+      path,
       JSON.stringify({ version: 999, accounts: [] }),
       'utf8',
     )
-    expect(await loadAccountStorage(storagePath())).toBeNull()
+
+    let captured: unknown
+    try {
+      await loadAccountStorage(path)
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
+    const err = captured as AccountStorageUnreadableError
+    expect(err.details.reason).toBe('unsupported-version')
+    expect(err.details.detail).toContain('999')
+    expect(err.details.backupPath).not.toBeNull()
+  })
+
+  it('throws AccountStorageUnreadableError when the file is a JSON array (not an object)', async () => {
+    const path = storagePath()
+    await writeFile(path, '[]', 'utf8')
+
+    await expect(loadAccountStorage(path)).rejects.toBeInstanceOf(
+      AccountStorageUnreadableError,
+    )
+  })
+
+  it('still surfaces ENOENT as null (NOT unreadable) when the parent directory does not exist', async () => {
+    const path = join(root, 'nested-missing', 'accounts.json')
+    expect(await loadAccountStorage(path)).toBeNull()
   })
 })
 
@@ -599,5 +657,166 @@ describe('ensureFileExists on initial write', () => {
 
     const raw = JSON.parse(await readFile(path, 'utf8'))
     expect(raw).toMatchObject({ version: 4, accounts: [], activeIndex: 0 })
+  })
+})
+
+describe('mutateAccountStorage fail-closed on unreadable file', () => {
+  // Snapshot the raw bytes of a corrupt file to verify the on-disk
+  // file is NEVER overwritten by a failed mutation.
+  async function seedCorrupt(
+    name: string,
+    contents: string,
+  ): Promise<{ path: string; raw: string }> {
+    const path = storagePath(name)
+    await writeFile(path, contents, 'utf8')
+    return { path, raw: contents }
+  }
+
+  it('throws AccountStorageUnreadableError against malformed JSON and does NOT overwrite the file', async () => {
+    const { path, raw } = await seedCorrupt(
+      'corrupt-1.json',
+      '{ invalid json }',
+    )
+    const attemptedAdd: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        {
+          refreshToken: 'new-token',
+          addedAt: 1,
+          lastUsed: 1,
+        },
+      ],
+      activeIndex: 0,
+    }
+
+    let captured: unknown
+    try {
+      await mutateAccountStorage(path, () => attemptedAdd)
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
+    const err = captured as AccountStorageUnreadableError
+    expect(err.details.reason).toBe('malformed-json')
+    expect(err.details.path).toBe(path)
+    expect(err.details.backupPath).not.toBeNull()
+
+    // The user's file must be byte-for-byte unchanged.
+    const onDisk = await readFile(path, 'utf8')
+    expect(onDisk).toBe(raw)
+    // The backup must hold a verbatim copy.
+    if (err.details.backupPath) {
+      const backup = await readFile(err.details.backupPath, 'utf8')
+      expect(backup).toBe(raw)
+    }
+  })
+
+  it('throws AccountStorageUnreadableError on invalid shape (accounts not an array)', async () => {
+    const { path, raw } = await seedCorrupt(
+      'corrupt-2.json',
+      JSON.stringify({ version: 4, notAccounts: [] }),
+    )
+
+    let captured: unknown
+    try {
+      await mutateAccountStorage(path, (current) => current)
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
+    expect((captured as AccountStorageUnreadableError).details.reason).toBe(
+      'invalid-shape',
+    )
+    expect(await readFile(path, 'utf8')).toBe(raw)
+  })
+
+  it('throws AccountStorageUnreadableError on unsupported-version (e.g. a newer plugin wrote version 5)', async () => {
+    const { path, raw } = await seedCorrupt(
+      'corrupt-3.json',
+      JSON.stringify({
+        version: 5,
+        accounts: [{ refreshToken: 'r1', addedAt: 1, lastUsed: 1 }],
+      }),
+    )
+
+    let captured: unknown
+    try {
+      await mutateAccountStorage(path, (current) => current)
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
+    expect((captured as AccountStorageUnreadableError).details.reason).toBe(
+      'unsupported-version',
+    )
+    expect(await readFile(path, 'utf8')).toBe(raw)
+  })
+
+  it('succeeds against a missing file (first-run UX unchanged)', async () => {
+    const path = storagePath('first-run.json')
+    const result = await mutateAccountStorage(path, (current) => ({
+      ...current,
+      accounts: [{ refreshToken: 'r1', addedAt: 1, lastUsed: 1 }],
+      activeIndex: 0,
+    }))
+    expect(result.accounts).toHaveLength(1)
+    expect(result.accounts[0]?.refreshToken).toBe('r1')
+  })
+
+  it('error message includes the path and the backup path so the user knows where their data went', async () => {
+    const { path } = await seedCorrupt('corrupt-4.json', '{ broken')
+
+    let captured: unknown
+    try {
+      await mutateAccountStorage(path, (current) => current)
+    } catch (error) {
+      captured = error
+    }
+    const err = captured as AccountStorageUnreadableError
+    expect(err.message).toContain(path)
+    if (err.details.backupPath) {
+      expect(err.message).toContain(err.details.backupPath)
+    }
+  })
+
+  it('still preserves the file when the backup itself fails', async () => {
+    const { path, raw } = await seedCorrupt('corrupt-5.json', '{ broken')
+
+    let captured: unknown
+    try {
+      await mutateAccountStorage(path, (current) => current, {
+        buildBackupPath: () => '/proc/this-cannot-be-written/corrupt-5.json',
+      })
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
+    const err = captured as AccountStorageUnreadableError
+    expect(err.details.backupPath).toBeNull()
+    // Original file MUST remain intact.
+    expect(await readFile(path, 'utf8')).toBe(raw)
+  })
+
+  it('a legacy v1 file migrates in-place (no unreadable throw) and v4 ends up on disk', async () => {
+    const path = storagePath('legacy-v1.json')
+    const v1 = {
+      version: 1,
+      accounts: [
+        {
+          email: 'a@example.com',
+          refreshToken: 'r1',
+          addedAt: 1,
+          lastUsed: 1,
+        },
+      ],
+      activeIndex: 0,
+    }
+    await writeFile(path, JSON.stringify(v1), 'utf8')
+    const result = await mutateAccountStorage(path, (current) => current)
+    expect(result.version).toBe(4)
+    expect(result.accounts[0]?.refreshToken).toBe('r1')
+    const onDisk = JSON.parse(await readFile(path, 'utf8'))
+    expect(onDisk.version).toBe(4)
+    expect(onDisk.accounts[0]?.refreshToken).toBe('r1')
   })
 })

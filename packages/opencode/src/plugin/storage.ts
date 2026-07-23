@@ -16,8 +16,8 @@ import {
   appendFileSync,
   copyFileSync,
   existsSync,
-  mkdirSync,
   promises as fs,
+  mkdirSync,
   readFileSync,
   renameSync,
   unlinkSync,
@@ -26,7 +26,21 @@ import {
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import type {
+  AccountMetadataV2,
+  AccountMetadataV3,
+  AccountModelFamily,
+  AccountStorageUnreadableReason,
+  AccountStorageV2,
+  AccountStorageV4,
+  AnyAccountStorage,
+  CooldownReason,
+  HeaderStyle,
+  RateLimitStateV2,
+  RateLimitStateV3,
+} from '@cortexkit/antigravity-auth-core'
 import {
+  AccountStorageUnreadableError,
   clearAccountStorage as coreClearAccountStorage,
   deduplicateAccountsByEmail as coreDeduplicateAccountsByEmail,
   loadAccountStorage as coreLoadAccountStorage,
@@ -35,19 +49,6 @@ import {
   mutateAccountStorage as coreMutateAccountStorage,
   saveAccountStorage as coreSaveAccountStorage,
   saveAccountStorageReplace as coreSaveAccountStorageReplace,
-} from '@cortexkit/antigravity-auth-core'
-
-import type {
-  AccountMetadataV2,
-  AccountMetadataV3,
-  AccountModelFamily,
-  AccountStorageV2,
-  AccountStorageV4,
-  AnyAccountStorage,
-  CooldownReason,
-  HeaderStyle,
-  RateLimitStateV2,
-  RateLimitStateV3,
 } from '@cortexkit/antigravity-auth-core'
 import { createLogger } from './logger'
 
@@ -68,6 +69,7 @@ export type ModelFamily = AccountModelFamily
 export type {
   AccountMetadataV2,
   AccountMetadataV3,
+  AccountStorageUnreadableReason,
   AccountStorageV2,
   AccountStorageV4,
   AnyAccountStorage,
@@ -76,6 +78,16 @@ export type {
   RateLimitStateV2,
   RateLimitStateV3,
 }
+
+/**
+ * Re-export the typed unreadable-storage error so consumers can
+ * `instanceof`-check without pulling core into their own dependency
+ * graph. When the on-disk accounts file exists but cannot be parsed
+ * as a valid v4 (corrupt JSON, schema mismatch, unknown version, or
+ * an I/O error other than ENOENT), every read/write here throws this
+ * — never silently overwrites the user's data.
+ */
+export { AccountStorageUnreadableError }
 
 /**
  * Backward-compat re-exports for harnesses still importing

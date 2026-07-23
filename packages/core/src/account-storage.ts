@@ -8,13 +8,22 @@
  * bounded schedule (`100, 200, 400, 800, 1000ms` with factor 2 / max 1000)
  * before surfacing a typed `AccountStorageLockContentionError`.
  *
+ * Fail-closed semantics: when the accounts file exists but cannot be
+ * read as a valid v4 (parse error, schema mismatch, unknown future
+ * version, I/O error), `mutateAccountStorage` and `loadAccountStorage`
+ * throw a typed `AccountStorageUnreadableError` instead of treating
+ * the bad state as "empty pool" and overwriting the file on the next
+ * write. A best-effort `.corrupt-<ISO-timestamp>` backup is created
+ * before throwing so a future bug can never permanently destroy user
+ * data. The backup itself never throws.
+ *
  * This module is harness-agnostic: it does not own a path (the harness
  * adapter passes one in via `loadAccountStorage(path)`). The harness is
  * responsible for picking the right on-disk path and ensuring the parent
  * directory exists.
  */
 
-import { chmod, mkdir, readFile, unlink } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, readFile, unlink } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type {
   AccountMetadataV3,
@@ -48,12 +57,79 @@ export class AccountStorageLockContentionError extends Error {
   }
 }
 
+/**
+ * Reason the on-disk accounts file could not be parsed as a usable v4.
+ * Harnesses distinguish between `malformed-json` (the file is broken
+ * JSON — possibly truncated), `invalid-shape` (JSON parsed but the
+ * shape does not match the storage schema), `unsupported-version` (a
+ * version newer than v4 that this build cannot migrate), and `io-error`
+ * (a real I/O failure other than ENOENT — typically EACCES).
+ */
+export type AccountStorageUnreadableReason =
+  | 'malformed-json'
+  | 'invalid-shape'
+  | 'unsupported-version'
+  | 'io-error'
+
+/**
+ * Thrown when the on-disk accounts file exists but cannot be read as
+ * a valid v4. Distinguishes ENOENT (first-run UX: missing file is
+ * fine) from "the file is there but we can't trust it" (fail closed).
+ *
+ * `backupPath` is set when a `.corrupt-<ISO-timestamp>` sidecar was
+ * successfully written; consumers should mention it in any user-facing
+ * recovery message so the user knows their data is preserved.
+ */
+export class AccountStorageUnreadableError extends Error {
+  readonly details: {
+    path: string
+    reason: AccountStorageUnreadableReason
+    detail: string
+    backupPath: string | null
+  }
+
+  constructor(
+    message: string,
+    details: AccountStorageUnreadableError['details'],
+  ) {
+    super(message)
+    this.name = 'AccountStorageUnreadableError'
+    this.details = details
+  }
+}
+
+/**
+ * Discriminated result of an internal read attempt. Used by the
+ * mutation path so it can distinguish first-run (missing file is fine)
+ * from "file is corrupt, refuse to write" without overloading the
+ * public `null` contract that legitimate callers still expect.
+ */
+type StorageReadOutcome =
+  | { state: 'missing' }
+  | { state: 'ok'; storage: AccountStorageV4 }
+  | {
+      state: 'unreadable'
+      reason: AccountStorageUnreadableReason
+      detail: string
+    }
+
 export interface AccountStorageOptions {
   /**
    * Sleep override for deterministic retry timing in tests. Defaults to
    * a real `setTimeout`-based sleep.
    */
   sleep?: (ms: number) => Promise<void>
+  /**
+   * Backup override for deterministic backup paths in tests. Defaults
+   * to `path + '.corrupt-<ISO-timestamp>'` with the time captured at
+   * call time. Returning `null` skips the backup.
+   */
+  buildBackupPath?: (path: string, now: Date) => string | null
+  /**
+   * Clock override for deterministic timestamps in tests. Defaults to
+   * `() => new Date()`.
+   */
+  now?: () => Date
 }
 
 /**
@@ -65,6 +141,9 @@ const RETRY_DELAYS_MS = [100, 200, 400, 800, 1000] as const
 
 const DEFAULT_SLEEP = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
+
+const DEFAULT_BUILD_BACKUP_PATH = (path: string, now: Date): string =>
+  `${path}.corrupt-${now.toISOString().replace(/[:.]/g, '-')}`
 
 async function ensureSecurePermissions(path: string): Promise<void> {
   try {
@@ -80,6 +159,34 @@ async function ensureFileExists(path: string): Promise<void> {
   } catch {
     await mkdir(dirname(path), { recursive: true })
     await writeJsonAtomic(path, { version: 4, accounts: [], activeIndex: 0 })
+  }
+}
+
+/**
+ * Copy a corrupt file to a `.corrupt-<ISO-timestamp>` sidecar. The
+ * backup itself never throws — if it fails (e.g. disk full, permission
+ * denied on the sidecar path), the original unreadable error is what
+ * the caller sees. Returns the backup path on success, `null` on
+ * failure.
+ */
+async function backupCorruptFile(
+  sourcePath: string,
+  buildBackupPath: (path: string, now: Date) => string | null,
+  now: Date,
+): Promise<string | null> {
+  const backupPath = buildBackupPath(sourcePath, now)
+  if (!backupPath) return null
+  try {
+    await copyFile(sourcePath, backupPath)
+    await ensureSecurePermissions(backupPath)
+    return backupPath
+  } catch (backupError) {
+    log.warn('Failed to back up corrupt account storage file', {
+      sourcePath,
+      backupPath,
+      error: String(backupError),
+    })
+    return null
   }
 }
 
@@ -291,37 +398,98 @@ export function mergeAccountStorage(
   }
 }
 
-async function readAndNormalizeV4(
-  path: string,
-): Promise<AccountStorageV4 | null> {
-  let parsed: AnyAccountStorage | null = null
+/**
+ * Read the on-disk file and reduce it to a `StorageReadOutcome`. Used
+ * by `mutateAccountStorage` (which needs to distinguish "missing →
+ * first-run empty pool" from "exists but unreadable → refuse to write")
+ * and by `loadAccountStorage` (which maps unreadable to a thrown error).
+ */
+async function readAndNormalizeV4(path: string): Promise<StorageReadOutcome> {
+  let raw: string
   try {
-    const content = await readFile(path, 'utf-8')
-    parsed = JSON.parse(content) as AnyAccountStorage
-  } catch {
-    return null
+    raw = await readFile(path, 'utf-8')
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') {
+      return { state: 'missing' }
+    }
+    return {
+      state: 'unreadable',
+      reason: 'io-error',
+      detail: `${code ?? 'UNKNOWN'}: ${(error as Error).message ?? String(error)}`,
+    }
   }
 
-  if (!parsed || !Array.isArray(parsed.accounts)) {
-    return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (parseError) {
+    return {
+      state: 'unreadable',
+      reason: 'malformed-json',
+      detail: (parseError as Error).message ?? String(parseError),
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      state: 'unreadable',
+      reason: 'invalid-shape',
+      detail: 'top-level value is not an object',
+    }
+  }
+
+  const candidate = parsed as { accounts?: unknown; version?: unknown }
+  if (!Array.isArray(candidate.accounts)) {
+    return {
+      state: 'unreadable',
+      reason: 'invalid-shape',
+      detail: '`accounts` is missing or not an array',
+    }
+  }
+
+  const parsedVersion = candidate.version
+  if (
+    parsedVersion !== 1 &&
+    parsedVersion !== 2 &&
+    parsedVersion !== 3 &&
+    parsedVersion !== 4
+  ) {
+    return {
+      state: 'unreadable',
+      reason: 'unsupported-version',
+      detail: `unsupported version: ${String(parsedVersion)}`,
+    }
   }
 
   let storage: AccountStorageV4 | null = null
-  switch (parsed.version) {
+  switch (parsedVersion) {
     case 1:
-      storage = migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(parsed)))
+      storage = migrateV3ToV4(
+        migrateV2ToV3(
+          migrateV1ToV2(parsed as Extract<AnyAccountStorage, { version: 1 }>),
+        ),
+      )
       break
     case 2:
-      storage = migrateV3ToV4(migrateV2ToV3(parsed))
+      storage = migrateV3ToV4(
+        migrateV2ToV3(parsed as Extract<AnyAccountStorage, { version: 2 }>),
+      )
       break
     case 3:
-      storage = migrateV3ToV4(parsed)
+      storage = migrateV3ToV4(parsed as AccountStorageV3)
       break
     case 4:
-      storage = parsed
+      storage = parsed as AccountStorageV4
       break
-    default:
-      return null
+  }
+
+  if (!storage) {
+    return {
+      state: 'unreadable',
+      reason: 'unsupported-version',
+      detail: `unhandled version after switch: ${String(parsedVersion)}`,
+    }
   }
 
   const validAccounts = storage.accounts.filter(
@@ -346,114 +514,80 @@ async function readAndNormalizeV4(
   }
 
   return {
-    version: 4,
-    accounts: deduplicatedAccounts,
-    activeIndex,
-    activeIndexByFamily: storage.activeIndexByFamily,
+    state: 'ok',
+    storage: {
+      version: 4,
+      accounts: deduplicatedAccounts,
+      activeIndex,
+      activeIndexByFamily: storage.activeIndexByFamily,
+    },
   }
 }
 
 /**
  * Load the account pool from `path`, migrating older versions in-place
- * to v4 and persisting the migrated copy. Returns `null` when the file
- * does not exist, is unreadable, or fails schema validation.
+ * to v4 and persisting the migrated copy.
+ *
+ * Returns `null` when the file does not exist (first-run UX).
+ *
+ * Throws `AccountStorageUnreadableError` when the file exists but
+ * cannot be read as a valid v4 — callers must NOT treat this as an
+ * empty pool, or they will silently destroy the user's data on the
+ * next write.
  */
 export async function loadAccountStorage(
   path: string,
 ): Promise<AccountStorageV4 | null> {
-  try {
-    await ensureSecurePermissions(path)
+  const buildBackupPath = DEFAULT_BUILD_BACKUP_PATH
+  const now = () => new Date()
+  await ensureSecurePermissions(path)
 
-    const content = await readFile(path, 'utf-8')
-    const data = JSON.parse(content) as AnyAccountStorage
-
-    if (!Array.isArray(data.accounts)) {
-      log.warn('Invalid storage format, ignoring')
-      return null
-    }
-
-    let storage: AccountStorageV4
-    if (data.version === 1) {
-      log.info('Migrating account storage from v1 to v4')
-      const v2 = migrateV1ToV2(data)
-      const v3 = migrateV2ToV3(v2)
-      storage = migrateV3ToV4(v3)
-      try {
-        await saveAccountStorage(path, storage)
-        log.info('Migration to v4 complete')
-      } catch (saveError) {
-        log.warn('Failed to persist migrated storage', {
-          error: String(saveError),
-        })
-      }
-    } else if (data.version === 2) {
-      log.info('Migrating account storage from v2 to v4')
-      const v3 = migrateV2ToV3(data)
-      storage = migrateV3ToV4(v3)
-      try {
-        await saveAccountStorage(path, storage)
-        log.info('Migration to v4 complete')
-      } catch (saveError) {
-        log.warn('Failed to persist migrated storage', {
-          error: String(saveError),
-        })
-      }
-    } else if (data.version === 3) {
-      log.info('Migrating account storage from v3 to v4')
-      storage = migrateV3ToV4(data)
-      try {
-        await saveAccountStorage(path, storage)
-        log.info('Migration to v4 complete')
-      } catch (saveError) {
-        log.warn('Failed to persist migrated storage', {
-          error: String(saveError),
-        })
-      }
-    } else if (data.version === 4) {
-      storage = data
-    } else {
-      log.warn('Unknown storage version, ignoring', {
-        version: (data as { version?: unknown }).version,
-      })
-      return null
-    }
-
-    const validAccounts = storage.accounts.filter(
-      (a): a is AccountMetadataV3 => {
-        return (
-          !!a &&
-          typeof a === 'object' &&
-          typeof (a as AccountMetadataV3).refreshToken === 'string'
-        )
+  const outcome = await readAndNormalizeV4(path)
+  if (outcome.state === 'missing') {
+    return null
+  }
+  if (outcome.state === 'unreadable') {
+    const backupPath = await backupCorruptFile(path, buildBackupPath, now())
+    throw new AccountStorageUnreadableError(
+      `Account storage at ${path} is unreadable (${outcome.reason}: ${outcome.detail}).` +
+        (backupPath
+          ? ` A backup was written to ${backupPath}. The plugin will refuse to write until the file is removed or repaired.`
+          : ' A backup could not be written; the file has been left in place. The plugin will refuse to write until the file is removed or repaired.'),
+      {
+        path,
+        reason: outcome.reason,
+        detail: outcome.detail,
+        backupPath,
       },
     )
+  }
 
-    const deduplicatedAccounts = deduplicateAccountsByEmail(validAccounts)
+  // Persist the migrated copy for v1/v2/v3 so subsequent loads are
+  // a single pass. Migration never changes semantics; a write failure
+  // is logged but not fatal — the in-memory result is still correct.
+  if (outcome.storage.version === 4) {
+    const onDiskVersion = await readVersionOnly(path)
+    if (onDiskVersion !== null && onDiskVersion !== 4) {
+      try {
+        await saveAccountStorage(path, outcome.storage)
+        log.info('Migration to v4 complete')
+      } catch (saveError) {
+        log.warn('Failed to persist migrated storage', {
+          error: String(saveError),
+        })
+      }
+    }
+  }
 
-    let activeIndex =
-      typeof storage.activeIndex === 'number' &&
-      Number.isFinite(storage.activeIndex)
-        ? storage.activeIndex
-        : 0
-    if (deduplicatedAccounts.length > 0) {
-      activeIndex = Math.min(activeIndex, deduplicatedAccounts.length - 1)
-      activeIndex = Math.max(activeIndex, 0)
-    } else {
-      activeIndex = 0
-    }
+  return outcome.storage
+}
 
-    return {
-      version: 4,
-      accounts: deduplicatedAccounts,
-      activeIndex,
-      activeIndexByFamily: storage.activeIndexByFamily,
-    }
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === 'ENOENT') {
-      return null
-    }
-    log.error('Failed to load account storage', { error: String(error) })
+async function readVersionOnly(path: string): Promise<number | null> {
+  try {
+    const raw = await readFile(path, 'utf-8')
+    const parsed = JSON.parse(raw) as { version?: unknown }
+    return typeof parsed.version === 'number' ? parsed.version : null
+  } catch {
     return null
   }
 }
@@ -512,6 +646,13 @@ async function acquireWithRetry(
  *
  * Throws `AccountStorageLockContentionError` after exhausting the
  * retry schedule against a lock that is still held by another writer.
+ *
+ * Throws `AccountStorageUnreadableError` when the file exists but
+ * cannot be read as a valid v4. In that case the file is first copied
+ * to a `.corrupt-<ISO-timestamp>` sidecar (best-effort) and the write
+ * is aborted — a user with a corrupt-but-recoverable accounts file (or
+ * one written by a newer plugin version) who adds one account MUST NOT
+ * have their entire pool silently destroyed.
  */
 export async function mutateAccountStorage(
   path: string,
@@ -521,22 +662,39 @@ export async function mutateAccountStorage(
   options: AccountStorageOptions = {},
 ): Promise<AccountStorageV4> {
   const sleep = options.sleep ?? DEFAULT_SLEEP
+  const buildBackupPath = options.buildBackupPath ?? DEFAULT_BUILD_BACKUP_PATH
+  const now = options.now ?? (() => new Date())
   const lock = await acquireWithRetry(path, sleep)
 
   try {
-    const existing = await readAndNormalizeV4(path)
+    const outcome = await readAndNormalizeV4(path)
+
+    if (outcome.state === 'unreadable') {
+      const backupPath = await backupCorruptFile(path, buildBackupPath, now())
+      throw new AccountStorageUnreadableError(
+        `Refusing to write: account storage at ${path} is unreadable (${outcome.reason}: ${outcome.detail}).` +
+          (backupPath
+            ? ` A backup of the existing file was written to ${backupPath} and the on-disk file has been left untouched. Repair or remove the existing file before retrying.`
+            : ' A backup could not be written; the on-disk file has been left untouched. Repair or remove the existing file before retrying.'),
+        {
+          path,
+          reason: outcome.reason,
+          detail: outcome.detail,
+          backupPath,
+        },
+      )
+    }
+
+    const existing: AccountStorageV4 =
+      outcome.state === 'ok'
+        ? outcome.storage
+        : { version: 4, accounts: [], activeIndex: 0 }
+
     // The mutator may be sync or async; awaiting its result lets long
     // mutators hold the lock for the duration of their work (the OS-level
     // create-lock + renewal keeps us exclusive that whole time).
-    const next = await mutate(
-      existing ?? { version: 4, accounts: [], activeIndex: 0 },
-    )
-    const finalStorage: AccountStorageV4 = next ??
-      existing ?? {
-        version: 4,
-        accounts: [],
-        activeIndex: 0,
-      }
+    const next = await mutate(existing)
+    const finalStorage: AccountStorageV4 = next ?? existing
 
     await lock.assertOwned()
     await writeJsonAtomic(path, finalStorage)

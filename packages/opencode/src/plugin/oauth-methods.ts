@@ -30,6 +30,7 @@ import {
   type OAuthListener,
 } from './server'
 import type { AccountMetadataV3 } from './storage'
+import { AccountStorageUnreadableError } from './storage'
 import type { AuthDetails, AuthMethod, PluginClient } from './types'
 import {
   classifyGroupStatus,
@@ -1409,7 +1410,15 @@ export function createOAuthMethods({
                 const isFirstAccount = accounts.length === 1
                 await persistAccountPool([result], isFirstAccount && startFresh)
               }
-            } catch {}
+            } catch (error) {
+              // Fail loud on unreadable storage: re-throw so the
+              // outer OAuth flow can surface a toast and abort the
+              // login instead of silently dropping the new account.
+              if (error instanceof AccountStorageUnreadableError) {
+                throw error
+              }
+              // Transient (lock contention, I/O hiccup) → continue.
+            }
 
             if (refreshAccountIndex !== undefined) {
               break

@@ -16,7 +16,11 @@ import {
   createProactiveRefreshQueue,
   type ProactiveRefreshQueue,
 } from './refresh-queue'
-import { clearAccounts, loadAccounts } from './storage'
+import {
+  AccountStorageUnreadableError,
+  clearAccounts,
+  loadAccounts,
+} from './storage'
 import type {
   GetAuth,
   LoaderResult,
@@ -99,7 +103,33 @@ export function createAuthLoader({
     let auth = await getAuth()
 
     if (!isOAuthAuth(auth)) {
-      const storedAccounts = await deps.loadAccounts()
+      let storedAccounts: Awaited<ReturnType<typeof loadAccounts>>
+      try {
+        storedAccounts = await deps.loadAccounts()
+      } catch (error) {
+        // Fail closed: do NOT proceed with `clearAccounts()` (which
+        // would destroy a recoverable corrupt file) and do NOT
+        // fabricate an empty pool. Surface the unreadable error so
+        // the caller can prompt the user to repair or remove the
+        // file. Backup path + reason are carried in `error.details`.
+        if (error instanceof AccountStorageUnreadableError) {
+          log.error('Refusing to start: account storage is unreadable', {
+            path: error.details.path,
+            reason: error.details.reason,
+            backupPath: error.details.backupPath,
+          })
+          try {
+            await client.tui.showToast({
+              body: {
+                message: `Account storage at ${error.details.path} is unreadable (${error.details.reason}). The plugin will not start until the file is repaired or removed.${error.details.backupPath ? ` A backup was written to ${error.details.backupPath}.` : ''}`,
+                variant: 'error',
+                duration: 30_000,
+              },
+            })
+          } catch {}
+        }
+        throw error
+      }
       const drift = detectAuthStorageDrift(auth, storedAccounts)
       if (drift.status === 'restorable' && drift.account) {
         auth = buildAuthFromStoredAccount(drift.account)
