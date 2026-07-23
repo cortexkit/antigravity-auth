@@ -27,19 +27,24 @@ import {
   buildSidebarMachineStateFromAccounts,
   setSidebarMachineState,
 } from '../sidebar-state'
+import type { CommandAccountRow, CommandDataService } from './command-data'
 import {
   executeGeminiDumpCommand,
   GEMINI_DUMP_COMMAND_NAME,
   parseGeminiDumpCommandAction,
   setGeminiDumpEnabled,
 } from './gemini-dump'
+import { createLogger } from './logger'
 import {
   createOperatorSettingsController,
   type OperatorSettings,
   type OperatorSettingsController,
 } from './operator-settings'
 import { resolvePromptContext } from './prompt-context'
+import { AccountStorageUnreadableError } from './storage'
 import type { PluginClient, PluginResult } from './types'
+
+const log = createLogger('commands')
 
 export const ANTIGRAVITY_QUOTA_COMMAND_NAME = 'antigravity-quota'
 export const ANTIGRAVITY_ACCOUNT_COMMAND_NAME = 'antigravity-account'
@@ -113,6 +118,14 @@ interface CommandContext {
    * triggers an OAuth flow) hook their own refresh.
    */
   onApplied?: () => Promise<void> | void
+  /**
+   * Privacy-safe data service that backs the data-first dialogs. The
+   * production wiring injects one that reads from the live AccountManager
+   * + storage and refreshes through the shared quota manager; tests
+   * (and any context that does not care about quota UI) leave this
+   * undefined and the dialog falls back to the legacy placeholder.
+   */
+  commandData?: CommandDataService
 }
 
 /**
@@ -136,11 +149,21 @@ export async function buildDialogPayload(
   switch (command) {
     case 'antigravity-quota': {
       const action = argumentsText.trim().toLowerCase()
+      // Opening the quota dialog is cache-only — we render the
+      // privacy-safe rows straight from the data service so the user
+      // sees the last-known percentages the moment the dialog mounts,
+      // with zero network I/O. The Refresh action (handled by
+      // `applyCommandInner`) is the only path that performs a live
+      // fetch.
+      const accounts = context.commandData
+        ? await context.commandData.listAccounts()
+        : []
       return {
         command,
         text: 'Antigravity quota',
         knobs: {
           mode: action === 'refresh' ? 'refresh' : 'status',
+          accounts,
         },
       }
     }
@@ -163,28 +186,42 @@ export async function buildDialogPayload(
     case 'antigravity-routing': {
       const settings = context.settings.get()
       const parsed = parseToggleArguments(argumentsText)
+      // State-first: the opening payload reports the CURRENT persisted
+      // values (no `!` inversion). Argument overrides still flow through
+      // so the slash-command-direct path can pre-stage a value, but the
+      // fallback when no argument is provided is the actual current
+      // state, not its negation. The apply handler returns the complete
+      // post-mutation state in `knobs` so the dialog re-renders from
+      // the same shape it was opened with.
       return {
         command,
         text: 'Antigravity routing',
         knobs: {
-          cli_first: parsed.cli_first ?? !settings.routing.cli_first,
+          cli_first: parsed.cli_first ?? settings.routing.cli_first,
           quota_style_fallback:
             parsed.quota_style_fallback ??
-            !settings.routing.quota_style_fallback,
+            settings.routing.quota_style_fallback,
+          timeoutMs: 2_000,
         },
       }
     }
     case 'antigravity-killswitch': {
       const settings = context.settings.get()
       const parsed = parseKillswitchArguments(argumentsText)
+      // State-first: opening reports the current killswitch shape
+      // (`enabled`, `minimum_remaining_percent`, plus the full
+      // per-account override map if any keys exist). Argument overrides
+      // are honored so the slash-command-direct path stays explicit.
       return {
         command,
         text: 'Antigravity killswitch',
         knobs: {
-          enabled: parsed.enabled ?? !settings.killswitch.enabled,
+          enabled: parsed.enabled ?? settings.killswitch.enabled,
           minimum_remaining_percent:
             parsed.minimum_remaining_percent ??
             settings.killswitch.minimum_remaining_percent,
+          accounts: settings.killswitch.accounts ?? {},
+          timeoutMs: 2_000,
         },
       }
     }
@@ -284,6 +321,47 @@ function parseLoggingLevel(input: string): OperatorSettings['log_level'] {
   return 'info'
 }
 
+type AccountAction =
+  | { kind: 'add' }
+  | { kind: 'refresh' }
+  | { kind: 'current'; index: number }
+  | { kind: 'toggle'; index: number }
+  | { kind: 'remove'; index: number }
+
+/**
+ * Parse the slash-command apply argument for `/antigravity-account`.
+ *
+ * Recognized forms:
+ *   `<empty>`        → `{ kind: 'refresh' }` (keeps the original
+ *                      "manage → refresh" placeholder semantics)
+ *   `add`            → `{ kind: 'add' }`
+ *   `refresh`        → `{ kind: 'refresh' }`
+ *   `current <n>`    → `{ kind: 'current', index: n }`
+ *   `toggle <n>`     → `{ kind: 'toggle', index: n }`
+ *   `remove <n>`     → `{ kind: 'remove', index: n }`
+ *
+ * `n` is the transient `acct-<index>` position the dialog renders.
+ * Negative or non-integer values are rejected; out-of-range indices
+ * are accepted here and rejected by the data service so the dialog
+ * can surface the error text.
+ */
+function parseAccountAction(input: string): AccountAction | undefined {
+  const trimmed = input.trim()
+  if (!trimmed) return { kind: 'refresh' }
+  const parts = trimmed.split(/\s+/).filter(Boolean)
+  const head = parts[0]?.toLowerCase()
+  if (head === 'add') return { kind: 'add' }
+  if (head === 'refresh') return { kind: 'refresh' }
+  if (head === 'current' || head === 'toggle' || head === 'remove') {
+    const raw = parts[1]
+    if (raw === undefined) return undefined
+    const index = Number.parseInt(raw, 10)
+    if (!Number.isInteger(index) || index < 0) return undefined
+    return { kind: head, index }
+  }
+  return undefined
+}
+
 export interface ApplyRequest {
   command: CommandModalName
   arguments: string
@@ -304,8 +382,10 @@ export interface ApplyResult {
  * path opts into a 120s RPC timeout. Status / toggle paths keep the
  * default 2s timeout.
  *
- * `openCommandDialog` passes the `timeoutMs` knob through to the RPC
- * client so callers see exactly which flows take longer.
+ * The TUI's imperative dispatcher (`tui/command-dialogs.openCommandDialog`)
+ * forwards the apply `options.timeoutMs` knob into the RPC apply call
+ * so a long-running path (account add / refresh) can opt in without the
+ * dialog layer having to special-case it.
  */
 export async function applyCommand(
   request: ApplyRequest,
@@ -323,54 +403,255 @@ export async function applyCommand(
   return result
 }
 
+/**
+ * Run a single account-mutation call against the data service and
+ * normalize the result for the apply layer.
+ *
+ * Returns a tagged union so the apply layer can distinguish:
+ *   - `{ kind: 'rows', rows }` — the mutation succeeded; the dialog
+ *     re-renders with the freshly-projected rows.
+ *   - `{ kind: 'not-found' }` — the index was out of range (the
+ *     service returned `null`); the apply layer reports a friendly
+ *     "account N not found" toast.
+ *   - `{ kind: 'error', text }` — the locked-storage write rejected
+ *     (AccountStorageUnreadableError, lock contention, I/O); the
+ *     apply layer surfaces the message as the dialog's `text` so the
+ *     user knows the mutation did NOT land.
+ */
+type AccountMutationResult =
+  | { kind: 'rows'; rows: CommandAccountRow[] }
+  | { kind: 'not-found' }
+  | { kind: 'error'; text: string }
+
+async function runAccountMutation(
+  context: CommandContext,
+  call: () => Promise<CommandAccountRow[] | null> | undefined,
+): Promise<AccountMutationResult> {
+  if (!context.commandData) {
+    return {
+      kind: 'error',
+      text: 'Command data service is not wired; account mutations are disabled.',
+    }
+  }
+  try {
+    const rows = await call()
+    if (rows == null) return { kind: 'not-found' }
+    return { kind: 'rows', rows }
+  } catch (error) {
+    if (error instanceof AccountStorageUnreadableError) {
+      log.warn('account mutation: locked storage is unreadable', {
+        error: error.message,
+      })
+      return {
+        kind: 'error',
+        text: `Account storage is unreadable: ${error.details.reason}. The mutation was not applied.`,
+      }
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    log.warn('account mutation failed', { error: message })
+    return {
+      kind: 'error',
+      text: `Account mutation failed: ${message}`,
+    }
+  }
+}
+
+function notFoundResult(verb: string, index: number): ApplyResult {
+  return {
+    text: `Cannot ${verb}: account ${index} not found`,
+    knobs: { action: verb, timeoutMs: 2_000 },
+  }
+}
+
+function errorResult(verb: string, text: string): ApplyResult {
+  return {
+    text,
+    knobs: { action: verb, timeoutMs: 2_000, error: true },
+  }
+}
+
 async function applyCommandInner(
   request: ApplyRequest,
   context: CommandContext,
 ): Promise<ApplyResult> {
   switch (request.command) {
     case 'antigravity-quota': {
+      // `refresh` is the only quota apply path; opening is cache-only
+      // via `listAccounts`. The data service forces the refresh and
+      // returns the freshly persisted rows so the dialog can re-render
+      // in place without a second RPC round-trip.
+      const accounts = context.commandData
+        ? await context.commandData.refreshQuota()
+        : ([] as CommandAccountRow[])
       return {
-        text: 'Quota refresh requested',
-        knobs: { mode: 'refresh', timeoutMs: 2_000 },
+        text: 'Quota refreshed',
+        knobs: { accounts, timeoutMs: 2_000 },
       }
     }
     case 'antigravity-account': {
-      const action = request.arguments.trim().toLowerCase()
-      const isAddOrRefresh = action === 'add' || action === 'refresh'
+      // Apply arguments follow the `<action> <index>` pattern the
+      // dialog uses to call back into the apply path:
+      //   `current <index>`  — pin the account as active for every family
+      //   `toggle <index>`   — flip the enabled flag
+      //   `remove <index>`   — drop the account (destructive, confirmed)
+      //   `add`              — backwards-compatible; opens the OAuth flow
+      //                        via the 120s timeout so the dialog can
+      //                        signal "Account add requested" (the OAuth
+      //                        implementation lands in a follow-up task).
+      // Bare `add` / `refresh` keep their 120s timeout so the OAuth
+      // handshake has room; everything else stays on the 2s default.
+      const args = request.arguments.trim()
+      const parsed = parseAccountAction(args)
+      if (!parsed) {
+        return {
+          text: `Unknown account action: ${args}`,
+          knobs: { action: 'unknown', timeoutMs: 2_000 },
+        }
+      }
+
+      // The data service drives the locked-storage mutator for the
+      // three CRUD mutations; `add` stays a no-op response so the
+      // dispatcher keeps its existing 120s RPC timeout contract.
+      //
+      // The locked-storage write is awaited FIRST (service-side) so a
+      // failed disk write never leaves the runtime ahead of disk. When
+      // that await throws — AccountStorageUnreadableError, lock
+      // contention, I/O — we catch here and surface the message as the
+      // apply's `text`. The dialog toasts that text and stays mounted
+      // (the `clear()` is gated on `apply returning rows`).
+      if (parsed.kind === 'current') {
+        const result = await runAccountMutation(context, () =>
+          context.commandData?.setCurrentAccount(parsed.index),
+        )
+        if (result.kind === 'not-found') {
+          return notFoundResult('set current', parsed.index)
+        }
+        if (result.kind === 'error') {
+          return errorResult('current', result.text)
+        }
+        return {
+          text: 'Current account updated',
+          knobs: {
+            accounts: result.rows,
+            action: 'current',
+            timeoutMs: 2_000,
+          },
+        }
+      }
+
+      if (parsed.kind === 'toggle') {
+        const result = await runAccountMutation(context, () =>
+          context.commandData?.toggleAccountEnabled(parsed.index),
+        )
+        if (result.kind === 'not-found') {
+          return notFoundResult('toggle', parsed.index)
+        }
+        if (result.kind === 'error') {
+          return errorResult('toggle', result.text)
+        }
+        return {
+          text: 'Account enabled state updated',
+          knobs: {
+            accounts: result.rows,
+            action: 'toggle',
+            timeoutMs: 2_000,
+          },
+        }
+      }
+
+      if (parsed.kind === 'remove') {
+        const result = await runAccountMutation(context, () =>
+          context.commandData?.removeAccount(parsed.index),
+        )
+        if (result.kind === 'not-found') {
+          return notFoundResult('remove', parsed.index)
+        }
+        if (result.kind === 'error') {
+          return errorResult('remove', result.text)
+        }
+        return {
+          text: 'Account removed',
+          knobs: {
+            accounts: result.rows,
+            action: 'remove',
+            timeoutMs: 2_000,
+          },
+        }
+      }
+
+      // `add` (and `refresh`) — backwards-compatible no-op response
+      // that keeps the 120s RPC timeout for the future OAuth path.
       return {
-        text: `Account ${action} requested`,
-        knobs: { action, timeoutMs: isAddOrRefresh ? 120_000 : 2_000 },
+        text: `Account ${parsed.kind} requested`,
+        knobs: { action: parsed.kind, timeoutMs: 120_000 },
       }
     }
     case 'antigravity-routing': {
       const parsed = parseToggleArguments(request.arguments)
-      await context.settings.update((draft) => {
-        if (parsed.cli_first !== undefined) {
-          draft.routing.cli_first = parsed.cli_first
+      try {
+        await context.settings.update((draft) => {
+          if (parsed.cli_first !== undefined) {
+            draft.routing.cli_first = parsed.cli_first
+          }
+          if (parsed.quota_style_fallback !== undefined) {
+            draft.routing.quota_style_fallback = parsed.quota_style_fallback
+          }
+        })
+      } catch (error) {
+        // Lock contention / unreadable config — surface the writer's
+        // message so the dialog can toast the real cause and stay
+        // mounted (T8/T10 pattern). The runtime view is left untouched
+        // because the writer either landed or threw.
+        const message = error instanceof Error ? error.message : String(error)
+        log.warn('routing update failed', { error: message })
+        return {
+          text: `Routing update failed: ${message}`,
+          knobs: { timeoutMs: 2_000, error: true },
         }
-        if (parsed.quota_style_fallback !== undefined) {
-          draft.routing.quota_style_fallback = parsed.quota_style_fallback
-        }
-      })
+      }
+      // Complete persisted state — the dialog re-renders from the same
+      // shape `buildDialogPayload` produced on open.
+      const after = context.settings.get()
       return {
         text: 'Routing updated',
-        knobs: { timeoutMs: 2_000, ...parsed },
+        knobs: {
+          cli_first: after.routing.cli_first,
+          quota_style_fallback: after.routing.quota_style_fallback,
+          timeoutMs: 2_000,
+        },
       }
     }
     case 'antigravity-killswitch': {
       const parsed = parseKillswitchArguments(request.arguments)
-      await context.settings.update((draft) => {
-        if (parsed.enabled !== undefined) {
-          draft.killswitch.enabled = parsed.enabled
+      try {
+        await context.settings.update((draft) => {
+          if (parsed.enabled !== undefined) {
+            draft.killswitch.enabled = parsed.enabled
+          }
+          if (parsed.minimum_remaining_percent !== undefined) {
+            draft.killswitch.minimum_remaining_percent =
+              parsed.minimum_remaining_percent
+          }
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        log.warn('killswitch update failed', { error: message })
+        return {
+          text: `Killswitch update failed: ${message}`,
+          knobs: { timeoutMs: 2_000, error: true },
         }
-        if (parsed.minimum_remaining_percent !== undefined) {
-          draft.killswitch.minimum_remaining_percent =
-            parsed.minimum_remaining_percent
-        }
-      })
+      }
+      // Complete persisted state — the dialog re-renders the full
+      // killswitch shape (enabled, threshold, per-account overrides).
+      const after = context.settings.get()
       return {
         text: 'Killswitch updated',
-        knobs: { timeoutMs: 2_000, ...parsed },
+        knobs: {
+          enabled: after.killswitch.enabled,
+          minimum_remaining_percent: after.killswitch.minimum_remaining_percent,
+          accounts: after.killswitch.accounts ?? {},
+          timeoutMs: 2_000,
+        },
       }
     }
     case 'antigravity-dump': {
@@ -443,57 +724,6 @@ export function createSidebarRefresher(
   }
 }
 
-export interface CommandDialogOpenOptions {
-  /**
-   * Override the RPC apply timeout. Defaults to 2s for status/toggle
-   * flows and 120s for account add/refresh.
-   */
-  timeoutMs?: number
-}
-
-/**
- * Open the OpenTUI dialog for `payload`.
- *
- * Wires the dialog tree to the RPC apply client so a selection in the
- * dialog posts back to the server and the server mutates the operator
- * settings through `applyCommand`. The function returns the
- * `dispose` cleanup so callers can tear the dialog down if they need
- * to.
- */
-export function openCommandDialog(
-  api: Parameters<
-    NonNullable<PluginResult['command.execute.before']>
-  >[0] extends never
-    ? never
-    : {
-        client: PluginClient
-        rpcApply: (
-          request: ApplyRequest,
-          options?: CommandDialogOpenOptions,
-        ) => Promise<ApplyResult>
-      },
-  payload: {
-    command: CommandModalName
-    text: string
-    knobs: Record<string, unknown>
-  },
-  apply: (
-    command: CommandModalName,
-    args: string,
-    options?: CommandDialogOpenOptions,
-  ) => Promise<ApplyResult>,
-  sessionId?: string,
-): () => void {
-  // Kept here to preserve the documented contract — the dialog tree is
-  // mounted by `tui.tsx` in response to an RPC notification. The actual
-  // Solid render happens in `tui/command-dialogs.tsx`.
-  void api
-  void payload
-  void apply
-  void sessionId
-  return () => {}
-}
-
 /**
  * Optional handle for the host connection state. Tests inject a stub
  * to force the connected/disconnected branch; production callers let
@@ -524,12 +754,18 @@ export function createCommandExecuteBefore(
   pushNotification: (
     payload: Awaited<ReturnType<typeof buildDialogPayload>>,
     sessionId?: string,
-  ) => number,
+  ) => void,
+  commandData?: CommandDataService,
   connectionState: CommandConnectionState = {
     isTuiConnected: defaultIsTuiConnected,
   },
 ): PluginResult['command.execute.before'] {
-  const context: CommandContext = { client, sessionID: '', settings }
+  const context: CommandContext = {
+    client,
+    sessionID: '',
+    settings,
+    commandData,
+  }
   return async (input) => {
     const command = input.command
     if (command === GEMINI_DUMP_COMMAND_NAME) {
@@ -575,6 +811,7 @@ export function createCommandExecuteBefore(
  */
 export function createCommandExecuteBeforeForClient(
   client: PluginClient,
+  commandData?: CommandDataService,
 ): PluginResult['command.execute.before'] {
   return createCommandExecuteBefore(
     client,
@@ -582,6 +819,7 @@ export function createCommandExecuteBeforeForClient(
       projectConfigPath: '/dev/null',
       userConfigPath: '/dev/null',
     }),
-    () => 0,
+    () => undefined,
+    commandData,
   )
 }

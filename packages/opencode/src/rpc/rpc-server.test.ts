@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,6 +7,7 @@ import { discoverPortFile, writePortFile } from './port-file'
 import { type RpcServerHandle, startRpcServer } from './rpc-server'
 
 const APPLY_PATH = '/rpc/apply'
+const NOTIFICATIONS_PATH = '/rpc/pending-notifications'
 
 function request(
   handle: RpcServerHandle,
@@ -20,13 +21,14 @@ describe('RPC server HTTP boundary', () => {
   let dir: string
   let handle: RpcServerHandle | undefined
 
-  beforeEach(() => {
-    dir = join(mkdtempSync(join(tmpdir(), 'agy-rpc-server-test-')), 'rpc')
+  beforeEach(async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'agy-rpc-server-test-'))
+    dir = join(parent, 'rpc')
   })
 
   afterEach(async () => {
     await handle?.stop()
-    rmSync(join(dir, '..'), { recursive: true, force: true })
+    await rm(join(dir, '..'), { recursive: true, force: true })
   })
 
   it('listens on loopback and publishes discovery only after startup', async () => {
@@ -36,12 +38,11 @@ describe('RPC server HTTP boundary', () => {
       drain: () => [],
     })
 
-    const discovered = discoverPortFile(dir, process.pid)
-    expect(discovered).toEqual({
-      pid: process.pid,
-      port: handle.port,
-      token: handle.token,
-    })
+    const discovered = await discoverPortFile(dir, process.pid)
+    expect(discovered).not.toBeNull()
+    expect(discovered?.pid).toBe(process.pid)
+    expect(discovered?.port).toBe(handle.port)
+    expect(discovered?.token).toBe(handle.token)
     expect(handle.port).not.toBe(process.pid)
   })
 
@@ -72,6 +73,37 @@ describe('RPC server HTTP boundary', () => {
     expect(pending.status).toBe(401)
   })
 
+  it('wraps pending notifications in a messages response', async () => {
+    const notification = {
+      id: 4,
+      type: 'open-dialog' as const,
+      payload: {
+        command: 'antigravity-quota' as const,
+        text: 'quota changed',
+        knobs: {},
+      },
+      sessionId: 'session-a',
+    }
+    handle = await startRpcServer({
+      dir,
+      apply: async () => ({ text: 'ok', knobs: {} }),
+      drain: (lastReceivedId, sessionId) => {
+        expect(lastReceivedId).toBe(3)
+        expect(sessionId).toBe('session-a')
+        return [notification]
+      },
+    })
+
+    const response = await request(handle, NOTIFICATIONS_PATH, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${handle.token}` },
+      body: JSON.stringify({ lastReceivedId: 3, sessionId: 'session-a' }),
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ messages: [notification] })
+  })
+
   it('returns 404 for non-POST requests and unknown paths', async () => {
     handle = await startRpcServer({
       dir,
@@ -87,6 +119,29 @@ describe('RPC server HTTP boundary', () => {
     })
 
     expect(get.status).toBe(404)
+    expect(unknown.status).toBe(404)
+  })
+
+  it('serves GET /health without authentication', async () => {
+    handle = await startRpcServer({
+      dir,
+      apply: async () => ({ text: 'ok', knobs: {} }),
+      drain: () => [],
+    })
+
+    const response = await request(handle, '/health')
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+  })
+
+  it('returns 404 for unknown GET paths', async () => {
+    handle = await startRpcServer({
+      dir,
+      apply: async () => ({ text: 'ok', knobs: {} }),
+      drain: () => [],
+    })
+
+    const unknown = await request(handle, '/not-a-real-route')
     expect(unknown.status).toBe(404)
   })
 
@@ -121,13 +176,18 @@ describe('RPC server HTTP boundary', () => {
     })
     const ownFile = join(dir, `port-${process.pid}.json`)
     const otherFile = join(dir, `port-${process.ppid}.json`)
-    writePortFile(dir, { pid: process.ppid, port: 49_999, token: 'other' })
+    await writePortFile(dir, {
+      pid: process.ppid,
+      port: 49_999,
+      token: 'other',
+    })
 
     await handle.stop()
     await handle.stop()
 
-    expect(existsSync(ownFile)).toBe(false)
-    expect(existsSync(otherFile)).toBe(true)
+    const { stat } = await import('node:fs/promises')
+    await expect(stat(ownFile)).rejects.toThrow()
+    await expect(stat(otherFile)).resolves.toBeDefined()
     await expect(
       fetch(`http://127.0.0.1:${handle.port}${APPLY_PATH}`),
     ).rejects.toThrow()

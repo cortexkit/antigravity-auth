@@ -1356,6 +1356,7 @@ export function createFetchInterceptor(
                 accountId: `acct-${account.index}`,
                 modelFamily: family,
                 headerStyle: prepared.headerStyle,
+                strategy: config.account_selection_strategy,
                 updatedAt: Date.now(),
               }
               void upsertSidebarActiveRouting(sessionKey, routingEntry, {

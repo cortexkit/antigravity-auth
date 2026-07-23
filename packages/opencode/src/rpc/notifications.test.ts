@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'bun:test'
+import { beforeEach, describe, expect, it, spyOn } from 'bun:test'
 
-import { createNotificationQueue } from './notifications'
+import {
+  drainNotifications,
+  isTuiConnected,
+  pushNotification,
+  resetNotificationsForTest,
+} from './notifications'
 import type { OpenDialogPayload } from './protocol'
 
 function payload(text: string): OpenDialogPayload {
@@ -12,63 +17,76 @@ function payload(text: string): OpenDialogPayload {
 }
 
 describe('notification queue', () => {
-  it('assigns monotonic IDs and drains notifications in insertion order', () => {
-    const queue = createNotificationQueue()
-    queue.pushNotification(payload('first'))
-    queue.pushNotification(payload('second'))
+  beforeEach(() => {
+    resetNotificationsForTest()
+  })
 
-    expect(
-      queue.drainNotifications(0).map(({ id, text }) => ({ id, text })),
-    ).toEqual([
-      { id: 1, text: 'first' },
-      { id: 2, text: 'second' },
+  it('wraps payloads in typed envelopes with monotonic IDs', () => {
+    pushNotification(payload('first'))
+    pushNotification(payload('second'))
+
+    expect(drainNotifications(0)).toEqual([
+      {
+        id: 1,
+        type: 'open-dialog',
+        payload: payload('first'),
+        sessionId: undefined,
+      },
+      {
+        id: 2,
+        type: 'open-dialog',
+        payload: payload('second'),
+        sessionId: undefined,
+      },
     ])
-    expect(queue.drainNotifications(1).map(({ id }) => id)).toEqual([2])
+    expect(drainNotifications(1).map(({ id }) => id)).toEqual([2])
   })
 
   it('evicts the oldest notifications after the 100-entry cap', () => {
-    const queue = createNotificationQueue()
     for (let index = 1; index <= 105; index += 1) {
-      queue.pushNotification(payload(`notification-${index}`))
+      pushNotification(payload(`notification-${index}`))
     }
 
-    const drained = queue.drainNotifications(0)
+    const drained = drainNotifications(0)
     expect(drained).toHaveLength(100)
     expect(drained[0]?.id).toBe(6)
     expect(drained.at(-1)?.id).toBe(105)
   })
 
-  it('isolates targeted notifications while retaining broadcasts', () => {
-    const queue = createNotificationQueue()
-    queue.pushNotification(payload('broadcast'))
-    queue.pushNotification(payload('session-a'), 'a')
-    queue.pushNotification(payload('session-b'), 'b')
+  it('isolates targeted notifications while retaining broadcasts for other sessions', () => {
+    pushNotification(payload('broadcast'))
+    pushNotification(payload('session-a'), 'a')
+    pushNotification(payload('session-b'), 'b')
 
-    expect(queue.drainNotifications(0, 'a').map(({ text }) => text)).toEqual([
-      'broadcast',
-      'session-a',
-    ])
-    expect(queue.drainNotifications(0, 'b').map(({ text }) => text)).toEqual([
-      'broadcast',
-      'session-b',
-    ])
-    expect(queue.drainNotifications(0).map(({ text }) => text)).toEqual([
-      'broadcast',
-    ])
+    expect(
+      drainNotifications(0, 'a').map(({ payload: item }) => item.text),
+    ).toEqual(['broadcast', 'session-a'])
+
+    drainNotifications(2, 'a')
+
+    expect(
+      drainNotifications(0, 'b').map(({ payload: item }) => item.text),
+    ).toEqual(['broadcast', 'session-b'])
+    expect(drainNotifications(0).map(({ payload: item }) => item.text)).toEqual(
+      ['broadcast', 'session-b'],
+    )
   })
 
-  it('reports a TUI connected for five seconds after that session drains', () => {
-    let now = 10_000
-    const queue = createNotificationQueue({ now: () => now })
+  it('reports a TUI connected within the 3000ms drain window', () => {
+    const now = spyOn(Date, 'now')
+    now.mockReturnValue(10_000)
 
-    expect(queue.isTuiConnected('session-a')).toBe(false)
-    queue.drainNotifications(0, 'session-a')
-    expect(queue.isTuiConnected('session-a')).toBe(true)
-    expect(queue.isTuiConnected('session-b')).toBe(false)
+    expect(isTuiConnected('session-a')).toBe(false)
+    drainNotifications(0, 'session-a')
+    expect(isTuiConnected('session-a')).toBe(true)
+    expect(isTuiConnected('session-b')).toBe(false)
+    expect(isTuiConnected()).toBe(true)
 
-    now += 5_000
-    expect(queue.isTuiConnected('session-a')).toBe(true)
-    now += 1
-    expect(queue.isTuiConnected('session-a')).toBe(false)
+    now.mockReturnValue(12_999)
+    expect(isTuiConnected('session-a')).toBe(true)
+    now.mockReturnValue(13_000)
+    expect(isTuiConnected('session-a')).toBe(false)
+
+    now.mockRestore()
   })
 })

@@ -1,94 +1,108 @@
 import { randomBytes } from 'node:crypto'
 import {
-  chmodSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
+  chmod,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from 'node:fs/promises'
 import { join } from 'node:path'
 
 export interface PortFileEntry {
-  pid: number
   port: number
   token: string
-}
-
-interface LivePortFile {
-  entry: PortFileEntry
-  mtimeMs: number
+  pid: number
+  startedAt: number
 }
 
 const PORT_FILE_PATTERN = /^port-(\d+)\.json$/
+const DIR_MODE = 0o700
+const FILE_MODE = 0o600
 
-export function writePortFile(dir: string, entry: PortFileEntry): void {
-  assertPortFileEntry(entry, entry.pid)
-  mkdirSync(dir, { recursive: true, mode: 0o700 })
-  chmodSync(dir, 0o700)
+export async function writePortFile(
+  dir: string,
+  entry: { port: number; token: string; pid: number },
+): Promise<string> {
+  assertPortFileEntry({ ...entry, startedAt: 0 }, entry.pid)
 
-  const destination = join(dir, `port-${entry.pid}.json`)
-  const temporary = join(
-    dir,
-    `.port-${entry.pid}-${randomBytes(8).toString('hex')}.tmp`,
-  )
+  // mkdir recursive with the private mode on first creation; on a re-run the
+  // directory already exists with the right mode. We still re-apply chmod so
+  // an operator who widened the directory accidentally gets it repaired
+  // back to 0o700 before we drop a token-bearing file inside.
+  await mkdir(dir, { recursive: true, mode: DIR_MODE })
+  await chmod(dir, DIR_MODE)
+
+  const full: PortFileEntry = { ...entry, startedAt: Date.now() }
+  const target = join(dir, `port-${entry.pid}.json`)
+  const temporary = `${target}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`
 
   try {
-    writeFileSync(temporary, JSON.stringify(entry), {
+    await writeFile(temporary, JSON.stringify(full), {
       encoding: 'utf8',
-      flag: 'wx',
-      mode: 0o600,
+      mode: FILE_MODE,
     })
-    chmodSync(temporary, 0o600)
-    renameSync(temporary, destination)
+    await chmod(temporary, FILE_MODE)
+    await rename(temporary, target)
   } catch (error) {
     try {
-      unlinkSync(temporary)
+      await unlink(temporary)
     } catch {}
     throw error
   }
+  return target
 }
 
-export function discoverPortFile(
+export async function discoverPortFile(
   dir: string,
   expectedPid?: number,
-): PortFileEntry | null {
+): Promise<PortFileEntry | null> {
   let names: string[]
   try {
-    names = readdirSync(dir)
+    names = await readdir(dir)
   } catch (error) {
     if (isNodeError(error, 'ENOENT')) return null
     throw error
   }
 
-  const live: LivePortFile[] = []
+  const live: PortFileEntry[] = []
   for (const name of names) {
     const match = PORT_FILE_PATTERN.exec(name)
     if (!match) continue
     const path = join(dir, name)
     const filenamePid = Number(match[1])
 
+    let parsed: PortFileEntry
     try {
-      const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown
-      assertPortFileEntry(parsed, filenamePid)
-      if (!isProcessAlive(parsed.pid)) {
-        removePortFile(path)
-        continue
-      }
-      live.push({ entry: parsed, mtimeMs: statSync(path).mtimeMs })
+      const text = await readFile(path, 'utf8')
+      const raw = JSON.parse(text) as unknown
+      assertPortFileEntry(raw, filenamePid)
+      parsed = raw
     } catch {
-      removePortFile(path)
+      // Malformed or stale — keep the directory clean so future discovers
+      // don't trip over the same debris.
+      await unlink(path).catch(() => {})
+      continue
     }
+
+    if (!isProcessAlive(parsed.pid)) {
+      await unlink(path).catch(() => {})
+      continue
+    }
+
+    live.push(parsed)
   }
 
   if (expectedPid !== undefined) {
-    return live.find(({ entry }) => entry.pid === expectedPid)?.entry ?? null
+    // antigravity exact-PID safety: a missing expected PID must surface as
+    // null so a stale but live entry can't impersonate the requester.
+    return live.find(({ pid }) => pid === expectedPid) ?? null
   }
 
-  live.sort((left, right) => right.mtimeMs - left.mtimeMs)
-  return live[0]?.entry ?? null
+  if (live.length === 0) return null
+  live.sort((left, right) => right.startedAt - left.startedAt)
+  return live[0] ?? null
 }
 
 function assertPortFileEntry(
@@ -116,14 +130,8 @@ function isProcessAlive(pid: number): boolean {
     process.kill(pid, 0)
     return true
   } catch (error) {
-    return !isNodeError(error, 'ESRCH')
+    return isNodeError(error, 'EPERM')
   }
-}
-
-function removePortFile(path: string): void {
-  try {
-    unlinkSync(path)
-  } catch {}
 }
 
 function isNodeError(error: unknown, code: string): boolean {

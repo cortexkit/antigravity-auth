@@ -200,6 +200,14 @@ describe('RPC source shipping', () => {
   })
 })
 
+describe('TUI preferences shipping', () => {
+  it('ships the shared preferences store so the TUI can read/write from the host', () => {
+    expect(SHIPPED_SOURCE_FILES).toEqual(
+      expect.arrayContaining(['src/tui-preferences.ts']),
+    )
+  })
+})
+
 describe('standalone CLI isolation', () => {
   it('keeps cli.ts out of the TUI import graph', async () => {
     const reachable = await collectRelativeImportGraph(

@@ -12,8 +12,10 @@ export interface OpenDialogPayload {
   knobs: Record<string, unknown>
 }
 
-export interface RpcNotification extends OpenDialogPayload {
+export interface RpcNotification {
   id: number
+  type: 'open-dialog'
+  payload: OpenDialogPayload
   sessionId?: string
 }
 

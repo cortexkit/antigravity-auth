@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { unlinkSync } from 'node:fs'
+import { unlink } from 'node:fs/promises'
 import {
   createServer,
   type IncomingMessage,
@@ -22,6 +22,7 @@ const APPLY_TIMEOUT_MS = 120_000
 const MAX_BODY_BYTES = 1024 * 1024
 const APPLY_PATH = '/rpc/apply'
 const NOTIFICATIONS_PATH = '/rpc/pending-notifications'
+const HEALTH_PATH = '/health'
 
 const COMMANDS = new Set<CommandModalName>([
   'antigravity-quota',
@@ -87,6 +88,10 @@ export async function startRpcServer(
     server.listen(0, LOOPBACK_HOST)
   })
 
+  // unref so the open TCP listener does not keep the host process alive
+  // once the rest of the event loop has nothing else to do.
+  server.unref()
+
   const address = server.address() as AddressInfo | null
   if (!address) {
     await closeServer(server)
@@ -94,7 +99,7 @@ export async function startRpcServer(
   }
 
   try {
-    writePortFile(options.dir, {
+    await writePortFile(options.dir, {
       pid: process.pid,
       port: address.port,
       token,
@@ -113,7 +118,7 @@ export async function startRpcServer(
         stopping = (async () => {
           await closeServer(server)
           try {
-            unlinkSync(join(options.dir, `port-${process.pid}.json`))
+            await unlink(join(options.dir, `port-${process.pid}.json`))
           } catch (error) {
             if (!isNodeError(error, 'ENOENT')) throw error
           }
@@ -133,6 +138,10 @@ async function handleRequest(
   const path = request.url
     ? new URL(request.url, 'http://localhost').pathname
     : ''
+  if (request.method === 'GET' && path === HEALTH_PATH) {
+    sendJson(response, 200, { ok: true })
+    return
+  }
   if (
     request.method !== 'POST' ||
     (path !== APPLY_PATH && path !== NOTIFICATIONS_PATH)
@@ -162,7 +171,7 @@ async function handleRequest(
     pendingRequest.lastReceivedId,
     pendingRequest.sessionId,
   )
-  sendJson(response, 200, notifications)
+  sendJson(response, 200, { messages: notifications })
 }
 
 function isAuthorized(header: string | undefined, token: string): boolean {

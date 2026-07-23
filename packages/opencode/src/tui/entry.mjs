@@ -66,9 +66,9 @@ async function importWithFallback() {
 }
 
 const mod = await importWithFallback()
-const tui = mod?.default ?? mod?.tui ?? mod
 
-export default {
-  id: 'cortexkit.antigravity-auth',
-  tui,
-}
+// Pass the wrapped plugin shape through unchanged. `tui.tsx` exports the
+// fleet-shape `{ id, tui }` wrapper as its default export; this file just
+// selects between the precompiled and the dev-TSX entry, it does not
+// re-wrap.
+export default mod?.default ?? mod?.tui ?? mod

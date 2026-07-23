@@ -73,6 +73,7 @@ export interface SidebarRoutingEntry {
   accountId: string
   modelFamily: 'claude' | 'gemini'
   headerStyle: 'antigravity' | 'gemini-cli'
+  strategy?: 'sticky' | 'round-robin' | 'hybrid'
   updatedAt: number
 }
 
@@ -325,6 +326,7 @@ function normalizeRouting(input: unknown): SidebarRoutingEntry | null {
     typeof record.accountId === 'string' ? record.accountId : null
   const modelFamily = record.modelFamily
   const headerStyle = record.headerStyle
+  const strategy = record.strategy
   const updatedAt = toFiniteNumber(record.updatedAt) ?? 0
   if (
     !accountId ||
@@ -337,6 +339,12 @@ function normalizeRouting(input: unknown): SidebarRoutingEntry | null {
     accountId,
     modelFamily,
     headerStyle,
+    strategy:
+      strategy === 'sticky' ||
+      strategy === 'round-robin' ||
+      strategy === 'hybrid'
+        ? strategy
+        : undefined,
     updatedAt,
   }
 }

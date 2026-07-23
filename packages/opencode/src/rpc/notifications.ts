@@ -1,62 +1,58 @@
 import type { OpenDialogPayload, RpcNotification } from './protocol'
 
-const MAX_NOTIFICATIONS = 100
-const CONNECTION_TTL_MS = 5_000
-const GLOBAL_SESSION = ''
+const QUEUE_CAP = 100
+const CONNECTION_TTL_MS = 3_000
 
-export interface NotificationQueueOptions {
-  now?: () => number
+let queue: RpcNotification[] = []
+let nextId = 1
+let lastDrainAtAny = 0
+const lastDrainAtBySession = new Map<string, number>()
+
+export function pushNotification(
+  payload: OpenDialogPayload,
+  sessionId?: string,
+): void {
+  queue.push({ id: nextId++, type: 'open-dialog', payload, sessionId })
+  if (queue.length > QUEUE_CAP) queue = queue.slice(queue.length - QUEUE_CAP)
 }
 
-export interface NotificationQueue {
-  pushNotification(payload: OpenDialogPayload, sessionId?: string): number
-  drainNotifications(
-    lastReceivedId: number,
-    sessionId?: string,
-  ): RpcNotification[]
-  isTuiConnected(sessionId?: string): boolean
-}
+export function drainNotifications(
+  lastReceivedId = 0,
+  sessionId?: string,
+): RpcNotification[] {
+  const now = Date.now()
+  lastDrainAtAny = now
+  if (sessionId !== undefined) lastDrainAtBySession.set(sessionId, now)
 
-export function createNotificationQueue(
-  options: NotificationQueueOptions = {},
-): NotificationQueue {
-  const now = options.now ?? Date.now
-  const notifications: RpcNotification[] = []
-  const lastDrainBySession = new Map<string, number>()
-  let nextId = 1
-
-  return {
-    pushNotification(payload, sessionId) {
-      const notification: RpcNotification = {
-        ...payload,
-        id: nextId,
-        ...(sessionId === undefined ? {} : { sessionId }),
-      }
-      nextId += 1
-      notifications.push(notification)
-      if (notifications.length > MAX_NOTIFICATIONS) {
-        notifications.splice(0, notifications.length - MAX_NOTIFICATIONS)
-      }
-      return notification.id
-    },
-    drainNotifications(lastReceivedId, sessionId) {
-      lastDrainBySession.set(sessionId ?? GLOBAL_SESSION, now())
-      return notifications.filter(
-        (notification) =>
-          notification.id > lastReceivedId &&
-          (notification.sessionId === undefined ||
-            notification.sessionId === sessionId),
-      )
-    },
-    isTuiConnected(sessionId) {
-      const lastDrain = lastDrainBySession.get(sessionId ?? GLOBAL_SESSION)
-      return lastDrain !== undefined && now() - lastDrain <= CONNECTION_TTL_MS
-    },
+  if (lastReceivedId > 0) {
+    queue = queue.filter((notification) => {
+      if (notification.id > lastReceivedId) return true
+      if (sessionId === undefined) return false
+      return notification.sessionId !== sessionId
+    })
   }
+
+  return queue.filter(
+    (notification) =>
+      notification.id > lastReceivedId &&
+      (sessionId === undefined ||
+        notification.sessionId === undefined ||
+        notification.sessionId === sessionId),
+  )
 }
 
-const defaultQueue = createNotificationQueue()
+export function isTuiConnected(sessionId?: string): boolean {
+  const now = Date.now()
+  if (sessionId !== undefined) {
+    const lastDrainAt = lastDrainAtBySession.get(sessionId) ?? 0
+    return lastDrainAt > 0 && now - lastDrainAt < CONNECTION_TTL_MS
+  }
+  return lastDrainAtAny > 0 && now - lastDrainAtAny < CONNECTION_TTL_MS
+}
 
-export const pushNotification = defaultQueue.pushNotification
-export const drainNotifications = defaultQueue.drainNotifications
-export const isTuiConnected = defaultQueue.isTuiConnected
+export function resetNotificationsForTest(): void {
+  queue = []
+  nextId = 1
+  lastDrainAtAny = 0
+  lastDrainAtBySession.clear()
+}

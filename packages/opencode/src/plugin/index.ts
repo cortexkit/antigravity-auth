@@ -4,7 +4,7 @@ import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
 import { drainNotifications, pushNotification } from '../rpc/notifications'
 import { getRpcDir } from '../rpc/rpc-dir'
 import { startRpcServer } from '../rpc/rpc-server'
-import { drainSidebarWrites } from '../sidebar-state'
+import { drainSidebarWrites, getSidebarStateFile } from '../sidebar-state'
 import {
   createAccountAccessService,
   promptAccountIndexForVerification,
@@ -16,6 +16,10 @@ import {
   applyAntigravityProviderCatalog,
   registerAntigravityCommands,
 } from './catalog'
+import {
+  type CommandDataService,
+  createCommandDataService,
+} from './command-data'
 import {
   applyCommand,
   createCommandExecuteBefore,
@@ -185,10 +189,80 @@ export const createAntigravityPlugin =
       updateChecker,
       logger,
     })
+    // This service intentionally closes over lifecycle getters, so both OPEN
+    // notifications and RPC apply actions observe the current account manager.
+    const commandData: CommandDataService = createCommandDataService({
+      accountManagerView: {
+        getAccounts: () => {
+          const manager = lifecycle.getAccountManager()
+          if (!manager) return []
+          const current =
+            manager.getCurrentAccountForFamily('claude')?.index ?? 0
+          return manager.getAccounts().map((entry, index) => ({
+            index,
+            refreshToken: entry.parts.refreshToken,
+            label: entry.label,
+            enabled: entry.enabled !== false,
+            active: index === current,
+            cachedQuota: entry.cachedQuota,
+            cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+          }))
+        },
+        getAccountsForQuotaCheck: () => {
+          const manager = lifecycle.getAccountManager()
+          return manager ? manager.getAccountsForQuotaCheck() : []
+        },
+        updateQuotaCache: (index, groups) => {
+          lifecycle.getAccountManager()?.updateQuotaCache(index, groups)
+        },
+        requestSaveToDisk: () => {
+          lifecycle.getAccountManager()?.requestSaveToDisk()
+        },
+        flushSaveToDisk: async () => {
+          await lifecycle.getAccountManager()?.flushSaveToDisk()
+        },
+        activeIndex: () => {
+          const manager = lifecycle.getAccountManager()
+          return manager
+            ? (manager.getCurrentAccountForFamily('claude')?.index ?? 0)
+            : 0
+        },
+        setAccountEnabled: (index, enabled) => {
+          const manager = lifecycle.getAccountManager()
+          if (!manager) return false
+          return manager.setAccountEnabled(index, enabled)
+        },
+        setAccountCurrent: (index) => {
+          const manager = lifecycle.getAccountManager()
+          if (!manager) return false
+          const account = manager.getAccounts()[index]
+          if (!account) return false
+          manager.markSwitched(account, 'initial', 'claude')
+          manager.markSwitched(account, 'initial', 'gemini')
+          return true
+        },
+        removeAccountByIndex: (index) => {
+          const manager = lifecycle.getAccountManager()
+          if (!manager) return false
+          return manager.removeAccountByIndex(index)
+        },
+        getRefreshTokenAt: (index) => {
+          const manager = lifecycle.getAccountManager()
+          if (!manager) return undefined
+          return manager.getAccounts()[index]?.parts.refreshToken
+        },
+      },
+      quotaManager,
+      sidebarStateFile: getSidebarStateFile(),
+      storage: {
+        mutate: (mutator) => mutateAccountStorage(getStoragePath(), mutator),
+      },
+    })
     const commandExecuteBefore = createCommandExecuteBefore(
       client,
       operatorSettings,
       pushNotification,
+      commandData,
     )
     const googleSearchTool = createGoogleSearchTool({
       getAuth: async () => (cachedGetAuth ? cachedGetAuth() : null),
@@ -265,6 +339,7 @@ export const createAntigravityPlugin =
           sessionID: request.sessionId ?? '',
           settings: operatorSettings,
           onApplied: refreshSidebar,
+          commandData,
         })
         // /antigravity-logging mutates the log level — propagate
         // immediately so subsequent log calls in this session respect it.

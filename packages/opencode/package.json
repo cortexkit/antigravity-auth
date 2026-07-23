@@ -44,14 +44,15 @@
     "dist/",
     "src/tui.tsx",
     "src/tui/entry.mjs",
-    "src/tui/ansi.ts",
     "src/tui/command-dialogs.tsx",
     "src/tui/file-logger.ts",
+    "src/tui-preferences.ts",
     "src/sidebar-state.ts",
     "src/rpc/rpc-client.ts",
     "src/rpc/rpc-dir.ts",
     "src/rpc/port-file.ts",
     "src/rpc/protocol.ts",
+    "src/plugin/command-data.ts",
     "src/tui-compiled/",
     "README.md",
     "LICENSE"
@@ -82,6 +83,7 @@
   "dependencies": {
     "@cortexkit/antigravity-auth-core": "2.0.0",
     "@openauthjs/openauth": "^0.4.3",
+    "jsonc-parser": "^3.3.1",
     "solid-js": "1.9.12",
     "xdg-basedir": "^5.1.0",
     "zod": "^4.0.0"

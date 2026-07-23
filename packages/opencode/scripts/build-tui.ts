@@ -91,14 +91,18 @@ async function loadSolidTransform(): Promise<SolidTransformModule> {
 export const SHIPPED_SOURCE_FILES: readonly string[] = [
   'src/tui.tsx',
   'src/tui/entry.mjs',
-  'src/tui/ansi.ts',
   'src/tui/command-dialogs.tsx',
   'src/tui/file-logger.ts',
+  'src/tui-preferences.ts',
   'src/sidebar-state.ts',
   'src/rpc/rpc-client.ts',
   'src/rpc/rpc-dir.ts',
   'src/rpc/port-file.ts',
   'src/rpc/protocol.ts',
+  // Privacy-safe quota/account data projection used by the data-first
+  // dialogs (Task 9). The compiled tree must include the type-only
+  // module that dialogs import `CommandAccountRow` from.
+  'src/plugin/command-data.ts',
 ]
 
 /**

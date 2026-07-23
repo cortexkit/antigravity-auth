@@ -90,7 +90,7 @@ describe('rpc / tui flow (e2e)', () => {
         if (!rpcDir) throw new Error('RPC dir missing')
         // The plugin has already started the RPC server during the
         // factory call. discoverPortFile finds it.
-        const entry = discoverPortFile(rpcDir, process.pid)
+        const entry = await discoverPortFile(rpcDir, process.pid)
         expect(entry).not.toBeNull()
         if (!entry) throw new Error('expected port file entry')
 
@@ -134,7 +134,7 @@ describe('rpc / tui flow (e2e)', () => {
       try {
         const rpcDir = process.env.ANTIGRAVITY_AUTH_RPC_DIR
         if (!rpcDir) throw new Error('RPC dir missing')
-        const entry = discoverPortFile(rpcDir, process.pid)
+        const entry = await discoverPortFile(rpcDir, process.pid)
         if (!entry) throw new Error('expected port file entry')
         const client = createRpcClient(rpcDir, process.pid)
         const result = await client.apply({
@@ -166,7 +166,7 @@ describe('rpc / tui flow (e2e)', () => {
       try {
         const rpcDir = process.env.ANTIGRAVITY_AUTH_RPC_DIR
         if (!rpcDir) throw new Error('RPC dir missing')
-        const entry = discoverPortFile(rpcDir, process.pid)
+        const entry = await discoverPortFile(rpcDir, process.pid)
         if (!entry) throw new Error('expected port file entry')
         const client = createRpcClient(rpcDir, process.pid)
         const result = await client.apply({
@@ -188,7 +188,7 @@ describe('rpc / tui flow (e2e)', () => {
       try {
         const rpcDir = process.env.ANTIGRAVITY_AUTH_RPC_DIR
         if (!rpcDir) throw new Error('RPC dir missing')
-        const entry = discoverPortFile(rpcDir, process.pid)
+        const entry = await discoverPortFile(rpcDir, process.pid)
         if (!entry) throw new Error('expected port file entry')
 
         pushNotification({
@@ -209,15 +209,20 @@ describe('rpc / tui flow (e2e)', () => {
           },
         )
         expect(response.status).toBe(200)
-        const notifications = (await response.json()) as Array<{
-          command: string
-          text: string
-          knobs: Record<string, unknown>
-        }>
+        const body = (await response.json()) as {
+          messages: Array<{
+            payload: {
+              command: string
+              text: string
+              knobs: Record<string, unknown>
+            }
+          }>
+        }
+        const notifications = body.messages
         expect(notifications.length).toBeGreaterThanOrEqual(1)
-        expect(notifications.some((n) => n.text === 'hello-from-test')).toBe(
-          true,
-        )
+        expect(
+          notifications.some((n) => n.payload.text === 'hello-from-test'),
+        ).toBe(true)
       } finally {
         await plugin.dispose()
       }
@@ -229,11 +234,11 @@ describe('rpc / tui flow (e2e)', () => {
       const plugin = await h.createPlugin()
       const rpcDir = process.env.ANTIGRAVITY_AUTH_RPC_DIR
       if (!rpcDir) throw new Error('RPC dir missing')
-      const entry = discoverPortFile(rpcDir, process.pid)
+      const entry = await discoverPortFile(rpcDir, process.pid)
       expect(entry).not.toBeNull()
       await plugin.dispose()
       // After dispose, the port file is removed (idempotent on stop()).
-      const after = discoverPortFile(rpcDir, process.pid)
+      const after = await discoverPortFile(rpcDir, process.pid)
       expect(after).toBeNull()
     })
   })

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { AccountStorageUnreadableError } from '@cortexkit/antigravity-auth-core'
 import type { CommandModalName } from '../rpc/protocol'
 import { registerAntigravityCommands } from './catalog'
 import {
@@ -213,6 +214,48 @@ describe('createCommandExecuteBefore', () => {
     await settings.dispose()
   })
 
+  it('includes cached accounts in the quota OPEN notification payload', async () => {
+    const notifications: Array<Awaited<ReturnType<typeof buildDialogPayload>>> =
+      []
+    const pushNotification = (
+      payload: Awaited<ReturnType<typeof buildDialogPayload>>,
+    ) => {
+      notifications.push(payload)
+    }
+    const settings = createOperatorSettingsController({
+      projectConfigPath: join(dir, 'antigravity.json'),
+      userConfigPath: join(dir, 'user.json'),
+    })
+    const handler = createCommandExecuteBefore(
+      { session: { promptAsync: mock(async () => {}) } } as never,
+      settings,
+      pushNotification,
+      {
+        listAccounts: async () => [
+          {
+            index: 0,
+            label: 'Account 1',
+            enabled: true,
+            active: true,
+            quota: {},
+          },
+        ],
+      } as never,
+      { isTuiConnected: () => true },
+    )
+
+    await expect(
+      handler?.(
+        { command: 'antigravity-quota', arguments: '', sessionID: 'session-1' },
+        { parts: [] },
+      ),
+    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
+
+    const payload = notifications[0]
+    expect(payload?.knobs.accounts as unknown[] | undefined).toHaveLength(1)
+    await settings.dispose()
+  })
+
   it('suppresses the ignored fallback for every modal command when the tui is connected', async () => {
     const promptAsync = mock(async () => {})
     const messages = mock(async () => ({ data: [] }))
@@ -225,6 +268,7 @@ describe('createCommandExecuteBefore', () => {
       { session: { messages, promptAsync } } as never,
       settings,
       pushNotification,
+      undefined,
       { isTuiConnected: () => true },
     )
 
@@ -252,6 +296,7 @@ describe('createCommandExecuteBefore', () => {
       { session: { messages, promptAsync } } as never,
       settings,
       pushNotification,
+      undefined,
       { isTuiConnected: () => true },
     )
 
@@ -282,6 +327,7 @@ describe('createCommandExecuteBefore', () => {
       { session: { messages, promptAsync } } as never,
       settings,
       pushNotification,
+      undefined,
       { isTuiConnected: () => false },
     )
 
@@ -345,7 +391,7 @@ describe('buildDialogPayload', () => {
     expect(payload.knobs).toHaveProperty('action', 'add')
   })
 
-  it('produces the routing toggle payload', async () => {
+  it('produces the routing toggle payload (argument override flows through)', async () => {
     const payload = await buildDialogPayload(
       'antigravity-routing',
       'cli_first=true',
@@ -359,7 +405,7 @@ describe('buildDialogPayload', () => {
     expect(payload.knobs).toHaveProperty('cli_first', true)
   })
 
-  it('produces the killswitch threshold payload', async () => {
+  it('produces the killswitch threshold payload (argument override flows through)', async () => {
     const payload = await buildDialogPayload(
       'antigravity-killswitch',
       'minimum_remaining_percent=15',
@@ -371,6 +417,77 @@ describe('buildDialogPayload', () => {
     )
     expect(payload.command).toBe('antigravity-killswitch')
     expect(payload.knobs).toHaveProperty('minimum_remaining_percent', 15)
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 11 — state-first routing/killswitch dialogs.
+  //
+  // The opening payload must report the CURRENT persisted state (no
+  // inversion), so the dialog mounts with the operator's existing
+  // settings as the user sees them. The plan trap: prior code negated
+  // the boolean fallback (`!settings.routing.cli_first`) which showed
+  // the wrong value on open.
+  // -------------------------------------------------------------------------
+
+  it('routing payload reports the current state when no argument is provided', async () => {
+    await ctx.settings.update((draft) => {
+      draft.routing.cli_first = true
+      draft.routing.quota_style_fallback = true
+    })
+    const payload = await buildDialogPayload('antigravity-routing', '', {
+      client: {} as never,
+      sessionID: '',
+      settings: ctx.settings,
+    })
+    expect(payload.command).toBe('antigravity-routing')
+    // Both flags report the seeded (true) state — no inversion.
+    expect(payload.knobs).toHaveProperty('cli_first', true)
+    expect(payload.knobs).toHaveProperty('quota_style_fallback', true)
+    expect(payload.knobs).toHaveProperty('timeoutMs', 2_000)
+  })
+
+  it('routing payload reports the current state (false defaults) without inversion', async () => {
+    const payload = await buildDialogPayload('antigravity-routing', '', {
+      client: {} as never,
+      sessionID: '',
+      settings: ctx.settings,
+    })
+    // Defaults: both false. The pre-fix code inverted these to `true`,
+    // which is the regression this assertion pins against.
+    expect(payload.knobs).toHaveProperty('cli_first', false)
+    expect(payload.knobs).toHaveProperty('quota_style_fallback', false)
+  })
+
+  it('killswitch payload reports the current state when no argument is provided', async () => {
+    await ctx.settings.update((draft) => {
+      draft.killswitch.enabled = true
+      draft.killswitch.minimum_remaining_percent = 15
+    })
+    const payload = await buildDialogPayload('antigravity-killswitch', '', {
+      client: {} as never,
+      sessionID: '',
+      settings: ctx.settings,
+    })
+    expect(payload.command).toBe('antigravity-killswitch')
+    expect(payload.knobs).toHaveProperty('enabled', true)
+    expect(payload.knobs).toHaveProperty('minimum_remaining_percent', 15)
+    // accounts map (empty after no overrides) is always present.
+    expect(payload.knobs).toHaveProperty('accounts')
+    expect(payload.knobs).toHaveProperty('timeoutMs', 2_000)
+  })
+
+  it('killswitch payload surfaces per-account override map when present', async () => {
+    const key = 'abcdef012345'
+    await ctx.settings.update((draft) => {
+      draft.killswitch.accounts = { [key]: 30 }
+    })
+    const payload = await buildDialogPayload('antigravity-killswitch', '', {
+      client: {} as never,
+      sessionID: '',
+      settings: ctx.settings,
+    })
+    const accounts = payload.knobs.accounts as Record<string, number>
+    expect(accounts[key]).toBe(30)
   })
 
   it('produces the dump toggle payload', async () => {
@@ -457,6 +574,184 @@ describe('applyCommand', () => {
     expect(refresh.knobs.timeoutMs).toBe(120_000)
   })
 
+  it('account apply dispatches current/toggle/remove through the data service', async () => {
+    const toggleSpy = mock(async () => [
+      {
+        id: 'acct-0',
+        index: 0,
+        label: 'Alpha',
+        enabled: false,
+        current: true,
+        quota: [],
+      },
+    ])
+    const setCurrentSpy = mock(async () => [
+      {
+        id: 'acct-1',
+        index: 1,
+        label: 'Beta',
+        enabled: true,
+        current: true,
+        quota: [],
+      },
+    ])
+    const removeSpy = mock(async () => [
+      {
+        id: 'acct-0',
+        index: 0,
+        label: 'Alpha',
+        enabled: true,
+        current: true,
+        quota: [],
+      },
+    ])
+    const commandData = {
+      listAccounts: mock(async () => []),
+      refreshQuota: mock(async () => []),
+      setCurrentAccount: setCurrentSpy,
+      toggleAccountEnabled: toggleSpy,
+      removeAccount: removeSpy,
+    }
+
+    const toggle = await applyCommand(
+      { command: 'antigravity-account', arguments: 'toggle 0' },
+      {
+        client: {} as never,
+        sessionID: '',
+        settings: ctx.settings,
+        commandData: commandData as never,
+      },
+    )
+    expect(toggleSpy).toHaveBeenCalledWith(0)
+    expect(toggle.knobs.timeoutMs).toBe(2_000)
+    expect(toggle.text).toContain('enabled')
+
+    const setCurrent = await applyCommand(
+      { command: 'antigravity-account', arguments: 'current 1' },
+      {
+        client: {} as never,
+        sessionID: '',
+        settings: ctx.settings,
+        commandData: commandData as never,
+      },
+    )
+    expect(setCurrentSpy).toHaveBeenCalledWith(1)
+    expect(setCurrent.knobs.timeoutMs).toBe(2_000)
+
+    const remove = await applyCommand(
+      { command: 'antigravity-account', arguments: 'remove 0' },
+      {
+        client: {} as never,
+        sessionID: '',
+        settings: ctx.settings,
+        commandData: commandData as never,
+      },
+    )
+    expect(removeSpy).toHaveBeenCalledWith(0)
+    expect(remove.knobs.timeoutMs).toBe(2_000)
+    expect(remove.text).toContain('removed')
+  })
+
+  it('account apply rejects an out-of-range index with a friendly text', async () => {
+    const setCurrentSpy = mock(async () => null)
+    const commandData = {
+      listAccounts: mock(async () => []),
+      refreshQuota: mock(async () => []),
+      setCurrentAccount: setCurrentSpy,
+      toggleAccountEnabled: mock(async () => null),
+      removeAccount: mock(async () => null),
+    }
+    const result = await applyCommand(
+      { command: 'antigravity-account', arguments: 'current 99' },
+      {
+        client: {} as never,
+        sessionID: '',
+        settings: ctx.settings,
+        commandData: commandData as never,
+      },
+    )
+    expect(setCurrentSpy).toHaveBeenCalledWith(99)
+    expect(result.text).toContain('99')
+    expect(result.knobs.timeoutMs).toBe(2_000)
+  })
+
+  it('account apply rejects malformed arguments without throwing', async () => {
+    const commandData = {
+      listAccounts: mock(async () => []),
+      refreshQuota: mock(async () => []),
+      setCurrentAccount: mock(async () => null),
+      toggleAccountEnabled: mock(async () => null),
+      removeAccount: mock(async () => null),
+    }
+    const result = await applyCommand(
+      { command: 'antigravity-account', arguments: 'toggle not-a-number' },
+      {
+        client: {} as never,
+        sessionID: '',
+        settings: ctx.settings,
+        commandData: commandData as never,
+      },
+    )
+    expect(result.text).toContain('Unknown account action')
+    expect(result.knobs.timeoutMs).toBe(2_000)
+  })
+
+  it('account apply degrades to a friendly error when the data service is missing', async () => {
+    const result = await applyCommand(
+      { command: 'antigravity-account', arguments: 'toggle 0' },
+      {
+        client: {} as never,
+        sessionID: '',
+        settings: ctx.settings,
+      },
+    )
+    // Without a data service the locked-storage write cannot land,
+    // so the apply surfaces a friendly error rather than silently
+    // toasting success and leaving the runtime ahead of disk.
+    expect(result.text).toContain('Command data service is not wired')
+    expect(result.knobs.timeoutMs).toBe(2_000)
+    expect(result.knobs.error).toBe(true)
+  })
+
+  // SHOULD-3 — when the data service throws AccountStorageUnreadableError
+  // (corrupt file) or a lock-contention error, the apply layer must
+  // surface the message as `text` so the dialog toasts it and stays
+  // mounted (T8 pattern). The runtime view is left untouched because
+  // the service does not apply the live mutation on a failed write.
+  it('account apply surfaces locked-storage errors as friendly text', async () => {
+    const removeSpy = mock(async () => {
+      throw new AccountStorageUnreadableError('corrupt', {
+        path: '/tmp/accounts.json',
+        reason: 'invalid-shape',
+        detail: 'unexpected',
+        backupPath: null,
+      })
+    })
+    const commandData = {
+      listAccounts: mock(async () => []),
+      refreshQuota: mock(async () => []),
+      setCurrentAccount: mock(async () => null),
+      toggleAccountEnabled: mock(async () => null),
+      removeAccount: removeSpy,
+    }
+    const result = await applyCommand(
+      { command: 'antigravity-account', arguments: 'remove 0' },
+      {
+        client: {} as never,
+        sessionID: '',
+        settings: ctx.settings,
+        commandData: commandData as never,
+      },
+    )
+    expect(removeSpy).toHaveBeenCalledWith(0)
+    // The friendly text surfaces the actual storage failure so the
+    // dialog can toast a real cause rather than a generic "failed".
+    expect(result.text).toContain('unreadable')
+    expect(result.text).toContain('invalid-shape')
+    expect(result.knobs.timeoutMs).toBe(2_000)
+    expect(result.knobs.error).toBe(true)
+  })
+
   it('quota refresh keeps the 2s default timeout', async () => {
     const result = await applyCommand(
       { command: 'antigravity-quota', arguments: 'refresh' },
@@ -467,5 +762,123 @@ describe('applyCommand', () => {
       },
     )
     expect(result.knobs.timeoutMs).toBe(2_000)
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 11 — state-first apply: return the complete persisted state in
+  // knobs so the dialog can re-render in place from the same shape
+  // `buildDialogPayload` produced on open. The pre-fix code returned
+  // only the parsed delta, which left the dialog with stale data after
+  // a toggle.
+  // -------------------------------------------------------------------------
+
+  it('routing apply returns the complete persisted state in knobs', async () => {
+    // Seed both flags true; toggle only cli_first.
+    await ctx.settings.update((draft) => {
+      draft.routing.cli_first = true
+      draft.routing.quota_style_fallback = true
+    })
+    const result = await applyCommand(
+      { command: 'antigravity-routing', arguments: 'cli_first=false' },
+      {
+        client: {} as never,
+        sessionID: '',
+        settings: ctx.settings,
+      },
+    )
+    expect(result.text).toBe('Routing updated')
+    // Complete state in knobs (not just the parsed delta).
+    expect(result.knobs).toHaveProperty('cli_first', false)
+    expect(result.knobs).toHaveProperty('quota_style_fallback', true)
+    expect(result.knobs).toHaveProperty('timeoutMs', 2_000)
+  })
+
+  it('killswitch apply returns the complete persisted state in knobs', async () => {
+    await ctx.settings.update((draft) => {
+      draft.killswitch.enabled = true
+      draft.killswitch.minimum_remaining_percent = 15
+    })
+    const result = await applyCommand(
+      {
+        command: 'antigravity-killswitch',
+        arguments: 'minimum_remaining_percent=25',
+      },
+      {
+        client: {} as never,
+        sessionID: '',
+        settings: ctx.settings,
+      },
+    )
+    expect(result.text).toBe('Killswitch updated')
+    expect(result.knobs).toHaveProperty('enabled', true)
+    expect(result.knobs).toHaveProperty('minimum_remaining_percent', 25)
+    // accounts map is always carried back so the dialog re-renders it.
+    expect(result.knobs).toHaveProperty('accounts')
+    expect(result.knobs).toHaveProperty('timeoutMs', 2_000)
+  })
+
+  // -------------------------------------------------------------------------
+  // Task 11 — error path: when the fenced-lock writer rejects (lock
+  // contention or unreadable config), the apply layer surfaces the
+  // message as friendly `text` so the dialog can toast it and keep the
+  // user on the same dialog (T8/T10 pattern). The pre-fix code would
+  // throw, blowing the apply promise and leaving the dialog without
+  // feedback.
+  // -------------------------------------------------------------------------
+
+  it('routing apply surfaces a friendly error when the writer is contended', async () => {
+    const updateMock = mock(async () => {
+      throw new Error(
+        'Could not acquire operator-config lock at /tmp/test.json (already held by another writer).',
+      )
+    })
+    // Replace the controller's update method to force the lock failure.
+    const origUpdate = ctx.settings.update
+    ctx.settings.update = updateMock as never
+    try {
+      const result = await applyCommand(
+        { command: 'antigravity-routing', arguments: 'cli_first=true' },
+        {
+          client: {} as never,
+          sessionID: '',
+          settings: ctx.settings,
+        },
+      )
+      expect(updateMock).toHaveBeenCalled()
+      // The friendly text surfaces the lock reason, not a stack trace.
+      expect(result.text).toContain('Routing update failed')
+      expect(result.text).toContain('lock')
+      expect(result.knobs).toHaveProperty('timeoutMs', 2_000)
+      expect(result.knobs.error).toBe(true)
+    } finally {
+      ctx.settings.update = origUpdate
+    }
+  })
+
+  it('killswitch apply surfaces a friendly error when the writer is contended', async () => {
+    const updateMock = mock(async () => {
+      throw new Error(
+        'Could not acquire operator-config lock at /tmp/test.json (already held by another writer).',
+      )
+    })
+    const origUpdate = ctx.settings.update
+    ctx.settings.update = updateMock as never
+    try {
+      const result = await applyCommand(
+        { command: 'antigravity-killswitch', arguments: 'enabled=true' },
+        {
+          client: {} as never,
+          sessionID: '',
+          settings: ctx.settings,
+        },
+      )
+      expect(updateMock).toHaveBeenCalled()
+      expect(result.text).toContain('Killswitch update failed')
+      expect(result.text).toContain('lock')
+      expect(result.knobs).toHaveProperty('timeoutMs', 2_000)
+      expect(result.knobs.error).toBe(true)
+    } finally {
+      ctx.settings.update = origUpdate
+    }
   })
 })
