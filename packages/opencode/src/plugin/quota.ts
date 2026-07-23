@@ -140,35 +140,68 @@ export function createOpenCodeQuotaManager(
   const originalRefreshAccount = manager.refreshAccount
   const originalRefreshAccounts = manager.refreshAccounts
   const getAccountsForSidebar = options.getAccountsForSidebar
+  let disposed = false
+  const inFlight = new Set<Promise<unknown>>()
 
-  const pushAfterRefresh = (account: AccountMetadataV3): void => {
+  const pushAfterRefresh = async (
+    account: AccountMetadataV3,
+  ): Promise<void> => {
     if (!getAccountsForSidebar) return
-    void pushSidebarQuotaSnapshot(
+    await pushSidebarQuotaSnapshot(
       getAccountsForSidebar,
       manager.getBackoffUntil(account),
     ).catch(() => {
-      // pushSidebarQuotaSnapshot already swallows and logs; the .catch
-      // here is just to keep the Promise from surfacing as an unhandled
-      // rejection when the lock was retried past the 2s budget.
+      // Sidebar persistence remains best-effort when lock contention
+      // outlives its retry budget.
     })
+  }
+
+  const track = <T>(operation: Promise<T>): Promise<T> => {
+    inFlight.add(operation)
+    void operation.then(
+      () => inFlight.delete(operation),
+      () => inFlight.delete(operation),
+    )
+    return operation
+  }
+
+  const dispose = async (): Promise<void> => {
+    if (disposed) return
+    disposed = true
+    await manager.dispose()
+    await Promise.allSettled(inFlight)
   }
 
   return {
     ...manager,
     async refreshAccount(account, refreshOptions) {
-      const result = await originalRefreshAccount(account, refreshOptions)
-      pushAfterRefresh(account)
-      return result
+      const shouldPush = !disposed
+      return track(
+        (async () => {
+          const result = await originalRefreshAccount(account, refreshOptions)
+          if (shouldPush) await pushAfterRefresh(account)
+          return result
+        })(),
+      )
     },
     async refreshAccounts(accounts, refreshOptions) {
-      const results = await originalRefreshAccounts(accounts, refreshOptions)
-      // Push one snapshot per batch — the AccountManager's view is updated
-      // by the caller (oauth-methods / fetch-interceptor) BEFORE we read
-      // here, so a single post-batch snapshot captures the full diff.
-      const lastAccount = accounts[accounts.length - 1]
-      if (lastAccount) pushAfterRefresh(lastAccount)
-      return results
+      const shouldPush = !disposed
+      return track(
+        (async () => {
+          const results = await originalRefreshAccounts(
+            accounts,
+            refreshOptions,
+          )
+          // Push one snapshot per batch — the AccountManager's view is updated
+          // by the caller (oauth-methods / fetch-interceptor) BEFORE we read
+          // here, so a single post-batch snapshot captures the full diff.
+          const lastAccount = accounts[accounts.length - 1]
+          if (shouldPush && lastAccount) await pushAfterRefresh(lastAccount)
+          return results
+        })(),
+      )
     },
+    dispose,
   }
 }
 

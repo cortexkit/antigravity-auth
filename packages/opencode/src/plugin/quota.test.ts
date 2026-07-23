@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,12 +15,21 @@ import type { AccountMetadataV3 } from '@cortexkit/antigravity-auth-core'
 
 import {
   DEFAULT_SIDEBAR_STATE,
+  drainSidebarWrites,
   readSidebarState,
   SIDEBAR_STATE_ENV,
   SIDEBAR_STATE_VERSION,
   type SidebarStateV1,
+  setSidebarMergeHooks,
 } from '../sidebar-state'
-import { classifyQuotaGroup, pushSidebarQuotaSnapshot } from './quota.ts'
+import { registerQuotaManagerProducer } from './index.ts'
+import { createPluginLifecycle } from './lifecycle.ts'
+import {
+  classifyQuotaGroup,
+  createOpenCodeQuotaManager,
+  pushSidebarQuotaSnapshot,
+} from './quota.ts'
+import type { PluginClient } from './types.ts'
 
 interface QuotaSnapshotAccount {
   index: number
@@ -153,5 +170,99 @@ describe('pushSidebarQuotaSnapshot', () => {
 
     const state = read()
     expect(state.accounts).toEqual([])
+  })
+
+  it('fences the real quota wrapper sidebar enqueue before the lifecycle drain', async () => {
+    const events: string[] = []
+    let releaseFetch!: () => void
+    const fetchGate = new Promise<void>((resolve) => {
+      releaseFetch = resolve
+    })
+    let fetchStartedResolve!: () => void
+    const fetchStarted = new Promise<void>((resolve) => {
+      fetchStartedResolve = resolve
+    })
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
+      (async () =>
+        new Response(
+          JSON.stringify({ access_token: 'access-token', expires_in: 3600 }),
+          { status: 200 },
+        )) as unknown as typeof fetch,
+    )
+    const client = {
+      auth: { set: mock(async () => {}) },
+    } as unknown as PluginClient
+    const account: AccountMetadataV3 = {
+      refreshToken: 'refresh-token',
+      managedProjectId: 'managed-project',
+      addedAt: 0,
+      lastUsed: 0,
+    }
+    const manager = createOpenCodeQuotaManager(client, 'google', {
+      getAccountsForSidebar: () => [
+        {
+          index: 0,
+          email: 'primary@example.test',
+          cachedQuota: {
+            claude: { remainingFraction: 0.42, modelCount: 1 },
+          },
+        },
+      ],
+      fetchVia: async () => {
+        events.push('fetch:start')
+        fetchStartedResolve()
+        await fetchGate
+        return new Response('unavailable', { status: 503 })
+      },
+    })
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {},
+      clearFetchState: () => {},
+      drainSidebarWrites: async () => {
+        events.push('lifecycle:drain')
+        await drainSidebarWrites()
+        events.push(
+          readSidebarState(stateFile).accounts.length === 1
+            ? 'drain:sees-sidebar-write'
+            : 'drain:misses-sidebar-write',
+        )
+      },
+    })
+    registerQuotaManagerProducer(lifecycle, manager)
+    setSidebarMergeHooks({
+      onStep: async (step) => {
+        if (step === 'await-lock') events.push('sidebar:write-start')
+      },
+    })
+
+    const refresh = manager.refreshAccounts([account], {
+      indexFor: () => 0,
+      force: true,
+    })
+    await fetchStarted
+    const dispose = lifecycle.dispose()
+    releaseFetch()
+
+    try {
+      await dispose
+      await manager.refreshAccounts([account], {
+        indexFor: () => 0,
+        force: true,
+      })
+      await drainSidebarWrites()
+      expect(events).toEqual([
+        'fetch:start',
+        'fetch:start',
+        'sidebar:write-start',
+        'lifecycle:drain',
+        'drain:sees-sidebar-write',
+      ])
+    } finally {
+      await refresh
+      await drainSidebarWrites()
+      setSidebarMergeHooks(null)
+      fetchSpy.mockRestore()
+    }
   })
 })

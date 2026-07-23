@@ -396,13 +396,10 @@ function buildLock(
         }
         if (observed.expiresAt > now()) {
           if (released || lost) return
-          // TOCTOU protection: the lock file may have been swapped out
-          // from under us between the read above and the write below.
-          // Compare-and-swap via a sibling temp file + atomic rename so
-          // we never overwrite a fresh owner's lock content directly.
-          // The remaining race window — between the re-read and the
-          // rename — collapses to a single inode replace that POSIX
-          // rename(2) makes atomic at the filesystem level.
+          // Rename cannot compare-and-swap ownership. Re-read after the
+          // rename and mark this lock lost if another owner replaced it;
+          // writers call assertOwned() before mutating shared state, so a
+          // hijack in this seam is detected and stops future renewals.
           const tempPath = `${lockPath}.${ownerId}.tmp`
           let shouldCommit = false
           try {

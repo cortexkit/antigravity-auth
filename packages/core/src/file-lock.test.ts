@@ -951,6 +951,13 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
     const target = join(root, 'state.json')
     const lockPath = `${target}.accounts.lock`
     const clearIntervalSpy = spyOn(globalThis, 'clearInterval')
+    let renewalTick: (() => void) | null = null
+    const setIntervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(
+      ((callback: () => void) => {
+        renewalTick = callback
+        return 0 as unknown as ReturnType<typeof setInterval>
+      }) as typeof setInterval,
+    )
 
     let pausedResolve!: () => void
     const paused = new Promise<void>((resolve) => {
@@ -967,7 +974,7 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
         path: target,
         name: 'accounts',
         ttlMs: 60_000,
-        renewIntervalMs: 10,
+        renewIntervalMs: 60_000,
         onStep: async (step) => {
           if (step === 'renew-committed' && !hookFired) {
             hookFired = true
@@ -977,15 +984,25 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
         },
       })
       expect(lock).not.toBeNull()
+      expect(renewalTick).not.toBeNull()
 
-      // A's renewal has just renamed its refreshed payload onto the
-      // lock file; owner B's acquisition lands in the post-commit
-      // window, before A's verify re-read.
+      // Drive exactly one renewal. With no later timer callback available,
+      // only the immediate post-rename re-read can observe B's takeover.
+      renewalTick!()
       await paused
       await writeLock(lockPath, 'owner-B', Date.now() + 60_000)
       gateResolve()
 
-      await lock!.whenLost()
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+      const loss = await Promise.race([
+        lock!.whenLost(),
+        new Promise<'timeout'>((resolve) => {
+          timeoutHandle = setTimeout(() => resolve('timeout'), 100)
+        }),
+      ]).finally(() => {
+        if (timeoutHandle !== null) clearTimeout(timeoutHandle)
+      })
+      expect(loss).toBeUndefined()
       expect(lock!.hasLost()).toBe(true)
       expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
 
@@ -1000,6 +1017,7 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
       await rm(lockPath, { force: true })
     } finally {
       clearIntervalSpy.mockRestore()
+      setIntervalSpy.mockRestore()
     }
   })
 

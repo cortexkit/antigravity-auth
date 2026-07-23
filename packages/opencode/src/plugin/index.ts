@@ -32,7 +32,7 @@ import {
 import { createEventHandler } from './event-handler'
 import { createFetchInterceptor } from './fetch-interceptor'
 import { createGoogleSearchTool } from './google-search-tool'
-import { createPluginLifecycle } from './lifecycle'
+import { createPluginLifecycle, type PluginLifecycle } from './lifecycle'
 import { createLogger, initLogger, setRuntimeLogLevel } from './logger'
 import { createOAuthMethods, openBrowserWithSystem } from './oauth-methods'
 import {
@@ -40,7 +40,7 @@ import {
   type OperatorSettingsController,
 } from './operator-settings'
 import { persistAccountPool } from './persist-account-pool'
-import { createOpenCodeQuotaManager } from './quota'
+import { createOpenCodeQuotaManager, type QuotaManager } from './quota'
 import { createSessionRecoveryHook } from './recovery'
 import { initHealthTracker, initTokenTracker } from './rotation'
 import { AgySessionRegistry } from './session-context'
@@ -70,6 +70,13 @@ export interface CreateAntigravityPluginOptions {
    * randomness. Defaults to production implementations.
    */
   dependencies?: PluginDependencyOverrides
+}
+
+export function registerQuotaManagerProducer(
+  lifecycle: PluginLifecycle,
+  quotaManager: QuotaManager,
+): void {
+  lifecycle.register({ dispose: () => quotaManager.dispose() }, 'producer')
 }
 
 export const createAntigravityPlugin =
@@ -146,7 +153,7 @@ export const createAntigravityPlugin =
     // final post-refresh write is enqueued before the drain flushes —
     // a consumer-phase registration could let a refresh enqueue a write
     // after drainSidebarWrites() already asserted the queue was empty.
-    lifecycle.register({ dispose: () => quotaManager.dispose() }, 'producer')
+    registerQuotaManagerProducer(lifecycle, quotaManager)
 
     // Operator settings controller backs the /antigravity-* slash commands.
     // The controller loads existing persisted settings at first read, mutates
