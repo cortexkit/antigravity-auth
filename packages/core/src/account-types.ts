@@ -48,8 +48,9 @@ export interface AccountMetadataV3 {
   cooldownReason?: CooldownReason
   /**
    * Non-PII display label for the sidebar/telemetry. Sourced from the
-   * OAuth userinfo `name` field. Falls back to the legacy PII email
-   * only when absent so previously-stored accounts retain a label.
+   * OAuth userinfo `name` field. When absent, call sites fall back to
+   * the PII-free `Account N` placeholder (e.g. `Account 1`) so
+   * previously-stored accounts retain a label.
    */
   label?: string
   /** Per-account device fingerprint for rate limit mitigation */

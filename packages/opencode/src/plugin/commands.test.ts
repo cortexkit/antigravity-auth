@@ -212,6 +212,93 @@ describe('createCommandExecuteBefore', () => {
     expect(pushNotification).toHaveBeenCalledTimes(MODAL_COMMANDS.length)
     await settings.dispose()
   })
+
+  it('suppresses the ignored fallback for every modal command when the tui is connected', async () => {
+    const promptAsync = mock(async () => {})
+    const messages = mock(async () => ({ data: [] }))
+    const pushNotification = mock(() => 1)
+    const settings = createOperatorSettingsController({
+      projectConfigPath: join(dir, 'antigravity.json'),
+      userConfigPath: join(dir, 'user.json'),
+    })
+    const handler = createCommandExecuteBefore(
+      { session: { messages, promptAsync } } as never,
+      settings,
+      pushNotification,
+      { isTuiConnected: () => true },
+    )
+
+    for (const command of MODAL_COMMANDS) {
+      const result = handler?.(
+        { command, arguments: '', sessionID: 'session-1' },
+        { parts: [] },
+      )
+      await expect(result).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
+    }
+    expect(promptAsync).toHaveBeenCalledTimes(0)
+    expect(pushNotification).toHaveBeenCalledTimes(MODAL_COMMANDS.length)
+    await settings.dispose()
+  })
+
+  it('suppresses the ignored fallback for /gemini-dump when the tui is connected', async () => {
+    const promptAsync = mock(async () => {})
+    const messages = mock(async () => ({ data: [] }))
+    const pushNotification = mock(() => 1)
+    const settings = createOperatorSettingsController({
+      projectConfigPath: join(dir, 'antigravity.json'),
+      userConfigPath: join(dir, 'user.json'),
+    })
+    const handler = createCommandExecuteBefore(
+      { session: { messages, promptAsync } } as never,
+      settings,
+      pushNotification,
+      { isTuiConnected: () => true },
+    )
+
+    await expect(
+      handler?.(
+        {
+          command: GEMINI_DUMP_COMMAND_NAME,
+          arguments: '',
+          sessionID: 'session-1',
+        },
+        { parts: [] },
+      ),
+    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
+    expect(promptAsync).toHaveBeenCalledTimes(0)
+    expect(pushNotification).toHaveBeenCalledTimes(0)
+    await settings.dispose()
+  })
+
+  it('still sends the ignored fallback when the tui is disconnected', async () => {
+    const promptAsync = mock(async () => {})
+    const messages = mock(async () => ({ data: [] }))
+    const pushNotification = mock(() => 1)
+    const settings = createOperatorSettingsController({
+      projectConfigPath: join(dir, 'antigravity.json'),
+      userConfigPath: join(dir, 'user.json'),
+    })
+    const handler = createCommandExecuteBefore(
+      { session: { messages, promptAsync } } as never,
+      settings,
+      pushNotification,
+      { isTuiConnected: () => false },
+    )
+
+    await expect(
+      handler?.(
+        {
+          command: 'antigravity-quota',
+          arguments: '',
+          sessionID: 'session-1',
+        },
+        { parts: [] },
+      ),
+    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
+    expect(promptAsync).toHaveBeenCalledTimes(1)
+    expect(pushNotification).toHaveBeenCalledTimes(1)
+    await settings.dispose()
+  })
 })
 
 describe('buildDialogPayload', () => {

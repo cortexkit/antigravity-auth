@@ -21,6 +21,7 @@
  * `antigravity-dump` is the canonical name; both stay registered.
  */
 
+import { isTuiConnected as defaultIsTuiConnected } from '../rpc/notifications'
 import type { CommandModalName } from '../rpc/protocol'
 import {
   buildSidebarMachineStateFromAccounts,
@@ -494,11 +495,28 @@ export function openCommandDialog(
 }
 
 /**
+ * Optional handle for the host connection state. Tests inject a stub
+ * to force the connected/disconnected branch; production callers let
+ * the default fall through to the singleton `isTuiConnected` from
+ * `rpc/notifications`, which reports "disconnected" until a TUI drain
+ * has landed in the last `CONNECTION_TTL_MS` window.
+ */
+export interface CommandConnectionState {
+  isTuiConnected(sessionId?: string): boolean
+}
+
+/**
  * Hook the host's `command.execute.before` to the modal commands.
  *
  * When a slash command is invoked, we push a notification onto the
  * RPC queue and abort the normal prompt with the same handled
  * sentinel the legacy `/gemini-dump` flow already uses.
+ *
+ * The `sendIgnoredMessage` fallback only fires when no TUI is
+ * listening — the only path that actually consumes the queued
+ * message. With a live TUI, push alone is enough; double-sending
+ * would otherwise render the command text as a visible chat message
+ * alongside the dialog the TUI renders.
  */
 export function createCommandExecuteBefore(
   client: PluginClient,
@@ -507,6 +525,9 @@ export function createCommandExecuteBefore(
     payload: Awaited<ReturnType<typeof buildDialogPayload>>,
     sessionId?: string,
   ) => number,
+  connectionState: CommandConnectionState = {
+    isTuiConnected: defaultIsTuiConnected,
+  },
 ): PluginResult['command.execute.before'] {
   const context: CommandContext = { client, sessionID: '', settings }
   return async (input) => {
@@ -516,11 +537,13 @@ export function createCommandExecuteBefore(
       if (action.type === 'enable' || action.type === 'disable') {
         setGeminiDumpEnabled(action.type === 'enable')
       }
-      await sendIgnoredMessage(
-        client,
-        input.sessionID,
-        executeGeminiDumpCommand({ argumentsText: input.arguments }),
-      )
+      if (!connectionState.isTuiConnected(input.sessionID)) {
+        await sendIgnoredMessage(
+          client,
+          input.sessionID,
+          executeGeminiDumpCommand({ argumentsText: input.arguments }),
+        )
+      }
       throwHandledCommandSentinel()
     }
     if (
@@ -538,7 +561,9 @@ export function createCommandExecuteBefore(
       sessionID: input.sessionID,
     })
     pushNotification(payload, input.sessionID)
-    await sendIgnoredMessage(client, input.sessionID, payload.text)
+    if (!connectionState.isTuiConnected(input.sessionID)) {
+      await sendIgnoredMessage(client, input.sessionID, payload.text)
+    }
     throwHandledCommandSentinel()
   }
 }
