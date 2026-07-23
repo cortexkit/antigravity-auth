@@ -1313,6 +1313,32 @@ it("removes x-api-key header", () => {
       expect(wrapped.request.labels.model_enum).toBe(modelEnum);
     });
 
+    it("appends a user continuation when a Gemini AGY request ends with a model turn", () => {
+      const result = prepareAntigravityRequest(
+        "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.6-flash:generateContent",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            contents: [
+              { role: "user", parts: [{ text: "Summarize this context" }] },
+              { role: "model", parts: [{ text: "Summary complete" }] },
+            ],
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        "antigravity",
+      );
+
+      const wrapped = JSON.parse(result.init.body as string);
+      expect(wrapped.request.contents).toEqual([
+        { role: "user", parts: [{ text: "Summarize this context" }] },
+        { role: "model", parts: [{ text: "Summary complete" }] },
+        { role: "user", parts: [{ text: "[Continue]" }] },
+      ]);
+    });
+
     it("preserves uppercase Gemini schemas for properties named thinking", () => {
       const result = prepareAntigravityRequest(
         "https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.6-flash:generateContent",

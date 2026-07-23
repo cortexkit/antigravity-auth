@@ -36,7 +36,7 @@
 **Payload Transformation:**
 - Purpose: Resolves client-supplied model names into logical Antigravity identifiers, injects tool description hardening rules, strips Claude thinking blocks, and sanitizes payload fields during model family swaps.
 - Location: `packages/core/src/transform/` and `packages/core/src/model-registry.ts`
-- Contains: `resolveModelWithTier`, `applyClaudeTransforms`, `applyGeminiTransforms`, `sanitizeCrossModelPayload`.
+- Contains: `resolveModelWithTier`, `applyClaudeTransforms`, `applyGeminiTransforms`, `sanitizeCrossModelPayload`, `getGemini36FlashAntigravityModel`.
 - Depends on: `packages/core/src/constants.ts`
 - Used by: Host request interceptors and streaming parsers.
 
@@ -89,9 +89,9 @@
 - Pattern: Raw socket read-write buffer stream with custom chunked-transfer decoding.
 
 **`ModelResolver` (`resolveModelWithTier`):**
-- Purpose: Maps external AI model tags (e.g. `claude-3-7-sonnet`) into internal Google Antigravity identifiers, specifying thinking budgets and custom header styles.
+- Purpose: Maps external AI model tags (e.g. `claude-3-7-sonnet`, `gemini-3.6-flash`) into internal Google Antigravity identifiers, specifying thinking budgets and custom header styles.
 - Location: `packages/core/src/transform/model-resolver.ts`
-- Pattern: Regular expression and alias lookup maps.
+- Pattern: Regular expression and alias lookup maps backed by tiered route definitions in `packages/core/src/model-registry.ts`.
 
 **`ensureProjectContext`:**
 - Purpose: Automatically initializes, caches, and maintains valid Google Cloud project mappings for standard or enterprise accounts.

@@ -1243,10 +1243,11 @@ export function prepareAntigravityRequest(
           }
         }
 
-        // Guard against assistant prefill: Claude rejects conversations ending
-        // with model/assistant messages. After context compaction, the conversation
-        // can end with a model message — append synthetic user message to fix.
-        if (isClaude) {
+        // AGY rejects every request that ends with a model turn. Enforce this at
+        // the final wire boundary because host races, recovery, or sanitization can
+        // otherwise leave a model/assistant entry last. Claude fallback transports
+        // have the same assistant-prefill restriction.
+        if (headerStyle === "antigravity" || isClaude) {
           for (const req of requestObjects) {
             if (Array.isArray((req as any).contents)) {
               const contents = (req as any).contents;
@@ -1819,10 +1820,11 @@ export function prepareAntigravityRequest(
           }
         }
 
-        // Guard against assistant prefill: Claude rejects conversations ending
-        // with model/assistant messages. After context compaction, the conversation
-        // can end with a model message — append synthetic user message to fix.
-        if (isClaude) {
+        // AGY rejects every request that ends with a model turn. Enforce this at
+        // the final wire boundary because host races, recovery, or sanitization can
+        // otherwise leave a model/assistant entry last. Claude fallback transports
+        // have the same assistant-prefill restriction.
+        if (headerStyle === "antigravity" || isClaude) {
           if (Array.isArray(requestPayload.contents)) {
             const lastContent = requestPayload.contents[requestPayload.contents.length - 1] as any;
             if (lastContent?.role === "model" || lastContent?.role === "assistant") {

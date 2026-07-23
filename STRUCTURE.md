@@ -17,7 +17,7 @@ antigravity-auth/
 **`packages/core`:**
 - Purpose: Provides harness-agnostic utilities for Google Antigravity integrations.
 - Contains: Direct TCP/TLS socket transport, Google OAuth PKCE auth flow, Google Cloud project bootstrapping, Claude and Gemini request/response transforms, device fingerprint generators, and centralized model registries.
-- Key files: `packages/core/src/agy-transport.ts` (TCP/TLS socket), `packages/core/src/project.ts` (project resolution), `packages/core/src/transform/model-resolver.ts` (model mapping).
+- Key files: `packages/core/src/agy-transport.ts` (TCP/TLS socket), `packages/core/src/project.ts` (project resolution), `packages/core/src/transform/model-resolver.ts` (model mapping), `packages/core/src/model-registry.ts` (model definitions & route maps).
 
 **`packages/opencode`:**
 - Purpose: Integrates the Antigravity authentication and request transformation logic into the OpenCode host environment.
@@ -42,6 +42,7 @@ antigravity-auth/
 **Core Logic:**
 - `packages/core/src/agy-transport.ts`: Custom TCP/TLS transport socket implementation.
 - `packages/core/src/project.ts`: Project resolution, context loading, and GCP project provisioning.
+- `packages/core/src/model-registry.ts`: Model definitions, quota groups, and Gemini Flash tier routing maps.
 - `packages/core/src/transform/cross-model-sanitizer.ts`: Payload cleanup when switching model families.
 - `packages/opencode/src/plugin/accounts.ts`: Multi-account selection, rotation, metrics, and health scores.
 
