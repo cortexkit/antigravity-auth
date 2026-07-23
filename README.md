@@ -125,7 +125,7 @@ Legacy `antigravity-gemini-3-flash` style aliases resolve through `MODEL_ALIASES
 
 The account pool persists in `antigravity-accounts.json` (storage schema `AccountStorageV4`) with locking via `acquireFencedFileLock` so concurrent writers cannot corrupt the file. Each account carries:
 
-- `refreshToken` (encrypted at rest by Google; the file itself sits under `0600`)
+- `refreshToken` (stored in plaintext; the file sits under `0600` with its parent directory at `0700` — filesystem permissions are the only protection at rest)
 - `email`, `enabled`, `coolingDownUntil`, `cachedQuota`, `healthScore`
 - `projectId` (optional; used by Gemini CLI)
 - `fingerprintHistory` and `verificationRequired` / `verificationUrl` (used by the verification flow)
@@ -214,7 +214,7 @@ pi
 /login google-antigravity                    # OAuth flow
 ```
 
-The Pi extension registers the `google-antigravity` provider automatically through the package's `pi.extensions` field; no further wiring is needed. Account storage is Pi-local (it does not share the OpenCode `antigravity-accounts.json`), but the underlying transport is identical because both packages delegate to `@cortexkit/antigravity-auth-core`. Quota, routing, and killswitch semantics are therefore identical to the OpenCode plugin.
+The Pi extension registers the `google-antigravity` provider automatically through the package's `pi.extensions` field; no further wiring is needed. Both packages delegate to `@cortexkit/antigravity-auth-core`, so the request transport and model transforms are shared. The account-pool layer is not: Pi holds a single credential locally (no `antigravity-accounts.json`, no rotation, no killswitch, no operator settings). Multi-account rotation, quota routing, and the killswitch are OpenCode-only.
 
 ## Configuration reference
 
@@ -279,7 +279,7 @@ The Pi extension registers the `google-antigravity` provider automatically throu
 | `operator.routing.quota_style_fallback` | bool | `false` | — | Live override of `quota_style_fallback`. |
 | `operator.killswitch.enabled` | bool | `false` | — | Master killswitch. |
 | `operator.killswitch.minimum_remaining_percent` | number (0-100) | `5` | — | Global hard block threshold. |
-| `operator.killswitch.accounts` | record<string, number> | `{}` | — | Per-account override (key = `sha256(refreshToken).slice(0,12)`). |
+| `operator.killswitch.accounts` | record<string, number> | unset | — | Optional per-account override (key = `sha256(refreshToken).slice(0,12)`). Absent by default; falls back to `minimum_remaining_percent`. |
 | `operator.log_level` | `error` \| `warn` \| `info` \| `debug` \| `trace` | `"info"` | — | Runtime log-level filter (mutable from `/antigravity-logging`). |
 
 `globalThis.fetch` calls inside the package go through `fetchWithActiveTimeout` (see [State, cache, log, RPC, and dump files](#state-cache-log-rpc-and-dump-files)).
