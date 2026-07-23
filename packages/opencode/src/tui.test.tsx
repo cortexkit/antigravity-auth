@@ -25,7 +25,7 @@ import {
   SIDEBAR_STATE_VERSION,
   type SidebarStateV1,
 } from './sidebar-state'
-import { SidebarPanel } from './tui'
+import { SidebarPanel, startRpcNotificationPolling } from './tui'
 import type { TuiLogger } from './tui/file-logger'
 
 interface LogEntry {
@@ -336,51 +336,51 @@ describe('SidebarPanel', () => {
 })
 
 describe('RPC notification polling', () => {
-  it('polls by session and clears the interval on unmount', async () => {
-    const calls: Array<{ lastReceivedId: number; sessionId?: string }> = []
-    const received: number[] = []
-    const rpcClient = {
-      apply: async () => ({ text: '', knobs: {} }),
-      pendingNotifications: async (
-        lastReceivedId: number,
-        sessionId?: string,
-      ) => {
-        calls.push({ lastReceivedId, sessionId })
-        return calls.length === 1
-          ? [
-              {
-                id: 7,
-                command: 'antigravity-quota' as const,
-                text: 'quota changed',
-                knobs: {},
-                sessionId,
-              },
-            ]
-          : []
-      },
-    }
-    const testSetup = await testRender(
-      () => (
-        <SidebarPanel
-          logger={makeCapturingLogger()}
-          stateFile={join(tmpdir(), 'agy-rpc-poll-missing-state.json')}
-          rpcClient={rpcClient}
-          rpcPollIntervalMs={10}
-          sessionId='session-a'
-          onRpcNotification={(notification) => received.push(notification.id)}
-        />
-      ),
-      { width: 40, height: 10 },
-    )
+  it('keeps one scheduler and notification cursor across remounts', async () => {
+    const scheduled: Array<() => Promise<void>> = []
+    const pendingCalls: Array<{
+      lastReceivedId: number
+      sessionId?: string
+    }> = []
+    const dispatched: number[] = []
+    const queues = [
+      [
+        {
+          id: 7,
+          command: 'antigravity-quota' as const,
+          text: 'quota changed',
+          knobs: {},
+          sessionId: 'session-a',
+        },
+      ],
+      [],
+    ]
+    const start = () =>
+      startRpcNotificationPolling({
+        pending: async (lastReceivedId, sessionId) => {
+          pendingCalls.push({ lastReceivedId, sessionId })
+          return queues.shift() ?? []
+        },
+        currentSessionId: () => 'session-a',
+        dispatch: (notification) => {
+          dispatched.push(notification.id)
+        },
+        schedule: (poll) => {
+          scheduled.push(poll)
+        },
+      })
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 35))
-    expect(calls[0]).toEqual({ lastReceivedId: 0, sessionId: 'session-a' })
-    expect(calls.some(({ lastReceivedId }) => lastReceivedId === 7)).toBe(true)
-    expect(received).toEqual([7])
+    start()
+    start()
+    expect(scheduled).toHaveLength(1)
 
-    testSetup.renderer.destroy()
-    const afterDestroy = calls.length
-    await new Promise<void>((resolve) => setTimeout(resolve, 30))
-    expect(calls).toHaveLength(afterDestroy)
+    await scheduled[0]!()
+    await scheduled[0]!()
+
+    expect(dispatched).toEqual([7])
+    expect(pendingCalls).toEqual([
+      { lastReceivedId: 0, sessionId: 'session-a' },
+      { lastReceivedId: 7, sessionId: 'session-a' },
+    ])
   })
 })

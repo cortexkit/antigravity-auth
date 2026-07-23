@@ -23,15 +23,7 @@
 
 import type { TuiPlugin } from '@opencode-ai/plugin/tui'
 import { createSlot } from '@opentui/solid'
-import {
-  createEffect,
-  createSignal,
-  For,
-  type JSX,
-  onCleanup,
-  onMount,
-  Show,
-} from 'solid-js'
+import { createSignal, For, type JSX, onCleanup, onMount, Show } from 'solid-js'
 import type { RpcNotification } from './rpc/protocol'
 import { createRpcClient, type RpcClient } from './rpc/rpc-client'
 import { getRpcDir } from './rpc/rpc-dir'
@@ -49,6 +41,10 @@ import { createTuiFileLogger, type TuiLogger } from './tui/file-logger'
 
 const POLL_INTERVAL_MS = 2000
 const STALE_AFTER_MS = 15_000
+const RPC_POLL_MS = 500
+let rpcPollStarted = false
+let lastNotificationId = 0
+let rpcInFlight = false
 
 const QUOTA_LABELS: Record<SidebarQuotaKey, string> = {
   claude: 'Claude',
@@ -71,10 +67,6 @@ export interface SidebarPanelProps {
   logger?: TuiLogger
   /** Optional override for the current epoch in milliseconds (tests). */
   now?: () => number
-  rpcClient?: RpcClient
-  rpcPollIntervalMs?: number
-  sessionId?: string
-  onRpcNotification?: (notification: RpcNotification) => void
 }
 
 interface InternalState {
@@ -122,52 +114,6 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
     loaded: EMPTY_STATE,
     lastReadAt: 0,
     lastError: null,
-  })
-
-  const lastReceivedBySession = new Map<string, number>()
-  let lastRpcError: string | null = null
-  createEffect(() => {
-    const rpcClient = props.rpcClient
-    const sessionId = props.sessionId
-    const intervalMs = props.rpcPollIntervalMs ?? 500
-    if (!rpcClient) return
-
-    const sessionKey = sessionId ?? ''
-    let active = true
-    let polling = false
-    const poll = async (): Promise<void> => {
-      if (!active || polling) return
-      polling = true
-      try {
-        const notifications = await rpcClient.pendingNotifications(
-          lastReceivedBySession.get(sessionKey) ?? 0,
-          sessionId,
-        )
-        if (!active) return
-        for (const notification of notifications) {
-          const previousId = lastReceivedBySession.get(sessionKey) ?? 0
-          if (notification.id <= previousId) continue
-          lastReceivedBySession.set(sessionKey, notification.id)
-          props.onRpcNotification?.(notification)
-        }
-        lastRpcError = null
-      } catch (error) {
-        const message = formatError(error)
-        if (message !== lastRpcError) {
-          logger.warn('rpc-notification-poll-failed', { error: message })
-          lastRpcError = message
-        }
-      } finally {
-        polling = false
-      }
-    }
-
-    void poll()
-    const interval = setInterval(() => void poll(), intervalMs)
-    onCleanup(() => {
-      active = false
-      clearInterval(interval)
-    })
   })
 
   const refresh = (): void => {
@@ -451,6 +397,41 @@ function formatError(value: unknown): string {
  */
 export const sidebar_content = createSlot
 
+interface RpcNotificationPollOptions {
+  pending: (
+    lastReceivedId: number,
+    sessionId?: string,
+  ) => Promise<RpcNotification[]>
+  currentSessionId: () => string | undefined
+  dispatch: (notification: RpcNotification) => void | Promise<void>
+  schedule: (poll: () => Promise<void>, intervalMs: number) => void
+}
+
+export function startRpcNotificationPolling(
+  options: RpcNotificationPollOptions,
+): void {
+  if (rpcPollStarted) return
+  rpcPollStarted = true
+  options.schedule(async () => {
+    if (rpcInFlight) return
+    rpcInFlight = true
+    try {
+      const sessionId = options.currentSessionId()
+      const notifications = await options.pending(lastNotificationId, sessionId)
+      for (const notification of [...notifications].sort(
+        (a, b) => a.id - b.id,
+      )) {
+        if (notification.id <= lastNotificationId) continue
+        lastNotificationId = Math.max(lastNotificationId, notification.id)
+        await options.dispatch(notification)
+      }
+    } catch {
+    } finally {
+      rpcInFlight = false
+    }
+  }, RPC_POLL_MS)
+}
+
 const tui: TuiPlugin = async (api) => {
   const logger = resolveLogger(undefined)
   const rpcClient = createRpcClient(
@@ -458,27 +439,32 @@ const tui: TuiPlugin = async (api) => {
     process.pid,
   )
 
+  startRpcNotificationPolling({
+    pending: (lastReceivedId, sessionId) =>
+      rpcClient.pendingNotifications(lastReceivedId, sessionId),
+    currentSessionId: () => {
+      const current = (api.route as { current?: unknown }).current
+      const resolved =
+        typeof current === 'function' ? (current as () => unknown)() : current
+      return (resolved as { params?: { sessionID?: string } } | undefined)
+        ?.params?.sessionID
+    },
+    dispatch: async (notification) => {
+      logger.debug('rpc-notification-received', {
+        command: notification.command,
+        id: notification.id,
+        sessionId: notification.sessionId,
+      })
+      await openCommandDialogFromNotification(api, rpcClient, notification)
+    },
+    schedule: (poll, intervalMs) => {
+      setInterval(() => void poll(), intervalMs)
+    },
+  })
+
   api.slots.register({
     slots: {
-      sidebar_content: (_context, { session_id: sessionID }) => (
-        <SidebarPanel
-          logger={logger}
-          rpcClient={rpcClient}
-          sessionId={sessionID}
-          onRpcNotification={async (notification) => {
-            logger.debug('rpc-notification-received', {
-              command: notification.command,
-              id: notification.id,
-              sessionId: notification.sessionId,
-            })
-            await openCommandDialogFromNotification(
-              api,
-              rpcClient,
-              notification,
-            )
-          }}
-        />
-      ),
+      sidebar_content: () => <SidebarPanel logger={logger} />,
     },
   })
 }
