@@ -280,6 +280,7 @@ describe('persistAccountPool behavior (lock-held persistence)', () => {
             access: 'new-access',
             expires: Date.now() + 3_600_000,
             email: 'new@example.com',
+            label: 'New Account',
             projectId: 'new-project',
           },
         ],
@@ -289,7 +290,11 @@ describe('persistAccountPool behavior (lock-held persistence)', () => {
       expect(await storageModule.loadAccounts()).toMatchObject({
         accounts: [
           { email: 'existing@example.com', refreshToken: 'existing-token' },
-          { email: 'new@example.com', refreshToken: 'new-token' },
+          {
+            email: 'new@example.com',
+            refreshToken: 'new-token',
+            label: 'New Account',
+          },
         ],
       })
     })
@@ -340,6 +345,55 @@ describe('persistAccountPool behavior (lock-held persistence)', () => {
       )
       expect(shared).toHaveLength(1)
       expect(shared?.[0]?.refreshToken).toBe('rotation-token')
+    })
+
+    it('preserves a previously stored label when the OAuth result has no label', async () => {
+      await storageModule.saveAccountsReplace(
+        createMockStorage([
+          createMockAccount({
+            email: 'existing@example.com',
+            refreshToken: 'existing-token',
+            label: 'Existing Label',
+          }),
+        ]),
+      )
+
+      await persistAccountPool(
+        [
+          {
+            type: 'success',
+            refresh: 'existing-token|existing-project',
+            access: 'access',
+            expires: Date.now() + 3_600_000,
+            email: 'existing@example.com',
+            projectId: 'existing-project',
+          },
+        ],
+        false,
+      )
+
+      const stored = await storageModule.loadAccounts()
+      expect(stored?.accounts[0]?.label).toBe('Existing Label')
+    })
+
+    it('persists a new label on first-time account upsert', async () => {
+      await persistAccountPool(
+        [
+          {
+            type: 'success',
+            refresh: 'fresh-token|fresh-project',
+            access: 'fresh-access',
+            expires: Date.now() + 3_600_000,
+            email: 'fresh@example.com',
+            label: 'Fresh Label',
+            projectId: 'fresh-project',
+          },
+        ],
+        true,
+      )
+
+      const stored = await storageModule.loadAccounts()
+      expect(stored?.accounts[0]?.label).toBe('Fresh Label')
     })
 
     it('deduplicates by refresh token when email is not available', async () => {

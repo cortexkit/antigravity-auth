@@ -81,6 +81,7 @@ function applyUpserts(
       }
       accounts.push({
         email: result.email,
+        label: result.label,
         refreshToken: parts.refreshToken,
         projectId: parts.projectId,
         managedProjectId: parts.managedProjectId,
@@ -98,6 +99,7 @@ function applyUpserts(
     accounts[existingIndex] = {
       ...existing,
       email: result.email ?? existing.email,
+      label: result.label ?? existing.label,
       refreshToken: parts.refreshToken,
       projectId: parts.projectId ?? existing.projectId,
       managedProjectId: parts.managedProjectId ?? existing.managedProjectId,

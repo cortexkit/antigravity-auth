@@ -110,7 +110,7 @@ export function createOpenCodeQuotaManager(
      */
     getAccountsForSidebar?: () => Array<{
       index: number
-      email?: string
+      label?: string
       enabled?: boolean
       coolingDownUntil?: number
       cachedQuota?: AccountMetadataV3['cachedQuota']
@@ -281,7 +281,7 @@ export async function checkAccountsQuota(
 export async function pushSidebarQuotaSnapshot(
   getAccounts: () => Array<{
     index: number
-    email?: string
+    label?: string
     enabled?: boolean
     coolingDownUntil?: number
     cachedQuota?: AccountMetadataV3['cachedQuota']
@@ -295,7 +295,7 @@ export async function pushSidebarQuotaSnapshot(
       buildSidebarMachineStateFromAccounts(
         accounts.map((entry) => ({
           index: entry.index,
-          email: entry.email,
+          label: entry.label,
           enabled: entry.enabled,
           current: false,
           coolingDownUntil: entry.coolingDownUntil,

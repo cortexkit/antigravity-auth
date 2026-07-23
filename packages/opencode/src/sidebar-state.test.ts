@@ -27,6 +27,7 @@ import {
   DEFAULT_SIDEBAR_STATE,
   pruneActiveRouting,
   readSidebarState,
+  redactAccountForSidebar,
   removeSidebarActiveRouting,
   SIDEBAR_STATE_VERSION,
   type SidebarMergeHooks,
@@ -489,5 +490,15 @@ describe('redaction', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('redacts a label-bearing input to itself (no email field accepted)', () => {
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      label: 'Alice Example',
+    })
+    expect(redacted.label).toBe('Alice Example')
+    expect(JSON.stringify(redacted)).not.toContain('alice.secret@example.com')
+    expect(redactAccountForSidebar({ index: 1 }).label).toBe('Account 2')
   })
 })

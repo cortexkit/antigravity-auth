@@ -33,7 +33,7 @@ import type { PluginClient } from './types.ts'
 
 interface QuotaSnapshotAccount {
   index: number
-  email?: string
+  label?: string
   enabled?: boolean
   coolingDownUntil?: number
   cachedQuota?: AccountMetadataV3['cachedQuota']
@@ -96,7 +96,7 @@ describe('pushSidebarQuotaSnapshot', () => {
     const getAccounts = (): QuotaSnapshotAccount[] => [
       {
         index: 0,
-        email: 'primary@example.test',
+        label: 'Primary Account',
         enabled: true,
         coolingDownUntil: undefined,
         cachedQuota: {
@@ -110,7 +110,7 @@ describe('pushSidebarQuotaSnapshot', () => {
       },
       {
         index: 1,
-        email: 'backup@example.test',
+        label: 'Backup Account',
         enabled: false,
         coolingDownUntil: Date.now() + 5 * 60 * 1000,
         cachedQuota: {
@@ -124,7 +124,7 @@ describe('pushSidebarQuotaSnapshot', () => {
     const state = read()
     expect(state.version).toBe(SIDEBAR_STATE_VERSION)
     expect(state.accounts).toHaveLength(2)
-    expect(state.accounts[0]?.label).toBe('primary@example.test')
+    expect(state.accounts[0]?.label).toBe('Primary Account')
     expect(state.accounts[0]?.enabled).toBe(true)
     expect(state.accounts[0]?.quota.claude?.remainingPercent).toBe(42)
     expect(state.accounts[0]?.quota['gemini-pro']?.remainingPercent).toBe(85)
@@ -137,7 +137,7 @@ describe('pushSidebarQuotaSnapshot', () => {
     const getAccounts = (): QuotaSnapshotAccount[] => [
       {
         index: 0,
-        email: 'primary@example.test',
+        label: 'Primary Account',
         enabled: true,
         cachedQuota: {
           claude: { remainingFraction: 0.6, modelCount: 1 },

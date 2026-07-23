@@ -46,6 +46,12 @@ export interface AccountMetadataV3 {
   rateLimitResetTimes?: RateLimitStateV3
   coolingDownUntil?: number
   cooldownReason?: CooldownReason
+  /**
+   * Non-PII display label for the sidebar/telemetry. Sourced from the
+   * OAuth userinfo `name` field. Falls back to the legacy PII email
+   * only when absent so previously-stored accounts retain a label.
+   */
+  label?: string
   /** Per-account device fingerprint for rate limit mitigation */
   fingerprint?: Fingerprint
   fingerprintHistory?: FingerprintVersion[]

@@ -410,7 +410,7 @@ async function applyCommandInner(
 export function createSidebarRefresher(
   getAccounts: () => Array<{
     index: number
-    email?: string
+    label?: string
     enabled?: boolean
     coolingDownUntil?: number
     cachedQuota?: {
@@ -428,7 +428,7 @@ export function createSidebarRefresher(
         buildSidebarMachineStateFromAccounts(
           accounts.map((entry) => ({
             index: entry.index,
-            email: entry.email,
+            label: entry.label,
             enabled: entry.enabled,
             coolingDownUntil: entry.coolingDownUntil,
             cachedQuota: entry.cachedQuota,

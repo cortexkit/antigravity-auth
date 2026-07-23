@@ -270,6 +270,7 @@ function buildAuthSuccessFromStoredAccount(account: {
   projectId?: string
   managedProjectId?: string
   email?: string
+  label?: string
 }): Extract<AntigravityTokenExchangeResult, { type: 'success' }> {
   return {
     type: 'success',
@@ -281,6 +282,7 @@ function buildAuthSuccessFromStoredAccount(account: {
     access: '',
     expires: 0,
     email: account.email,
+    label: account.label,
     projectId: account.projectId ?? '',
   }
 }
@@ -368,7 +370,7 @@ export function createOAuthMethods({
         if (!manager) return null
         return manager.getAccounts().map((entry) => ({
           index: entry.index,
-          email: entry.email,
+          label: entry.label,
           enabled: entry.enabled,
           coolingDownUntil: entry.coolingDownUntil,
           cachedQuota: entry.cachedQuota,
@@ -1443,6 +1445,7 @@ export function createOAuthMethods({
                       current.accounts[idx] = {
                         ...target,
                         email: result.email ?? target.email,
+                        label: result.label ?? target.label,
                         refreshToken: parts.refreshToken,
                         projectId: parts.projectId ?? target.projectId,
                         managedProjectId:

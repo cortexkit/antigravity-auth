@@ -68,6 +68,7 @@ export type QuotaKey = BaseQuotaKey | `${BaseQuotaKey}:${string}`
 export interface ManagedAccount {
   index: number
   email?: string
+  label?: string
   addedAt: number
   lastUsed: number
   parts: RefreshParts
@@ -359,6 +360,7 @@ export class AccountManager {
           return {
             index,
             email: acc.email,
+            label: acc.label,
             addedAt: clampNonNegativeInt(acc.addedAt, baseNow),
             lastUsed: clampNonNegativeInt(acc.lastUsed, 0),
             parts: {
@@ -1594,6 +1596,7 @@ export class AccountManager {
       version: 4,
       accounts: this.accounts.map((a) => ({
         email: a.email,
+        label: a.label,
         refreshToken: a.parts.refreshToken,
         projectId: a.parts.projectId,
         managedProjectId: a.parts.managedProjectId,

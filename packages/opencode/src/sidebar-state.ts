@@ -408,11 +408,15 @@ export function pruneActiveRouting(
  * `ManagedAccount` type so this module never forces a type-level import
  * shape on callers (and so the TUI's compiled tree does not see the core
  * ManagedAccount shape beyond what's actually used).
+ *
+ * Deliberately excludes `email`: the sidebar/redaction boundary is a PII
+ * firewall. Adding `email` here would re-introduce the leak this boundary
+ * exists to prevent; producers must pass `label` instead.
  */
 export interface SidebarAccountRedactionInput {
   /** Position in the harness-visible account array. */
   index: number
-  email?: string
+  label?: string
   enabled?: boolean
   current?: boolean
   coolingDownUntil?: number
@@ -436,7 +440,7 @@ export function redactAccountForSidebar(
   source: SidebarAccountRedactionInput,
 ): SidebarAccountState {
   const id = `acct-${source.index}`
-  const label = source.email ?? `Account ${source.index + 1}`
+  const label = source.label ?? `Account ${source.index + 1}`
   const enabled = source.enabled !== false
   const current = source.current === true
   const cooldownUntil =

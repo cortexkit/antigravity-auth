@@ -140,7 +140,7 @@ export const createAntigravityPlugin =
         if (!manager) return null
         return manager.getAccounts().map((entry) => ({
           index: entry.index,
-          email: entry.email,
+          label: entry.label,
           enabled: entry.enabled,
           coolingDownUntil: entry.coolingDownUntil,
           cachedQuota: entry.cachedQuota,
@@ -254,7 +254,7 @@ export const createAntigravityPlugin =
           if (!manager) return null
           return manager.getAccounts().map((entry) => ({
             index: entry.index,
-            email: entry.email,
+            label: entry.label,
             enabled: entry.enabled,
             coolingDownUntil: entry.coolingDownUntil,
             cachedQuota: entry.cachedQuota,

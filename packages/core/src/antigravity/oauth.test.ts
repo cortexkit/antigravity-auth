@@ -42,8 +42,11 @@ function tokenResponseBody(
   return JSON.stringify(body)
 }
 
-function userInfoBody(email = 'user@example.com'): string {
-  return JSON.stringify({ email })
+function userInfoBody(
+  email = 'user@example.com',
+  name = 'Alice Example',
+): string {
+  return JSON.stringify({ email, name })
 }
 
 describe('Antigravity OAuth', () => {
@@ -140,6 +143,7 @@ describe('Antigravity OAuth', () => {
       expect(result.refresh).toBe('refresh-1|project-1')
       expect(result.access).toBe('access-1')
       expect(result.email).toBe('alice@example.com')
+      expect(result.label).toBe('Alice Example')
       expect(result.projectId).toBe('project-1')
 
       // Expires must be relative to the request wall clock, not 0 or +expires_in.
@@ -208,6 +212,7 @@ describe('Antigravity OAuth', () => {
       if (result.type !== 'success') throw new Error('expected success')
       expect(result.refresh).toBe('refresh-1|project-1')
       expect(result.email).toBeUndefined()
+      expect(result.label).toBeUndefined()
     })
 
     it('uses empty projectId segment when no projectId is provided and discovery fails', async () => {

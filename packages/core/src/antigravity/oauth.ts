@@ -44,6 +44,7 @@ interface AntigravityTokenExchangeSuccess {
   access: string
   expires: number
   email?: string
+  label?: string
   projectId: string
 }
 
@@ -113,6 +114,7 @@ interface AntigravityTokenResponse {
 
 interface AntigravityUserInfo {
   email?: string
+  name?: string
 }
 
 /**
@@ -312,6 +314,7 @@ export async function exchangeAntigravity(
       access: tokenPayload.access_token,
       expires: calculateTokenExpiry(startTime, tokenPayload.expires_in),
       email: userInfo.email,
+      label: userInfo.name?.trim() || undefined,
       projectId: effectiveProjectId || '',
     }
   } catch (error) {

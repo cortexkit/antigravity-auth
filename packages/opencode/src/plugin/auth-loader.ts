@@ -195,7 +195,7 @@ export function createAuthLoader({
       buildSidebarMachineStateFromAccounts(
         accountManager.getAccounts().map((entry) => ({
           index: entry.index,
-          email: entry.email,
+          label: entry.label,
           enabled: entry.enabled,
           current: false,
           coolingDownUntil: entry.coolingDownUntil,
