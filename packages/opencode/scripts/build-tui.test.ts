@@ -156,6 +156,19 @@ function collectRelativeSpecifiers(code: string): string[] {
   return out
 }
 
+function collectPackageSpecifiers(code: string): string[] {
+  const out: string[] = []
+  for (const pattern of STATIC_IMPORT_PATTERNS) {
+    code.replace(pattern, (_full, prefix, specifier, suffix) => {
+      if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
+        out.push(specifier)
+      }
+      return `${prefix}${specifier}${suffix}`
+    })
+  }
+  return out
+}
+
 function resolveRelativeInTree(
   fromFile: string,
   specifier: string,
@@ -247,5 +260,26 @@ describe('TUI import graph — credential modules stay out', () => {
     for (const rel of FORBIDDEN) {
       expect(reachable).not.toContain(join(PACKAGE_ROOT, rel))
     }
+  })
+
+  it('compiled tree never imports the core barrel (subpath imports only)', async () => {
+    // The shipped TUI is transformed, not tree-shaken: a bare
+    // `@cortexkit/antigravity-auth-core` import executes the whole
+    // barrel — account storage, OAuth, quota — inside the host's
+    // render path. Only leaf subpaths (…/file-lock, …/atomic-write,
+    // …/fetch-timeout) may appear in the compiled copy.
+    const result = await buildTui({ packageRoot: PACKAGE_ROOT })
+    const offenders: string[] = []
+    for (const rel of result.shippedSourceFiles) {
+      if (!rel.endsWith('.tsx') && !rel.endsWith('.ts')) continue
+      const compiled = join(result.outDir, rel)
+      const code = readFileSync(compiled, 'utf-8')
+      for (const specifier of collectPackageSpecifiers(code)) {
+        if (specifier === '@cortexkit/antigravity-auth-core') {
+          offenders.push(`${rel} imports ${specifier}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
   })
 })

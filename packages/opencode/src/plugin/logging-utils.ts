@@ -149,10 +149,12 @@ export function redactSensitive(value: string | undefined | null): string {
 /**
  * Field-name pattern that flags a key as carrying a credential or
  * identifier. Matched case-insensitively against any JSON-like object
- * key the debug sink walks.
+ * key the debug sink walks. `project` (not just `projectId`) so bare
+ * `project` / `managedProjectId` request-body fields are masked too —
+ * project IDs are account-correlating identifiers.
  */
 const SENSITIVE_FIELD_PATTERN =
-  /token|refresh|access|projectId|fingerprint|deviceId|sessionId|sessionToken|secret|password|apiKey|clientSecret/i
+  /token|refresh|access|project|fingerprint|deviceId|sessionId|sessionToken|secret|password|apiKey|clientSecret/i
 
 /**
  * Walk a JSON-like value and redact every credential-shaped field.
@@ -176,4 +178,34 @@ export function redactSensitiveFields(value: unknown): unknown {
     return redacted
   }
   return value
+}
+
+/**
+ * Redact credential-shaped fields (project IDs, tokens, …) out of a
+ * serialized JSON request body. Returns the input untouched when it is
+ * not parseable JSON or not an object/array — unstructured bodies have
+ * no field names to key redaction off.
+ */
+export function redactJsonBodyString(body: string): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return body
+  }
+  if (parsed == null || typeof parsed !== 'object') return body
+  return JSON.stringify(redactSensitiveFields(parsed))
+}
+
+/**
+ * Redact a request body before it reaches a debug log or dump file.
+ * String bodies are treated as JSON and field-redacted; every other
+ * `BodyInit` shape passes through (those are summarized, not printed
+ * verbatim, by the log formatters).
+ */
+export function redactBodyForLog(
+  body: BodyInit | null | undefined,
+): BodyInit | null | undefined {
+  if (typeof body === 'string') return redactJsonBodyString(body)
+  return body
 }

@@ -72,7 +72,7 @@ The harness-agnostic core. Every export under `packages/core/src/index.ts:1-30` 
 - **`packages/core/src/auth-types.ts`** — packed/refresh token wire types.
 - **`packages/core/src/constants.ts`** — endpoints (`ANTIGRAVITY_ENDPOINT_FALLBACKS = [DAILY, PROD]`), scopes, request headers, sentinel values (`SKIP_THOUGHT_SIGNATURE`), `CLAUDE_TOOL_SYSTEM_INSTRUCTION`, OAuth prompt copy.
 - **`packages/core/src/fetch-timeout.ts`** — `fetchWithActiveTimeout` (15s header abort, stream-safe: the abort listener is removed once the body streams).
-- **`packages/core/src/file-lock.ts`** — renovating fenced file lock (`acquireFencedFileLock` + `releaseFencedFileLock`), eviction marker for stale claims, `assertOwned` ownership check.
+- **`packages/core/src/file-lock.ts`** — renovating fenced file lock (`acquireFencedFileLock` + `releaseFencedFileLock`), eviction marker with `pid` / `createdAt` (`MARKER_TTL_MS = 30_000`) for stale-claim reclamation, `assertOwned` ownership check, `whenLost()` / `hasLost()` ownership-loss signals, idempotent terminal release, and TOCTOU-safe renewal that stages a temp file before `rename(2)`.
 - **`packages/core/src/fingerprint.ts`** — per-account device fingerprint + fingerprint history persistence helpers.
 - **`packages/core/src/logger.ts`** — `createLogger('module-name')` thin wrapper used by every other module.
 - **`packages/core/src/model-registry.ts`** — canonical model definitions, quota groups, header-style per-model metadata (mirrored to `packages/opencode/src/plugin/model-registry.ts` which adds harness-specific overrides).
@@ -132,7 +132,7 @@ The `src/tui-compiled/` directory lives under `src/` but is **gitignored** — s
 - **`packages/opencode/src/plugin/index.ts`** — `createAntigravityPlugin(providerId, options)` factory. The single composition root.
 - `packages/opencode/src/plugin/types.ts` — `PluginInput`, `PluginContext`, `PluginResult`, `GetAuth`, host types.
 - `packages/opencode/src/plugin/dependencies.ts` — `PluginDependencyOverrides` (the seam the e2e workspace uses to swap `fetchImpl`, `agyTransport`, `filesystemRoots`, `oauth`, `clock`) + `resolvePluginDependencies` default-resolver.
-- `packages/opencode/src/plugin/lifecycle.ts` — `createPluginLifecycle` — the disposal root that coordinates `disposeAccountRuntime`, `shutdownDiskSignatureCache`, `sessionRegistry.clear()`, `clearFetchState`, `drainSidebarWrites`, and the registered disposables (RPC server, file logger, auto-update checker).
+- `packages/opencode/src/plugin/lifecycle.ts` — `createPluginLifecycle` — the disposal root that coordinates `disposeAccountRuntime`, `shutdownDiskSignatureCache`, `sessionRegistry.clear()`, `clearFetchState`, `drainSidebarWrites`, and the registered disposables (RPC server, file logger, auto-update checker). Disposables are registered with a `LifecyclePhase` of `'producer'` or `'consumer'`; producers (e.g. the auth loader's fetch-interceptor runtime) are disposed before the sidebar drain, consumers after.
 - `packages/opencode/src/plugin/auth-loader.ts` — `createAuthLoader` — the function the host invokes on every `auth.loader(...)` call. Detects auth drift, rebuilds the `AccountManager`, and returns a fresh `fetch` closure bound to a new fetch interceptor.
 - `packages/opencode/src/plugin/auth.ts` — token validation helpers used by the loader (refresh-parts checks, expiry buffer).
 - `packages/opencode/src/plugin/auth-doctor.ts` — self-healing diagnostics for an unrecoverable auth store.
@@ -141,7 +141,7 @@ The `src/tui-compiled/` directory lives under `src/` but is **gitignored** — s
 - `packages/opencode/src/plugin/account-access.ts` — CLI-facing account prompts (`promptAccountIndexForVerification`, `promptOpenVerificationUrl`, `createAccountAccessService`).
 - `packages/opencode/src/plugin/storage.ts` — host-path adapter: resolves `OPENCODE_CONFIG_DIR`, handles `%APPDATA%` on Windows, syncs the on-disk `.gitignore`. Delegates all data operations to `core/account-storage.ts`.
 - `packages/opencode/src/plugin/persist-account-pool.ts` — lock-held append-and-rewrite of `antigravity-accounts.json` used after a fresh OAuth login.
-- `packages/opencode/src/plugin/fetch-interceptor.ts` — `createFetchInterceptor` — the largest file in the tree. Outer loop picks an account, inner loop walks `ANTIGRAVITY_ENDPOINT_FALLBACKS`, retry/quota/routing pipeline, soft-quota + killswitch gates, sideline `setSidebarMachineState` writes, `transformAntigravityResponse` reverse-transform.
+- `packages/opencode/src/plugin/fetch-interceptor.ts` — `createFetchInterceptor` — the largest file in the tree. Outer loop picks an account, inner loop walks `ANTIGRAVITY_ENDPOINT_FALLBACKS`, retry/quota/routing pipeline, soft-quota + killswitch gates (killswitch evaluation is model-aware: a `gemini-pro` request checks ONLY the `gemini-pro` quota group via a precomputed `eligibleIndexes` Set that is reused after core selection and after the quota-fallback re-selection), sideline `setSidebarMachineState` writes, `transformAntigravityResponse` reverse-transform.
 - `packages/opencode/src/plugin/fetch/retry-state.ts` — per-interceptor `RetryState` (rate-limit toast debounce, retry counts).
 - `packages/opencode/src/plugin/fetch/warmup.ts` — `WarmupState` (probe accounts under load to detect soft-quota cliffs before they surprise the dispatcher).
 - `packages/opencode/src/plugin/fetch-routing.ts` — `resolveHeaderRoutingDecision`, `resolveQuotaFallbackHeaderStyle`, `getCurrentRoutingDecision` (live override from operator settings).
@@ -176,7 +176,7 @@ The `src/tui-compiled/` directory lives under `src/` but is **gitignored** — s
 - `packages/opencode/src/plugin/recovery/constants.ts` — recovery limits (max attempts, retry delays).
 - `packages/opencode/src/plugin/recovery/storage.ts` — durable on-disk state for in-flight recovery attempts.
 - `packages/opencode/src/plugin/thinking-recovery.ts` — recovery for thinking-block signature mismatches (Gemini `skip_thought_signature_validator` path).
-- `packages/opencode/src/plugin/killswitch.ts` — `evaluateKillswitchForAccount`, `throwIfAllKilled` — operator-tuned per-family/minimum-remaining-percent gate.
+- `packages/opencode/src/plugin/killswitch.ts` — `evaluateKillswitchForAccount`, `throwIfAllKilled` — operator-tuned per-family/minimum-remaining-percent gate. Evaluation is model-aware via the `model`/`quotaModel` option: a `gemini-pro` request checks ONLY the `gemini-pro` quota group, not the max of pro+flash.
 - `packages/opencode/src/plugin/operator-settings.ts` — `createOperatorSettingsController`: the runtime-mutable settings store (routing flags, killswitch, log level). Persists through the fenced-lock writer.
 - `packages/opencode/src/plugin/config/schema.ts` — Zod schema for `antigravity.json` (the public config schema). Schema description source for `script/build-schema.ts`.
 - `packages/opencode/src/plugin/config/loader.ts` — `loadConfig(directory)`, `loadConfigFile`. Computes the legacy Windows migration fallback. Swallows malformed JSON.
@@ -192,14 +192,14 @@ The `src/tui-compiled/` directory lives under `src/` but is **gitignored** — s
 - `packages/opencode/src/plugin/core/streaming/index.ts` — barrel for the streaming subsubsystem.
 - `packages/opencode/src/plugin/core/streaming/transformer.ts` — the SSE reverse-transform: strips Antigravity envelope, splices `thoughtSignature`, aggregates `usageMetadata`, produces a `ReadableStream<Uint8Array>`.
 - `packages/opencode/src/plugin/core/streaming/types.ts` — `SignatureStore`, `StreamingCallbacks`, `StreamingOptions`, `StreamingUsageMetadata`, `ThoughtBuffer`.
-- `packages/opencode/src/plugin/debug.ts` — debug file logger for the server plugin (writes to the user-configured `log_dir`).
+- `packages/opencode/src/plugin/debug.ts` — debug file logger for the server plugin (writes to the user-configured `log_dir`). Project IDs and fingerprint-form User-Agents are masked via `redactSensitive` before emission, and the logged request-body preview is field-redacted via `redactBodyForLog` so a project ID embedded in the body never leaks verbatim.
 - `packages/opencode/src/plugin/errors.ts` — domain error classes (`AntigravityKillswitchError`, `AntigravityTokenRefreshError`, `LiveNetworkDeniedError`, etc.).
 - `packages/opencode/src/plugin/fingerprint.ts` — host thin wrapper that pins the `FingerprintVersion` for an account.
-- `packages/opencode/src/plugin/gemini-dump.ts` — `/gemini-dump` modal command — saves raw payload/response to disk for debugging.
+- `packages/opencode/src/plugin/gemini-dump.ts` — `/gemini-dump` modal command — saves raw payload/response to disk for debugging. Session IDs and project IDs are masked via `maskIdentifier`; header User-Agents are redacted by `redactForDump`; the request body written to disk is field-redacted via `redactJsonBodyString` so project IDs embedded in the body are masked.
 - `packages/opencode/src/plugin/google-search-tool.ts` — server-side `google_search` tool implementation.
 - `packages/opencode/src/plugin/image-saver.ts` — writes Gemini image-generation output to disk and returns the file path back to the caller.
 - `packages/opencode/src/plugin/logger.ts` — structured logger (`createLogger`, `initLogger`, `setRuntimeLogLevel`).
-- `packages/opencode/src/plugin/logging-utils.ts` — small ANSI/console helpers.
+- `packages/opencode/src/plugin/logging-utils.ts` — small ANSI/console helpers plus `redactSensitive` / `redactSensitiveFields` (case-insensitive walk over `token|refresh|access|project|fingerprint|deviceId|sessionId|sessionToken|secret|password|apiKey|clientSecret` keys — `project` catches bare `project` / `managedProjectId` body fields), and `redactJsonBodyString` / `redactBodyForLog` which field-redact a serialized JSON request body before it reaches a debug log or dump file.
 - `packages/opencode/src/plugin/model-registry.ts` — host overlay on `core/model-registry.ts` (OpenCode `Model` shape + `providerOptions` defaults).
 - `packages/opencode/src/plugin/project.ts` — host thin wrapper around `core/project.ts`.
 - `packages/opencode/src/plugin/prompt-context.ts` — extracts the active prompt context (workspace + system prompt) for cross-model sanitizer decisions.
@@ -248,7 +248,7 @@ The TUI is a thin Solid sidebar that polls a redacted snapshot file and a loopba
 - `packages/opencode/src/tui.tsx` — `@jsxImportSource @opentui/solid`. The `TuiPlugin` default export registers the `slots.sidebar_content` slot. Hard rules for the file are documented in its module header (lines 1-22).
 - `packages/opencode/src/tui/entry.mjs` — host-aware loader. Probes `opentui:runtime-module:<encodeURIComponent('@opentui/solid')>`; falls back to the raw `tui.tsx` if the host has no runtime module resolver.
 - `packages/opencode/src/tui/command-dialogs.tsx` — `DialogSelect` / `DialogConfirm` / `DialogPrompt` trees mounted from RPC notifications. Every `MODAL_COMMANDS` option has a stable `key` and an explanatory `description`.
-- `packages/opencode/src/tui/file-logger.ts` — write-only file logger under `<xdg-state>/cortexkit/antigravity-auth/tui.log` (mode `0o600`, 1 MB tail-truncated). Never writes to stdout/stderr.
+- `packages/opencode/src/tui/file-logger.ts` — write-only file logger under `<xdg-state>/cortexkit/antigravity-auth/tui.log` (mode `0o600`, 1 MB tail-truncated). Parent dir is forced to `0o700` after every write and existing log files are re-`chmod`-ed to `0o600` to repair any leaked permissions. Never writes to stdout/stderr.
 - `packages/opencode/src/tui/ansi.ts` — small ANSI helpers used by the dialog tree.
 - Tests: `tui.test.tsx`, `tui/command-dialogs.test.tsx`, `tui/file-logger.test.ts`.
 
@@ -280,7 +280,7 @@ The TUI is a thin Solid sidebar that polls a redacted snapshot file and a loopba
 
 ### Source (`packages/e2e-tests/src/`)
 
-- `packages/e2e-tests/src/setup.ts` — per-test temp root + env reset (`HOME`, `XDG_*`, `APPDATA`, `LOCALAPPDATA`, `OPENCODE_CONFIG_DIR`, `PI_AGENT_DIR`, `PI_ANTIGRAVITY_AUTH_FILE`, `OPENCODE_ANTIGRAVITY_GEMINI_DUMP_DIR`, `ANTIGRAVITY_AUTH_RPC_DIR`, `ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE`).
+- `packages/e2e-tests/src/setup.ts` — per-test temp root + env reset (`HOME`, `XDG_*`, `APPDATA`, `LOCALAPPDATA`, `OPENCODE_CONFIG_DIR`, `PI_AGENT_DIR`, `PI_ANTIGRAVITY_AUTH_FILE`, `OPENCODE_ANTIGRAVITY_GEMINI_DUMP_DIR`, `ANTIGRAVITY_AUTH_RPC_DIR`, `ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE`), plus a loopback-only `globalThis.fetch` guard (`installFetchGuard` / `restoreFetchGuard`, line 51-84) that throws `LiveNetworkDeniedError` for any non-loopback URL. The guard is installed in `beforeEach` and restored in `afterEach` so a stray live URL surfaces as a real exception that points at the offending call site.
 - `packages/e2e-tests/src/harness.ts` — `E2eHarness`: builds a mock loopback server, a `PluginDependencyOverrides` bag that points the production plugin at `127.0.0.1`, and `createPlugin()` / `runCli()` helpers. The single seam every e2e test uses to talk to the plugin under test.
 - `packages/e2e-tests/src/fetch-router.ts` — `installFetchRouter` — routes `globalThis.fetch` through the mock when the URL targets the loopback server.
 - `packages/e2e-tests/src/mock-antigravity-server.ts` — `startMockAntigravityServer` + `MockServerHandle`. Configurable routes, scripted responses, request recorder.
@@ -288,8 +288,9 @@ The TUI is a thin Solid sidebar that polls a redacted snapshot file and a loopba
 - `packages/e2e-tests/src/cli-flow.e2e.test.ts` — CLI flows (login, refresh, quota check) against the mock.
 - `packages/e2e-tests/src/plugin-flow.e2e.test.ts` — full plugin instance lifecycle against the mock.
 - `packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts` — RPC server boot + notification drain end-to-end.
+- `packages/e2e-tests/src/fetch-guard.test.ts` — pins the loopback-only `globalThis.fetch` guard: loopback URLs pass through, non-loopback URLs throw `LiveNetworkDeniedError`, the guard is restored in `afterEach`.
 - Unit tests under this workspace: `mock-antigravity-server.test.ts`, `process-runner.test.ts`.
-- Run via `bun run test:e2e` at the repo root (delegates to `bun test --isolate ./packages/e2e-tests/src/plugin-flow.e2e.test.ts ./packages/e2e-tests/src/cli-flow.e2e.test.ts ./packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts`).
+- Run via `bun run test:e2e` at the repo root (delegates to `bun test --isolate ./packages/e2e-tests/src/plugin-flow.e2e.test.ts ./packages/e2e-tests/src/cli-flow.e2e.test.ts ./packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts ./packages/e2e-tests/src/fetch-guard.test.ts`).
 
 ## Root tooling and CI
 
@@ -365,7 +366,7 @@ These directories exist at build time but are **gitignored** (see `.gitignore`).
 - **Source manifest:** `packages/opencode/scripts/build-tui.ts` — `buildTui({ packageRoot })` walks the relative static import graph rooted at `src/tui.tsx`, transforms each `.tsx` through `@opentui/solid/scripts/solid-transform` (rewriting virtual runtime modules to `opentui:runtime-module:<encoded>`), and copies non-TSX sibling files as-is.
 - **Shipped source allowlist:** `packages/opencode/scripts/build-tui.ts:91-102` (`SHIPPED_SOURCE_FILES`) is the canonical allowlist that ships — `src/tui.tsx`, `src/tui/entry.mjs`, `src/tui/ansi.ts`, `src/tui/command-dialogs.tsx`, `src/tui/file-logger.ts`, `src/sidebar-state.ts`, `src/rpc/rpc-client.ts`, `src/rpc/rpc-dir.ts`, `src/rpc/port-file.ts`, `src/rpc/protocol.ts`.
 - **Behavior:** the loader `src/tui/entry.mjs` probes `opentui:runtime-module:<encodeURIComponent('@opentui/solid')>`; if that succeeds it loads `../tui-compiled/tui.tsx` (the host has a runtime-module resolver), otherwise it loads the dev fallback `../tui.tsx` via `@opentui/solid/preload`. `src/tui/entry.mjs` is intentionally NOT copied into the compiled tree — it ships via the `src/tui/` directory entry in `package.json` files.
-- **Test:** `packages/opencode/scripts/build-tui.test.ts` pins the SHIPPED_SOURCE_FILES list, the import-graph traversal, and the transformed output.
+- **Test:** `packages/opencode/scripts/build-tui.test.ts` pins the SHIPPED_SOURCE_FILES list, the import-graph traversal, the transformed output, and the TUI's import graph against the credential-module allowlist (`account-manager`, `account-storage`, `oauth`, `quota-manager`, `rotation` — the latter via `FORBIDDEN_PATTERNS`).
 - **Pack smoke test:** `packages/opencode/scripts/smoke-tui-pack-install.ts` packs core + opencode via `bun pm pack`, installs them into a real consumer workspace with `bun install --no-save`, then resolves `@cortexkit/opencode-antigravity-auth/.` and `@cortexkit/opencode-antigravity-auth/tui` through the export map and asserts the file shipped by the tarball lines up with the path the loader expects. Run via `bun run --cwd packages/opencode smoke:tui`.
 - **Schema JSON:** `packages/opencode/assets/antigravity.schema.json` is also a generated artifact, produced by `packages/opencode/script/build-schema.ts` from `packages/opencode/src/plugin/config/schema.ts` (the Zod schema). Run via `bun run --cwd packages/opencode build:schema`.
 
@@ -421,7 +422,7 @@ Holds:
 
 - **`core` must not import from `opencode`, `pi`, or `e2e-tests`.** It only knows `fetch`, `node:fs`, `node:net`, and a `fetchAccountQuota` callback — it must not import `@opencode-ai/plugin` or `@earendil-works/pi-ai`. The corollary: every host-runtime call is injected through `PluginDependencyOverrides` (`packages/opencode/src/plugin/dependencies.ts`).
 - **`pi` depends only on `core` and Pi's peer deps.** It never reaches into `opencode`. The Pi extension has no concept of an account pool — `core/auth.ts` treats the refresh token as opaque so both Pi and OpenCode can reuse it.
-- **`opencode` server → OpenTUI communication is async and out-of-process.** The TUI imports nothing from `packages/opencode/src/plugin/{storage,accounts,fetch-interceptor,oauth-*}` — only `src/sidebar-state.ts`, `src/rpc/protocol.ts`, `src/rpc/rpc-client.ts`, `src/rpc/rpc-dir.ts`, and the local `src/tui/` folder. The compiler would let it, so the contract is enforced by the import-graph review at `packages/opencode/src/tui.tsx:1-22` and by the e2e fixture in `packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts`.
+- **`opencode` server → OpenTUI communication is async and out-of-process.** The TUI imports nothing from `packages/opencode/src/plugin/{storage,accounts,fetch-interceptor,oauth-*}` — only `src/sidebar-state.ts`, `src/rpc/protocol.ts`, `src/rpc/rpc-client.ts`, `src/rpc/rpc-dir.ts`, and the local `src/tui/` folder. The compiler would let it, so the contract is enforced by the import-graph review at `packages/opencode/src/tui.tsx:1-22`, the import-graph gate in `packages/opencode/scripts/build-tui.test.ts`, and the e2e fixture in `packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts`.
 - **`e2e-tests` does not take a peer on the host.** It loads the plugin source as an internal import so the production factory is exercised as-is.
 
 ## Where to add code

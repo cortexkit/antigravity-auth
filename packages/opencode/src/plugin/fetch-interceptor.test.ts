@@ -386,6 +386,117 @@ describe('createFetchInterceptor', () => {
     })
   })
 
+  describe('killswitch wiring', () => {
+    it('routes around a killed current account to the next eligible account without waiting', async () => {
+      // Two accounts; the sticky current (index 0) has fresh cached
+      // quota below the killswitch floor, index 1 is eligible. The
+      // request must land on index 1 directly — NOT fall through to
+      // the all-accounts-rate-limited wait path.
+      const accountManager = new AccountManager(undefined, {
+        version: 4,
+        accounts: [
+          {
+            email: 'account-a@example.test',
+            refreshToken: 'refresh-a',
+            projectId: 'project-a',
+            managedProjectId: 'managed-a',
+            addedAt: FIXED_NOW - 20_000,
+            lastUsed: FIXED_NOW - 10_000,
+          },
+          {
+            email: 'account-b@example.test',
+            refreshToken: 'refresh-b',
+            projectId: 'project-b',
+            managedProjectId: 'managed-b',
+            addedAt: FIXED_NOW - 20_000,
+            lastUsed: FIXED_NOW - 12_000,
+          },
+        ],
+        activeIndex: 0,
+        activeIndexByFamily: { claude: 0, gemini: 0 },
+      })
+      // Both accounts carry valid access tokens so a regression that
+      // still dispatches the killed account shows up as a transport
+      // call with access-a (not as a token-refresh failure that would
+      // rotate to account 1 on its own).
+      for (const entry of accountManager.getAccounts()) {
+        entry.access = entry.index === 0 ? 'access-a' : 'access-b'
+        entry.expires = Date.now() + 3_600_000
+      }
+      // Fresh quota: account 0 at 30% — below the 40% killswitch floor
+      // but above the 80% soft-quota usage trip (70% used), so ONLY the
+      // killswitch rules it out. Account 1 at 80% is fully eligible.
+      // The URL model is gemini-3-flash → `gemini-flash` group.
+      accountManager.updateQuotaCache(0, {
+        'gemini-flash': { remainingFraction: 0.3, modelCount: 1 },
+      })
+      accountManager.updateQuotaCache(1, {
+        'gemini-flash': { remainingFraction: 0.8, modelCount: 1 },
+      })
+
+      const operatorSettings = {
+        get: () => ({
+          routing: { cli_first: false, quota_style_fallback: false },
+          killswitch: { enabled: true, minimum_remaining_percent: 40 },
+          log_level: 'info',
+        }),
+        update: async () => {},
+        dispose: async () => {},
+      }
+
+      const seenAuthorizations: string[] = []
+      transportHandler = async (_input, init) => {
+        seenAuthorizations.push(
+          new Headers(init?.headers).get('authorization') ?? '',
+        )
+        return new Response(
+          'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]}}]}}\n\n',
+          {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' },
+          },
+        )
+      }
+
+      const context = await makeContext({
+        accountManager,
+        getAuth: async () => ({
+          type: 'oauth' as const,
+          refresh: 'refresh-b|project-b|managed-b',
+          access: 'access-b',
+          expires: Date.now() + 3_600_000,
+        }),
+        // Sticky so the killed current (index 0) is the deterministic
+        // first candidate — hybrid would rotate to index 1 on its own
+        // and mask a missing killswitch exclusion. A regression that
+        // re-enters the wait path hits the max-wait guard and returns
+        // a synthetic error immediately instead of sleeping out the
+        // 60s default.
+        config: {
+          ...DEFAULT_CONFIG,
+          account_selection_strategy: 'sticky',
+          max_rate_limit_wait_seconds: 1,
+        },
+      })
+      const interceptor = createFetchInterceptor({
+        ...context,
+        operatorSettings: operatorSettings as never,
+      })
+
+      const response = await interceptor.fetch(GENERATIVE_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [] }),
+      })
+
+      expect(response.status).toBe(200)
+      // Exactly one dispatch — straight to the eligible account 1; the
+      // killed account 0 was excluded at selection, never attempted.
+      expect(seenAuthorizations).toEqual(['Bearer access-b'])
+      interceptor.dispose()
+    })
+  })
+
   describe('per-instance isolation', () => {
     it('two interceptors do not share rate-limit state', async () => {
       // After dispose() on instance A, instance B should still be clean.

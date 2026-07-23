@@ -691,6 +691,15 @@ export class AccountManager {
     softQuotaThresholdPercent: number = 100,
     softQuotaCacheTtlMs: number = 10 * 60 * 1000,
     identity?: AccountSessionIdentity,
+    /**
+     * Account indexes the caller has ruled out (e.g. the operator
+     * killswitch pre-filter). Every selection path — pinned session,
+     * round-robin, hybrid, and sticky fallback — skips these indexes
+     * so a killed current account falls through to the next eligible
+     * account instead of collapsing the request into the rate-limit
+     * wait path.
+     */
+    excludeIndexes?: Set<number>,
   ): ManagedAccount | null {
     const quotaKey = getQuotaKey(family, headerStyle, model)
     const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(
@@ -704,6 +713,7 @@ export class AccountManager {
       if (pinned) {
         clearExpiredRateLimits(pinned, this.now)
         const unavailable =
+          (excludeIndexes?.has(pinned.index) ?? false) ||
           isRateLimitedForHeaderStyle(
             pinned,
             family,
@@ -735,6 +745,7 @@ export class AccountManager {
         effectiveSoftQuotaThreshold,
         softQuotaCacheTtlMs,
         identity,
+        excludeIndexes,
       )
       if (next) {
         this.markTouchedForQuota(next, quotaKey)
@@ -748,7 +759,9 @@ export class AccountManager {
       const tokenTracker = getTokenTracker()
 
       const eligibleAccounts = this.preferAccountOutsideParent(
-        this.accounts.filter((acc) => acc.enabled !== false),
+        this.accounts.filter(
+          (acc) => acc.enabled !== false && !excludeIndexes?.has(acc.index),
+        ),
         family,
         identity,
       )
@@ -825,7 +838,7 @@ export class AccountManager {
     }
 
     const current = this.getCurrentAccountForFamily(family, identity)
-    if (current) {
+    if (current && !excludeIndexes?.has(current.index)) {
       clearExpiredRateLimits(current, this.now)
       const isLimitedForRequestedStyle = isRateLimitedForHeaderStyle(
         current,
@@ -859,6 +872,7 @@ export class AccountManager {
       effectiveSoftQuotaThreshold,
       softQuotaCacheTtlMs,
       identity,
+      excludeIndexes,
     )
     if (next) {
       this.markTouchedForQuota(next, quotaKey)
@@ -874,6 +888,8 @@ export class AccountManager {
     softQuotaThresholdPercent: number = 100,
     softQuotaCacheTtlMs: number = 10 * 60 * 1000,
     identity?: AccountSessionIdentity,
+    /** Indexes ruled out by the caller (e.g. killswitch pre-filter). */
+    excludeIndexes?: Set<number>,
   ): ManagedAccount | null {
     const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(
       softQuotaThresholdPercent,
@@ -882,6 +898,7 @@ export class AccountManager {
       clearExpiredRateLimits(account, this.now)
       return (
         account.enabled !== false &&
+        !excludeIndexes?.has(account.index) &&
         !isRateLimitedForHeaderStyle(
           account,
           family,

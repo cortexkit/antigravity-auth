@@ -138,12 +138,18 @@ describe('debug sink redaction', () => {
     })
 
     const knownProjectId = 'my-project-1234567890abcdef'
+    // The request body itself embeds a raw project ID — the verbatim
+    // body preview must redact it too, not just the `projectId` meta.
+    const bodyProjectId = 'secret-proj-123'
     startAntigravityDebugRequest({
       originalUrl: 'https://example.com/v1',
       resolvedUrl: 'https://example.com/v1',
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: '{}',
+      body: JSON.stringify({
+        projectId: bodyProjectId,
+        model: 'gemini-3-pro',
+      }),
       streaming: false,
       projectId: knownProjectId,
     })
@@ -165,6 +171,10 @@ describe('debug sink redaction', () => {
     expect(contents).not.toContain(knownProjectId)
     // The masked form should appear instead.
     expect(contents).toMatch(/my-p\*\*\*\*cdef/)
+    // The body-embedded project ID must not leak verbatim either; the
+    // redacted body preview carries the masked form.
+    expect(contents).not.toContain(bodyProjectId)
+    expect(contents).toMatch(/secr\*\*\*\*-123/)
   })
 
   it('masks fingerprint User-Agent headers in the recorded headers dump', async () => {

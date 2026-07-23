@@ -1,4 +1,7 @@
-import { fetchWithActiveTimeout } from '@cortexkit/antigravity-auth-core'
+// Subpath import (not the barrel): this module ships into the TUI's
+// compiled tree, which must not pull the credential-bearing barrel into
+// the host's render path.
+import { fetchWithActiveTimeout } from '@cortexkit/antigravity-auth-core/fetch-timeout'
 
 import { discoverPortFile } from './port-file'
 import type { ApplyRequest, ApplyResult, RpcNotification } from './protocol'

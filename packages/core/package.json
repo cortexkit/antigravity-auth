@@ -16,6 +16,18 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./file-lock": {
+      "types": "./dist/file-lock.d.ts",
+      "import": "./dist/file-lock.js"
+    },
+    "./atomic-write": {
+      "types": "./dist/atomic-write.d.ts",
+      "import": "./dist/atomic-write.js"
+    },
+    "./fetch-timeout": {
+      "types": "./dist/fetch-timeout.d.ts",
+      "import": "./dist/fetch-timeout.js"
     }
   },
   "files": [

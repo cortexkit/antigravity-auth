@@ -88,8 +88,14 @@ export interface QuotaManager {
   getBackoffUntil(account: AccountMetadataV3): number
   /** Stable hash for an account, used for log labels. */
   hashedLogLabel(prefix: string, account: AccountMetadataV3 | string): string
-  /** Cancel in-flight fetches and reject subsequent refreshes. */
-  dispose(): void
+  /**
+   * Await any in-flight refresh, then cancel and reject subsequent
+   * refreshes. Returns a promise so a lifecycle producer can fence its
+   * fire-and-forget sidebar writes: awaiting `dispose()` guarantees no
+   * refresh is still mid-flight (and therefore cannot enqueue a write)
+   * once it resolves.
+   */
+  dispose(): Promise<void>
   /** Pure helpers exposed for tests and adapter wiring. */
   classifyQuotaGroup: typeof classifyQuotaGroup
   aggregateQuota: typeof aggregateQuota
@@ -345,11 +351,35 @@ export function createQuotaManager(options: QuotaManagerOptions): QuotaManager {
     return `${prefix} ${hashKey(identity)}`
   }
 
-  const dispose = (): void => {
+  const dispose = async (): Promise<void> => {
     if (disposed) return
     disposed = true
+    // Snapshot the in-flight refreshes before aborting — the refresh
+    // `finally` clears `entry.inflight` as each promise settles, so we
+    // must capture the promises first.
+    const pending = Array.from(
+      state.values(),
+      (entry) => entry.inflight,
+    ).filter(
+      (promise): promise is Promise<AccountQuotaResult> => promise != null,
+    )
+    // Abort so a genuinely-stuck fetch unwinds promptly (the refresh
+    // catches the abort and resolves with an error result rather than
+    // hanging dispose), then AWAIT the settled promises. Awaiting after
+    // the abort still fences the producer: the opencode quota wrapper's
+    // fire-and-forget sidebar write runs in the continuation after the
+    // core refresh resolves, so by the time dispose() resolves that
+    // write has already been enqueued onto the sidebar chain and the
+    // subsequent lifecycle drain will flush it.
     for (const [, entry] of state) {
       entry.controller?.abort()
+    }
+    if (pending.length > 0) {
+      // Each refresh swallows its own errors and resolves; awaiting is a
+      // fence, never a rejection surface.
+      await Promise.allSettled(pending)
+    }
+    for (const [, entry] of state) {
       entry.inflight = undefined
     }
   }

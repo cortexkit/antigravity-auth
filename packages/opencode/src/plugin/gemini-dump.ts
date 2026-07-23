@@ -3,6 +3,8 @@ import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { redactJsonBodyString } from './logging-utils'
+
 export const GEMINI_DUMP_COMMAND_NAME = 'gemini-dump'
 
 const DUMP_STATUS_TITLE = '## Gemini Dump Status'
@@ -310,7 +312,9 @@ export function dumpGeminiRequest(input: {
     },
   }
 
-  writeFileSync(context.files.request, input.body, {
+  // The body embeds raw project IDs — redact credential-shaped fields
+  // before the verbatim request copy lands on disk.
+  writeFileSync(context.files.request, redactJsonBodyString(input.body), {
     encoding: 'utf8',
     mode: DUMP_FILE_MODE,
   })

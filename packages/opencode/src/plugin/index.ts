@@ -140,7 +140,13 @@ export const createAntigravityPlugin =
         }))
       },
     })
-    lifecycle.register({ dispose: () => quotaManager.dispose() })
+    // Producer phase: the quota manager emits fire-and-forget sidebar
+    // writes after every refresh. Its dispose() awaits any in-flight
+    // refresh, so disposing it BEFORE the sidebar drain guarantees the
+    // final post-refresh write is enqueued before the drain flushes —
+    // a consumer-phase registration could let a refresh enqueue a write
+    // after drainSidebarWrites() already asserted the queue was empty.
+    lifecycle.register({ dispose: () => quotaManager.dispose() }, 'producer')
 
     // Operator settings controller backs the /antigravity-* slash commands.
     // The controller loads existing persisted settings at first read, mutates

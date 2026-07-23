@@ -893,6 +893,116 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
     await rm(lockPath, { force: true })
   })
 
+  it('marks the lock lost when a replacement owner arrives between the renewal read and rename', async () => {
+    const target = join(root, 'state.json')
+    const lockPath = `${target}.accounts.lock`
+    const clearIntervalSpy = spyOn(globalThis, 'clearInterval')
+
+    let pausedResolve!: () => void
+    const paused = new Promise<void>((resolve) => {
+      pausedResolve = resolve
+    })
+    let gateResolve!: () => void
+    const gate = new Promise<void>((resolve) => {
+      gateResolve = resolve
+    })
+    let hookFired = false
+
+    try {
+      const lock = await acquireFencedFileLock({
+        path: target,
+        name: 'accounts',
+        ttlMs: 60_000,
+        renewIntervalMs: 10,
+        onStep: async (step) => {
+          if (step === 'renew-read' && !hookFired) {
+            hookFired = true
+            pausedResolve()
+            await gate
+          }
+        },
+      })
+      expect(lock).not.toBeNull()
+
+      // Wait for owner A's renewal tick to reach the read seam, then
+      // owner B takes over between A's read and A's rename.
+      await paused
+      await writeLock(lockPath, 'owner-B', Date.now() + 60_000)
+      gateResolve()
+
+      await lock!.whenLost()
+      expect(lock!.hasLost()).toBe(true)
+      // markLost() cleared the renewal interval exactly once.
+      expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
+
+      // A's pre-rename re-read must catch the takeover before the
+      // rename — B's lock is intact, not clobbered by A's renewal.
+      const contents = await readLock(lockPath)
+      expect(contents?.ownerId).toBe('owner-B')
+
+      await lock!.release()
+      await rm(lockPath, { force: true })
+    } finally {
+      clearIntervalSpy.mockRestore()
+    }
+  })
+
+  it('marks the lock lost when a takeover lands right after the renewal rename (verify-after-commit)', async () => {
+    const target = join(root, 'state.json')
+    const lockPath = `${target}.accounts.lock`
+    const clearIntervalSpy = spyOn(globalThis, 'clearInterval')
+
+    let pausedResolve!: () => void
+    const paused = new Promise<void>((resolve) => {
+      pausedResolve = resolve
+    })
+    let gateResolve!: () => void
+    const gate = new Promise<void>((resolve) => {
+      gateResolve = resolve
+    })
+    let hookFired = false
+
+    try {
+      const lock = await acquireFencedFileLock({
+        path: target,
+        name: 'accounts',
+        ttlMs: 60_000,
+        renewIntervalMs: 10,
+        onStep: async (step) => {
+          if (step === 'renew-committed' && !hookFired) {
+            hookFired = true
+            pausedResolve()
+            await gate
+          }
+        },
+      })
+      expect(lock).not.toBeNull()
+
+      // A's renewal has just renamed its refreshed payload onto the
+      // lock file; owner B's acquisition lands in the post-commit
+      // window, before A's verify re-read.
+      await paused
+      await writeLock(lockPath, 'owner-B', Date.now() + 60_000)
+      gateResolve()
+
+      await lock!.whenLost()
+      expect(lock!.hasLost()).toBe(true)
+      expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
+
+      // A backed off after the verify re-read saw B; B's write is the
+      // final content and A's release refuses to delete it.
+      const contents = await readLock(lockPath)
+      expect(contents?.ownerId).toBe('owner-B')
+
+      await lock!.release()
+      const afterRelease = await readLock(lockPath)
+      expect(afterRelease?.ownerId).toBe('owner-B')
+      await rm(lockPath, { force: true })
+    } finally {
+      clearIntervalSpy.mockRestore()
+    }
+  })
+
   it('whenLost() resolves promptly when the lock is taken over mid-renewal', async () => {
     const target = join(root, 'state.json')
     const lockPath = `${target}.accounts.lock`

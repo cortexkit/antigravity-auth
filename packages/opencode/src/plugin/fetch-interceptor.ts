@@ -613,6 +613,23 @@ export function createFetchInterceptor(
         }
       }
 
+      // Feed the killswitch verdict INTO selection: every index the
+      // precomputed eligible set rules out is excluded at the source,
+      // so a killed current account falls through to the next eligible
+      // account instead of collapsing the request into the rate-limit
+      // wait path below. The precomputed set is the source of truth —
+      // selection never re-evaluates quota, so a long-running request
+      // cannot see a different answer than the pre-filter above.
+      const killedIndexes =
+        eligibleIndexes === null
+          ? undefined
+          : new Set(
+              accountManager
+                .getAccounts()
+                .map((entry) => entry.index)
+                .filter((index) => !eligibleIndexes.has(index)),
+            )
+
       let account = accountManager.getCurrentOrNextForFamily(
         family,
         model,
@@ -622,14 +639,12 @@ export function createFetchInterceptor(
         config.soft_quota_threshold_percent,
         softQuotaCacheTtlMs,
         accountSessionIdentity,
+        killedIndexes,
       )
 
-      // After core selection, re-check the killswitch on the chosen
-      // candidate using the precomputed eligible set. If the candidate
-      // is killed, mark ineligible and retry. The precomputed set is
-      // the source of truth — we do NOT re-evaluate here so a
-      // long-running request cannot see a different answer than the
-      // pre-filter above.
+      // Belt-and-suspenders re-check on the chosen candidate against
+      // the precomputed eligible set (selection already excluded the
+      // killed indexes; this guards the fallback paths below).
       if (
         account &&
         eligibleIndexes !== null &&
@@ -653,6 +668,7 @@ export function createFetchInterceptor(
           config.soft_quota_threshold_percent,
           softQuotaCacheTtlMs,
           accountSessionIdentity,
+          killedIndexes,
         )
         if (account) {
           pushDebug(

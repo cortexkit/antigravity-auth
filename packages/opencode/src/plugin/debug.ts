@@ -16,6 +16,7 @@ import {
   formatBodyPreviewForLog,
   formatErrorForLog,
   isTruthyFlag,
+  redactBodyForLog,
   redactSensitive,
   redactSensitiveFields,
   truncateTextForLog,
@@ -300,7 +301,12 @@ export function startAntigravityDebugRequest(
   logDebug(
     `[Antigravity Debug ${id}] Headers: ${JSON.stringify(maskHeaders(meta.headers))}`,
   )
-  const bodyPreview = formatBodyPreviewForLog(meta.body, MAX_BODY_PREVIEW_CHARS)
+  // The request body embeds raw project IDs — redact credential-shaped
+  // fields before the verbatim preview hits the log.
+  const bodyPreview = formatBodyPreviewForLog(
+    redactBodyForLog(meta.body),
+    MAX_BODY_PREVIEW_CHARS,
+  )
   if (bodyPreview) {
     logDebug(`[Antigravity Debug ${id}] Body Preview: ${bodyPreview}`)
   }

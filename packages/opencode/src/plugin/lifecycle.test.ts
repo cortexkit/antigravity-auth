@@ -169,6 +169,56 @@ describe('PluginLifecycle', () => {
     ])
   })
 
+  it('awaits a producer whose async dispose enqueues a write only after an in-flight refresh settles', async () => {
+    // Models the quota manager: its dispose() awaits an in-flight
+    // refresh, and that refresh's completion is what enqueues the
+    // fire-and-forget sidebar write. The drain must not run until the
+    // producer's async dispose has fully resolved — otherwise the
+    // post-refresh write races past a drain that already asserted the
+    // queue was empty.
+    const events: string[] = []
+    let enqueued = false
+    let releaseInflight: (() => void) | null = null
+    const inflight = new Promise<void>((resolve) => {
+      releaseInflight = resolve
+    })
+
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {},
+      clearFetchState: () => {},
+      drainSidebarWrites: async () => {
+        // The producer's async dispose must have enqueued the write
+        // before the drain observes the queue.
+        events.push(enqueued ? 'drain:sees-write' : 'drain:missed-write')
+      },
+    })
+
+    lifecycle.register(
+      {
+        dispose: async () => {
+          events.push('producer:dispose-start')
+          // Simulate an in-flight refresh still running at shutdown.
+          // It resolves on the next microtask; only THEN is the sidebar
+          // write enqueued — exactly the quota manager's ordering.
+          queueMicrotask(() => releaseInflight?.())
+          await inflight
+          enqueued = true
+          events.push('producer:enqueue-after-inflight')
+        },
+      },
+      'producer',
+    )
+
+    await lifecycle.dispose()
+
+    expect(events).toEqual([
+      'producer:dispose-start',
+      'producer:enqueue-after-inflight',
+      'drain:sees-write',
+    ])
+  })
+
   it('performs disposal only once', async () => {
     const events: string[] = []
     const lifecycle = createPluginLifecycle({

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import type { AccountMetadataV3 } from './account-types.ts'
 import { createQuotaManager, type FetchAccountQuota } from './quota-manager.ts'
+import type { AccountQuotaResult } from './quota-types.ts'
 
 function makeAccount(
   overrides: Partial<AccountMetadataV3> = {},
@@ -589,6 +590,61 @@ describe('dispose', () => {
     // Subsequent refresh attempts after dispose should also fail with an aborted signal.
     const next = await manager.refreshAccount(account, { index: 0 })
     expect(next.status).toBe('error')
+  })
+
+  it('awaits the in-flight refresh before resolving so a post-refresh side effect is fenced', async () => {
+    // A producer (the opencode quota wrapper) fires a fire-and-forget
+    // sidebar write in the continuation after refreshAccount resolves.
+    // dispose() must not resolve until that in-flight refresh has
+    // settled, so the continuation's write is enqueued before the
+    // lifecycle drains the sidebar queue in the following phase. A
+    // side-effect attached to the refresh promise stands in for that
+    // continuation here.
+    const order: string[] = []
+    let resolveFetch: ((result: AccountQuotaResult) => void) | null = null
+    const fetch: FetchAccountQuota = (account) => {
+      order.push('fetch:start')
+      return new Promise<AccountQuotaResult>((resolve) => {
+        resolveFetch = () =>
+          resolve({
+            index: 0,
+            status: 'ok',
+            email: account.email,
+            quota: { groups: {}, modelCount: 0 },
+          })
+      })
+    }
+
+    const manager = createQuotaManager({
+      fetchAccountQuota: fetch,
+      keyOf: keyOfAccount,
+    })
+    const account = makeAccount({ email: 'inflight@example.com' })
+
+    let sideEffectRan = false
+    const pending = manager
+      .refreshAccount(account, { index: 0 })
+      .then((result) => {
+        // Stand-in for the wrapper's fire-and-forget sidebar write.
+        sideEffectRan = true
+        order.push('side-effect')
+        return result
+      })
+
+    // The fetch is now mid-flight (awaiting resolveFetch). Kick off
+    // dispose, then release the fetch — dispose must await the in-flight
+    // refresh and its continuation before resolving.
+    const disposed = manager.dispose().then(() => {
+      order.push('dispose:resolved')
+      // The producer's side-effect was scheduled before dispose resolved.
+      expect(sideEffectRan).toBe(true)
+    })
+    resolveFetch?.()
+
+    await Promise.all([disposed, pending])
+
+    // fetch:start → (in-flight refresh settles + side-effect) → dispose.
+    expect(order).toEqual(['fetch:start', 'side-effect', 'dispose:resolved'])
   })
 })
 

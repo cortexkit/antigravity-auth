@@ -40,11 +40,14 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+// Subpath imports (not the barrel): this file ships into the TUI's
+// compiled tree, and the barrel re-exports account/OAuth/quota modules
+// that must never execute inside the host's render path.
+import { writeJsonAtomic } from '@cortexkit/antigravity-auth-core/atomic-write'
 import {
   acquireFencedFileLock,
   type FencedFileLock,
-  writeJsonAtomic,
-} from '@cortexkit/antigravity-auth-core'
+} from '@cortexkit/antigravity-auth-core/file-lock'
 import { xdgState } from 'xdg-basedir'
 
 export const SIDEBAR_STATE_VERSION = 1 as const

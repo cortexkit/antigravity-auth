@@ -93,7 +93,7 @@ The TUI loads the compiled bundle (`packages/opencode/src/tui/entry.mjs:30-38`) 
 | Quota + planning | `quota-manager.ts` | `packages/core/src/quota-manager.ts:1-717` | Attributed fetch, exponential backoff, in-flight dedupe |
 | Account pool | `account-manager.ts` | `packages/core/src/account-manager.ts:1-2083` | Selection, rate-limit state, fingerprint, soft-quota |
 | Rotation | `rotation.ts` | `packages/core/src/rotation.ts:1-593` | Health score, token bucket, hybrid LRU classifier |
-| Locking | `file-lock.ts` | `packages/core/src/file-lock.ts:1-390` | Renewable fenced file lock with eviction marker |
+| Locking | `file-lock.ts` | `packages/core/src/file-lock.ts:1-532` | Renewable fenced file lock with eviction marker |
 | Atomic file | `atomic-write.ts` | `packages/core/src/atomic-write.ts:1-52` | Temp + rename, 0o600, no copy fallback |
 | Fingerprint | `fingerprint.ts` | core | Per-account device fingerprint + history |
 | Project ctx | `project.ts` | core | `loadCodeAssist`, `ensureProjectContext` |
@@ -185,7 +185,7 @@ The redaction in `setSidebarMachineState` (`packages/opencode/src/plugin/auth-lo
 
 ### Fetch interceptor
 
-`packages/opencode/src/plugin/fetch-interceptor.ts:1-2220` is the largest file in the tree. It owns the per-request retry/quota/routing pipeline. The outer loop at lines 518-... picks an account via `accountManager.getCurrentOrNextForFamily(...)` (line 603), then the inner loop at lines 1185-... walks the endpoint fallback list (`packages/core/src/constants.ts:46-49`) with per-endpoint capacity retry.
+`packages/opencode/src/plugin/fetch-interceptor.ts:1-2242` is the largest file in the tree. It owns the per-request retry/quota/routing pipeline. The outer loop at lines 518-... picks an account via `accountManager.getCurrentOrNextForFamily(...)` (line 616), then the inner loop at lines 1213-... walks the endpoint fallback list (`packages/core/src/constants.ts:46-49`) with per-endpoint capacity retry.
 
 Key gates in the request lifecycle:
 
@@ -374,7 +374,7 @@ sequenceDiagram
   W2->>Lock: release
 ```
 
-The lock is `acquireFencedFileLock` from `packages/core/src/file-lock.ts:143-273` — see **Account persistence and concurrency** for the eviction marker protocol.
+The lock is `acquireFencedFileLock` from `packages/core/src/file-lock.ts:184-335` — see **Account persistence and concurrency** for the eviction marker protocol.
 
 ### 4. OAuth login
 
@@ -436,12 +436,14 @@ The order is enforced by `createPluginLifecycle` — `drainSidebarWrites` runs b
 
 ### Why a custom lock instead of a third-party dependency
 
-The original lock implementation pulled in a third-party `flock`-style cross-process mutex. The refactor replaced it with a **`renovating fenced file lock`** (`packages/core/src/file-lock.ts:1-390`) because:
+The original lock implementation pulled in a third-party `flock`-style cross-process mutex. The refactor replaced it with a **`renovating fenced file lock`** (`packages/core/src/file-lock.ts:1-532`) because:
 
 1. **No external dependency.** `node:fs/promises` is enough; the entire mechanism is a `wx`-exclusive placement of a JSON blob and a `mkdir`+`writeFile` for the eviction marker.
-2. **Renewable.** The lock file at `${path}.${name}.lock` carries `{ ownerId, expiresAt }`. A `setInterval` (unref-ed) rewrites the expiration every `max(1000, floor(ttlMs / 3))` ms (line 286-333). A contender that loses its renewal just lets the lock expire.
-3. **Eviction marker prevents revive races.** A stale lock is only claimable if the contender first stamps `${lockPath}.evicting/owner.json` with its own `ownerId` (line 200-225). The contender re-verifies the marker owner at every destructive seam (unlink, re-acquire) — a contender whose marker was hijacked between the claim and the unlink backs off without touching the winner's lock file.
-4. **`assertOwned()` detects footguns.** The lock interceptor calls `assertOwned()` after acquisition and before the merge; if the lockfile was reclaimed by another writer, the merged write is rejected with `FileLockOwnershipError` (`packages/core/src/file-lock.ts:73-87`) instead of corrupting state.
+2. **Renewable.** The lock file at `${path}.${name}.lock` carries `{ ownerId, expiresAt }`. A `setInterval` (unref-ed) rewrites the expiration every `max(1000, floor(ttlMs / 3))` ms (line 365-460). A contender that loses its renewal just lets the lock expire.
+3. **Eviction marker prevents revive races.** A stale lock is only claimable if the contender first stamps `${lockPath}.evicting/owner.json` with its own `ownerId`, `pid`, and `createdAt` (line 250-279). The marker carries `pid` so `isProcessAlive(pid)` reclaims abandoned markers whose contender process died; `MARKER_TTL_MS = 30_000` (line 116) is the floor for that check. The contender re-verifies the marker owner at every destructive seam (unlink, re-acquire) — a contender whose marker was hijacked between the claim and the unlink backs off without touching the winner's lock file.
+4. **Stop renewal on ownership loss.** The renewal loop re-reads the lock file on every tick. If the file is gone or carries a different `ownerId`, the lock calls `markLost()` (line 353) which clears the interval and resolves `whenLost()` so callers awaiting it can abort the in-flight merge. The renewal also stages a `${lockPath}.${ownerId}.tmp` then re-reads the lock file before issuing a `rename(2)` so an eviction that slips in between the read and the write can never overwrite a fresh owner's content (line 391-434).
+5. **Idempotent terminal release.** `release()` is safe to call twice — the second call returns early without re-clearing the timer or attempting to unlink the lock file. The pre-`unlink` re-read checks the owner; if the lock is no longer ours, the function refuses to delete and cleans up the eviction marker instead (line 480-498).
+6. **`assertOwned()` detects footguns.** The lock interceptor calls `assertOwned()` after acquisition and before the merge; if the lockfile was reclaimed by another writer, the merged write is rejected with `FileLockOwnershipError` (`packages/core/src/file-lock.ts:73-87`) instead of corrupting state. The `FencedFileLock` interface also exposes `whenLost(): Promise<void>` and `hasLost(): boolean` (line 71-82) so callers can observe ownership loss without polling.
 
 ### Atomic write
 
@@ -459,7 +461,7 @@ The `sidebarWriteChain` (line 506-517) is the in-process serialization: every wr
 
 ### `drainSidebarWrites` semantics
 
-`packages/opencode/src/sidebar-state.ts:524-526` returns the chain's tail. The plugin lifecycle (`packages/opencode/src/plugin/lifecycle.ts:79-83`) awaits it before tearing down the RPC server and the file logger, so a fetch-interceptor routing upsert that resolves during shutdown lands before the host closes the terminal framebuffer.
+`packages/opencode/src/sidebar-state.ts:524-526` returns the chain's tail. The plugin lifecycle (`packages/opencode/src/plugin/lifecycle.ts:62-115`) drains it AFTER registered producers stop and BEFORE registered consumers are torn down, so a fetch-interceptor routing upsert that resolves during shutdown lands before the host closes the terminal framebuffer (see **Lifecycle and disposal** for the two-phase producer/consumer ordering).
 
 ## Quota, routing, and killswitch semantics
 
@@ -501,7 +503,9 @@ The per-call routing decision is read live from `operatorSettings.get().routing`
 
 ### Killswitch
 
-`packages/opencode/src/plugin/killswitch.ts:1-224` exposes `evaluateKillswitchForAccount` and `throwIfAllKilled`. The operator sets a `minimum_remaining_percent` per family/model; any account whose freshest quota falls below the threshold is excluded from selection. The killswitch **fails open on missing/stale quota** (line 547 of `fetch-interceptor.ts`) so a cold start cannot deadlock the pipeline.
+`packages/opencode/src/plugin/killswitch.ts:1-284` exposes `evaluateKillswitchForAccount` and `throwIfAllKilled`. The operator sets a `minimum_remaining_percent` per family/model; any account whose freshest quota falls below the threshold is excluded from selection. The killswitch **fails open on missing/stale quota** so a cold start cannot deadlock the pipeline.
+
+The evaluation is **model-aware**: when a `model` is passed in `KillswitchEvaluateOptions` (or `quotaModel` on `throwIfAllKilled`), `quotaGroupForModel` (`packages/opencode/src/plugin/killswitch.ts:69-86`) maps the model string to the single quota group it draws on — a `gemini-pro` request checks ONLY `gemini-pro`, not the max of pro+flash. Callers that omit `model` keep the family-max behavior. The fetch interceptor precomputes an `eligibleIndexes` Set once per request (`packages/opencode/src/plugin/fetch-interceptor.ts:551-579`) and re-uses it after core selection and after the quota-fallback re-selection so a long-running request cannot see a different answer than the pre-filter.
 
 ## OAuth and token lifecycle
 
@@ -624,16 +628,22 @@ The host's `apply` callback (line 233-260 of `plugin/index.ts`) calls `applyComm
 
 ## Lifecycle and disposal
 
-`createPluginLifecycle` (`packages/opencode/src/plugin/lifecycle.ts:1-93`) is the disposal root. The order is significant and the code documents it:
+`createPluginLifecycle` (`packages/opencode/src/plugin/lifecycle.ts:1-125`) is the disposal root. Every registered disposable declares a **`LifecyclePhase`** of `'producer'` or `'consumer'` (line 13-19). The phase determines when the lifecycle tears it down relative to the sidebar drain:
+
+- **Producer** — runs on the same side of the sidebar drain as the fetch interceptor. The lifecycle disposes producers BEFORE the drain so a producer racing with shutdown cannot enqueue a write that lands after the drain asserts the queue is empty. The auth loader's fetch-interceptor runtime is registered as a producer (`packages/opencode/src/plugin/auth-loader.ts:83-93`).
+- **Consumer** — runs AFTER the sidebar drain. Consumers are the sinks (RPC server, file logger, auto-update checker) that the TUI / host talk to and that must stay alive until every queued write has landed.
+
+The order is significant and the code documents it (line 99-118):
 
 1. `disposeAccountRuntime()` — tear down the refresh queue, then the account manager.
 2. `shutdownDiskSignatureCache()` — flush the in-memory signature cache to disk.
 3. `sessionRegistry.clear()` — drop the per-session `AgyRequestSessionStore`.
 4. `clearFetchState()` — null the cached `getAuth` binding so a late-arriving `loader` call sees a clean slate.
-5. `drainSidebarWrites()` — wait for every queued sidebar write to land.
-6. Dispose every registered disposable in registration order (RPC server, file logger, auto-update checker, etc.).
+5. **Producers** — dispose every registered producer in registration order. After this step no new sidebar writes can be enqueued.
+6. `drainSidebarWrites()` — wait for every queued sidebar write to land. The file logger + RPC server are still alive so the TUI's last frame can observe a fully landed snapshot.
+7. **Consumers** — dispose every registered consumer in registration order (RPC server, file logger, auto-update checker, etc.).
 
-The default registration order is established by `packages/opencode/src/plugin/index.ts:80-263`; each registered disposable is free to register its own in `dispose()`.
+The default registration order is established by `packages/opencode/src/plugin/index.ts:80-263`; each registered disposable is free to register its own in `dispose()` using either `register(disposable, 'producer')` or the default consumer phase.
 
 The server emits a stop on the RPC server that closes `closeAllConnections()` (`packages/opencode/src/rpc/rpc-server.ts:281-292`) and unlinks the port file (line 116-119). The TUI detects the server has gone away when `discoverPortFile` returns `null` and surfaces the "Awaiting Antigravity state" empty state.
 
@@ -651,12 +661,12 @@ Specific recovery paths:
 
 - **Storage corruption** — `loadConfigFile` in `packages/opencode/src/plugin/config/loader.ts:64-95` swallows a bad JSON or schema mismatch and falls back to the default config. The plugin never crashes on a malformed user config.
 - **Auth drift** — `detectAuthStorageDrift` (`packages/opencode/src/plugin/auth-drift.ts`) compares the host's auth against the stored account pool and offers a `restorable` path that re-issues the host's auth from the stored account.
-- **Refresh token revoked** — `AntigravityTokenRefreshError` with `code: 'invalid_grant'` removes the account from the pool and persists the removal with `saveToDiskReplace` (`packages/opencode/src/plugin/fetch-interceptor.ts:847-859`).
-- **Project context failure** — `ensureProjectContext` failures mark the account as cooling down with reason `project-error` (line 932-948).
+- **Refresh token revoked** — `AntigravityTokenRefreshError` with `code: 'invalid_grant'` removes the account from the pool and persists the removal with `saveToDiskReplace` (`packages/opencode/src/plugin/fetch-interceptor.ts:875-880`).
+- **Project context failure** — `ensureProjectContext` failures mark the account as cooling down with reason `project-error` (line 947-961).
 - **Capacity exhaustion (529/503)** — the inner-account retry loop probes the next endpoint in the fallback list, capped at `MAX_TOTAL_CAPACITY_RETRIES`. Beyond the cap, the request rotates to the next account.
 - **All accounts over soft-quota** — `getMinWaitTimeForSoftQuota` returns the soonest reset; if the wait exceeds `max_rate_limit_wait_seconds` (default 300s) the interceptor returns a synthetic 200 envelope describing the wait instead of blocking the host.
 - **All accounts rate-limited, no quota fallback** — synthetic 200 with the same pattern as the soft-quota case.
-- **Killswitch trips** — `throwIfAllKilled` raises `AntigravityKillswitchError` (`packages/opencode/src/plugin/errors.ts`), intercepted at `packages/opencode/src/plugin/fetch-interceptor.ts:587-600` and returned as a synthetic error response.
+- **Killswitch trips** — `throwIfAllKilled` raises `AntigravityKillswitchError` (`packages/opencode/src/plugin/errors.ts`), intercepted at `packages/opencode/src/plugin/fetch-interceptor.ts:600-612` and returned as a synthetic error response.
 - **Cross-process lock contention** — `SidebarStateLockContentionError` after 2s of retries (`packages/opencode/src/sidebar-state.ts:122-126, 549-555`); the writer swallows it and the next attempt re-tries the merge.
 - **Process cancellation** — every long-running call honors `AbortSignal`; `connectTlsWithAbort` (`packages/core/src/agy-transport.ts:626-651`) races the TLS connect against the abort.
 
@@ -729,18 +739,19 @@ The two delays that carry jitter (`addJitter`, `randomDelay`) are at `packages/c
 
 ### E2E
 
-`packages/e2e-tests/src/` is a private workspace with three flow tests:
+`packages/e2e-tests/src/` is a private workspace with four flow tests:
 
 - `cli-flow.e2e.test.ts` — exercises the `antigravity-auth` CLI (login, list, quota).
 - `plugin-flow.e2e.test.ts` — drives the full fetch interceptor (quota refresh, generateContent, streaming SSE, `tokenExpiry401`, `rateLimit429`, `capacity503`, `delayedHeaders`).
 - `rpc-tui-flow.e2e.test.ts` — drives the TUI ↔ RPC bridge.
+- `fetch-guard.test.ts` — pins the loopback-only `globalThis.fetch` guard installed by the preload so a stray non-loopback URL throws `LiveNetworkDeniedError` instead of leaking to the live network.
 
 The harness (`packages/e2e-tests/src/harness.ts:1-314`) is the spine:
 
-- `beforeEach` in `packages/e2e-tests/src/setup.ts:37-68` allocates a `mkdtemp` root with HOME/XDG overrides — every test runs in its own filesystem sandbox.
+- `beforeEach` in `packages/e2e-tests/src/setup.ts:86-118` allocates a `mkdtemp` root with HOME/XDG overrides and installs a loopback-only `globalThis.fetch` guard (`packages/e2e-tests/src/setup.ts:51-77`) — every test runs in its own filesystem sandbox with a hard network boundary.
 - `createE2eHarness` (line 59-163) starts a mock server on `127.0.0.1:0` (`packages/e2e-tests/src/mock-antigravity-server.ts:209-273`), installs a fetch router that rewrites every outbound URL to the mock, and writes a `quick_mode` config file disabling background quota refresh + auto-update.
-- **No live network.** The test preload explicitly does not wrap `globalThis.fetch`; the network boundary is enforced by `dependencies.agyTransport` and `dependencies.fetchImpl` overrides plus the `REWRITE_HOSTS` allow-list in `packages/e2e-tests/src/harness.ts:221-230`. A regression that re-introduces a live URL is caught by the mock server's request recorder.
-- `afterEach` and `afterAll` (`packages/e2e-tests/src/setup.ts:70-100`) reap the per-test temp root.
+- **No live network.** The preload wraps `globalThis.fetch` with a `LOOPBACK_HOSTS = { '127.0.0.1', '::1', '[::1]', 'localhost' }` allowlist (line 43); any other hostname throws `LiveNetworkDeniedError` (line 34-41). The remaining loopback rewrite is enforced by `dependencies.agyTransport` and `dependencies.fetchImpl` overrides plus the `REWRITE_HOSTS` allow-list in `packages/e2e-tests/src/harness.ts:221-230`. A regression that re-introduces a live URL is caught by the fetch guard's deny record.
+- `afterEach` and `afterAll` (`packages/e2e-tests/src/setup.ts:120-153`) restore the original fetch and reap the per-test temp root.
 
 The e2e `bun test` runs from the root via `bun run test:e2e` (`package.json:12`).
 

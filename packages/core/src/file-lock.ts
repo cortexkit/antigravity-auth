@@ -41,6 +41,8 @@ export type FileLockStep =
   | 'stale-marker-claimed'
   | 'stale-lock-confirmed'
   | 'eviction-marker-acquired'
+  | 'renew-read'
+  | 'renew-committed'
 
 export interface FencedFileLockOptions {
   path: string
@@ -62,8 +64,13 @@ export interface FencedFileLockOptions {
   now?: () => number
   /**
    * Hook invoked at well-defined milestones inside the eviction
-   * protocol. Used by tests to inject interleavings and simulate
-   * racing contenders.
+   * protocol and the renewal tick. Used by tests to inject
+   * interleavings and simulate racing contenders:
+   *
+   * - `renew-read` — after the renewal tick reads the lock payload,
+   *   before the ownership checks and the temp-write/rename commit.
+   * - `renew-committed` — after the renewal rename lands, before the
+   *   verify-after-commit re-read.
    */
   onStep?: (step: FileLockStep) => Promise<void> | void
 }
@@ -373,11 +380,12 @@ function buildLock(
       try {
         const observed = await readLockPayload(lockPath)
         if (released || lost) return
+        await options.onStep?.('renew-read')
+        if (released || lost) return
         // If the lock file is gone or carries a different ownerId, the
-        // lock has been taken over. Mark it lost so the next iteration
-        // stops renewing — this is the case the dispatch's TOCTOU test
-        // exercises (owner B evicts and replaces the lock while owner
-        // A's renewal is paused).
+        // lock has been taken over (e.g. owner B evicted and replaced
+        // the lock while this renewal was paused). Mark it lost so the
+        // next iteration stops renewing.
         if (observed === null) {
           markLost()
           return
@@ -424,6 +432,21 @@ function buildLock(
             }
             shouldCommit = true
             await rename(tempPath, lockPath)
+            await options.onStep?.('renew-committed')
+            if (released || lost) return
+            // Verify-after-commit: a replacement owner may have arrived
+            // between the re-read above and the rename — our rename then
+            // just overwrote their fresh lock — or may land a microsecond
+            // after our rename. Re-read and, if the file no longer carries
+            // our ownerId, mark lost and stop renewing so the double-owner
+            // window collapses to this seam; the fresh owner's next
+            // renewal/acquire attempt re-acquires.
+            const committed = await readLockPayload(lockPath)
+            if (released || lost) return
+            if (!committed || committed.ownerId !== ownerId) {
+              markLost()
+              return
+            }
           } catch {
             // Lost the race against a rename/evict — mark lost so the
             // next iteration stops renewing, and clean up any temp draft.
