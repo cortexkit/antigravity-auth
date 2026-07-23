@@ -12,16 +12,25 @@ OpenCode plugin for Google Antigravity OAuth. Intercepts `fetch()` calls to `gen
 bun install                          # Install dependencies
 bun run build                        # Compile (tsc -p tsconfig.build.json)
 bun run typecheck                    # Type-check only (tsc --noEmit)
-bun run test                         # Run all tests (vitest run)
-bunx vitest run src/plugin/auth.test.ts          # Single test file
-bunx vitest run -t "test name here"              # Single test by name
-bunx vitest --watch src/plugin/auth.test.ts      # Watch mode, single file
-bun run --cwd packages/opencode test:coverage        # Coverage report
-bun run --cwd packages/opencode test:e2e:models      # E2E: model availability check
-bun run --cwd packages/opencode test:e2e:regression  # E2E: regression suite
+bun run test                         # Run all unit tests (bun test --isolate across packages)
+bun test --isolate src/plugin/auth.test.ts            # Single test file
+bun test --isolate -t "test name here"                # Single test by name (uses bun:test's -t filter)
+bun test --isolate --watch src/plugin/auth.test.ts   # Watch mode, single file
+bun run test:e2e                     # Deterministic e2e flows (mock Antigravity server, no network)
+bun run test:e2e:models              # Live Antigravity model inventory (CI-gated, network)
+bun run test:e2e:regression          # Cross-model + Gemini CLI regression (network)
+bun run --cwd packages/opencode smoke:tui            # Pack-and-install smoke test for the TUI subpath
 ```
 
-No linter or formatter is configured. Style is enforced by convention (see below).
+Format and lint via Biome:
+
+```bash
+bun run format                       # biome format --write .
+bun run format:check                 # biome format .  (CI gate)
+bun run lint                         # biome lint .     (CI gate)
+```
+
+Pre-commit hooks (`.lefthook.yml`) run Biome on changed `*.{ts,tsx,js,mjs,json,jsonc,yml,yaml}` files via `bunx biome check --staged --no-errors-on-unmatched`. The repo pins the toolchain in `mise.toml` (`bun = "1.3"`, `node = "24"`) and CI uses `oven-sh/setup-bun@v2` with `bun-version: 1.3`.
 
 ## TypeScript Configuration
 
@@ -70,7 +79,7 @@ No linter or formatter is configured. Style is enforced by convention (see below
 
 ### Formatting
 - 2-space indentation
-- Double quotes for strings
+- Single quotes for strings (Biome `quoteStyle: single`)
 - Trailing commas in multiline constructs
 - No semicolons (project convention)
 
@@ -130,11 +139,11 @@ Per-account device fingerprints stored in `antigravity-accounts.json`. Each fing
 
 ## Testing
 
-- Framework: **Vitest 3** with native ESM
-- Config: `vitest.config.ts`
-- Tests colocated: `src/plugin/foo.test.ts` next to `src/plugin/foo.ts`
-- Use `describe`/`it`/`expect` — standard Vitest API
-- Mock with `vi.fn()`, `vi.spyOn()`, `vi.mock()`
+- Framework: **Bun's test runner** (`bun test`; the `bun:test` module re-exports a jest-compatible namespace)
+- Config: no per-package config — Bun discovers `*.test.ts` next to source. The `bunfig.toml` at the root and in each workspace preloads `test/setup.ts` (env-isolation + a per-test mkdtemp root + a `globalThis.stubbed` / `unstubAllGlobals` / `freshImport` helper). The e2e workspace uses `bunfig.toml` `root = "./src"` so its tests stay isolated from the unit workspace.
+- Tests colocated: `src/plugin/foo.test.ts` next to `src/plugin/foo.ts`. The e2e workspace uses `*.e2e.test.ts` so the root `bun run test` and `bun run test:e2e` selectors can target them precisely.
+- Use `describe`/`it`/`expect` from `bun:test` — the standard API.
+- Mock with `mock()`, `spyOn()`, and the `jest` namespace exported from `bun:test` (`jest.fn`, `jest.spyOn`, `jest.setSystemTime`, etc.). The `test/setup.ts` preload patches `jest.setSystemTime` / `jest.useRealTimers` so they also spy on `Date.now()` (Bun's `bun:test` clock only fakes the timer queue, not the wall clock).
 
 ## Documentation
 
@@ -142,3 +151,7 @@ Per-account device fingerprints stored in `antigravity-accounts.json`. Each fing
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Detailed architecture guide
 - [docs/ANTIGRAVITY_API_SPEC.md](docs/ANTIGRAVITY_API_SPEC.md) — API reference
 - [CHANGELOG.md](CHANGELOG.md) — Version history
+- [ARCHITECTURE.md](ARCHITECTURE.md) and [STRUCTURE.md](STRUCTURE.md) — repo-level architecture and file-system map
+- [biome.json](biome.json) — formatter + linter config
+- [lefthook.yml](lefthook.yml) — pre-commit Biome hook
+- [mise.toml](mise.toml) — pinned `bun` + `node` versions
