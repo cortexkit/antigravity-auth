@@ -175,8 +175,8 @@ All six commands are registered in `packages/opencode/src/plugin/commands.ts` an
 | --- | --- | --- |
 | `/antigravity-quota` | `[refresh]` | Status (or refresh) of cached quota across accounts. Returns within `2s` default. |
 | `/antigravity-account` | `add` · `refresh` · `remove` · `list` | Manage the account pool. `add` and `refresh` opt into a `120_000` ms RPC timeout (OAuth can take two minutes on a fresh login). `list` and `remove` use the `2_000` default. |
-| `/antigravity-routing` | `cli_first=true|false` · `quota_style_fallback=true|false` | Toggle the live routing flags. Omit a key to flip the current value. Persists immediately. |
-| `/antigravity-killswitch` | `enabled=true|false` · `minimum_remaining_percent=0..100` | Configure the killswitch. Per-account thresholds are set via direct config edit. |
+| `/antigravity-routing` | `cli_first=true\|false` · `quota_style_fallback=true\|false` | Toggle the live routing flags. Omit a key to flip the current value. Persists immediately. |
+| `/antigravity-killswitch` | `enabled=true\|false` · `minimum_remaining_percent=0..100` | Configure the killswitch. Per-account thresholds are set via direct config edit. |
 | `/antigravity-dump` | `enable` · `disable` · `status` | Toggle wire-dump capture for the next request. (Backward-compatible alias: `/gemini-dump`.) |
 | `/antigravity-logging` | `error` · `warn` · `info` · `debug` · `trace` | Adjust runtime logging; takes effect immediately and persists across restarts. |
 
