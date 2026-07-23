@@ -99,7 +99,7 @@ Every production file has a corresponding `*.test.ts` sibling. The dense transfo
 
 ## `packages/opencode` inventory
 
-`@cortexkit/opencode-antigravity-auth`. Has two `oc-plugin` entry points (`server`, `tui`) declared in `package.json:32-45`. Production layout:
+`@cortexkit/opencode-antigravity-auth`. Exposes two `exports` subpaths (`"."` and `"./tui"`) and pins the supported host range through `engines.opencode` (`>=1.17.13 <2`); the host installer (`opencode plugin`) reads the subpaths and writes a server entry to `opencode.json` and a TUI entry to `tui.json`. Production layout:
 
 ```
 packages/opencode/
@@ -343,7 +343,7 @@ Project-wide tsconfig used by `bun run typecheck` (root script `typecheck`) for 
 | `@cortexkit/opencode-antigravity-auth` (`server` — fallback) | `packages/opencode/src/plugin-entry.test.ts` | test entry | Verifies the public barrel exports the two stable plugin names. |
 | `@cortexkit/pi-antigravity-auth` | `packages/pi/src/index.ts` | `default function` | Pi extension. Resolves as `pi.extensions: ['./dist/index.js']` per `packages/pi/package.json:34-38`. |
 
-The `oc-plugin` manifest at `packages/opencode/package.json:32-45` declares the `server` and `tui` entry points and the `exports` map declares both `.` (the bundled server root) and `./tui` (the loader). The host resolves them as separate plugin registrations.
+The `exports` map at `packages/opencode/package.json` declares both `.` (the bundled server root) and `./tui` (the OpenTUI loader). The host's `opencode plugin` installer reads the subpaths and writes a server entry to `opencode.json` plus a TUI entry to `tui.json`; the host then resolves them as two independent plugin registrations.
 
 ## Generated and ignored artifacts
 

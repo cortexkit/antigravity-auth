@@ -3,8 +3,11 @@
  * directory through `bun add ./pack.tgz` (so the package export map is
  * actually exercised), and assert the tarball + install shape:
  *
- *   - `package.json` exposes `oc-plugin: ["server", "tui"]`.
- *   - `package.json` exports `./tui` pointing at `src/tui/entry.mjs`.
+ *   - `package.json` `engines.opencode` pins the host-version range
+ *     that `opencode plugin` enforces.
+ *   - `package.json` exports `./tui` pointing at `src/tui/entry.mjs`
+ *     (the host installer reads this subpath when wiring the TUI
+ *     registration into `tui.json`).
  *   - The compiled tree lands at `src/tui-compiled/tui.tsx` (where the
  *     host entry module expects it after a successful virtual runtime
  *     probe).
@@ -13,7 +16,7 @@
  *     real package export map (`import('@cortexkit/opencode-antigravity-auth/tui')`).
  *
  * Runs only via `bun run smoke:tui`. Use this on every package change
- * that touches `package.json` `exports`, `files`, or `oc-plugin` — a
+ * that touches `package.json` `exports`, `files`, or `engines` — a
  * broken pack is a broken ship.
  */
 
@@ -30,9 +33,9 @@ const CORE_ROOT = resolve(REPO_ROOT, 'packages/core')
 interface PackageJson {
   name: string
   version: string
+  engines?: Record<string, string>
   exports?: Record<string, unknown>
   files?: string[]
-  'oc-plugin'?: string[]
 }
 
 async function run(): Promise<void> {
@@ -61,17 +64,16 @@ async function run(): Promise<void> {
   const pkgRaw = readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf-8')
   const pkg = JSON.parse(pkgRaw) as PackageJson
 
-  // 1) `oc-plugin` must list `tui`.
-  const ocPlugin = pkg['oc-plugin']
-  if (!Array.isArray(ocPlugin) || ocPlugin.length === 0) {
-    throw new Error('package.json is missing oc-plugin metadata')
-  }
-  if (!ocPlugin.includes('tui')) {
-    throw new Error('package.json oc-plugin does not list "tui"')
+  // 1) `engines.opencode` must pin the host-version range that
+  //    `opencode plugin` enforces at install time.
+  const opencodeEngine = pkg.engines?.opencode
+  if (typeof opencodeEngine !== 'string' || opencodeEngine.length === 0) {
+    throw new Error('package.json is missing engines.opencode metadata')
   }
 
   // 2) `./tui` must be exposed in the exports map and point at
-  //    `tui/entry.mjs`.
+  //    `tui/entry.mjs` — the host installer reads this subpath to
+  //    wire the TUI registration into `tui.json`.
   const tuiExport = pkg.exports?.['./tui']
   if (!tuiExport || typeof tuiExport !== 'object') {
     throw new Error('package.json exports must include "./tui" entry')

@@ -32,27 +32,48 @@ This package is part of the `@cortexkit/antigravity-auth@2.0.0` monorepo. See th
 | `@opentui/core`, `@opentui/keymap`, `@opentui/solid` (peer) | `^0.4.5` each |
 | Node | `>=20` |
 
-The package declares both `oc-plugin` subpaths in its `package.json`:
+The package pins the supported host range through `engines.opencode` (`>=1.17.13 <2`); `opencode plugin` refuses to install a plugin that asks for an unsupported range.
 
-```jsonc
-{
-  "oc-plugin": ["server", "tui"]
-}
-```
+The package exposes two `exports` subpaths the host installer reads:
 
-OpenCode 1.17.13+ resolves the **server** subpath through the `plugin` array and the **tui** subpath through `oc-plugin` automatically. Legacy hosts can declare the `./tui` exports subpath explicitly through their own plugin loader.
+- `exports["."]` — the bundled `dist/index.js` server root. `opencode plugin` writes this entry into `opencode.json`'s `plugin` array.
+- `exports["./tui"]` — `src/tui/entry.mjs`, the OpenTUI sidebar loader. `opencode plugin` writes this entry into `tui.json` so the TUI process picks it up on the next host start.
 
 ## Installation
 
 ### End-user (npm) — the supported path
 
-Add to `~/.config/opencode/opencode.json`:
+The supported installer writes both registrations in one step:
 
-```json
+```bash
+opencode plugin @cortexkit/opencode-antigravity-auth@latest
+```
+
+What this does:
+
+- Reads the package's `exports["."]` and writes it into `~/.config/opencode/opencode.json` under the `plugin` array — the `auth.loader` and `fetch` interceptor the host calls on every model dispatch.
+- Reads the package's `exports["./tui"]` and writes it into `~/.config/opencode/tui.json` so the TUI process picks the sidebar up on the next host start.
+- Refuses to install when the host's OpenCode version falls outside the package's `engines.opencode` range.
+
+#### Manual config (hand-edited configs)
+
+If you cannot use `opencode plugin`, write both files by hand:
+
+```jsonc
+// ~/.config/opencode/opencode.json
 {
   "plugin": ["@cortexkit/opencode-antigravity-auth@latest"]
 }
 ```
+
+```jsonc
+// ~/.config/opencode/tui.json
+{
+  "plugins": ["@cortexkit/opencode-antigravity-auth"]
+}
+```
+
+The two files are independent — the server registration is read from `opencode.json` and the TUI registration from `tui.json`.
 
 Then start OpenCode and run `opencode auth login`, pick **Antigravity (Google OAuth)** in the menu (or `/antigravity-account add`). Verify with `npx -y @cortexkit/opencode-antigravity-auth quota`.
 
@@ -80,7 +101,7 @@ A precompiled JSX tree ships under `dist/src/tui-compiled/` and is regenerated b
   import { authorizeAntigravity, exchangeAntigravity } from "@cortexkit/antigravity-auth-core"
   ```
 
-- **`@opencode-ai/plugin` peer dependency** moved from `^0.15.30` to `^1.17.13`. Hosts on 1.17.13+ get the automatic `oc-plugin: tui` discovery for free.
+- **`@opencode-ai/plugin` peer dependency** moved from `^0.15.30` to `^1.17.13`. Hosts on 1.17.13+ get the TUI registration through `opencode plugin` (the host reads `exports["./tui"]` and writes it into `tui.json`).
 - **New peer dependencies** (`@opentui/core`, `@opentui/keymap`, `@opentui/solid` at `^0.4.5`) — required by the sidebar.
 - No account-storage changes: the on-disk format is unchanged from the v1.4+ storage schema (`AccountStorageV4`).
 - Missing accounts now return **HTTP 401 `UNAUTHENTICATED`** from the fetch interceptor instead of a synthetic 200 with assistant text.

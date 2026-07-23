@@ -27,12 +27,9 @@
     "claude"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.0.0",
+    "opencode": ">=1.17.13 <2"
   },
-  "oc-plugin": [
-    "server",
-    "tui"
-  ],
   "exports": {
     ".": {
       "import": "./dist/index.js",

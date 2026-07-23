@@ -42,7 +42,7 @@ graph LR
   E2E --> Core
 ```
 
-`packages/opencode/package.json:32-45` declares two `oc-plugin` entry points: `server` (the fetch interceptor / OAuth / quota controller) and `tui` (the OpenTUI sidebar) — the host loads them as separate plugin registrations. The Pi package's `pi.extensions` field (`packages/pi/package.json:34-38`) is the analogue. The core package has no peer dependencies on any host runtime; it only depends on Node built-ins and `@openauthjs/openauth`.
+`packages/opencode/package.json` exposes two `exports` subpaths that the host installer reads: `exports["."]` (the fetch interceptor / OAuth / quota controller) and `exports["./tui"]` (the OpenTUI sidebar). The host's `opencode plugin` installer writes a server entry to `opencode.json` and a TUI entry to `tui.json`; the host loads the two registrations independently. The Pi package's `pi.extensions` field (`packages/pi/package.json:34-38`) is the analogue. The core package has no peer dependencies on any host runtime; it only depends on Node built-ins and `@openauthjs/openauth`.
 
 ### Process topology at runtime
 
@@ -206,7 +206,7 @@ The `RetryState` at `packages/opencode/src/plugin/fetch/retry-state.ts` and `War
 
 ### Two halves of the contract
 
-The OpenTUI plugin is declared in `packages/opencode/package.json:32-45` as `"oc-plugin": ["server", "tui"]`. The host loads the TUI entry point separately; the entry dispatches to either the precompiled Solid bundle or the raw `tui.tsx` based on the host runtime module's availability (`packages/opencode/src/tui/entry.mjs:30-66`).
+The OpenTUI plugin is wired through the package's `exports["./tui"]` subpath (`packages/opencode/package.json`). The host's `opencode plugin` installer reads that subpath and writes the registration into `tui.json`; the host loads the TUI entry point separately from the server entry, and the entry dispatches to either the precompiled Solid bundle or the raw `tui.tsx` based on the host runtime module's availability (`packages/opencode/src/tui/entry.mjs:30-66`).
 
 The two halves share a small amount of code through `packages/opencode/src/tui-compiled/` (the precompiled mirror) and the slim contract modules:
 
