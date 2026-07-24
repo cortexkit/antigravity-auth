@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { AccountStorageStore } from './account-storage.ts'
 import { AccountStorageLockContentionError } from './account-storage.ts'
 import type {
@@ -18,6 +19,7 @@ import {
   MAX_FINGERPRINT_HISTORY,
   updateFingerprintVersion,
 } from './fingerprint.ts'
+import { getQuotaGroupForModel } from './model-registry.ts'
 import type { QuotaGroup, QuotaGroupSummary } from './quota-types.ts'
 import {
   type AccountWithMetrics,
@@ -25,7 +27,6 @@ import {
   getTokenTracker,
   selectHybridAccount,
 } from './rotation.ts'
-import { getModelFamily } from './transform/model-resolver.ts'
 
 export type {
   AccountSelectionStrategy,
@@ -72,6 +73,13 @@ export interface ManagedAccount {
   addedAt: number
   lastUsed: number
   parts: RefreshParts
+  /** Authoritative project ID from the persisted account record. Survives
+   * bare-refresh-token rotations where `parts.projectId` may be lost. */
+  projectId?: string
+  /** Authoritative managed project ID from the persisted account record.
+   * Survives bare-refresh-token rotations where `parts.managedProjectId`
+   * may be lost. */
+  managedProjectId?: string
   access?: string
   expires?: number
   enabled: boolean
@@ -89,6 +97,8 @@ export interface ManagedAccount {
   fingerprintHistory?: FingerprintVersion[]
   /** Cached quota data from last checkAccountsQuota() call */
   cachedQuota?: Partial<Record<QuotaGroup, QuotaGroupSummary>>
+  /** Opaque identity of the refresh token that produced `cachedQuota`. */
+  cachedQuotaAccountId?: string
   cachedQuotaUpdatedAt?: number
   verificationRequired?: boolean
   verificationRequiredAt?: number
@@ -111,6 +121,17 @@ function clampNonNegativeInt(value: unknown, fallback: number): number {
     return fallback
   }
   return value < 0 ? 0 : Math.floor(value)
+}
+
+/**
+ * Opaque identity for a refresh token.
+ *
+ * Antigravity refresh tokens are stable (they do not rotate), so hashing
+ * the token produces a durable, prunable identity to detect stale cached
+ * quota after an account-index shift.
+ */
+function quotaAccountIdentity(refreshToken: string): string {
+  return createHash('sha256').update(refreshToken).digest('hex').slice(0, 16)
 }
 
 function getQuotaKey(
@@ -209,10 +230,11 @@ function clearExpiredRateLimits(
 /**
  * Resolve the quota group for soft quota checks.
  *
- * When a model string is available, we can precisely determine the quota group.
- * When model is null/undefined, we fall back based on family:
- * - Claude → "claude" quota group
- * - Gemini → "gemini-pro" (conservative fallback; may misclassify flash models)
+ * When a model string is available we use the model-registry lookup first,
+ * then fall back to substring matching. When model is null/undefined we
+ * fall back based on family:
+ * - Claude → "non-gemini" quota group
+ * - Gemini → "gemini" quota group
  *
  * @param family - The model family ("claude" | "gemini")
  * @param model - Optional model string for precise resolution
@@ -223,9 +245,20 @@ export function resolveQuotaGroup(
   model?: string | null,
 ): QuotaGroup {
   if (model) {
-    return getModelFamily(model)
+    const registryGroup = getQuotaGroupForModel(model)
+    if (registryGroup) return registryGroup
+    const lower = model.toLowerCase()
+    // Check Claude / GPT-OSS substrings BEFORE the `gemini` substring so
+    // a `gemini-claude-*` alias (Claude route exposed under a `gemini-`
+    // namespace) attributes to the non-gemini pool. The model-registry
+    // check above already handles registered aliases; this substring
+    // fallback mirrors the same precedence rule for unregistered models.
+    if (lower.includes('claude') || lower.includes('gpt-oss')) {
+      return 'non-gemini'
+    }
+    if (lower.includes('gemini')) return 'gemini'
   }
-  return family === 'claude' ? 'claude' : 'gemini-pro'
+  return family === 'claude' ? 'non-gemini' : 'gemini'
 }
 
 function isOverSoftQuotaThreshold(
@@ -368,6 +401,10 @@ export class AccountManager {
               projectId: acc.projectId,
               managedProjectId: acc.managedProjectId,
             },
+            // Authoritative record-level fields that survive bare-refresh-token
+            // rotations where `parts.*` may be overwritten with undefined.
+            projectId: acc.projectId,
+            managedProjectId: acc.managedProjectId,
             access: matchesFallback ? authFallback?.access : undefined,
             expires: matchesFallback ? authFallback?.expires : undefined,
             enabled: acc.enabled !== false,
@@ -381,6 +418,10 @@ export class AccountManager {
             cachedQuota: acc.cachedQuota as
               | Partial<Record<QuotaGroup, QuotaGroupSummary>>
               | undefined,
+            // Restore the opaque identity stamp alongside the quota so the
+            // post-load projection can detect a stale snapshot captured
+            // for a different account after an index shift.
+            cachedQuotaAccountId: acc.cachedQuotaAccountId,
             cachedQuotaUpdatedAt: acc.cachedQuotaUpdatedAt,
             dailyRequestCounts: acc.dailyRequestCounts,
             verificationRequired: acc.verificationRequired,
@@ -654,6 +695,21 @@ export class AccountManager {
       }
     }
     return null
+  }
+
+  /**
+   * Numeric active indexes for each model family. Exposed so callers
+   * that persist `activeIndexByFamily` (e.g. command-data's remove
+   * path) can capture the live cursor per family without going
+   * through the account-lookup layer.
+   */
+  getActiveIndexByFamily(
+    identity?: AccountSessionIdentity,
+  ): Record<ModelFamily, number> {
+    return {
+      claude: this.getActiveIndex('claude', identity),
+      gemini: this.getActiveIndex('gemini', identity),
+    }
   }
 
   markSwitched(
@@ -1518,6 +1574,10 @@ export class AccountManager {
       managedProjectId:
         parts.managedProjectId ?? account.parts.managedProjectId,
     }
+    // Keep the record-level fields in sync with the authoritative source.
+    account.projectId = parts.projectId ?? account.projectId
+    account.managedProjectId =
+      parts.managedProjectId ?? account.managedProjectId
     account.access = auth.access
     account.expires = auth.expires
   }
@@ -1598,8 +1658,8 @@ export class AccountManager {
         email: a.email,
         label: a.label,
         refreshToken: a.parts.refreshToken,
-        projectId: a.parts.projectId,
-        managedProjectId: a.parts.managedProjectId,
+        projectId: a.parts.projectId ?? a.projectId,
+        managedProjectId: a.parts.managedProjectId ?? a.managedProjectId,
         addedAt: a.addedAt,
         lastUsed: a.lastUsed,
         enabled: a.enabled,
@@ -1615,6 +1675,10 @@ export class AccountManager {
           a.cachedQuota && Object.keys(a.cachedQuota).length > 0
             ? a.cachedQuota
             : undefined,
+        // Persist the opaque identity stamp alongside the quota so a later
+        // loadFromDisk + projection can detect a stale snapshot captured
+        // for a different account after an index shift.
+        cachedQuotaAccountId: a.cachedQuotaAccountId,
         cachedQuotaUpdatedAt: a.cachedQuotaUpdatedAt,
         dailyRequestCounts: a.dailyRequestCounts,
         verificationRequired: a.verificationRequired,
@@ -1822,12 +1886,23 @@ export class AccountManager {
   updateQuotaCache(
     accountIndex: number,
     quotaGroups: Partial<Record<QuotaGroup, QuotaGroupSummary>>,
+    expectedRefreshToken?: string,
   ): void {
     const account = this.accounts[accountIndex]
-    if (account) {
-      account.cachedQuota = quotaGroups
-      account.cachedQuotaUpdatedAt = this.now()
-    }
+    if (
+      !account ||
+      (account.parts.refreshToken !== expectedRefreshToken &&
+        expectedRefreshToken !== undefined)
+    )
+      return
+    account.cachedQuota = quotaGroups
+    // Stamp the cached quota with an opaque identity derived from the refresh
+    // token so a later projection can detect a stale snapshot captured for
+    // a different account after an index shift.
+    account.cachedQuotaAccountId = quotaAccountIdentity(
+      account.parts.refreshToken,
+    )
+    account.cachedQuotaUpdatedAt = this.now()
   }
 
   /**
@@ -2000,8 +2075,8 @@ export class AccountManager {
     return this.accounts.map((a) => ({
       email: a.email,
       refreshToken: a.parts.refreshToken,
-      projectId: a.parts.projectId,
-      managedProjectId: a.parts.managedProjectId,
+      projectId: a.parts.projectId ?? a.projectId,
+      managedProjectId: a.parts.managedProjectId ?? a.managedProjectId,
       addedAt: a.addedAt,
       lastUsed: a.lastUsed,
       enabled: a.enabled,

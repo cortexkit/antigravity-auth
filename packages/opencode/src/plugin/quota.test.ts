@@ -43,28 +43,30 @@ describe('classifyQuotaGroup', () => {
   it('uses live Antigravity model ids for quota groups', () => {
     expect(
       classifyQuotaGroup('gemini-3-flash-agent', 'Gemini 3.5 Flash (High)'),
-    ).toBe('gemini-flash')
+    ).toBe('gemini')
     expect(
       classifyQuotaGroup('gemini-3.5-flash-low', 'Gemini 3.5 Flash (Low)'),
-    ).toBe('gemini-flash')
+    ).toBe('gemini')
     expect(
       classifyQuotaGroup(
         'gemini-3.6-flash-medium',
         'Gemini 3.6 Flash (Medium)',
       ),
-    ).toBe('gemini-flash')
+    ).toBe('gemini')
     expect(classifyQuotaGroup('gemini-pro-agent', 'Gemini 3.1 Pro')).toBe(
-      'gemini-pro',
+      'gemini',
     )
     expect(classifyQuotaGroup('claude-sonnet-4-6', 'Claude Sonnet 4.6')).toBe(
-      'claude',
+      'non-gemini',
     )
   })
 
-  it('classifies gpt-oss models into gpt-oss quota group', () => {
-    expect(classifyQuotaGroup('gpt-oss-120b', 'GPT-OSS 120B')).toBe('gpt-oss')
+  it('classifies gpt-oss models into the non-Gemini pool', () => {
+    expect(classifyQuotaGroup('gpt-oss-120b', 'GPT-OSS 120B')).toBe(
+      'non-gemini',
+    )
     expect(classifyQuotaGroup('gpt-oss-120b-medium', 'GPT-OSS 120B')).toBe(
-      'gpt-oss',
+      'non-gemini',
     )
   })
 
@@ -100,12 +102,12 @@ describe('pushSidebarQuotaSnapshot', () => {
         enabled: true,
         coolingDownUntil: undefined,
         cachedQuota: {
-          claude: {
+          'non-gemini': {
             remainingFraction: 0.42,
             resetTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
             modelCount: 1,
           },
-          'gemini-pro': { remainingFraction: 0.85, modelCount: 1 },
+          gemini: { remainingFraction: 0.85, modelCount: 1 },
         },
       },
       {
@@ -114,7 +116,7 @@ describe('pushSidebarQuotaSnapshot', () => {
         enabled: false,
         coolingDownUntil: Date.now() + 5 * 60 * 1000,
         cachedQuota: {
-          'gemini-flash': { remainingFraction: 0.15, modelCount: 1 },
+          gemini: { remainingFraction: 0.15, modelCount: 1 },
         },
       },
     ]
@@ -128,11 +130,11 @@ describe('pushSidebarQuotaSnapshot', () => {
     expect(JSON.stringify(state)).not.toContain('Primary Account')
     expect(JSON.stringify(state)).not.toContain('Backup Account')
     expect(state.accounts[0]?.enabled).toBe(true)
-    expect(state.accounts[0]?.quota.claude?.remainingPercent).toBe(42)
-    expect(state.accounts[0]?.quota['gemini-pro']?.remainingPercent).toBe(85)
+    expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(42)
+    expect(state.accounts[0]?.quota.gemini?.remainingPercent).toBe(85)
     expect(state.accounts[1]?.enabled).toBe(false)
     expect(state.accounts[1]?.cooldownUntil).toBeGreaterThan(Date.now())
-    expect(state.accounts[1]?.quota['gemini-flash']?.remainingPercent).toBe(15)
+    expect(state.accounts[1]?.quota.gemini?.remainingPercent).toBe(15)
   })
 
   it('records quotaBackoffUntil when a backoff is active without losing cached quota', async () => {
@@ -142,7 +144,7 @@ describe('pushSidebarQuotaSnapshot', () => {
         label: 'Primary Account',
         enabled: true,
         cachedQuota: {
-          claude: { remainingFraction: 0.6, modelCount: 1 },
+          'non-gemini': { remainingFraction: 0.6, modelCount: 1 },
         },
       },
     ]
@@ -154,7 +156,7 @@ describe('pushSidebarQuotaSnapshot', () => {
     expect(state.quotaBackoffUntil).toBe(backoffUntil)
     // The pre-existing cached quota is preserved — backoff must not erase
     // fresher data per the freshness-merge contract.
-    expect(state.accounts[0]?.quota.claude?.remainingPercent).toBe(60)
+    expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(60)
   })
 
   it('is a no-op when getAccounts returns null', async () => {
@@ -172,6 +174,117 @@ describe('pushSidebarQuotaSnapshot', () => {
 
     const state = read()
     expect(state.accounts).toEqual([])
+  })
+
+  it('runs the windowed summary and gemini-cli quota fetch concurrently', async () => {
+    // The summary fetch and the gemini-CLI quota fetch previously
+    // ran sequentially — two 10s timeouts back-to-back. Run them
+    // concurrently instead. We assert by recording the sequence
+    // numbers of each fetch via a gate so the test is
+    // deterministic across runtimes.
+    const summarySeq: { seq: number } = { seq: 0 }
+    const cliSeq: { seq: number } = { seq: 0 }
+    let releaseSummary!: () => void
+    let releaseCli!: () => void
+    const summaryGate = new Promise<void>((resolve) => {
+      releaseSummary = resolve
+    })
+    const cliGate = new Promise<void>((resolve) => {
+      releaseCli = resolve
+    })
+
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
+      input: unknown,
+    ) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url
+      if (url.includes('retrieveUserQuotaSummary')) {
+        summarySeq.seq += 1
+        await summaryGate
+        summarySeq.seq += 1
+        return new Response(
+          JSON.stringify({
+            groups: [
+              {
+                displayName: 'Gemini Models',
+                buckets: [
+                  {
+                    bucketId: 'gemini-weekly',
+                    displayName: 'Weekly',
+                    window: 'weekly',
+                    resetTime: '2026-01-08T00:00:00Z',
+                    remainingFraction: 0.7,
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }
+      if (url.includes('retrieveUserQuota')) {
+        cliSeq.seq += 1
+        await cliGate
+        cliSeq.seq += 1
+        return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      }
+      // Token refresh + anything else: return a pliable JSON
+      // response so the rest of the quota pipeline can carry on.
+      return new Response(
+        JSON.stringify({
+          access_token: 'access-token',
+          expires_in: 3600,
+        }),
+        { status: 200 },
+      )
+    }) as unknown as typeof fetch)
+
+    const client = {
+      auth: { set: mock(async () => {}) },
+    } as unknown as PluginClient
+    // Use a UNIQUE refresh token per test run so the QuotaManager's
+    // singleton cache / backoff state from earlier tests in the
+    // same run can't skip the fetch behind our spy.
+    const account: AccountMetadataV3 = {
+      refreshToken: `concurrent-fetch-${Date.now()}-${Math.random()}`,
+      managedProjectId: 'managed-project',
+      projectId: 'project-id',
+      addedAt: 0,
+      lastUsed: 0,
+    }
+    const manager = createOpenCodeQuotaManager(client, 'google')
+
+    try {
+      const refresh = manager.refreshAccounts([account], {
+        indexFor: () => 0,
+        force: true,
+      })
+      // Yield until both fetches have started (seq=1).
+      const deadline = Date.now() + 5_000
+      while ((summarySeq.seq < 1 || cliSeq.seq < 1) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1))
+      }
+      // Both fetches started before either finished. If they ran
+      // sequentially, the cli fetch would not have started yet.
+      expect(summarySeq.seq).toBe(1)
+      expect(cliSeq.seq).toBe(1)
+      releaseSummary()
+      releaseCli()
+      await refresh
+
+      // Both fetches completed (seq=2).
+      expect(summarySeq.seq).toBe(2)
+      expect(cliSeq.seq).toBe(2)
+    } finally {
+      fetchSpy.mockRestore()
+      // Yield once more so the spy is fully torn down before the
+      // next test's bun event loop watches see the partial state.
+      await new Promise((resolve) => setImmediate(resolve))
+    }
   })
 
   it('fences the real quota wrapper sidebar enqueue before the lifecycle drain', async () => {
@@ -206,7 +319,7 @@ describe('pushSidebarQuotaSnapshot', () => {
           index: 0,
           email: 'primary@example.test',
           cachedQuota: {
-            claude: { remainingFraction: 0.42, modelCount: 1 },
+            'non-gemini': { remainingFraction: 0.42, modelCount: 1 },
           },
         },
       ],
@@ -254,6 +367,8 @@ describe('pushSidebarQuotaSnapshot', () => {
       })
       await drainSidebarWrites()
       expect(events).toEqual([
+        'fetch:start',
+        'fetch:start',
         'fetch:start',
         'fetch:start',
         'sidebar:write-start',

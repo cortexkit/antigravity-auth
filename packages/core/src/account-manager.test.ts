@@ -143,6 +143,133 @@ describe('core AccountManager', () => {
     expect(memory.state()?.accounts).toHaveLength(1)
   })
 
+  it('persists and restores the cachedQuotaAccountId stamp across save→loadFromDisk', async () => {
+    const seeded: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    }
+    const memory = createStore(seeded)
+    const manager = new AccountManager(undefined, seeded, {
+      store: memory.store,
+      now: () => 1_700_000_000_000,
+    })
+    // Seed a cached quota for the first account — this also stamps it with
+    // the opaque identity derived from `r1`.
+    manager.updateQuotaCache(0, {
+      gemini: { remainingFraction: 0.42, modelCount: 1 },
+    })
+    expect(manager.getAccounts()[0]?.cachedQuotaAccountId).toMatch(
+      /^[a-f0-9]{16}$/,
+    )
+    const expectedStamp = manager.getAccounts()[0]?.cachedQuotaAccountId
+
+    await manager.saveToDiskReplace()
+
+    const persisted = memory.state()
+    expect(persisted?.accounts[0]?.cachedQuota).toEqual({
+      gemini: { remainingFraction: 0.42, modelCount: 1 },
+    })
+    expect(persisted?.accounts[0]?.cachedQuotaAccountId).toBe(expectedStamp)
+
+    // Roundtrip: a fresh manager built from the persisted snapshot must
+    // surface the same stamp on the same account (same refresh token).
+    const reloaded = new AccountManager(undefined, persisted ?? undefined, {
+      store: memory.store,
+      now: () => 1_700_000_001_000,
+    })
+    expect(reloaded.getAccounts()[0]?.cachedQuotaAccountId).toBe(expectedStamp)
+    // Stamp mismatch path: a roundtripped account whose stored stamp no
+    // longer matches its current refresh token is dropped at projection
+    // time (no quota rendered) — see `toCommandAccountRow` /
+    // `updateQuotaCache`. Here we just confirm the in-memory stamp is
+    // present so the projection can decide.
+    const tampered: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        {
+          refreshToken: 'r1',
+          addedAt: 1,
+          lastUsed: 0,
+          // Stale stamp captured for a different refresh token.
+          cachedQuotaAccountId: 'deadbeefcafebabe',
+          cachedQuota: { gemini: { remainingFraction: 0.42, modelCount: 1 } },
+        },
+      ],
+      activeIndex: 0,
+    }
+    const tamperedMemory = createStore(tampered)
+    const tamperedManager = new AccountManager(undefined, tampered, {
+      store: tamperedMemory.store,
+    })
+    expect(tamperedManager.getAccounts()[0]?.cachedQuotaAccountId).toBe(
+      'deadbeefcafebabe',
+    )
+    // The next legitimate update rewrites the stamp from the current
+    // refresh token, so a write to the same account cannot persist the
+    // stale stamp forward.
+    tamperedManager.updateQuotaCache(0, {
+      gemini: { remainingFraction: 0.5, modelCount: 1 },
+    })
+    expect(tamperedManager.getAccounts()[0]?.cachedQuotaAccountId).not.toBe(
+      'deadbeefcafebabe',
+    )
+  })
+
+  it('drops the quota write when the refresh token captured at refresh time is gone (remove-during-refresh race)', () => {
+    // Race: an async quota refresh is in flight for account A while the
+    // user removes account A from the pool. When the refresh resolves,
+    // index 0 now points at a different account (B). Without the
+    // identity check the quota would be written onto B's slot — exactly
+    // the cross-account misattribution P1#3 fixes.
+    const seeded: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 0,
+    }
+    const memory = createStore(seeded)
+    const manager = new AccountManager(undefined, seeded, {
+      store: memory.store,
+    })
+
+    // Capture the refresh token BEFORE the (simulated) async refresh
+    // resolves. The caller is expected to pass this as
+    // `expectedRefreshToken` so the write is bound to the right account.
+    const refreshTokenForA = manager.getAccounts()[0]?.parts.refreshToken
+    expect(refreshTokenForA).toBe('r1')
+
+    // Concurrent user action: remove account A. Account B (r2) now sits
+    // at index 0.
+    expect(manager.removeAccountByIndex(0)).toBe(true)
+    expect(manager.getAccounts()[0]?.parts.refreshToken).toBe('r2')
+
+    // The async refresh finally resolves. The caller re-resolves the
+    // live index for `r1` (which is now `-1`) and the quota write is
+    // then attempted via `updateQuotaCache` at index 0 with the
+    // captured `expectedRefreshToken`. The guard MUST drop the write
+    // because the captured token no longer matches the account at
+    // index 0 — B would otherwise receive A's quota percentages.
+    const liveIndex = manager
+      .getAccounts()
+      .findIndex((entry) => entry.parts.refreshToken === refreshTokenForA)
+    expect(liveIndex).toBe(-1)
+    manager.updateQuotaCache(
+      0,
+      { gemini: { remainingFraction: 0.42, modelCount: 1 } },
+      refreshTokenForA,
+    )
+    // No quota should have landed on whichever account shifted into
+    // index 0.
+    expect(manager.getAccounts()[0]?.cachedQuota).toBeUndefined()
+    expect(manager.getAccounts()[0]?.cachedQuotaAccountId).toBeUndefined()
+  })
+
   it('coalesces requested saves and dispose flushes immediately', async () => {
     const memory = createStore(stored)
     const manager = new AccountManager(undefined, stored, {
@@ -173,5 +300,67 @@ describe('AccountManager instance dependencies', () => {
 
     expect(first.getAccounts()[0]?.coolingDownUntil).toBe(1_500)
     expect(second.getAccounts()[0]?.coolingDownUntil).toBe(9_500)
+  })
+})
+
+describe('managedProjectId projection', () => {
+  it('getAccountsForQuotaCheck returns managedProjectId from the record when refresh token is bare', () => {
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        {
+          email: 'test@example.com',
+          refreshToken: 'bare-refresh-token',
+          projectId: 'my-project',
+          managedProjectId: 'my-managed-project',
+          addedAt: 1_000,
+          lastUsed: 2_000,
+        },
+      ],
+      activeIndex: 0,
+    }
+    const manager = new AccountManager(undefined, stored, {
+      store: createStore(stored).store,
+      now: () => 1_000,
+    })
+    const accounts = manager.getAccountsForQuotaCheck()
+    expect(accounts).toHaveLength(1)
+    expect(accounts[0]!.projectId).toBe('my-project')
+    expect(accounts[0]!.managedProjectId).toBe('my-managed-project')
+  })
+
+  it('save→reload round-trip preserves managedProjectId from the record', async () => {
+    const { store, state } = createStore(null)
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        {
+          email: 'test@example.com',
+          refreshToken: 'bare-refresh-token',
+          projectId: 'my-project',
+          managedProjectId: 'my-managed-project',
+          addedAt: 1_000,
+          lastUsed: 2_000,
+        },
+      ],
+      activeIndex: 0,
+    }
+    const manager = new AccountManager(undefined, stored, {
+      store,
+      now: () => 1_000,
+    })
+    // Trigger a save — buildStorageSnapshot must preserve managedProjectId.
+    manager.requestSaveToDisk()
+    await manager.flushSaveToDisk()
+    const saved = state()
+    expect(saved?.accounts[0]?.managedProjectId).toBe('my-managed-project')
+
+    // Reload and verify getAccountsForQuotaCheck still returns it.
+    const manager2 = new AccountManager(undefined, saved, {
+      store,
+      now: () => 1_000,
+    })
+    const accounts = manager2.getAccountsForQuotaCheck()
+    expect(accounts[0]!.managedProjectId).toBe('my-managed-project')
   })
 })

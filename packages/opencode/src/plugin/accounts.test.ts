@@ -2221,7 +2221,7 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: { remainingFraction: 0.05, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0.05, modelCount: 1 },
       })
 
       const account = manager.getCurrentOrNextForFamily(
@@ -2246,7 +2246,7 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: { remainingFraction: 0.15, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0.15, modelCount: 1 },
       })
 
       const account = manager.getCurrentOrNextForFamily(
@@ -2279,7 +2279,7 @@ describe('AccountManager', () => {
       for (const strategy of ['sticky', 'round-robin', 'hybrid'] as const) {
         const manager = new AccountManager(undefined, stored)
         manager.updateQuotaCache(0, {
-          claude: {
+          'non-gemini': {
             remainingFraction: 0.01,
             resetTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
             modelCount: 1,
@@ -2315,7 +2315,7 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: { remainingFraction: 0.01, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0.01, modelCount: 1 },
       })
 
       const account = manager.getCurrentOrNextForFamily(
@@ -2341,10 +2341,10 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: { remainingFraction: 0.05, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0.05, modelCount: 1 },
       })
       manager.updateQuotaCache(1, {
-        claude: { remainingFraction: 0.08, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0.08, modelCount: 1 },
       })
 
       const account = manager.getCurrentOrNextForFamily(
@@ -2370,7 +2370,7 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: { remainingFraction: 0.05, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0.05, modelCount: 1 },
       })
 
       const account = manager.getCurrentOrNextForFamily(
@@ -2418,7 +2418,7 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: { remainingFraction: 0, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0, modelCount: 1 },
       })
 
       const account = manager.getCurrentOrNextForFamily(
@@ -2446,7 +2446,7 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: { remainingFraction: 0.05, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0.05, modelCount: 1 },
       })
 
       jest.setSystemTime(new Date(11 * 60 * 1000))
@@ -2475,7 +2475,9 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       const acc = (manager as any).accounts[0]
-      acc.cachedQuota = { claude: { remainingFraction: 0.05, modelCount: 1 } }
+      acc.cachedQuota = {
+        'non-gemini': { remainingFraction: 0.05, modelCount: 1 },
+      }
       acc.cachedQuotaUpdatedAt = undefined
 
       const account = manager.getCurrentOrNextForFamily(
@@ -2502,7 +2504,7 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: { remainingFraction: 0.15, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0.15, modelCount: 1 },
       })
 
       const waitMs = manager.getMinWaitTimeForSoftQuota(
@@ -2525,10 +2527,10 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: { remainingFraction: 0.05, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0.05, modelCount: 1 },
       })
       manager.updateQuotaCache(1, {
-        claude: { remainingFraction: 0.05, modelCount: 1 },
+        'non-gemini': { remainingFraction: 0.05, modelCount: 1 },
       })
 
       const waitMs = manager.getMinWaitTimeForSoftQuota(
@@ -2554,14 +2556,14 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: {
+        'non-gemini': {
           remainingFraction: 0.05,
           resetTime: '2026-01-28T15:00:00Z',
           modelCount: 1,
         },
       })
       manager.updateQuotaCache(1, {
-        claude: {
+        'non-gemini': {
           remainingFraction: 0.05,
           resetTime: '2026-01-28T15:00:00Z',
           modelCount: 1,
@@ -2593,14 +2595,14 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: {
+        'non-gemini': {
           remainingFraction: 0.05,
           resetTime: '2026-01-28T15:00:00Z',
           modelCount: 1,
         },
       })
       manager.updateQuotaCache(1, {
-        claude: {
+        'non-gemini': {
           remainingFraction: 0.05,
           resetTime: '2026-01-28T15:00:00Z',
           modelCount: 1,
@@ -2632,14 +2634,14 @@ describe('AccountManager', () => {
 
       const manager = new AccountManager(undefined, stored)
       manager.updateQuotaCache(0, {
-        claude: {
+        'non-gemini': {
           remainingFraction: 0.05,
           resetTime: '2026-01-28T15:00:00Z',
           modelCount: 1,
         },
       })
       manager.updateQuotaCache(1, {
-        claude: {
+        'non-gemini': {
           remainingFraction: 0.08,
           resetTime: '2026-01-28T12:00:00Z',
           modelCount: 1,
@@ -2661,26 +2663,34 @@ describe('AccountManager', () => {
 describe('resolveQuotaGroup', () => {
   it('returns model-based quota group when model is provided', () => {
     expect(resolveQuotaGroup('claude', 'claude-opus-4-6-thinking')).toBe(
-      'claude',
+      'non-gemini',
     )
-    expect(resolveQuotaGroup('gemini', 'gemini-2.5-pro')).toBe('gemini-pro')
-    expect(resolveQuotaGroup('gemini', 'gemini-2.5-flash')).toBe('gemini-flash')
+    expect(resolveQuotaGroup('gemini', 'gemini-2.5-pro')).toBe('gemini')
+    expect(resolveQuotaGroup('gemini', 'gemini-2.5-flash')).toBe('gemini')
   })
 
   it('falls back to claude for claude family when no model', () => {
-    expect(resolveQuotaGroup('claude', null)).toBe('claude')
-    expect(resolveQuotaGroup('claude', undefined)).toBe('claude')
+    expect(resolveQuotaGroup('claude', null)).toBe('non-gemini')
+    expect(resolveQuotaGroup('claude', undefined)).toBe('non-gemini')
   })
 
   it('falls back to gemini-pro for gemini family when no model', () => {
-    expect(resolveQuotaGroup('gemini', null)).toBe('gemini-pro')
-    expect(resolveQuotaGroup('gemini', undefined)).toBe('gemini-pro')
+    expect(resolveQuotaGroup('gemini', null)).toBe('gemini')
+    expect(resolveQuotaGroup('gemini', undefined)).toBe('gemini')
   })
 
   it('model takes precedence over family', () => {
-    // Even if family says claude, model determines the quota group
-    expect(resolveQuotaGroup('gemini', 'gemini-2.5-flash')).toBe('gemini-flash')
-    expect(resolveQuotaGroup('gemini', 'gemini-3-pro')).toBe('gemini-pro')
+    // Cross-family pair: a `claude` family carrying a `gemini-` model
+    // string must resolve to the gemini pool, and vice versa. The
+    // previous version only exercised gemini-family + gemini-model,
+    // which would pass even if a regression collapsed the model-vs-
+    // family check entirely.
+    expect(resolveQuotaGroup('claude', 'gemini-2.5-flash')).toBe('gemini')
+    expect(resolveQuotaGroup('claude', 'gemini-3-pro')).toBe('gemini')
+    expect(resolveQuotaGroup('gemini', 'claude-sonnet-4-6')).toBe('non-gemini')
+    expect(resolveQuotaGroup('gemini', 'gpt-oss-120b-medium')).toBe(
+      'non-gemini',
+    )
   })
 })
 

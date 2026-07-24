@@ -26,8 +26,8 @@ import type {
   QuotaGroup,
   QuotaGroupSummary,
   QuotaSummary,
+  QuotaWindowEntry,
 } from './quota-types.ts'
-import { getModelFamily } from './transform/model-resolver.ts'
 
 const log = createLogger('quota-manager')
 
@@ -418,16 +418,19 @@ export function classifyQuotaGroup(
   }
 
   const combined = `${modelName} ${displayName ?? ''}`.toLowerCase()
-  if (combined.includes('claude')) {
-    return 'claude'
+  // Check Claude / GPT-OSS substrings BEFORE the `gemini` substring so a
+  // `gemini-claude-*` alias (Claude route exposed under a `gemini-`
+  // namespace) attributes to the non-gemini pool rather than the gemini
+  // pool. `tab_*` autocomplete IDs are already classified by
+  // `getQuotaGroupForModel` above (the registry/prefix branches), so
+  // this fallback only runs for genuinely-unrecognised model strings.
+  if (combined.includes('claude') || combined.includes('gpt-oss')) {
+    return 'non-gemini'
   }
-  const isGemini3 =
-    combined.includes('gemini-3') || combined.includes('gemini 3')
-  if (!isGemini3) {
-    return null
+  if (combined.includes('gemini')) {
+    return 'gemini'
   }
-  const family = getModelFamily(modelName)
-  return family === 'gemini-flash' ? 'gemini-flash' : 'gemini-pro'
+  return null
 }
 
 function normalizeRemainingFraction(value: unknown): number {
@@ -546,6 +549,284 @@ export interface RetrieveUserQuotaResponse {
 
 export interface FetchAvailableModelsResponse {
   models?: Record<string, FetchAvailableModelEntry>
+}
+
+// ============================================================================
+// retrieveUserQuotaSummary — windowed quota source (2 pools × variable windows)
+// ============================================================================
+
+export interface RetrieveUserQuotaSummaryBucket {
+  bucketId: string
+  displayName: string
+  window: 'weekly' | '5h'
+  resetTime: string
+  remainingFraction: number
+  description?: string
+}
+
+export interface RetrieveUserQuotaSummaryGroup {
+  displayName: string
+  description?: string
+  buckets: RetrieveUserQuotaSummaryBucket[]
+}
+
+export interface RetrieveUserQuotaSummaryResponse {
+  groups: RetrieveUserQuotaSummaryGroup[]
+  description?: string
+}
+
+/**
+ * Derive the most-constrained window from a set of window entries.
+ * Returns the entry with the smallest `remainingFraction` — this is the
+ * binding constraint for the pool. `resetTime` comes from the same window.
+ * Returns `undefined` when there are no windows.
+ */
+function mostConstrainedWindow(
+  windows: QuotaWindowEntry[],
+): { remainingFraction: number; resetTime: string } | undefined {
+  if (windows.length === 0) return undefined
+  let best = windows[0]!
+  for (let i = 1; i < windows.length; i++) {
+    if (windows[i]!.remainingFraction < best.remainingFraction) {
+      best = windows[i]!
+    }
+  }
+  return {
+    remainingFraction: best.remainingFraction,
+    resetTime: best.resetTime,
+  }
+}
+
+/**
+ * Map a retrieveUserQuotaSummary bucketId prefix to our internal pool.
+ *
+ * bucketId prefixes:
+ *   `gemini-*` → gemini
+ *   `3p-*`     → non-gemini
+ */
+function poolForBucketId(bucketId: string): QuotaGroup | null {
+  if (bucketId.startsWith('gemini-')) return 'gemini'
+  if (bucketId.startsWith('3p-')) return 'non-gemini'
+  return null
+}
+
+/**
+ * Count models listed in a group's description. The description is
+ * typically a comma-separated list of model names ("Claude Sonnet 4.6,
+ * Gemini 3.1 Pro, Flash") often prefixed with a label like
+ * "Models within this group:". Strip the prefix before splitting so
+ * the label itself is not counted as a model. Returns 0 for shapes
+ * that don't match a comma-separated list.
+ */
+function parseDescriptionModelCount(description: string): number {
+  const prefixMatch = description.match(/^[^:]+:\s*/)
+  const payload = prefixMatch
+    ? description.slice(prefixMatch[0].length)
+    : description
+  if (!payload) return 0
+  const entries = payload
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+  return entries.length
+}
+
+/**
+ * Aggregate a retrieveUserQuotaSummary response into a QuotaSummary.
+ *
+ * Each RUQS group maps to a pool via bucketId prefix. Within a pool,
+ * windows are stored ordered (weekly first, then 5h). The pool's
+ * `remainingFraction`/`resetTime` derive from the most-constrained window.
+ */
+export function aggregateQuotaSummary(
+  response: RetrieveUserQuotaSummaryResponse,
+): QuotaSummary {
+  const groups: Partial<Record<QuotaGroup, QuotaGroupSummary>> = {}
+  let totalCount = 0
+
+  for (const group of response.groups) {
+    const windows: QuotaWindowEntry[] = []
+    for (const bucket of group.buckets) {
+      const pool = poolForBucketId(bucket.bucketId)
+      if (!pool) continue
+      windows.push({
+        window: bucket.window,
+        remainingFraction: normalizeRemainingFraction(bucket.remainingFraction),
+        resetTime: bucket.resetTime,
+      })
+    }
+    if (windows.length === 0) continue
+
+    // Order: weekly first, then 5h.
+    windows.sort((a, b) => {
+      const order: Record<string, number> = { weekly: 0, '5h': 1 }
+      return (order[a.window] ?? 2) - (order[b.window] ?? 2)
+    })
+
+    const constrained = mostConstrainedWindow(windows)
+    // Pick the first RECOGNIZED bucket for pool derivation. Older
+    // servers may prepend a junk bucket (system noise, a non-standard
+    // prefix like `claude-3p-`) whose bucketId doesn't match any of
+    // our pool prefixes; the legacy poolForBucketId derivation used
+    // group.buckets[0] unconditionally, which silently dropped the
+    // whole group when an unknown prefix led the array.
+    const recognizedBucket = group.buckets.find((bucket) =>
+      poolForBucketId(bucket.bucketId),
+    )
+    if (!recognizedBucket) continue
+    const pool = poolForBucketId(recognizedBucket.bucketId)
+    if (!pool || !constrained) continue
+
+    // The description is a list of model names comma-separated, often
+    // prefixed with a label like "Models within this group:". Strip
+    // the prefix before splitting so it doesn't count as a model.
+    const modelCount = group.description
+      ? parseDescriptionModelCount(group.description)
+      : 0
+
+    groups[pool] = {
+      remainingFraction: constrained.remainingFraction,
+      resetTime: constrained.resetTime,
+      modelCount,
+      windows,
+    }
+    totalCount += modelCount
+  }
+
+  return { groups, modelCount: totalCount }
+}
+
+export interface FetchQuotaSummaryOptions {
+  accessToken: string
+  /** Managed project ID. Falls back to regular projectId on 403. */
+  managedProjectId?: string
+  /** Regular project ID — used as fallback when managedProjectId is missing or returns 403. */
+  projectId?: string
+  endpoints: readonly string[]
+  timeoutMs?: number
+  userAgent?: string
+  fetchVia?: (
+    url: string,
+    options: RequestInit,
+    extra: { timeoutMs: number; signal?: AbortSignal | null },
+  ) => Promise<Response>
+}
+
+export interface FetchQuotaSummaryResult {
+  summary: RetrieveUserQuotaSummaryResponse
+  /** True when the result came from the legacy fallback path. */
+  fellBackToLegacy?: boolean
+}
+
+/**
+ * Fetch the windowed quota summary via `retrieveUserQuotaSummary`.
+ *
+ * Uses the same transport/UA/timeout conventions as `fetchAvailableModels`.
+ * On a 429 or 5xx against one endpoint, falls through to the next entry
+ * in `options.endpoints` (matching the legacy fetchers' failover
+ * convention). On 403 with the managedProjectId, retries with the
+ * regular projectId. If that also 403s, falls back to
+ * `fetchAvailableModels` so quota never goes dark. On missing
+ * managedProjectId, tries projectId first.
+ */
+export async function fetchQuotaSummary(
+  options: FetchQuotaSummaryOptions,
+): Promise<FetchQuotaSummaryResult> {
+  const timeoutMs = options.timeoutMs ?? QUOTA_MANAGER_DEFAULT_TIMEOUT_MS
+  const userAgent = options.userAgent ?? buildAntigravityHarnessUserAgent()
+  const transport = options.fetchVia ?? defaultTransport
+  const errors: string[] = []
+
+  if (options.endpoints.length === 0) {
+    throw new Error('No endpoints configured for fetchQuotaSummary')
+  }
+
+  const tryBody = async (
+    endpoint: string,
+    projectId: string,
+  ): Promise<RetrieveUserQuotaSummaryResponse | null> => {
+    const body = { project: projectId }
+    try {
+      const response = await transport(
+        `${endpoint}/v1internal:retrieveUserQuotaSummary`,
+        {
+          method: 'POST',
+          headers: {
+            'User-Agent': userAgent,
+            Authorization: `Bearer ${options.accessToken}`,
+            'Content-Type': 'application/json',
+            'Accept-Encoding': 'gzip',
+          },
+          body: JSON.stringify(body),
+        },
+        { timeoutMs },
+      )
+
+      if (response.ok) {
+        return (await response.json()) as RetrieveUserQuotaSummaryResponse
+      }
+
+      const status = response.status
+      if (status === 403) {
+        errors.push(
+          `retrieveUserQuotaSummary 403 at ${endpoint} (project=${projectId.slice(0, 12)}…)`,
+        )
+        return null
+      }
+
+      if (status === 429 || status >= 500) {
+        const message = await response.text().catch(() => '')
+        errors.push(
+          `retrieveUserQuotaSummary ${status} at ${endpoint}${message ? `: ${message.trim().slice(0, 200)}` : ''}`,
+        )
+        // Endpoint failover: the caller may have multiple endpoints;
+        // continue to the next one with the same project ID.
+        return null
+      }
+
+      const message = await response.text().catch(() => '')
+      errors.push(
+        `retrieveUserQuotaSummary ${status} at ${endpoint}${message ? `: ${message.trim().slice(0, 200)}` : ''}`,
+      )
+      return null
+    } catch (error) {
+      errors.push(
+        `retrieveUserQuotaSummary network error at ${endpoint}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return null
+    }
+  }
+
+  // Try managedProjectId first, then projectId, then legacy fallback.
+  // For each project, iterate the endpoint list so a 500/429 on the
+  // primary endpoint falls through to the next entry.
+  const primary = options.managedProjectId ?? options.projectId
+  if (primary) {
+    for (const endpoint of options.endpoints) {
+      const result = await tryBody(endpoint, primary)
+      if (result) return { summary: result }
+    }
+  }
+
+  // If primary failed with 403 and we used managedProjectId,
+  // retry with regular projectId as fallback (only when distinct).
+  const fallbackId =
+    options.managedProjectId &&
+    options.projectId &&
+    options.managedProjectId !== options.projectId
+      ? options.projectId
+      : undefined
+  if (fallbackId) {
+    for (const endpoint of options.endpoints) {
+      const result = await tryBody(endpoint, fallbackId)
+      if (result) return { summary: result }
+    }
+  }
+
+  // Give up — the caller should fall back to fetchAvailableModels.
+  throw new Error(
+    errors.join('; ') || 'fetchQuotaSummary failed: no project ID available',
+  )
 }
 
 /**

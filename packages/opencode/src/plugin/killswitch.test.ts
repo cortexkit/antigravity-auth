@@ -40,7 +40,7 @@ describe('evaluateKillswitchForAccount', () => {
       {
         index: 0,
         refreshToken: 'rt',
-        cachedQuota: { claude: { remainingFraction: 0, modelCount: 1 } },
+        cachedQuota: { 'non-gemini': { remainingFraction: 0, modelCount: 1 } },
         cachedQuotaUpdatedAt: NOW,
       },
       'claude',
@@ -67,7 +67,7 @@ describe('evaluateKillswitchForAccount', () => {
       {
         index: 0,
         refreshToken: 'rt',
-        cachedQuota: { claude: { remainingFraction: 0, modelCount: 1 } },
+        cachedQuota: { 'non-gemini': { remainingFraction: 0, modelCount: 1 } },
         cachedQuotaUpdatedAt: NOW - 10 * 60 * 1000,
       },
       'claude',
@@ -83,7 +83,9 @@ describe('evaluateKillswitchForAccount', () => {
       {
         index: 0,
         refreshToken: 'rt',
-        cachedQuota: { claude: { remainingFraction: 0.04, modelCount: 1 } },
+        cachedQuota: {
+          'non-gemini': { remainingFraction: 0.04, modelCount: 1 },
+        },
         cachedQuotaUpdatedAt: NOW,
       },
       'claude',
@@ -110,7 +112,9 @@ describe('evaluateKillswitchForAccount', () => {
       {
         index: 0,
         refreshToken: 'rt',
-        cachedQuota: { claude: { remainingFraction: 0.2, modelCount: 1 } },
+        cachedQuota: {
+          'non-gemini': { remainingFraction: 0.2, modelCount: 1 },
+        },
         cachedQuotaUpdatedAt: NOW,
       },
       'claude',
@@ -122,15 +126,20 @@ describe('evaluateKillswitchForAccount', () => {
   })
 
   it('uses freshest quota group across the family when no model is provided', () => {
-    // Without a model, the family-max behavior is preserved — the
-    // candidate is allowed because gemini-flash is at 90%.
+    // Without a model, the family-max behavior is preserved — pick the
+    // highest remaining pool across gemini + non-gemini. The 90%
+    // non-gemini pool must outweigh the 2% gemini pool so the family
+    // is allowed. The model-scoped tests below pin the regression:
+    // if a future change accidentally collapses both branches to
+    // family-max, those assertions fail because they expect the gemini
+    // pool alone to drive the deny decision.
     const decision = evaluateKillswitchForAccount(
       {
         index: 0,
         refreshToken: 'rt',
         cachedQuota: {
-          'gemini-pro': { remainingFraction: 0.02, modelCount: 1 },
-          'gemini-flash': { remainingFraction: 0.9, modelCount: 1 },
+          gemini: { remainingFraction: 0.02, modelCount: 1 },
+          'non-gemini': { remainingFraction: 0.9, modelCount: 1 },
         },
         cachedQuotaUpdatedAt: NOW,
       },
@@ -143,16 +152,17 @@ describe('evaluateKillswitchForAccount', () => {
     expect(decision.remainingPercent).toBe(90)
   })
 
-  it('scopes evaluation to gemini-pro alone when the model is gemini-pro', () => {
-    // gemini-pro at 2%, gemini-flash at 90% — a gemini-pro request
-    // must be DENIED because the pro group is below the 5% threshold.
+  it('scopes evaluation to gemini alone when the model is a gemini model', () => {
+    // gemini pool is at 2% — must be DENIED because below 5% threshold.
+    // The non-gemini pool sits at 90% so a regression that ignored
+    // `model` (and fell back to family-max) would let this through.
     const decision = evaluateKillswitchForAccount(
       {
         index: 0,
         refreshToken: 'rt',
         cachedQuota: {
-          'gemini-pro': { remainingFraction: 0.02, modelCount: 1 },
-          'gemini-flash': { remainingFraction: 0.9, modelCount: 1 },
+          gemini: { remainingFraction: 0.02, modelCount: 1 },
+          'non-gemini': { remainingFraction: 0.9, modelCount: 1 },
         },
         cachedQuotaUpdatedAt: NOW,
       },
@@ -165,16 +175,15 @@ describe('evaluateKillswitchForAccount', () => {
     expect(decision.remainingPercent).toBe(2)
   })
 
-  it('scopes evaluation to gemini-flash alone when the model is gemini-flash', () => {
-    // gemini-pro at 2%, gemini-flash at 90% — a gemini-flash request
-    // is ALLOWED because the flash group is above the 5% threshold.
+  it('scopes evaluation to gemini pool for gemini-flash models', () => {
+    // gemini pool is at 2% — below the 5% threshold.
     const decision = evaluateKillswitchForAccount(
       {
         index: 0,
         refreshToken: 'rt',
         cachedQuota: {
-          'gemini-pro': { remainingFraction: 0.02, modelCount: 1 },
-          'gemini-flash': { remainingFraction: 0.9, modelCount: 1 },
+          gemini: { remainingFraction: 0.02, modelCount: 1 },
+          'non-gemini': { remainingFraction: 0.9, modelCount: 1 },
         },
         cachedQuotaUpdatedAt: NOW,
       },
@@ -182,9 +191,9 @@ describe('evaluateKillswitchForAccount', () => {
       enabledWith(5),
       { now: NOW, model: 'gemini-3-flash' },
     )
-    expect(decision.allowed).toBe(true)
-    expect(decision.reason).toBe('ok')
-    expect(decision.remainingPercent).toBe(90)
+    expect(decision.allowed).toBe(false)
+    expect(decision.reason).toBe('below-threshold')
+    expect(decision.remainingPercent).toBe(2)
   })
 
   it('falls back to family-max when the model is unknown', () => {
@@ -193,8 +202,7 @@ describe('evaluateKillswitchForAccount', () => {
         index: 0,
         refreshToken: 'rt',
         cachedQuota: {
-          'gemini-pro': { remainingFraction: 0.02, modelCount: 1 },
-          'gemini-flash': { remainingFraction: 0.9, modelCount: 1 },
+          gemini: { remainingFraction: 0.02, modelCount: 1 },
         },
         cachedQuotaUpdatedAt: NOW,
       },
@@ -202,8 +210,9 @@ describe('evaluateKillswitchForAccount', () => {
       enabledWith(5),
       { now: NOW, model: 'gemini-3-unknown-variant' },
     )
-    expect(decision.allowed).toBe(true)
-    expect(decision.remainingPercent).toBe(90)
+    expect(decision.allowed).toBe(false)
+    expect(decision.reason).toBe('below-threshold')
+    expect(decision.remainingPercent).toBe(2)
   })
 })
 
@@ -214,7 +223,9 @@ describe('summarizeKillswitchOutcomes', () => {
         {
           index: 0,
           refreshToken: 'secret-token-a',
-          cachedQuota: { claude: { remainingFraction: 0.5, modelCount: 1 } },
+          cachedQuota: {
+            'non-gemini': { remainingFraction: 0.5, modelCount: 1 },
+          },
           cachedQuotaUpdatedAt: NOW,
         },
         { index: 1, refreshToken: 'secret-token-b' },
@@ -238,13 +249,17 @@ describe('throwIfAllKilled', () => {
       {
         index: 0,
         refreshToken: 'rt-a',
-        cachedQuota: { claude: { remainingFraction: 0.02, modelCount: 1 } },
+        cachedQuota: {
+          'non-gemini': { remainingFraction: 0.02, modelCount: 1 },
+        },
         cachedQuotaUpdatedAt: NOW,
       },
       {
         index: 1,
         refreshToken: 'rt-b',
-        cachedQuota: { claude: { remainingFraction: 0.0, modelCount: 1 } },
+        cachedQuota: {
+          'non-gemini': { remainingFraction: 0.0, modelCount: 1 },
+        },
         cachedQuotaUpdatedAt: NOW,
       },
     ]
@@ -264,13 +279,17 @@ describe('throwIfAllKilled', () => {
       {
         index: 0,
         refreshToken: 'rt-a',
-        cachedQuota: { claude: { remainingFraction: 0.02, modelCount: 1 } },
+        cachedQuota: {
+          'non-gemini': { remainingFraction: 0.02, modelCount: 1 },
+        },
         cachedQuotaUpdatedAt: NOW,
       },
       {
         index: 1,
         refreshToken: 'rt-b',
-        cachedQuota: { claude: { remainingFraction: 0.5, modelCount: 1 } },
+        cachedQuota: {
+          'non-gemini': { remainingFraction: 0.5, modelCount: 1 },
+        },
         cachedQuotaUpdatedAt: NOW,
       },
     ]
@@ -290,7 +309,7 @@ describe('throwIfAllKilled', () => {
       {
         index: 0,
         refreshToken: 'rt-a',
-        cachedQuota: { claude: { remainingFraction: 0, modelCount: 1 } },
+        cachedQuota: { 'non-gemini': { remainingFraction: 0, modelCount: 1 } },
         cachedQuotaUpdatedAt: NOW,
       },
     ]

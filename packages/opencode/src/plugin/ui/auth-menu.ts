@@ -153,10 +153,8 @@ function getHealthLabel(acc: AccountInfo): string {
 }
 
 const QUOTA_KEYS: { key: string; label: string }[] = [
-  { key: 'claude', label: 'Claude' },
-  { key: 'gemini-pro', label: 'Gemini Pro' },
-  { key: 'gemini-flash', label: 'Gemini Flash' },
-  { key: 'gpt-oss', label: 'GPT-OSS' },
+  { key: 'gemini', label: 'Gemini' },
+  { key: 'non-gemini', label: 'Non-Gemini' },
 ]
 
 function parseResetTimeToMs(resetTime?: string): number | null {

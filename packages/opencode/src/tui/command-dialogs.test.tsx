@@ -930,6 +930,94 @@ describe('openCommandDialog (imperative dispatcher)', () => {
     }
   })
 
+  it('antigravity-account adds an OAuth account through URL, code, and label prompts', async () => {
+    const localFake = makeFakeApi()
+    applyMock.mockImplementationOnce(async (_cmd, _args, options) => ({
+      text: 'Open this URL in your browser',
+      knobs: {
+        oauthUrl: 'https://accounts.google.test/authorize',
+        accounts: [],
+        timeoutMs: options?.timeoutMs ?? 120_000,
+      },
+    }))
+    applyMock.mockImplementationOnce(async (_cmd, _args, options) => ({
+      text: 'OAuth account added.',
+      knobs: {
+        accounts: [
+          {
+            id: 'acct-0',
+            index: 0,
+            label: 'Work account',
+            enabled: true,
+            current: true,
+            quota: [],
+          },
+        ],
+        timeoutMs: options?.timeoutMs ?? 120_000,
+      },
+    }))
+    dispatcher.openCommandDialog(
+      localFake,
+      payloadFor('antigravity-account', { accounts: [] }),
+      applyFor('antigravity-account'),
+    )
+    await renderDialog(localFake)
+
+    const add = localFake.capturedSelectProps?.options?.find(
+      (option) => option.title === 'Add account…',
+    )
+    localFake.capturedSelectProps?.onSelect?.({
+      title: add?.title,
+      value: add?.value,
+    })
+    for (let i = 0; i < 5; i += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+    await renderDialog(localFake)
+
+    expect(applyMock.mock.calls.at(0)?.[1]).toBe('add-oauth-start')
+    expect(applyMock.mock.calls.at(0)?.[2]?.timeoutMs).toBe(120_000)
+    expect(localFake.capturedSelectProps?.title).toBe('OAuth sign-in')
+    // The OAuth URL from the mocked start result must surface in the
+    // dialog's Copy-URL option so the user can paste it into a browser.
+    const copyUrlOption = localFake.capturedSelectProps?.options?.find(
+      (option) => option.title === 'Copy URL to clipboard',
+    )
+    expect(copyUrlOption?.description).toContain(
+      'https://accounts.google.test/authorize',
+    )
+
+    const enterCode = localFake.capturedSelectProps?.options?.find(
+      (option) => option.title === 'Enter sign-in code',
+    )
+    localFake.capturedSelectProps?.onSelect?.({
+      title: enterCode?.title,
+      value: enterCode?.value,
+    })
+    await renderDialog(localFake)
+    expect(localFake.capturedPromptProps?.title).toContain('enter code')
+    localFake.capturedPromptProps?.onConfirm?.('callback-code')
+    await renderDialog(localFake)
+    expect(localFake.capturedPromptProps?.title).toContain('label')
+    localFake.capturedPromptProps?.onConfirm?.('Work account')
+    for (let i = 0; i < 5; i += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+
+    expect(applyMock.mock.calls.at(1)?.[1]).toBe(
+      'add-oauth-finish callback-code --label Work account',
+    )
+    expect(applyMock.mock.calls.at(1)?.[2]?.timeoutMs).toBe(120_000)
+    // The post-finish dialog must surface the newly added account
+    // label so the user sees the result of the OAuth flow without
+    // reopening the dialog.
+    await renderDialog(localFake)
+    const postFinishTitles = (localFake.capturedSelectProps?.options ?? []).map(
+      (option) => option.title,
+    )
+    expect(postFinishTitles).toContain('Work account')
+  })
+
   it('antigravity-account opens a row subdialog with toggle/current/remove/back', async () => {
     const localFake = makeFakeApi()
     dispatcher.openCommandDialog(
@@ -1230,7 +1318,7 @@ describe('openCommandDialog (imperative dispatcher)', () => {
     expect(applyMock.mock.calls.length).toBe(applyCallsBefore)
   })
 
-  it('antigravity-account add action calls apply with 120s timeout', async () => {
+  it('antigravity-account add action starts OAuth with a 120s timeout', async () => {
     const localFake = makeFakeApi()
     dispatcher.openCommandDialog(
       localFake,
@@ -1262,7 +1350,7 @@ describe('openCommandDialog (imperative dispatcher)', () => {
     await renderDialog(localFake)
     const call = applyMock.mock.calls.at(-1)
     expect(call?.[0]).toBe('antigravity-account')
-    expect(call?.[1]).toBe('add')
+    expect(call?.[1]).toBe('add-oauth-start')
     expect(call?.[2]?.timeoutMs).toBe(120_000)
   })
 

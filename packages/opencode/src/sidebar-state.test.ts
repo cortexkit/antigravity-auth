@@ -24,6 +24,7 @@ import { join } from 'node:path'
 import { acquireFencedFileLock } from '@cortexkit/antigravity-auth-core'
 
 import {
+  buildSidebarMachineStateFromAccounts,
   DEFAULT_SIDEBAR_STATE,
   pruneActiveRouting,
   readSidebarState,
@@ -444,7 +445,7 @@ describe('redaction', () => {
             health: 100,
             current: false,
             quota: {
-              claude: { remainingPercent: 80 },
+              gemini: { remainingPercent: 80 },
             },
           },
         ],
@@ -502,13 +503,232 @@ describe('redaction', () => {
     expect(redactAccountForSidebar({ index: 1 }).label).toBe('Account 2')
   })
 
-  it('redacts GPT-OSS quota into the sidebar state', () => {
+  it('redacts non-Gemini quota into the sidebar state', () => {
     const redacted = redactAccountForSidebar({
       index: 0,
       cachedQuota: {
-        'gpt-oss': { remainingFraction: 0.42 },
+        'non-gemini': { remainingFraction: 0.42 },
       },
     })
-    expect(redacted.quota['gpt-oss']?.remainingPercent).toBe(42)
+    expect(redacted.quota['non-gemini']?.remainingPercent).toBe(42)
+  })
+
+  it('drops cachedQuota when the persisted stamp does not match the current account identity', () => {
+    // Persisted stamp from a different refresh token than the live one.
+    // The projection must drop the quota rather than render the wrong
+    // account's percentages after an index shift or token replacement.
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        gemini: { remainingFraction: 0.42 },
+        'non-gemini': { remainingFraction: 0.8 },
+      },
+      cachedQuotaAccountId: 'deadbeefcafebabe',
+      currentQuotaAccountId: '0123456789abcdef',
+    })
+    expect(redacted.quota).toEqual({})
+  })
+
+  it('preserves cachedQuota when the stamp matches the current account identity', () => {
+    const stamp = 'a'.repeat(16)
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        'non-gemini': { remainingFraction: 0.5 },
+      },
+      cachedQuotaAccountId: stamp,
+      currentQuotaAccountId: stamp,
+    })
+    expect(redacted.quota['non-gemini']?.remainingPercent).toBe(50)
+  })
+
+  it('preserves cachedQuota when only one of the stamps is provided (fail open for legacy)', () => {
+    // Legacy snapshots omit the stamp; pre-stamp live views also omit
+    // the current identity. The projection must not silently drop the
+    // quota in either half-missing case.
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: { gemini: { remainingFraction: 0.3 } },
+      cachedQuotaAccountId: 'a'.repeat(16),
+    })
+    expect(redacted.quota.gemini?.remainingPercent).toBe(30)
+  })
+
+  it('preserves cachedQuota when only the current quota account id is provided (fail open for legacy)', () => {
+    // Symmetric half-missing case: the live snapshot has a stamp
+    // (provider added currentQuotaAccountId) but the persisted cache
+    // row does not yet (legacy). The projection must not silently
+    // drop the quota; the absence of the persisted stamp alone is
+    // not enough to mark the cache as stale.
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: { 'non-gemini': { remainingFraction: 0.6 } },
+      currentQuotaAccountId: 'b'.repeat(16),
+    })
+    expect(redacted.quota['non-gemini']?.remainingPercent).toBe(60)
+  })
+})
+
+describe('windows rework — producer seam tests', () => {
+  it('redactAccountForSidebar carries windows when cachedQuota has them', () => {
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        gemini: {
+          remainingFraction: 0.92,
+          resetTime: '2026-07-28T18:24:21Z',
+          windows: [
+            {
+              window: 'weekly',
+              remainingFraction: 0.92,
+              resetTime: '2026-07-28T18:24:21Z',
+            },
+            {
+              window: '5h',
+              remainingFraction: 0.99,
+              resetTime: '2026-07-24T20:43:21Z',
+            },
+          ],
+        },
+        'non-gemini': {
+          remainingFraction: 0.96,
+          resetTime: '2026-07-24T18:41:52Z',
+          windows: [
+            {
+              window: 'weekly',
+              remainingFraction: 0.99,
+              resetTime: '2026-07-31T13:41:52Z',
+            },
+            {
+              window: '5h',
+              remainingFraction: 0.96,
+              resetTime: '2026-07-24T18:41:52Z',
+            },
+          ],
+        },
+      },
+    })
+
+    const gemini = redacted.quota.gemini
+    expect(gemini).toBeDefined()
+    expect(gemini!.remainingPercent).toBe(92)
+    expect(gemini!.windows).toHaveLength(2)
+    expect(gemini!.windows![0]!.window).toBe('weekly')
+    expect(gemini!.windows![0]!.remainingPercent).toBe(92)
+    expect(gemini!.windows![1]!.window).toBe('5h')
+    expect(gemini!.windows![1]!.remainingPercent).toBe(99)
+
+    const nonGemini = redacted.quota['non-gemini']
+    expect(nonGemini).toBeDefined()
+    expect(nonGemini!.windows).toHaveLength(2)
+    expect(nonGemini!.windows![0]!.remainingPercent).toBe(99)
+    expect(nonGemini!.windows![1]!.remainingPercent).toBe(96)
+  })
+
+  it('redactAccountForSidebar handles legacy cachedQuota without windows', () => {
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        gemini: { remainingFraction: 0.5 },
+      },
+    })
+    expect(redacted.quota.gemini?.remainingPercent).toBe(50)
+    expect(redacted.quota.gemini?.windows).toBeUndefined()
+  })
+
+  it('redactAccountForSidebar handles Free (weekly-only) windows', () => {
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        gemini: {
+          remainingFraction: 0.89,
+          windows: [
+            {
+              window: 'weekly',
+              remainingFraction: 0.89,
+              resetTime: '2026-07-31T15:54:18Z',
+            },
+          ],
+        },
+      },
+    })
+
+    const gemini = redacted.quota.gemini
+    expect(gemini).toBeDefined()
+    expect(gemini!.windows).toHaveLength(1)
+    expect(gemini!.windows![0]!.window).toBe('weekly')
+    expect(gemini!.windows![0]!.remainingPercent).toBe(89)
+  })
+
+  it('full round-trip: write windows through setSidebarMachineState → readSidebarState', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'agy-seam-windows-'))
+    const statePath = join(root, 'sidebar-state.json')
+    try {
+      // Write state with windowed data through the real machine-state path.
+      await setSidebarMachineState(
+        buildSidebarMachineStateFromAccounts(
+          [
+            {
+              index: 0,
+              cachedQuota: {
+                gemini: {
+                  remainingFraction: 0.7,
+                  resetTime: '2026-08-01T00:00:00Z',
+                  windows: [
+                    {
+                      window: 'weekly',
+                      remainingFraction: 0.7,
+                      resetTime: '2026-08-01T00:00:00Z',
+                    },
+                    {
+                      window: '5h',
+                      remainingFraction: 0.85,
+                      resetTime: '2026-07-25T00:00:00Z',
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+          { checkedAt: Date.now() },
+        ),
+        { stateFile: statePath },
+      )
+
+      // Read back and assert windows survived the full cycle.
+      const state = readSidebarState(statePath)
+      expect(state.accounts).toHaveLength(1)
+      const gemini = state.accounts[0]!.quota.gemini
+      expect(gemini).toBeDefined()
+      expect(gemini!.windows).toHaveLength(2)
+      expect(gemini!.windows![0]!.window).toBe('weekly')
+      expect(gemini!.windows![0]!.remainingPercent).toBe(70)
+      expect(gemini!.windows![1]!.window).toBe('5h')
+      expect(gemini!.windows![1]!.remainingPercent).toBe(85)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('identity mismatch drops the entire cachedQuota including windows', () => {
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        gemini: {
+          remainingFraction: 0.9,
+          windows: [
+            {
+              window: 'weekly',
+              remainingFraction: 0.9,
+              resetTime: '2026-08-01T00:00:00Z',
+            },
+          ],
+        },
+      },
+      cachedQuotaAccountId: 'stamp-a',
+      currentQuotaAccountId: 'stamp-b', // mismatch
+    })
+    // Stamp mismatch → cachedQuota dropped → no quota in the redacted output.
+    expect(Object.keys(redacted.quota)).toHaveLength(0)
   })
 })

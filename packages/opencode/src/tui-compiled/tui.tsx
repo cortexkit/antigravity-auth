@@ -17,9 +17,9 @@ import { createElement as _$createElement } from "opentui:runtime-module:%40open
  * `AccountBlock` per visible account, a Routing section that surfaces the
  * most recent session route, and a Health section that only appears when
  * something is wrong. The Antigravity data model is richer than the
- * Claude/Codex one (per-account Claude + Gemini Pro + Gemini Flash quota
- * groups, a health score, and per-session routing decisions), so the
- * fleet components are adapted rather than copied verbatim:
+ * Claude/Codex one (per-account Gemini + Non-Gemini quota pools, a health
+ * score, and per-session routing decisions), so the fleet components are
+ * adapted rather than copied verbatim:
  *
  * - `QuotaRow` reads `remainingPercent + resetAt` from the Antigravity
  *   `SidebarQuotaEntry` shape and colors via `quotaTone` (remaining
@@ -99,12 +99,14 @@ let rpcInFlight = false;
 const GLOBAL_NOTIFICATION_CURSOR = '__global__';
 const MAX_NOTIFICATION_CURSORS = 256;
 const QUOTA_LABELS = {
-  claude: 'Cl',
-  'gemini-pro': 'GP',
-  'gemini-flash': 'GF',
-  'gpt-oss': 'GPT'
+  gemini: 'Gm',
+  'non-gemini': 'NG'
 };
-const QUOTA_ORDER = ['claude', 'gemini-pro', 'gemini-flash', 'gpt-oss'];
+const QUOTA_ORDER = ['gemini', 'non-gemini'];
+const WINDOW_GUTTER = {
+  weekly: '7d',
+  '5h': '5h'
+};
 
 // --- Theme tokens ----------------------------------------------------------
 //
@@ -440,7 +442,7 @@ function QuotaRow(props) {
         _$setProp(_el$14, "width", '100%');
         _$setProp(_el$14, "flexDirection", 'row');
         _$setProp(_el$14, "justifyContent", 'space-between');
-        _$insert(_el$15, () => props.label.padEnd(3));
+        _$insert(_el$15, () => props.label.padEnd(5));
         _$insertNode(_el$16, _$createTextNode(`—`));
         _$effect(_p$ => {
           var _v$6 = props.theme().textMuted,
@@ -469,7 +471,7 @@ function QuotaRow(props) {
       _$insertNode(_el$1, _el$11);
       _$insertNode(_el$1, _el$12);
       _$setProp(_el$1, "flexDirection", 'row');
-      _$setProp(_el$10, "width", 3);
+      _$setProp(_el$10, "width", 5);
       _$setProp(_el$10, "flexShrink", 0);
       _$insert(_el$10, () => props.label);
       _$setProp(_el$11, "flexShrink", 0);
@@ -572,23 +574,49 @@ function AccountBlock(props) {
     _$insert(_el$24, statusWord);
     _$insert(_el$19, _$createComponent(For, {
       each: QUOTA_ORDER,
-      children: key => _$createComponent(QuotaRow, {
-        get theme() {
-          return props.theme;
-        },
-        get appearance() {
-          return props.appearance;
-        },
-        get label() {
-          return QUOTA_LABELS[key];
-        },
-        get entry() {
-          return props.account.quota[key];
-        },
-        get now() {
-          return props.now;
+      children: key => {
+        const poolEntry = props.account.quota[key];
+        const windows = poolEntry?.windows;
+        // Legacy: no windows array — render a single row with the pool label.
+        const hasWindows = windows && windows.length > 0;
+        if (!hasWindows) {
+          return _$createComponent(QuotaRow, {
+            get theme() {
+              return props.theme;
+            },
+            get appearance() {
+              return props.appearance;
+            },
+            get label() {
+              return QUOTA_LABELS[key];
+            },
+            entry: poolEntry,
+            get now() {
+              return props.now;
+            }
+          });
         }
-      })
+        return _$memo(() => windows.map(w => _$createComponent(QuotaRow, {
+          get theme() {
+            return props.theme;
+          },
+          get appearance() {
+            return props.appearance;
+          },
+          get label() {
+            return `${QUOTA_LABELS[key]} ${WINDOW_GUTTER[w.window] ?? w.window}`;
+          },
+          get entry() {
+            return {
+              remainingPercent: w.remainingPercent,
+              resetAt: w.resetAt
+            };
+          },
+          get now() {
+            return props.now;
+          }
+        })));
+      }
     }), _el$25);
     _$insertNode(_el$25, _el$26);
     _$setProp(_el$25, "width", '100%');
@@ -837,8 +865,18 @@ export function SidebarPanel(props) {
         return (() => {
           const account = () => visibleAccounts().find(entry => entry.current) ?? visibleAccounts()[0];
           const used = () => {
-            const entry = account()?.quota.claude;
+            const q = account()?.quota;
+            const entry = q?.gemini ?? q?.['non-gemini'];
             return entry ? 100 - clamp(entry.remainingPercent, 0, 100) : null;
+          };
+          const poolText = key => {
+            const entry = account()?.quota[key];
+            if (!entry) return `${QUOTA_LABELS[key]}: —`;
+            const pct = Math.round(100 - clamp(entry.remainingPercent, 0, 100));
+            // Show binding window when available, else just pool label.
+            const bindingWindow = entry.windows?.reduce((best, w) => best === null || w.remainingPercent < best.remainingPercent ? w : best, null);
+            const gutter = bindingWindow ? ` ${WINDOW_GUTTER[bindingWindow.window] ?? bindingWindow.window}` : '';
+            return `${QUOTA_LABELS[key]}${gutter}: ${pct}%`;
           };
           const unavailable = () => {
             const selected = account();
@@ -863,8 +901,8 @@ export function SidebarPanel(props) {
                 _$setProp(_el$43, "flexDirection", 'row');
                 _$insertNode(_el$44, _el$45);
                 _$insert(_el$45, (() => {
-                  var _c$ = _$memo(() => used() == null);
-                  return () => _c$() ? '—' : `Cl: ${Math.round(used() ?? 0)}%`;
+                  var _c$ = _$memo(() => !!(account()?.quota.gemini == null && account()?.quota['non-gemini'] == null));
+                  return () => _c$() ? '—' : `${poolText('gemini')} · ${poolText('non-gemini')}`;
                 })());
                 _$insert(_el$46, () => unavailable() ? ' ⊘' : ' ●');
                 _$effect(_p$ => {

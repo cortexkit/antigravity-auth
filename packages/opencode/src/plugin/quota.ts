@@ -20,13 +20,14 @@ import {
   type AccountQuotaResult,
   aggregateGeminiCliQuota,
   aggregateQuota,
+  aggregateQuotaSummary,
   createQuotaManager,
   defaultKeyOf,
   type FetchAccountQuota,
   type FetchAvailableModelsOptions,
-  type FetchAvailableModelsResponse,
   fetchAvailableModels,
   fetchGeminiCliQuota,
+  fetchQuotaSummary,
   type GeminiCliQuotaSummary,
   type QuotaManager,
   type QuotaSummary,
@@ -114,6 +115,8 @@ export function createOpenCodeQuotaManager(
       enabled?: boolean
       coolingDownUntil?: number
       cachedQuota?: AccountMetadataV3['cachedQuota']
+      cachedQuotaAccountId?: string
+      currentQuotaAccountId?: string
     }> | null
     /**
      * Optional transport adapter used for both `fetchAvailableModels`
@@ -285,6 +288,8 @@ export async function pushSidebarQuotaSnapshot(
     enabled?: boolean
     coolingDownUntil?: number
     cachedQuota?: AccountMetadataV3['cachedQuota']
+    cachedQuotaAccountId?: string
+    currentQuotaAccountId?: string
   }> | null,
   backoffUntil: number = 0,
 ): Promise<void> {
@@ -300,6 +305,8 @@ export async function pushSidebarQuotaSnapshot(
           current: false,
           coolingDownUntil: entry.coolingDownUntil,
           cachedQuota: entry.cachedQuota,
+          cachedQuotaAccountId: entry.cachedQuotaAccountId,
+          currentQuotaAccountId: entry.currentQuotaAccountId,
         })),
         {
           checkedAt: Date.now(),
@@ -309,6 +316,43 @@ export async function pushSidebarQuotaSnapshot(
     )
   } catch (error) {
     log.debug('sidebar-quota-write-failed', { error: String(error) })
+  }
+}
+
+/**
+ * Legacy fallback: fetchAvailableModels → aggregateQuota. Used when
+ * `fetchQuotaSummary` rejects (network, 403, etc.). Extracted so the
+ * concurrent fetch path can reuse the same fallback logic without
+ * duplicating the catch chain.
+ */
+async function fetchLegacyModelsFallback(options: {
+  accessToken: string
+  projectId: string
+  fetchVia?: QuotaFetch
+}): Promise<QuotaSummary> {
+  try {
+    const modelsResponse = await fetchAvailableModels({
+      accessToken: options.accessToken,
+      projectId: options.projectId,
+      endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+      userAgent: buildAntigravityHarnessUserAgent(),
+      timeoutMs: 10_000,
+      ...(options.fetchVia ? { fetchVia: options.fetchVia } : {}),
+    })
+    if (modelsResponse.models) {
+      return aggregateQuota(modelsResponse.models)
+    }
+    return {
+      groups: {},
+      modelCount: 0,
+      error: 'Failed to fetch Antigravity quota (legacy fallback)',
+    }
+  } catch {
+    return {
+      groups: {},
+      modelCount: 0,
+      error: 'Failed to fetch Antigravity quota',
+    }
   }
 }
 
@@ -366,35 +410,78 @@ function makeFetchAccountQuota(
         await persistRotatedRefresh(client, providerId, auth).catch(() => {})
       }
 
-      const [antigravityResponse, geminiCliResponse] = await Promise.all([
-        fetchAvailableModels({
-          accessToken: auth.access ?? '',
-          projectId: projectContext.effectiveProjectId,
-          endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
-          userAgent: buildAntigravityHarnessUserAgent(),
-          timeoutMs: 10_000,
-          ...(fetchVia ? { fetchVia } : {}),
-        }).catch((): FetchAvailableModelsResponse => ({ models: undefined })),
-        fetchGeminiCliQuota({
-          accessToken: auth.access ?? '',
-          projectId: projectContext.effectiveProjectId,
-          endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
-          userAgent: buildGeminiCliUserAgent(),
-          timeoutMs: 10_000,
-          ...(fetchVia ? { fetchVia } : {}),
-        }),
-      ])
-
       let quotaResult: QuotaSummary
-      if (antigravityResponse.models === undefined) {
-        quotaResult = {
-          groups: {},
-          modelCount: 0,
-          error: 'Failed to fetch Antigravity quota',
+      let fellBackToLegacy = false
+
+      const authParts = parseRefreshParts(auth.refresh)
+      // Bare refresh tokens have no packed project IDs — fall back to the
+      // account record. The real managedProjectId lives on the persisted
+      // account, not in the packed refresh string.
+      const managedProjectId =
+        authParts.managedProjectId ?? account.managedProjectId
+
+      // Two independent payload contracts: the windowed summary
+      // (with legacy fallback) and the gemini-CLI quota. They share
+      // access + project but target different endpoints, so the
+      // two 10s timeouts ran back-to-back for ~20s per account on
+      // modal open. Run them concurrently; either rejection is
+      // handled by its own branch and the result is still merged.
+      const fetchSummaryPayload = (async (): Promise<{
+        result: QuotaSummary
+        fellBackToLegacy: boolean
+      }> => {
+        try {
+          const summaryResult = await fetchQuotaSummary({
+            accessToken: auth.access ?? '',
+            managedProjectId,
+            projectId: projectContext.effectiveProjectId,
+            endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+            userAgent: buildAntigravityHarnessUserAgent(),
+            timeoutMs: 10_000,
+            ...(fetchVia ? { fetchVia } : {}),
+          })
+          return {
+            result: aggregateQuotaSummary(summaryResult.summary),
+            fellBackToLegacy: summaryResult.fellBackToLegacy ?? false,
+          }
+        } catch {
+          return {
+            result: await fetchLegacyModelsFallback({
+              accessToken: auth.access ?? '',
+              projectId: projectContext.effectiveProjectId,
+              fetchVia,
+            }),
+            fellBackToLegacy: true,
+          }
         }
-      } else {
-        quotaResult = aggregateQuota(antigravityResponse.models)
-      }
+      })()
+
+      const fetchGeminiCliPayload = fetchGeminiCliQuota({
+        accessToken: auth.access ?? '',
+        projectId: projectContext.effectiveProjectId,
+        endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+        userAgent: buildGeminiCliUserAgent(),
+        timeoutMs: 10_000,
+        ...(fetchVia ? { fetchVia } : {}),
+      }).catch((error: unknown) => {
+        // The previous sequence (`await fetchGeminiCliQuota`) let
+        // any throw bubble to the outer try/catch and produced an
+        // undefined buckets downstream. Preserve that semantics so
+        // the parallel path is a drop-in replacement.
+        log.debug('fetchGeminiCliQuota failed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return { buckets: undefined } as Awaited<
+          ReturnType<typeof fetchGeminiCliQuota>
+        >
+      })
+
+      const [summary, geminiCliResponse] = await Promise.all([
+        fetchSummaryPayload,
+        fetchGeminiCliPayload,
+      ])
+      quotaResult = summary.result
+      fellBackToLegacy = summary.fellBackToLegacy
 
       const geminiCliQuotaResult = aggregateGeminiCliQuota(geminiCliResponse)
       const annotated: GeminiCliQuotaSummary =
@@ -414,7 +501,8 @@ function makeFetchAccountQuota(
         logQuotaStatus(account.email, index, remainingPercent, family)
       }
 
-      logQuotaFetch('complete', 1, 'ok=1 errors=0')
+      const legacyTag = fellBackToLegacy ? ' legacy=1' : ''
+      logQuotaFetch('complete', 1, `ok=1 errors=0${legacyTag}`)
 
       return {
         index,

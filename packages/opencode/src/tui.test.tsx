@@ -195,9 +195,8 @@ describe('SidebarPanel', () => {
           current: true,
           cooldownUntil: future,
           quota: {
-            claude: { remainingPercent: 75 },
-            'gemini-pro': { remainingPercent: 30, resetAt: future },
-            'gemini-flash': { remainingPercent: 10 },
+            'non-gemini': { remainingPercent: 75 },
+            gemini: { remainingPercent: 10, resetAt: future },
           },
         },
         {
@@ -207,7 +206,7 @@ describe('SidebarPanel', () => {
           health: 42,
           current: false,
           quota: {
-            claude: { remainingPercent: 60 },
+            'non-gemini': { remainingPercent: 60 },
           },
         },
       ],
@@ -229,13 +228,11 @@ describe('SidebarPanel', () => {
     expect(frame).toContain('Backup')
     expect(frame).toContain('health')
     expect(frame).toContain('cooling')
-    expect(frame).toContain('Cl')
-    expect(frame).toContain('GP')
-    expect(frame).toContain('GF')
-    expect(frame).not.toContain('Gemini Pro')
-    expect(frame).not.toContain('Gemini Flash')
+    expect(frame).toContain('Gm')
+    expect(frame).toContain('NG')
+    expect(frame).not.toContain('Gemini')
+    expect(frame).not.toContain('Non-Gemini')
     expect(frame).toContain('25%')
-    expect(frame).toContain('70%')
     expect(frame).toContain('90%')
     expect(frame).toContain('40%')
     expect(frame).toContain('███░░░░░░░')
@@ -446,9 +443,8 @@ describe('QuotaDialogContent', () => {
           health: 85,
           current: true,
           quota: {
-            claude: { remainingPercent: 75 },
-            'gemini-pro': { remainingPercent: 30 },
-            'gemini-flash': { remainingPercent: 10 },
+            'non-gemini': { remainingPercent: 75 },
+            gemini: { remainingPercent: 10 },
           },
         },
       ],
@@ -476,9 +472,8 @@ describe('QuotaDialogContent', () => {
     expect(frame).toContain('Antigravity Quota')
     expect(frame).toContain('Primary')
     expect(frame).toContain('active')
-    expect(frame).toContain('Cl')
-    expect(frame).toContain('GP')
-    expect(frame).toContain('GF')
+    expect(frame).toContain('Gm')
+    expect(frame).toContain('NG')
     expect(frame).toContain('███░░░░░░░')
     expect(frame).not.toContain('Refresh')
     expect(frame).not.toContain('Search')
@@ -744,9 +739,8 @@ describe('SidebarPanel collapse/expand + compact row', () => {
           health: 80,
           current: true,
           quota: {
-            claude: { remainingPercent: 75 },
-            'gemini-pro': { remainingPercent: 30 },
-            'gemini-flash': { remainingPercent: 90 },
+            'non-gemini': { remainingPercent: 75 },
+            gemini: { remainingPercent: 30 },
           },
         },
       ],
@@ -777,17 +771,15 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     )
     await testSetup.flush()
     const frame = testSetup.captureCharFrame()
-    // Compact row: active account + fixed window key + used quota + filled dot.
+    // Compact row: active account + both quota pools (Gm · NG) + filled dot.
     expect(frame).toContain('Primary')
-    expect(frame).toContain('Cl: 25%')
+    expect(frame).toContain('Gm: 70%')
+    expect(frame).toContain('NG: 25%')
     expect(frame).toContain('●')
     // Header indicator is the collapsed glyph.
     expect(frame).toContain('▶')
-    // Full body sections absent in compact mode: no per-model quota labels,
+    // Full body sections absent in compact mode: no expanded account blocks,
     // no cooldown/routing lines, no Awaiting fallback.
-    expect(frame).not.toContain('Claude')
-    expect(frame).not.toContain('Gemini Pro')
-    expect(frame).not.toContain('Gemini Flash')
     expect(frame).not.toContain('cooldown')
     expect(frame).not.toContain('Awaiting Antigravity state')
     testSetup.renderer.destroy()
@@ -834,9 +826,8 @@ describe('SidebarPanel collapse/expand + compact row', () => {
           health: 80,
           current: true,
           quota: {
-            claude: { remainingPercent: 75 },
-            'gemini-pro': { remainingPercent: 30 },
-            'gemini-flash': { remainingPercent: 90 },
+            'non-gemini': { remainingPercent: 75 },
+            gemini: { remainingPercent: 30 },
           },
         },
       ],
@@ -863,7 +854,7 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     )
     await testSetup.flush()
     const expandedFrame = testSetup.captureCharFrame()
-    expect(expandedFrame).toContain('Cl')
+    expect(expandedFrame).toContain('Gm')
     expect(expandedFrame).not.toContain('▶')
 
     // External edit flips collapsed -> true. The watcher's debounce + poll
@@ -876,7 +867,8 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     await testSetup.flush()
     const collapsedFrame = testSetup.captureCharFrame()
     expect(collapsedFrame).toContain('▶')
-    expect(collapsedFrame).not.toContain('GP')
+    expect(collapsedFrame).toContain('Gm:')
+    expect(collapsedFrame).toContain('NG:')
     testSetup.renderer.destroy()
   })
 
@@ -895,9 +887,8 @@ describe('SidebarPanel collapse/expand + compact row', () => {
           health: 80,
           current: true,
           quota: {
-            claude: { remainingPercent: 75 },
-            'gemini-pro': { remainingPercent: 30 },
-            'gemini-flash': { remainingPercent: 90 },
+            'non-gemini': { remainingPercent: 75 },
+            gemini: { remainingPercent: 30 },
           },
         },
       ],
@@ -960,7 +951,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
           enabled: true,
           health: 80,
           current: true,
-          quota: { claude: { remainingPercent: 75 } },
+          quota: { 'non-gemini': { remainingPercent: 75 } },
         },
       ],
     })
@@ -1102,7 +1093,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
           enabled: true,
           health: 80,
           current: true,
-          quota: { claude: { remainingPercent: 75 } },
+          quota: { 'non-gemini': { remainingPercent: 75 } },
         },
         {
           id: 'acc-2',
@@ -1110,7 +1101,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
           enabled: true,
           health: 60,
           current: false,
-          quota: { claude: { remainingPercent: 50 } },
+          quota: { 'non-gemini': { remainingPercent: 50 } },
         },
       ],
     })
@@ -1154,7 +1145,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
           enabled: true,
           health: 80,
           current: true,
-          quota: { claude: { remainingPercent: 75 } },
+          quota: { 'non-gemini': { remainingPercent: 75 } },
         },
       ],
     })
@@ -1233,7 +1224,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
           health: 80,
           current: true,
           quota: {
-            claude: { remainingPercent: 75 },
+            'non-gemini': { remainingPercent: 75 },
           },
         },
       ],
@@ -1283,7 +1274,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
           enabled: true,
           health: 80,
           current: true,
-          quota: { claude: { remainingPercent: 75 } },
+          quota: { 'non-gemini': { remainingPercent: 75 } },
         },
         {
           id: 'acc-2',
@@ -1291,7 +1282,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
           enabled: true,
           health: 60,
           current: false,
-          quota: { claude: { remainingPercent: 50 } },
+          quota: { 'non-gemini': { remainingPercent: 50 } },
         },
       ],
     })
@@ -1337,7 +1328,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
           enabled: true,
           health: 80,
           current: true,
-          quota: { claude: { remainingPercent: 75 } },
+          quota: { 'non-gemini': { remainingPercent: 75 } },
         },
       ],
     })

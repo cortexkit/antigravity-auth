@@ -9,9 +9,9 @@
  * `AccountBlock` per visible account, a Routing section that surfaces the
  * most recent session route, and a Health section that only appears when
  * something is wrong. The Antigravity data model is richer than the
- * Claude/Codex one (per-account Claude + Gemini Pro + Gemini Flash quota
- * groups, a health score, and per-session routing decisions), so the
- * fleet components are adapted rather than copied verbatim:
+ * Claude/Codex one (per-account Gemini + Non-Gemini quota pools, a health
+ * score, and per-session routing decisions), so the fleet components are
+ * adapted rather than copied verbatim:
  *
  * - `QuotaRow` reads `remainingPercent + resetAt` from the Antigravity
  *   `SidebarQuotaEntry` shape and colors via `quotaTone` (remaining
@@ -128,18 +128,16 @@ const GLOBAL_NOTIFICATION_CURSOR = '__global__'
 const MAX_NOTIFICATION_CURSORS = 256
 
 const QUOTA_LABELS: Record<SidebarQuotaKey, string> = {
-  claude: 'Cl',
-  'gemini-pro': 'GP',
-  'gemini-flash': 'GF',
-  'gpt-oss': 'GPT',
+  gemini: 'Gm',
+  'non-gemini': 'NG',
 }
 
-const QUOTA_ORDER: readonly SidebarQuotaKey[] = [
-  'claude',
-  'gemini-pro',
-  'gemini-flash',
-  'gpt-oss',
-]
+const QUOTA_ORDER: readonly SidebarQuotaKey[] = ['gemini', 'non-gemini']
+
+const WINDOW_GUTTER: Record<string, string> = {
+  weekly: '7d',
+  '5h': '5h',
+}
 
 // --- Theme tokens ----------------------------------------------------------
 //
@@ -517,14 +515,14 @@ function QuotaRow(props: {
       when={used() != null}
       fallback={
         <box width='100%' flexDirection='row' justifyContent='space-between'>
-          <text fg={props.theme().textMuted}>{props.label.padEnd(3)}</text>
+          <text fg={props.theme().textMuted}>{props.label.padEnd(5)}</text>
           <text fg={props.theme().textMuted}>{'\u2014'}</text>
         </box>
       }
     >
       <box width='100%' flexDirection='row' justifyContent='space-between'>
         <box flexDirection='row'>
-          <text width={3} flexShrink={0} fg={props.theme().textMuted}>
+          <text width={5} flexShrink={0} fg={props.theme().textMuted}>
             {props.label}
           </text>
           <box
@@ -610,15 +608,39 @@ function AccountBlock(props: {
         </text>
       </box>
       <For each={QUOTA_ORDER}>
-        {(key) => (
-          <QuotaRow
-            theme={props.theme}
-            appearance={props.appearance}
-            label={QUOTA_LABELS[key]}
-            entry={props.account.quota[key]}
-            now={props.now}
-          />
-        )}
+        {(key) => {
+          const poolEntry = props.account.quota[key]
+          const windows = poolEntry?.windows
+          // Legacy: no windows array — render a single row with the pool label.
+          const hasWindows = windows && windows.length > 0
+          if (!hasWindows) {
+            return (
+              <QuotaRow
+                theme={props.theme}
+                appearance={props.appearance}
+                label={QUOTA_LABELS[key]}
+                entry={poolEntry}
+                now={props.now}
+              />
+            )
+          }
+          return (
+            <>
+              {windows.map((w) => (
+                <QuotaRow
+                  theme={props.theme}
+                  appearance={props.appearance}
+                  label={`${QUOTA_LABELS[key]} ${WINDOW_GUTTER[w.window] ?? w.window}`}
+                  entry={{
+                    remainingPercent: w.remainingPercent,
+                    resetAt: w.resetAt,
+                  }}
+                  now={props.now}
+                />
+              ))}
+            </>
+          )
+        }}
       </For>
       <box width='100%' flexDirection='row'>
         <text fg={props.theme().textMuted}>{`   ${healthText()}`}</text>
@@ -835,8 +857,28 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
             visibleAccounts().find((entry) => entry.current) ??
             visibleAccounts()[0]
           const used = () => {
-            const entry = account()?.quota.claude
+            const q = account()?.quota
+            const entry = q?.gemini ?? q?.['non-gemini']
             return entry ? 100 - clamp(entry.remainingPercent, 0, 100) : null
+          }
+          const poolText = (key: 'gemini' | 'non-gemini') => {
+            const entry = account()?.quota[key]
+            if (!entry) return `${QUOTA_LABELS[key]}: —`
+            const pct = Math.round(100 - clamp(entry.remainingPercent, 0, 100))
+            // Show binding window when available, else just pool label.
+            const bindingWindow = entry.windows?.reduce<
+              (typeof entry.windows)[0] | null
+            >(
+              (best, w) =>
+                best === null || w.remainingPercent < best.remainingPercent
+                  ? w
+                  : best,
+              null,
+            )
+            const gutter = bindingWindow
+              ? ` ${WINDOW_GUTTER[bindingWindow.window] ?? bindingWindow.window}`
+              : ''
+            return `${QUOTA_LABELS[key]}${gutter}: ${pct}%`
           }
           const unavailable = () => {
             const selected = account()
@@ -861,9 +903,10 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
                       )}
                     >
                       <b>
-                        {used() == null
+                        {account()?.quota.gemini == null &&
+                        account()?.quota['non-gemini'] == null
                           ? '—'
-                          : `Cl: ${Math.round(used() ?? 0)}%`}
+                          : `${poolText('gemini')} · ${poolText('non-gemini')}`}
                       </b>
                     </text>
                     <text

@@ -3,12 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AccountStorageUnreadableError } from '@cortexkit/antigravity-auth-core'
+
 import type { CommandModalName } from '../rpc/protocol'
+import { readSidebarState } from '../sidebar-state'
 import { registerAntigravityCommands } from './catalog'
 import {
   applyCommand,
   buildDialogPayload,
   createCommandExecuteBefore,
+  createSidebarRefresher,
   MODAL_COMMANDS,
 } from './commands'
 import { GEMINI_DUMP_COMMAND_NAME } from './gemini-dump'
@@ -240,6 +243,7 @@ describe('createCommandExecuteBefore', () => {
             quota: {},
           },
         ],
+        refreshQuota: async () => [],
       } as never,
       { isTuiConnected: () => true },
     )
@@ -247,6 +251,52 @@ describe('createCommandExecuteBefore', () => {
     await expect(
       handler?.(
         { command: 'antigravity-quota', arguments: '', sessionID: 'session-1' },
+        { parts: [] },
+      ),
+    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
+
+    const payload = notifications[0]
+    expect(payload?.knobs.accounts as unknown[] | undefined).toHaveLength(1)
+    await settings.dispose()
+  })
+
+  it('includes cached accounts in the account OPEN notification payload', async () => {
+    const notifications: Array<Awaited<ReturnType<typeof buildDialogPayload>>> =
+      []
+    const pushNotification = (
+      payload: Awaited<ReturnType<typeof buildDialogPayload>>,
+    ) => {
+      notifications.push(payload)
+    }
+    const settings = createOperatorSettingsController({
+      projectConfigPath: join(dir, 'antigravity.json'),
+      userConfigPath: join(dir, 'user.json'),
+    })
+    const handler = createCommandExecuteBefore(
+      { session: { promptAsync: mock(async () => {}) } } as never,
+      settings,
+      pushNotification,
+      {
+        listAccounts: async () => [
+          {
+            index: 0,
+            label: 'Primary account',
+            enabled: true,
+            active: true,
+            quota: {},
+          },
+        ],
+      } as never,
+      { isTuiConnected: () => true },
+    )
+
+    await expect(
+      handler?.(
+        {
+          command: 'antigravity-account',
+          arguments: '',
+          sessionID: 'session-1',
+        },
         { parts: [] },
       ),
     ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
@@ -572,6 +622,257 @@ describe('applyCommand', () => {
       },
     )
     expect(refresh.knobs.timeoutMs).toBe(120_000)
+  })
+
+  it('returns an OAuth URL and current rows when add-oauth-start is applied', async () => {
+    const start = mock(async () => ({
+      url: 'https://accounts.google.test/authorize',
+      accounts: [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Primary account',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+      ],
+    }))
+
+    const result = await applyCommand(
+      { command: 'antigravity-account', arguments: 'add-oauth-start' },
+      {
+        client: {} as never,
+        sessionID: 'session-1',
+        settings: ctx.settings,
+        accountOAuth: { start } as never,
+      },
+    )
+
+    expect(start).toHaveBeenCalledWith('session-1')
+    expect(result.text).toContain('Open this URL')
+    expect(result.knobs.oauthUrl).toBe('https://accounts.google.test/authorize')
+    expect(result.knobs.accounts as unknown[]).toHaveLength(1)
+    expect(result.knobs.timeoutMs).toBe(120_000)
+  })
+
+  it('returns refreshed rows after add-oauth-finish', async () => {
+    const finish = mock(async () => ({
+      text: 'OAuth account added.',
+      accounts: [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Primary account',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Work account',
+          enabled: true,
+          current: false,
+          quota: [],
+        },
+      ],
+    }))
+
+    const result = await applyCommand(
+      {
+        command: 'antigravity-account',
+        arguments: 'add-oauth-finish callback-code',
+      },
+      {
+        client: {} as never,
+        sessionID: 'session-1',
+        settings: ctx.settings,
+        accountOAuth: { finish } as never,
+      },
+    )
+
+    expect(finish).toHaveBeenCalledWith('session-1', 'callback-code')
+    expect(result.text).toBe('OAuth account added.')
+    expect(result.knobs.accounts as unknown[]).toHaveLength(2)
+    expect(result.knobs.timeoutMs).toBe(120_000)
+  })
+
+  it('preserves an existing cached quota in the sidebar after add-oauth-finish', async () => {
+    const sidebarFile = join(dir, 'sidebar-state.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const finish = mock(async () => ({
+        text: 'OAuth account added.',
+        accounts: [
+          {
+            id: 'acct-0',
+            index: 0,
+            label: 'Primary account',
+            enabled: true,
+            current: true,
+            quota: [
+              {
+                key: 'non-gemini' as const,
+                label: 'Non-Gemini',
+                remainingPercent: 50,
+              },
+            ],
+          },
+          {
+            id: 'acct-1',
+            index: 1,
+            label: 'New account',
+            enabled: true,
+            current: false,
+            quota: [],
+          },
+        ],
+      }))
+
+      await applyCommand(
+        {
+          command: 'antigravity-account',
+          arguments: 'add-oauth-finish callback-code',
+        },
+        {
+          client: {} as never,
+          sessionID: 'session-1',
+          settings: ctx.settings,
+          accountOAuth: { finish } as never,
+          onApplied: createSidebarRefresher(() => []),
+        },
+      )
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(50)
+      expect(state.accounts[1]?.quota).toEqual({})
+    } finally {
+      if (previousSidebarFile === undefined) {
+        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+      } else {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('preserves the live coolingDownUntil when an account action refreshes the sidebar', async () => {
+    // The dialog path builds sidebar rows from the post-mutation
+    // command data, which does NOT carry the running cooldown. The
+    // sidebar refresher must look up the live account's timer by
+    // index so a rate-limited account doesn't momentarily flash as
+    // available right after the user toggles / removes / sets active.
+    const sidebarFile = join(dir, 'sidebar-state.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const getAccounts = mock(() => [
+        {
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          coolingDownUntil: 1_900_000_000_000,
+        },
+        {
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          coolingDownUntil: undefined,
+        },
+      ])
+      const refresher = createSidebarRefresher(getAccounts)
+      const dialogRows = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          current: false,
+          quota: [],
+        },
+      ]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      expect(state.accounts[0]?.cooldownUntil).toBe(1_900_000_000_000)
+      expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
+    } finally {
+      if (previousSidebarFile === undefined) {
+        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+      } else {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('starts a quota refresh when the quota dialog opens without delaying its cached payload', async () => {
+    const listAccounts = mock(async () => [
+      {
+        id: 'acct-0',
+        index: 0,
+        label: 'Primary account',
+        enabled: true,
+        current: true,
+        quota: [],
+      },
+    ])
+    // refreshQuota returns a never-resolving promise. If buildDialogPayload
+    // ever accidentally `await`s the refresh path (instead of the fire-
+    // and-forget `void` it does today) this test will hang and the
+    // runner will report it as a timeout — exactly the regression we
+    // want to surface.
+    let refreshStarted = false
+    const refreshQuota = mock(() => {
+      refreshStarted = true
+      return new Promise<never>(() => {})
+    })
+
+    const payload = await buildDialogPayload('antigravity-quota', '', {
+      client: {} as never,
+      sessionID: 'session-1',
+      settings: ctx.settings,
+      commandData: { listAccounts, refreshQuota } as never,
+    })
+
+    expect(payload.knobs.accounts).toHaveLength(1)
+    expect(refreshStarted).toBe(true)
+    expect(refreshQuota).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the expired-pending result from add-oauth-finish', async () => {
+    const finish = mock(async () => ({
+      text: 'OAuth session expired. Please start again.',
+      accounts: [],
+    }))
+
+    const result = await applyCommand(
+      {
+        command: 'antigravity-account',
+        arguments: 'add-oauth-finish callback-code',
+      },
+      {
+        client: {} as never,
+        sessionID: 'session-1',
+        settings: ctx.settings,
+        accountOAuth: { finish } as never,
+      },
+    )
+
+    expect(finish).toHaveBeenCalledWith('session-1', 'callback-code')
+    expect(result.text).toBe('OAuth session expired. Please start again.')
+    expect(result.knobs.accounts as unknown[]).toHaveLength(0)
   })
 
   it('account apply dispatches current/toggle/remove through the data service', async () => {
