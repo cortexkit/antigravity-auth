@@ -252,6 +252,134 @@ function renderAccountDialog(
     return null
   }
 
+  const updateAccounts = (knobs: Record<string, unknown>): void => {
+    const accounts = knobs.accounts
+    if (!Array.isArray(accounts)) return
+    payload.knobs = {
+      ...payload.knobs,
+      accounts: accounts as CommandAccountRow[],
+    }
+  }
+
+  const openOAuthLabelPrompt = (code: string, oauthUrl: string): void => {
+    const DialogPrompt = api.ui.DialogPrompt
+    api.ui.dialog.setSize('xlarge')
+    api.ui.dialog.replace(() => (
+      <DialogPrompt
+        title='OAuth sign-in — label'
+        description={() => (
+          <text>A short name for this account (optional).</text>
+        )}
+        placeholder='e.g. work'
+        value=''
+        onConfirm={(value: string) => {
+          const label = value.trim()
+          const args = label
+            ? `add-oauth-finish ${code} --label ${label}`
+            : `add-oauth-finish ${code}`
+          void apply('antigravity-account', args, { timeoutMs: 120_000 })
+            .then((result) => {
+              api.ui.toast({ message: result.text })
+              updateAccounts(result.knobs)
+              renderMain()
+            })
+            .catch(() => {
+              api.ui.toast({ message: 'OAuth account add failed' })
+              renderMain()
+            })
+        }}
+        onCancel={() => openOAuthCodePrompt(oauthUrl)}
+      />
+    ))
+  }
+
+  const openOAuthCodePrompt = (oauthUrl: string): void => {
+    const DialogPrompt = api.ui.DialogPrompt
+    api.ui.dialog.setSize('xlarge')
+    api.ui.dialog.replace(() => (
+      <DialogPrompt
+        title='OAuth sign-in — enter code'
+        description={() => (
+          <text>
+            After signing in, paste the full callback URL or authorization code.
+          </text>
+        )}
+        placeholder='Paste callback URL or code here'
+        value=''
+        onConfirm={(value: string) => {
+          const code = value.trim()
+          if (!code) {
+            renderMain()
+            return
+          }
+          openOAuthLabelPrompt(code, oauthUrl)
+        }}
+        onCancel={() => openOAuthUrlScreen(oauthUrl)}
+      />
+    ))
+  }
+
+  const openOAuthUrlScreen = (oauthUrl: string): void => {
+    const DialogSelect = api.ui.DialogSelect<string>
+    api.ui.dialog.setSize('xlarge')
+    api.ui.dialog.replace(() => (
+      <DialogSelect
+        title='OAuth sign-in'
+        options={[
+          {
+            title: 'Copy URL to clipboard',
+            value: 'copy',
+            description: oauthUrl,
+          },
+          {
+            title: 'Enter sign-in code',
+            value: 'code',
+            description:
+              'Open the URL in your browser, sign in, then paste the callback URL or code.',
+          },
+          { title: 'Cancel', value: 'cancel' },
+        ]}
+        onSelect={(option) => {
+          if (option.value === 'cancel') {
+            renderMain()
+            return
+          }
+          if (option.value === 'copy') {
+            const copied = api.renderer.copyToClipboardOSC52(oauthUrl)
+            api.ui.toast({
+              message: copied
+                ? 'URL copied to clipboard'
+                : 'Copy unavailable — select the URL text above to copy',
+            })
+            openOAuthUrlScreen(oauthUrl)
+            return
+          }
+          openOAuthCodePrompt(oauthUrl)
+        }}
+      />
+    ))
+  }
+
+  const openAddOAuthStart = (): void => {
+    void apply('antigravity-account', 'add-oauth-start', {
+      timeoutMs: 120_000,
+    })
+      .then((result) => {
+        updateAccounts(result.knobs)
+        const oauthUrl = result.knobs.oauthUrl
+        if (typeof oauthUrl === 'string' && oauthUrl.length > 0) {
+          openOAuthUrlScreen(oauthUrl)
+          return
+        }
+        api.ui.toast({ message: result.text })
+        renderMain()
+      })
+      .catch(() => {
+        api.ui.toast({ message: 'OAuth account add failed' })
+        renderMain()
+      })
+  }
+
   const renderManageRow = (row: CommandAccountRow): void => {
     const DialogSelect = api.ui.DialogSelect<string>
     api.ui.dialog.setSize('xlarge')
@@ -395,9 +523,7 @@ function renderAccountDialog(
                 return
               }
               if (raw === 'add') {
-                void runApply('add', { timeoutMs: 120_000 }).catch(() => {
-                  api.ui.toast({ message: 'Account add failed' })
-                })
+                openAddOAuthStart()
                 return
               }
               if (raw.startsWith('__manage__ ')) {

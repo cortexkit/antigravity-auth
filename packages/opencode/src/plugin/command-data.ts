@@ -105,7 +105,7 @@ type CommandDataAccountQuotaResult = {
   updatedAccount?: CommandDataAccountMetadata
 }
 
-type CommandDataAccountStorage = {
+export interface CommandDataAccountStorage {
   version: 4
   activeIndex: number
   activeIndexByFamily?: { claude?: number; gemini?: number }
@@ -210,6 +210,24 @@ function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
     current: entry.active,
     quota,
   }
+}
+
+export function projectCommandAccountRows(
+  storage: CommandDataAccountStorage | null | undefined,
+): CommandAccountRow[] {
+  if (!storage) return []
+  const activeIndex = storage.activeIndexByFamily?.claude ?? storage.activeIndex
+  return storage.accounts.map((entry, index) =>
+    toCommandAccountRow({
+      index,
+      refreshToken: entry.refreshToken,
+      label: entry.label,
+      enabled: entry.enabled !== false,
+      active: index === activeIndex,
+      cachedQuota: entry.cachedQuota,
+      cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+    }),
+  )
 }
 
 /**

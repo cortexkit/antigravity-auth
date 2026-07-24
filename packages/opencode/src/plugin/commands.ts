@@ -117,7 +117,7 @@ interface CommandContext {
    * Commands that need to chain side effects (e.g. account add which
    * triggers an OAuth flow) hook their own refresh.
    */
-  onApplied?: () => Promise<void> | void
+  onApplied?: (accounts?: CommandAccountRow[]) => Promise<void> | void
   /**
    * Privacy-safe data service that backs the data-first dialogs. The
    * production wiring injects one that reads from the live AccountManager
@@ -126,6 +126,22 @@ interface CommandContext {
    * undefined and the dialog falls back to the legacy placeholder.
    */
   commandData?: CommandDataService
+  accountOAuth?: AccountCommandOAuthService
+}
+
+export interface AccountCommandOAuthService {
+  start(sessionId: string): Promise<{
+    url: string
+    accounts: CommandAccountRow[]
+  }>
+  finish(
+    sessionId: string,
+    code: string,
+    label?: string,
+  ): Promise<{
+    text: string
+    accounts: CommandAccountRow[]
+  }>
 }
 
 /**
@@ -169,6 +185,9 @@ export async function buildDialogPayload(
     }
     case 'antigravity-account': {
       const action = argumentsText.trim().toLowerCase()
+      const accounts = context.commandData
+        ? await context.commandData.listAccounts()
+        : []
       return {
         command,
         text: 'Antigravity accounts',
@@ -180,6 +199,7 @@ export async function buildDialogPayload(
             action === 'list'
               ? action
               : 'list',
+          accounts,
         },
       }
     }
@@ -323,6 +343,8 @@ function parseLoggingLevel(input: string): OperatorSettings['log_level'] {
 
 type AccountAction =
   | { kind: 'add' }
+  | { kind: 'add-oauth-start' }
+  | { kind: 'add-oauth-finish'; code: string; label?: string }
   | { kind: 'refresh' }
   | { kind: 'current'; index: number }
   | { kind: 'toggle'; index: number }
@@ -351,6 +373,22 @@ function parseAccountAction(input: string): AccountAction | undefined {
   const parts = trimmed.split(/\s+/).filter(Boolean)
   const head = parts[0]?.toLowerCase()
   if (head === 'add') return { kind: 'add' }
+  if (head === 'add-oauth-start' && parts.length === 1) {
+    return { kind: 'add-oauth-start' }
+  }
+  if (head === 'add-oauth-finish') {
+    const code = parts[1]
+    if (!code) return undefined
+    const labelAt = parts.indexOf('--label')
+    const label =
+      labelAt === -1
+        ? undefined
+        : parts
+            .slice(labelAt + 1)
+            .join(' ')
+            .trim()
+    return { kind: 'add-oauth-finish', code, label: label || undefined }
+  }
   if (head === 'refresh') return { kind: 'refresh' }
   if (head === 'current' || head === 'toggle' || head === 'remove') {
     const raw = parts[1]
@@ -396,7 +434,12 @@ export async function applyCommand(
   // sees a fresh `checkedAt`. The refresher is optional; tests and
   // read-only contexts leave it undefined and skip the write entirely.
   if (context.onApplied) {
-    await Promise.resolve(context.onApplied()).catch(() => {
+    const accounts = result.knobs.accounts
+    await Promise.resolve(
+      context.onApplied(
+        Array.isArray(accounts) ? (accounts as CommandAccountRow[]) : undefined,
+      ),
+    ).catch(() => {
       // Sidebar refresh must never break the command's apply response.
     })
   }
@@ -489,17 +532,6 @@ async function applyCommandInner(
       }
     }
     case 'antigravity-account': {
-      // Apply arguments follow the `<action> <index>` pattern the
-      // dialog uses to call back into the apply path:
-      //   `current <index>`  — pin the account as active for every family
-      //   `toggle <index>`   — flip the enabled flag
-      //   `remove <index>`   — drop the account (destructive, confirmed)
-      //   `add`              — backwards-compatible; opens the OAuth flow
-      //                        via the 120s timeout so the dialog can
-      //                        signal "Account add requested" (the OAuth
-      //                        implementation lands in a follow-up task).
-      // Bare `add` / `refresh` keep their 120s timeout so the OAuth
-      // handshake has room; everything else stays on the 2s default.
       const args = request.arguments.trim()
       const parsed = parseAccountAction(args)
       if (!parsed) {
@@ -509,11 +541,46 @@ async function applyCommandInner(
         }
       }
 
+      if (parsed.kind === 'add-oauth-start') {
+        if (!context.accountOAuth) {
+          return {
+            text: 'OAuth account add is unavailable.',
+            knobs: { timeoutMs: 120_000, error: true },
+          }
+        }
+        const result = await context.accountOAuth.start(context.sessionID)
+        return {
+          text: `Open this URL in your browser:\n${result.url}`,
+          knobs: {
+            oauthUrl: result.url,
+            accounts: result.accounts,
+            timeoutMs: 120_000,
+          },
+        }
+      }
+
+      if (parsed.kind === 'add-oauth-finish') {
+        if (!context.accountOAuth) {
+          return {
+            text: 'OAuth account add is unavailable.',
+            knobs: { timeoutMs: 120_000, error: true },
+          }
+        }
+        const result = parsed.label
+          ? await context.accountOAuth.finish(
+              context.sessionID,
+              parsed.code,
+              parsed.label,
+            )
+          : await context.accountOAuth.finish(context.sessionID, parsed.code)
+        return {
+          text: result.text,
+          knobs: { accounts: result.accounts, timeoutMs: 120_000 },
+        }
+      }
+
       // The data service drives the locked-storage mutator for the
-      // three CRUD mutations; `add` stays a no-op response so the
-      // dispatcher keeps its existing 120s RPC timeout contract.
-      //
-      // The locked-storage write is awaited FIRST (service-side) so a
+      // three CRUD mutations. The locked-storage write is awaited FIRST so a
       // failed disk write never leaves the runtime ahead of disk. When
       // that await throws — AccountStorageUnreadableError, lock
       // contention, I/O — we catch here and surface the message as the
@@ -701,9 +768,17 @@ export function createSidebarRefresher(
       'gemini-flash'?: { remainingFraction?: number; resetTime?: string }
     }
   }> | null,
-): () => Promise<void> {
-  return async () => {
-    const accounts = getAccounts()
+): (accounts?: CommandAccountRow[]) => Promise<void> {
+  return async (dialogAccounts) => {
+    const accounts = dialogAccounts
+      ? dialogAccounts.map((entry) => ({
+          index: entry.index,
+          label: entry.label,
+          enabled: entry.enabled,
+          coolingDownUntil: undefined,
+          cachedQuota: undefined,
+        }))
+      : getAccounts()
     if (!accounts || accounts.length === 0) return
     try {
       await setSidebarMachineState(

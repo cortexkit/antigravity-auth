@@ -256,6 +256,52 @@ describe('createCommandExecuteBefore', () => {
     await settings.dispose()
   })
 
+  it('includes cached accounts in the account OPEN notification payload', async () => {
+    const notifications: Array<Awaited<ReturnType<typeof buildDialogPayload>>> =
+      []
+    const pushNotification = (
+      payload: Awaited<ReturnType<typeof buildDialogPayload>>,
+    ) => {
+      notifications.push(payload)
+    }
+    const settings = createOperatorSettingsController({
+      projectConfigPath: join(dir, 'antigravity.json'),
+      userConfigPath: join(dir, 'user.json'),
+    })
+    const handler = createCommandExecuteBefore(
+      { session: { promptAsync: mock(async () => {}) } } as never,
+      settings,
+      pushNotification,
+      {
+        listAccounts: async () => [
+          {
+            index: 0,
+            label: 'Primary account',
+            enabled: true,
+            active: true,
+            quota: {},
+          },
+        ],
+      } as never,
+      { isTuiConnected: () => true },
+    )
+
+    await expect(
+      handler?.(
+        {
+          command: 'antigravity-account',
+          arguments: '',
+          sessionID: 'session-1',
+        },
+        { parts: [] },
+      ),
+    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
+
+    const payload = notifications[0]
+    expect(payload?.knobs.accounts as unknown[] | undefined).toHaveLength(1)
+    await settings.dispose()
+  })
+
   it('suppresses the ignored fallback for every modal command when the tui is connected', async () => {
     const promptAsync = mock(async () => {})
     const messages = mock(async () => ({ data: [] }))
@@ -572,6 +618,104 @@ describe('applyCommand', () => {
       },
     )
     expect(refresh.knobs.timeoutMs).toBe(120_000)
+  })
+
+  it('returns an OAuth URL and current rows when add-oauth-start is applied', async () => {
+    const start = mock(async () => ({
+      url: 'https://accounts.google.test/authorize',
+      accounts: [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Primary account',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+      ],
+    }))
+
+    const result = await applyCommand(
+      { command: 'antigravity-account', arguments: 'add-oauth-start' },
+      {
+        client: {} as never,
+        sessionID: 'session-1',
+        settings: ctx.settings,
+        accountOAuth: { start } as never,
+      },
+    )
+
+    expect(start).toHaveBeenCalledWith('session-1')
+    expect(result.text).toContain('Open this URL')
+    expect(result.knobs.oauthUrl).toBe('https://accounts.google.test/authorize')
+    expect(result.knobs.accounts as unknown[]).toHaveLength(1)
+    expect(result.knobs.timeoutMs).toBe(120_000)
+  })
+
+  it('returns refreshed rows after add-oauth-finish', async () => {
+    const finish = mock(async () => ({
+      text: 'OAuth account added.',
+      accounts: [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Primary account',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Work account',
+          enabled: true,
+          current: false,
+          quota: [],
+        },
+      ],
+    }))
+
+    const result = await applyCommand(
+      {
+        command: 'antigravity-account',
+        arguments: 'add-oauth-finish callback-code',
+      },
+      {
+        client: {} as never,
+        sessionID: 'session-1',
+        settings: ctx.settings,
+        accountOAuth: { finish } as never,
+      },
+    )
+
+    expect(finish).toHaveBeenCalledWith('session-1', 'callback-code')
+    expect(result.text).toBe('OAuth account added.')
+    expect(result.knobs.accounts as unknown[]).toHaveLength(2)
+    expect(result.knobs.timeoutMs).toBe(120_000)
+  })
+
+  it('returns the expired-pending result from add-oauth-finish', async () => {
+    const finish = mock(async () => ({
+      text: 'OAuth session expired. Please start again.',
+      accounts: [],
+    }))
+
+    const result = await applyCommand(
+      {
+        command: 'antigravity-account',
+        arguments: 'add-oauth-finish callback-code',
+      },
+      {
+        client: {} as never,
+        sessionID: 'session-1',
+        settings: ctx.settings,
+        accountOAuth: { finish } as never,
+      },
+    )
+
+    expect(finish).toHaveBeenCalledWith('session-1', 'callback-code')
+    expect(result.text).toBe('OAuth session expired. Please start again.')
+    expect(result.knobs.accounts as unknown[]).toHaveLength(0)
   })
 
   it('account apply dispatches current/toggle/remove through the data service', async () => {

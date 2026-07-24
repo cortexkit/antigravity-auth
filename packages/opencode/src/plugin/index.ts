@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { authorizeAntigravity, exchangeAntigravity } from '../antigravity/oauth'
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
 import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
 import { drainNotifications, pushNotification } from '../rpc/notifications'
@@ -10,6 +11,7 @@ import {
   promptAccountIndexForVerification,
   promptOpenVerificationUrl,
 } from './account-access'
+import { createAccountCommandOAuthService } from './account-command-oauth'
 import { createAuthLoader } from './auth-loader'
 import { initDiskSignatureCache, shutdownDiskSignatureCache } from './cache'
 import {
@@ -19,6 +21,7 @@ import {
 import {
   type CommandDataService,
   createCommandDataService,
+  projectCommandAccountRows,
 } from './command-data'
 import {
   applyCommand,
@@ -285,6 +288,14 @@ export const createAntigravityPlugin =
         confirmOpenVerificationUrl: promptOpenVerificationUrl,
       },
     })
+    const accountOAuth = createAccountCommandOAuthService({
+      authorize: () => authorizeAntigravity(),
+      exchange: exchangeAntigravity,
+      persist: (result) => accountAccess.persistAccountPool([result], false),
+      listAccounts: async () =>
+        projectCommandAccountRows(await accountAccess.loadAccounts()),
+    })
+    lifecycle.register({ dispose: () => accountOAuth.dispose() })
     const oauthMethods = createOAuthMethods({
       client,
       providerId,
@@ -341,6 +352,7 @@ export const createAntigravityPlugin =
           settings: operatorSettings,
           onApplied: refreshSidebar,
           commandData,
+          accountOAuth,
         })
         // /antigravity-logging mutates the log level — propagate
         // immediately so subsequent log calls in this session respect it.
