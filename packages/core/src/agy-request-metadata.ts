@@ -37,6 +37,7 @@ export interface AgyRequestSessionContext {
   numericSessionId: string
   usedClaude?: boolean
   usedNonGeminiModel?: boolean
+  lastExecutionId?: string
 }
 
 interface StoredAgyRequestSession {
@@ -57,6 +58,7 @@ export interface AgyRequestScope {
 }
 
 export interface AgyRequestLabels {
+  last_execution_id?: string
   last_step_index: string
   model_enum?: string
   trajectory_id: string
@@ -70,6 +72,10 @@ export interface AgyAgentRequestMetadata {
   sessionId: string
   labels: AgyRequestLabels
   lastStepIndex: number
+}
+
+export interface AgyAgentRequestMetadataOptions {
+  stepCountMode?: "parts" | "contents"
 }
 
 export function fnv1a64Signed(input: string): string {
@@ -133,6 +139,13 @@ export class AgyRequestSessionStore {
     return { session, timestamp }
   }
 
+  completeExecution(key: string): void {
+    const stored = this.entries.get(key)
+    if (stored) {
+      stored.context.lastExecutionId = randomUUID()
+    }
+  }
+
   has(key: string): boolean {
     return this.entries.has(key)
   }
@@ -194,21 +207,19 @@ export function orderAgyRequestPayloadInPlace(payload: Record<string, unknown>):
   Object.assign(payload, ordered)
 }
 
-export function countAgyRequestSteps(payload: Record<string, unknown>): number {
+export function countAgyRequestSteps(
+  payload: Record<string, unknown>,
+  mode: "parts" | "contents" = "parts",
+): number {
   const contents = payload.contents
-  if (!Array.isArray(contents)) {
-    return 1
-  }
+  if (!Array.isArray(contents)) return 1
+  if (mode === "contents") return Math.max(1, contents.length)
 
   let partCount = 0
   for (const content of contents) {
-    if (!content || typeof content !== "object" || Array.isArray(content)) {
-      continue
-    }
+    if (!content || typeof content !== "object" || Array.isArray(content)) continue
     const parts = (content as Record<string, unknown>).parts
-    if (Array.isArray(parts)) {
-      partCount += parts.length
-    }
+    if (Array.isArray(parts)) partCount += parts.length
   }
   return Math.max(1, partCount)
 }
@@ -218,14 +229,17 @@ export function buildAgyAgentRequestMetadata(
   payload: Record<string, unknown>,
   model: string,
   timestamp = Date.now(),
+  options: AgyAgentRequestMetadataOptions = {},
 ): AgyAgentRequestMetadata {
-  const lastStepIndex = countAgyRequestSteps(payload)
+  const lastStepIndex = countAgyRequestSteps(payload, options.stepCountMode)
+    + (session.lastExecutionId ? 1 : 0)
   const isClaude = model.toLowerCase().startsWith("claude-")
   const isNonGemini = isClaude || model.toLowerCase().startsWith("gpt-")
   session.usedClaude = session.usedClaude === true || isClaude
   session.usedNonGeminiModel = session.usedNonGeminiModel === true || isNonGemini
   const modelEnum = getAgyModelEnum(model)
   const labels: AgyRequestLabels = {
+    ...(session.lastExecutionId ? { last_execution_id: session.lastExecutionId } : {}),
     last_step_index: String(lastStepIndex),
     ...(modelEnum ? { model_enum: modelEnum } : {}),
     trajectory_id: session.trajectoryId,

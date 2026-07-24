@@ -43,6 +43,22 @@ describe("agy request metadata", () => {
     expect(other.session.numericSessionId).toBe(first.session.numericSessionId)
   })
 
+  it("records a fresh execution ID only for known sessions", () => {
+    const sessions = new AgyRequestSessionStore("file:///workspace", { now: () => 100 })
+    const session = sessions.beginRequest("session-a").session
+
+    sessions.completeExecution("missing")
+    expect(session.lastExecutionId).toBeUndefined()
+
+    sessions.completeExecution("session-a")
+    const firstExecutionId = session.lastExecutionId
+    expect(firstExecutionId).toMatch(/^[0-9a-f-]{36}$/)
+
+    sessions.completeExecution("session-a")
+    expect(session.lastExecutionId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(session.lastExecutionId).not.toBe(firstExecutionId)
+  })
+
   it("creates stable session IDs with independently generated conversation and trajectory IDs", () => {
     expect(createAgyRequestSessionContext("file:///workspace", {
       conversationId: "conversation-id",
@@ -78,7 +94,7 @@ describe("agy request metadata", () => {
     ])
   })
 
-  it("derives last_step_index from the number of content parts", () => {
+  it("supports part- and content-based step counting", () => {
     const payload = {
       contents: [
         { role: "user", parts: [{ text: "prompt" }] },
@@ -94,7 +110,8 @@ describe("agy request metadata", () => {
     }
 
     expect(countAgyRequestSteps(payload)).toBe(4)
-    expect(countAgyRequestSteps({ contents: [] })).toBe(1)
+    expect(countAgyRequestSteps(payload, "contents")).toBe(3)
+    expect(countAgyRequestSteps({ contents: [] }, "contents")).toBe(1)
     expect(countAgyRequestSteps({})).toBe(1)
   })
 
@@ -130,6 +147,40 @@ describe("agy request metadata", () => {
         used_non_gemini_model: "true",
       },
     })
+  })
+
+  it("matches the captured execution-aware step sequence", () => {
+    const session = createAgyRequestSessionContext("", {
+      conversationId: "conversation-id",
+      trajectoryId: "trajectory-id",
+    })
+    const sequence = [
+      { contents: 1, step: 1, executionId: undefined },
+      { contents: 4, step: 5, executionId: "execution-1" },
+      { contents: 7, step: 8, executionId: "execution-2" },
+      { contents: 9, step: 10, executionId: "execution-2" },
+      { contents: 12, step: 13, executionId: "execution-3" },
+      { contents: 15, step: 16, executionId: "execution-4" },
+    ]
+
+    for (const [index, item] of sequence.entries()) {
+      session.lastExecutionId = item.executionId
+      const metadata = buildAgyAgentRequestMetadata(
+        session,
+        { contents: Array.from({ length: item.contents }, () => ({ role: "user", parts: [] })) },
+        "claude-opus-4-6-thinking",
+        index + 1,
+        { stepCountMode: "contents" },
+      )
+
+      expect(metadata.lastStepIndex).toBe(item.step)
+      expect(metadata.requestId.endsWith(`/${item.step + 1}`)).toBe(true)
+      if (item.executionId) {
+        expect(metadata.labels.last_execution_id).toBe(item.executionId)
+      } else {
+        expect(metadata.labels).not.toHaveProperty("last_execution_id")
+      }
+    }
   })
 
   it("matches every captured agy model enum fixture", () => {
