@@ -14,8 +14,11 @@ import type {
 type GeminiPart =
   | { text: string }
   | { inlineData: { mimeType: string; data: string } }
-  | { functionCall: { name: string; args: Record<string, unknown> }; thoughtSignature?: string }
-  | { functionResponse: { name: string; response: Record<string, unknown> } }
+  | {
+      functionCall: { name: string; args: Record<string, unknown>; id: string }
+      thoughtSignature?: string
+    }
+  | { functionResponse: { name: string; response: Record<string, unknown>; id: string } }
 
 interface GeminiContent {
   role: "user" | "model"
@@ -64,6 +67,7 @@ function convertAssistantParts(content: Array<TextContent | ThinkingContent | To
         functionCall: {
           name: block.name,
           args: (block.arguments ?? {}) as Record<string, unknown>,
+          id: block.id,
         },
         ...(block.thoughtSignature ? { thoughtSignature: block.thoughtSignature } : {}),
       })
@@ -114,6 +118,7 @@ function convertMessages(messages: Message[]): GeminiContent[] {
         functionResponse: {
           name: message.toolName,
           response: toolResultResponse(message),
+          id: message.toolCallId,
         },
       }
       // Gemini groups consecutive function responses into one user turn.

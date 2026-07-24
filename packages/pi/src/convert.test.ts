@@ -54,7 +54,7 @@ describe("buildGeminiRequest", () => {
         role: "model",
         parts: [
           { text: "thinking out loud" },
-          { functionCall: { name: "read", args: { path: "a.ts" } } },
+          { functionCall: { name: "read", args: { path: "a.ts" }, id: "c1" } },
         ],
       },
     ])
@@ -93,7 +93,7 @@ describe("buildGeminiRequest", () => {
       }),
     )
     expect(request.contents[0]?.parts[0]).toEqual({
-      functionCall: { name: "read", args: { path: "a.ts" } },
+      functionCall: { name: "read", args: { path: "a.ts" }, id: "c1" },
       thoughtSignature: "SIG123",
     })
   })
@@ -125,8 +125,70 @@ describe("buildGeminiRequest", () => {
       {
         role: "user",
         parts: [
-          { functionResponse: { name: "read", response: { output: "file A" } } },
-          { functionResponse: { name: "grep", response: { output: "match" } } },
+          { functionResponse: { name: "read", response: { output: "file A" }, id: "c1" } },
+          { functionResponse: { name: "grep", response: { output: "match" }, id: "c2" } },
+        ],
+      },
+    ])
+  })
+
+  it("preserves matching IDs across parallel tool calls and results", () => {
+    const request = buildGeminiRequest(
+      ctx({
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              { type: "toolCall", id: "c1", name: "read", arguments: { path: "a.ts" } },
+              { type: "toolCall", id: "c2", name: "grep", arguments: { pattern: "TODO" } },
+            ],
+            api: "google-generative-ai",
+            provider: "google-antigravity",
+            model: "antigravity-claude-opus-4-6-thinking",
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+            stopReason: "toolUse",
+            timestamp: 0,
+          },
+          {
+            role: "toolResult",
+            toolCallId: "c1",
+            toolName: "read",
+            content: [{ type: "text", text: "file A" }],
+            isError: false,
+            timestamp: 1,
+          },
+          {
+            role: "toolResult",
+            toolCallId: "c2",
+            toolName: "grep",
+            content: [{ type: "text", text: "match" }],
+            isError: false,
+            timestamp: 1,
+          },
+        ],
+      }),
+    )
+
+    expect(request.contents).toEqual([
+      {
+        role: "model",
+        parts: [
+          { functionCall: { name: "read", args: { path: "a.ts" }, id: "c1" } },
+          { functionCall: { name: "grep", args: { pattern: "TODO" }, id: "c2" } },
+        ],
+      },
+      {
+        role: "user",
+        parts: [
+          { functionResponse: { name: "read", response: { output: "file A" }, id: "c1" } },
+          { functionResponse: { name: "grep", response: { output: "match" }, id: "c2" } },
         ],
       },
     ])
@@ -148,7 +210,7 @@ describe("buildGeminiRequest", () => {
       }),
     )
     expect(request.contents[0]?.parts[0]).toEqual({
-      functionResponse: { name: "bash", response: { error: "boom" } },
+      functionResponse: { name: "bash", response: { error: "boom" }, id: "c1" },
     })
   })
 

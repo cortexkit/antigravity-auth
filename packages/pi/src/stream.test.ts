@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai"
 
 import {
+  convertGeminiToolCallPart,
   finalizePiAntigravityRequest,
   parseGeminiSse,
   resolvePiAntigravityModel,
@@ -116,6 +117,73 @@ describe("finalizePiAntigravityRequest", () => {
       "generationConfig",
       "sessionId",
     ])
+  })
+})
+
+describe("convertGeminiToolCallPart", () => {
+  it("preserves the backend function-call ID", () => {
+    const state = {}
+    const toolCall = convertGeminiToolCallPart(
+      { functionCall: { name: "read", args: { path: "a.ts" }, id: "toolu_vrtx_123" } },
+      state,
+    )
+
+    expect(toolCall).toEqual({
+      type: "toolCall",
+      id: "toolu_vrtx_123",
+      name: "read",
+      arguments: { path: "a.ts" },
+    })
+  })
+
+  it("generates an ID when the backend omits one", () => {
+    const toolCall = convertGeminiToolCallPart(
+      { functionCall: { name: "read", args: {} } },
+      {},
+    )
+
+    expect(toolCall?.id).toMatch(/^call_[0-9a-f-]{36}$/)
+  })
+
+  it("carries a preceding thought signature onto the next function call", () => {
+    const state = {}
+
+    expect(convertGeminiToolCallPart(
+      { text: "", thought: true, thoughtSignature: "SIG123" },
+      state,
+    )).toBeUndefined()
+
+    expect(convertGeminiToolCallPart(
+      { functionCall: { name: "read", args: {}, id: "c1" } },
+      state,
+    )).toEqual({
+      type: "toolCall",
+      id: "c1",
+      name: "read",
+      arguments: {},
+      thoughtSignature: "SIG123",
+    })
+    expect(convertGeminiToolCallPart(
+      { functionCall: { name: "grep", args: {}, id: "c2" } },
+      state,
+    )).not.toHaveProperty("thoughtSignature")
+  })
+
+  it("attaches a parallel batch signature only to the first function call", () => {
+    const state = {}
+
+    convertGeminiToolCallPart({ thought: true, thoughtSignature: "SIG1" }, state)
+    const first = convertGeminiToolCallPart(
+      { functionCall: { name: "read", args: {}, id: "c1" } },
+      state,
+    )
+    const second = convertGeminiToolCallPart(
+      { functionCall: { name: "grep", args: {}, id: "c2" } },
+      state,
+    )
+
+    expect(first?.thoughtSignature).toBe("SIG1")
+    expect(second).not.toHaveProperty("thoughtSignature")
   })
 })
 

@@ -94,11 +94,39 @@ function unwrapChunk(raw: unknown): GeminiStreamChunk {
   return raw as GeminiStreamChunk
 }
 
-interface GeminiResponsePart {
+export interface GeminiResponsePart {
   text?: string
   thought?: boolean
   thoughtSignature?: string
-  functionCall?: { name?: string; args?: Record<string, unknown> }
+  functionCall?: { name?: string; args?: Record<string, unknown>; id?: string }
+}
+
+export interface GeminiToolCallState {
+  pendingThoughtSignature?: string
+}
+
+export function convertGeminiToolCallPart(
+  part: GeminiResponsePart,
+  state: GeminiToolCallState,
+): ToolCall | undefined {
+  // Antigravity emits a batch signature on a preceding empty thought part;
+  // native replay attaches it to the first function call in that batch.
+  if (part.thought && part.thoughtSignature) {
+    state.pendingThoughtSignature = part.thoughtSignature
+  }
+
+  if (!part.functionCall) return undefined
+
+  const thoughtSignature = part.thoughtSignature ?? state.pendingThoughtSignature
+  state.pendingThoughtSignature = undefined
+
+  return {
+    type: "toolCall",
+    id: part.functionCall.id ?? `call_${crypto.randomUUID()}`,
+    name: part.functionCall.name ?? "",
+    arguments: (part.functionCall.args ?? {}) as Record<string, unknown>,
+    ...(thoughtSignature ? { thoughtSignature } : {}),
+  }
 }
 
 export function updateUsage(model: Model<Api>, output: AssistantMessage, usage?: GeminiUsageMetadata): void {
@@ -314,6 +342,7 @@ export function streamCortexKitAntigravity(
       }
 
       const content = output.content as Array<TextContent | ToolCall>
+      const toolCallState: GeminiToolCallState = {}
       let textIndex = -1
       let finished = false
 
@@ -324,14 +353,8 @@ export function streamCortexKitAntigravity(
         const parts = candidate?.content?.parts ?? []
 
         for (const part of parts) {
-          if (part.functionCall) {
-            const toolCall: ToolCall = {
-              type: "toolCall",
-              id: `call_${crypto.randomUUID()}`,
-              name: part.functionCall.name ?? "",
-              arguments: (part.functionCall.args ?? {}) as Record<string, unknown>,
-              ...(part.thoughtSignature ? { thoughtSignature: part.thoughtSignature } : {}),
-            }
+          const toolCall = convertGeminiToolCallPart(part, toolCallState)
+          if (toolCall) {
             content.push(toolCall)
             const idx = content.length - 1
             textIndex = -1
