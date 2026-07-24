@@ -17,12 +17,14 @@
  *      overrides so tests never touch the host filesystem.
  *   3. Tear down the root + restore the original fetch in `afterEach`
  *      so cross-test pollution cannot leak.
- *   4. In `afterAll`, delete ONLY the roots THIS process created
- *      (tracked in `rootsOwnedByThisProcess`). A scoped sweep avoids
- *      racing with sibling test files or parallel CI jobs that may
- *      own their own `agy-e2e-*` directories. An opt-in orphan
- *      sweep is available behind `AGY_E2E_SWEEP_ORPHANS=1` and only
- *      removes entries older than 24h by mtime.
+ *   4. In `afterAll`, run an OPT-IN orphan sweep behind
+ *      `AGY_E2E_SWEEP_ORPHANS=1` that only removes `agy-e2e-*`
+ *      entries older than 24h by mtime. No process-wide afterAll
+ *      sweep of live roots — `afterEach` already removed each root
+ *      it created, so a sweep of "live" roots would race against a
+ *      sibling test file still holding its own root (ENOENT on
+ *      atomic rename, missing RPC port files, FileLockOwnershipError
+ *      were the symptoms the maintainer hit).
  */
 
 import { afterAll, afterEach, beforeEach } from 'bun:test'
@@ -53,14 +55,6 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', '[::1]', 'localhost'])
 let originalFetch: typeof globalThis.fetch | null = null
 
 /**
- * Roots THIS process created during the suite. The `afterAll` sweep
- * deletes exactly this set so concurrent test files (or sibling CI
- * jobs sharing the system tmpdir) never have their roots removed
- * out from under them.
- */
-const rootsOwnedByThisProcess = new Set<string>()
-
-/**
  * Opt-in orphan sweep threshold. When `AGY_E2E_SWEEP_ORPHANS=1` is
  * set, `afterAll` additionally removes any `agy-e2e-*` entry whose
  * mtime is older than this window — 24h, long enough that an active
@@ -68,7 +62,8 @@ const rootsOwnedByThisProcess = new Set<string>()
  * local developers can opt in when they want to prune stale roots.
  */
 const ORPHAN_SWEEP_ENV = 'AGY_E2E_SWEEP_ORPHANS'
-const ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000
+export const ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000
+export const ORPHAN_PREFIX = 'agy-e2e-'
 
 function installFetchGuard(): void {
   if (originalFetch) return
@@ -109,7 +104,6 @@ beforeEach(() => {
   installFetchGuard()
   // Per-test temp root + env reset. Tests must not touch the host HOME.
   const root = fs.mkdtempSync(join(tmpdir(), 'agy-e2e-'))
-  rootsOwnedByThisProcess.add(root)
   const home = join(root, 'home')
   const config = join(root, 'config')
   const cache = join(root, 'cache')
@@ -153,39 +147,31 @@ afterEach(() => {
     try {
       fs.rmSync(root, { recursive: true, force: true })
     } catch {
-      // best-effort cleanup; the afterAll pass will retry if anything
-      // is left behind.
+      // best-effort cleanup; the orphan sweep will retry only entries
+      // old enough to be safely considered abandoned.
     }
     delete process.env.ANTIGRAVITY_TEST_ROOT
   }
 })
 
-afterAll(() => {
-  // Scoped sweep: delete only the roots THIS process created. A
-  // sibling test file (or a parallel CI job) may have its own
-  // `agy-e2e-*` root in the system tmpdir — touching those is a
-  // guaranteed `ENOENT` race. The per-test `afterEach` already
-  // removed every root we created; this pass handles the rare
-  // case where a test crashed before its own afterEach ran.
-  for (const root of rootsOwnedByThisProcess) {
-    try {
-      fs.rmSync(root, { recursive: true, force: true })
-    } catch {
-      /* swallow */
-    }
-  }
-  rootsOwnedByThisProcess.clear()
-
-  // Opt-in orphan sweep — only when AGY_E2E_SWEEP_ORPHANS=1 is set,
-  // AND only against entries older than 24h by mtime. A long mtime
-  // floor is what keeps this safe: an actively-running test file
-  // always has a fresh mtime, so a parallel job is never at risk
-  // even when the env var is on. CI never sets the env var.
+/**
+ * Walk the tmpdir and remove any `agy-e2e-*` entry whose mtime is
+ * older than {@link ORPHAN_MAX_AGE_MS}. Designed for the
+ * `AGY_E2E_SWEEP_ORPHANS=1` opt-in: a long mtime floor keeps a
+ * parallel, still-running test file safe because its just-created
+ * roots always have a fresh mtime.
+ *
+ * Exposed for unit testing — the production caller is the `afterAll`
+ * block below. The function is intentionally a no-op when the env
+ * var is unset so callers (tests included) cannot accidentally
+ * trigger a sweep.
+ */
+export function sweepOrphanE2eRoots(): void {
   if (process.env[ORPHAN_SWEEP_ENV] !== '1') return
   const cutoff = Date.now() - ORPHAN_MAX_AGE_MS
   const entries = fs.readdirSync(tmpdir())
   for (const entry of entries) {
-    if (!entry.startsWith('agy-e2e-')) continue
+    if (!entry.startsWith(ORPHAN_PREFIX)) continue
     const candidate = join(tmpdir(), entry)
     try {
       const stat = fs.statSync(candidate)
@@ -196,4 +182,13 @@ afterAll(() => {
       /* swallow */
     }
   }
+}
+
+afterAll(() => {
+  // No process-wide sweep of live roots. `afterEach` already removed
+  // every root THIS test file created; sweeping here would race
+  // against sibling test files (or parallel CI jobs) still holding
+  // their own `agy-e2e-*` entries. The orphan sweep below is opt-in
+  // and only reaps entries the 24h-mtime floor confirms are abandoned.
+  sweepOrphanE2eRoots()
 })
