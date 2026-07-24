@@ -1106,11 +1106,10 @@ describe('fetchQuotaSummary', () => {
     expect(receivedProjectId).toBe('regular-proj')
   })
 
-  it('uses managedProjectId from options when present (the record fallback path)', async () => {
-    // Regression: bare refresh tokens have no packed managedProjectId.
-    // The caller must supply it from the account record. This test
-    // asserts that fetchQuotaSummary posts the options.managedProjectId
-    // when it is provided.
+  it('uses managedProjectId when only managedProjectId is provided (managed-only path)', async () => {
+    // Distinct from the precedence test above: only managedProjectId is
+    // supplied — no projectId fallback. The managed-only input path must
+    // still post `project` with the managed project ID.
     let receivedProjectId = ''
     const summary: RetrieveUserQuotaSummaryResponse = { groups: [] }
     const fetchVia = async (
@@ -1123,12 +1122,11 @@ describe('fetchQuotaSummary', () => {
     }
     await fetchQuotaSummary({
       accessToken: 'tok',
-      managedProjectId: 'managed-from-record',
-      projectId: 'regular-proj',
+      managedProjectId: 'managed-only',
       endpoints: ENDPOINTS,
       fetchVia: fetchVia as any,
     })
-    expect(receivedProjectId).toBe('managed-from-record')
+    expect(receivedProjectId).toBe('managed-only')
   })
 
   it('fails over to the next endpoint when the first returns 500', async () => {

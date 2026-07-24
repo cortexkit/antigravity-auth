@@ -350,7 +350,7 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
           } catch {
             /* malformed — let the 200 path handle it */
           }
-          if (postedProject && postedProject !== fixture.managedProjectId) {
+          if (!postedProject || postedProject !== fixture.managedProjectId) {
             sendJson(response, 403, {
               error: {
                 code: 7,

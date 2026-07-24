@@ -304,7 +304,7 @@ describe('AccountManager instance dependencies', () => {
 })
 
 describe('managedProjectId projection', () => {
-  it('getAccountsForQuotaCheck returns managedProjectId from the record when refresh token is bare', () => {
+  it('getAccountsForQuotaCheck falls back to record managedProjectId when parts lack it', () => {
     const stored: AccountStorageV4 = {
       version: 4,
       accounts: [
@@ -323,6 +323,11 @@ describe('managedProjectId projection', () => {
       store: createStore(stored).store,
       now: () => 1_000,
     })
+    // Simulate a bare-token rotation that strips managedProjectId from
+    // parts — the record-level field is the only remaining source.
+    const allAccounts = manager.getAccounts()
+    allAccounts[0]!.parts.managedProjectId = undefined
+
     const accounts = manager.getAccountsForQuotaCheck()
     expect(accounts).toHaveLength(1)
     expect(accounts[0]!.projectId).toBe('my-project')
@@ -349,9 +354,9 @@ describe('managedProjectId projection', () => {
       store,
       now: () => 1_000,
     })
-    // Trigger a save — buildStorageSnapshot must preserve managedProjectId.
+    // Trigger a save — dispose clears the debounce and forces it immediately.
     manager.requestSaveToDisk()
-    await manager.flushSaveToDisk()
+    await manager.dispose()
     const saved = state()
     expect(saved?.accounts[0]?.managedProjectId).toBe('my-managed-project')
 
