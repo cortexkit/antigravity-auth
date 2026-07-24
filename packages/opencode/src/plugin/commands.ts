@@ -754,29 +754,53 @@ export function createSidebarRefresher(
   }> | null,
 ): (accounts?: CommandAccountRow[]) => Promise<void> {
   return async (dialogAccounts) => {
+    // Index → live coolingDownUntil. The dialog path rebuilds rows
+    // from the post-mutation command data, which does not carry the
+    // running cooldown; looking up the live account by index lets the
+    // sidebar show a rate-limited account as such instead of
+    // momentarily marking it available.
+    const liveByIndex = new Map<number, number | undefined>()
+    try {
+      const live = getAccounts()
+      if (live) {
+        for (const entry of live)
+          liveByIndex.set(entry.index, entry.coolingDownUntil)
+      }
+    } catch {
+      // The live provider is best-effort; fall through with an empty
+      // map if the manager is gone.
+    }
     const accounts = dialogAccounts
-      ? dialogAccounts.map((entry) => ({
-          index: entry.index,
-          label: entry.label,
-          enabled: entry.enabled,
-          coolingDownUntil: undefined,
-          cachedQuota: Object.fromEntries(
-            entry.quota.flatMap((group) => {
-              if (group.remainingPercent == null) return []
-              return [
-                [
-                  group.key,
-                  {
-                    remainingFraction: group.remainingPercent / 100,
-                    ...(group.resetAt === undefined
-                      ? {}
-                      : { resetTime: new Date(group.resetAt).toISOString() }),
-                  },
-                ],
-              ]
-            }),
-          ),
-        }))
+      ? dialogAccounts.map((entry) => {
+          const liveCooldown = liveByIndex.get(entry.index)
+          return {
+            index: entry.index,
+            label: entry.label,
+            enabled: entry.enabled,
+            // Preserve the live cooldown when present so an apply
+            // (setCurrent, toggleEnabled, remove) cannot clear a
+            // rate-limited account's display. The dialog rows do not
+            // carry the running timer, so the live source is the
+            // only authoritative feed.
+            coolingDownUntil: liveCooldown,
+            cachedQuota: Object.fromEntries(
+              entry.quota.flatMap((group) => {
+                if (group.remainingPercent == null) return []
+                return [
+                  [
+                    group.key,
+                    {
+                      remainingFraction: group.remainingPercent / 100,
+                      ...(group.resetAt === undefined
+                        ? {}
+                        : { resetTime: new Date(group.resetAt).toISOString() }),
+                    },
+                  ],
+                ]
+              }),
+            ),
+          }
+        })
       : getAccounts()
     if (!accounts || accounts.length === 0) return
     try {

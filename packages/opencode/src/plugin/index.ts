@@ -252,6 +252,11 @@ export const createAntigravityPlugin =
             ? (manager.getCurrentAccountForFamily('claude')?.index ?? 0)
             : 0
         },
+        getActiveIndexByFamily: () => {
+          const manager = lifecycle.getAccountManager()
+          if (!manager) return { claude: 0, gemini: 0 }
+          return manager.getActiveIndexByFamily()
+        },
         setAccountEnabled: (index, enabled) => {
           const manager = lifecycle.getAccountManager()
           if (!manager) return false

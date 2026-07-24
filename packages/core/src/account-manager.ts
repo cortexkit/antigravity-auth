@@ -697,6 +697,21 @@ export class AccountManager {
     return null
   }
 
+  /**
+   * Numeric active indexes for each model family. Exposed so callers
+   * that persist `activeIndexByFamily` (e.g. command-data's remove
+   * path) can capture the live cursor per family without going
+   * through the account-lookup layer.
+   */
+  getActiveIndexByFamily(
+    identity?: AccountSessionIdentity,
+  ): Record<ModelFamily, number> {
+    return {
+      claude: this.getActiveIndex('claude', identity),
+      gemini: this.getActiveIndex('gemini', identity),
+    }
+  }
+
   markSwitched(
     account: ManagedAccount,
     reason: 'rate-limit' | 'initial' | 'rotation',

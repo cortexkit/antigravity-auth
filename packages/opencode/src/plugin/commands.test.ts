@@ -758,6 +758,65 @@ describe('applyCommand', () => {
     }
   })
 
+  it('preserves the live coolingDownUntil when an account action refreshes the sidebar', async () => {
+    // The dialog path builds sidebar rows from the post-mutation
+    // command data, which does NOT carry the running cooldown. The
+    // sidebar refresher must look up the live account's timer by
+    // index so a rate-limited account doesn't momentarily flash as
+    // available right after the user toggles / removes / sets active.
+    const sidebarFile = join(dir, 'sidebar-state.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const getAccounts = mock(() => [
+        {
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          coolingDownUntil: 1_900_000_000_000,
+        },
+        {
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          coolingDownUntil: undefined,
+        },
+      ])
+      const refresher = createSidebarRefresher(getAccounts)
+      const dialogRows = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          current: false,
+          quota: [],
+        },
+      ]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      expect(state.accounts[0]?.cooldownUntil).toBe(1_900_000_000_000)
+      expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
+    } finally {
+      if (previousSidebarFile === undefined) {
+        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+      } else {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
   it('starts a quota refresh when the quota dialog opens without delaying its cached payload', async () => {
     const listAccounts = mock(async () => [
       {

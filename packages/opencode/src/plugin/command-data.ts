@@ -308,6 +308,13 @@ export interface CommandDataAccountManagerView {
   requestSaveToDisk(): void
   flushSaveToDisk(): Promise<void>
   activeIndex(): number
+  /**
+   * Per-family live cursor. Used by the remove path so the persisted
+   * `activeIndexByFamily` follows each model's currently-active account
+   * independently — collapsing both families to a single index would
+   * silently unelect one family on every restart.
+   */
+  getActiveIndexByFamily(): { claude: number; gemini: number }
   /** Enable/disable the account at `index`. Returns true when it changed. */
   setAccountEnabled(index: number, enabled: boolean): boolean
   /** Pin `index` as the active account for every family the dialog cares about. */
@@ -642,15 +649,18 @@ export function createCommandDataService(
     // the storage mutation. The remove action must persist the index that
     // the same account will occupy AFTER the removal — unconditionally
     // resetting to 0 made a non-current removal promote whichever account
-    // shifted into slot 0 to "active" on the next restart.
+    // shifted into slot 0 to "active" on the next restart. Each model's
+    // cursor is tracked independently, so collapse-tokens does not work
+    // here: a Claude-active account and a Gemini-active account can
+    // point at different rows.
     const liveCurrentTokens: { claude?: string; gemini?: string } = {}
     if (action === 'remove') {
       const liveAccounts = accountManagerView.getAccounts()
-      const liveCurrentIndex = accountManagerView.activeIndex()
-      const liveCurrentToken =
-        liveAccounts[liveCurrentIndex]?.refreshToken ?? undefined
-      liveCurrentTokens.claude = liveCurrentToken
-      liveCurrentTokens.gemini = liveCurrentToken
+      const liveIndexes = accountManagerView.getActiveIndexByFamily()
+      liveCurrentTokens.claude =
+        liveAccounts[liveIndexes.claude]?.refreshToken ?? undefined
+      liveCurrentTokens.gemini =
+        liveAccounts[liveIndexes.gemini]?.refreshToken ?? undefined
     }
 
     let foundInStorage = false
@@ -698,11 +708,11 @@ export function createCommandDataService(
 
       // remove: build the post-removal account list, then resolve the
       // current-account's NEW index in that list. If the removed
-      // account was the live current, the current token falls out of
-      // the list entirely and we fall back to index 0 — matching the
-      // live AccountManager.removeAccount() behavior (which leaves the
-      // current index pointing at the same numeric slot, now occupied
-      // by whichever account shifted in).
+      // account was the live current, the captured token falls out of
+      // the list — the live AccountManager leaves the numeric current
+      // cursor at the SAME index (now occupied by whichever account
+      // shifted in), so the persisted index must follow that numeric
+      // slot rather than resetting to 0.
       const nextAccounts = current.accounts.filter(
         (account) => account.refreshToken !== refreshToken,
       )
@@ -715,8 +725,12 @@ export function createCommandDataService(
         const found = nextAccounts.findIndex(
           (account) => account.refreshToken === liveToken,
         )
-        if (found === -1) return 0
-        return found
+        if (found !== -1) return found
+        // The captured current token was the one removed. The live
+        // manager keeps the numeric cursor at the removed slot, so
+        // mirror that: clamp the removed index to the new account
+        // range.
+        return Math.max(0, Math.min(index, nextAccounts.length - 1))
       }
       const legacyClaude =
         current.activeIndexByFamily?.claude ?? current.activeIndex
