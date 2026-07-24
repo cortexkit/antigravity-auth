@@ -762,9 +762,8 @@ export function createSidebarRefresher(
     enabled?: boolean
     coolingDownUntil?: number
     cachedQuota?: {
-      claude?: { remainingFraction?: number; resetTime?: string }
-      'gemini-pro'?: { remainingFraction?: number; resetTime?: string }
-      'gemini-flash'?: { remainingFraction?: number; resetTime?: string }
+      gemini?: { remainingFraction?: number; resetTime?: string }
+      'non-gemini'?: { remainingFraction?: number; resetTime?: string }
     }
   }> | null,
 ): (accounts?: CommandAccountRow[]) => Promise<void> {

@@ -52,11 +52,7 @@ import { xdgState } from 'xdg-basedir'
 
 export const SIDEBAR_STATE_VERSION = 1 as const
 
-export type SidebarQuotaKey =
-  | 'claude'
-  | 'gemini-pro'
-  | 'gemini-flash'
-  | 'gpt-oss'
+export type SidebarQuotaKey = 'gemini' | 'non-gemini'
 
 export interface SidebarQuotaEntry {
   remainingPercent: number
@@ -294,12 +290,7 @@ function normalizeAccount(input: unknown): SidebarAccountState | null {
   const quotaRaw = record.quota
   const quota: SidebarAccountState['quota'] = {}
   if (isObject(quotaRaw)) {
-    for (const key of [
-      'claude',
-      'gemini-pro',
-      'gemini-flash',
-      'gpt-oss',
-    ] as const) {
+    for (const key of ['gemini', 'non-gemini'] as const) {
       const entry = (quotaRaw as Record<string, unknown>)[key]
       const normalized = normalizeQuota(entry)
       if (normalized) quota[key] = normalized
@@ -441,10 +432,8 @@ export interface SidebarAccountRedactionInput {
   /** Health score in `[0, 100]`. Defaults to 100 when missing. */
   healthScore?: number
   cachedQuota?: {
-    claude?: { remainingFraction?: number; resetTime?: string }
-    'gemini-pro'?: { remainingFraction?: number; resetTime?: string }
-    'gemini-flash'?: { remainingFraction?: number; resetTime?: string }
-    'gpt-oss'?: { remainingFraction?: number; resetTime?: string }
+    gemini?: { remainingFraction?: number; resetTime?: string }
+    'non-gemini'?: { remainingFraction?: number; resetTime?: string }
   }
 }
 
@@ -475,12 +464,7 @@ export function redactAccountForSidebar(
   const quota: SidebarAccountState['quota'] = {}
   const cached = source.cachedQuota
   if (cached) {
-    for (const key of [
-      'claude',
-      'gemini-pro',
-      'gemini-flash',
-      'gpt-oss',
-    ] as const) {
+    for (const key of ['gemini', 'non-gemini'] as const) {
       const entry = cached[key]
       if (!entry) continue
       const fraction = entry.remainingFraction

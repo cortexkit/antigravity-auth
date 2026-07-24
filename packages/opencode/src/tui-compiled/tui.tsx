@@ -17,9 +17,9 @@ import { createElement as _$createElement } from "opentui:runtime-module:%40open
  * `AccountBlock` per visible account, a Routing section that surfaces the
  * most recent session route, and a Health section that only appears when
  * something is wrong. The Antigravity data model is richer than the
- * Claude/Codex one (per-account Claude + Gemini Pro + Gemini Flash quota
- * groups, a health score, and per-session routing decisions), so the
- * fleet components are adapted rather than copied verbatim:
+ * Claude/Codex one (per-account Gemini + Non-Gemini quota pools, a health
+ * score, and per-session routing decisions), so the fleet components are
+ * adapted rather than copied verbatim:
  *
  * - `QuotaRow` reads `remainingPercent + resetAt` from the Antigravity
  *   `SidebarQuotaEntry` shape and colors via `quotaTone` (remaining
@@ -99,12 +99,10 @@ let rpcInFlight = false;
 const GLOBAL_NOTIFICATION_CURSOR = '__global__';
 const MAX_NOTIFICATION_CURSORS = 256;
 const QUOTA_LABELS = {
-  claude: 'Cl',
-  'gemini-pro': 'GP',
-  'gemini-flash': 'GF',
-  'gpt-oss': 'GPT'
+  gemini: 'Gm',
+  'non-gemini': 'NG'
 };
-const QUOTA_ORDER = ['claude', 'gemini-pro', 'gemini-flash', 'gpt-oss'];
+const QUOTA_ORDER = ['gemini', 'non-gemini'];
 
 // --- Theme tokens ----------------------------------------------------------
 //
@@ -837,8 +835,15 @@ export function SidebarPanel(props) {
         return (() => {
           const account = () => visibleAccounts().find(entry => entry.current) ?? visibleAccounts()[0];
           const used = () => {
-            const entry = account()?.quota.claude;
+            const q = account()?.quota;
+            const entry = q?.gemini ?? q?.['non-gemini'];
             return entry ? 100 - clamp(entry.remainingPercent, 0, 100) : null;
+          };
+          const usedLabel = () => {
+            const q = account()?.quota;
+            if (q?.gemini) return 'Gm';
+            if (q?.['non-gemini']) return 'NG';
+            return '—';
           };
           const unavailable = () => {
             const selected = account();
@@ -864,7 +869,7 @@ export function SidebarPanel(props) {
                 _$insertNode(_el$44, _el$45);
                 _$insert(_el$45, (() => {
                   var _c$ = _$memo(() => used() == null);
-                  return () => _c$() ? '—' : `Cl: ${Math.round(used() ?? 0)}%`;
+                  return () => _c$() ? '—' : `${usedLabel()}: ${Math.round(used() ?? 0)}%`;
                 })());
                 _$insert(_el$46, () => unavailable() ? ' ⊘' : ' ●');
                 _$effect(_p$ => {

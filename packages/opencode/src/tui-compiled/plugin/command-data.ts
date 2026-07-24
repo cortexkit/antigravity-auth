@@ -40,6 +40,8 @@
  *   wrong account.
  */
 
+import { createHash } from 'node:crypto'
+
 import {
   buildSidebarMachineStateFromAccounts,
   type SidebarAccountRedactionInput,
@@ -70,13 +72,11 @@ type CommandDataAccountMetadata = {
     Record<CommandDataQuotaGroup, CommandDataQuotaGroupSummary>
   >
   cachedQuotaUpdatedAt?: number
+  cachedQuotaAccountId?: string
+  accountIneligible?: boolean
 }
 
-type CommandDataQuotaGroup =
-  | 'claude'
-  | 'gemini-pro'
-  | 'gemini-flash'
-  | 'gpt-oss'
+type CommandDataQuotaGroup = 'gemini' | 'non-gemini'
 
 type CommandDataQuotaGroupSummary = {
   remainingFraction?: number
@@ -127,13 +127,13 @@ export interface CommandAccountRow {
   id: string
   /** Position in the live account array at projection time. */
   index: number
-  /** Display label (PII-free OAuth `name`, falling back to `Account N`). */
+  /** Privacy-safe ordinal display label (for example, `Account 1`). */
   label: string
   enabled: boolean
   /** `true` when this row matches the harness-active account. */
   current: boolean
   quota: Array<{
-    key: 'claude' | 'gemini-pro' | 'gemini-flash'
+    key: 'gemini' | 'non-gemini'
     label: string
     remainingPercent: number | null
     resetAt?: number
@@ -148,15 +148,13 @@ const QUOTA_GROUP_LABELS: Record<
   CommandAccountRow['quota'][number]['key'],
   string
 > = {
-  claude: 'Claude',
-  'gemini-pro': 'Gemini Pro',
-  'gemini-flash': 'Gemini Flash',
+  gemini: 'Gemini',
+  'non-gemini': 'Non-Gemini',
 }
 
 const SUPPORTED_QUOTA_KEYS = [
-  'claude',
-  'gemini-pro',
-  'gemini-flash',
+  'gemini',
+  'non-gemini',
 ] as const satisfies readonly CommandAccountRow['quota'][number]['key'][]
 
 interface LiveAccountSnapshot {
@@ -169,10 +167,20 @@ interface LiveAccountSnapshot {
     Record<CommandDataQuotaGroup, CommandDataQuotaGroupSummary>
   >
   cachedQuotaUpdatedAt?: number
+  cachedQuotaAccountId?: string
+  accountIneligible?: boolean
 }
 
 function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
-  const cached = entry.cachedQuota
+  // Stamp mismatch: the cached quota was captured for a different account
+  // (the refresh token changed, or an index shift placed another account's
+  // snapshot at this position). Drop the stale cache rather than rendering
+  // the wrong account's quota percentages.
+  const cached =
+    entry.cachedQuotaAccountId &&
+    entry.cachedQuotaAccountId !== quotaAccountIdentity(entry.refreshToken)
+      ? undefined
+      : entry.cachedQuota
   const quota: CommandAccountRow['quota'] = []
   for (const key of SUPPORTED_QUOTA_KEYS) {
     const cachedEntry = cached?.[key]
@@ -197,7 +205,7 @@ function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
       resetAt,
     })
   }
-  const label = entry.label ?? `Account ${entry.index + 1}`
+  const label = `Account ${entry.index + 1}`
   return {
     id: `acct-${entry.index}`,
     index: entry.index,
@@ -206,6 +214,15 @@ function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
     current: entry.active,
     quota,
   }
+}
+
+/**
+ * Opaque identity derived from a refresh token. Antigravity refresh tokens
+ * are stable (they do not rotate), so this hash is a durable, prunable
+ * identity to detect a stale cached quota after an account-index shift.
+ */
+function quotaAccountIdentity(refreshToken: string): string {
+  return createHash('sha256').update(refreshToken).digest('hex').slice(0, 16)
 }
 
 export function projectCommandAccountRows(
@@ -222,6 +239,7 @@ export function projectCommandAccountRows(
       active: index === activeIndex,
       cachedQuota: entry.cachedQuota,
       cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+      cachedQuotaAccountId: entry.cachedQuotaAccountId,
     }),
   )
 }
@@ -259,6 +277,7 @@ export interface CommandDataAccountManagerView {
     groups: Partial<
       Record<CommandDataQuotaGroup, CommandDataQuotaGroupSummary>
     >,
+    expectedRefreshToken?: string,
   ): void
   requestSaveToDisk(): void
   flushSaveToDisk(): Promise<void>
@@ -397,9 +416,8 @@ export function createCommandDataService(
 
   const writeSidebar = (rows: CommandAccountRow[]): void => {
     const accounts: SidebarAccountRedactionInput[] = rows.map((row) => {
-      const claude = row.quota.find((q) => q.key === 'claude')
-      const geminiPro = row.quota.find((q) => q.key === 'gemini-pro')
-      const geminiFlash = row.quota.find((q) => q.key === 'gemini-flash')
+      const gemini = row.quota.find((q) => q.key === 'gemini')
+      const nonGemini = row.quota.find((q) => q.key === 'non-gemini')
       const toFraction = (
         q: { remainingPercent: number | null } | undefined,
       ): { remainingFraction?: number; resetTime?: string } | undefined => {
@@ -412,9 +430,8 @@ export function createCommandDataService(
         enabled: row.enabled,
         current: row.current,
         cachedQuota: {
-          claude: toFraction(claude),
-          'gemini-pro': toFraction(geminiPro),
-          'gemini-flash': toFraction(geminiFlash),
+          gemini: toFraction(gemini),
+          'non-gemini': toFraction(nonGemini),
         },
       }
     })
@@ -448,94 +465,78 @@ export function createCommandDataService(
         force: true,
       })
 
-      // Index the live account manager view BEFORE we mutate so we can
-      // key each result by refresh token (canonical identity) rather
-      // than by the array index, which a concurrent OAuth could shift
-      // between the quota fetch and the persist.
-      const liveSnapshot = accountManagerView.getAccounts()
-      const indexByRefreshToken = new Map<string, number>()
-      for (const entry of liveSnapshot) {
-        if (entry.refreshToken) {
-          indexByRefreshToken.set(entry.refreshToken, entry.index)
-        }
-      }
-
-      // Map each result to the live-view index by refresh token.
       const refreshedAt = now()
-      const persisted: Array<{
-        index: number
+      const updates: Array<{
+        refreshToken: string
         groups?: Partial<
           Record<CommandDataQuotaGroup, CommandDataQuotaGroupSummary>
         >
       }> = []
       for (const result of results) {
-        const matchToken = result.updatedAccount?.refreshToken
-        const matchIndex =
-          matchToken !== undefined
-            ? indexByRefreshToken.get(matchToken)
-            : undefined
-        const index = matchIndex ?? result.index
+        const refreshToken =
+          result.updatedAccount?.refreshToken ??
+          accountsForQuota[result.index]?.refreshToken
+        if (!refreshToken) continue
         const groups =
           result.status === 'ok' && result.quota?.groups
             ? result.quota.groups
             : undefined
-        persisted.push({ index, groups })
+        updates.push({ refreshToken, groups })
       }
 
-      // Apply updates to the live view keyed by refresh token. We do
-      // this BEFORE the storage write so any subsequent listAccounts
-      // call sees the freshly refreshed percentages even if the storage
-      // lock contention has not resolved yet.
-      for (const update of persisted) {
-        if (update.groups) {
-          accountManagerView.updateQuotaCache(update.index, update.groups)
-        }
+      // Resolve live indexes only after the network request. Numeric indexes
+      // from the quota result refer to the original input array and may now
+      // identify a different account after a concurrent add/remove.
+      const liveIndexByRefreshToken = new Map<string, number>()
+      for (const entry of accountManagerView.getAccounts()) {
+        liveIndexByRefreshToken.set(entry.refreshToken, entry.index)
       }
-      // Ask the live AccountManager to schedule a save. The
-      // AccountManager is already wired with `requestSaveToDisk` and
-      // dedupes the underlying disk write; calling it is cheap.
-      accountManagerView.requestSaveToDisk()
+      let liveQuotaChanged = false
+      for (const update of updates) {
+        const liveIndex = liveIndexByRefreshToken.get(update.refreshToken)
+        if (liveIndex === undefined || !update.groups) continue
+        accountManagerView.updateQuotaCache(
+          liveIndex,
+          update.groups,
+          update.refreshToken,
+        )
+        liveQuotaChanged = true
+      }
+      if (liveQuotaChanged) accountManagerView.requestSaveToDisk()
 
-      // Best-effort storage write keyed by refresh token (re-read under
-      // the lock so a concurrent OAuth add cannot have shifted indexes).
+      // Persist by canonical refresh token against the latest locked snapshot.
+      // A removed account is skipped rather than falling back to its old index.
       if (storage) {
-        const writeResult = storage.mutate((current) => {
-          const tokenByIndex = new Map<number, string>()
-          for (const [token, idx] of indexByRefreshToken) {
-            tokenByIndex.set(idx, token)
-          }
-          const persistedByToken = new Map<string, (typeof persisted)[number]>()
-          for (const update of persisted) {
-            const token = tokenByIndex.get(update.index)
-            if (token) persistedByToken.set(token, update)
-          }
-          const next: CommandDataAccountStorage = {
-            ...current,
-            accounts: current.accounts.map((entry) => {
-              const update = persistedByToken.get(entry.refreshToken)
-              if (!update) return entry
-              if (update.groups) {
-                return {
-                  ...entry,
-                  cachedQuota: update.groups,
-                  cachedQuotaUpdatedAt: refreshedAt,
-                }
-              }
-              // Error result keeps the previous cached percentage
-              // (freshness matters more than a clean slate) and only
-              // bumps the timestamp so the dialog knows we tried.
+        const updateByRefreshToken = new Map(
+          updates.map((update) => [update.refreshToken, update]),
+        )
+        const writeResult = storage.mutate((current) => ({
+          ...current,
+          accounts: current.accounts.map((entry) => {
+            const update = updateByRefreshToken.get(entry.refreshToken)
+            if (!update) return entry
+            if (update.groups) {
               return {
                 ...entry,
+                cachedQuota: update.groups,
+                // Stamp the persisted quota with an opaque identity derived
+                // from the refresh token so a later projection can detect
+                // a stale snapshot after an account-index shift.
+                cachedQuotaAccountId: quotaAccountIdentity(entry.refreshToken),
                 cachedQuotaUpdatedAt: refreshedAt,
               }
-            }),
-          }
-          return next
-        })
+            }
+            // Error result keeps the previous cached percentage and only
+            // records that a refresh was attempted.
+            return {
+              ...entry,
+              cachedQuotaUpdatedAt: refreshedAt,
+            }
+          }),
+        }))
         await Promise.resolve(writeResult).catch(() => {
-          // Storage write is best-effort — the live AccountManager
-          // already carries the freshly refreshed percentages, and the
-          // auth-loader's next requestSaveToDisk call will reconcile.
+          // The live AccountManager already carries successful refreshes; its
+          // next save can reconcile a transient storage-lock failure.
         })
       }
 
@@ -547,162 +548,137 @@ export function createCommandDataService(
     },
 
     async setCurrentAccount(index) {
-      return mutateLiveAndStorage({
-        action: 'setCurrent',
-        index,
-        applyLive: (idx) => accountManagerView.setAccountCurrent(idx),
-      })
+      return mutateLiveAndStorage({ action: 'setCurrent', index })
     },
 
     async toggleAccountEnabled(index) {
-      return mutateLiveAndStorage({
-        action: 'toggleEnabled',
-        index,
-        applyLive: (idx) => {
-          const snapshot = accountManagerView.getAccounts()[idx]
-          if (!snapshot) return false
-          // Flip the current `enabled` flag. Disabled → enabled is
-          // blocked at the AccountManager layer for ineligible
-          // accounts, but the data service cannot see `ineligible`
-          // directly — we still forward the request and let the
-          // AccountManager enforce it.
-          return accountManagerView.setAccountEnabled(idx, !snapshot.enabled)
-        },
-      })
+      return mutateLiveAndStorage({ action: 'toggleEnabled', index })
     },
 
     async removeAccount(index) {
-      return mutateLiveAndStorage({
-        action: 'remove',
-        index,
-        applyLive: (idx) => accountManagerView.removeAccountByIndex(idx),
-      })
+      return mutateLiveAndStorage({ action: 'remove', index })
     },
   }
 
-  /**
-   * Shared mutation helper for the three dialog actions. Each one
-   * follows the same write-then-live ordering the CLI menu uses at
-   * `plugin/oauth-methods.ts:1064-1083`:
-   *
-   *   1. Read the live view, capture the refresh token at `index`, and
-   *      reject out-of-range indices BEFORE reaching the lock so a
-   *      no-op index returns `null` without paying the disk cost.
-   *   2. Run the locked storage mutator. We key the write by refresh
-   *      token (canonical identity) so a concurrent OAuth add cannot
-   *      have shifted our `index` between the read and the write.
-   *      Removal uses a `filter` so the deleted account cannot be
-   *      resurrected by a merge; toggling updates the flag in place.
-   *      For `setCurrent`, the on-disk `activeIndex` is computed from
-   *      the storage-lookup position (`tokenIdx`), NOT the caller's
-   *      live `index` — the flat array can have shifted between the
-   *      dialog open and the apply.
-   *   3. ONLY apply the matching live AccountManager mutation after
-   *      the locked write resolves. A failed write must leave the
-   *      runtime consistent with the still-on-disk file — the dialog
-   *      surfaces the error text instead of toasting success.
-   *   4. Flush the AccountManager's debounced save so the on-disk file
-   *      matches the runtime when the apply response returns. (Most
-   *      of the dialog's mutations do not schedule a save themselves,
-   *      so this flush is the only persistence guarantee.)
-   *   5. Re-read the live view, push a fresh sidebar snapshot, and
-   *      return the freshly projected rows so the dialog can re-render
-   *      in place.
-   */
   async function mutateLiveAndStorage(args: {
     action: 'setCurrent' | 'toggleEnabled' | 'remove'
     index: number
-    applyLive: (index: number) => boolean
   }): Promise<CommandAccountRow[] | null> {
-    const { index, applyLive, action } = args
-    const liveBefore = accountManagerView.getAccounts()
-    const target = liveBefore[index]
+    const { index, action } = args
+    const target = accountManagerView.getAccounts()[index]
     if (!target) return null
     const refreshToken =
       accountManagerView.getRefreshTokenAt(index) ?? target.refreshToken
     if (!refreshToken) return null
+    if (
+      action === 'toggleEnabled' &&
+      target.enabled === false &&
+      target.accountIneligible === true
+    ) {
+      throw new Error(
+        'This account is ineligible and cannot be enabled until eligibility is rechecked.',
+      )
+    }
 
     if (!storage) {
-      // Without a storage adapter the mutation cannot survive a restart —
-      // bail out so the dialog surfaces a clear error rather than
-      // leaving the runtime and disk permanently out of sync.
       throw new Error(
         'CommandDataService is missing a locked-storage adapter; account mutations are disabled.',
       )
     }
 
-    // AWAIT the locked-storage write FIRST. The CLI menu does the same
-    // (oauth-methods.ts:1064-1078 then :1083) so a failed write keeps
-    // the runtime consistent with disk. Any rejection — lock contention,
-    // AccountStorageUnreadableError, I/O — propagates to the apply layer
-    // which toasts the message and leaves the dialog alive.
+    let foundInStorage = false
+    let desiredEnabled: boolean | undefined
+    let previousEnabled: boolean | undefined
     await storage.mutate((current) => {
       const tokenIdx = current.accounts.findIndex(
         (entry) => entry.refreshToken === refreshToken,
       )
       if (tokenIdx === -1) return current
+      foundInStorage = true
 
       if (action === 'setCurrent') {
-        // Use the STORAGE-side position (`tokenIdx`), not the caller's
-        // live `index`. A concurrent OAuth add can shift the flat array
-        // between the dialog open and the apply, so writing `index`
-        // here would target the wrong account after restart.
-        const last = current.accounts.length - 1
-        const clamped = Math.min(Math.max(tokenIdx, 0), last < 0 ? 0 : last)
         return {
           ...current,
-          activeIndex: clamped,
-          activeIndexByFamily: {
-            claude: clamped,
-            gemini: clamped,
-          },
+          activeIndex: tokenIdx,
+          activeIndexByFamily: { claude: tokenIdx, gemini: tokenIdx },
         }
       }
 
       if (action === 'toggleEnabled') {
         const entry = current.accounts[tokenIdx]
         if (!entry) return current
-        const nextEnabled = entry.enabled === false
+        previousEnabled = entry.enabled !== false
+        desiredEnabled = entry.enabled === false
+        if (desiredEnabled && entry.accountIneligible === true) {
+          throw new Error(
+            'This account is ineligible and cannot be enabled until eligibility is rechecked.',
+          )
+        }
         return {
           ...current,
-          accounts: current.accounts.map((acc) =>
-            acc.refreshToken === refreshToken
-              ? { ...acc, enabled: nextEnabled }
-              : acc,
+          accounts: current.accounts.map((account) =>
+            account.refreshToken === refreshToken
+              ? { ...account, enabled: desiredEnabled }
+              : account,
           ),
         }
       }
 
-      // 'remove' — filter out the target and reset the active index
-      // the same way the CLI menu does it (lines 1064-1078 of
-      // plugin/oauth-methods.ts): cursor clamps to 0 so the next
-      // selection lands on a still-present account.
-      const remaining = current.accounts.filter(
-        (acc) => acc.refreshToken !== refreshToken,
-      )
       return {
         ...current,
-        accounts: remaining,
+        accounts: current.accounts.filter(
+          (account) => account.refreshToken !== refreshToken,
+        ),
         activeIndex: 0,
         activeIndexByFamily: { claude: 0, gemini: 0 },
       }
     })
 
-    // Live in-memory mutation. We do this AFTER the storage write
-    // resolves so the disk is authoritative for restart recovery; the
-    // live view catching up afterwards keeps the next `listAccounts`
-    // consistent. A rejection above would have already exited this
-    // function — the live mutation never runs on a failed write.
-    applyLive(index)
-    // Drain the AccountManager's debounced save so the on-disk file
-    // matches the dialog's mutation by the time the apply response
-    // returns. Without this, `setCurrent` and `remove` (whose AccountManager
-    // methods do not schedule saves) would leave disk stale after the
-    // locked mutator above already landed.
+    if (!foundInStorage) return null
+
+    // Re-resolve the live index by canonical identity after the awaited disk
+    // transaction. A concurrent OAuth add/remove may have shifted every index.
+    const liveIndex = accountManagerView
+      .getAccounts()
+      .findIndex((account) => account.refreshToken === refreshToken)
+    let applied = action === 'remove' && liveIndex === -1
+    if (liveIndex !== -1) {
+      if (action === 'setCurrent') {
+        applied = accountManagerView.setAccountCurrent(liveIndex)
+      } else if (action === 'toggleEnabled') {
+        applied = accountManagerView.setAccountEnabled(
+          liveIndex,
+          desiredEnabled === true,
+        )
+        if (!applied) {
+          applied =
+            accountManagerView.getAccounts()[liveIndex]?.enabled ===
+            desiredEnabled
+        }
+      } else {
+        applied = accountManagerView.removeAccountByIndex(liveIndex)
+      }
+    }
+
+    if (!applied && action !== 'remove') {
+      if (action === 'toggleEnabled' && previousEnabled !== undefined) {
+        await storage.mutate((current) => ({
+          ...current,
+          accounts: current.accounts.map((account) =>
+            account.refreshToken === refreshToken
+              ? { ...account, enabled: previousEnabled }
+              : account,
+          ),
+        }))
+      }
+      throw new Error(
+        'The account changed while the operation was being applied; reopen the dialog and try again.',
+      )
+    }
+
     await accountManagerView.flushSaveToDisk().catch(() => {
-      // Lock contention is the only realistic failure — the locked
-      // storage write above already persisted the mutation, so the
-      // next periodic flush will reconcile.
+      // The locked storage mutation already committed; a later periodic flush
+      // can reconcile transient AccountManager lock contention.
     })
 
     const rows = projectRows()

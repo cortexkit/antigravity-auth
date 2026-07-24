@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { AccountStorageStore } from './account-storage.ts'
 import { AccountStorageLockContentionError } from './account-storage.ts'
 import type {
@@ -18,6 +19,7 @@ import {
   MAX_FINGERPRINT_HISTORY,
   updateFingerprintVersion,
 } from './fingerprint.ts'
+import { getQuotaGroupForModel } from './model-registry.ts'
 import type { QuotaGroup, QuotaGroupSummary } from './quota-types.ts'
 import {
   type AccountWithMetrics,
@@ -25,7 +27,6 @@ import {
   getTokenTracker,
   selectHybridAccount,
 } from './rotation.ts'
-import { getModelFamily } from './transform/model-resolver.ts'
 
 export type {
   AccountSelectionStrategy,
@@ -89,6 +90,8 @@ export interface ManagedAccount {
   fingerprintHistory?: FingerprintVersion[]
   /** Cached quota data from last checkAccountsQuota() call */
   cachedQuota?: Partial<Record<QuotaGroup, QuotaGroupSummary>>
+  /** Opaque identity of the refresh token that produced `cachedQuota`. */
+  cachedQuotaAccountId?: string
   cachedQuotaUpdatedAt?: number
   verificationRequired?: boolean
   verificationRequiredAt?: number
@@ -111,6 +114,17 @@ function clampNonNegativeInt(value: unknown, fallback: number): number {
     return fallback
   }
   return value < 0 ? 0 : Math.floor(value)
+}
+
+/**
+ * Opaque identity for a refresh token.
+ *
+ * Antigravity refresh tokens are stable (they do not rotate), so hashing
+ * the token produces a durable, prunable identity to detect stale cached
+ * quota after an account-index shift.
+ */
+function quotaAccountIdentity(refreshToken: string): string {
+  return createHash('sha256').update(refreshToken).digest('hex').slice(0, 16)
 }
 
 function getQuotaKey(
@@ -209,10 +223,11 @@ function clearExpiredRateLimits(
 /**
  * Resolve the quota group for soft quota checks.
  *
- * When a model string is available, we can precisely determine the quota group.
- * When model is null/undefined, we fall back based on family:
- * - Claude → "claude" quota group
- * - Gemini → "gemini-pro" (conservative fallback; may misclassify flash models)
+ * When a model string is available we use the model-registry lookup first,
+ * then fall back to substring matching. When model is null/undefined we
+ * fall back based on family:
+ * - Claude → "non-gemini" quota group
+ * - Gemini → "gemini" quota group
  *
  * @param family - The model family ("claude" | "gemini")
  * @param model - Optional model string for precise resolution
@@ -223,9 +238,15 @@ export function resolveQuotaGroup(
   model?: string | null,
 ): QuotaGroup {
   if (model) {
-    return getModelFamily(model)
+    const registryGroup = getQuotaGroupForModel(model)
+    if (registryGroup) return registryGroup
+    const lower = model.toLowerCase()
+    if (lower.includes('gemini')) return 'gemini'
+    if (lower.includes('claude') || lower.includes('gpt-oss')) {
+      return 'non-gemini'
+    }
   }
-  return family === 'claude' ? 'claude' : 'gemini-pro'
+  return family === 'claude' ? 'non-gemini' : 'gemini'
 }
 
 function isOverSoftQuotaThreshold(
@@ -1822,12 +1843,23 @@ export class AccountManager {
   updateQuotaCache(
     accountIndex: number,
     quotaGroups: Partial<Record<QuotaGroup, QuotaGroupSummary>>,
+    expectedRefreshToken?: string,
   ): void {
     const account = this.accounts[accountIndex]
-    if (account) {
-      account.cachedQuota = quotaGroups
-      account.cachedQuotaUpdatedAt = this.now()
-    }
+    if (
+      !account ||
+      (account.parts.refreshToken !== expectedRefreshToken &&
+        expectedRefreshToken !== undefined)
+    )
+      return
+    account.cachedQuota = quotaGroups
+    // Stamp the cached quota with an opaque identity derived from the refresh
+    // token so a later projection can detect a stale snapshot captured for
+    // a different account after an index shift.
+    account.cachedQuotaAccountId = quotaAccountIdentity(
+      account.parts.refreshToken,
+    )
+    account.cachedQuotaUpdatedAt = this.now()
   }
 
   /**

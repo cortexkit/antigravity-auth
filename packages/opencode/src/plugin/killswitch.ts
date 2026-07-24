@@ -59,8 +59,8 @@ export interface KillswitchEvaluateOptions {
 const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000
 
 const QUOTA_GROUP_BY_FAMILY: Record<ModelFamily, readonly QuotaGroup[]> = {
-  claude: ['claude'],
-  gemini: ['gemini-pro', 'gemini-flash', 'gpt-oss'],
+  claude: ['non-gemini'],
+  gemini: ['gemini', 'non-gemini'],
 }
 
 /**
@@ -76,11 +76,10 @@ function quotaGroupForModel(
 ): QuotaGroup | null {
   if (!model) return null
   const lower = model.toLowerCase()
-  if (family === 'claude') return 'claude'
+  if (family === 'claude') return 'non-gemini'
   if (family === 'gemini') {
-    if (lower.includes('pro')) return 'gemini-pro'
-    if (lower.includes('flash')) return 'gemini-flash'
-    if (lower.includes('gpt-oss') || lower.includes('oss')) return 'gpt-oss'
+    if (lower.includes('gemini') || lower.startsWith('tab_')) return 'gemini'
+    if (lower.includes('gpt-oss') || lower.includes('oss')) return 'non-gemini'
   }
   return null
 }

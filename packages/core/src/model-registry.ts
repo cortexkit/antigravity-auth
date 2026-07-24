@@ -19,11 +19,7 @@ export interface ModelLimit {
 }
 
 export type ModelModality = 'text' | 'image' | 'pdf'
-export type ModelQuotaGroup =
-  | 'claude'
-  | 'gemini-pro'
-  | 'gemini-flash'
-  | 'gpt-oss'
+export type ModelQuotaGroup = 'gemini' | 'non-gemini'
 
 export interface ModelModalities {
   input: ModelModality[]
@@ -281,25 +277,25 @@ const GEMINI_36_FLASH_ROUTES: AntigravityTieredRouteMetadata = {
 }
 
 const QUOTA_GROUP_BY_MODEL_ID: Record<string, ModelQuotaGroup> = {
-  'claude-opus-4-6-thinking': 'claude',
-  'claude-opus-4-6': 'claude',
-  'claude-sonnet-4-6-thinking': 'claude',
-  'claude-sonnet-4-6': 'claude',
-  'gemini-pro-agent': 'gemini-pro',
-  'gemini-3.1-pro': 'gemini-pro',
-  'gemini-3.1-pro-low': 'gemini-pro',
-  'gemini-3.1-pro-high': 'gemini-pro',
-  'gemini-3-flash': 'gemini-flash',
-  'gemini-3-flash-agent': 'gemini-flash',
-  'gemini-3.5-flash-low': 'gemini-flash',
-  'gemini-3.5-flash-extra-low': 'gemini-flash',
-  'gemini-3.6-flash-low': 'gemini-flash',
-  'gemini-3.6-flash-medium': 'gemini-flash',
-  'gemini-3.6-flash-high': 'gemini-flash',
-  'gemini-3.6-flash-tiered': 'gemini-flash',
-  'gemini-3.1-flash-image': 'gemini-flash',
-  'gpt-oss-120b': 'gpt-oss',
-  'gpt-oss-120b-medium': 'gpt-oss',
+  'claude-opus-4-6-thinking': 'non-gemini',
+  'claude-opus-4-6': 'non-gemini',
+  'claude-sonnet-4-6-thinking': 'non-gemini',
+  'claude-sonnet-4-6': 'non-gemini',
+  'gemini-pro-agent': 'gemini',
+  'gemini-3.1-pro': 'gemini',
+  'gemini-3.1-pro-low': 'gemini',
+  'gemini-3.1-pro-high': 'gemini',
+  'gemini-3-flash': 'gemini',
+  'gemini-3-flash-agent': 'gemini',
+  'gemini-3.5-flash-low': 'gemini',
+  'gemini-3.5-flash-extra-low': 'gemini',
+  'gemini-3.6-flash-low': 'gemini',
+  'gemini-3.6-flash-medium': 'gemini',
+  'gemini-3.6-flash-high': 'gemini',
+  'gemini-3.6-flash-tiered': 'gemini',
+  'gemini-3.1-flash-image': 'gemini',
+  'gpt-oss-120b': 'non-gemini',
+  'gpt-oss-120b-medium': 'non-gemini',
 }
 
 const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
@@ -360,5 +356,13 @@ export function getGemini36FlashAntigravityModel(tier?: ThinkingTier): string {
 export function getQuotaGroupForModel(
   modelId: string,
 ): ModelQuotaGroup | undefined {
-  return QUOTA_GROUP_BY_MODEL_ID[modelId.toLowerCase()]
+  const normalized = modelId.toLowerCase()
+  return (
+    QUOTA_GROUP_BY_MODEL_ID[normalized] ??
+    (normalized.startsWith('gemini') || normalized.startsWith('tab_')
+      ? 'gemini'
+      : normalized.startsWith('claude') || normalized.startsWith('gpt-oss')
+        ? 'non-gemini'
+        : undefined)
+  )
 }

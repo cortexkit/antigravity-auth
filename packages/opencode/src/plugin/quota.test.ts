@@ -43,28 +43,30 @@ describe('classifyQuotaGroup', () => {
   it('uses live Antigravity model ids for quota groups', () => {
     expect(
       classifyQuotaGroup('gemini-3-flash-agent', 'Gemini 3.5 Flash (High)'),
-    ).toBe('gemini-flash')
+    ).toBe('gemini')
     expect(
       classifyQuotaGroup('gemini-3.5-flash-low', 'Gemini 3.5 Flash (Low)'),
-    ).toBe('gemini-flash')
+    ).toBe('gemini')
     expect(
       classifyQuotaGroup(
         'gemini-3.6-flash-medium',
         'Gemini 3.6 Flash (Medium)',
       ),
-    ).toBe('gemini-flash')
+    ).toBe('gemini')
     expect(classifyQuotaGroup('gemini-pro-agent', 'Gemini 3.1 Pro')).toBe(
-      'gemini-pro',
+      'gemini',
     )
     expect(classifyQuotaGroup('claude-sonnet-4-6', 'Claude Sonnet 4.6')).toBe(
-      'claude',
+      'non-gemini',
     )
   })
 
-  it('classifies gpt-oss models into gpt-oss quota group', () => {
-    expect(classifyQuotaGroup('gpt-oss-120b', 'GPT-OSS 120B')).toBe('gpt-oss')
+  it('classifies gpt-oss models into the non-Gemini pool', () => {
+    expect(classifyQuotaGroup('gpt-oss-120b', 'GPT-OSS 120B')).toBe(
+      'non-gemini',
+    )
     expect(classifyQuotaGroup('gpt-oss-120b-medium', 'GPT-OSS 120B')).toBe(
-      'gpt-oss',
+      'non-gemini',
     )
   })
 
@@ -100,12 +102,12 @@ describe('pushSidebarQuotaSnapshot', () => {
         enabled: true,
         coolingDownUntil: undefined,
         cachedQuota: {
-          claude: {
+          'non-gemini': {
             remainingFraction: 0.42,
             resetTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
             modelCount: 1,
           },
-          'gemini-pro': { remainingFraction: 0.85, modelCount: 1 },
+          gemini: { remainingFraction: 0.85, modelCount: 1 },
         },
       },
       {
@@ -114,7 +116,7 @@ describe('pushSidebarQuotaSnapshot', () => {
         enabled: false,
         coolingDownUntil: Date.now() + 5 * 60 * 1000,
         cachedQuota: {
-          'gemini-flash': { remainingFraction: 0.15, modelCount: 1 },
+          gemini: { remainingFraction: 0.15, modelCount: 1 },
         },
       },
     ]
@@ -128,11 +130,11 @@ describe('pushSidebarQuotaSnapshot', () => {
     expect(JSON.stringify(state)).not.toContain('Primary Account')
     expect(JSON.stringify(state)).not.toContain('Backup Account')
     expect(state.accounts[0]?.enabled).toBe(true)
-    expect(state.accounts[0]?.quota.claude?.remainingPercent).toBe(42)
-    expect(state.accounts[0]?.quota['gemini-pro']?.remainingPercent).toBe(85)
+    expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(42)
+    expect(state.accounts[0]?.quota.gemini?.remainingPercent).toBe(85)
     expect(state.accounts[1]?.enabled).toBe(false)
     expect(state.accounts[1]?.cooldownUntil).toBeGreaterThan(Date.now())
-    expect(state.accounts[1]?.quota['gemini-flash']?.remainingPercent).toBe(15)
+    expect(state.accounts[1]?.quota.gemini?.remainingPercent).toBe(15)
   })
 
   it('records quotaBackoffUntil when a backoff is active without losing cached quota', async () => {
@@ -142,7 +144,7 @@ describe('pushSidebarQuotaSnapshot', () => {
         label: 'Primary Account',
         enabled: true,
         cachedQuota: {
-          claude: { remainingFraction: 0.6, modelCount: 1 },
+          'non-gemini': { remainingFraction: 0.6, modelCount: 1 },
         },
       },
     ]
@@ -154,7 +156,7 @@ describe('pushSidebarQuotaSnapshot', () => {
     expect(state.quotaBackoffUntil).toBe(backoffUntil)
     // The pre-existing cached quota is preserved — backoff must not erase
     // fresher data per the freshness-merge contract.
-    expect(state.accounts[0]?.quota.claude?.remainingPercent).toBe(60)
+    expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(60)
   })
 
   it('is a no-op when getAccounts returns null', async () => {
@@ -206,7 +208,7 @@ describe('pushSidebarQuotaSnapshot', () => {
           index: 0,
           email: 'primary@example.test',
           cachedQuota: {
-            claude: { remainingFraction: 0.42, modelCount: 1 },
+            'non-gemini': { remainingFraction: 0.42, modelCount: 1 },
           },
         },
       ],

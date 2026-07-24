@@ -444,7 +444,7 @@ describe('redaction', () => {
             health: 100,
             current: false,
             quota: {
-              claude: { remainingPercent: 80 },
+              gemini: { remainingPercent: 80 },
             },
           },
         ],
@@ -502,13 +502,13 @@ describe('redaction', () => {
     expect(redactAccountForSidebar({ index: 1 }).label).toBe('Account 2')
   })
 
-  it('redacts GPT-OSS quota into the sidebar state', () => {
+  it('redacts non-Gemini quota into the sidebar state', () => {
     const redacted = redactAccountForSidebar({
       index: 0,
       cachedQuota: {
-        'gpt-oss': { remainingFraction: 0.42 },
+        'non-gemini': { remainingFraction: 0.42 },
       },
     })
-    expect(redacted.quota['gpt-oss']?.remainingPercent).toBe(42)
+    expect(redacted.quota['non-gemini']?.remainingPercent).toBe(42)
   })
 })

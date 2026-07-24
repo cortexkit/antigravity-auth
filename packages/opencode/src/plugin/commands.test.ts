@@ -714,8 +714,8 @@ describe('applyCommand', () => {
             current: true,
             quota: [
               {
-                key: 'claude' as const,
-                label: 'Claude',
+                key: 'non-gemini' as const,
+                label: 'Non-Gemini',
                 remainingPercent: 50,
               },
             ],
@@ -747,7 +747,7 @@ describe('applyCommand', () => {
 
       const state = readSidebarState(sidebarFile)
       expect(state.accounts).toHaveLength(2)
-      expect(state.accounts[0]?.quota.claude?.remainingPercent).toBe(50)
+      expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(50)
       expect(state.accounts[1]?.quota).toEqual({})
     } finally {
       if (previousSidebarFile === undefined) {

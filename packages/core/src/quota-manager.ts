@@ -27,7 +27,6 @@ import type {
   QuotaGroupSummary,
   QuotaSummary,
 } from './quota-types.ts'
-import { getModelFamily } from './transform/model-resolver.ts'
 
 const log = createLogger('quota-manager')
 
@@ -418,16 +417,16 @@ export function classifyQuotaGroup(
   }
 
   const combined = `${modelName} ${displayName ?? ''}`.toLowerCase()
-  if (combined.includes('claude')) {
-    return 'claude'
+  if (
+    combined.includes('gemini') ||
+    modelName.toLowerCase().startsWith('tab_')
+  ) {
+    return 'gemini'
   }
-  const isGemini3 =
-    combined.includes('gemini-3') || combined.includes('gemini 3')
-  if (!isGemini3) {
-    return null
+  if (combined.includes('claude') || combined.includes('gpt-oss')) {
+    return 'non-gemini'
   }
-  const family = getModelFamily(modelName)
-  return family === 'gemini-flash' ? 'gemini-flash' : 'gemini-pro'
+  return null
 }
 
 function normalizeRemainingFraction(value: unknown): number {

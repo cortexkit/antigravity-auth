@@ -44,7 +44,7 @@ function makeHarness(
       status: 'ok',
       email: account.email,
       quota: {
-        groups: { claude: { remainingFraction: 0.5, modelCount: 1 } },
+        groups: { 'non-gemini': { remainingFraction: 0.5, modelCount: 1 } },
         modelCount: 1,
       },
     }
@@ -72,36 +72,45 @@ function track(disposable: { dispose: () => void }) {
 }
 
 describe('classifyQuotaGroup', () => {
-  it('classifies Antigravity claude models', () => {
+  it('classifies Claude models into the non-Gemini pool', () => {
     const { classifyQuotaGroup } = createQuotaManager({
       fetchAccountQuota: makeHarness().fetch,
       keyOf: keyOfAccount,
     })
     expect(classifyQuotaGroup('claude-sonnet-4-6', 'Claude Sonnet 4.6')).toBe(
-      'claude',
+      'non-gemini',
     )
   })
 
-  it('classifies gemini flash vs pro via registry', () => {
+  it('classifies every Gemini model into the Gemini pool', () => {
     const { classifyQuotaGroup } = createQuotaManager({
       fetchAccountQuota: makeHarness().fetch,
       keyOf: keyOfAccount,
     })
     expect(
       classifyQuotaGroup('gemini-3.5-flash-low', 'Gemini 3.5 Flash (Low)'),
-    ).toBe('gemini-flash')
+    ).toBe('gemini')
     expect(classifyQuotaGroup('gemini-3.1-pro', 'Gemini 3.1 Pro')).toBe(
-      'gemini-pro',
+      'gemini',
     )
   })
 
-  it('classifies gpt-oss variants', () => {
+  it('classifies tab autocomplete models into the Gemini pool', () => {
+    const { classifyQuotaGroup } = createQuotaManager({
+      fetchAccountQuota: makeHarness().fetch,
+      keyOf: keyOfAccount,
+    })
+
+    expect(classifyQuotaGroup('tab_12345', 'Autocomplete')).toBe('gemini')
+  })
+
+  it('classifies GPT-OSS variants into the non-Gemini pool', () => {
     const { classifyQuotaGroup } = createQuotaManager({
       fetchAccountQuota: makeHarness().fetch,
       keyOf: keyOfAccount,
     })
     expect(classifyQuotaGroup('gpt-oss-120b-medium', 'GPT-OSS 120B')).toBe(
-      'gpt-oss',
+      'non-gemini',
     )
   })
 
@@ -140,9 +149,9 @@ describe('aggregateQuota', () => {
         modelName: 'Gemini Flash',
       },
     })
-    expect(summary.groups.claude?.remainingFraction).toBe(0.8)
-    expect(summary.groups['gemini-pro']?.remainingFraction).toBe(0.4)
-    expect(summary.groups['gemini-flash']?.remainingFraction).toBe(0.1)
+    expect(summary.groups['non-gemini']?.remainingFraction).toBe(0.8)
+    expect(summary.groups.gemini?.remainingFraction).toBe(0.1)
+    expect(summary.groups.gemini?.modelCount).toBe(2)
     expect(summary.perModel).toHaveLength(3)
     expect(summary.modelCount).toBe(3)
   })
@@ -164,8 +173,8 @@ describe('aggregateQuota', () => {
         modelName: 'Flash',
       },
     })
-    expect(summary.groups.claude?.remainingFraction).toBe(1)
-    expect(summary.groups['gemini-flash']?.remainingFraction).toBe(0)
+    expect(summary.groups['non-gemini']?.remainingFraction).toBe(1)
+    expect(summary.groups.gemini?.remainingFraction).toBe(0)
   })
 })
 

@@ -209,6 +209,7 @@ export const createAntigravityPlugin =
             active: index === current,
             cachedQuota: entry.cachedQuota,
             cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+            cachedQuotaAccountId: entry.cachedQuotaAccountId,
             accountIneligible: entry.accountIneligible,
           }))
         },
@@ -216,8 +217,10 @@ export const createAntigravityPlugin =
           const manager = lifecycle.getAccountManager()
           return manager ? manager.getAccountsForQuotaCheck() : []
         },
-        updateQuotaCache: (index, groups) => {
-          lifecycle.getAccountManager()?.updateQuotaCache(index, groups)
+        updateQuotaCache: (index, groups, expectedRefreshToken) => {
+          lifecycle
+            .getAccountManager()
+            ?.updateQuotaCache(index, groups, expectedRefreshToken)
         },
         requestSaveToDisk: () => {
           lifecycle.getAccountManager()?.requestSaveToDisk()

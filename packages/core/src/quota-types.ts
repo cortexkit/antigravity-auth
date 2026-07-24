@@ -9,7 +9,7 @@
 
 import type { AccountMetadataV3 } from './account-types.ts'
 
-export type QuotaGroup = 'claude' | 'gemini-pro' | 'gemini-flash' | 'gpt-oss'
+export type QuotaGroup = 'gemini' | 'non-gemini'
 
 export interface QuotaGroupSummary {
   remainingFraction?: number

@@ -55,10 +55,8 @@ import {
 } from './command-data'
 
 interface QuotaGroupFixture {
-  claude?: { remainingFraction?: number; resetTime?: string }
-  'gemini-pro'?: { remainingFraction?: number; resetTime?: string }
-  'gemini-flash'?: { remainingFraction?: number; resetTime?: string }
-  'gpt-oss'?: { remainingFraction?: number; resetTime?: string }
+  gemini?: { remainingFraction?: number; resetTime?: string }
+  'non-gemini'?: { remainingFraction?: number; resetTime?: string }
 }
 
 interface AccountFixture {
@@ -361,11 +359,11 @@ describe('createCommandDataService', () => {
           refreshToken: 'refresh-a',
           label: 'Primary',
           cachedQuota: {
-            claude: {
+            'non-gemini': {
               remainingFraction: 0.4,
               resetTime: new Date(0).toISOString(),
             },
-            'gemini-pro': { remainingFraction: 0.7 },
+            gemini: { remainingFraction: 0.7 },
           },
         }),
         makeAccountFixture({
@@ -373,7 +371,7 @@ describe('createCommandDataService', () => {
           label: 'Backup',
           enabled: false,
           cachedQuota: {
-            'gemini-flash': { remainingFraction: 0.15 },
+            gemini: { remainingFraction: 0.15 },
           },
         }),
       ],
@@ -403,16 +401,16 @@ describe('createCommandDataService', () => {
     })
     expect(rows[0]?.quota).toEqual([
       {
-        key: 'claude',
-        label: 'Claude',
-        remainingPercent: 40,
-        resetAt: 0,
-      },
-      {
-        key: 'gemini-pro',
-        label: 'Gemini Pro',
+        key: 'gemini',
+        label: 'Gemini',
         remainingPercent: 70,
         resetAt: undefined,
+      },
+      {
+        key: 'non-gemini',
+        label: 'Non-Gemini',
+        remainingPercent: 40,
+        resetAt: 0,
       },
     ])
     expect(rows[1]).toMatchObject({
@@ -431,7 +429,7 @@ describe('createCommandDataService', () => {
           refreshToken: 'refresh-a',
           label: 'A',
           cachedQuota: {
-            claude: { remainingFraction: 0.5 },
+            'non-gemini': { remainingFraction: 0.5 },
           },
         }),
       ],
@@ -468,11 +466,11 @@ describe('createCommandDataService', () => {
         baseAccount(
           'refresh-a',
           {
-            claude: {
+            'non-gemini': {
               remainingFraction: 0.8,
               resetTime: new Date(0).toISOString(),
             },
-            'gemini-pro': {
+            gemini: {
               remainingFraction: 0.6,
               resetTime: new Date(0).toISOString(),
             },
@@ -485,7 +483,7 @@ describe('createCommandDataService', () => {
         baseAccount(
           'refresh-b',
           {
-            'gemini-flash': {
+            gemini: {
               remainingFraction: 0.25,
               resetTime: new Date(0).toISOString(),
             },
@@ -500,7 +498,7 @@ describe('createCommandDataService', () => {
         makeAccountFixture({
           refreshToken: 'refresh-a',
           label: 'Alpha',
-          cachedQuota: { claude: { remainingFraction: 0.1 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.1 } },
           cachedQuotaUpdatedAt: 1,
         }),
         makeAccountFixture({
@@ -531,15 +529,15 @@ describe('createCommandDataService', () => {
     // The rows returned by refresh reflect the freshly persisted quota.
     expect(rows[0]?.label).toBe('Account 1')
     expect(
-      rows[0]?.quota.find((q) => q.key === 'claude')?.remainingPercent,
+      rows[0]?.quota.find((q) => q.key === 'non-gemini')?.remainingPercent,
     ).toBe(80)
     expect(
-      rows[0]?.quota.find((q) => q.key === 'gemini-pro')?.remainingPercent,
+      rows[0]?.quota.find((q) => q.key === 'gemini')?.remainingPercent,
     ).toBe(60)
 
     expect(rows[1]?.label).toBe('Account 2')
     expect(
-      rows[1]?.quota.find((q) => q.key === 'gemini-flash')?.remainingPercent,
+      rows[1]?.quota.find((q) => q.key === 'gemini')?.remainingPercent,
     ).toBe(25)
 
     // The serialized rows must not leak the seeded email.
@@ -557,7 +555,7 @@ describe('createCommandDataService', () => {
           status: 'ok',
           quota: {
             groups: {
-              claude: {
+              'non-gemini': {
                 remainingFraction: 0.7,
                 resetTime: new Date(0).toISOString(),
                 modelCount: 1,
@@ -579,13 +577,13 @@ describe('createCommandDataService', () => {
         makeAccountFixture({
           refreshToken: 'refresh-a',
           label: 'Alpha',
-          cachedQuota: { claude: { remainingFraction: 0.1 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.1 } },
           cachedQuotaUpdatedAt: 1,
         }),
         makeAccountFixture({
           refreshToken: 'refresh-b',
           label: 'Beta',
-          cachedQuota: { 'gemini-flash': { remainingFraction: 0.05 } },
+          cachedQuota: { gemini: { remainingFraction: 0.05 } },
           cachedQuotaUpdatedAt: 1,
         }),
       ],
@@ -601,13 +599,13 @@ describe('createCommandDataService', () => {
     // The source-of-truth snapshot must show the refreshed percentage
     // AND a bumped cachedQuotaUpdatedAt for the refreshed account.
     expect(
-      harness.storage.accounts[0]?.cachedQuota?.claude?.remainingFraction,
+      harness.storage.accounts[0]?.cachedQuota?.['non-gemini']
+        ?.remainingFraction,
     ).toBe(0.7)
     expect(harness.storage.accounts[0]?.cachedQuotaUpdatedAt).toBeGreaterThan(1)
     // The non-refreshed account's cached state must remain untouched.
     expect(
-      harness.storage.accounts[1]?.cachedQuota?.['gemini-flash']
-        ?.remainingFraction,
+      harness.storage.accounts[1]?.cachedQuota?.gemini?.remainingFraction,
     ).toBe(0.05)
   })
 
@@ -620,7 +618,7 @@ describe('createCommandDataService', () => {
           status: 'ok',
           quota: {
             groups: {
-              claude: {
+              'non-gemini': {
                 remainingFraction: 0.9,
                 resetTime: new Date(0).toISOString(),
                 modelCount: 1,
@@ -642,7 +640,7 @@ describe('createCommandDataService', () => {
         makeAccountFixture({
           refreshToken: 'refresh-a',
           label: 'Alpha',
-          cachedQuota: { claude: { remainingFraction: 0.1 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.1 } },
           cachedQuotaUpdatedAt: 1,
         }),
       ],
@@ -655,7 +653,7 @@ describe('createCommandDataService', () => {
     expect(state.version).toBe(SIDEBAR_STATE_VERSION)
     expect(state.accounts).toHaveLength(1)
     expect(state.accounts[0]?.label).toBe('Account 1')
-    expect(state.accounts[0]?.quota.claude?.remainingPercent).toBe(90)
+    expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(90)
     // Sidebar must NOT carry email even though the source account does.
     const serialized = JSON.stringify(state)
     expect(serialized).not.toContain('@example.test')
@@ -693,7 +691,7 @@ describe('createCommandDataService', () => {
         makeAccountFixture({
           refreshToken: 'refresh-a',
           label: 'Alpha',
-          cachedQuota: { claude: { remainingFraction: 0.4 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.4 } },
           cachedQuotaUpdatedAt: 100,
         }),
       ],
@@ -705,7 +703,7 @@ describe('createCommandDataService', () => {
     expect(rows).toHaveLength(1)
     // Error result keeps the cached percentage — never silently drops it.
     expect(
-      rows[0]?.quota.find((q) => q.key === 'claude')?.remainingPercent,
+      rows[0]?.quota.find((q) => q.key === 'non-gemini')?.remainingPercent,
     ).toBe(40)
   })
 
@@ -1045,7 +1043,7 @@ describe('createCommandDataService', () => {
           status: 'ok',
           quota: {
             groups: {
-              claude: { remainingFraction: 0.1, modelCount: 1 },
+              'non-gemini': { remainingFraction: 0.1, modelCount: 1 },
             },
             modelCount: 1,
           },
@@ -1062,7 +1060,7 @@ describe('createCommandDataService', () => {
         makeAccountFixture({ refreshToken: 'refresh-a' }),
         makeAccountFixture({
           refreshToken: 'refresh-b',
-          cachedQuota: { claude: { remainingFraction: 0.8 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.8 } },
         }),
       ],
       refreshResults,
@@ -1074,30 +1072,30 @@ describe('createCommandDataService', () => {
     await harness.service.refreshQuota()
 
     expect(harness.liveView[0]?.refreshToken).toBe('refresh-b')
-    expect(harness.liveView[0]?.cachedQuota?.claude?.remainingFraction).toBe(
-      0.8,
-    )
+    expect(
+      harness.liveView[0]?.cachedQuota?.['non-gemini']?.remainingFraction,
+    ).toBe(0.8)
   })
 
-  it('projects GPT-OSS quota into command rows and sidebar state', async () => {
+  it('projects non-Gemini quota into command rows and sidebar state', async () => {
     const harness = makeHarness({
       accounts: [
         makeAccountFixture({
           refreshToken: 'refresh-a',
-          cachedQuota: { 'gpt-oss': { remainingFraction: 0.42 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.42 } },
         }),
       ],
     })
 
     const rows = await harness.service.refreshQuota()
     expect(rows[0]?.quota).toContainEqual({
-      key: 'gpt-oss',
-      label: 'GPT-OSS',
+      key: 'non-gemini',
+      label: 'Non-Gemini',
       remainingPercent: 42,
       resetAt: undefined,
     })
     const state = await readSidebar(harness.stateFile)
-    expect(state.accounts[0]?.quota['gpt-oss']?.remainingPercent).toBe(42)
+    expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(42)
   })
 
   it('setCurrentAccount() writes the token-indexed position, not the caller-supplied live index', async () => {

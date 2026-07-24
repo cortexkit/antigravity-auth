@@ -40,6 +40,8 @@
  *   wrong account.
  */
 
+import { createHash } from 'node:crypto'
+
 import {
   buildSidebarMachineStateFromAccounts,
   type SidebarAccountRedactionInput,
@@ -70,14 +72,11 @@ type CommandDataAccountMetadata = {
     Record<CommandDataQuotaGroup, CommandDataQuotaGroupSummary>
   >
   cachedQuotaUpdatedAt?: number
+  cachedQuotaAccountId?: string
   accountIneligible?: boolean
 }
 
-type CommandDataQuotaGroup =
-  | 'claude'
-  | 'gemini-pro'
-  | 'gemini-flash'
-  | 'gpt-oss'
+type CommandDataQuotaGroup = 'gemini' | 'non-gemini'
 
 type CommandDataQuotaGroupSummary = {
   remainingFraction?: number
@@ -134,7 +133,7 @@ export interface CommandAccountRow {
   /** `true` when this row matches the harness-active account. */
   current: boolean
   quota: Array<{
-    key: 'claude' | 'gemini-pro' | 'gemini-flash' | 'gpt-oss'
+    key: 'gemini' | 'non-gemini'
     label: string
     remainingPercent: number | null
     resetAt?: number
@@ -149,17 +148,13 @@ const QUOTA_GROUP_LABELS: Record<
   CommandAccountRow['quota'][number]['key'],
   string
 > = {
-  claude: 'Claude',
-  'gemini-pro': 'Gemini Pro',
-  'gemini-flash': 'Gemini Flash',
-  'gpt-oss': 'GPT-OSS',
+  gemini: 'Gemini',
+  'non-gemini': 'Non-Gemini',
 }
 
 const SUPPORTED_QUOTA_KEYS = [
-  'claude',
-  'gemini-pro',
-  'gemini-flash',
-  'gpt-oss',
+  'gemini',
+  'non-gemini',
 ] as const satisfies readonly CommandAccountRow['quota'][number]['key'][]
 
 interface LiveAccountSnapshot {
@@ -172,11 +167,20 @@ interface LiveAccountSnapshot {
     Record<CommandDataQuotaGroup, CommandDataQuotaGroupSummary>
   >
   cachedQuotaUpdatedAt?: number
+  cachedQuotaAccountId?: string
   accountIneligible?: boolean
 }
 
 function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
-  const cached = entry.cachedQuota
+  // Stamp mismatch: the cached quota was captured for a different account
+  // (the refresh token changed, or an index shift placed another account's
+  // snapshot at this position). Drop the stale cache rather than rendering
+  // the wrong account's quota percentages.
+  const cached =
+    entry.cachedQuotaAccountId &&
+    entry.cachedQuotaAccountId !== quotaAccountIdentity(entry.refreshToken)
+      ? undefined
+      : entry.cachedQuota
   const quota: CommandAccountRow['quota'] = []
   for (const key of SUPPORTED_QUOTA_KEYS) {
     const cachedEntry = cached?.[key]
@@ -212,6 +216,15 @@ function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
   }
 }
 
+/**
+ * Opaque identity derived from a refresh token. Antigravity refresh tokens
+ * are stable (they do not rotate), so this hash is a durable, prunable
+ * identity to detect a stale cached quota after an account-index shift.
+ */
+function quotaAccountIdentity(refreshToken: string): string {
+  return createHash('sha256').update(refreshToken).digest('hex').slice(0, 16)
+}
+
 export function projectCommandAccountRows(
   storage: CommandDataAccountStorage | null | undefined,
 ): CommandAccountRow[] {
@@ -226,6 +239,7 @@ export function projectCommandAccountRows(
       active: index === activeIndex,
       cachedQuota: entry.cachedQuota,
       cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+      cachedQuotaAccountId: entry.cachedQuotaAccountId,
     }),
   )
 }
@@ -263,6 +277,7 @@ export interface CommandDataAccountManagerView {
     groups: Partial<
       Record<CommandDataQuotaGroup, CommandDataQuotaGroupSummary>
     >,
+    expectedRefreshToken?: string,
   ): void
   requestSaveToDisk(): void
   flushSaveToDisk(): Promise<void>
@@ -401,10 +416,8 @@ export function createCommandDataService(
 
   const writeSidebar = (rows: CommandAccountRow[]): void => {
     const accounts: SidebarAccountRedactionInput[] = rows.map((row) => {
-      const claude = row.quota.find((q) => q.key === 'claude')
-      const geminiPro = row.quota.find((q) => q.key === 'gemini-pro')
-      const geminiFlash = row.quota.find((q) => q.key === 'gemini-flash')
-      const gptOss = row.quota.find((q) => q.key === 'gpt-oss')
+      const gemini = row.quota.find((q) => q.key === 'gemini')
+      const nonGemini = row.quota.find((q) => q.key === 'non-gemini')
       const toFraction = (
         q: { remainingPercent: number | null } | undefined,
       ): { remainingFraction?: number; resetTime?: string } | undefined => {
@@ -417,10 +430,8 @@ export function createCommandDataService(
         enabled: row.enabled,
         current: row.current,
         cachedQuota: {
-          claude: toFraction(claude),
-          'gemini-pro': toFraction(geminiPro),
-          'gemini-flash': toFraction(geminiFlash),
-          'gpt-oss': toFraction(gptOss),
+          gemini: toFraction(gemini),
+          'non-gemini': toFraction(nonGemini),
         },
       }
     })
@@ -484,7 +495,11 @@ export function createCommandDataService(
       for (const update of updates) {
         const liveIndex = liveIndexByRefreshToken.get(update.refreshToken)
         if (liveIndex === undefined || !update.groups) continue
-        accountManagerView.updateQuotaCache(liveIndex, update.groups)
+        accountManagerView.updateQuotaCache(
+          liveIndex,
+          update.groups,
+          update.refreshToken,
+        )
         liveQuotaChanged = true
       }
       if (liveQuotaChanged) accountManagerView.requestSaveToDisk()
@@ -504,6 +519,10 @@ export function createCommandDataService(
               return {
                 ...entry,
                 cachedQuota: update.groups,
+                // Stamp the persisted quota with an opaque identity derived
+                // from the refresh token so a later projection can detect
+                // a stale snapshot after an account-index shift.
+                cachedQuotaAccountId: quotaAccountIdentity(entry.refreshToken),
                 cachedQuotaUpdatedAt: refreshedAt,
               }
             }
