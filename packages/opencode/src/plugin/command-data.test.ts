@@ -23,6 +23,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -70,6 +71,7 @@ interface AccountFixture {
   label?: string
   cachedQuota?: QuotaGroupFixture
   cachedQuotaUpdatedAt?: number
+  cachedQuotaAccountId?: string
   accountIneligible?: boolean
 }
 
@@ -98,6 +100,10 @@ interface Harness {
   // Live view, for asserting post-update state.
   liveView: AccountFixture[]
   activeIndex: number
+}
+
+function quotaAccountIdentity(refreshToken: string): string {
+  return createHash('sha256').update(refreshToken).digest('hex').slice(0, 16)
 }
 
 function makeHarness(options: {
@@ -148,6 +154,7 @@ function makeHarness(options: {
           >
         | undefined,
       cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+      cachedQuotaAccountId: entry.cachedQuotaAccountId,
       accountIneligible: entry.accountIneligible,
     })),
   }
@@ -213,6 +220,7 @@ function makeHarness(options: {
           | Partial<Record<QuotaGroup, QuotaGroupSummary>>
           | undefined,
         cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+        cachedQuotaAccountId: entry.cachedQuotaAccountId,
         accountIneligible: entry.accountIneligible,
       }))
     },
@@ -230,10 +238,17 @@ function makeHarness(options: {
     updateQuotaCache(
       index: number,
       groups: Partial<Record<QuotaGroup, QuotaGroupSummary>>,
+      expectedRefreshToken?: string,
     ) {
       const account = liveView[index]
-      if (!account) return
+      if (
+        !account ||
+        (account.refreshToken !== expectedRefreshToken &&
+          expectedRefreshToken !== undefined)
+      )
+        return
       account.cachedQuota = groups as QuotaGroupFixture | undefined
+      account.cachedQuotaAccountId = quotaAccountIdentity(account.refreshToken)
       account.cachedQuotaUpdatedAt = Date.now()
     },
     requestSaveToDisk() {
@@ -442,6 +457,54 @@ describe('createCommandDataService', () => {
       expect(rows).toHaveLength(1)
     }
     expect(harness.quotaCallLog).toEqual([])
+  })
+
+  it('drops a quota snapshot when the identity stamp does not match the current account', async () => {
+    // Account B has a cached quota stamped under account A's identity.
+    // The projection must drop the stale cache rather than rendering
+    // the wrong account's quota percentages.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-b',
+          label: 'Account B',
+          cachedQuota: { gemini: { remainingFraction: 0.5 } },
+          cachedQuotaAccountId: quotaAccountIdentity('refresh-a'),
+        }),
+      ],
+    })
+
+    const rows = await harness.service.listAccounts()
+
+    expect(rows).toHaveLength(1)
+    // Identity mismatch — cached quota dropped; row must render empty quota.
+    expect(rows[0]?.quota).toEqual([])
+  })
+
+  it('renders an unstamped legacy snapshot (fail open — no stamp means no mismatch)', async () => {
+    // A cached quota without any identity stamp was written by an older
+    // version of the code. The projection must fail OPEN: no stamp means
+    // the quota is treated as belonging to whichever account it sits on.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-a',
+          label: 'Account A',
+          cachedQuota: { gemini: { remainingFraction: 0.5 } },
+          // Deliberately omit cachedQuotaAccountId — legacy snapshot.
+        }),
+      ],
+    })
+
+    const rows = await harness.service.listAccounts()
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.quota).toContainEqual({
+      key: 'gemini',
+      label: 'Gemini',
+      remainingPercent: 50,
+      resetAt: undefined,
+    })
   })
 
   it('refreshQuota() fetches every account, including an uncached new account, through the shared quota manager', async () => {

@@ -12,10 +12,10 @@ export type { HeaderStyle } from './constants.ts'
 
 /**
  * Coarse routing key for the on-disk account pool. Distinct from the
- * transform-level `ModelFamily` (which carries 'gemini' | 'non-gemini' for
- * quota-pool routing): here we only need 'claude' vs 'gemini' to track
- * per-family active indices. Named distinctly to avoid the shadow collision
- * with `transform/types.ts` on re-export.
+ * transform-level `ModelFamily` (which carries 'claude' | 'gemini-flash' |
+ * 'gemini-pro' for tiered routing): here we only need 'claude' vs 'gemini'
+ * to track per-family active indices. Named distinctly to avoid the
+ * shadow collision with `transform/types.ts` on re-export.
  */
 export type AccountModelFamily = 'claude' | 'gemini'
 
