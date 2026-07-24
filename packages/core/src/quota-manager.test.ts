@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AccountMetadataV3 } from './account-types.ts'
-import { createQuotaManager, type FetchAccountQuota } from './quota-manager.ts'
+import {
+  aggregateQuotaSummary,
+  createQuotaManager,
+  type FetchAccountQuota,
+  fetchQuotaSummary,
+  type RetrieveUserQuotaSummaryResponse,
+} from './quota-manager.ts'
 import type { AccountQuotaResult } from './quota-types.ts'
 
 function makeAccount(
@@ -774,5 +782,242 @@ describe('hashed log labels', () => {
     )
     // Empty email still produces a label
     expect(hashedLogLabel('x', '')).toMatch(/^x [a-f0-9]{8}$/)
+  })
+})
+
+// ============================================================================
+// aggregateQuotaSummary — windowed quota from retrieveUserQuotaSummary
+// ============================================================================
+
+function loadFixture(name: string): RetrieveUserQuotaSummaryResponse {
+  const path = join(import.meta.dir, '__fixtures__', 'quota', name)
+  const raw = readFileSync(path, 'utf8')
+  return JSON.parse(raw) as RetrieveUserQuotaSummaryResponse
+}
+
+describe('aggregateQuotaSummary', () => {
+  it('maps Pro (weekly+5h) groups to pools by bucketId prefix', () => {
+    const response = loadFixture('pro-ruqs.json')
+    const summary = aggregateQuotaSummary(response)
+
+    expect(summary.groups.gemini).toBeDefined()
+    expect(summary.groups['non-gemini']).toBeDefined()
+
+    const gemini = summary.groups.gemini!
+    expect(gemini.windows).toHaveLength(2)
+    // weekly first
+    expect(gemini.windows![0]!.window).toBe('weekly')
+    expect(gemini.windows![0]!.remainingFraction).toBeCloseTo(0.9214, 3)
+    expect(gemini.windows![1]!.window).toBe('5h')
+    expect(gemini.windows![1]!.remainingFraction).toBeCloseTo(0.9886, 3)
+
+    const nonGemini = summary.groups['non-gemini']!
+    expect(nonGemini.windows).toHaveLength(2)
+    expect(nonGemini.windows![0]!.window).toBe('weekly')
+    expect(nonGemini.windows![0]!.remainingFraction).toBeCloseTo(0.9852, 3)
+    expect(nonGemini.windows![1]!.window).toBe('5h')
+    expect(nonGemini.windows![1]!.remainingFraction).toBeCloseTo(0.9556, 3)
+  })
+
+  it('maps Free (weekly-only) groups to pools', () => {
+    const response = loadFixture('free-ruqs.json')
+    const summary = aggregateQuotaSummary(response)
+
+    const gemini = summary.groups.gemini!
+    // Weekly-only: one window
+    expect(gemini.windows).toHaveLength(1)
+    expect(gemini.windows![0]!.window).toBe('weekly')
+    expect(gemini.windows![0]!.remainingFraction).toBeCloseTo(0.8875, 3)
+
+    const nonGemini = summary.groups['non-gemini']!
+    expect(nonGemini.windows).toHaveLength(1)
+    expect(nonGemini.windows![0]!.window).toBe('weekly')
+    expect(nonGemini.windows![0]!.remainingFraction).toBe(1)
+  })
+
+  it('derives most-constrained remainingFraction and resetTime per pool', () => {
+    const response = loadFixture('pro-ruqs.json')
+    const summary = aggregateQuotaSummary(response)
+
+    // Gemini: weekly=0.9214, 5h=0.9886 → weekly is more constrained
+    expect(summary.groups.gemini!.remainingFraction).toBeCloseTo(0.9214, 3)
+    expect(summary.groups.gemini!.resetTime).toBe('2026-07-28T18:24:21Z')
+
+    // Non-gemini: weekly=0.9852, 5h=0.9556 → 5h is more constrained
+    expect(summary.groups['non-gemini']!.remainingFraction).toBeCloseTo(
+      0.9556,
+      3,
+    )
+    expect(summary.groups['non-gemini']!.resetTime).toBe('2026-07-24T18:41:52Z')
+  })
+
+  it('preserves window order: weekly first, then 5h', () => {
+    const response = loadFixture('pro-ruqs.json')
+    const summary = aggregateQuotaSummary(response)
+
+    for (const group of Object.values(summary.groups)) {
+      if (!group?.windows) continue
+      for (let i = 1; i < group.windows.length; i++) {
+        const prev = group.windows[i - 1]!
+        const curr = group.windows[i]!
+        // All weeklies come before any 5h
+        if (prev.window === 'weekly' && curr.window === '5h') continue
+        if (prev.window === 'weekly' && curr.window === 'weekly') continue
+        if (prev.window === '5h' && curr.window === '5h') continue
+        // A 5h before a weekly = wrong order
+        expect(prev.window).not.toBe('5h')
+      }
+    }
+  })
+
+  it('back-compat: treats a windows-less QuotaGroupSummary gracefully', () => {
+    // Legacy shapes may have no `windows` array — consumers read
+    // `remainingFraction`/`resetTime` directly which are the derived values.
+    const response = loadFixture('free-ruqs.json')
+    const summary = aggregateQuotaSummary(response)
+
+    // `remainingFraction` is the most-constrained (and only) window
+    expect(summary.groups.gemini!.remainingFraction).toBe(
+      summary.groups.gemini!.windows![0]!.remainingFraction,
+    )
+    // Consumers that check `if (entry.windows)` skip per-window rendering
+    // and fall back to a single QuotaRow — this is the tolerant-read path.
+  })
+})
+
+// ============================================================================
+// fetchQuotaSummary — network layer with managedProjectId fallback
+// ============================================================================
+
+describe('fetchQuotaSummary', () => {
+  const ENDPOINTS = ['http://127.0.0.1:1'] as const
+
+  it('returns the summary when the server responds 200', async () => {
+    const summary: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-01T00:00:00Z',
+              remainingFraction: 0.5,
+            },
+          ],
+        },
+      ],
+    }
+    const fetchVia = async () =>
+      new Response(JSON.stringify(summary), { status: 200 })
+    const result = await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'mp',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    expect(result.summary.groups).toHaveLength(1)
+    expect(result.summary.groups[0]!.buckets[0]!.bucketId).toBe('gemini-weekly')
+  })
+
+  it('falls back to projectId when managedProjectId returns 403', async () => {
+    const summary: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            {
+              bucketId: '3p-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-01T00:00:00Z',
+              remainingFraction: 0.3,
+            },
+          ],
+        },
+      ],
+    }
+    let triedManaged = false
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      if (body.project === 'mp') {
+        triedManaged = true
+        return new Response(JSON.stringify({ error: 'PERMISSION_DENIED' }), {
+          status: 403,
+        })
+      }
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    const result = await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'mp',
+      projectId: 'regular',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    expect(triedManaged).toBe(true)
+    expect(result.summary.groups[0]!.buckets[0]!.bucketId).toBe('3p-weekly')
+  })
+
+  it('throws when all project IDs fail (caller handles fallback)', async () => {
+    const fetchVia = async () =>
+      new Response('{"error":"PERMISSION_DENIED"}', { status: 403 })
+    await expect(
+      fetchQuotaSummary({
+        accessToken: 'tok',
+        projectId: 'regular',
+        endpoints: ENDPOINTS,
+        fetchVia: fetchVia as any,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('uses managedProjectId as primary when both IDs are present', async () => {
+    let receivedProjectId = ''
+    const summary: RetrieveUserQuotaSummaryResponse = {
+      groups: [],
+    }
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      receivedProjectId = body.project as string
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'managed-proj',
+      projectId: 'regular-proj',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    expect(receivedProjectId).toBe('managed-proj')
+  })
+
+  it('falls back to projectId when managedProjectId is missing', async () => {
+    let receivedProjectId = ''
+    const summary: RetrieveUserQuotaSummaryResponse = {
+      groups: [],
+    }
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      receivedProjectId = body.project as string
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    await fetchQuotaSummary({
+      accessToken: 'tok',
+      projectId: 'regular-proj',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    expect(receivedProjectId).toBe('regular-proj')
   })
 })

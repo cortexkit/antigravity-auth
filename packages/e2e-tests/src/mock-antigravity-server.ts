@@ -87,6 +87,23 @@ export interface GeminiCliQuotaFixture extends BaseFixture {
   buckets: Array<{ model: string; remainingFraction: number }>
 }
 
+/** Windowed quota summary envelope — fed to `retrieveUserQuotaSummary`. */
+export interface QuotaSummaryWindowFixture extends BaseFixture {
+  kind: 'quotaSummaryWindow'
+  /** Groups with their per-window buckets. */
+  groups: Array<{
+    displayName: string
+    description?: string
+    buckets: Array<{
+      bucketId: string
+      displayName: string
+      window: 'weekly' | '5h'
+      resetTime: string
+      remainingFraction: number
+    }>
+  }>
+}
+
 /** Chunked SSE stream — one chunk per `chunks` element. */
 export interface StreamChunkedFixture extends BaseFixture {
   kind: 'streamChunked'
@@ -130,6 +147,7 @@ export type Fixture =
   | GenerateContentFixture
   | ProjectDiscoveryFixture
   | QuotaSummaryFixture
+  | QuotaSummaryWindowFixture
   | GeminiCliQuotaFixture
   | StreamChunkedFixture
   | TokenExpiryFixture
@@ -309,6 +327,14 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
       case 'geminiCliQuota': {
         sendJson(response, fixture.status ?? 200, {
           buckets: fixture.buckets,
+        })
+        return
+      }
+      case 'quotaSummaryWindow': {
+        sendJson(response, fixture.status ?? 200, {
+          groups: fixture.groups,
+          description:
+            'Within each group, models share a weekly limit and a 5-hour limit.',
         })
         return
       }
