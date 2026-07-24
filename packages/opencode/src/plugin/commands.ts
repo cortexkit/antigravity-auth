@@ -27,6 +27,7 @@ import {
   buildSidebarMachineStateFromAccounts,
   setSidebarMachineState,
 } from '../sidebar-state'
+import type { AccountCommandOAuthService } from './account-command-oauth'
 import type { CommandAccountRow, CommandDataService } from './command-data'
 import {
   executeGeminiDumpCommand,
@@ -127,21 +128,6 @@ interface CommandContext {
    */
   commandData?: CommandDataService
   accountOAuth?: AccountCommandOAuthService
-}
-
-export interface AccountCommandOAuthService {
-  start(sessionId: string): Promise<{
-    url: string
-    accounts: CommandAccountRow[]
-  }>
-  finish(
-    sessionId: string,
-    code: string,
-    label?: string,
-  ): Promise<{
-    text: string
-    accounts: CommandAccountRow[]
-  }>
 }
 
 /**

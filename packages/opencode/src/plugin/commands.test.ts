@@ -769,7 +769,16 @@ describe('applyCommand', () => {
         quota: [],
       },
     ])
-    const refreshQuota = mock(async () => [])
+    // refreshQuota returns a never-resolving promise. If buildDialogPayload
+    // ever accidentally `await`s the refresh path (instead of the fire-
+    // and-forget `void` it does today) this test will hang and the
+    // runner will report it as a timeout — exactly the regression we
+    // want to surface.
+    let refreshStarted = false
+    const refreshQuota = mock(() => {
+      refreshStarted = true
+      return new Promise<never>(() => {})
+    })
 
     const payload = await buildDialogPayload('antigravity-quota', '', {
       client: {} as never,
@@ -779,6 +788,7 @@ describe('applyCommand', () => {
     })
 
     expect(payload.knobs.accounts).toHaveLength(1)
+    expect(refreshStarted).toBe(true)
     expect(refreshQuota).toHaveBeenCalledTimes(1)
   })
 

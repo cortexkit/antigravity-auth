@@ -22,6 +22,14 @@ export interface AccountCommandOAuthServiceOptions {
   ) => Promise<AntigravityTokenExchangeResult>
   persist: (result: OAuthSuccess) => Promise<void>
   listAccounts: () => Promise<CommandAccountRow[]>
+  /**
+   * Optional hook invoked AFTER persist completes successfully. The plugin
+   * uses it to refresh the live AccountManager so the new account is
+   * visible to routing immediately, without waiting for an auth reload.
+   * Failures are swallowed — the OAuth flow still reports success and the
+   * next periodic AccountManager reload picks up the new account.
+   */
+  onAfterPersist?: (result: OAuthSuccess) => Promise<void> | void
   now?: () => number
 }
 
@@ -66,6 +74,12 @@ export function createAccountCommandOAuthService(
       pendingBySession.delete(sessionId)
       return undefined
     }
+    // Consume the entry atomically with the take. A second concurrent
+    // `add-oauth-finish` call must observe "no pending entry" even
+    // before the first call's exchange completes — the previous
+    // peek-then-finally pattern allowed two finish() calls to both
+    // exchange and persist the same auth code.
+    pendingBySession.delete(sessionId)
     return entry
   }
 
@@ -105,33 +119,83 @@ export function createAccountCommandOAuthService(
         }
       }
 
+      // Stage 1: parse the callback URL/code. Failures here mean the
+      // user pasted a malformed callback — exchange has not started.
+      let callback: ReturnType<typeof parseOAuthCallbackInput>
       try {
-        const callback = parseOAuthCallbackInput(callbackInput, pending.state)
-        if ('error' in callback) {
-          return {
-            text: `OAuth authentication failed: ${callback.error}`,
-            accounts: await options.listAccounts(),
-          }
-        }
-        const result = await options.exchange(callback.code, callback.state)
-        if (result.type === 'failed') {
-          return {
-            text: 'OAuth authentication failed. Please check the code and try again.',
-            accounts: await options.listAccounts(),
-          }
-        }
-        await options.persist({ ...result, label: label || result.label })
+        callback = parseOAuthCallbackInput(callbackInput, pending.state)
+      } catch {
         return {
-          text: 'OAuth account added.',
+          text: 'OAuth authentication failed: could not parse the callback. Please try again.',
           accounts: await options.listAccounts(),
         }
+      }
+      if ('error' in callback) {
+        return {
+          text: `OAuth authentication failed: ${callback.error}`,
+          accounts: await options.listAccounts(),
+        }
+      }
+
+      // Stage 2: exchange the auth code with Google. Failures here mean
+      // the network or token endpoint rejected the code — nothing has
+      // been persisted yet.
+      let result: Awaited<ReturnType<typeof options.exchange>>
+      try {
+        result = await options.exchange(callback.code, callback.state)
       } catch {
         return {
           text: 'OAuth exchange failed due to a network error. Please try again.',
           accounts: await options.listAccounts(),
         }
-      } finally {
-        pendingBySession.delete(sessionId)
+      }
+      if (result.type === 'failed') {
+        return {
+          text: 'OAuth authentication failed. Please check the code and try again.',
+          accounts: await options.listAccounts(),
+        }
+      }
+
+      // Stage 3: persist the new account to disk. A failure here means
+      // the account is NOT stored — surface the stage so the operator
+      // can retry without thinking the previous error already landed it.
+      const persisted: OAuthSuccess = {
+        ...result,
+        label: label || result.label,
+      }
+      try {
+        await options.persist(persisted)
+      } catch {
+        return {
+          text: 'OAuth account could not be saved to disk. Please try again.',
+          accounts: await options.listAccounts(),
+        }
+      }
+
+      // Refresh the live AccountManager so routing sees the new account
+      // immediately instead of waiting for the next auth reload. Errors
+      // here are non-fatal — the on-disk write already landed.
+      try {
+        await options.onAfterPersist?.(persisted)
+      } catch {
+        // Best-effort refresh; swallow failures.
+      }
+
+      // Stage 4: re-list the account pool. If the post-persist read
+      // fails for any reason (lock contention, I/O) we still report the
+      // successful add — the dialog will refresh on its next open.
+      let accounts: CommandAccountRow[]
+      try {
+        accounts = await options.listAccounts()
+      } catch {
+        return {
+          text: 'OAuth account added.',
+          accounts: [],
+        }
+      }
+      return {
+        text: 'OAuth account added.',
+        accounts,
       }
     },
 
