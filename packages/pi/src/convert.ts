@@ -1,15 +1,13 @@
-import { toGeminiSchema } from "@cortexkit/antigravity-auth-core"
+import { toGeminiSchema } from '@cortexkit/antigravity-auth-core'
 import type {
   AssistantMessage,
   Context,
   ImageContent,
   Message,
   TextContent,
-  ThinkingContent,
   Tool,
-  ToolCall,
   ToolResultMessage,
-} from "@earendil-works/pi-ai"
+} from '@earendil-works/pi-ai'
 
 /** Gemini `contents` part shapes. */
 type GeminiPart =
@@ -19,10 +17,16 @@ type GeminiPart =
       functionCall: { name: string; args: Record<string, unknown>; id: string }
       thoughtSignature?: string
     }
-  | { functionResponse: { name: string; response: Record<string, unknown>; id: string } }
+  | {
+      functionResponse: {
+        name: string
+        response: Record<string, unknown>
+        id: string
+      }
+    }
 
 interface GeminiContent {
-  role: "user" | "model"
+  role: 'user' | 'model'
   parts: GeminiPart[]
 }
 
@@ -41,15 +45,17 @@ export interface GeminiRequest {
 }
 
 function sanitize(text: string): string {
-  return text.replace(/[\uD800-\uDFFF]/gu, "\uFFFD")
+  return text.replace(/[\uD800-\uDFFF]/gu, '\uFFFD')
 }
 
-function convertUserParts(content: Array<TextContent | ImageContent>): GeminiPart[] {
+function convertUserParts(
+  content: Array<TextContent | ImageContent>,
+): GeminiPart[] {
   const parts: GeminiPart[] = []
   for (const item of content) {
-    if (item.type === "text") {
+    if (item.type === 'text') {
       if (item.text) parts.push({ text: sanitize(item.text) })
-    } else if (item.type === "image" && item.data) {
+    } else if (item.type === 'image' && item.data) {
       parts.push({ inlineData: { mimeType: item.mimeType, data: item.data } })
     }
   }
@@ -62,22 +68,24 @@ function convertAssistantParts(
 ): GeminiPart[] {
   const parts: GeminiPart[] = []
   for (const block of message.content) {
-    if (block.type === "thinking") {
+    if (block.type === 'thinking') {
       if (preserveSignedHistory && block.thinking) {
         parts.push({
           text: sanitize(block.thinking),
           thought: true,
-          ...(block.thinkingSignature ? { thoughtSignature: block.thinkingSignature } : {}),
+          ...(block.thinkingSignature
+            ? { thoughtSignature: block.thinkingSignature }
+            : {}),
         })
       }
-    } else if (block.type === "text" && block.text.trim()) {
+    } else if (block.type === 'text' && block.text.trim()) {
       parts.push({
         text: sanitize(block.text),
         ...(preserveSignedHistory && block.textSignature
           ? { thoughtSignature: block.textSignature }
           : {}),
       })
-    } else if (block.type === "toolCall") {
+    } else if (block.type === 'toolCall') {
       parts.push({
         functionCall: {
           name: block.name,
@@ -93,13 +101,15 @@ function convertAssistantParts(
   return parts
 }
 
-function toolResultResponse(message: ToolResultMessage): Record<string, unknown> {
+function toolResultResponse(
+  message: ToolResultMessage,
+): Record<string, unknown> {
   const text = message.content
-    .filter((item): item is TextContent => item.type === "text")
+    .filter((item): item is TextContent => item.type === 'text')
     .map((item) => item.text)
-    .join("\n")
+    .join('\n')
   if (message.isError) {
-    return { error: text || "Error" }
+    return { error: text || 'Error' }
   }
   return { output: text }
 }
@@ -114,7 +124,9 @@ function isSameTargetModel(
   options: BuildGeminiRequestOptions | undefined,
 ): boolean {
   if (!options?.provider || !options.model) return true
-  return message.provider === options.provider && message.model === options.model
+  return (
+    message.provider === options.provider && message.model === options.model
+  )
 }
 
 function convertMessages(
@@ -125,10 +137,10 @@ function convertMessages(
   const callMatchesTarget = new Map<string, boolean>()
 
   for (const message of messages) {
-    if (message?.role !== "assistant") continue
+    if (message?.role !== 'assistant') continue
     const matchesTarget = isSameTargetModel(message, options)
     for (const block of message.content) {
-      if (block.type === "toolCall") {
+      if (block.type === 'toolCall') {
         callMatchesTarget.set(block.id, matchesTarget)
       }
     }
@@ -137,25 +149,31 @@ function convertMessages(
   for (const message of messages) {
     if (!message) continue
 
-    if (message.role === "user") {
+    if (message.role === 'user') {
       const parts =
-        typeof message.content === "string"
+        typeof message.content === 'string'
           ? message.content.trim()
             ? [{ text: sanitize(message.content) }]
             : []
-          : convertUserParts(message.content as Array<TextContent | ImageContent>)
-      if (parts.length) contents.push({ role: "user", parts })
+          : convertUserParts(
+              message.content as Array<TextContent | ImageContent>,
+            )
+      if (parts.length) contents.push({ role: 'user', parts })
       continue
     }
 
-    if (message.role === "assistant") {
-      const parts = convertAssistantParts(message, isSameTargetModel(message, options))
-      if (parts.length) contents.push({ role: "model", parts })
+    if (message.role === 'assistant') {
+      const parts = convertAssistantParts(
+        message,
+        isSameTargetModel(message, options),
+      )
+      if (parts.length) contents.push({ role: 'model', parts })
       continue
     }
 
-    if (message.role === "toolResult") {
-      const role = callMatchesTarget.get(message.toolCallId) === false ? "model" : "user"
+    if (message.role === 'toolResult') {
+      const role =
+        callMatchesTarget.get(message.toolCallId) === true ? 'model' : 'user'
       const part: GeminiPart = {
         functionResponse: {
           name: message.toolName,
@@ -165,7 +183,11 @@ function convertMessages(
       }
       // Gemini groups consecutive function responses into one user turn.
       const last = contents[contents.length - 1]
-      if (last && last.role === role && last.parts.every((p) => "functionResponse" in p)) {
+      if (
+        last &&
+        last.role === role &&
+        last.parts.every((p) => 'functionResponse' in p)
+      ) {
         last.parts.push(part)
       } else {
         contents.push({ role, parts: [part] })
@@ -208,7 +230,9 @@ export function buildGeminiRequest(
   if (tools) request.tools = tools
 
   if (context.systemPrompt?.trim()) {
-    request.systemInstruction = { parts: [{ text: sanitize(context.systemPrompt) }] }
+    request.systemInstruction = {
+      parts: [{ text: sanitize(context.systemPrompt) }],
+    }
   }
 
   return request

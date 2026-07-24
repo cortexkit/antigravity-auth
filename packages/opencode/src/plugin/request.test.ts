@@ -23,7 +23,7 @@ import {
 const AGY_1_1_5_WIRE_FIXTURE = JSON.parse(
   readFileSync(
     new URL(
-      '../../../../test-fixtures/agy-cli-1.1.5-stream-request.json',
+      '../../../../test-fixtures/agy-cli-1.1.6-stream-request.json',
       import.meta.url,
     ),
     'utf8',
@@ -1493,27 +1493,27 @@ describe('request.ts', () => {
         'antigravity-gemini-3.6-flash',
         'gemini-3.6-flash-medium',
         4000,
-        'MODEL_PLACEHOLDER_M265',
+        'MODEL_PLACEHOLDER_M72',
       ],
       [
         'antigravity-gemini-3.6-flash-low',
         'gemini-3.6-flash-low',
         1000,
-        'MODEL_PLACEHOLDER_M266',
+        'MODEL_PLACEHOLDER_M73',
       ],
       [
         'antigravity-gemini-3.6-flash-medium',
         'gemini-3.6-flash-medium',
         4000,
-        'MODEL_PLACEHOLDER_M265',
+        'MODEL_PLACEHOLDER_M72',
       ],
       [
         'antigravity-gemini-3.6-flash-high',
         'gemini-3.6-flash-high',
         10000,
-        'MODEL_PLACEHOLDER_M264',
+        'MODEL_PLACEHOLDER_M71',
       ],
-    ])('builds the captured AGY 1.1.5 request for %s', (requestedModel, wireModel, thinkingBudget, modelEnum) => {
+    ])('builds the captured AGY 1.1.6 request for %s', (requestedModel, wireModel, thinkingBudget, modelEnum) => {
       const result = prepareAntigravityRequest(
         `https://generativelanguage.googleapis.com/v1beta/models/${requestedModel}:generateContent`,
         {

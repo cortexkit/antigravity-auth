@@ -1,7 +1,7 @@
 /**
  * Device Fingerprint Generator for Rate Limit Mitigation
  *
- * Uses the agy CLI 1.1.5 content-request identity captured with mitmproxy:
+ * Uses the agy CLI 1.1.6 content-request identity captured with mitmproxy:
  * an Antigravity CLI User-Agent with explicit client, OS, architecture, and auth metadata.
  * The stored deviceId/sessionToken fields are
  * retained for account history, but content requests only send User-Agent.
@@ -9,7 +9,7 @@
 
 import * as crypto from 'node:crypto'
 
-export const AGY_CLI_VERSION = '1.1.5'
+export const AGY_CLI_VERSION = '1.1.6'
 const ANTIGRAVITY_API_CLIENT = 'antigravity-cli'
 
 export interface ClientMetadata {

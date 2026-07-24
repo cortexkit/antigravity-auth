@@ -30,7 +30,7 @@ export const ANTIGRAVITY_REDIRECT_URI = 'http://localhost:51121/oauth-callback'
 
 /**
  * Root endpoints for the Antigravity API (in fallback order).
- * Live agy CLI 1.1.5 traffic uses daily-cloudcode-pa.googleapis.com.
+ * Live agy CLI 1.1.6 traffic uses daily-cloudcode-pa.googleapis.com.
  */
 export const ANTIGRAVITY_ENDPOINT_DAILY =
   'https://daily-cloudcode-pa.googleapis.com'

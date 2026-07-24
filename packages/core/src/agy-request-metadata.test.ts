@@ -22,7 +22,7 @@ type ModelMetadataFixture = {
   >
 }
 
-const MODEL_METADATA_FIXTURES = ['1.1.3', '1.1.5'].map(
+const MODEL_METADATA_FIXTURES = ['1.1.3', '1.1.6'].map(
   (version) =>
     JSON.parse(
       readFileSync(
@@ -56,6 +56,16 @@ describe('agy request metadata', () => {
     expect(other.session.numericSessionId).toBe(first.session.numericSessionId)
   })
 
+  it('clears all stored session contexts', () => {
+    const sessions = new AgyRequestSessionStore('file:///workspace')
+    sessions.getOrCreate('session-a')
+    sessions.getOrCreate('session-b')
+
+    sessions.clear()
+
+    expect(sessions.size).toBe(0)
+  })
+
   it('creates stable session IDs with independently generated conversation and trajectory IDs', () => {
     expect(
       createAgyRequestSessionContext('file:///workspace', {
@@ -69,7 +79,7 @@ describe('agy request metadata', () => {
     })
   })
 
-  it('orders request fields like captured agy 1.1.5 payloads', () => {
+  it('orders request fields like captured agy 1.1.6 payloads', () => {
     const payload: Record<string, unknown> = {
       generationConfig: {},
       sessionId: 'session',
@@ -114,6 +124,30 @@ describe('agy request metadata', () => {
     expect(countAgyRequestSteps(payload)).toBe(4)
     expect(countAgyRequestSteps({ contents: [] })).toBe(1)
     expect(countAgyRequestSteps({})).toBe(1)
+  })
+
+  it('counts a current function response as a native CLI execution step', () => {
+    const payload = {
+      contents: [
+        { role: 'user', parts: [{ text: 'prompt' }] },
+        {
+          role: 'model',
+          parts: [
+            {
+              functionCall: { name: 'read', args: {} },
+              thoughtSignature: 'sig',
+            },
+          ],
+        },
+        {
+          role: 'model',
+          parts: [{ functionResponse: { name: 'read', response: {} } }],
+        },
+      ],
+    }
+
+    expect(countAgyRequestSteps(payload, 'contents')).toBe(3)
+    expect(countAgyRequestSteps(payload, 'cli')).toBe(4)
   })
 
   it('builds captured Claude request IDs, labels, and numeric session ID', () => {

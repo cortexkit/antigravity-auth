@@ -56,7 +56,7 @@ describe('project bootstrap', () => {
 
     expect(headers).toEqual({
       'User-Agent': expect.stringMatching(
-        /^antigravity\/cli\/1\.1\.5 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
+        /^antigravity\/cli\/1\.1\.6 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
       ),
       Authorization: 'Bearer token',
       'Content-Type': 'application/json',
@@ -89,6 +89,31 @@ describe('project bootstrap', () => {
 
     expect(url).toBe(`${ANTIGRAVITY_ENDPOINT_PROD}/v1internal:onboardUser`)
     expect(body).toEqual({ tierId: 'free-tier' })
+  })
+
+  it('reuses project context when discovery expands the packed refresh value', async () => {
+    const fetchSpy = mock().mockResolvedValue(
+      mockResponse({ cloudaicompanionProject: { id: 'managed-project' } }),
+    )
+    const { fetchWithAgyCliTransport } = await import('./agy-transport.ts')
+    ;(fetchWithAgyCliTransport as any).mockImplementation(fetchSpy)
+
+    const originalAuth = {
+      type: 'oauth' as const,
+      access: 'access-token',
+      refresh: 'refresh-token|legacy-project',
+      expires: Date.now() + 60_000,
+    }
+
+    const first = await ensureProjectContext(originalAuth)
+    const second = await ensureProjectContext(originalAuth)
+
+    expect(first.effectiveProjectId).toBe('managed-project')
+    expect(first.auth.refresh).toBe(
+      'refresh-token|legacy-project|managed-project',
+    )
+    expect(second).toEqual(first)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
   it('does not retry managed-project provisioning after a cached failure expires', async () => {

@@ -190,7 +190,7 @@ describe('debug sink redaction', () => {
     })
 
     const fingerprintUA =
-      'antigravity/cli/1.1.5 (aidev_client; os_type=linux; arch=amd64; auth_method=consumer_full_ua)'
+      'antigravity/cli/1.1.6 (aidev_client; os_type=linux; arch=amd64; auth_method=consumer_full_ua)'
 
     startAntigravityDebugRequest({
       originalUrl: 'https://example.com/v1',

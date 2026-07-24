@@ -109,11 +109,20 @@ function extractManagedProjectId(
 }
 
 /**
- * Generates a cache key for project context based on refresh token.
+ * Generates a stable cache key from the OAuth refresh token itself. Packed
+ * project fields may change after discovery, but they still identify the same
+ * credential and must hit the same project-context cache entry.
  */
+function getCacheKeyFromRefresh(
+  refresh: string | undefined,
+): string | undefined {
+  const packedRefresh = refresh?.trim()
+  if (!packedRefresh) return undefined
+  return parseRefreshParts(packedRefresh).refreshToken.trim() || packedRefresh
+}
+
 function getCacheKey(auth: OAuthAuthDetails): string | undefined {
-  const refresh = auth.refresh?.trim()
-  return refresh ? refresh : undefined
+  return getCacheKeyFromRefresh(auth.refresh)
 }
 
 /**
@@ -126,9 +135,11 @@ export function invalidateProjectContextCache(refresh?: string): void {
     provisionFailedKeys.clear()
     return
   }
-  projectContextPendingCache.delete(refresh)
-  projectContextResultCache.delete(refresh)
-  provisionFailedKeys.delete(refresh)
+  const cacheKey = getCacheKeyFromRefresh(refresh)
+  if (!cacheKey) return
+  projectContextPendingCache.delete(cacheKey)
+  projectContextResultCache.delete(cacheKey)
+  provisionFailedKeys.delete(cacheKey)
 }
 
 export function clearProvisionFailedKeys(): void {
