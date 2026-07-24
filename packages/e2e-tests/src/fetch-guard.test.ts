@@ -9,8 +9,10 @@
  *      host's own fetch) sees the original globalThis.fetch.
  */
 
-import { describe, expect, it } from 'bun:test'
-import { LiveNetworkDeniedError } from './setup'
+import { afterAll, describe, expect, it } from 'bun:test'
+import { cleanupE2eRootsForCurrentFile, LiveNetworkDeniedError } from './setup'
+
+afterAll(cleanupE2eRootsForCurrentFile)
 
 describe('e2e fetch guard', () => {
   it('allows loopback fetches through to the host fetch', async () => {

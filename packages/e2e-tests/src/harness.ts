@@ -16,7 +16,7 @@
  */
 
 import { mkdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import type { PluginDependencyOverrides } from '../../opencode/src/plugin/dependencies'
 import {
   createAntigravityPlugin,
@@ -170,6 +170,25 @@ export async function disposeAllHarnesses(): Promise<void> {
   while (HARNESS_INSTANCES.length > 0) {
     const harness = HARNESS_INSTANCES.pop()
     if (harness) await harness.dispose()
+  }
+}
+
+/**
+ * Dispose only harnesses below one preload-owned root. Multiple e2e files
+ * share a Bun process, so disposing all instances can close a sibling's server.
+ */
+export async function disposeE2eHarnessesInRoot(root: string): Promise<void> {
+  for (const harness of [...HARNESS_INSTANCES]) {
+    const pathFromRoot = relative(root, harness.testRoot)
+    if (
+      pathFromRoot.length === 0 ||
+      pathFromRoot === '..' ||
+      pathFromRoot.startsWith(`..${sep}`) ||
+      isAbsolute(pathFromRoot)
+    ) {
+      continue
+    }
+    await harness.dispose()
   }
 }
 

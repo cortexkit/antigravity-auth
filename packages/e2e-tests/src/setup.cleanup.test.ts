@@ -1,29 +1,48 @@
 /**
- * Test for the orphan-root sweep in `setup.ts`.
+ * Test for the temp-root lifecycle in `setup.ts`.
  *
  * The e2e preload creates a fresh `agy-e2e-*` temp root per test and
- * tears it down in `afterEach`. The `afterAll` orphan sweep is opt-in
- * behind `AGY_E2E_SWEEP_ORPHANS=1` and only reaps entries whose mtime
- * is older than 24h. These tests pin the contract:
+ * tears the whole set down in `afterAll` — AFTER every test file's own
+ * `afterEach` has disposed its harness (mock server, plugin handles,
+ * port files, fence locks). An `afterEach`-time `rmSync(root)` would
+ * race the harness and silently fail (`force: true` swallows the
+ * error), leaving `antigravity-accounts.json` shards in the system
+ * tmpdir. The reviewer measured 18 such leaks from 3 runs.
  *
- *   1. A fresh root is never deleted by the orphan sweep.
- *   2. A root older than the cutoff is reaped when the sweep runs.
- *   3. Non-`agy-e2e-*` entries are left alone.
- *   4. When the env var is unset, the sweep is a no-op (no-op guard).
+ * Two contract surfaces are pinned here:
  *
- * Without these guards, a process-wide afterAll would happily delete
- * roots owned by a sibling test file (or a parallel CI job) the moment
- * its own afterEach finished — racing ENOENT on atomic rename, missing
- * RPC port files, and FileLockOwnershipError are the symptoms the
- * upstream maintainer hit.
+ *   A. The orphan sweep (`sweepOrphanE2eRoots`) is opt-in behind
+ *      `AGY_E2E_SWEEP_ORPHANS=1`, only reaps entries older than 24h,
+ *      and never touches non-`agy-e2e-*` paths. (Maintenance contract
+ *      for `bun run --cwd packages/e2e-tests test` developers.)
+ *
+ *   B. `cleanupTestRootsForThisFile(roots)` deletes every root it is
+ *      handed — and ONLY those roots (preserving the cross-file race
+ *      fix from the prior round). After `force: true` rm, an
+ *      `existsSync` re-check makes a regression loud. (Production
+ *      contract for `bun run test:e2e`.)
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { existsSync, mkdirSync, rmSync, statSync, utimesSync } from 'node:fs'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { sweepOrphanE2eRoots } from './setup'
+import {
+  cleanupE2eRootsForCurrentFile,
+  cleanupTestRootsForThisFile,
+  sweepOrphanE2eRoots,
+} from './setup'
+
+afterAll(cleanupE2eRootsForCurrentFile)
 
 const PREV_ENV = process.env.AGY_E2E_SWEEP_ORPHANS
 const PREV_TMPDIR = process.env.TMPDIR
@@ -124,5 +143,78 @@ describe('sweepOrphanE2eRoots', () => {
     sweepOrphanE2eRoots()
 
     expect(existsSync(unrelated)).toBe(true)
+  })
+})
+
+describe('cleanupTestRootsForThisFile', () => {
+  it('removes a root only after its live harness is disposed', async () => {
+    const root = join(scratchRoot, 'agy-e2e-live-harness')
+    const accounts = join(root, 'pi-agent', 'antigravity-accounts.json')
+    mkdirSync(join(root, 'pi-agent'), { recursive: true })
+    writeFileSync(accounts, '{"version":4,"accounts":[]}')
+
+    let disposed = false
+    const disposeHarnesses = async (ownedRoot: string): Promise<void> => {
+      expect(ownedRoot).toBe(root)
+      expect(existsSync(accounts)).toBe(true)
+      disposed = true
+    }
+
+    await cleanupTestRootsForThisFile([root], disposeHarnesses)
+
+    expect(disposed).toBe(true)
+    expect(
+      readdirSync(scratchRoot).filter((entry) => entry.startsWith('agy-e2e-')),
+    ).toHaveLength(0)
+  })
+
+  it('removes every root it is handed', async () => {
+    const a = join(scratchRoot, 'agy-e2e-cleanup-a')
+    const b = join(scratchRoot, 'agy-e2e-cleanup-b')
+    mkdirSync(a, { recursive: true })
+    mkdirSync(b, { recursive: true })
+
+    await cleanupTestRootsForThisFile([a, b])
+
+    expect(existsSync(a)).toBe(false)
+    expect(existsSync(b)).toBe(false)
+  })
+
+  it('is a no-op when the list is empty', async () => {
+    await cleanupTestRootsForThisFile([])
+  })
+
+  it('only touches roots it is handed (cross-file race fix)', async () => {
+    // `agy-e2e-other-file` simulates a root owned by a SIBLING test
+    // file that is still running concurrently. The cleanup must
+    // never touch it — that's the maintainer's race fix.
+    const own = join(scratchRoot, 'agy-e2e-own-file')
+    const sibling = join(scratchRoot, 'agy-e2e-other-file')
+    mkdirSync(own, { recursive: true })
+    mkdirSync(sibling, { recursive: true })
+
+    await cleanupTestRootsForThisFile([own])
+
+    expect(existsSync(own)).toBe(false)
+    expect(existsSync(sibling)).toBe(true)
+  })
+
+  it('throws (loud) when a root survives deletion — the regression catch', async () => {
+    // The harness-leak scenario from the cross-family review: an
+    // rmSync fails (force:true swallows it) but the path is still
+    // there. We synthesize that on a read-only sysfs path — EACCES
+    // is the cleanest cross-platform reproducer for "rmSync can't
+    // make this go away" without spinning up a second process or
+    // toggling chattr +i.
+    const own = join(scratchRoot, 'agy-e2e-clean-beside')
+    mkdirSync(own, { recursive: true })
+    try {
+      await cleanupTestRootsForThisFile([own, '/sys/kernel'])
+      throw new Error('expected cleanup to report the surviving root')
+    } catch (error) {
+      expect(String(error)).toMatch(/1 leaked temp root\(s\)/)
+    }
+    // Tidy up the real entry; /sys/kernel is untouched.
+    rmSync(own, { recursive: true, force: true })
   })
 })

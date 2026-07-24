@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'bun:test'
+import { afterAll, describe, expect, it } from 'bun:test'
 
 import {
   type ProcessExit,
   ProcessTimeoutError,
   runProcess,
 } from './process-runner'
+import { cleanupE2eRootsForCurrentFile } from './setup'
+
+afterAll(cleanupE2eRootsForCurrentFile)
 
 const BUN = process.execPath
 

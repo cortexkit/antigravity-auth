@@ -23,7 +23,7 @@
 
 import './setup'
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { saveAccountsReplace } from '../../opencode/src/plugin/storage'
@@ -31,6 +31,9 @@ import { pushNotification } from '../../opencode/src/rpc/notifications'
 import { discoverPortFile } from '../../opencode/src/rpc/port-file'
 import { createRpcClient } from '../../opencode/src/rpc/rpc-client'
 import { createE2eHarness, type E2eHarness } from './harness'
+import { cleanupE2eRootsForCurrentFile } from './setup'
+
+afterAll(cleanupE2eRootsForCurrentFile)
 
 const FIXED_NOW = Date.parse('2026-07-22T12:00:00.000Z')
 

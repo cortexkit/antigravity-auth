@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'bun:test'
+import { afterAll, describe, expect, it } from 'bun:test'
 
 import {
   type MockServerHandle,
   startMockAntigravityServer,
 } from './mock-antigravity-server'
+import { cleanupE2eRootsForCurrentFile } from './setup'
+
+afterAll(cleanupE2eRootsForCurrentFile)
 
 async function withServer(
   fn: (server: MockServerHandle) => Promise<void>,

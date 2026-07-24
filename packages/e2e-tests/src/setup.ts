@@ -15,22 +15,20 @@
  *   1. Wrap `globalThis.fetch` with a loopback-only guard.
  *   2. Allocate a per-test `mkdtemp` root with HOME / XDG_*
  *      overrides so tests never touch the host filesystem.
- *   3. Tear down the root + restore the original fetch in `afterEach`
- *      so cross-test pollution cannot leak.
- *   4. In `afterAll`, run an OPT-IN orphan sweep behind
- *      `AGY_E2E_SWEEP_ORPHANS=1` that only removes `agy-e2e-*`
- *      entries older than 24h by mtime. No process-wide afterAll
- *      sweep of live roots — `afterEach` already removed each root
- *      it created, so a sweep of "live" roots would race against a
- *      sibling test file still holding its own root (ENOENT on
- *      atomic rename, missing RPC port files, FileLockOwnershipError
- *      were the symptoms the maintainer hit).
+ *   3. Track roots created by this isolated test file and, in its
+ *      `afterAll`, dispose each root's harnesses before removing it.
+ *      This lets file-level teardown finish without racing another file.
+ *   4. An OPT-IN orphan sweep behind `AGY_E2E_SWEEP_ORPHANS=1` reaps
+ *      `agy-e2e-*` entries older than 24h by mtime. CI does not set
+ *      the env var; local developers can opt in to prune stale roots.
  */
 
-import { afterAll, afterEach, beforeEach } from 'bun:test'
+import { afterEach, beforeEach } from 'bun:test'
 import * as fs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+import { disposeE2eHarnessesInRoot } from './harness'
 
 /**
  * Thrown when a request targets anything other than the loopback
@@ -53,6 +51,10 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', '[::1]', 'localhost'])
  * can be restored in `afterEach`.
  */
 let originalFetch: typeof globalThis.fetch | null = null
+
+// `--isolate` gives each test file its own preload module state. Keep roots
+// local to that file so its afterAll cannot remove a sibling's active root.
+const rootsOwnedByThisFile = new Set<string>()
 
 /**
  * Opt-in orphan sweep threshold. When `AGY_E2E_SWEEP_ORPHANS=1` is
@@ -104,6 +106,7 @@ beforeEach(() => {
   installFetchGuard()
   // Per-test temp root + env reset. Tests must not touch the host HOME.
   const root = fs.mkdtempSync(join(tmpdir(), 'agy-e2e-'))
+  rootsOwnedByThisFile.add(root)
   const home = join(root, 'home')
   const config = join(root, 'config')
   const cache = join(root, 'cache')
@@ -135,23 +138,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  // Restore the unwrapped fetch FIRST so a teardown-step fetch reaching
-  // the host (e.g. a tmpdir cleanup that uses a relative path) does not
-  // collide with the guard.
   restoreFetchGuard()
-  // Tear down the temp root — even on assertion failure. We use the
-  // `force` flag because some child files (sockets, fifos) may be
-  // unreadable on platforms that hold advisory locks.
-  const root = process.env.ANTIGRAVITY_TEST_ROOT
-  if (root) {
-    try {
-      fs.rmSync(root, { recursive: true, force: true })
-    } catch {
-      // best-effort cleanup; the orphan sweep will retry only entries
-      // old enough to be safely considered abandoned.
-    }
-    delete process.env.ANTIGRAVITY_TEST_ROOT
-  }
+  delete process.env.ANTIGRAVITY_TEST_ROOT
 })
 
 /**
@@ -184,11 +172,50 @@ export function sweepOrphanE2eRoots(): void {
   }
 }
 
-afterAll(() => {
-  // No process-wide sweep of live roots. `afterEach` already removed
-  // every root THIS test file created; sweeping here would race
-  // against sibling test files (or parallel CI jobs) still holding
-  // their own `agy-e2e-*` entries. The orphan sweep below is opt-in
-  // and only reaps entries the 24h-mtime floor confirms are abandoned.
+/**
+ * Dispose a root's harnesses, then delete that root and throw if it survives.
+ * `force: true` can hide a locked path, so existence is checked afterwards.
+ */
+export async function cleanupTestRootsForThisFile(
+  roots: readonly string[],
+  disposeHarnesses: (root: string) => Promise<void> = async () => {},
+): Promise<void> {
+  const survivors: string[] = []
+  const disposalFailures: string[] = []
+  for (const root of roots) {
+    try {
+      await disposeHarnesses(root)
+    } catch (error) {
+      disposalFailures.push(`${root}: ${String(error)}`)
+    }
+    try {
+      fs.rmSync(root, { recursive: true, force: true })
+    } catch {
+      // The post-rm existence check below reports surviving roots.
+    }
+    if (fs.existsSync(root)) {
+      survivors.push(root)
+    }
+  }
+  if (disposalFailures.length > 0 || survivors.length > 0) {
+    throw new Error(
+      `e2e cleanup failed: ${disposalFailures.length} harness disposal failure(s), ` +
+        `${survivors.length} leaked temp root(s). ` +
+        `Disposal failures: ${disposalFailures.join(', ') || 'none'}. ` +
+        `Leaked roots: ${survivors.join(', ') || 'none'}.`,
+    )
+  }
+}
+
+/**
+ * Run from each test file's final afterAll, after that file's teardown hooks.
+ * Registering this in the preload runs it too early for deferred file cleanup.
+ */
+export async function cleanupE2eRootsForCurrentFile(): Promise<void> {
+  await cleanupTestRootsForThisFile(
+    [...rootsOwnedByThisFile],
+    disposeE2eHarnessesInRoot,
+  )
+  rootsOwnedByThisFile.clear()
   sweepOrphanE2eRoots()
-})
+}

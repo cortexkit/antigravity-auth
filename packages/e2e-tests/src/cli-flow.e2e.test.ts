@@ -20,20 +20,23 @@
 
 import './setup'
 
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterAll, afterEach, describe, expect, it } from 'bun:test'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { type CliDependencies, runCli } from '../../opencode/src/cli'
 import { saveAccountsReplace } from '../../opencode/src/plugin/storage'
+import { cleanupE2eRootsForCurrentFile } from './setup'
+
+afterAll(cleanupE2eRootsForCurrentFile)
 
 const FIXED_NOW = Date.parse('2026-07-22T12:00:00.000Z')
 
-function seedAccounts(): void {
+async function seedAccounts(): Promise<void> {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
   if (!root) throw new Error('ANTIGRAVITY_TEST_ROOT not set by preload')
   mkdirSync(join(root, 'pi-agent'), { recursive: true })
-  saveAccountsReplace({
+  await saveAccountsReplace({
     version: 4,
     accounts: [
       {
@@ -143,7 +146,7 @@ describe('cli flow (e2e)', () => {
   })
 
   it('runs `login` with the injected performLogin', async () => {
-    seedAccounts()
+    await seedAccounts()
     const handle = buildCliDeps()
     const exit = await runCli(['login', '--no-browser'], handle.deps)
     expect(exit).toBe(0)
@@ -153,7 +156,9 @@ describe('cli flow (e2e)', () => {
   })
 
   it('runs `list` and prints the seeded account without leaking secrets', async () => {
-    seedAccounts()
+    const seeded = seedAccounts()
+    expect(seeded).toBeInstanceOf(Promise)
+    await seeded
     const handle = buildCliDeps()
     const exit = await runCli(['list'], handle.deps)
     expect(exit).toBe(0)
@@ -164,7 +169,7 @@ describe('cli flow (e2e)', () => {
   })
 
   it('runs `list --json` and emits machine-readable JSON', async () => {
-    seedAccounts()
+    await seedAccounts()
     const handle = buildCliDeps()
     const exit = await runCli(['list', '--json'], handle.deps)
     expect(exit).toBe(0)
@@ -176,7 +181,7 @@ describe('cli flow (e2e)', () => {
   })
 
   it('runs `quota` against the injected quota response without printing secrets', async () => {
-    seedAccounts()
+    await seedAccounts()
     const handle = buildCliDeps()
     const exit = await runCli(['quota'], handle.deps)
     expect(exit).toBe(0)
@@ -188,7 +193,7 @@ describe('cli flow (e2e)', () => {
   })
 
   it('runs `quota --json` and emits a deterministic JSON shape', async () => {
-    seedAccounts()
+    await seedAccounts()
     const handle = buildCliDeps()
     const exit = await runCli(['quota', '--json'], handle.deps)
     expect(exit).toBe(0)
@@ -204,7 +209,7 @@ describe('cli flow (e2e)', () => {
   })
 
   it('returns exit 1 when the injected quota loader throws', async () => {
-    seedAccounts()
+    await seedAccounts()
     const handle = buildCliDeps({
       getQuota: async () => {
         throw new Error('quota-fetch-failed')

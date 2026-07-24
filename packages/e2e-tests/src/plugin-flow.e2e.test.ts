@@ -24,7 +24,7 @@
 
 import './setup'
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -35,6 +35,9 @@ import {
   saveAccountsReplace,
 } from '../../opencode/src/plugin/storage'
 import { createE2eHarness, type E2eHarness } from './harness'
+import { cleanupE2eRootsForCurrentFile } from './setup'
+
+afterAll(cleanupE2eRootsForCurrentFile)
 
 let harness: E2eHarness | undefined
 
