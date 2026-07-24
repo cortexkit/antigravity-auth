@@ -420,6 +420,121 @@ describe('loadAccountStorage normalization', () => {
   })
 })
 
+describe('per-record shape validation (v4 records)', () => {
+  it('throws AccountStorageUnreadableError when a v4 record has a non-string refreshToken (load path)', async () => {
+    const path = storagePath('v4-bad-record.json')
+    const raw = JSON.stringify({
+      version: 4,
+      accounts: [
+        {
+          refreshToken: 'valid-token',
+          addedAt: 1,
+          lastUsed: 1,
+        },
+        {
+          // Upstream maintainer repro: a numeric refreshToken must NOT
+          // be silently filtered out — that destroys user accounts.
+          refreshToken: 12345,
+          addedAt: 2,
+          lastUsed: 2,
+        },
+      ],
+      activeIndex: 0,
+    })
+    await writeFile(path, raw, 'utf8')
+
+    let captured: unknown
+    try {
+      await loadAccountStorage(path)
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
+    const err = captured as AccountStorageUnreadableError
+    expect(err.details.reason).toBe('invalid-shape')
+    expect(err.details.path).toBe(path)
+    expect(err.details.backupPath).not.toBeNull()
+    // The original file must remain byte-identical — no destructive
+    // normalization that drops the malformed record.
+    expect(await readFile(path, 'utf8')).toBe(raw)
+    if (err.details.backupPath) {
+      expect(await readFile(err.details.backupPath, 'utf8')).toBe(raw)
+    }
+  })
+
+  it('throws AccountStorageUnreadableError when a v4 record is missing refreshToken (mutate path)', async () => {
+    const path = storagePath('v4-missing-refresh.json')
+    const raw = JSON.stringify({
+      version: 4,
+      accounts: [
+        { refreshToken: 'a', addedAt: 1, lastUsed: 1 },
+        { addedAt: 2, lastUsed: 2 }, // no refreshToken
+      ],
+      activeIndex: 0,
+    })
+    await writeFile(path, raw, 'utf8')
+
+    let captured: unknown
+    try {
+      await mutateAccountStorage(path, (current) => current)
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
+    const err = captured as AccountStorageUnreadableError
+    expect(err.details.reason).toBe('invalid-shape')
+    expect(await readFile(path, 'utf8')).toBe(raw)
+    expect(err.details.backupPath).not.toBeNull()
+  })
+
+  it('throws AccountStorageUnreadableError when a v4 record is not an object', async () => {
+    const path = storagePath('v4-non-object-record.json')
+    const raw = JSON.stringify({
+      version: 4,
+      accounts: [
+        { refreshToken: 'a', addedAt: 1, lastUsed: 1 },
+        'not-an-object',
+      ],
+      activeIndex: 0,
+    })
+    await writeFile(path, raw, 'utf8')
+
+    let captured: unknown
+    try {
+      await loadAccountStorage(path)
+    } catch (error) {
+      captured = error
+    }
+    expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
+    expect((captured as AccountStorageUnreadableError).details.reason).toBe(
+      'invalid-shape',
+    )
+    expect(await readFile(path, 'utf8')).toBe(raw)
+  })
+
+  it('still migrates a legacy v1 record whose refreshToken is a string', async () => {
+    // Strict per-record validation must NOT apply before migration —
+    // a clean v1 record that migrates cleanly is fine.
+    const path = storagePath('legacy-v1-strict.json')
+    const v1 = {
+      version: 1,
+      accounts: [
+        {
+          email: 'a@example.com',
+          refreshToken: 'r1',
+          addedAt: 1,
+          lastUsed: 1,
+        },
+      ],
+      activeIndex: 0,
+    }
+    await writeFile(path, JSON.stringify(v1), 'utf8')
+    const result = await loadAccountStorage(path)
+    expect(result?.version).toBe(4)
+    expect(result?.accounts[0]?.refreshToken).toBe('r1')
+  })
+})
+
 describe('saveAccountStorage', () => {
   it('persists the v4 file with secure permissions on POSIX', async () => {
     if (process.platform === 'win32') return

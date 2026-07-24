@@ -153,7 +153,7 @@ async function ensureSecurePermissions(path: string): Promise<void> {
   }
 }
 
-async function ensureFileExists(path: string): Promise<void> {
+async function _ensureFileExists(path: string): Promise<void> {
   try {
     await readFile(path)
   } catch {
@@ -492,14 +492,26 @@ async function readAndNormalizeV4(path: string): Promise<StorageReadOutcome> {
     }
   }
 
-  const validAccounts = storage.accounts.filter(
-    (a): a is AccountMetadataV3 =>
-      !!a &&
-      typeof a === 'object' &&
-      typeof (a as AccountMetadataV3).refreshToken === 'string',
-  )
+  // Strict per-record validation. A v4 record must be a non-null object
+  // with a string `refreshToken`, finite numeric `addedAt` and `lastUsed`.
+  // Legacy versions (v1/v2/v3) reach this point only after migration,
+  // which already threw on a non-object entry and produced a populated
+  // refreshToken by reading it directly — so a record that survived
+  // migration is fine. We do NOT validate legacy versions BEFORE
+  // migration because the migration itself enforces the required fields
+  // by reading them off the input shape.
+  for (let i = 0; i < storage.accounts.length; i++) {
+    const detail = validateV4AccountRecord(storage.accounts[i], i)
+    if (detail !== null) {
+      return {
+        state: 'unreadable',
+        reason: 'invalid-shape',
+        detail,
+      }
+    }
+  }
 
-  const deduplicatedAccounts = deduplicateAccountsByEmail(validAccounts)
+  const deduplicatedAccounts = deduplicateAccountsByEmail(storage.accounts)
 
   let activeIndex =
     typeof storage.activeIndex === 'number' &&
@@ -522,6 +534,34 @@ async function readAndNormalizeV4(path: string): Promise<StorageReadOutcome> {
       activeIndexByFamily: storage.activeIndexByFamily,
     },
   }
+}
+
+/**
+ * Return a human-readable detail string when `record` is not a valid
+ * v4 account record, `null` when it is. Used by `readAndNormalizeV4`
+ * to surface per-record shape problems as `invalid-shape`
+ * `AccountStorageUnreadableError` instances instead of silently
+ * filtering them out — the latter used to drop a malformed account
+ * without any user-visible signal and risked losing data.
+ */
+function validateV4AccountRecord(
+  record: unknown,
+  index: number,
+): string | null {
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) {
+    return `accounts[${index}] is not an object`
+  }
+  const acc = record as Record<string, unknown>
+  if (typeof acc.refreshToken !== 'string' || acc.refreshToken.length === 0) {
+    return `accounts[${index}].refreshToken is missing or not a non-empty string`
+  }
+  if (typeof acc.addedAt !== 'number' || !Number.isFinite(acc.addedAt)) {
+    return `accounts[${index}].addedAt is missing or not a finite number`
+  }
+  if (typeof acc.lastUsed !== 'number' || !Number.isFinite(acc.lastUsed)) {
+    return `accounts[${index}].lastUsed is missing or not a finite number`
+  }
+  return null
 }
 
 /**
