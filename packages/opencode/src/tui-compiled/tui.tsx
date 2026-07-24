@@ -57,6 +57,9 @@ import { computeEffectiveOrder, DEFAULT_PREFS, DEFAULT_SLOT_ORDER, PLUGIN_KEY, q
 const ID = 'cortexkit.antigravity-auth';
 const POLL_INTERVAL_MS = 2000;
 const RPC_POLL_MS = 500;
+const SINGLE_BORDER = {
+  type: 'single'
+};
 
 // Read package metadata from either the raw src/ entry or its generated
 // src/tui-compiled/ counterpart. Avoid a JSON import because package.json sits
@@ -762,7 +765,7 @@ export function SidebarPanel(props) {
     _$insertNode(_el$33, _el$34);
     _$setProp(_el$33, "width", '100%');
     _$setProp(_el$33, "flexDirection", 'column');
-    _$setProp(_el$33, "border", true);
+    _$setProp(_el$33, "border", SINGLE_BORDER);
     _$setProp(_el$33, "paddingTop", 1);
     _$setProp(_el$33, "paddingBottom", 1);
     _$setProp(_el$33, "paddingLeft", 1);

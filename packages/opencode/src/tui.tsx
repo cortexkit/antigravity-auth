@@ -84,6 +84,8 @@ const ID = 'cortexkit.antigravity-auth'
 const POLL_INTERVAL_MS = 2000
 const RPC_POLL_MS = 500
 
+const SINGLE_BORDER = { type: 'single' } as any
+
 // Read package metadata from either the raw src/ entry or its generated
 // src/tui-compiled/ counterpart. Avoid a JSON import because package.json sits
 // outside the declaration build's rootDir.
@@ -776,7 +778,7 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
     <box
       width='100%'
       flexDirection='column'
-      border={true}
+      border={SINGLE_BORDER}
       borderColor={theme().borderActive}
       paddingTop={1}
       paddingBottom={1}
