@@ -497,6 +497,18 @@ describe('Issue #103: resolveModelForHeaderStyle', () => {
       expect(result.thinkingLevel).toBe('medium')
       expect(result.quotaPreference).toBe('gemini-cli')
     })
+
+    it('resolves gemini-3.1-flash-lite as non-thinking on gemini-cli path', () => {
+      const result = resolveModelForHeaderStyle(
+        'gemini-3.1-flash-lite',
+        'gemini-cli',
+      )
+      expect(result.actualModel).toBe('gemini-3.1-flash-lite')
+      expect(result.isThinkingModel).toBe(false)
+      expect(result.thinkingLevel).toBeUndefined()
+      expect(result.thinkingBudget).toBeUndefined()
+      expect(result.quotaPreference).toBe('gemini-cli')
+    })
   })
 
   describe('no transformation needed', () => {

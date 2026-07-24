@@ -250,7 +250,8 @@ export function resolveModelWithTier(
     }
   }
 
-  if (isGemini31FlashLite && quotaPreference === 'antigravity') {
+  // Flash-lite is text-only and non-thinking on every quota path.
+  if (isGemini31FlashLite) {
     return {
       actualModel: 'gemini-3.1-flash-lite',
       isThinkingModel: false,
@@ -470,8 +471,15 @@ export function resolveModelForHeaderStyle(
     // gemini-3-flash-preview bucket; retrieveUserQuota does not list a
     // gemini-3.5-flash bucket for the gemini-cli header path.
     const isGemini35Flash = isGemini35FlashModel(transformedModel)
+    // Flash-lite has no -preview CLI variant — keep the plain wire id.
+    const isGemini31FlashLite = /^gemini-3\.1-flash-lite$/i.test(
+      transformedModel,
+    )
     if (isGemini35Flash) {
       transformedModel = getGemini35FlashGeminiCliFallbackModel()
+    } else if (isGemini31FlashLite) {
+      // No transformation needed — flash-lite resolves as non-thinking
+      // and has no distinct CLI preview model.
     } else if (!hasPreviewSuffix) {
       transformedModel = `${transformedModel}-preview`
     }
