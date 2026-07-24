@@ -5,7 +5,6 @@ import { ANSI } from './ansi'
 import { confirm } from './confirm'
 import {
   buildCooldownStatus,
-  classifyGroupStatus,
   classifyOverallQuotaHealth,
   formatQuotaStatusBadge,
   formatWaitDuration,
@@ -496,7 +495,7 @@ export async function showAccountDetails(
 
     if (hasHistory) {
       menuItems.push({
-        label: `Restore fingerprint (${account.fingerprintHistory!.length} saved)`,
+        label: `Restore fingerprint (${account.fingerprintHistory?.length} saved)`,
         value: 'restore-fingerprint' as const,
         color: 'cyan',
       })

@@ -17,7 +17,7 @@
     "dev:clean": "bun scripts/dev-clean.ts",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "lint": "biome lint .",
+    "lint": "biome lint . --error-on-warnings",
     "pack:core:dry": "cd packages/core && bun pm pack --dry-run",
     "pack:opencode-dry": "cd packages/opencode && bun pm pack --dry-run",
     "pack:pi-dry": "cd packages/pi && bun pm pack --dry-run"

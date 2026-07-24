@@ -230,8 +230,8 @@ function usageMetadataHasCacheRead(
 
 function completeSseEventSuffix(suffix: string): string {
   if (suffix.includes('\n\n')) return suffix
-  if (suffix.endsWith('\n')) return suffix + '\n'
-  return suffix + '\n\n'
+  if (suffix.endsWith('\n')) return `${suffix}\n`
+  return `${suffix}\n\n`
 }
 
 function mergeUsageMetadataIntoDataLine(

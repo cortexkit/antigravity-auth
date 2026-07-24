@@ -64,13 +64,13 @@ function makeFixture(): Fixture {
   const statePath = join(root, 'sidebar-state.json')
   const logPath = join(root, 'tui.log')
   process.env[SIDEBAR_STATE_ENV] = statePath
-  process.env['ANTIGRAVITY_AUTH_TUI_LOG_FILE'] = logPath
+  process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE = logPath
   return {
     statePath,
     logPath,
     cleanup: () => {
       delete process.env[SIDEBAR_STATE_ENV]
-      delete process.env['ANTIGRAVITY_AUTH_TUI_LOG_FILE']
+      delete process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE
       rmSync(root, { recursive: true, force: true })
     },
   }

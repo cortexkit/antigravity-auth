@@ -12,10 +12,8 @@ import {
 import {
   AccountManager,
   calculateBackoffMs,
-  type HeaderStyle,
   type ModelFamily,
   parseRateLimitReason,
-  type RateLimitReason,
   resolveQuotaGroup,
 } from './accounts'
 // Mock storage to prevent test data from leaking to real config files.
@@ -2040,8 +2038,8 @@ describe('AccountManager', () => {
         null,
         3600_000,
       )
-      expect(account!.consecutiveFailures).toBe(1)
-      expect(account!.lastFailureTime).toBe(0)
+      expect(account?.consecutiveFailures).toBe(1)
+      expect(account?.lastFailureTime).toBe(0)
 
       // Advance time past TTL (1 hour = 3600s)
       jest.setSystemTime(new Date(3700_000)) // 3700 seconds later
@@ -2056,7 +2054,7 @@ describe('AccountManager', () => {
         null,
         3600_000,
       )
-      expect(account!.consecutiveFailures).toBe(1) // Reset to 0, then +1
+      expect(account?.consecutiveFailures).toBe(1) // Reset to 0, then +1
 
       jest.useRealTimers()
     })
@@ -2086,7 +2084,7 @@ describe('AccountManager', () => {
         null,
         3600_000,
       )
-      expect(account!.consecutiveFailures).toBe(1)
+      expect(account?.consecutiveFailures).toBe(1)
 
       // Advance time within TTL
       jest.setSystemTime(new Date(1800_000)) // 30 minutes later (within 1 hour TTL)
@@ -2101,7 +2099,7 @@ describe('AccountManager', () => {
         null,
         3600_000,
       )
-      expect(account!.consecutiveFailures).toBe(2)
+      expect(account?.consecutiveFailures).toBe(2)
 
       jest.useRealTimers()
     })
@@ -2121,14 +2119,14 @@ describe('AccountManager', () => {
       const account = manager.getCurrentOrNextForFamily('claude')
 
       // Set initial fingerprint
-      const originalFingerprint = account!.fingerprint
+      const originalFingerprint = account?.fingerprint
 
       // Regenerate
       const newFingerprint = manager.regenerateAccountFingerprint(0)
 
       expect(newFingerprint).not.toBeNull()
       expect(newFingerprint).not.toEqual(originalFingerprint)
-      expect(account!.fingerprintHistory?.length).toBeGreaterThanOrEqual(0)
+      expect(account?.fingerprintHistory?.length).toBeGreaterThanOrEqual(0)
     })
 
     it('restoreAccountFingerprint restores from history', () => {

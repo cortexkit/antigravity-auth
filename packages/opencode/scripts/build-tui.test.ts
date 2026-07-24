@@ -172,7 +172,7 @@ function collectPackageSpecifiers(code: string): string[] {
 function resolveRelativeInTree(
   fromFile: string,
   specifier: string,
-  treeRoot: string,
+  _treeRoot: string,
 ): string {
   const base = dirname(fromFile)
   const direct = resolve(base, specifier)

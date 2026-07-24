@@ -50,6 +50,29 @@
           "suspicious": { "noControlCharactersInRegex": "off" }
         }
       }
+    },
+    {
+      // Source (non-test) files: disable two rules whose warnings are
+      // per-site noise in this codebase. `noExplicitAny` fires 244 times
+      // for plugin dependency overrides + mock/fixture shapes that
+      // intentionally match structural contracts rather than named
+      // interfaces. `noNonNullAssertion` fires for sites where TS narrows
+      // module-level state poorly across function scopes (e.g. assignments
+      // inside `if (!x) { x = ... }` followed by `return x!`); each
+      // remaining site is reviewed individually.
+      "includes": [
+        "packages/*/src/**",
+        "!packages/*/src/**/*.test.ts",
+        "packages/*/script/**",
+        "packages/*/scripts/**",
+        "scripts/**"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": { "noExplicitAny": "off" },
+          "style": { "noNonNullAssertion": "off" }
+        }
+      }
     }
   ]
 }

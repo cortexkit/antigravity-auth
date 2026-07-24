@@ -65,7 +65,7 @@ function isFunctionCallPart(part: any): boolean {
  * Checks if a message is a tool result container (user role with functionResponse).
  */
 function isToolResultMessage(msg: any): boolean {
-  if (!msg || msg.role !== 'user') return false
+  if (msg?.role !== 'user') return false
   const parts = msg.parts || []
   return parts.some(isFunctionResponsePart)
 }

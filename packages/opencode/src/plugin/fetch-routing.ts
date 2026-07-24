@@ -62,7 +62,7 @@ function extractModelFromUrlWithSuffix(urlString: string): string | null {
 export function getModelFamilyFromUrl(urlString: string): ModelFamily {
   const model = extractModelFromUrl(urlString)
   let family: ModelFamily = 'gemini'
-  if (model && model.includes('claude')) {
+  if (model?.includes('claude')) {
     family = 'claude'
   }
   if (isDebugEnabled()) {

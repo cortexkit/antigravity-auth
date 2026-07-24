@@ -227,7 +227,7 @@ export class SignatureCache {
     if (!this.enabled) return null
 
     const entry = this.cache.get(key)
-    if (!entry || !entry.thinkingText) return null
+    if (!entry?.thinkingText) return null
 
     const age = Date.now() - entry.timestamp
     if (age > this.memoryTtlMs) {
@@ -250,7 +250,7 @@ export class SignatureCache {
     if (!this.enabled) return false
 
     const entry = this.cache.get(key)
-    if (!entry || !entry.thinkingText) return false
+    if (!entry?.thinkingText) return false
 
     const age = Date.now() - entry.timestamp
     return age <= this.memoryTtlMs
@@ -316,8 +316,8 @@ export class SignatureCache {
       }
 
       const now = Date.now()
-      let loaded = 0
-      let expired = 0
+      let _loaded = 0
+      let _expired = 0
 
       for (const [key, entry] of Object.entries(data.entries)) {
         const age = now - entry.timestamp
@@ -326,9 +326,9 @@ export class SignatureCache {
             value: entry.value,
             timestamp: entry.timestamp,
           })
-          loaded++
+          _loaded++
         } else {
-          expired++
+          _expired++
         }
       }
 
@@ -457,13 +457,13 @@ export class SignatureCache {
    */
   private cleanupExpired(): void {
     const now = Date.now()
-    let cleaned = 0
+    let _cleaned = 0
 
     for (const [key, entry] of this.cache.entries()) {
       const age = now - entry.timestamp
       if (age > this.memoryTtlMs) {
         this.cache.delete(key)
-        cleaned++
+        _cleaned++
       }
     }
 
@@ -482,7 +482,7 @@ export class SignatureCache {
 export function createSignatureCache(
   config: SignatureCacheConfig | undefined,
 ): SignatureCache | null {
-  if (!config || !config.enabled) {
+  if (!config?.enabled) {
     return null
   }
 

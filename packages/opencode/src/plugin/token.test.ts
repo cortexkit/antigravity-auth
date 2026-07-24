@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test'
 
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
-import { AntigravityTokenRefreshError, refreshAccessToken } from './token'
+import { refreshAccessToken } from './token'
 import type { OAuthAuthDetails, PluginClient } from './types'
 
 const baseAuth: OAuthAuthDetails = {

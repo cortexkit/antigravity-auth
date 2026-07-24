@@ -1,5 +1,5 @@
 import type { CooldownReason } from '../accounts'
-import type { QuotaGroup, QuotaGroupSummary } from '../quota'
+import type { QuotaGroupSummary } from '../quota'
 import { ANSI } from './ansi'
 
 /**

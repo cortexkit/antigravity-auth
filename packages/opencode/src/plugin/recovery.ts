@@ -76,7 +76,7 @@ function getErrorMessage(error: unknown): string {
 function extractMessageIndex(error: unknown): number | null {
   const message = getErrorMessage(error)
   const match = message.match(/messages\.(\d+)/)
-  if (!match || !match[1]) return null
+  if (!match?.[1]) return null
   return parseInt(match[1], 10)
 }
 
@@ -414,7 +414,7 @@ export function createSessionRecoveryHook(
 
   const handleSessionRecovery = async (info: MessageInfo): Promise<boolean> => {
     // Validate input
-    if (!info || info.role !== 'assistant' || !info.error) return false
+    if (info?.role !== 'assistant' || !info.error) return false
 
     const errorType = detectErrorType(info.error)
     if (!errorType) return false

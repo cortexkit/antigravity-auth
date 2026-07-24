@@ -388,7 +388,7 @@ describe('lock contention retry', () => {
         ),
       ).rejects.toBeInstanceOf(SidebarStateLockContentionError)
     } finally {
-      await blockingLock!.release()
+      await blockingLock?.release()
     }
   }, 5_000)
 
@@ -409,7 +409,7 @@ describe('lock contention retry', () => {
     // Release after a short delay so the retry budget isn't exhausted.
     const release = new Promise<void>((resolve, reject) => {
       setTimeout(() => {
-        blockingLock!.release().then(resolve, reject)
+        blockingLock?.release().then(resolve, reject)
       }, 250)
     })
 

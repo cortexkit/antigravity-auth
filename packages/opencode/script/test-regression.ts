@@ -1,5 +1,5 @@
 #!/usr/bin/env npx tsx
-import { spawn } from 'child_process'
+import { spawn } from 'node:child_process'
 
 type Category =
   | 'thinking-order'
@@ -60,7 +60,7 @@ const ERROR_PATTERNS = [
 ]
 
 const GEMINI_FLASH = 'google/antigravity-gemini-3-flash'
-const GEMINI_FLASH_CLI_QUOTA = 'google/gemini-2.5-flash'
+const _GEMINI_FLASH_CLI_QUOTA = 'google/gemini-2.5-flash'
 const CLAUDE_SONNET = 'google/antigravity-claude-sonnet-4-6'
 const CLAUDE_OPUS = 'google/antigravity-claude-opus-4-6-thinking-low'
 
@@ -450,7 +450,7 @@ async function runConcurrentTest(test: ConcurrentTest): Promise<TestResult> {
   )
 
   const results = await Promise.all(promises)
-  process.stdout.write('\r' + ' '.repeat(60) + '\r')
+  process.stdout.write(`\r${' '.repeat(60)}\r`)
 
   for (const result of results) {
     if (result.sessionId) {
@@ -529,7 +529,7 @@ async function runMultiTurnTest(test: MultiTurnTest): Promise<TestResult> {
 
     for (const pattern of test.errorPatterns) {
       if (result.stderr.toLowerCase().includes(pattern.toLowerCase())) {
-        process.stdout.write('\r' + ' '.repeat(50) + '\r')
+        process.stdout.write(`\r${' '.repeat(50)}\r`)
         return {
           success: false,
           error: `Turn ${index + 1}: Found error pattern "${pattern}"`,
@@ -543,7 +543,7 @@ async function runMultiTurnTest(test: MultiTurnTest): Promise<TestResult> {
     if (result.code !== 0 && result.code !== null) {
       const isTimeout = Date.now() - turnStart >= test.timeout - 1000
       if (isTimeout) {
-        process.stdout.write('\r' + ' '.repeat(50) + '\r')
+        process.stdout.write(`\r${' '.repeat(50)}\r`)
         return {
           success: false,
           error: `Turn ${index + 1}: Timeout after ${test.timeout}ms`,
@@ -558,7 +558,7 @@ async function runMultiTurnTest(test: MultiTurnTest): Promise<TestResult> {
     turnsCompleted++
   }
 
-  process.stdout.write('\r' + ' '.repeat(50) + '\r')
+  process.stdout.write(`\r${' '.repeat(50)}\r`)
   return {
     success: true,
     duration: Date.now() - start,

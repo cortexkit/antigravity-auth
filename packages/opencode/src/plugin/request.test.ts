@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, spyOn, vi } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { SKIP_THOUGHT_SIGNATURE } from '../constants'
 import * as config from './config'

@@ -167,6 +167,6 @@ if (definitions?.AntigravityConfig) {
 }
 
 mkdirSync(dirname(outputPath), { recursive: true })
-writeFileSync(outputPath, JSON.stringify(rawSchema, null, 2) + '\n')
+writeFileSync(outputPath, `${JSON.stringify(rawSchema, null, 2)}\n`)
 
 console.log(`Schema written to ${outputPath}`)

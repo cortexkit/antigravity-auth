@@ -97,10 +97,10 @@ describe('acquireFencedFileLock — exclusive acquisition', () => {
       ttlMs: 60_000,
     })
     expect(first).not.toBeNull()
-    expect(first!.ownerId).toBeTruthy()
+    expect(first?.ownerId).toBeTruthy()
 
     const contents = await readLock(lockPath)
-    expect(contents?.ownerId).toBe(first!.ownerId)
+    expect(contents?.ownerId).toBe(first?.ownerId)
     expect(contents?.expiresAt).toBeGreaterThan(Date.now() + 50_000)
 
     const second = await acquireFencedFileLock({
@@ -110,7 +110,7 @@ describe('acquireFencedFileLock — exclusive acquisition', () => {
     })
     expect(second).toBeNull()
 
-    await first!.release()
+    await first?.release()
   })
 
   it('uses the per-name lock path shape under the target directory', async () => {
@@ -127,7 +127,7 @@ describe('acquireFencedFileLock — exclusive acquisition', () => {
     expect(entries.some((e) => e.endsWith('state.json.accounts.lock'))).toBe(
       true,
     )
-    await lock!.release()
+    await lock?.release()
   })
 
   it('allows a fresh acquirer after release', async () => {
@@ -140,7 +140,7 @@ describe('acquireFencedFileLock — exclusive acquisition', () => {
       ttlMs: 60_000,
     })
     expect(first).not.toBeNull()
-    await first!.release()
+    await first?.release()
 
     // Lock file should be gone after release
     expect(await readLock(lockPath)).toBeNull()
@@ -151,8 +151,8 @@ describe('acquireFencedFileLock — exclusive acquisition', () => {
       ttlMs: 60_000,
     })
     expect(second).not.toBeNull()
-    expect(second!.ownerId).not.toBe(first!.ownerId)
-    await second!.release()
+    expect(second?.ownerId).not.toBe(first?.ownerId)
+    await second?.release()
   })
 
   it('isolates different lock names against each other', async () => {
@@ -169,9 +169,9 @@ describe('acquireFencedFileLock — exclusive acquisition', () => {
     })
     expect(a).not.toBeNull()
     expect(b).not.toBeNull()
-    expect(a!.ownerId).not.toBe(b!.ownerId)
-    await a!.release()
-    await b!.release()
+    expect(a?.ownerId).not.toBe(b?.ownerId)
+    await a?.release()
+    await b?.release()
   })
 })
 
@@ -216,7 +216,7 @@ describe('acquireFencedFileLock — renewal extends expiry', () => {
     expect(lock).not.toBeNull()
 
     const firstContents = await readLock(lockPath)
-    expect(firstContents?.ownerId).toBe(lock!.ownerId)
+    expect(firstContents?.ownerId).toBe(lock?.ownerId)
     expect(firstContents?.expiresAt).toBe(currentTime + 200)
 
     // Advance "real" world so the interval can fire; the implementation's
@@ -225,14 +225,14 @@ describe('acquireFencedFileLock — renewal extends expiry', () => {
     currentTime += 80
 
     const secondContents = await readLock(lockPath)
-    expect(secondContents?.ownerId).toBe(lock!.ownerId)
+    expect(secondContents?.ownerId).toBe(lock?.ownerId)
     // The renewed expiresAt should be past the initial one (≥ firstContents.expiresAt).
-    expect(secondContents!.expiresAt).toBeGreaterThanOrEqual(
-      firstContents!.expiresAt,
+    expect(secondContents?.expiresAt).toBeGreaterThanOrEqual(
+      firstContents?.expiresAt,
     )
 
     // Stop renewal cleanly before tearDown removes the dir.
-    await lock!.release()
+    await lock?.release()
   })
 
   it('does not renew when the lock has been taken over by another owner', async () => {
@@ -258,7 +258,7 @@ describe('acquireFencedFileLock — renewal extends expiry', () => {
     const observed = await readLock(lockPath)
     expect(observed?.ownerId).toBe('other-process')
 
-    await lock!.release()
+    await lock?.release()
   })
 
   it("renewal timer is unref'd so it does not keep the process alive", async () => {
@@ -279,9 +279,9 @@ describe('acquireFencedFileLock — renewal extends expiry', () => {
     await new Promise((r) => setTimeout(r, 70))
     currentTime += 70
     const before = await readLock(lockPath)
-    expect(before?.ownerId).toBe(lock!.ownerId)
+    expect(before?.ownerId).toBe(lock?.ownerId)
 
-    await lock!.release()
+    await lock?.release()
     expect(await readLock(lockPath)).toBeNull()
 
     // Wait past another renew tick; nothing should happen.
@@ -305,7 +305,7 @@ describe('acquireFencedFileLock — release deletes only its own lock', () => {
     // Another process takes over the lock.
     await writeLock(lockPath, 'other-process', Date.now() + 60_000)
 
-    await lock!.release()
+    await lock?.release()
 
     const after = await readLock(lockPath)
     expect(after?.ownerId).toBe('other-process')
@@ -325,7 +325,7 @@ describe('acquireFencedFileLock — release deletes only its own lock', () => {
     })
     await rm(lockPath, { force: true })
 
-    await expect(lock!.release()).resolves.toBeUndefined()
+    await expect(lock?.release()).resolves.toBeUndefined()
   })
 
   it('release() awaits any in-flight renewal and prevents it from resurrecting the lock', async () => {
@@ -364,7 +364,7 @@ describe('acquireFencedFileLock — release deletes only its own lock', () => {
       // stuck mid-writeFile) when we trigger release().
       await new Promise((resolve) => setTimeout(resolve, 30))
 
-      await lock!.release()
+      await lock?.release()
 
       // With the fix: release awaits the in-flight renewal, then unlinks.
       // Without the fix: release unlinks first, the still-pending renewal
@@ -413,7 +413,7 @@ describe('acquireFencedFileLock — assertOwned', () => {
 
     await writeLock(lockPath, 'other-process', Date.now() + 60_000)
 
-    await expect(lock!.assertOwned()).rejects.toBeInstanceOf(
+    await expect(lock?.assertOwned()).rejects.toBeInstanceOf(
       FileLockOwnershipError,
     )
 
@@ -433,11 +433,11 @@ describe('acquireFencedFileLock — assertOwned', () => {
     })
 
     currentTime += 2000
-    await expect(lock!.assertOwned()).rejects.toBeInstanceOf(
+    await expect(lock?.assertOwned()).rejects.toBeInstanceOf(
       FileLockOwnershipError,
     )
 
-    await lock!.release()
+    await lock?.release()
   })
 
   it('resolves cleanly when ownership and expiry still match', async () => {
@@ -447,8 +447,8 @@ describe('acquireFencedFileLock — assertOwned', () => {
       name: 'accounts',
       ttlMs: 60_000,
     })
-    await expect(lock!.assertOwned()).resolves.toBeUndefined()
-    await lock!.release()
+    await expect(lock?.assertOwned()).resolves.toBeUndefined()
+    await lock?.release()
   })
 })
 
@@ -469,7 +469,7 @@ describe('acquireFencedFileLock — expired lock recovery', () => {
       },
     })
     expect(lock).not.toBeNull()
-    expect(lock!.ownerId).not.toBe('zombie-owner')
+    expect(lock?.ownerId).not.toBe('zombie-owner')
 
     // The full eviction chain should have run.
     expect(observed).toContain('stale-marker-stat')
@@ -478,9 +478,9 @@ describe('acquireFencedFileLock — expired lock recovery', () => {
     expect(observed).toContain('eviction-marker-acquired')
 
     const contents = await readLock(lockPath)
-    expect(contents?.ownerId).toBe(lock!.ownerId)
+    expect(contents?.ownerId).toBe(lock?.ownerId)
 
-    await lock!.release()
+    await lock?.release()
   })
 })
 
@@ -515,7 +515,7 @@ describe('acquireFencedFileLock — malformed lock fails closed', () => {
       ttlMs: 60_000,
     })
     expect(evicted).not.toBeNull()
-    await evicted!.release()
+    await evicted?.release()
   })
 
   it('returns null on JSON that has the wrong shape (no ownerId/expiresAt) until mtime proves stale', async () => {
@@ -540,7 +540,7 @@ describe('acquireFencedFileLock — malformed lock fails closed', () => {
       ttlMs: 60_000,
     })
     expect(evicted).not.toBeNull()
-    await evicted!.release()
+    await evicted?.release()
   })
 })
 
@@ -679,7 +679,7 @@ describe('acquireFencedFileLock — onStep interleavings', () => {
       'eviction-marker-acquired',
     ])
 
-    await lock!.release()
+    await lock?.release()
   })
 
   it('does not fire eviction steps when the contended lock is live', async () => {
@@ -736,8 +736,8 @@ describe('acquireFencedFileLock — eviction marker TTL/PID reclamation', () => 
     expect(lock).not.toBeNull()
     // The lock is now ours — proves the reclamation worked.
     const contents = await readLock(lockPath)
-    expect(contents?.ownerId).toBe(lock!.ownerId)
-    await lock!.release()
+    expect(contents?.ownerId).toBe(lock?.ownerId)
+    await lock?.release()
   })
 
   it('reclaims a marker older than 30 seconds regardless of PID liveness', async () => {
@@ -769,8 +769,8 @@ describe('acquireFencedFileLock — eviction marker TTL/PID reclamation', () => 
     })
     expect(lock).not.toBeNull()
     const contents = await readLock(lockPath)
-    expect(contents?.ownerId).toBe(lock!.ownerId)
-    await lock!.release()
+    expect(contents?.ownerId).toBe(lock?.ownerId)
+    await lock?.release()
   })
 
   it('respects a fresh, live marker (does not reclaim an in-progress eviction)', async () => {
@@ -821,15 +821,15 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
       renewIntervalMs: 10,
     })
     expect(lock).not.toBeNull()
-    const lost = lock!.whenLost()
+    const lost = lock?.whenLost()
 
-    await lock!.release()
+    await lock?.release()
 
     await expect(lost).resolves.toBeUndefined()
-    await expect(lock!.whenLost()).resolves.toBeUndefined()
-    expect(lock!.hasLost()).toBe(true)
+    await expect(lock?.whenLost()).resolves.toBeUndefined()
+    expect(lock?.hasLost()).toBe(true)
     expect(await readLock(lockPath)).toBeNull()
-    await lock!.release()
+    await lock?.release()
   })
 
   it('stops the renewal interval as soon as ownership is lost', async () => {
@@ -847,10 +847,10 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
       expect(lock).not.toBeNull()
 
       await writeLock(lockPath, 'thief', Date.now() + 60_000)
-      await lock!.whenLost()
+      await lock?.whenLost()
 
       expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
-      await lock!.release()
+      await lock?.release()
     } finally {
       clearIntervalSpy.mockRestore()
       await rm(lockPath, { force: true })
@@ -876,17 +876,17 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
     await writeLock(lockPath, 'owner-B', Date.now() + 60_000)
 
     // Wait for A's renewal tick to fire and notice the mismatch.
-    await lock!.whenLost()
+    await lock?.whenLost()
 
     // B's lock must be intact — A's renewal must NOT have overwritten it.
     const contents = await readLock(lockPath)
     expect(contents?.ownerId).toBe('owner-B')
 
     // A must report itself as lost.
-    expect(lock!.hasLost()).toBe(true)
+    expect(lock?.hasLost()).toBe(true)
 
     // Release should refuse to delete (the lock is B's).
-    await lock!.release()
+    await lock?.release()
     const afterRelease = await readLock(lockPath)
     expect(afterRelease?.ownerId).toBe('owner-B')
 
@@ -930,8 +930,8 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
       await writeLock(lockPath, 'owner-B', Date.now() + 60_000)
       gateResolve()
 
-      await lock!.whenLost()
-      expect(lock!.hasLost()).toBe(true)
+      await lock?.whenLost()
+      expect(lock?.hasLost()).toBe(true)
       // markLost() cleared the renewal interval exactly once.
       expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
 
@@ -940,7 +940,7 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
       const contents = await readLock(lockPath)
       expect(contents?.ownerId).toBe('owner-B')
 
-      await lock!.release()
+      await lock?.release()
       await rm(lockPath, { force: true })
     } finally {
       clearIntervalSpy.mockRestore()
@@ -988,14 +988,14 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
 
       // Drive exactly one renewal. With no later timer callback available,
       // only the immediate post-rename re-read can observe B's takeover.
-      renewalTick!()
+      renewalTick?.()
       await paused
       await writeLock(lockPath, 'owner-B', Date.now() + 60_000)
       gateResolve()
 
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null
       const loss = await Promise.race([
-        lock!.whenLost(),
+        lock?.whenLost(),
         new Promise<'timeout'>((resolve) => {
           timeoutHandle = setTimeout(() => resolve('timeout'), 100)
         }),
@@ -1003,7 +1003,7 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
         if (timeoutHandle !== null) clearTimeout(timeoutHandle)
       })
       expect(loss).toBeUndefined()
-      expect(lock!.hasLost()).toBe(true)
+      expect(lock?.hasLost()).toBe(true)
       expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
 
       // A backed off after the verify re-read saw B; B's write is the
@@ -1011,7 +1011,7 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
       const contents = await readLock(lockPath)
       expect(contents?.ownerId).toBe('owner-B')
 
-      await lock!.release()
+      await lock?.release()
       const afterRelease = await readLock(lockPath)
       expect(afterRelease?.ownerId).toBe('owner-B')
       await rm(lockPath, { force: true })
@@ -1032,7 +1032,7 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
       renewIntervalMs: 10,
     })
     expect(lock).not.toBeNull()
-    expect(lock!.hasLost()).toBe(false)
+    expect(lock?.hasLost()).toBe(false)
 
     // Write a different owner into the lock. Note: this happens AFTER
     // the initial acquire, so ownership is "fresh-stolen" — the renewal
@@ -1041,7 +1041,7 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
 
     // Bounded wait — if whenLost() never resolves, the pipeline is
     // broken. 500ms is generous for the 10ms tick + sync re-read.
-    const lostPromise = lock!.whenLost()
+    const lostPromise = lock?.whenLost()
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null
     const timeout = new Promise<'timeout'>((resolve) => {
       timeoutHandle = setTimeout(() => resolve('timeout'), 1000)
@@ -1050,9 +1050,9 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
       if (timeoutHandle !== null) clearTimeout(timeoutHandle)
     })
     expect(result).toBeUndefined()
-    expect(lock!.hasLost()).toBe(true)
+    expect(lock?.hasLost()).toBe(true)
 
-    await lock!.release()
+    await lock?.release()
     await rm(lockPath, { force: true })
   })
 })

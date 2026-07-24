@@ -131,7 +131,7 @@ describe('showAccountDetails switch account', () => {
     }>
     const switchItem = items.find((item) => item.value === 'switch-account')
     expect(switchItem).toBeDefined()
-    expect(switchItem!.label).toBe('Switch to this account')
+    expect(switchItem?.label).toBe('Switch to this account')
   })
 
   it('hides switch-account option for current account', async () => {
@@ -202,8 +202,8 @@ describe('showAccountDetails fingerprint restore', () => {
       (item) => item.value === 'restore-fingerprint',
     )
     expect(restoreItem).toBeDefined()
-    expect(restoreItem!.label).toContain('Restore fingerprint')
-    expect(restoreItem!.label).toContain('1 saved')
+    expect(restoreItem?.label).toContain('Restore fingerprint')
+    expect(restoreItem?.label).toContain('1 saved')
   })
 
   it('hides restore fingerprint option when no history', async () => {
@@ -291,10 +291,10 @@ describe('showFingerprintHistory', () => {
     }>
     const entryItems = items.filter((item) => typeof item.value === 'number')
     expect(entryItems).toHaveLength(2)
-    expect(entryItems[0]!.label).toContain('abcdef12')
-    expect(entryItems[0]!.label).toContain('[regenerated]')
-    expect(entryItems[1]!.label).toContain('12345678')
-    expect(entryItems[1]!.label).toContain('[initial]')
+    expect(entryItems[0]?.label).toContain('abcdef12')
+    expect(entryItems[0]?.label).toContain('[regenerated]')
+    expect(entryItems[1]?.label).toContain('12345678')
+    expect(entryItems[1]?.label).toContain('[initial]')
   })
 
   it('returns selected history index', async () => {
@@ -416,7 +416,7 @@ describe('showFingerprintHistory', () => {
     )
     const heading = items.find((i) => i.kind === 'heading')
     expect(heading).toBeDefined()
-    expect(heading!.label).toBe('Fingerprint history')
+    expect(heading?.label).toBe('Fingerprint history')
   })
 
   it('passes account label in menu message', async () => {

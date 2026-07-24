@@ -519,7 +519,7 @@ describe('Storage Migration', () => {
         'antigravity-signature-cache.json',
         'antigravity-logs/',
       ].join('\n')
-      const before = await writeFile(
+      const _before = await writeFile(
         join(configDir, '.gitignore'),
         existing,
         'utf8',

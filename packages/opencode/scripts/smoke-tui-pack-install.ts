@@ -79,8 +79,8 @@ async function run(): Promise<void> {
     throw new Error('package.json exports must include "./tui" entry')
   }
   const tuiImport =
-    (tuiExport as Record<string, unknown>)['import'] ??
-    (tuiExport as Record<string, unknown>)['default']
+    (tuiExport as Record<string, unknown>).import ??
+    (tuiExport as Record<string, unknown>).default
   if (typeof tuiImport !== 'string') {
     throw new Error('package.json exports["./tui"] must declare an "import"')
   }
@@ -157,8 +157,8 @@ async function run(): Promise<void> {
   const serverEntry = join('@cortexkit/opencode-antigravity-auth', '.')
   const serverModule = (await import(serverEntry)) as Record<string, unknown>
   if (
-    !serverModule['AntigravityCLIOAuthPlugin'] &&
-    !serverModule['GoogleOAuthPlugin']
+    !serverModule.AntigravityCLIOAuthPlugin &&
+    !serverModule.GoogleOAuthPlugin
   ) {
     throw new Error(
       'server root exports neither AntigravityCLIOAuthPlugin nor GoogleOAuthPlugin',

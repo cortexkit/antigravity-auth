@@ -225,7 +225,7 @@ export function findMessagesWithOrphanThinking(sessionID: string): string[] {
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
-    if (!msg || msg.role !== 'assistant') continue
+    if (msg?.role !== 'assistant') continue
 
     const parts = readParts(msg.id)
     if (parts.length === 0) continue
@@ -350,7 +350,7 @@ export function findMessageByIndexNeedingThinking(
   if (targetIndex < 0 || targetIndex >= messages.length) return null
 
   const targetMsg = messages[targetIndex]
-  if (!targetMsg || targetMsg.role !== 'assistant') return null
+  if (targetMsg?.role !== 'assistant') return null
 
   const parts = readParts(targetMsg.id)
   if (parts.length === 0) return null

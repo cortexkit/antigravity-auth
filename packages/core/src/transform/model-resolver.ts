@@ -145,7 +145,6 @@ function getAgyGeminiFlashThinkingBudget(tier?: ThinkingTier): number {
       return 1000
     case 'high':
       return 10000
-    case 'medium':
     default:
       return 4000
   }

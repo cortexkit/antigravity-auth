@@ -151,7 +151,7 @@ describe('executeSearch', () => {
     const headers = init.headers as Record<string, string>
     const body = JSON.parse(init.body as string)
 
-    expect(headers['Authorization']).toBe('Bearer bearer-token-xyz')
+    expect(headers.Authorization).toBe('Bearer bearer-token-xyz')
     expect(headers['User-Agent']).toMatch(
       /^antigravity\/cli\/1\.1\.5 \(aidev_client; os_type=.+; arch=.+; auth_method=consumer\)$/,
     )

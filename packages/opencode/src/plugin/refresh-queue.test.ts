@@ -112,7 +112,7 @@ describe('ProactiveRefreshQueue', () => {
       const needsRefresh = queue.getAccountsNeedingRefresh()
 
       expect(needsRefresh.length).toBe(1)
-      expect(needsRefresh[0]!.index).toBe(0)
+      expect(needsRefresh[0]?.index).toBe(0)
     })
 
     it('skips expired accounts', () => {

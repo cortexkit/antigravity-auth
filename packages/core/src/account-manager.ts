@@ -352,8 +352,7 @@ export class AccountManager {
           }
           const matchesFallback = !!(
             authFallback &&
-            authParts &&
-            authParts.refreshToken &&
+            authParts?.refreshToken &&
             acc.refreshToken === authParts.refreshToken
           )
 
@@ -427,7 +426,7 @@ export class AccountManager {
       }
 
       // If current auth isn't in the loaded accounts, add it to the pool
-      if (authFallback && authParts && authParts.refreshToken) {
+      if (authFallback && authParts?.refreshToken) {
         const hasMatching = this.accounts.some(
           (acc) => acc.parts.refreshToken === authParts.refreshToken,
         )
@@ -989,11 +988,7 @@ export class AccountManager {
     if (thresholdPercent <= 0) return false
 
     const current = this.getCurrentAccountForFamily(family, identity)
-    if (
-      !current ||
-      !current.cachedQuota ||
-      current.cachedQuotaUpdatedAt == null
-    )
+    if (!current?.cachedQuota || current.cachedQuotaUpdatedAt == null)
       return false
 
     const age = this.now() - current.cachedQuotaUpdatedAt
@@ -1815,7 +1810,7 @@ export class AccountManager {
    */
   getAccountFingerprintHistory(accountIndex: number): FingerprintVersion[] {
     const account = this.accounts[accountIndex]
-    if (!account || !account.fingerprintHistory) {
+    if (!account?.fingerprintHistory) {
       return []
     }
     return [...account.fingerprintHistory]

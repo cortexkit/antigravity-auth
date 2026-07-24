@@ -55,7 +55,7 @@ export function calculateTokenExpiry(
 ): number {
   const seconds = typeof expiresInSeconds === 'number' ? expiresInSeconds : 3600
   // Safety check for bad data - if it's not a positive number, treat as immediately expired
-  if (isNaN(seconds) || seconds <= 0) {
+  if (Number.isNaN(seconds) || seconds <= 0) {
     return requestTimeMs
   }
   return requestTimeMs + seconds * 1000

@@ -5,11 +5,6 @@ import {
   startMockAntigravityServer,
 } from './mock-antigravity-server'
 
-interface RunningServer {
-  server: MockServerHandle
-  cleanup(): Promise<void>
-}
-
 async function withServer(
   fn: (server: MockServerHandle) => Promise<void>,
 ): Promise<void> {

@@ -1,9 +1,7 @@
 import {
   EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION,
   EMPTY_SCHEMA_PLACEHOLDER_NAME,
-  SKIP_THOUGHT_SIGNATURE,
 } from '../constants'
-import { cacheSignature } from './cache'
 import { getKeepThinking } from './config'
 import { processImageData } from './image-saver'
 import { createLogger } from './logger'
@@ -1982,7 +1980,7 @@ function isAntigravityModel(target?: string): boolean {
  * @returns true if the response is empty
  */
 export function isEmptyResponseBody(text: string): boolean {
-  if (!text || !text.trim()) {
+  if (!text?.trim()) {
     return true
   }
 

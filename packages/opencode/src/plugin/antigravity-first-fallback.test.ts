@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from 'bun:test'
 
-import { AccountManager, type HeaderStyle, type ModelFamily } from './accounts'
+import { AccountManager } from './accounts'
 import type { AccountStorageV4 } from './storage'
 
 /**

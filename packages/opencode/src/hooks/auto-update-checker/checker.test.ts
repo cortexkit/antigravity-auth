@@ -107,8 +107,8 @@ describe('findPluginEntry', () => {
     )
     const result = findPluginEntry(projectDir)
     expect(result).not.toBeNull()
-    expect(result!.isPinned).toBe(false)
-    expect(result!.pinnedVersion).toBeNull()
+    expect(result?.isPinned).toBe(false)
+    expect(result?.pinnedVersion).toBeNull()
   })
 
   it('returns entry with isPinned=true for versioned package', async () => {
@@ -122,8 +122,8 @@ describe('findPluginEntry', () => {
     )
     const result = findPluginEntry(projectDir)
     expect(result).not.toBeNull()
-    expect(result!.isPinned).toBe(true)
-    expect(result!.pinnedVersion).toBe('1.5.0')
+    expect(result?.isPinned).toBe(true)
+    expect(result?.pinnedVersion).toBe('1.5.0')
   })
 
   it('returns isPinned=false for @latest entry', async () => {
@@ -137,7 +137,7 @@ describe('findPluginEntry', () => {
     )
     const result = findPluginEntry(projectDir)
     expect(result).not.toBeNull()
-    expect(result!.isPinned).toBe(false)
-    expect(result!.pinnedVersion).toBeNull()
+    expect(result?.isPinned).toBe(false)
+    expect(result?.pinnedVersion).toBeNull()
   })
 })

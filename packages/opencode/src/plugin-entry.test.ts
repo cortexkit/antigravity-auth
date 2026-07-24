@@ -148,11 +148,11 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
     expect(Object.keys(provider!.models).sort()).toEqual(
       [...expectedModelIds].sort(),
     )
-    expect(provider!.whitelist).toEqual([...expectedModelIds])
+    expect(provider?.whitelist).toEqual([...expectedModelIds])
 
     // Each model definition matches the core registry values.
     for (const id of expectedModelIds) {
-      expect(provider!.models[id]).toBe(OPENCODE_MODEL_DEFINITIONS[id])
+      expect(provider?.models[id]).toBe(OPENCODE_MODEL_DEFINITIONS[id])
     }
 
     // Existing providers and commands are preserved alongside the additions.
@@ -173,8 +173,8 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
       | { template: string; description: string }
       | undefined
     expect(dumpCommand).toBeDefined()
-    expect(dumpCommand!.template).toBe(GEMINI_DUMP_COMMAND_NAME)
-    expect(dumpCommand!.description).toContain('wire dump')
+    expect(dumpCommand?.template).toBe(GEMINI_DUMP_COMMAND_NAME)
+    expect(dumpCommand?.description).toContain('wire dump')
   })
 
   it('command.execute.before ignores non-gemini-dump commands and routes gemini-dump to the dump command handler', async () => {

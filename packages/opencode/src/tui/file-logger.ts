@@ -62,10 +62,9 @@ interface FileLoggerOptions {
  * it just drops the line.
  */
 export function resolveTuiLogPath(): string {
-  const override = process.env['ANTIGRAVITY_AUTH_TUI_LOG_FILE']
+  const override = process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE
   if (override && override.trim().length > 0) return override
-  const base =
-    process.env['XDG_STATE_HOME'] || join(homedir(), '.local', 'state')
+  const base = process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state')
   return join(base, 'cortexkit', 'antigravity-auth', 'tui.log')
 }
 
@@ -120,7 +119,7 @@ function createFileLogger(options: FileLoggerOptions): TuiLogger {
         level,
         message,
       }
-      if (extra && Object.keys(extra).length > 0) payload['extra'] = extra
+      if (extra && Object.keys(extra).length > 0) payload.extra = extra
       // `mode: 0o600` so the log file is owner-only — the same default the
       // plugin's account storage applies. `appendFileSync` only honours the
       // mode flag when the file is created, so existing files keep whatever

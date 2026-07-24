@@ -27,7 +27,6 @@ import {
 import {
   type AntigravityDebugContext,
   DEBUG_MESSAGE_PREFIX,
-  isDebugEnabled,
   isDebugTuiEnabled,
   logAntigravityDebugResponse,
   logCacheStats,
@@ -75,15 +74,12 @@ import {
   appendClaudeThinkingHint,
   applyGeminiTransforms,
   buildImageGenerationConfig,
-  CLAUDE_THINKING_MAX_OUTPUT_TOKENS,
   computeClaudeMaxOutputTokens,
   isClaudeModel,
   isClaudeThinkingModel,
   isGemini3Model,
   isImageGenerationModel,
   resolveModelForHeaderStyle,
-  resolveModelWithTier,
-  resolveModelWithVariant,
   type ThinkingTier,
 } from './transform'
 import { sanitizeCrossModelPayloadInPlace } from './transform/cross-model-sanitizer'
@@ -1234,7 +1230,7 @@ function ensureThinkingBeforeToolUseInMessages(
       ...message,
       content: blocks.map((b) => {
         if (!isThinkingBlock(b)) return b
-        const thinkingText = lastThinking
+        const _thinkingText = lastThinking
           ? lastThinking.text
           : typeof b.thinking === 'string'
             ? b.thinking
@@ -2371,7 +2367,7 @@ export function prepareAntigravityRequest(
           headerStyle === 'antigravity'
             ? {
                 project: effectiveProjectId,
-                requestId: agyMetadata!.requestId,
+                requestId: agyMetadata?.requestId,
                 request: requestPayload,
                 model: effectiveModel,
                 userAgent: 'antigravity',
@@ -2709,9 +2705,9 @@ export async function transformAntigravityResponse(
 
         if (retryInfo?.retryDelay) {
           const match = retryInfo.retryDelay.match(/^([\d.]+)s$/)
-          if (match && match[1]) {
+          if (match?.[1]) {
             const retrySeconds = parseFloat(match[1])
-            if (!isNaN(retrySeconds) && retrySeconds > 0) {
+            if (!Number.isNaN(retrySeconds) && retrySeconds > 0) {
               const retryAfterSec = Math.ceil(retrySeconds).toString()
               const retryAfterMs = Math.ceil(retrySeconds * 1000).toString()
               headers.set('Retry-After', retryAfterSec)

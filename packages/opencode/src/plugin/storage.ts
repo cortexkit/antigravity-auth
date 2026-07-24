@@ -147,7 +147,7 @@ export async function ensureGitignore(configDir: string): Promise<void> {
     if (content === '') {
       await fs.writeFile(
         gitignorePath,
-        missingEntries.join('\n') + '\n',
+        `${missingEntries.join('\n')}\n`,
         'utf-8',
       )
       log.info('Created .gitignore in config directory')
@@ -155,7 +155,7 @@ export async function ensureGitignore(configDir: string): Promise<void> {
       const suffix = content.endsWith('\n') ? '' : '\n'
       await fs.appendFile(
         gitignorePath,
-        suffix + missingEntries.join('\n') + '\n',
+        `${suffix + missingEntries.join('\n')}\n`,
         'utf-8',
       )
       log.info('Updated .gitignore with missing entries', {
@@ -195,13 +195,13 @@ export function ensureGitignoreSync(configDir: string): void {
     }
 
     if (content === '') {
-      writeFileSync(gitignorePath, missingEntries.join('\n') + '\n', 'utf-8')
+      writeFileSync(gitignorePath, `${missingEntries.join('\n')}\n`, 'utf-8')
       log.info('Created .gitignore in config directory')
     } else {
       const suffix = content.endsWith('\n') ? '' : '\n'
       appendFileSync(
         gitignorePath,
-        suffix + missingEntries.join('\n') + '\n',
+        `${suffix + missingEntries.join('\n')}\n`,
         'utf-8',
       )
       log.info('Updated .gitignore with missing entries', {

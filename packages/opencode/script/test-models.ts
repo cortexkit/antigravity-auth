@@ -1,5 +1,5 @@
 #!/usr/bin/env npx tsx
-import { spawn } from 'child_process'
+import { spawn } from 'node:child_process'
 
 interface ModelTest {
   model: string

@@ -156,7 +156,7 @@ function parseSearchResponse(data: AntigravitySearchResponse): SearchResult {
   }
 
   const response = data.response
-  if (!response || !response.candidates || response.candidates.length === 0) {
+  if (!response?.candidates || response.candidates.length === 0) {
     if (data.error) {
       result.text = `Error: ${data.error.message ?? 'Unknown error'}`
     } else if (response?.error) {

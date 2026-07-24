@@ -1,5 +1,3 @@
-import type { GetAuth } from '@cortexkit/antigravity-auth-core'
-import type { Provider as SDKProvider } from '@opencode-ai/sdk'
 import type {
   AuthHook,
   AuthOAuthResult,
@@ -8,6 +6,7 @@ import type {
   PluginInput,
   ToolDefinition,
 } from '@opencode-ai/plugin'
+import type { Provider as SDKProvider } from '@opencode-ai/sdk'
 
 export type {
   ApiKeyAuthDetails,
