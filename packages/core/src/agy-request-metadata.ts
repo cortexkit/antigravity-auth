@@ -1,5 +1,5 @@
-import { Buffer } from 'node:buffer'
-import { randomUUID } from 'node:crypto'
+import { Buffer } from "node:buffer"
+import { randomUUID } from "node:crypto"
 
 const FNV1A_64_OFFSET_BASIS = 0xcbf29ce484222325n
 const FNV1A_64_PRIME = 0x100000001b3n
@@ -7,28 +7,28 @@ const DEFAULT_SESSION_STATE_TTL_MS = 24 * 60 * 60 * 1000
 const DEFAULT_MAX_SESSION_STATES = 256
 
 const AGY_REQUEST_FIELD_ORDER = [
-  'contents',
-  'systemInstruction',
-  'tools',
-  'toolConfig',
-  'labels',
-  'generationConfig',
-  'sessionId',
+  "contents",
+  "systemInstruction",
+  "tools",
+  "toolConfig",
+  "labels",
+  "generationConfig",
+  "sessionId",
 ] as const
 
 const AGY_MODEL_ENUM_BY_WIRE_MODEL: Readonly<Record<string, string>> = {
-  'gemini-3.5-flash-extra-low': 'MODEL_PLACEHOLDER_M187',
-  'gemini-3.5-flash-low': 'MODEL_PLACEHOLDER_M20',
-  'gemini-3-flash-agent': 'MODEL_PLACEHOLDER_M84',
-  'gemini-3.6-flash-low': 'MODEL_PLACEHOLDER_M266',
-  'gemini-3.6-flash-medium': 'MODEL_PLACEHOLDER_M265',
-  'gemini-3.6-flash-high': 'MODEL_PLACEHOLDER_M264',
-  'gemini-3.1-pro-low': 'MODEL_PLACEHOLDER_M36',
-  'gemini-pro-agent': 'MODEL_PLACEHOLDER_M16',
-  'claude-sonnet-4-6': 'MODEL_PLACEHOLDER_M35',
-  'claude-opus-4-6-thinking': 'MODEL_PLACEHOLDER_M26',
-  'gemini-3.1-flash-image': 'MODEL_PLACEHOLDER_M21',
-  'gpt-oss-120b-medium': 'MODEL_OPENAI_GPT_OSS_120B_MEDIUM',
+  "gemini-3.5-flash-extra-low": "MODEL_PLACEHOLDER_M187",
+  "gemini-3.5-flash-low": "MODEL_PLACEHOLDER_M20",
+  "gemini-3-flash-agent": "MODEL_PLACEHOLDER_M84",
+  "gemini-3.6-flash-low": "MODEL_PLACEHOLDER_M266",
+  "gemini-3.6-flash-medium": "MODEL_PLACEHOLDER_M265",
+  "gemini-3.6-flash-high": "MODEL_PLACEHOLDER_M264",
+  "gemini-3.1-pro-low": "MODEL_PLACEHOLDER_M36",
+  "gemini-pro-agent": "MODEL_PLACEHOLDER_M16",
+  "claude-sonnet-4-6": "MODEL_PLACEHOLDER_M35",
+  "claude-opus-4-6-thinking": "MODEL_PLACEHOLDER_M26",
+  "gemini-3.1-flash-image": "MODEL_PLACEHOLDER_M21",
+  "gpt-oss-120b-medium": "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
 }
 
 export interface AgyRequestSessionContext {
@@ -37,6 +37,7 @@ export interface AgyRequestSessionContext {
   numericSessionId: string
   usedClaude?: boolean
   usedNonGeminiModel?: boolean
+  lastExecutionId?: string
 }
 
 interface StoredAgyRequestSession {
@@ -57,12 +58,13 @@ export interface AgyRequestScope {
 }
 
 export interface AgyRequestLabels {
+  last_execution_id?: string
   last_step_index: string
   model_enum?: string
   trajectory_id: string
-  used_claude: 'true' | 'false'
-  used_claude_conservative: 'true' | 'false'
-  used_non_gemini_model: 'true' | 'false'
+  used_claude: "true" | "false"
+  used_claude_conservative: "true" | "false"
+  used_non_gemini_model: "true" | "false"
 }
 
 export interface AgyAgentRequestMetadata {
@@ -72,9 +74,13 @@ export interface AgyAgentRequestMetadata {
   lastStepIndex: number
 }
 
+export interface AgyAgentRequestMetadataOptions {
+  stepCountMode?: "parts" | "contents"
+}
+
 export function fnv1a64Signed(input: string): string {
   let hash = FNV1A_64_OFFSET_BASIS
-  for (const byte of Buffer.from(input, 'utf8')) {
+  for (const byte of Buffer.from(input, "utf8")) {
     hash ^= BigInt(byte)
     hash = BigInt.asUintN(64, hash * FNV1A_64_PRIME)
   }
@@ -99,10 +105,7 @@ export class AgyRequestSessionStore {
   private readonly maxEntries: number
   private readonly now: () => number
 
-  constructor(
-    workspaceUri: string,
-    options: AgyRequestSessionStoreOptions = {},
-  ) {
+  constructor(workspaceUri: string, options: AgyRequestSessionStoreOptions = {}) {
     this.workspaceUri = workspaceUri
     this.ttlMs = options.ttlMs ?? DEFAULT_SESSION_STATE_TTL_MS
     this.maxEntries = options.maxEntries ?? DEFAULT_MAX_SESSION_STATES
@@ -131,12 +134,16 @@ export class AgyRequestSessionStore {
   beginRequest(key: string): AgyRequestScope {
     const session = this.getOrCreate(key)
     const stored = this.entries.get(key)!
-    const timestamp = Math.max(
-      stored.lastAccessedAt,
-      stored.lastRequestTimestamp + 1,
-    )
+    const timestamp = Math.max(stored.lastAccessedAt, stored.lastRequestTimestamp + 1)
     stored.lastRequestTimestamp = timestamp
     return { session, timestamp }
+  }
+
+  completeExecution(key: string): void {
+    const stored = this.entries.get(key)
+    if (stored) {
+      stored.context.lastExecutionId = randomUUID()
+    }
   }
 
   has(key: string): boolean {
@@ -145,10 +152,6 @@ export class AgyRequestSessionStore {
 
   delete(key: string): void {
     this.entries.delete(key)
-  }
-
-  clear(): void {
-    this.entries.clear()
   }
 
   get size(): number {
@@ -163,10 +166,7 @@ export class AgyRequestSessionStore {
       }
     }
 
-    while (
-      this.entries.size >= this.maxEntries &&
-      !this.entries.has(preservedKey)
-    ) {
+    while (this.entries.size >= this.maxEntries && !this.entries.has(preservedKey)) {
       let oldestKey: string | null = null
       let oldestAccess = Number.POSITIVE_INFINITY
       for (const [key, value] of this.entries) {
@@ -187,9 +187,7 @@ export function getAgyModelEnum(model: string): string | undefined {
   return AGY_MODEL_ENUM_BY_WIRE_MODEL[model.toLowerCase()]
 }
 
-export function orderAgyRequestPayloadInPlace(
-  payload: Record<string, unknown>,
-): void {
+export function orderAgyRequestPayloadInPlace(payload: Record<string, unknown>): void {
   const ordered: Record<string, unknown> = {}
   const remaining = new Set(Object.keys(payload))
 
@@ -209,21 +207,19 @@ export function orderAgyRequestPayloadInPlace(
   Object.assign(payload, ordered)
 }
 
-export function countAgyRequestSteps(payload: Record<string, unknown>): number {
+export function countAgyRequestSteps(
+  payload: Record<string, unknown>,
+  mode: "parts" | "contents" = "parts",
+): number {
   const contents = payload.contents
-  if (!Array.isArray(contents)) {
-    return 1
-  }
+  if (!Array.isArray(contents)) return 1
+  if (mode === "contents") return Math.max(1, contents.length)
 
   let partCount = 0
   for (const content of contents) {
-    if (!content || typeof content !== 'object' || Array.isArray(content)) {
-      continue
-    }
+    if (!content || typeof content !== "object" || Array.isArray(content)) continue
     const parts = (content as Record<string, unknown>).parts
-    if (Array.isArray(parts)) {
-      partCount += parts.length
-    }
+    if (Array.isArray(parts)) partCount += parts.length
   }
   return Math.max(1, partCount)
 }
@@ -233,21 +229,23 @@ export function buildAgyAgentRequestMetadata(
   payload: Record<string, unknown>,
   model: string,
   timestamp = Date.now(),
+  options: AgyAgentRequestMetadataOptions = {},
 ): AgyAgentRequestMetadata {
-  const lastStepIndex = countAgyRequestSteps(payload)
-  const isClaude = model.toLowerCase().startsWith('claude-')
-  const isNonGemini = isClaude || model.toLowerCase().startsWith('gpt-')
+  const lastStepIndex = countAgyRequestSteps(payload, options.stepCountMode)
+    + (session.lastExecutionId ? 1 : 0)
+  const isClaude = model.toLowerCase().startsWith("claude-")
+  const isNonGemini = isClaude || model.toLowerCase().startsWith("gpt-")
   session.usedClaude = session.usedClaude === true || isClaude
-  session.usedNonGeminiModel =
-    session.usedNonGeminiModel === true || isNonGemini
+  session.usedNonGeminiModel = session.usedNonGeminiModel === true || isNonGemini
   const modelEnum = getAgyModelEnum(model)
   const labels: AgyRequestLabels = {
+    ...(session.lastExecutionId ? { last_execution_id: session.lastExecutionId } : {}),
     last_step_index: String(lastStepIndex),
     ...(modelEnum ? { model_enum: modelEnum } : {}),
     trajectory_id: session.trajectoryId,
-    used_claude: session.usedClaude ? 'true' : 'false',
-    used_claude_conservative: session.usedClaude ? 'true' : 'false',
-    used_non_gemini_model: session.usedNonGeminiModel ? 'true' : 'false',
+    used_claude: session.usedClaude ? "true" : "false",
+    used_claude_conservative: session.usedClaude ? "true" : "false",
+    used_non_gemini_model: session.usedNonGeminiModel ? "true" : "false",
   }
 
   return {
