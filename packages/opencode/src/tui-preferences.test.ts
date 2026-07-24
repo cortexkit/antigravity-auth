@@ -368,6 +368,27 @@ describe('queueTuiPreferenceUpdate', () => {
     ).toBe(false)
   })
 
+  test('preserves concurrent updates from independent plugin module instances', async () => {
+    const firstPath = `./tui-preferences?writer=first-${Math.random()}`
+    const secondPath = `./tui-preferences?writer=second-${Math.random()}`
+    const first = (await import(
+      /* @vite-ignore */ firstPath
+    )) as typeof import('./tui-preferences')
+    const second = (await import(
+      /* @vite-ignore */ secondPath
+    )) as typeof import('./tui-preferences')
+
+    await Promise.all([
+      first.queueTuiPreferenceUpdate('antigravity-auth', ['collapsed'], true),
+      second.queueTuiPreferenceUpdate('sibling-plugin', ['enabled'], true),
+    ])
+
+    expect(await readTuiPreferencesFile()).toEqual({
+      'antigravity-auth': { collapsed: true },
+      'sibling-plugin': { enabled: true },
+    })
+  })
+
   test('no temp files are left behind', async () => {
     await queueTuiPreferenceUpdate(PLUGIN_KEY, ['collapsed'], true)
     const { readdir } = await import('node:fs/promises')

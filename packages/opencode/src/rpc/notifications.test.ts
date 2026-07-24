@@ -67,9 +67,14 @@ describe('notification queue', () => {
     expect(
       drainNotifications(0, 'b').map(({ payload: item }) => item.text),
     ).toEqual(['broadcast', 'session-b'])
+    // Polling before a route has an active session must not consume a
+    // targeted notification that belongs to a later session.
     expect(drainNotifications(0).map(({ payload: item }) => item.text)).toEqual(
-      ['broadcast', 'session-b'],
+      ['broadcast'],
     )
+    expect(
+      drainNotifications(0, 'b').map(({ payload: item }) => item.text),
+    ).toEqual(['broadcast', 'session-b'])
   })
 
   it('reports a TUI connected within the 3000ms drain window', () => {

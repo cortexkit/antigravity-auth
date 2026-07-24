@@ -1,15 +1,21 @@
+import { randomUUID } from 'node:crypto'
 import { watch } from 'node:fs'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import {
   clearTimeout as nativeClearTimeout,
   setTimeout as nativeSetTimeout,
 } from 'node:timers'
+import { acquireFencedFileLock } from '@cortexkit/antigravity-auth-core/file-lock'
 import { applyEdits, modify, type ParseError, parse } from 'jsonc-parser'
 
 export const TUI_PREFS_FILE_ENV = 'OPENCODE_TUI_PREFERENCES_FILE'
 const FILE_NAME = 'tui-preferences.jsonc'
+const PREFERENCES_LOCK_NAME = 'preferences'
+const PREFERENCES_LOCK_TTL_MS = 10_000
+const PREFERENCES_LOCK_TIMEOUT_MS = 2_000
+const PREFERENCES_LOCK_RETRY_MS = 25
 
 // Shared preferences file for opencode TUI plugins. One top-level key per
 // plugin (short name, e.g. "antigravity-auth"). The file is optional: every
@@ -245,6 +251,25 @@ const TEMPLATE = `// Shared preferences for opencode TUI plugins.
 
 type JsonValue = string | number | boolean | null
 
+async function acquirePreferencesLock(file: string) {
+  const deadline = Date.now() + PREFERENCES_LOCK_TIMEOUT_MS
+  for (;;) {
+    const lock = await acquireFencedFileLock({
+      path: file,
+      name: PREFERENCES_LOCK_NAME,
+      ttlMs: PREFERENCES_LOCK_TTL_MS,
+      renew: true,
+    })
+    if (lock) return lock
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out acquiring TUI preferences lock: ${file}`)
+    }
+    await new Promise<void>((resolve) =>
+      nativeSetTimeout(resolve, PREFERENCES_LOCK_RETRY_MS),
+    )
+  }
+}
+
 async function writePreference(
   pluginKey: string,
   path: string[],
@@ -252,20 +277,27 @@ async function writePreference(
 ): Promise<void> {
   const file = getTuiPreferencesFile()
   await mkdir(dirname(file), { recursive: true })
-  let text: string
+  const lock = await acquirePreferencesLock(file)
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`
   try {
-    text = await readFile(file, 'utf8')
-  } catch {
-    text = ''
+    let text: string
+    try {
+      text = await readFile(file, 'utf8')
+    } catch {
+      text = ''
+    }
+    if (text.trim() === '') text = TEMPLATE
+    const edits = modify(text, [pluginKey, ...path], value, {
+      formattingOptions: { insertSpaces: true, tabSize: 2 },
+    })
+    const next = applyEdits(text, edits)
+    await writeFile(tmp, next, { encoding: 'utf8', mode: 0o600 })
+    await lock.assertOwned()
+    await rename(tmp, file)
+  } finally {
+    await rm(tmp, { force: true }).catch(() => {})
+    await lock.release()
   }
-  if (text.trim() === '') text = TEMPLATE
-  const edits = modify(text, [pluginKey, ...path], value, {
-    formattingOptions: { insertSpaces: true, tabSize: 2 },
-  })
-  const next = applyEdits(text, edits)
-  const tmp = `${file}.${process.pid}.tmp`
-  await writeFile(tmp, next, 'utf8')
-  await rename(tmp, file)
 }
 
 let writeChain: Promise<void> = Promise.resolve()

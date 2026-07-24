@@ -492,13 +492,23 @@ describe('redaction', () => {
     }
   })
 
-  it('redacts a label-bearing input to itself (no email field accepted)', () => {
+  it('replaces profile labels with privacy-safe ordinal labels', () => {
     const redacted = redactAccountForSidebar({
       index: 0,
       label: 'Alice Example',
     })
-    expect(redacted.label).toBe('Alice Example')
-    expect(JSON.stringify(redacted)).not.toContain('alice.secret@example.com')
+    expect(redacted.label).toBe('Account 1')
+    expect(JSON.stringify(redacted)).not.toContain('Alice Example')
     expect(redactAccountForSidebar({ index: 1 }).label).toBe('Account 2')
+  })
+
+  it('redacts GPT-OSS quota into the sidebar state', () => {
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        'gpt-oss': { remainingFraction: 0.42 },
+      },
+    })
+    expect(redacted.quota['gpt-oss']?.remainingPercent).toBe(42)
   })
 })

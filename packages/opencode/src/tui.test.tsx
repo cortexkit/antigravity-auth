@@ -555,6 +555,132 @@ describe('RPC notification polling', () => {
     ])
   })
 
+  it('tracks notification cursors independently when the active session changes', async () => {
+    const freshPath = `./tui?session-cursors=${Math.random().toString(36).slice(2)}`
+    const fresh = (await import(/* @vite-ignore */ freshPath)) as {
+      startRpcNotificationPolling: typeof startRpcNotificationPolling
+    }
+    const scheduled: Array<() => Promise<void>> = []
+    const pendingCalls: Array<{ cursor: number; sessionId?: string }> = []
+    const dispatched: number[] = []
+    let sessionId = 'session-a'
+
+    fresh.startRpcNotificationPolling({
+      pending: async (cursor, requestedSessionId) => {
+        pendingCalls.push({ cursor, sessionId: requestedSessionId })
+        if (requestedSessionId === 'session-a' && cursor === 0) {
+          return [
+            {
+              id: 2,
+              type: 'open-dialog' as const,
+              payload: {
+                command: 'antigravity-quota' as const,
+                text: 'session A',
+                knobs: {},
+              },
+              sessionId: 'session-a',
+            },
+          ]
+        }
+        if (requestedSessionId === 'session-b' && cursor === 0) {
+          return [
+            {
+              id: 1,
+              type: 'open-dialog' as const,
+              payload: {
+                command: 'antigravity-account' as const,
+                text: 'session B',
+                knobs: {},
+              },
+              sessionId: 'session-b',
+            },
+          ]
+        }
+        return []
+      },
+      currentSessionId: () => sessionId,
+      dispatch: (notification) => {
+        dispatched.push(notification.id)
+      },
+      schedule: (poll) => scheduled.push(poll),
+      logger: makeCapturingLogger(),
+    })
+
+    await scheduled[0]!()
+    sessionId = 'session-b'
+    await scheduled[0]!()
+
+    expect(pendingCalls).toEqual([
+      { cursor: 0, sessionId: 'session-a' },
+      { cursor: 0, sessionId: 'session-b' },
+    ])
+    expect(dispatched).toEqual([2, 1])
+  })
+
+  it('dispatches a broadcast only once while session cursors advance independently', async () => {
+    const freshPath = `./tui?broadcast-cursor=${Math.random().toString(36).slice(2)}`
+    const fresh = (await import(/* @vite-ignore */ freshPath)) as {
+      startRpcNotificationPolling: typeof startRpcNotificationPolling
+    }
+    const scheduled: Array<() => Promise<void>> = []
+    const dispatched: number[] = []
+    let sessionId = 'session-a'
+    const broadcast = {
+      id: 3,
+      type: 'open-dialog' as const,
+      payload: {
+        command: 'antigravity-quota' as const,
+        text: 'broadcast',
+        knobs: {},
+      },
+    }
+
+    fresh.startRpcNotificationPolling({
+      pending: async (cursor, requestedSessionId) => {
+        if (cursor !== 0) return []
+        return requestedSessionId === 'session-a'
+          ? [
+              {
+                id: 2,
+                type: 'open-dialog' as const,
+                payload: {
+                  command: 'antigravity-quota' as const,
+                  text: 'session A',
+                  knobs: {},
+                },
+                sessionId: 'session-a',
+              },
+              broadcast,
+            ]
+          : [
+              {
+                id: 1,
+                type: 'open-dialog' as const,
+                payload: {
+                  command: 'antigravity-account' as const,
+                  text: 'session B',
+                  knobs: {},
+                },
+                sessionId: 'session-b',
+              },
+              broadcast,
+            ]
+      },
+      currentSessionId: () => sessionId,
+      dispatch: (notification) => {
+        dispatched.push(notification.id)
+      },
+      schedule: (poll) => scheduled.push(poll),
+      logger: makeCapturingLogger(),
+    })
+
+    await scheduled[0]!()
+    sessionId = 'session-b'
+    await scheduled[0]!()
+
+    expect(dispatched).toEqual([2, 3, 1])
+  })
+
   // T3 reviewer SHOULD-1: the outer `catch {}` in the poll swallowed
   // every RPC error silently. The fix logs the failure through the file
   // logger so a transient RPC outage is visible to operators. The catch

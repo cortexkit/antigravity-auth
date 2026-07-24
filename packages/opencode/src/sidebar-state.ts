@@ -52,7 +52,11 @@ import { xdgState } from 'xdg-basedir'
 
 export const SIDEBAR_STATE_VERSION = 1 as const
 
-export type SidebarQuotaKey = 'claude' | 'gemini-pro' | 'gemini-flash'
+export type SidebarQuotaKey =
+  | 'claude'
+  | 'gemini-pro'
+  | 'gemini-flash'
+  | 'gpt-oss'
 
 export interface SidebarQuotaEntry {
   remainingPercent: number
@@ -290,7 +294,12 @@ function normalizeAccount(input: unknown): SidebarAccountState | null {
   const quotaRaw = record.quota
   const quota: SidebarAccountState['quota'] = {}
   if (isObject(quotaRaw)) {
-    for (const key of ['claude', 'gemini-pro', 'gemini-flash'] as const) {
+    for (const key of [
+      'claude',
+      'gemini-pro',
+      'gemini-flash',
+      'gpt-oss',
+    ] as const) {
       const entry = (quotaRaw as Record<string, unknown>)[key]
       const normalized = normalizeQuota(entry)
       if (normalized) quota[key] = normalized
@@ -419,11 +428,12 @@ export function pruneActiveRouting(
  *
  * Deliberately excludes `email`: the sidebar/redaction boundary is a PII
  * firewall. Adding `email` here would re-introduce the leak this boundary
- * exists to prevent; producers must pass `label` instead.
+ * exists to prevent. Legacy profile labels are accepted but never serialized.
  */
 export interface SidebarAccountRedactionInput {
   /** Position in the harness-visible account array. */
   index: number
+  /** Legacy profile label; deliberately ignored by the redactor. */
   label?: string
   enabled?: boolean
   current?: boolean
@@ -434,21 +444,21 @@ export interface SidebarAccountRedactionInput {
     claude?: { remainingFraction?: number; resetTime?: string }
     'gemini-pro'?: { remainingFraction?: number; resetTime?: string }
     'gemini-flash'?: { remainingFraction?: number; resetTime?: string }
+    'gpt-oss'?: { remainingFraction?: number; resetTime?: string }
   }
 }
 
 /**
  * Convert a live account snapshot into the redacted shape the TUI renders.
- * The redacted `SidebarAccountState` carries NO refresh token, access token,
- * project ID, fingerprint, or other credential-shaped fields; only the
- * `id`/`label`/`enabled`/`health`/`current`/`cooldownUntil`/`quota` set the
- * sidebar renders.
+ * The redacted `SidebarAccountState` carries no email, refresh token, access
+ * token, project ID, fingerprint, OAuth profile name, or other personal or
+ * credential-shaped fields. Display labels are generated ordinal account names.
  */
 export function redactAccountForSidebar(
   source: SidebarAccountRedactionInput,
 ): SidebarAccountState {
   const id = `acct-${source.index}`
-  const label = source.label ?? `Account ${source.index + 1}`
+  const label = `Account ${source.index + 1}`
   const enabled = source.enabled !== false
   const current = source.current === true
   const cooldownUntil =
@@ -465,7 +475,12 @@ export function redactAccountForSidebar(
   const quota: SidebarAccountState['quota'] = {}
   const cached = source.cachedQuota
   if (cached) {
-    for (const key of ['claude', 'gemini-pro', 'gemini-flash'] as const) {
+    for (const key of [
+      'claude',
+      'gemini-pro',
+      'gemini-flash',
+      'gpt-oss',
+    ] as const) {
       const entry = cached[key]
       if (!entry) continue
       const fraction = entry.remainingFraction

@@ -79,7 +79,7 @@ const PLUGIN_VERSION = (() => {
 })();
 // Module-scoped state — TEST ISOLATION CONTRACT:
 //
-// `rpcPollStarted`, `lastNotificationId`, `rpcInFlight`, and the lazy
+// `rpcPollStarted`, notification cursor/deduplication state, `rpcInFlight`, and the lazy
 // `sidebarController` below persist across tests via the cached ES
 // module Bun loads once per `--isolate` file. Tests must NOT assert
 // fresh-process behaviour from these variables — by the time the first
@@ -93,14 +93,18 @@ const PLUGIN_VERSION = (() => {
 //      `getSidebarController()`, which lazily seeds the module-scoped
 //      singleton.
 let rpcPollStarted = false;
-let lastNotificationId = 0;
+const notificationCursorBySession = new Map();
+const dispatchedNotificationIds = new Set();
 let rpcInFlight = false;
+const GLOBAL_NOTIFICATION_CURSOR = '__global__';
+const MAX_NOTIFICATION_CURSORS = 256;
 const QUOTA_LABELS = {
   claude: 'Cl',
   'gemini-pro': 'GP',
-  'gemini-flash': 'GF'
+  'gemini-flash': 'GF',
+  'gpt-oss': 'GPT'
 };
-const QUOTA_ORDER = ['claude', 'gemini-pro', 'gemini-flash'];
+const QUOTA_ORDER = ['claude', 'gemini-pro', 'gemini-flash', 'gpt-oss'];
 
 // --- Theme tokens ----------------------------------------------------------
 //
@@ -1032,12 +1036,28 @@ export function startRpcNotificationPolling(options) {
     rpcInFlight = true;
     try {
       const sessionId = options.currentSessionId();
-      const notifications = await options.pending(lastNotificationId, sessionId);
+      const cursorKey = sessionId ?? GLOBAL_NOTIFICATION_CURSOR;
+      let cursor = notificationCursorBySession.get(cursorKey) ?? 0;
+      const notifications = await options.pending(cursor, sessionId);
       for (const notification of [...notifications].sort((a, b) => a.id - b.id)) {
-        if (notification.id <= lastNotificationId) continue;
-        lastNotificationId = Math.max(lastNotificationId, notification.id);
+        if (notification.id <= cursor) continue;
+        cursor = Math.max(cursor, notification.id);
+        if (dispatchedNotificationIds.has(notification.id)) continue;
+        dispatchedNotificationIds.add(notification.id);
+        if (dispatchedNotificationIds.size > 100) {
+          const oldestId = dispatchedNotificationIds.values().next().value;
+          if (oldestId !== undefined) dispatchedNotificationIds.delete(oldestId);
+        }
         await options.dispatch(notification);
       }
+      if (!notificationCursorBySession.has(cursorKey)) {
+        while (notificationCursorBySession.size >= MAX_NOTIFICATION_CURSORS) {
+          const oldest = notificationCursorBySession.keys().next().value;
+          if (oldest === undefined) break;
+          notificationCursorBySession.delete(oldest);
+        }
+      }
+      notificationCursorBySession.set(cursorKey, cursor);
     } catch (error) {
       // Surface the swallowed error through the file logger rather than
       // stdout/stderr (the host terminal is the frame buffer — any byte

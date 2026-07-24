@@ -206,6 +206,7 @@ export const createAntigravityPlugin =
             active: index === current,
             cachedQuota: entry.cachedQuota,
             cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+            accountIneligible: entry.accountIneligible,
           }))
         },
         getAccountsForQuotaCheck: () => {

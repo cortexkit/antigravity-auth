@@ -58,6 +58,7 @@ interface QuotaGroupFixture {
   claude?: { remainingFraction?: number; resetTime?: string }
   'gemini-pro'?: { remainingFraction?: number; resetTime?: string }
   'gemini-flash'?: { remainingFraction?: number; resetTime?: string }
+  'gpt-oss'?: { remainingFraction?: number; resetTime?: string }
 }
 
 interface AccountFixture {
@@ -71,6 +72,7 @@ interface AccountFixture {
   label?: string
   cachedQuota?: QuotaGroupFixture
   cachedQuotaUpdatedAt?: number
+  accountIneligible?: boolean
 }
 
 function makeAccountFixture(
@@ -115,6 +117,8 @@ function makeHarness(options: {
    * fails to acquire.
    */
   rejectStorageWith?: Error
+  afterQuotaRefresh?: (liveView: AccountFixture[]) => void
+  beforeStorageCommit?: (liveView: AccountFixture[]) => void
 }): Harness {
   const stateFile = join(dir, 'sidebar-state.json')
   process.env[SIDEBAR_STATE_ENV] = stateFile
@@ -146,6 +150,7 @@ function makeHarness(options: {
           >
         | undefined,
       cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+      accountIneligible: entry.accountIneligible,
     })),
   }
 
@@ -180,6 +185,7 @@ function makeHarness(options: {
             }
           )
         })
+        options.afterQuotaRefresh?.(liveView)
         return results
       },
     ),
@@ -209,6 +215,7 @@ function makeHarness(options: {
           | Partial<Record<QuotaGroup, QuotaGroupSummary>>
           | undefined,
         cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+        accountIneligible: entry.accountIneligible,
       }))
     },
     getAccountsForQuotaCheck() {
@@ -245,6 +252,7 @@ function makeHarness(options: {
     setAccountEnabled(index: number, enabled: boolean): boolean {
       const account = liveView[index]
       if (!account) return false
+      if (enabled && account.accountIneligible) return false
       if (account.enabled === enabled) return false
       account.enabled = enabled
       return true
@@ -294,6 +302,7 @@ function makeHarness(options: {
                 })
               }
               if (next) {
+                options.beforeStorageCommit?.(liveView)
                 storage.accounts = next.accounts
                 storage.activeIndex = next.activeIndex
                 storage.activeIndexByFamily = next.activeIndexByFamily
@@ -375,10 +384,12 @@ describe('createCommandDataService', () => {
     expect(harness.quotaCallLog).toEqual([])
     expect(rows).toHaveLength(2)
 
-    // Privacy: no email in any field of any row.
+    // Privacy: no email or stored profile label in any row.
     const serialized = JSON.stringify(rows)
     expect(serialized).not.toContain('refresh-a@example.test')
     expect(serialized).not.toContain('refresh-b@example.test')
+    expect(serialized).not.toContain('Primary')
+    expect(serialized).not.toContain('Backup')
     for (const row of rows) {
       expect(Object.keys(row)).not.toContain('email')
     }
@@ -386,7 +397,7 @@ describe('createCommandDataService', () => {
     expect(rows[0]).toMatchObject({
       id: 'acct-0',
       index: 0,
-      label: 'Primary',
+      label: 'Account 1',
       enabled: true,
       current: true,
     })
@@ -407,7 +418,7 @@ describe('createCommandDataService', () => {
     expect(rows[1]).toMatchObject({
       id: 'acct-1',
       index: 1,
-      label: 'Backup',
+      label: 'Account 2',
       enabled: false,
       current: false,
     })
@@ -520,7 +531,7 @@ describe('createCommandDataService', () => {
     ).toEqual(['refresh-a', 'refresh-b'])
 
     // The rows returned by refresh reflect the freshly persisted quota.
-    expect(rows[0]?.label).toBe('Alpha')
+    expect(rows[0]?.label).toBe('Account 1')
     expect(
       rows[0]?.quota.find((q) => q.key === 'claude')?.remainingPercent,
     ).toBe(80)
@@ -528,7 +539,7 @@ describe('createCommandDataService', () => {
       rows[0]?.quota.find((q) => q.key === 'gemini-pro')?.remainingPercent,
     ).toBe(60)
 
-    expect(rows[1]?.label).toBe('Beta')
+    expect(rows[1]?.label).toBe('Account 2')
     expect(
       rows[1]?.quota.find((q) => q.key === 'gemini-flash')?.remainingPercent,
     ).toBe(25)
@@ -645,7 +656,7 @@ describe('createCommandDataService', () => {
     const state = await readSidebar(harness.stateFile)
     expect(state.version).toBe(SIDEBAR_STATE_VERSION)
     expect(state.accounts).toHaveLength(1)
-    expect(state.accounts[0]?.label).toBe('Alpha')
+    expect(state.accounts[0]?.label).toBe('Account 1')
     expect(state.accounts[0]?.quota.claude?.remainingPercent).toBe(90)
     // Sidebar must NOT carry email even though the source account does.
     const serialized = JSON.stringify(state)
@@ -804,9 +815,9 @@ describe('createCommandDataService', () => {
     // Two accounts remain; the deleted one is gone, the rest renumbered.
     expect(rows).toHaveLength(2)
     expect(rows?.[0]?.id).toBe('acct-0')
-    expect(rows?.[0]?.label).toBe('Alpha')
+    expect(rows?.[0]?.label).toBe('Account 1')
     expect(rows?.[1]?.id).toBe('acct-1')
-    expect(rows?.[1]?.label).toBe('Gamma')
+    expect(rows?.[1]?.label).toBe('Account 2')
     // Storage reflects the same removal (replace semantics, not merge).
     expect(harness.storage.accounts).toHaveLength(2)
     expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
@@ -961,6 +972,135 @@ describe('createCommandDataService', () => {
   // can renumber the flat array between read and write, so writing
   // `index` would target the wrong account after restart.
   // ============================================================================
+
+  it('rejects re-enabling an ineligible account without changing disk or memory', async () => {
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-ineligible',
+          enabled: false,
+          accountIneligible: true,
+        }),
+      ],
+    })
+
+    await expect(harness.service.toggleAccountEnabled(0)).rejects.toThrow(
+      'ineligible',
+    )
+    expect(harness.storage.accounts[0]?.enabled).toBe(false)
+    expect(harness.liveView[0]?.enabled).toBe(false)
+  })
+
+  it('compensates the disk write when eligibility changes before the live apply', async () => {
+    const account = makeAccountFixture({
+      refreshToken: 'token-a',
+      enabled: false,
+      accountIneligible: false,
+    })
+    const harness = makeHarness({
+      accounts: [account],
+      beforeStorageCommit(live) {
+        const target = live[0]
+        if (target) target.accountIneligible = true
+      },
+    })
+
+    await expect(harness.service.toggleAccountEnabled(0)).rejects.toThrow(
+      'The account changed while the operation was being applied',
+    )
+
+    expect(harness.liveView[0]?.enabled).toBe(false)
+    expect(harness.storage.accounts[0]?.enabled).toBe(false)
+  })
+
+  it('re-resolves the live account by refresh token after an awaited storage mutation', async () => {
+    let injected = false
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a' }),
+        makeAccountFixture({ refreshToken: 'refresh-b' }),
+      ],
+      beforeStorageCommit: (liveView) => {
+        if (injected) return
+        injected = true
+        liveView.unshift(makeAccountFixture({ refreshToken: 'refresh-new' }))
+      },
+    })
+
+    await harness.service.removeAccount(0)
+
+    expect(harness.storage.accounts.map((entry) => entry.refreshToken)).toEqual(
+      ['refresh-b'],
+    )
+    expect(harness.liveView.map((entry) => entry.refreshToken)).toEqual([
+      'refresh-new',
+      'refresh-b',
+    ])
+  })
+
+  it('does not apply a removed account quota result to the account now at its old index', async () => {
+    const refreshResults = new Map<string, AccountQuotaResult>([
+      [
+        'refresh-a',
+        {
+          index: 0,
+          status: 'ok',
+          quota: {
+            groups: {
+              claude: { remainingFraction: 0.1, modelCount: 1 },
+            },
+            modelCount: 1,
+          },
+          updatedAccount: {
+            refreshToken: 'refresh-a',
+            addedAt: 0,
+            lastUsed: 0,
+          },
+        },
+      ],
+    ])
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a' }),
+        makeAccountFixture({
+          refreshToken: 'refresh-b',
+          cachedQuota: { claude: { remainingFraction: 0.8 } },
+        }),
+      ],
+      refreshResults,
+      afterQuotaRefresh: (liveView) => {
+        liveView.shift()
+      },
+    })
+
+    await harness.service.refreshQuota()
+
+    expect(harness.liveView[0]?.refreshToken).toBe('refresh-b')
+    expect(harness.liveView[0]?.cachedQuota?.claude?.remainingFraction).toBe(
+      0.8,
+    )
+  })
+
+  it('projects GPT-OSS quota into command rows and sidebar state', async () => {
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-a',
+          cachedQuota: { 'gpt-oss': { remainingFraction: 0.42 } },
+        }),
+      ],
+    })
+
+    const rows = await harness.service.refreshQuota()
+    expect(rows[0]?.quota).toContainEqual({
+      key: 'gpt-oss',
+      label: 'GPT-OSS',
+      remainingPercent: 42,
+      resetAt: undefined,
+    })
+    const state = await readSidebar(harness.stateFile)
+    expect(state.accounts[0]?.quota['gpt-oss']?.remainingPercent).toBe(42)
+  })
 
   it('setCurrentAccount() writes the token-indexed position, not the caller-supplied live index', async () => {
     // Simulate concurrent OAuth add: the storage now holds an extra
