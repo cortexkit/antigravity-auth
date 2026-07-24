@@ -1,13 +1,13 @@
 import { describe, expect, it, mock } from 'bun:test'
-
+import type { AuthOAuthResult } from '@opencode-ai/plugin'
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
 import type { AccountAccessService } from './account-access'
 import { DEFAULT_CONFIG } from './config'
 import type { PluginLifecycle } from './lifecycle'
-import type { AuthOAuthResult } from '@opencode-ai/plugin'
 import { createOAuthMethods, parseOAuthCallbackInput } from './oauth-methods'
 import type { OAuthListener } from './server'
 import type { AccountStorageV4 } from './storage'
+import { AccountStorageUnreadableError } from './storage'
 
 const EXPECTED_STATE = 'expected-state'
 const AUTHORIZATION_URL = `https://accounts.google.com/o/oauth2/v2/auth?state=${EXPECTED_STATE}`
@@ -146,7 +146,7 @@ describe('createOAuthMethods', () => {
       },
     })
 
-    const result = await methods[0]!.authorize?.({ noBrowser: 'true' })
+    const result = await methods[0]?.authorize?.({ noBrowser: 'true' })
     const oauthResult = result as
       | Extract<AuthOAuthResult, { method: 'code' }>
       | undefined
@@ -192,7 +192,7 @@ describe('createOAuthMethods', () => {
       },
     })
 
-    const authorization = await methods[0]!.authorize?.()
+    const authorization = await methods[0]?.authorize?.()
     const result = await (
       authorization as Extract<AuthOAuthResult, { method: 'code' }> | undefined
     )?.callback('code')
@@ -236,15 +236,172 @@ describe('createOAuthMethods', () => {
         },
       })
 
-      const authorization = await methods[0]!.authorize?.()
+      const authorization = await methods[0]?.authorize?.()
       const result = await (
         authorization as
-          | Extract<AuthOAuthResult, { method: 'code' }>
+          | Extract<AuthOAuthResult, { method: 'auto' }>
           | undefined
-      )?.callback('')
+      )?.callback()
 
       expect(close).toHaveBeenCalledTimes(1)
       expect(result?.type).toBe(state === EXPECTED_STATE ? 'success' : 'failed')
     }
+  })
+})
+
+describe('createOAuthMethods persistence failure handling', () => {
+  function buildUnreadableError(): AccountStorageUnreadableError {
+    return new AccountStorageUnreadableError(
+      'Account storage at /tmp/x.json is unreadable (invalid-shape: accounts[1].refreshToken is missing or not a non-empty string). A backup was written to /tmp/x.json.corrupt-2026-07-23T12-00-00-000Z and the on-disk file has been left untouched.',
+      {
+        path: '/tmp/x.json',
+        reason: 'invalid-shape',
+        detail: 'accounts[1].refreshToken is missing or not a non-empty string',
+        backupPath: '/tmp/x.json.corrupt-2026-07-23T12-00-00-000Z',
+      },
+    )
+  }
+
+  function findToastBody(
+    showToast: ReturnType<typeof mock>,
+    variant: 'success' | 'error',
+  ): { message: string; variant: string } | undefined {
+    for (const call of showToast.mock.calls) {
+      const body = (
+        call[0] as { body?: { message?: string; variant?: string } } | undefined
+      )?.body
+      if (body?.variant === variant) {
+        return body as { message: string; variant: string }
+      }
+    }
+    return undefined
+  }
+
+  it('returns a failed result (not a success toast) when TUI-code callback persistence throws AccountStorageUnreadableError', async () => {
+    const unreadable = buildUnreadableError()
+    const { service } = createAccountAccess()
+    ;(service.persistAccountPool as ReturnType<typeof mock>).mockRejectedValue(
+      unreadable,
+    )
+    const showToast = mock(async () => {})
+    const methods = createOAuthMethods({
+      client: { tui: { showToast } } as never,
+      providerId: 'google',
+      config: DEFAULT_CONFIG,
+      lifecycle: createLifecycle(),
+      accountAccess: service,
+      dependencies: {
+        authorize: mock(async () => ({
+          url: AUTHORIZATION_URL,
+          verifier: 'verifier',
+          projectId: '',
+        })),
+        exchange: mock(async () => success('new-refresh', 'new@example.com')),
+        isHeadless: () => true,
+        shouldSkipLocalServer: () => true,
+      },
+    })
+
+    const authorization = await methods[0]?.authorize?.()
+    const result = await (
+      authorization as Extract<AuthOAuthResult, { method: 'code' }> | undefined
+    )?.callback('code')
+
+    // A failed persistence MUST surface as a `failed` result — never a
+    // `success` toast with nothing saved to disk. The original maintainer
+    // bug had the callback swallow the throw and return `type: 'success'`.
+    expect(result?.type).toBe('failed')
+    expect(findToastBody(showToast, 'success')).toBeUndefined()
+    const errorToast = findToastBody(showToast, 'error')
+    expect(errorToast).toBeDefined()
+    expect(errorToast?.message).toContain('unreadable')
+    expect(errorToast?.message).toContain('/tmp/x.json')
+    expect(errorToast?.message).toContain(
+      '/tmp/x.json.corrupt-2026-07-23T12-00-00-000Z',
+    )
+  })
+
+  it('returns a failed result when TUI-listener callback persistence throws AccountStorageUnreadableError', async () => {
+    const unreadable = buildUnreadableError()
+    const close = mock(async () => {})
+    const listener: OAuthListener = {
+      waitForCallback: mock(
+        async () =>
+          new URL(
+            `http://localhost:51121/oauth-callback?code=code&state=${EXPECTED_STATE}`,
+          ),
+      ),
+      close,
+    }
+    const { service } = createAccountAccess()
+    ;(service.persistAccountPool as ReturnType<typeof mock>).mockRejectedValue(
+      unreadable,
+    )
+    const showToast = mock(async () => {})
+    const methods = createOAuthMethods({
+      client: { tui: { showToast } } as never,
+      providerId: 'google',
+      config: DEFAULT_CONFIG,
+      lifecycle: createLifecycle(),
+      accountAccess: service,
+      dependencies: {
+        authorize: mock(async () => ({
+          url: AUTHORIZATION_URL,
+          verifier: 'verifier',
+          projectId: '',
+        })),
+        exchange: mock(async () => success('new-refresh', 'new@example.com')),
+        startListener: mock(async () => listener),
+        openBrowser: mock(async () => true),
+        isHeadless: () => false,
+        shouldSkipLocalServer: () => false,
+      },
+    })
+
+    const authorization = await methods[0]?.authorize?.()
+    const result = await (
+      authorization as Extract<AuthOAuthResult, { method: 'auto' }> | undefined
+    )?.callback()
+
+    expect(result?.type).toBe('failed')
+    expect(findToastBody(showToast, 'success')).toBeUndefined()
+    const errorToast = findToastBody(showToast, 'error')
+    expect(errorToast?.message).toContain('unreadable')
+    expect(errorToast?.message).toContain('/tmp/x.json')
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns a failed result when persistence throws a generic lock-contention error', async () => {
+    const { service } = createAccountAccess()
+    ;(service.persistAccountPool as ReturnType<typeof mock>).mockRejectedValue(
+      new Error('lock contention: another writer holds the file lock'),
+    )
+    const showToast = mock(async () => {})
+    const methods = createOAuthMethods({
+      client: { tui: { showToast } } as never,
+      providerId: 'google',
+      config: DEFAULT_CONFIG,
+      lifecycle: createLifecycle(),
+      accountAccess: service,
+      dependencies: {
+        authorize: mock(async () => ({
+          url: AUTHORIZATION_URL,
+          verifier: 'verifier',
+          projectId: '',
+        })),
+        exchange: mock(async () => success('new-refresh', 'new@example.com')),
+        isHeadless: () => true,
+        shouldSkipLocalServer: () => true,
+      },
+    })
+
+    const authorization = await methods[0]?.authorize?.()
+    const result = await (
+      authorization as Extract<AuthOAuthResult, { method: 'code' }> | undefined
+    )?.callback('code')
+
+    expect(result?.type).toBe('failed')
+    const errorToast = findToastBody(showToast, 'error')
+    expect(errorToast?.message).toContain('lock contention')
   })
 })

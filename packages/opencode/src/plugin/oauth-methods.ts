@@ -94,6 +94,54 @@ interface CreateOAuthMethodsOptions {
 
 type OAuthCallbackParams = { code: string; state: string }
 
+/**
+ * Build the user-facing failure surfaced when a freshly-exchanged
+ * OAuth token could not be persisted. A login that returns
+ * `type: 'success'` while the token never reaches disk is the
+ * worse-than-no-error class of bug — the user sees "Authenticated"
+ * but their next call finds no account. So we ALWAYS surface the
+ * persistence error:
+ *
+ *   - `AccountStorageUnreadableError` carries the file path, the
+ *     reason (`malformed-json` / `invalid-shape` / etc.), and the
+ *     backup sidecar path; we surface all three.
+ *   - Any other error (lock contention, I/O hiccup) is surfaced with
+ *     its own message so the user can retry or hand it to support.
+ *
+ * The matching failure toast uses `variant: 'error'` so the host's
+ * UI does not stack a green success next to a red failure.
+ */
+async function reportPersistenceFailure(
+  error: unknown,
+  client: PluginClient,
+  log: ReturnType<typeof createLogger>,
+): Promise<Extract<AntigravityTokenExchangeResult, { type: 'failed' }>> {
+  const message =
+    error instanceof AccountStorageUnreadableError
+      ? `Account storage at ${error.details.path} is unreadable (${error.details.reason}: ${error.details.detail}).${
+          error.details.backupPath
+            ? ` A backup was written to ${error.details.backupPath}. Repair or remove the existing file before retrying.`
+            : ' A backup could not be written; repair or remove the existing file before retrying.'
+        }`
+      : error instanceof Error
+        ? error.message
+        : String(error)
+  log.error('OAuth login persistence failed; aborting login', {
+    error: message,
+  })
+  try {
+    await client.tui.showToast({
+      body: {
+        message: `Login failed: ${message}`,
+        variant: 'error',
+      },
+    })
+  } catch {
+    /* TUI may not be available */
+  }
+  return { type: 'failed', error: message }
+}
+
 function isWSL(): boolean {
   if (process.platform !== 'linux') return false
   try {
@@ -560,7 +608,7 @@ export function createOAuthMethods({
                     width: number = 20,
                   ): string => {
                     if (typeof remaining !== 'number')
-                      return '░'.repeat(width) + ' ???'
+                      return `${'░'.repeat(width)} ???`
                     const filled = Math.round(remaining * width)
                     const empty = width - filled
                     const color = getColor(remaining)
@@ -1236,7 +1284,7 @@ export function createOAuthMethods({
                   authorization.url,
                 )
 
-                console.log('\nOAuth URL:\n' + authorization.url + '\n')
+                console.log(`\nOAuth URL:\n${authorization.url}\n`)
 
                 if (useManualMode) {
                   const browserOpened = await openBrowser(authorization.url)
@@ -1291,7 +1339,7 @@ export function createOAuthMethods({
                           'You can paste the redirect URL manually.\n',
                         )
                         console.log('OAuth URL (in case you need it again):')
-                        console.log(authorization.url + '\n')
+                        console.log(`${authorization.url}\n`)
 
                         try {
                           await listener.close()
@@ -1568,7 +1616,17 @@ export function createOAuthMethods({
                 if (result.type === 'success') {
                   try {
                     await persistAccountPool([result], false)
-                  } catch {}
+                  } catch (persistError) {
+                    // Persistence failure is fatal for the login:
+                    // returning `type: 'success'` here would lie to the
+                    // host (success toast, no error logged) while the
+                    // user-visible state is "account vanished".
+                    return await reportPersistenceFailure(
+                      persistError,
+                      client,
+                      log,
+                    )
+                  }
 
                   const newTotal = existingCount + 1
                   const toastMessage =
@@ -1620,8 +1678,8 @@ export function createOAuthMethods({
               try {
                 // TUI flow adds to existing accounts (non-destructive)
                 await persistAccountPool([result], false)
-              } catch {
-                // ignore
+              } catch (persistError) {
+                return await reportPersistenceFailure(persistError, client, log)
               }
 
               // Show appropriate toast message
