@@ -73,6 +73,13 @@ export interface ManagedAccount {
   addedAt: number
   lastUsed: number
   parts: RefreshParts
+  /** Authoritative project ID from the persisted account record. Survives
+   * bare-refresh-token rotations where `parts.projectId` may be lost. */
+  projectId?: string
+  /** Authoritative managed project ID from the persisted account record.
+   * Survives bare-refresh-token rotations where `parts.managedProjectId`
+   * may be lost. */
+  managedProjectId?: string
   access?: string
   expires?: number
   enabled: boolean
@@ -394,6 +401,10 @@ export class AccountManager {
               projectId: acc.projectId,
               managedProjectId: acc.managedProjectId,
             },
+            // Authoritative record-level fields that survive bare-refresh-token
+            // rotations where `parts.*` may be overwritten with undefined.
+            projectId: acc.projectId,
+            managedProjectId: acc.managedProjectId,
             access: matchesFallback ? authFallback?.access : undefined,
             expires: matchesFallback ? authFallback?.expires : undefined,
             enabled: acc.enabled !== false,
@@ -1548,6 +1559,10 @@ export class AccountManager {
       managedProjectId:
         parts.managedProjectId ?? account.parts.managedProjectId,
     }
+    // Keep the record-level fields in sync with the authoritative source.
+    account.projectId = parts.projectId ?? account.projectId
+    account.managedProjectId =
+      parts.managedProjectId ?? account.managedProjectId
     account.access = auth.access
     account.expires = auth.expires
   }
@@ -1628,8 +1643,8 @@ export class AccountManager {
         email: a.email,
         label: a.label,
         refreshToken: a.parts.refreshToken,
-        projectId: a.parts.projectId,
-        managedProjectId: a.parts.managedProjectId,
+        projectId: a.parts.projectId ?? a.projectId,
+        managedProjectId: a.parts.managedProjectId ?? a.managedProjectId,
         addedAt: a.addedAt,
         lastUsed: a.lastUsed,
         enabled: a.enabled,
@@ -2045,8 +2060,8 @@ export class AccountManager {
     return this.accounts.map((a) => ({
       email: a.email,
       refreshToken: a.parts.refreshToken,
-      projectId: a.parts.projectId,
-      managedProjectId: a.parts.managedProjectId,
+      projectId: a.parts.projectId ?? a.projectId,
+      managedProjectId: a.parts.managedProjectId ?? a.managedProjectId,
       addedAt: a.addedAt,
       lastUsed: a.lastUsed,
       enabled: a.enabled,

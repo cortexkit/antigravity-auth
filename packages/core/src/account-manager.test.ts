@@ -294,3 +294,65 @@ describe('AccountManager instance dependencies', () => {
     expect(second.getAccounts()[0]?.coolingDownUntil).toBe(9_500)
   })
 })
+
+describe('managedProjectId projection', () => {
+  it('getAccountsForQuotaCheck returns managedProjectId from the record when refresh token is bare', () => {
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        {
+          email: 'test@example.com',
+          refreshToken: 'bare-refresh-token',
+          projectId: 'my-project',
+          managedProjectId: 'my-managed-project',
+          addedAt: 1_000,
+          lastUsed: 2_000,
+        },
+      ],
+      activeIndex: 0,
+    }
+    const manager = new AccountManager(undefined, stored, {
+      store: createStore(stored).store,
+      now: () => 1_000,
+    })
+    const accounts = manager.getAccountsForQuotaCheck()
+    expect(accounts).toHaveLength(1)
+    expect(accounts[0]!.projectId).toBe('my-project')
+    expect(accounts[0]!.managedProjectId).toBe('my-managed-project')
+  })
+
+  it('save→reload round-trip preserves managedProjectId from the record', async () => {
+    const { store, state } = createStore(null)
+    const stored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        {
+          email: 'test@example.com',
+          refreshToken: 'bare-refresh-token',
+          projectId: 'my-project',
+          managedProjectId: 'my-managed-project',
+          addedAt: 1_000,
+          lastUsed: 2_000,
+        },
+      ],
+      activeIndex: 0,
+    }
+    const manager = new AccountManager(undefined, stored, {
+      store,
+      now: () => 1_000,
+    })
+    // Trigger a save — buildStorageSnapshot must preserve managedProjectId.
+    manager.requestSaveToDisk()
+    await manager.flushSaveToDisk()
+    const saved = state()
+    expect(saved?.accounts[0]?.managedProjectId).toBe('my-managed-project')
+
+    // Reload and verify getAccountsForQuotaCheck still returns it.
+    const manager2 = new AccountManager(undefined, saved, {
+      store,
+      now: () => 1_000,
+    })
+    const accounts = manager2.getAccountsForQuotaCheck()
+    expect(accounts[0]!.managedProjectId).toBe('my-managed-project')
+  })
+})
