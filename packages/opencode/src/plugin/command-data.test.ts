@@ -666,6 +666,12 @@ describe('createCommandDataService', () => {
         ?.remainingFraction,
     ).toBe(0.7)
     expect(harness.storage.accounts[0]?.cachedQuotaUpdatedAt).toBeGreaterThan(1)
+    // The refreshed account's persisted snapshot must carry the identity
+    // stamp derived from its refresh token — pins the P1#1 fix that
+    // propagates `cachedQuotaAccountId` through `buildStorageSnapshot`.
+    expect(harness.storage.accounts[0]?.cachedQuotaAccountId).toBe(
+      quotaAccountIdentity('refresh-a'),
+    )
     // The non-refreshed account's cached state must remain untouched.
     expect(
       harness.storage.accounts[1]?.cachedQuota?.gemini?.remainingFraction,
@@ -883,7 +889,67 @@ describe('createCommandDataService', () => {
       'refresh-a',
       'refresh-c',
     ])
-    // CLI menu semantics: active index resets to 0 after removal.
+    // Active index tracks the same refresh token in the post-remove
+    // array. Removing a non-current account keeps the current's slot
+    // unchanged; the previous implementation reset to 0, which would
+    // re-elect the (now first) account on every restart even though
+    // the user explicitly removed a different one.
+    expect(harness.storage.activeIndex).toBe(0)
+    expect(harness.storage.activeIndexByFamily).toEqual({
+      claude: 0,
+      gemini: 0,
+    })
+  })
+
+  it("removeAccount() persists the current account's remapped index, not a hardcoded 0", async () => {
+    // Current is refresh-c (index 2). Removing a NON-current account
+    // (refresh-b at index 1) must persist the same current index as
+    // the live manager — refresh-c shifted from index 2 to index 1, so
+    // a restart must re-elect refresh-c, not the hardcoded 0.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a', label: 'Alpha' }),
+        makeAccountFixture({ refreshToken: 'refresh-b', label: 'Beta' }),
+        makeAccountFixture({ refreshToken: 'refresh-c', label: 'Gamma' }),
+      ],
+      activeIndex: 2,
+    })
+
+    await harness.service.removeAccount(1)
+
+    expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
+      'refresh-a',
+      'refresh-c',
+    ])
+    // Live manager shifts refresh-c from index 2 to index 1 because
+    // the removed refresh-b sat at index 1. The persisted activeIndex
+    // must follow that shift.
+    expect(harness.storage.activeIndex).toBe(1)
+    expect(harness.storage.activeIndexByFamily).toEqual({
+      claude: 1,
+      gemini: 1,
+    })
+  })
+
+  it('removeAccount() keeps the current account at its unchanged index when removing an account after it', async () => {
+    // Current is refresh-a (index 0). Removing refresh-b at index 1
+    // doesn't touch the current's slot; the persisted index must stay
+    // at 0 (the current account is unchanged).
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a', label: 'Alpha' }),
+        makeAccountFixture({ refreshToken: 'refresh-b', label: 'Beta' }),
+        makeAccountFixture({ refreshToken: 'refresh-c', label: 'Gamma' }),
+      ],
+      activeIndex: 0,
+    })
+
+    await harness.service.removeAccount(1)
+
+    expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
+      'refresh-a',
+      'refresh-c',
+    ])
     expect(harness.storage.activeIndex).toBe(0)
     expect(harness.storage.activeIndexByFamily).toEqual({
       claude: 0,

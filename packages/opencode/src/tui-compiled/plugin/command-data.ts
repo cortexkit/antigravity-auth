@@ -419,10 +419,19 @@ export function createCommandDataService(
       const gemini = row.quota.find((q) => q.key === 'gemini')
       const nonGemini = row.quota.find((q) => q.key === 'non-gemini')
       const toFraction = (
-        q: { remainingPercent: number | null } | undefined,
+        q: { remainingPercent: number | null; resetAt?: number } | undefined,
       ): { remainingFraction?: number; resetTime?: string } | undefined => {
         if (!q || q.remainingPercent == null) return undefined
-        return { remainingFraction: q.remainingPercent / 100 }
+        return {
+          remainingFraction: q.remainingPercent / 100,
+          // Preserve resetTime so the sidebar can render reset countdowns
+          // for each pool. Without this the TUI loses the freshest reset
+          // deadline every time the dialog re-renders.
+          resetTime:
+            typeof q.resetAt === 'number' && Number.isFinite(q.resetAt)
+              ? new Date(q.resetAt).toISOString()
+              : undefined,
+        }
       }
       return {
         index: row.index,
@@ -433,6 +442,9 @@ export function createCommandDataService(
           gemini: toFraction(gemini),
           'non-gemini': toFraction(nonGemini),
         },
+        // The stamp check has already been done by `toCommandAccountRow`
+        // before the rows reach this writer; nothing further for the
+        // sidebar projection to validate here.
       }
     })
     // Fire-and-forget — the sidebar writer is fenced by its own queue,
@@ -586,9 +598,29 @@ export function createCommandDataService(
       )
     }
 
+    // Capture the live view's current-account identity per family BEFORE
+    // the storage mutation. The remove action must persist the index that
+    // the same account will occupy AFTER the removal — unconditionally
+    // resetting to 0 made a non-current removal promote whichever account
+    // shifted into slot 0 to "active" on the next restart.
+    const liveCurrentTokens: { claude?: string; gemini?: string } = {}
+    if (action === 'remove') {
+      const liveAccounts = accountManagerView.getAccounts()
+      const liveCurrentIndex = accountManagerView.activeIndex()
+      const liveCurrentToken =
+        liveAccounts[liveCurrentIndex]?.refreshToken ?? undefined
+      liveCurrentTokens.claude = liveCurrentToken
+      liveCurrentTokens.gemini = liveCurrentToken
+    }
+
     let foundInStorage = false
     let desiredEnabled: boolean | undefined
     let previousEnabled: boolean | undefined
+    let nextActiveIndex = 0
+    let nextActiveIndexByFamily: { claude?: number; gemini?: number } = {
+      claude: 0,
+      gemini: 0,
+    }
     await storage.mutate((current) => {
       const tokenIdx = current.accounts.findIndex(
         (entry) => entry.refreshToken === refreshToken,
@@ -624,13 +656,42 @@ export function createCommandDataService(
         }
       }
 
+      // remove: build the post-removal account list, then resolve the
+      // current-account's NEW index in that list. If the removed
+      // account was the live current, the current token falls out of
+      // the list entirely and we fall back to index 0 — matching the
+      // live AccountManager.removeAccount() behavior (which leaves the
+      // current index pointing at the same numeric slot, now occupied
+      // by whichever account shifted in).
+      const nextAccounts = current.accounts.filter(
+        (account) => account.refreshToken !== refreshToken,
+      )
+      const resolveNextIndex = (
+        liveToken: string | undefined,
+        legacyIndex: number,
+      ): number => {
+        if (!liveToken)
+          return Math.max(0, Math.min(legacyIndex, nextAccounts.length - 1))
+        const found = nextAccounts.findIndex(
+          (account) => account.refreshToken === liveToken,
+        )
+        if (found === -1) return 0
+        return found
+      }
+      const legacyClaude =
+        current.activeIndexByFamily?.claude ?? current.activeIndex
+      const legacyGemini =
+        current.activeIndexByFamily?.gemini ?? current.activeIndex
+      nextActiveIndex = resolveNextIndex(liveCurrentTokens.claude, legacyClaude)
+      nextActiveIndexByFamily = {
+        claude: resolveNextIndex(liveCurrentTokens.claude, legacyClaude),
+        gemini: resolveNextIndex(liveCurrentTokens.gemini, legacyGemini),
+      }
       return {
         ...current,
-        accounts: current.accounts.filter(
-          (account) => account.refreshToken !== refreshToken,
-        ),
-        activeIndex: 0,
-        activeIndexByFamily: { claude: 0, gemini: 0 },
+        accounts: nextAccounts,
+        activeIndex: nextActiveIndex,
+        activeIndexByFamily: nextActiveIndexByFamily,
       }
     })
 
