@@ -47,7 +47,7 @@ The `models` blob at the repo root is a tracked JSON snapshot of the upstream An
 | `packages/e2e-tests` | Private black-box flows against a mock Antigravity loopback server (`@cortexkit/antigravity-auth-e2e`, `private: true`). | `packages/opencode`, `packages/core`. |
 | `scripts/` | Workspace-level tooling: dev symlink lifecycle, version sync, release script. | Node built-ins + child process. |
 | `test/` | Preload + global types + a small handful of repo-root sanity tests (`environment.test.ts`, `dev.test.ts`). | Bun test harness. |
-| `test-fixtures/` | Frozen JSON snapshots of `agy` CLI version 1.1.3 / 1.1.5 metadata + streaming requests. | None. |
+| `test-fixtures/` | Frozen JSON snapshots of captured `agy` CLI metadata and streaming requests, through version 1.1.6. | None. |
 | `.github/` | Workflows (CI, release, issue triage), issue templates, FUNDING. | GitHub Actions. |
 
 ## `packages/core` inventory
@@ -264,8 +264,8 @@ The TUI is a thin Solid sidebar that polls a redacted snapshot file and a loopba
 ### Source (`packages/pi/src/`)
 
 - **`packages/pi/src/index.ts`** — package entry. `providerId = 'google-antigravity'`; registers the provider with `pi.registerProvider`; defines the OAuth login + refresh flows against `core/antigravity/oauth.ts`.
-- `packages/pi/src/stream.ts` — `streamCortexKitAntigravity`: streams through `core/agy-transport.ts` + the core transforms, replays the SSE into Pi's `AssistantMessage`.
-- `packages/pi/src/convert.ts` — request/response converters between Pi's `Model` types and the core `RequestPayload`.
+- `packages/pi/src/stream.ts` — `streamCortexKitAntigravity`: streams through `core/agy-transport.ts`, preserves signed thinking/tool events, and maintains session-scoped native AGY execution metadata.
+- `packages/pi/src/convert.ts` — Pi Context-to-Gemini conversion with native AGY tool-call IDs, signature replay, cross-model sanitization, and same-target function-response roles.
 - `packages/pi/src/credential-cache.ts` — stashes the packed `refreshToken|projectId|managedProjectId` triple so the stream can rejoin project context after the access token is stripped.
 - `packages/pi/src/paths.ts` — resolves the `PI_AGENT_DIR` and `PI_ANTIGRAVITY_AUTH_FILE` paths on every platform (`%APPDATA%` on Windows, `~/.pi/agent/` elsewhere).
 - `packages/pi/src/index.test.ts`, `convert.test.ts`, `credential-cache.test.ts`, `stream.test.ts` — co-located tests.
@@ -308,7 +308,7 @@ The TUI is a thin Solid sidebar that polls a redacted snapshot file and a loopba
 - `test/environment.test.ts` — pins the env-isolation contract (`HOME`, `XDG_*`, `APPDATA`, `OPENCODE_CONFIG_DIR`, `PI_AGENT_DIR`, etc.).
 - `test/dev.test.ts` — pins `scripts/dev.ts`'s `resolveDevPaths` / `createDevSymlink` / `removeDevSymlink` so a symlink-layout regression fails before the next release.
 - `test-fixtures/agy-cli-1.1.3-model-metadata.json` and `test-fixtures/agy-cli-1.1.3-stream-request.json` — frozen snapshots of the upstream `agy` CLI for comparator tests.
-- `test-fixtures/agy-cli-1.1.5-model-metadata.json` and `test-fixtures/agy-cli-1.1.5-stream-request.json` — newer frozen snapshots.
+- `test-fixtures/agy-cli-1.1.5-*` and `test-fixtures/agy-cli-1.1.6-*` — versioned frozen wire snapshots.
 
 ### `tsconfig.scripts.json`
 

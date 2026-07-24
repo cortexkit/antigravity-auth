@@ -268,7 +268,7 @@ The notification queue is `packages/opencode/src/rpc/notifications.ts:1-62`. `pu
 - `oauth.login` invokes `authorizeAntigravity` from core, asks the host for the callback URL/code via `callbacks.onPrompt`, and calls `exchangeAntigravity` (line 22-58).
 - `oauth.refreshToken` reads the packed `refreshToken|projectId|managedProjectId` triple, calls `refreshAntigravityToken` for the bare refresh, and re-packs the project segments (line 60-75).
 - `oauth.getApiKey` bridges the packed refresh into the stream by stashing it in `credential-cache.ts` so the stream can rejoin project context after the access token is stripped (line 102-107).
-- `streamSimple` is `streamCortexKitAntigravity` from `packages/pi/src/stream.ts:1-...`.
+- `streamSimple` is `streamCortexKitAntigravity` from `packages/pi/src/stream.ts`. It preserves same-model thinking/text/tool signatures, keeps native function-call IDs, emits same-target function responses with the AGY CLI model role, and tracks `last_execution_id` plus CLI-compatible step indexes per Pi session.
 
 The package's `package.json` (`packages/pi/package.json:34-58`) declares `pi.extensions: ['./dist/index.js']` and pulls Pi's three peer dependencies from `@earendil-works/`.
 
@@ -686,9 +686,9 @@ The fundamental rule: **the user never sees a silent failure**. Either they see 
 
 The snapshot is the only place the TUI meets the live pool. The redaction is a structural contract, not an afterthought:
 
-- `SidebarQuotaKey` is a fixed 3-tuple (`claude | gemini-pro | gemini-flash`); any other key on the input is dropped.
+- `SidebarQuotaKey` is a fixed 4-tuple (`claude | gemini-pro | gemini-flash | gpt-oss`); any other key on the input is dropped.
 - `SidebarRoutingEntry` carries `accountId`, `modelFamily`, `headerStyle`, `updatedAt` — no token, no project ID, no fingerprint.
-- `normalizeAccount` rejects any account missing `id` or `label` (line 281-282) so a malformed disk snapshot cannot surface an empty box in the UI.
+- `normalizeAccount` rejects any account missing `id` or `label` so a malformed disk snapshot cannot surface an empty box in the UI. Snapshot labels are generated ordinal names (`Account 1`, `Account 2`, …); OAuth profile names and email addresses never cross this boundary.
 - The TUI's compiled tree imports only `sidebar-state.ts`, the `rpc/` slim client, and the local `tui/` helpers. The TypeScript compiler would let it import the entire opencode package; the module-graph review is the only enforcement.
 
 ### Token timing
@@ -707,7 +707,8 @@ The snapshot is the only place the TUI meets the live pool. The redaction is a s
 | --- | --- | --- |
 | Quota cache | `account.cachedQuota` (in-memory) + `account-storage.ts` (disk) | Per-account TTL via `softQuotaCacheTtlMs` |
 | Signature cache | `packages/opencode/src/plugin/cache/signature-cache.ts` (disk) + `initDiskSignatureCache` (memory) | TTL keyed by `(model, sessionId, lastStepIndex)` |
-| AgyRequestSessionStore | `packages/core/src/agy-request-metadata.ts:95-184` | 24h TTL or 256 entries, whichever lands first |
+| AgyRequestSessionStore | `packages/core/src/agy-request-metadata.ts` | 24h TTL or 256 entries, whichever lands first |
+| Managed project context | `packages/core/src/project.ts` | 30-minute TTL keyed by the stable bare refresh token, independent of packed project fields |
 | Sidebar routing map | `packages/opencode/src/sidebar-state.ts:118-120` | 24h max age, max 100 entries |
 | Account manager session state | `packages/core/src/account-manager.ts:535-561` | 24h TTL or 256 entries |
 
