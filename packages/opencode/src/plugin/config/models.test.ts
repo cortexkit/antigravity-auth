@@ -18,6 +18,7 @@ describe('OPENCODE_MODEL_DEFINITIONS', () => {
       'antigravity-claude-opus-4-6-thinking',
       'antigravity-claude-sonnet-4-6-thinking',
       'antigravity-gemini-3.1-flash-image',
+      'antigravity-gemini-3.1-flash-lite',
       'antigravity-gemini-3.1-pro',
       'antigravity-gemini-3.5-flash',
       'antigravity-gemini-3.6-flash',
@@ -50,6 +51,17 @@ describe('OPENCODE_MODEL_DEFINITIONS', () => {
       reasoning: true,
       limit: { context: 131072, output: 32768 },
     })
+  })
+
+  it('registers flash-lite without thinking variants', () => {
+    expect(getModel('antigravity-gemini-3.1-flash-lite')).toMatchObject({
+      reasoning: false,
+      limit: { context: 1048576, output: 65535 },
+      modalities: { input: ['text'], output: ['text'] },
+    })
+    expect(
+      getModel('antigravity-gemini-3.1-flash-lite').variants,
+    ).toBeUndefined()
   })
 
   it('disables unsupported automatic Claude budget variants', () => {

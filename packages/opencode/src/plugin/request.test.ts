@@ -1611,6 +1611,33 @@ describe('request.ts', () => {
       })
     })
 
+    it('builds the AGY 1.1.6 request for gemini-3.1-flash-lite as a non-thinking model', () => {
+      const result = prepareAntigravityRequest(
+        'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.1-flash-lite:generateContent',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            contents: [
+              { role: 'user', parts: [{ text: 'Reply with FLASHLITE_OK' }] },
+            ],
+            generationConfig: { maxOutputTokens: 1024 },
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        'antigravity',
+      )
+
+      const wrapped = JSON.parse(result.init.body as string)
+      expect(result.effectiveModel).toBe('gemini-3.1-flash-lite')
+      expect(wrapped.model).toBe('gemini-3.1-flash-lite')
+      expect(wrapped.request.generationConfig).toMatchObject({
+        maxOutputTokens: 65535,
+      })
+      expect(wrapped.request.generationConfig.thinkingConfig).toBeUndefined()
+    })
+
     it('builds the live Gemini 3.1 Flash Image request shape', () => {
       const result = prepareAntigravityRequest(
         'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.1-flash-image:generateContent',

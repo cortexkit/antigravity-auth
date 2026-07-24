@@ -15,6 +15,10 @@ const MODELS: ModelTest[] = [
 
   // Antigravity Gemini
   {
+    model: 'google/antigravity-gemini-3.1-flash-lite',
+    category: 'antigravity-gemini',
+  },
+  {
     model: 'google/antigravity-gemini-3.6-flash-low',
     category: 'antigravity-gemini',
   },
