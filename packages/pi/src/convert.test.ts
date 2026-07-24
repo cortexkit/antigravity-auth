@@ -98,6 +98,113 @@ describe("buildGeminiRequest", () => {
     })
   })
 
+  it("replays same-model thinking and signed text", () => {
+    const request = buildGeminiRequest(
+      ctx({
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "reasoning" },
+              { type: "text", text: "answer", textSignature: "SIG123" },
+            ],
+            api: "google-generative-ai",
+            provider: "google-antigravity",
+            model: "antigravity-claude-opus-4-6-thinking",
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+            stopReason: "stop",
+            timestamp: 0,
+          },
+        ],
+      }),
+      {
+        provider: "google-antigravity",
+        model: "antigravity-claude-opus-4-6-thinking",
+      },
+    )
+
+    expect(request.contents).toEqual([
+      {
+        role: "model",
+        parts: [
+          { text: "reasoning", thought: true },
+          { text: "answer", thoughtSignature: "SIG123" },
+        ],
+      },
+    ])
+  })
+
+  it("strips foreign thinking and signatures and uses model-role tool results", () => {
+    const request = buildGeminiRequest(
+      ctx({
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "claude reasoning" },
+              { type: "text", text: "before tool", textSignature: "TEXT_SIG" },
+              {
+                type: "toolCall",
+                id: "c1",
+                name: "read",
+                arguments: { path: "a.ts" },
+                thoughtSignature: "TOOL_SIG",
+              },
+            ],
+            api: "google-generative-ai",
+            provider: "google-antigravity",
+            model: "antigravity-claude-opus-4-6-thinking",
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+            stopReason: "toolUse",
+            timestamp: 0,
+          },
+          {
+            role: "toolResult",
+            toolCallId: "c1",
+            toolName: "read",
+            content: [{ type: "text", text: "file A" }],
+            isError: false,
+            timestamp: 1,
+          },
+        ],
+      }),
+      {
+        provider: "google-antigravity",
+        model: "antigravity-gemini-3.6-flash",
+      },
+    )
+
+    expect(request.contents).toEqual([
+      {
+        role: "model",
+        parts: [
+          { text: "before tool" },
+          { functionCall: { name: "read", args: { path: "a.ts" }, id: "c1" } },
+        ],
+      },
+      {
+        role: "model",
+        parts: [
+          { functionResponse: { name: "read", response: { output: "file A" }, id: "c1" } },
+        ],
+      },
+    ])
+  })
+
   it("groups consecutive tool results into a single user turn", () => {
     const request = buildGeminiRequest(
       ctx({

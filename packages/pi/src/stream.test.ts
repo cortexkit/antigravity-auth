@@ -1,17 +1,31 @@
-import { describe, expect, it } from "vitest"
-import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import {
+  ensureProjectContext,
+  fetchWithAgyCliTransport,
+} from "@cortexkit/antigravity-auth-core"
+import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai"
+
+vi.mock("@cortexkit/antigravity-auth-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@cortexkit/antigravity-auth-core")>()
+  return {
+    ...actual,
+    ensureProjectContext: vi.fn(async () => ({ effectiveProjectId: "test-project" })),
+    fetchWithAgyCliTransport: vi.fn(),
+  }
+})
 
 import {
   convertGeminiToolCallPart,
   finalizePiAntigravityRequest,
   parseGeminiSse,
   resolvePiAntigravityModel,
+  streamCortexKitAntigravity,
   updateUsage,
 } from "./stream.ts"
 
-function fakeModel(): Model<Api> {
+function fakeModel(id = "antigravity-gemini-3.5-flash"): Model<Api> {
   return {
-    id: "antigravity-gemini-3.5-flash",
+    id,
     api: "google-generative-ai",
     provider: "google-antigravity",
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -50,6 +64,72 @@ function sseResponse(frames: string[]): Response {
   })
   return new Response(body, { status: 200 })
 }
+
+function openSseResponse(frame: string): {
+  response: Response
+  wasCancelled: () => boolean
+} {
+  let cancelled = false
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(frame))
+    },
+    cancel() {
+      cancelled = true
+    },
+  })
+  return {
+    response: new Response(body, { status: 200 }),
+    wasCancelled: () => cancelled,
+  }
+}
+
+function stalledSseResponse(frame: string): {
+  response: Response
+  abort: () => void
+} {
+  let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller
+      controller.enqueue(new TextEncoder().encode(frame))
+    },
+  })
+  return {
+    response: new Response(body, { status: 200 }),
+    abort: () => streamController?.error(new Error("aborted")),
+  }
+}
+
+function userContext(): Context {
+  return { messages: [{ role: "user", content: "test", timestamp: 1 }] }
+}
+
+async function runStream(
+  model: Model<Api>,
+  response: Response,
+  sessionId: string,
+  onAbort?: () => void,
+) {
+  vi.mocked(fetchWithAgyCliTransport).mockImplementationOnce(async (_url, _init, transportOptions) => {
+    if (onAbort) transportOptions?.signal?.addEventListener("abort", onAbort, { once: true })
+    return response
+  })
+  const eventStream = streamCortexKitAntigravity(model, userContext(), {
+    apiKey: "test-token",
+    sessionId,
+  })
+  const events = []
+  for await (const event of eventStream) {
+    events.push(event)
+  }
+  return { events, result: await eventStream.result() }
+}
+
+afterEach(() => {
+  vi.mocked(fetchWithAgyCliTransport).mockReset()
+  vi.mocked(ensureProjectContext).mockClear()
+})
 
 describe("resolvePiAntigravityModel", () => {
   const gemini36 = {
@@ -184,6 +264,119 @@ describe("convertGeminiToolCallPart", () => {
 
     expect(first?.thoughtSignature).toBe("SIG1")
     expect(second).not.toHaveProperty("thoughtSignature")
+  })
+})
+
+describe("streamCortexKitAntigravity", () => {
+  it("streams thinking and transfers a pending signature to visible text", async () => {
+    const { events, result } = await runStream(
+      fakeModel("antigravity-claude-opus-4-6-thinking"),
+      sseResponse([
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"reasoning","thought":true}]}}]}}\n\n',
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"","thought":true,"thoughtSignature":"SIG123"}]}}]}}\n\n',
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]}}]}}\n\n',
+        'data: {"response":{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2,"thoughtsTokenCount":3}}}\n\n',
+      ]),
+      "thinking-text-signature",
+    )
+
+    expect(events.map((event) => event.type)).toEqual([
+      "start",
+      "thinking_start",
+      "thinking_delta",
+      "thinking_end",
+      "text_start",
+      "text_delta",
+      "text_end",
+      "done",
+    ])
+    expect(result.content).toEqual([
+      { type: "thinking", thinking: "reasoning" },
+      { type: "text", text: "answer", textSignature: "SIG123" },
+    ])
+  })
+
+  it("adds execution metadata after a completed turn", async () => {
+    const terminal = () => sseResponse([
+      'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}}\n\n',
+    ])
+
+    await runStream(fakeModel(), terminal(), "execution-metadata")
+    await runStream(fakeModel(), terminal(), "execution-metadata")
+
+    const calls = vi.mocked(fetchWithAgyCliTransport).mock.calls
+    const firstBody = JSON.parse(String(calls.at(-2)?.[1]?.body))
+    const secondBody = JSON.parse(String(calls.at(-1)?.[1]?.body))
+    expect(firstBody.request.labels).not.toHaveProperty("last_execution_id")
+    expect(firstBody.request.labels.last_step_index).toBe("1")
+    expect(secondBody.request.labels.last_execution_id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(secondBody.request.labels.last_step_index).toBe("2")
+  })
+
+  it("does not rotate execution metadata on a tool-call turn", async () => {
+    await runStream(
+      fakeModel("antigravity-claude-opus-4-6-thinking"),
+      sseResponse([
+        'data: {"response":{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{},"id":"c1"}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}}\n\n',
+      ]),
+      "tool-execution-metadata",
+    )
+    await runStream(
+      fakeModel("antigravity-claude-opus-4-6-thinking"),
+      sseResponse([
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}}\n\n',
+      ]),
+      "tool-execution-metadata",
+    )
+
+    const secondBody = JSON.parse(String(vi.mocked(fetchWithAgyCliTransport).mock.calls.at(-1)?.[1]?.body))
+    expect(secondBody.request.labels).not.toHaveProperty("last_execution_id")
+    expect(secondBody.request.labels.last_step_index).toBe("1")
+  })
+
+  it("releases and cancels an open response body after STOP", async () => {
+    const open = openSseResponse(
+      'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}}\n\n',
+    )
+    const { result } = await runStream(
+      fakeModel("antigravity-claude-opus-4-6-thinking"),
+      open.response,
+      "open-response-cleanup",
+    )
+
+    expect(result.stopReason).toBe("stop")
+    expect(open.wasCancelled()).toBe(true)
+  })
+
+  it("consumes GPT usage metadata sent after STOP", async () => {
+    const { result } = await runStream(
+      fakeModel("antigravity-gpt-oss-120b-medium"),
+      sseResponse([
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}]}}\n\n',
+        'data: {"response":{"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":3,"totalTokenCount":13}}}\n\n',
+      ]),
+      "gpt-trailing-usage",
+    )
+
+    expect(result.stopReason).toBe("stop")
+    expect(result.usage.input).toBe(10)
+    expect(result.usage.output).toBe(3)
+    expect(result.usage.totalTokens).toBe(13)
+  })
+
+  it("finishes a GPT turn when trailing usage never arrives", async () => {
+    const stalled = stalledSseResponse(
+      'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}]}}\n\n',
+    )
+    const { result } = await runStream(
+      fakeModel("antigravity-gpt-oss-120b-medium"),
+      stalled.response,
+      "gpt-missing-trailing-usage",
+      stalled.abort,
+    )
+
+    expect(result.stopReason).toBe("stop")
+    expect(result.content).toEqual([{ type: "text", text: "answer" }])
   })
 })
 

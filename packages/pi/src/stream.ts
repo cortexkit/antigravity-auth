@@ -20,6 +20,7 @@ import {
   type SimpleStreamOptions,
   type StopReason,
   type TextContent,
+  type ThinkingContent,
   type ThinkingLevel,
   type ToolCall,
 } from "@earendil-works/pi-ai"
@@ -29,7 +30,29 @@ import { getPackedRefresh } from "./credential-cache.ts"
 
 const STREAM_ACTION = "streamGenerateContent"
 const FALLBACK_SESSION_KEY = "__default__"
+const TRAILING_USAGE_TIMEOUT_MS = 1_000
 const requestSessions = new AgyRequestSessionStore("")
+
+async function nextWithTimeout<T>(
+  iterator: AsyncIterator<T>,
+  timeoutMs: number,
+  onTimeout: () => void,
+): Promise<IteratorResult<T> | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      iterator.next(),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => {
+          onTimeout()
+          resolve(undefined)
+        }, timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 function mapFinishReason(reason: string | null | undefined): StopReason {
   switch (reason) {
@@ -111,7 +134,7 @@ export function convertGeminiToolCallPart(
 ): ToolCall | undefined {
   // Antigravity emits a batch signature on a preceding empty thought part;
   // native replay attaches it to the first function call in that batch.
-  if (part.thought && part.thoughtSignature) {
+  if (part.thought && !part.text && part.thoughtSignature) {
     state.pendingThoughtSignature = part.thoughtSignature
   }
 
@@ -211,6 +234,7 @@ export function finalizePiAntigravityRequest(
     request,
     wireModel,
     scope.timestamp,
+    { stepCountMode: "contents" },
   )
   request.labels = metadata.labels
   request.sessionId = metadata.sessionId
@@ -243,6 +267,8 @@ async function sendAntigravityRequest(options: {
   context: Context
   streamOptions?: SimpleStreamOptions
   accessToken: string
+  sessionKey: string
+  signal?: AbortSignal
 }): Promise<Response> {
   const resolved = resolvePiAntigravityModel(options.model, options.streamOptions?.reasoning)
   const wireModel = resolved.actualModel
@@ -259,7 +285,10 @@ async function sendAntigravityRequest(options: {
     expires: Date.now() + 60_000,
   })
 
-  const request = buildGeminiRequest(options.context) as unknown as Record<string, unknown>
+  const request = buildGeminiRequest(options.context, {
+    provider: options.model.provider,
+    model: options.model.id,
+  }) as unknown as Record<string, unknown>
   const generationConfig: Record<string, unknown> = {}
 
   if (resolved.thinkingLevel) {
@@ -283,9 +312,7 @@ async function sendAntigravityRequest(options: {
     request.generationConfig = generationConfig
   }
 
-  const requestScope = requestSessions.beginRequest(
-    getRequestSessionKey(options.context, options.streamOptions),
-  )
+  const requestScope = requestSessions.beginRequest(options.sessionKey)
   const requestId = finalizePiAntigravityRequest(request, wireModel, requestScope)
 
   const envelope = {
@@ -311,7 +338,7 @@ async function sendAntigravityRequest(options: {
       },
       body: JSON.stringify(envelope),
     },
-    { signal: options.streamOptions?.signal ?? null },
+    { signal: options.signal ?? options.streamOptions?.signal ?? null },
   )
 }
 
@@ -330,46 +357,142 @@ export function streamCortexKitAntigravity(
       const accessToken = options?.apiKey ?? ""
       if (!accessToken) throw new Error("Missing Antigravity OAuth access token")
 
+      const sessionKey = getRequestSessionKey(context, options)
+      const trailingUsageAbort = new AbortController()
+      const requestSignal = options?.signal
+        ? AbortSignal.any([options.signal, trailingUsageAbort.signal])
+        : trailingUsageAbort.signal
       const response = await sendAntigravityRequest({
         model,
         context,
         streamOptions: options,
         accessToken,
+        sessionKey,
+        signal: requestSignal,
       })
 
       if (!response.ok) {
         throw new Error(`Antigravity request failed: HTTP ${response.status} ${await response.text()}`)
       }
 
-      const content = output.content as Array<TextContent | ToolCall>
+      const content = output.content as Array<TextContent | ThinkingContent | ToolCall>
       const toolCallState: GeminiToolCallState = {}
       let textIndex = -1
-      let finished = false
+      let thinkingIndex = -1
+      let terminalSeen = false
 
-      for await (const chunk of parseGeminiSse(response)) {
+      const closeText = () => {
+        if (textIndex === -1) return
+        const block = content[textIndex]
+        if (block?.type === "text") {
+          stream.push({ type: "text_end", contentIndex: textIndex, content: block.text, partial: output })
+        }
+        textIndex = -1
+      }
+
+      const closeThinking = () => {
+        if (thinkingIndex === -1) return
+        const block = content[thinkingIndex]
+        if (block?.type === "thinking") {
+          stream.push({
+            type: "thinking_end",
+            contentIndex: thinkingIndex,
+            content: block.thinking,
+            partial: output,
+          })
+        }
+        thinkingIndex = -1
+      }
+
+      const chunkIterator = parseGeminiSse(response)[Symbol.asyncIterator]()
+      while (true) {
+        const next = terminalSeen
+          ? await nextWithTimeout(
+              chunkIterator,
+              TRAILING_USAGE_TIMEOUT_MS,
+              () => trailingUsageAbort.abort(),
+            )
+          : await chunkIterator.next()
+        if (!next) break
+        if (next.done) break
+
+        const chunk = next.value
         updateUsage(model, output, chunk.usageMetadata)
+
+        if (terminalSeen) {
+          if (chunk.usageMetadata) break
+          continue
+        }
 
         const candidate = chunk.candidates?.[0]
         const parts = candidate?.content?.parts ?? []
 
         for (const part of parts) {
+          if (!part.thought && !part.functionCall && !part.text && part.thoughtSignature) {
+            const block = textIndex === -1 ? undefined : content[textIndex]
+            if (block?.type === "text") {
+              block.textSignature = part.thoughtSignature
+            } else {
+              toolCallState.pendingThoughtSignature = part.thoughtSignature
+            }
+            continue
+          }
+
           const toolCall = convertGeminiToolCallPart(part, toolCallState)
           if (toolCall) {
+            closeText()
+            closeThinking()
             content.push(toolCall)
             const idx = content.length - 1
-            textIndex = -1
             stream.push({ type: "toolcall_start", contentIndex: idx, partial: output })
             stream.push({ type: "toolcall_end", contentIndex: idx, toolCall, partial: output })
             output.stopReason = "toolUse"
-          } else if (typeof part.text === "string" && part.text.length > 0 && !part.thought) {
+            continue
+          }
+
+          if (part.thought) {
+            if (typeof part.text !== "string" || part.text.length === 0) continue
+            closeText()
+            if (thinkingIndex === -1) {
+              content.push({
+                type: "thinking",
+                thinking: "",
+                ...(part.thoughtSignature ? { thinkingSignature: part.thoughtSignature } : {}),
+              })
+              thinkingIndex = content.length - 1
+              stream.push({ type: "thinking_start", contentIndex: thinkingIndex, partial: output })
+            }
+            const block = content[thinkingIndex]
+            if (block?.type === "thinking") {
+              block.thinking += part.text
+              if (part.thoughtSignature) block.thinkingSignature = part.thoughtSignature
+              stream.push({
+                type: "thinking_delta",
+                contentIndex: thinkingIndex,
+                delta: part.text,
+                partial: output,
+              })
+            }
+            continue
+          }
+
+          if (typeof part.text === "string" && part.text.length > 0) {
+            closeThinking()
             if (textIndex === -1) {
-              content.push({ type: "text", text: "" })
+              const textSignature = part.thoughtSignature ?? toolCallState.pendingThoughtSignature
+              toolCallState.pendingThoughtSignature = undefined
+              content.push({
+                type: "text",
+                text: "",
+                ...(textSignature ? { textSignature } : {}),
+              })
               textIndex = content.length - 1
               stream.push({ type: "text_start", contentIndex: textIndex, partial: output })
             }
             const block = content[textIndex]
-            if (block && block.type === "text") {
+            if (block?.type === "text") {
               block.text += part.text
+              if (part.thoughtSignature) block.textSignature = part.thoughtSignature
               stream.push({
                 type: "text_delta",
                 contentIndex: textIndex,
@@ -381,25 +504,23 @@ export function streamCortexKitAntigravity(
         }
 
         if (candidate?.finishReason) {
-          if (textIndex !== -1) {
-            const block = content[textIndex]
-            if (block && block.type === "text") {
-              stream.push({ type: "text_end", contentIndex: textIndex, content: block.text, partial: output })
-            }
-            textIndex = -1
-          }
+          closeText()
+          closeThinking()
           if (output.stopReason !== "toolUse") {
             output.stopReason = mapFinishReason(candidate.finishReason)
           }
-          // The AGY raw-socket transport may keep the response body open after
-          // the terminal chunk, which would hang the SSE reader. Stop consuming
-          // once a finishReason arrives so the turn terminates promptly.
-          finished = true
-          break
+          terminalSeen = true
+          const needsTrailingUsage = model.id.toLowerCase().includes("gpt-oss") && !chunk.usageMetadata
+          if (!needsTrailingUsage) break
         }
       }
 
-      if (finished) {
+      if (terminalSeen) {
+        try {
+          await chunkIterator.return?.(undefined)
+        } catch (error) {
+          if (!trailingUsageAbort.signal.aborted) throw error
+        }
         await response.body?.cancel().catch(() => {})
       }
 
@@ -410,6 +531,9 @@ export function streamCortexKitAntigravity(
         reason: output.stopReason as "stop" | "length" | "toolUse",
         message: output,
       })
+      if (output.stopReason === "stop" || output.stopReason === "length") {
+        requestSessions.completeExecution(sessionKey)
+      }
       stream.end()
     } catch (error) {
       output.stopReason = options?.signal?.aborted ? "aborted" : "error"
