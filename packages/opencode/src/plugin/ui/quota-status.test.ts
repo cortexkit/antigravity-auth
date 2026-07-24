@@ -263,6 +263,20 @@ describe('formatCachedQuotaWithStatus', () => {
     expect(formatCachedQuotaWithStatus({})).toBeUndefined()
   })
 
+  it('ignores unknown / legacy quota keys while keeping the supported ones', () => {
+    // Older snapshots may carry `claude`, `gemini-antigravity`, or
+    // `gemini-cli` keys left over from the 3/4-key model. The collapsed
+    // two-pool projection must drop those (not crash, not surface them
+    // as extra groups) and render only the supported pools.
+    const result = formatCachedQuotaWithStatus({
+      claude: { remainingFraction: 0.5 },
+      'gemini-antigravity': { remainingFraction: 0.5 },
+      'gemini-cli': { remainingFraction: 0.5 },
+      'non-gemini': { remainingFraction: 0.8 },
+    } as never)
+    expect(result).toBe('Non-Gemini 80%')
+  })
+
   it('formats READY groups without status label', () => {
     const result = formatCachedQuotaWithStatus({
       'non-gemini': { remainingFraction: 0.8 },

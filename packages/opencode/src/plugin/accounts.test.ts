@@ -2680,9 +2680,17 @@ describe('resolveQuotaGroup', () => {
   })
 
   it('model takes precedence over family', () => {
-    // Even if family says claude, model determines the quota group
-    expect(resolveQuotaGroup('gemini', 'gemini-2.5-flash')).toBe('gemini')
-    expect(resolveQuotaGroup('gemini', 'gemini-3-pro')).toBe('gemini')
+    // Cross-family pair: a `claude` family carrying a `gemini-` model
+    // string must resolve to the gemini pool, and vice versa. The
+    // previous version only exercised gemini-family + gemini-model,
+    // which would pass even if a regression collapsed the model-vs-
+    // family check entirely.
+    expect(resolveQuotaGroup('claude', 'gemini-2.5-flash')).toBe('gemini')
+    expect(resolveQuotaGroup('claude', 'gemini-3-pro')).toBe('gemini')
+    expect(resolveQuotaGroup('gemini', 'claude-sonnet-4-6')).toBe('non-gemini')
+    expect(resolveQuotaGroup('gemini', 'gpt-oss-120b-medium')).toBe(
+      'non-gemini',
+    )
   })
 })
 

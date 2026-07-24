@@ -309,7 +309,14 @@ function renderAccountDialog(
         onConfirm={(value: string) => {
           const code = value.trim()
           if (!code) {
-            renderMain()
+            // Empty submit must keep the user inside the flow, not
+            // silently drop them back to the account list. Surface the
+            // validation message and reopen the same prompt so the
+            // user can paste again.
+            api.ui.toast({
+              message: 'Please paste the callback URL or authorization code.',
+            })
+            openOAuthCodePrompt(oauthUrl)
             return
           }
           openOAuthLabelPrompt(code, oauthUrl)

@@ -978,6 +978,14 @@ describe('openCommandDialog (imperative dispatcher)', () => {
     expect(applyMock.mock.calls.at(0)?.[1]).toBe('add-oauth-start')
     expect(applyMock.mock.calls.at(0)?.[2]?.timeoutMs).toBe(120_000)
     expect(localFake.capturedSelectProps?.title).toBe('OAuth sign-in')
+    // The OAuth URL from the mocked start result must surface in the
+    // dialog's Copy-URL option so the user can paste it into a browser.
+    const copyUrlOption = localFake.capturedSelectProps?.options?.find(
+      (option) => option.title === 'Copy URL to clipboard',
+    )
+    expect(copyUrlOption?.description).toContain(
+      'https://accounts.google.test/authorize',
+    )
 
     const enterCode = localFake.capturedSelectProps?.options?.find(
       (option) => option.title === 'Enter sign-in code',
