@@ -122,8 +122,13 @@ describe('rpc / tui flow (e2e)', () => {
         projectId: 'project-rpc',
       })
       // Primary: retrieveUserQuotaSummary (windowed).
+      // managedProjectId enforces the real API's 403: the caller must
+      // post the managed project id, not the regular project id.
+      // If it posts the wrong id, the mock returns 403 and the test
+      // exercises the fallback path instead — failing the window assertion.
       h.server.enqueue({
         kind: 'quotaSummaryWindow',
+        managedProjectId: 'managed-rpc',
         groups: [
           {
             displayName: 'Gemini Models',

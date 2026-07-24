@@ -90,6 +90,13 @@ export interface GeminiCliQuotaFixture extends BaseFixture {
 /** Windowed quota summary envelope — fed to `retrieveUserQuotaSummary`. */
 export interface QuotaSummaryWindowFixture extends BaseFixture {
   kind: 'quotaSummaryWindow'
+  /**
+   * When set, the server returns 403 if the posted `project` does not
+   * equal this value — mirroring the real API's PERMISSION_DENIED for
+   * non-managed project IDs. This makes the e2e fail on exactly the
+   * class of bug where the caller sends the wrong project ID.
+   */
+  managedProjectId?: string
   /** Groups with their per-window buckets. */
   groups: Array<{
     displayName: string
@@ -259,7 +266,7 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
       }
       openSockets.add(response)
       response.once('close', () => openSockets.delete(response))
-      await dispatch(fixture, request, response)
+      await dispatch(fixture, request, response, body)
     } catch (error) {
       try {
         sendJson(response, 500, {
@@ -299,6 +306,7 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
     fixture: Fixture,
     _request: IncomingMessage,
     response: ServerResponse,
+    reqBody: string,
   ): Promise<void> {
     switch (fixture.kind) {
       case 'json': {
@@ -331,6 +339,28 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
         return
       }
       case 'quotaSummaryWindow': {
+        // Honor the real API's 403 behavior: if managedProjectId is set
+        // on the fixture and the posted project does not match, return
+        // PERMISSION_DENIED so the test exercises the fallback path.
+        if (fixture.managedProjectId) {
+          let postedProject = ''
+          try {
+            postedProject =
+              (JSON.parse(reqBody) as { project?: string }).project ?? ''
+          } catch {
+            /* malformed — let the 200 path handle it */
+          }
+          if (postedProject && postedProject !== fixture.managedProjectId) {
+            sendJson(response, 403, {
+              error: {
+                code: 7,
+                message: 'PERMISSION_DENIED',
+                status: 'PERMISSION_DENIED',
+              },
+            })
+            return
+          }
+        }
         sendJson(response, fixture.status ?? 200, {
           groups: fixture.groups,
           description:

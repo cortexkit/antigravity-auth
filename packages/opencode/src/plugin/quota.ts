@@ -377,7 +377,11 @@ function makeFetchAccountQuota(
       let fellBackToLegacy = false
 
       const authParts = parseRefreshParts(auth.refresh)
-      const managedProjectId = authParts.managedProjectId
+      // Bare refresh tokens have no packed project IDs — fall back to the
+      // account record. The real managedProjectId lives on the persisted
+      // account, not in the packed refresh string.
+      const managedProjectId =
+        authParts.managedProjectId ?? account.managedProjectId
 
       // Primary: retrieveUserQuotaSummary (windowed quota).
       // Fall back to fetchAvailableModels on any failure (403, network, etc.)

@@ -1020,4 +1020,29 @@ describe('fetchQuotaSummary', () => {
     })
     expect(receivedProjectId).toBe('regular-proj')
   })
+
+  it('uses managedProjectId from options when present (the record fallback path)', async () => {
+    // Regression: bare refresh tokens have no packed managedProjectId.
+    // The caller must supply it from the account record. This test
+    // asserts that fetchQuotaSummary posts the options.managedProjectId
+    // when it is provided.
+    let receivedProjectId = ''
+    const summary: RetrieveUserQuotaSummaryResponse = { groups: [] }
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      receivedProjectId = body.project as string
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'managed-from-record',
+      projectId: 'regular-proj',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    expect(receivedProjectId).toBe('managed-from-record')
+  })
 })
