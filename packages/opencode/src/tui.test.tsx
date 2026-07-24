@@ -771,15 +771,15 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     )
     await testSetup.flush()
     const frame = testSetup.captureCharFrame()
-    // Compact row: active account + fixed window key + used quota + filled dot.
+    // Compact row: active account + both quota pools (Gm · NG) + filled dot.
     expect(frame).toContain('Primary')
     expect(frame).toContain('Gm: 70%')
+    expect(frame).toContain('NG: 25%')
     expect(frame).toContain('●')
     // Header indicator is the collapsed glyph.
     expect(frame).toContain('▶')
-    // Full body sections absent in compact mode: no per-model quota labels,
+    // Full body sections absent in compact mode: no expanded account blocks,
     // no cooldown/routing lines, no Awaiting fallback.
-    expect(frame).not.toContain('Non-Gemini')
     expect(frame).not.toContain('cooldown')
     expect(frame).not.toContain('Awaiting Antigravity state')
     testSetup.renderer.destroy()
@@ -867,7 +867,8 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     await testSetup.flush()
     const collapsedFrame = testSetup.captureCharFrame()
     expect(collapsedFrame).toContain('▶')
-    expect(collapsedFrame).not.toContain('NG')
+    expect(collapsedFrame).toContain('Gm:')
+    expect(collapsedFrame).toContain('NG:')
     testSetup.renderer.destroy()
   })
 

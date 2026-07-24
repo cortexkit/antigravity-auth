@@ -839,11 +839,11 @@ export function SidebarPanel(props) {
             const entry = q?.gemini ?? q?.['non-gemini'];
             return entry ? 100 - clamp(entry.remainingPercent, 0, 100) : null;
           };
-          const usedLabel = () => {
-            const q = account()?.quota;
-            if (q?.gemini) return 'Gm';
-            if (q?.['non-gemini']) return 'NG';
-            return '—';
+          const poolText = key => {
+            const entry = account()?.quota[key];
+            if (!entry) return `${QUOTA_LABELS[key]}: —`;
+            const pct = Math.round(100 - clamp(entry.remainingPercent, 0, 100));
+            return `${QUOTA_LABELS[key]}: ${pct}%`;
           };
           const unavailable = () => {
             const selected = account();
@@ -868,8 +868,8 @@ export function SidebarPanel(props) {
                 _$setProp(_el$43, "flexDirection", 'row');
                 _$insertNode(_el$44, _el$45);
                 _$insert(_el$45, (() => {
-                  var _c$ = _$memo(() => used() == null);
-                  return () => _c$() ? '—' : `${usedLabel()}: ${Math.round(used() ?? 0)}%`;
+                  var _c$ = _$memo(() => !!(account()?.quota.gemini == null && account()?.quota['non-gemini'] == null));
+                  return () => _c$() ? '—' : `${poolText('gemini')} · ${poolText('non-gemini')}`;
                 })());
                 _$insert(_el$46, () => unavailable() ? ' ⊘' : ' ●');
                 _$effect(_p$ => {

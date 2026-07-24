@@ -832,11 +832,11 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
             const entry = q?.gemini ?? q?.['non-gemini']
             return entry ? 100 - clamp(entry.remainingPercent, 0, 100) : null
           }
-          const usedLabel = () => {
-            const q = account()?.quota
-            if (q?.gemini) return 'Gm'
-            if (q?.['non-gemini']) return 'NG'
-            return '—'
+          const poolText = (key: 'gemini' | 'non-gemini') => {
+            const entry = account()?.quota[key]
+            if (!entry) return `${QUOTA_LABELS[key]}: —`
+            const pct = Math.round(100 - clamp(entry.remainingPercent, 0, 100))
+            return `${QUOTA_LABELS[key]}: ${pct}%`
           }
           const unavailable = () => {
             const selected = account()
@@ -861,9 +861,10 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
                       )}
                     >
                       <b>
-                        {used() == null
+                        {account()?.quota.gemini == null &&
+                        account()?.quota['non-gemini'] == null
                           ? '—'
-                          : `${usedLabel()}: ${Math.round(used() ?? 0)}%`}
+                          : `${poolText('gemini')} · ${poolText('non-gemini')}`}
                       </b>
                     </text>
                     <text
