@@ -239,7 +239,7 @@ describe('saveAccounts', () => {
  *
  * These tests exercise the extracted lock-held persistence helper directly.
  */
-describe('persistAccountPool behavior (Issue #89)', () => {
+describe('persistAccountPool behavior (lock-held persistence)', () => {
   let configDir: string
   let previousConfigDir: string | undefined
 

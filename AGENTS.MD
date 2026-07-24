@@ -89,24 +89,49 @@ Pre-commit hooks (`.lefthook.yml`) run Biome on changed `*.{ts,tsx,js,mjs,json,j
 
 ## Module Structure
 
+The repository is a Bun workspace with three packages. The pre-monorepo
+single-root-`src/` layout was retired when the project split into
+`packages/{core,opencode,pi}` so the harness-agnostic engine, the host
+adapter, and the Pi host can ship on independent cadences.
+
 ```
-src/
-├── plugin.ts                # Main entry, fetch interceptor
-├── constants.ts             # Endpoints, headers, API config, system prompts
-├── antigravity/oauth.ts     # OAuth token exchange
-└── plugin/
-    ├── auth.ts              # Token validation & refresh
-    ├── request.ts           # Request transformation (core logic)
-    ├── request-helpers.ts   # Schema cleaning, thinking filters
-    ├── thinking-recovery.ts # Turn boundary detection
-    ├── recovery.ts          # Session recovery (tool_result_missing)
-    ├── quota.ts             # Quota checking (API usage stats)
-    ├── cache.ts             # Auth & signature caching
-    ├── accounts.ts          # Multi-account management & storage
-    ├── storage.ts           # Persistent storage schemas (Zod)
-    ├── fingerprint.ts       # Device fingerprint generation & headers
-    ├── project.ts           # Managed project context resolution
-    └── debug.ts             # Debug logging utilities
+packages/
+├── core/                    # Harness-agnostic engine — auth, transform, storage, fingerprinting
+│   └── src/
+│       ├── index.ts             # Public barrel
+│       ├── account-manager.ts   # Per-account selection, rate-limit, quota, fingerprint
+│       ├── account-storage.ts   # v4 schema + lock-held read-modify-write + fail-closed unreadable
+│       ├── agy-transport.ts     # Bounded TLS pool, gzip/chunk decode, idle watchdog
+│       ├── agy-request-metadata.ts
+│       ├── antigravity/oauth.ts # OAuth token exchange + refresh
+│       ├── auth.ts              # Token validation helpers
+│       ├── file-lock.ts         # Fenced file lock for concurrent writes
+│       ├── fingerprint.ts       # Device fingerprint construction
+│       ├── model-registry.ts    # Anthropic / Gemini / GPT-OSS model definitions
+│       ├── project.ts           # Managed project resolution
+│       ├── quota-manager.ts     # Quota caching + fallbacks
+│       ├── rotation.ts          # Account rotation state
+│       └── transform/           # Claude / Gemini / cross-model sanitizer + tests
+├── opencode/                # OpenCode host adapter — plugin entry, fetch interceptor, TUI
+│   └── src/
+│       ├── cli.ts               # `antigravity-auth` CLI (login / list / quota)
+│       ├── plugin/              # Plugin factory, OAuth methods, account access, fetch
+│       │   ├── fetch-interceptor.ts  # Outer/inner loop, retry/quota/routing pipeline
+│       │   ├── auth-loader.ts   # Host `auth.loader()` integration
+│       │   ├── oauth-methods.ts # OAuth menu + callbacks
+│       │   ├── persist-account-pool.ts # Lock-held append after fresh OAuth login
+│       │   ├── storage.ts       # Host-path adapter for account pool (re-exports core errors)
+│       │   └── ui/              # TUI sidebar, auth menu, quota-status, command dialogs
+│       ├── tui/                 # Precompiled + raw TUI sources
+│       ├── rpc/                 # Loopback RPC server + client (sidebar notifications)
+│       └── hooks/               # Lifecycle hooks (auto-update checker, etc.)
+└── pi/                      # Pi host adapter — thinner facade around core
+    └── src/
+        ├── index.ts             # Public barrel — `streamCortexKitAntigravity` + OAuth helpers
+        ├── convert.ts           # Pi <-> Antigravity message-shape conversion
+        ├── credential-cache.ts # Packed refresh token cache
+        ├── paths.ts             # Pi AGENT_DIR + account-pool path resolution
+        └── stream.ts            # Stream factory consumed by `index.ts`
 ```
 
 ## Key Design Patterns
