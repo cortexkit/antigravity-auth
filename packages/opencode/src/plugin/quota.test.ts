@@ -370,6 +370,7 @@ describe('pushSidebarQuotaSnapshot', () => {
         'fetch:start',
         'fetch:start',
         'fetch:start',
+        'fetch:start',
         'sidebar:write-start',
         'lifecycle:drain',
         'drain:sees-sidebar-write',
