@@ -117,6 +117,13 @@ export function createAuthLoader({
     getLogFilePath: dependencies?.getLogFilePath ?? getLogFilePath,
   }
   let fetchRuntime: AuthFetchRuntime | null = null
+  // Reload chain — `installRuntime` swaps the fetch runtime and
+  // (previously) discarded the previous runtime's dispose with `void`,
+  // so two overlapping reloads could interleave teardown. Serialize
+  // reloads through a single shared promise so each new install waits
+  // for the previous one to fully settle (including its dispose)
+  // before tearing down the runtime it depends on.
+  let reloadChain: Promise<void> = Promise.resolve()
 
   lifecycle.register(
     {
@@ -159,9 +166,14 @@ export function createAuthLoader({
     await lifecycle.replaceAccountRuntime(accountManager, refreshQueue)
     refreshQueue?.start()
 
+    // Swap the fetch runtime FIRST so the host's captured fetch
+    // reference (a call-time delegating wrapper below) immediately
+    // routes through the new interceptor, then await the previous
+    // runtime's dispose. The swap-then-dispose order guarantees there
+    // is no fetch gap between the old and new runtimes.
     const previousRuntime = fetchRuntime
     fetchRuntime = createFetch({ accountManager, getAuth })
-    void previousRuntime?.dispose()
+    await previousRuntime?.dispose()
 
     // Push the freshly materialized account pool into the sidebar so the
     // TUI's next poll renders the labels / health / cooldown it needs
@@ -277,10 +289,14 @@ export function createAuthLoader({
 
     return {
       apiKey: '',
-      // `fetchRuntime` is guaranteed non-null by `installRuntime`'s
-      // `createFetch({ ... })` call above — the assignment replaced
-      // any prior value.
-      fetch: fetchRuntime!.fetch,
+      // Return a stable delegating wrapper that reads `fetchRuntime`
+      // at CALL time. A direct `fetchRuntime!.fetch` reference would
+      // capture the current runtime; the host keeps that reference
+      // across `reload()` calls, so a captured fetch would still route
+      // through the OLD interceptor after an OAuth add. The wrapper
+      // matches the host's `LoaderResult.fetch` signature exactly
+      // (no `this` binding) so behavior is preserved.
+      fetch: (input, init) => fetchRuntime!.fetch(input, init),
     }
   }
 
@@ -303,8 +319,17 @@ export function createAuthLoader({
     return runLoader(getAuth, provider)
   }
   async function reload(getAuth: GetAuth): Promise<void> {
-    return reloadRuntime(getAuth)
+    const next = reloadChain.then(() => reloadRuntime(getAuth))
+    reloadChain = next.catch(() => {})
+    return next
   }
-  const authLoader = Object.assign(authLoaderCallable, { reload })
+  // `load` mirrors the authLoaderCallable so the public handle
+  // (`AuthLoaderHandle.load`) exposes the same entry point the host
+  // invokes. Without this assignment, contract consumers read
+  // `.load` as undefined and the documented type would lie.
+  const authLoader = Object.assign(authLoaderCallable, {
+    reload,
+    load: authLoaderCallable,
+  })
   return authLoader as LoadAndInstallRuntime & AuthLoaderHandle
 }

@@ -243,4 +243,216 @@ describe('createAuthLoader', () => {
     expect(secondManager.dispose).toHaveBeenCalledTimes(1)
     expect(secondDispose).toHaveBeenCalledTimes(1)
   })
+
+  it('returned fetch delegates to the live runtime after reload()', async () => {
+    const firstFetch = mock(async () => new Response('first'))
+    const secondFetch = mock(async () => new Response('second'))
+    const firstDispose = mock(async () => {})
+    const secondDispose = mock(async () => {})
+    const managerA = {
+      name: 'a',
+      getAccountCount: () => 1,
+      getAccounts: () => [
+        {
+          index: 0,
+          email: 'a@example.test',
+          enabled: true,
+          parts: { refreshToken: 'a-refresh' },
+          cachedQuota: undefined,
+        },
+      ],
+      requestSaveToDisk: mock(() => {}),
+      dispose: mock(async () => {}),
+    }
+    const managerB = {
+      name: 'b',
+      getAccountCount: () => 1,
+      getAccounts: () => [
+        {
+          index: 0,
+          email: 'b@example.test',
+          enabled: true,
+          parts: { refreshToken: 'b-refresh' },
+          cachedQuota: undefined,
+        },
+      ],
+      requestSaveToDisk: mock(() => {}),
+      dispose: mock(async () => {}),
+    }
+    const managers = [managerA, managerB]
+    const createFetch = mock(() => {
+      const isFirst = createFetch.mock.calls.length === 1
+      return {
+        fetch: isFirst ? firstFetch : secondFetch,
+        dispose: isFirst ? firstDispose : secondDispose,
+      }
+    })
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: mock(() => {}) },
+      shutdownDiskSignatureCache: mock(async () => {}),
+      clearFetchState: mock(() => {}),
+    })
+    const loader = createAuthLoader({
+      client: {
+        auth: { set: mock(async () => {}) },
+        tui: { showToast: mock(async () => {}) },
+      } as never,
+      providerId: 'google',
+      config: { ...DEFAULT_CONFIG, proactive_token_refresh: false },
+      lifecycle,
+      createFetch,
+      dependencies: {
+        loadAccounts: mock(async () => storedAccounts()),
+        clearAccounts: mock(async () => {}),
+        loadAccountManager: mock(async () => managers.shift() as never),
+      },
+    })
+    const getAuth = mock(async () => ({
+      type: 'oauth' as const,
+      refresh: 'stored-refresh|stored-project|managed-project',
+      access: 'access',
+      expires: 100,
+    })) as unknown as GetAuth
+
+    const firstResult = (await loader(getAuth, {
+      id: 'g',
+      name: 'G',
+      source: 'custom',
+      env: [],
+      options: {},
+      models: {},
+    } as never)) as {
+      fetch: (input: RequestInfo, init?: RequestInit) => Promise<Response>
+    }
+    const liveFetch = firstResult.fetch
+
+    await loader.reload(getAuth)
+
+    const midResponse = await liveFetch('https://example.test/mid')
+    expect(midResponse).toBeInstanceOf(Response)
+    expect(firstFetch).not.toHaveBeenCalled()
+    expect(secondFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('exposes load on the handle so contract consumers can read it', () => {
+    const createFetch = mock(() => ({
+      fetch: mock(async () => new Response('ok')),
+      dispose: mock(async () => {}),
+    }))
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: mock(() => {}) },
+      shutdownDiskSignatureCache: mock(async () => {}),
+      clearFetchState: mock(() => {}),
+    })
+    const loader = createAuthLoader({
+      client: {
+        auth: { set: mock(async () => {}) },
+        tui: { showToast: mock(async () => {}) },
+      } as never,
+      providerId: 'google',
+      config: DEFAULT_CONFIG,
+      lifecycle,
+      createFetch,
+      dependencies: {
+        loadAccounts: mock(async () => null),
+        clearAccounts: mock(async () => {}),
+      },
+    })
+    expect(typeof loader.load).toBe('function')
+    expect(loader.load).toBe(loader)
+  })
+
+  it('awaits prior runtime dispose before returning from reload()', async () => {
+    let disposeFinished = false
+    const firstDispose = mock(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      disposeFinished = true
+    })
+    const firstManager = {
+      name: 'first',
+      getAccountCount: () => 1,
+      getAccounts: () => [
+        {
+          index: 0,
+          email: 'first@example.test',
+          enabled: true,
+          parts: { refreshToken: 'first-refresh' },
+          cachedQuota: undefined,
+        },
+      ],
+      requestSaveToDisk: mock(() => {}),
+      dispose: mock(async () => {}),
+    }
+    const secondManager = {
+      name: 'second',
+      getAccountCount: () => 1,
+      getAccounts: () => [
+        {
+          index: 0,
+          email: 'second@example.test',
+          enabled: true,
+          parts: { refreshToken: 'second-refresh' },
+          cachedQuota: undefined,
+        },
+      ],
+      requestSaveToDisk: mock(() => {}),
+      dispose: mock(async () => {}),
+    }
+    const managers = [firstManager, secondManager]
+    const secondDispose = mock(async () => {})
+    const fetchRuntimes = [
+      {
+        fetch: mock(async () => new Response('first')),
+        dispose: firstDispose,
+      },
+      {
+        fetch: mock(async () => new Response('second')),
+        dispose: secondDispose,
+      },
+    ]
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: mock(() => {}) },
+      shutdownDiskSignatureCache: mock(async () => {}),
+      clearFetchState: mock(() => {}),
+    })
+    const createFetch = mock(() => fetchRuntimes.shift()!)
+    const loader = createAuthLoader({
+      client: {
+        auth: { set: mock(async () => {}) },
+        tui: { showToast: mock(async () => {}) },
+      } as never,
+      providerId: 'google',
+      config: { ...DEFAULT_CONFIG, proactive_token_refresh: false },
+      lifecycle,
+      createFetch,
+      dependencies: {
+        loadAccounts: mock(async () => storedAccounts()),
+        clearAccounts: mock(async () => {}),
+        loadAccountManager: mock(async () => managers.shift() as never),
+      },
+    })
+    const getAuth = mock(async () => ({
+      type: 'oauth' as const,
+      refresh: 'stored-refresh|stored-project|managed-project',
+      access: 'access',
+      expires: 100,
+    })) as unknown as GetAuth
+
+    await loader(getAuth, {
+      id: 'g',
+      name: 'G',
+      source: 'custom',
+      env: [],
+      options: {},
+      models: {},
+    } as never)
+
+    const before = disposeFinished
+    const reloadPromise = loader.reload(getAuth)
+    // Without awaiting dispose, the reload promise returns before
+    // the previous runtime's dispose has settled.
+    expect(disposeFinished).toBe(before)
+    await reloadPromise
+    expect(disposeFinished).toBe(true)
+  })
 })
