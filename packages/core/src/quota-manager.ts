@@ -611,6 +611,27 @@ function poolForBucketId(bucketId: string): QuotaGroup | null {
 }
 
 /**
+ * Count models listed in a group's description. The description is
+ * typically a comma-separated list of model names ("Claude Sonnet 4.6,
+ * Gemini 3.1 Pro, Flash") often prefixed with a label like
+ * "Models within this group:". Strip the prefix before splitting so
+ * the label itself is not counted as a model. Returns 0 for shapes
+ * that don't match a comma-separated list.
+ */
+function parseDescriptionModelCount(description: string): number {
+  const prefixMatch = description.match(/^[^:]+:\s*/)
+  const payload = prefixMatch
+    ? description.slice(prefixMatch[0].length)
+    : description
+  if (!payload) return 0
+  const entries = payload
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+  return entries.length
+}
+
+/**
  * Aggregate a retrieveUserQuotaSummary response into a QuotaSummary.
  *
  * Each RUQS group maps to a pool via bucketId prefix. Within a pool,
@@ -643,13 +664,24 @@ export function aggregateQuotaSummary(
     })
 
     const constrained = mostConstrainedWindow(windows)
-    const firstBucket = group.buckets[0]
-    if (!firstBucket) continue
-    const pool = poolForBucketId(firstBucket.bucketId)
+    // Pick the first RECOGNIZED bucket for pool derivation. Older
+    // servers may prepend a junk bucket (system noise, a non-standard
+    // prefix like `claude-3p-`) whose bucketId doesn't match any of
+    // our pool prefixes; the legacy poolForBucketId derivation used
+    // group.buckets[0] unconditionally, which silently dropped the
+    // whole group when an unknown prefix led the array.
+    const recognizedBucket = group.buckets.find((bucket) =>
+      poolForBucketId(bucket.bucketId),
+    )
+    if (!recognizedBucket) continue
+    const pool = poolForBucketId(recognizedBucket.bucketId)
     if (!pool || !constrained) continue
 
+    // The description is a list of model names comma-separated, often
+    // prefixed with a label like "Models within this group:". Strip
+    // the prefix before splitting so it doesn't count as a model.
     const modelCount = group.description
-      ? (group.description.match(/[^,:]+/g)?.length ?? 0)
+      ? parseDescriptionModelCount(group.description)
       : 0
 
     groups[pool] = {
@@ -690,9 +722,12 @@ export interface FetchQuotaSummaryResult {
  * Fetch the windowed quota summary via `retrieveUserQuotaSummary`.
  *
  * Uses the same transport/UA/timeout conventions as `fetchAvailableModels`.
- * On 403 with the managedProjectId, retries with the regular projectId.
- * If that also 403s, falls back to `fetchAvailableModels` so quota never
- * goes dark. On missing managedProjectId, tries projectId first.
+ * On a 429 or 5xx against one endpoint, falls through to the next entry
+ * in `options.endpoints` (matching the legacy fetchers' failover
+ * convention). On 403 with the managedProjectId, retries with the
+ * regular projectId. If that also 403s, falls back to
+ * `fetchAvailableModels` so quota never goes dark. On missing
+ * managedProjectId, tries projectId first.
  */
 export async function fetchQuotaSummary(
   options: FetchQuotaSummaryOptions,
@@ -702,12 +737,12 @@ export async function fetchQuotaSummary(
   const transport = options.fetchVia ?? defaultTransport
   const errors: string[] = []
 
-  const endpoint = options.endpoints[0]
-  if (!endpoint) {
+  if (options.endpoints.length === 0) {
     throw new Error('No endpoints configured for fetchQuotaSummary')
   }
 
   const tryBody = async (
+    endpoint: string,
     projectId: string,
   ): Promise<RetrieveUserQuotaSummaryResponse | null> => {
     const body = { project: projectId }
@@ -744,6 +779,8 @@ export async function fetchQuotaSummary(
         errors.push(
           `retrieveUserQuotaSummary ${status} at ${endpoint}${message ? `: ${message.trim().slice(0, 200)}` : ''}`,
         )
+        // Endpoint failover: the caller may have multiple endpoints;
+        // continue to the next one with the same project ID.
         return null
       }
 
@@ -761,10 +798,14 @@ export async function fetchQuotaSummary(
   }
 
   // Try managedProjectId first, then projectId, then legacy fallback.
+  // For each project, iterate the endpoint list so a 500/429 on the
+  // primary endpoint falls through to the next entry.
   const primary = options.managedProjectId ?? options.projectId
   if (primary) {
-    const result = await tryBody(primary)
-    if (result) return { summary: result }
+    for (const endpoint of options.endpoints) {
+      const result = await tryBody(endpoint, primary)
+      if (result) return { summary: result }
+    }
   }
 
   // If primary failed with 403 and we used managedProjectId,
@@ -776,8 +817,10 @@ export async function fetchQuotaSummary(
       ? options.projectId
       : undefined
   if (fallbackId) {
-    const result = await tryBody(fallbackId)
-    if (result) return { summary: result }
+    for (const endpoint of options.endpoints) {
+      const result = await tryBody(endpoint, fallbackId)
+      if (result) return { summary: result }
+    }
   }
 
   // Give up — the caller should fall back to fetchAvailableModels.

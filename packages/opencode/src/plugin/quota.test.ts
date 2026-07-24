@@ -176,6 +176,117 @@ describe('pushSidebarQuotaSnapshot', () => {
     expect(state.accounts).toEqual([])
   })
 
+  it('runs the windowed summary and gemini-cli quota fetch concurrently', async () => {
+    // The summary fetch and the gemini-CLI quota fetch previously
+    // ran sequentially — two 10s timeouts back-to-back. Run them
+    // concurrently instead. We assert by recording the sequence
+    // numbers of each fetch via a gate so the test is
+    // deterministic across runtimes.
+    const summarySeq: { seq: number } = { seq: 0 }
+    const cliSeq: { seq: number } = { seq: 0 }
+    let releaseSummary!: () => void
+    let releaseCli!: () => void
+    const summaryGate = new Promise<void>((resolve) => {
+      releaseSummary = resolve
+    })
+    const cliGate = new Promise<void>((resolve) => {
+      releaseCli = resolve
+    })
+
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
+      input: unknown,
+    ) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url
+      if (url.includes('retrieveUserQuotaSummary')) {
+        summarySeq.seq += 1
+        await summaryGate
+        summarySeq.seq += 1
+        return new Response(
+          JSON.stringify({
+            groups: [
+              {
+                displayName: 'Gemini Models',
+                buckets: [
+                  {
+                    bucketId: 'gemini-weekly',
+                    displayName: 'Weekly',
+                    window: 'weekly',
+                    resetTime: '2026-01-08T00:00:00Z',
+                    remainingFraction: 0.7,
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }
+      if (url.includes('retrieveUserQuota')) {
+        cliSeq.seq += 1
+        await cliGate
+        cliSeq.seq += 1
+        return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      }
+      // Token refresh + anything else: return a pliable JSON
+      // response so the rest of the quota pipeline can carry on.
+      return new Response(
+        JSON.stringify({
+          access_token: 'access-token',
+          expires_in: 3600,
+        }),
+        { status: 200 },
+      )
+    }) as unknown as typeof fetch)
+
+    const client = {
+      auth: { set: mock(async () => {}) },
+    } as unknown as PluginClient
+    // Use a UNIQUE refresh token per test run so the QuotaManager's
+    // singleton cache / backoff state from earlier tests in the
+    // same run can't skip the fetch behind our spy.
+    const account: AccountMetadataV3 = {
+      refreshToken: `concurrent-fetch-${Date.now()}-${Math.random()}`,
+      managedProjectId: 'managed-project',
+      projectId: 'project-id',
+      addedAt: 0,
+      lastUsed: 0,
+    }
+    const manager = createOpenCodeQuotaManager(client, 'google')
+
+    try {
+      const refresh = manager.refreshAccounts([account], {
+        indexFor: () => 0,
+        force: true,
+      })
+      // Yield until both fetches have started (seq=1).
+      const deadline = Date.now() + 5_000
+      while ((summarySeq.seq < 1 || cliSeq.seq < 1) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1))
+      }
+      // Both fetches started before either finished. If they ran
+      // sequentially, the cli fetch would not have started yet.
+      expect(summarySeq.seq).toBe(1)
+      expect(cliSeq.seq).toBe(1)
+      releaseSummary()
+      releaseCli()
+      await refresh
+
+      // Both fetches completed (seq=2).
+      expect(summarySeq.seq).toBe(2)
+      expect(cliSeq.seq).toBe(2)
+    } finally {
+      fetchSpy.mockRestore()
+      // Yield once more so the spy is fully torn down before the
+      // next test's bun event loop watches see the partial state.
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+  })
+
   it('fences the real quota wrapper sidebar enqueue before the lifecycle drain', async () => {
     const events: string[] = []
     let releaseFetch!: () => void

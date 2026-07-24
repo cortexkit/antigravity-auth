@@ -870,18 +870,103 @@ describe('aggregateQuotaSummary', () => {
     }
   })
 
+  it('counts models from the description minus the prefix label', () => {
+    const response: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          description: 'Models within this group: Gemini 3.1 Pro, Flash',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-08T00:00:00Z',
+              remainingFraction: 0.7,
+            },
+          ],
+        },
+      ],
+    }
+    const summary = aggregateQuotaSummary(response)
+    expect(summary.groups.gemini!.modelCount).toBe(2)
+    expect(summary.modelCount).toBe(2)
+  })
+
   it('back-compat: treats a windows-less QuotaGroupSummary gracefully', () => {
     // Legacy shapes may have no `windows` array — consumers read
-    // `remainingFraction`/`resetTime` directly which are the derived values.
-    const response = loadFixture('free-ruqs.json')
+    // `remainingFraction`/`resetTime` directly which are the derived
+    // values. Exercise this through the REAL response shape (a
+    // retrieveUserQuotaSummary payload that omits `windows` on each
+    // bucket), not through a windows-shaped fixture that already
+    // produced a non-empty `windows` array on the way through.
+    const response: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Gemini Legacy',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly',
+              window: 'weekly',
+              resetTime: '2025-12-29T00:00:00Z',
+              remainingFraction: 0.3,
+            },
+          ],
+        },
+      ],
+    }
     const summary = aggregateQuotaSummary(response)
+    // The aggregator still surfaces per-window entries when the
+    // wire shape includes them — that's the legacy path's only
+    // window. Legacy consumers that read `remainingFraction`
+    // directly see the single most-constrained value.
+    expect(summary.groups.gemini).toBeDefined()
+    expect(summary.groups.gemini!.remainingFraction).toBeCloseTo(0.3, 3)
+    expect(summary.groups.gemini!.resetTime).toBe('2025-12-29T00:00:00Z')
+  })
 
-    // `remainingFraction` is the most-constrained (and only) window
-    expect(summary.groups.gemini!.remainingFraction).toBe(
-      summary.groups.gemini!.windows![0]!.remainingFraction,
-    )
-    // Consumers that check `if (entry.windows)` skip per-window rendering
-    // and fall back to a single QuotaRow — this is the tolerant-read path.
+  it('keeps a pool when the first bucket is unrecognized', () => {
+    // Older servers may prepend a junk bucket (system noise, a
+    // non-standard prefix) whose bucketId doesn't match any of our
+    // pool prefixes. The legacy derivation used group.buckets[0]
+    // unconditionally, which silently dropped the whole group when
+    // an unknown prefix led the array. The pool must be derived
+    // from the first RECOGNIZED bucket, not the first bucket.
+    const response: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'unknown-prefix-noise',
+              displayName: 'Unknown',
+              window: 'weekly',
+              resetTime: '2026-01-01T00:00:00Z',
+              remainingFraction: 0,
+            },
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-08T00:00:00Z',
+              remainingFraction: 0.7,
+            },
+            {
+              bucketId: 'gemini-5h',
+              displayName: '5h Limit',
+              window: '5h',
+              resetTime: '2026-01-01T05:00:00Z',
+              remainingFraction: 0.85,
+            },
+          ],
+        },
+      ],
+    }
+    const summary = aggregateQuotaSummary(response)
+    expect(summary.groups.gemini).toBeDefined()
+    expect(summary.groups.gemini!.windows).toHaveLength(2)
+    expect(summary.groups.gemini!.remainingFraction).toBeCloseTo(0.7, 3)
   })
 })
 
@@ -1044,5 +1129,53 @@ describe('fetchQuotaSummary', () => {
       fetchVia: fetchVia as any,
     })
     expect(receivedProjectId).toBe('managed-from-record')
+  })
+
+  it('fails over to the next endpoint when the first returns 500', async () => {
+    // The legacy fetchers iterate the endpoint list per project attempt
+    // (fetchAvailableModels, fetchGeminiCliQuota). fetchQuotaSummary
+    // must match: a 500 on the primary endpoint should fall through
+    // to the next entry in `options.endpoints`.
+    const summary: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Recovery',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly',
+              window: 'weekly',
+              resetTime: '2026-01-01T00:00:00Z',
+              remainingFraction: 0.42,
+            },
+          ],
+        },
+      ],
+    }
+    const visited: string[] = []
+    const fetchVia = async (url: string): Promise<Response> => {
+      visited.push(url)
+      if (url.startsWith('https://failover-a.test')) {
+        return new Response('boom', { status: 500 })
+      }
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    const result = await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'mp',
+      endpoints: [
+        'https://failover-a.test',
+        'https://failover-b.test',
+      ] as const,
+      fetchVia: fetchVia as any,
+    })
+    expect(visited).toHaveLength(2)
+    expect(visited[0]).toBe(
+      'https://failover-a.test/v1internal:retrieveUserQuotaSummary',
+    )
+    expect(visited[1]).toBe(
+      'https://failover-b.test/v1internal:retrieveUserQuotaSummary',
+    )
+    expect(result.summary.groups[0]!.buckets[0]!.remainingFraction).toBe(0.42)
   })
 })
