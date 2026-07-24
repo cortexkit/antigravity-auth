@@ -202,6 +202,9 @@ function getAgyMaxOutputTokens(model: string): number | undefined {
   ) {
     return 65536
   }
+  if (lower === 'gemini-3.1-flash-lite') {
+    return 65535
+  }
   if (lower === 'gemini-3.1-pro-low' || lower === 'gemini-pro-agent') {
     return 65535
   }

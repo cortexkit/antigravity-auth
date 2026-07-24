@@ -53,6 +53,9 @@ describe('classifyQuotaGroup', () => {
         'Gemini 3.6 Flash (Medium)',
       ),
     ).toBe('gemini-flash')
+    expect(
+      classifyQuotaGroup('gemini-3.1-flash-lite', 'Gemini 3.1 Flash Lite'),
+    ).toBe('gemini-flash')
     expect(classifyQuotaGroup('gemini-pro-agent', 'Gemini 3.1 Pro')).toBe(
       'gemini-pro',
     )

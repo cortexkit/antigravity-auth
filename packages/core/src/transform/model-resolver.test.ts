@@ -74,6 +74,28 @@ describe('resolveModelWithTier', () => {
     })
   })
 
+  describe('Gemini 3.1 Flash Lite Antigravity route', () => {
+    it('resolves as a non-thinking text model', () => {
+      const result = resolveModelWithTier('antigravity-gemini-3.1-flash-lite')
+      expect(result.actualModel).toBe('gemini-3.1-flash-lite')
+      expect(result.isThinkingModel).toBe(false)
+      expect(result.thinkingBudget).toBeUndefined()
+      expect(result.thinkingLevel).toBeUndefined()
+      expect(result.tier).toBeUndefined()
+      expect(result.quotaPreference).toBe('antigravity')
+    })
+
+    it('maps gemini-3.1-flash-lite directly for the header-style path', () => {
+      const result = resolveModelForHeaderStyle(
+        'gemini-3.1-flash-lite',
+        'antigravity',
+      )
+      expect(result.actualModel).toBe('gemini-3.1-flash-lite')
+      expect(result.isThinkingModel).toBe(false)
+      expect(result.quotaPreference).toBe('antigravity')
+    })
+  })
+
   describe('Gemini 3.6 Flash Antigravity routes', () => {
     it.each([
       [
@@ -473,6 +495,18 @@ describe('Issue #103: resolveModelForHeaderStyle', () => {
       )
       expect(result.actualModel).toBe('gemini-3-flash-preview')
       expect(result.thinkingLevel).toBe('medium')
+      expect(result.quotaPreference).toBe('gemini-cli')
+    })
+
+    it('resolves gemini-3.1-flash-lite as non-thinking on gemini-cli path', () => {
+      const result = resolveModelForHeaderStyle(
+        'gemini-3.1-flash-lite',
+        'gemini-cli',
+      )
+      expect(result.actualModel).toBe('gemini-3.1-flash-lite')
+      expect(result.isThinkingModel).toBe(false)
+      expect(result.thinkingLevel).toBeUndefined()
+      expect(result.thinkingBudget).toBeUndefined()
       expect(result.quotaPreference).toBe('gemini-cli')
     })
   })

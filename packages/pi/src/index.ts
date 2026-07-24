@@ -15,8 +15,15 @@ import { streamCortexKitAntigravity } from './stream.ts'
 
 const ANTIGRAVITY_PROVIDER_ID = 'google-antigravity'
 
-function textImageInput(): Array<'text' | 'image'> {
-  return ['text', 'image']
+/** Derive Pi-compatible input modalities from the model registry, keeping
+ * selectable capabilities consistent with the source of truth.
+ * Pi's protocol only supports 'text' and 'image' input types. */
+function modelInput(modalities: {
+  input: Array<string>
+}): Array<'text' | 'image'> {
+  return modalities.input.filter(
+    (m): m is 'text' | 'image' => m === 'text' || m === 'image',
+  )
 }
 
 async function loginAntigravity(
@@ -84,7 +91,7 @@ export default function cortexKitPiAntigravityAuth(pi: ExtensionAPI): void {
       id: model.id,
       name: model.name,
       reasoning: model.reasoning,
-      input: textImageInput(),
+      input: modelInput(model.modalities),
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: model.limit.context,
       maxTokens: model.limit.output,

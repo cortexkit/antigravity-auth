@@ -30,6 +30,7 @@ describe('model registry', () => {
       'antigravity-claude-opus-4-6-thinking',
       'antigravity-claude-sonnet-4-6-thinking',
       'antigravity-gemini-3.1-flash-image',
+      'antigravity-gemini-3.1-flash-lite',
       'antigravity-gemini-3.1-pro',
       'antigravity-gemini-3.5-flash',
       'antigravity-gemini-3.6-flash',
@@ -102,6 +103,16 @@ describe('model registry', () => {
         input: ['text', 'image'],
         output: ['text', 'image'],
       },
+    })
+  })
+
+  it('registers flash-lite as a non-thinking text model', () => {
+    expect(
+      getPublicModelDefinitions()['antigravity-gemini-3.1-flash-lite'],
+    ).toMatchObject({
+      reasoning: false,
+      limit: { context: 1048576, output: 65535 },
+      modalities: { input: ['text'], output: ['text'] },
     })
   })
 })

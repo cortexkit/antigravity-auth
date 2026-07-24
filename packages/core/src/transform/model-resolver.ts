@@ -214,6 +214,7 @@ export function resolveModelWithTier(
   const isGemini31Pro = /^gemini-3\.1-pro/i.test(baseName)
   const isGemini35Flash = /^gemini-3\.5-flash/i.test(baseName)
   const isGemini36Flash = /^gemini-3\.6-flash/i.test(baseName)
+  const isGemini31FlashLite = /^gemini-3\.1-flash-lite/i.test(baseName)
   const isGptOss120b = /^gpt-oss-120b(?:-medium)?$/i.test(baseName)
 
   if (isGemini31Pro && quotaPreference === 'antigravity') {
@@ -244,6 +245,16 @@ export function resolveModelWithTier(
       thinkingBudget: getAgyGeminiFlashThinkingBudget(tier),
       tier: tier ?? 'medium',
       isThinkingModel: true,
+      quotaPreference,
+      explicitQuota,
+    }
+  }
+
+  // Flash-lite is text-only and non-thinking on every quota path.
+  if (isGemini31FlashLite) {
+    return {
+      actualModel: 'gemini-3.1-flash-lite',
+      isThinkingModel: false,
       quotaPreference,
       explicitQuota,
     }
@@ -428,11 +439,15 @@ export function resolveModelForHeaderStyle(
     const isGemini35Flash = isGemini35FlashModel(
       transformedModel.replace(TIER_REGEX, ''),
     )
+    const isGemini31FlashLite = /^gemini-3\.1-flash-lite/i.test(
+      transformedModel,
+    )
 
-    // Don't add tier suffix to image models - they don't support thinking
+    // Don't add tier suffix to image or flash-lite models - they don't support thinking
     if (
       (isGemini3Pro || isGemini3Flash) &&
       !isGemini35Flash &&
+      !isGemini31FlashLite &&
       !hasTierSuffix &&
       !isImageModel
     ) {
@@ -456,8 +471,15 @@ export function resolveModelForHeaderStyle(
     // gemini-3-flash-preview bucket; retrieveUserQuota does not list a
     // gemini-3.5-flash bucket for the gemini-cli header path.
     const isGemini35Flash = isGemini35FlashModel(transformedModel)
+    // Flash-lite has no -preview CLI variant — keep the plain wire id.
+    const isGemini31FlashLite = /^gemini-3\.1-flash-lite$/i.test(
+      transformedModel,
+    )
     if (isGemini35Flash) {
       transformedModel = getGemini35FlashGeminiCliFallbackModel()
+    } else if (isGemini31FlashLite) {
+      // No transformation needed — flash-lite resolves as non-thinking
+      // and has no distinct CLI preview model.
     } else if (!hasPreviewSuffix) {
       transformedModel = `${transformedModel}-preview`
     }

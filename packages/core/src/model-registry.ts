@@ -104,6 +104,15 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
       high: { thinkingLevel: 'high' },
     },
   }),
+  'antigravity-gemini-3.1-flash-lite': defineModel(
+    'antigravity-gemini-3.1-flash-lite',
+    {
+      name: 'Gemini 3.1 Flash Lite (Antigravity)',
+      reasoning: false,
+      limit: { context: 1048576, output: 65535 },
+      modalities: { input: ['text'], output: ['text'] },
+    },
+  ),
   'antigravity-gemini-3.6-flash': defineModel('antigravity-gemini-3.6-flash', {
     name: 'Gemini 3.6 Flash (Antigravity)',
     reasoning: true,
@@ -291,6 +300,7 @@ const QUOTA_GROUP_BY_MODEL_ID: Record<string, ModelQuotaGroup> = {
   'gemini-3.1-pro-high': 'gemini-pro',
   'gemini-3-flash': 'gemini-flash',
   'gemini-3-flash-agent': 'gemini-flash',
+  'gemini-3.1-flash-lite': 'gemini-flash',
   'gemini-3.5-flash-low': 'gemini-flash',
   'gemini-3.5-flash-extra-low': 'gemini-flash',
   'gemini-3.6-flash-low': 'gemini-flash',
@@ -304,6 +314,7 @@ const QUOTA_GROUP_BY_MODEL_ID: Record<string, ModelQuotaGroup> = {
 
 const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
   'antigravity-gemini-3.6-flash',
+  'antigravity-gemini-3.1-flash-lite',
   'antigravity-gemini-3.5-flash',
   'antigravity-gemini-3.1-pro',
   'antigravity-claude-sonnet-4-6-thinking',
