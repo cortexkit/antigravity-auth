@@ -1,5 +1,5 @@
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import { authorizeAntigravity, exchangeAntigravity } from '../antigravity/oauth'
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
 import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
 import { drainNotifications, pushNotification } from '../rpc/notifications'
@@ -64,6 +64,19 @@ export type { PluginResult } from './types'
 import { initAntigravityVersion } from './version'
 
 const logger = createLogger('plugin')
+
+/**
+ * Opaque identity derived from a refresh token. Mirrors
+ * `command-data.ts`'s copy (the two callers stay independent because
+ * `command-data.ts` ships into the TUI's compiled tree and can't reach
+ * across the core barrel boundary). Used by the live quota→sidebar
+ * writers to stamp each quota snapshot with the account it belongs to
+ * so the sidebar projection can detect a stale cache after an index
+ * shift.
+ */
+function quotaAccountIdentity(refreshToken: string): string {
+  return createHash('sha256').update(refreshToken).digest('hex').slice(0, 16)
+}
 
 /**
  * High-level options for the plugin factory. Production callers omit it
@@ -151,6 +164,11 @@ export const createAntigravityPlugin =
           enabled: entry.enabled,
           coolingDownUntil: entry.coolingDownUntil,
           cachedQuota: entry.cachedQuota,
+          // Carry the identity stamp so the sidebar projection can
+          // detect a stale snapshot that landed on the wrong account
+          // after an index shift (see `redactAccountForSidebar`).
+          cachedQuotaAccountId: entry.cachedQuotaAccountId,
+          currentQuotaAccountId: quotaAccountIdentity(entry.parts.refreshToken),
         }))
       },
     })
@@ -291,23 +309,6 @@ export const createAntigravityPlugin =
         confirmOpenVerificationUrl: promptOpenVerificationUrl,
       },
     })
-    const accountOAuth = createAccountCommandOAuthService({
-      authorize: () => authorizeAntigravity(),
-      exchange: exchangeAntigravity,
-      persist: (result) => accountAccess.persistAccountPool([result], false),
-      listAccounts: async () =>
-        projectCommandAccountRows(await accountAccess.loadAccounts()),
-    })
-    lifecycle.register({ dispose: () => accountOAuth.dispose() })
-    const oauthMethods = createOAuthMethods({
-      client,
-      providerId,
-      config,
-      lifecycle,
-      accountAccess,
-      quotaManager,
-      getAuth: async () => (cachedGetAuth ? cachedGetAuth() : undefined),
-    })
     const authLoader = createAuthLoader({
       client,
       providerId,
@@ -331,6 +332,40 @@ export const createAntigravityPlugin =
           fetchImpl: dependencies.fetchImpl,
         }),
     })
+    const accountOAuth = createAccountCommandOAuthService({
+      // Wire the OAuth primitives through the dependency seam (rather
+      // than the concrete imports above) so injected overrides from
+      // `dependencies.oauth.*` reach this path — the same composition
+      // pattern used by every other sub-factory. Without this seam the
+      // e2e harness / custom-host deployments would still hit the real
+      // Google OAuth endpoints when adding an account.
+      authorize: dependencies.oauth.authorize,
+      exchange: dependencies.oauth.exchange,
+      persist: (result) => accountAccess.persistAccountPool([result], false),
+      listAccounts: async () =>
+        projectCommandAccountRows(await accountAccess.loadAccounts()),
+      // After the new account lands on disk, reload the live
+      // AccountManager + fetch interceptor so routing sees it
+      // immediately — without waiting for an auth reload.
+      onAfterPersist: () =>
+        authLoader.reload(async () => {
+          const auth = cachedGetAuth ? await cachedGetAuth() : undefined
+          if (auth) return auth
+          throw new Error(
+            'No live auth cached for OAuth finish reload — the host has not yet loaded any account.',
+          )
+        }),
+    })
+    lifecycle.register({ dispose: () => accountOAuth.dispose() })
+    const oauthMethods = createOAuthMethods({
+      client,
+      providerId,
+      config,
+      lifecycle,
+      accountAccess,
+      quotaManager,
+      getAuth: async () => (cachedGetAuth ? cachedGetAuth() : undefined),
+    })
 
     const rpcServer = await startRpcServer({
       dir: getRpcDir(directory),
@@ -347,6 +382,13 @@ export const createAntigravityPlugin =
             enabled: entry.enabled,
             coolingDownUntil: entry.coolingDownUntil,
             cachedQuota: entry.cachedQuota,
+            // Carry the identity stamp so the sidebar projection can
+            // detect a stale snapshot that landed on the wrong account
+            // after an index shift (see `redactAccountForSidebar`).
+            cachedQuotaAccountId: entry.cachedQuotaAccountId,
+            currentQuotaAccountId: quotaAccountIdentity(
+              entry.parts.refreshToken,
+            ),
           }))
         })
         const result = await applyCommand(request, {

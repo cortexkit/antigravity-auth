@@ -54,6 +54,8 @@ describe('createAuthLoader', () => {
           index: 0,
           email: 'stored@example.com',
           enabled: true,
+          parts: { refreshToken: 'stored-refresh' },
+          cachedQuota: undefined,
         },
       ],
       requestSaveToDisk: mock(() => {}),
@@ -148,7 +150,13 @@ describe('createAuthLoader', () => {
       name: 'first',
       getAccountCount: () => 1,
       getAccounts: () => [
-        { index: 0, email: 'first@example.test', enabled: true },
+        {
+          index: 0,
+          email: 'first@example.test',
+          enabled: true,
+          parts: { refreshToken: 'first-refresh' },
+          cachedQuota: undefined,
+        },
       ],
       requestSaveToDisk: mock(() => {}),
       dispose: mock(async () => {}),
@@ -157,7 +165,13 @@ describe('createAuthLoader', () => {
       name: 'second',
       getAccountCount: () => 1,
       getAccounts: () => [
-        { index: 0, email: 'second@example.test', enabled: true },
+        {
+          index: 0,
+          email: 'second@example.test',
+          enabled: true,
+          parts: { refreshToken: 'second-refresh' },
+          cachedQuota: undefined,
+        },
       ],
       requestSaveToDisk: mock(() => {}),
       dispose: mock(async () => {}),

@@ -78,8 +78,14 @@ function quotaGroupForModel(
   const lower = model.toLowerCase()
   if (family === 'claude') return 'non-gemini'
   if (family === 'gemini') {
+    // Check Claude / GPT-OSS substrings BEFORE the `gemini` substring so
+    // a `gemini-claude-*` alias (Claude route exposed under a `gemini-`
+    // namespace) attributes to the non-gemini pool rather than the
+    // gemini pool.
+    if (lower.includes('claude') || lower.includes('gpt-oss')) {
+      return 'non-gemini'
+    }
     if (lower.includes('gemini') || lower.startsWith('tab_')) return 'gemini'
-    if (lower.includes('gpt-oss') || lower.includes('oss')) return 'non-gemini'
   }
   return null
 }

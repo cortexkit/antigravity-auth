@@ -435,6 +435,20 @@ export interface SidebarAccountRedactionInput {
     gemini?: { remainingFraction?: number; resetTime?: string }
     'non-gemini'?: { remainingFraction?: number; resetTime?: string }
   }
+  /**
+   * Opaque identity stamp that was attached to the persisted quota snapshot.
+   * Used together with `currentQuotaAccountId` to detect a stale cache that
+   * landed on the wrong account after an index shift or token replacement.
+   * PII-safe — it is a 16-char hash, not the refresh token itself.
+   */
+  cachedQuotaAccountId?: string
+  /**
+   * Opaque identity stamp for the account that is currently at this index.
+   * The redactor drops `cachedQuota` when `cachedQuotaAccountId` is set
+   * AND does not match this value, mirroring `toCommandAccountRow` in the
+   * command-data service. Omitted in the persisted sidebar state.
+   */
+  currentQuotaAccountId?: string
 }
 
 /**
@@ -462,7 +476,15 @@ export function redactAccountForSidebar(
   )
 
   const quota: SidebarAccountState['quota'] = {}
-  const cached = source.cachedQuota
+  // Stamp mismatch: the persisted quota snapshot was captured for a
+  // different account than the one currently at this index. Drop the
+  // stale cache rather than rendering the wrong account's quota
+  // percentages. Mirrors `toCommandAccountRow` in command-data.
+  const staleCachedQuota =
+    typeof source.cachedQuotaAccountId === 'string' &&
+    typeof source.currentQuotaAccountId === 'string' &&
+    source.cachedQuotaAccountId !== source.currentQuotaAccountId
+  const cached = staleCachedQuota ? undefined : source.cachedQuota
   if (cached) {
     for (const key of ['gemini', 'non-gemini'] as const) {
       const entry = cached[key]

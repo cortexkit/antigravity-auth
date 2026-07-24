@@ -511,4 +511,45 @@ describe('redaction', () => {
     })
     expect(redacted.quota['non-gemini']?.remainingPercent).toBe(42)
   })
+
+  it('drops cachedQuota when the persisted stamp does not match the current account identity', () => {
+    // Persisted stamp from a different refresh token than the live one.
+    // The projection must drop the quota rather than render the wrong
+    // account's percentages after an index shift or token replacement.
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        gemini: { remainingFraction: 0.42 },
+        'non-gemini': { remainingFraction: 0.8 },
+      },
+      cachedQuotaAccountId: 'deadbeefcafebabe',
+      currentQuotaAccountId: '0123456789abcdef',
+    })
+    expect(redacted.quota).toEqual({})
+  })
+
+  it('preserves cachedQuota when the stamp matches the current account identity', () => {
+    const stamp = 'a'.repeat(16)
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        'non-gemini': { remainingFraction: 0.5 },
+      },
+      cachedQuotaAccountId: stamp,
+      currentQuotaAccountId: stamp,
+    })
+    expect(redacted.quota['non-gemini']?.remainingPercent).toBe(50)
+  })
+
+  it('preserves cachedQuota when only one of the stamps is provided (fail open for legacy)', () => {
+    // Legacy snapshots omit the stamp; pre-stamp live views also omit
+    // the current identity. The projection must not silently drop the
+    // quota in either half-missing case.
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: { gemini: { remainingFraction: 0.3 } },
+      cachedQuotaAccountId: 'a'.repeat(16),
+    })
+    expect(redacted.quota.gemini?.remainingPercent).toBe(30)
+  })
 })

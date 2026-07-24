@@ -82,17 +82,25 @@ describe('classifyQuotaGroup', () => {
     )
   })
 
-  it('classifies every Gemini model into the Gemini pool', () => {
+  it('classifies every representative Gemini model into the Gemini pool', () => {
     const { classifyQuotaGroup } = createQuotaManager({
       fetchAccountQuota: makeHarness().fetch,
       keyOf: keyOfAccount,
     })
-    expect(
-      classifyQuotaGroup('gemini-3.5-flash-low', 'Gemini 3.5 Flash (Low)'),
-    ).toBe('gemini')
-    expect(classifyQuotaGroup('gemini-3.1-pro', 'Gemini 3.1 Pro')).toBe(
-      'gemini',
-    )
+    // Each tuple covers a distinct tier/variant the production API
+    // exposes — a regression that ignores one tier would surface as a
+    // single failure rather than a passing test.
+    const geminiModels: Array<[string, string]> = [
+      ['gemini-3.5-flash-low', 'Gemini 3.5 Flash (Low)'],
+      ['gemini-3.1-pro', 'Gemini 3.1 Pro'],
+      ['gemini-3-flash', 'Gemini 3 Flash'],
+      ['gemini-3.1-flash-image', 'Gemini 3.1 Flash Image'],
+      ['gemini-pro-agent', 'Gemini Pro Agent'],
+      ['gemini-3.6-flash-medium', 'Gemini 3.6 Flash (Medium)'],
+    ]
+    for (const [id, display] of geminiModels) {
+      expect(classifyQuotaGroup(id, display)).toBe('gemini')
+    }
   })
 
   it('classifies tab autocomplete models into the Gemini pool', () => {
@@ -110,6 +118,22 @@ describe('classifyQuotaGroup', () => {
       keyOf: keyOfAccount,
     })
     expect(classifyQuotaGroup('gpt-oss-120b-medium', 'GPT-OSS 120B')).toBe(
+      'non-gemini',
+    )
+  })
+
+  it('classifies gemini-claude-* aliases into the non-Gemini pool (Claude route wins over the gemini- prefix)', () => {
+    // These aliases map to Claude-sonnet-4-6 in the route table; a
+    // regression that checks `gemini` first would misroute them to the
+    // gemini pool and silently double-charge that pool.
+    const { classifyQuotaGroup } = createQuotaManager({
+      fetchAccountQuota: makeHarness().fetch,
+      keyOf: keyOfAccount,
+    })
+    expect(
+      classifyQuotaGroup('gemini-claude-sonnet-4-6-thinking-low', ''),
+    ).toBe('non-gemini')
+    expect(classifyQuotaGroup('gemini-claude-sonnet-4-6', '')).toBe(
       'non-gemini',
     )
   })

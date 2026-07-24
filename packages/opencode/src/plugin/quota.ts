@@ -114,6 +114,8 @@ export function createOpenCodeQuotaManager(
       enabled?: boolean
       coolingDownUntil?: number
       cachedQuota?: AccountMetadataV3['cachedQuota']
+      cachedQuotaAccountId?: string
+      currentQuotaAccountId?: string
     }> | null
     /**
      * Optional transport adapter used for both `fetchAvailableModels`
@@ -285,6 +287,8 @@ export async function pushSidebarQuotaSnapshot(
     enabled?: boolean
     coolingDownUntil?: number
     cachedQuota?: AccountMetadataV3['cachedQuota']
+    cachedQuotaAccountId?: string
+    currentQuotaAccountId?: string
   }> | null,
   backoffUntil: number = 0,
 ): Promise<void> {
@@ -300,6 +304,8 @@ export async function pushSidebarQuotaSnapshot(
           current: false,
           coolingDownUntil: entry.coolingDownUntil,
           cachedQuota: entry.cachedQuota,
+          cachedQuotaAccountId: entry.cachedQuotaAccountId,
+          currentQuotaAccountId: entry.currentQuotaAccountId,
         })),
         {
           checkedAt: Date.now(),

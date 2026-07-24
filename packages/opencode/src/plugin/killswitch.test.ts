@@ -126,14 +126,20 @@ describe('evaluateKillswitchForAccount', () => {
   })
 
   it('uses freshest quota group across the family when no model is provided', () => {
-    // Without a model, the family-max behavior is preserved —
-    // gemini pool is at 2% so it's below the 5% threshold.
+    // Without a model, the family-max behavior is preserved — pick the
+    // highest remaining pool across gemini + non-gemini. The 90%
+    // non-gemini pool must outweigh the 2% gemini pool so the family
+    // is allowed. The model-scoped tests below pin the regression:
+    // if a future change accidentally collapses both branches to
+    // family-max, those assertions fail because they expect the gemini
+    // pool alone to drive the deny decision.
     const decision = evaluateKillswitchForAccount(
       {
         index: 0,
         refreshToken: 'rt',
         cachedQuota: {
           gemini: { remainingFraction: 0.02, modelCount: 1 },
+          'non-gemini': { remainingFraction: 0.9, modelCount: 1 },
         },
         cachedQuotaUpdatedAt: NOW,
       },
@@ -141,19 +147,22 @@ describe('evaluateKillswitchForAccount', () => {
       enabledWith(5),
       { now: NOW },
     )
-    expect(decision.allowed).toBe(false)
-    expect(decision.reason).toBe('below-threshold')
-    expect(decision.remainingPercent).toBe(2)
+    expect(decision.allowed).toBe(true)
+    expect(decision.reason).toBe('ok')
+    expect(decision.remainingPercent).toBe(90)
   })
 
   it('scopes evaluation to gemini alone when the model is a gemini model', () => {
     // gemini pool is at 2% — must be DENIED because below 5% threshold.
+    // The non-gemini pool sits at 90% so a regression that ignored
+    // `model` (and fell back to family-max) would let this through.
     const decision = evaluateKillswitchForAccount(
       {
         index: 0,
         refreshToken: 'rt',
         cachedQuota: {
           gemini: { remainingFraction: 0.02, modelCount: 1 },
+          'non-gemini': { remainingFraction: 0.9, modelCount: 1 },
         },
         cachedQuotaUpdatedAt: NOW,
       },
@@ -174,6 +183,7 @@ describe('evaluateKillswitchForAccount', () => {
         refreshToken: 'rt',
         cachedQuota: {
           gemini: { remainingFraction: 0.02, modelCount: 1 },
+          'non-gemini': { remainingFraction: 0.9, modelCount: 1 },
         },
         cachedQuotaUpdatedAt: NOW,
       },

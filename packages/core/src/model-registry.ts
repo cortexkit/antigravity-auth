@@ -359,10 +359,15 @@ export function getQuotaGroupForModel(
   const normalized = modelId.toLowerCase()
   return (
     QUOTA_GROUP_BY_MODEL_ID[normalized] ??
-    (normalized.startsWith('gemini') || normalized.startsWith('tab_')
-      ? 'gemini'
-      : normalized.startsWith('claude') || normalized.startsWith('gpt-oss')
-        ? 'non-gemini'
+    // Check Claude / GPT-OSS substrings BEFORE the `gemini` substring so
+    // a `gemini-claude-*` alias (which is a Claude route exposed under
+    // a `gemini-` namespace) attributes to the non-gemini pool rather
+    // than the gemini pool. Substring matching is required because the
+    // alias IDs start with `gemini-` but contain `claude`.
+    (normalized.includes('claude') || normalized.includes('gpt-oss')
+      ? 'non-gemini'
+      : normalized.startsWith('gemini') || normalized.startsWith('tab_')
+        ? 'gemini'
         : undefined)
   )
 }

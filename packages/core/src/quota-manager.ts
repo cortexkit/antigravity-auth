@@ -417,14 +417,17 @@ export function classifyQuotaGroup(
   }
 
   const combined = `${modelName} ${displayName ?? ''}`.toLowerCase()
-  if (
-    combined.includes('gemini') ||
-    modelName.toLowerCase().startsWith('tab_')
-  ) {
-    return 'gemini'
-  }
+  // Check Claude / GPT-OSS substrings BEFORE the `gemini` substring so a
+  // `gemini-claude-*` alias (Claude route exposed under a `gemini-`
+  // namespace) attributes to the non-gemini pool rather than the gemini
+  // pool. `tab_*` autocomplete IDs are already classified by
+  // `getQuotaGroupForModel` above (the registry/prefix branches), so
+  // this fallback only runs for genuinely-unrecognised model strings.
   if (combined.includes('claude') || combined.includes('gpt-oss')) {
     return 'non-gemini'
+  }
+  if (combined.includes('gemini')) {
+    return 'gemini'
   }
   return null
 }

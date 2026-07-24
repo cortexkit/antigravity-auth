@@ -241,10 +241,15 @@ export function resolveQuotaGroup(
     const registryGroup = getQuotaGroupForModel(model)
     if (registryGroup) return registryGroup
     const lower = model.toLowerCase()
-    if (lower.includes('gemini')) return 'gemini'
+    // Check Claude / GPT-OSS substrings BEFORE the `gemini` substring so
+    // a `gemini-claude-*` alias (Claude route exposed under a `gemini-`
+    // namespace) attributes to the non-gemini pool. The model-registry
+    // check above already handles registered aliases; this substring
+    // fallback mirrors the same precedence rule for unregistered models.
     if (lower.includes('claude') || lower.includes('gpt-oss')) {
       return 'non-gemini'
     }
+    if (lower.includes('gemini')) return 'gemini'
   }
   return family === 'claude' ? 'non-gemini' : 'gemini'
 }
@@ -402,6 +407,10 @@ export class AccountManager {
             cachedQuota: acc.cachedQuota as
               | Partial<Record<QuotaGroup, QuotaGroupSummary>>
               | undefined,
+            // Restore the opaque identity stamp alongside the quota so the
+            // post-load projection can detect a stale snapshot captured
+            // for a different account after an index shift.
+            cachedQuotaAccountId: acc.cachedQuotaAccountId,
             cachedQuotaUpdatedAt: acc.cachedQuotaUpdatedAt,
             dailyRequestCounts: acc.dailyRequestCounts,
             verificationRequired: acc.verificationRequired,
@@ -1636,6 +1645,10 @@ export class AccountManager {
           a.cachedQuota && Object.keys(a.cachedQuota).length > 0
             ? a.cachedQuota
             : undefined,
+        // Persist the opaque identity stamp alongside the quota so a later
+        // loadFromDisk + projection can detect a stale snapshot captured
+        // for a different account after an index shift.
+        cachedQuotaAccountId: a.cachedQuotaAccountId,
         cachedQuotaUpdatedAt: a.cachedQuotaUpdatedAt,
         dailyRequestCounts: a.dailyRequestCounts,
         verificationRequired: a.verificationRequired,
