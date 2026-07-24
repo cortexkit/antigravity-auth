@@ -11,10 +11,26 @@ import type { AccountMetadataV3 } from './account-types.ts'
 
 export type QuotaGroup = 'gemini' | 'non-gemini'
 
+export type QuotaWindow = 'weekly' | '5h'
+
+export interface QuotaWindowEntry {
+  window: QuotaWindow
+  remainingFraction: number
+  resetTime: string
+}
+
 export interface QuotaGroupSummary {
+  /** Most-constrained window's remainingFraction (derived from `windows`). */
   remainingFraction?: number
+  /** Most-constrained window's resetTime (derived from `windows`). */
   resetTime?: string
   modelCount: number
+  /**
+   * Per-window breakdown from the retrieveUserQuotaSummary response.
+   * `weekly` first, then `5h`. Omitted in legacy cached shapes —
+   * consumers treat a single remainingFraction as one unlabeled window.
+   */
+  windows?: QuotaWindowEntry[]
 }
 
 export interface PerModelQuotaEntry {

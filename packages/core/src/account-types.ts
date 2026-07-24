@@ -69,7 +69,17 @@ export interface AccountMetadataV3 {
   /** Cached soft quota data (group-level aggregation) */
   cachedQuota?: Record<
     string,
-    { remainingFraction?: number; resetTime?: string; modelCount: number }
+    {
+      remainingFraction?: number
+      resetTime?: string
+      modelCount: number
+      /** Per-window breakdown from the RUQS response. Omitted in legacy shapes. */
+      windows?: Array<{
+        window: 'weekly' | '5h'
+        remainingFraction: number
+        resetTime: string
+      }>
+    }
   >
   /** Cached per-model quota data (individual model granularity) */
   cachedPerModelQuota?: {

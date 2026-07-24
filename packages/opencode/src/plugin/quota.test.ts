@@ -258,6 +258,7 @@ describe('pushSidebarQuotaSnapshot', () => {
       expect(events).toEqual([
         'fetch:start',
         'fetch:start',
+        'fetch:start',
         'sidebar:write-start',
         'lifecycle:drain',
         'drain:sees-sidebar-write',

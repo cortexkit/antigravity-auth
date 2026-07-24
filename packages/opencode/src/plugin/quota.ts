@@ -20,13 +20,14 @@ import {
   type AccountQuotaResult,
   aggregateGeminiCliQuota,
   aggregateQuota,
+  aggregateQuotaSummary,
   createQuotaManager,
   defaultKeyOf,
   type FetchAccountQuota,
   type FetchAvailableModelsOptions,
-  type FetchAvailableModelsResponse,
   fetchAvailableModels,
   fetchGeminiCliQuota,
+  fetchQuotaSummary,
   type GeminiCliQuotaSummary,
   type QuotaManager,
   type QuotaSummary,
@@ -372,35 +373,67 @@ function makeFetchAccountQuota(
         await persistRotatedRefresh(client, providerId, auth).catch(() => {})
       }
 
-      const [antigravityResponse, geminiCliResponse] = await Promise.all([
-        fetchAvailableModels({
+      let quotaResult: QuotaSummary
+      let fellBackToLegacy = false
+
+      const authParts = parseRefreshParts(auth.refresh)
+      const managedProjectId = authParts.managedProjectId
+
+      // Primary: retrieveUserQuotaSummary (windowed quota).
+      // Fall back to fetchAvailableModels on any failure (403, network, etc.)
+      // so quota never goes dark.
+      try {
+        const summaryResult = await fetchQuotaSummary({
           accessToken: auth.access ?? '',
+          managedProjectId,
           projectId: projectContext.effectiveProjectId,
           endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
           userAgent: buildAntigravityHarnessUserAgent(),
           timeoutMs: 10_000,
           ...(fetchVia ? { fetchVia } : {}),
-        }).catch((): FetchAvailableModelsResponse => ({ models: undefined })),
-        fetchGeminiCliQuota({
-          accessToken: auth.access ?? '',
-          projectId: projectContext.effectiveProjectId,
-          endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
-          userAgent: buildGeminiCliUserAgent(),
-          timeoutMs: 10_000,
-          ...(fetchVia ? { fetchVia } : {}),
-        }),
-      ])
-
-      let quotaResult: QuotaSummary
-      if (antigravityResponse.models === undefined) {
-        quotaResult = {
-          groups: {},
-          modelCount: 0,
-          error: 'Failed to fetch Antigravity quota',
+        })
+        quotaResult = aggregateQuotaSummary(summaryResult.summary)
+        if (summaryResult.fellBackToLegacy) {
+          fellBackToLegacy = true
         }
-      } else {
-        quotaResult = aggregateQuota(antigravityResponse.models)
+      } catch {
+        // Fall back to fetchAvailableModels-based path.
+        fellBackToLegacy = true
+        try {
+          const modelsResponse = await fetchAvailableModels({
+            accessToken: auth.access ?? '',
+            projectId: projectContext.effectiveProjectId,
+            endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+            userAgent: buildAntigravityHarnessUserAgent(),
+            timeoutMs: 10_000,
+            ...(fetchVia ? { fetchVia } : {}),
+          })
+          if (modelsResponse.models) {
+            quotaResult = aggregateQuota(modelsResponse.models)
+          } else {
+            quotaResult = {
+              groups: {},
+              modelCount: 0,
+              error: 'Failed to fetch Antigravity quota (legacy fallback)',
+            }
+          }
+        } catch {
+          quotaResult = {
+            groups: {},
+            modelCount: 0,
+            error: 'Failed to fetch Antigravity quota',
+          }
+        }
       }
+
+      const geminiCliResponse = await fetchGeminiCliQuota({
+        accessToken: auth.access ?? '',
+        projectId: projectContext.effectiveProjectId,
+        endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+        userAgent: buildGeminiCliUserAgent(),
+        timeoutMs: 10_000,
+        ...(fetchVia ? { fetchVia } : {}),
+      })
 
       const geminiCliQuotaResult = aggregateGeminiCliQuota(geminiCliResponse)
       const annotated: GeminiCliQuotaSummary =
@@ -420,7 +453,8 @@ function makeFetchAccountQuota(
         logQuotaStatus(account.email, index, remainingPercent, family)
       }
 
-      logQuotaFetch('complete', 1, 'ok=1 errors=0')
+      const legacyTag = fellBackToLegacy ? ' legacy=1' : ''
+      logQuotaFetch('complete', 1, `ok=1 errors=0${legacyTag}`)
 
       return {
         index,

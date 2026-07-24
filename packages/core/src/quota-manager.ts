@@ -26,6 +26,7 @@ import type {
   QuotaGroup,
   QuotaGroupSummary,
   QuotaSummary,
+  QuotaWindowEntry,
 } from './quota-types.ts'
 
 const log = createLogger('quota-manager')
@@ -548,6 +549,241 @@ export interface RetrieveUserQuotaResponse {
 
 export interface FetchAvailableModelsResponse {
   models?: Record<string, FetchAvailableModelEntry>
+}
+
+// ============================================================================
+// retrieveUserQuotaSummary — windowed quota source (2 pools × variable windows)
+// ============================================================================
+
+export interface RetrieveUserQuotaSummaryBucket {
+  bucketId: string
+  displayName: string
+  window: 'weekly' | '5h'
+  resetTime: string
+  remainingFraction: number
+  description?: string
+}
+
+export interface RetrieveUserQuotaSummaryGroup {
+  displayName: string
+  description?: string
+  buckets: RetrieveUserQuotaSummaryBucket[]
+}
+
+export interface RetrieveUserQuotaSummaryResponse {
+  groups: RetrieveUserQuotaSummaryGroup[]
+  description?: string
+}
+
+/**
+ * Derive the most-constrained window from a set of window entries.
+ * Returns the entry with the smallest `remainingFraction` — this is the
+ * binding constraint for the pool. `resetTime` comes from the same window.
+ * Returns `undefined` when there are no windows.
+ */
+function mostConstrainedWindow(
+  windows: QuotaWindowEntry[],
+): { remainingFraction: number; resetTime: string } | undefined {
+  if (windows.length === 0) return undefined
+  let best = windows[0]!
+  for (let i = 1; i < windows.length; i++) {
+    if (windows[i]!.remainingFraction < best.remainingFraction) {
+      best = windows[i]!
+    }
+  }
+  return {
+    remainingFraction: best.remainingFraction,
+    resetTime: best.resetTime,
+  }
+}
+
+/**
+ * Map a retrieveUserQuotaSummary bucketId prefix to our internal pool.
+ *
+ * bucketId prefixes:
+ *   `gemini-*` → gemini
+ *   `3p-*`     → non-gemini
+ */
+function poolForBucketId(bucketId: string): QuotaGroup | null {
+  if (bucketId.startsWith('gemini-')) return 'gemini'
+  if (bucketId.startsWith('3p-')) return 'non-gemini'
+  return null
+}
+
+/**
+ * Aggregate a retrieveUserQuotaSummary response into a QuotaSummary.
+ *
+ * Each RUQS group maps to a pool via bucketId prefix. Within a pool,
+ * windows are stored ordered (weekly first, then 5h). The pool's
+ * `remainingFraction`/`resetTime` derive from the most-constrained window.
+ */
+export function aggregateQuotaSummary(
+  response: RetrieveUserQuotaSummaryResponse,
+): QuotaSummary {
+  const groups: Partial<Record<QuotaGroup, QuotaGroupSummary>> = {}
+  let totalCount = 0
+
+  for (const group of response.groups) {
+    const windows: QuotaWindowEntry[] = []
+    for (const bucket of group.buckets) {
+      const pool = poolForBucketId(bucket.bucketId)
+      if (!pool) continue
+      windows.push({
+        window: bucket.window,
+        remainingFraction: normalizeRemainingFraction(bucket.remainingFraction),
+        resetTime: bucket.resetTime,
+      })
+    }
+    if (windows.length === 0) continue
+
+    // Order: weekly first, then 5h.
+    windows.sort((a, b) => {
+      const order: Record<string, number> = { weekly: 0, '5h': 1 }
+      return (order[a.window] ?? 2) - (order[b.window] ?? 2)
+    })
+
+    const constrained = mostConstrainedWindow(windows)
+    const firstBucket = group.buckets[0]
+    if (!firstBucket) continue
+    const pool = poolForBucketId(firstBucket.bucketId)
+    if (!pool || !constrained) continue
+
+    const modelCount = group.description
+      ? (group.description.match(/[^,:]+/g)?.length ?? 0)
+      : 0
+
+    groups[pool] = {
+      remainingFraction: constrained.remainingFraction,
+      resetTime: constrained.resetTime,
+      modelCount,
+      windows,
+    }
+    totalCount += modelCount
+  }
+
+  return { groups, modelCount: totalCount }
+}
+
+export interface FetchQuotaSummaryOptions {
+  accessToken: string
+  /** Managed project ID. Falls back to regular projectId on 403. */
+  managedProjectId?: string
+  /** Regular project ID — used as fallback when managedProjectId is missing or returns 403. */
+  projectId?: string
+  endpoints: readonly string[]
+  timeoutMs?: number
+  userAgent?: string
+  fetchVia?: (
+    url: string,
+    options: RequestInit,
+    extra: { timeoutMs: number; signal?: AbortSignal | null },
+  ) => Promise<Response>
+}
+
+export interface FetchQuotaSummaryResult {
+  summary: RetrieveUserQuotaSummaryResponse
+  /** True when the result came from the legacy fallback path. */
+  fellBackToLegacy?: boolean
+}
+
+/**
+ * Fetch the windowed quota summary via `retrieveUserQuotaSummary`.
+ *
+ * Uses the same transport/UA/timeout conventions as `fetchAvailableModels`.
+ * On 403 with the managedProjectId, retries with the regular projectId.
+ * If that also 403s, falls back to `fetchAvailableModels` so quota never
+ * goes dark. On missing managedProjectId, tries projectId first.
+ */
+export async function fetchQuotaSummary(
+  options: FetchQuotaSummaryOptions,
+): Promise<FetchQuotaSummaryResult> {
+  const timeoutMs = options.timeoutMs ?? QUOTA_MANAGER_DEFAULT_TIMEOUT_MS
+  const userAgent = options.userAgent ?? buildAntigravityHarnessUserAgent()
+  const transport = options.fetchVia ?? defaultTransport
+  const errors: string[] = []
+
+  const endpoint = options.endpoints[0]
+  if (!endpoint) {
+    throw new Error('No endpoints configured for fetchQuotaSummary')
+  }
+
+  const tryBody = async (
+    projectId: string,
+  ): Promise<RetrieveUserQuotaSummaryResponse | null> => {
+    const body = { project: projectId }
+    try {
+      const response = await transport(
+        `${endpoint}/v1internal:retrieveUserQuotaSummary`,
+        {
+          method: 'POST',
+          headers: {
+            'User-Agent': userAgent,
+            Authorization: `Bearer ${options.accessToken}`,
+            'Content-Type': 'application/json',
+            'Accept-Encoding': 'gzip',
+          },
+          body: JSON.stringify(body),
+        },
+        { timeoutMs },
+      )
+
+      if (response.ok) {
+        return (await response.json()) as RetrieveUserQuotaSummaryResponse
+      }
+
+      const status = response.status
+      if (status === 403) {
+        errors.push(
+          `retrieveUserQuotaSummary 403 at ${endpoint} (project=${projectId.slice(0, 12)}…)`,
+        )
+        return null
+      }
+
+      if (status === 429 || status >= 500) {
+        const message = await response.text().catch(() => '')
+        errors.push(
+          `retrieveUserQuotaSummary ${status} at ${endpoint}${message ? `: ${message.trim().slice(0, 200)}` : ''}`,
+        )
+        return null
+      }
+
+      const message = await response.text().catch(() => '')
+      errors.push(
+        `retrieveUserQuotaSummary ${status} at ${endpoint}${message ? `: ${message.trim().slice(0, 200)}` : ''}`,
+      )
+      return null
+    } catch (error) {
+      errors.push(
+        `retrieveUserQuotaSummary network error at ${endpoint}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return null
+    }
+  }
+
+  // Try managedProjectId first, then projectId, then legacy fallback.
+  const primary = options.managedProjectId ?? options.projectId
+  if (primary) {
+    const result = await tryBody(primary)
+    if (result) return { summary: result }
+  }
+
+  // If primary failed with 403 and we used managedProjectId,
+  // retry with regular projectId as fallback (only when distinct).
+  const fallbackId =
+    options.managedProjectId &&
+    options.projectId &&
+    options.managedProjectId !== options.projectId
+      ? options.projectId
+      : undefined
+  if (fallbackId) {
+    const result = await tryBody(fallbackId)
+    if (result) return { summary: result }
+  }
+
+  // Give up — the caller should fall back to fetchAvailableModels.
+  throw new Error(
+    errors.join('; ') || 'fetchQuotaSummary failed: no project ID available',
+  )
 }
 
 /**
