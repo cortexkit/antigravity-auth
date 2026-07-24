@@ -82,6 +82,11 @@ type CommandDataQuotaGroupSummary = {
   remainingFraction?: number
   resetTime?: string
   modelCount: number
+  windows?: Array<{
+    window: 'weekly' | '5h'
+    remainingFraction: number
+    resetTime: string
+  }>
 }
 
 type CommandDataAccountQuotaResult = {
@@ -137,6 +142,11 @@ export interface CommandAccountRow {
     label: string
     remainingPercent: number | null
     resetAt?: number
+    windows?: Array<{
+      window: 'weekly' | '5h'
+      remainingPercent: number
+      resetAt?: number
+    }>
   }>
 }
 
@@ -198,11 +208,27 @@ function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
       const parsed = Date.parse(cachedEntry.resetTime)
       if (Number.isFinite(parsed)) resetAt = parsed
     }
+    // Carry per-window breakdown when the cache was populated from the
+    // windowed RUQS path — the sidebar writer projects through here.
+    const windows = cachedEntry.windows?.length
+      ? cachedEntry.windows.map((w) => ({
+          window: w.window,
+          remainingPercent: Math.round(w.remainingFraction * 100),
+          resetAt:
+            typeof w.resetTime === 'string' && w.resetTime.length > 0
+              ? (() => {
+                  const parsed = Date.parse(w.resetTime)
+                  return Number.isFinite(parsed) ? parsed : undefined
+                })()
+              : undefined,
+        }))
+      : undefined
     quota.push({
       key,
       label: QUOTA_GROUP_LABELS[key],
       remainingPercent,
       resetAt,
+      windows,
     })
   }
   const label = `Account ${entry.index + 1}`
@@ -418,19 +444,33 @@ export function createCommandDataService(
     const accounts: SidebarAccountRedactionInput[] = rows.map((row) => {
       const gemini = row.quota.find((q) => q.key === 'gemini')
       const nonGemini = row.quota.find((q) => q.key === 'non-gemini')
-      const toFraction = (
-        q: { remainingPercent: number | null; resetAt?: number } | undefined,
-      ): { remainingFraction?: number; resetTime?: string } | undefined => {
+      // Map a CommandAccountRow quota entry → cachedQuota pool shape
+      // so projectQuotaPoolForSidebar (the canonical projection seam)
+      // carries the per-window breakdown into the sidebar state.
+      const toPool = (
+        q:
+          | {
+              remainingPercent: number | null
+              resetAt?: number
+              windows?: CommandAccountRow['quota'][number]['windows']
+            }
+          | undefined,
+      ) => {
         if (!q || q.remainingPercent == null) return undefined
         return {
           remainingFraction: q.remainingPercent / 100,
-          // Preserve resetTime so the sidebar can render reset countdowns
-          // for each pool. Without this the TUI loses the freshest reset
-          // deadline every time the dialog re-renders.
           resetTime:
             typeof q.resetAt === 'number' && Number.isFinite(q.resetAt)
               ? new Date(q.resetAt).toISOString()
               : undefined,
+          windows: q.windows?.map((w) => ({
+            window: w.window,
+            remainingFraction: w.remainingPercent / 100,
+            resetTime:
+              typeof w.resetAt === 'number' && Number.isFinite(w.resetAt)
+                ? new Date(w.resetAt).toISOString()
+                : '',
+          })),
         }
       }
       return {
@@ -439,8 +479,8 @@ export function createCommandDataService(
         enabled: row.enabled,
         current: row.current,
         cachedQuota: {
-          gemini: toFraction(gemini),
-          'non-gemini': toFraction(nonGemini),
+          gemini: toPool(gemini),
+          'non-gemini': toPool(nonGemini),
         },
         // The stamp check has already been done by `toCommandAccountRow`
         // before the rows reach this writer; nothing further for the

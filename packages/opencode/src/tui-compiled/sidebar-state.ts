@@ -502,6 +502,59 @@ export interface SidebarAccountRedactionInput {
 }
 
 /**
+ * Project a raw cachedQuota pool entry into the sidebar-safe shape.
+ *
+ * Centralized seam — every producer (quota.ts pushSidebarQuotaSnapshot,
+ * auth-loader.ts materializer, command-data.ts writeSidebar) routes
+ * through here so the `windows` array is never dropped by an inline
+ * `{ remainingFraction, resetTime }` literal.
+ *
+ * Tolerant: returns `undefined` when the source is missing or the
+ * `remainingFraction` is not a finite number. Legacy entries without
+ * `windows` produce `{ remainingPercent, resetAt }` only — the TUI's
+ * legacy path then renders a single bar.
+ */
+export function projectQuotaPoolForSidebar(source: {
+  remainingFraction?: number
+  resetTime?: string
+  windows?: ReadonlyArray<{
+    window: 'weekly' | '5h'
+    remainingFraction: number
+    resetTime: string
+  }>
+}): SidebarQuotaEntry | undefined {
+  const fraction = source.remainingFraction
+  if (typeof fraction !== 'number' || !Number.isFinite(fraction))
+    return undefined
+  const remainingPercent = clampNumber(Math.round(fraction * 100), 0, 100)
+  let resetAt: number | undefined
+  if (typeof source.resetTime === 'string' && source.resetTime.length > 0) {
+    const parsed = Date.parse(source.resetTime)
+    if (Number.isFinite(parsed)) resetAt = parsed
+  }
+
+  const windows: SidebarQuotaEntry['windows'] = source.windows?.length
+    ? source.windows.map((w) => ({
+        window: w.window,
+        remainingPercent: clampNumber(
+          Math.round(w.remainingFraction * 100),
+          0,
+          100,
+        ),
+        resetAt:
+          typeof w.resetTime === 'string' && w.resetTime.length > 0
+            ? (() => {
+                const parsed = Date.parse(w.resetTime)
+                return Number.isFinite(parsed) ? parsed : undefined
+              })()
+            : undefined,
+      }))
+    : undefined
+
+  return { remainingPercent, resetAt, windows }
+}
+
+/**
  * Convert a live account snapshot into the redacted shape the TUI renders.
  * The redacted `SidebarAccountState` carries no email, refresh token, access
  * token, project ID, fingerprint, OAuth profile name, or other personal or
@@ -539,30 +592,8 @@ export function redactAccountForSidebar(
     for (const key of ['gemini', 'non-gemini'] as const) {
       const entry = cached[key]
       if (!entry) continue
-      const fraction = entry.remainingFraction
-      if (typeof fraction !== 'number' || !Number.isFinite(fraction)) continue
-      const remainingPercent = clampNumber(Math.round(fraction * 100), 0, 100)
-      let resetAt: number | undefined
-      if (typeof entry.resetTime === 'string' && entry.resetTime.length > 0) {
-        const parsed = Date.parse(entry.resetTime)
-        if (Number.isFinite(parsed)) resetAt = parsed
-      }
-      const windows = entry.windows?.map((w) => ({
-        window: w.window,
-        remainingPercent: clampNumber(
-          Math.round(w.remainingFraction * 100),
-          0,
-          100,
-        ),
-        resetAt:
-          typeof w.resetTime === 'string' && w.resetTime.length > 0
-            ? (() => {
-                const parsed = Date.parse(w.resetTime)
-                return Number.isFinite(parsed) ? parsed : undefined
-              })()
-            : undefined,
-      }))
-      quota[key] = { remainingPercent, resetAt, windows }
+      const projected = projectQuotaPoolForSidebar(entry)
+      if (projected) quota[key] = projected
     }
   }
 
