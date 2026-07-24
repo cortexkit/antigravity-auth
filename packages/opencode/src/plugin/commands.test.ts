@@ -3,12 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AccountStorageUnreadableError } from '@cortexkit/antigravity-auth-core'
+
 import type { CommandModalName } from '../rpc/protocol'
+import { readSidebarState } from '../sidebar-state'
 import { registerAntigravityCommands } from './catalog'
 import {
   applyCommand,
   buildDialogPayload,
   createCommandExecuteBefore,
+  createSidebarRefresher,
   MODAL_COMMANDS,
 } from './commands'
 import { GEMINI_DUMP_COMMAND_NAME } from './gemini-dump'
@@ -240,6 +243,7 @@ describe('createCommandExecuteBefore', () => {
             quota: {},
           },
         ],
+        refreshQuota: async () => [],
       } as never,
       { isTuiConnected: () => true },
     )
@@ -692,6 +696,90 @@ describe('applyCommand', () => {
     expect(result.text).toBe('OAuth account added.')
     expect(result.knobs.accounts as unknown[]).toHaveLength(2)
     expect(result.knobs.timeoutMs).toBe(120_000)
+  })
+
+  it('preserves an existing cached quota in the sidebar after add-oauth-finish', async () => {
+    const sidebarFile = join(dir, 'sidebar-state.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const finish = mock(async () => ({
+        text: 'OAuth account added.',
+        accounts: [
+          {
+            id: 'acct-0',
+            index: 0,
+            label: 'Primary account',
+            enabled: true,
+            current: true,
+            quota: [
+              {
+                key: 'claude' as const,
+                label: 'Claude',
+                remainingPercent: 50,
+              },
+            ],
+          },
+          {
+            id: 'acct-1',
+            index: 1,
+            label: 'New account',
+            enabled: true,
+            current: false,
+            quota: [],
+          },
+        ],
+      }))
+
+      await applyCommand(
+        {
+          command: 'antigravity-account',
+          arguments: 'add-oauth-finish callback-code',
+        },
+        {
+          client: {} as never,
+          sessionID: 'session-1',
+          settings: ctx.settings,
+          accountOAuth: { finish } as never,
+          onApplied: createSidebarRefresher(() => []),
+        },
+      )
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      expect(state.accounts[0]?.quota.claude?.remainingPercent).toBe(50)
+      expect(state.accounts[1]?.quota).toEqual({})
+    } finally {
+      if (previousSidebarFile === undefined) {
+        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+      } else {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('starts a quota refresh when the quota dialog opens without delaying its cached payload', async () => {
+    const listAccounts = mock(async () => [
+      {
+        id: 'acct-0',
+        index: 0,
+        label: 'Primary account',
+        enabled: true,
+        current: true,
+        quota: [],
+      },
+    ])
+    const refreshQuota = mock(async () => [])
+
+    const payload = await buildDialogPayload('antigravity-quota', '', {
+      client: {} as never,
+      sessionID: 'session-1',
+      settings: ctx.settings,
+      commandData: { listAccounts, refreshQuota } as never,
+    })
+
+    expect(payload.knobs.accounts).toHaveLength(1)
+    expect(refreshQuota).toHaveBeenCalledTimes(1)
   })
 
   it('returns the expired-pending result from add-oauth-finish', async () => {

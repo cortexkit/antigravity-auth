@@ -165,15 +165,14 @@ export async function buildDialogPayload(
   switch (command) {
     case 'antigravity-quota': {
       const action = argumentsText.trim().toLowerCase()
-      // Opening the quota dialog is cache-only — we render the
-      // privacy-safe rows straight from the data service so the user
-      // sees the last-known percentages the moment the dialog mounts,
-      // with zero network I/O. The Refresh action (handled by
-      // `applyCommandInner`) is the only path that performs a live
-      // fetch.
       const accounts = context.commandData
         ? await context.commandData.listAccounts()
         : []
+      // Render the cached snapshot immediately while the shared manager
+      // refreshes all accounts; the mounted panel polls the fenced state file.
+      if (context.commandData) {
+        void context.commandData.refreshQuota().catch(() => {})
+      }
       return {
         command,
         text: 'Antigravity quota',
@@ -776,7 +775,22 @@ export function createSidebarRefresher(
           label: entry.label,
           enabled: entry.enabled,
           coolingDownUntil: undefined,
-          cachedQuota: undefined,
+          cachedQuota: Object.fromEntries(
+            entry.quota.flatMap((group) => {
+              if (group.remainingPercent == null) return []
+              return [
+                [
+                  group.key,
+                  {
+                    remainingFraction: group.remainingPercent / 100,
+                    ...(group.resetAt === undefined
+                      ? {}
+                      : { resetTime: new Date(group.resetAt).toISOString() }),
+                  },
+                ],
+              ]
+            }),
+          ),
         }))
       : getAccounts()
     if (!accounts || accounts.length === 0) return
@@ -793,8 +807,8 @@ export function createSidebarRefresher(
         ),
       )
     } catch {
-      // Lock contention is the only realistic failure — sidebar refresh
-      // is best-effort and the next periodic writer will catch up.
+      // Sidebar refresh is best-effort; the next command or quota refresh
+      // will publish the current account snapshot.
     }
   }
 }

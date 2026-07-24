@@ -446,7 +446,7 @@ describe('createCommandDataService', () => {
     expect(harness.quotaCallLog).toEqual([])
   })
 
-  it('refreshQuota() refreshes through the shared quota manager and persists by refresh token', async () => {
+  it('refreshQuota() fetches every account, including an uncached new account, through the shared quota manager', async () => {
     const baseAccount = (
       refreshToken: string,
       groups: Record<string, { remainingFraction: number; resetTime?: string }>,
@@ -506,8 +506,6 @@ describe('createCommandDataService', () => {
         makeAccountFixture({
           refreshToken: 'refresh-b',
           label: 'Beta',
-          cachedQuota: { 'gemini-flash': { remainingFraction: 0.05 } },
-          cachedQuotaUpdatedAt: 1,
         }),
       ],
       refreshResults,
