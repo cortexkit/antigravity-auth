@@ -322,9 +322,34 @@ function normalizeQuota(input: unknown): SidebarQuotaEntry | null {
   const remaining = toFiniteNumber(record.remainingPercent)
   if (remaining === null) return null
   const resetAt = toFiniteNumber(record.resetAt) ?? undefined
+
+  // Tolerant: deserialize windows array if present; drop malformed entries.
+  const windowsRaw = record.windows
+  let windows: SidebarQuotaEntry['windows']
+  if (Array.isArray(windowsRaw)) {
+    const parsed = windowsRaw
+      .filter(isObject)
+      .map((w) => {
+        const win = (w as Record<string, unknown>).window
+        const rp = toFiniteNumber(
+          (w as Record<string, unknown>).remainingPercent,
+        )
+        const ra = toFiniteNumber((w as Record<string, unknown>).resetAt)
+        if ((win !== 'weekly' && win !== '5h') || rp === null) return null
+        return {
+          window: win as 'weekly' | '5h',
+          remainingPercent: clampNumber(rp, 0, 100),
+          resetAt: ra ?? undefined,
+        }
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null)
+    if (parsed.length > 0) windows = parsed
+  }
+
   return {
     remainingPercent: clampNumber(remaining, 0, 100),
     resetAt,
+    windows,
   }
 }
 

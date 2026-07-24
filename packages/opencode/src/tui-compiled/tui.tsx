@@ -442,7 +442,7 @@ function QuotaRow(props) {
         _$setProp(_el$14, "width", '100%');
         _$setProp(_el$14, "flexDirection", 'row');
         _$setProp(_el$14, "justifyContent", 'space-between');
-        _$insert(_el$15, () => props.label.padEnd(3));
+        _$insert(_el$15, () => props.label.padEnd(5));
         _$insertNode(_el$16, _$createTextNode(`—`));
         _$effect(_p$ => {
           var _v$6 = props.theme().textMuted,
@@ -471,7 +471,7 @@ function QuotaRow(props) {
       _$insertNode(_el$1, _el$11);
       _$insertNode(_el$1, _el$12);
       _$setProp(_el$1, "flexDirection", 'row');
-      _$setProp(_el$10, "width", 3);
+      _$setProp(_el$10, "width", 5);
       _$setProp(_el$10, "flexShrink", 0);
       _$insert(_el$10, () => props.label);
       _$setProp(_el$11, "flexShrink", 0);
@@ -596,7 +596,7 @@ function AccountBlock(props) {
             }
           });
         }
-        return _$memo(() => windows.map((w, wi) => _$createComponent(QuotaRow, {
+        return _$memo(() => windows.map(w => _$createComponent(QuotaRow, {
           get theme() {
             return props.theme;
           },
@@ -604,7 +604,7 @@ function AccountBlock(props) {
             return props.appearance;
           },
           get label() {
-            return wi === 0 ? `${QUOTA_LABELS[key]} ${WINDOW_GUTTER[w.window] ?? w.window}` : `   ${WINDOW_GUTTER[w.window] ?? w.window}`;
+            return `${QUOTA_LABELS[key]} ${WINDOW_GUTTER[w.window] ?? w.window}`;
           },
           get entry() {
             return {

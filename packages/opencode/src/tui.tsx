@@ -515,14 +515,14 @@ function QuotaRow(props: {
       when={used() != null}
       fallback={
         <box width='100%' flexDirection='row' justifyContent='space-between'>
-          <text fg={props.theme().textMuted}>{props.label.padEnd(3)}</text>
+          <text fg={props.theme().textMuted}>{props.label.padEnd(5)}</text>
           <text fg={props.theme().textMuted}>{'\u2014'}</text>
         </box>
       }
     >
       <box width='100%' flexDirection='row' justifyContent='space-between'>
         <box flexDirection='row'>
-          <text width={3} flexShrink={0} fg={props.theme().textMuted}>
+          <text width={5} flexShrink={0} fg={props.theme().textMuted}>
             {props.label}
           </text>
           <box
@@ -626,15 +626,11 @@ function AccountBlock(props: {
           }
           return (
             <>
-              {windows.map((w, wi) => (
+              {windows.map((w) => (
                 <QuotaRow
                   theme={props.theme}
                   appearance={props.appearance}
-                  label={
-                    wi === 0
-                      ? `${QUOTA_LABELS[key]} ${WINDOW_GUTTER[w.window] ?? w.window}`
-                      : `   ${WINDOW_GUTTER[w.window] ?? w.window}`
-                  }
+                  label={`${QUOTA_LABELS[key]} ${WINDOW_GUTTER[w.window] ?? w.window}`}
                   entry={{
                     remainingPercent: w.remainingPercent,
                     resetAt: w.resetAt,
