@@ -1,107 +1,119 @@
+import { fetchWithAgyCliTransport } from './agy-transport.ts'
+import { formatRefreshParts, parseRefreshParts } from './auth.ts'
+import type { OAuthAuthDetails, ProjectContextResult } from './auth-types.ts'
 import {
-  ANTIGRAVITY_ENDPOINT_FALLBACKS,
-  ANTIGRAVITY_LOAD_ENDPOINTS,
-  ANTIGRAVITY_ENDPOINT_PROD,
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
-} from "./constants.ts";
-import { fetchWithAgyCliTransport } from "./agy-transport.ts";
-import { formatRefreshParts, parseRefreshParts } from "./auth.ts";
+  ANTIGRAVITY_ENDPOINT_FALLBACKS,
+  ANTIGRAVITY_ENDPOINT_PROD,
+  ANTIGRAVITY_LOAD_ENDPOINTS,
+} from './constants.ts'
 import {
   buildAntigravityHarnessBootstrapHeaders,
   buildAntigravityLoadCodeAssistMetadata,
-} from "./fingerprint.ts";
-import { createLogger } from "./logger.ts";
-import type { OAuthAuthDetails, ProjectContextResult } from "./auth-types.ts";
+} from './fingerprint.ts'
+import { createLogger } from './logger.ts'
 
-const log = createLogger("project");
+const log = createLogger('project')
 
 /** TTL for project context cache entries (30 minutes). */
-const PROJECT_CONTEXT_CACHE_TTL_MS = 30 * 60 * 1000;
+const PROJECT_CONTEXT_CACHE_TTL_MS = 30 * 60 * 1000
 
 interface CachedProjectContext {
-  result: ProjectContextResult;
-  cachedAt: number;
+  result: ProjectContextResult
+  cachedAt: number
 }
 
-const projectContextResultCache = new Map<string, CachedProjectContext>();
-const projectContextPendingCache = new Map<string, Promise<ProjectContextResult>>();
-const provisionFailedKeys = new Set<string>();
+const projectContextResultCache = new Map<string, CachedProjectContext>()
+const projectContextPendingCache = new Map<
+  string,
+  Promise<ProjectContextResult>
+>()
+const provisionFailedKeys = new Set<string>()
 interface AntigravityUserTier {
-  id?: string;
-  isDefault?: boolean;
-  userDefinedCloudaicompanionProject?: boolean;
+  id?: string
+  isDefault?: boolean
+  userDefinedCloudaicompanionProject?: boolean
 }
 
 interface LoadCodeAssistPayload {
-  cloudaicompanionProject?: string | { id?: string };
+  cloudaicompanionProject?: string | { id?: string }
   currentTier?: {
-    id?: string;
-  };
-  allowedTiers?: AntigravityUserTier[];
+    id?: string
+  }
+  allowedTiers?: AntigravityUserTier[]
 }
 
 interface OnboardUserPayload {
-  done?: boolean;
+  done?: boolean
   response?: {
     cloudaicompanionProject?: {
-      id?: string;
-    };
-  };
+      id?: string
+    }
+  }
 }
 
-function buildBootstrapRequestBody(extra: Record<string, unknown> = {}): Record<string, unknown> {
+function buildBootstrapRequestBody(
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     ...extra,
     metadata: buildAntigravityLoadCodeAssistMetadata(),
-  };
+  }
 }
 
 /**
  * Selects the default tier ID from the allowed tiers list.
  */
-function getDefaultTierId(allowedTiers?: AntigravityUserTier[]): string | undefined {
+function getDefaultTierId(
+  allowedTiers?: AntigravityUserTier[],
+): string | undefined {
   if (!allowedTiers || allowedTiers.length === 0) {
-    return undefined;
+    return undefined
   }
   for (const tier of allowedTiers) {
     if (tier?.isDefault) {
-      return tier.id;
+      return tier.id
     }
   }
-  return allowedTiers[0]?.id;
+  return allowedTiers[0]?.id
 }
 
 /**
  * Promise-based delay utility.
  */
 function wait(ms: number): Promise<void> {
-  return new Promise(function (resolve) {
-    setTimeout(resolve, ms);
-  });
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 }
 
 /**
  * Extracts the cloudaicompanion project id from loadCodeAssist responses.
  */
-function extractManagedProjectId(payload: LoadCodeAssistPayload | null): string | undefined {
+function extractManagedProjectId(
+  payload: LoadCodeAssistPayload | null,
+): string | undefined {
   if (!payload) {
-    return undefined;
+    return undefined
   }
-  if (typeof payload.cloudaicompanionProject === "string") {
-    return payload.cloudaicompanionProject;
+  if (typeof payload.cloudaicompanionProject === 'string') {
+    return payload.cloudaicompanionProject
   }
-  if (payload.cloudaicompanionProject && typeof payload.cloudaicompanionProject.id === "string") {
-    return payload.cloudaicompanionProject.id;
+  if (
+    payload.cloudaicompanionProject &&
+    typeof payload.cloudaicompanionProject.id === 'string'
+  ) {
+    return payload.cloudaicompanionProject.id
   }
-  return undefined;
+  return undefined
 }
 
 /**
  * Generates a cache key for project context based on refresh token.
  */
 function getCacheKey(auth: OAuthAuthDetails): string | undefined {
-  const refresh = auth.refresh?.trim();
-  return refresh ? refresh : undefined;
+  const refresh = auth.refresh?.trim()
+  return refresh ? refresh : undefined
 }
 
 /**
@@ -109,18 +121,18 @@ function getCacheKey(auth: OAuthAuthDetails): string | undefined {
  */
 export function invalidateProjectContextCache(refresh?: string): void {
   if (!refresh) {
-    projectContextPendingCache.clear();
-    projectContextResultCache.clear();
-    provisionFailedKeys.clear();
-    return;
+    projectContextPendingCache.clear()
+    projectContextResultCache.clear()
+    provisionFailedKeys.clear()
+    return
   }
-  projectContextPendingCache.delete(refresh);
-  projectContextResultCache.delete(refresh);
-  provisionFailedKeys.delete(refresh);
+  projectContextPendingCache.delete(refresh)
+  projectContextResultCache.delete(refresh)
+  provisionFailedKeys.delete(refresh)
 }
 
 export function clearProvisionFailedKeys(): void {
-  provisionFailedKeys.clear();
+  provisionFailedKeys.clear()
 }
 
 /**
@@ -130,38 +142,42 @@ export async function loadManagedProject(
   accessToken: string,
   _projectId?: string,
 ): Promise<LoadCodeAssistPayload | null> {
-  const requestBody = buildBootstrapRequestBody();
-  const loadHeaders = buildAntigravityHarnessBootstrapHeaders(accessToken);
+  const requestBody = buildBootstrapRequestBody()
+  const loadHeaders = buildAntigravityHarnessBootstrapHeaders(accessToken)
 
   const loadEndpoints = Array.from(
-    new Set<string>([...ANTIGRAVITY_LOAD_ENDPOINTS, ...ANTIGRAVITY_ENDPOINT_FALLBACKS]),
-  );
+    new Set<string>([
+      ...ANTIGRAVITY_LOAD_ENDPOINTS,
+      ...ANTIGRAVITY_ENDPOINT_FALLBACKS,
+    ]),
+  )
 
   for (const baseEndpoint of loadEndpoints) {
     try {
       const response = await fetchWithAgyCliTransport(
         `${baseEndpoint}/v1internal:loadCodeAssist`,
         {
-          method: "POST",
+          method: 'POST',
           headers: loadHeaders,
           body: JSON.stringify(requestBody),
         },
-      );
+      )
 
       if (!response.ok) {
-        continue;
+        continue
       }
 
-      return (await response.json()) as LoadCodeAssistPayload;
+      return (await response.json()) as LoadCodeAssistPayload
     } catch (error) {
-      log.debug("Failed to load managed project", { endpoint: baseEndpoint, error: String(error) });
-      continue;
+      log.debug('Failed to load managed project', {
+        endpoint: baseEndpoint,
+        error: String(error),
+      })
     }
   }
 
-  return null;
+  return null
 }
-
 
 /**
  * Onboards a managed project for the user, optionally retrying until completion.
@@ -173,10 +189,14 @@ export async function onboardManagedProject(
   attempts = 10,
   delayMs = 5000,
 ): Promise<string | undefined> {
-  const requestBody: Record<string, unknown> = { tierId };
+  const requestBody: Record<string, unknown> = { tierId }
   const onboardEndpoints = Array.from(
-    new Set<string>([ANTIGRAVITY_ENDPOINT_PROD, ...ANTIGRAVITY_LOAD_ENDPOINTS, ...ANTIGRAVITY_ENDPOINT_FALLBACKS]),
-  );
+    new Set<string>([
+      ANTIGRAVITY_ENDPOINT_PROD,
+      ...ANTIGRAVITY_LOAD_ENDPOINTS,
+      ...ANTIGRAVITY_ENDPOINT_FALLBACKS,
+    ]),
+  )
 
   for (const baseEndpoint of onboardEndpoints) {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -184,79 +204,87 @@ export async function onboardManagedProject(
         const response = await fetchWithAgyCliTransport(
           `${baseEndpoint}/v1internal:onboardUser`,
           {
-            method: "POST",
+            method: 'POST',
             headers: buildAntigravityHarnessBootstrapHeaders(accessToken),
             body: JSON.stringify(requestBody),
           },
-        );
+        )
 
         if (!response.ok) {
-          log.debug("Onboard request failed", {
+          log.debug('Onboard request failed', {
             endpoint: baseEndpoint,
             status: response.status,
             statusText: response.statusText,
-          });
-          break;
+          })
+          break
         }
 
-        const payload = (await response.json()) as OnboardUserPayload;
-        const managedProjectId = payload.response?.cloudaicompanionProject?.id;
+        const payload = (await response.json()) as OnboardUserPayload
+        const managedProjectId = payload.response?.cloudaicompanionProject?.id
         if (payload.done && managedProjectId) {
-          return managedProjectId;
+          return managedProjectId
         }
         if (payload.done && projectId) {
-          return projectId;
+          return projectId
         }
       } catch (error) {
-        log.debug("Failed to onboard managed project", { endpoint: baseEndpoint, error: String(error) });
-        break;
+        log.debug('Failed to onboard managed project', {
+          endpoint: baseEndpoint,
+          error: String(error),
+        })
+        break
       }
 
-      await wait(delayMs);
+      await wait(delayMs)
     }
   }
 
-  return undefined;
+  return undefined
 }
 
 /**
  * Resolves an effective project ID for the current auth state, caching results per refresh token.
  */
-export async function ensureProjectContext(auth: OAuthAuthDetails): Promise<ProjectContextResult> {
-  const accessToken = auth.access;
+export async function ensureProjectContext(
+  auth: OAuthAuthDetails,
+): Promise<ProjectContextResult> {
+  const accessToken = auth.access
   if (!accessToken) {
-    return { auth, effectiveProjectId: "" };
+    return { auth, effectiveProjectId: '' }
   }
 
-  const cacheKey = getCacheKey(auth);
+  const cacheKey = getCacheKey(auth)
   if (cacheKey) {
-    const cached = projectContextResultCache.get(cacheKey);
-    if (cached && (Date.now() - cached.cachedAt) < PROJECT_CONTEXT_CACHE_TTL_MS) {
-      return cached.result;
+    const cached = projectContextResultCache.get(cacheKey)
+    if (cached && Date.now() - cached.cachedAt < PROJECT_CONTEXT_CACHE_TTL_MS) {
+      return cached.result
     }
     if (cached) {
       // Expired — evict stale entry
-      projectContextResultCache.delete(cacheKey);
-    }    const pending = projectContextPendingCache.get(cacheKey);
+      projectContextResultCache.delete(cacheKey)
+    }
+    const pending = projectContextPendingCache.get(cacheKey)
     if (pending) {
-      return pending;
+      return pending
     }
   }
 
   const resolveContext = async (): Promise<ProjectContextResult> => {
-    const parts = parseRefreshParts(auth.refresh);
+    const parts = parseRefreshParts(auth.refresh)
     if (parts.managedProjectId) {
-      return { auth, effectiveProjectId: parts.managedProjectId };
+      return { auth, effectiveProjectId: parts.managedProjectId }
     }
 
-    const fallbackProjectId = ANTIGRAVITY_DEFAULT_PROJECT_ID;
+    const fallbackProjectId = ANTIGRAVITY_DEFAULT_PROJECT_ID
 
     if (cacheKey && provisionFailedKeys.has(cacheKey)) {
-      const effectiveProjectId = parts.projectId || fallbackProjectId;
-      return { auth, effectiveProjectId };
+      const effectiveProjectId = parts.projectId || fallbackProjectId
+      return { auth, effectiveProjectId }
     }
 
-    const persistManagedProject = async (managedProjectId: string): Promise<ProjectContextResult> => {
+    const persistManagedProject = async (
+      managedProjectId: string,
+    ): Promise<ProjectContextResult> => {
       const updatedAuth: OAuthAuthDetails = {
         ...auth,
         refresh: formatRefreshParts({
@@ -264,70 +292,81 @@ export async function ensureProjectContext(auth: OAuthAuthDetails): Promise<Proj
           projectId: parts.projectId,
           managedProjectId,
         }),
-      };
+      }
 
-      return { auth: updatedAuth, effectiveProjectId: managedProjectId };
-    };
+      return { auth: updatedAuth, effectiveProjectId: managedProjectId }
+    }
 
     // Try to resolve a managed project from Antigravity if possible.
-    const loadPayload = await loadManagedProject(accessToken, parts.projectId ?? fallbackProjectId);
-    const resolvedManagedProjectId = extractManagedProjectId(loadPayload);
+    const loadPayload = await loadManagedProject(
+      accessToken,
+      parts.projectId ?? fallbackProjectId,
+    )
+    const resolvedManagedProjectId = extractManagedProjectId(loadPayload)
 
     if (resolvedManagedProjectId) {
-      return persistManagedProject(resolvedManagedProjectId);
+      return persistManagedProject(resolvedManagedProjectId)
     }
 
     // No managed project found - try to auto-provision one via onboarding.
     // This handles accounts that were added before managed project provisioning was required.
-    const tierId = getDefaultTierId(loadPayload?.allowedTiers) ?? "free-tier";
-    log.debug("Auto-provisioning managed project", { tierId, projectId: parts.projectId });
-    
+    const tierId = getDefaultTierId(loadPayload?.allowedTiers) ?? 'free-tier'
+    log.debug('Auto-provisioning managed project', {
+      tierId,
+      projectId: parts.projectId,
+    })
+
     const provisionedProjectId = await onboardManagedProject(
       accessToken,
       tierId,
       parts.projectId,
-    );
+    )
 
     if (provisionedProjectId) {
-      log.debug("Successfully provisioned managed project", { provisionedProjectId });
-      return persistManagedProject(provisionedProjectId);
+      log.debug('Successfully provisioned managed project', {
+        provisionedProjectId,
+      })
+      return persistManagedProject(provisionedProjectId)
     }
 
-    log.warn("Failed to provision managed project - account may not work correctly", {
-      hasProjectId: !!parts.projectId,
-    });
+    log.warn(
+      'Failed to provision managed project - account may not work correctly',
+      {
+        hasProjectId: !!parts.projectId,
+      },
+    )
 
     if (cacheKey) {
-      provisionFailedKeys.add(cacheKey);
+      provisionFailedKeys.add(cacheKey)
     }
 
     if (parts.projectId) {
-      return { auth, effectiveProjectId: parts.projectId };
+      return { auth, effectiveProjectId: parts.projectId }
     }
 
     // No project id present in auth; fall back to the hardcoded id for requests.
-    return { auth, effectiveProjectId: fallbackProjectId };
-  };
+    return { auth, effectiveProjectId: fallbackProjectId }
+  }
 
   if (!cacheKey) {
-    return resolveContext();
+    return resolveContext()
   }
 
   const promise = resolveContext()
     .then((result) => {
-      const nextKey = getCacheKey(result.auth) ?? cacheKey;
-      projectContextPendingCache.delete(cacheKey);
-      projectContextResultCache.set(nextKey, { result, cachedAt: Date.now() });
+      const nextKey = getCacheKey(result.auth) ?? cacheKey
+      projectContextPendingCache.delete(cacheKey)
+      projectContextResultCache.set(nextKey, { result, cachedAt: Date.now() })
       if (nextKey !== cacheKey) {
-        projectContextResultCache.delete(cacheKey);
+        projectContextResultCache.delete(cacheKey)
       }
-      return result;
+      return result
     })
     .catch((error) => {
-      projectContextPendingCache.delete(cacheKey);
-      throw error;
-    });
+      projectContextPendingCache.delete(cacheKey)
+      throw error
+    })
 
-  projectContextPendingCache.set(cacheKey, promise);
-  return promise;
+  projectContextPendingCache.set(cacheKey, promise)
+  return promise
 }

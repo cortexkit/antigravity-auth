@@ -1,8 +1,8 @@
-import type { HeaderStyle } from "../constants.ts";
+import type { HeaderStyle } from '../constants.ts'
 
-export type ModelFamily = "claude" | "gemini-flash" | "gemini-pro";
+export type ModelFamily = 'claude' | 'gemini-flash' | 'gemini-pro'
 
-export type ThinkingTier = "low" | "medium" | "high";
+export type ThinkingTier = 'low' | 'medium' | 'high'
 
 /**
  * Context for request transformation.
@@ -10,25 +10,25 @@ export type ThinkingTier = "low" | "medium" | "high";
  */
 export interface TransformContext {
   /** The resolved project ID for the API call */
-  projectId: string;
+  projectId: string
   /** The resolved model name (after alias resolution) */
-  model: string;
+  model: string
   /** The original model name from the request */
-  requestedModel: string;
+  requestedModel: string
   /** Model family for routing decisions */
-  family: ModelFamily;
+  family: ModelFamily
   /** Whether this is a streaming request */
-  streaming: boolean;
+  streaming: boolean
   /** Unique request ID for tracking */
-  requestId: string;
+  requestId: string
   /** Session ID for signature caching */
-  sessionId?: string;
+  sessionId?: string
   /** Thinking tier if specified via model suffix */
-  thinkingTier?: ThinkingTier;
+  thinkingTier?: ThinkingTier
   /** Thinking budget for Claude models (derived from tier) */
-  thinkingBudget?: number;
+  thinkingBudget?: number
   /** Thinking level for Gemini 3 models (derived from tier) */
-  thinkingLevel?: string;
+  thinkingLevel?: string
 }
 
 /**
@@ -36,9 +36,9 @@ export interface TransformContext {
  */
 export interface TransformResult {
   /** The transformed request body as JSON string */
-  body: string;
+  body: string
   /** Debug information about the transformation */
-  debugInfo: TransformDebugInfo;
+  debugInfo: TransformDebugInfo
 }
 
 /**
@@ -46,37 +46,37 @@ export interface TransformResult {
  */
 export interface TransformDebugInfo {
   /** Which transformer was used */
-  transformer: "claude" | "gemini";
+  transformer: 'claude' | 'gemini'
   /** Number of tools in the request */
-  toolCount: number;
+  toolCount: number
   /** Whether tools were transformed */
-  toolsTransformed?: boolean;
+  toolsTransformed?: boolean
   /** Thinking tier if resolved */
-  thinkingTier?: string;
+  thinkingTier?: string
   /** Thinking budget if set */
-  thinkingBudget?: number;
+  thinkingBudget?: number
   /** Thinking level if set (Gemini 3) */
-  thinkingLevel?: string;
+  thinkingLevel?: string
 }
 
 /**
  * Generic request payload type.
  * The actual structure varies between Claude and Gemini.
  */
-export type RequestPayload = Record<string, unknown>;
+export type RequestPayload = Record<string, unknown>
 
 /**
  * Thinking configuration normalized from various input formats.
  */
 export interface ThinkingConfig {
   /** Numeric thinking budget (for Claude and Gemini 2.5) */
-  thinkingBudget?: number;
+  thinkingBudget?: number
   /** String thinking level (for Gemini 3: 'low', 'medium', 'high') */
-  thinkingLevel?: string;
+  thinkingLevel?: string
   /** Whether to include thinking in the response */
-  includeThoughts?: boolean;
+  includeThoughts?: boolean
   /** Snake_case variant for Antigravity backend */
-  include_thoughts?: boolean;
+  include_thoughts?: boolean
 }
 
 /**
@@ -87,9 +87,9 @@ export interface ThinkingConfig {
  * The threshold field is kept for backward compatibility but is ignored.
  */
 export interface GoogleSearchConfig {
-  mode?: 'auto' | 'off';
+  mode?: 'auto' | 'off'
   /** @deprecated No longer used - kept for backward compatibility */
-  threshold?: number;
+  threshold?: number
 }
 
 /**
@@ -97,23 +97,23 @@ export interface GoogleSearchConfig {
  */
 export interface ResolvedModel {
   /** The actual model name for the API call */
-  actualModel: string;
+  actualModel: string
   /** Thinking level for Gemini 3 models */
-  thinkingLevel?: string;
+  thinkingLevel?: string
   /** Thinking budget for Claude/Gemini 2.5 */
-  thinkingBudget?: number;
+  thinkingBudget?: number
   /** The tier suffix that was extracted */
-  tier?: ThinkingTier;
+  tier?: ThinkingTier
   /** Whether this is a thinking-capable model */
-  isThinkingModel?: boolean;
+  isThinkingModel?: boolean
   /** Whether this is an image generation model */
-  isImageModel?: boolean;
+  isImageModel?: boolean
   /** Quota preference - all models default to antigravity, with CLI as fallback */
-  quotaPreference?: HeaderStyle;
+  quotaPreference?: HeaderStyle
   /** Whether user explicitly specified quota via suffix (vs default selection) */
-  explicitQuota?: boolean;
+  explicitQuota?: boolean
   /** Source of thinking config: "variant" (providerOptions) or "tier" (model suffix) */
-  configSource?: "variant" | "tier";
+  configSource?: 'variant' | 'tier'
   /** Google Search configuration from variant or global config */
-  googleSearch?: GoogleSearchConfig;
+  googleSearch?: GoogleSearchConfig
 }

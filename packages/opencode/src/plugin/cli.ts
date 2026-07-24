@@ -1,114 +1,152 @@
-import { createInterface } from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
+import { stdin as input, stdout as output } from 'node:process'
+import { createInterface } from 'node:readline/promises'
+import type { CooldownReason } from './accounts'
+import { updateOpencodeConfig } from './config/updater'
+import type { FingerprintVersion } from './fingerprint'
+import type { QuotaGroupSummary } from './quota'
 import {
-  showAuthMenu,
-  showAccountDetails,
-  showFingerprintHistory,
-  isTTY,
   type AccountInfo,
   type AccountStatus,
-} from "./ui/auth-menu";
-import type { FingerprintVersion } from "./fingerprint";
-import { updateOpencodeConfig } from "./config/updater";
-import type { CooldownReason } from "./accounts";
-import type { QuotaGroupSummary } from "./quota";
+  isTTY,
+  showAccountDetails,
+  showAuthMenu,
+  showFingerprintHistory,
+} from './ui/auth-menu'
 export async function promptProjectId(): Promise<string> {
-  const rl = createInterface({ input, output });
+  const rl = createInterface({ input, output })
   try {
-    const answer = await rl.question("Project ID (leave blank to use your default project): ");
-    return answer.trim();
+    const answer = await rl.question(
+      'Project ID (leave blank to use your default project): ',
+    )
+    return answer.trim()
   } finally {
-    rl.close();
+    rl.close()
   }
 }
 
-export async function promptAddAnotherAccount(currentCount: number): Promise<boolean> {
-  const rl = createInterface({ input, output });
+export async function promptAddAnotherAccount(
+  currentCount: number,
+): Promise<boolean> {
+  const rl = createInterface({ input, output })
   try {
-    const answer = await rl.question(`Add another account? (${currentCount} added) (y/n): `);
-    const normalized = answer.trim().toLowerCase();
-    return normalized === "y" || normalized === "yes";
+    const answer = await rl.question(
+      `Add another account? (${currentCount} added) (y/n): `,
+    )
+    const normalized = answer.trim().toLowerCase()
+    return normalized === 'y' || normalized === 'yes'
   } finally {
-    rl.close();
+    rl.close()
   }
 }
 
-export type LoginMode = "add" | "fresh" | "manage" | "check" | "doctor" | "repair" | "current" | "switch-account" | "restore-fingerprint" | "verify" | "verify-all" | "cancel";
+export type LoginMode =
+  | 'add'
+  | 'fresh'
+  | 'manage'
+  | 'check'
+  | 'doctor'
+  | 'repair'
+  | 'current'
+  | 'switch-account'
+  | 'restore-fingerprint'
+  | 'verify'
+  | 'verify-all'
+  | 'cancel'
 
 export interface ExistingAccountInfo {
-  email?: string;
-  index: number;
-  addedAt?: number;
-  lastUsed?: number;
-  status?: AccountStatus;
-  isCurrentAccount?: boolean;
-  enabled?: boolean;
-  quotaSummary?: string;
-  cooldownMs?: number;
-  cooldownReason?: CooldownReason;
-  cachedQuota?: Partial<Record<string, QuotaGroupSummary>>;
-  cachedPerModelQuota?: { modelId: string; displayName?: string; group: string | null; remainingFraction: number; resetTime?: string }[];
-  fingerprintHistory?: FingerprintVersion[];
+  email?: string
+  index: number
+  addedAt?: number
+  lastUsed?: number
+  status?: AccountStatus
+  isCurrentAccount?: boolean
+  enabled?: boolean
+  quotaSummary?: string
+  cooldownMs?: number
+  cooldownReason?: CooldownReason
+  cachedQuota?: Partial<Record<string, QuotaGroupSummary>>
+  cachedPerModelQuota?: {
+    modelId: string
+    displayName?: string
+    group: string | null
+    remainingFraction: number
+    resetTime?: string
+  }[]
+  fingerprintHistory?: FingerprintVersion[]
 }
 
 export interface LoginMenuResult {
-  mode: LoginMode;
-  deleteAccountIndex?: number;
-  refreshAccountIndex?: number;
-  toggleAccountIndex?: number;
-  verifyAccountIndex?: number;
-  switchAccountIndex?: number;
-  restoreFingerprintAccountIndex?: number;
-  restoreFingerprintHistoryIndex?: number;
-  verifyAll?: boolean;
-  deleteAll?: boolean;
+  mode: LoginMode
+  deleteAccountIndex?: number
+  refreshAccountIndex?: number
+  toggleAccountIndex?: number
+  verifyAccountIndex?: number
+  switchAccountIndex?: number
+  restoreFingerprintAccountIndex?: number
+  restoreFingerprintHistoryIndex?: number
+  verifyAll?: boolean
+  deleteAll?: boolean
 }
-async function promptLoginModeFallback(existingAccounts: ExistingAccountInfo[]): Promise<LoginMenuResult> {
-  const rl = createInterface({ input, output });
+async function promptLoginModeFallback(
+  existingAccounts: ExistingAccountInfo[],
+): Promise<LoginMenuResult> {
+  const rl = createInterface({ input, output })
   try {
-    console.log(`\n${existingAccounts.length} account(s) saved:`);
+    console.log(`\n${existingAccounts.length} account(s) saved:`)
     for (const acc of existingAccounts) {
-      const label = acc.email || `Account ${acc.index + 1}`;
-      console.log(`  ${acc.index + 1}. ${label}`);
+      const label = acc.email || `Account ${acc.index + 1}`
+      console.log(`  ${acc.index + 1}. ${label}`)
     }
-    console.log("");
+    console.log('')
 
     while (true) {
-      const answer = await rl.question("(a)dd new, (f)resh start, (c)heck quotas, auth (d)octor, (v)erify account, (va) verify all? [a/f/c/d/v/va]: ");
-      const normalized = answer.trim().toLowerCase();
+      const answer = await rl.question(
+        '(a)dd new, (f)resh start, (c)heck quotas, auth (d)octor, (v)erify account, (va) verify all? [a/f/c/d/v/va]: ',
+      )
+      const normalized = answer.trim().toLowerCase()
 
-      if (normalized === "a" || normalized === "add") {
-        return { mode: "add" };
+      if (normalized === 'a' || normalized === 'add') {
+        return { mode: 'add' }
       }
-      if (normalized === "f" || normalized === "fresh") {
-        return { mode: "fresh" };
+      if (normalized === 'f' || normalized === 'fresh') {
+        return { mode: 'fresh' }
       }
-      if (normalized === "c" || normalized === "check") {
-        return { mode: "check" };
+      if (normalized === 'c' || normalized === 'check') {
+        return { mode: 'check' }
       }
-      if (normalized === "d" || normalized === "doctor" || normalized === "auth-doctor") {
-        return { mode: "doctor" };
+      if (
+        normalized === 'd' ||
+        normalized === 'doctor' ||
+        normalized === 'auth-doctor'
+      ) {
+        return { mode: 'doctor' }
       }
-      if (normalized === "v" || normalized === "verify") {
-        return { mode: "verify" };
+      if (normalized === 'v' || normalized === 'verify') {
+        return { mode: 'verify' }
       }
-      if (normalized === "va" || normalized === "verify-all" || normalized === "all") {
-        return { mode: "verify-all", verifyAll: true };
+      if (
+        normalized === 'va' ||
+        normalized === 'verify-all' ||
+        normalized === 'all'
+      ) {
+        return { mode: 'verify-all', verifyAll: true }
       }
 
-      console.log("Please enter 'a', 'f', 'c', 'd', 'v', or 'va'.");
+      console.log("Please enter 'a', 'f', 'c', 'd', 'v', or 'va'.")
     }
   } finally {
-    rl.close();
+    rl.close()
   }
 }
 
-export async function promptLoginMode(existingAccounts: ExistingAccountInfo[]): Promise<LoginMenuResult> {
+export async function promptLoginMode(
+  existingAccounts: ExistingAccountInfo[],
+): Promise<LoginMenuResult> {
   if (!isTTY()) {
-    return promptLoginModeFallback(existingAccounts);
+    return promptLoginModeFallback(existingAccounts)
   }
 
-  const accounts: AccountInfo[] = existingAccounts.map(acc => ({
+  const accounts: AccountInfo[] = existingAccounts.map((acc) => ({
     email: acc.email,
     index: acc.index,
     addedAt: acc.addedAt,
@@ -122,85 +160,95 @@ export async function promptLoginMode(existingAccounts: ExistingAccountInfo[]): 
     cachedQuota: acc.cachedQuota,
     cachedPerModelQuota: acc.cachedPerModelQuota,
     fingerprintHistory: acc.fingerprintHistory,
-  }));
-  console.log("");
+  }))
+  console.log('')
 
   while (true) {
-    const action = await showAuthMenu(accounts);
+    const action = await showAuthMenu(accounts)
 
     switch (action.type) {
-      case "add":
-        return { mode: "add" };
+      case 'add':
+        return { mode: 'add' }
 
-      case "check":
-        return { mode: "check" };
+      case 'check':
+        return { mode: 'check' }
 
-      case "doctor":
-        return { mode: "doctor" };
+      case 'doctor':
+        return { mode: 'doctor' }
 
-      case "repair":
-        return { mode: "repair" };
+      case 'repair':
+        return { mode: 'repair' }
 
-      case "current":
-        return { mode: "current" };
+      case 'current':
+        return { mode: 'current' }
 
-      case "verify":
-        return { mode: "verify" };
+      case 'verify':
+        return { mode: 'verify' }
 
-      case "verify-all":
-        return { mode: "verify-all", verifyAll: true };
+      case 'verify-all':
+        return { mode: 'verify-all', verifyAll: true }
 
-      case "select-account": {
-        const accountAction = await showAccountDetails(action.account);
-        if (accountAction === "delete") {
-          return { mode: "add", deleteAccountIndex: action.account.index };
+      case 'select-account': {
+        const accountAction = await showAccountDetails(action.account)
+        if (accountAction === 'delete') {
+          return { mode: 'add', deleteAccountIndex: action.account.index }
         }
-        if (accountAction === "refresh") {
-          return { mode: "add", refreshAccountIndex: action.account.index };
+        if (accountAction === 'refresh') {
+          return { mode: 'add', refreshAccountIndex: action.account.index }
         }
-        if (accountAction === "toggle") {
-          return { mode: "manage", toggleAccountIndex: action.account.index };
+        if (accountAction === 'toggle') {
+          return { mode: 'manage', toggleAccountIndex: action.account.index }
         }
-        if (accountAction === "verify") {
-          return { mode: "verify", verifyAccountIndex: action.account.index };
+        if (accountAction === 'verify') {
+          return { mode: 'verify', verifyAccountIndex: action.account.index }
         }
-        if (accountAction === "switch-account") {
-          const accountLabel = action.account.email || `Account ${action.account.index + 1}`;
-          console.log(`\n✓ Switched to ${accountLabel}. Restart OpenCode for changes to take effect.\n`);
-          return { mode: "switch-account", switchAccountIndex: action.account.index };
-        }
-        if (accountAction === "restore-fingerprint") {
-          const history = action.account.fingerprintHistory;
-          if (!history || history.length === 0) continue;
-          const accountLabel = action.account.email || `Account ${action.account.index + 1}`;
-          const historyIndex = await showFingerprintHistory(history, accountLabel);
-          if (historyIndex === null) continue;
+        if (accountAction === 'switch-account') {
+          const accountLabel =
+            action.account.email || `Account ${action.account.index + 1}`
+          console.log(
+            `\n✓ Switched to ${accountLabel}. Restart OpenCode for changes to take effect.\n`,
+          )
           return {
-            mode: "restore-fingerprint",
+            mode: 'switch-account',
+            switchAccountIndex: action.account.index,
+          }
+        }
+        if (accountAction === 'restore-fingerprint') {
+          const history = action.account.fingerprintHistory
+          if (!history || history.length === 0) continue
+          const accountLabel =
+            action.account.email || `Account ${action.account.index + 1}`
+          const historyIndex = await showFingerprintHistory(
+            history,
+            accountLabel,
+          )
+          if (historyIndex === null) continue
+          return {
+            mode: 'restore-fingerprint',
             restoreFingerprintAccountIndex: action.account.index,
             restoreFingerprintHistoryIndex: historyIndex,
-          };
+          }
         }
-        continue;
+        continue
       }
-      case "delete-all":
-        return { mode: "fresh", deleteAll: true };
+      case 'delete-all':
+        return { mode: 'fresh', deleteAll: true }
 
-      case "configure-models": {
-        const result = await updateOpencodeConfig();
+      case 'configure-models': {
+        const result = await updateOpencodeConfig()
         if (result.success) {
-          console.log(`\n✓ Models configured in ${result.configPath}\n`);
+          console.log(`\n✓ Models configured in ${result.configPath}\n`)
         } else {
-          console.log(`\n✗ Failed to configure models: ${result.error}\n`);
+          console.log(`\n✗ Failed to configure models: ${result.error}\n`)
         }
-        continue;
+        continue
       }
 
-      case "cancel":
-        return { mode: "cancel" };
+      case 'cancel':
+        return { mode: 'cancel' }
     }
   }
 }
 
-export { isTTY } from "./ui/auth-menu";
-export type { AccountStatus } from "./ui/auth-menu";
+export type { AccountStatus } from './ui/auth-menu'
+export { isTTY } from './ui/auth-menu'

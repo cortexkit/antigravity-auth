@@ -1,41 +1,59 @@
-import crypto from "node:crypto";
+import crypto from 'node:crypto'
 import {
-  ANTIGRAVITY_ENDPOINT,
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
-  GEMINI_CLI_ENDPOINT,
-  EMPTY_SCHEMA_PLACEHOLDER_NAME,
+  ANTIGRAVITY_ENDPOINT,
+  CLAUDE_DESCRIPTION_PROMPT,
+  CLAUDE_TOOL_SYSTEM_INSTRUCTION,
   EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION,
-  SKIP_THOUGHT_SIGNATURE,
+  EMPTY_SCHEMA_PLACEHOLDER_NAME,
+  GEMINI_CLI_ENDPOINT,
   getRandomizedHeaders,
   type HeaderStyle,
-} from "../constants";
-import { cacheSignature, getCachedSignature } from "./cache";
-import { getKeepThinking } from "./config";
+  SKIP_THOUGHT_SIGNATURE,
+} from '../constants'
+import {
+  type AgyRequestSessionContext,
+  buildAgyAgentRequestMetadata,
+  createAgyRequestSessionContext,
+  orderAgyRequestPayloadInPlace,
+} from './agy-request-metadata'
+import { cacheSignature, getCachedSignature } from './cache'
+import { getKeepThinking } from './config'
 import {
   createStreamingTransformer,
   transformSseLine,
   transformStreamingPayload,
-} from "./core/streaming";
-import { defaultSignatureStore } from "./stores/signature-store";
+} from './core/streaming'
 import {
+  type AntigravityDebugContext,
   DEBUG_MESSAGE_PREFIX,
-  isDebugEnabled,
   isDebugTuiEnabled,
   logAntigravityDebugResponse,
   logCacheStats,
-  type AntigravityDebugContext,
-} from "./debug";
-import { createLogger } from "./logger";
+} from './debug'
 import {
+  buildFingerprintHeaders,
+  type Fingerprint,
+  getSessionFingerprint,
+} from './fingerprint'
+import {
+  appendGeminiDumpResponseText,
+  createGeminiDumpResponseTransform,
+  type GeminiDumpContext,
+  noteGeminiDumpResponse,
+} from './gemini-dump'
+import { createLogger } from './logger'
+import { detectErrorType } from './recovery'
+import {
+  type AntigravityApiBody,
+  applyToolPairingFixes,
   cleanJSONSchemaForAntigravity,
   deepFilterThinkingBlocks,
   extractThinkingConfig,
-  extractVariantThinkingConfig,
   extractUsageFromSsePayload,
   extractUsageMetadata,
+  extractVariantThinkingConfig,
   fixToolResponseGrouping,
-  validateAndFixClaudeToolPairing,
-  applyToolPairingFixes,
   injectParameterSignatures,
   injectToolHardeningInstruction,
   isThinkingCapableModel,
@@ -44,74 +62,59 @@ import {
   resolveThinkingConfig,
   rewriteAntigravityPreviewAccessError,
   transformThinkingParts,
-  type AntigravityApiBody,
-} from "./request-helpers";
-import {
-  CLAUDE_TOOL_SYSTEM_INSTRUCTION,
-  CLAUDE_DESCRIPTION_PROMPT,
-} from "../constants";
+  validateAndFixClaudeToolPairing,
+} from './request-helpers'
+import { defaultSignatureStore } from './stores/signature-store'
 import {
   analyzeConversationState,
   closeToolLoopForThinking,
   needsThinkingRecovery,
-} from "./thinking-recovery";
-import { sanitizeCrossModelPayloadInPlace } from "./transform/cross-model-sanitizer";
-import { isGemini3Model, isImageGenerationModel, buildImageGenerationConfig, applyGeminiTransforms } from "./transform";
+} from './thinking-recovery'
 import {
-  resolveModelWithTier,
-  resolveModelWithVariant,
-  resolveModelForHeaderStyle,
+  appendClaudeThinkingHint,
+  applyGeminiTransforms,
+  buildImageGenerationConfig,
+  computeClaudeMaxOutputTokens,
   isClaudeModel,
   isClaudeThinkingModel,
-  CLAUDE_THINKING_MAX_OUTPUT_TOKENS,
-  computeClaudeMaxOutputTokens,
+  isGemini3Model,
+  isImageGenerationModel,
+  resolveModelForHeaderStyle,
   type ThinkingTier,
-  appendClaudeThinkingHint,
-} from "./transform";
-import { detectErrorType } from "./recovery";
-import { getSessionFingerprint, buildFingerprintHeaders, type Fingerprint } from "./fingerprint";
-import {
-  buildAgyAgentRequestMetadata,
-  createAgyRequestSessionContext,
-  orderAgyRequestPayloadInPlace,
-  type AgyRequestSessionContext,
-} from "./agy-request-metadata";
-import {
-  appendGeminiDumpResponseText,
-  createGeminiDumpResponseTransform,
-  noteGeminiDumpResponse,
-  type GeminiDumpContext,
-} from "./gemini-dump";
-import type { GoogleSearchConfig } from "./transform/types";
+} from './transform'
+import { sanitizeCrossModelPayloadInPlace } from './transform/cross-model-sanitizer'
+import type { GoogleSearchConfig } from './transform/types'
 
-const log = createLogger("request");
+const log = createLogger('request')
 
-const PLUGIN_SESSION_ID = `-${crypto.randomUUID()}`;
-const DEFAULT_AGY_REQUEST_SESSION = createAgyRequestSessionContext("");
+const PLUGIN_SESSION_ID = `-${crypto.randomUUID()}`
+const DEFAULT_AGY_REQUEST_SESSION = createAgyRequestSessionContext('')
 
-const sessionDisplayedThinkingHashes = new Set<string>();
+const sessionDisplayedThinkingHashes = new Set<string>()
 
-const MIN_SIGNATURE_LENGTH = 50;
-const AGY_CLAUDE_THINKING_BUDGET = 1024;
+const MIN_SIGNATURE_LENGTH = 50
+const AGY_CLAUDE_THINKING_BUDGET = 1024
 
 const ANTIGRAVITY_ENVELOPE_FIELD_ORDER = [
-  "project",
-  "requestId",
-  "request",
-  "model",
-  "userAgent",
-  "requestType",
-] as const;
+  'project',
+  'requestId',
+  'request',
+  'model',
+  'userAgent',
+  'requestType',
+] as const
 
-const OPENCODE_TITLE_PROMPT_PREFIX = "Generate a title for this conversation:"
+const OPENCODE_TITLE_PROMPT_PREFIX = 'Generate a title for this conversation:'
 
-function getOpenCodeTitleSourceText(payload: Record<string, unknown>): string | undefined {
+function getOpenCodeTitleSourceText(
+  payload: Record<string, unknown>,
+): string | undefined {
   if (!Array.isArray(payload.contents)) {
     return undefined
   }
 
   const texts = payload.contents.flatMap((content) => {
-    if (!content || typeof content !== "object") {
+    if (!content || typeof content !== 'object') {
       return []
     }
     const parts = (content as Record<string, unknown>).parts
@@ -119,110 +122,131 @@ function getOpenCodeTitleSourceText(payload: Record<string, unknown>): string | 
       return []
     }
     return parts.flatMap((part) =>
-      !!part && typeof part === "object" && typeof (part as Record<string, unknown>).text === "string"
+      part &&
+      typeof part === 'object' &&
+      typeof (part as Record<string, unknown>).text === 'string'
         ? [(part as Record<string, unknown>).text as string]
-        : []
+        : [],
     )
   })
 
-  const promptIndex = texts.findIndex((text) => text.startsWith(OPENCODE_TITLE_PROMPT_PREFIX))
-  return promptIndex >= 0 ? texts.slice(promptIndex + 1).find((text) => text.trim().length > 0) : undefined
+  const promptIndex = texts.findIndex((text) =>
+    text.startsWith(OPENCODE_TITLE_PROMPT_PREFIX),
+  )
+  return promptIndex >= 0
+    ? texts.slice(promptIndex + 1).find((text) => text.trim().length > 0)
+    : undefined
 }
 
-function isOpenCodeTitleGenerationRequest(payload: Record<string, unknown>): boolean {
+function isOpenCodeTitleGenerationRequest(
+  payload: Record<string, unknown>,
+): boolean {
   return getOpenCodeTitleSourceText(payload) !== undefined
 }
 
 function formatLocalImageTitle(sourceText: string): string {
   const normalized = sourceText
     .trim()
-    .replace(/^(["“])(.*)(["”])$/s, "$2")
-    .replace(/\s+/g, " ")
+    .replace(/^(["“])(.*)(["”])$/s, '$2')
+    .replace(/\s+/g, ' ')
   const characters = Array.from(normalized)
   if (characters.length <= 50) {
-    return normalized || "Image generation"
+    return normalized || 'Image generation'
   }
-  return `${characters.slice(0, 47).join("").trimEnd()}...`
+  return `${characters.slice(0, 47).join('').trimEnd()}...`
 }
 
 export function getImageModelLocalTitle(
   input: RequestInfo,
   init?: RequestInit,
 ): string | undefined {
-  const url = fetchInputToUrl(input);
-  if (!/\/models\/[^/:]*(?:image|imagen)[^/:]*:streamGenerateContent/i.test(url)) {
-    return undefined;
+  const url = fetchInputToUrl(input)
+  if (
+    !/\/models\/[^/:]*(?:image|imagen)[^/:]*:streamGenerateContent/i.test(url)
+  ) {
+    return undefined
   }
 
-  const body = init?.body;
-  const bodyText = typeof body === "string"
-    ? body
-    : body instanceof Uint8Array
-      ? new TextDecoder().decode(body)
-      : "";
+  const body = init?.body
+  const bodyText =
+    typeof body === 'string'
+      ? body
+      : body instanceof Uint8Array
+        ? new TextDecoder().decode(body)
+        : ''
   if (!bodyText) {
-    return undefined;
+    return undefined
   }
 
   try {
-    const sourceText = getOpenCodeTitleSourceText(JSON.parse(bodyText) as Record<string, unknown>)
-    return sourceText === undefined ? undefined : formatLocalImageTitle(sourceText)
+    const sourceText = getOpenCodeTitleSourceText(
+      JSON.parse(bodyText) as Record<string, unknown>,
+    )
+    return sourceText === undefined
+      ? undefined
+      : formatLocalImageTitle(sourceText)
   } catch {
-    return undefined;
+    return undefined
   }
 }
 
 function getAgyMaxOutputTokens(model: string): number | undefined {
-  const lower = model.toLowerCase();
+  const lower = model.toLowerCase()
   if (
-    lower === "gemini-3.5-flash-low"
-    || lower === "gemini-3.5-flash-extra-low"
-    || lower === "gemini-3-flash-agent"
-    || lower === "gemini-3.6-flash-low"
-    || lower === "gemini-3.6-flash-medium"
-    || lower === "gemini-3.6-flash-high"
+    lower === 'gemini-3.5-flash-low' ||
+    lower === 'gemini-3.5-flash-extra-low' ||
+    lower === 'gemini-3-flash-agent' ||
+    lower === 'gemini-3.6-flash-low' ||
+    lower === 'gemini-3.6-flash-medium' ||
+    lower === 'gemini-3.6-flash-high'
   ) {
-    return 65536;
+    return 65536
   }
-  if (lower === "gemini-3.1-pro-low" || lower === "gemini-pro-agent") {
-    return 65535;
+  if (lower === 'gemini-3.1-pro-low' || lower === 'gemini-pro-agent') {
+    return 65535
   }
-  if (lower === "claude-sonnet-4-6" || lower === "claude-opus-4-6-thinking") {
-    return 64000;
+  if (lower === 'claude-sonnet-4-6' || lower === 'claude-opus-4-6-thinking') {
+    return 64000
   }
-  if (lower === "gpt-oss-120b-medium") {
-    return 32768;
+  if (lower === 'gpt-oss-120b-medium') {
+    return 32768
   }
-  return undefined;
+  return undefined
 }
 
-function applyAgyGenerationDefaults(model: string, generationConfig: Record<string, unknown>, headerStyle: HeaderStyle): void {
-  if (headerStyle !== "antigravity") {
-    return;
+function applyAgyGenerationDefaults(
+  model: string,
+  generationConfig: Record<string, unknown>,
+  headerStyle: HeaderStyle,
+): void {
+  if (headerStyle !== 'antigravity') {
+    return
   }
-  const maxOutputTokens = getAgyMaxOutputTokens(model);
+  const maxOutputTokens = getAgyMaxOutputTokens(model)
   if (maxOutputTokens !== undefined) {
-    generationConfig.maxOutputTokens = maxOutputTokens;
-    delete generationConfig.max_output_tokens;
+    generationConfig.maxOutputTokens = maxOutputTokens
+    delete generationConfig.max_output_tokens
   }
 }
 
-function orderAntigravityEnvelope(body: Record<string, unknown>): Record<string, unknown> {
-  const ordered: Record<string, unknown> = {};
-  const remaining = new Set(Object.keys(body));
+function orderAntigravityEnvelope(
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  const ordered: Record<string, unknown> = {}
+  const remaining = new Set(Object.keys(body))
 
   for (const key of ANTIGRAVITY_ENVELOPE_FIELD_ORDER) {
     if (key in body) {
-      ordered[key] = body[key];
-      remaining.delete(key);
+      ordered[key] = body[key]
+      remaining.delete(key)
     }
   }
 
   for (const key of remaining) {
-    ordered[key] = body[key];
+    ordered[key] = body[key]
   }
 
-  return ordered;
+  return ordered
 }
 
 function buildSignatureSessionKey(
@@ -231,14 +255,17 @@ function buildSignatureSessionKey(
   conversationKey?: string,
   projectKey?: string,
 ): string {
-  const modelKey = typeof model === "string" && model.trim() ? model.toLowerCase() : "unknown";
-  const projectPart = typeof projectKey === "string" && projectKey.trim()
-    ? projectKey.trim()
-    : "default";
-  const conversationPart = typeof conversationKey === "string" && conversationKey.trim()
-    ? conversationKey.trim()
-    : "default";
-  return `${sessionId}:${modelKey}:${projectPart}:${conversationPart}`;
+  const modelKey =
+    typeof model === 'string' && model.trim() ? model.toLowerCase() : 'unknown'
+  const projectPart =
+    typeof projectKey === 'string' && projectKey.trim()
+      ? projectKey.trim()
+      : 'default'
+  const conversationPart =
+    typeof conversationKey === 'string' && conversationKey.trim()
+      ? conversationKey.trim()
+      : 'default'
+  return `${sessionId}:${modelKey}:${projectPart}:${conversationPart}`
 }
 
 /**
@@ -250,24 +277,34 @@ function buildSignatureSessionKey(
  * by checking for JSON Schema primitive types. Everything else that's
  * a non-string `thinking` value gets flattened to "".
  */
-const JSON_SCHEMA_TYPES = new Set(["boolean", "string", "number", "integer", "array", "object"])
+const JSON_SCHEMA_TYPES = new Set([
+  'boolean',
+  'string',
+  'number',
+  'integer',
+  'array',
+  'object',
+])
 
 function thinkingSafeReplacer(key: string, value: unknown): unknown {
-  if (key === "thinking" && typeof value === "object" && value !== null) {
+  if (key === 'thinking' && typeof value === 'object' && value !== null) {
     // Preserve tool schemas before and after Gemini uppercases their type.
     const rec = value as Record<string, unknown>
-    if (typeof rec.type === "string" && JSON_SCHEMA_TYPES.has(rec.type.toLowerCase())) {
+    if (
+      typeof rec.type === 'string' &&
+      JSON_SCHEMA_TYPES.has(rec.type.toLowerCase())
+    ) {
       return value
     }
     // Flatten any non-string, non-Schema thinking to empty string
-    return ""
+    return ''
   }
   return value
 }
 
 /** Stringify with built-in thinking sanitization. Impossible to bypass. */
 function ensureThinkingFields(obj: unknown): void {
-  if (!obj || typeof obj !== "object") return
+  if (!obj || typeof obj !== 'object') return
   if (Array.isArray(obj)) {
     for (const item of obj) ensureThinkingFields(item)
     return
@@ -276,11 +313,11 @@ function ensureThinkingFields(obj: unknown): void {
   // Fix: check for missing OR undefined OR non-string thinking field.
   // JSON.stringify silently drops undefined values, so key-exists-but-undefined
   // produces { type: "thinking", signature: "..." } with NO thinking field.
-  if (rec.type === "thinking" && typeof rec.thinking !== "string") {
-    rec.thinking = ""
+  if (rec.type === 'thinking' && typeof rec.thinking !== 'string') {
+    rec.thinking = ''
   }
-  if (rec.thought === true && typeof rec.text !== "string") {
-    rec.text = ""
+  if (rec.thought === true && typeof rec.text !== 'string') {
+    rec.text = ''
   }
   for (const val of Object.values(rec)) {
     ensureThinkingFields(val)
@@ -292,71 +329,81 @@ function safeStringify(obj: unknown): string {
   return JSON.stringify(obj, thinkingSafeReplacer)
 }
 
-
-
-
-
 function shouldCacheThinkingSignatures(model?: string): boolean {
-  if (typeof model !== "string") return false;
-  const lower = model.toLowerCase();
+  if (typeof model !== 'string') return false
+  const lower = model.toLowerCase()
   // Both Claude and Gemini 3 models require thought signature caching
   // for multi-turn conversations with function calling
-  return lower.includes("claude") || lower.includes("gemini-3");
+  return lower.includes('claude') || lower.includes('gemini-3')
 }
 
 function hashConversationSeed(seed: string): string {
-  return crypto.createHash("sha256").update(seed, "utf8").digest("hex").slice(0, 16);
+  return crypto
+    .createHash('sha256')
+    .update(seed, 'utf8')
+    .digest('hex')
+    .slice(0, 16)
 }
 
 function extractTextFromContent(content: unknown): string {
-  if (typeof content === "string") {
-    return content;
+  if (typeof content === 'string') {
+    return content
   }
   if (!Array.isArray(content)) {
-    return "";
+    return ''
   }
   for (const block of content) {
-    if (!block || typeof block !== "object") {
-      continue;
+    if (!block || typeof block !== 'object') {
+      continue
     }
-    const anyBlock = block as any;
-    if (typeof anyBlock.text === "string") {
-      return anyBlock.text;
+    const anyBlock = block as any
+    if (typeof anyBlock.text === 'string') {
+      return anyBlock.text
     }
-    if (anyBlock.text && typeof anyBlock.text === "object" && typeof anyBlock.text.text === "string") {
-      return anyBlock.text.text;
+    if (
+      anyBlock.text &&
+      typeof anyBlock.text === 'object' &&
+      typeof anyBlock.text.text === 'string'
+    ) {
+      return anyBlock.text.text
     }
   }
-  return "";
+  return ''
 }
 
 function extractConversationSeedFromMessages(messages: any[]): string {
-  const system = messages.find((message) => message?.role === "system");
-  const users = messages.filter((message) => message?.role === "user");
-  const firstUser = users[0];
-  const lastUser = users.length > 0 ? users[users.length - 1] : undefined;
-  const systemText = system ? extractTextFromContent(system.content) : "";
-  const userText = firstUser ? extractTextFromContent(firstUser.content) : "";
-  const fallbackUserText = !userText && lastUser ? extractTextFromContent(lastUser.content) : "";
-  return [systemText, userText || fallbackUserText].filter(Boolean).join("|");
+  const system = messages.find((message) => message?.role === 'system')
+  const users = messages.filter((message) => message?.role === 'user')
+  const firstUser = users[0]
+  const lastUser = users.length > 0 ? users[users.length - 1] : undefined
+  const systemText = system ? extractTextFromContent(system.content) : ''
+  const userText = firstUser ? extractTextFromContent(firstUser.content) : ''
+  const fallbackUserText =
+    !userText && lastUser ? extractTextFromContent(lastUser.content) : ''
+  return [systemText, userText || fallbackUserText].filter(Boolean).join('|')
 }
 
 function extractConversationSeedFromContents(contents: any[]): string {
-  const users = contents.filter((content) => content?.role === "user");
-  const firstUser = users[0];
-  const lastUser = users.length > 0 ? users[users.length - 1] : undefined;
-  const primaryUser = firstUser && Array.isArray(firstUser.parts) ? extractTextFromContent(firstUser.parts) : "";
+  const users = contents.filter((content) => content?.role === 'user')
+  const firstUser = users[0]
+  const lastUser = users.length > 0 ? users[users.length - 1] : undefined
+  const primaryUser =
+    firstUser && Array.isArray(firstUser.parts)
+      ? extractTextFromContent(firstUser.parts)
+      : ''
   if (primaryUser) {
-    return primaryUser;
+    return primaryUser
   }
   if (lastUser && Array.isArray(lastUser.parts)) {
-    return extractTextFromContent(lastUser.parts);
+    return extractTextFromContent(lastUser.parts)
   }
-  return "";
+  return ''
 }
 
-function resolveConversationKey(requestPayload: Record<string, unknown>): string | undefined {
-  const anyPayload = requestPayload as any;
+function resolveConversationKey(
+  requestPayload: Record<string, unknown>,
+): string | undefined {
+  const anyPayload = requestPayload as any
   const candidates = [
     anyPayload.conversationId,
     anyPayload.conversation_id,
@@ -370,97 +417,102 @@ function resolveConversationKey(requestPayload: Record<string, unknown>): string
     anyPayload.metadata?.conversationId,
     anyPayload.metadata?.thread_id,
     anyPayload.metadata?.threadId,
-  ];
+  ]
 
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim();
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
     }
   }
 
   const systemSeed = extractTextFromContent(
-    (anyPayload.systemInstruction as any)?.parts
-    ?? anyPayload.systemInstruction
-    ?? anyPayload.system
-    ?? anyPayload.system_instruction,
-  );
+    (anyPayload.systemInstruction as any)?.parts ??
+      anyPayload.systemInstruction ??
+      anyPayload.system ??
+      anyPayload.system_instruction,
+  )
   const messageSeed = Array.isArray(anyPayload.messages)
     ? extractConversationSeedFromMessages(anyPayload.messages)
     : Array.isArray(anyPayload.contents)
       ? extractConversationSeedFromContents(anyPayload.contents)
-      : "";
-  const seed = [systemSeed, messageSeed].filter(Boolean).join("|");
+      : ''
+  const seed = [systemSeed, messageSeed].filter(Boolean).join('|')
   if (!seed) {
-    return undefined;
+    return undefined
   }
-  return `seed-${hashConversationSeed(seed)}`;
+  return `seed-${hashConversationSeed(seed)}`
 }
 
-function resolveConversationKeyFromRequests(requestObjects: Array<Record<string, unknown>>): string | undefined {
+function resolveConversationKeyFromRequests(
+  requestObjects: Array<Record<string, unknown>>,
+): string | undefined {
   for (const req of requestObjects) {
-    const key = resolveConversationKey(req);
+    const key = resolveConversationKey(req)
     if (key) {
-      return key;
+      return key
     }
   }
-  return undefined;
+  return undefined
 }
 
-function resolveProjectKey(candidate?: unknown, fallback?: string): string | undefined {
-  if (typeof candidate === "string" && candidate.trim()) {
-    return candidate.trim();
+function resolveProjectKey(
+  candidate?: unknown,
+  fallback?: string,
+): string | undefined {
+  if (typeof candidate === 'string' && candidate.trim()) {
+    return candidate.trim()
   }
-  if (typeof fallback === "string" && fallback.trim()) {
-    return fallback.trim();
+  if (typeof fallback === 'string' && fallback.trim()) {
+    return fallback.trim()
   }
-  return undefined;
+  return undefined
 }
 
 function formatDebugLinesForThinking(lines: string[]): string {
   const cleaned = lines
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
-    .slice(-50);
-  const prelude = `[ThinkingResolution] source=debug_tui lines=${cleaned.length}`;
-  return `${DEBUG_MESSAGE_PREFIX}\n- ${prelude}\n${cleaned.map((line) => `- ${line}`).join("\n")}`;
+    .slice(-50)
+  const prelude = `[ThinkingResolution] source=debug_tui lines=${cleaned.length}`
+  return `${DEBUG_MESSAGE_PREFIX}\n- ${prelude}\n${cleaned.map((line) => `- ${line}`).join('\n')}`
 }
 
 function injectDebugThinking(response: unknown, debugText: string): unknown {
-  if (!response || typeof response !== "object") {
-    return response;
+  if (!response || typeof response !== 'object') {
+    return response
   }
 
-  const resp = response as any;
+  const resp = response as any
 
   if (Array.isArray(resp.candidates) && resp.candidates.length > 0) {
-    const candidates = resp.candidates.slice();
-    const first = candidates[0];
+    const candidates = resp.candidates.slice()
+    const first = candidates[0]
 
     if (
       first &&
-      typeof first === "object" &&
+      typeof first === 'object' &&
       first.content &&
-      typeof first.content === "object" &&
+      typeof first.content === 'object' &&
       Array.isArray(first.content.parts)
     ) {
-      const parts = [{ thought: true, text: debugText }, ...first.content.parts];
-      candidates[0] = { ...first, content: { ...first.content, parts } };
-      return { ...resp, candidates };
+      const parts = [{ thought: true, text: debugText }, ...first.content.parts]
+      candidates[0] = { ...first, content: { ...first.content, parts } }
+      return { ...resp, candidates }
     }
 
-    return resp;
+    return resp
   }
 
   if (Array.isArray(resp.content)) {
-    const content = [{ type: "thinking", thinking: debugText }, ...resp.content];
-    return { ...resp, content };
+    const content = [{ type: 'thinking', thinking: debugText }, ...resp.content]
+    return { ...resp, content }
   }
 
   if (!resp.reasoning_content) {
-    return { ...resp, reasoning_content: debugText };
+    return { ...resp, reasoning_content: debugText }
   }
 
-  return resp;
+  return resp
 }
 
 /**
@@ -468,260 +520,299 @@ function injectDebugThinking(response: unknown, debugText: string): unknown {
  * Injected via the same path as debug text (injectDebugThinking) to ensure consistent
  * signature caching and multi-turn handling.
  */
-const SYNTHETIC_THINKING_PLACEHOLDER = "[Thinking preserved]\n";
+const SYNTHETIC_THINKING_PLACEHOLDER = '[Thinking preserved]\n'
 
 function stripInjectedDebugFromParts(parts: unknown): unknown {
   if (!Array.isArray(parts)) {
-    return parts;
+    return parts
   }
 
   // Use .map() with empty text sentinels instead of .filter() to preserve
   // array indices and prevent prompt cache invalidation.
   return parts.map((part) => {
-    if (!part || typeof part !== "object") {
-      return part;
+    if (!part || typeof part !== 'object') {
+      return part
     }
 
-    const record = part as any;
+    const record = part as any
     const text =
-      typeof record.text === "string"
+      typeof record.text === 'string'
         ? record.text
-        : typeof record.thinking === "string"
+        : typeof record.thinking === 'string'
           ? record.thinking
-          : undefined;
+          : undefined
 
     // Replace debug blocks and synthetic thinking placeholders with empty text sentinel
-    if (text && (text.startsWith(DEBUG_MESSAGE_PREFIX) || text.startsWith(SYNTHETIC_THINKING_PLACEHOLDER.trim()))) {
-      const sentinel: Record<string, unknown> = { text: "." };
-      if (record.cache_control !== undefined) sentinel.cache_control = record.cache_control;
-      return sentinel;
+    if (
+      text &&
+      (text.startsWith(DEBUG_MESSAGE_PREFIX) ||
+        text.startsWith(SYNTHETIC_THINKING_PLACEHOLDER.trim()))
+    ) {
+      const sentinel: Record<string, unknown> = { text: '.' }
+      if (record.cache_control !== undefined)
+        sentinel.cache_control = record.cache_control
+      return sentinel
     }
 
-    return part;
-  });
+    return part
+  })
 }
-function stripInjectedDebugFromRequestPayload(payload: Record<string, unknown>): void {
-  const anyPayload = payload as any;
+function stripInjectedDebugFromRequestPayload(
+  payload: Record<string, unknown>,
+): void {
+  const anyPayload = payload as any
 
   if (Array.isArray(anyPayload.contents)) {
     anyPayload.contents = anyPayload.contents.map((content: any) => {
-      if (!content || typeof content !== "object") {
-        return content;
+      if (!content || typeof content !== 'object') {
+        return content
       }
 
       if (Array.isArray(content.parts)) {
-        return { ...content, parts: stripInjectedDebugFromParts(content.parts) };
+        return { ...content, parts: stripInjectedDebugFromParts(content.parts) }
       }
 
       if (Array.isArray(content.content)) {
-        return { ...content, content: stripInjectedDebugFromParts(content.content) };
+        return {
+          ...content,
+          content: stripInjectedDebugFromParts(content.content),
+        }
       }
 
-      return content;
-    });
+      return content
+    })
   }
 
   if (Array.isArray(anyPayload.messages)) {
     anyPayload.messages = anyPayload.messages.map((message: any) => {
-      if (!message || typeof message !== "object") {
-        return message;
+      if (!message || typeof message !== 'object') {
+        return message
       }
 
       if (Array.isArray(message.content)) {
-        return { ...message, content: stripInjectedDebugFromParts(message.content) };
+        return {
+          ...message,
+          content: stripInjectedDebugFromParts(message.content),
+        }
       }
 
-      return message;
-    });
+      return message
+    })
   }
 }
 
 function isValidRequestPart(part: unknown): boolean {
-  if (!part || typeof part !== "object") {
-    return false;
+  if (!part || typeof part !== 'object') {
+    return false
   }
 
-  const record = part as Record<string, unknown>;
+  const record = part as Record<string, unknown>
 
   return (
-    Object.prototype.hasOwnProperty.call(record, "text") ||
-    Object.prototype.hasOwnProperty.call(record, "functionCall") ||
-    Object.prototype.hasOwnProperty.call(record, "functionResponse") ||
-    Object.prototype.hasOwnProperty.call(record, "inlineData") ||
-    Object.prototype.hasOwnProperty.call(record, "fileData") ||
-    Object.prototype.hasOwnProperty.call(record, "executableCode") ||
-    Object.prototype.hasOwnProperty.call(record, "codeExecutionResult") ||
-    Object.prototype.hasOwnProperty.call(record, "thought")
-  );
+    Object.hasOwn(record, 'text') ||
+    Object.hasOwn(record, 'functionCall') ||
+    Object.hasOwn(record, 'functionResponse') ||
+    Object.hasOwn(record, 'inlineData') ||
+    Object.hasOwn(record, 'fileData') ||
+    Object.hasOwn(record, 'executableCode') ||
+    Object.hasOwn(record, 'codeExecutionResult') ||
+    Object.hasOwn(record, 'thought')
+  )
 }
 
 function stripCacheControlFromParts(parts: unknown): void {
   if (!Array.isArray(parts)) {
-    return;
+    return
   }
 
   for (const part of parts) {
-    if (!part || typeof part !== "object" || Array.isArray(part)) {
-      continue;
+    if (!part || typeof part !== 'object' || Array.isArray(part)) {
+      continue
     }
-    const record = part as Record<string, unknown>;
-    delete record.cache_control;
-    delete record.cacheControl;
+    const record = part as Record<string, unknown>
+    delete record.cache_control
+    delete record.cacheControl
   }
 }
 
-function stripUnsupportedAntigravityFields(payload: Record<string, unknown>): void {
-  delete payload.providerOptions;
-  delete payload.cached_content;
-  delete payload.cachedContent;
-  delete payload.cache_control;
-  delete payload.cacheControl;
+function stripUnsupportedAntigravityFields(
+  payload: Record<string, unknown>,
+): void {
+  delete payload.providerOptions
+  delete payload.cached_content
+  delete payload.cachedContent
+  delete payload.cache_control
+  delete payload.cacheControl
 
-  const extraBody = payload.extra_body;
-  if (extraBody && typeof extraBody === "object" && !Array.isArray(extraBody)) {
-    const extraBodyRecord = extraBody as Record<string, unknown>;
-    delete extraBodyRecord.cached_content;
-    delete extraBodyRecord.cachedContent;
-    delete extraBodyRecord.cache_control;
-    delete extraBodyRecord.cacheControl;
+  const extraBody = payload.extra_body
+  if (extraBody && typeof extraBody === 'object' && !Array.isArray(extraBody)) {
+    const extraBodyRecord = extraBody as Record<string, unknown>
+    delete extraBodyRecord.cached_content
+    delete extraBodyRecord.cachedContent
+    delete extraBodyRecord.cache_control
+    delete extraBodyRecord.cacheControl
     if (Object.keys(extraBodyRecord).length === 0) {
-      delete payload.extra_body;
+      delete payload.extra_body
     }
   }
 
   const stripContentParts = (items: unknown): void => {
     if (!Array.isArray(items)) {
-      return;
+      return
     }
     for (const item of items) {
-      if (!item || typeof item !== "object" || Array.isArray(item)) {
-        continue;
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        continue
       }
-      const record = item as Record<string, unknown>;
-      stripCacheControlFromParts(record.parts);
-      stripCacheControlFromParts(record.content);
+      const record = item as Record<string, unknown>
+      stripCacheControlFromParts(record.parts)
+      stripCacheControlFromParts(record.content)
     }
-  };
+  }
 
-  stripContentParts(payload.contents);
-  stripContentParts(payload.messages);
+  stripContentParts(payload.contents)
+  stripContentParts(payload.messages)
 
-  for (const instructionKey of ["systemInstruction", "system_instruction"] as const) {
-    const instruction = payload[instructionKey];
-    if (instruction && typeof instruction === "object" && !Array.isArray(instruction)) {
-      stripCacheControlFromParts((instruction as Record<string, unknown>).parts);
+  for (const instructionKey of [
+    'systemInstruction',
+    'system_instruction',
+  ] as const) {
+    const instruction = payload[instructionKey]
+    if (
+      instruction &&
+      typeof instruction === 'object' &&
+      !Array.isArray(instruction)
+    ) {
+      stripCacheControlFromParts((instruction as Record<string, unknown>).parts)
     }
   }
 }
 
-function configureAntigravityToolCalling(payload: Record<string, unknown>): void {
+function configureAntigravityToolCalling(
+  payload: Record<string, unknown>,
+): void {
   if (!Array.isArray(payload.tools) || payload.tools.length === 0) {
-    delete payload.toolConfig;
-    return;
+    delete payload.toolConfig
+    return
   }
 
-  const toolConfig = payload.toolConfig && typeof payload.toolConfig === "object" && !Array.isArray(payload.toolConfig)
-    ? payload.toolConfig as Record<string, unknown>
-    : {};
-  const functionCallingConfig = toolConfig.functionCallingConfig &&
-    typeof toolConfig.functionCallingConfig === "object" &&
+  const toolConfig =
+    payload.toolConfig &&
+    typeof payload.toolConfig === 'object' &&
+    !Array.isArray(payload.toolConfig)
+      ? (payload.toolConfig as Record<string, unknown>)
+      : {}
+  const functionCallingConfig =
+    toolConfig.functionCallingConfig &&
+    typeof toolConfig.functionCallingConfig === 'object' &&
     !Array.isArray(toolConfig.functionCallingConfig)
-    ? toolConfig.functionCallingConfig as Record<string, unknown>
-    : {};
+      ? (toolConfig.functionCallingConfig as Record<string, unknown>)
+      : {}
 
-  functionCallingConfig.mode = "VALIDATED";
-  toolConfig.functionCallingConfig = functionCallingConfig;
-  payload.toolConfig = toolConfig;
+  functionCallingConfig.mode = 'VALIDATED'
+  toolConfig.functionCallingConfig = functionCallingConfig
+  payload.toolConfig = toolConfig
 }
 
-function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>): void {
-  const anyPayload = payload as any;
+function sanitizeRequestPayloadForAntigravity(
+  payload: Record<string, unknown>,
+): void {
+  const anyPayload = payload as any
 
   if (Array.isArray(anyPayload.contents)) {
     // Use .map() instead of .map().filter() to preserve array indices for prompt cache stability
-    anyPayload.contents = anyPayload.contents
-      .map((content: unknown) => {
-        if (!content || typeof content !== "object") {
-          // Preserve non-object entries as empty sentinel instead of filtering
-          return { role: "user", parts: [{ text: "." }] };
-        }
+    anyPayload.contents = anyPayload.contents.map((content: unknown) => {
+      if (!content || typeof content !== 'object') {
+        // Preserve non-object entries as empty sentinel instead of filtering
+        return { role: 'user', parts: [{ text: '.' }] }
+      }
 
-        const contentRecord = content as Record<string, unknown>;
-        const rawParts = Array.isArray(contentRecord.parts) ? contentRecord.parts : [];
-        let foundFirstFunctionCall = false;
+      const contentRecord = content as Record<string, unknown>
+      const rawParts = Array.isArray(contentRecord.parts)
+        ? contentRecord.parts
+        : []
+      let foundFirstFunctionCall = false
 
-        const sanitizedParts = rawParts.map((part: any) => {
+      const sanitizedParts = rawParts
+        .map((part: any) => {
           // Replace invalid parts with sentinel to preserve array indices for cache stability
           if (!isValidRequestPart(part)) {
-            return { text: "." };
+            return { text: '.' }
           }
-          return part;
-        }).map((part: any) => {
-          if (part && typeof part === "object" && part.functionCall) {
-            let sig = part.thoughtSignature || part.thought_signature;
+          return part
+        })
+        .map((part: any) => {
+          if (part && typeof part === 'object' && part.functionCall) {
+            let sig = part.thoughtSignature || part.thought_signature
 
             // Only the first functionCall part in a block should have the signature.
             // If it's the first one and missing a valid signature, inject the sentinel
             // to prevent the API from rejecting the request with a 400 error.
             if (!foundFirstFunctionCall) {
-              foundFirstFunctionCall = true;
+              foundFirstFunctionCall = true
               if (!sig || sig.length < MIN_SIGNATURE_LENGTH) {
-                sig = SKIP_THOUGHT_SIGNATURE;
+                sig = SKIP_THOUGHT_SIGNATURE
               }
             } else {
               // Parallel function calls MUST NOT have a signature
-              sig = undefined;
+              sig = undefined
             }
 
             if (sig) {
-              return { ...part, thought_signature: sig, thoughtSignature: sig };
+              return { ...part, thought_signature: sig, thoughtSignature: sig }
             }
-            
+
             // If not the first part, just return the part without adding any signature keys
-            const newPart = { ...part };
-            delete newPart.thoughtSignature;
-            delete newPart.thought_signature;
-            return newPart;
+            const newPart = { ...part }
+            delete newPart.thoughtSignature
+            delete newPart.thought_signature
+            return newPart
           }
-          return part;
-        });
+          return part
+        })
 
-        if (sanitizedParts.length === 0) {
-          // Preserve as empty text sentinel instead of filtering out
-          return { ...contentRecord, parts: [{ text: "." }] };
-        }
+      if (sanitizedParts.length === 0) {
+        // Preserve as empty text sentinel instead of filtering out
+        return { ...contentRecord, parts: [{ text: '.' }] }
+      }
 
-        return {
-          ...contentRecord,
-          parts: sanitizedParts,
-        };
-      });
+      return {
+        ...contentRecord,
+        parts: sanitizedParts,
+      }
+    })
   }
 
   if (Array.isArray(anyPayload.messages)) {
     anyPayload.messages = anyPayload.messages.map((message: unknown) => {
-      if (!message || typeof message !== "object") {
-        return { role: "user", content: [{ type: "text", text: "." }] }
+      if (!message || typeof message !== 'object') {
+        return { role: 'user', content: [{ type: 'text', text: '.' }] }
       }
 
       const messageRecord = message as Record<string, unknown>
-      const rawContent = Array.isArray(messageRecord.content) ? messageRecord.content : messageRecord.content
+      const rawContent = Array.isArray(messageRecord.content)
+        ? messageRecord.content
+        : messageRecord.content
 
       if (!Array.isArray(rawContent)) {
         return messageRecord
       }
 
       const sanitizedContent = rawContent.map((block: unknown) => {
-        if (!block || typeof block !== "object") {
-          return { type: "text", text: "." }
+        if (!block || typeof block !== 'object') {
+          return { type: 'text', text: '.' }
         }
 
         const blockRecord = block as Record<string, unknown>
-        if (blockRecord.type === "text") {
+        if (blockRecord.type === 'text') {
           const text = blockRecord.text
-          if (typeof text !== "string" || text.trim().length === 0) {
-            const sentinel: Record<string, unknown> = { type: "text", text: "." }
-            if (blockRecord.cache_control !== undefined) sentinel.cache_control = blockRecord.cache_control
+          if (typeof text !== 'string' || text.trim().length === 0) {
+            const sentinel: Record<string, unknown> = {
+              type: 'text',
+              text: '.',
+            }
+            if (blockRecord.cache_control !== undefined)
+              sentinel.cache_control = blockRecord.cache_control
             return sentinel
           }
         }
@@ -730,7 +821,7 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
       })
 
       if (sanitizedContent.length === 0) {
-        return { ...messageRecord, content: [{ type: "text", text: "." }] }
+        return { ...messageRecord, content: [{ type: 'text', text: '.' }] }
       }
 
       return {
@@ -740,315 +831,450 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
     })
   }
 
-  const systemInstruction = anyPayload.systemInstruction;
-  if (systemInstruction && typeof systemInstruction === "object" && !Array.isArray(systemInstruction)) {
-    const sys = systemInstruction as Record<string, unknown>;
+  const systemInstruction = anyPayload.systemInstruction
+  if (
+    systemInstruction &&
+    typeof systemInstruction === 'object' &&
+    !Array.isArray(systemInstruction)
+  ) {
+    const sys = systemInstruction as Record<string, unknown>
     if (Array.isArray(sys.parts)) {
       // Use .map() with sentinels instead of .filter() to preserve array indices
       // and prevent prompt cache invalidation from index shifts.
       const sanitizedSystemParts = sys.parts.map((part: unknown) => {
-        if (isValidRequestPart(part)) return part;
-        const record = part as Record<string, unknown>;
-        const sentinel: Record<string, unknown> = { text: "." };
-        if (record?.cache_control !== undefined) sentinel.cache_control = record.cache_control;
-        return sentinel;
-      });
+        if (isValidRequestPart(part)) return part
+        const record = part as Record<string, unknown>
+        const sentinel: Record<string, unknown> = { text: '.' }
+        if (record?.cache_control !== undefined)
+          sentinel.cache_control = record.cache_control
+        return sentinel
+      })
       // Only delete systemInstruction if ALL parts were invalid (all sentinels, no real content)
-      const hasRealContent = sanitizedSystemParts.some((p: any) =>
-        p && typeof p === "object" && typeof p.text === "string" && p.text !== "."
-      );
+      const hasRealContent = sanitizedSystemParts.some(
+        (p: any) =>
+          p &&
+          typeof p === 'object' &&
+          typeof p.text === 'string' &&
+          p.text !== '.',
+      )
       if (hasRealContent) {
-        sys.parts = sanitizedSystemParts;
+        sys.parts = sanitizedSystemParts
       } else {
-        delete anyPayload.systemInstruction;
+        delete anyPayload.systemInstruction
       }
-    }  }
+    }
+  }
 }
 
 function isGeminiToolUsePart(part: any): boolean {
-  return !!(part && typeof part === "object" && (part.functionCall || part.tool_use || part.toolUse));
+  return !!(
+    part &&
+    typeof part === 'object' &&
+    (part.functionCall || part.tool_use || part.toolUse)
+  )
 }
 
 function isGeminiThinkingPart(part: any): boolean {
   return !!(
     part &&
-    typeof part === "object" &&
-    (part.thought === true || part.type === "thinking" || part.type === "reasoning")
-  );
+    typeof part === 'object' &&
+    (part.thought === true ||
+      part.type === 'thinking' ||
+      part.type === 'reasoning')
+  )
 }
 
 // Sentinel value used when signature recovery fails - allows Claude to handle gracefully
 // by redacting the thinking block instead of rejecting the request entirely.
 // Reference: LLM-API-Key-Proxy uses this pattern for Gemini 3 tool calls.
-const SENTINEL_SIGNATURE = "skip_thought_signature_validator";
+const SENTINEL_SIGNATURE = 'skip_thought_signature_validator'
 
 function getThinkingPartText(part: any): string {
-  if (!part || typeof part !== "object") {
-    return "";
+  if (!part || typeof part !== 'object') {
+    return ''
   }
 
-  if (typeof part.text === "string") {
-    return part.text;
+  if (typeof part.text === 'string') {
+    return part.text
   }
 
-  if (typeof part.thinking === "string") {
-    return part.thinking;
+  if (typeof part.thinking === 'string') {
+    return part.thinking
   }
 
-  return "";
+  return ''
 }
 
 function hasCachedMatchingSignature(part: any, sessionId: string): boolean {
-  if (!part || typeof part !== "object") {
-    return false;
+  if (!part || typeof part !== 'object') {
+    return false
   }
 
-  const text = getThinkingPartText(part);
+  const text = getThinkingPartText(part)
   if (!text) {
-    return false;
+    return false
   }
 
-  const expectedSignature = getCachedSignature(sessionId, text);
+  const expectedSignature = getCachedSignature(sessionId, text)
   if (!expectedSignature) {
-    return false;
+    return false
   }
 
   if (part.thought === true) {
-    return part.thoughtSignature === expectedSignature;
+    return part.thoughtSignature === expectedSignature
   }
 
-  return part.signature === expectedSignature;
+  return part.signature === expectedSignature
 }
 
 function ensureThoughtSignature(part: any, sessionId: string): any {
-  if (!part || typeof part !== "object") {
-    return part;
+  if (!part || typeof part !== 'object') {
+    return part
   }
 
   if (!sessionId) {
-    return part;
+    return part
   }
 
-  const text = getThinkingPartText(part);
+  const text = getThinkingPartText(part)
   if (!text) {
-    return part;
+    return part
   }
 
   if (part.thought === true) {
-    return { ...part, thoughtSignature: SENTINEL_SIGNATURE };
+    return { ...part, thoughtSignature: SENTINEL_SIGNATURE }
   }
 
-  if (part.type === "thinking" || part.type === "reasoning" || part.type === "redacted_thinking") {
-    return { ...part, signature: SENTINEL_SIGNATURE };
+  if (
+    part.type === 'thinking' ||
+    part.type === 'reasoning' ||
+    part.type === 'redacted_thinking'
+  ) {
+    return { ...part, signature: SENTINEL_SIGNATURE }
   }
 
-  return part;
+  return part
 }
 
 function hasSignedThinkingPart(part: any, sessionId?: string): boolean {
-  if (!part || typeof part !== "object") {
-    return false;
+  if (!part || typeof part !== 'object') {
+    return false
   }
 
   if (part.thought === true) {
-    if (part.thoughtSignature === SENTINEL_SIGNATURE || part.thoughtSignature === SKIP_THOUGHT_SIGNATURE) {
-      return true;
+    if (
+      part.thoughtSignature === SENTINEL_SIGNATURE ||
+      part.thoughtSignature === SKIP_THOUGHT_SIGNATURE
+    ) {
+      return true
     }
 
-    if (typeof part.thoughtSignature !== "string" || part.thoughtSignature.length < MIN_SIGNATURE_LENGTH) {
-      return false;
-    }
-
-    if (!sessionId) {
-      return true;
-    }
-
-    return hasCachedMatchingSignature(part, sessionId);
-  }
-
-  if (part.type === "thinking" || part.type === "reasoning" || part.type === "redacted_thinking") {
-    if (part.signature === SENTINEL_SIGNATURE || part.signature === SKIP_THOUGHT_SIGNATURE) {
-      return true;
-    }
-
-    if (typeof part.signature !== "string" || part.signature.length < MIN_SIGNATURE_LENGTH) {
-      return false;
+    if (
+      typeof part.thoughtSignature !== 'string' ||
+      part.thoughtSignature.length < MIN_SIGNATURE_LENGTH
+    ) {
+      return false
     }
 
     if (!sessionId) {
-      return true;
+      return true
     }
 
-    return hasCachedMatchingSignature(part, sessionId);
+    return hasCachedMatchingSignature(part, sessionId)
   }
 
-  return false;
+  if (
+    part.type === 'thinking' ||
+    part.type === 'reasoning' ||
+    part.type === 'redacted_thinking'
+  ) {
+    if (
+      part.signature === SENTINEL_SIGNATURE ||
+      part.signature === SKIP_THOUGHT_SIGNATURE
+    ) {
+      return true
+    }
+
+    if (
+      typeof part.signature !== 'string' ||
+      part.signature.length < MIN_SIGNATURE_LENGTH
+    ) {
+      return false
+    }
+
+    if (!sessionId) {
+      return true
+    }
+
+    return hasCachedMatchingSignature(part, sessionId)
+  }
+
+  return false
 }
 
-function ensureThinkingBeforeToolUseInContents(contents: any[], signatureSessionKey: string): any[] {
+function ensureThinkingBeforeToolUseInContents(
+  contents: any[],
+  signatureSessionKey: string,
+): any[] {
   return contents.map((content: any) => {
-    if (!content || typeof content !== "object" || !Array.isArray(content.parts)) {
-      return content;
+    if (
+      !content ||
+      typeof content !== 'object' ||
+      !Array.isArray(content.parts)
+    ) {
+      return content
     }
 
-    const role = content.role;
-    if (role !== "model" && role !== "assistant") {
-      return content;
+    const role = content.role
+    if (role !== 'model' && role !== 'assistant') {
+      return content
     }
 
-    const parts = content.parts as any[];
-    const hasToolUse = parts.some(isGeminiToolUsePart);
+    const parts = content.parts as any[]
+    const hasToolUse = parts.some(isGeminiToolUsePart)
     if (!hasToolUse) {
-      return content;
+      return content
     }
 
     // Check if any thinking part has a valid signed signature
-    const hasSignedThinking = parts.some(p => isGeminiThinkingPart(p) && hasSignedThinkingPart(ensureThoughtSignature(p, signatureSessionKey), signatureSessionKey));
+    const hasSignedThinking = parts.some(
+      (p) =>
+        isGeminiThinkingPart(p) &&
+        hasSignedThinkingPart(
+          ensureThoughtSignature(p, signatureSessionKey),
+          signatureSessionKey,
+        ),
+    )
 
     if (hasSignedThinking) {
       // Ensure signatures on thinking parts in-place — NO reordering to preserve array indices (cache-friendly)
-      return { ...content, parts: parts.map(p => isGeminiThinkingPart(p) ? ensureThoughtSignature(p, signatureSessionKey) : p) };
+      return {
+        ...content,
+        parts: parts.map((p) =>
+          isGeminiThinkingPart(p)
+            ? ensureThoughtSignature(p, signatureSessionKey)
+            : p,
+        ),
+      }
     }
     // Replace thinking parts with sentinels in-place to preserve array indices (cache-friendly).
     // Deleting parts via .filter() shifts array indices → changes hash → busts prompt cache.
-    const lastThinking = defaultSignatureStore.get(signatureSessionKey);
-    log.debug("Replacing thinking with sentinels in-place", { signatureSessionKey, hasCachedSig: !!lastThinking });
-    const newParts = parts.map(p => {
-      if (!isGeminiThinkingPart(p)) return p;
-      const cc = (p as Record<string, unknown>).cache_control;
+    const lastThinking = defaultSignatureStore.get(signatureSessionKey)
+    log.debug('Replacing thinking with sentinels in-place', {
+      signatureSessionKey,
+      hasCachedSig: !!lastThinking,
+    })
+    const newParts = parts.map((p) => {
+      if (!isGeminiThinkingPart(p)) return p
+      const cc = (p as Record<string, unknown>).cache_control
       // Use plain empty text part — thinking-format sentinels get converted by the proxy
       // into Claude thinking blocks missing the required `thinking` field.
-      const sentinel: Record<string, unknown> = { text: "." };
-      if (cc) sentinel.cache_control = cc;
-      return sentinel;
-    });
-    return { ...content, parts: newParts };
-  });
+      const sentinel: Record<string, unknown> = { text: '.' }
+      if (cc) sentinel.cache_control = cc
+      return sentinel
+    })
+    return { ...content, parts: newParts }
+  })
 }
 function ensureMessageThinkingSignature(block: any, sessionId: string): any {
-  if (!block || typeof block !== "object") {
-    return block;
+  if (!block || typeof block !== 'object') {
+    return block
   }
 
-  if (block.type !== "thinking" && block.type !== "redacted_thinking") {
-    return block;
+  if (block.type !== 'thinking' && block.type !== 'redacted_thinking') {
+    return block
   }
 
-  const text = getThinkingPartText(block);
+  const text = getThinkingPartText(block)
   if (!text) {
-    return block;
+    return block
   }
 
   if (!sessionId) {
-    return block;
+    return block
   }
 
-  return { ...block, signature: SKIP_THOUGHT_SIGNATURE };
+  return { ...block, signature: SKIP_THOUGHT_SIGNATURE }
 }
 
 function hasToolUseInContents(contents: any[]): boolean {
   return contents.some((content: any) => {
-    if (!content || typeof content !== "object" || !Array.isArray(content.parts)) {
-      return false;
+    if (
+      !content ||
+      typeof content !== 'object' ||
+      !Array.isArray(content.parts)
+    ) {
+      return false
     }
-    return (content.parts as any[]).some(isGeminiToolUsePart);
-  });
+    return (content.parts as any[]).some(isGeminiToolUsePart)
+  })
 }
 
-function hasSignedThinkingInContents(contents: any[], sessionId?: string): boolean {
+function hasSignedThinkingInContents(
+  contents: any[],
+  sessionId?: string,
+): boolean {
   return contents.some((content: any) => {
-    if (!content || typeof content !== "object" || !Array.isArray(content.parts)) {
-      return false;
+    if (
+      !content ||
+      typeof content !== 'object' ||
+      !Array.isArray(content.parts)
+    ) {
+      return false
     }
-    return (content.parts as any[]).some((part) => hasSignedThinkingPart(part, sessionId));
-  });
+    return (content.parts as any[]).some((part) =>
+      hasSignedThinkingPart(part, sessionId),
+    )
+  })
 }
 
 function hasToolUseInMessages(messages: any[]): boolean {
   return messages.some((message: any) => {
-    if (!message || typeof message !== "object" || !Array.isArray(message.content)) {
-      return false;
+    if (
+      !message ||
+      typeof message !== 'object' ||
+      !Array.isArray(message.content)
+    ) {
+      return false
     }
     return (message.content as any[]).some(
-      (block) => block && typeof block === "object" && (block.type === "tool_use" || block.type === "tool_result"),
-    );
-  });
+      (block) =>
+        block &&
+        typeof block === 'object' &&
+        (block.type === 'tool_use' || block.type === 'tool_result'),
+    )
+  })
 }
 
-function hasSignedThinkingInMessages(messages: any[], sessionId?: string): boolean {
+function hasSignedThinkingInMessages(
+  messages: any[],
+  sessionId?: string,
+): boolean {
   return messages.some((message: any) => {
-    if (!message || typeof message !== "object" || !Array.isArray(message.content)) {
-      return false;
+    if (
+      !message ||
+      typeof message !== 'object' ||
+      !Array.isArray(message.content)
+    ) {
+      return false
     }
-    return (message.content as any[]).some((block) => hasSignedThinkingPart(block, sessionId));
-  });
+    return (message.content as any[]).some((block) =>
+      hasSignedThinkingPart(block, sessionId),
+    )
+  })
 }
 
-function ensureThinkingBeforeToolUseInMessages(messages: any[], signatureSessionKey: string): any[] {
+function ensureThinkingBeforeToolUseInMessages(
+  messages: any[],
+  signatureSessionKey: string,
+): any[] {
   return messages.map((message: any) => {
-    if (!message || typeof message !== "object" || !Array.isArray(message.content)) {
-      return message;
+    if (
+      !message ||
+      typeof message !== 'object' ||
+      !Array.isArray(message.content)
+    ) {
+      return message
     }
 
-    if (message.role !== "assistant") {
-      return message;
+    if (message.role !== 'assistant') {
+      return message
     }
 
-    const blocks = message.content as any[];
-    const hasToolUse = blocks.some((b) => b && typeof b === "object" && (b.type === "tool_use" || b.type === "tool_result"));
+    const blocks = message.content as any[]
+    const hasToolUse = blocks.some(
+      (b) =>
+        b &&
+        typeof b === 'object' &&
+        (b.type === 'tool_use' || b.type === 'tool_result'),
+    )
     if (!hasToolUse) {
-      return message;
+      return message
     }
 
-    const isThinkingBlock = (b: any) => b && typeof b === "object" && (b.type === "thinking" || b.type === "redacted_thinking");
+    const isThinkingBlock = (b: any) =>
+      b &&
+      typeof b === 'object' &&
+      (b.type === 'thinking' || b.type === 'redacted_thinking')
 
     // Check if any thinking block has a valid signed signature
-    const hasSignedThinking = blocks.some((b) => isThinkingBlock(b) && hasSignedThinkingPart(ensureMessageThinkingSignature(b, signatureSessionKey), signatureSessionKey));
+    const hasSignedThinking = blocks.some(
+      (b) =>
+        isThinkingBlock(b) &&
+        hasSignedThinkingPart(
+          ensureMessageThinkingSignature(b, signatureSessionKey),
+          signatureSessionKey,
+        ),
+    )
 
     if (hasSignedThinking) {
       // Ensure signatures on thinking blocks in-place — NO reordering to preserve array indices (cache-friendly)
-      return { ...message, content: blocks.map((b) => isThinkingBlock(b) ? ensureMessageThinkingSignature(b, signatureSessionKey) : b) };
+      return {
+        ...message,
+        content: blocks.map((b) =>
+          isThinkingBlock(b)
+            ? ensureMessageThinkingSignature(b, signatureSessionKey)
+            : b,
+        ),
+      }
     }
 
     // Replace thinking blocks with sentinels in-place to preserve array indices (cache-friendly).
     // Deleting/reordering via .filter() shifts indices → changes hash → busts prompt cache.
-    const lastThinking = defaultSignatureStore.get(signatureSessionKey);
-    log.debug("Replacing thinking with sentinels in-place (Messages format)", { signatureSessionKey, hasCachedSig: !!lastThinking });
-    return { ...message, content: blocks.map((b) => {
-      if (!isThinkingBlock(b)) return b;
-      const thinkingText = lastThinking ? lastThinking.text : (typeof b.thinking === "string" ? b.thinking : typeof b.text === "string" ? b.text : "");
-      const cc = (b as Record<string, unknown>).cache_control;
-      // Use plain empty text part — thinking-format sentinels get converted by the proxy
-      // into Claude thinking blocks missing the required `thinking` field.
-      const sentinel: Record<string, unknown> = { text: "." };
-      if (cc) sentinel.cache_control = cc;
-      return sentinel;
-    }) };
-  });
+    const lastThinking = defaultSignatureStore.get(signatureSessionKey)
+    log.debug('Replacing thinking with sentinels in-place (Messages format)', {
+      signatureSessionKey,
+      hasCachedSig: !!lastThinking,
+    })
+    return {
+      ...message,
+      content: blocks.map((b) => {
+        if (!isThinkingBlock(b)) return b
+        const _thinkingText = lastThinking
+          ? lastThinking.text
+          : typeof b.thinking === 'string'
+            ? b.thinking
+            : typeof b.text === 'string'
+              ? b.text
+              : ''
+        const cc = (b as Record<string, unknown>).cache_control
+        // Use plain empty text part — thinking-format sentinels get converted by the proxy
+        // into Claude thinking blocks missing the required `thinking` field.
+        const sentinel: Record<string, unknown> = { text: '.' }
+        if (cc) sentinel.cache_control = cc
+        return sentinel
+      }),
+    }
+  })
 }
 /**
  * Gets the stable session ID for this plugin instance.
  */
 export function getPluginSessionId(): string {
-  return PLUGIN_SESSION_ID;
+  return PLUGIN_SESSION_ID
 }
 
-let _lastCacheStats: { model: string; read: number; total: number; hitRate: number } | null = null;
+let _lastCacheStats: {
+  model: string
+  read: number
+  total: number
+  hitRate: number
+} | null = null
 
 export function getLastCacheStats() {
-  return _lastCacheStats;
+  return _lastCacheStats
 }
-const STREAM_ACTION = "streamGenerateContent";
+const STREAM_ACTION = 'streamGenerateContent'
 
 /**
  * Extract a URL string from any fetch() input shape (string, URL, or Request).
  */
 export function fetchInputToUrl(input: RequestInfo | URL): string {
-  if (typeof input === "string") return input;
-  if (input instanceof URL) return input.href;
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return input.href
   // Request-like object
-  const url = (input as Request).url;
-  return typeof url === "string" ? url : String(input);
+  const url = (input as Request).url
+  return typeof url === 'string' ? url : String(input)
 }
 
 /**
@@ -1058,7 +1284,7 @@ export function fetchInputToUrl(input: RequestInfo | URL): string {
  * interceptor entirely.
  */
 export function isGenerativeLanguageRequest(input: RequestInfo | URL): boolean {
-  return fetchInputToUrl(input).includes("generativelanguage.googleapis.com");
+  return fetchInputToUrl(input).includes('generativelanguage.googleapis.com')
 }
 
 /**
@@ -1066,17 +1292,17 @@ export function isGenerativeLanguageRequest(input: RequestInfo | URL): boolean {
  */
 export interface PrepareRequestOptions {
   /** Enable Claude tool hardening (parameter signatures + system instruction). Default: true */
-  claudeToolHardening?: boolean;
+  claudeToolHardening?: boolean
   /** Enable top-level Claude prompt auto-caching (`cache_control`). Default: false */
-  claudePromptAutoCaching?: boolean;
+  claudePromptAutoCaching?: boolean
   /** Google Search configuration (global default) */
-  googleSearch?: GoogleSearchConfig;
+  googleSearch?: GoogleSearchConfig
   /** Per-account fingerprint for rate limit mitigation. Falls back to session fingerprint if not provided. */
-  fingerprint?: Fingerprint;
+  fingerprint?: Fingerprint
   /** Stable AGY wire identity scoped to the exact OpenCode session. */
-  agySession?: AgyRequestSessionContext;
+  agySession?: AgyRequestSessionContext
   /** Monotonic request timestamp allocated once and reused across endpoint retries. */
-  agyRequestTimestamp?: number;
+  agyRequestTimestamp?: number
 }
 
 export function prepareAntigravityRequest(
@@ -1085,34 +1311,34 @@ export function prepareAntigravityRequest(
   accessToken: string,
   projectId: string,
   endpointOverride?: string,
-  headerStyle: HeaderStyle = "antigravity",
+  headerStyle: HeaderStyle = 'antigravity',
   forceThinkingRecovery = false,
   options?: PrepareRequestOptions,
 ): {
-  request: RequestInfo;
-  init: RequestInit;
-  streaming: boolean;
-  requestedModel?: string;
-  effectiveModel?: string;
-  projectId?: string;
-  endpoint?: string;
-  sessionId?: string;
-  toolDebugMissing?: number;
-  toolDebugSummary?: string;
-  toolDebugPayload?: string;
-  needsSignedThinkingWarmup?: boolean;
-  headerStyle: HeaderStyle;
-  thinkingRecoveryMessage?: string;
+  request: RequestInfo
+  init: RequestInit
+  streaming: boolean
+  requestedModel?: string
+  effectiveModel?: string
+  projectId?: string
+  endpoint?: string
+  sessionId?: string
+  toolDebugMissing?: number
+  toolDebugSummary?: string
+  toolDebugPayload?: string
+  needsSignedThinkingWarmup?: boolean
+  headerStyle: HeaderStyle
+  thinkingRecoveryMessage?: string
 } {
-  const baseInit: RequestInit = { ...init };
-  const headers = new Headers(init?.headers ?? {});
-  let resolvedProjectId = projectId?.trim() || "";
-  let toolDebugMissing = 0;
-  const toolDebugSummaries: string[] = [];
-  let toolDebugPayload: string | undefined;
-  let sessionId: string | undefined;
-  let needsSignedThinkingWarmup = false;
-  let thinkingRecoveryMessage: string | undefined;
+  const baseInit: RequestInit = { ...init }
+  const headers = new Headers(init?.headers ?? {})
+  let resolvedProjectId = projectId?.trim() || ''
+  let toolDebugMissing = 0
+  const toolDebugSummaries: string[] = []
+  let toolDebugPayload: string | undefined
+  let sessionId: string | undefined
+  let needsSignedThinkingWarmup = false
+  let thinkingRecoveryMessage: string | undefined
 
   if (!isGenerativeLanguageRequest(input)) {
     return {
@@ -1120,126 +1346,165 @@ export function prepareAntigravityRequest(
       init: { ...baseInit, headers },
       streaming: false,
       headerStyle,
-    };
+    }
   }
 
-  headers.set("Authorization", `Bearer ${accessToken}`);
-  headers.delete("x-api-key");
-  headers.delete("x-goog-api-key");
-  headers.delete("x-session-affinity");
-  headers.delete("x-session-id");
-  headers.delete("x-parent-session-id");
+  headers.set('Authorization', `Bearer ${accessToken}`)
+  headers.delete('x-api-key')
+  headers.delete('x-goog-api-key')
+  headers.delete('x-session-affinity')
+  headers.delete('x-session-id')
+  headers.delete('x-parent-session-id')
   // Strip x-goog-user-project header to prevent 403 auth/license conflicts.
   // This header is added by OpenCode/AI SDK and can force project-level checks
   // that are not required for Antigravity/Gemini CLI OAuth requests.
-  headers.delete("x-goog-user-project");
+  headers.delete('x-goog-user-project')
 
-  const urlString = fetchInputToUrl(input);
-  const match = urlString.match(/\/models\/([^:]+):(\w+)/);
+  const urlString = fetchInputToUrl(input)
+  const match = urlString.match(/\/models\/([^:]+):(\w+)/)
   if (!match) {
     return {
       request: input,
       init: { ...baseInit, headers },
       streaming: false,
       headerStyle,
-    };
+    }
   }
 
-  const [, rawModel = "", rawAction = ""] = match;
-  const requestedModel = rawModel;
+  const [, rawModel = '', rawAction = ''] = match
+  const requestedModel = rawModel
 
-  const resolved = resolveModelForHeaderStyle(rawModel, headerStyle);
-  let effectiveModel = resolved.actualModel;
+  const resolved = resolveModelForHeaderStyle(rawModel, headerStyle)
+  let effectiveModel = resolved.actualModel
 
-  const streaming = rawAction === STREAM_ACTION;
-  const defaultEndpoint = headerStyle === "gemini-cli" ? GEMINI_CLI_ENDPOINT : ANTIGRAVITY_ENDPOINT;
-  const baseEndpoint = endpointOverride ?? defaultEndpoint;
-  const transformedUrl = `${baseEndpoint}/v1internal:${rawAction}${streaming ? "?alt=sse" : ""}`;
+  const streaming = rawAction === STREAM_ACTION
+  const defaultEndpoint =
+    headerStyle === 'gemini-cli' ? GEMINI_CLI_ENDPOINT : ANTIGRAVITY_ENDPOINT
+  const baseEndpoint = endpointOverride ?? defaultEndpoint
+  const transformedUrl = `${baseEndpoint}/v1internal:${rawAction}${streaming ? '?alt=sse' : ''}`
 
-  const isClaude = isClaudeModel(resolved.actualModel);
-  const isClaudeThinking = isClaudeThinkingModel(resolved.actualModel);
-  const keepThinkingEnabled = getKeepThinking();
+  const isClaude = isClaudeModel(resolved.actualModel)
+  const isClaudeThinking = isClaudeThinkingModel(resolved.actualModel)
+  const keepThinkingEnabled = getKeepThinking()
 
   // Tier-based thinking configuration from model resolver (can be overridden by variant config)
-  let tierThinkingBudget = resolved.thinkingBudget;
-  let tierThinkingLevel = resolved.thinkingLevel;
+  let tierThinkingBudget = resolved.thinkingBudget
+  let tierThinkingLevel = resolved.thinkingLevel
   let signatureSessionKey = buildSignatureSessionKey(
     PLUGIN_SESSION_ID,
     effectiveModel,
     undefined,
     resolveProjectKey(projectId),
-  );
+  )
 
-  let body = baseInit.body;
-  if (typeof baseInit.body === "string" && baseInit.body) {
+  let body = baseInit.body
+  if (typeof baseInit.body === 'string' && baseInit.body) {
     try {
-      const parsedBody = JSON.parse(baseInit.body) as Record<string, unknown>;
-      const isWrapped = typeof parsedBody.project === "string" && "request" in parsedBody;
+      const parsedBody = JSON.parse(baseInit.body) as Record<string, unknown>
+      const isWrapped =
+        typeof parsedBody.project === 'string' && 'request' in parsedBody
 
-      if (isWrapped) {        const wrappedBody = {
+      if (isWrapped) {
+        const wrappedBody = {
           ...parsedBody,
           model: effectiveModel,
-        } as Record<string, unknown>;
+        } as Record<string, unknown>
 
-        if (headerStyle === "antigravity") {
-          if (typeof wrappedBody.userAgent !== "string" || !wrappedBody.userAgent) {
-            wrappedBody.userAgent = "antigravity";
+        if (headerStyle === 'antigravity') {
+          if (
+            typeof wrappedBody.userAgent !== 'string' ||
+            !wrappedBody.userAgent
+          ) {
+            wrappedBody.userAgent = 'antigravity'
           }
-          if (typeof wrappedBody.requestType !== "string" || !wrappedBody.requestType) {
-            wrappedBody.requestType = "agent";
+          if (
+            typeof wrappedBody.requestType !== 'string' ||
+            !wrappedBody.requestType
+          ) {
+            wrappedBody.requestType = 'agent'
           }
         }
 
         // Some callers may already send an Antigravity-wrapped body.
         // We still need to sanitize Claude thinking blocks (remove cache_control)
         // and attach a stable sessionId so multi-turn signature caching works.
-        const requestRoot = wrappedBody.request;
-        const requestObjects: Array<Record<string, unknown>> = [];
+        const requestRoot = wrappedBody.request
+        const requestObjects: Array<Record<string, unknown>> = []
 
-        if (requestRoot && typeof requestRoot === "object") {
-          requestObjects.push(requestRoot as Record<string, unknown>);
-          const nested = (requestRoot as any).request;
-          if (nested && typeof nested === "object") {
-            requestObjects.push(nested as Record<string, unknown>);
+        if (requestRoot && typeof requestRoot === 'object') {
+          requestObjects.push(requestRoot as Record<string, unknown>)
+          const nested = (requestRoot as any).request
+          if (nested && typeof nested === 'object') {
+            requestObjects.push(nested as Record<string, unknown>)
           }
         }
 
-        const conversationKey = resolveConversationKeyFromRequests(requestObjects);
+        const conversationKey =
+          resolveConversationKeyFromRequests(requestObjects)
         // Strip tier suffix from model for cache key to prevent cache misses on tier change
         // e.g., "claude-opus-4-6-thinking-high" -> "claude-opus-4-6-thinking"
-        const modelForCacheKey = effectiveModel.replace(/-(minimal|low|medium|high)$/i, "");
-        signatureSessionKey = buildSignatureSessionKey(PLUGIN_SESSION_ID, modelForCacheKey, conversationKey, resolveProjectKey(parsedBody.project));
+        const modelForCacheKey = effectiveModel.replace(
+          /-(minimal|low|medium|high)$/i,
+          '',
+        )
+        signatureSessionKey = buildSignatureSessionKey(
+          PLUGIN_SESSION_ID,
+          modelForCacheKey,
+          conversationKey,
+          resolveProjectKey(parsedBody.project),
+        )
 
         if (requestObjects.length > 0) {
-          sessionId = signatureSessionKey;
+          sessionId = signatureSessionKey
         }
 
         for (const req of requestObjects) {
-          stripInjectedDebugFromRequestPayload(req as Record<string, unknown>);
+          stripInjectedDebugFromRequestPayload(req as Record<string, unknown>)
 
           if (isClaude) {
             // Step 0: Sanitize cross-model metadata (strips Gemini signatures when sending to Claude)
-            sanitizeCrossModelPayloadInPlace(req, { targetModel: effectiveModel });
+            sanitizeCrossModelPayloadInPlace(req, {
+              targetModel: effectiveModel,
+            })
 
-          // Step 1: Strip corrupted/unsigned thinking blocks FIRST
-          deepFilterThinkingBlocks(req, signatureSessionKey, getCachedSignature, true);
+            // Step 1: Strip corrupted/unsigned thinking blocks FIRST
+            deepFilterThinkingBlocks(
+              req,
+              signatureSessionKey,
+              getCachedSignature,
+              true,
+            )
 
-          // Step 2: THEN inject signed thinking from cache (after stripping)
-            if (isClaudeThinking && keepThinkingEnabled && Array.isArray((req as any).contents)) {
-              (req as any).contents = ensureThinkingBeforeToolUseInContents((req as any).contents, signatureSessionKey);
+            // Step 2: THEN inject signed thinking from cache (after stripping)
+            if (
+              isClaudeThinking &&
+              keepThinkingEnabled &&
+              Array.isArray((req as any).contents)
+            ) {
+              ;(req as any).contents = ensureThinkingBeforeToolUseInContents(
+                (req as any).contents,
+                signatureSessionKey,
+              )
             }
-            if (isClaudeThinking && keepThinkingEnabled && Array.isArray((req as any).messages)) {
-              (req as any).messages = ensureThinkingBeforeToolUseInMessages((req as any).messages, signatureSessionKey);
+            if (
+              isClaudeThinking &&
+              keepThinkingEnabled &&
+              Array.isArray((req as any).messages)
+            ) {
+              ;(req as any).messages = ensureThinkingBeforeToolUseInMessages(
+                (req as any).messages,
+                signatureSessionKey,
+              )
             }
 
             // Step 3: Apply tool pairing fixes (ID assignment, response matching, orphan recovery)
-            applyToolPairingFixes(req as Record<string, unknown>, true);
+            applyToolPairingFixes(req as Record<string, unknown>, true)
           }
 
-          if (headerStyle === "antigravity") {
-            sanitizeRequestPayloadForAntigravity(req);
-            stripUnsupportedAntigravityFields(req);
-            configureAntigravityToolCalling(req);
+          if (headerStyle === 'antigravity') {
+            sanitizeRequestPayloadForAntigravity(req)
+            stripUnsupportedAntigravityFields(req)
+            configureAntigravityToolCalling(req)
           }
         }
 
@@ -1247,326 +1512,458 @@ export function prepareAntigravityRequest(
         // the final wire boundary because host races, recovery, or sanitization can
         // otherwise leave a model/assistant entry last. Claude fallback transports
         // have the same assistant-prefill restriction.
-        if (headerStyle === "antigravity" || isClaude) {
+        if (headerStyle === 'antigravity' || isClaude) {
           for (const req of requestObjects) {
             if (Array.isArray((req as any).contents)) {
-              const contents = (req as any).contents;
-              const lastContent = contents[contents.length - 1];
-              if (lastContent?.role === "model" || lastContent?.role === "assistant") {
-                contents.push({ role: "user", parts: [{ text: "[Continue]" }] });
+              const contents = (req as any).contents
+              const lastContent = contents[contents.length - 1]
+              if (
+                lastContent?.role === 'model' ||
+                lastContent?.role === 'assistant'
+              ) {
+                contents.push({ role: 'user', parts: [{ text: '[Continue]' }] })
               }
             }
             if (Array.isArray((req as any).messages)) {
-              const messages = (req as any).messages;
-              const lastMessage = messages[messages.length - 1];
-              if (lastMessage?.role === "model" || lastMessage?.role === "assistant") {
-                messages.push({ role: "user", parts: [{ text: "[Continue]" }] });
+              const messages = (req as any).messages
+              const lastMessage = messages[messages.length - 1]
+              if (
+                lastMessage?.role === 'model' ||
+                lastMessage?.role === 'assistant'
+              ) {
+                messages.push({ role: 'user', parts: [{ text: '[Continue]' }] })
               }
             }
           }
         }
 
         if (isClaudeThinking && keepThinkingEnabled && sessionId) {
-          const hasToolUse = requestObjects.some((req) =>
-            (Array.isArray((req as any).contents) && hasToolUseInContents((req as any).contents)) ||
-            (Array.isArray((req as any).messages) && hasToolUseInMessages((req as any).messages)),
-          );          const hasSignedThinking = requestObjects.some((req) =>
-            (Array.isArray((req as any).contents) && hasSignedThinkingInContents((req as any).contents, signatureSessionKey)) ||
-            (Array.isArray((req as any).messages) && hasSignedThinkingInMessages((req as any).messages, signatureSessionKey)),
-          );
-          const hasCachedThinking = defaultSignatureStore.has(signatureSessionKey);
-          needsSignedThinkingWarmup = hasToolUse && !hasSignedThinking && !hasCachedThinking;
+          const hasToolUse = requestObjects.some(
+            (req) =>
+              (Array.isArray((req as any).contents) &&
+                hasToolUseInContents((req as any).contents)) ||
+              (Array.isArray((req as any).messages) &&
+                hasToolUseInMessages((req as any).messages)),
+          )
+          const hasSignedThinking = requestObjects.some(
+            (req) =>
+              (Array.isArray((req as any).contents) &&
+                hasSignedThinkingInContents(
+                  (req as any).contents,
+                  signatureSessionKey,
+                )) ||
+              (Array.isArray((req as any).messages) &&
+                hasSignedThinkingInMessages(
+                  (req as any).messages,
+                  signatureSessionKey,
+                )),
+          )
+          const hasCachedThinking =
+            defaultSignatureStore.has(signatureSessionKey)
+          needsSignedThinkingWarmup =
+            hasToolUse && !hasSignedThinking && !hasCachedThinking
         }
 
-        const wireRequest = requestObjects.at(-1);
+        const wireRequest = requestObjects.at(-1)
         if (wireRequest) {
-          if (headerStyle === "antigravity") {
+          if (headerStyle === 'antigravity') {
             const metadata = buildAgyAgentRequestMetadata(
               options?.agySession ?? DEFAULT_AGY_REQUEST_SESSION,
               wireRequest,
               effectiveModel,
               options?.agyRequestTimestamp,
-            );
-            wrappedBody.requestId = metadata.requestId;
-            wireRequest.sessionId = metadata.sessionId;
-            wireRequest.labels = metadata.labels;
-            orderAgyRequestPayloadInPlace(wireRequest);
+            )
+            wrappedBody.requestId = metadata.requestId
+            wireRequest.sessionId = metadata.sessionId
+            wireRequest.labels = metadata.labels
+            orderAgyRequestPayloadInPlace(wireRequest)
           } else {
-            wireRequest.sessionId = signatureSessionKey;
+            wireRequest.sessionId = signatureSessionKey
           }
         }
 
-        body = safeStringify(headerStyle === "antigravity" ? orderAntigravityEnvelope(wrappedBody) : wrappedBody);
+        body = safeStringify(
+          headerStyle === 'antigravity'
+            ? orderAntigravityEnvelope(wrappedBody)
+            : wrappedBody,
+        )
       } else {
-        const requestPayload: Record<string, unknown> = { ...parsedBody };
+        const requestPayload: Record<string, unknown> = { ...parsedBody }
         if (
-          headerStyle === "antigravity" &&
+          headerStyle === 'antigravity' &&
           isImageGenerationModel(effectiveModel) &&
           isOpenCodeTitleGenerationRequest(requestPayload)
         ) {
           // OpenCode runs title generation through the active model. Route that
           // text-only helper call away from image generation to avoid consuming
           // image quota and writing unrelated image files.
-          effectiveModel = "gemini-3.5-flash-low";
-          tierThinkingBudget = 4000;
-          tierThinkingLevel = undefined;
+          effectiveModel = 'gemini-3.5-flash-low'
+          tierThinkingBudget = 4000
+          tierThinkingLevel = undefined
         }
-        const rawGenerationConfig = requestPayload.generationConfig as Record<string, unknown> | undefined;
-        const extraBody = requestPayload.extra_body as Record<string, unknown> | undefined;
+        const rawGenerationConfig = requestPayload.generationConfig as
+          | Record<string, unknown>
+          | undefined
+        const extraBody = requestPayload.extra_body as
+          | Record<string, unknown>
+          | undefined
 
         const variantConfig = extractVariantThinkingConfig(
           requestPayload.providerOptions as Record<string, unknown> | undefined,
-          rawGenerationConfig
-        );
-        const isGemini3 = effectiveModel.toLowerCase().includes("gemini-3");
+          rawGenerationConfig,
+        )
+        const isGemini3 = effectiveModel.toLowerCase().includes('gemini-3')
 
-        log.debug(`[ThinkingResolution] rawModel=${rawModel} resolvedModel=${effectiveModel} resolvedTier=${tierThinkingLevel ?? "none"} variantLevel=${variantConfig?.thinkingLevel ?? "none"} variantBudget=${variantConfig?.thinkingBudget ?? "none"} providerOptions.google=${JSON.stringify((requestPayload.providerOptions as any)?.google ?? null)} generationConfig.thinkingConfig=${JSON.stringify((rawGenerationConfig as any)?.thinkingConfig ?? null)}`);
+        log.debug(
+          `[ThinkingResolution] rawModel=${rawModel} resolvedModel=${effectiveModel} resolvedTier=${tierThinkingLevel ?? 'none'} variantLevel=${variantConfig?.thinkingLevel ?? 'none'} variantBudget=${variantConfig?.thinkingBudget ?? 'none'} providerOptions.google=${JSON.stringify((requestPayload.providerOptions as any)?.google ?? null)} generationConfig.thinkingConfig=${JSON.stringify((rawGenerationConfig as any)?.thinkingConfig ?? null)}`,
+        )
         // providerOptions belongs to the host AI SDK and is only used above to
         // resolve the requested variant. It is never part of the Google wire schema.
-        delete requestPayload.providerOptions;
+        delete requestPayload.providerOptions
 
         if (variantConfig?.thinkingLevel && isGemini3) {
           // Gemini 3 native format - use thinkingLevel directly
           const variantModelBase = rawModel
-            .replace(/-preview-customtools$/i, "")
-            .replace(/-preview$/i, "")
-            .replace(/-(minimal|low|medium|high)$/i, "");
+            .replace(/-preview-customtools$/i, '')
+            .replace(/-preview$/i, '')
+            .replace(/-(minimal|low|medium|high)$/i, '')
           const variantResolved = resolveModelForHeaderStyle(
             `${variantModelBase}-${variantConfig.thinkingLevel}`,
             headerStyle,
-          );
+          )
 
-          effectiveModel = variantResolved.actualModel;
-          tierThinkingBudget = variantResolved.thinkingBudget;
-          tierThinkingLevel = variantResolved.thinkingLevel ?? (variantResolved.thinkingBudget ? undefined : variantConfig.thinkingLevel);
+          effectiveModel = variantResolved.actualModel
+          tierThinkingBudget = variantResolved.thinkingBudget
+          tierThinkingLevel =
+            variantResolved.thinkingLevel ??
+            (variantResolved.thinkingBudget
+              ? undefined
+              : variantConfig.thinkingLevel)
         } else if (variantConfig?.thinkingBudget) {
           if (isGemini3) {
             // Legacy format for Gemini 3 - convert with deprecation warning
-            log.warn("[Deprecated] Using thinkingBudget for Gemini 3 model. Use thinkingLevel instead.");
-            tierThinkingLevel = variantConfig.thinkingBudget <= 8192 ? "low"
-              : variantConfig.thinkingBudget <= 16384 ? "medium" : "high";
-            tierThinkingBudget = undefined;
+            log.warn(
+              '[Deprecated] Using thinkingBudget for Gemini 3 model. Use thinkingLevel instead.',
+            )
+            tierThinkingLevel =
+              variantConfig.thinkingBudget <= 8192
+                ? 'low'
+                : variantConfig.thinkingBudget <= 16384
+                  ? 'medium'
+                  : 'high'
+            tierThinkingBudget = undefined
           } else {
             // Claude / Gemini 2.5 - use budget directly
-            tierThinkingBudget = variantConfig.thinkingBudget;
-            tierThinkingLevel = undefined;
+            tierThinkingBudget = variantConfig.thinkingBudget
+            tierThinkingLevel = undefined
           }
         }
 
         // Resolve thinking configuration based on user settings and model capabilities
         // Image generation models don't support thinking - skip thinking config entirely
-        const isImageModel = isImageGenerationModel(effectiveModel);
-        const userThinkingConfig = isImageModel ? undefined : extractThinkingConfig(requestPayload, rawGenerationConfig, extraBody);
-        const hasAssistantHistory = Array.isArray(requestPayload.contents) &&
-          requestPayload.contents.some((c: any) => c?.role === "model" || c?.role === "assistant");
+        const isImageModel = isImageGenerationModel(effectiveModel)
+        const userThinkingConfig = isImageModel
+          ? undefined
+          : extractThinkingConfig(
+              requestPayload,
+              rawGenerationConfig,
+              extraBody,
+            )
+        const hasAssistantHistory =
+          Array.isArray(requestPayload.contents) &&
+          requestPayload.contents.some(
+            (c: any) => c?.role === 'model' || c?.role === 'assistant',
+          )
 
-        const effectiveUserThinkingConfig = isImageModel ? undefined : userThinkingConfig;
+        const effectiveUserThinkingConfig = isImageModel
+          ? undefined
+          : userThinkingConfig
 
         // For image models, add imageConfig instead of thinkingConfig
         if (isImageModel) {
-          const imageConfig = buildImageGenerationConfig();
-          const generationConfig = (rawGenerationConfig ?? {}) as Record<string, unknown>;
-          generationConfig.imageConfig = imageConfig;
+          const imageConfig = buildImageGenerationConfig()
+          const generationConfig = (rawGenerationConfig ?? {}) as Record<
+            string,
+            unknown
+          >
+          generationConfig.imageConfig = imageConfig
           // Remove any thinkingConfig that might have been set
-          delete generationConfig.thinkingConfig;
+          delete generationConfig.thinkingConfig
           // Set reasonable defaults for image generation
           if (!generationConfig.candidateCount) {
-            generationConfig.candidateCount = 1;
+            generationConfig.candidateCount = 1
           }
-          requestPayload.generationConfig = generationConfig;
+          requestPayload.generationConfig = generationConfig
 
           // Add safety settings for image generation (permissive to allow creative content)
           if (!requestPayload.safetySettings) {
             requestPayload.safetySettings = [
-              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-              { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_ONLY_HIGH" },
-            ];
+              {
+                category: 'HARM_CATEGORY_HARASSMENT',
+                threshold: 'BLOCK_ONLY_HIGH',
+              },
+              {
+                category: 'HARM_CATEGORY_HATE_SPEECH',
+                threshold: 'BLOCK_ONLY_HIGH',
+              },
+              {
+                category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+                threshold: 'BLOCK_ONLY_HIGH',
+              },
+              {
+                category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+                threshold: 'BLOCK_ONLY_HIGH',
+              },
+              {
+                category: 'HARM_CATEGORY_CIVIC_INTEGRITY',
+                threshold: 'BLOCK_ONLY_HIGH',
+              },
+            ]
           }
 
           // Image models don't support tools - remove them entirely
-          delete requestPayload.tools;
-          delete requestPayload.toolConfig;
+          delete requestPayload.tools
+          delete requestPayload.toolConfig
 
           // Replace system instruction with a simple image generation prompt
           // Image models should not receive agentic coding assistant instructions
           requestPayload.systemInstruction = {
-            parts: [{ text: "You are an AI image generator. Generate images based on user descriptions. Focus on creating high-quality, visually appealing images that match the user's request." }]
-          };
+            parts: [
+              {
+                text: "You are an AI image generator. Generate images based on user descriptions. Focus on creating high-quality, visually appealing images that match the user's request.",
+              },
+            ],
+          }
         } else {
           const finalThinkingConfig = resolveThinkingConfig(
             effectiveUserThinkingConfig,
             resolved.isThinkingModel ?? isThinkingCapableModel(effectiveModel),
             isClaude,
             hasAssistantHistory,
-          );
+          )
 
-          const normalizedThinking = normalizeThinkingConfig(finalThinkingConfig);
+          const normalizedThinking =
+            normalizeThinkingConfig(finalThinkingConfig)
           if (normalizedThinking) {
             // Use tier-based thinking budget if specified via model suffix, otherwise fall back to user config
-            const thinkingBudget = tierThinkingBudget ?? normalizedThinking.thinkingBudget;
+            const thinkingBudget =
+              tierThinkingBudget ?? normalizedThinking.thinkingBudget
 
             // Build thinking config based on model type
-            let thinkingConfig: Record<string, unknown>;
+            let thinkingConfig: Record<string, unknown>
 
-            if (isClaudeThinking && headerStyle !== "antigravity") {
+            if (isClaudeThinking && headerStyle !== 'antigravity') {
               // Claude-on-Gemini fallback uses snake_case keys.
               thinkingConfig = {
                 include_thoughts: normalizedThinking.includeThoughts ?? true,
-                ...(typeof thinkingBudget === "number" && thinkingBudget > 0
+                ...(typeof thinkingBudget === 'number' && thinkingBudget > 0
                   ? { thinking_budget: thinkingBudget }
                   : {}),
-              };
+              }
             } else if (tierThinkingLevel) {
               // Gemini 3 uses thinkingLevel string (low/medium/high)
               thinkingConfig = {
                 includeThoughts: normalizedThinking.includeThoughts,
                 thinkingLevel: tierThinkingLevel,
-              };
+              }
             } else {
               // Gemini 2.5 and others use numeric budget
               thinkingConfig = {
                 includeThoughts: normalizedThinking.includeThoughts,
-                ...(typeof thinkingBudget === "number" && thinkingBudget > 0 ? { thinkingBudget } : {}),
-              };
+                ...(typeof thinkingBudget === 'number' && thinkingBudget > 0
+                  ? { thinkingBudget }
+                  : {}),
+              }
             }
 
             if (rawGenerationConfig) {
-              rawGenerationConfig.thinkingConfig = thinkingConfig;
-              applyAgyGenerationDefaults(effectiveModel, rawGenerationConfig, headerStyle);
+              rawGenerationConfig.thinkingConfig = thinkingConfig
+              applyAgyGenerationDefaults(
+                effectiveModel,
+                rawGenerationConfig,
+                headerStyle,
+              )
 
-              if (isClaudeThinking && typeof thinkingBudget === "number" && thinkingBudget > 0) {
-                const currentMax = (rawGenerationConfig.maxOutputTokens ?? rawGenerationConfig.max_output_tokens) as number | undefined;
-                if (headerStyle === "antigravity" && !currentMax) {
-                  rawGenerationConfig.maxOutputTokens = 64000;
+              if (
+                isClaudeThinking &&
+                typeof thinkingBudget === 'number' &&
+                thinkingBudget > 0
+              ) {
+                const currentMax = (rawGenerationConfig.maxOutputTokens ??
+                  rawGenerationConfig.max_output_tokens) as number | undefined
+                if (headerStyle === 'antigravity' && !currentMax) {
+                  rawGenerationConfig.maxOutputTokens = 64000
                 } else if (!currentMax || currentMax <= thinkingBudget) {
-                  rawGenerationConfig.maxOutputTokens = computeClaudeMaxOutputTokens(thinkingBudget);
+                  rawGenerationConfig.maxOutputTokens =
+                    computeClaudeMaxOutputTokens(thinkingBudget)
                 }
                 if (rawGenerationConfig.max_output_tokens !== undefined) {
-                  delete rawGenerationConfig.max_output_tokens;
+                  delete rawGenerationConfig.max_output_tokens
                 }
               }
-              requestPayload.generationConfig = rawGenerationConfig;
+              requestPayload.generationConfig = rawGenerationConfig
             } else {
-              const generationConfig: Record<string, unknown> = { thinkingConfig };
-
-              if (isClaudeThinking && typeof thinkingBudget === "number" && thinkingBudget > 0) {
-                generationConfig.maxOutputTokens = headerStyle === "antigravity"
-                  ? 64000
-                  : computeClaudeMaxOutputTokens(thinkingBudget);
+              const generationConfig: Record<string, unknown> = {
+                thinkingConfig,
               }
-              applyAgyGenerationDefaults(effectiveModel, generationConfig, headerStyle);
-              requestPayload.generationConfig = generationConfig;
+
+              if (
+                isClaudeThinking &&
+                typeof thinkingBudget === 'number' &&
+                thinkingBudget > 0
+              ) {
+                generationConfig.maxOutputTokens =
+                  headerStyle === 'antigravity'
+                    ? 64000
+                    : computeClaudeMaxOutputTokens(thinkingBudget)
+              }
+              applyAgyGenerationDefaults(
+                effectiveModel,
+                generationConfig,
+                headerStyle,
+              )
+              requestPayload.generationConfig = generationConfig
             }
           } else if (rawGenerationConfig?.thinkingConfig) {
-            delete rawGenerationConfig.thinkingConfig;
-            applyAgyGenerationDefaults(effectiveModel, rawGenerationConfig, headerStyle);
-            requestPayload.generationConfig = rawGenerationConfig;
+            delete rawGenerationConfig.thinkingConfig
+            applyAgyGenerationDefaults(
+              effectiveModel,
+              rawGenerationConfig,
+              headerStyle,
+            )
+            requestPayload.generationConfig = rawGenerationConfig
           } else if (rawGenerationConfig) {
-            applyAgyGenerationDefaults(effectiveModel, rawGenerationConfig, headerStyle);
-            requestPayload.generationConfig = rawGenerationConfig;
+            applyAgyGenerationDefaults(
+              effectiveModel,
+              rawGenerationConfig,
+              headerStyle,
+            )
+            requestPayload.generationConfig = rawGenerationConfig
           }
         } // End of else block for non-image models
 
         // Clean up thinking fields from extra_body
         if (extraBody) {
-          delete extraBody.thinkingConfig;
-          delete extraBody.thinking;
+          delete extraBody.thinkingConfig
+          delete extraBody.thinking
         }
-        delete requestPayload.thinkingConfig;
-        delete requestPayload.thinking;
+        delete requestPayload.thinkingConfig
+        delete requestPayload.thinking
 
-        if ("system_instruction" in requestPayload) {
-          requestPayload.systemInstruction = requestPayload.system_instruction;
-          delete requestPayload.system_instruction;
+        if ('system_instruction' in requestPayload) {
+          requestPayload.systemInstruction = requestPayload.system_instruction
+          delete requestPayload.system_instruction
         }
 
-        if (headerStyle !== "antigravity") {
+        if (headerStyle !== 'antigravity') {
           // Gemini CLI accepts explicit cachedContent references. Normalize its
           // snake_case aliases only on that transport; agy relies on implicit
           // prefix caching and does not send any of these fields.
           const cachedContentFromExtra =
-            typeof requestPayload.extra_body === "object" && requestPayload.extra_body
-              ? (requestPayload.extra_body as Record<string, unknown>).cached_content ??
-                (requestPayload.extra_body as Record<string, unknown>).cachedContent
-              : undefined;
+            typeof requestPayload.extra_body === 'object' &&
+            requestPayload.extra_body
+              ? ((requestPayload.extra_body as Record<string, unknown>)
+                  .cached_content ??
+                (requestPayload.extra_body as Record<string, unknown>)
+                  .cachedContent)
+              : undefined
           const cachedContent =
             (requestPayload.cached_content as string | undefined) ??
             (requestPayload.cachedContent as string | undefined) ??
-            (cachedContentFromExtra as string | undefined);
+            (cachedContentFromExtra as string | undefined)
           if (cachedContent) {
-            requestPayload.cachedContent = cachedContent;
+            requestPayload.cachedContent = cachedContent
           }
 
-          delete requestPayload.cached_content;
-          if (requestPayload.extra_body && typeof requestPayload.extra_body === "object") {
-            delete (requestPayload.extra_body as Record<string, unknown>).cached_content;
-            delete (requestPayload.extra_body as Record<string, unknown>).cachedContent;
-            if (Object.keys(requestPayload.extra_body as Record<string, unknown>).length === 0) {
-              delete requestPayload.extra_body;
+          delete requestPayload.cached_content
+          if (
+            requestPayload.extra_body &&
+            typeof requestPayload.extra_body === 'object'
+          ) {
+            delete (requestPayload.extra_body as Record<string, unknown>)
+              .cached_content
+            delete (requestPayload.extra_body as Record<string, unknown>)
+              .cachedContent
+            if (
+              Object.keys(requestPayload.extra_body as Record<string, unknown>)
+                .length === 0
+            ) {
+              delete requestPayload.extra_body
             }
           }
         }
         // Normalize tools. For Claude models, keep full function declarations (names + schemas).
-        const hasTools = Array.isArray(requestPayload.tools) && requestPayload.tools.length > 0;
+        const hasTools =
+          Array.isArray(requestPayload.tools) && requestPayload.tools.length > 0
 
         if (hasTools) {
           if (isClaude) {
-            const functionDeclarations: any[] = [];
-            const passthroughTools: any[] = [];
+            const functionDeclarations: any[] = []
+            const passthroughTools: any[] = []
 
             const normalizeSchema = (schema: any) => {
               const createPlaceholderSchema = (base: any = {}) => ({
                 ...base,
-                type: "object",
+                type: 'object',
                 properties: {
                   [EMPTY_SCHEMA_PLACEHOLDER_NAME]: {
-                    type: "boolean",
+                    type: 'boolean',
                     description: EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION,
                   },
                 },
                 required: [EMPTY_SCHEMA_PLACEHOLDER_NAME],
-              });
+              })
 
-              if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
-                toolDebugMissing += 1;
-                return createPlaceholderSchema();
+              if (
+                !schema ||
+                typeof schema !== 'object' ||
+                Array.isArray(schema)
+              ) {
+                toolDebugMissing += 1
+                return createPlaceholderSchema()
               }
 
-              const cleaned = cleanJSONSchemaForAntigravity(schema);
+              const cleaned = cleanJSONSchemaForAntigravity(schema)
 
-              if (!cleaned || typeof cleaned !== "object" || Array.isArray(cleaned)) {
-                toolDebugMissing += 1;
-                return createPlaceholderSchema();
+              if (
+                !cleaned ||
+                typeof cleaned !== 'object' ||
+                Array.isArray(cleaned)
+              ) {
+                toolDebugMissing += 1
+                return createPlaceholderSchema()
               }
 
               // Claude VALIDATED mode requires tool parameters to be an object schema
               // with at least one property.
               const hasProperties =
                 cleaned.properties &&
-                typeof cleaned.properties === "object" &&
-                Object.keys(cleaned.properties).length > 0;
+                typeof cleaned.properties === 'object' &&
+                Object.keys(cleaned.properties).length > 0
 
-              cleaned.type = "object";
+              cleaned.type = 'object'
 
               if (!hasProperties) {
                 cleaned.properties = {
                   [EMPTY_SCHEMA_PLACEHOLDER_NAME]: {
-                    type: "boolean",
+                    type: 'boolean',
                     description: EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION,
                   },
-                };
+                }
                 cleaned.required = Array.isArray(cleaned.required)
-                  ? Array.from(new Set([...cleaned.required, EMPTY_SCHEMA_PLACEHOLDER_NAME]))
-                  : [EMPTY_SCHEMA_PLACEHOLDER_NAME];
+                  ? Array.from(
+                      new Set([
+                        ...cleaned.required,
+                        EMPTY_SCHEMA_PLACEHOLDER_NAME,
+                      ]),
+                    )
+                  : [EMPTY_SCHEMA_PLACEHOLDER_NAME]
               }
 
-              return cleaned;
-            };
+              return cleaned
+            }
 
-            (requestPayload.tools as any[]).forEach((tool: any) => {
+            ;(requestPayload.tools as any[]).forEach((tool: any) => {
               const pushDeclaration = (decl: any, source: string) => {
                 const schema =
                   decl?.parameters ||
@@ -1583,39 +1980,46 @@ export function prepareAntigravityRequest(
                   tool.function?.inputSchema ||
                   tool.custom?.parameters ||
                   tool.custom?.parametersJsonSchema ||
-                  tool.custom?.input_schema;
+                  tool.custom?.input_schema
 
                 let name =
                   decl?.name ||
                   tool.name ||
                   tool.function?.name ||
                   tool.custom?.name ||
-                  `tool-${functionDeclarations.length}`;
+                  `tool-${functionDeclarations.length}`
 
                 // Sanitize tool name: must be alphanumeric with underscores, no special chars
-                name = String(name).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+                name = String(name)
+                  .replace(/[^a-zA-Z0-9_-]/g, '_')
+                  .slice(0, 64)
 
                 const description =
                   decl?.description ||
                   tool.description ||
                   tool.function?.description ||
                   tool.custom?.description ||
-                  "";
+                  ''
 
                 functionDeclarations.push({
                   name,
-                  description: String(description || ""),
+                  description: String(description || ''),
                   parameters: normalizeSchema(schema),
-                });
+                })
 
                 toolDebugSummaries.push(
-                  `decl=${name},src=${source},hasSchema=${schema ? "y" : "n"}`,
-                );
-              };
+                  `decl=${name},src=${source},hasSchema=${schema ? 'y' : 'n'}`,
+                )
+              }
 
-              if (Array.isArray(tool.functionDeclarations) && tool.functionDeclarations.length > 0) {
-                tool.functionDeclarations.forEach((decl: any) => pushDeclaration(decl, "functionDeclarations"));
-                return;
+              if (
+                Array.isArray(tool.functionDeclarations) &&
+                tool.functionDeclarations.length > 0
+              ) {
+                tool.functionDeclarations.forEach((decl: any) => {
+                  pushDeclaration(decl, 'functionDeclarations')
+                })
+                return
               }
 
               // Fall back to function/custom style definitions.
@@ -1626,19 +2030,22 @@ export function prepareAntigravityRequest(
                 tool.input_schema ||
                 tool.inputSchema
               ) {
-                pushDeclaration(tool.function ?? tool.custom ?? tool, "function/custom");
-                return;
+                pushDeclaration(
+                  tool.function ?? tool.custom ?? tool,
+                  'function/custom',
+                )
+                return
               }
 
               // Preserve any non-function tool entries (e.g., codeExecution) untouched.
-              passthroughTools.push(tool);
-            });
+              passthroughTools.push(tool)
+            })
 
-            const finalTools: any[] = [];
+            const finalTools: any[] = []
             if (functionDeclarations.length > 0) {
-              finalTools.push({ functionDeclarations });
+              finalTools.push({ functionDeclarations })
             }
-            requestPayload.tools = finalTools.concat(passthroughTools);
+            requestPayload.tools = finalTools.concat(passthroughTools)
           } else {
             // Gemini-specific tool normalization and feature injection
             const geminiResult = applyGeminiTransforms(requestPayload, {
@@ -1646,74 +2053,121 @@ export function prepareAntigravityRequest(
               normalizedThinking: undefined, // Thinking config already applied above (lines 816-880)
               tierThinkingBudget,
               tierThinkingLevel: tierThinkingLevel as ThinkingTier | undefined,
-            });
+            })
 
-            toolDebugMissing = geminiResult.toolDebugMissing;
-            toolDebugSummaries.push(...geminiResult.toolDebugSummaries);
+            toolDebugMissing = geminiResult.toolDebugMissing
+            toolDebugSummaries.push(...geminiResult.toolDebugSummaries)
           }
 
           try {
-            toolDebugPayload = JSON.stringify(requestPayload.tools);
+            toolDebugPayload = JSON.stringify(requestPayload.tools)
           } catch {
-            toolDebugPayload = undefined;
+            toolDebugPayload = undefined
           }
 
           // Apply Claude tool hardening (ported from LLM-API-Key-Proxy)
           // Injects parameter signatures into descriptions and adds system instruction
           // Can be disabled via config.claude_tool_hardening = false to reduce context size
-          const enableToolHardening = options?.claudeToolHardening ?? true;
-          if (enableToolHardening && isClaude && Array.isArray(requestPayload.tools) && requestPayload.tools.length > 0) {
+          const enableToolHardening = options?.claudeToolHardening ?? true
+          if (
+            enableToolHardening &&
+            isClaude &&
+            Array.isArray(requestPayload.tools) &&
+            requestPayload.tools.length > 0
+          ) {
             // Inject parameter signatures into tool descriptions
             requestPayload.tools = injectParameterSignatures(
               requestPayload.tools,
               CLAUDE_DESCRIPTION_PROMPT,
-            );
+            )
 
             // Inject tool hardening system instruction
             injectToolHardeningInstruction(
               requestPayload as Record<string, unknown>,
               CLAUDE_TOOL_SYSTEM_INSTRUCTION,
-            );
+            )
           }
 
           // Append interleaved thinking hint for Claude thinking models with tools.
           // Must come AFTER tool hardening so it is the last system instruction part,
           // preserving the stable prefix for prompt cache matching.
-          if (isClaudeThinking && Array.isArray(requestPayload.tools) && (requestPayload.tools as unknown[]).length > 0) {
-            appendClaudeThinkingHint(requestPayload as Record<string, unknown>);
+          if (
+            isClaudeThinking &&
+            Array.isArray(requestPayload.tools) &&
+            (requestPayload.tools as unknown[]).length > 0
+          ) {
+            appendClaudeThinkingHint(requestPayload as Record<string, unknown>)
           }
         }
-        const conversationKey = resolveConversationKey(requestPayload);
-        signatureSessionKey = buildSignatureSessionKey(PLUGIN_SESSION_ID, effectiveModel, conversationKey, resolveProjectKey(projectId));
+        const conversationKey = resolveConversationKey(requestPayload)
+        signatureSessionKey = buildSignatureSessionKey(
+          PLUGIN_SESSION_ID,
+          effectiveModel,
+          conversationKey,
+          resolveProjectKey(projectId),
+        )
 
         // For Claude models, filter out unsigned thinking blocks (required by Claude API)
         // Attempts to restore signatures from cache for multi-turn conversations
         // Handle both Gemini-style contents[] and Anthropic-style messages[] payloads.
         if (isClaude) {
           // Step 0: Sanitize cross-model metadata (strips Gemini signatures when sending to Claude)
-          sanitizeCrossModelPayloadInPlace(requestPayload, { targetModel: effectiveModel });
+          sanitizeCrossModelPayloadInPlace(requestPayload, {
+            targetModel: effectiveModel,
+          })
 
           // Step 1: Strip corrupted/unsigned thinking blocks FIRST
-          deepFilterThinkingBlocks(requestPayload, signatureSessionKey, getCachedSignature, true);
+          deepFilterThinkingBlocks(
+            requestPayload,
+            signatureSessionKey,
+            getCachedSignature,
+            true,
+          )
 
           // Step 2: THEN inject signed thinking from cache (after stripping)
-          if (isClaudeThinking && keepThinkingEnabled && Array.isArray(requestPayload.contents)) {
-            requestPayload.contents = ensureThinkingBeforeToolUseInContents(requestPayload.contents, signatureSessionKey);
+          if (
+            isClaudeThinking &&
+            keepThinkingEnabled &&
+            Array.isArray(requestPayload.contents)
+          ) {
+            requestPayload.contents = ensureThinkingBeforeToolUseInContents(
+              requestPayload.contents,
+              signatureSessionKey,
+            )
           }
-          if (isClaudeThinking && keepThinkingEnabled && Array.isArray(requestPayload.messages)) {
-            requestPayload.messages = ensureThinkingBeforeToolUseInMessages(requestPayload.messages, signatureSessionKey);
+          if (
+            isClaudeThinking &&
+            keepThinkingEnabled &&
+            Array.isArray(requestPayload.messages)
+          ) {
+            requestPayload.messages = ensureThinkingBeforeToolUseInMessages(
+              requestPayload.messages,
+              signatureSessionKey,
+            )
           }
 
           // Step 3: Check if warmup needed (AFTER injection attempt)
           if (isClaudeThinking && keepThinkingEnabled) {
             const hasToolUse =
-              (Array.isArray(requestPayload.contents) && hasToolUseInContents(requestPayload.contents)) ||
-              (Array.isArray(requestPayload.messages) && hasToolUseInMessages(requestPayload.messages));
+              (Array.isArray(requestPayload.contents) &&
+                hasToolUseInContents(requestPayload.contents)) ||
+              (Array.isArray(requestPayload.messages) &&
+                hasToolUseInMessages(requestPayload.messages))
             const hasSignedThinking =
-              (Array.isArray(requestPayload.contents) && hasSignedThinkingInContents(requestPayload.contents, signatureSessionKey)) ||
-              (Array.isArray(requestPayload.messages) && hasSignedThinkingInMessages(requestPayload.messages, signatureSessionKey));
-            const hasCachedThinking = defaultSignatureStore.has(signatureSessionKey);
-            needsSignedThinkingWarmup = hasToolUse && !hasSignedThinking && !hasCachedThinking;
+              (Array.isArray(requestPayload.contents) &&
+                hasSignedThinkingInContents(
+                  requestPayload.contents,
+                  signatureSessionKey,
+                )) ||
+              (Array.isArray(requestPayload.messages) &&
+                hasSignedThinkingInMessages(
+                  requestPayload.messages,
+                  signatureSessionKey,
+                ))
+            const hasCachedThinking =
+              defaultSignatureStore.has(signatureSessionKey)
+            needsSignedThinkingWarmup =
+              hasToolUse && !hasSignedThinking && !hasCachedThinking
           }
         }
 
@@ -1721,71 +2175,82 @@ export function prepareAntigravityRequest(
         // We use a two-pass approach: first collect all functionCalls and assign IDs,
         // then match functionResponses to their corresponding calls using a FIFO queue per function name.
         if (isClaude && Array.isArray(requestPayload.contents)) {
-          let toolCallCounter = 0;
+          let toolCallCounter = 0
           // Track pending call IDs per function name as a FIFO queue
-          const pendingCallIdsByName = new Map<string, string[]>();
+          const pendingCallIdsByName = new Map<string, string[]>()
 
           // First pass: assign IDs to all functionCalls and collect them
-          requestPayload.contents = requestPayload.contents.map((content: any) => {
-            if (!content || !Array.isArray(content.parts)) {
-              return content;
-            }
-
-            const newParts = content.parts.map((part: any) => {
-              if (part && typeof part === "object" && part.functionCall) {
-                const call = { ...part.functionCall };
-                if (!call.id) {
-                  call.id = `tool-call-${++toolCallCounter}`;
-                }
-                const nameKey = typeof call.name === "string" ? call.name : `tool-${toolCallCounter}`;
-                // Push to the queue for this function name
-                const queue = pendingCallIdsByName.get(nameKey) || [];
-                queue.push(call.id);
-                pendingCallIdsByName.set(nameKey, queue);
-                return { ...part, functionCall: call };
+          requestPayload.contents = requestPayload.contents.map(
+            (content: any) => {
+              if (!content || !Array.isArray(content.parts)) {
+                return content
               }
-              return part;
-            });
 
-            return { ...content, parts: newParts };
-          });
+              const newParts = content.parts.map((part: any) => {
+                if (part && typeof part === 'object' && part.functionCall) {
+                  const call = { ...part.functionCall }
+                  if (!call.id) {
+                    call.id = `tool-call-${++toolCallCounter}`
+                  }
+                  const nameKey =
+                    typeof call.name === 'string'
+                      ? call.name
+                      : `tool-${toolCallCounter}`
+                  // Push to the queue for this function name
+                  const queue = pendingCallIdsByName.get(nameKey) || []
+                  queue.push(call.id)
+                  pendingCallIdsByName.set(nameKey, queue)
+                  return { ...part, functionCall: call }
+                }
+                return part
+              })
+
+              return { ...content, parts: newParts }
+            },
+          )
 
           // Second pass: match functionResponses to their corresponding calls (FIFO order)
-          requestPayload.contents = (requestPayload.contents as any[]).map((content: any) => {
-            if (!content || !Array.isArray(content.parts)) {
-              return content;
-            }
-
-            const newParts = content.parts.map((part: any) => {
-              if (part && typeof part === "object" && part.functionResponse) {
-                const resp = { ...part.functionResponse };
-                if (!resp.id && typeof resp.name === "string") {
-                  const queue = pendingCallIdsByName.get(resp.name);
-                  if (queue && queue.length > 0) {
-                    // Consume the first pending ID (FIFO order)
-                    resp.id = queue.shift();
-                    pendingCallIdsByName.set(resp.name, queue);
-                  }
-                }
-                return { ...part, functionResponse: resp };
+          requestPayload.contents = (requestPayload.contents as any[]).map(
+            (content: any) => {
+              if (!content || !Array.isArray(content.parts)) {
+                return content
               }
-              return part;
-            });
 
-            return { ...content, parts: newParts };
-          });
+              const newParts = content.parts.map((part: any) => {
+                if (part && typeof part === 'object' && part.functionResponse) {
+                  const resp = { ...part.functionResponse }
+                  if (!resp.id && typeof resp.name === 'string') {
+                    const queue = pendingCallIdsByName.get(resp.name)
+                    if (queue && queue.length > 0) {
+                      // Consume the first pending ID (FIFO order)
+                      resp.id = queue.shift()
+                      pendingCallIdsByName.set(resp.name, queue)
+                    }
+                  }
+                  return { ...part, functionResponse: resp }
+                }
+                return part
+              })
+
+              return { ...content, parts: newParts }
+            },
+          )
 
           // Third pass: Apply orphan recovery for mismatched tool IDs
           // This handles cases where context compaction or other processes
           // create ID mismatches between calls and responses.
           // Ported from LLM-API-Key-Proxy's _fix_tool_response_grouping()
-          requestPayload.contents = fixToolResponseGrouping(requestPayload.contents as any[]);
+          requestPayload.contents = fixToolResponseGrouping(
+            requestPayload.contents as any[],
+          )
         }
 
         // Fourth pass: Fix Claude format tool pairing (defense in depth)
         // Handles orphaned tool_use blocks in Claude's messages[] format
         if (Array.isArray(requestPayload.messages)) {
-          requestPayload.messages = validateAndFixClaudeToolPairing(requestPayload.messages);
+          requestPayload.messages = validateAndFixClaudeToolPairing(
+            requestPayload.messages,
+          )
         }
 
         // =====================================================================
@@ -1804,19 +2269,26 @@ export function prepareAntigravityRequest(
         // The synthetic messages allow Claude to generate fresh thinking on the
         // new turn instead of failing with "Expected thinking but found text".
         if (isClaudeThinking && Array.isArray(requestPayload.contents)) {
-          const conversationState = analyzeConversationState(requestPayload.contents);
+          const conversationState = analyzeConversationState(
+            requestPayload.contents,
+          )
 
           // Force recovery if API returned thinking_block_order error (retry case)
           // or if proactive check detects we need recovery
-          if (forceThinkingRecovery || needsThinkingRecovery(conversationState)) {
+          if (
+            forceThinkingRecovery ||
+            needsThinkingRecovery(conversationState)
+          ) {
             // Set message for toast notification (shown in plugin.ts, respects quiet mode)
             thinkingRecoveryMessage = forceThinkingRecovery
-              ? "Thinking recovery: retrying with fresh turn (API error)"
-              : "Thinking recovery: restarting turn (corrupted context)";
+              ? 'Thinking recovery: retrying with fresh turn (API error)'
+              : 'Thinking recovery: restarting turn (corrupted context)'
 
-            requestPayload.contents = closeToolLoopForThinking(requestPayload.contents);
+            requestPayload.contents = closeToolLoopForThinking(
+              requestPayload.contents,
+            )
 
-            defaultSignatureStore.delete(signatureSessionKey);
+            defaultSignatureStore.delete(signatureSessionKey)
           }
         }
 
@@ -1824,73 +2296,97 @@ export function prepareAntigravityRequest(
         // the final wire boundary because host races, recovery, or sanitization can
         // otherwise leave a model/assistant entry last. Claude fallback transports
         // have the same assistant-prefill restriction.
-        if (headerStyle === "antigravity" || isClaude) {
+        if (headerStyle === 'antigravity' || isClaude) {
           if (Array.isArray(requestPayload.contents)) {
-            const lastContent = requestPayload.contents[requestPayload.contents.length - 1] as any;
-            if (lastContent?.role === "model" || lastContent?.role === "assistant") {
-              requestPayload.contents.push({ role: "user", parts: [{ text: "[Continue]" }] });
+            const lastContent = requestPayload.contents[
+              requestPayload.contents.length - 1
+            ] as any
+            if (
+              lastContent?.role === 'model' ||
+              lastContent?.role === 'assistant'
+            ) {
+              requestPayload.contents.push({
+                role: 'user',
+                parts: [{ text: '[Continue]' }],
+              })
             }
           }
           if (Array.isArray(requestPayload.messages)) {
-            const lastMessage = (requestPayload.messages as any[])[requestPayload.messages.length - 1];
-            if (lastMessage?.role === "model" || lastMessage?.role === "assistant") {
-              (requestPayload.messages as any[]).push({ role: "user", parts: [{ text: "[Continue]" }] });
+            const lastMessage = (requestPayload.messages as any[])[
+              requestPayload.messages.length - 1
+            ]
+            if (
+              lastMessage?.role === 'model' ||
+              lastMessage?.role === 'assistant'
+            ) {
+              ;(requestPayload.messages as any[]).push({
+                role: 'user',
+                parts: [{ text: '[Continue]' }],
+              })
             }
           }
         }
 
-        if ("model" in requestPayload) {
-          delete requestPayload.model;
+        if ('model' in requestPayload) {
+          delete requestPayload.model
         }
 
-        stripInjectedDebugFromRequestPayload(requestPayload);
-        sanitizeRequestPayloadForAntigravity(requestPayload);
-        if (headerStyle === "antigravity") {
-          stripUnsupportedAntigravityFields(requestPayload);
-          configureAntigravityToolCalling(requestPayload);
+        stripInjectedDebugFromRequestPayload(requestPayload)
+        sanitizeRequestPayloadForAntigravity(requestPayload)
+        if (headerStyle === 'antigravity') {
+          stripUnsupportedAntigravityFields(requestPayload)
+          configureAntigravityToolCalling(requestPayload)
         }
         // Use the stable default project ID (never a per-request random one):
         // a fresh random project each request busts the prompt cache and
         // fragments server-side quota/session state. ensureProjectContext
         // already floors empty cases to this default; this is defense in depth.
-        const effectiveProjectId = projectId?.trim() || (headerStyle === "antigravity" ? ANTIGRAVITY_DEFAULT_PROJECT_ID : "");
-        resolvedProjectId = effectiveProjectId;
+        const effectiveProjectId =
+          projectId?.trim() ||
+          (headerStyle === 'antigravity' ? ANTIGRAVITY_DEFAULT_PROJECT_ID : '')
+        resolvedProjectId = effectiveProjectId
 
         // Keep internal signature-cache identity separate from AGY wire session metadata.
-        sessionId = signatureSessionKey;
-        const agyMetadata = headerStyle === "antigravity"
-          ? buildAgyAgentRequestMetadata(
-              options?.agySession ?? DEFAULT_AGY_REQUEST_SESSION,
-              requestPayload,
-              effectiveModel,
-              options?.agyRequestTimestamp,
-            )
-          : null;
-        requestPayload.sessionId = agyMetadata?.sessionId ?? signatureSessionKey;
+        sessionId = signatureSessionKey
+        const agyMetadata =
+          headerStyle === 'antigravity'
+            ? buildAgyAgentRequestMetadata(
+                options?.agySession ?? DEFAULT_AGY_REQUEST_SESSION,
+                requestPayload,
+                effectiveModel,
+                options?.agyRequestTimestamp,
+              )
+            : null
+        requestPayload.sessionId = agyMetadata?.sessionId ?? signatureSessionKey
         if (agyMetadata) {
-          requestPayload.labels = agyMetadata.labels;
-          orderAgyRequestPayloadInPlace(requestPayload);
+          requestPayload.labels = agyMetadata.labels
+          orderAgyRequestPayloadInPlace(requestPayload)
         }
 
-        const wrappedBody: Record<string, unknown> = headerStyle === "antigravity"
-          ? {
-              project: effectiveProjectId,
-              requestId: agyMetadata!.requestId,
-              request: requestPayload,
-              model: effectiveModel,
-              userAgent: "antigravity",
-              requestType: "agent",
-            }
-          : {
-              project: effectiveProjectId,
-              model: effectiveModel,
-              request: requestPayload,
-            };
+        const wrappedBody: Record<string, unknown> =
+          headerStyle === 'antigravity'
+            ? {
+                project: effectiveProjectId,
+                requestId: agyMetadata?.requestId,
+                request: requestPayload,
+                model: effectiveModel,
+                userAgent: 'antigravity',
+                requestType: 'agent',
+              }
+            : {
+                project: effectiveProjectId,
+                model: effectiveModel,
+                request: requestPayload,
+              }
 
-        body = safeStringify(headerStyle === "antigravity" ? orderAntigravityEnvelope(wrappedBody) : wrappedBody);
+        body = safeStringify(
+          headerStyle === 'antigravity'
+            ? orderAntigravityEnvelope(wrappedBody)
+            : wrappedBody,
+        )
       }
     } catch {
-      throw new Error("Failed to build Antigravity request body");
+      throw new Error('Failed to build Antigravity request body')
     }
   }
   // agy CLI does not send an Accept header on streamGenerateContent requests.
@@ -1899,37 +2395,43 @@ export function prepareAntigravityRequest(
   // Add interleaved thinking header for Claude thinking models
   // This enables real-time streaming of thinking tokens
   if (isClaudeThinking) {
-    const existing = headers.get("anthropic-beta");
-    const interleavedHeader = "interleaved-thinking-2025-05-14";
+    const existing = headers.get('anthropic-beta')
+    const interleavedHeader = 'interleaved-thinking-2025-05-14'
 
     if (existing) {
       if (!existing.includes(interleavedHeader)) {
-        headers.set("anthropic-beta", `${existing},${interleavedHeader}`);
+        headers.set('anthropic-beta', `${existing},${interleavedHeader}`)
       }
     } else {
-      headers.set("anthropic-beta", interleavedHeader);
+      headers.set('anthropic-beta', interleavedHeader)
     }
   }
 
-  if (headerStyle === "antigravity") {
+  if (headerStyle === 'antigravity') {
     // Use randomized headers as the fallback pool for Antigravity mode
-    const selectedHeaders = getRandomizedHeaders("antigravity", requestedModel);
+    const selectedHeaders = getRandomizedHeaders('antigravity', requestedModel)
 
     // Antigravity mode: Match Antigravity Manager behavior
     // AM only sends User-Agent on content requests — no X-Goog-Api-Client, no Client-Metadata header
     // (ideType=ANTIGRAVITY goes in request body metadata via project.ts, not as a header)
-    const fingerprint = options?.fingerprint ?? getSessionFingerprint();
-    const fingerprintHeaders = buildFingerprintHeaders(fingerprint);
+    const fingerprint = options?.fingerprint ?? getSessionFingerprint()
+    const fingerprintHeaders = buildFingerprintHeaders(fingerprint)
 
-    headers.set("User-Agent", fingerprintHeaders["User-Agent"] || selectedHeaders["User-Agent"]);
-    headers.set("Accept-Encoding", "gzip");
+    headers.set(
+      'User-Agent',
+      fingerprintHeaders['User-Agent'] || selectedHeaders['User-Agent'],
+    )
+    headers.set('Accept-Encoding', 'gzip')
   } else {
     // Gemini CLI mode: match official google-gemini/gemini-cli User-Agent format
-    const geminiCliHeaders = getRandomizedHeaders("gemini-cli", requestedModel);
-    headers.set("User-Agent", geminiCliHeaders["User-Agent"]);
-    if (geminiCliHeaders["X-Goog-Api-Client"]) headers.set("X-Goog-Api-Client", geminiCliHeaders["X-Goog-Api-Client"]);
-    if (geminiCliHeaders["Client-Metadata"]) headers.set("Client-Metadata", geminiCliHeaders["Client-Metadata"]);
-  }  return {
+    const geminiCliHeaders = getRandomizedHeaders('gemini-cli', requestedModel)
+    headers.set('User-Agent', geminiCliHeaders['User-Agent'])
+    if (geminiCliHeaders['X-Goog-Api-Client'])
+      headers.set('X-Goog-Api-Client', geminiCliHeaders['X-Goog-Api-Client'])
+    if (geminiCliHeaders['Client-Metadata'])
+      headers.set('Client-Metadata', geminiCliHeaders['Client-Metadata'])
+  }
+  return {
     request: transformedUrl,
     init: {
       ...baseInit,
@@ -1943,12 +2445,12 @@ export function prepareAntigravityRequest(
     endpoint: transformedUrl,
     sessionId,
     toolDebugMissing,
-    toolDebugSummary: toolDebugSummaries.slice(0, 20).join(" | "),
+    toolDebugSummary: toolDebugSummaries.slice(0, 20).join(' | '),
     toolDebugPayload,
     needsSignedThinkingWarmup,
     headerStyle,
     thinkingRecoveryMessage,
-  };
+  }
 }
 
 export function buildThinkingWarmupBody(
@@ -1956,64 +2458,74 @@ export function buildThinkingWarmupBody(
   isClaudeThinking: boolean,
 ): string | null {
   if (!bodyText || !isClaudeThinking) {
-    return null;
+    return null
   }
 
-  let parsed: Record<string, unknown>;
+  let parsed: Record<string, unknown>
   try {
-    parsed = JSON.parse(bodyText) as Record<string, unknown>;
+    parsed = JSON.parse(bodyText) as Record<string, unknown>
   } catch {
-    return null;
+    return null
   }
 
-  const warmupPrompt = "Warmup request for thinking signature.";
+  const warmupPrompt = 'Warmup request for thinking signature.'
 
-  const wireModel = typeof parsed.model === "string" ? parsed.model : "claude-sonnet-4-6";
-  const requestObjects: Record<string, unknown>[] = [];
+  const wireModel =
+    typeof parsed.model === 'string' ? parsed.model : 'claude-sonnet-4-6'
+  const requestObjects: Record<string, unknown>[] = []
   const updateRequest = (req: Record<string, unknown>) => {
-    req.contents = [{ role: "user", parts: [{ text: warmupPrompt }] }];
-    delete req.tools;
-    delete req.toolConfig;
+    req.contents = [{ role: 'user', parts: [{ text: warmupPrompt }] }]
+    delete req.tools
+    delete req.toolConfig
 
-    const generationConfig = (req.generationConfig ?? {}) as Record<string, unknown>;
+    const generationConfig = (req.generationConfig ?? {}) as Record<
+      string,
+      unknown
+    >
     generationConfig.thinkingConfig = {
       includeThoughts: true,
       thinkingBudget: AGY_CLAUDE_THINKING_BUDGET,
-    };
-    generationConfig.maxOutputTokens = getAgyMaxOutputTokens(wireModel) ??
-      computeClaudeMaxOutputTokens(AGY_CLAUDE_THINKING_BUDGET);
-    req.generationConfig = generationConfig;
-    requestObjects.push(req);
-  };
-
-  if (parsed.request && typeof parsed.request === "object") {
-    updateRequest(parsed.request as Record<string, unknown>);
-    const nested = (parsed.request as Record<string, unknown>).request;
-    if (nested && typeof nested === "object") {
-      updateRequest(nested as Record<string, unknown>);
     }
-  } else {
-    updateRequest(parsed);
+    generationConfig.maxOutputTokens =
+      getAgyMaxOutputTokens(wireModel) ??
+      computeClaudeMaxOutputTokens(AGY_CLAUDE_THINKING_BUDGET)
+    req.generationConfig = generationConfig
+    requestObjects.push(req)
   }
 
-  const wireRequest = requestObjects.at(-1);
+  if (parsed.request && typeof parsed.request === 'object') {
+    updateRequest(parsed.request as Record<string, unknown>)
+    const nested = (parsed.request as Record<string, unknown>).request
+    if (nested && typeof nested === 'object') {
+      updateRequest(nested as Record<string, unknown>)
+    }
+  } else {
+    updateRequest(parsed)
+  }
+
+  const wireRequest = requestObjects.at(-1)
   if (wireRequest) {
-    const numericSessionId = typeof wireRequest.sessionId === "string"
-      ? wireRequest.sessionId
-      : DEFAULT_AGY_REQUEST_SESSION.numericSessionId;
+    const numericSessionId =
+      typeof wireRequest.sessionId === 'string'
+        ? wireRequest.sessionId
+        : DEFAULT_AGY_REQUEST_SESSION.numericSessionId
     const warmupSession: AgyRequestSessionContext = {
       conversationId: crypto.randomUUID(),
       trajectoryId: crypto.randomUUID(),
       numericSessionId,
-    };
-    const metadata = buildAgyAgentRequestMetadata(warmupSession, wireRequest, wireModel);
-    parsed.requestId = metadata.requestId;
-    wireRequest.sessionId = metadata.sessionId;
-    wireRequest.labels = metadata.labels;
-    orderAgyRequestPayloadInPlace(wireRequest);
+    }
+    const metadata = buildAgyAgentRequestMetadata(
+      warmupSession,
+      wireRequest,
+      wireModel,
+    )
+    parsed.requestId = metadata.requestId
+    wireRequest.sessionId = metadata.sessionId
+    wireRequest.labels = metadata.labels
+    orderAgyRequestPayloadInPlace(wireRequest)
   }
 
-  return safeStringify(parsed);
+  return safeStringify(parsed)
 }
 /**
  * Normalizes Antigravity responses: applies retry headers, extracts cache usage into headers,
@@ -2037,9 +2549,9 @@ export async function transformAntigravityResponse(
   debugLines?: string[],
   dumpContext?: GeminiDumpContext | null,
 ): Promise<Response> {
-  const contentType = response.headers.get("content-type") ?? "";
-  const isJsonResponse = contentType.includes("application/json");
-  const isEventStreamResponse = contentType.includes("text/event-stream");
+  const contentType = response.headers.get('content-type') ?? ''
+  const isJsonResponse = contentType.includes('application/json')
+  const isEventStreamResponse = contentType.includes('text/event-stream')
 
   // Generate text for thinking injection:
   // - If debug=true: inject full debug logs
@@ -2050,29 +2562,31 @@ export async function transformAntigravityResponse(
       ? formatDebugLinesForThinking(debugLines)
       : getKeepThinking()
         ? SYNTHETIC_THINKING_PLACEHOLDER
-        : undefined;
-  const cacheSignatures = shouldCacheThinkingSignatures(effectiveModel);
+        : undefined
+  const cacheSignatures = shouldCacheThinkingSignatures(effectiveModel)
 
   if (!isJsonResponse && !isEventStreamResponse) {
     logAntigravityDebugResponse(debugContext, response, {
-      note: "Non-JSON response (body omitted)",
-    });
-    return response;
+      note: 'Non-JSON response (body omitted)',
+    })
+    return response
   }
 
   // For successful streaming responses, use TransformStream to transform SSE events
   // while maintaining real-time streaming (no buffering of entire response).
   // This enables thinking tokens to be displayed as they arrive, like the Codex plugin.
   if (streaming && response.ok && isEventStreamResponse && response.body) {
-    const headers = new Headers(response.headers);
+    const headers = new Headers(response.headers)
 
     logAntigravityDebugResponse(debugContext, response, {
-      note: "Streaming SSE response (real-time transform)",
-    });
-    noteGeminiDumpResponse(dumpContext, response);
+      note: 'Streaming SSE response (real-time transform)',
+    })
+    noteGeminiDumpResponse(dumpContext, response)
 
-    const rawDumpTransformer = createGeminiDumpResponseTransform(dumpContext);
-    const sourceBody = rawDumpTransformer ? response.body.pipeThrough(rawDumpTransformer) : response.body;
+    const rawDumpTransformer = createGeminiDumpResponseTransform(dumpContext)
+    const sourceBody = rawDumpTransformer
+      ? response.body.pipeThrough(rawDumpTransformer)
+      : response.body
 
     const streamingTransformer = createStreamingTransformer(
       defaultSignatureStore,
@@ -2083,106 +2597,121 @@ export async function transformAntigravityResponse(
           if (effectiveModel) {
             const cacheRead = usage.cachedContentTokenCount
             const totalInput = usage.promptTokenCount ?? usage.totalTokenCount
-            const hitRate = totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0
-            const status = cacheRead > 0 ? "HIT" : "MISS"
-            logCacheStats(effectiveModel, cacheRead, 0, totalInput);
-            log.debug(`[Cache] ${status} model=${effectiveModel} read=${cacheRead} total=${totalInput} hitRate=${hitRate}%`)
-            _lastCacheStats = { model: effectiveModel, read: cacheRead, total: totalInput, hitRate }
+            const hitRate =
+              totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0
+            const status = cacheRead > 0 ? 'HIT' : 'MISS'
+            logCacheStats(effectiveModel, cacheRead, 0, totalInput)
+            log.debug(
+              `[Cache] ${status} model=${effectiveModel} read=${cacheRead} total=${totalInput} hitRate=${hitRate}%`,
+            )
+            _lastCacheStats = {
+              model: effectiveModel,
+              read: cacheRead,
+              total: totalInput,
+              hitRate,
+            }
           }
         },
         transformThinkingParts,
-      },      {
+      },
+      {
         signatureSessionKey: sessionId,
         debugText,
         cacheSignatures,
-        displayedThinkingHashes: effectiveModel && isGemini3Model(effectiveModel) ? sessionDisplayedThinkingHashes : undefined,
+        displayedThinkingHashes:
+          effectiveModel && isGemini3Model(effectiveModel)
+            ? sessionDisplayedThinkingHashes
+            : undefined,
         // injectSyntheticThinking removed - keep_thinking now unified with debug via debugText
       },
-    );
+    )
     return new Response(sourceBody.pipeThrough(streamingTransformer), {
       status: response.status,
       statusText: response.statusText,
       headers,
-    });
+    })
   }
 
-  const responseFallback = response.clone();
+  const responseFallback = response.clone()
 
   try {
-    const headers = new Headers(response.headers);
-    const text = await response.text();
-    noteGeminiDumpResponse(dumpContext, response);
-    appendGeminiDumpResponseText(dumpContext, text);
+    const headers = new Headers(response.headers)
+    const text = await response.text()
+    noteGeminiDumpResponse(dumpContext, response)
+    appendGeminiDumpResponseText(dumpContext, text)
 
     if (!response.ok) {
-      let errorBody;
+      let errorBody: { error?: { message?: string; details?: unknown } }
       try {
-        errorBody = JSON.parse(text);
+        errorBody = JSON.parse(text)
       } catch {
-        errorBody = { error: { message: text } };
+        errorBody = { error: { message: text } }
       }
 
       // Inject Debug Info
       if (errorBody?.error) {
         const rawErrorMessage =
-          typeof errorBody.error.message === "string" && errorBody.error.message.length > 0
+          typeof errorBody.error.message === 'string' &&
+          errorBody.error.message.length > 0
             ? errorBody.error.message
-            : "Unknown error";
-        const errorType = detectErrorType(rawErrorMessage);
-        const debugInfo = `\n\n[Debug Info]\nRequested Model: ${requestedModel || "Unknown"}\nEffective Model: ${effectiveModel || "Unknown"}\nProject: ${projectId || "Unknown"}\nEndpoint: ${endpoint || "Unknown"}\nStatus: ${response.status}\nRequest ID: ${headers.get("x-request-id") || "N/A"}${toolDebugMissing !== undefined ? `\nTool Debug Missing: ${toolDebugMissing}` : ""}${toolDebugSummary ? `\nTool Debug Summary: ${toolDebugSummary}` : ""}${toolDebugPayload ? `\nTool Debug Payload: ${toolDebugPayload}` : ""}`;
-        const injectedDebug = debugText ? `\n\n${debugText}` : "";
-        errorBody.error.message = rawErrorMessage + debugInfo + injectedDebug;
+            : 'Unknown error'
+        const errorType = detectErrorType(rawErrorMessage)
+        const debugInfo = `\n\n[Debug Info]\nRequested Model: ${requestedModel || 'Unknown'}\nEffective Model: ${effectiveModel || 'Unknown'}\nProject: ${projectId || 'Unknown'}\nEndpoint: ${endpoint || 'Unknown'}\nStatus: ${response.status}\nRequest ID: ${headers.get('x-request-id') || 'N/A'}${toolDebugMissing !== undefined ? `\nTool Debug Missing: ${toolDebugMissing}` : ''}${toolDebugSummary ? `\nTool Debug Summary: ${toolDebugSummary}` : ''}${toolDebugPayload ? `\nTool Debug Payload: ${toolDebugPayload}` : ''}`
+        const injectedDebug = debugText ? `\n\n${debugText}` : ''
+        errorBody.error.message = rawErrorMessage + debugInfo + injectedDebug
 
         // Check if this is a recoverable thinking error - throw to trigger retry
-        if (errorType === "thinking_block_order") {
-          const recoveryError = new Error("THINKING_RECOVERY_NEEDED");
-          (recoveryError as any).recoveryType = errorType;
-          (recoveryError as any).originalError = errorBody;
-          (recoveryError as any).debugInfo = debugInfo;
-          throw recoveryError;
+        if (errorType === 'thinking_block_order') {
+          const recoveryError = new Error('THINKING_RECOVERY_NEEDED')
+          ;(recoveryError as any).recoveryType = errorType
+          ;(recoveryError as any).originalError = errorBody
+          ;(recoveryError as any).debugInfo = debugInfo
+          throw recoveryError
         }
 
         // Detect context length / prompt too long errors - signal to caller for toast
-        const errorMessage = errorBody.error.message?.toLowerCase() || "";
+        const errorMessage = errorBody.error.message?.toLowerCase() || ''
         if (
-          errorMessage.includes("prompt is too long") ||
-          errorMessage.includes("context length exceeded") ||
-          errorMessage.includes("context_length_exceeded") ||
-          errorMessage.includes("maximum context length")
+          errorMessage.includes('prompt is too long') ||
+          errorMessage.includes('context length exceeded') ||
+          errorMessage.includes('context_length_exceeded') ||
+          errorMessage.includes('maximum context length')
         ) {
-          headers.set("x-antigravity-context-error", "prompt_too_long");
+          headers.set('x-antigravity-context-error', 'prompt_too_long')
         }
 
         // Detect tool pairing errors - signal to caller for toast
         if (
-          errorMessage.includes("tool_use") &&
-          errorMessage.includes("tool_result") &&
-          (errorMessage.includes("without") || errorMessage.includes("immediately after"))
+          errorMessage.includes('tool_use') &&
+          errorMessage.includes('tool_result') &&
+          (errorMessage.includes('without') ||
+            errorMessage.includes('immediately after'))
         ) {
-          headers.set("x-antigravity-context-error", "tool_pairing");
+          headers.set('x-antigravity-context-error', 'tool_pairing')
         }
 
         return new Response(JSON.stringify(errorBody), {
           status: response.status,
           statusText: response.statusText,
-          headers
-        });
+          headers,
+        })
       }
 
       if (errorBody?.error?.details && Array.isArray(errorBody.error.details)) {
         const retryInfo = errorBody.error.details.find(
-          (detail: any) => detail['@type'] === 'type.googleapis.com/google.rpc.RetryInfo'
-        );
+          (detail: any) =>
+            detail['@type'] === 'type.googleapis.com/google.rpc.RetryInfo',
+        )
 
         if (retryInfo?.retryDelay) {
-          const match = retryInfo.retryDelay.match(/^([\d.]+)s$/);
-          if (match && match[1]) {
-            const retrySeconds = parseFloat(match[1]);
-            if (!isNaN(retrySeconds) && retrySeconds > 0) {
-              const retryAfterSec = Math.ceil(retrySeconds).toString();
-              const retryAfterMs = Math.ceil(retrySeconds * 1000).toString();
-              headers.set('Retry-After', retryAfterSec);
-              headers.set('retry-after-ms', retryAfterMs);
+          const match = retryInfo.retryDelay.match(/^([\d.]+)s$/)
+          if (match?.[1]) {
+            const retrySeconds = parseFloat(match[1])
+            if (!Number.isNaN(retrySeconds) && retrySeconds > 0) {
+              const retryAfterSec = Math.ceil(retrySeconds).toString()
+              const retryAfterMs = Math.ceil(retrySeconds * 1000).toString()
+              headers.set('Retry-After', retryAfterSec)
+              headers.set('retry-after-ms', retryAfterMs)
             }
           }
         }
@@ -2193,76 +2722,108 @@ export async function transformAntigravityResponse(
       status: response.status,
       statusText: response.statusText,
       headers,
-    };
+    }
 
-    const usageFromSse = streaming && isEventStreamResponse ? extractUsageFromSsePayload(text) : null;
-    const parsed: AntigravityApiBody | null = !streaming || !isEventStreamResponse ? parseAntigravityApiBody(text) : null;
-    const patched = parsed ? rewriteAntigravityPreviewAccessError(parsed, response.status, requestedModel) : null;
-    const effectiveBody = patched ?? parsed ?? undefined;
+    const usageFromSse =
+      streaming && isEventStreamResponse
+        ? extractUsageFromSsePayload(text)
+        : null
+    const parsed: AntigravityApiBody | null =
+      !streaming || !isEventStreamResponse
+        ? parseAntigravityApiBody(text)
+        : null
+    const patched = parsed
+      ? rewriteAntigravityPreviewAccessError(
+          parsed,
+          response.status,
+          requestedModel,
+        )
+      : null
+    const effectiveBody = patched ?? parsed ?? undefined
 
-    const usage = usageFromSse ?? (effectiveBody ? extractUsageMetadata(effectiveBody) : null);
-    
+    const usage =
+      usageFromSse ??
+      (effectiveBody ? extractUsageMetadata(effectiveBody) : null)
+
     // Log cache stats when available
     if (usage && effectiveModel) {
       const cacheRead = usage.cachedContentTokenCount ?? 0
       const totalInput = usage.promptTokenCount ?? usage.totalTokenCount ?? 0
-      const hitRate = totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0
-      const status = cacheRead > 0 ? "HIT" : "MISS"
-      logCacheStats(effectiveModel, cacheRead, 0, totalInput);
-      log.debug(`[Cache] ${status} model=${effectiveModel} read=${cacheRead} total=${totalInput} hitRate=${hitRate}%`)
-    }    
+      const hitRate =
+        totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0
+      const status = cacheRead > 0 ? 'HIT' : 'MISS'
+      logCacheStats(effectiveModel, cacheRead, 0, totalInput)
+      log.debug(
+        `[Cache] ${status} model=${effectiveModel} read=${cacheRead} total=${totalInput} hitRate=${hitRate}%`,
+      )
+    }
     if (usage?.cachedContentTokenCount !== undefined) {
-      headers.set("x-antigravity-cached-content-token-count", String(usage.cachedContentTokenCount));
+      headers.set(
+        'x-antigravity-cached-content-token-count',
+        String(usage.cachedContentTokenCount),
+      )
       if (usage.totalTokenCount !== undefined) {
-        headers.set("x-antigravity-total-token-count", String(usage.totalTokenCount));
+        headers.set(
+          'x-antigravity-total-token-count',
+          String(usage.totalTokenCount),
+        )
       }
       if (usage.promptTokenCount !== undefined) {
-        headers.set("x-antigravity-prompt-token-count", String(usage.promptTokenCount));
+        headers.set(
+          'x-antigravity-prompt-token-count',
+          String(usage.promptTokenCount),
+        )
       }
       if (usage.candidatesTokenCount !== undefined) {
-        headers.set("x-antigravity-candidates-token-count", String(usage.candidatesTokenCount));
+        headers.set(
+          'x-antigravity-candidates-token-count',
+          String(usage.candidatesTokenCount),
+        )
       }
     }
 
     logAntigravityDebugResponse(debugContext, response, {
       body: text,
-      note: streaming ? "Streaming SSE payload (buffered fallback)" : undefined,
+      note: streaming ? 'Streaming SSE payload (buffered fallback)' : undefined,
       headersOverride: headers,
-    });
+    })
 
     // Note: successful streaming responses are handled above via TransformStream.
     // This path only handles non-streaming responses or failed streaming responses.
 
     if (!parsed) {
-      return new Response(text, init);
+      return new Response(text, init)
     }
 
     if (effectiveBody?.response !== undefined) {
-      let responseBody: unknown = effectiveBody.response;
+      let responseBody: unknown = effectiveBody.response
       // Inject thinking text (debug logs or "[Thinking preserved]" placeholder)
       // Both debug=true and keep_thinking=true use the same path now
       if (debugText) {
-        responseBody = injectDebugThinking(responseBody, debugText);
+        responseBody = injectDebugThinking(responseBody, debugText)
       }
-      const transformed = transformThinkingParts(responseBody);
-      return new Response(JSON.stringify(transformed), init);
+      const transformed = transformThinkingParts(responseBody)
+      return new Response(JSON.stringify(transformed), init)
     }
 
     if (patched) {
-      return new Response(JSON.stringify(patched), init);
+      return new Response(JSON.stringify(patched), init)
     }
 
-    return new Response(text, init);
+    return new Response(text, init)
   } catch (error) {
-    if (error instanceof Error && error.message === "THINKING_RECOVERY_NEEDED") {
-      throw error;
+    if (
+      error instanceof Error &&
+      error.message === 'THINKING_RECOVERY_NEEDED'
+    ) {
+      throw error
     }
 
     logAntigravityDebugResponse(debugContext, response, {
       error,
-      note: "Failed to transform Antigravity response",
-    });
-    return responseFallback;
+      note: 'Failed to transform Antigravity response',
+    })
+    return responseFallback
   }
 }
 
@@ -2288,4 +2849,4 @@ export const __testExports = {
   transformSseLine,
   transformStreamingPayload,
   createStreamingTransformer,
-};
+}

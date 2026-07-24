@@ -1,414 +1,425 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from 'bun:test'
 import {
-  sanitizeCrossModelPayload,
   getModelFamily,
-} from "./cross-model-sanitizer.ts";
+  sanitizeCrossModelPayload,
+} from './cross-model-sanitizer.ts'
 
-describe("Cross-Model Session Integration", () => {
-  describe("Gemini → Claude model switch with tool calls", () => {
-    it("sanitizes Gemini thinking metadata when preparing Claude request", () => {
+describe('Cross-Model Session Integration', () => {
+  describe('Gemini → Claude model switch with tool calls', () => {
+    it('sanitizes Gemini thinking metadata when preparing Claude request', () => {
       const geminiSessionHistory = {
         contents: [
           {
-            role: "user",
+            role: 'user',
             parts: [
               {
-                text: "Check disk space. Think about which filesystems are most utilized.",
+                text: 'Check disk space. Think about which filesystems are most utilized.',
               },
             ],
           },
           {
-            role: "model",
+            role: 'model',
             parts: [
               {
                 thought: true,
-                text: "I need to analyze disk usage...",
-                thoughtSignature: "EsgQCsUQAXLI2nybuafAE150LGTo2r78fakesig",
+                text: 'I need to analyze disk usage...',
+                thoughtSignature: 'EsgQCsUQAXLI2nybuafAE150LGTo2r78fakesig',
               },
               {
-                functionCall: { name: "bash", args: { command: "df -h" } },
+                functionCall: { name: 'bash', args: { command: 'df -h' } },
                 metadata: {
                   google: {
-                    thoughtSignature:
-                      "EsgQCsUQAXLI2nybuafAE150LGTo2r78fakesig",
+                    thoughtSignature: 'EsgQCsUQAXLI2nybuafAE150LGTo2r78fakesig',
                   },
                 },
               },
             ],
           },
           {
-            role: "function",
+            role: 'function',
             parts: [
               {
                 functionResponse: {
-                  name: "bash",
-                  response: { output: "Filesystem Size Used Avail Use%..." },
+                  name: 'bash',
+                  response: { output: 'Filesystem Size Used Avail Use%...' },
                 },
               },
             ],
           },
           {
-            role: "model",
-            parts: [{ text: "The root filesystem is 62% utilized..." }],
+            role: 'model',
+            parts: [{ text: 'The root filesystem is 62% utilized...' }],
           },
         ],
-      };
+      }
 
       const payload = {
-        model: "claude-opus-4-6-thinking-medium",
+        model: 'claude-opus-4-6-thinking-medium',
         ...geminiSessionHistory,
         contents: [
           ...geminiSessionHistory.contents,
           {
-            role: "user",
-            parts: [{ text: "Now check memory usage with free -h" }],
+            role: 'user',
+            parts: [{ text: 'Now check memory usage with free -h' }],
           },
         ],
-      };
+      }
 
       const result = sanitizeCrossModelPayload(payload, {
-        targetModel: "claude-opus-4-6-thinking-medium",
-      });
+        targetModel: 'claude-opus-4-6-thinking-medium',
+      })
 
-      const sanitized = result.payload as typeof payload;
-      const modelParts = sanitized.contents[1]!.parts;
+      const sanitized = result.payload as typeof payload
+      const modelParts = sanitized.contents[1]!.parts
 
       expect(
-        (modelParts[0] as Record<string, unknown>).thoughtSignature
-      ).toBeUndefined();
+        (modelParts[0] as Record<string, unknown>).thoughtSignature,
+      ).toBeUndefined()
       expect(
-        (modelParts[1] as Record<string, unknown>).metadata
-      ).toBeUndefined();
+        (modelParts[1] as Record<string, unknown>).metadata,
+      ).toBeUndefined()
       expect(
-        (modelParts[1] as Record<string, unknown> & { functionCall: { name: string } }).functionCall.name
-      ).toBe("bash");
+        (
+          modelParts[1] as Record<string, unknown> & {
+            functionCall: { name: string }
+          }
+        ).functionCall.name,
+      ).toBe('bash')
 
-      expect(result.modified).toBe(true);
-      expect(result.signaturesStripped).toBeGreaterThan(0);
-    });
+      expect(result.modified).toBe(true)
+      expect(result.signaturesStripped).toBeGreaterThan(0)
+    })
 
-    it("preserves non-signature metadata", () => {
+    it('preserves non-signature metadata', () => {
       const payload = {
         contents: [
           {
-            role: "model",
+            role: 'model',
             parts: [
               {
-                functionCall: { name: "read", args: { path: "/etc/passwd" } },
+                functionCall: { name: 'read', args: { path: '/etc/passwd' } },
                 metadata: {
                   google: {
-                    thoughtSignature: "should-be-stripped",
-                    groundingMetadata: { searchQueries: ["test"] },
-                    searchEntryPoint: { renderedContent: "test" },
+                    thoughtSignature: 'should-be-stripped',
+                    groundingMetadata: { searchQueries: ['test'] },
+                    searchEntryPoint: { renderedContent: 'test' },
                   },
-                  cache_control: { type: "ephemeral" },
+                  cache_control: { type: 'ephemeral' },
                 },
               },
             ],
           },
         ],
-      };
+      }
 
       const result = sanitizeCrossModelPayload(payload, {
-        targetModel: "claude-sonnet-4",
+        targetModel: 'claude-sonnet-4',
         preserveNonSignatureMetadata: true,
-      });
+      })
 
-      const sanitized = result.payload as typeof payload;
-      const partMeta = (sanitized.contents[0]!.parts![0] as Record<string, unknown>)
-        .metadata as Record<string, unknown>;
-      const googleMeta = partMeta.google as Record<string, unknown>;
+      const sanitized = result.payload as typeof payload
+      const partMeta = (
+        sanitized.contents[0]!.parts![0] as Record<string, unknown>
+      ).metadata as Record<string, unknown>
+      const googleMeta = partMeta.google as Record<string, unknown>
 
-      expect(googleMeta.thoughtSignature).toBeUndefined();
-      expect(googleMeta.groundingMetadata).toEqual({ searchQueries: ["test"] });
-      expect(googleMeta.searchEntryPoint).toEqual({ renderedContent: "test" });
-      expect(
-        (partMeta.cache_control as Record<string, unknown>).type
-      ).toBe("ephemeral");
-    });
+      expect(googleMeta.thoughtSignature).toBeUndefined()
+      expect(googleMeta.groundingMetadata).toEqual({ searchQueries: ['test'] })
+      expect(googleMeta.searchEntryPoint).toEqual({ renderedContent: 'test' })
+      expect((partMeta.cache_control as Record<string, unknown>).type).toBe(
+        'ephemeral',
+      )
+    })
 
-    it("handles the exact bug reproduction scenario from issue", () => {
+    it('handles the exact bug reproduction scenario from issue', () => {
       const payload = {
-        model: "claude-opus-4-6-thinking-medium",
+        model: 'claude-opus-4-6-thinking-medium',
         contents: [
           {
-            role: "user",
+            role: 'user',
             parts: [
               {
-                text: "Check how much disk space is available using df -h. Think about which filesystems are most utilized.",
+                text: 'Check how much disk space is available using df -h. Think about which filesystems are most utilized.',
               },
             ],
           },
           {
-            role: "model",
+            role: 'model',
             parts: [
               {
                 thought: true,
-                text: "Let me analyze the disk space request. The user wants to see disk usage and understand filesystem utilization patterns...",
+                text: 'Let me analyze the disk space request. The user wants to see disk usage and understand filesystem utilization patterns...',
                 thoughtSignature:
-                  "EsgQCsUQAXLI2nybuafAE150LGTo2r78VeryLongSignatureStringThatExceeds50Characters",
+                  'EsgQCsUQAXLI2nybuafAE150LGTo2r78VeryLongSignatureStringThatExceeds50Characters',
               },
               {
                 functionCall: {
-                  name: "Bash",
+                  name: 'Bash',
                   args: {
-                    command: "df -h",
-                    description: "Check disk space availability",
+                    command: 'df -h',
+                    description: 'Check disk space availability',
                   },
                 },
                 metadata: {
                   google: {
                     thoughtSignature:
-                      "EsgQCsUQAXLI2nybuafAE150LGTo2r78VeryLongSignatureStringThatExceeds50Characters",
+                      'EsgQCsUQAXLI2nybuafAE150LGTo2r78VeryLongSignatureStringThatExceeds50Characters',
                   },
                 },
               },
             ],
           },
           {
-            role: "function",
+            role: 'function',
             parts: [
               {
                 functionResponse: {
-                  name: "Bash",
+                  name: 'Bash',
                   response: {
                     output:
-                      "Filesystem      Size  Used Avail Use% Mounted on\noverlay          59G   37G   20G  65% /\ntmpfs            64M     0   64M   0% /dev\n",
+                      'Filesystem      Size  Used Avail Use% Mounted on\noverlay          59G   37G   20G  65% /\ntmpfs            64M     0   64M   0% /dev\n',
                   },
                 },
               },
             ],
           },
           {
-            role: "model",
+            role: 'model',
             parts: [
               {
-                text: "Based on the disk space analysis, the root overlay filesystem is 65% utilized with 37G used out of 59G total.",
+                text: 'Based on the disk space analysis, the root overlay filesystem is 65% utilized with 37G used out of 59G total.',
               },
             ],
           },
           {
-            role: "user",
-            parts: [{ text: "Now check memory usage with free -h" }],
+            role: 'user',
+            parts: [{ text: 'Now check memory usage with free -h' }],
           },
         ],
-      };
+      }
 
       const result = sanitizeCrossModelPayload(payload, {
-        targetModel: "claude-opus-4-6-thinking-medium",
-      });
+        targetModel: 'claude-opus-4-6-thinking-medium',
+      })
 
-      const sanitized = result.payload as typeof payload;
+      const sanitized = result.payload as typeof payload
 
-      const thinkingPart = sanitized.contents[1]!.parts![0] as Record<string, unknown>;
-      expect(thinkingPart.thoughtSignature).toBeUndefined();
-      expect(thinkingPart.thought).toBe(true);
-      expect(thinkingPart.text).toContain("analyze the disk space");
+      const thinkingPart = sanitized.contents[1]!.parts![0] as Record<
+        string,
+        unknown
+      >
+      expect(thinkingPart.thoughtSignature).toBeUndefined()
+      expect(thinkingPart.thought).toBe(true)
+      expect(thinkingPart.text).toContain('analyze the disk space')
 
-      const toolPart = sanitized.contents[1]!.parts![1] as Record<string, unknown>;
-      expect(toolPart.metadata).toBeUndefined();
-      expect(
-        (toolPart.functionCall as Record<string, unknown>).name
-      ).toBe("Bash");
+      const toolPart = sanitized.contents[1]!.parts![1] as Record<
+        string,
+        unknown
+      >
+      expect(toolPart.metadata).toBeUndefined()
+      expect((toolPart.functionCall as Record<string, unknown>).name).toBe(
+        'Bash',
+      )
 
-      expect(result.signaturesStripped).toBe(2);
-    });
-  });
+      expect(result.signaturesStripped).toBe(2)
+    })
+  })
 
-  describe("Claude → Gemini model switch", () => {
-    it("sanitizes Claude thinking blocks when preparing Gemini request", () => {
+  describe('Claude → Gemini model switch', () => {
+    it('sanitizes Claude thinking blocks when preparing Gemini request', () => {
       const payload = {
         extra_body: {
           messages: [
             {
-              role: "assistant",
+              role: 'assistant',
               content: [
                 {
-                  type: "thinking",
-                  thinking: "Analyzing the request...",
+                  type: 'thinking',
+                  thinking: 'Analyzing the request...',
                   signature:
-                    "claude-signature-abc123VeryLongSignatureStringThatExceeds50Characters",
+                    'claude-signature-abc123VeryLongSignatureStringThatExceeds50Characters',
                 },
                 {
-                  type: "tool_use",
-                  id: "tool_1",
-                  name: "bash",
-                  input: { command: "ls" },
+                  type: 'tool_use',
+                  id: 'tool_1',
+                  name: 'bash',
+                  input: { command: 'ls' },
                 },
               ],
             },
           ],
         },
-      };
+      }
 
       const result = sanitizeCrossModelPayload(payload, {
-        targetModel: "gemini-3-pro-low",
-      });
+        targetModel: 'gemini-3-pro-low',
+      })
 
-      const sanitized = result.payload as typeof payload;
-      const content = sanitized.extra_body!.messages![0]!.content;
+      const sanitized = result.payload as typeof payload
+      const content = sanitized.extra_body!.messages![0]!.content
       const thinkingBlock = content.find(
-        (c: Record<string, unknown>) => c.type === "thinking"
-      ) as Record<string, unknown>;
+        (c: Record<string, unknown>) => c.type === 'thinking',
+      ) as Record<string, unknown>
 
-      expect(thinkingBlock.signature).toBeUndefined();
-      expect(thinkingBlock.thinking).toBe("Analyzing the request...");
+      expect(thinkingBlock.signature).toBeUndefined()
+      expect(thinkingBlock.thinking).toBe('Analyzing the request...')
 
       const toolBlock = content.find(
-        (c: Record<string, unknown>) => c.type === "tool_use"
-      ) as Record<string, unknown>;
-      expect(toolBlock.name).toBe("bash");
-    });
+        (c: Record<string, unknown>) => c.type === 'tool_use',
+      ) as Record<string, unknown>
+      expect(toolBlock.name).toBe('bash')
+    })
 
-    it("strips redacted_thinking blocks", () => {
+    it('strips redacted_thinking blocks', () => {
       const payload = {
         messages: [
           {
-            role: "assistant",
+            role: 'assistant',
             content: [
               {
-                type: "redacted_thinking",
-                data: "encrypted_data_here",
+                type: 'redacted_thinking',
+                data: 'encrypted_data_here',
                 signature:
-                  "redacted-sig-VeryLongSignatureStringThatExceeds50Characters",
+                  'redacted-sig-VeryLongSignatureStringThatExceeds50Characters',
               },
-              { type: "text", text: "Here is my response" },
+              { type: 'text', text: 'Here is my response' },
             ],
           },
         ],
-      };
+      }
 
       const result = sanitizeCrossModelPayload(payload, {
-        targetModel: "gemini-3-flash",
-      });
+        targetModel: 'gemini-3-flash',
+      })
 
-      const sanitized = result.payload as typeof payload;
+      const sanitized = result.payload as typeof payload
       const redactedBlock = sanitized.messages![0]!.content![0] as Record<
         string,
         unknown
-      >;
+      >
 
-      expect(redactedBlock.signature).toBeUndefined();
-      expect(redactedBlock.type).toBe("redacted_thinking");
-    });
-  });
+      expect(redactedBlock.signature).toBeUndefined()
+      expect(redactedBlock.type).toBe('redacted_thinking')
+    })
+  })
 
-  describe("Same model family - no sanitization needed", () => {
-    it("preserves Gemini signatures when staying on Gemini", () => {
+  describe('Same model family - no sanitization needed', () => {
+    it('preserves Gemini signatures when staying on Gemini', () => {
       const payload = {
         contents: [
           {
-            role: "model",
+            role: 'model',
             parts: [
               {
                 thought: true,
-                text: "thinking...",
-                thoughtSignature: "valid-gemini-sig",
+                text: 'thinking...',
+                thoughtSignature: 'valid-gemini-sig',
               },
             ],
           },
         ],
-      };
+      }
 
       const result = sanitizeCrossModelPayload(payload, {
-        targetModel: "gemini-3-flash",
-      });
+        targetModel: 'gemini-3-flash',
+      })
 
-      const sanitized = result.payload as typeof payload;
+      const sanitized = result.payload as typeof payload
       expect(
         (sanitized.contents![0]!.parts![0] as Record<string, unknown>)
-          .thoughtSignature
-      ).toBe("valid-gemini-sig");
-      expect(result.modified).toBe(false);
-    });
+          .thoughtSignature,
+      ).toBe('valid-gemini-sig')
+      expect(result.modified).toBe(false)
+    })
 
-    it("preserves Claude signatures when staying on Claude", () => {
+    it('preserves Claude signatures when staying on Claude', () => {
       const payload = {
         messages: [
           {
-            role: "assistant",
+            role: 'assistant',
             content: [
               {
-                type: "thinking",
-                thinking: "analyzing...",
-                signature: "valid-claude-sig",
+                type: 'thinking',
+                thinking: 'analyzing...',
+                signature: 'valid-claude-sig',
               },
             ],
           },
         ],
-      };
+      }
 
       const result = sanitizeCrossModelPayload(payload, {
-        targetModel: "claude-opus-4-6-thinking-low",
-      });
+        targetModel: 'claude-opus-4-6-thinking-low',
+      })
 
-      const sanitized = result.payload as typeof payload;
+      const sanitized = result.payload as typeof payload
       expect(
-        (sanitized.messages![0]!.content![0] as Record<string, unknown>).signature
-      ).toBe("valid-claude-sig");
-      expect(result.modified).toBe(false);
-    });
-  });
+        (sanitized.messages![0]!.content![0] as Record<string, unknown>)
+          .signature,
+      ).toBe('valid-claude-sig')
+      expect(result.modified).toBe(false)
+    })
+  })
 
-  describe("Model family detection", () => {
-    it("correctly identifies Gemini models", () => {
-      expect(getModelFamily("gemini-3-pro-low")).toBe("gemini");
-      expect(getModelFamily("gemini-3-flash")).toBe("gemini");
-      expect(getModelFamily("gemini-2.5-pro")).toBe("gemini");
-      expect(getModelFamily("gemini-3-pro-high")).toBe("gemini");
-    });
+  describe('Model family detection', () => {
+    it('correctly identifies Gemini models', () => {
+      expect(getModelFamily('gemini-3-pro-low')).toBe('gemini')
+      expect(getModelFamily('gemini-3-flash')).toBe('gemini')
+      expect(getModelFamily('gemini-2.5-pro')).toBe('gemini')
+      expect(getModelFamily('gemini-3-pro-high')).toBe('gemini')
+    })
 
-    it("correctly identifies Claude models", () => {
-      expect(getModelFamily("claude-opus-4-6-thinking-medium")).toBe("claude");
-      expect(getModelFamily("claude-sonnet-4-6")).toBe("claude");
-      expect(getModelFamily("claude-sonnet-4")).toBe("claude");
-      expect(getModelFamily("claude-3-opus")).toBe("claude");
-    });
+    it('correctly identifies Claude models', () => {
+      expect(getModelFamily('claude-opus-4-6-thinking-medium')).toBe('claude')
+      expect(getModelFamily('claude-sonnet-4-6')).toBe('claude')
+      expect(getModelFamily('claude-sonnet-4')).toBe('claude')
+      expect(getModelFamily('claude-3-opus')).toBe('claude')
+    })
 
-    it("returns unknown for unrecognized models", () => {
-      expect(getModelFamily("gpt-4")).toBe("unknown");
-      expect(getModelFamily("llama-3")).toBe("unknown");
-    });
-  });
+    it('returns unknown for unrecognized models', () => {
+      expect(getModelFamily('gpt-4')).toBe('unknown')
+      expect(getModelFamily('llama-3')).toBe('unknown')
+    })
+  })
 
-  describe("Edge cases", () => {
-    it("handles empty payloads", () => {
+  describe('Edge cases', () => {
+    it('handles empty payloads', () => {
       const result = sanitizeCrossModelPayload(
         {},
-        { targetModel: "claude-sonnet-4" }
-      );
-      expect(result.modified).toBe(false);
-      expect(result.signaturesStripped).toBe(0);
-    });
+        { targetModel: 'claude-sonnet-4' },
+      )
+      expect(result.modified).toBe(false)
+      expect(result.signaturesStripped).toBe(0)
+    })
 
-    it("handles null/undefined parts gracefully", () => {
+    it('handles null/undefined parts gracefully', () => {
       const payload = {
         contents: [
-          { role: "user", parts: null },
-          { role: "model", parts: undefined },
-          { role: "model" },
+          { role: 'user', parts: null },
+          { role: 'model', parts: undefined },
+          { role: 'model' },
         ],
-      };
+      }
 
       const result = sanitizeCrossModelPayload(payload, {
-        targetModel: "claude-sonnet-4",
-      });
+        targetModel: 'claude-sonnet-4',
+      })
 
-      expect(result.modified).toBe(false);
-    });
+      expect(result.modified).toBe(false)
+    })
 
-    it("handles wrapped requests array (batch format)", () => {
+    it('handles wrapped requests array (batch format)', () => {
       const payload = {
         requests: [
           {
             contents: [
               {
-                role: "model",
+                role: 'model',
                 parts: [
                   {
-                    thoughtSignature: "sig1",
+                    thoughtSignature: 'sig1',
                     thought: true,
-                    text: "thinking",
+                    text: 'thinking',
                   },
                 ],
               },
@@ -417,56 +428,64 @@ describe("Cross-Model Session Integration", () => {
           {
             contents: [
               {
-                role: "model",
+                role: 'model',
                 parts: [
                   {
-                    metadata: { google: { thoughtSignature: "sig2" } },
-                    functionCall: { name: "test" },
+                    metadata: { google: { thoughtSignature: 'sig2' } },
+                    functionCall: { name: 'test' },
                   },
                 ],
               },
             ],
           },
         ],
-      };
+      }
 
       const result = sanitizeCrossModelPayload(payload, {
-        targetModel: "claude-sonnet-4-6",
-      });
+        targetModel: 'claude-sonnet-4-6',
+      })
 
-      const sanitized = result.payload as typeof payload;
+      const sanitized = result.payload as typeof payload
 
       expect(
-        (sanitized.requests![0]!.contents![0]!.parts![0] as Record<string, unknown>)
-          .thoughtSignature
-      ).toBeUndefined();
+        (
+          sanitized.requests![0]!.contents![0]!.parts![0] as Record<
+            string,
+            unknown
+          >
+        ).thoughtSignature,
+      ).toBeUndefined()
       expect(
-        (sanitized.requests![1]!.contents![0]!.parts![0] as Record<string, unknown>)
-          .metadata
-      ).toBeUndefined();
-      expect(result.signaturesStripped).toBe(2);
-    });
+        (
+          sanitized.requests![1]!.contents![0]!.parts![0] as Record<
+            string,
+            unknown
+          >
+        ).metadata,
+      ).toBeUndefined()
+      expect(result.signaturesStripped).toBe(2)
+    })
 
-    it("handles unknown target model by skipping sanitization", () => {
+    it('handles unknown target model by skipping sanitization', () => {
       const payload = {
         contents: [
           {
-            role: "model",
-            parts: [{ thoughtSignature: "sig", thought: true, text: "hi" }],
+            role: 'model',
+            parts: [{ thoughtSignature: 'sig', thought: true, text: 'hi' }],
           },
         ],
-      };
+      }
 
       const result = sanitizeCrossModelPayload(payload, {
-        targetModel: "gpt-4-turbo",
-      });
+        targetModel: 'gpt-4-turbo',
+      })
 
-      const sanitized = result.payload as typeof payload;
+      const sanitized = result.payload as typeof payload
       expect(
         (sanitized.contents![0]!.parts![0] as Record<string, unknown>)
-          .thoughtSignature
-      ).toBe("sig");
-      expect(result.modified).toBe(false);
-    });
-  });
-});
+          .thoughtSignature,
+      ).toBe('sig')
+      expect(result.modified).toBe(false)
+    })
+  })
+})

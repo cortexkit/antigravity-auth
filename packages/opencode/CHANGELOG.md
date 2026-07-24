@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.0.0] - 2026-07-22
+
+### Breaking
+
+- The OpenCode package root now exports plugin factories only. Import
+  `authorizeAntigravity` and `exchangeAntigravity` from
+  `@cortexkit/antigravity-auth-core` instead.
+- `@opencode-ai/plugin` peer dependency is now `^1.17.13` (was `^0.15.30`).
+- New required peer dependencies: `@opentui/core`, `@opentui/keymap`,
+  `@opentui/solid` at `^0.4.5`.
+
+### Migration from 1.x
+
+1. Update `@opencode-ai/plugin` to `>=1.17.13` in your host.
+2. Install new peers: `bun add -d @opentui/core @opentui/keymap @opentui/solid`
+   (each `^0.4.5`).
+3. Replace root OAuth imports:
+   - Before: `import { authorizeAntigravity } from '@cortexkit/opencode-antigravity-auth'`
+   - After: `import { authorizeAntigravity } from '@cortexkit/antigravity-auth-core'`
+4. No config file changes required; account storage format is unchanged.
+
+### Changed
+
+- Missing accounts return HTTP 401 `UNAUTHENTICATED` instead of HTTP 200
+  synthetic assistant text.
+
 ## [1.6.0] - 2026-02-20
 
 ### Fixed

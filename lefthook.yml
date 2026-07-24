@@ -1,0 +1,5 @@
+pre-commit:
+  commands:
+    biome:
+      glob: '*.{ts,tsx,js,mjs,json,jsonc,yml,yaml}'
+      run: bunx biome check --staged --no-errors-on-unmatched

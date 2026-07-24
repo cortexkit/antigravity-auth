@@ -13,7 +13,10 @@ const packedRefreshByAccessToken = new Map<string, string>()
 // Single-account extension: keep the map tiny.
 const MAX_ENTRIES = 4
 
-export function rememberPackedRefresh(accessToken: string, packedRefresh: string): void {
+export function rememberPackedRefresh(
+  accessToken: string,
+  packedRefresh: string,
+): void {
   if (!accessToken) return
   if (packedRefreshByAccessToken.has(accessToken)) {
     packedRefreshByAccessToken.delete(accessToken)

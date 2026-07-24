@@ -60,14 +60,14 @@ fi
 echo "→ Running pre-release checks..."
 echo ""
 
-echo "  npm run typecheck..."
-npm run typecheck 2>&1 || { echo "Error: Typecheck failed"; exit 1; }
+echo "  bun run typecheck..."
+bun run typecheck 2>&1 || { echo "Error: Typecheck failed"; exit 1; }
 
-echo "  npm test..."
-npm test 2>&1 || { echo "Error: Tests failed"; exit 1; }
+echo "  bun run test..."
+bun run test 2>&1 || { echo "Error: Tests failed"; exit 1; }
 
-echo "  npm run build..."
-npm run build 2>&1 || { echo "Error: Build failed"; exit 1; }
+echo "  bun run build..."
+bun run build 2>&1 || { echo "Error: Build failed"; exit 1; }
 
 echo "  ✓ All checks passed"
 echo ""

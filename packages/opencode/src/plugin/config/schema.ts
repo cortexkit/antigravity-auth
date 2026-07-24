@@ -1,45 +1,54 @@
 /**
  * Configuration schema for opencode-antigravity-auth plugin.
- * 
+ *
  * Config file locations (in priority order, highest wins):
  * - Project: .opencode/antigravity.json
  * - User: ~/.config/opencode/antigravity.json (Linux/Mac)
  *         %APPDATA%\opencode\antigravity.json (Windows)
- * 
+ *
  * Environment variables always override config file values.
  */
 
-import { z } from "zod";
+import type { AccountSelectionStrategy } from '@cortexkit/antigravity-auth-core'
+import { z } from 'zod'
 
 /**
  * Account selection strategy for distributing requests across accounts.
- * 
+ *
  * - `sticky`: Use same account until rate-limited. Preserves prompt cache.
  * - `round-robin`: Rotate to next account on every request. Maximum throughput.
  * - `hybrid` (default): Deterministic selection based on health score + token bucket + LRU freshness.
  */
-export const AccountSelectionStrategySchema = z.enum(['sticky', 'round-robin', 'hybrid']);
-export type AccountSelectionStrategy = z.infer<typeof AccountSelectionStrategySchema>;
+export const AccountSelectionStrategySchema = z.enum([
+  'sticky',
+  'round-robin',
+  'hybrid',
+])
+export type { AccountSelectionStrategy }
 
 /**
  * Toast notification scope for controlling which sessions show toasts.
- * 
+ *
  * - `root_only` (default): Only show toasts for root sessions (no parentID).
  *   Subagents and background tasks won't show toast notifications.
  * - `all`: Show toasts for all sessions including subagents and background tasks.
  */
-export const ToastScopeSchema = z.enum(['root_only', 'all']);
-export type ToastScope = z.infer<typeof ToastScopeSchema>;
+export const ToastScopeSchema = z.enum(['root_only', 'all'])
+export type ToastScope = z.infer<typeof ToastScopeSchema>
 
 /**
  * Scheduling mode for rate limit behavior.
- * 
+ *
  * - `cache_first`: Wait for same account to recover (preserves prompt cache). Default.
  * - `balance`: Switch account immediately on rate limit. Maximum availability.
  * - `performance_first`: Round-robin distribution for maximum throughput.
  */
-export const SchedulingModeSchema = z.enum(['cache_first', 'balance', 'performance_first']);
-export type SchedulingMode = z.infer<typeof SchedulingModeSchema>;
+export const SchedulingModeSchema = z.enum([
+  'cache_first',
+  'balance',
+  'performance_first',
+])
+export type SchedulingMode = z.infer<typeof SchedulingModeSchema>
 
 /**
  * Signature cache configuration for persisting thinking block signatures to disk.
@@ -47,16 +56,16 @@ export type SchedulingMode = z.infer<typeof SchedulingModeSchema>;
 export const SignatureCacheConfigSchema = z.object({
   /** Enable disk caching of signatures (default: true) */
   enabled: z.boolean().default(true),
-  
+
   /** In-memory TTL in seconds (default: 3600 = 1 hour) */
   memory_ttl_seconds: z.number().min(60).max(86400).default(3600),
-  
+
   /** Disk TTL in seconds (default: 172800 = 48 hours) */
   disk_ttl_seconds: z.number().min(3600).max(604800).default(172800),
-  
+
   /** Background write interval in seconds (default: 60) */
   write_interval_seconds: z.number().min(10).max(600).default(60),
-});
+})
 
 /**
  * Main configuration schema for the Antigravity OAuth plugin.
@@ -64,32 +73,32 @@ export const SignatureCacheConfigSchema = z.object({
 export const AntigravityConfigSchema = z.object({
   /** JSON Schema reference for IDE support */
   $schema: z.string().optional(),
-  
+
   // =========================================================================
   // General Settings
   // =========================================================================
-  
-  /** 
+
+  /**
    * Suppress most toast notifications (rate limit, account switching, etc.)
    * Recovery toasts are always shown regardless of this setting.
    * Env override: OPENCODE_ANTIGRAVITY_QUIET=1
    * @default false
    */
   quiet_mode: z.boolean().default(false),
-  
+
   /**
    * Control which sessions show toast notifications.
-   * 
+   *
    * - `root_only` (default): Only root sessions show toasts.
    *   Subagents and background tasks will be silent (less spam).
    * - `all`: All sessions show toasts including subagents and background tasks.
-   * 
+   *
    * Debug logging captures all toasts regardless of this setting.
    * Env override: OPENCODE_ANTIGRAVITY_TOAST_SCOPE=all
    * @default "root_only"
    */
   toast_scope: ToastScopeSchema.default('root_only'),
-  
+
   /**
    * Enable debug logging to file.
    * Env override: OPENCODE_ANTIGRAVITY_DEBUG=1
@@ -104,24 +113,24 @@ export const AntigravityConfigSchema = z.object({
    * @default false
    */
   debug_tui: z.boolean().default(false),
-  
+
   /**
    * Custom directory for debug logs.
    * Env override: OPENCODE_ANTIGRAVITY_LOG_DIR=/path/to/logs
    * @default OS-specific config dir + "/antigravity-logs"
    */
   log_dir: z.string().optional(),
-  
+
   // =========================================================================
   // Thinking Blocks
   // =========================================================================
-  
+
   /**
    * Preserve thinking blocks for Claude models using signature caching.
-   * 
+   *
    * When false (default): Thinking blocks are stripped for reliability.
    * When true: Full context preserved, but may encounter signature errors.
-   * 
+   *
    * Env override: OPENCODE_ANTIGRAVITY_KEEP_THINKING=1
    * @default false
    */
@@ -151,91 +160,91 @@ export const AntigravityConfigSchema = z.object({
    * @default true
    */
   cache_warmup_on_switch: z.boolean().default(true),
-  
+
   // =========================================================================
   // Session Recovery
-  // =========================================================================  
+  // =========================================================================
   /**
    * Enable automatic session recovery from tool_result_missing errors.
    * When enabled, shows a toast notification when recoverable errors occur.
-   * 
+   *
    * @default true
    */
   session_recovery: z.boolean().default(true),
-  
+
   /**
    * Automatically send a "continue" prompt after successful recovery.
    * Only applies when session_recovery is enabled.
-   * 
+   *
    * When false: Only shows toast notification, user must manually continue.
    * When true: Automatically sends "continue" to resume the session.
-   * 
+   *
    * @default true
    */
   auto_resume: z.boolean().default(true),
-  
+
   /**
    * Custom text to send when auto-resuming after recovery.
    * Only used when auto_resume is enabled.
-   * 
+   *
    * @default "continue"
    */
-  resume_text: z.string().default("continue"),
-  
+  resume_text: z.string().default('continue'),
+
   // =========================================================================
   // Signature Caching
   // =========================================================================
-  
+
   /**
    * Signature cache configuration for persisting thinking block signatures.
    * Only used when keep_thinking is enabled.
    */
   signature_cache: SignatureCacheConfigSchema.optional(),
-  
+
   // =========================================================================
   // Empty Response Retry (ported from LLM-API-Key-Proxy)
   // =========================================================================
-  
+
   /**
    * Maximum retry attempts when Antigravity returns an empty response.
    * Empty responses occur when no candidates/choices are returned.
-   * 
+   *
    * @default 2
    */
-  empty_response_max_attempts: z.number().min(1).max(10).default(2),  
+  empty_response_max_attempts: z.number().min(1).max(10).default(2),
   /**
    * Delay in milliseconds between empty response retries.
-   * 
+   *
    * @default 2000
    */
   empty_response_retry_delay_ms: z.number().min(500).max(10000).default(2000),
-  
+
   // =========================================================================
   // Tool ID Recovery (ported from LLM-API-Key-Proxy)
   // =========================================================================
-  
+
   /**
    * Enable tool ID orphan recovery.
    * When tool responses have mismatched IDs (due to context compaction),
    * attempt to match them by function name or create placeholders.
-   * 
+   *
    * @default true
    */
   tool_id_recovery: z.boolean().default(true),
-  
+
   // =========================================================================
   // Tool Hallucination Prevention (ported from LLM-API-Key-Proxy)
   // =========================================================================
-  
+
   /**
    * Enable tool hallucination prevention for Claude models.
    * When enabled, injects:
    * - Parameter signatures into tool descriptions
    * - System instruction with strict tool usage rules
-   * 
+   *
    * This helps prevent Claude from using parameter names from its training
    * data instead of the actual schema.
-   * 
+   *
    * @default true
    */
   claude_tool_hardening: z.boolean().default(true),
@@ -246,51 +255,55 @@ export const AntigravityConfigSchema = z.object({
    * @default false
    */
   claude_prompt_auto_caching: z.boolean().default(false),
-  
+
   // =========================================================================
   // Proactive Token Refresh (ported from LLM-API-Key-Proxy)
   // =========================================================================
-  
+
   /**
    * Enable proactive background token refresh.
    * When enabled, tokens are refreshed in the background before they expire,
    * ensuring requests never block on token refresh.
-   * 
+   *
    * @default true
    */
   proactive_token_refresh: z.boolean().default(true),
-  
+
   /**
    * Seconds before token expiry to trigger proactive refresh.
    * Default is 30 minutes (1800 seconds).
-   * 
+   *
    * @default 1800
    */
   proactive_refresh_buffer_seconds: z.number().min(60).max(7200).default(1800),
-  
+
   /**
    * Interval between proactive refresh checks in seconds.
    * Default is 5 minutes (300 seconds).
-   * 
+   *
    * @default 300
    */
-  proactive_refresh_check_interval_seconds: z.number().min(30).max(1800).default(300),
-  
+  proactive_refresh_check_interval_seconds: z
+    .number()
+    .min(30)
+    .max(1800)
+    .default(300),
+
   // =========================================================================
   // Rate Limiting
   // =========================================================================
-  
+
   /**
    * Maximum time in seconds to wait when all accounts are rate-limited.
    * If the minimum wait time across all accounts exceeds this threshold,
    * the plugin fails fast with an error instead of hanging.
-   * 
+   *
    * Set to 0 to disable (wait indefinitely).
-   * 
+   *
    * @default 300 (5 minutes)
    */
   max_rate_limit_wait_seconds: z.number().min(0).max(3600).default(300),
-  
+
   /**
    * @deprecated Kept only for backward compatibility.
    * This flag is ignored at runtime.
@@ -302,211 +315,252 @@ export const AntigravityConfigSchema = z.object({
 
   /**
    * Prefer gemini-cli routing before Antigravity for Gemini models.
-   * 
+   *
    * When false (default): Antigravity is tried first, then gemini-cli.
    * When true: gemini-cli is tried first, then Antigravity.
-   * 
+   *
    * @default false
    */
   cli_first: z.boolean().default(false),
-  
+
   /**
    * Strategy for selecting accounts when making requests.
    * Env override: OPENCODE_ANTIGRAVITY_ACCOUNT_SELECTION_STRATEGY
    * @default "hybrid"
    */
   account_selection_strategy: AccountSelectionStrategySchema.default('hybrid'),
-  
+
   /**
    * Enable PID-based account offset for multi-session distribution.
-   * 
+   *
    * When enabled, different sessions (PIDs) will prefer different starting
    * accounts, which helps distribute load when running multiple parallel agents.
-   * 
+   *
    * When disabled (default), accounts start from the same index, which preserves
    * Anthropic's prompt cache across restarts (recommended for single-session use).
-   * 
+   *
    * Env override: OPENCODE_ANTIGRAVITY_PID_OFFSET_ENABLED=1
    * @default false
    */
   pid_offset_enabled: z.boolean().default(false),
-   
-   /**
-      * Switch to another account immediately on first rate limit (after 1s delay).
-      * When disabled, retries same account first, then switches on second rate limit.
-      * 
-      * @default true
-      */
-    switch_on_first_rate_limit: z.boolean().default(true),
 
-    /**
-     * Maximum number of account switches per request before giving up.
-     * Each switch re-sends the full request payload, consuming quota on the new account.
-     * Lower values reduce quota waste from cascading rate limits across accounts.
-     * 
-     * Env override: OPENCODE_ANTIGRAVITY_MAX_ACCOUNT_SWITCHES
-     * @default 10
-     */
-    max_account_switches: z.number().min(0).max(500).default(10),
+  /**
+   * Switch to another account immediately on first rate limit (after 1s delay).
+   * When disabled, retries same account first, then switches on second rate limit.
+   *
+   * @default true
+   */
+  switch_on_first_rate_limit: z.boolean().default(true),
 
-    /**
-     * Allow falling back between quota pools (antigravity ↔ gemini-cli) when rate-limited.
-     * When enabled, if one quota pool is exhausted the plugin re-sends the SAME request
-     * using the alternate header style, consuming tokens from BOTH pools.
-     * Disable to prevent double-spending quota across pools — the plugin will only
-     * rotate accounts instead.
-     * Only applies to Gemini models (Claude always uses antigravity).
-     * 
-     * Env override: OPENCODE_ANTIGRAVITY_QUOTA_STYLE_FALLBACK
-     * @default false
-     */
-    quota_style_fallback: z.boolean().default(false),
-    
-    /**
-     * Scheduling mode for rate limit behavior.     * 
-     * - `cache_first`: Wait for same account to recover (preserves prompt cache). Default.
-     * - `balance`: Switch account immediately on rate limit. Maximum availability.
-     * - `performance_first`: Round-robin distribution for maximum throughput.
-     * 
-     * Env override: OPENCODE_ANTIGRAVITY_SCHEDULING_MODE
-     * @default "cache_first"
-     */
-    scheduling_mode: SchedulingModeSchema.default('cache_first'),
-    
-    /**
-     * Maximum seconds to wait for same account in cache_first mode.
-     * If the account's rate limit reset time exceeds this, switch accounts.
-     * 
-     * @default 60
-     */
-    max_cache_first_wait_seconds: z.number().min(5).max(300).default(60),
-    
-    /**
-     * TTL in seconds for failure count expiration.
-     * After this period of no failures, consecutiveFailures resets to 0.
-     * This prevents old failures from permanently penalizing an account.
-     * 
-     * @default 3600 (1 hour)
-     */
-    failure_ttl_seconds: z.number().min(60).max(7200).default(3600),
-   
-   /**
-    * Default retry delay in seconds when API doesn't return a retry-after header.
-    * Lower values allow faster retries but may trigger more 429 errors.
-    * 
-    * @default 60
-    */
-   default_retry_after_seconds: z.number().min(1).max(300).default(60),
-   
-   /**
-    * Maximum backoff delay in seconds for exponential retry.
-    * This caps how long the exponential backoff can grow.
-    * 
-    * @default 60
-    */
-   max_backoff_seconds: z.number().min(5).max(300).default(60),
-   
-   /**
-    * Maximum random delay in milliseconds before each API request.
-    * Adds timing jitter to break predictable request cadence patterns.
-    * Set to 0 to disable request jitter.
-    * 
-    * @default 0
-    */
-   request_jitter_max_ms: z.number().min(0).max(5000).default(0),
-   
-   /**
-    * Delay in milliseconds before switching to the next account after a rate limit.
-    * Lower values reduce total wait time when cycling through accounts.
-    * Higher values give the rate-limited account more time to recover.
-    *
-    * @default 500
-    */
-   switch_account_delay_ms: z.number().min(0).max(10000).default(500),
+  /**
+   * Maximum number of account switches per request before giving up.
+   * Each switch re-sends the full request payload, consuming quota on the new account.
+   * Lower values reduce quota waste from cascading rate limits across accounts.
+   *
+   * Env override: OPENCODE_ANTIGRAVITY_MAX_ACCOUNT_SWITCHES
+   * @default 10
+   */
+  max_account_switches: z.number().min(0).max(500).default(10),
 
-   /**
-    * Soft quota threshold percentage (1-100).
-    * When an account's quota usage reaches this percentage, skip it during
-    * account selection (same as if it were rate-limited).
-    * 
-    * Example: 80 means skip account when 80% of quota is used (20% remaining).
-    * Set to 100 to disable soft quota protection.
-    * 
-    * @default 80
-    */
-   soft_quota_threshold_percent: z.number().min(1).max(100).default(80),
-   
-   /**
-    * How often to refresh quota data in the background (in minutes).
-    * Quota is refreshed opportunistically after successful API requests.
-    * Set to 0 to disable automatic refresh (manual only via Check quotas).
-    * 
-    * @default 15
-    */
-    quota_refresh_interval_minutes: z.number().min(0).max(120).default(30),   
-   /**
-    * How long quota cache is considered fresh for threshold checks (in minutes).
-    * After this time, cache is stale and account is allowed (fail-open).
-    * 
-    * "auto" = derive from refresh interval: max(2 * refresh_interval, 10)
-    * 
-    * @default "auto"
-    */
-   soft_quota_cache_ttl_minutes: z.union([
-     z.literal("auto"),
-     z.number().min(1).max(120)
-   ]).default("auto"),
+  /**
+   * Allow falling back between quota pools (antigravity ↔ gemini-cli) when rate-limited.
+   * When enabled, if one quota pool is exhausted the plugin re-sends the SAME request
+   * using the alternate header style, consuming tokens from BOTH pools.
+   * Disable to prevent double-spending quota across pools — the plugin will only
+   * rotate accounts instead.
+   * Only applies to Gemini models (Claude always uses antigravity).
+   *
+   * Env override: OPENCODE_ANTIGRAVITY_QUOTA_STYLE_FALLBACK
+   * @default false
+   */
+  quota_style_fallback: z.boolean().default(false),
 
-   /**
-    * Proactive rotation threshold percentage (0-100).
-    * After a successful request, if the current account's remaining quota
-    * drops below this percentage, proactively switch to a warm-cache account
-    * before the next request — avoiding a forced 429 mid-conversation.
-    *
-    * Set to 0 to disable proactive rotation.
-    *
-    * @default 20
-    * @env OPENCODE_ANTIGRAVITY_PROACTIVE_ROTATION_THRESHOLD
-    */
-   proactive_rotation_threshold_percent: z.number().min(0).max(100).default(20),
-   
-   // =========================================================================
-   // Health Score (used by hybrid strategy)
-   // =========================================================================   
-   health_score: z.object({
-     initial: z.number().min(0).max(100).default(70),
-     success_reward: z.number().min(0).max(10).default(1),
-     rate_limit_penalty: z.number().min(-50).max(0).default(-10),
-     failure_penalty: z.number().min(-100).max(0).default(-20),
-     recovery_rate_per_hour: z.number().min(0).max(20).default(2),
-     min_usable: z.number().min(0).max(100).default(50),
-     max_score: z.number().min(50).max(100).default(100),
-   }).optional(),
-   
-   // =========================================================================
-   // Token Bucket (for hybrid strategy)
-   // =========================================================================
-   
-   token_bucket: z.object({
-     max_tokens: z.number().min(1).max(1000).default(50),
-     regeneration_rate_per_minute: z.number().min(0.1).max(60).default(6),
-     initial_tokens: z.number().min(1).max(1000).default(50),
-   }).optional(),
-   
-   // =========================================================================
-   // Auto-Update
+  /**
+   * Scheduling mode for rate limit behavior.     *
+   * - `cache_first`: Wait for same account to recover (preserves prompt cache). Default.
+   * - `balance`: Switch account immediately on rate limit. Maximum availability.
+   * - `performance_first`: Round-robin distribution for maximum throughput.
+   *
+   * Env override: OPENCODE_ANTIGRAVITY_SCHEDULING_MODE
+   * @default "cache_first"
+   */
+  scheduling_mode: SchedulingModeSchema.default('cache_first'),
+
+  /**
+   * Maximum seconds to wait for same account in cache_first mode.
+   * If the account's rate limit reset time exceeds this, switch accounts.
+   *
+   * @default 60
+   */
+  max_cache_first_wait_seconds: z.number().min(5).max(300).default(60),
+
+  /**
+   * TTL in seconds for failure count expiration.
+   * After this period of no failures, consecutiveFailures resets to 0.
+   * This prevents old failures from permanently penalizing an account.
+   *
+   * @default 3600 (1 hour)
+   */
+  failure_ttl_seconds: z.number().min(60).max(7200).default(3600),
+
+  /**
+   * Default retry delay in seconds when API doesn't return a retry-after header.
+   * Lower values allow faster retries but may trigger more 429 errors.
+   *
+   * @default 60
+   */
+  default_retry_after_seconds: z.number().min(1).max(300).default(60),
+
+  /**
+   * Maximum backoff delay in seconds for exponential retry.
+   * This caps how long the exponential backoff can grow.
+   *
+   * @default 60
+   */
+  max_backoff_seconds: z.number().min(5).max(300).default(60),
+
+  /**
+   * Maximum random delay in milliseconds before each API request.
+   * Adds timing jitter to break predictable request cadence patterns.
+   * Set to 0 to disable request jitter.
+   *
+   * @default 0
+   */
+  request_jitter_max_ms: z.number().min(0).max(5000).default(0),
+
+  /**
+   * Delay in milliseconds before switching to the next account after a rate limit.
+   * Lower values reduce total wait time when cycling through accounts.
+   * Higher values give the rate-limited account more time to recover.
+   *
+   * @default 500
+   */
+  switch_account_delay_ms: z.number().min(0).max(10000).default(500),
+
+  /**
+   * Soft quota threshold percentage (1-100).
+   * When an account's quota usage reaches this percentage, skip it during
+   * account selection (same as if it were rate-limited).
+   *
+   * Example: 80 means skip account when 80% of quota is used (20% remaining).
+   * Set to 100 to disable soft quota protection.
+   *
+   * @default 80
+   */
+  soft_quota_threshold_percent: z.number().min(1).max(100).default(80),
+
+  /**
+   * How often to refresh quota data in the background (in minutes).
+   * Quota is refreshed opportunistically after successful API requests.
+   * Set to 0 to disable automatic refresh (manual only via Check quotas).
+   *
+   * @default 15
+   */
+  quota_refresh_interval_minutes: z.number().min(0).max(120).default(30),
+  /**
+   * How long quota cache is considered fresh for threshold checks (in minutes).
+   * After this time, cache is stale and account is allowed (fail-open).
+   *
+   * "auto" = derive from refresh interval: max(2 * refresh_interval, 10)
+   *
+   * @default "auto"
+   */
+  soft_quota_cache_ttl_minutes: z
+    .union([z.literal('auto'), z.number().min(1).max(120)])
+    .default('auto'),
+
+  /**
+   * Proactive rotation threshold percentage (0-100).
+   * After a successful request, if the current account's remaining quota
+   * drops below this percentage, proactively switch to a warm-cache account
+   * before the next request — avoiding a forced 429 mid-conversation.
+   *
+   * Set to 0 to disable proactive rotation.
+   *
+   * @default 20
+   * @env OPENCODE_ANTIGRAVITY_PROACTIVE_ROTATION_THRESHOLD
+   */
+  proactive_rotation_threshold_percent: z.number().min(0).max(100).default(20),
+
   // =========================================================================
-  
+  // Health Score (used by hybrid strategy)
+  // =========================================================================
+  health_score: z
+    .object({
+      initial: z.number().min(0).max(100).default(70),
+      success_reward: z.number().min(0).max(10).default(1),
+      rate_limit_penalty: z.number().min(-50).max(0).default(-10),
+      failure_penalty: z.number().min(-100).max(0).default(-20),
+      recovery_rate_per_hour: z.number().min(0).max(20).default(2),
+      min_usable: z.number().min(0).max(100).default(50),
+      max_score: z.number().min(50).max(100).default(100),
+    })
+    .optional(),
+
+  // =========================================================================
+  // Token Bucket (for hybrid strategy)
+  // =========================================================================
+
+  token_bucket: z
+    .object({
+      max_tokens: z.number().min(1).max(1000).default(50),
+      regeneration_rate_per_minute: z.number().min(0.1).max(60).default(6),
+      initial_tokens: z.number().min(1).max(1000).default(50),
+    })
+    .optional(),
+
+  // =========================================================================
+  // Auto-Update
+  // =========================================================================
+
   /**
    * Enable automatic plugin updates.
    * @default true
    */
   auto_update: z.boolean().default(true),
 
-});
+  // =========================================================================
+  // Operator Settings (Task 18: persistent runtime controls)
+  // =========================================================================
+  //
+  // These fields back the slash-command dialogs. They are mutable from the
+  // TUI and MUST persist across restarts. Writes go through
+  // `config/writer.ts` so they use the same fenced lock + atomic rename the
+  // account pool uses — concurrent writers do not silently corrupt state.
 
-export type AntigravityConfig = z.infer<typeof AntigravityConfigSchema>;
-export type SignatureCacheConfig = z.infer<typeof SignatureCacheConfigSchema>;
+  /**
+   * Routing overrides the static `cli_first` / `quota_style_fallback` flags
+   * when the operator toggles them through `/antigravity-routing`.
+   */
+  operator: z
+    .object({
+      routing: z
+        .object({
+          cli_first: z.boolean().default(false),
+          quota_style_fallback: z.boolean().default(false),
+        })
+        .optional(),
+      killswitch: z
+        .object({
+          enabled: z.boolean().default(false),
+          minimum_remaining_percent: z.number().min(0).max(100).default(5),
+          /**
+           * Per-account override keyed by sha256(refreshToken).slice(0,12).
+           * No raw token ever lands in the config file, sidebar, RPC, or
+           * apply arguments.
+           */
+          accounts: z.record(z.string(), z.number().min(0).max(100)).optional(),
+        })
+        .optional(),
+      log_level: z
+        .enum(['error', 'warn', 'info', 'debug', 'trace'])
+        .default('info'),
+    })
+    .optional(),
+})
+
+export type AntigravityConfig = z.infer<typeof AntigravityConfigSchema>
+export type SignatureCacheConfig = z.infer<typeof SignatureCacheConfigSchema>
 
 /**
  * Default configuration values.
@@ -519,8 +573,9 @@ export const DEFAULT_CONFIG: AntigravityConfig = {
   keep_thinking: false,
   thinking_warmup: false,
   cache_warmup_on_switch: true,
-  session_recovery: true,  auto_resume: true,
-  resume_text: "continue",
+  session_recovery: true,
+  auto_resume: true,
+  resume_text: 'continue',
   empty_response_max_attempts: 2,
   empty_response_retry_delay_ms: 2000,
   tool_id_recovery: true,
@@ -537,7 +592,8 @@ export const DEFAULT_CONFIG: AntigravityConfig = {
   switch_on_first_rate_limit: true,
   max_account_switches: 10,
   quota_style_fallback: false,
-  scheduling_mode: 'cache_first',  max_cache_first_wait_seconds: 60,
+  scheduling_mode: 'cache_first',
+  max_cache_first_wait_seconds: 60,
   failure_ttl_seconds: 3600,
   default_retry_after_seconds: 60,
   max_backoff_seconds: 60,
@@ -545,9 +601,10 @@ export const DEFAULT_CONFIG: AntigravityConfig = {
   switch_account_delay_ms: 500,
   soft_quota_threshold_percent: 80,
   quota_refresh_interval_minutes: 30,
-  soft_quota_cache_ttl_minutes: "auto",
+  soft_quota_cache_ttl_minutes: 'auto',
   proactive_rotation_threshold_percent: 20,
-  auto_update: true,  signature_cache: {
+  auto_update: true,
+  signature_cache: {
     enabled: true,
     memory_ttl_seconds: 3600,
     disk_ttl_seconds: 172800,
@@ -567,4 +624,9 @@ export const DEFAULT_CONFIG: AntigravityConfig = {
     regeneration_rate_per_minute: 6,
     initial_tokens: 50,
   },
-};
+  operator: {
+    routing: { cli_first: false, quota_style_fallback: false },
+    killswitch: { enabled: false, minimum_remaining_percent: 5 },
+    log_level: 'info',
+  },
+}

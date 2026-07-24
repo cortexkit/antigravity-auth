@@ -1,9 +1,3 @@
-export {
-  OPENCODE_MODEL_DEFINITIONS,
-  getAntigravityOpencodeModelIds,
-  getPublicModelDefinitions,
-} from "../model-registry"
-
 export type {
   ModelLimit,
   ModelModalities,
@@ -13,4 +7,9 @@ export type {
   ModelVariant,
   OpencodeModelDefinition,
   OpencodeModelDefinitions,
-} from "../model-registry"
+} from '../model-registry'
+export {
+  getAntigravityOpencodeModelIds,
+  getPublicModelDefinitions,
+  OPENCODE_MODEL_DEFINITIONS,
+} from '../model-registry'

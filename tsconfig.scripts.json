@@ -1,0 +1,13 @@
+{
+  "extends": "@tsconfig/bun/tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM"],
+    "noEmit": true,
+    "types": ["bun", "node"]
+  },
+  "include": [
+    "scripts/**/*.ts",
+    "test/**/*.ts",
+    "packages/e2e-tests/src/**/*.ts"
+  ]
+}

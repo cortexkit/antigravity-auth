@@ -3,20 +3,20 @@ import {
   exchangeAntigravity,
   getPublicModelDefinitions,
   refreshAntigravityToken,
-} from "@cortexkit/antigravity-auth-core"
+} from '@cortexkit/antigravity-auth-core'
 import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
-} from "@earendil-works/pi-ai"
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
+} from '@earendil-works/pi-ai'
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 
-import { rememberPackedRefresh } from "./credential-cache.ts"
-import { streamCortexKitAntigravity } from "./stream.ts"
+import { rememberPackedRefresh } from './credential-cache.ts'
+import { streamCortexKitAntigravity } from './stream.ts'
 
-const ANTIGRAVITY_PROVIDER_ID = "google-antigravity"
+const ANTIGRAVITY_PROVIDER_ID = 'google-antigravity'
 
-function textImageInput(): Array<"text" | "image"> {
-  return ["text", "image"]
+function textImageInput(): Array<'text' | 'image'> {
+  return ['text', 'image']
 }
 
 async function loginAntigravity(
@@ -25,20 +25,20 @@ async function loginAntigravity(
   const auth = await authorizeAntigravity()
   callbacks.onAuth({ url: auth.url })
   const code = await callbacks.onPrompt({
-    message: "Paste the Antigravity OAuth callback URL or code:",
+    message: 'Paste the Antigravity OAuth callback URL or code:',
   })
 
   // The state (PKCE verifier + project) is carried in the authorize URL; reuse
   // it so the code exchange can recover the verifier.
-  const authState = new URL(auth.url).searchParams.get("state") ?? ""
+  const authState = new URL(auth.url).searchParams.get('state') ?? ''
 
   // Accept either a raw code or a full redirect URL with ?code= and &state=.
   let rawCode = code.trim()
   let state = authState
   try {
     const url = new URL(rawCode)
-    const codeParam = url.searchParams.get("code")
-    const stateParam = url.searchParams.get("state")
+    const codeParam = url.searchParams.get('code')
+    const stateParam = url.searchParams.get('state')
     if (codeParam) rawCode = codeParam
     if (stateParam) state = stateParam
   } catch {
@@ -46,7 +46,7 @@ async function loginAntigravity(
   }
 
   const result = await exchangeAntigravity(rawCode, state)
-  if (result.type !== "success") {
+  if (result.type !== 'success') {
     throw new Error(`Antigravity OAuth exchange failed: ${result.error}`)
   }
 
@@ -61,12 +61,12 @@ async function refreshAntigravityCredentials(
   credentials: OAuthCredentials,
 ): Promise<OAuthCredentials> {
   // Stored refresh is `refreshToken|projectId|managedProjectId`.
-  const refreshToken = credentials.refresh.split("|")[0] ?? credentials.refresh
+  const refreshToken = credentials.refresh.split('|')[0] ?? credentials.refresh
   const refreshed = await refreshAntigravityToken(refreshToken)
   // Preserve the project segments packed into the stored refresh string.
-  const projectSegments = credentials.refresh.includes("|")
-    ? credentials.refresh.slice(credentials.refresh.indexOf("|"))
-    : ""
+  const projectSegments = credentials.refresh.includes('|')
+    ? credentials.refresh.slice(credentials.refresh.indexOf('|'))
+    : ''
   return {
     refresh: `${refreshed.refresh}${projectSegments}`,
     access: refreshed.access,
@@ -79,7 +79,7 @@ export default function cortexKitPiAntigravityAuth(pi: ExtensionAPI): void {
     // Pi's AssistantMessage protocol has no image-output content type. Keep
     // generation-only image routes out of the chat model catalog rather than
     // advertising output that the stream contract cannot represent.
-    .filter((model) => !model.modalities.output.includes("image"))
+    .filter((model) => !model.modalities.output.includes('image'))
     .map((model) => ({
       id: model.id,
       name: model.name,
@@ -91,12 +91,12 @@ export default function cortexKitPiAntigravityAuth(pi: ExtensionAPI): void {
     }))
 
   pi.registerProvider(ANTIGRAVITY_PROVIDER_ID, {
-    name: "Google Antigravity (CortexKit OAuth)",
-    baseUrl: "https://cloudcode-pa.googleapis.com",
-    api: "google-generative-ai",
+    name: 'Google Antigravity (CortexKit OAuth)',
+    baseUrl: 'https://cloudcode-pa.googleapis.com',
+    api: 'google-generative-ai',
     models,
     oauth: {
-      name: "Google Antigravity (CortexKit)",
+      name: 'Google Antigravity (CortexKit)',
       login: loginAntigravity,
       refreshToken: refreshAntigravityCredentials,
       getApiKey: (credentials) => {

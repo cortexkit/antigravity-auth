@@ -6,13 +6,32 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "cd packages/core && npm run build && cd ../opencode && npm run build && cd ../pi && npm run build",
-    "typecheck": "cd packages/core && npm run build && cd ../opencode && npm run typecheck && cd ../pi && npm run typecheck",
-    "test": "cd packages/core && npm test && cd ../opencode && npm test && cd ../pi && npm test",
-    "prepublishOnly": "npm run build"
+    "build": "bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/pi build",
+    "typecheck": "bun run --cwd packages/core build && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck && tsc -p tsconfig.scripts.json",
+    "test": "bun run --cwd packages/core build && bun test --isolate packages/core/src packages/opencode/src packages/pi/src test/",
+    "test:e2e": "bun test --isolate ./packages/e2e-tests/src/plugin-flow.e2e.test.ts ./packages/e2e-tests/src/cli-flow.e2e.test.ts ./packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts ./packages/e2e-tests/src/fetch-guard.test.ts",
+    "test:e2e:models": "bun run --cwd packages/opencode test:e2e:models",
+    "test:e2e:regression": "bun run --cwd packages/opencode test:e2e:regression",
+    "prepublishOnly": "bun run build",
+    "dev": "bun scripts/dev.ts",
+    "dev:clean": "bun scripts/dev-clean.ts",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint . --error-on-warnings",
+    "pack:core:dry": "cd packages/core && bun pm pack --dry-run",
+    "pack:opencode-dry": "cd packages/opencode && bun pm pack --dry-run",
+    "pack:pi-dry": "cd packages/pi && bun pm pack --dry-run"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
-    "typescript": "^5.0.0"
+    "@biomejs/biome": "2.5.3",
+    "@opencode-ai/plugin": "1.17.13",
+    "@opentui/core": "0.4.5",
+    "@opentui/keymap": "0.4.5",
+    "@opentui/solid": "0.4.5",
+    "@types/bun": "1.3",
+    "@tsconfig/bun": "1.0.10",
+    "@types/node": "24.10.1",
+    "lefthook": "2.1.9",
+    "typescript": "6.0.3"
   }
 }

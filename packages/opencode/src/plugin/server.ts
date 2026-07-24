@@ -1,28 +1,28 @@
-import { createServer } from "node:http";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 
-import { ANTIGRAVITY_REDIRECT_URI } from "../constants";
+import { ANTIGRAVITY_REDIRECT_URI } from '../constants'
 
 interface OAuthListenerOptions {
   /**
    * How long to wait for the OAuth redirect before timing out (in milliseconds).
    */
-  timeoutMs?: number;
+  timeoutMs?: number
 }
 
 export interface OAuthListener {
   /**
    * Resolves with the callback URL once Google redirects back to the local server.
    */
-  waitForCallback(): Promise<URL>;
+  waitForCallback(): Promise<URL>
   /**
    * Cleanly stop listening for callbacks.
    */
-  close(): Promise<void>;
+  close(): Promise<void>
 }
 
-const redirectUri = new URL(ANTIGRAVITY_REDIRECT_URI);
-const callbackPath = redirectUri.pathname || "/";
+const redirectUri = new URL(ANTIGRAVITY_REDIRECT_URI)
+const callbackPath = redirectUri.pathname || '/'
 
 /**
  * Detect if running in OrbStack Docker with --network host mode.
@@ -30,63 +30,67 @@ const callbackPath = redirectUri.pathname || "/";
  */
 function isOrbStackDockerHost(): boolean {
   // Check if we're in Docker
-  if (!existsSync("/.dockerenv")) {
-    return false;
+  if (!existsSync('/.dockerenv')) {
+    return false
   }
-  
+
   // Check for OrbStack-specific indicators
   // OrbStack sets specific environment variables or has identifiable characteristics
   try {
     // OrbStack containers often have /run/.containerenv or specific mount patterns
     // Also check if /proc/version contains orbstack
-    if (existsSync("/proc/version")) {
-      const version = readFileSync("/proc/version", "utf8").toLowerCase();
-      if (version.includes("orbstack")) {
-        return true;
+    if (existsSync('/proc/version')) {
+      const version = readFileSync('/proc/version', 'utf8').toLowerCase()
+      if (version.includes('orbstack')) {
+        return true
       }
     }
-    
+
     // Check hostname pattern (OrbStack uses specific patterns)
-    const hostname = process.env.HOSTNAME || "";
-    if (hostname.startsWith("orbstack-") || hostname.endsWith(".orb") || hostname === "orbstack") {
-      return true;
+    const hostname = process.env.HOSTNAME || ''
+    if (
+      hostname.startsWith('orbstack-') ||
+      hostname.endsWith('.orb') ||
+      hostname === 'orbstack'
+    ) {
+      return true
     }
-    
+
     // Check for OrbStack's network host mode by looking at resolv.conf
     // OrbStack with --network host has specific DNS configuration
-    if (existsSync("/etc/resolv.conf")) {
-      const resolv = readFileSync("/etc/resolv.conf", "utf8");
-      if (resolv.includes("orb.local") || resolv.includes("orbstack")) {
-        return true;
+    if (existsSync('/etc/resolv.conf')) {
+      const resolv = readFileSync('/etc/resolv.conf', 'utf8')
+      if (resolv.includes('orb.local') || resolv.includes('orbstack')) {
+        return true
       }
     }
-    
+
     // Fallback: Check if running on macOS/Darwin host via Docker
     // This is a heuristic - if in Docker on Linux but /proc/version shows darwin-like patterns
-    if (process.platform === "linux" && existsSync("/.dockerenv")) {
+    if (process.platform === 'linux' && existsSync('/.dockerenv')) {
       // Most OrbStack containers will have been caught above
       // For safety, also check common OrbStack mount patterns
-      if (existsSync("/run/host-services")) {
-        return true;
+      if (existsSync('/run/host-services')) {
+        return true
       }
     }
   } catch {
     // Ignore errors, fall through to default
   }
-  
-  return false;
+
+  return false
 }
 
 /**
  * Detect WSL (Windows Subsystem for Linux) environment.
  */
 function isWSL(): boolean {
-  if (process.platform !== "linux") return false;
+  if (process.platform !== 'linux') return false
   try {
-    const release = readFileSync("/proc/version", "utf8").toLowerCase();
-    return release.includes("microsoft") || release.includes("wsl");
+    const release = readFileSync('/proc/version', 'utf8').toLowerCase()
+    return release.includes('microsoft') || release.includes('wsl')
   } catch {
-    return false;
+    return false
   }
 }
 
@@ -94,18 +98,22 @@ function isWSL(): boolean {
  * Detect remote/SSH environment where localhost may not be accessible from browser.
  */
 function isRemoteEnvironment(): boolean {
-  if (process.env.SSH_CLIENT || process.env.SSH_TTY || process.env.SSH_CONNECTION) {
-    return true;
+  if (
+    process.env.SSH_CLIENT ||
+    process.env.SSH_TTY ||
+    process.env.SSH_CONNECTION
+  ) {
+    return true
   }
   if (process.env.REMOTE_CONTAINERS || process.env.CODESPACES) {
-    return true;
+    return true
   }
-  return false;
+  return false
 }
 
 /**
  * Determine the best bind address for the OAuth callback server.
- * 
+ *
  * Priority:
  * 1. OPENCODE_ANTIGRAVITY_OAUTH_BIND environment variable (user override)
  * 2. OrbStack Docker with --network host: 127.0.0.1 (required for port forwarding)
@@ -114,59 +122,59 @@ function isRemoteEnvironment(): boolean {
  */
 function getBindAddress(): string {
   // Allow user override via environment variable
-  const envBind = process.env.OPENCODE_ANTIGRAVITY_OAUTH_BIND;
+  const envBind = process.env.OPENCODE_ANTIGRAVITY_OAUTH_BIND
   if (envBind) {
-    return envBind;
+    return envBind
   }
-  
+
   // OrbStack Docker needs 127.0.0.1 for --network host port forwarding
   if (isOrbStackDockerHost()) {
-    return "127.0.0.1";
+    return '127.0.0.1'
   }
-  
+
   // WSL and remote environments need 0.0.0.0 to be reachable
   if (isWSL() || isRemoteEnvironment()) {
-    return "0.0.0.0";
+    return '0.0.0.0'
   }
-  
+
   // Default to 127.0.0.1 for security (local-only access)
-  return "127.0.0.1";
+  return '127.0.0.1'
 }
 
 /**
  * Starts a lightweight HTTP server that listens for the Antigravity OAuth redirect
  * and resolves with the captured callback URL.
  */
-export async function startOAuthListener(
-  { timeoutMs = 5 * 60 * 1000 }: OAuthListenerOptions = {},
-): Promise<OAuthListener> {
+export async function startOAuthListener({
+  timeoutMs = 5 * 60 * 1000,
+}: OAuthListenerOptions = {}): Promise<OAuthListener> {
   const port = redirectUri.port
     ? Number.parseInt(redirectUri.port, 10)
-    : redirectUri.protocol === "https:"
-    ? 443
-    : 80;
-  const origin = `${redirectUri.protocol}//${redirectUri.host}`;
+    : redirectUri.protocol === 'https:'
+      ? 443
+      : 80
+  const origin = `${redirectUri.protocol}//${redirectUri.host}`
 
-  let settled = false;
-  let resolveCallback: (url: URL) => void;
-  let rejectCallback: (error: Error) => void;
-  let timeoutHandle: NodeJS.Timeout;
+  let settled = false
+  let resolveCallback: (url: URL) => void
+  let rejectCallback: (error: Error) => void
+  let timeoutHandle: NodeJS.Timeout
   const callbackPromise = new Promise<URL>((resolve, reject) => {
     resolveCallback = (url: URL) => {
-      if (settled) return;
-      settled = true;
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      resolve(url);
-    };
+      if (settled) return
+      settled = true
+      if (timeoutHandle) clearTimeout(timeoutHandle)
+      resolve(url)
+    }
     rejectCallback = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      reject(error);
-    };
-  });
+      if (settled) return
+      settled = true
+      if (timeoutHandle) clearTimeout(timeoutHandle)
+      reject(error)
+    }
+  })
 
-const successResponse = `<!DOCTYPE html>
+  const successResponse = `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -290,77 +298,82 @@ const successResponse = `<!DOCTYPE html>
       }
     </script>
   </body>
-</html>`;
+</html>`
 
   timeoutHandle = setTimeout(() => {
-    rejectCallback(new Error("Timed out waiting for OAuth callback"));
-  }, timeoutMs);
-  timeoutHandle.unref?.();
+    rejectCallback(new Error('Timed out waiting for OAuth callback'))
+  }, timeoutMs)
+  timeoutHandle.unref?.()
 
   const server = createServer((request, response) => {
     if (!request.url) {
-      response.writeHead(400, { "Content-Type": "text/plain" });
-      response.end("Invalid request");
-      return;
+      response.writeHead(400, { 'Content-Type': 'text/plain' })
+      response.end('Invalid request')
+      return
     }
 
-    const url = new URL(request.url, origin);
+    const url = new URL(request.url, origin)
     if (url.pathname !== callbackPath) {
-      response.writeHead(404, { "Content-Type": "text/plain" });
-      response.end("Not found");
-      return;
+      response.writeHead(404, { 'Content-Type': 'text/plain' })
+      response.end('Not found')
+      return
     }
 
-    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    response.end(successResponse);
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    response.end(successResponse)
 
-    resolveCallback(url);
+    resolveCallback(url)
 
     setImmediate(() => {
-      server.close();
-    });
-  });
+      server.close()
+    })
+  })
 
-  const bindAddress = getBindAddress();
-  
+  const bindAddress = getBindAddress()
+
   await new Promise<void>((resolve, reject) => {
     const handleError = (error: NodeJS.ErrnoException) => {
-      server.off("error", handleError);
-      if (error.code === "EADDRINUSE") {
-        reject(new Error(
-          `Port ${port} is already in use. ` +
-          `Another process is occupying this port. ` +
-          `Please terminate the process or try again later.`
-        ));
-        return;
+      server.off('error', handleError)
+      if (error.code === 'EADDRINUSE') {
+        reject(
+          new Error(
+            `Port ${port} is already in use. ` +
+              `Another process is occupying this port. ` +
+              `Please terminate the process or try again later.`,
+          ),
+        )
+        return
       }
-      reject(error);
-    };
-    server.once("error", handleError);
+      reject(error)
+    }
+    server.once('error', handleError)
     server.listen(port, bindAddress, () => {
-      server.off("error", handleError);
-      resolve();
-    });
-  });
+      server.off('error', handleError)
+      resolve()
+    })
+  })
 
-  server.on("error", (error) => {
-    rejectCallback(error instanceof Error ? error : new Error(String(error)));
-  });
+  server.on('error', (error) => {
+    rejectCallback(error instanceof Error ? error : new Error(String(error)))
+  })
 
   return {
     waitForCallback: () => callbackPromise,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => {
-          if (error && (error as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING") {
-            reject(error);
-            return;
+          if (
+            error &&
+            (error as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING'
+          ) {
+            reject(error)
+            return
           }
           if (!settled) {
-            rejectCallback(new Error("OAuth listener closed before callback"));
+            rejectCallback(new Error('OAuth listener closed before callback'))
           }
-          resolve();
-        });
+          resolve()
+        })
       }),
-  };
+  }
 }

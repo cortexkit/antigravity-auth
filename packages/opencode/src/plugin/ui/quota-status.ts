@@ -1,6 +1,6 @@
-import { ANSI } from "./ansi"
-import type { QuotaGroup, QuotaGroupSummary } from "../quota"
-import type { CooldownReason } from "../accounts"
+import type { CooldownReason } from '../accounts'
+import type { QuotaGroupSummary } from '../quota'
+import { ANSI } from './ansi'
 
 /**
  * Quota-aware status labels for models and accounts.
@@ -13,7 +13,7 @@ import type { CooldownReason } from "../accounts"
  *   [LOW]         — quota below 20% but still available
  */
 
-export type QuotaLabel = "READY" | "WAIT" | "EXHAUSTED" | "COOLDOWN" | "LOW"
+export type QuotaLabel = 'READY' | 'WAIT' | 'EXHAUSTED' | 'COOLDOWN' | 'LOW'
 
 export interface QuotaStatusInfo {
   label: QuotaLabel
@@ -32,7 +32,9 @@ export function formatWaitDuration(ms: number): string {
   const minutes = Math.floor(seconds / 60)
   const remainingSeconds = seconds % 60
   if (minutes < 60) {
-    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`
+    return remainingSeconds > 0
+      ? `${minutes}m ${remainingSeconds}s`
+      : `${minutes}m`
   }
   const hours = Math.floor(minutes / 60)
   const remainingMinutes = minutes % 60
@@ -46,33 +48,33 @@ export function classifyGroupStatus(
   group: QuotaGroupSummary | undefined,
 ): QuotaStatusInfo {
   if (!group) {
-    return { label: "READY" }
+    return { label: 'READY' }
   }
 
   const remaining = group.remainingFraction
 
   // No remaining fraction data — treat as ready (fail-open)
-  if (typeof remaining !== "number" || !Number.isFinite(remaining)) {
-    return { label: "READY" }
+  if (typeof remaining !== 'number' || !Number.isFinite(remaining)) {
+    return { label: 'READY' }
   }
 
   // Exhausted: 0% remaining
   if (remaining <= 0) {
     const waitMs = parseResetTimeToMs(group.resetTime)
     if (waitMs !== null && waitMs > 0) {
-      return { label: "EXHAUSTED", waitMs }
+      return { label: 'EXHAUSTED', waitMs }
     }
     // resetTime is missing or in the past — quota likely already reset on Google's side.
     // Treat as READY (fail-open) to avoid stale exhaustion display.
-    return { label: "READY" }
+    return { label: 'READY' }
   }
 
   // Low: below 20%
   if (remaining < 0.2) {
-    return { label: "LOW" }
+    return { label: 'LOW' }
   }
 
-  return { label: "READY" }
+  return { label: 'READY' }
 }
 
 /**
@@ -95,7 +97,7 @@ export function buildCooldownStatus(
   reason?: CooldownReason,
 ): QuotaStatusInfo {
   return {
-    label: "COOLDOWN",
+    label: 'COOLDOWN',
     waitMs: cooldownMs > 0 ? cooldownMs : undefined,
     cooldownReason: reason,
   }
@@ -106,9 +108,9 @@ export function buildCooldownStatus(
  */
 export function buildWaitStatus(waitMs?: number): QuotaStatusInfo {
   if (waitMs !== undefined && waitMs > 0) {
-    return { label: "WAIT", waitMs }
+    return { label: 'WAIT', waitMs }
   }
-  return { label: "WAIT" }
+  return { label: 'WAIT' }
 }
 
 /**
@@ -123,35 +125,35 @@ export function buildWaitStatus(waitMs?: number): QuotaStatusInfo {
  */
 export function formatQuotaStatusBadge(status: QuotaStatusInfo): string {
   switch (status.label) {
-    case "READY":
+    case 'READY':
       return `${ANSI.green}[READY]${ANSI.reset}`
 
-    case "LOW":
+    case 'LOW':
       return `${ANSI.yellow}[LOW]${ANSI.reset}`
 
-    case "WAIT": {
+    case 'WAIT': {
       const suffix = status.waitMs
         ? ` ${formatWaitDuration(status.waitMs)}`
-        : ""
+        : ''
       return `${ANSI.yellow}[WAIT${suffix}]${ANSI.reset}`
     }
 
-    case "EXHAUSTED": {
+    case 'EXHAUSTED': {
       const suffix = status.waitMs
         ? ` resets in ${formatWaitDuration(status.waitMs)}`
-        : ""
+        : ''
       return `${ANSI.red}[EXHAUSTED${suffix}]${ANSI.reset}`
     }
 
-    case "COOLDOWN": {
-      const parts = ["COOLDOWN"]
+    case 'COOLDOWN': {
+      const parts = ['COOLDOWN']
       if (status.cooldownReason) {
         parts.push(status.cooldownReason)
       }
       if (status.waitMs) {
         parts.push(formatWaitDuration(status.waitMs))
       }
-      return `${ANSI.red}[${parts.join(" ")}]${ANSI.reset}`
+      return `${ANSI.red}[${parts.join(' ')}]${ANSI.reset}`
     }
   }
 }
@@ -162,35 +164,35 @@ export function formatQuotaStatusBadge(status: QuotaStatusInfo): string {
  */
 export function formatQuotaStatusPlain(status: QuotaStatusInfo): string {
   switch (status.label) {
-    case "READY":
-      return "READY"
+    case 'READY':
+      return 'READY'
 
-    case "LOW":
-      return "LOW"
+    case 'LOW':
+      return 'LOW'
 
-    case "WAIT": {
+    case 'WAIT': {
       const suffix = status.waitMs
         ? ` ${formatWaitDuration(status.waitMs)}`
-        : ""
+        : ''
       return `WAIT${suffix}`
     }
 
-    case "EXHAUSTED": {
+    case 'EXHAUSTED': {
       const suffix = status.waitMs
         ? ` resets in ${formatWaitDuration(status.waitMs)}`
-        : ""
+        : ''
       return `EXHAUSTED${suffix}`
     }
 
-    case "COOLDOWN": {
-      const parts = ["COOLDOWN"]
+    case 'COOLDOWN': {
+      const parts = ['COOLDOWN']
       if (status.cooldownReason) {
         parts.push(status.cooldownReason)
       }
       if (status.waitMs) {
         parts.push(formatWaitDuration(status.waitMs))
       }
-      return parts.join(" ")
+      return parts.join(' ')
     }
   }
 }
@@ -201,20 +203,27 @@ export function formatQuotaStatusPlain(status: QuotaStatusInfo): string {
  * some but not all are exhausted, or "available" when none are exhausted.
  */
 export function classifyOverallQuotaHealth(
-  cachedQuota: Partial<Record<string, { remainingFraction?: number, resetTime?: string }>> | undefined,
-): { health: "available" | "partial" | "exhausted" | "unknown", maxResetMs?: number } {
+  cachedQuota:
+    | Partial<
+        Record<string, { remainingFraction?: number; resetTime?: string }>
+      >
+    | undefined,
+): {
+  health: 'available' | 'partial' | 'exhausted' | 'unknown'
+  maxResetMs?: number
+} {
   if (!cachedQuota) {
-    return { health: "unknown" }
+    return { health: 'unknown' }
   }
 
-  const QUOTA_KEYS = ["claude", "gemini-pro", "gemini-flash", "gpt-oss"]
+  const QUOTA_KEYS = ['claude', 'gemini-pro', 'gemini-flash', 'gpt-oss']
   let groupsWithData = 0
   let exhaustedCount = 0
   let maxResetMs: number | undefined
 
   for (const key of QUOTA_KEYS) {
     const value = cachedQuota[key]?.remainingFraction
-    if (typeof value !== "number" || !Number.isFinite(value)) continue
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
     groupsWithData++
     if (value <= 0) {
       // Skip stale exhaustion: if resetTime is missing or in the past,
@@ -229,10 +238,11 @@ export function classifyOverallQuotaHealth(
     }
   }
 
-  if (groupsWithData === 0) return { health: "unknown" }
-  if (exhaustedCount === groupsWithData) return { health: "exhausted", maxResetMs }
-  if (exhaustedCount > 0) return { health: "partial", maxResetMs }
-  return { health: "available" }
+  if (groupsWithData === 0) return { health: 'unknown' }
+  if (exhaustedCount === groupsWithData)
+    return { health: 'exhausted', maxResetMs }
+  if (exhaustedCount > 0) return { health: 'partial', maxResetMs }
+  return { health: 'available' }
 }
 
 /**
@@ -245,7 +255,11 @@ export function classifyOverallQuotaHealth(
  * Example: "Claude 80%, Gemini Flash LOW 15%"
  */
 export function formatCachedQuotaWithStatus(
-  cachedQuota: Partial<Record<string, { remainingFraction?: number, resetTime?: string }>> | undefined,
+  cachedQuota:
+    | Partial<
+        Record<string, { remainingFraction?: number; resetTime?: string }>
+      >
+    | undefined,
 ): string | undefined {
   if (!cachedQuota) {
     return undefined
@@ -253,38 +267,38 @@ export function formatCachedQuotaWithStatus(
 
   // When all groups are exhausted, don't list each model — the badge handles it
   const overall = classifyOverallQuotaHealth(cachedQuota)
-  if (overall.health === "exhausted") {
+  if (overall.health === 'exhausted') {
     return undefined
   }
 
   const entries = [
-    { key: "claude", label: "Claude" },
-    { key: "gemini-pro", label: "Gemini Pro" },
-    { key: "gemini-flash", label: "Gemini Flash" },
-    { key: "gpt-oss", label: "GPT-OSS" },
+    { key: 'claude', label: 'Claude' },
+    { key: 'gemini-pro', label: 'Gemini Pro' },
+    { key: 'gemini-flash', label: 'Gemini Flash' },
+    { key: 'gpt-oss', label: 'GPT-OSS' },
   ].flatMap(({ key, label }) => {
     const value = cachedQuota[key]?.remainingFraction
-    if (typeof value !== "number" || !Number.isFinite(value)) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
       return []
     }
     const pct = Math.round(Math.max(0, Math.min(1, value)) * 100)
     const status = classifyGroupStatus(cachedQuota[key] as QuotaGroupSummary)
     // Hide groups at 100% READY — they're noise
-    if (status.label === "READY" && pct >= 100) {
+    if (status.label === 'READY' && pct >= 100) {
       return []
     }
-    if (status.label === "READY") {
+    if (status.label === 'READY') {
       return [`${label} ${pct}%`]
     }
     // Skip pct% for EXHAUSTED — the status label already conveys 0%
     // Use lowercase labels in hints to match account badge style ([active], [exhausted])
-    if (status.label === "EXHAUSTED") {
+    if (status.label === 'EXHAUSTED') {
       return [`${label} ${formatQuotaStatusPlain(status).toLowerCase()}`]
     }
     return [`${label} ${formatQuotaStatusPlain(status).toLowerCase()} ${pct}%`]
   })
 
-  return entries.length > 0 ? entries.join(", ") : undefined
+  return entries.length > 0 ? entries.join(', ') : undefined
 }
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "@cortexkit/antigravity-auth-core",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "Harness-agnostic core for Google Antigravity OAuth: transport, fingerprint, request transforms, accounts, quota",
   "type": "module",
   "license": "MIT",
@@ -16,6 +16,18 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./file-lock": {
+      "types": "./dist/file-lock.d.ts",
+      "import": "./dist/file-lock.js"
+    },
+    "./atomic-write": {
+      "types": "./dist/atomic-write.d.ts",
+      "import": "./dist/atomic-write.js"
+    },
+    "./fetch-timeout": {
+      "types": "./dist/fetch-timeout.d.ts",
+      "import": "./dist/fetch-timeout.js"
     }
   },
   "files": [
@@ -26,19 +38,13 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "prepublishOnly": "npm run build"
+    "test": "bun test --isolate ./src",
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "@openauthjs/openauth": "^0.4.3",
-    "proper-lockfile": "^4.1.2",
     "xdg-basedir": "^5.1.0",
     "zod": "^4.0.0"
   },
-  "devDependencies": {
-    "@types/node": "^24.10.1",
-    "@types/proper-lockfile": "^4.1.4",
-    "typescript": "^5.0.0",
-    "vitest": "^3.0.0"
-  }
+  "devDependencies": {}
 }

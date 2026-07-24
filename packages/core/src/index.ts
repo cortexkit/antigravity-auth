@@ -1,15 +1,30 @@
 // @cortexkit/antigravity-auth-core
 // Harness-agnostic core surface. Modules are migrated here in stages.
-export * from "./logger.ts"
-export * from "./constants.ts"
-export * from "./auth-types.ts"
-export * from "./auth.ts"
-export * from "./fingerprint.ts"
-export * from "./agy-transport.ts"
-export * from "./agy-request-metadata.ts"
-export * from "./version.ts"
-export * from "./project.ts"
-export * from "./model-types.ts"
-export * from "./model-registry.ts"
-export * from "./transform/index.ts"
-export * from "./antigravity/oauth.ts"
+
+export type {
+  AccountManagerOptions,
+  AccountSessionIdentity,
+  ManagedAccount,
+} from './account-manager.ts'
+export { AccountManager, resolveQuotaGroup } from './account-manager.ts'
+export * from './account-storage.ts'
+export * from './account-types.ts'
+export * from './agy-request-metadata.ts'
+export * from './agy-transport.ts'
+export * from './antigravity/oauth.ts'
+export * from './atomic-write.ts'
+export * from './auth.ts'
+export * from './auth-types.ts'
+export * from './constants.ts'
+export * from './fetch-timeout.ts'
+export * from './file-lock.ts'
+export * from './fingerprint.ts'
+export * from './logger.ts'
+export * from './model-registry.ts'
+export * from './model-types.ts'
+export * from './project.ts'
+export * from './quota-manager.ts'
+export * from './quota-types.ts'
+export * from './rotation.ts'
+export * from './transform/index.ts'
+export * from './version.ts'

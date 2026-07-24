@@ -7,7 +7,7 @@
  * sink is registered, an env-gated console fallback is used.
  */
 
-export type LogLevel = "debug" | "info" | "warn" | "error"
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 export interface Logger {
   debug(message: string, extra?: Record<string, unknown>): void
@@ -25,7 +25,7 @@ export interface LogRecord {
 
 export type LogSink = (record: LogRecord) => void
 
-const ENV_CONSOLE_LOG = "ANTIGRAVITY_CORE_CONSOLE_LOG"
+const ENV_CONSOLE_LOG = 'ANTIGRAVITY_CORE_CONSOLE_LOG'
 
 let _sink: LogSink | null = null
 
@@ -37,7 +37,7 @@ export function setLogSink(sink: LogSink | null): void {
 }
 
 function isTruthyFlag(flag?: string): boolean {
-  return flag === "1" || flag?.toLowerCase() === "true"
+  return flag === '1' || flag?.toLowerCase() === 'true'
 }
 
 function isConsoleLogEnabled(): boolean {
@@ -46,16 +46,16 @@ function isConsoleLogEnabled(): boolean {
 
 function writeConsoleLog(level: LogLevel, ...args: unknown[]): void {
   switch (level) {
-    case "debug":
+    case 'debug':
       console.debug(...args)
       break
-    case "info":
+    case 'info':
       console.info(...args)
       break
-    case "warn":
+    case 'warn':
       console.warn(...args)
       break
-    case "error":
+    case 'error':
       console.error(...args)
       break
   }
@@ -68,7 +68,11 @@ function writeConsoleLog(level: LogLevel, ...args: unknown[]): void {
 export function createLogger(module: string): Logger {
   const service = `antigravity.${module}`
 
-  const log = (level: LogLevel, message: string, extra?: Record<string, unknown>): void => {
+  const log = (
+    level: LogLevel,
+    message: string,
+    extra?: Record<string, unknown>,
+  ): void => {
     if (_sink) {
       try {
         _sink({ service, level, message, extra })
@@ -85,9 +89,9 @@ export function createLogger(module: string): Logger {
   }
 
   return {
-    debug: (message, extra) => log("debug", message, extra),
-    info: (message, extra) => log("info", message, extra),
-    warn: (message, extra) => log("warn", message, extra),
-    error: (message, extra) => log("error", message, extra),
+    debug: (message, extra) => log('debug', message, extra),
+    info: (message, extra) => log('info', message, extra),
+    warn: (message, extra) => log('warn', message, extra),
+    error: (message, extra) => log('error', message, extra),
   }
 }

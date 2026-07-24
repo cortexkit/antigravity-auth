@@ -3,6 +3,6 @@
  */
 
 export {
-  SignatureCache,
   createSignatureCache,
-} from "./signature-cache";
+  SignatureCache,
+} from './signature-cache'

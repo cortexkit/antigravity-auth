@@ -5,7 +5,7 @@
 ```
 opencode-antigravity-auth/
 ├── src/                          # All TypeScript source code
-│   ├── plugin.ts                 # Main entry: createAntigravityPlugin factory
+│   ├── plugin/                   # Composition root and plugin subsystems
 │   ├── constants.ts              # Endpoints, headers, OAuth constants, prompts
 │   ├── shims.d.ts                # Ambient type shims
 │   ├── antigravity/              # Google OAuth exchange layer
@@ -13,6 +13,9 @@ opencode-antigravity-auth/
 │   ├── hooks/                    # OpenCode lifecycle hooks
 │   │   └── auto-update-checker/  # Background npm update check + auto-pin
 │   └── plugin/                   # Core plugin subsystems
+│       ├── index.ts              # Thin createAntigravityPlugin composition root
+│       ├── event-handler.ts      # Session lifecycle and recovery event handling
+│       ├── fetch-interceptor.ts  # Authenticated request routing, retries, and response handling
 │       ├── accounts.ts           # AccountManager: selection, rotation, cooldowns, request counter and session metrics
 │       ├── auth-doctor.ts        # Self-healing diagnostics for auth storage drift
 │       ├── auth-drift.ts         # Detection of drift between active auth and storage
@@ -82,7 +85,7 @@ opencode-antigravity-auth/
 ├── script/                       # Additional utility scripts
 ├── assets/                       # Static assets
 ├── logs/                         # Runtime debug log output (gitignored)
-├── index.ts                      # Package entry point (re-exports plugin factory)
+├── index.ts                      # Package entry point (exports plugin aliases only)
 ├── package.json                  # Dependencies and npm scripts
 ├── tsconfig.json                 # Base TypeScript config
 ├── tsconfig.build.json           # Build-only TypeScript config (excludes tests)
@@ -99,7 +102,7 @@ opencode-antigravity-auth/
 **`src/`:**
 - Purpose: All production TypeScript source
 - Contains: Plugin factory, OAuth layer, request transform pipeline, account management, config, recovery hooks
-- Key files: `src/plugin.ts` (orchestrator), `src/constants.ts` (all magic values)
+- Key files: `src/plugin/index.ts` (composition root), `src/plugin/event-handler.ts` (event composition), `src/plugin/fetch-interceptor.ts` (request runtime), `src/constants.ts` (all magic values)
 
 **`src/antigravity/`:**
 - Purpose: Google OAuth exchange — authorize URL generation and authorization-code exchange
@@ -114,7 +117,7 @@ opencode-antigravity-auth/
 **`src/plugin/`:**
 - Purpose: All core plugin subsystems — auth, request transform, account management, recovery, config, logging
 - Contains: ~35 TypeScript modules + 7 subdirectories
-- Key files: `src/plugin/accounts.ts`, `src/plugin/request.ts`, `src/plugin/storage.ts`, `src/plugin/types.ts`
+- Key files: `src/plugin/index.ts`, `src/plugin/event-handler.ts`, `src/plugin/fetch-interceptor.ts`, `src/plugin/accounts.ts`, `src/plugin/request.ts`, `src/plugin/storage.ts`, `src/plugin/types.ts`
 
 **`src/plugin/transform/`:**
 - Purpose: Model-resolution and per-model payload transforms (Claude, Gemini, cross-model sanitizer)
@@ -159,8 +162,8 @@ opencode-antigravity-auth/
 
 ## Key File Locations
 
-**Entry Point:** `index.ts` — re-exports `createAntigravityPlugin` as the npm package entry
-**Plugin Orchestrator:** `src/plugin.ts` — main plugin factory with all auth and request logic
+**Entry Point:** `index.ts` — exports the two OpenCode plugin aliases as the npm package entry
+**Composition Root:** `src/plugin/index.ts` — initializes module state and wires the plugin factories
 **Constants:** `src/constants.ts` — all endpoints, headers, OAuth IDs, system prompts, tool constants
 **Config Schema:** `src/plugin/config/schema.ts` — full `AntigravityConfigSchema` with field docs
 **Config Loader:** `src/plugin/config/loader.ts` — merges project file + user file + env vars
@@ -197,7 +200,7 @@ opencode-antigravity-auth/
 
 **New OpenCode hook:** `src/hooks/[hook-name]/` — follow `auto-update-checker/` structure with `index.ts`, `types.ts`, `constants.ts`
 
-**New OpenCode tool:** `src/plugin/search.ts` pattern — implement `executeSearch`-style function, register via `tool()` in `src/plugin.ts`
+**New OpenCode tool:** `src/plugin/search.ts` pattern — implement an `executeSearch`-style function and wire it in `src/plugin/index.ts`
 
 **New recovery type:** `src/plugin/recovery/constants.ts` — add error string; extend `src/plugin/recovery/types.ts`; handle in `src/plugin/recovery/index.ts`
 

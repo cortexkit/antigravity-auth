@@ -12,42 +12,45 @@
  * @see https://github.com/lbjlaq/Antigravity-Manager (src-tauri/src/constants.rs)
  */
 
-import { getAntigravityVersion, setAntigravityVersion } from "./constants.ts";
-import { createLogger } from "./logger.ts";
+import { getAntigravityVersion, setAntigravityVersion } from './constants.ts'
+import { fetchWithActiveTimeout } from './fetch-timeout.ts'
+import { createLogger } from './logger.ts'
 
-const VERSION_URL = "https://antigravity-auto-updater-974169037036.us-central1.run.app";
-const CHANGELOG_URL = "https://antigravity.google/changelog";
-const FETCH_TIMEOUT_MS = 5000;
-const CHANGELOG_SCAN_CHARS = 5000;
-const VERSION_REGEX = /\d+\.\d+\.\d+/;
+const VERSION_URL =
+  'https://antigravity-auto-updater-974169037036.us-central1.run.app'
+const CHANGELOG_URL = 'https://antigravity.google/changelog'
+const FETCH_TIMEOUT_MS = 5000
+const CHANGELOG_SCAN_CHARS = 5000
+const VERSION_REGEX = /\d+\.\d+\.\d+/
 
-type VersionSource = "api" | "changelog" | "fallback";
+type VersionSource = 'api' | 'changelog' | 'fallback'
 
 export interface AntigravityVersionResolution {
-  version: string;
-  source: VersionSource;
+  version: string
+  source: VersionSource
 }
 
-let lastResolution: AntigravityVersionResolution | null = null;
+let lastResolution: AntigravityVersionResolution | null = null
 
 function parseVersion(text: string): string | null {
-  const match = text.match(VERSION_REGEX);
-  return match ? match[0] : null;
+  const match = text.match(VERSION_REGEX)
+  return match ? match[0] : null
 }
 
-async function tryFetchVersion(url: string, maxChars?: number): Promise<string | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+async function tryFetchVersion(
+  url: string,
+  maxChars?: number,
+): Promise<string | null> {
   try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) return null;
-    let text = await response.text();
-    if (maxChars) text = text.slice(0, maxChars);
-    return parseVersion(text);
+    const response = await fetchWithActiveTimeout(url, undefined, {
+      timeoutMs: FETCH_TIMEOUT_MS,
+    })
+    if (!response.ok) return null
+    let text = await response.text()
+    if (maxChars) text = text.slice(0, maxChars)
+    return parseVersion(text)
   } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
+    return null
   }
 }
 
@@ -56,40 +59,42 @@ async function tryFetchVersion(url: string, maxChars?: number): Promise<string |
  * Safe to call before logger is initialized (will silently skip logging).
  */
 export function getAntigravityVersionResolution(): AntigravityVersionResolution {
-  return lastResolution ?? { version: getAntigravityVersion(), source: "fallback" };
+  return (
+    lastResolution ?? { version: getAntigravityVersion(), source: 'fallback' }
+  )
 }
 
 export async function initAntigravityVersion(): Promise<AntigravityVersionResolution> {
-  const log = createLogger("version");
-  const fallback = getAntigravityVersion();
-  let version: string | null;
-  let source: VersionSource;
+  const log = createLogger('version')
+  const fallback = getAntigravityVersion()
+  let version: string | null
+  let source: VersionSource
 
   // 1. Try auto-updater API
-  version = await tryFetchVersion(VERSION_URL);
+  version = await tryFetchVersion(VERSION_URL)
   if (version) {
-    source = "api";
+    source = 'api'
   } else {
     // 2. Try changelog page scrape
-    version = await tryFetchVersion(CHANGELOG_URL, CHANGELOG_SCAN_CHARS);
+    version = await tryFetchVersion(CHANGELOG_URL, CHANGELOG_SCAN_CHARS)
     if (version) {
-      source = "changelog";
+      source = 'changelog'
     } else {
       // 3. Fall back to hardcoded
-      source = "fallback";
-      setAntigravityVersion(fallback);
-      log.info("version-fetch-failed", { fallback });
-      lastResolution = { version: fallback, source };
-      return lastResolution;
+      source = 'fallback'
+      setAntigravityVersion(fallback)
+      log.info('version-fetch-failed', { fallback })
+      lastResolution = { version: fallback, source }
+      return lastResolution
     }
   }
 
   if (version !== fallback) {
-    log.info("version-updated", { version, source, previous: fallback });
+    log.info('version-updated', { version, source, previous: fallback })
   } else {
-    log.debug("version-unchanged", { version, source });
+    log.debug('version-unchanged', { version, source })
   }
-  setAntigravityVersion(version);
-  lastResolution = { version, source };
-  return lastResolution;
+  setAntigravityVersion(version)
+  lastResolution = { version, source }
+  return lastResolution
 }

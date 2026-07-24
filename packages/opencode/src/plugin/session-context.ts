@@ -1,14 +1,14 @@
-import { resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import {
-  AgyRequestSessionStore,
   type AgyRequestScope,
   type AgyRequestSessionContext,
+  AgyRequestSessionStore,
   type AgyRequestSessionStoreOptions,
-} from "./agy-request-metadata"
+} from './agy-request-metadata'
 
-const FALLBACK_SESSION_KEY = "__default__"
+const FALLBACK_SESSION_KEY = '__default__'
 
 export interface OpenCodeSessionIdentity {
   sessionId: string | null
@@ -17,11 +17,14 @@ export interface OpenCodeSessionIdentity {
 
 export type AgySessionRegistryOptions = AgyRequestSessionStoreOptions
 
-export function extractOpenCodeSessionIdentity(headers?: HeadersInit): OpenCodeSessionIdentity {
+export function extractOpenCodeSessionIdentity(
+  headers?: HeadersInit,
+): OpenCodeSessionIdentity {
   const normalized = new Headers(headers)
   return {
-    sessionId: normalized.get("x-session-affinity") ?? normalized.get("x-session-id"),
-    parentSessionId: normalized.get("x-parent-session-id"),
+    sessionId:
+      normalized.get('x-session-affinity') ?? normalized.get('x-session-id'),
+    parentSessionId: normalized.get('x-parent-session-id'),
   }
 }
 
@@ -30,7 +33,7 @@ export class AgySessionRegistry {
   private readonly parentSessionIds = new Map<string, string | null>()
 
   constructor(directory: string, options: AgySessionRegistryOptions = {}) {
-    const workspaceUri = directory ? pathToFileURL(resolve(directory)).href : ""
+    const workspaceUri = directory ? pathToFileURL(resolve(directory)).href : ''
     this.requestSessions = new AgyRequestSessionStore(workspaceUri, options)
   }
 
@@ -65,6 +68,11 @@ export class AgySessionRegistry {
   delete(sessionId: string): void {
     this.requestSessions.delete(sessionId)
     this.parentSessionIds.delete(sessionId)
+  }
+
+  clear(): void {
+    this.requestSessions.clear()
+    this.parentSessionIds.clear()
   }
 
   get size(): number {

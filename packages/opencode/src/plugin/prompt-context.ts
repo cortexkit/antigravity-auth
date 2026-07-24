@@ -22,7 +22,7 @@ interface RawInfo {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
+  return typeof value === 'object' && value !== null
 }
 
 function extractMessages(response: unknown): unknown[] {
@@ -33,7 +33,7 @@ function extractMessages(response: unknown): unknown[] {
 
 function getRole(message: unknown): string | undefined {
   if (!isRecord(message) || !isRecord(message.info)) return undefined
-  return typeof message.info.role === "string" ? message.info.role : undefined
+  return typeof message.info.role === 'string' ? message.info.role : undefined
 }
 
 function extractFromMessage(message: unknown): ResolvedPromptContext | null {
@@ -41,23 +41,23 @@ function extractFromMessage(message: unknown): ResolvedPromptContext | null {
   const info = message.info as RawInfo
   const modelInfo = isRecord(info.model) ? info.model : undefined
 
-  const agent = typeof info.agent === "string" ? info.agent : undefined
+  const agent = typeof info.agent === 'string' ? info.agent : undefined
   const providerID =
-    typeof modelInfo?.providerID === "string"
+    typeof modelInfo?.providerID === 'string'
       ? modelInfo.providerID
-      : typeof info.providerID === "string"
+      : typeof info.providerID === 'string'
         ? info.providerID
         : undefined
   const modelID =
-    typeof modelInfo?.modelID === "string"
+    typeof modelInfo?.modelID === 'string'
       ? modelInfo.modelID
-      : typeof info.modelID === "string"
+      : typeof info.modelID === 'string'
         ? info.modelID
         : undefined
   const variant =
-    typeof modelInfo?.variant === "string"
+    typeof modelInfo?.variant === 'string'
       ? modelInfo.variant
-      : typeof info.variant === "string"
+      : typeof info.variant === 'string'
         ? info.variant
         : undefined
 
@@ -69,7 +69,10 @@ function extractFromMessage(message: unknown): ResolvedPromptContext | null {
   return context
 }
 
-function mergeContexts(base: ResolvedPromptContext, patch: ResolvedPromptContext): ResolvedPromptContext {
+function mergeContexts(
+  base: ResolvedPromptContext,
+  patch: ResolvedPromptContext,
+): ResolvedPromptContext {
   return {
     agent: base.agent ?? patch.agent,
     model: base.model ?? patch.model,
@@ -97,7 +100,7 @@ export async function resolvePromptContext(
         | unknown[]
     }
   }
-  if (typeof typedClient.session?.messages !== "function") return null
+  if (typeof typedClient.session?.messages !== 'function') return null
 
   let messages: unknown[] = []
   try {
@@ -116,7 +119,7 @@ export async function resolvePromptContext(
 
   let result: ResolvedPromptContext = {}
   for (let index = messages.length - 1; index >= 0; index--) {
-    if (getRole(messages[index]) !== "assistant") continue
+    if (getRole(messages[index]) !== 'assistant') continue
     const context = extractFromMessage(messages[index])
     if (!context) continue
     result = mergeContexts(result, context)

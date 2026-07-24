@@ -6,34 +6,57 @@
  * - debug_tui controls TUI log panel only
  * - either sink can be enabled independently
  * - OPENCODE_ANTIGRAVITY_CONSOLE_LOG=1 → console output (independent of debug flags)
+ * - operator.log_level filters the level at which log entries are emitted
  */
 
-import { setLogSink } from "@cortexkit/antigravity-auth-core";
-import type { PluginClient } from "./types";
-import { isDebugTuiEnabled } from "./debug";
-import {
-  isTruthyFlag,
-  writeConsoleLog,
-} from "./logging-utils";
+import { setLogSink } from '@cortexkit/antigravity-auth-core'
+import { isDebugTuiEnabled } from './debug'
+import { isTruthyFlag, writeConsoleLog } from './logging-utils'
+import type { OperatorSettings } from './operator-settings'
+import type { PluginClient } from './types'
 
-type LogLevel = "debug" | "info" | "warn" | "error";
+type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
-const ENV_CONSOLE_LOG = "OPENCODE_ANTIGRAVITY_CONSOLE_LOG";
+const ENV_CONSOLE_LOG = 'OPENCODE_ANTIGRAVITY_CONSOLE_LOG'
 
-export interface Logger {
-  debug(message: string, extra?: Record<string, unknown>): void;
-  info(message: string, extra?: Record<string, unknown>): void;
-  warn(message: string, extra?: Record<string, unknown>): void;
-  error(message: string, extra?: Record<string, unknown>): void;
+const LEVEL_PRIORITY: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
 }
 
-let _client: PluginClient | null = null;
+const LOG_LEVEL_FROM_OPERATOR: Record<OperatorSettings['log_level'], LogLevel> =
+  {
+    error: 'error',
+    warn: 'warn',
+    info: 'info',
+    debug: 'debug',
+    trace: 'debug',
+  }
+
+export interface Logger {
+  debug(message: string, extra?: Record<string, unknown>): void
+  info(message: string, extra?: Record<string, unknown>): void
+  warn(message: string, extra?: Record<string, unknown>): void
+  error(message: string, extra?: Record<string, unknown>): void
+}
+
+let _client: PluginClient | null = null
+let _configuredLevel: LogLevel = 'debug'
+
+function shouldEmit(level: LogLevel): boolean {
+  return LEVEL_PRIORITY[level] >= LEVEL_PRIORITY[_configuredLevel]
+}
 
 /**
- * Check if console logging is enabled via environment variable.
+ * Set the runtime log level. Reads from the operator settings controller
+ * on each call so a /antigravity-logging dialog flip takes effect
+ * immediately. Falls back to "debug" when the operator level is not
+ * yet known.
  */
-function isConsoleLogEnabled(): boolean {
-  return isTruthyFlag(process.env[ENV_CONSOLE_LOG]);
+export function setRuntimeLogLevel(level: OperatorSettings['log_level']): void {
+  _configuredLevel = LOG_LEVEL_FROM_OPERATOR[level] ?? 'debug'
 }
 
 /**
@@ -41,12 +64,12 @@ function isConsoleLogEnabled(): boolean {
  * Must be called during plugin initialization to enable TUI logging.
  */
 export function initLogger(client: PluginClient): void {
-  _client = client;
+  _client = client
   // Route core (@cortexkit/antigravity-auth-core) logs into the same TUI/console
   // sinks the OpenCode logger uses, so logs from migrated core modules surface.
   setLogSink(({ service, level, message, extra }) => {
-    emitLog(service, level as LogLevel, message, extra);
-  });
+    emitLog(service, level as LogLevel, message, extra)
+  })
 }
 
 /**
@@ -62,41 +85,56 @@ export function initLogger(client: PluginClient): void {
  * log.warn("Token expired", { accountIndex: 0 });
  * ```
  */
-function emitLog(service: string, level: LogLevel, message: string, extra?: Record<string, unknown>): void {
+function emitLog(
+  service: string,
+  level: LogLevel,
+  message: string,
+  extra?: Record<string, unknown>,
+): void {
+  if (!shouldEmit(level)) return
+
   // TUI logging: controlled only by debug_tui policy
   if (isDebugTuiEnabled()) {
-    const app = _client?.app;
-    if (app && typeof app.log === "function") {
+    const app = _client?.app
+    if (app && typeof app.log === 'function') {
       app
         .log({
           body: { service, level, message, extra },
         })
         .catch(() => {
           // Silently ignore logging errors
-        });
+        })
     }
   }
 
   // Console fallback: when env var is set (independent of debug flags)
   if (isConsoleLogEnabled()) {
-    const prefix = `[${service}]`;
-    const args = extra ? [prefix, message, extra] : [prefix, message];
-    writeConsoleLog(level, ...args);
+    const prefix = `[${service}]`
+    const args = extra ? [prefix, message, extra] : [prefix, message]
+    writeConsoleLog(level, ...args)
   }
   // If neither TUI nor console logging is enabled, log is silently discarded
 }
 
-export function createLogger(module: string): Logger {
-  const service = `antigravity.${module}`;
+function isConsoleLogEnabled(): boolean {
+  return isTruthyFlag(process.env[ENV_CONSOLE_LOG])
+}
 
-  const log = (level: LogLevel, message: string, extra?: Record<string, unknown>): void => {
-    emitLog(service, level, message, extra);
-  };
+export function createLogger(module: string): Logger {
+  const service = `antigravity.${module}`
+
+  const log = (
+    level: LogLevel,
+    message: string,
+    extra?: Record<string, unknown>,
+  ): void => {
+    emitLog(service, level, message, extra)
+  }
 
   return {
-    debug: (message, extra) => log("debug", message, extra),
-    info: (message, extra) => log("info", message, extra),
-    warn: (message, extra) => log("warn", message, extra),
-    error: (message, extra) => log("error", message, extra),
-  };
+    debug: (message, extra) => log('debug', message, extra),
+    info: (message, extra) => log('info', message, extra),
+    warn: (message, extra) => log('warn', message, extra),
+    error: (message, extra) => log('error', message, extra),
+  }
 }
