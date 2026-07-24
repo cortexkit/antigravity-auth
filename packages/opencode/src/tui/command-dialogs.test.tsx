@@ -1008,6 +1008,14 @@ describe('openCommandDialog (imperative dispatcher)', () => {
       'add-oauth-finish callback-code --label Work account',
     )
     expect(applyMock.mock.calls.at(1)?.[2]?.timeoutMs).toBe(120_000)
+    // The post-finish dialog must surface the newly added account
+    // label so the user sees the result of the OAuth flow without
+    // reopening the dialog.
+    await renderDialog(localFake)
+    const postFinishTitles = (localFake.capturedSelectProps?.options ?? []).map(
+      (option) => option.title,
+    )
+    expect(postFinishTitles).toContain('Work account')
   })
 
   it('antigravity-account opens a row subdialog with toggle/current/remove/back', async () => {

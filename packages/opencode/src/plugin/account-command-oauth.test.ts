@@ -21,7 +21,7 @@ describe('createAccountCommandOAuthService', () => {
     }))
     const exchange = mock(async () => ({
       type: 'failed' as const,
-      error: 'unused',
+      error: 'invalid_grant',
     }))
     const service = createAccountCommandOAuthService({
       authorize,
@@ -31,12 +31,18 @@ describe('createAccountCommandOAuthService', () => {
     })
 
     const started = await service.start('session-1')
-    await service.finish('session-1', 'callback-code')
+    const finished = await service.finish('session-1', 'callback-code')
 
     expect(authorize).toHaveBeenCalledTimes(1)
     expect(started.url).toContain('accounts.google.test')
     expect(started.accounts).toEqual(initialRows)
     expect(exchange).toHaveBeenCalledWith('callback-code', 'signed-state')
+    // Failed-exchange response: the pending entry is consumed, the
+    // operator must start a new OAuth flow to retry.
+    expect(finished.text).toBe(
+      'OAuth authentication failed. Please start a new OAuth flow and try again.',
+    )
+    expect(finished.accounts).toEqual(initialRows)
   })
 
   it('exchanges, persists, and returns updated label-only account rows', async () => {
@@ -78,9 +84,18 @@ describe('createAccountCommandOAuthService', () => {
       'Work account',
     )
 
-    expect(persisted).toHaveBeenCalledWith(
-      expect.objectContaining({ label: 'Work account' }),
-    )
+    // The persisted success object is the FULL exchanged result with
+    // the operator-provided label override; we pin every field so a
+    // regression that drops e.g. projectId or email is caught.
+    expect(persisted).toHaveBeenCalledWith({
+      type: 'success',
+      refresh: 'refresh-token|project',
+      access: 'access-token',
+      expires: 123,
+      email: 'private@example.test',
+      label: 'Work account',
+      projectId: 'project',
+    })
     expect(finished).toEqual({
       text: 'OAuth account added.',
       accounts: updatedRows,
@@ -241,7 +256,7 @@ describe('createAccountCommandOAuthService', () => {
 
     expect(persist).toHaveBeenCalledTimes(1)
     expect(finished.text).toBe(
-      'OAuth account could not be saved to disk. Please try again.',
+      'OAuth account could not be saved to disk. Please start a new OAuth flow.',
     )
   })
 
@@ -266,7 +281,7 @@ describe('createAccountCommandOAuthService', () => {
     const finished = await service.finish('session-1', 'callback-code')
 
     expect(finished.text).toBe(
-      'OAuth exchange failed due to a network error. Please try again.',
+      'OAuth exchange failed due to a network error. Please start a new OAuth flow.',
     )
     expect(persist).not.toHaveBeenCalled()
   })

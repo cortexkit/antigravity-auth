@@ -553,6 +553,20 @@ describe('redaction', () => {
     })
     expect(redacted.quota.gemini?.remainingPercent).toBe(30)
   })
+
+  it('preserves cachedQuota when only the current quota account id is provided (fail open for legacy)', () => {
+    // Symmetric half-missing case: the live snapshot has a stamp
+    // (provider added currentQuotaAccountId) but the persisted cache
+    // row does not yet (legacy). The projection must not silently
+    // drop the quota; the absence of the persisted stamp alone is
+    // not enough to mark the cache as stale.
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: { 'non-gemini': { remainingFraction: 0.6 } },
+      currentQuotaAccountId: 'b'.repeat(16),
+    })
+    expect(redacted.quota['non-gemini']?.remainingPercent).toBe(60)
+  })
 })
 
 describe('windows rework — producer seam tests', () => {

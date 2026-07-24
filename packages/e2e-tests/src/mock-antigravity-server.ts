@@ -361,11 +361,22 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
             return
           }
         }
-        sendJson(response, fixture.status ?? 200, {
-          groups: fixture.groups,
-          description:
-            'Within each group, models share a weekly limit and a 5-hour limit.',
-        })
+        // Apply the fixture's custom headers (e.g. for cache-bust
+        // trace assertions) before writing the JSON body — mirrors
+        // every other fixture's header-merge convention.
+        applyHeaders(
+          response,
+          { 'content-type': 'application/json' },
+          fixture.headers,
+        )
+        response.writeHead(fixture.status ?? 200)
+        response.end(
+          JSON.stringify({
+            groups: fixture.groups,
+            description:
+              'Within each group, models share a weekly limit and a 5-hour limit.',
+          }),
+        )
         return
       }
       case 'generateContent': {

@@ -126,13 +126,13 @@ export function createAccountCommandOAuthService(
         callback = parseOAuthCallbackInput(callbackInput, pending.state)
       } catch {
         return {
-          text: 'OAuth authentication failed: could not parse the callback. Please try again.',
+          text: 'OAuth authentication failed: could not parse the callback. Please start a new OAuth flow.',
           accounts: await options.listAccounts(),
         }
       }
       if ('error' in callback) {
         return {
-          text: `OAuth authentication failed: ${callback.error}`,
+          text: `OAuth authentication failed: ${callback.error}. Please start a new OAuth flow.`,
           accounts: await options.listAccounts(),
         }
       }
@@ -145,13 +145,13 @@ export function createAccountCommandOAuthService(
         result = await options.exchange(callback.code, callback.state)
       } catch {
         return {
-          text: 'OAuth exchange failed due to a network error. Please try again.',
+          text: 'OAuth exchange failed due to a network error. Please start a new OAuth flow.',
           accounts: await options.listAccounts(),
         }
       }
       if (result.type === 'failed') {
         return {
-          text: 'OAuth authentication failed. Please check the code and try again.',
+          text: 'OAuth authentication failed. Please start a new OAuth flow and try again.',
           accounts: await options.listAccounts(),
         }
       }
@@ -167,7 +167,7 @@ export function createAccountCommandOAuthService(
         await options.persist(persisted)
       } catch {
         return {
-          text: 'OAuth account could not be saved to disk. Please try again.',
+          text: 'OAuth account could not be saved to disk. Please start a new OAuth flow.',
           accounts: await options.listAccounts(),
         }
       }

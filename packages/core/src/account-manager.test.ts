@@ -250,12 +250,20 @@ describe('core AccountManager', () => {
     expect(manager.getAccounts()[0]?.parts.refreshToken).toBe('r2')
 
     // The async refresh finally resolves. The caller re-resolves the
-    // live index for `r1` (which is now `-1`) and skips the write — the
-    // AccountManager's existing expectedRefreshToken guard enforces that.
+    // live index for `r1` (which is now `-1`) and the quota write is
+    // then attempted via `updateQuotaCache` at index 0 with the
+    // captured `expectedRefreshToken`. The guard MUST drop the write
+    // because the captured token no longer matches the account at
+    // index 0 — B would otherwise receive A's quota percentages.
     const liveIndex = manager
       .getAccounts()
       .findIndex((entry) => entry.parts.refreshToken === refreshTokenForA)
     expect(liveIndex).toBe(-1)
+    manager.updateQuotaCache(
+      0,
+      { gemini: { remainingFraction: 0.42, modelCount: 1 } },
+      refreshTokenForA,
+    )
     // No quota should have landed on whichever account shifted into
     // index 0.
     expect(manager.getAccounts()[0]?.cachedQuota).toBeUndefined()
