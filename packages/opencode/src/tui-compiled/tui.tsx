@@ -103,6 +103,10 @@ const QUOTA_LABELS = {
   'non-gemini': 'NG'
 };
 const QUOTA_ORDER = ['gemini', 'non-gemini'];
+const WINDOW_GUTTER = {
+  weekly: '7d',
+  '5h': '5h'
+};
 
 // --- Theme tokens ----------------------------------------------------------
 //
@@ -570,23 +574,49 @@ function AccountBlock(props) {
     _$insert(_el$24, statusWord);
     _$insert(_el$19, _$createComponent(For, {
       each: QUOTA_ORDER,
-      children: key => _$createComponent(QuotaRow, {
-        get theme() {
-          return props.theme;
-        },
-        get appearance() {
-          return props.appearance;
-        },
-        get label() {
-          return QUOTA_LABELS[key];
-        },
-        get entry() {
-          return props.account.quota[key];
-        },
-        get now() {
-          return props.now;
+      children: key => {
+        const poolEntry = props.account.quota[key];
+        const windows = poolEntry?.windows;
+        // Legacy: no windows array — render a single row with the pool label.
+        const hasWindows = windows && windows.length > 0;
+        if (!hasWindows) {
+          return _$createComponent(QuotaRow, {
+            get theme() {
+              return props.theme;
+            },
+            get appearance() {
+              return props.appearance;
+            },
+            get label() {
+              return QUOTA_LABELS[key];
+            },
+            entry: poolEntry,
+            get now() {
+              return props.now;
+            }
+          });
         }
-      })
+        return _$memo(() => windows.map((w, wi) => _$createComponent(QuotaRow, {
+          get theme() {
+            return props.theme;
+          },
+          get appearance() {
+            return props.appearance;
+          },
+          get label() {
+            return wi === 0 ? `${QUOTA_LABELS[key]} ${WINDOW_GUTTER[w.window] ?? w.window}` : `   ${WINDOW_GUTTER[w.window] ?? w.window}`;
+          },
+          get entry() {
+            return {
+              remainingPercent: w.remainingPercent,
+              resetAt: w.resetAt
+            };
+          },
+          get now() {
+            return props.now;
+          }
+        })));
+      }
     }), _el$25);
     _$insertNode(_el$25, _el$26);
     _$setProp(_el$25, "width", '100%');
@@ -843,7 +873,10 @@ export function SidebarPanel(props) {
             const entry = account()?.quota[key];
             if (!entry) return `${QUOTA_LABELS[key]}: —`;
             const pct = Math.round(100 - clamp(entry.remainingPercent, 0, 100));
-            return `${QUOTA_LABELS[key]}: ${pct}%`;
+            // Show binding window when available, else just pool label.
+            const bindingWindow = entry.windows?.reduce((best, w) => best === null || w.remainingPercent < best.remainingPercent ? w : best, null);
+            const gutter = bindingWindow ? ` ${WINDOW_GUTTER[bindingWindow.window] ?? bindingWindow.window}` : '';
+            return `${QUOTA_LABELS[key]}${gutter}: ${pct}%`;
           };
           const unavailable = () => {
             const selected = account();

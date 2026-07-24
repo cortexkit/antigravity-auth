@@ -134,6 +134,11 @@ const QUOTA_LABELS: Record<SidebarQuotaKey, string> = {
 
 const QUOTA_ORDER: readonly SidebarQuotaKey[] = ['gemini', 'non-gemini']
 
+const WINDOW_GUTTER: Record<string, string> = {
+  weekly: '7d',
+  '5h': '5h',
+}
+
 // --- Theme tokens ----------------------------------------------------------
 //
 // The sidebar pulls its colors from the live host theme (`api.theme.current`
@@ -603,15 +608,43 @@ function AccountBlock(props: {
         </text>
       </box>
       <For each={QUOTA_ORDER}>
-        {(key) => (
-          <QuotaRow
-            theme={props.theme}
-            appearance={props.appearance}
-            label={QUOTA_LABELS[key]}
-            entry={props.account.quota[key]}
-            now={props.now}
-          />
-        )}
+        {(key) => {
+          const poolEntry = props.account.quota[key]
+          const windows = poolEntry?.windows
+          // Legacy: no windows array — render a single row with the pool label.
+          const hasWindows = windows && windows.length > 0
+          if (!hasWindows) {
+            return (
+              <QuotaRow
+                theme={props.theme}
+                appearance={props.appearance}
+                label={QUOTA_LABELS[key]}
+                entry={poolEntry}
+                now={props.now}
+              />
+            )
+          }
+          return (
+            <>
+              {windows.map((w, wi) => (
+                <QuotaRow
+                  theme={props.theme}
+                  appearance={props.appearance}
+                  label={
+                    wi === 0
+                      ? `${QUOTA_LABELS[key]} ${WINDOW_GUTTER[w.window] ?? w.window}`
+                      : `   ${WINDOW_GUTTER[w.window] ?? w.window}`
+                  }
+                  entry={{
+                    remainingPercent: w.remainingPercent,
+                    resetAt: w.resetAt,
+                  }}
+                  now={props.now}
+                />
+              ))}
+            </>
+          )
+        }}
       </For>
       <box width='100%' flexDirection='row'>
         <text fg={props.theme().textMuted}>{`   ${healthText()}`}</text>
@@ -836,7 +869,20 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
             const entry = account()?.quota[key]
             if (!entry) return `${QUOTA_LABELS[key]}: —`
             const pct = Math.round(100 - clamp(entry.remainingPercent, 0, 100))
-            return `${QUOTA_LABELS[key]}: ${pct}%`
+            // Show binding window when available, else just pool label.
+            const bindingWindow = entry.windows?.reduce<
+              (typeof entry.windows)[0] | null
+            >(
+              (best, w) =>
+                best === null || w.remainingPercent < best.remainingPercent
+                  ? w
+                  : best,
+              null,
+            )
+            const gutter = bindingWindow
+              ? ` ${WINDOW_GUTTER[bindingWindow.window] ?? bindingWindow.window}`
+              : ''
+            return `${QUOTA_LABELS[key]}${gutter}: ${pct}%`
           }
           const unavailable = () => {
             const selected = account()

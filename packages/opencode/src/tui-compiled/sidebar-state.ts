@@ -54,9 +54,18 @@ export const SIDEBAR_STATE_VERSION = 1 as const
 
 export type SidebarQuotaKey = 'gemini' | 'non-gemini'
 
-export interface SidebarQuotaEntry {
+export interface SidebarQuotaWindowEntry {
+  window: 'weekly' | '5h'
   remainingPercent: number
   resetAt?: number
+}
+
+export interface SidebarQuotaEntry {
+  /** Most-constrained window's remaining % (derived, for back-compat). */
+  remainingPercent: number
+  resetAt?: number
+  /** Per-window breakdown. Omitted in pre-windows snapshots. */
+  windows?: SidebarQuotaWindowEntry[]
 }
 
 export interface SidebarAccountState {
@@ -432,8 +441,24 @@ export interface SidebarAccountRedactionInput {
   /** Health score in `[0, 100]`. Defaults to 100 when missing. */
   healthScore?: number
   cachedQuota?: {
-    gemini?: { remainingFraction?: number; resetTime?: string }
-    'non-gemini'?: { remainingFraction?: number; resetTime?: string }
+    gemini?: {
+      remainingFraction?: number
+      resetTime?: string
+      windows?: Array<{
+        window: 'weekly' | '5h'
+        remainingFraction: number
+        resetTime: string
+      }>
+    }
+    'non-gemini'?: {
+      remainingFraction?: number
+      resetTime?: string
+      windows?: Array<{
+        window: 'weekly' | '5h'
+        remainingFraction: number
+        resetTime: string
+      }>
+    }
   }
   /**
    * Opaque identity stamp that was attached to the persisted quota snapshot.
@@ -497,7 +522,22 @@ export function redactAccountForSidebar(
         const parsed = Date.parse(entry.resetTime)
         if (Number.isFinite(parsed)) resetAt = parsed
       }
-      quota[key] = { remainingPercent, resetAt }
+      const windows = entry.windows?.map((w) => ({
+        window: w.window,
+        remainingPercent: clampNumber(
+          Math.round(w.remainingFraction * 100),
+          0,
+          100,
+        ),
+        resetAt:
+          typeof w.resetTime === 'string' && w.resetTime.length > 0
+            ? (() => {
+                const parsed = Date.parse(w.resetTime)
+                return Number.isFinite(parsed) ? parsed : undefined
+              })()
+            : undefined,
+      }))
+      quota[key] = { remainingPercent, resetAt, windows }
     }
   }
 
