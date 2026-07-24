@@ -66,7 +66,7 @@ The TUI entry lives in a separate `tui.json` file under the same config dir:
 ```jsonc
 // ~/.config/opencode/tui.json
 {
-  "plugins": ["@cortexkit/opencode-antigravity-auth"]
+  "plugin": ["@cortexkit/opencode-antigravity-auth"]
 }
 ```
 

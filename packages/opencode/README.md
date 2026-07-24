@@ -69,7 +69,7 @@ If you cannot use `opencode plugin`, write both files by hand:
 ```jsonc
 // ~/.config/opencode/tui.json
 {
-  "plugins": ["@cortexkit/opencode-antigravity-auth"]
+  "plugin": ["@cortexkit/opencode-antigravity-auth"]
 }
 ```
 
