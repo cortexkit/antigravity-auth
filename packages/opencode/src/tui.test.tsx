@@ -80,6 +80,11 @@ function makeFixture(): Fixture {
   const statePath = join(root, 'sidebar-state.json')
   const logPath = join(root, 'tui.log')
   const prefsPath = join(root, 'tui-preferences.jsonc')
+  // Save preload-pinned values to restore on cleanup instead of deleting —
+  // a delete drops resolution to the operator's real state/config dirs.
+  const savedSidebar = process.env[SIDEBAR_STATE_ENV]
+  const savedTuiLog = process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE
+  const savedPrefs = process.env[TUI_PREFS_FILE_ENV]
   process.env[SIDEBAR_STATE_ENV] = statePath
   process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE = logPath
   process.env[TUI_PREFS_FILE_ENV] = prefsPath
@@ -88,9 +93,14 @@ function makeFixture(): Fixture {
     logPath,
     prefsPath,
     cleanup: () => {
-      delete process.env[SIDEBAR_STATE_ENV]
-      delete process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE
-      delete process.env[TUI_PREFS_FILE_ENV]
+      if (savedSidebar !== undefined)
+        process.env[SIDEBAR_STATE_ENV] = savedSidebar
+      else delete process.env[SIDEBAR_STATE_ENV]
+      if (savedTuiLog !== undefined)
+        process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE = savedTuiLog
+      else delete process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE
+      if (savedPrefs !== undefined) process.env[TUI_PREFS_FILE_ENV] = savedPrefs
+      else delete process.env[TUI_PREFS_FILE_ENV]
       rmSync(root, { recursive: true, force: true })
     },
   }

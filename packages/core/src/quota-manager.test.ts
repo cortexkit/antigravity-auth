@@ -7,6 +7,7 @@ import {
   createQuotaManager,
   type FetchAccountQuota,
   fetchQuotaSummary,
+  type RetrieveUserQuotaSummaryBucket,
   type RetrieveUserQuotaSummaryResponse,
 } from './quota-manager.ts'
 import type { AccountQuotaResult } from './quota-types.ts'
@@ -805,18 +806,18 @@ describe('aggregateQuotaSummary', () => {
 
     const gemini = summary.groups.gemini!
     expect(gemini.windows).toHaveLength(2)
-    // weekly first
-    expect(gemini.windows![0]!.window).toBe('weekly')
-    expect(gemini.windows![0]!.remainingFraction).toBeCloseTo(0.9214, 3)
-    expect(gemini.windows![1]!.window).toBe('5h')
-    expect(gemini.windows![1]!.remainingFraction).toBeCloseTo(0.9886, 3)
+    // shortest-first: 5h before weekly
+    expect(gemini.windows![0]!.window).toBe('5h')
+    expect(gemini.windows![0]!.remainingFraction).toBeCloseTo(0.9886, 3)
+    expect(gemini.windows![1]!.window).toBe('weekly')
+    expect(gemini.windows![1]!.remainingFraction).toBeCloseTo(0.9214, 3)
 
     const nonGemini = summary.groups['non-gemini']!
     expect(nonGemini.windows).toHaveLength(2)
-    expect(nonGemini.windows![0]!.window).toBe('weekly')
-    expect(nonGemini.windows![0]!.remainingFraction).toBeCloseTo(0.9852, 3)
-    expect(nonGemini.windows![1]!.window).toBe('5h')
-    expect(nonGemini.windows![1]!.remainingFraction).toBeCloseTo(0.9556, 3)
+    expect(nonGemini.windows![0]!.window).toBe('5h')
+    expect(nonGemini.windows![0]!.remainingFraction).toBeCloseTo(0.9556, 3)
+    expect(nonGemini.windows![1]!.window).toBe('weekly')
+    expect(nonGemini.windows![1]!.remainingFraction).toBeCloseTo(0.9852, 3)
   })
 
   it('maps Free (weekly-only) groups to pools', () => {
@@ -851,23 +852,54 @@ describe('aggregateQuotaSummary', () => {
     expect(summary.groups['non-gemini']!.resetTime).toBe('2026-07-24T18:41:52Z')
   })
 
-  it('preserves window order: weekly first, then 5h', () => {
+  it('preserves window order: shortest first', () => {
     const response = loadFixture('pro-ruqs.json')
     const summary = aggregateQuotaSummary(response)
 
     for (const group of Object.values(summary.groups)) {
       if (!group?.windows) continue
-      for (let i = 1; i < group.windows.length; i++) {
-        const prev = group.windows[i - 1]!
-        const curr = group.windows[i]!
-        // All weeklies come before any 5h
-        if (prev.window === 'weekly' && curr.window === '5h') continue
-        if (prev.window === 'weekly' && curr.window === 'weekly') continue
-        if (prev.window === '5h' && curr.window === '5h') continue
-        // A 5h before a weekly = wrong order
-        expect(prev.window).not.toBe('5h')
-      }
+      expect(group.windows).toHaveLength(2)
+      expect(group.windows![0]!.window).toBe('5h')
+      expect(group.windows![1]!.window).toBe('weekly')
     }
+  })
+
+  it('sorts unknown window kinds last, deterministically', () => {
+    const buckets: RetrieveUserQuotaSummaryBucket[] = [
+      {
+        bucketId: 'gemini-weekly',
+        displayName: 'Weekly',
+        window: 'weekly',
+        resetTime: '2026-07-28T00:00:00Z',
+        remainingFraction: 0.9,
+      },
+      {
+        bucketId: 'gemini-daily',
+        displayName: 'Daily',
+        window: 'daily',
+        resetTime: '2026-07-25T00:00:00Z',
+        remainingFraction: 0.5,
+      },
+      {
+        bucketId: 'gemini-5h',
+        displayName: '5h',
+        window: '5h',
+        resetTime: '2026-07-24T12:00:00Z',
+        remainingFraction: 0.8,
+      },
+    ]
+    const summary = aggregateQuotaSummary({
+      groups: [
+        { displayName: 'Gemini', buckets, description: 'Models: A, B, C' },
+      ],
+    })
+    const windows = summary.groups.gemini!.windows!
+    expect(windows).toHaveLength(3)
+    // Known windows sorted shortest-first: 5h → weekly
+    expect(windows[0]!.window).toBe('5h')
+    expect(windows[1]!.window).toBe('weekly')
+    // Unknown window ('daily') sorts last
+    expect(windows[2]!.window).toBe('daily')
   })
 
   it('counts models from the description minus the prefix label', () => {
@@ -1175,5 +1207,68 @@ describe('fetchQuotaSummary', () => {
       'https://failover-b.test/v1internal:retrieveUserQuotaSummary',
     )
     expect(result.summary.groups[0]!.buckets[0]!.remainingFraction).toBe(0.42)
+  })
+
+  it('N1: a transient 500 on the managed attempt does NOT fall through to the projectId fallback', async () => {
+    // N1 regression: before the fix, tryBody returned null for ANY failure
+    // (403, 500, network). The fallback was entered on all of them, which
+    // could return a different project\'s quota data on transient errors.
+    // Now the fallback is gated on 403 only.
+    const triedProjects: string[] = []
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      triedProjects.push(body.project as string)
+      // Return 500 for the managed project attempt (transient error).
+      return new Response('internal error', { status: 500 })
+    }
+    // Both managed and regular project IDs are provided. The 500 on the
+    // managed attempt must NOT trigger the projectId fallback.
+    await expect(
+      fetchQuotaSummary({
+        accessToken: 'tok',
+        managedProjectId: 'managed-proj',
+        projectId: 'regular-proj',
+        endpoints: ENDPOINTS,
+        fetchVia: fetchVia as any,
+      }),
+    ).rejects.toThrow()
+    // Only the managed project should have been tried — the regular-proj
+    // fallback must not run on a transient error.
+    expect(triedProjects).toHaveLength(1)
+    expect(triedProjects[0]).toBe('managed-proj')
+  })
+
+  it('N1: a 500 on the managed attempt does not clobber the 403-fallback path', async () => {
+    // Complement: a 403 on the managed project DOES enter the fallback.
+    // This ensures the gating change did not accidentally disable the
+    // existing 403-fallback behavior.
+    const triedProjects: string[] = []
+    const summary: RetrieveUserQuotaSummaryResponse = { groups: [] }
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      triedProjects.push(body.project as string)
+      if (body.project === 'managed-proj') {
+        return new Response('{}', { status: 403 })
+      }
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    const result = await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'managed-proj',
+      projectId: 'regular-proj',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    // The 403 on managed-proj must trigger the fallback to regular-proj.
+    expect(triedProjects).toHaveLength(2)
+    expect(triedProjects[0]).toBe('managed-proj')
+    expect(triedProjects[1]).toBe('regular-proj')
+    expect(result.summary).toEqual(summary)
   })
 })

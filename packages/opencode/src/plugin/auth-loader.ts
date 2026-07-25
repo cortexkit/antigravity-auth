@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
+import { getHealthTracker } from '@cortexkit/antigravity-auth-core'
 import {
   buildSidebarMachineStateFromAccounts,
+  isAccountCurrent,
   setSidebarMachineState,
+  toCapturedTier,
 } from '../sidebar-state'
 import { AccountManager } from './accounts'
 import { isOAuthAuth } from './auth'
@@ -180,21 +183,28 @@ export function createAuthLoader({
     // without waiting for the first fetch to complete.
     await setSidebarMachineState(
       buildSidebarMachineStateFromAccounts(
-        accountManager.getAccounts().map((entry) => ({
-          index: entry.index,
-          label: entry.label,
-          enabled: entry.enabled,
-          current: false,
-          coolingDownUntil: entry.coolingDownUntil,
-          cachedQuota: entry.cachedQuota,
-          // Stamp the sidebar snapshot so the projection can detect a
-          // stale cache that landed on the wrong account (the manager's
-          // `cachedQuotaAccountId` is keyed to whatever account actually
-          // produced the snapshot — the live refresh-token hash is the
-          // expected identity at this slot).
-          cachedQuotaAccountId: entry.cachedQuotaAccountId,
-          currentQuotaAccountId: refreshTokenIdentity(entry.parts.refreshToken),
-        })),
+        accountManager.getAccounts().map((entry) => {
+          const activeByFamily = accountManager.getActiveIndexByFamily()
+          return {
+            index: entry.index,
+            label: entry.label,
+            enabled: entry.enabled,
+            current: isAccountCurrent(entry.index, activeByFamily),
+            coolingDownUntil: entry.coolingDownUntil,
+            healthScore: getHealthTracker().getScore(entry.index),
+            cachedQuota: entry.cachedQuota,
+            // Stamp the sidebar snapshot so the projection can detect a
+            // stale cache that landed on the wrong account (the manager's
+            // `cachedQuotaAccountId` is keyed to whatever account actually
+            // produced the snapshot — the live refresh-token hash is the
+            // expected identity at this slot).
+            cachedQuotaAccountId: entry.cachedQuotaAccountId,
+            currentQuotaAccountId: refreshTokenIdentity(
+              entry.parts.refreshToken,
+            ),
+            tier: toCapturedTier(entry),
+          }
+        }),
       ),
     )
   }

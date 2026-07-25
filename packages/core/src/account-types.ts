@@ -90,6 +90,17 @@ export interface AccountMetadataV3 {
     resetTime?: string
   }[]
   cachedQuotaUpdatedAt?: number
+  /**
+   * Captured plan tier ID from the most recent `loadCodeAssist` response.
+   * Raw upstream string (e.g. `"free-tier"`) — never normalised.
+   */
+  capturedTierId?: string
+  /** Raw paid-tier ID from the most recent `loadCodeAssist` response. */
+  capturedPaidTierId?: string
+  /** Epoch ms when `capturedTierId` was last recorded. */
+  capturedTierAt?: number
+  /** Schema version of the most recent tier capture, even when paid tier is absent. */
+  capturedTierSchemaVersion?: number
   /** Daily request counts per model family, resets when date changes */
   dailyRequestCounts?: {
     date: string

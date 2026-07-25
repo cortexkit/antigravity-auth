@@ -76,6 +76,11 @@ export interface SidebarAccountState {
   current: boolean
   cooldownUntil?: number
   quota: Partial<Record<SidebarQuotaKey, SidebarQuotaEntry>>
+  /**
+   * Captured plan tier. Absent when unknown — do NOT default to `free-tier`.
+   * `id` is the raw upstream string (e.g. `"free-tier"`); never normalised.
+   */
+  tier?: { id: string; paidId?: string; capturedAt: number }
 }
 
 export interface SidebarRoutingEntry {
@@ -305,6 +310,7 @@ function normalizeAccount(input: unknown): SidebarAccountState | null {
       if (normalized) quota[key] = normalized
     }
   }
+  const tier = normalizeTier(record.tier)
   return {
     id,
     label,
@@ -313,7 +319,24 @@ function normalizeAccount(input: unknown): SidebarAccountState | null {
     current,
     cooldownUntil,
     quota,
+    ...(tier !== undefined ? { tier } : {}),
   }
+}
+
+function normalizeTier(
+  input: unknown,
+): { id: string; paidId?: string; capturedAt: number } | undefined {
+  if (!isObject(input)) return undefined
+  const record = input as Record<string, unknown>
+  const id =
+    typeof record.id === 'string' && record.id.length > 0 ? record.id : null
+  const capturedAt = toFiniteNumber(record.capturedAt)
+  if (!id || capturedAt === null) return undefined
+  const paidId =
+    typeof record.paidId === 'string' && record.paidId.length > 0
+      ? record.paidId
+      : undefined
+  return { id, ...(paidId ? { paidId } : {}), capturedAt }
 }
 
 function normalizeQuota(input: unknown): SidebarQuotaEntry | null {
@@ -484,6 +507,21 @@ export interface SidebarAccountRedactionInput {
         resetTime: string
       }>
     }
+    // Legacy per-pool keys written by older versions of the plugin.
+    // Accepted here so the normalizer can map them to the current pool
+    // keys at read time without requiring a disk migration.
+    [legacyKey: string]:
+      | {
+          remainingFraction?: number
+          resetTime?: string
+          modelCount?: number
+          windows?: Array<{
+            window: 'weekly' | '5h'
+            remainingFraction: number
+            resetTime: string
+          }>
+        }
+      | undefined
   }
   /**
    * Opaque identity stamp that was attached to the persisted quota snapshot.
@@ -499,6 +537,119 @@ export interface SidebarAccountRedactionInput {
    * command-data service. Omitted in the persisted sidebar state.
    */
   currentQuotaAccountId?: string
+  /**
+   * Captured plan tier from `loadCodeAssist`. Absent when unknown. The `id`
+   * is the raw upstream string; `capturedAt` is epoch ms. Not PII — tier
+   * metadata survives the redaction boundary unchanged.
+   */
+  tier?: { id: string; paidId?: string; capturedAt: number }
+}
+
+/**
+ * Build a `{ id, capturedAt }` tier object from account fields, or `undefined`
+ * when either field is absent. Centralised so every producer (index.ts,
+ * background-quota-refresh.ts, command-data.ts) uses the same guard and the
+ * same shape -- the same pattern shipped as inline literals across three files
+ * and produced six missed-field bugs; one helper ends that.
+ */
+export function toCapturedTier(account: {
+  capturedTierId?: string
+  capturedPaidTierId?: string
+  capturedTierAt?: number
+}): { id: string; paidId?: string; capturedAt: number } | undefined {
+  return account.capturedTierId !== undefined &&
+    account.capturedTierAt !== undefined
+    ? {
+        id: account.capturedTierId,
+        ...(account.capturedPaidTierId !== undefined
+          ? { paidId: account.capturedPaidTierId }
+          : {}),
+        capturedAt: account.capturedTierAt,
+      }
+    : undefined
+}
+
+/**
+ * Map pre-pool legacy quota keys to the current two-pool schema at read time.
+ *
+ * Legacy mappings (empirically settled from burn tests):
+ *   `gemini-pro` + `gemini-flash`  →  `gemini`
+ *   `claude`      + `gpt-oss`       →  `non-gemini`
+ *
+ * Where multiple legacy keys collapse into one pool the MIN remainingFraction
+ * and earliest resetTime are used (most-constrained-first, matching the
+ * window-level rule). No `windows` arrays are invented for migrated entries;
+ * the single aggregate bar is the correct render for pre-window snapshots.
+ *
+ * Non-legacy keys that are already canonical (`gemini`, `non-gemini`) are
+ * carried through unchanged. The next real quota refresh overwrites any
+ * migrated snapshot with authoritative data.
+ */
+export function normalizeLegacyCachedQuota(
+  raw: SidebarAccountRedactionInput['cachedQuota'],
+): SidebarAccountRedactionInput['cachedQuota'] {
+  if (!raw) return raw
+
+  // Pool already carries current keys — fast path when no legacy keys present.
+  const hasLegacy =
+    'gemini-pro' in raw ||
+    'gemini-flash' in raw ||
+    'claude' in raw ||
+    'gpt-oss' in raw
+  if (!hasLegacy) return raw
+
+  type PoolEntry = NonNullable<
+    SidebarAccountRedactionInput['cachedQuota']
+  >['gemini']
+
+  // Pick the earlier of two ISO reset timestamps, preferring a defined
+  // value over undefined. Extracted so both branches of minFraction use
+  // the same merge rather than the previous asymmetry where the a-wins
+  // branch dropped b's possibly-earlier resetTime.
+  const earlierResetTime = (
+    a: string | undefined,
+    b: string | undefined,
+  ): string | undefined => {
+    if (!a) return b
+    if (!b) return a
+    return a < b ? a : b
+  }
+
+  const minFraction = (a: PoolEntry, b: PoolEntry): PoolEntry => {
+    if (!a) return b
+    if (!b) return a
+    const fa = a.remainingFraction ?? 1
+    const fb = b.remainingFraction ?? 1
+    const winner = fa <= fb ? a : b
+    const loser = fa <= fb ? b : a
+    // Always merge to the earliest resetTime regardless of which pool wins
+    // the fraction comparison — an earlier window expiry from the loser
+    // pool must not be silently dropped.
+    return {
+      ...winner,
+      resetTime: earlierResetTime(winner.resetTime, loser.resetTime),
+    }
+  }
+
+  const gemini: PoolEntry =
+    minFraction(
+      raw.gemini,
+      minFraction(
+        raw['gemini-pro'] as PoolEntry,
+        raw['gemini-flash'] as PoolEntry,
+      ),
+    ) ?? raw.gemini
+
+  const nonGemini: PoolEntry =
+    minFraction(
+      raw['non-gemini'],
+      minFraction(raw.claude as PoolEntry, raw['gpt-oss'] as PoolEntry),
+    ) ?? raw['non-gemini']
+
+  return {
+    ...(gemini !== undefined ? { gemini } : {}),
+    ...(nonGemini !== undefined ? { 'non-gemini': nonGemini } : {}),
+  }
 }
 
 /**
@@ -555,6 +706,20 @@ export function projectQuotaPoolForSidebar(source: {
 }
 
 /**
+ * Returns `true` when an account at `index` is the active account for
+ * at least one model family. Two accounts CAN both be current — one
+ * serving claude, one serving gemini — so this must not collapse to one.
+ */
+export function isAccountCurrent(
+  index: number,
+  activeIndexByFamily: { claude: number; gemini: number },
+): boolean {
+  return (
+    index === activeIndexByFamily.claude || index === activeIndexByFamily.gemini
+  )
+}
+
+/**
  * Convert a live account snapshot into the redacted shape the TUI renders.
  * The redacted `SidebarAccountState` carries no email, refresh token, access
  * token, project ID, fingerprint, OAuth profile name, or other personal or
@@ -573,7 +738,7 @@ export function redactAccountForSidebar(
       ? source.coolingDownUntil
       : undefined
   const health = clampNumber(
-    typeof source.healthScore === 'number' ? source.healthScore : null,
+    typeof source.healthScore === 'number' ? source.healthScore : 100,
     0,
     100,
   )
@@ -587,7 +752,12 @@ export function redactAccountForSidebar(
     typeof source.cachedQuotaAccountId === 'string' &&
     typeof source.currentQuotaAccountId === 'string' &&
     source.cachedQuotaAccountId !== source.currentQuotaAccountId
-  const cached = staleCachedQuota ? undefined : source.cachedQuota
+  // Normalize legacy per-pool keys to the current two-pool schema before
+  // reading. This is non-destructive: the next real quota refresh will
+  // overwrite the migrated snapshot with authoritative data.
+  const cached = staleCachedQuota
+    ? undefined
+    : normalizeLegacyCachedQuota(source.cachedQuota)
   if (cached) {
     for (const key of ['gemini', 'non-gemini'] as const) {
       const entry = cached[key]
@@ -605,6 +775,8 @@ export function redactAccountForSidebar(
     current,
     cooldownUntil,
     quota,
+    // Tier is plan metadata, not PII — it passes the redaction boundary.
+    ...(source.tier !== undefined ? { tier: source.tier } : {}),
   }
 }
 

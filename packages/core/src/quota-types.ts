@@ -27,10 +27,72 @@ export interface QuotaGroupSummary {
   modelCount: number
   /**
    * Per-window breakdown from the retrieveUserQuotaSummary response.
-   * `weekly` first, then `5h`. Omitted in legacy cached shapes —
+   * shortest-first (5h before weekly, etc.). Omitted in legacy cached shapes —
    * consumers treat a single remainingFraction as one unlabeled window.
    */
   windows?: QuotaWindowEntry[]
+}
+
+/**
+ * Migrate pre-pool quota keys while loading persisted account data. Current
+ * keys pass through unchanged, making this safe for every storage read.
+ */
+export function normalizeLegacyCachedQuota(
+  raw: AccountMetadataV3['cachedQuota'],
+): Partial<Record<QuotaGroup, QuotaGroupSummary>> | undefined {
+  if (!raw) return raw
+
+  const hasLegacy =
+    'gemini-pro' in raw ||
+    'gemini-flash' in raw ||
+    'claude' in raw ||
+    'gpt-oss' in raw
+  if (!hasLegacy) return raw
+
+  const earlierResetTime = (
+    a: string | undefined,
+    b: string | undefined,
+  ): string | undefined => {
+    if (!a) return b
+    if (!b) return a
+    return a < b ? a : b
+  }
+
+  const minFraction = (
+    a: QuotaGroupSummary | undefined,
+    b: QuotaGroupSummary | undefined,
+  ): QuotaGroupSummary | undefined => {
+    if (!a) return b
+    if (!b) return a
+    const fa = a.remainingFraction ?? 1
+    const fb = b.remainingFraction ?? 1
+    const winner = fa <= fb ? a : b
+    const loser = fa <= fb ? b : a
+    return {
+      ...winner,
+      resetTime: earlierResetTime(winner.resetTime, loser.resetTime),
+    }
+  }
+
+  const gemini = minFraction(
+    raw.gemini as QuotaGroupSummary | undefined,
+    minFraction(
+      raw['gemini-pro'] as QuotaGroupSummary | undefined,
+      raw['gemini-flash'] as QuotaGroupSummary | undefined,
+    ),
+  )
+  const nonGemini = minFraction(
+    raw['non-gemini'] as QuotaGroupSummary | undefined,
+    minFraction(
+      raw.claude as QuotaGroupSummary | undefined,
+      raw['gpt-oss'] as QuotaGroupSummary | undefined,
+    ),
+  )
+
+  return {
+    ...(gemini !== undefined ? { gemini } : {}),
+    ...(nonGemini !== undefined ? { 'non-gemini': nonGemini } : {}),
+  }
 }
 
 export interface PerModelQuotaEntry {

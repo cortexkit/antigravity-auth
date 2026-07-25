@@ -126,9 +126,8 @@ describe('debug sink redaction', () => {
   })
 
   it('masks full project IDs in debug logs', async () => {
-    const { initializeDebug, startAntigravityDebugRequest } = await import(
-      './debug'
-    )
+    const { initializeDebug, startAntigravityDebugRequest, closeDebugLog } =
+      await import('./debug')
 
     initializeDebug({
       ...DEFAULT_CONFIG,
@@ -154,8 +153,9 @@ describe('debug sink redaction', () => {
       projectId: knownProjectId,
     })
 
-    // Allow the writeStream a tick to flush the line.
-    await new Promise((r) => setTimeout(r, 50))
+    // Close the write stream so all buffered data is flushed to disk
+    // before reading the log file.
+    await closeDebugLog()
 
     // The debug log file is the most recent `antigravity-debug-*.log` in
     // the log dir.
@@ -178,9 +178,8 @@ describe('debug sink redaction', () => {
   })
 
   it('masks fingerprint User-Agent headers in the recorded headers dump', async () => {
-    const { initializeDebug, startAntigravityDebugRequest } = await import(
-      './debug'
-    )
+    const { initializeDebug, startAntigravityDebugRequest, closeDebugLog } =
+      await import('./debug')
 
     initializeDebug({
       ...DEFAULT_CONFIG,
@@ -204,7 +203,7 @@ describe('debug sink redaction', () => {
       streaming: false,
     })
 
-    await new Promise((r) => setTimeout(r, 50))
+    await closeDebugLog()
 
     const files = readdirSync(logDir)
     const logFile = files

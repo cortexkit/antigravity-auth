@@ -83,6 +83,17 @@ export function createAccountCommandOAuthService(
     return entry
   }
 
+  // Wrap listAccounts so a lock-contention or I/O failure in the error
+  // branches below does not replace the real OAuth failure text with a
+  // generic apply-error message. Mirrors the stage-4 guarded pattern.
+  const safeListAccounts = async (): Promise<CommandAccountRow[]> => {
+    try {
+      return await options.listAccounts()
+    } catch {
+      return []
+    }
+  }
+
   return {
     async start(sessionId) {
       const authorization = await options.authorize()
@@ -107,7 +118,7 @@ export function createAccountCommandOAuthService(
         redirectUri,
         createdAt: now(),
       })
-      return { url: authorization.url, accounts: await options.listAccounts() }
+      return { url: authorization.url, accounts: await safeListAccounts() }
     },
 
     async finish(sessionId, callbackInput, label) {
@@ -115,7 +126,7 @@ export function createAccountCommandOAuthService(
       if (!pending) {
         return {
           text: 'OAuth session expired. Please start again.',
-          accounts: await options.listAccounts(),
+          accounts: await safeListAccounts(),
         }
       }
 
@@ -127,13 +138,13 @@ export function createAccountCommandOAuthService(
       } catch {
         return {
           text: 'OAuth authentication failed: could not parse the callback. Please start a new OAuth flow.',
-          accounts: await options.listAccounts(),
+          accounts: await safeListAccounts(),
         }
       }
       if ('error' in callback) {
         return {
           text: `OAuth authentication failed: ${callback.error}. Please start a new OAuth flow.`,
-          accounts: await options.listAccounts(),
+          accounts: await safeListAccounts(),
         }
       }
 
@@ -146,13 +157,13 @@ export function createAccountCommandOAuthService(
       } catch {
         return {
           text: 'OAuth exchange failed due to a network error. Please start a new OAuth flow.',
-          accounts: await options.listAccounts(),
+          accounts: await safeListAccounts(),
         }
       }
       if (result.type === 'failed') {
         return {
           text: 'OAuth authentication failed. Please start a new OAuth flow and try again.',
-          accounts: await options.listAccounts(),
+          accounts: await safeListAccounts(),
         }
       }
 
@@ -168,7 +179,7 @@ export function createAccountCommandOAuthService(
       } catch {
         return {
           text: 'OAuth account could not be saved to disk. Please start a new OAuth flow.',
-          accounts: await options.listAccounts(),
+          accounts: await safeListAccounts(),
         }
       }
 

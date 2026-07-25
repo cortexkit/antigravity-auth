@@ -37,6 +37,8 @@ export interface E2eHarness {
   createPlugin(options?: {
     clientOverrides?: Record<string, unknown>
     extraDependencies?: Partial<PluginDependencyOverrides>
+    /** Override specific fields in the project-level config written to disk. */
+    configOverrides?: Record<string, unknown>
   }): Promise<PluginResult>
   /** Tear down all built plugins + the mock server + temp dirs. */
   dispose(): Promise<void>
@@ -109,7 +111,10 @@ export async function createE2eHarness(
           soft_quota_threshold_percent: 100,
           quota_refresh_interval_minutes: 0,
           proactive_rotation_threshold_percent: 0,
+          background_quota_refresh: false,
           auto_update: false,
+          // Allow per-test overrides (e.g. enabling background_quota_refresh).
+          ...(pluginOptions.configOverrides ?? {}),
         }),
       )
       const client = createFakeClient(pluginOptions.clientOverrides)

@@ -44,8 +44,10 @@ import { createHash } from 'node:crypto'
 
 import {
   buildSidebarMachineStateFromAccounts,
+  normalizeLegacyCachedQuota,
   type SidebarAccountRedactionInput,
   setSidebarMachineState,
+  toCapturedTier,
 } from '../sidebar-state'
 
 /**
@@ -143,6 +145,8 @@ export interface CommandAccountRow {
    * without relying on unstable numeric indices.
    */
   coolingDownUntil?: number
+  /** Health score in [0, 100], forwarded from the live tracker. */
+  healthScore?: number
   quota: Array<{
     key: 'gemini' | 'non-gemini'
     label: string
@@ -154,6 +158,8 @@ export interface CommandAccountRow {
       resetAt?: number
     }>
   }>
+  /** Captured plan tier. Absent when unknown; never defaulted. */
+  tier?: { id: string; capturedAt: number }
 }
 
 /**
@@ -186,6 +192,13 @@ interface LiveAccountSnapshot {
   cachedQuotaAccountId?: string
   accountIneligible?: boolean
   coolingDownUntil?: number
+  healthScore?: number
+  /** Captured plan tier from the most recent loadCodeAssist response. */
+  capturedTierId?: string
+  /** Captured paid-tier ID from the most recent loadCodeAssist response. */
+  capturedPaidTierId?: string
+  /** Epoch ms when capturedTierId was last recorded. */
+  capturedTierAt?: number
 }
 
 function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
@@ -193,11 +206,19 @@ function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
   // (the refresh token changed, or an index shift placed another account's
   // snapshot at this position). Drop the stale cache rather than rendering
   // the wrong account's quota percentages.
-  const cached =
+  const rawCached =
     entry.cachedQuotaAccountId &&
     entry.cachedQuotaAccountId !== quotaAccountIdentity(entry.refreshToken)
       ? undefined
       : entry.cachedQuota
+  // Normalize legacy pool keys (gemini-pro, gemini-flash, claude, gpt-oss)
+  // to canonical keys before the SUPPORTED_QUOTA_KEYS loop. Without this
+  // a legacy snapshot produces empty quota rows, and writeSidebar would
+  // permanently re-emit legacy keys on every dialog open until the next
+  // real quota refresh rewrites the on-disk snapshot.
+  const cached = normalizeLegacyCachedQuota(
+    rawCached as Parameters<typeof normalizeLegacyCachedQuota>[0],
+  )
   const quota: CommandAccountRow['quota'] = []
   for (const key of SUPPORTED_QUOTA_KEYS) {
     const cachedEntry = cached?.[key]
@@ -246,7 +267,9 @@ function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
     enabled: entry.enabled,
     current: entry.active,
     coolingDownUntil: entry.coolingDownUntil,
+    healthScore: entry.healthScore,
     quota,
+    tier: toCapturedTier(entry),
   }
 }
 
@@ -399,8 +422,20 @@ export interface CommandDataService {
    * refresh token, bump `cachedQuotaUpdatedAt`, and push a label-only
    * sidebar snapshot. Returns the freshly persisted rows so the
    * dialog can re-render in place.
+   *
+   * Bypass flag is intentional: explicit user-triggered refreshes
+   * ("Refresh" button, direct slash-command with `refresh` argument)
+   * must always fetch, even if the quota manager has backed off.
    */
   refreshQuota(): Promise<CommandAccountRow[]>
+  /**
+   * Non-forced quota check that RESPECTS the quota manager's per-account
+   * backoff. Used by the dialog OPEN path — which is a VIEW, not a user
+   * request to fetch. Accounts already fresh (or in backoff) are skipped;
+   * the result is discarded (the sidebar poller carries the freshness
+   * guarantee for idle accounts).
+   */
+  refreshQuotaRespectingBackoff(): Promise<void>
   /**
    * Pin `index` as the active account for every family the dialog
    * tracks (claude + gemini). Mutates the live AccountManager AND the
@@ -452,54 +487,63 @@ export function createCommandDataService(
   const projectRows = (): CommandAccountRow[] =>
     accountManagerView.getAccounts().map(toCommandAccountRow)
 
-  const writeSidebar = (rows: CommandAccountRow[]): void => {
-    const accounts: SidebarAccountRedactionInput[] = rows.map((row) => {
-      const gemini = row.quota.find((q) => q.key === 'gemini')
-      const nonGemini = row.quota.find((q) => q.key === 'non-gemini')
-      // Map a CommandAccountRow quota entry → cachedQuota pool shape
-      // so projectQuotaPoolForSidebar (the canonical projection seam)
-      // carries the per-window breakdown into the sidebar state.
-      const toPool = (
-        q:
-          | {
-              remainingPercent: number | null
-              resetAt?: number
-              windows?: CommandAccountRow['quota'][number]['windows']
-            }
-          | undefined,
-      ) => {
-        if (!q || q.remainingPercent == null) return undefined
-        return {
-          remainingFraction: q.remainingPercent / 100,
-          resetTime:
-            typeof q.resetAt === 'number' && Number.isFinite(q.resetAt)
-              ? new Date(q.resetAt).toISOString()
-              : undefined,
-          windows: q.windows?.map((w) => ({
-            window: w.window,
-            remainingFraction: w.remainingPercent / 100,
-            resetTime:
-              typeof w.resetAt === 'number' && Number.isFinite(w.resetAt)
-                ? new Date(w.resetAt).toISOString()
-                : '',
-          })),
-        }
-      }
+  // Map a CommandAccountRow back to the SidebarAccountRedactionInput shape.
+  // Extracted to prevent the "sixth dropped field" pattern: every field in
+  // CommandAccountRow that must reach the sidebar lives here once, not as an
+  // inline literal that a future author has to remember to update in two places.
+  const toRedactionInput = (
+    row: CommandAccountRow,
+  ): SidebarAccountRedactionInput => {
+    const gemini = row.quota.find((q) => q.key === 'gemini')
+    const nonGemini = row.quota.find((q) => q.key === 'non-gemini')
+    // Map a CommandAccountRow quota entry to cachedQuota pool shape
+    // so projectQuotaPoolForSidebar (the canonical projection seam)
+    // carries the per-window breakdown into the sidebar state.
+    const toPool = (
+      q:
+        | {
+            remainingPercent: number | null
+            resetAt?: number
+            windows?: CommandAccountRow['quota'][number]['windows']
+          }
+        | undefined,
+    ) => {
+      if (!q || q.remainingPercent == null) return undefined
       return {
-        index: row.index,
-        label: row.label,
-        enabled: row.enabled,
-        current: row.current,
-        cachedQuota: {
-          gemini: toPool(gemini),
-          'non-gemini': toPool(nonGemini),
-        },
-        // The stamp check has already been done by `toCommandAccountRow`
-        // before the rows reach this writer; nothing further for the
-        // sidebar projection to validate here.
+        remainingFraction: q.remainingPercent / 100,
+        resetTime:
+          typeof q.resetAt === 'number' && Number.isFinite(q.resetAt)
+            ? new Date(q.resetAt).toISOString()
+            : undefined,
+        windows: q.windows?.map((w) => ({
+          window: w.window,
+          remainingFraction: w.remainingPercent / 100,
+          resetTime:
+            typeof w.resetAt === 'number' && Number.isFinite(w.resetAt)
+              ? new Date(w.resetAt).toISOString()
+              : '',
+        })),
       }
-    })
-    // Fire-and-forget — the sidebar writer is fenced by its own queue,
+    }
+    return {
+      index: row.index,
+      label: row.label,
+      enabled: row.enabled,
+      current: row.current,
+      healthScore: row.healthScore,
+      // Tier passes the redaction boundary unchanged (plan metadata, not PII).
+      // The stamp check was already done by toCommandAccountRow.
+      tier: row.tier,
+      cachedQuota: {
+        gemini: toPool(gemini),
+        'non-gemini': toPool(nonGemini),
+      },
+    }
+  }
+
+  const writeSidebar = (rows: CommandAccountRow[]): void => {
+    const accounts = rows.map(toRedactionInput)
+    // Fire-and-forget -- the sidebar writer is fenced by its own queue,
     // so a transient lock contention cannot block the dialog response.
     void setSidebarMachineState(
       buildSidebarMachineStateFromAccounts(accounts, { checkedAt: now() }),
@@ -609,6 +653,77 @@ export function createCommandDataService(
       const rows = projectRows()
       writeSidebar(rows)
       return rows
+    },
+
+    async refreshQuotaRespectingBackoff() {
+      const accountsForQuota = accountManagerView.getAccountsForQuotaCheck()
+      if (accountsForQuota.length === 0) return
+
+      // Non-forced: the quota manager's per-account backoff and dedup
+      // apply. Accounts that are fresh or in backoff are skipped. Unlike
+      // the earlier fire-and-forget path, successful results ARE folded
+      // into the live cache so the sidebar snapshot reflects fresh data
+      // immediately — the dialog renders ONLY from the sidebar file, and
+      // the quota manager's push path does not update AccountManager
+      // entries for this caller.
+      let results: Awaited<ReturnType<typeof quotaManager.refreshAccounts>>
+      try {
+        results = await quotaManager.refreshAccounts(accountsForQuota, {
+          indexFor: (account) => accountsForQuota.indexOf(account),
+          force: false,
+        })
+      } catch {
+        // Non-critical: dialog open must never fail because a background
+        // refresh check encountered backoff or a transient error.
+        return
+      }
+
+      // Build updates akin to the forced refresh path — resolve live
+      // indexes after the network call (a concurrent add/remove may have
+      // shifted positions), fold successful results into the live cache,
+      // then push a sidebar snapshot.
+      const updates: Array<{
+        refreshToken: string
+        groups?: Partial<
+          Record<CommandDataQuotaGroup, CommandDataQuotaGroupSummary>
+        >
+      }> = []
+      for (const result of results) {
+        const refreshToken =
+          result.updatedAccount?.refreshToken ??
+          accountsForQuota[result.index]?.refreshToken
+        if (!refreshToken) continue
+        const groups =
+          result.status === 'ok' && result.quota?.groups
+            ? result.quota.groups
+            : undefined
+        updates.push({ refreshToken, groups })
+      }
+
+      if (updates.length === 0) return
+
+      const liveIndexByRefreshToken = new Map<string, number>()
+      for (const entry of accountManagerView.getAccounts()) {
+        liveIndexByRefreshToken.set(entry.refreshToken, entry.index)
+      }
+      let liveQuotaChanged = false
+      for (const update of updates) {
+        const liveIndex = liveIndexByRefreshToken.get(update.refreshToken)
+        if (liveIndex === undefined || !update.groups) continue
+        accountManagerView.updateQuotaCache(
+          liveIndex,
+          update.groups,
+          update.refreshToken,
+        )
+        liveQuotaChanged = true
+      }
+      if (liveQuotaChanged) accountManagerView.requestSaveToDisk()
+
+      // Push a fresh sidebar snapshot — the live view now carries the
+      // just-refreshed quota plus any skipped (backoff/fresh) accounts
+      // whose cached percentages are unchanged.
+      const rows = projectRows()
+      writeSidebar(rows)
     },
 
     async setCurrentAccount(index) {
@@ -738,7 +853,12 @@ export function createCommandDataService(
         // (the core's buildStorageSnapshot clamps negative sentinels
         // to 0, and auth-doctor treats a negative activeIndex as
         // corruption — cf. auth-doctor.ts:149-156).
-        return index < nextAccounts.length ? index : 0
+        //
+        // Use tokenIdx (the storage-snapshot position) rather than the
+        // outer-scope `index` (live-read position): a concurrent mutation
+        // between the live read and the lock can diverge the two, and the
+        // storage-level cursor must match the storage-level array.
+        return tokenIdx < nextAccounts.length ? tokenIdx : 0
       }
       const legacyClaude =
         current.activeIndexByFamily?.claude ?? current.activeIndex

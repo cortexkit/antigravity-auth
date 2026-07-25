@@ -54,6 +54,49 @@ describe('core AccountManager', () => {
     ).toEqual(['r1', 'r2', 'r3'])
   })
 
+  it('normalizes persisted legacy quota keys for soft-quota and proactive-rotation reads', () => {
+    const now = 1_700_000_000_000
+    const legacy: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        {
+          refreshToken: 'legacy-token',
+          addedAt: 1,
+          lastUsed: 0,
+          cachedQuota: {
+            claude: { remainingFraction: 0.4, modelCount: 1 },
+          },
+          cachedQuotaUpdatedAt: now,
+        },
+        {
+          refreshToken: 'other-token',
+          addedAt: 1,
+          lastUsed: 0,
+        },
+      ],
+      activeIndex: 0,
+    }
+    const memory = createStore(legacy)
+    const manager = new AccountManager(undefined, legacy, {
+      store: memory.store,
+      now: () => now,
+    })
+    const account = manager.getAccounts()[0]!
+
+    expect(
+      manager.isAccountOverSoftQuota(
+        account,
+        'claude',
+        50,
+        60_000,
+        'claude-sonnet',
+      ),
+    ).toBe(true)
+    expect(
+      manager.shouldProactivelyRotate('claude', 'claude-sonnet', 50, 60_000),
+    ).toBe(true)
+  })
+
   it.each([
     'sticky',
     'round-robin',
@@ -67,6 +110,83 @@ describe('core AccountManager', () => {
     expect(
       manager.getCurrentOrNextForFamily('gemini', 'gemini-3-pro', strategy),
     ).not.toBeNull()
+  })
+
+  it('hybrid skips the active Gemini account limited on the antigravity header style', () => {
+    const now = 1_700_000_000_000
+    const hybridStored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r4', projectId: 'p4', addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 1,
+      activeIndexByFamily: { gemini: 1 },
+    }
+    const memory = createStore(hybridStored)
+    const manager = new AccountManager(undefined, hybridStored, {
+      store: memory.store,
+      now: () => now,
+      random: () => 0.5,
+    })
+    const limited = manager.getAccounts()[1]!
+    manager.markRateLimitedWithReason(
+      limited,
+      'gemini',
+      'antigravity',
+      'antigravity-gemini-3.6-flash',
+      'RATE_LIMIT_EXCEEDED',
+    )
+
+    const selected = manager.getCurrentOrNextForFamily(
+      'gemini',
+      'antigravity-gemini-3.6-flash',
+      'hybrid',
+      'antigravity',
+    )
+
+    expect(selected?.index).toBe(0)
+  })
+
+  it('hybrid returns null when every Gemini account is limited on the antigravity header style', () => {
+    const now = 1_700_000_000_000
+    const hybridStored: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
+        { refreshToken: 'r4', projectId: 'p4', addedAt: 1, lastUsed: 0 },
+      ],
+      activeIndex: 1,
+      activeIndexByFamily: { gemini: 1 },
+    }
+    const memory = createStore(hybridStored)
+    const manager = new AccountManager(undefined, hybridStored, {
+      store: memory.store,
+      now: () => now,
+      random: () => 0.5,
+    })
+    for (const account of manager.getAccounts()) {
+      manager.markRateLimitedWithReason(
+        account,
+        'gemini',
+        'antigravity',
+        'antigravity-gemini-3.6-flash',
+        'RATE_LIMIT_EXCEEDED',
+      )
+    }
+
+    const selected = manager.getCurrentOrNextForFamily(
+      'gemini',
+      'antigravity-gemini-3.6-flash',
+      'hybrid',
+      'antigravity',
+    )
+
+    expect(selected).toBeNull()
   })
 
   it('tracks model-specific limits independently', () => {
@@ -217,6 +337,45 @@ describe('core AccountManager', () => {
     expect(tamperedManager.getAccounts()[0]?.cachedQuotaAccountId).not.toBe(
       'deadbeefcafebabe',
     )
+  })
+
+  it('persists and restores the captured tier schema marker across save→loadFromDisk', async () => {
+    const seeded = {
+      version: 4,
+      accounts: [
+        {
+          refreshToken: 'r1',
+          projectId: 'p1',
+          addedAt: 1,
+          lastUsed: 0,
+          capturedTierId: 'free-tier',
+          capturedTierAt: 1_700_000_000_000,
+          capturedTierSchemaVersion: 1,
+        },
+      ],
+      activeIndex: 0,
+    } as AccountStorageV4 & {
+      accounts: Array<{ capturedTierSchemaVersion?: number }>
+    }
+    const memory = createStore(seeded)
+    const manager = new AccountManager(undefined, seeded, {
+      store: memory.store,
+    })
+
+    await manager.saveToDiskReplace()
+
+    expect(memory.state()?.accounts[0]).toMatchObject({
+      capturedTierSchemaVersion: 1,
+    })
+    const reloaded = new AccountManager(
+      undefined,
+      memory.state() ?? undefined,
+      { store: memory.store },
+    )
+    expect(
+      (reloaded.getAccounts()[0] as { capturedTierSchemaVersion?: number })
+        ?.capturedTierSchemaVersion,
+    ).toBe(1)
   })
 
   it('drops the quota write when the refresh token captured at refresh time is gone (remove-during-refresh race)', () => {

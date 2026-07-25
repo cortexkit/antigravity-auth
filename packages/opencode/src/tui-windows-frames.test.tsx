@@ -42,6 +42,11 @@ function makeFixture(): Fixture {
   const root = mkdtempSync(join(tmpdir(), 'agy-tui-windows-'))
   const statePath = join(root, 'sidebar-state.json')
   const prefsPath = join(root, 'tui-preferences.jsonc')
+  // Save preload-pinned values to restore on cleanup instead of deleting —
+  // a delete drops resolution to the operator's real state/config dirs.
+  const savedSidebar = process.env[SIDEBAR_STATE_ENV]
+  const savedTuiLog = process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE
+  const savedPrefs = process.env[TUI_PREFS_FILE_ENV]
   process.env[SIDEBAR_STATE_ENV] = statePath
   process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE = join(root, 'tui.log')
   process.env[TUI_PREFS_FILE_ENV] = prefsPath
@@ -49,9 +54,14 @@ function makeFixture(): Fixture {
     statePath,
     prefsPath,
     cleanup: () => {
-      delete process.env[SIDEBAR_STATE_ENV]
-      delete process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE
-      delete process.env[TUI_PREFS_FILE_ENV]
+      if (savedSidebar !== undefined)
+        process.env[SIDEBAR_STATE_ENV] = savedSidebar
+      else delete process.env[SIDEBAR_STATE_ENV]
+      if (savedTuiLog !== undefined)
+        process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE = savedTuiLog
+      else delete process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE
+      if (savedPrefs !== undefined) process.env[TUI_PREFS_FILE_ENV] = savedPrefs
+      else delete process.env[TUI_PREFS_FILE_ENV]
       rmSync(root, { recursive: true, force: true })
     },
   }
@@ -132,16 +142,16 @@ describe('windows rework — reviewer frames', () => {
               remainingPercent: 92,
               resetAt: future2,
               windows: [
-                { window: 'weekly', remainingPercent: 92, resetAt: future2 },
                 { window: '5h', remainingPercent: 99, resetAt: future },
+                { window: 'weekly', remainingPercent: 92, resetAt: future2 },
               ],
             },
             'non-gemini': {
               remainingPercent: 96,
               resetAt: future2,
               windows: [
-                { window: 'weekly', remainingPercent: 99, resetAt: future2 },
                 { window: '5h', remainingPercent: 96, resetAt: future },
+                { window: 'weekly', remainingPercent: 99, resetAt: future2 },
               ],
             },
           },
@@ -167,6 +177,12 @@ describe('windows rework — reviewer frames', () => {
     expect(frame).toContain('Gm 5h')
     expect(frame).toContain('NG 7d')
     expect(frame).toContain('NG 5h')
+    // Window order: aggregator now sorts shortest-first so 5h must
+    // render before 7d. The fixture carries windows in [5h, weekly]
+    // order (matching aggregateQuotaSummary output) and the renderer
+    // preserves input order, so the assertion is deterministic.
+    expect(frame.indexOf('Gm 5h')).toBeLessThan(frame.indexOf('Gm 7d'))
+    expect(frame.indexOf('NG 5h')).toBeLessThan(frame.indexOf('NG 7d'))
     testSetup.renderer.destroy()
   })
 
@@ -304,16 +320,16 @@ describe('windows rework — reviewer frames', () => {
               remainingPercent: 92,
               resetAt: future2,
               windows: [
-                { window: 'weekly', remainingPercent: 92, resetAt: future2 },
                 { window: '5h', remainingPercent: 99, resetAt: future },
+                { window: 'weekly', remainingPercent: 92, resetAt: future2 },
               ],
             },
             'non-gemini': {
               remainingPercent: 96,
               resetAt: future2,
               windows: [
-                { window: 'weekly', remainingPercent: 99, resetAt: future2 },
                 { window: '5h', remainingPercent: 96, resetAt: future },
+                { window: 'weekly', remainingPercent: 99, resetAt: future2 },
               ],
             },
           },
@@ -347,6 +363,9 @@ describe('windows rework — reviewer frames', () => {
     expect(frame).toContain('Gm 5h')
     expect(frame).toContain('NG 7d')
     expect(frame).toContain('NG 5h')
+    // Same order assertion as (a): shortest window first.
+    expect(frame.indexOf('Gm 5h')).toBeLessThan(frame.indexOf('Gm 7d'))
+    expect(frame.indexOf('NG 5h')).toBeLessThan(frame.indexOf('NG 7d'))
     testSetup.renderer.destroy()
   })
 })

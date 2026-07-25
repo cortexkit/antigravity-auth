@@ -20,7 +20,11 @@ import {
   updateFingerprintVersion,
 } from './fingerprint.ts'
 import { getQuotaGroupForModel } from './model-registry.ts'
-import type { QuotaGroup, QuotaGroupSummary } from './quota-types.ts'
+import {
+  normalizeLegacyCachedQuota,
+  type QuotaGroup,
+  type QuotaGroupSummary,
+} from './quota-types.ts'
 import {
   type AccountWithMetrics,
   getHealthTracker,
@@ -100,6 +104,17 @@ export interface ManagedAccount {
   /** Opaque identity of the refresh token that produced `cachedQuota`. */
   cachedQuotaAccountId?: string
   cachedQuotaUpdatedAt?: number
+  /**
+   * Captured plan tier ID from the most recent `loadCodeAssist` response.
+   * Raw upstream string (e.g. `"free-tier"`) — never normalised.
+   */
+  capturedTierId?: string
+  /** Raw paid-tier ID from the most recent `loadCodeAssist` response. */
+  capturedPaidTierId?: string
+  /** Epoch ms when `capturedTierId` was last recorded. */
+  capturedTierAt?: number
+  /** Schema version of the most recent tier capture, even when paid tier is absent. */
+  capturedTierSchemaVersion?: number
   verificationRequired?: boolean
   verificationRequiredAt?: number
   verificationRequiredReason?: string
@@ -415,14 +430,16 @@ export class AccountManager {
             touchedForQuota: {},
             fingerprint: acc.fingerprint ?? generateFingerprint(),
             fingerprintHistory: acc.fingerprintHistory ?? [],
-            cachedQuota: acc.cachedQuota as
-              | Partial<Record<QuotaGroup, QuotaGroupSummary>>
-              | undefined,
+            cachedQuota: normalizeLegacyCachedQuota(acc.cachedQuota),
             // Restore the opaque identity stamp alongside the quota so the
             // post-load projection can detect a stale snapshot captured
             // for a different account after an index shift.
             cachedQuotaAccountId: acc.cachedQuotaAccountId,
             cachedQuotaUpdatedAt: acc.cachedQuotaUpdatedAt,
+            capturedTierId: acc.capturedTierId,
+            capturedPaidTierId: acc.capturedPaidTierId,
+            capturedTierAt: acc.capturedTierAt,
+            capturedTierSchemaVersion: acc.capturedTierSchemaVersion,
             dailyRequestCounts: acc.dailyRequestCounts,
             verificationRequired: acc.verificationRequired,
             verificationRequiredAt: acc.verificationRequiredAt,
@@ -830,7 +847,13 @@ export class AccountManager {
             lastUsed: acc.lastUsed,
             healthScore: healthTracker.getScore(acc.index),
             isRateLimited:
-              isRateLimitedForFamily(acc, family, this.now, model) ||
+              isRateLimitedForHeaderStyle(
+                acc,
+                family,
+                headerStyle,
+                this.now,
+                model,
+              ) ||
               isOverSoftQuotaThreshold(
                 acc,
                 family,
@@ -1680,6 +1703,10 @@ export class AccountManager {
         // for a different account after an index shift.
         cachedQuotaAccountId: a.cachedQuotaAccountId,
         cachedQuotaUpdatedAt: a.cachedQuotaUpdatedAt,
+        capturedTierId: a.capturedTierId,
+        capturedPaidTierId: a.capturedPaidTierId,
+        capturedTierAt: a.capturedTierAt,
+        capturedTierSchemaVersion: a.capturedTierSchemaVersion,
         dailyRequestCounts: a.dailyRequestCounts,
         verificationRequired: a.verificationRequired,
         verificationRequiredAt: a.verificationRequiredAt,
@@ -1903,6 +1930,55 @@ export class AccountManager {
       account.parts.refreshToken,
     )
     account.cachedQuotaUpdatedAt = this.now()
+  }
+
+  /**
+   * Apply a subset of fields from a quota-fetch `updatedAccount` result onto
+   * the live in-memory record for the given index. Only patches fields that
+   * are present and non-empty in `patch` to avoid overwriting valid state
+   * with stale or missing values.
+   *
+   * Identity guard: if `expectedRefreshToken` is provided and the account at
+   * `accountIndex` no longer carries that token (concurrent reorder/replace),
+   * the patch is silently dropped.
+   *
+   * `managedProjectId` is intentionally absent from the patch type: the only
+   * caller (`BackgroundQuotaRefresh`) routes through `PollerAccountView` which
+   * exposes only `capturedTierId`/`capturedTierAt`; project-context updates
+   * happen via `ensureProjectContext`, not through this method.
+   */
+  applyUpdatedAccount(
+    accountIndex: number,
+    patch: Partial<
+      Pick<
+        AccountMetadataV3,
+        | 'capturedTierId'
+        | 'capturedPaidTierId'
+        | 'capturedTierAt'
+        | 'capturedTierSchemaVersion'
+      >
+    >,
+    expectedRefreshToken?: string,
+  ): void {
+    const account = this.accounts[accountIndex]
+    if (
+      !account ||
+      (expectedRefreshToken !== undefined &&
+        account.parts.refreshToken !== expectedRefreshToken)
+    )
+      return
+    if (patch.capturedTierId !== undefined) {
+      account.capturedTierId = patch.capturedTierId
+    }
+    if (patch.capturedPaidTierId !== undefined) {
+      account.capturedPaidTierId = patch.capturedPaidTierId
+    }
+    if (patch.capturedTierAt !== undefined) {
+      account.capturedTierAt = patch.capturedTierAt
+    }
+    if (patch.capturedTierSchemaVersion !== undefined) {
+      account.capturedTierSchemaVersion = patch.capturedTierSchemaVersion
+    }
   }
 
   /**

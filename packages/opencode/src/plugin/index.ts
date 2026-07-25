@@ -5,7 +5,12 @@ import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
 import { drainNotifications, pushNotification } from '../rpc/notifications'
 import { getRpcDir } from '../rpc/rpc-dir'
 import { startRpcServer } from '../rpc/rpc-server'
-import { drainSidebarWrites, getSidebarStateFile } from '../sidebar-state'
+import {
+  drainSidebarWrites,
+  getSidebarStateFile,
+  isAccountCurrent,
+  toCapturedTier,
+} from '../sidebar-state'
 import {
   createAccountAccessService,
   promptAccountIndexForVerification,
@@ -13,6 +18,7 @@ import {
 } from './account-access'
 import { createAccountCommandOAuthService } from './account-command-oauth'
 import { createAuthLoader } from './auth-loader'
+import { BackgroundQuotaRefresh } from './background-quota-refresh'
 import { initDiskSignatureCache, shutdownDiskSignatureCache } from './cache'
 import {
   applyAntigravityProviderCatalog,
@@ -29,8 +35,8 @@ import {
   createSidebarRefresher,
 } from './commands'
 import { initRuntimeConfig, loadConfig } from './config'
-import { getUserConfigPath as getUserConfigDir } from './config/loader'
-import { initializeDebug } from './debug'
+import { getUserConfigPath } from './config/loader'
+import { closeDebugLog, initializeDebug } from './debug'
 import {
   type PluginDependencies,
   type PluginDependencyOverrides,
@@ -47,9 +53,17 @@ import {
   type OperatorSettingsController,
 } from './operator-settings'
 import { persistAccountPool } from './persist-account-pool'
-import { createOpenCodeQuotaManager, type QuotaManager } from './quota'
+import {
+  createOpenCodeQuotaManager,
+  makeTierLoader,
+  type QuotaManager,
+} from './quota'
 import { createSessionRecoveryHook } from './recovery'
-import { initHealthTracker, initTokenTracker } from './rotation'
+import {
+  getHealthTracker,
+  initHealthTracker,
+  initTokenTracker,
+} from './rotation'
 import { AgySessionRegistry } from './session-context'
 import {
   clearAccounts,
@@ -90,6 +104,12 @@ export interface CreateAntigravityPluginOptions {
    * randomness. Defaults to production implementations.
    */
   dependencies?: PluginDependencyOverrides
+  /**
+   * Test-only seam: called synchronously after the background poller is
+   * constructed, before `start()`. Lets wiring tests capture the instance
+   * without reaching into lifecycle internals.
+   */
+  _onPollerCreated?: (poller: BackgroundQuotaRefresh) => void
 }
 
 export function registerQuotaManagerProducer(
@@ -151,6 +171,12 @@ export const createAntigravityPlugin =
       drainSidebarWrites,
     })
     const quotaManager = createOpenCodeQuotaManager(client, providerId, {
+      // Route quota fetches through the injected transport so e2e and
+      // custom-host deployments stay on the loopback/mock server for both
+      // the request path and the background poller. Without this the
+      // poller always hits the production Antigravity endpoint even when
+      // the caller injected a mock transport.
+      fetchVia: dependencies.agyTransport,
       // Bind to the live AccountManager so every refresh (manual or
       // background) pushes the freshly-updated quota percentages into the
       // sidebar without an extra RPC. The wrapper reads lazily so the
@@ -158,10 +184,12 @@ export const createAntigravityPlugin =
       getAccountsForSidebar: () => {
         const manager = lifecycle.getAccountManager()
         if (!manager) return null
+        const activeByFamily = manager.getActiveIndexByFamily()
         return manager.getAccounts().map((entry) => ({
           index: entry.index,
           label: entry.label,
           enabled: entry.enabled,
+          current: isAccountCurrent(entry.index, activeByFamily),
           coolingDownUntil: entry.coolingDownUntil,
           cachedQuota: entry.cachedQuota,
           // Carry the identity stamp so the sidebar projection can
@@ -169,7 +197,13 @@ export const createAntigravityPlugin =
           // after an index shift (see `redactAccountForSidebar`).
           cachedQuotaAccountId: entry.cachedQuotaAccountId,
           currentQuotaAccountId: quotaAccountIdentity(entry.parts.refreshToken),
+          tier: toCapturedTier(entry),
         }))
+      },
+      getActiveIndexByFamily: () => {
+        const manager = lifecycle.getAccountManager()
+        if (!manager) return null
+        return manager.getActiveIndexByFamily()
       },
     })
     // Producer phase: the quota manager emits fire-and-forget sidebar
@@ -180,6 +214,30 @@ export const createAntigravityPlugin =
     // after drainSidebarWrites() already asserted the queue was empty.
     registerQuotaManagerProducer(lifecycle, quotaManager)
 
+    // Background quota poller: per-loader-instance timer that keeps idle
+    // account sidebar bars fresh between real requests. Registered as a
+    // producer so it is stopped and awaited BEFORE the sidebar drain,
+    // guaranteeing any final poll write lands before the drain flushes.
+    if (config.background_quota_refresh) {
+      const poller = new BackgroundQuotaRefresh({
+        intervalMs: config.background_quota_refresh_interval_minutes * 60_000,
+        sidebarStateFile: getSidebarStateFile(),
+        getAccountManager: () => lifecycle.getAccountManager(),
+        quotaManager,
+        // Resolve plan tier for accounts with stale capturedTierAt. Uses
+        // the same token-refresh path as the quota manager without a separate
+        // network seam -- tier is best-effort metadata, not quota.
+        loadAccountTier: makeTierLoader(client, providerId),
+        // Thread the injected clock so e2e tests can control startup
+        // jitter and timing without needing a real 30-second wait.
+        now: dependencies.clock.now,
+        random: dependencies.clock.random,
+      })
+      options._onPollerCreated?.(poller)
+      poller.start()
+      lifecycle.register({ dispose: () => poller.dispose() }, 'producer')
+    }
+
     // Operator settings controller backs the /antigravity-* slash commands.
     // The controller loads existing persisted settings at first read, mutates
     // runtime config immediately, and serializes through the fenced-lock
@@ -187,7 +245,10 @@ export const createAntigravityPlugin =
     const operatorSettings: OperatorSettingsController =
       createOperatorSettingsController({
         projectConfigPath: join(directory, '.opencode', 'antigravity.json'),
-        userConfigPath: join(getUserConfigDir(), 'antigravity.json'),
+        // getUserConfigPath() already returns the full file path including
+        // 'antigravity.json' — do NOT join again or the path double-nests
+        // into <dir>/antigravity.json/antigravity.json.
+        userConfigPath: getUserConfigPath(),
       })
     setRuntimeLogLevel(operatorSettings.get().log_level)
     lifecycle.register({ dispose: () => operatorSettings.dispose() })
@@ -217,19 +278,22 @@ export const createAntigravityPlugin =
         getAccounts: () => {
           const manager = lifecycle.getAccountManager()
           if (!manager) return []
-          const current =
-            manager.getCurrentAccountForFamily('claude')?.index ?? 0
+          const activeByFamily = manager.getActiveIndexByFamily()
           return manager.getAccounts().map((entry, index) => ({
             index,
             refreshToken: entry.parts.refreshToken,
             label: entry.label,
             enabled: entry.enabled !== false,
-            active: index === current,
+            active: isAccountCurrent(index, activeByFamily),
             cachedQuota: entry.cachedQuota,
             cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
             cachedQuotaAccountId: entry.cachedQuotaAccountId,
             accountIneligible: entry.accountIneligible,
             coolingDownUntil: entry.coolingDownUntil,
+            healthScore: getHealthTracker().getScore(entry.index),
+            capturedTierId: entry.capturedTierId,
+            capturedPaidTierId: entry.capturedPaidTierId,
+            capturedTierAt: entry.capturedTierAt,
           }))
         },
         getAccountsForQuotaCheck: () => {
@@ -376,10 +440,12 @@ export const createAntigravityPlugin =
         const refreshSidebar = createSidebarRefresher(() => {
           const manager = lifecycle.getAccountManager()
           if (!manager) return null
+          const activeByFamily = manager.getActiveIndexByFamily()
           return manager.getAccounts().map((entry) => ({
             index: entry.index,
             label: entry.label,
             enabled: entry.enabled,
+            current: isAccountCurrent(entry.index, activeByFamily),
             coolingDownUntil: entry.coolingDownUntil,
             cachedQuota: entry.cachedQuota,
             // Carry the identity stamp so the sidebar projection can
@@ -389,6 +455,7 @@ export const createAntigravityPlugin =
             currentQuotaAccountId: quotaAccountIdentity(
               entry.parts.refreshToken,
             ),
+            tier: toCapturedTier(entry),
           }))
         })
         const result = await applyCommand(request, {
@@ -407,6 +474,9 @@ export const createAntigravityPlugin =
       drain: drainNotifications,
     })
     lifecycle.register({ dispose: () => rpcServer.stop() })
+    // Flush the debug log stream after the sidebar drain so the last
+    // buffered lines land on disk before the process exits. Best-effort.
+    lifecycle.register({ dispose: () => closeDebugLog().catch(() => {}) })
 
     return {
       dispose: async () => {

@@ -74,6 +74,9 @@ interface AccountFixture {
   cachedQuotaAccountId?: string
   accountIneligible?: boolean
   coolingDownUntil?: number
+  healthScore?: number
+  capturedTierId?: string
+  capturedTierAt?: number
 }
 
 function makeAccountFixture(
@@ -226,6 +229,9 @@ function makeHarness(options: {
         cachedQuotaAccountId: entry.cachedQuotaAccountId,
         accountIneligible: entry.accountIneligible,
         coolingDownUntil: entry.coolingDownUntil,
+        healthScore: entry.healthScore,
+        capturedTierId: entry.capturedTierId,
+        capturedTierAt: entry.capturedTierAt,
       }))
     },
     getAccountsForQuotaCheck() {
@@ -366,14 +372,19 @@ async function readSidebar(stateFile: string): Promise<SidebarStateV1> {
 }
 
 let dir: string
+let savedSidebarEnv: string | undefined
 
 describe('createCommandDataService', () => {
   beforeEach(() => {
+    savedSidebarEnv = process.env[SIDEBAR_STATE_ENV]
     dir = mkdtempSync(join(tmpdir(), 'agy-command-data-'))
   })
 
   afterEach(() => {
-    delete process.env[SIDEBAR_STATE_ENV]
+    // Restore rather than delete — a delete drops resolution to the real state dir.
+    if (savedSidebarEnv !== undefined)
+      process.env[SIDEBAR_STATE_ENV] = savedSidebarEnv
+    else delete process.env[SIDEBAR_STATE_ENV]
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -517,21 +528,22 @@ describe('createCommandDataService', () => {
     })
   })
 
-  it('silently skips unknown quota keys in a legacy snapshot (tolerant read)', async () => {
-    // Older Antigravity revisions persisted quota under keys we no
-    // longer render (`claude`, `gpt-4`, ad-hoc pool names). The
-    // projection must IGNORE unknown keys rather than crash the
-    // dialog or surface them as keys without a label.
+  it('normalizes legacy quota keys and silently skips truly unknown keys', async () => {
+    // S1 + N3: the legacy keys (claude → non-gemini, gpt-oss → non-gemini,
+    // gemini-pro/gemini-flash → gemini) are now NORMALIZED at read time,
+    // not silently dropped. Truly unknown keys (e.g. 'gpt-4') are still
+    // dropped. The canonical 'gemini' key carries through unchanged.
     const harness = makeHarness({
       accounts: [
         makeAccountFixture({
           refreshToken: 'refresh-a',
           label: 'Account A',
           cachedQuota: {
-            // Legacy / unknown keys that the renderer doesn't support.
+            // Legacy key: maps to non-gemini with MIN fraction.
             claude: { remainingFraction: 0.9 },
+            // Truly unknown key: must be dropped (no mapping).
             'gpt-4': { remainingFraction: 0.8 },
-            // Supported key — must still render.
+            // Canonical key: must render as-is.
             gemini: { remainingFraction: 0.5 },
           } as unknown as QuotaGroupFixture,
         }),
@@ -541,15 +553,14 @@ describe('createCommandDataService', () => {
     const rows = await harness.service.listAccounts()
 
     expect(rows).toHaveLength(1)
-    expect(rows[0]?.quota).toEqual([
-      {
-        key: 'gemini',
-        label: 'Gemini',
-        remainingPercent: 50,
-        resetAt: undefined,
-        windows: undefined,
-      },
-    ])
+    // Both canonical and normalized-from-legacy keys must render.
+    const quota = rows[0]?.quota
+    expect(quota?.find((q) => q.key === 'gemini')?.remainingPercent).toBe(50)
+    expect(quota?.find((q) => q.key === 'non-gemini')?.remainingPercent).toBe(
+      90,
+    )
+    // The truly unknown 'gpt-4' key must not appear in the output.
+    expect(quota?.find((q) => q.key === ('gpt-4' as never))).toBeUndefined()
   })
 
   it('refreshQuota() fetches every account, including an uncached new account, through the shared quota manager', async () => {
@@ -847,6 +858,24 @@ describe('createCommandDataService', () => {
     const afterBeta = await harness.service.toggleAccountEnabled(1)
     expect(afterBeta?.[1]?.enabled).toBe(true)
     expect(harness.storage.accounts[1]?.enabled).toBe(true)
+  })
+
+  it('toggleAccountEnabled() carries healthScore through the command row seam', async () => {
+    // An account whose tracker score is 42 must keep that score after
+    // a command mutate — the row seam must forward healthScore so the
+    // sidebar does not silently reset to the 100 default.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-a',
+          label: 'Alpha',
+          healthScore: 42,
+        }),
+      ],
+    })
+    const rows = await harness.service.toggleAccountEnabled(0)
+    expect(rows).not.toBeNull()
+    expect(rows?.[0]?.healthScore).toBe(42)
   })
 
   it('toggleAccountEnabled() rejects out-of-range indices without touching storage', async () => {
@@ -1432,6 +1461,199 @@ describe('createCommandDataService', () => {
     expect(harness.storage.activeIndex).toBe(1)
     expect(harness.storage.activeIndexByFamily?.claude).toBe(1)
     expect(harness.storage.activeIndexByFamily?.gemini).toBe(1)
+  })
+
+  it('refreshQuotaRespectingBackoff() folds successful results into the live cache', async () => {
+    // A stale account whose cached quota is 10% non-gemini. After a
+    // successful non-forced refresh returning 80%, the live cache must
+    // carry the fresh 80% — NOT the stale 10%.
+    const refreshResults = new Map<string, AccountQuotaResult>([
+      [
+        'refresh-a',
+        {
+          index: 0,
+          status: 'ok',
+          quota: {
+            groups: {
+              'non-gemini': {
+                remainingFraction: 0.8,
+                resetTime: new Date(0).toISOString(),
+                modelCount: 1,
+              },
+            },
+            modelCount: 1,
+          },
+          updatedAccount: {
+            refreshToken: 'refresh-a',
+            addedAt: 0,
+            lastUsed: 0,
+          },
+        },
+      ],
+    ])
+
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-a',
+          label: 'Alpha',
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.1 } },
+          cachedQuotaUpdatedAt: 1,
+        }),
+      ],
+      refreshResults,
+    })
+
+    // Live cache carries stale 10% before the call.
+    const before = harness.liveView[0]?.cachedQuota as
+      | QuotaGroupFixture
+      | undefined
+    expect(before?.['non-gemini']?.remainingFraction).toBe(0.1)
+
+    await harness.service.refreshQuotaRespectingBackoff()
+
+    // Live cache updated to fresh 80%.
+    const after = harness.liveView[0]?.cachedQuota as
+      | QuotaGroupFixture
+      | undefined
+    expect(after?.['non-gemini']?.remainingFraction).toBe(0.8)
+    // Identity stamp must be set.
+    expect(harness.liveView[0]?.cachedQuotaAccountId).toBe(
+      quotaAccountIdentity('refresh-a'),
+    )
+    // Must have been a non-forced refresh.
+    expect(harness.quotaCallLog.every((call) => call.force === false)).toBe(
+      true,
+    )
+  })
+
+  it('refreshQuotaRespectingBackoff() preserves existing backoff behaviour when all accounts are fresh', async () => {
+    // When refreshResults is empty (no stubs match — simulating the quota
+    // manager skipping every account due to backoff/freshness), the
+    // method must NOT crash, NOT update the cache, and NOT write a
+    // different sidebar.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'fresh-account',
+          label: 'Fresh',
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.5 } },
+        }),
+      ],
+      refreshResults: new Map(), // Empty → every result is 'error'
+    })
+
+    const beforeFraction = (
+      harness.liveView[0]?.cachedQuota as QuotaGroupFixture | undefined
+    )?.['non-gemini']?.remainingFraction
+
+    await harness.service.refreshQuotaRespectingBackoff()
+
+    // Stale cache unchanged — no successful refresh occurred.
+    const afterFraction = (
+      harness.liveView[0]?.cachedQuota as QuotaGroupFixture | undefined
+    )?.['non-gemini']?.remainingFraction
+    expect(afterFraction).toBe(beforeFraction)
+    // Identity stamp must NOT have been set (no update happened).
+    expect(harness.liveView[0]?.cachedQuotaAccountId).toBeUndefined()
+  })
+})
+
+describe('P2-B: writeSidebar lands tier in the state FILE', () => {
+  let dir: string
+  let savedSidebarEnvTier: string | undefined
+
+  beforeEach(() => {
+    savedSidebarEnvTier = process.env[SIDEBAR_STATE_ENV]
+    dir = mkdtempSync(join(tmpdir(), 'agy-tier-sidebar-'))
+  })
+
+  afterEach(() => {
+    if (savedSidebarEnvTier !== undefined)
+      process.env[SIDEBAR_STATE_ENV] = savedSidebarEnvTier
+    else delete process.env[SIDEBAR_STATE_ENV]
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('P2-B-file: refreshQuota writes tier to sidebar state file (not just the returned row)', async () => {
+    // Previously writeSidebar built SidebarAccountRedactionInput WITHOUT tier,
+    // so the field landed in the CommandAccountRow but was thrown away before
+    // reaching the disk. This test asserts the state FILE carries it.
+    const capturedAt = 1_700_000_001_000
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-tier-test',
+          capturedTierId: 'free-tier',
+          capturedTierAt: capturedAt,
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.5 } },
+          cachedQuotaAccountId: quotaAccountIdentity('refresh-tier-test'),
+        }),
+      ],
+      refreshResults: new Map([
+        [
+          'refresh-tier-test',
+          {
+            index: 0,
+            status: 'ok' as const,
+            quota: {
+              groups: {
+                'non-gemini': { remainingFraction: 0.6, modelCount: 1 },
+              },
+              modelCount: 1,
+            },
+            updatedAccount: {
+              refreshToken: 'refresh-tier-test',
+              addedAt: 0,
+              lastUsed: 0,
+            },
+          },
+        ],
+      ]),
+    })
+
+    await harness.service.refreshQuota()
+    const state = await readSidebar(harness.stateFile)
+
+    expect(state.accounts).toHaveLength(1)
+    const acct = state.accounts[0]
+    // Tier must reach the FILE, not just the returned row.
+    expect(acct?.tier).toBeDefined()
+    expect(acct?.tier?.id).toBe('free-tier')
+    expect(acct?.tier?.capturedAt).toBe(capturedAt)
+  })
+
+  it('P2-B-absent: account without tier produces no tier key in the sidebar file', async () => {
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-no-tier',
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.5 } },
+          cachedQuotaAccountId: quotaAccountIdentity('refresh-no-tier'),
+        }),
+      ],
+      refreshResults: new Map([
+        [
+          'refresh-no-tier',
+          {
+            index: 0,
+            status: 'ok' as const,
+            quota: { groups: {}, modelCount: 0 },
+            updatedAccount: {
+              refreshToken: 'refresh-no-tier',
+              addedAt: 0,
+              lastUsed: 0,
+            },
+          },
+        ],
+      ]),
+    })
+
+    await harness.service.refreshQuota()
+    const state = await readSidebar(harness.stateFile)
+
+    expect(state.accounts).toHaveLength(1)
+    expect(state.accounts[0]?.tier).toBeUndefined()
   })
 })
 

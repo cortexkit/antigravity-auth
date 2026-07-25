@@ -59,6 +59,7 @@ describe('createAuthLoader', () => {
         },
       ],
       requestSaveToDisk: mock(() => {}),
+      getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),
       dispose: mock(async () => {}),
     }
     const { lifecycle, replacements } = createLifecycle()
@@ -159,6 +160,7 @@ describe('createAuthLoader', () => {
         },
       ],
       requestSaveToDisk: mock(() => {}),
+      getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),
       dispose: mock(async () => {}),
     }
     const secondManager = {
@@ -174,6 +176,7 @@ describe('createAuthLoader', () => {
         },
       ],
       requestSaveToDisk: mock(() => {}),
+      getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),
       dispose: mock(async () => {}),
     }
     const managers = [firstManager, secondManager]
@@ -262,6 +265,7 @@ describe('createAuthLoader', () => {
         },
       ],
       requestSaveToDisk: mock(() => {}),
+      getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),
       dispose: mock(async () => {}),
     }
     const managerB = {
@@ -277,6 +281,7 @@ describe('createAuthLoader', () => {
         },
       ],
       requestSaveToDisk: mock(() => {}),
+      getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),
       dispose: mock(async () => {}),
     }
     const managers = [managerA, managerB]
@@ -381,6 +386,7 @@ describe('createAuthLoader', () => {
         },
       ],
       requestSaveToDisk: mock(() => {}),
+      getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),
       dispose: mock(async () => {}),
     }
     const secondManager = {
@@ -396,6 +402,7 @@ describe('createAuthLoader', () => {
         },
       ],
       requestSaveToDisk: mock(() => {}),
+      getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),
       dispose: mock(async () => {}),
     }
     const managers = [firstManager, secondManager]

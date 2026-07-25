@@ -25,6 +25,7 @@ import { isTuiConnected as defaultIsTuiConnected } from '../rpc/notifications'
 import type { CommandModalName } from '../rpc/protocol'
 import {
   buildSidebarMachineStateFromAccounts,
+  type SidebarAccountRedactionInput,
   setSidebarMachineState,
 } from '../sidebar-state'
 import type { AccountCommandOAuthService } from './account-command-oauth'
@@ -154,10 +155,12 @@ export async function buildDialogPayload(
       const accounts = context.commandData
         ? await context.commandData.listAccounts()
         : []
-      // Render the cached snapshot immediately while the shared manager
-      // refreshes all accounts; the mounted panel polls the fenced state file.
+      // Render the cached snapshot immediately. Opening the dialog is a
+      // VIEW — it must respect the quota manager's per-account backoff so
+      // a rate-limited account isn't hammered every time the dialog opens.
+      // Explicit user-triggered refreshes (inside the dialog) keep force:true.
       if (context.commandData) {
-        void context.commandData.refreshQuota().catch(() => {})
+        void context.commandData.refreshQuotaRespectingBackoff().catch(() => {})
       }
       return {
         command,
@@ -751,6 +754,8 @@ export function createSidebarRefresher(
       gemini?: { remainingFraction?: number; resetTime?: string }
       'non-gemini'?: { remainingFraction?: number; resetTime?: string }
     }
+    /** Captured plan tier. Absent when unknown. */
+    tier?: { id: string; capturedAt: number }
   }> | null,
 ): (accounts?: CommandAccountRow[]) => Promise<void> {
   return async (dialogAccounts) => {
@@ -785,7 +790,14 @@ export function createSidebarRefresher(
             index: entry.index,
             label: entry.label,
             enabled: entry.enabled,
+            current: entry.current,
             coolingDownUntil: liveCooldown,
+            healthScore: entry.healthScore,
+            tier: entry.tier,
+            // Rebuild cachedQuota carrying the windows array so the sidebar
+            // doesn't collapse from per-window rows to a single aggregate bar
+            // after every apply. Mirrors the QuotaGroupSummary shape expected
+            // by projectQuotaPoolForSidebar inside buildSidebarMachineStateFromAccounts.
             cachedQuota: Object.fromEntries(
               entry.quota.flatMap((group) => {
                 if (group.remainingPercent == null) return []
@@ -797,6 +809,19 @@ export function createSidebarRefresher(
                       ...(group.resetAt === undefined
                         ? {}
                         : { resetTime: new Date(group.resetAt).toISOString() }),
+                      ...(group.windows && group.windows.length > 0
+                        ? {
+                            windows: group.windows.map((w) => ({
+                              window: w.window,
+                              remainingFraction: w.remainingPercent / 100,
+                              resetTime:
+                                typeof w.resetAt === 'number' &&
+                                Number.isFinite(w.resetAt)
+                                  ? new Date(w.resetAt).toISOString()
+                                  : '',
+                            })),
+                          }
+                        : {}),
                     },
                   ],
                 ]
@@ -807,15 +832,14 @@ export function createSidebarRefresher(
       : getAccounts()
     if (!accounts || accounts.length === 0) return
     try {
+      // Pass the already-projected accounts directly so every field the
+      // intermediate map built (healthScore, cachedQuota with windows, ...)
+      // reaches the redactor unchanged. A second .map here would silently
+      // drop any field not explicitly forwarded -- that is the class of
+      // defect this cast prevents.
       await setSidebarMachineState(
         buildSidebarMachineStateFromAccounts(
-          accounts.map((entry) => ({
-            index: entry.index,
-            label: entry.label,
-            enabled: entry.enabled,
-            coolingDownUntil: entry.coolingDownUntil,
-            cachedQuota: entry.cachedQuota,
-          })),
+          accounts as SidebarAccountRedactionInput[],
         ),
       )
     } catch {

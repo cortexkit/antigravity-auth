@@ -245,6 +245,7 @@ describe('createCommandExecuteBefore', () => {
           },
         ],
         refreshQuota: async () => [],
+        refreshQuotaRespectingBackoff: async () => {},
       } as never,
       { isTuiConnected: () => true },
     )
@@ -751,9 +752,137 @@ describe('applyCommand', () => {
       expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(50)
       expect(state.accounts[1]?.quota).toEqual({})
     } finally {
-      if (previousSidebarFile === undefined) {
-        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-      } else {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('V2 windows: per-window quota arrays survive the post-apply sidebar projection', async () => {
+    // After an account or quota apply, createSidebarRefresher rebuilds
+    // cachedQuota from CommandAccountRow.quota. Without the fix the
+    // `windows` array was not carried and the sidebar collapsed to a
+    // single aggregate bar after every apply.
+    const sidebarFile = join(dir, 'sidebar-windows-v2.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const resetAt = Date.now() + 7 * 24 * 60 * 60_000
+      const dialogRows: CommandAccountRow[] = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Account 1',
+          enabled: true,
+          current: true,
+          quota: [
+            {
+              key: 'non-gemini' as const,
+              label: 'Non-Gemini',
+              remainingPercent: 60,
+              resetAt,
+              windows: [
+                {
+                  window: '5h' as const,
+                  remainingPercent: 85,
+                  resetAt: resetAt - 1000,
+                },
+                { window: 'weekly' as const, remainingPercent: 60, resetAt },
+              ],
+            },
+          ],
+        },
+      ]
+
+      const refresher = createSidebarRefresher(() => [])
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(1)
+      const quota = state.accounts[0]?.quota['non-gemini']
+      expect(quota?.remainingPercent).toBe(60)
+      // Per-window entries must survive the post-apply sidebar write.
+      expect(quota?.windows).toBeDefined()
+      expect(quota?.windows?.length).toBeGreaterThanOrEqual(2)
+      const weekly = quota?.windows?.find((w) => w.window === 'weekly')
+      expect(weekly).toBeDefined()
+      expect(weekly?.remainingPercent).toBe(60)
+    } finally {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('carries healthScore from dialog rows into the sidebar state file', async () => {
+    // Covers the M1 seam AND the M3 gap: the final projection inside
+    // createSidebarRefresher must not re-map fields (dropping healthScore),
+    // and the sidebar state file (not just the returned row) must carry
+    // the tracker score. A score of 42 should appear as health: 42 in the
+    // persisted state - not reset to the default 100.
+    const sidebarFile = join(dir, 'sidebar-health-seam.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const refresher = createSidebarRefresher(() => [])
+      const dialogRows: CommandAccountRow[] = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Alpha',
+          enabled: true,
+          current: true,
+          healthScore: 42,
+          quota: [
+            {
+              key: 'gemini' as const,
+              label: 'Gemini',
+              remainingPercent: 80,
+              windows: [
+                {
+                  window: '5h' as const,
+                  remainingPercent: 80,
+                  resetAt: Date.now() + 5 * 60 * 1000,
+                },
+                {
+                  window: 'weekly' as const,
+                  remainingPercent: 75,
+                  resetAt: Date.now() + 7 * 24 * 60 * 60_000,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Beta',
+          enabled: false,
+          current: false,
+          healthScore: 17,
+          quota: [],
+        },
+      ]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      // Core seam assertion: tracker scores must reach the state file.
+      expect(state.accounts[0]?.health).toBe(42)
+      expect(state.accounts[1]?.health).toBe(17)
+      // Per-window data must also survive the same projection.
+      const gemini = state.accounts[0]?.quota.gemini
+      expect(gemini?.windows).toBeDefined()
+      expect(gemini?.windows?.length).toBeGreaterThanOrEqual(2)
+    } finally {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
         process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
       }
     }
@@ -810,9 +939,9 @@ describe('applyCommand', () => {
       expect(state.accounts[0]?.cooldownUntil).toBe(1_900_000_000_000)
       expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
     } finally {
-      if (previousSidebarFile === undefined) {
-        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-      } else {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
         process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
       }
     }
@@ -878,9 +1007,9 @@ describe('applyCommand', () => {
       expect(state.accounts[0]?.cooldownUntil).toBe(1_900_000_000_000)
       expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
     } finally {
-      if (previousSidebarFile === undefined) {
-        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-      } else {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
         process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
       }
     }
@@ -936,9 +1065,9 @@ describe('applyCommand', () => {
       // account at live index 0.
       expect(state.accounts[0]?.cooldownUntil).toBeUndefined()
     } finally {
-      if (previousSidebarFile === undefined) {
-        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-      } else {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
         process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
       }
     }
@@ -996,15 +1125,19 @@ describe('applyCommand', () => {
       expect(state.accounts[0]?.cooldownUntil).toBe(1_800_000_000_000)
       expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
     } finally {
-      if (previousSidebarFile === undefined) {
-        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-      } else {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
         process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
       }
     }
   })
 
-  it('starts a quota refresh when the quota dialog opens without delaying its cached payload', async () => {
+  it('starts a backoff-respecting quota check when the quota dialog opens without delaying its cached payload', async () => {
+    // N6: the dialog OPEN path now calls refreshQuotaRespectingBackoff
+    // (non-forced) instead of refreshQuota (forced). The fire-and-forget
+    // semantics are preserved: if buildDialogPayload accidentally awaits
+    // the call this test hangs and surfaces as a timeout.
     const listAccounts = mock(async () => [
       {
         id: 'acct-0',
@@ -1015,13 +1148,8 @@ describe('applyCommand', () => {
         quota: [],
       },
     ])
-    // refreshQuota returns a never-resolving promise. If buildDialogPayload
-    // ever accidentally `await`s the refresh path (instead of the fire-
-    // and-forget `void` it does today) this test will hang and the
-    // runner will report it as a timeout — exactly the regression we
-    // want to surface.
     let refreshStarted = false
-    const refreshQuota = mock(() => {
+    const refreshQuotaRespectingBackoff = mock(() => {
       refreshStarted = true
       return new Promise<never>(() => {})
     })
@@ -1030,12 +1158,12 @@ describe('applyCommand', () => {
       client: {} as never,
       sessionID: 'session-1',
       settings: ctx.settings,
-      commandData: { listAccounts, refreshQuota } as never,
+      commandData: { listAccounts, refreshQuotaRespectingBackoff } as never,
     })
 
     expect(payload.knobs.accounts).toHaveLength(1)
     expect(refreshStarted).toBe(true)
-    expect(refreshQuota).toHaveBeenCalledTimes(1)
+    expect(refreshQuotaRespectingBackoff).toHaveBeenCalledTimes(1)
   })
 
   it('returns the expired-pending result from add-oauth-finish', async () => {

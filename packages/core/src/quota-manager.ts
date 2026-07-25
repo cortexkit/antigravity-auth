@@ -632,10 +632,26 @@ function parseDescriptionModelCount(description: string): number {
 }
 
 /**
+ * Map a quota window kind to its duration in milliseconds for
+ * deterministic sort order. Unknown windows get MAX_SAFE_INTEGER so
+ * they sort last without random reordering across runs.
+ */
+function windowDurationMs(window: 'weekly' | '5h' | string): number {
+  switch (window) {
+    case '5h':
+      return 5 * 60 * 60 * 1000
+    case 'weekly':
+      return 7 * 24 * 60 * 60 * 1000
+    default:
+      return Number.MAX_SAFE_INTEGER
+  }
+}
+
+/**
  * Aggregate a retrieveUserQuotaSummary response into a QuotaSummary.
  *
  * Each RUQS group maps to a pool via bucketId prefix. Within a pool,
- * windows are stored ordered (weekly first, then 5h). The pool's
+ * windows are stored shortest-first (5h before weekly, etc.). The pool's
  * `remainingFraction`/`resetTime` derive from the most-constrained window.
  */
 export function aggregateQuotaSummary(
@@ -657,11 +673,10 @@ export function aggregateQuotaSummary(
     }
     if (windows.length === 0) continue
 
-    // Order: weekly first, then 5h.
-    windows.sort((a, b) => {
-      const order: Record<string, number> = { weekly: 0, '5h': 1 }
-      return (order[a.window] ?? 2) - (order[b.window] ?? 2)
-    })
+    // Order: shortest window first so the binding 5h window leads visually.
+    windows.sort(
+      (a, b) => windowDurationMs(a.window) - windowDurationMs(b.window),
+    )
 
     const constrained = mostConstrainedWindow(windows)
     // Pick the first RECOGNIZED bucket for pool derivation. Older
@@ -741,10 +756,18 @@ export async function fetchQuotaSummary(
     throw new Error('No endpoints configured for fetchQuotaSummary')
   }
 
+  // Discriminated result so the fallback is only entered on a 403, not on
+  // transient errors (429, 5xx, network). A transient failure on the managed
+  // project ID must not fall through to the regular projectId — that could
+  // return a DIFFERENT project's quota data instead of signalling a retry.
+  type TryBodyResult =
+    | { ok: true; summary: RetrieveUserQuotaSummaryResponse }
+    | { ok: false; reason: '403' | 'transient' }
+
   const tryBody = async (
     endpoint: string,
     projectId: string,
-  ): Promise<RetrieveUserQuotaSummaryResponse | null> => {
+  ): Promise<TryBodyResult> => {
     const body = { project: projectId }
     try {
       const response = await transport(
@@ -763,7 +786,10 @@ export async function fetchQuotaSummary(
       )
 
       if (response.ok) {
-        return (await response.json()) as RetrieveUserQuotaSummaryResponse
+        return {
+          ok: true,
+          summary: (await response.json()) as RetrieveUserQuotaSummaryResponse,
+        }
       }
 
       const status = response.status
@@ -771,7 +797,7 @@ export async function fetchQuotaSummary(
         errors.push(
           `retrieveUserQuotaSummary 403 at ${endpoint} (project=${projectId.slice(0, 12)}…)`,
         )
-        return null
+        return { ok: false, reason: '403' }
       }
 
       if (status === 429 || status >= 500) {
@@ -781,19 +807,19 @@ export async function fetchQuotaSummary(
         )
         // Endpoint failover: the caller may have multiple endpoints;
         // continue to the next one with the same project ID.
-        return null
+        return { ok: false, reason: 'transient' }
       }
 
       const message = await response.text().catch(() => '')
       errors.push(
         `retrieveUserQuotaSummary ${status} at ${endpoint}${message ? `: ${message.trim().slice(0, 200)}` : ''}`,
       )
-      return null
+      return { ok: false, reason: 'transient' }
     } catch (error) {
       errors.push(
         `retrieveUserQuotaSummary network error at ${endpoint}: ${error instanceof Error ? error.message : String(error)}`,
       )
-      return null
+      return { ok: false, reason: 'transient' }
     }
   }
 
@@ -801,16 +827,21 @@ export async function fetchQuotaSummary(
   // For each project, iterate the endpoint list so a 500/429 on the
   // primary endpoint falls through to the next entry.
   const primary = options.managedProjectId ?? options.projectId
+  let primaryGot403 = false
   if (primary) {
     for (const endpoint of options.endpoints) {
       const result = await tryBody(endpoint, primary)
-      if (result) return { summary: result }
+      if (result.ok) return { summary: result.summary }
+      if (result.reason === '403') primaryGot403 = true
     }
   }
 
-  // If primary failed with 403 and we used managedProjectId,
-  // retry with regular projectId as fallback (only when distinct).
+  // Retry with the regular projectId ONLY when the managed-project attempt
+  // got a 403 (i.e. the managed project does not own the user). A transient
+  // failure (429, 5xx, network) must NOT fall through here — the regular
+  // projectId could return a different project's quota data.
   const fallbackId =
+    primaryGot403 &&
     options.managedProjectId &&
     options.projectId &&
     options.managedProjectId !== options.projectId
@@ -819,7 +850,7 @@ export async function fetchQuotaSummary(
   if (fallbackId) {
     for (const endpoint of options.endpoints) {
       const result = await tryBody(endpoint, fallbackId)
-      if (result) return { summary: result }
+      if (result.ok) return { summary: result.summary }
     }
   }
 
@@ -979,6 +1010,15 @@ export interface FetchGeminiCliQuotaOptions {
   endpoints: readonly string[]
   timeoutMs?: number
   userAgent?: string
+  /**
+   * Optional transport override. Production callers omit this; the e2e
+   * harness and tests inject a stub. Mirrors `fetchQuotaSummary`'s seam.
+   */
+  fetchVia?: (
+    url: string,
+    options: RequestInit,
+    extra: { timeoutMs: number },
+  ) => Promise<Response>
 }
 
 export async function fetchGeminiCliQuota(
@@ -986,11 +1026,13 @@ export async function fetchGeminiCliQuota(
 ): Promise<RetrieveUserQuotaResponse> {
   const timeoutMs = options.timeoutMs ?? QUOTA_MANAGER_DEFAULT_TIMEOUT_MS
   const userAgent = options.userAgent ?? buildAntigravityHarnessUserAgent()
+  const transport = options.fetchVia ?? defaultTransport
+  const errors: string[] = []
 
   for (const endpoint of options.endpoints) {
     const body = options.projectId ? { project: options.projectId } : {}
     try {
-      const response = await defaultTransport(
+      const response = await transport(
         `${endpoint}/v1internal:retrieveUserQuota`,
         {
           method: 'POST',
@@ -1010,10 +1052,25 @@ export async function fetchGeminiCliQuota(
 
       const status = response.status
       if (status === 429 || status >= 500) {
+        errors.push(`fetchGeminiCliQuota ${status} at ${endpoint}`)
         continue
       }
+      // Non-retryable server response (e.g. 403) — treat as no CLI quota.
       return { buckets: [] }
-    } catch {}
+    } catch (error) {
+      // Transport-level failure (network abort, DNS, timeout). Collect the
+      // error and try the next endpoint; if all endpoints fail, throw so
+      // the caller can distinguish a transient network failure from an
+      // authoritative 'no CLI quota configured' response.
+      errors.push(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  // All endpoints produced transport-level errors — propagate so the
+  // outer caller (quota.ts .catch) can surface the real failure reason
+  // rather than the generic 'No Gemini CLI quota available' message.
+  if (errors.length > 0) {
+    throw new Error(errors.join('; ') || 'fetchGeminiCliQuota failed')
   }
 
   return { buckets: [] }

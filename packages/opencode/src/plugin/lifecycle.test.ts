@@ -1,6 +1,11 @@
-import { describe, expect, it, mock } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import type { AccountManager } from './accounts'
+import { DEFAULT_CONFIG } from './config'
+import { initializeDebug } from './debug'
 import { createPluginLifecycle } from './lifecycle'
 import type { ProactiveRefreshQueue } from './refresh-queue'
 
@@ -342,5 +347,109 @@ describe('PluginLifecycle RPC ownership', () => {
     await lifecycle.dispose()
 
     expect(stop).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('PluginLifecycle debug log disposal', () => {
+  let logDir: string
+
+  beforeEach(() => {
+    logDir = join(
+      tmpdir(),
+      `agy-lifecycle-debug-${Math.random().toString(36).slice(2)}`,
+    )
+    mkdirSync(logDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    // Reset module-global debug state before removing the temp dir so any
+    // stream targeting logDir is closed and the global points nowhere live.
+    // Without this, a stale WriteStream in debugState outlives the directory;
+    // under --isolate this is benign today (each file gets a fresh registry)
+    // but correct teardown guards against future tests added to this suite.
+    initializeDebug({ ...DEFAULT_CONFIG, debug: false })
+    rmSync(logDir, { recursive: true, force: true })
+  })
+
+  it('calls closeDebugLog as a consumer-phase disposable during lifecycle disposal', async () => {
+    const events: string[] = []
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {},
+      clearFetchState: () => {},
+      drainSidebarWrites: async () => {
+        events.push('sidebar:drain')
+      },
+    })
+    // Simulate the plugin registration: closeDebugLog is registered as a
+    // consumer so it runs AFTER the sidebar drain.
+    lifecycle.register(
+      {
+        dispose: async () => {
+          events.push('debug-log:close')
+        },
+      },
+      'consumer',
+    )
+
+    await lifecycle.dispose()
+
+    // The debug log close must happen after the sidebar drain — consumers
+    // are disposed in phase 3, after the drain in phase 2.
+    expect(events.indexOf('sidebar:drain')).toBeLessThan(
+      events.indexOf('debug-log:close'),
+    )
+  })
+
+  it('flushes buffered debug lines to disk when closeDebugLog runs during dispose', async () => {
+    // Initialize debug with a known log dir so closeDebugLog targets a
+    // predictable file path.
+    const {
+      initializeDebug,
+      getLogFilePath,
+      closeDebugLog,
+      startAntigravityDebugRequest,
+    } = await import('./debug')
+
+    initializeDebug({
+      ...DEFAULT_CONFIG,
+      debug: true,
+      debug_tui: false,
+      log_dir: logDir,
+    })
+
+    // Write a log line that would be buffered in the WriteStream.
+    startAntigravityDebugRequest({
+      originalUrl: 'https://example.com/v1',
+      resolvedUrl: 'https://example.com/v1',
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '"dispose-test-body"',
+      streaming: false,
+    })
+
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {},
+      clearFetchState: () => {},
+    })
+    lifecycle.register({
+      dispose: () => closeDebugLog().catch(() => {}),
+    })
+
+    await lifecycle.dispose()
+
+    // After dispose, the debug log file must exist and contain the
+    // test marker written before shutdown.
+    const logPath = getLogFilePath()
+    expect(logPath).toBeTruthy()
+    const files = readdirSync(logDir)
+    const logFile = files
+      .filter((f) => f.startsWith('antigravity-debug-') && f.endsWith('.log'))
+      .sort()
+      .pop()
+    expect(logFile).toBeTruthy()
+    const contents = readFileSync(join(logDir, logFile!), 'utf8')
+    expect(contents).toContain('dispose-test-body')
   })
 })

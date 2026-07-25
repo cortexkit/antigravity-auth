@@ -858,8 +858,19 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
             visibleAccounts()[0]
           const used = () => {
             const q = account()?.quota
-            const entry = q?.gemini ?? q?.['non-gemini']
-            return entry ? 100 - clamp(entry.remainingPercent, 0, 100) : null
+            // Derive tone from the WORST (most-constrained) pool so a
+            // critical non-gemini pool doesn't hide behind a healthy
+            // gemini tone. Worst = highest used-percent across available pools.
+            const geminiUsed =
+              q?.gemini != null
+                ? 100 - clamp(q.gemini.remainingPercent, 0, 100)
+                : null
+            const nonGeminiUsed =
+              q?.['non-gemini'] != null
+                ? 100 - clamp(q['non-gemini'].remainingPercent, 0, 100)
+                : null
+            if (geminiUsed === null && nonGeminiUsed === null) return null
+            return Math.max(geminiUsed ?? 0, nonGeminiUsed ?? 0)
           }
           const poolText = (key: 'gemini' | 'non-gemini') => {
             const entry = account()?.quota[key]

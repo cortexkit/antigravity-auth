@@ -322,6 +322,94 @@ describe('plugin flow (e2e)', () => {
     })
   })
 
+  it('V3 poller: background_quota_refresh=true exercises the default-on path and refreshes idle accounts', async () => {
+    // The harness globally sets background_quota_refresh:false to prevent
+    // network calls outside the fetch interceptor. This test overrides that
+    // and verifies the poller path through the real factory:
+    //   - plugin boots with background_quota_refresh:true
+    //   - accounts are loaded (seeded by beforeEach)
+    //   - the poller fires (stale freshness gate) and calls the mock server
+    //   - the sidebar state file is updated with non-empty quota
+    await withHarness(async (h) => {
+      const sidebarPath = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+      if (!sidebarPath) throw new Error('sidebar path missing')
+
+      // Use a longer startup jitter (350ms) so we have a reliable window
+      // to write a stale sidebar AFTER the auth loader (which writes a fresh
+      // checkedAt) but BEFORE the first poller tick. This makes the only
+      // write that can advance past `pollBefore` be the poller's own tick.
+      const plugin = await h.createPlugin({
+        configOverrides: {
+          background_quota_refresh: true,
+          background_quota_refresh_interval_minutes: 1,
+        },
+        extraDependencies: {
+          // random=0.012 → jitter = floor(0.012 * 30000) = 360ms.
+          // Auth loader runs in ~20ms; we write the stale sidebar at ~250ms
+          // — leaving ~110ms before the first tick fires.
+          clock: { random: () => 0.012 },
+        },
+      })
+
+      // Warm up the auth loader so the AccountManager is populated.
+      // This will write a fresh checkedAt to the sidebar (~T+20ms).
+      await plugin.auth.loader(
+        async () => ({
+          type: 'oauth' as const,
+          refresh: 'refresh-a|project-a|managed-a',
+          access: 'access-a',
+          expires: Date.now() + 3_600_000,
+        }),
+        {} as Parameters<typeof plugin.auth.loader>[1],
+      )
+
+      // Give the auth loader\'s async sidebar write time to land, then
+      // forcibly overwrite with a stale checkedAt so the poller\'s freshness
+      // gate passes on its first tick (~360ms from start). Must bypass the
+      // merge logic (which rejects stale writes) — write directly to disk.
+      await new Promise((r) => setTimeout(r, 200))
+      require('node:fs').writeFileSync(
+        sidebarPath,
+        JSON.stringify({
+          version: 1,
+          checkedAt: Date.now() - 60_000,
+          accounts: [],
+          activeRouting: {},
+          routingAuthoritative: false,
+        }),
+      )
+
+      // Capture pollBefore AFTER the stale write. Now the ONLY write that
+      // can advance checkedAt past this point is the poller\'s first tick.
+      const pollBefore = Date.now()
+
+      const deadline = pollBefore + 5_000
+      let sidebarCheckedAt = 0
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100))
+        try {
+          const raw = require('node:fs').readFileSync(
+            sidebarPath,
+            'utf8',
+          ) as string
+          const parsed = JSON.parse(raw) as { checkedAt?: number }
+          sidebarCheckedAt = parsed.checkedAt ?? 0
+          if (sidebarCheckedAt > pollBefore) break
+        } catch {
+          // File not written yet — retry.
+        }
+      }
+
+      await plugin.dispose()
+
+      // The poller must have fired, passed the freshness gate on the stale
+      // sidebar, and written a fresh checkedAt. This assertion can ONLY be
+      // satisfied by the poller — not by the auth loader (which ran before
+      // pollBefore and wrote the now-overwritten stale checkedAt).
+      expect(sidebarCheckedAt).toBeGreaterThan(pollBefore)
+    })
+  })
+
   it('dispose() releases every subsystem and clears the auth loader runtime', async () => {
     await withHarness(async (h) => {
       const plugin = await h.createPlugin()
