@@ -775,9 +775,12 @@ export function createSidebarRefresher(
           // Prefer the row's own cooldown — it was projected from the
           // live view at the last projection and is stable regardless
           // of concurrent reloads. Fall back to the live-by-index map
-          // for rows from older projections that lack the field.
+          // only for legacy rows that lack the field entirely (?? can't
+          // distinguish absent from present-but-undefined).
           const liveCooldown =
-            entry.coolingDownUntil ?? liveByIndex.get(entry.index)
+            'coolingDownUntil' in entry
+              ? entry.coolingDownUntil
+              : liveByIndex.get(entry.index)
           return {
             index: entry.index,
             label: entry.label,

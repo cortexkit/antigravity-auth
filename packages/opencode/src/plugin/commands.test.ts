@@ -886,6 +886,124 @@ describe('applyCommand', () => {
     }
   })
 
+  it('does not fall through to the live-by-index map when the row carries its own undefined cooldown', async () => {
+    // After a concurrent reorder, the index that belonged to a
+    // no-cooldown account now holds a DIFFERENT account WITH a
+    // cooldown. The dialog row (projected before the reorder)
+    // carries coolingDownUntil: undefined (present = genuinely no
+    // cooldown) — this must NOT fall through to the index map and
+    // inherit the wrong account's timer.
+    const sidebarFile = join(dir, 'sidebar-misattrib.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      // Live accounts AFTER reorder: the account that shifted into
+      // slot 0 has a cooldown.
+      const getAccounts = mock(() => [
+        {
+          index: 0,
+          label: 'Shifted-in account',
+          enabled: true,
+          coolingDownUntil: 1_700_000_000_000,
+        },
+        {
+          index: 1,
+          label: 'Second account',
+          enabled: true,
+          coolingDownUntil: undefined,
+        },
+      ])
+      const refresher = createSidebarRefresher(getAccounts)
+      // Dialog rows projected BEFORE the reorder. Index 0 was the
+      // no-cooldown account and the row carries undefined (present).
+      const dialogRows: CommandAccountRow[] = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'No-cooldown account',
+          enabled: true,
+          current: true,
+          coolingDownUntil: undefined,
+          quota: [],
+        },
+      ]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(1)
+      // Must NOT inherit 1_700_000_000_000 from the shifted-in
+      // account at live index 0.
+      expect(state.accounts[0]?.cooldownUntil).toBeUndefined()
+    } finally {
+      if (previousSidebarFile === undefined) {
+        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+      } else {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('falls back to the live-by-index cooldown when the row lacks the property entirely', async () => {
+    // Legacy projection rows (pre-coolingDownUntil field) do not
+    // carry the key at all. The refresher must still read the live
+    // timer from the index map so a rate-limited account's cooldown
+    // survives through the sidebar update.
+    const sidebarFile = join(dir, 'sidebar-legacy.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const getAccounts = mock(() => [
+        {
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          coolingDownUntil: 1_800_000_000_000,
+        },
+        {
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          coolingDownUntil: undefined,
+        },
+      ])
+      const refresher = createSidebarRefresher(getAccounts)
+      // Legacy dialog rows that DO NOT have coolingDownUntil at
+      // all (the property is absent, not undefined).
+      const dialogRows = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          current: false,
+          quota: [],
+        },
+      ] as CommandAccountRow[]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      expect(state.accounts[0]?.cooldownUntil).toBe(1_800_000_000_000)
+      expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
+    } finally {
+      if (previousSidebarFile === undefined) {
+        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+      } else {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
   it('starts a quota refresh when the quota dialog opens without delaying its cached payload', async () => {
     const listAccounts = mock(async () => [
       {
