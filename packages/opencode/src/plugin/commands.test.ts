@@ -7,6 +7,7 @@ import { AccountStorageUnreadableError } from '@cortexkit/antigravity-auth-core'
 import type { CommandModalName } from '../rpc/protocol'
 import { readSidebarState } from '../sidebar-state'
 import { registerAntigravityCommands } from './catalog'
+import type { CommandAccountRow } from './command-data'
 import {
   applyCommand,
   buildDialogPayload,
@@ -806,6 +807,74 @@ describe('applyCommand', () => {
 
       const state = readSidebarState(sidebarFile)
       expect(state.accounts).toHaveLength(2)
+      expect(state.accounts[0]?.cooldownUntil).toBe(1_900_000_000_000)
+      expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
+    } finally {
+      if (previousSidebarFile === undefined) {
+        delete process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+      } else {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('uses the dialog row cooldown over the live-by-index fallback when the row carries it', async () => {
+    // Live accounts have been renumbered between projection and
+    // refresh (e.g. a concurrent reload). The dialog row projected
+    // before the reorder carries its own cooldown, which must survive
+    // through the refresher — the live-by-index lookup at the row's
+    // stale index would give the wrong account's cooldown.
+    const sidebarFile = join(dir, 'sidebar-reorder.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      // Live accounts AFTER reorder: index 0 now has cooldown
+      // 1_800_000_000_000 (the wrong account's timer).
+      const getAccounts = mock(() => [
+        {
+          index: 0,
+          label: 'Shifted account',
+          enabled: true,
+          coolingDownUntil: 1_800_000_000_000,
+        },
+        {
+          index: 1,
+          label: 'Unlimited',
+          enabled: true,
+          coolingDownUntil: undefined,
+        },
+      ])
+      const refresher = createSidebarRefresher(getAccounts)
+      // Dialog rows projected BEFORE the reorder: index 0 already
+      // carries the original cooldown from the projection.
+      const dialogRows: CommandAccountRow[] = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          current: true,
+          coolingDownUntil: 1_900_000_000_000,
+          quota: [],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          current: false,
+          coolingDownUntil: undefined,
+          quota: [],
+        },
+      ]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      // The row's own cooldown (1_900_000_000_000) must be used, not
+      // the live-by-index fallback (1_800_000_000_000) which belongs
+      // to the account that shifted into slot 0 after the reorder.
       expect(state.accounts[0]?.cooldownUntil).toBe(1_900_000_000_000)
       expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
     } finally {

@@ -253,4 +253,28 @@ describe('quotaSummaryWindow managedProjectId 403 gate', () => {
       expect(response.status).toBe(403)
     })
   })
+
+  it('returns 400 when the request body is unparseable JSON', async () => {
+    await withServer(async (server) => {
+      server.enqueue({
+        kind: 'quotaSummaryWindow',
+        managedProjectId: 'managed-rpc',
+        groups: [],
+      })
+      const response = await fetch(
+        `${server.baseUrl}/v1internal:retrieveUserQuotaSummary`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: 'not-json',
+        },
+      )
+      expect(response.status).toBe(400)
+      const body = (await response.json()) as {
+        error: { code: number; message: string }
+      }
+      expect(body.error.code).toBe(3)
+      expect(body.error.message).toBe('INVALID_ARGUMENT')
+    })
+  })
 })

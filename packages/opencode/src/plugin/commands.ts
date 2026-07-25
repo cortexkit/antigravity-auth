@@ -754,11 +754,11 @@ export function createSidebarRefresher(
   }> | null,
 ): (accounts?: CommandAccountRow[]) => Promise<void> {
   return async (dialogAccounts) => {
-    // Index → live coolingDownUntil. The dialog path rebuilds rows
-    // from the post-mutation command data, which does not carry the
-    // running cooldown; looking up the live account by index lets the
-    // sidebar show a rate-limited account as such instead of
-    // momentarily marking it available.
+    // Live cooldown lookup keyed by numeric index — a best-effort
+    // fallback for rows projected before coolingDownUntil was
+    // added to CommandAccountRow. Rows now carry their own
+    // cooldown from projection time; the live map only fills in
+    // when the row value is absent.
     const liveByIndex = new Map<number, number | undefined>()
     try {
       const live = getAccounts()
@@ -772,16 +772,16 @@ export function createSidebarRefresher(
     }
     const accounts = dialogAccounts
       ? dialogAccounts.map((entry) => {
-          const liveCooldown = liveByIndex.get(entry.index)
+          // Prefer the row's own cooldown — it was projected from the
+          // live view at the last projection and is stable regardless
+          // of concurrent reloads. Fall back to the live-by-index map
+          // for rows from older projections that lack the field.
+          const liveCooldown =
+            entry.coolingDownUntil ?? liveByIndex.get(entry.index)
           return {
             index: entry.index,
             label: entry.label,
             enabled: entry.enabled,
-            // Preserve the live cooldown when present so an apply
-            // (setCurrent, toggleEnabled, remove) cannot clear a
-            // rate-limited account's display. The dialog rows do not
-            // carry the running timer, so the live source is the
-            // only authoritative feed.
             coolingDownUntil: liveCooldown,
             cachedQuota: Object.fromEntries(
               entry.quota.flatMap((group) => {

@@ -343,12 +343,22 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
         // on the fixture and the posted project does not match, return
         // PERMISSION_DENIED so the test exercises the fallback path.
         if (fixture.managedProjectId) {
-          let postedProject = ''
+          let postedProject: string | undefined
           try {
             postedProject =
               (JSON.parse(reqBody) as { project?: string }).project ?? ''
           } catch {
-            /* malformed — let the 200 path handle it */
+            // Detect parse failure before the missing-project 403 gate
+            // so a serialisation bug does not masquerade as an auth
+            // fallback.
+            sendJson(response, 400, {
+              error: {
+                code: 3,
+                message: 'INVALID_ARGUMENT',
+                status: 'INVALID_ARGUMENT',
+              },
+            })
+            return
           }
           if (!postedProject || postedProject !== fixture.managedProjectId) {
             sendJson(response, 403, {

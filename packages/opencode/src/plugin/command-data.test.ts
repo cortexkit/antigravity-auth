@@ -73,6 +73,7 @@ interface AccountFixture {
   cachedQuotaUpdatedAt?: number
   cachedQuotaAccountId?: string
   accountIneligible?: boolean
+  coolingDownUntil?: number
 }
 
 function makeAccountFixture(
@@ -224,6 +225,7 @@ function makeHarness(options: {
         cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
         cachedQuotaAccountId: entry.cachedQuotaAccountId,
         accountIneligible: entry.accountIneligible,
+        coolingDownUntil: entry.coolingDownUntil,
       }))
     },
     getAccountsForQuotaCheck() {
@@ -260,9 +262,6 @@ function makeHarness(options: {
       // Tests do not model the debounced-save lifecycle; the harness's
       // storage adapter already mirrors the in-memory state on every
       // mutation, so a flush is a no-op for test purposes.
-    },
-    activeIndex() {
-      return liveCurrentIndex
     },
     getActiveIndexByFamily(): { claude: number; gemini: number } {
       return { claude: liveCurrentIndex, gemini: liveGeminiIndex }
@@ -1032,6 +1031,67 @@ describe('createCommandDataService', () => {
     expect(harness.storage.activeIndexByFamily).toEqual({
       claude: 1,
       gemini: 1,
+    })
+  })
+
+  it('removeAccount() keeps the cursor at the removed first slot when the current was the first account', async () => {
+    // Current is refresh-a (index 0). Removing index 0 (refresh-a)
+    // leaves index 0 still valid — it now points at refresh-b, the
+    // account that shifted in. The persisted activeIndex must mirror
+    // AccountManager.removeAccount(), which keeps the cursor at the
+    // removed slot when it still exists.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a', label: 'Alpha' }),
+        makeAccountFixture({ refreshToken: 'refresh-b', label: 'Beta' }),
+        makeAccountFixture({ refreshToken: 'refresh-c', label: 'Gamma' }),
+      ],
+      activeIndex: 0,
+    })
+
+    await harness.service.removeAccount(0)
+
+    expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
+      'refresh-b',
+      'refresh-c',
+    ])
+    // Slot 0 still exists in the new array → kept at 0.
+    expect(harness.storage.activeIndex).toBe(0)
+    expect(harness.storage.activeIndexByFamily).toEqual({
+      claude: 0,
+      gemini: 0,
+    })
+  })
+
+  it('removeAccount() persists index 0 when the current last account is removed, matching the core snapshot', async () => {
+    // Current is refresh-c (index 2, last account). Removing index 2
+    // (the last slot) leaves no slot at that position in the new
+    // array. The in-memory AccountManager sets the sentinel to -1,
+    // but buildStorageSnapshot clamps it to 0 for disk (cf.
+    // account-manager.ts:1652). The persisted layer must follow that
+    // contract: persisted activeIndex must be >= 0 because
+    // auth-doctor.ts:149-156 treats a negative value as corruption.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a', label: 'Alpha' }),
+        makeAccountFixture({ refreshToken: 'refresh-b', label: 'Beta' }),
+        makeAccountFixture({ refreshToken: 'refresh-c', label: 'Gamma' }),
+      ],
+      activeIndex: 2,
+    })
+
+    await harness.service.removeAccount(2)
+
+    expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
+      'refresh-a',
+      'refresh-b',
+    ])
+    // The removed account was the last slot — no slot at that
+    // position remains. Persisted contract is non-negative.
+    expect(harness.storage.activeIndex).toBe(0)
+    expect(harness.storage.activeIndexByFamily).toEqual({
+      claude: 0,
+      gemini: 0,
     })
   })
 

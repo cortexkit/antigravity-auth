@@ -229,6 +229,7 @@ export const createAntigravityPlugin =
             cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
             cachedQuotaAccountId: entry.cachedQuotaAccountId,
             accountIneligible: entry.accountIneligible,
+            coolingDownUntil: entry.coolingDownUntil,
           }))
         },
         getAccountsForQuotaCheck: () => {
@@ -245,12 +246,6 @@ export const createAntigravityPlugin =
         },
         flushSaveToDisk: async () => {
           await lifecycle.getAccountManager()?.flushSaveToDisk()
-        },
-        activeIndex: () => {
-          const manager = lifecycle.getAccountManager()
-          return manager
-            ? (manager.getCurrentAccountForFamily('claude')?.index ?? 0)
-            : 0
         },
         getActiveIndexByFamily: () => {
           const manager = lifecycle.getAccountManager()

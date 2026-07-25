@@ -137,6 +137,12 @@ export interface CommandAccountRow {
   enabled: boolean
   /** `true` when this row matches the harness-active account. */
   current: boolean
+  /**
+   * Absolute timestamp (ms) until which this account is rate-limited.
+   * Carried on the row so the sidebar refresher can match cooldowns
+   * without relying on unstable numeric indices.
+   */
+  coolingDownUntil?: number
   quota: Array<{
     key: 'gemini' | 'non-gemini'
     label: string
@@ -179,6 +185,7 @@ interface LiveAccountSnapshot {
   cachedQuotaUpdatedAt?: number
   cachedQuotaAccountId?: string
   accountIneligible?: boolean
+  coolingDownUntil?: number
 }
 
 function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
@@ -238,6 +245,7 @@ function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
     label,
     enabled: entry.enabled,
     current: entry.active,
+    coolingDownUntil: entry.coolingDownUntil,
     quota,
   }
 }
@@ -292,8 +300,6 @@ export function projectCommandAccountRows(
  *   dialog-triggered mutation lands on disk before the dialog's response
  *   returns. Without it, the dialog could toast "Account removed" while
  *   the file still carries the old pool.
- * - `activeIndex()` returns the position the harness considers active;
- *   the service uses it to mark the matching row as `current: true`.
  */
 export interface CommandDataAccountManagerView {
   getAccounts(): LiveAccountSnapshot[]
@@ -307,7 +313,6 @@ export interface CommandDataAccountManagerView {
   ): void
   requestSaveToDisk(): void
   flushSaveToDisk(): Promise<void>
-  activeIndex(): number
   /**
    * Per-family live cursor. Used by the remove path so the persisted
    * `activeIndexByFamily` follows each model's currently-active account
@@ -726,11 +731,14 @@ export function createCommandDataService(
           (account) => account.refreshToken === liveToken,
         )
         if (found !== -1) return found
-        // The captured current token was the one removed. The live
-        // manager keeps the numeric cursor at the removed slot, so
-        // mirror that: clamp the removed index to the new account
-        // range.
-        return Math.max(0, Math.min(index, nextAccounts.length - 1))
+        // The captured current token was the one removed. Mirror the
+        // core's in-memory semantics: keep the cursor at the removed
+        // slot when it still exists in the new array; when the removed
+        // slot was the last position and no longer exists, persist 0
+        // (the core's buildStorageSnapshot clamps negative sentinels
+        // to 0, and auth-doctor treats a negative activeIndex as
+        // corruption — cf. auth-doctor.ts:149-156).
+        return index < nextAccounts.length ? index : 0
       }
       const legacyClaude =
         current.activeIndexByFamily?.claude ?? current.activeIndex
