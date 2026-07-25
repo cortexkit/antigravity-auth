@@ -485,6 +485,16 @@ export function resolveModelForHeaderStyle(
     }
 
     const resolved = resolveModelWithTier(transformedModel, { cli_first: true })
+
+    // Flash-lite is non-thinking — don't pass through requestedTier even if a
+    // tier suffix was on the original request.
+    if (isGemini31FlashLite) {
+      return {
+        ...resolved,
+        quotaPreference: 'gemini-cli',
+      }
+    }
+
     return {
       ...resolved,
       thinkingLevel: requestedTier ?? resolved.thinkingLevel,

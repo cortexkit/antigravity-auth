@@ -94,6 +94,41 @@ describe('resolveModelWithTier', () => {
       expect(result.isThinkingModel).toBe(false)
       expect(result.quotaPreference).toBe('antigravity')
     })
+
+    // Tier-suffixed flash-lite must NOT carry thinkingLevel / tier on
+    // any quota path — flash-lite does not support thinking.
+    it('drops tier suffix on antigravity header-style path', () => {
+      const result = resolveModelForHeaderStyle(
+        'gemini-3.1-flash-lite-high',
+        'antigravity',
+      )
+      expect(result.actualModel).toBe('gemini-3.1-flash-lite')
+      expect(result.isThinkingModel).toBe(false)
+      expect(result.thinkingLevel).toBeUndefined()
+      expect(result.tier).toBeUndefined()
+      expect(result.quotaPreference).toBe('antigravity')
+    })
+
+    it('drops tier suffix on gemini-cli header-style path', () => {
+      const result = resolveModelForHeaderStyle(
+        'gemini-3.1-flash-lite-high',
+        'gemini-cli',
+      )
+      expect(result.actualModel).toBe('gemini-3.1-flash-lite')
+      expect(result.isThinkingModel).toBe(false)
+      expect(result.thinkingLevel).toBeUndefined()
+      expect(result.tier).toBeUndefined()
+      expect(result.quotaPreference).toBe('gemini-cli')
+    })
+
+    it('drops tier suffix on direct resolveModelWithTier call', () => {
+      const result = resolveModelWithTier('gemini-3.1-flash-lite-high')
+      expect(result.actualModel).toBe('gemini-3.1-flash-lite')
+      expect(result.isThinkingModel).toBe(false)
+      expect(result.thinkingLevel).toBeUndefined()
+      expect(result.tier).toBeUndefined()
+      expect(result.quotaPreference).toBe('antigravity')
+    })
   })
 
   describe('Gemini 3.6 Flash Antigravity routes', () => {
