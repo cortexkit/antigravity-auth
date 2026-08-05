@@ -48,6 +48,9 @@
       "dependencies": {
         "@cortexkit/antigravity-auth-core": "2.0.0",
         "@openauthjs/openauth": "^0.4.3",
+        "@opentui/core": ">=0.4.5",
+        "@opentui/keymap": ">=0.4.5",
+        "@opentui/solid": ">=0.4.5",
         "jsonc-parser": "^3.3.1",
         "solid-js": "1.9.12",
         "xdg-basedir": "^5.1.0",
@@ -59,10 +62,7 @@
         "zod-to-json-schema": "^3.25.1",
       },
       "peerDependencies": {
-        "@opencode-ai/plugin": "^1.17.13",
-        "@opentui/core": "^0.4.5",
-        "@opentui/keymap": "^0.4.5",
-        "@opentui/solid": "^0.4.5",
+        "@opencode-ai/plugin": "*",
         "typescript": "^5 || ^6",
       },
     },
