@@ -777,13 +777,40 @@ describe('BackgroundQuotaRefresh', () => {
       '@cortexkit/antigravity-auth-core/file-lock'
     )
     const lockTtlMs = 60
-    const acquireShortLease: NonNullable<
+    let lockNow = 0
+    let firstLockOptions:
+      | Parameters<NonNullable<BackgroundQuotaRefreshOptions['acquireLock']>>[0]
+      | undefined
+    let renewalRead = false
+    let renewalCommitted!: () => void
+    const renewalCommittedPromise = new Promise<void>((resolve) => {
+      renewalCommitted = resolve
+    })
+    const firstAcquireShortLease: NonNullable<
+      BackgroundQuotaRefreshOptions['acquireLock']
+    > = (options) => {
+      firstLockOptions = options
+      return acquireFencedFileLock({
+        ...options,
+        ttlMs: lockTtlMs,
+        renewIntervalMs: 1,
+        now: () => lockNow,
+        onStep: (step) => {
+          if (step === 'renew-read' && !renewalRead) {
+            renewalRead = true
+            lockNow = 50
+          }
+          if (step === 'renew-committed') renewalCommitted()
+        },
+      })
+    }
+    const secondAcquireShortLease: NonNullable<
       BackgroundQuotaRefreshOptions['acquireLock']
     > = (options) =>
       acquireFencedFileLock({
         ...options,
         ttlMs: lockTtlMs,
-        renewIntervalMs: 15,
+        now: () => lockNow,
       })
 
     let releaseFirst!: () => void
@@ -811,14 +838,16 @@ describe('BackgroundQuotaRefresh', () => {
       secondManager: makeAccountManager(),
       firstQuotaManager,
       secondQuotaManager,
-      firstAcquireLock: acquireShortLease,
-      secondAcquireLock: acquireShortLease,
+      firstAcquireLock: firstAcquireShortLease,
+      secondAcquireLock: secondAcquireShortLease,
     })
 
     const firstTick = pair.tick(pair.first)
     try {
       await firstStartedPromise
-      await new Promise((resolve) => setTimeout(resolve, lockTtlMs * 2))
+      expect(firstLockOptions?.renew).not.toBe(false)
+      await renewalCommittedPromise
+      lockNow = 70 // Past the original expiry (60), before the renewed expiry (110).
       await pair.tick(pair.second)
 
       expect(secondQuotaManager.refreshAccounts).not.toHaveBeenCalled()
