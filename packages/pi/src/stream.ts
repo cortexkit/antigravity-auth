@@ -99,6 +99,58 @@ interface GeminiStreamChunk {
     finishReason?: string
   }>
   usageMetadata?: GeminiUsageMetadata
+  error?: unknown
+  promptFeedback?: unknown
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function describeEmbeddedStreamFailure(
+  chunk: GeminiStreamChunk,
+): string | undefined {
+  if (chunk.error !== undefined) {
+    const error = asRecord(chunk.error)
+    if (!error) {
+      const detail = typeof chunk.error === 'string' ? `: ${chunk.error}` : ''
+      return `Antigravity stream error${detail}`
+    }
+
+    const labels: string[] = []
+    if (typeof error.status === 'string') labels.push(error.status)
+    if (typeof error.code === 'number' || typeof error.code === 'string') {
+      labels.push(`code ${String(error.code)}`)
+    }
+    const details = Array.isArray(error.details) ? error.details : []
+    const reason = details
+      .map((detail) => asRecord(detail)?.reason)
+      .find((value): value is string => typeof value === 'string')
+    if (reason && !labels.includes(reason)) labels.push(reason)
+
+    const label = labels.length > 0 ? ` (${labels.join(', ')})` : ''
+    const message =
+      typeof error.message === 'string' && error.message.length > 0
+        ? `: ${error.message}`
+        : ''
+    return `Antigravity stream error${label}${message}`
+  }
+
+  const promptFeedback = asRecord(chunk.promptFeedback)
+  if (!promptFeedback) return undefined
+  const reason =
+    typeof promptFeedback.blockReason === 'string'
+      ? promptFeedback.blockReason
+      : undefined
+  const message =
+    typeof promptFeedback.blockReasonMessage === 'string'
+      ? promptFeedback.blockReasonMessage
+      : undefined
+  if (!reason && !message) return undefined
+
+  return `Antigravity prompt blocked${reason ? ` (${reason})` : ''}${message ? `: ${message}` : ''}`
 }
 
 /**
@@ -379,6 +431,9 @@ export function streamCortexKitAntigravity(
   void (async () => {
     const output = createOutput(model)
     stream.push({ type: 'start', partial: output })
+    let response: Response | undefined
+    let requestAbort: AbortController | undefined
+    let chunkIterator: AsyncIterator<GeminiStreamChunk> | undefined
 
     try {
       const accessToken = options?.apiKey ?? ''
@@ -386,11 +441,11 @@ export function streamCortexKitAntigravity(
         throw new Error('Missing Antigravity OAuth access token')
 
       const sessionKey = getRequestSessionKey(context, options)
-      const trailingUsageAbort = new AbortController()
+      requestAbort = new AbortController()
       const requestSignal = options?.signal
-        ? AbortSignal.any([options.signal, trailingUsageAbort.signal])
-        : trailingUsageAbort.signal
-      const response = await sendAntigravityRequest({
+        ? AbortSignal.any([options.signal, requestAbort.signal])
+        : requestAbort.signal
+      response = await sendAntigravityRequest({
         model,
         context,
         streamOptions: options,
@@ -441,19 +496,22 @@ export function streamCortexKitAntigravity(
         thinkingIndex = -1
       }
 
-      const chunkIterator = parseGeminiSse(response)[Symbol.asyncIterator]()
+      chunkIterator = parseGeminiSse(response)[Symbol.asyncIterator]()
+      let terminalFinishReason: string | undefined
       while (true) {
         const next = terminalSeen
           ? await nextWithTimeout(
               chunkIterator,
               TRAILING_USAGE_TIMEOUT_MS,
-              () => trailingUsageAbort.abort(),
+              () => requestAbort?.abort(),
             )
           : await chunkIterator.next()
         if (!next) break
         if (next.done) break
 
         const chunk = next.value
+        const embeddedFailure = describeEmbeddedStreamFailure(chunk)
+        if (embeddedFailure) throw new Error(embeddedFailure)
         updateUsage(model, output, chunk.usageMetadata)
 
         if (terminalSeen) {
@@ -575,6 +633,7 @@ export function streamCortexKitAntigravity(
             output.stopReason = mapFinishReason(candidate.finishReason)
           }
           terminalSeen = true
+          terminalFinishReason = candidate.finishReason
           const needsTrailingUsage =
             model.id.toLowerCase().includes('gpt-oss') && !chunk.usageMetadata
           if (!needsTrailingUsage) break
@@ -585,12 +644,22 @@ export function streamCortexKitAntigravity(
         try {
           await chunkIterator.return?.(undefined)
         } catch (error) {
-          if (!trailingUsageAbort.signal.aborted) throw error
+          if (!requestAbort.signal.aborted) throw error
         }
         await response.body?.cancel().catch(() => {})
       }
 
       if (options?.signal?.aborted) throw new Error('Request was aborted')
+      if (!terminalSeen) {
+        throw new Error(
+          'Antigravity stream ended without a terminal candidate response',
+        )
+      }
+      if (content.length === 0) {
+        throw new Error(
+          `Antigravity returned an empty response${terminalFinishReason ? ` (${terminalFinishReason})` : ''}`,
+        )
+      }
 
       stream.push({
         type: 'done',
@@ -602,6 +671,9 @@ export function streamCortexKitAntigravity(
       }
       stream.end()
     } catch (error) {
+      requestAbort?.abort()
+      await chunkIterator?.return?.(undefined).catch(() => {})
+      await response?.body?.cancel().catch(() => {})
       output.stopReason = options?.signal?.aborted ? 'aborted' : 'error'
       output.errorMessage =
         error instanceof Error ? error.message : String(error)

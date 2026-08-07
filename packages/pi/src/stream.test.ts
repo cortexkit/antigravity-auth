@@ -366,6 +366,62 @@ describe('convertGeminiToolCallPart', () => {
 })
 
 describe('streamCortexKitAntigravity', () => {
+  it('surfaces an embedded SSE error instead of returning an empty success', async () => {
+    const { events, result } = await runStream(
+      fakeModel(),
+      sseResponse([
+        'data: {"error":{"code":429,"message":"Gemini quota exhausted","status":"RESOURCE_EXHAUSTED"}}\n\n',
+      ]),
+      'embedded-error',
+    )
+
+    expect(events.map((event) => event.type)).toEqual(['start', 'error'])
+    expect(result.stopReason).toBe('error')
+    expect(result.errorMessage).toContain('RESOURCE_EXHAUSTED')
+    expect(result.errorMessage).toContain('Gemini quota exhausted')
+  })
+
+  it('surfaces prompt feedback instead of returning an empty success', async () => {
+    const { events, result } = await runStream(
+      fakeModel(),
+      sseResponse([
+        'data: {"response":{"promptFeedback":{"blockReason":"SAFETY","blockReasonMessage":"Blocked prompt"}}}\n\n',
+      ]),
+      'prompt-feedback',
+    )
+
+    expect(events.map((event) => event.type)).toEqual(['start', 'error'])
+    expect(result.stopReason).toBe('error')
+    expect(result.errorMessage).toContain('SAFETY')
+    expect(result.errorMessage).toContain('Blocked prompt')
+  })
+
+  it('rejects clean EOF without a terminal candidate', async () => {
+    const { events, result } = await runStream(
+      fakeModel(),
+      new Response(null, { status: 200 }),
+      'empty-eof',
+    )
+
+    expect(events.map((event) => event.type)).toEqual(['start', 'error'])
+    expect(result.stopReason).toBe('error')
+    expect(result.errorMessage).toContain('without a terminal candidate')
+  })
+
+  it('rejects a candidate-less terminal response instead of returning an empty success', async () => {
+    const { events, result } = await runStream(
+      fakeModel(),
+      sseResponse([
+        'data: {"response":{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":0}}}\n\n',
+      ]),
+      'empty-terminal',
+    )
+
+    expect(events.map((event) => event.type)).toEqual(['start', 'error'])
+    expect(result.stopReason).toBe('error')
+    expect(result.errorMessage).toContain('empty response')
+  })
+
   it('streams thinking and transfers a pending signature to visible text', async () => {
     const { events, result } = await runStream(
       fakeModel('antigravity-claude-opus-4-6-thinking'),
