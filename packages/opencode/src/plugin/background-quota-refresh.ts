@@ -113,7 +113,7 @@ const STARTUP_JITTER_MS = 30_000
 /** Additional jitter added to the next tick when the lock mechanism throws. */
 const ERROR_JITTER_MS = 15_000
 
-/** TTL for the advisory poll lock. Long enough to cover a slow network fetch. */
+/** TTL for the renewable advisory poll lock. */
 const POLL_LOCK_TTL_MS = 60_000
 
 /** Maximum age of a captured tier before the poller refreshes it. 24 h. */
@@ -150,6 +150,8 @@ export interface BackgroundQuotaRefreshOptions {
    */
   now?: () => number
   random?: () => number
+  /** Lock acquisition seam used by deterministic concurrency tests. */
+  acquireLock?: typeof acquireFencedFileLock
 }
 
 /**
@@ -168,6 +170,7 @@ export class BackgroundQuotaRefresh {
   ) => Promise<{ id: string; paidId?: string; capturedAt: number } | null>
   private readonly now: () => number
   private readonly random: () => number
+  private readonly acquireLock: typeof acquireFencedFileLock
 
   private timer: ReturnType<typeof setTimeout> | null = null
   /** Resolves when the currently-running tick completes (or immediately if none). */
@@ -182,6 +185,7 @@ export class BackgroundQuotaRefresh {
     this.loadAccountTier = options.loadAccountTier
     this.now = options.now ?? (() => Date.now())
     this.random = options.random ?? Math.random
+    this.acquireLock = options.acquireLock ?? acquireFencedFileLock
   }
 
   /** Start the background timer. Idempotent: a second call is a no-op. */
@@ -259,13 +263,10 @@ export class BackgroundQuotaRefresh {
     // ── 2. Advisory fenced lock ──────────────────────────────────────────
     let lock: FencedFileLock | null = null
     try {
-      lock = await acquireFencedFileLock({
+      lock = await this.acquireLock({
         path: this.sidebarStateFile,
         name: 'bg-quota-poll',
         ttlMs: POLL_LOCK_TTL_MS,
-        // No renewal: the tick completes well within the TTL, and a renewal
-        // timer would need its own dispose chain.
-        renew: false,
       })
     } catch {
       // Lock mechanism threw (I/O error, filesystem issue). FAIL CLOSED:

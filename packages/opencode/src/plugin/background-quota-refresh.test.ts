@@ -158,6 +158,8 @@ function makeTwoPollers(options: {
   secondQuotaManager?: ReturnType<typeof makeQuotaManager>
   firstLoadAccountTier?: BackgroundQuotaRefreshOptions['loadAccountTier']
   secondLoadAccountTier?: BackgroundQuotaRefreshOptions['loadAccountTier']
+  firstAcquireLock?: BackgroundQuotaRefreshOptions['acquireLock']
+  secondAcquireLock?: BackgroundQuotaRefreshOptions['acquireLock']
 }) {
   const first = new BackgroundQuotaRefresh({
     intervalMs: 5 * 60_000,
@@ -168,6 +170,7 @@ function makeTwoPollers(options: {
     now: () => options.now,
     random: () => 0,
     loadAccountTier: options.firstLoadAccountTier,
+    acquireLock: options.firstAcquireLock,
   })
   const second = new BackgroundQuotaRefresh({
     intervalMs: 5 * 60_000,
@@ -178,6 +181,7 @@ function makeTwoPollers(options: {
     now: () => options.now,
     random: () => 0,
     loadAccountTier: options.secondLoadAccountTier,
+    acquireLock: options.secondAcquireLock,
   })
 
   return {
@@ -767,6 +771,63 @@ describe('BackgroundQuotaRefresh', () => {
   })
 
   // ── Lock: held → skip ────────────────────────────────────────────────────
+
+  it('renews the fenced lock while a slow quota refresh is in flight', async () => {
+    const { acquireFencedFileLock } = await import(
+      '@cortexkit/antigravity-auth-core/file-lock'
+    )
+    const lockTtlMs = 60
+    const acquireShortLease: NonNullable<
+      BackgroundQuotaRefreshOptions['acquireLock']
+    > = (options) =>
+      acquireFencedFileLock({
+        ...options,
+        ttlMs: lockTtlMs,
+        renewIntervalMs: 15,
+      })
+
+    let releaseFirst!: () => void
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let firstStarted!: () => void
+    const firstStartedPromise = new Promise<void>((resolve) => {
+      firstStarted = resolve
+    })
+    const firstQuotaManager = makeQuotaManager()
+    firstQuotaManager.refreshAccounts = mock(async () => {
+      firstStarted()
+      await firstGate
+      return []
+    })
+    const secondQuotaManager = makeQuotaManager()
+    const now = Date.now()
+    await setSidebarMachineState({ checkedAt: 0, accounts: [] }, { stateFile })
+
+    const pair = makeTwoPollers({
+      stateFile,
+      now,
+      firstManager: makeAccountManager(),
+      secondManager: makeAccountManager(),
+      firstQuotaManager,
+      secondQuotaManager,
+      firstAcquireLock: acquireShortLease,
+      secondAcquireLock: acquireShortLease,
+    })
+
+    const firstTick = pair.tick(pair.first)
+    try {
+      await firstStartedPromise
+      await new Promise((resolve) => setTimeout(resolve, lockTtlMs * 2))
+      await pair.tick(pair.second)
+
+      expect(secondQuotaManager.refreshAccounts).not.toHaveBeenCalled()
+    } finally {
+      releaseFirst()
+      await firstTick
+      await pair.dispose()
+    }
+  })
 
   it('skips when the fenced lock is held by another process', async () => {
     // Acquire the lock ourselves so the poller sees "held".
