@@ -18,7 +18,8 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { testRender } from '@opentui/solid'
 import { createSignal } from 'solid-js'
 import {
@@ -42,6 +43,15 @@ import {
   PLUGIN_KEY,
   TUI_PREFS_FILE_ENV,
 } from './tui-preferences'
+
+const PACKAGE_VERSION = (
+  JSON.parse(
+    readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'),
+      'utf8',
+    ),
+  ) as { version: string }
+).version
 
 interface LogEntry {
   level: 'debug' | 'info' | 'warn' | 'error'
@@ -330,7 +340,7 @@ describe('SidebarPanel', () => {
     const frame = testSetup.captureCharFrame()
     expect(frame).not.toContain('Health')
     expect(frame).not.toContain('Snapshot')
-    expect(frame).toContain('v2.0.0')
+    expect(frame).toContain(`v${PACKAGE_VERSION}`)
     testSetup.renderer.destroy()
   })
 
