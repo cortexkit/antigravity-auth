@@ -513,6 +513,31 @@ export const AntigravityConfigSchema = z.object({
   // Auto-Update
   // =========================================================================
 
+  // =========================================================================
+  // Background Quota Refresh
+  // =========================================================================
+
+  /**
+   * Enable a background timer that periodically refreshes quota for all
+   * accounts. Without this, idle sessions show stale sidebar bars
+   * because Antigravity is a poll-only API (no quota headers in responses).
+   *
+   * @default true
+   */
+  background_quota_refresh: z.boolean().default(true),
+
+  /**
+   * How often the background poller refreshes quota (in minutes).
+   * Valid range: 1–60.
+   *
+   * @default 5
+   */
+  background_quota_refresh_interval_minutes: z
+    .number()
+    .min(1)
+    .max(60)
+    .default(5),
+
   /**
    * Enable automatic plugin updates.
    * @default true
@@ -603,6 +628,8 @@ export const DEFAULT_CONFIG: AntigravityConfig = {
   quota_refresh_interval_minutes: 30,
   soft_quota_cache_ttl_minutes: 'auto',
   proactive_rotation_threshold_percent: 20,
+  background_quota_refresh: true,
+  background_quota_refresh_interval_minutes: 5,
   auto_update: true,
   signature_cache: {
     enabled: true,

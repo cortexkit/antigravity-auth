@@ -233,7 +233,7 @@ describe('runCli commands', () => {
         status: 'ok',
         quota: {
           groups: {
-            claude: {
+            'non-gemini': {
               remainingFraction: 0.25,
               resetTime: '2026-07-22T12:00:00.000Z',
               modelCount: 2,
@@ -267,7 +267,7 @@ describe('runCli commands', () => {
           status: 'ok',
           groups: [
             {
-              name: 'claude',
+              name: 'non-gemini',
               remainingPercent: 25,
               resetTime: '2026-07-22T12:00:00.000Z',
             },
@@ -292,7 +292,9 @@ describe('runCli commands', () => {
           email: 'alpha@example.com',
           status: 'ok',
           quota: {
-            groups: { claude: { remainingFraction: 0.25, modelCount: 1 } },
+            groups: {
+              'non-gemini': { remainingFraction: 0.25, modelCount: 1 },
+            },
             modelCount: 1,
           },
         },
@@ -307,9 +309,9 @@ describe('runCli commands', () => {
 
     expect(await runCli(['quota'], harness.deps)).toBe(0)
     expect(harness.stdout).toBe(
-      'ACCOUNT               STATUS  GROUP   REMAINING  RESET\n' +
-        'alpha@example.com     ok      claude  25%        -\n' +
-        'disabled@example.com  error   -       -          quota unavailable\n',
+      'ACCOUNT               STATUS  GROUP       REMAINING  RESET\n' +
+        'alpha@example.com     ok      non-gemini  25%        -\n' +
+        'disabled@example.com  error   -           -          quota unavailable\n',
     )
   })
 })

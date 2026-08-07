@@ -111,7 +111,7 @@ function buildCliDeps(overrides: Partial<CliDependencies> = {}): CliTestHandle {
         disabled: false,
         quota: {
           groups: {
-            claude: {
+            'non-gemini': {
               remainingFraction: 0.5,
               resetTime: 'in 1h',
               modelCount: 1,
@@ -187,7 +187,7 @@ describe('cli flow (e2e)', () => {
     expect(exit).toBe(0)
     const output = handle.stdout.text()
     expect(output).toContain('cli@example.test')
-    expect(output).toContain('claude')
+    expect(output).toContain('non-gemini')
     expect(output).toContain('50%')
     expect(output).not.toContain('refresh-cli')
   })
@@ -204,7 +204,7 @@ describe('cli flow (e2e)', () => {
       }>
     }
     expect(parsed.accounts[0]?.email).toBe('cli@example.test')
-    expect(parsed.accounts[0]?.groups[0]?.name).toBe('claude')
+    expect(parsed.accounts[0]?.groups[0]?.name).toBe('non-gemini')
     expect(parsed.accounts[0]?.groups[0]?.remainingPercent).toBe(50)
   })
 

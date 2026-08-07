@@ -302,12 +302,30 @@ export function createFetchInterceptor(
       singleAccount = accountsForCheck[accountIndex]
       if (!singleAccount) return
 
+      // Capture the refresh token BEFORE the await so a concurrent
+      // add/remove that shifts the index can't attribute this result
+      // to the wrong account when the refresh resolves.
+      const expectedRefreshToken = singleAccount.refreshToken
+
       const result = await quotaManager.refreshAccount(singleAccount, {
         index: accountIndex,
       })
 
       if (result.status === 'ok' && result.quota?.groups) {
-        accountManager.updateQuotaCache(accountIndex, result.quota.groups)
+        // Re-resolve the live index for the captured refresh token. If
+        // the account was removed mid-refresh, drop the result rather
+        // than writing onto whichever account shifted into the slot.
+        const currentIndex = accountManager
+          .getAccounts()
+          .findIndex(
+            (entry) => entry.parts.refreshToken === expectedRefreshToken,
+          )
+        if (currentIndex === -1) return
+        accountManager.updateQuotaCache(
+          currentIndex,
+          result.quota.groups,
+          expectedRefreshToken,
+        )
         accountManager.requestSaveToDisk()
       }
     } catch (err) {

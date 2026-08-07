@@ -20,14 +20,16 @@ import {
   type AccountQuotaResult,
   aggregateGeminiCliQuota,
   aggregateQuota,
+  aggregateQuotaSummary,
   createQuotaManager,
   defaultKeyOf,
   type FetchAccountQuota,
   type FetchAvailableModelsOptions,
-  type FetchAvailableModelsResponse,
   fetchAvailableModels,
   fetchGeminiCliQuota,
+  fetchQuotaSummary,
   type GeminiCliQuotaSummary,
+  getHealthTracker,
   type QuotaManager,
   type QuotaSummary,
 } from '@cortexkit/antigravity-auth-core'
@@ -39,6 +41,7 @@ import {
 } from '../constants'
 import {
   buildSidebarMachineStateFromAccounts,
+  isAccountCurrent,
   setSidebarMachineState,
 } from '../sidebar-state'
 import {
@@ -49,7 +52,7 @@ import {
 import { logQuotaFetch, logQuotaStatus } from './debug'
 import { buildAntigravityHarnessUserAgent } from './fingerprint'
 import { createLogger } from './logger'
-import { ensureProjectContext } from './project'
+import { ensureProjectContext, loadManagedProject } from './project'
 import { refreshAccessToken } from './token'
 import type { OAuthAuthDetails, PluginClient } from './types'
 
@@ -114,7 +117,18 @@ export function createOpenCodeQuotaManager(
       enabled?: boolean
       coolingDownUntil?: number
       cachedQuota?: AccountMetadataV3['cachedQuota']
+      cachedQuotaAccountId?: string
+      currentQuotaAccountId?: string
     }> | null
+    /**
+     * Optional provider for the active-account indexes per model family.
+     * Wired by the plugin entry so every quota-refresh sidebar snapshot
+     * carries the real `current` flag — not a hardcoded `false`.
+     */
+    getActiveIndexByFamily?: () => {
+      claude: number
+      gemini: number
+    } | null
     /**
      * Optional transport adapter used for both `fetchAvailableModels`
      * and the project-context lookup. When omitted, the production
@@ -140,6 +154,7 @@ export function createOpenCodeQuotaManager(
   const originalRefreshAccount = manager.refreshAccount
   const originalRefreshAccounts = manager.refreshAccounts
   const getAccountsForSidebar = options.getAccountsForSidebar
+  const getActiveIndexByFamily = options.getActiveIndexByFamily
   let disposed = false
   const inFlight = new Set<Promise<unknown>>()
 
@@ -150,6 +165,7 @@ export function createOpenCodeQuotaManager(
     await pushSidebarQuotaSnapshot(
       getAccountsForSidebar,
       manager.getBackoffUntil(account),
+      getActiveIndexByFamily,
     ).catch(() => {
       // Sidebar persistence remains best-effort when lock contention
       // outlives its retry budget.
@@ -285,11 +301,20 @@ export async function pushSidebarQuotaSnapshot(
     enabled?: boolean
     coolingDownUntil?: number
     cachedQuota?: AccountMetadataV3['cachedQuota']
+    cachedQuotaAccountId?: string
+    currentQuotaAccountId?: string
+    /** Captured plan tier to surface in the sidebar state file. */
+    tier?: { id: string; paidId?: string; capturedAt: number }
   }> | null,
   backoffUntil: number = 0,
+  getActiveIndexByFamily?: () => {
+    claude: number
+    gemini: number
+  } | null,
 ): Promise<void> {
   const accounts = getAccounts()
   if (!accounts || accounts.length === 0) return
+  const activeByFamily = getActiveIndexByFamily?.() ?? null
   try {
     await setSidebarMachineState(
       buildSidebarMachineStateFromAccounts(
@@ -297,9 +322,15 @@ export async function pushSidebarQuotaSnapshot(
           index: entry.index,
           label: entry.label,
           enabled: entry.enabled,
-          current: false,
+          current: activeByFamily
+            ? isAccountCurrent(entry.index, activeByFamily)
+            : false,
           coolingDownUntil: entry.coolingDownUntil,
           cachedQuota: entry.cachedQuota,
+          cachedQuotaAccountId: entry.cachedQuotaAccountId,
+          currentQuotaAccountId: entry.currentQuotaAccountId,
+          healthScore: getHealthTracker().getScore(entry.index),
+          tier: entry.tier,
         })),
         {
           checkedAt: Date.now(),
@@ -309,6 +340,43 @@ export async function pushSidebarQuotaSnapshot(
     )
   } catch (error) {
     log.debug('sidebar-quota-write-failed', { error: String(error) })
+  }
+}
+
+/**
+ * Legacy fallback: fetchAvailableModels → aggregateQuota. Used when
+ * `fetchQuotaSummary` rejects (network, 403, etc.). Extracted so the
+ * concurrent fetch path can reuse the same fallback logic without
+ * duplicating the catch chain.
+ */
+async function fetchLegacyModelsFallback(options: {
+  accessToken: string
+  projectId: string
+  fetchVia?: QuotaFetch
+}): Promise<QuotaSummary> {
+  try {
+    const modelsResponse = await fetchAvailableModels({
+      accessToken: options.accessToken,
+      projectId: options.projectId,
+      endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+      userAgent: buildAntigravityHarnessUserAgent(),
+      timeoutMs: 10_000,
+      ...(options.fetchVia ? { fetchVia: options.fetchVia } : {}),
+    })
+    if (modelsResponse.models) {
+      return aggregateQuota(modelsResponse.models)
+    }
+    return {
+      groups: {},
+      modelCount: 0,
+      error: 'Failed to fetch Antigravity quota (legacy fallback)',
+    }
+  } catch {
+    return {
+      groups: {},
+      modelCount: 0,
+      error: 'Failed to fetch Antigravity quota',
+    }
   }
 }
 
@@ -360,41 +428,90 @@ function makeFetchAccountQuota(
 
       const projectContext = await ensureProjectContext(auth)
       auth = projectContext.auth
-      const updatedAccount = applyAccountUpdates(account, auth)
+      const updatedAccount = applyAccountUpdates(
+        account,
+        auth,
+        projectContext.capturedTier,
+      )
 
       if (rotatedRefresh && client) {
         await persistRotatedRefresh(client, providerId, auth).catch(() => {})
       }
 
-      const [antigravityResponse, geminiCliResponse] = await Promise.all([
-        fetchAvailableModels({
-          accessToken: auth.access ?? '',
-          projectId: projectContext.effectiveProjectId,
-          endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
-          userAgent: buildAntigravityHarnessUserAgent(),
-          timeoutMs: 10_000,
-          ...(fetchVia ? { fetchVia } : {}),
-        }).catch((): FetchAvailableModelsResponse => ({ models: undefined })),
-        fetchGeminiCliQuota({
-          accessToken: auth.access ?? '',
-          projectId: projectContext.effectiveProjectId,
-          endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
-          userAgent: buildGeminiCliUserAgent(),
-          timeoutMs: 10_000,
-          ...(fetchVia ? { fetchVia } : {}),
-        }),
-      ])
-
       let quotaResult: QuotaSummary
-      if (antigravityResponse.models === undefined) {
-        quotaResult = {
-          groups: {},
-          modelCount: 0,
-          error: 'Failed to fetch Antigravity quota',
+      let fellBackToLegacy = false
+
+      const authParts = parseRefreshParts(auth.refresh)
+      // Bare refresh tokens have no packed project IDs — fall back to the
+      // account record. The real managedProjectId lives on the persisted
+      // account, not in the packed refresh string.
+      const managedProjectId =
+        authParts.managedProjectId ?? account.managedProjectId
+
+      // Two independent payload contracts: the windowed summary
+      // (with legacy fallback) and the gemini-CLI quota. They share
+      // access + project but target different endpoints, so the
+      // two 10s timeouts ran back-to-back for ~20s per account on
+      // modal open. Run them concurrently; either rejection is
+      // handled by its own branch and the result is still merged.
+      const fetchSummaryPayload = (async (): Promise<{
+        result: QuotaSummary
+        fellBackToLegacy: boolean
+      }> => {
+        try {
+          const summaryResult = await fetchQuotaSummary({
+            accessToken: auth.access ?? '',
+            managedProjectId,
+            projectId: projectContext.effectiveProjectId,
+            endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+            userAgent: buildAntigravityHarnessUserAgent(),
+            timeoutMs: 10_000,
+            ...(fetchVia ? { fetchVia } : {}),
+          })
+          return {
+            result: aggregateQuotaSummary(summaryResult.summary),
+            fellBackToLegacy: summaryResult.fellBackToLegacy ?? false,
+          }
+        } catch {
+          return {
+            result: await fetchLegacyModelsFallback({
+              accessToken: auth.access ?? '',
+              projectId: projectContext.effectiveProjectId,
+              fetchVia,
+            }),
+            fellBackToLegacy: true,
+          }
         }
-      } else {
-        quotaResult = aggregateQuota(antigravityResponse.models)
-      }
+      })()
+
+      // CLI fetch is independent of the summary fetch. A CLI failure must
+      // NOT kill the summary result, but it also must not be laundered into
+      // "No Gemini CLI quota available" (a permanent-looking status) when
+      // the real cause is a transient network error. Capture the error
+      // message separately so the annotated result can carry it.
+      let geminiCliFetchError: string | undefined
+      const fetchGeminiCliPayload = fetchGeminiCliQuota({
+        accessToken: auth.access ?? '',
+        projectId: projectContext.effectiveProjectId,
+        endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+        userAgent: buildGeminiCliUserAgent(),
+        timeoutMs: 10_000,
+        ...(fetchVia ? { fetchVia } : {}),
+      }).catch((error: unknown) => {
+        geminiCliFetchError =
+          error instanceof Error ? error.message : String(error)
+        log.debug('fetchGeminiCliQuota failed', { error: geminiCliFetchError })
+        return { buckets: undefined } as Awaited<
+          ReturnType<typeof fetchGeminiCliQuota>
+        >
+      })
+
+      const [summary, geminiCliResponse] = await Promise.all([
+        fetchSummaryPayload,
+        fetchGeminiCliPayload,
+      ])
+      quotaResult = summary.result
+      fellBackToLegacy = summary.fellBackToLegacy
 
       const geminiCliQuotaResult = aggregateGeminiCliQuota(geminiCliResponse)
       const annotated: GeminiCliQuotaSummary =
@@ -403,9 +520,12 @@ function makeFetchAccountQuota(
           ? {
               ...geminiCliQuotaResult,
               error:
-                geminiCliQuotaResult.models.length === 0
+                // A real fetch exception is a transient failure, not a
+                // "no CLI configured" scenario — propagate the actual message.
+                geminiCliFetchError ??
+                (geminiCliQuotaResult.models.length === 0
                   ? 'No Gemini CLI quota available'
-                  : undefined,
+                  : undefined),
             }
           : geminiCliQuotaResult
 
@@ -414,7 +534,8 @@ function makeFetchAccountQuota(
         logQuotaStatus(account.email, index, remainingPercent, family)
       }
 
-      logQuotaFetch('complete', 1, 'ok=1 errors=0')
+      const legacyTag = fellBackToLegacy ? ' legacy=1' : ''
+      logQuotaFetch('complete', 1, `ok=1 errors=0${legacyTag}`)
 
       return {
         index,
@@ -458,6 +579,7 @@ function buildAuthFromAccount(account: AccountMetadataV3): OAuthAuthDetails {
 function applyAccountUpdates(
   account: AccountMetadataV3,
   auth: OAuthAuthDetails,
+  capturedTier?: { id: string; paidId?: string; capturedAt: number },
 ): AccountMetadataV3 | undefined {
   const parts = parseRefreshParts(auth.refresh)
   if (!parts.refreshToken) {
@@ -469,12 +591,30 @@ function applyAccountUpdates(
     refreshToken: parts.refreshToken,
     projectId: parts.projectId ?? account.projectId,
     managedProjectId: parts.managedProjectId ?? account.managedProjectId,
+    // Persist the captured tier alongside the project-context write. Only
+    // present when the loadCodeAssist payload returned a non-empty currentTier.id.
+    ...(capturedTier
+      ? {
+          capturedTierId: capturedTier.id,
+          ...(capturedTier.paidId !== undefined
+            ? { capturedPaidTierId: capturedTier.paidId }
+            : {}),
+          capturedTierAt: capturedTier.capturedAt,
+        }
+      : {}),
   }
 
   const changed =
     updated.refreshToken !== account.refreshToken ||
     updated.projectId !== account.projectId ||
-    updated.managedProjectId !== account.managedProjectId
+    updated.managedProjectId !== account.managedProjectId ||
+    updated.capturedTierId !== account.capturedTierId ||
+    updated.capturedPaidTierId !== account.capturedPaidTierId ||
+    // capturedAt represents when the tier was LAST CONFIRMED, not when it
+    // changed -- always update it on a successful observation so consumers
+    // can gate staleness on that timestamp even when the id stays the same.
+    (capturedTier !== undefined &&
+      updated.capturedTierAt !== account.capturedTierAt)
 
   return changed ? updated : undefined
 }
@@ -493,4 +633,58 @@ async function persistRotatedRefresh(
       expires: auth.expires ?? 0,
     },
   })
+}
+
+/**
+ * Build a per-account tier-loader callback for the background poller.
+ *
+ * Calls `loadManagedProject` (loadCodeAssist) directly, bypassing the
+ * `ensureProjectContext` cache that fast-paths on `managedProjectId` and
+ * never returns a tier for existing accounts. One call per account per 24 h.
+ *
+ * Uses the same token-refresh infrastructure as `makeFetchAccountQuota` so
+ * an expired access token does not silently fail the tier lookup.
+ *
+ * `loadManagedProject` uses the production TLS transport (`fetchWithAgyCliTransport`)
+ * and is not interceptable via `fetchVia` -- the same design constraint applies to
+ * `ensureProjectContext`. Tier lookup is best-effort; any failure resolves `null`.
+ */
+export function makeTierLoader(
+  client: PluginClient | undefined,
+  providerId: string,
+): (
+  account: AccountMetadataV3,
+) => Promise<{ id: string; paidId?: string; capturedAt: number } | null> {
+  return async (account) => {
+    try {
+      let auth = buildAuthFromAccount(account)
+      if (accessTokenExpired(auth)) {
+        const refreshed = await refreshAccessToken(
+          auth,
+          client as PluginClient,
+          providerId,
+        )
+        if (!refreshed) return null
+        auth = refreshed
+      }
+
+      const accessToken = auth.access
+      if (!accessToken) return null
+
+      const payload = await loadManagedProject(accessToken)
+      if (!payload?.currentTier?.id) return null
+      const paidTierId =
+        typeof payload.paidTier === 'string'
+          ? payload.paidTier
+          : payload.paidTier?.id
+
+      return {
+        id: payload.currentTier.id,
+        ...(paidTierId ? { paidId: paidTierId } : {}),
+        capturedAt: Date.now(),
+      }
+    } catch {
+      return null
+    }
+  }
 }

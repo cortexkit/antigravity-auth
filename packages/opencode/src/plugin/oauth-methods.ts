@@ -693,16 +693,8 @@ export function createOAuthMethods({
                   } else {
                     const groups = res.quota!.groups
                     const groupEntries = [
-                      { name: 'Claude', data: groups.claude },
-                      {
-                        name: 'Gemini 3 Pro',
-                        data: groups['gemini-pro'],
-                      },
-                      {
-                        name: 'Gemini 3 Flash',
-                        data: groups['gemini-flash'],
-                      },
-                      { name: 'GPT-OSS', data: groups['gpt-oss'] },
+                      { name: 'Non-Gemini', data: groups['non-gemini'] },
+                      { name: 'Gemini', data: groups.gemini },
                     ].filter((g) => g.data)
 
                     groupEntries.forEach((g, idx) => {

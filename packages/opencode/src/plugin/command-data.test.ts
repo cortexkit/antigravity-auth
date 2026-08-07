@@ -23,6 +23,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -55,10 +56,8 @@ import {
 } from './command-data'
 
 interface QuotaGroupFixture {
-  claude?: { remainingFraction?: number; resetTime?: string }
-  'gemini-pro'?: { remainingFraction?: number; resetTime?: string }
-  'gemini-flash'?: { remainingFraction?: number; resetTime?: string }
-  'gpt-oss'?: { remainingFraction?: number; resetTime?: string }
+  gemini?: { remainingFraction?: number; resetTime?: string }
+  'non-gemini'?: { remainingFraction?: number; resetTime?: string }
 }
 
 interface AccountFixture {
@@ -72,7 +71,12 @@ interface AccountFixture {
   label?: string
   cachedQuota?: QuotaGroupFixture
   cachedQuotaUpdatedAt?: number
+  cachedQuotaAccountId?: string
   accountIneligible?: boolean
+  coolingDownUntil?: number
+  healthScore?: number
+  capturedTierId?: string
+  capturedTierAt?: number
 }
 
 function makeAccountFixture(
@@ -102,9 +106,14 @@ interface Harness {
   activeIndex: number
 }
 
+function quotaAccountIdentity(refreshToken: string): string {
+  return createHash('sha256').update(refreshToken).digest('hex').slice(0, 16)
+}
+
 function makeHarness(options: {
   accounts: AccountFixture[]
   activeIndex?: number
+  geminiActiveIndex?: number
   refreshResults?: Map<string, AccountQuotaResult>
   now?: () => number
   /** When true, also wire a storage adapter (defaults to true). */
@@ -150,6 +159,7 @@ function makeHarness(options: {
           >
         | undefined,
       cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+      cachedQuotaAccountId: entry.cachedQuotaAccountId,
       accountIneligible: entry.accountIneligible,
     })),
   }
@@ -202,6 +212,7 @@ function makeHarness(options: {
   const saveCalls = { count: 0 }
   const activeIndex = options.activeIndex ?? 0
   let liveCurrentIndex = activeIndex
+  let liveGeminiIndex = options.geminiActiveIndex ?? activeIndex
 
   const accountManagerView: CommandDataAccountManagerView = {
     getAccounts() {
@@ -215,7 +226,12 @@ function makeHarness(options: {
           | Partial<Record<QuotaGroup, QuotaGroupSummary>>
           | undefined,
         cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
+        cachedQuotaAccountId: entry.cachedQuotaAccountId,
         accountIneligible: entry.accountIneligible,
+        coolingDownUntil: entry.coolingDownUntil,
+        healthScore: entry.healthScore,
+        capturedTierId: entry.capturedTierId,
+        capturedTierAt: entry.capturedTierAt,
       }))
     },
     getAccountsForQuotaCheck() {
@@ -232,10 +248,17 @@ function makeHarness(options: {
     updateQuotaCache(
       index: number,
       groups: Partial<Record<QuotaGroup, QuotaGroupSummary>>,
+      expectedRefreshToken?: string,
     ) {
       const account = liveView[index]
-      if (!account) return
+      if (
+        !account ||
+        (account.refreshToken !== expectedRefreshToken &&
+          expectedRefreshToken !== undefined)
+      )
+        return
       account.cachedQuota = groups as QuotaGroupFixture | undefined
+      account.cachedQuotaAccountId = quotaAccountIdentity(account.refreshToken)
       account.cachedQuotaUpdatedAt = Date.now()
     },
     requestSaveToDisk() {
@@ -246,8 +269,8 @@ function makeHarness(options: {
       // storage adapter already mirrors the in-memory state on every
       // mutation, so a flush is a no-op for test purposes.
     },
-    activeIndex() {
-      return liveCurrentIndex
+    getActiveIndexByFamily(): { claude: number; gemini: number } {
+      return { claude: liveCurrentIndex, gemini: liveGeminiIndex }
     },
     setAccountEnabled(index: number, enabled: boolean): boolean {
       const account = liveView[index]
@@ -260,13 +283,19 @@ function makeHarness(options: {
     setAccountCurrent(index: number): boolean {
       if (index < 0 || index >= liveView.length) return false
       liveCurrentIndex = index
+      liveGeminiIndex = index
       return true
     },
     removeAccountByIndex(index: number): boolean {
       if (index < 0 || index >= liveView.length) return false
       liveView.splice(index, 1)
+      if (liveCurrentIndex > index) liveCurrentIndex -= 1
       if (liveCurrentIndex >= liveView.length) {
         liveCurrentIndex = Math.max(0, liveView.length - 1)
+      }
+      if (liveGeminiIndex > index) liveGeminiIndex -= 1
+      if (liveGeminiIndex >= liveView.length) {
+        liveGeminiIndex = Math.max(0, liveView.length - 1)
       }
       return true
     },
@@ -343,14 +372,19 @@ async function readSidebar(stateFile: string): Promise<SidebarStateV1> {
 }
 
 let dir: string
+let savedSidebarEnv: string | undefined
 
 describe('createCommandDataService', () => {
   beforeEach(() => {
+    savedSidebarEnv = process.env[SIDEBAR_STATE_ENV]
     dir = mkdtempSync(join(tmpdir(), 'agy-command-data-'))
   })
 
   afterEach(() => {
-    delete process.env[SIDEBAR_STATE_ENV]
+    // Restore rather than delete — a delete drops resolution to the real state dir.
+    if (savedSidebarEnv !== undefined)
+      process.env[SIDEBAR_STATE_ENV] = savedSidebarEnv
+    else delete process.env[SIDEBAR_STATE_ENV]
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -361,11 +395,11 @@ describe('createCommandDataService', () => {
           refreshToken: 'refresh-a',
           label: 'Primary',
           cachedQuota: {
-            claude: {
+            'non-gemini': {
               remainingFraction: 0.4,
               resetTime: new Date(0).toISOString(),
             },
-            'gemini-pro': { remainingFraction: 0.7 },
+            gemini: { remainingFraction: 0.7 },
           },
         }),
         makeAccountFixture({
@@ -373,7 +407,7 @@ describe('createCommandDataService', () => {
           label: 'Backup',
           enabled: false,
           cachedQuota: {
-            'gemini-flash': { remainingFraction: 0.15 },
+            gemini: { remainingFraction: 0.15 },
           },
         }),
       ],
@@ -403,16 +437,16 @@ describe('createCommandDataService', () => {
     })
     expect(rows[0]?.quota).toEqual([
       {
-        key: 'claude',
-        label: 'Claude',
-        remainingPercent: 40,
-        resetAt: 0,
-      },
-      {
-        key: 'gemini-pro',
-        label: 'Gemini Pro',
+        key: 'gemini',
+        label: 'Gemini',
         remainingPercent: 70,
         resetAt: undefined,
+      },
+      {
+        key: 'non-gemini',
+        label: 'Non-Gemini',
+        remainingPercent: 40,
+        resetAt: 0,
       },
     ])
     expect(rows[1]).toMatchObject({
@@ -431,7 +465,7 @@ describe('createCommandDataService', () => {
           refreshToken: 'refresh-a',
           label: 'A',
           cachedQuota: {
-            claude: { remainingFraction: 0.5 },
+            'non-gemini': { remainingFraction: 0.5 },
           },
         }),
       ],
@@ -446,7 +480,90 @@ describe('createCommandDataService', () => {
     expect(harness.quotaCallLog).toEqual([])
   })
 
-  it('refreshQuota() refreshes through the shared quota manager and persists by refresh token', async () => {
+  it('drops a quota snapshot when the identity stamp does not match the current account', async () => {
+    // Account B has a cached quota stamped under account A's identity.
+    // The projection must drop the stale cache rather than rendering
+    // the wrong account's quota percentages.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-b',
+          label: 'Account B',
+          cachedQuota: { gemini: { remainingFraction: 0.5 } },
+          cachedQuotaAccountId: quotaAccountIdentity('refresh-a'),
+        }),
+      ],
+    })
+
+    const rows = await harness.service.listAccounts()
+
+    expect(rows).toHaveLength(1)
+    // Identity mismatch — cached quota dropped; row must render empty quota.
+    expect(rows[0]?.quota).toEqual([])
+  })
+
+  it('renders an unstamped legacy snapshot (fail open — no stamp means no mismatch)', async () => {
+    // A cached quota without any identity stamp was written by an older
+    // version of the code. The projection must fail OPEN: no stamp means
+    // the quota is treated as belonging to whichever account it sits on.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-a',
+          label: 'Account A',
+          cachedQuota: { gemini: { remainingFraction: 0.5 } },
+          // Deliberately omit cachedQuotaAccountId — legacy snapshot.
+        }),
+      ],
+    })
+
+    const rows = await harness.service.listAccounts()
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.quota).toContainEqual({
+      key: 'gemini',
+      label: 'Gemini',
+      remainingPercent: 50,
+      resetAt: undefined,
+    })
+  })
+
+  it('normalizes legacy quota keys and silently skips truly unknown keys', async () => {
+    // S1 + N3: the legacy keys (claude → non-gemini, gpt-oss → non-gemini,
+    // gemini-pro/gemini-flash → gemini) are now NORMALIZED at read time,
+    // not silently dropped. Truly unknown keys (e.g. 'gpt-4') are still
+    // dropped. The canonical 'gemini' key carries through unchanged.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-a',
+          label: 'Account A',
+          cachedQuota: {
+            // Legacy key: maps to non-gemini with MIN fraction.
+            claude: { remainingFraction: 0.9 },
+            // Truly unknown key: must be dropped (no mapping).
+            'gpt-4': { remainingFraction: 0.8 },
+            // Canonical key: must render as-is.
+            gemini: { remainingFraction: 0.5 },
+          } as unknown as QuotaGroupFixture,
+        }),
+      ],
+    })
+
+    const rows = await harness.service.listAccounts()
+
+    expect(rows).toHaveLength(1)
+    // Both canonical and normalized-from-legacy keys must render.
+    const quota = rows[0]?.quota
+    expect(quota?.find((q) => q.key === 'gemini')?.remainingPercent).toBe(50)
+    expect(quota?.find((q) => q.key === 'non-gemini')?.remainingPercent).toBe(
+      90,
+    )
+    // The truly unknown 'gpt-4' key must not appear in the output.
+    expect(quota?.find((q) => q.key === ('gpt-4' as never))).toBeUndefined()
+  })
+
+  it('refreshQuota() fetches every account, including an uncached new account, through the shared quota manager', async () => {
     const baseAccount = (
       refreshToken: string,
       groups: Record<string, { remainingFraction: number; resetTime?: string }>,
@@ -468,11 +585,11 @@ describe('createCommandDataService', () => {
         baseAccount(
           'refresh-a',
           {
-            claude: {
+            'non-gemini': {
               remainingFraction: 0.8,
               resetTime: new Date(0).toISOString(),
             },
-            'gemini-pro': {
+            gemini: {
               remainingFraction: 0.6,
               resetTime: new Date(0).toISOString(),
             },
@@ -485,7 +602,7 @@ describe('createCommandDataService', () => {
         baseAccount(
           'refresh-b',
           {
-            'gemini-flash': {
+            gemini: {
               remainingFraction: 0.25,
               resetTime: new Date(0).toISOString(),
             },
@@ -500,14 +617,12 @@ describe('createCommandDataService', () => {
         makeAccountFixture({
           refreshToken: 'refresh-a',
           label: 'Alpha',
-          cachedQuota: { claude: { remainingFraction: 0.1 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.1 } },
           cachedQuotaUpdatedAt: 1,
         }),
         makeAccountFixture({
           refreshToken: 'refresh-b',
           label: 'Beta',
-          cachedQuota: { 'gemini-flash': { remainingFraction: 0.05 } },
-          cachedQuotaUpdatedAt: 1,
         }),
       ],
       refreshResults,
@@ -533,15 +648,15 @@ describe('createCommandDataService', () => {
     // The rows returned by refresh reflect the freshly persisted quota.
     expect(rows[0]?.label).toBe('Account 1')
     expect(
-      rows[0]?.quota.find((q) => q.key === 'claude')?.remainingPercent,
+      rows[0]?.quota.find((q) => q.key === 'non-gemini')?.remainingPercent,
     ).toBe(80)
     expect(
-      rows[0]?.quota.find((q) => q.key === 'gemini-pro')?.remainingPercent,
+      rows[0]?.quota.find((q) => q.key === 'gemini')?.remainingPercent,
     ).toBe(60)
 
     expect(rows[1]?.label).toBe('Account 2')
     expect(
-      rows[1]?.quota.find((q) => q.key === 'gemini-flash')?.remainingPercent,
+      rows[1]?.quota.find((q) => q.key === 'gemini')?.remainingPercent,
     ).toBe(25)
 
     // The serialized rows must not leak the seeded email.
@@ -559,7 +674,7 @@ describe('createCommandDataService', () => {
           status: 'ok',
           quota: {
             groups: {
-              claude: {
+              'non-gemini': {
                 remainingFraction: 0.7,
                 resetTime: new Date(0).toISOString(),
                 modelCount: 1,
@@ -581,13 +696,13 @@ describe('createCommandDataService', () => {
         makeAccountFixture({
           refreshToken: 'refresh-a',
           label: 'Alpha',
-          cachedQuota: { claude: { remainingFraction: 0.1 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.1 } },
           cachedQuotaUpdatedAt: 1,
         }),
         makeAccountFixture({
           refreshToken: 'refresh-b',
           label: 'Beta',
-          cachedQuota: { 'gemini-flash': { remainingFraction: 0.05 } },
+          cachedQuota: { gemini: { remainingFraction: 0.05 } },
           cachedQuotaUpdatedAt: 1,
         }),
       ],
@@ -603,13 +718,19 @@ describe('createCommandDataService', () => {
     // The source-of-truth snapshot must show the refreshed percentage
     // AND a bumped cachedQuotaUpdatedAt for the refreshed account.
     expect(
-      harness.storage.accounts[0]?.cachedQuota?.claude?.remainingFraction,
+      harness.storage.accounts[0]?.cachedQuota?.['non-gemini']
+        ?.remainingFraction,
     ).toBe(0.7)
     expect(harness.storage.accounts[0]?.cachedQuotaUpdatedAt).toBeGreaterThan(1)
+    // The refreshed account's persisted snapshot must carry the identity
+    // stamp derived from its refresh token — pins the P1#1 fix that
+    // propagates `cachedQuotaAccountId` through `buildStorageSnapshot`.
+    expect(harness.storage.accounts[0]?.cachedQuotaAccountId).toBe(
+      quotaAccountIdentity('refresh-a'),
+    )
     // The non-refreshed account's cached state must remain untouched.
     expect(
-      harness.storage.accounts[1]?.cachedQuota?.['gemini-flash']
-        ?.remainingFraction,
+      harness.storage.accounts[1]?.cachedQuota?.gemini?.remainingFraction,
     ).toBe(0.05)
   })
 
@@ -622,7 +743,7 @@ describe('createCommandDataService', () => {
           status: 'ok',
           quota: {
             groups: {
-              claude: {
+              'non-gemini': {
                 remainingFraction: 0.9,
                 resetTime: new Date(0).toISOString(),
                 modelCount: 1,
@@ -644,7 +765,7 @@ describe('createCommandDataService', () => {
         makeAccountFixture({
           refreshToken: 'refresh-a',
           label: 'Alpha',
-          cachedQuota: { claude: { remainingFraction: 0.1 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.1 } },
           cachedQuotaUpdatedAt: 1,
         }),
       ],
@@ -657,7 +778,7 @@ describe('createCommandDataService', () => {
     expect(state.version).toBe(SIDEBAR_STATE_VERSION)
     expect(state.accounts).toHaveLength(1)
     expect(state.accounts[0]?.label).toBe('Account 1')
-    expect(state.accounts[0]?.quota.claude?.remainingPercent).toBe(90)
+    expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(90)
     // Sidebar must NOT carry email even though the source account does.
     const serialized = JSON.stringify(state)
     expect(serialized).not.toContain('@example.test')
@@ -695,7 +816,7 @@ describe('createCommandDataService', () => {
         makeAccountFixture({
           refreshToken: 'refresh-a',
           label: 'Alpha',
-          cachedQuota: { claude: { remainingFraction: 0.4 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.4 } },
           cachedQuotaUpdatedAt: 100,
         }),
       ],
@@ -707,7 +828,7 @@ describe('createCommandDataService', () => {
     expect(rows).toHaveLength(1)
     // Error result keeps the cached percentage — never silently drops it.
     expect(
-      rows[0]?.quota.find((q) => q.key === 'claude')?.remainingPercent,
+      rows[0]?.quota.find((q) => q.key === 'non-gemini')?.remainingPercent,
     ).toBe(40)
   })
 
@@ -737,6 +858,24 @@ describe('createCommandDataService', () => {
     const afterBeta = await harness.service.toggleAccountEnabled(1)
     expect(afterBeta?.[1]?.enabled).toBe(true)
     expect(harness.storage.accounts[1]?.enabled).toBe(true)
+  })
+
+  it('toggleAccountEnabled() carries healthScore through the command row seam', async () => {
+    // An account whose tracker score is 42 must keep that score after
+    // a command mutate — the row seam must forward healthScore so the
+    // sidebar does not silently reset to the 100 default.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-a',
+          label: 'Alpha',
+          healthScore: 42,
+        }),
+      ],
+    })
+    const rows = await harness.service.toggleAccountEnabled(0)
+    expect(rows).not.toBeNull()
+    expect(rows?.[0]?.healthScore).toBe(42)
   })
 
   it('toggleAccountEnabled() rejects out-of-range indices without touching storage', async () => {
@@ -824,11 +963,195 @@ describe('createCommandDataService', () => {
       'refresh-a',
       'refresh-c',
     ])
-    // CLI menu semantics: active index resets to 0 after removal.
+    // Active index tracks the same refresh token in the post-remove
+    // array. Removing a non-current account keeps the current's slot
+    // unchanged; the previous implementation reset to 0, which would
+    // re-elect the (now first) account on every restart even though
+    // the user explicitly removed a different one.
     expect(harness.storage.activeIndex).toBe(0)
     expect(harness.storage.activeIndexByFamily).toEqual({
       claude: 0,
       gemini: 0,
+    })
+  })
+
+  it("removeAccount() persists the current account's remapped index, not a hardcoded 0", async () => {
+    // Current is refresh-c (index 2). Removing a NON-current account
+    // (refresh-b at index 1) must persist the same current index as
+    // the live manager — refresh-c shifted from index 2 to index 1, so
+    // a restart must re-elect refresh-c, not the hardcoded 0.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a', label: 'Alpha' }),
+        makeAccountFixture({ refreshToken: 'refresh-b', label: 'Beta' }),
+        makeAccountFixture({ refreshToken: 'refresh-c', label: 'Gamma' }),
+      ],
+      activeIndex: 2,
+    })
+
+    await harness.service.removeAccount(1)
+
+    expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
+      'refresh-a',
+      'refresh-c',
+    ])
+    // Live manager shifts refresh-c from index 2 to index 1 because
+    // the removed refresh-b sat at index 1. The persisted activeIndex
+    // must follow that shift.
+    expect(harness.storage.activeIndex).toBe(1)
+    expect(harness.storage.activeIndexByFamily).toEqual({
+      claude: 1,
+      gemini: 1,
+    })
+  })
+
+  it('removeAccount() keeps the current account at its unchanged index when removing an account after it', async () => {
+    // Current is refresh-a (index 0). Removing refresh-b at index 1
+    // doesn't touch the current's slot; the persisted index must stay
+    // at 0 (the current account is unchanged).
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a', label: 'Alpha' }),
+        makeAccountFixture({ refreshToken: 'refresh-b', label: 'Beta' }),
+        makeAccountFixture({ refreshToken: 'refresh-c', label: 'Gamma' }),
+      ],
+      activeIndex: 0,
+    })
+
+    await harness.service.removeAccount(1)
+
+    expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
+      'refresh-a',
+      'refresh-c',
+    ])
+    expect(harness.storage.activeIndex).toBe(0)
+    expect(harness.storage.activeIndexByFamily).toEqual({
+      claude: 0,
+      gemini: 0,
+    })
+  })
+
+  it("removeAccount() persists the live manager's post-removal current when removing the current middle account", async () => {
+    // Current is refresh-b (index 1). Removing index 1 (refresh-b)
+    // leaves the live manager's current index pointing at index 1,
+    // which now holds refresh-c (the account that shifted in). The
+    // previous implementation persisted 0 because the captured token
+    // was the one removed and the lookup fell back to "unknown token
+    // → 0", which would re-elect refresh-a on the next restart even
+    // though the live manager kept refresh-c current.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a', label: 'Alpha' }),
+        makeAccountFixture({ refreshToken: 'refresh-b', label: 'Beta' }),
+        makeAccountFixture({ refreshToken: 'refresh-c', label: 'Gamma' }),
+      ],
+      activeIndex: 1,
+    })
+
+    await harness.service.removeAccount(1)
+
+    expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
+      'refresh-a',
+      'refresh-c',
+    ])
+    // Live manager's current still points at index 1 (now refresh-c).
+    // Persisted activeIndex must follow the live manager, not zero.
+    expect(harness.storage.activeIndex).toBe(1)
+    expect(harness.storage.activeIndexByFamily).toEqual({
+      claude: 1,
+      gemini: 1,
+    })
+  })
+
+  it('removeAccount() keeps the cursor at the removed first slot when the current was the first account', async () => {
+    // Current is refresh-a (index 0). Removing index 0 (refresh-a)
+    // leaves index 0 still valid — it now points at refresh-b, the
+    // account that shifted in. The persisted activeIndex must mirror
+    // AccountManager.removeAccount(), which keeps the cursor at the
+    // removed slot when it still exists.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a', label: 'Alpha' }),
+        makeAccountFixture({ refreshToken: 'refresh-b', label: 'Beta' }),
+        makeAccountFixture({ refreshToken: 'refresh-c', label: 'Gamma' }),
+      ],
+      activeIndex: 0,
+    })
+
+    await harness.service.removeAccount(0)
+
+    expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
+      'refresh-b',
+      'refresh-c',
+    ])
+    // Slot 0 still exists in the new array → kept at 0.
+    expect(harness.storage.activeIndex).toBe(0)
+    expect(harness.storage.activeIndexByFamily).toEqual({
+      claude: 0,
+      gemini: 0,
+    })
+  })
+
+  it('removeAccount() persists index 0 when the current last account is removed, matching the core snapshot', async () => {
+    // Current is refresh-c (index 2, last account). Removing index 2
+    // (the last slot) leaves no slot at that position in the new
+    // array. The in-memory AccountManager sets the sentinel to -1,
+    // but buildStorageSnapshot clamps it to 0 for disk (cf.
+    // account-manager.ts:1652). The persisted layer must follow that
+    // contract: persisted activeIndex must be >= 0 because
+    // auth-doctor.ts:149-156 treats a negative value as corruption.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a', label: 'Alpha' }),
+        makeAccountFixture({ refreshToken: 'refresh-b', label: 'Beta' }),
+        makeAccountFixture({ refreshToken: 'refresh-c', label: 'Gamma' }),
+      ],
+      activeIndex: 2,
+    })
+
+    await harness.service.removeAccount(2)
+
+    expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
+      'refresh-a',
+      'refresh-b',
+    ])
+    // The removed account was the last slot — no slot at that
+    // position remains. Persisted contract is non-negative.
+    expect(harness.storage.activeIndex).toBe(0)
+    expect(harness.storage.activeIndexByFamily).toEqual({
+      claude: 0,
+      gemini: 0,
+    })
+  })
+
+  it('removeAccount() persists per-family active indexes independently when removing a non-current account', async () => {
+    // Claude is current on refresh-a (index 0); Gemini is current on
+    // refresh-c (index 2). Removing refresh-b (index 1) — a
+    // non-current for both families — must keep each family's
+    // current pinned to its own account: claude still on refresh-a,
+    // gemini still on refresh-c (which shifted from 2 to 1).
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({ refreshToken: 'refresh-a', label: 'Alpha' }),
+        makeAccountFixture({ refreshToken: 'refresh-b', label: 'Beta' }),
+        makeAccountFixture({ refreshToken: 'refresh-c', label: 'Gamma' }),
+      ],
+      activeIndex: 0,
+      geminiActiveIndex: 2,
+    })
+
+    await harness.service.removeAccount(1)
+
+    expect(harness.storage.accounts.map((a) => a.refreshToken)).toEqual([
+      'refresh-a',
+      'refresh-c',
+    ])
+    // Both families should track the same numeric slot they had
+    // before, but for refresh-c, the shift from index 2 → 1 must
+    // move the persisted gemini index from 2 → 1.
+    expect(harness.storage.activeIndexByFamily).toEqual({
+      claude: 0,
+      gemini: 1,
     })
   })
 
@@ -1047,7 +1370,7 @@ describe('createCommandDataService', () => {
           status: 'ok',
           quota: {
             groups: {
-              claude: { remainingFraction: 0.1, modelCount: 1 },
+              'non-gemini': { remainingFraction: 0.1, modelCount: 1 },
             },
             modelCount: 1,
           },
@@ -1064,7 +1387,7 @@ describe('createCommandDataService', () => {
         makeAccountFixture({ refreshToken: 'refresh-a' }),
         makeAccountFixture({
           refreshToken: 'refresh-b',
-          cachedQuota: { claude: { remainingFraction: 0.8 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.8 } },
         }),
       ],
       refreshResults,
@@ -1076,30 +1399,30 @@ describe('createCommandDataService', () => {
     await harness.service.refreshQuota()
 
     expect(harness.liveView[0]?.refreshToken).toBe('refresh-b')
-    expect(harness.liveView[0]?.cachedQuota?.claude?.remainingFraction).toBe(
-      0.8,
-    )
+    expect(
+      harness.liveView[0]?.cachedQuota?.['non-gemini']?.remainingFraction,
+    ).toBe(0.8)
   })
 
-  it('projects GPT-OSS quota into command rows and sidebar state', async () => {
+  it('projects non-Gemini quota into command rows and sidebar state', async () => {
     const harness = makeHarness({
       accounts: [
         makeAccountFixture({
           refreshToken: 'refresh-a',
-          cachedQuota: { 'gpt-oss': { remainingFraction: 0.42 } },
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.42 } },
         }),
       ],
     })
 
     const rows = await harness.service.refreshQuota()
     expect(rows[0]?.quota).toContainEqual({
-      key: 'gpt-oss',
-      label: 'GPT-OSS',
+      key: 'non-gemini',
+      label: 'Non-Gemini',
       remainingPercent: 42,
       resetAt: undefined,
     })
     const state = await readSidebar(harness.stateFile)
-    expect(state.accounts[0]?.quota['gpt-oss']?.remainingPercent).toBe(42)
+    expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(42)
   })
 
   it('setCurrentAccount() writes the token-indexed position, not the caller-supplied live index', async () => {
@@ -1138,6 +1461,199 @@ describe('createCommandDataService', () => {
     expect(harness.storage.activeIndex).toBe(1)
     expect(harness.storage.activeIndexByFamily?.claude).toBe(1)
     expect(harness.storage.activeIndexByFamily?.gemini).toBe(1)
+  })
+
+  it('refreshQuotaRespectingBackoff() folds successful results into the live cache', async () => {
+    // A stale account whose cached quota is 10% non-gemini. After a
+    // successful non-forced refresh returning 80%, the live cache must
+    // carry the fresh 80% — NOT the stale 10%.
+    const refreshResults = new Map<string, AccountQuotaResult>([
+      [
+        'refresh-a',
+        {
+          index: 0,
+          status: 'ok',
+          quota: {
+            groups: {
+              'non-gemini': {
+                remainingFraction: 0.8,
+                resetTime: new Date(0).toISOString(),
+                modelCount: 1,
+              },
+            },
+            modelCount: 1,
+          },
+          updatedAccount: {
+            refreshToken: 'refresh-a',
+            addedAt: 0,
+            lastUsed: 0,
+          },
+        },
+      ],
+    ])
+
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-a',
+          label: 'Alpha',
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.1 } },
+          cachedQuotaUpdatedAt: 1,
+        }),
+      ],
+      refreshResults,
+    })
+
+    // Live cache carries stale 10% before the call.
+    const before = harness.liveView[0]?.cachedQuota as
+      | QuotaGroupFixture
+      | undefined
+    expect(before?.['non-gemini']?.remainingFraction).toBe(0.1)
+
+    await harness.service.refreshQuotaRespectingBackoff()
+
+    // Live cache updated to fresh 80%.
+    const after = harness.liveView[0]?.cachedQuota as
+      | QuotaGroupFixture
+      | undefined
+    expect(after?.['non-gemini']?.remainingFraction).toBe(0.8)
+    // Identity stamp must be set.
+    expect(harness.liveView[0]?.cachedQuotaAccountId).toBe(
+      quotaAccountIdentity('refresh-a'),
+    )
+    // Must have been a non-forced refresh.
+    expect(harness.quotaCallLog.every((call) => call.force === false)).toBe(
+      true,
+    )
+  })
+
+  it('refreshQuotaRespectingBackoff() preserves existing backoff behaviour when all accounts are fresh', async () => {
+    // When refreshResults is empty (no stubs match — simulating the quota
+    // manager skipping every account due to backoff/freshness), the
+    // method must NOT crash, NOT update the cache, and NOT write a
+    // different sidebar.
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'fresh-account',
+          label: 'Fresh',
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.5 } },
+        }),
+      ],
+      refreshResults: new Map(), // Empty → every result is 'error'
+    })
+
+    const beforeFraction = (
+      harness.liveView[0]?.cachedQuota as QuotaGroupFixture | undefined
+    )?.['non-gemini']?.remainingFraction
+
+    await harness.service.refreshQuotaRespectingBackoff()
+
+    // Stale cache unchanged — no successful refresh occurred.
+    const afterFraction = (
+      harness.liveView[0]?.cachedQuota as QuotaGroupFixture | undefined
+    )?.['non-gemini']?.remainingFraction
+    expect(afterFraction).toBe(beforeFraction)
+    // Identity stamp must NOT have been set (no update happened).
+    expect(harness.liveView[0]?.cachedQuotaAccountId).toBeUndefined()
+  })
+})
+
+describe('P2-B: writeSidebar lands tier in the state FILE', () => {
+  let dir: string
+  let savedSidebarEnvTier: string | undefined
+
+  beforeEach(() => {
+    savedSidebarEnvTier = process.env[SIDEBAR_STATE_ENV]
+    dir = mkdtempSync(join(tmpdir(), 'agy-tier-sidebar-'))
+  })
+
+  afterEach(() => {
+    if (savedSidebarEnvTier !== undefined)
+      process.env[SIDEBAR_STATE_ENV] = savedSidebarEnvTier
+    else delete process.env[SIDEBAR_STATE_ENV]
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('P2-B-file: refreshQuota writes tier to sidebar state file (not just the returned row)', async () => {
+    // Previously writeSidebar built SidebarAccountRedactionInput WITHOUT tier,
+    // so the field landed in the CommandAccountRow but was thrown away before
+    // reaching the disk. This test asserts the state FILE carries it.
+    const capturedAt = 1_700_000_001_000
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-tier-test',
+          capturedTierId: 'free-tier',
+          capturedTierAt: capturedAt,
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.5 } },
+          cachedQuotaAccountId: quotaAccountIdentity('refresh-tier-test'),
+        }),
+      ],
+      refreshResults: new Map([
+        [
+          'refresh-tier-test',
+          {
+            index: 0,
+            status: 'ok' as const,
+            quota: {
+              groups: {
+                'non-gemini': { remainingFraction: 0.6, modelCount: 1 },
+              },
+              modelCount: 1,
+            },
+            updatedAccount: {
+              refreshToken: 'refresh-tier-test',
+              addedAt: 0,
+              lastUsed: 0,
+            },
+          },
+        ],
+      ]),
+    })
+
+    await harness.service.refreshQuota()
+    const state = await readSidebar(harness.stateFile)
+
+    expect(state.accounts).toHaveLength(1)
+    const acct = state.accounts[0]
+    // Tier must reach the FILE, not just the returned row.
+    expect(acct?.tier).toBeDefined()
+    expect(acct?.tier?.id).toBe('free-tier')
+    expect(acct?.tier?.capturedAt).toBe(capturedAt)
+  })
+
+  it('P2-B-absent: account without tier produces no tier key in the sidebar file', async () => {
+    const harness = makeHarness({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-no-tier',
+          cachedQuota: { 'non-gemini': { remainingFraction: 0.5 } },
+          cachedQuotaAccountId: quotaAccountIdentity('refresh-no-tier'),
+        }),
+      ],
+      refreshResults: new Map([
+        [
+          'refresh-no-tier',
+          {
+            index: 0,
+            status: 'ok' as const,
+            quota: { groups: {}, modelCount: 0 },
+            updatedAccount: {
+              refreshToken: 'refresh-no-tier',
+              addedAt: 0,
+              lastUsed: 0,
+            },
+          },
+        ],
+      ]),
+    })
+
+    await harness.service.refreshQuota()
+    const state = await readSidebar(harness.stateFile)
+
+    expect(state.accounts).toHaveLength(1)
+    expect(state.accounts[0]?.tier).toBeUndefined()
   })
 })
 

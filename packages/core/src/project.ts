@@ -40,6 +40,11 @@ interface LoadCodeAssistPayload {
   currentTier?: {
     id?: string
   }
+  paidTier?:
+    | string
+    | {
+        id?: string
+      }
   allowedTiers?: AntigravityUserTier[]
 }
 
@@ -295,6 +300,7 @@ export async function ensureProjectContext(
 
     const persistManagedProject = async (
       managedProjectId: string,
+      capturedTier?: ProjectContextResult['capturedTier'],
     ): Promise<ProjectContextResult> => {
       const updatedAuth: OAuthAuthDetails = {
         ...auth,
@@ -305,7 +311,11 @@ export async function ensureProjectContext(
         }),
       }
 
-      return { auth: updatedAuth, effectiveProjectId: managedProjectId }
+      return {
+        auth: updatedAuth,
+        effectiveProjectId: managedProjectId,
+        capturedTier,
+      }
     }
 
     // Try to resolve a managed project from Antigravity if possible.
@@ -313,10 +323,24 @@ export async function ensureProjectContext(
       accessToken,
       parts.projectId ?? fallbackProjectId,
     )
+    // Capture tier from the loadCodeAssist payload. The raw id is stored
+    // as-is; absent payload or missing tier leaves capturedTier undefined.
+    const capturedTierId = loadPayload?.currentTier?.id
+    const paidTierId =
+      typeof loadPayload?.paidTier === 'string'
+        ? loadPayload.paidTier
+        : loadPayload?.paidTier?.id
+    const tierFromPayload: ProjectContextResult['capturedTier'] = capturedTierId
+      ? {
+          id: capturedTierId,
+          ...(paidTierId ? { paidId: paidTierId } : {}),
+          capturedAt: Date.now(),
+        }
+      : undefined
     const resolvedManagedProjectId = extractManagedProjectId(loadPayload)
 
     if (resolvedManagedProjectId) {
-      return persistManagedProject(resolvedManagedProjectId)
+      return persistManagedProject(resolvedManagedProjectId, tierFromPayload)
     }
 
     // No managed project found - try to auto-provision one via onboarding.
@@ -337,7 +361,7 @@ export async function ensureProjectContext(
       log.debug('Successfully provisioned managed project', {
         provisionedProjectId,
       })
-      return persistManagedProject(provisionedProjectId)
+      return persistManagedProject(provisionedProjectId, tierFromPayload)
     }
 
     log.warn(
@@ -352,11 +376,19 @@ export async function ensureProjectContext(
     }
 
     if (parts.projectId) {
-      return { auth, effectiveProjectId: parts.projectId }
+      return {
+        auth,
+        effectiveProjectId: parts.projectId,
+        capturedTier: tierFromPayload,
+      }
     }
 
     // No project id present in auth; fall back to the hardcoded id for requests.
-    return { auth, effectiveProjectId: fallbackProjectId }
+    return {
+      auth,
+      effectiveProjectId: fallbackProjectId,
+      capturedTier: tierFromPayload,
+    }
   }
 
   if (!cacheKey) {

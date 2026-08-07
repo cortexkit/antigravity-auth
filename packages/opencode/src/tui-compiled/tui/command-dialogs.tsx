@@ -1,8 +1,8 @@
-import { createTextNode as _$createTextNode } from "opentui:runtime-module:%40opentui%2Fsolid";
-import { insertNode as _$insertNode } from "opentui:runtime-module:%40opentui%2Fsolid";
 import { memo as _$memo } from "opentui:runtime-module:%40opentui%2Fsolid";
 import { insert as _$insert } from "opentui:runtime-module:%40opentui%2Fsolid";
 import { setProp as _$setProp } from "opentui:runtime-module:%40opentui%2Fsolid";
+import { createTextNode as _$createTextNode } from "opentui:runtime-module:%40opentui%2Fsolid";
+import { insertNode as _$insertNode } from "opentui:runtime-module:%40opentui%2Fsolid";
 import { createElement as _$createElement } from "opentui:runtime-module:%40opentui%2Fsolid";
 import { createComponent as _$createComponent } from "opentui:runtime-module:%40opentui%2Fsolid";
 /** @jsxImportSource @opentui/solid */
@@ -228,27 +228,153 @@ function renderAccountDialog(api, initialPayload, apply) {
     renderMain();
     return null;
   };
+  const updateAccounts = knobs => {
+    const accounts = knobs.accounts;
+    if (!Array.isArray(accounts)) return;
+    payload.knobs = {
+      ...payload.knobs,
+      accounts: accounts
+    };
+  };
+  const openOAuthLabelPrompt = (code, oauthUrl) => {
+    const DialogPrompt = api.ui.DialogPrompt;
+    api.ui.dialog.setSize('xlarge');
+    api.ui.dialog.replace(() => _$createComponent(DialogPrompt, {
+      title: "OAuth sign-in \u2014 label",
+      description: () => (() => {
+        var _el$ = _$createElement("text");
+        _$insertNode(_el$, _$createTextNode(`A short name for this account (optional).`));
+        return _el$;
+      })(),
+      placeholder: "e.g. work",
+      value: "",
+      onConfirm: value => {
+        const label = value.trim();
+        const args = label ? `add-oauth-finish ${code} --label ${label}` : `add-oauth-finish ${code}`;
+        void apply('antigravity-account', args, {
+          timeoutMs: 120_000
+        }).then(result => {
+          api.ui.toast({
+            message: result.text
+          });
+          updateAccounts(result.knobs);
+          renderMain();
+        }).catch(() => {
+          api.ui.toast({
+            message: 'OAuth account add failed'
+          });
+          renderMain();
+        });
+      },
+      onCancel: () => openOAuthCodePrompt(oauthUrl)
+    }));
+  };
+  const openOAuthCodePrompt = oauthUrl => {
+    const DialogPrompt = api.ui.DialogPrompt;
+    api.ui.dialog.setSize('xlarge');
+    api.ui.dialog.replace(() => _$createComponent(DialogPrompt, {
+      title: "OAuth sign-in \u2014 enter code",
+      description: () => (() => {
+        var _el$3 = _$createElement("text");
+        _$insertNode(_el$3, _$createTextNode(`After signing in, paste the full callback URL or authorization code.`));
+        return _el$3;
+      })(),
+      placeholder: "Paste callback URL or code here",
+      value: "",
+      onConfirm: value => {
+        const code = value.trim();
+        if (!code) {
+          // Empty submit must keep the user inside the flow, not
+          // silently drop them back to the account list. Surface the
+          // validation message and reopen the same prompt so the
+          // user can paste again.
+          api.ui.toast({
+            message: 'Please paste the callback URL or authorization code.'
+          });
+          openOAuthCodePrompt(oauthUrl);
+          return;
+        }
+        openOAuthLabelPrompt(code, oauthUrl);
+      },
+      onCancel: () => openOAuthUrlScreen(oauthUrl)
+    }));
+  };
+  const openOAuthUrlScreen = oauthUrl => {
+    const DialogSelect = api.ui.DialogSelect;
+    api.ui.dialog.setSize('xlarge');
+    api.ui.dialog.replace(() => _$createComponent(DialogSelect, {
+      title: "OAuth sign-in",
+      options: [{
+        title: 'Copy URL to clipboard',
+        value: 'copy',
+        description: oauthUrl
+      }, {
+        title: 'Enter sign-in code',
+        value: 'code',
+        description: 'Open the URL in your browser, sign in, then paste the callback URL or code.'
+      }, {
+        title: 'Cancel',
+        value: 'cancel'
+      }],
+      onSelect: option => {
+        if (option.value === 'cancel') {
+          renderMain();
+          return;
+        }
+        if (option.value === 'copy') {
+          const copied = api.renderer.copyToClipboardOSC52(oauthUrl);
+          api.ui.toast({
+            message: copied ? 'URL copied to clipboard' : 'Copy unavailable — select the URL text above to copy'
+          });
+          openOAuthUrlScreen(oauthUrl);
+          return;
+        }
+        openOAuthCodePrompt(oauthUrl);
+      }
+    }));
+  };
+  const openAddOAuthStart = () => {
+    void apply('antigravity-account', 'add-oauth-start', {
+      timeoutMs: 120_000
+    }).then(result => {
+      updateAccounts(result.knobs);
+      const oauthUrl = result.knobs.oauthUrl;
+      if (typeof oauthUrl === 'string' && oauthUrl.length > 0) {
+        openOAuthUrlScreen(oauthUrl);
+        return;
+      }
+      api.ui.toast({
+        message: result.text
+      });
+      renderMain();
+    }).catch(() => {
+      api.ui.toast({
+        message: 'OAuth account add failed'
+      });
+      renderMain();
+    });
+  };
   const renderManageRow = row => {
     const DialogSelect = api.ui.DialogSelect;
     api.ui.dialog.setSize('xlarge');
     api.ui.dialog.replace(() => (() => {
-      var _el$ = _$createElement("box"),
-        _el$2 = _$createElement("text"),
-        _el$3 = _$createElement("text"),
-        _el$4 = _$createElement("box");
-      _$insertNode(_el$, _el$2);
-      _$insertNode(_el$, _el$3);
-      _$insertNode(_el$, _el$4);
-      _$setProp(_el$, "flexDirection", 'column');
-      _$setProp(_el$, "padding", 1);
-      _$setProp(_el$, "width", '100%');
-      _$insert(_el$2, () => row.label);
-      _$insert(_el$3, (() => {
+      var _el$5 = _$createElement("box"),
+        _el$6 = _$createElement("text"),
+        _el$7 = _$createElement("text"),
+        _el$8 = _$createElement("box");
+      _$insertNode(_el$5, _el$6);
+      _$insertNode(_el$5, _el$7);
+      _$insertNode(_el$5, _el$8);
+      _$setProp(_el$5, "flexDirection", 'column');
+      _$setProp(_el$5, "padding", 1);
+      _$setProp(_el$5, "width", '100%');
+      _$insert(_el$6, () => row.label);
+      _$insert(_el$7, (() => {
         var _c$ = _$memo(() => row.quota.length === 0);
         return () => _c$() ? 'no cached quota' : row.quota.map(q => q.remainingPercent == null ? `${q.label} –%` : `${q.label} ${q.remainingPercent}%`).join(', ');
       })());
-      _$setProp(_el$4, "marginTop", 1);
-      _$insert(_el$4, _$createComponent(DialogSelect, {
+      _$setProp(_el$8, "marginTop", 1);
+      _$insert(_el$8, _$createComponent(DialogSelect, {
         get title() {
           return `Manage ${row.label}`;
         },
@@ -297,7 +423,7 @@ function renderAccountDialog(api, initialPayload, apply) {
           });
         }
       }));
-      return _el$;
+      return _el$5;
     })());
   };
   const promptRemove = index => {
@@ -335,19 +461,19 @@ function renderAccountDialog(api, initialPayload, apply) {
     const rows = rowsFromKnobs();
     const bodyLines = rows.length ? rows.map(formatQuotaRowLine) : ['No accounts configured. Add one via the menu below.'];
     api.ui.dialog.replace(() => (() => {
-      var _el$5 = _$createElement("box"),
-        _el$6 = _$createElement("box");
-      _$insertNode(_el$5, _el$6);
-      _$setProp(_el$5, "flexDirection", 'column');
-      _$setProp(_el$5, "padding", 1);
-      _$setProp(_el$5, "width", '100%');
-      _$insert(_el$5, () => bodyLines.map(line => (() => {
-        var _el$7 = _$createElement("text");
-        _$insert(_el$7, line);
-        return _el$7;
-      })()), _el$6);
-      _$setProp(_el$6, "marginTop", 1);
-      _$insert(_el$6, _$createComponent(DialogSelect, {
+      var _el$9 = _$createElement("box"),
+        _el$0 = _$createElement("box");
+      _$insertNode(_el$9, _el$0);
+      _$setProp(_el$9, "flexDirection", 'column');
+      _$setProp(_el$9, "padding", 1);
+      _$setProp(_el$9, "width", '100%');
+      _$insert(_el$9, () => bodyLines.map(line => (() => {
+        var _el$1 = _$createElement("text");
+        _$insert(_el$1, line);
+        return _el$1;
+      })()), _el$0);
+      _$setProp(_el$0, "marginTop", 1);
+      _$insert(_el$0, _$createComponent(DialogSelect, {
         title: "Antigravity accounts",
         get options() {
           return [{
@@ -370,13 +496,7 @@ function renderAccountDialog(api, initialPayload, apply) {
             return;
           }
           if (raw === 'add') {
-            void runApply('add', {
-              timeoutMs: 120_000
-            }).catch(() => {
-              api.ui.toast({
-                message: 'Account add failed'
-              });
-            });
+            openAddOAuthStart();
             return;
           }
           if (raw.startsWith('__manage__ ')) {
@@ -390,7 +510,7 @@ function renderAccountDialog(api, initialPayload, apply) {
           });
         }
       }));
-      return _el$5;
+      return _el$9;
     })());
   };
   renderMain();
@@ -452,19 +572,19 @@ function renderRoutingDialog(api, initialPayload, apply) {
     } = readRouting();
     const bodyLines = [`cli_first: ${cliFirst ? 'on' : 'off'}`, `quota_style_fallback: ${quotaFallback ? 'on' : 'off'}`];
     api.ui.dialog.replace(() => (() => {
-      var _el$8 = _$createElement("box"),
-        _el$9 = _$createElement("box");
-      _$insertNode(_el$8, _el$9);
-      _$setProp(_el$8, "flexDirection", 'column');
-      _$setProp(_el$8, "padding", 1);
-      _$setProp(_el$8, "width", '100%');
-      _$insert(_el$8, () => bodyLines.map(line => (() => {
-        var _el$0 = _$createElement("text");
-        _$insert(_el$0, line);
-        return _el$0;
-      })()), _el$9);
-      _$setProp(_el$9, "marginTop", 1);
-      _$insert(_el$9, _$createComponent(DialogSelect, {
+      var _el$10 = _$createElement("box"),
+        _el$11 = _$createElement("box");
+      _$insertNode(_el$10, _el$11);
+      _$setProp(_el$10, "flexDirection", 'column');
+      _$setProp(_el$10, "padding", 1);
+      _$setProp(_el$10, "width", '100%');
+      _$insert(_el$10, () => bodyLines.map(line => (() => {
+        var _el$12 = _$createElement("text");
+        _$insert(_el$12, line);
+        return _el$12;
+      })()), _el$11);
+      _$setProp(_el$11, "marginTop", 1);
+      _$insert(_el$11, _$createComponent(DialogSelect, {
         title: "Antigravity routing",
         options: [{
           title: `${cliFirst ? '●' : '○'} cli_first: ${cliFirst}`,
@@ -498,7 +618,7 @@ function renderRoutingDialog(api, initialPayload, apply) {
           });
         }
       }));
-      return _el$8;
+      return _el$10;
     })());
   };
   renderMain();
@@ -559,9 +679,9 @@ function renderKillswitchDialog(api, initialPayload, apply) {
     api.ui.dialog.replace(() => _$createComponent(DialogPrompt, {
       title: "Antigravity killswitch \u2014 set threshold",
       description: () => (() => {
-        var _el$1 = _$createElement("text");
-        _$insertNode(_el$1, _$createTextNode(`Enter a new minimum_remaining_percent (0-100). Empty input cancels.`));
-        return _el$1;
+        var _el$13 = _$createElement("text");
+        _$insertNode(_el$13, _$createTextNode(`Enter a new minimum_remaining_percent (0-100). Empty input cancels.`));
+        return _el$13;
       })(),
       placeholder: `${currentMinimum}`,
       value: `${currentMinimum}`,
@@ -602,19 +722,19 @@ function renderKillswitchDialog(api, initialPayload, apply) {
     const accountKeys = Object.keys(accounts);
     const bodyLines = [`Killswitch: ${enabled ? 'enabled' : 'disabled'}`, `Minimum remaining percent: ${minimum}%`, ...(accountKeys.length > 0 ? ['Per-account overrides:', ...accountKeys.map(key => `  ${key}: ${accounts[key] ?? 0}%`)] : [])];
     api.ui.dialog.replace(() => (() => {
-      var _el$11 = _$createElement("box"),
-        _el$12 = _$createElement("box");
-      _$insertNode(_el$11, _el$12);
-      _$setProp(_el$11, "flexDirection", 'column');
-      _$setProp(_el$11, "padding", 1);
-      _$setProp(_el$11, "width", '100%');
-      _$insert(_el$11, () => bodyLines.map(line => (() => {
-        var _el$13 = _$createElement("text");
-        _$insert(_el$13, line);
-        return _el$13;
-      })()), _el$12);
-      _$setProp(_el$12, "marginTop", 1);
-      _$insert(_el$12, _$createComponent(DialogSelect, {
+      var _el$15 = _$createElement("box"),
+        _el$16 = _$createElement("box");
+      _$insertNode(_el$15, _el$16);
+      _$setProp(_el$15, "flexDirection", 'column');
+      _$setProp(_el$15, "padding", 1);
+      _$setProp(_el$15, "width", '100%');
+      _$insert(_el$15, () => bodyLines.map(line => (() => {
+        var _el$17 = _$createElement("text");
+        _$insert(_el$17, line);
+        return _el$17;
+      })()), _el$16);
+      _$setProp(_el$16, "marginTop", 1);
+      _$insert(_el$16, _$createComponent(DialogSelect, {
         title: "Antigravity killswitch",
         options: [{
           title: `${enabled ? '●' : '○'} Killswitch: ${enabled ? 'enabled' : 'disabled'}`,
@@ -652,7 +772,7 @@ function renderKillswitchDialog(api, initialPayload, apply) {
           });
         }
       }));
-      return _el$11;
+      return _el$15;
     })());
   };
   renderMain();

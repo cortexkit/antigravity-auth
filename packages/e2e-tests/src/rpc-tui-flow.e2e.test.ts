@@ -121,9 +121,40 @@ describe('rpc / tui flow (e2e)', () => {
         kind: 'projectDiscovery',
         projectId: 'project-rpc',
       })
+      // Primary: retrieveUserQuotaSummary (windowed).
+      // managedProjectId enforces the real API's 403: the caller must
+      // post the managed project id, not the regular project id.
+      // If it posts the wrong id, the mock returns 403 and the test
+      // exercises the fallback path instead — failing the window assertion.
       h.server.enqueue({
-        kind: 'quotaSummary',
-        models: [{ id: 'gemini-3-flash', displayName: 'Gemini 3 Flash' }],
+        kind: 'quotaSummaryWindow',
+        managedProjectId: 'managed-rpc',
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              {
+                bucketId: 'gemini-weekly',
+                displayName: 'Weekly Limit',
+                window: 'weekly',
+                resetTime: '2026-07-31T00:00:00Z',
+                remainingFraction: 0.7,
+              },
+            ],
+          },
+          {
+            displayName: 'Claude and GPT models',
+            buckets: [
+              {
+                bucketId: '3p-weekly',
+                displayName: 'Weekly Limit',
+                window: 'weekly',
+                resetTime: '2026-07-31T00:00:00Z',
+                remainingFraction: 0.8,
+              },
+            ],
+          },
+        ],
       })
       h.server.enqueue({
         kind: 'geminiCliQuota',

@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AccountMetadataV3 } from './account-types.ts'
-import { createQuotaManager, type FetchAccountQuota } from './quota-manager.ts'
+import {
+  aggregateQuotaSummary,
+  createQuotaManager,
+  type FetchAccountQuota,
+  fetchQuotaSummary,
+  type RetrieveUserQuotaSummaryBucket,
+  type RetrieveUserQuotaSummaryResponse,
+} from './quota-manager.ts'
 import type { AccountQuotaResult } from './quota-types.ts'
 
 function makeAccount(
@@ -44,7 +53,7 @@ function makeHarness(
       status: 'ok',
       email: account.email,
       quota: {
-        groups: { claude: { remainingFraction: 0.5, modelCount: 1 } },
+        groups: { 'non-gemini': { remainingFraction: 0.5, modelCount: 1 } },
         modelCount: 1,
       },
     }
@@ -72,36 +81,69 @@ function track(disposable: { dispose: () => void }) {
 }
 
 describe('classifyQuotaGroup', () => {
-  it('classifies Antigravity claude models', () => {
+  it('classifies Claude models into the non-Gemini pool', () => {
     const { classifyQuotaGroup } = createQuotaManager({
       fetchAccountQuota: makeHarness().fetch,
       keyOf: keyOfAccount,
     })
     expect(classifyQuotaGroup('claude-sonnet-4-6', 'Claude Sonnet 4.6')).toBe(
-      'claude',
+      'non-gemini',
     )
   })
 
-  it('classifies gemini flash vs pro via registry', () => {
+  it('classifies every representative Gemini model into the Gemini pool', () => {
     const { classifyQuotaGroup } = createQuotaManager({
       fetchAccountQuota: makeHarness().fetch,
       keyOf: keyOfAccount,
     })
-    expect(
-      classifyQuotaGroup('gemini-3.5-flash-low', 'Gemini 3.5 Flash (Low)'),
-    ).toBe('gemini-flash')
-    expect(classifyQuotaGroup('gemini-3.1-pro', 'Gemini 3.1 Pro')).toBe(
-      'gemini-pro',
-    )
+    // Each tuple covers a distinct tier/variant the production API
+    // exposes — a regression that ignores one tier would surface as a
+    // single failure rather than a passing test.
+    const geminiModels: Array<[string, string]> = [
+      ['gemini-3.5-flash-low', 'Gemini 3.5 Flash (Low)'],
+      ['gemini-3.1-pro', 'Gemini 3.1 Pro'],
+      ['gemini-3-flash', 'Gemini 3 Flash'],
+      ['gemini-3.1-flash-image', 'Gemini 3.1 Flash Image'],
+      ['gemini-pro-agent', 'Gemini Pro Agent'],
+      ['gemini-3.6-flash-medium', 'Gemini 3.6 Flash (Medium)'],
+    ]
+    for (const [id, display] of geminiModels) {
+      expect(classifyQuotaGroup(id, display)).toBe('gemini')
+    }
   })
 
-  it('classifies gpt-oss variants', () => {
+  it('classifies tab autocomplete models into the Gemini pool', () => {
+    const { classifyQuotaGroup } = createQuotaManager({
+      fetchAccountQuota: makeHarness().fetch,
+      keyOf: keyOfAccount,
+    })
+
+    expect(classifyQuotaGroup('tab_12345', 'Autocomplete')).toBe('gemini')
+  })
+
+  it('classifies GPT-OSS variants into the non-Gemini pool', () => {
     const { classifyQuotaGroup } = createQuotaManager({
       fetchAccountQuota: makeHarness().fetch,
       keyOf: keyOfAccount,
     })
     expect(classifyQuotaGroup('gpt-oss-120b-medium', 'GPT-OSS 120B')).toBe(
-      'gpt-oss',
+      'non-gemini',
+    )
+  })
+
+  it('classifies gemini-claude-* aliases into the non-Gemini pool (Claude route wins over the gemini- prefix)', () => {
+    // These aliases map to Claude-sonnet-4-6 in the route table; a
+    // regression that checks `gemini` first would misroute them to the
+    // gemini pool and silently double-charge that pool.
+    const { classifyQuotaGroup } = createQuotaManager({
+      fetchAccountQuota: makeHarness().fetch,
+      keyOf: keyOfAccount,
+    })
+    expect(
+      classifyQuotaGroup('gemini-claude-sonnet-4-6-thinking-low', ''),
+    ).toBe('non-gemini')
+    expect(classifyQuotaGroup('gemini-claude-sonnet-4-6', '')).toBe(
+      'non-gemini',
     )
   })
 
@@ -140,9 +182,9 @@ describe('aggregateQuota', () => {
         modelName: 'Gemini Flash',
       },
     })
-    expect(summary.groups.claude?.remainingFraction).toBe(0.8)
-    expect(summary.groups['gemini-pro']?.remainingFraction).toBe(0.4)
-    expect(summary.groups['gemini-flash']?.remainingFraction).toBe(0.1)
+    expect(summary.groups['non-gemini']?.remainingFraction).toBe(0.8)
+    expect(summary.groups.gemini?.remainingFraction).toBe(0.1)
+    expect(summary.groups.gemini?.modelCount).toBe(2)
     expect(summary.perModel).toHaveLength(3)
     expect(summary.modelCount).toBe(3)
   })
@@ -164,8 +206,8 @@ describe('aggregateQuota', () => {
         modelName: 'Flash',
       },
     })
-    expect(summary.groups.claude?.remainingFraction).toBe(1)
-    expect(summary.groups['gemini-flash']?.remainingFraction).toBe(0)
+    expect(summary.groups['non-gemini']?.remainingFraction).toBe(1)
+    expect(summary.groups.gemini?.remainingFraction).toBe(0)
   })
 })
 
@@ -741,5 +783,492 @@ describe('hashed log labels', () => {
     )
     // Empty email still produces a label
     expect(hashedLogLabel('x', '')).toMatch(/^x [a-f0-9]{8}$/)
+  })
+})
+
+// ============================================================================
+// aggregateQuotaSummary — windowed quota from retrieveUserQuotaSummary
+// ============================================================================
+
+function loadFixture(name: string): RetrieveUserQuotaSummaryResponse {
+  const path = join(import.meta.dir, '__fixtures__', 'quota', name)
+  const raw = readFileSync(path, 'utf8')
+  return JSON.parse(raw) as RetrieveUserQuotaSummaryResponse
+}
+
+describe('aggregateQuotaSummary', () => {
+  it('maps Pro (weekly+5h) groups to pools by bucketId prefix', () => {
+    const response = loadFixture('pro-ruqs.json')
+    const summary = aggregateQuotaSummary(response)
+
+    expect(summary.groups.gemini).toBeDefined()
+    expect(summary.groups['non-gemini']).toBeDefined()
+
+    const gemini = summary.groups.gemini!
+    expect(gemini.windows).toHaveLength(2)
+    // shortest-first: 5h before weekly
+    expect(gemini.windows![0]!.window).toBe('5h')
+    expect(gemini.windows![0]!.remainingFraction).toBeCloseTo(0.9886, 3)
+    expect(gemini.windows![1]!.window).toBe('weekly')
+    expect(gemini.windows![1]!.remainingFraction).toBeCloseTo(0.9214, 3)
+
+    const nonGemini = summary.groups['non-gemini']!
+    expect(nonGemini.windows).toHaveLength(2)
+    expect(nonGemini.windows![0]!.window).toBe('5h')
+    expect(nonGemini.windows![0]!.remainingFraction).toBeCloseTo(0.9556, 3)
+    expect(nonGemini.windows![1]!.window).toBe('weekly')
+    expect(nonGemini.windows![1]!.remainingFraction).toBeCloseTo(0.9852, 3)
+  })
+
+  it('maps Free (weekly-only) groups to pools', () => {
+    const response = loadFixture('free-ruqs.json')
+    const summary = aggregateQuotaSummary(response)
+
+    const gemini = summary.groups.gemini!
+    // Weekly-only: one window
+    expect(gemini.windows).toHaveLength(1)
+    expect(gemini.windows![0]!.window).toBe('weekly')
+    expect(gemini.windows![0]!.remainingFraction).toBeCloseTo(0.8875, 3)
+
+    const nonGemini = summary.groups['non-gemini']!
+    expect(nonGemini.windows).toHaveLength(1)
+    expect(nonGemini.windows![0]!.window).toBe('weekly')
+    expect(nonGemini.windows![0]!.remainingFraction).toBe(1)
+  })
+
+  it('derives most-constrained remainingFraction and resetTime per pool', () => {
+    const response = loadFixture('pro-ruqs.json')
+    const summary = aggregateQuotaSummary(response)
+
+    // Gemini: weekly=0.9214, 5h=0.9886 → weekly is more constrained
+    expect(summary.groups.gemini!.remainingFraction).toBeCloseTo(0.9214, 3)
+    expect(summary.groups.gemini!.resetTime).toBe('2026-07-28T18:24:21Z')
+
+    // Non-gemini: weekly=0.9852, 5h=0.9556 → 5h is more constrained
+    expect(summary.groups['non-gemini']!.remainingFraction).toBeCloseTo(
+      0.9556,
+      3,
+    )
+    expect(summary.groups['non-gemini']!.resetTime).toBe('2026-07-24T18:41:52Z')
+  })
+
+  it('preserves window order: shortest first', () => {
+    const response = loadFixture('pro-ruqs.json')
+    const summary = aggregateQuotaSummary(response)
+
+    for (const group of Object.values(summary.groups)) {
+      if (!group?.windows) continue
+      expect(group.windows).toHaveLength(2)
+      expect(group.windows![0]!.window).toBe('5h')
+      expect(group.windows![1]!.window).toBe('weekly')
+    }
+  })
+
+  it('sorts unknown window kinds last, deterministically', () => {
+    const buckets: RetrieveUserQuotaSummaryBucket[] = [
+      {
+        bucketId: 'gemini-weekly',
+        displayName: 'Weekly',
+        window: 'weekly',
+        resetTime: '2026-07-28T00:00:00Z',
+        remainingFraction: 0.9,
+      },
+      {
+        bucketId: 'gemini-daily',
+        displayName: 'Daily',
+        window: 'daily',
+        resetTime: '2026-07-25T00:00:00Z',
+        remainingFraction: 0.5,
+      },
+      {
+        bucketId: 'gemini-5h',
+        displayName: '5h',
+        window: '5h',
+        resetTime: '2026-07-24T12:00:00Z',
+        remainingFraction: 0.8,
+      },
+    ]
+    const summary = aggregateQuotaSummary({
+      groups: [
+        { displayName: 'Gemini', buckets, description: 'Models: A, B, C' },
+      ],
+    })
+    const windows = summary.groups.gemini!.windows!
+    expect(windows).toHaveLength(3)
+    // Known windows sorted shortest-first: 5h → weekly
+    expect(windows[0]!.window).toBe('5h')
+    expect(windows[1]!.window).toBe('weekly')
+    // Unknown window ('daily') sorts last
+    expect(windows[2]!.window).toBe('daily')
+  })
+
+  it('counts models from the description minus the prefix label', () => {
+    const response: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          description: 'Models within this group: Gemini 3.1 Pro, Flash',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-08T00:00:00Z',
+              remainingFraction: 0.7,
+            },
+          ],
+        },
+      ],
+    }
+    const summary = aggregateQuotaSummary(response)
+    expect(summary.groups.gemini!.modelCount).toBe(2)
+    expect(summary.modelCount).toBe(2)
+  })
+
+  it('back-compat: treats a windows-less QuotaGroupSummary gracefully', () => {
+    // Legacy shapes may have no `windows` array — consumers read
+    // `remainingFraction`/`resetTime` directly which are the derived
+    // values. Exercise this through the REAL response shape (a
+    // retrieveUserQuotaSummary payload that omits `windows` on each
+    // bucket), not through a windows-shaped fixture that already
+    // produced a non-empty `windows` array on the way through.
+    const response: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Gemini Legacy',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly',
+              window: 'weekly',
+              resetTime: '2025-12-29T00:00:00Z',
+              remainingFraction: 0.3,
+            },
+          ],
+        },
+      ],
+    }
+    const summary = aggregateQuotaSummary(response)
+    // The aggregator still surfaces per-window entries when the
+    // wire shape includes them — that's the legacy path's only
+    // window. Legacy consumers that read `remainingFraction`
+    // directly see the single most-constrained value.
+    expect(summary.groups.gemini).toBeDefined()
+    expect(summary.groups.gemini!.remainingFraction).toBeCloseTo(0.3, 3)
+    expect(summary.groups.gemini!.resetTime).toBe('2025-12-29T00:00:00Z')
+  })
+
+  it('keeps a pool when the first bucket is unrecognized', () => {
+    // Older servers may prepend a junk bucket (system noise, a
+    // non-standard prefix) whose bucketId doesn't match any of our
+    // pool prefixes. The legacy derivation used group.buckets[0]
+    // unconditionally, which silently dropped the whole group when
+    // an unknown prefix led the array. The pool must be derived
+    // from the first RECOGNIZED bucket, not the first bucket.
+    const response: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'unknown-prefix-noise',
+              displayName: 'Unknown',
+              window: 'weekly',
+              resetTime: '2026-01-01T00:00:00Z',
+              remainingFraction: 0,
+            },
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-08T00:00:00Z',
+              remainingFraction: 0.7,
+            },
+            {
+              bucketId: 'gemini-5h',
+              displayName: '5h Limit',
+              window: '5h',
+              resetTime: '2026-01-01T05:00:00Z',
+              remainingFraction: 0.85,
+            },
+          ],
+        },
+      ],
+    }
+    const summary = aggregateQuotaSummary(response)
+    expect(summary.groups.gemini).toBeDefined()
+    expect(summary.groups.gemini!.windows).toHaveLength(2)
+    expect(summary.groups.gemini!.remainingFraction).toBeCloseTo(0.7, 3)
+  })
+})
+
+// ============================================================================
+// fetchQuotaSummary — network layer with managedProjectId fallback
+// ============================================================================
+
+describe('fetchQuotaSummary', () => {
+  const ENDPOINTS = ['http://127.0.0.1:1'] as const
+
+  it('returns the summary when the server responds 200', async () => {
+    const summary: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-01T00:00:00Z',
+              remainingFraction: 0.5,
+            },
+          ],
+        },
+      ],
+    }
+    const fetchVia = async () =>
+      new Response(JSON.stringify(summary), { status: 200 })
+    const result = await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'mp',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    expect(result.summary.groups).toHaveLength(1)
+    expect(result.summary.groups[0]!.buckets[0]!.bucketId).toBe('gemini-weekly')
+  })
+
+  it('falls back to projectId when managedProjectId returns 403', async () => {
+    const summary: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            {
+              bucketId: '3p-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-01T00:00:00Z',
+              remainingFraction: 0.3,
+            },
+          ],
+        },
+      ],
+    }
+    let triedManaged = false
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      if (body.project === 'mp') {
+        triedManaged = true
+        return new Response(JSON.stringify({ error: 'PERMISSION_DENIED' }), {
+          status: 403,
+        })
+      }
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    const result = await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'mp',
+      projectId: 'regular',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    expect(triedManaged).toBe(true)
+    expect(result.summary.groups[0]!.buckets[0]!.bucketId).toBe('3p-weekly')
+  })
+
+  it('throws when all project IDs fail (caller handles fallback)', async () => {
+    const fetchVia = async () =>
+      new Response('{"error":"PERMISSION_DENIED"}', { status: 403 })
+    await expect(
+      fetchQuotaSummary({
+        accessToken: 'tok',
+        projectId: 'regular',
+        endpoints: ENDPOINTS,
+        fetchVia: fetchVia as any,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('uses managedProjectId as primary when both IDs are present', async () => {
+    let receivedProjectId = ''
+    const summary: RetrieveUserQuotaSummaryResponse = {
+      groups: [],
+    }
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      receivedProjectId = body.project as string
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'managed-proj',
+      projectId: 'regular-proj',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    expect(receivedProjectId).toBe('managed-proj')
+  })
+
+  it('falls back to projectId when managedProjectId is missing', async () => {
+    let receivedProjectId = ''
+    const summary: RetrieveUserQuotaSummaryResponse = {
+      groups: [],
+    }
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      receivedProjectId = body.project as string
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    await fetchQuotaSummary({
+      accessToken: 'tok',
+      projectId: 'regular-proj',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    expect(receivedProjectId).toBe('regular-proj')
+  })
+
+  it('uses managedProjectId when only managedProjectId is provided (managed-only path)', async () => {
+    // Distinct from the precedence test above: only managedProjectId is
+    // supplied — no projectId fallback. The managed-only input path must
+    // still post `project` with the managed project ID.
+    let receivedProjectId = ''
+    const summary: RetrieveUserQuotaSummaryResponse = { groups: [] }
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      receivedProjectId = body.project as string
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'managed-only',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    expect(receivedProjectId).toBe('managed-only')
+  })
+
+  it('fails over to the next endpoint when the first returns 500', async () => {
+    // The legacy fetchers iterate the endpoint list per project attempt
+    // (fetchAvailableModels, fetchGeminiCliQuota). fetchQuotaSummary
+    // must match: a 500 on the primary endpoint should fall through
+    // to the next entry in `options.endpoints`.
+    const summary: RetrieveUserQuotaSummaryResponse = {
+      groups: [
+        {
+          displayName: 'Recovery',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly',
+              window: 'weekly',
+              resetTime: '2026-01-01T00:00:00Z',
+              remainingFraction: 0.42,
+            },
+          ],
+        },
+      ],
+    }
+    const visited: string[] = []
+    const fetchVia = async (url: string): Promise<Response> => {
+      visited.push(url)
+      if (url.startsWith('https://failover-a.test')) {
+        return new Response('boom', { status: 500 })
+      }
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    const result = await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'mp',
+      endpoints: [
+        'https://failover-a.test',
+        'https://failover-b.test',
+      ] as const,
+      fetchVia: fetchVia as any,
+    })
+    expect(visited).toHaveLength(2)
+    expect(visited[0]).toBe(
+      'https://failover-a.test/v1internal:retrieveUserQuotaSummary',
+    )
+    expect(visited[1]).toBe(
+      'https://failover-b.test/v1internal:retrieveUserQuotaSummary',
+    )
+    expect(result.summary.groups[0]!.buckets[0]!.remainingFraction).toBe(0.42)
+  })
+
+  it('N1: a transient 500 on the managed attempt does NOT fall through to the projectId fallback', async () => {
+    // N1 regression: before the fix, tryBody returned null for ANY failure
+    // (403, 500, network). The fallback was entered on all of them, which
+    // could return a different project\'s quota data on transient errors.
+    // Now the fallback is gated on 403 only.
+    const triedProjects: string[] = []
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      triedProjects.push(body.project as string)
+      // Return 500 for the managed project attempt (transient error).
+      return new Response('internal error', { status: 500 })
+    }
+    // Both managed and regular project IDs are provided. The 500 on the
+    // managed attempt must NOT trigger the projectId fallback.
+    await expect(
+      fetchQuotaSummary({
+        accessToken: 'tok',
+        managedProjectId: 'managed-proj',
+        projectId: 'regular-proj',
+        endpoints: ENDPOINTS,
+        fetchVia: fetchVia as any,
+      }),
+    ).rejects.toThrow()
+    // Only the managed project should have been tried — the regular-proj
+    // fallback must not run on a transient error.
+    expect(triedProjects).toHaveLength(1)
+    expect(triedProjects[0]).toBe('managed-proj')
+  })
+
+  it('N1: a 500 on the managed attempt does not clobber the 403-fallback path', async () => {
+    // Complement: a 403 on the managed project DOES enter the fallback.
+    // This ensures the gating change did not accidentally disable the
+    // existing 403-fallback behavior.
+    const triedProjects: string[] = []
+    const summary: RetrieveUserQuotaSummaryResponse = { groups: [] }
+    const fetchVia = async (
+      _url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as any).body ?? '{}')
+      triedProjects.push(body.project as string)
+      if (body.project === 'managed-proj') {
+        return new Response('{}', { status: 403 })
+      }
+      return new Response(JSON.stringify(summary), { status: 200 })
+    }
+    const result = await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'managed-proj',
+      projectId: 'regular-proj',
+      endpoints: ENDPOINTS,
+      fetchVia: fetchVia as any,
+    })
+    // The 403 on managed-proj must trigger the fallback to regular-proj.
+    expect(triedProjects).toHaveLength(2)
+    expect(triedProjects[0]).toBe('managed-proj')
+    expect(triedProjects[1]).toBe('regular-proj')
+    expect(result.summary).toEqual(summary)
   })
 })

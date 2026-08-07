@@ -116,6 +116,55 @@ describe('project bootstrap', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
+  it('Fix2-tier-capture: capturedTier is returned from ensureProjectContext when loadCodeAssist returns currentTier', async () => {
+    const capturedNow = 1_785_000_000_000
+    spyOn(Date, 'now').mockImplementation(() => capturedNow)
+    const fetchSpy = mock().mockResolvedValue(
+      mockResponse({
+        cloudaicompanionProject: { id: 'my-project' },
+        currentTier: { id: 'pro-tier' },
+        paidTier: { id: 'g1-pro-tier' },
+      }),
+    )
+    const { fetchWithAgyCliTransport } = await import('./agy-transport.ts')
+    ;(fetchWithAgyCliTransport as any).mockImplementation(fetchSpy)
+
+    const auth = {
+      type: 'oauth' as const,
+      access: 'access-token',
+      refresh: 'bare-token',
+      expires: Date.now() + 60_000,
+    }
+
+    const result = await ensureProjectContext(auth)
+
+    expect(result.capturedTier).toEqual({
+      id: 'pro-tier',
+      paidId: 'g1-pro-tier',
+      capturedAt: capturedNow,
+    })
+  })
+
+  it('Fix2-tier-absent: capturedTier is absent when loadCodeAssist returns no currentTier', async () => {
+    const fetchSpy = mock().mockResolvedValue(
+      mockResponse({ cloudaicompanionProject: { id: 'my-project' } }),
+    )
+    const { fetchWithAgyCliTransport } = await import('./agy-transport.ts')
+    ;(fetchWithAgyCliTransport as any).mockImplementation(fetchSpy)
+
+    const auth = {
+      type: 'oauth' as const,
+      access: 'access-token',
+      refresh: 'bare-token-2',
+      expires: Date.now() + 60_000,
+    }
+
+    const result = await ensureProjectContext(auth)
+
+    // No tier in payload — must be absent, not defaulted.
+    expect(result.capturedTier).toBeUndefined()
+  })
+
   it('does not retry managed-project provisioning after a cached failure expires', async () => {
     let now = 1_000
     spyOn(Date, 'now').mockImplementation(() => now)

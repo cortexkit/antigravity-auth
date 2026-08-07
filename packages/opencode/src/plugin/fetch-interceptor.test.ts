@@ -428,10 +428,10 @@ describe('createFetchInterceptor', () => {
       // killswitch rules it out. Account 1 at 80% is fully eligible.
       // The URL model is gemini-3-flash → `gemini-flash` group.
       accountManager.updateQuotaCache(0, {
-        'gemini-flash': { remainingFraction: 0.3, modelCount: 1 },
+        gemini: { remainingFraction: 0.3, modelCount: 1 },
       })
       accountManager.updateQuotaCache(1, {
-        'gemini-flash': { remainingFraction: 0.8, modelCount: 1 },
+        gemini: { remainingFraction: 0.8, modelCount: 1 },
       })
 
       const operatorSettings = {

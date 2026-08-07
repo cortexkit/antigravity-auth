@@ -360,6 +360,16 @@
       ],
       "additionalProperties": false
     },
+    "background_quota_refresh": {
+      "default": true,
+      "type": "boolean"
+    },
+    "background_quota_refresh_interval_minutes": {
+      "default": 5,
+      "type": "number",
+      "minimum": 1,
+      "maximum": 60
+    },
     "auto_update": {
       "default": true,
       "type": "boolean",

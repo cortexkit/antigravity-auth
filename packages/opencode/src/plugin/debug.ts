@@ -61,6 +61,30 @@ function closeDebugStream(): void {
 }
 
 /**
+ * Close the debug log stream and resolve once all buffered writes
+ * have been flushed to disk. Tests use this to wait deterministically
+ * for log lines before reading the log file; the internal reinitialize
+ * path calls {@link closeDebugStream} directly (fire-and-forget).
+ */
+export function closeDebugLog(): Promise<void> {
+  const current = debugState?.logStream
+  if (!current) return Promise.resolve()
+  // Detach the reference so reinitialization won't double-close.
+  if (debugState) {
+    debugState.logStream = null
+  }
+  return new Promise<void>((resolve) => {
+    current.once('close', () => resolve())
+    current.once('error', () => resolve())
+    try {
+      current.end()
+    } catch {
+      resolve()
+    }
+  })
+}
+
+/**
  * Get the OS-specific config directory.
  */
 function getConfigDir(): string {

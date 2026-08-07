@@ -164,3 +164,117 @@ describe('mock antigravity server', () => {
     await pending
   })
 })
+
+// ===========================================================================
+// quotaSummaryWindow — managedProjectId 403 gate
+// ===========================================================================
+
+describe('quotaSummaryWindow managedProjectId 403 gate', () => {
+  it('returns 200 when project matches managedProjectId', async () => {
+    await withServer(async (server) => {
+      server.enqueue({
+        kind: 'quotaSummaryWindow',
+        managedProjectId: 'managed-rpc',
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              {
+                bucketId: 'gemini-weekly',
+                displayName: 'Weekly Limit',
+                window: 'weekly',
+                resetTime: '2026-07-31T00:00:00Z',
+                remainingFraction: 0.7,
+              },
+            ],
+          },
+        ],
+      })
+      const response = await fetch(
+        `${server.baseUrl}/v1internal:retrieveUserQuotaSummary`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ project: 'managed-rpc' }),
+        },
+      )
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as {
+        groups: Array<{
+          displayName: string
+          buckets: Array<{ bucketId: string; remainingFraction: number }>
+        }>
+      }
+      expect(body.groups).toHaveLength(1)
+      expect(body.groups[0]!.buckets[0]!.bucketId).toBe('gemini-weekly')
+      expect(body.groups[0]!.buckets[0]!.remainingFraction).toBe(0.7)
+    })
+  })
+
+  it('returns 403 when project field is omitted', async () => {
+    await withServer(async (server) => {
+      server.enqueue({
+        kind: 'quotaSummaryWindow',
+        managedProjectId: 'managed-rpc',
+        groups: [],
+      })
+      const response = await fetch(
+        `${server.baseUrl}/v1internal:retrieveUserQuotaSummary`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      )
+      expect(response.status).toBe(403)
+      const body = (await response.json()) as {
+        error: { code: number; message: string }
+      }
+      expect(body.error.code).toBe(7)
+      expect(body.error.message).toBe('PERMISSION_DENIED')
+    })
+  })
+
+  it('returns 403 when project does not match managedProjectId', async () => {
+    await withServer(async (server) => {
+      server.enqueue({
+        kind: 'quotaSummaryWindow',
+        managedProjectId: 'managed-rpc',
+        groups: [],
+      })
+      const response = await fetch(
+        `${server.baseUrl}/v1internal:retrieveUserQuotaSummary`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ project: 'wrong-project' }),
+        },
+      )
+      expect(response.status).toBe(403)
+    })
+  })
+
+  it('returns 400 when the request body is unparseable JSON', async () => {
+    await withServer(async (server) => {
+      server.enqueue({
+        kind: 'quotaSummaryWindow',
+        managedProjectId: 'managed-rpc',
+        groups: [],
+      })
+      const response = await fetch(
+        `${server.baseUrl}/v1internal:retrieveUserQuotaSummary`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: 'not-json',
+        },
+      )
+      expect(response.status).toBe(400)
+      const body = (await response.json()) as {
+        error: { code: number; message: string }
+      }
+      expect(body.error.code).toBe(3)
+      expect(body.error.message).toBe('INVALID_ARGUMENT')
+    })
+  })
+})

@@ -3,12 +3,16 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AccountStorageUnreadableError } from '@cortexkit/antigravity-auth-core'
+
 import type { CommandModalName } from '../rpc/protocol'
+import { readSidebarState } from '../sidebar-state'
 import { registerAntigravityCommands } from './catalog'
+import type { CommandAccountRow } from './command-data'
 import {
   applyCommand,
   buildDialogPayload,
   createCommandExecuteBefore,
+  createSidebarRefresher,
   MODAL_COMMANDS,
 } from './commands'
 import { GEMINI_DUMP_COMMAND_NAME } from './gemini-dump'
@@ -240,6 +244,8 @@ describe('createCommandExecuteBefore', () => {
             quota: {},
           },
         ],
+        refreshQuota: async () => [],
+        refreshQuotaRespectingBackoff: async () => {},
       } as never,
       { isTuiConnected: () => true },
     )
@@ -247,6 +253,52 @@ describe('createCommandExecuteBefore', () => {
     await expect(
       handler?.(
         { command: 'antigravity-quota', arguments: '', sessionID: 'session-1' },
+        { parts: [] },
+      ),
+    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
+
+    const payload = notifications[0]
+    expect(payload?.knobs.accounts as unknown[] | undefined).toHaveLength(1)
+    await settings.dispose()
+  })
+
+  it('includes cached accounts in the account OPEN notification payload', async () => {
+    const notifications: Array<Awaited<ReturnType<typeof buildDialogPayload>>> =
+      []
+    const pushNotification = (
+      payload: Awaited<ReturnType<typeof buildDialogPayload>>,
+    ) => {
+      notifications.push(payload)
+    }
+    const settings = createOperatorSettingsController({
+      projectConfigPath: join(dir, 'antigravity.json'),
+      userConfigPath: join(dir, 'user.json'),
+    })
+    const handler = createCommandExecuteBefore(
+      { session: { promptAsync: mock(async () => {}) } } as never,
+      settings,
+      pushNotification,
+      {
+        listAccounts: async () => [
+          {
+            index: 0,
+            label: 'Primary account',
+            enabled: true,
+            active: true,
+            quota: {},
+          },
+        ],
+      } as never,
+      { isTuiConnected: () => true },
+    )
+
+    await expect(
+      handler?.(
+        {
+          command: 'antigravity-account',
+          arguments: '',
+          sessionID: 'session-1',
+        },
         { parts: [] },
       ),
     ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
@@ -572,6 +624,570 @@ describe('applyCommand', () => {
       },
     )
     expect(refresh.knobs.timeoutMs).toBe(120_000)
+  })
+
+  it('returns an OAuth URL and current rows when add-oauth-start is applied', async () => {
+    const start = mock(async () => ({
+      url: 'https://accounts.google.test/authorize',
+      accounts: [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Primary account',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+      ],
+    }))
+
+    const result = await applyCommand(
+      { command: 'antigravity-account', arguments: 'add-oauth-start' },
+      {
+        client: {} as never,
+        sessionID: 'session-1',
+        settings: ctx.settings,
+        accountOAuth: { start } as never,
+      },
+    )
+
+    expect(start).toHaveBeenCalledWith('session-1')
+    expect(result.text).toContain('Open this URL')
+    expect(result.knobs.oauthUrl).toBe('https://accounts.google.test/authorize')
+    expect(result.knobs.accounts as unknown[]).toHaveLength(1)
+    expect(result.knobs.timeoutMs).toBe(120_000)
+  })
+
+  it('returns refreshed rows after add-oauth-finish', async () => {
+    const finish = mock(async () => ({
+      text: 'OAuth account added.',
+      accounts: [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Primary account',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Work account',
+          enabled: true,
+          current: false,
+          quota: [],
+        },
+      ],
+    }))
+
+    const result = await applyCommand(
+      {
+        command: 'antigravity-account',
+        arguments: 'add-oauth-finish callback-code',
+      },
+      {
+        client: {} as never,
+        sessionID: 'session-1',
+        settings: ctx.settings,
+        accountOAuth: { finish } as never,
+      },
+    )
+
+    expect(finish).toHaveBeenCalledWith('session-1', 'callback-code')
+    expect(result.text).toBe('OAuth account added.')
+    expect(result.knobs.accounts as unknown[]).toHaveLength(2)
+    expect(result.knobs.timeoutMs).toBe(120_000)
+  })
+
+  it('preserves an existing cached quota in the sidebar after add-oauth-finish', async () => {
+    const sidebarFile = join(dir, 'sidebar-state.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const finish = mock(async () => ({
+        text: 'OAuth account added.',
+        accounts: [
+          {
+            id: 'acct-0',
+            index: 0,
+            label: 'Primary account',
+            enabled: true,
+            current: true,
+            quota: [
+              {
+                key: 'non-gemini' as const,
+                label: 'Non-Gemini',
+                remainingPercent: 50,
+              },
+            ],
+          },
+          {
+            id: 'acct-1',
+            index: 1,
+            label: 'New account',
+            enabled: true,
+            current: false,
+            quota: [],
+          },
+        ],
+      }))
+
+      await applyCommand(
+        {
+          command: 'antigravity-account',
+          arguments: 'add-oauth-finish callback-code',
+        },
+        {
+          client: {} as never,
+          sessionID: 'session-1',
+          settings: ctx.settings,
+          accountOAuth: { finish } as never,
+          onApplied: createSidebarRefresher(() => []),
+        },
+      )
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(50)
+      expect(state.accounts[1]?.quota).toEqual({})
+    } finally {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('V2 windows: per-window quota arrays survive the post-apply sidebar projection', async () => {
+    // After an account or quota apply, createSidebarRefresher rebuilds
+    // cachedQuota from CommandAccountRow.quota. Without the fix the
+    // `windows` array was not carried and the sidebar collapsed to a
+    // single aggregate bar after every apply.
+    const sidebarFile = join(dir, 'sidebar-windows-v2.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const resetAt = Date.now() + 7 * 24 * 60 * 60_000
+      const dialogRows: CommandAccountRow[] = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Account 1',
+          enabled: true,
+          current: true,
+          quota: [
+            {
+              key: 'non-gemini' as const,
+              label: 'Non-Gemini',
+              remainingPercent: 60,
+              resetAt,
+              windows: [
+                {
+                  window: '5h' as const,
+                  remainingPercent: 85,
+                  resetAt: resetAt - 1000,
+                },
+                { window: 'weekly' as const, remainingPercent: 60, resetAt },
+              ],
+            },
+          ],
+        },
+      ]
+
+      const refresher = createSidebarRefresher(() => [])
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(1)
+      const quota = state.accounts[0]?.quota['non-gemini']
+      expect(quota?.remainingPercent).toBe(60)
+      // Per-window entries must survive the post-apply sidebar write.
+      expect(quota?.windows).toBeDefined()
+      expect(quota?.windows?.length).toBeGreaterThanOrEqual(2)
+      const weekly = quota?.windows?.find((w) => w.window === 'weekly')
+      expect(weekly).toBeDefined()
+      expect(weekly?.remainingPercent).toBe(60)
+    } finally {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('carries healthScore from dialog rows into the sidebar state file', async () => {
+    // Covers the M1 seam AND the M3 gap: the final projection inside
+    // createSidebarRefresher must not re-map fields (dropping healthScore),
+    // and the sidebar state file (not just the returned row) must carry
+    // the tracker score. A score of 42 should appear as health: 42 in the
+    // persisted state - not reset to the default 100.
+    const sidebarFile = join(dir, 'sidebar-health-seam.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const refresher = createSidebarRefresher(() => [])
+      const dialogRows: CommandAccountRow[] = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Alpha',
+          enabled: true,
+          current: true,
+          healthScore: 42,
+          quota: [
+            {
+              key: 'gemini' as const,
+              label: 'Gemini',
+              remainingPercent: 80,
+              windows: [
+                {
+                  window: '5h' as const,
+                  remainingPercent: 80,
+                  resetAt: Date.now() + 5 * 60 * 1000,
+                },
+                {
+                  window: 'weekly' as const,
+                  remainingPercent: 75,
+                  resetAt: Date.now() + 7 * 24 * 60 * 60_000,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Beta',
+          enabled: false,
+          current: false,
+          healthScore: 17,
+          quota: [],
+        },
+      ]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      // Core seam assertion: tracker scores must reach the state file.
+      expect(state.accounts[0]?.health).toBe(42)
+      expect(state.accounts[1]?.health).toBe(17)
+      // Per-window data must also survive the same projection.
+      const gemini = state.accounts[0]?.quota.gemini
+      expect(gemini?.windows).toBeDefined()
+      expect(gemini?.windows?.length).toBeGreaterThanOrEqual(2)
+    } finally {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('preserves the live coolingDownUntil when an account action refreshes the sidebar', async () => {
+    // The dialog path builds sidebar rows from the post-mutation
+    // command data, which does NOT carry the running cooldown. The
+    // sidebar refresher must look up the live account's timer by
+    // index so a rate-limited account doesn't momentarily flash as
+    // available right after the user toggles / removes / sets active.
+    const sidebarFile = join(dir, 'sidebar-state.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const getAccounts = mock(() => [
+        {
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          coolingDownUntil: 1_900_000_000_000,
+        },
+        {
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          coolingDownUntil: undefined,
+        },
+      ])
+      const refresher = createSidebarRefresher(getAccounts)
+      const dialogRows = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          current: false,
+          quota: [],
+        },
+      ]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      expect(state.accounts[0]?.cooldownUntil).toBe(1_900_000_000_000)
+      expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
+    } finally {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('uses the dialog row cooldown over the live-by-index fallback when the row carries it', async () => {
+    // Live accounts have been renumbered between projection and
+    // refresh (e.g. a concurrent reload). The dialog row projected
+    // before the reorder carries its own cooldown, which must survive
+    // through the refresher — the live-by-index lookup at the row's
+    // stale index would give the wrong account's cooldown.
+    const sidebarFile = join(dir, 'sidebar-reorder.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      // Live accounts AFTER reorder: index 0 now has cooldown
+      // 1_800_000_000_000 (the wrong account's timer).
+      const getAccounts = mock(() => [
+        {
+          index: 0,
+          label: 'Shifted account',
+          enabled: true,
+          coolingDownUntil: 1_800_000_000_000,
+        },
+        {
+          index: 1,
+          label: 'Unlimited',
+          enabled: true,
+          coolingDownUntil: undefined,
+        },
+      ])
+      const refresher = createSidebarRefresher(getAccounts)
+      // Dialog rows projected BEFORE the reorder: index 0 already
+      // carries the original cooldown from the projection.
+      const dialogRows: CommandAccountRow[] = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          current: true,
+          coolingDownUntil: 1_900_000_000_000,
+          quota: [],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          current: false,
+          coolingDownUntil: undefined,
+          quota: [],
+        },
+      ]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      // The row's own cooldown (1_900_000_000_000) must be used, not
+      // the live-by-index fallback (1_800_000_000_000) which belongs
+      // to the account that shifted into slot 0 after the reorder.
+      expect(state.accounts[0]?.cooldownUntil).toBe(1_900_000_000_000)
+      expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
+    } finally {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('does not fall through to the live-by-index map when the row carries its own undefined cooldown', async () => {
+    // After a concurrent reorder, the index that belonged to a
+    // no-cooldown account now holds a DIFFERENT account WITH a
+    // cooldown. The dialog row (projected before the reorder)
+    // carries coolingDownUntil: undefined (present = genuinely no
+    // cooldown) — this must NOT fall through to the index map and
+    // inherit the wrong account's timer.
+    const sidebarFile = join(dir, 'sidebar-misattrib.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      // Live accounts AFTER reorder: the account that shifted into
+      // slot 0 has a cooldown.
+      const getAccounts = mock(() => [
+        {
+          index: 0,
+          label: 'Shifted-in account',
+          enabled: true,
+          coolingDownUntil: 1_700_000_000_000,
+        },
+        {
+          index: 1,
+          label: 'Second account',
+          enabled: true,
+          coolingDownUntil: undefined,
+        },
+      ])
+      const refresher = createSidebarRefresher(getAccounts)
+      // Dialog rows projected BEFORE the reorder. Index 0 was the
+      // no-cooldown account and the row carries undefined (present).
+      const dialogRows: CommandAccountRow[] = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'No-cooldown account',
+          enabled: true,
+          current: true,
+          coolingDownUntil: undefined,
+          quota: [],
+        },
+      ]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(1)
+      // Must NOT inherit 1_700_000_000_000 from the shifted-in
+      // account at live index 0.
+      expect(state.accounts[0]?.cooldownUntil).toBeUndefined()
+    } finally {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('falls back to the live-by-index cooldown when the row lacks the property entirely', async () => {
+    // Legacy projection rows (pre-coolingDownUntil field) do not
+    // carry the key at all. The refresher must still read the live
+    // timer from the index map so a rate-limited account's cooldown
+    // survives through the sidebar update.
+    const sidebarFile = join(dir, 'sidebar-legacy.json')
+    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
+    try {
+      const getAccounts = mock(() => [
+        {
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          coolingDownUntil: 1_800_000_000_000,
+        },
+        {
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          coolingDownUntil: undefined,
+        },
+      ])
+      const refresher = createSidebarRefresher(getAccounts)
+      // Legacy dialog rows that DO NOT have coolingDownUntil at
+      // all (the property is absent, not undefined).
+      const dialogRows = [
+        {
+          id: 'acct-0',
+          index: 0,
+          label: 'Rate-limited',
+          enabled: true,
+          current: true,
+          quota: [],
+        },
+        {
+          id: 'acct-1',
+          index: 1,
+          label: 'Available',
+          enabled: true,
+          current: false,
+          quota: [],
+        },
+      ] as CommandAccountRow[]
+
+      await refresher(dialogRows)
+
+      const state = readSidebarState(sidebarFile)
+      expect(state.accounts).toHaveLength(2)
+      expect(state.accounts[0]?.cooldownUntil).toBe(1_800_000_000_000)
+      expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
+    } finally {
+      // Restore rather than delete when previousSidebarFile was unset —
+      // a delete drops resolution to the operator's real state dir.
+      if (previousSidebarFile !== undefined) {
+        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
+      }
+    }
+  })
+
+  it('starts a backoff-respecting quota check when the quota dialog opens without delaying its cached payload', async () => {
+    // N6: the dialog OPEN path now calls refreshQuotaRespectingBackoff
+    // (non-forced) instead of refreshQuota (forced). The fire-and-forget
+    // semantics are preserved: if buildDialogPayload accidentally awaits
+    // the call this test hangs and surfaces as a timeout.
+    const listAccounts = mock(async () => [
+      {
+        id: 'acct-0',
+        index: 0,
+        label: 'Primary account',
+        enabled: true,
+        current: true,
+        quota: [],
+      },
+    ])
+    let refreshStarted = false
+    const refreshQuotaRespectingBackoff = mock(() => {
+      refreshStarted = true
+      return new Promise<never>(() => {})
+    })
+
+    const payload = await buildDialogPayload('antigravity-quota', '', {
+      client: {} as never,
+      sessionID: 'session-1',
+      settings: ctx.settings,
+      commandData: { listAccounts, refreshQuotaRespectingBackoff } as never,
+    })
+
+    expect(payload.knobs.accounts).toHaveLength(1)
+    expect(refreshStarted).toBe(true)
+    expect(refreshQuotaRespectingBackoff).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the expired-pending result from add-oauth-finish', async () => {
+    const finish = mock(async () => ({
+      text: 'OAuth session expired. Please start again.',
+      accounts: [],
+    }))
+
+    const result = await applyCommand(
+      {
+        command: 'antigravity-account',
+        arguments: 'add-oauth-finish callback-code',
+      },
+      {
+        client: {} as never,
+        sessionID: 'session-1',
+        settings: ctx.settings,
+        accountOAuth: { finish } as never,
+      },
+    )
+
+    expect(finish).toHaveBeenCalledWith('session-1', 'callback-code')
+    expect(result.text).toBe('OAuth session expired. Please start again.')
+    expect(result.knobs.accounts as unknown[]).toHaveLength(0)
   })
 
   it('account apply dispatches current/toggle/remove through the data service', async () => {

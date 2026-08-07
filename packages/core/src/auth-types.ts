@@ -33,4 +33,10 @@ export interface RefreshParts {
 export interface ProjectContextResult {
   auth: OAuthAuthDetails
   effectiveProjectId: string
+  /**
+   * Plan tier captured from the `loadCodeAssist` payload at project-context
+   * resolution time. Present only when the upstream returned a non-empty
+   * `currentTier.id`; absent when the payload lacked tier info.
+   */
+  capturedTier?: { id: string; paidId?: string; capturedAt: number }
 }
