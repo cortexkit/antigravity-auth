@@ -164,7 +164,7 @@ Tier-suffixed model names are still accepted:
 
 However, **we recommend using simplified model names with variants** for:
 
-- **Cleaner model picker** — 7 models instead of 12+
+- **Cleaner model picker** — 8 models instead of 12+
 - **Simpler config** — No need to configure both `antigravity-` and `-preview` versions
 - **Automatic quota routing** — Plugin handles model name transformation
 - **Flexible budgets** — Define any budget, not just preset tiers

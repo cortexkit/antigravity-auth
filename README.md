@@ -138,8 +138,8 @@ When all accounts for a given family cool down, the fetch interceptor waits up t
 
 ### Model IDs shipped in the registry
 
-- `antigravity-gemini-3-pro`, `antigravity-gemini-3-flash`, `antigravity-gemini-3.5-flash`, `antigravity-gemini-3.1-pro`, `antigravity-gemini-3.1-flash-image`
-- `antigravity-claude-sonnet-4-6`, `antigravity-claude-opus-4-6-thinking`
+- `antigravity-gemini-3.7-flash`, `antigravity-gemini-3.6-flash`, `antigravity-gemini-3.5-flash`, `antigravity-gemini-3.1-pro`, `antigravity-gemini-3.1-flash-image`
+- `antigravity-claude-sonnet-4-6-thinking`, `antigravity-claude-opus-4-6-thinking`
 - `antigravity-gpt-oss-120b-medium`
 - `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-3.1-pro-preview`, `gemini-3.1-pro-preview-customtools` (Gemini CLI namespace)
 

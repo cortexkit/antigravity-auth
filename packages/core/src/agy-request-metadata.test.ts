@@ -22,7 +22,7 @@ type ModelMetadataFixture = {
   >
 }
 
-const MODEL_METADATA_FIXTURES = ['1.1.3', '1.1.6'].map(
+const MODEL_METADATA_FIXTURES = ['1.1.3', '1.1.6', '1.1.13'].map(
   (version) =>
     JSON.parse(
       readFileSync(
@@ -79,7 +79,7 @@ describe('agy request metadata', () => {
     })
   })
 
-  it('orders request fields like captured agy 1.1.6 payloads', () => {
+  it('orders request fields like captured agy 1.1.13 payloads', () => {
     const payload: Record<string, unknown> = {
       generationConfig: {},
       sessionId: 'session',

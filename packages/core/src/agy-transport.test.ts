@@ -21,10 +21,10 @@ type AgyWireFixture = {
   requestKeys: string[]
 }
 
-const AGY_1_1_5_WIRE_FIXTURE = JSON.parse(
+const AGY_1_1_13_WIRE_FIXTURE = JSON.parse(
   readFileSync(
     new URL(
-      '../../../test-fixtures/agy-cli-1.1.6-stream-request.json',
+      '../../../test-fixtures/agy-cli-1.1.13-stream-request.json',
       import.meta.url,
     ),
     'utf8',
@@ -73,16 +73,16 @@ describe('agy transport', () => {
     expect(DEFAULT_AGY_IDLE_TIMEOUT_MS).toBe(180_000)
   })
 
-  it('serializes the captured agy CLI 1.1.6 stream header contract', () => {
+  it('serializes the captured agy CLI 1.1.13 stream header contract', () => {
     const pairs = buildAgyCliHeaderPairs(
-      AGY_1_1_5_WIRE_FIXTURE.capture.endpoint,
+      AGY_1_1_13_WIRE_FIXTURE.capture.endpoint,
       {
         method: 'POST',
         headers: {
           Authorization: 'Bearer token',
           'Content-Type': 'application/json',
           'User-Agent':
-            'antigravity/cli/1.1.6 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)',
+            'antigravity/cli/1.1.13 (aidev_client; os_type=darwin; arch=arm64; cl=964361259; auth_method=consumer)',
           'Accept-Encoding': 'gzip',
         },
         body: JSON.stringify({ request: { contents: [] } }),
@@ -92,11 +92,11 @@ describe('agy transport', () => {
       name === 'Authorization' ? '<redacted>' : value,
     ])
 
-    expect(AGY_1_1_5_WIRE_FIXTURE.capture).toMatchObject({
-      version: '1.1.6',
+    expect(AGY_1_1_13_WIRE_FIXTURE.capture).toMatchObject({
+      version: '1.1.13',
       httpVersion: 'HTTP/1.1',
     })
-    expect(pairs).toEqual(AGY_1_1_5_WIRE_FIXTURE.headers)
+    expect(pairs).toEqual(AGY_1_1_13_WIRE_FIXTURE.headers)
   })
 
   it('rejects immediately when the signal is already aborted', async () => {
@@ -137,7 +137,7 @@ describe('agy transport', () => {
             method: 'POST',
             headers: {
               'User-Agent':
-                'antigravity/cli/1.1.6 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)',
+                'antigravity/cli/1.1.13 (aidev_client; os_type=darwin; arch=arm64; cl=964361259; auth_method=consumer)',
             },
             body: JSON.stringify({ x: 1 }),
           },

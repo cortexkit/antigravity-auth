@@ -5,6 +5,7 @@ import type {
   AssistantMessage,
   Context,
   Model,
+  ThinkingLevel,
 } from '@earendil-works/pi-ai'
 
 const ensureProjectContextMock = mock(async () => ({
@@ -120,6 +121,7 @@ async function runStream(
   response: Response,
   sessionId: string,
   onAbort?: () => void,
+  reasoning?: ThinkingLevel,
 ) {
   fetchWithAgyCliTransportMock.mockImplementationOnce(
     async (
@@ -137,6 +139,7 @@ async function runStream(
   const eventStream = streamCortexKitAntigravity(model, userContext(), {
     apiKey: 'test-token',
     sessionId,
+    reasoning,
   })
   const events = []
   for await (const event of eventStream) {
@@ -168,6 +171,23 @@ describe('resolvePiAntigravityModel', () => {
     })
   })
 
+  const gemini37 = {
+    ...fakeModel(),
+    id: 'antigravity-gemini-3.7-flash',
+    reasoning: true,
+  }
+
+  it.each([
+    ['low', 'gemini-3.7-flash-low', 1000],
+    ['medium', 'gemini-3.7-flash-medium', 4000],
+    ['high', 'gemini-3.7-flash-high', -1],
+  ] as const)('maps Pi 3.7 %s thinking to the captured AGY route', (reasoning, actualModel, thinkingBudget) => {
+    expect(resolvePiAntigravityModel(gemini37, reasoning)).toMatchObject({
+      actualModel,
+      thinkingBudget,
+    })
+  })
+
   it('clamps unsupported edge levels to live AGY tiers', () => {
     expect(resolvePiAntigravityModel(gemini36, 'minimal').actualModel).toBe(
       'gemini-3.6-flash-low',
@@ -179,7 +199,7 @@ describe('resolvePiAntigravityModel', () => {
 })
 
 describe('finalizePiAntigravityRequest', () => {
-  it('adds AGY 1.1.6 session metadata and VALIDATED tool configuration', () => {
+  it('adds AGY 1.1.13 session metadata and VALIDATED tool configuration', () => {
     const request: Record<string, unknown> = {
       generationConfig: { thinkingConfig: { thinkingBudget: 10_000 } },
       tools: [
@@ -448,6 +468,33 @@ describe('streamCortexKitAntigravity', () => {
       { type: 'thinking', thinking: 'reasoning' },
       { type: 'text', text: 'answer', textSignature: 'SIG123' },
     ])
+  })
+
+  it('sends the captured Gemini 3.7 high budget and model enum on the wire', async () => {
+    await runStream(
+      {
+        ...fakeModel('antigravity-gemini-3.7-flash'),
+        reasoning: true,
+      },
+      sseResponse([
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}}\n\n',
+      ]),
+      'gemini-37-high-wire',
+      undefined,
+      'high',
+    )
+
+    const call = fetchWithAgyCliTransportMock.mock.calls.at(-1)
+    const body = JSON.parse(String(call?.[1]?.body))
+    expect(body.model).toBe('gemini-3.7-flash-high')
+    expect(body.request.generationConfig.thinkingConfig).toEqual({
+      includeThoughts: true,
+      thinkingBudget: -1,
+    })
+    expect(body.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M298')
+    expect(call?.[1]?.headers?.['User-Agent']).toContain(
+      'antigravity/cli/1.1.13',
+    )
   })
 
   it('adds execution metadata after a completed turn', async () => {

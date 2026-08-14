@@ -105,6 +105,37 @@ describe('resolveModelWithTier', () => {
     })
   })
 
+  describe('Gemini 3.7 Flash Antigravity routes', () => {
+    it.each([
+      [
+        'antigravity-gemini-3.7-flash',
+        'gemini-3.7-flash-medium',
+        4000,
+        'medium',
+      ],
+      ['antigravity-gemini-3.7-flash-low', 'gemini-3.7-flash-low', 1000, 'low'],
+      [
+        'antigravity-gemini-3.7-flash-medium',
+        'gemini-3.7-flash-medium',
+        4000,
+        'medium',
+      ],
+      [
+        'antigravity-gemini-3.7-flash-high',
+        'gemini-3.7-flash-high',
+        -1,
+        'high',
+      ],
+    ])('maps %s to the captured AGY route', (requestedModel, actualModel, thinkingBudget, tier) => {
+      const result = resolveModelWithTier(requestedModel)
+      expect(result.actualModel).toBe(actualModel)
+      expect(result.thinkingBudget).toBe(thinkingBudget)
+      expect(result.thinkingLevel).toBeUndefined()
+      expect(result.tier).toBe(tier)
+      expect(result.quotaPreference).toBe('antigravity')
+    })
+  })
+
   describe('All Gemini models default to antigravity quota', () => {
     it('gemini-2.5-flash defaults to antigravity', () => {
       const result = resolveModelWithTier('gemini-2.5-flash')

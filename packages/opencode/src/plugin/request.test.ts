@@ -20,10 +20,10 @@ import {
   transformAntigravityResponse,
 } from './request'
 
-const AGY_1_1_5_WIRE_FIXTURE = JSON.parse(
+const AGY_1_1_13_WIRE_FIXTURE = JSON.parse(
   readFileSync(
     new URL(
-      '../../../../test-fixtures/agy-cli-1.1.6-stream-request.json',
+      '../../../../test-fixtures/agy-cli-1.1.13-stream-request.json',
       import.meta.url,
     ),
     'utf8',
@@ -1262,9 +1262,9 @@ describe('request.ts', () => {
 
       const body = result.init.body as string
       const parsed = JSON.parse(body)
-      expect(Object.keys(parsed)).toEqual(AGY_1_1_5_WIRE_FIXTURE.envelopeKeys)
+      expect(Object.keys(parsed)).toEqual(AGY_1_1_13_WIRE_FIXTURE.envelopeKeys)
       expect(Object.keys(parsed.request)).toEqual(
-        AGY_1_1_5_WIRE_FIXTURE.requestKeys,
+        AGY_1_1_13_WIRE_FIXTURE.requestKeys,
       )
       expect(parsed.requestId).toMatch(/^agent\/.+\/2$/)
       expect(parsed.userAgent).toBe('antigravity')
@@ -1521,6 +1521,62 @@ describe('request.ts', () => {
           body: JSON.stringify({
             contents: [
               { role: 'user', parts: [{ text: 'Reply with AGY36_OK' }] },
+            ],
+            generationConfig: { maxOutputTokens: 1024 },
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        'antigravity',
+      )
+
+      const wrapped = JSON.parse(result.init.body as string)
+      expect(result.effectiveModel).toBe(wireModel)
+      expect(wrapped.model).toBe(wireModel)
+      expect(wrapped.request.generationConfig).toMatchObject({
+        maxOutputTokens: 65536,
+        thinkingConfig: { includeThoughts: true, thinkingBudget },
+      })
+      expect(
+        wrapped.request.generationConfig.thinkingConfig,
+      ).not.toHaveProperty('thinkingLevel')
+      expect(wrapped.request.labels.model_enum).toBe(modelEnum)
+    })
+
+    it.each([
+      [
+        'antigravity-gemini-3.7-flash',
+        'gemini-3.7-flash-medium',
+        4000,
+        'MODEL_PLACEHOLDER_M299',
+      ],
+      [
+        'antigravity-gemini-3.7-flash-low',
+        'gemini-3.7-flash-low',
+        1000,
+        'MODEL_PLACEHOLDER_M300',
+      ],
+      [
+        'antigravity-gemini-3.7-flash-medium',
+        'gemini-3.7-flash-medium',
+        4000,
+        'MODEL_PLACEHOLDER_M299',
+      ],
+      [
+        'antigravity-gemini-3.7-flash-high',
+        'gemini-3.7-flash-high',
+        -1,
+        'MODEL_PLACEHOLDER_M298',
+      ],
+    ])('builds the captured AGY 1.1.13 request for %s', (requestedModel, wireModel, thinkingBudget, modelEnum) => {
+      const result = prepareAntigravityRequest(
+        `https://generativelanguage.googleapis.com/v1beta/models/${requestedModel}:generateContent`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            contents: [
+              { role: 'user', parts: [{ text: 'Reply with AGY37_OK' }] },
             ],
             generationConfig: { maxOutputTokens: 1024 },
           }),

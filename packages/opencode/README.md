@@ -116,19 +116,14 @@ The model registry lives at `packages/core/src/model-registry.ts`; the OpenCode 
 
 | Model | Variants | Quota group |
 | --- | --- | --- |
+| `antigravity-gemini-3.7-flash` | `low`, `high` | `gemini-flash` |
 | `antigravity-gemini-3.6-flash` | `low`, `high` | `gemini-flash` |
 | `antigravity-gemini-3.5-flash` | `low`, `high` | `gemini-flash` |
 | `antigravity-gemini-3.1-pro` | `low`, `high` | `gemini-pro` |
 | `antigravity-gemini-3.1-flash-image` | — | `gemini-flash` |
-| `antigravity-claude-sonnet-4-6` | — | `claude` |
-| `antigravity-claude-opus-4-6-thinking` | `low`, `max` | `claude` |
+| `antigravity-claude-sonnet-4-6-thinking` | — | `claude` |
+| `antigravity-claude-opus-4-6-thinking` | — | `claude` |
 | `antigravity-gpt-oss-120b-medium` | — | `gpt-oss` |
-| `gemini-2.5-flash` | — | `gemini-flash` (CLI pool) |
-| `gemini-2.5-pro` | — | `gemini-pro` (CLI pool) |
-| `gemini-3-flash-preview` | — | `gemini-flash` (CLI pool) |
-| `gemini-3-pro-preview` | — | `gemini-pro` (CLI pool) |
-| `gemini-3.1-pro-preview` | — | `gemini-pro` (CLI pool) |
-| `gemini-3.1-pro-preview-customtools` | — | `gemini-pro` (CLI pool) |
 
 > Gemini 3.5 Flash-Lite is not in the AGY 1.1.5 Antigravity or Gemini CLI quota catalogs, and Gemini 3.5 Flash Cyber is restricted to a limited-access CodeMender pilot — neither is exposed by this plugin.
 

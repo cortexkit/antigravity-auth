@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.1.0] - 2026-08-14
+
+### Added
+
+- Added Gemini 3.7 Flash with low, medium (default), and high thinking tiers, using the model routes and metadata captured from native AGY CLI 1.1.13.
+
+### Changed
+
+- Updated the Antigravity CLI wire identity and fixtures from 1.1.6 to 1.1.13.
+
 ## [2.0.0] - 2026-07-22
 
 ### Breaking

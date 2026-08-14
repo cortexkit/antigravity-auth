@@ -100,6 +100,16 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
       high: { thinkingLevel: 'high' },
     },
   }),
+  'antigravity-gemini-3.7-flash': defineModel('antigravity-gemini-3.7-flash', {
+    name: 'Gemini 3.7 Flash (Antigravity)',
+    reasoning: true,
+    limit: { context: 1048576, output: 65536 },
+    modalities: DEFAULT_MODALITIES,
+    variants: {
+      low: { thinkingLevel: 'low' },
+      high: { thinkingLevel: 'high' },
+    },
+  }),
   'antigravity-gemini-3.6-flash': defineModel('antigravity-gemini-3.6-flash', {
     name: 'Gemini 3.6 Flash (Antigravity)',
     reasoning: true,
@@ -241,6 +251,9 @@ const RESOLVER_ALIASES: Record<string, string> = {
   'gemini-3.6-flash-low': 'gemini-3.6-flash',
   'gemini-3.6-flash-medium': 'gemini-3.6-flash',
   'gemini-3.6-flash-high': 'gemini-3.6-flash',
+  'gemini-3.7-flash-low': 'gemini-3.7-flash',
+  'gemini-3.7-flash-medium': 'gemini-3.7-flash',
+  'gemini-3.7-flash-high': 'gemini-3.7-flash',
   'gemini-claude-opus-4-6-thinking-low': 'claude-opus-4-6-thinking',
   'gemini-claude-opus-4-6-thinking-medium': 'claude-opus-4-6-thinking',
   'gemini-claude-opus-4-6-thinking-high': 'claude-opus-4-6-thinking',
@@ -276,6 +289,15 @@ const GEMINI_36_FLASH_ROUTES: AntigravityTieredRouteMetadata = {
   },
 }
 
+const GEMINI_37_FLASH_ROUTES: AntigravityTieredRouteMetadata = {
+  defaultModel: 'gemini-3.7-flash-medium',
+  byTier: {
+    low: 'gemini-3.7-flash-low',
+    medium: 'gemini-3.7-flash-medium',
+    high: 'gemini-3.7-flash-high',
+  },
+}
+
 const QUOTA_GROUP_BY_MODEL_ID: Record<string, ModelQuotaGroup> = {
   'claude-opus-4-6-thinking': 'non-gemini',
   'claude-opus-4-6': 'non-gemini',
@@ -293,12 +315,17 @@ const QUOTA_GROUP_BY_MODEL_ID: Record<string, ModelQuotaGroup> = {
   'gemini-3.6-flash-medium': 'gemini',
   'gemini-3.6-flash-high': 'gemini',
   'gemini-3.6-flash-tiered': 'gemini',
+  'gemini-3.7-flash-low': 'gemini',
+  'gemini-3.7-flash-medium': 'gemini',
+  'gemini-3.7-flash-high': 'gemini',
+  'gemini-3.7-flash-tiered': 'gemini',
   'gemini-3.1-flash-image': 'gemini',
   'gpt-oss-120b': 'non-gemini',
   'gpt-oss-120b-medium': 'non-gemini',
 }
 
 const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
+  'antigravity-gemini-3.7-flash',
   'antigravity-gemini-3.6-flash',
   'antigravity-gemini-3.5-flash',
   'antigravity-gemini-3.1-pro',
@@ -344,13 +371,21 @@ export function getGemini35FlashGeminiCliFallbackModel(): string {
   return GEMINI_35_FLASH_ROUTES.geminiCliFallbackModel
 }
 
+function getTieredAntigravityModel(
+  routes: AntigravityTieredRouteMetadata,
+  tier?: ThinkingTier,
+): string {
+  return tier
+    ? (routes.byTier[tier] ?? routes.defaultModel)
+    : routes.defaultModel
+}
+
 export function getGemini36FlashAntigravityModel(tier?: ThinkingTier): string {
-  if (!tier) {
-    return GEMINI_36_FLASH_ROUTES.defaultModel
-  }
-  return (
-    GEMINI_36_FLASH_ROUTES.byTier[tier] ?? GEMINI_36_FLASH_ROUTES.defaultModel
-  )
+  return getTieredAntigravityModel(GEMINI_36_FLASH_ROUTES, tier)
+}
+
+export function getGemini37FlashAntigravityModel(tier?: ThinkingTier): string {
+  return getTieredAntigravityModel(GEMINI_37_FLASH_ROUTES, tier)
 }
 
 export function getQuotaGroupForModel(

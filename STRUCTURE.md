@@ -47,7 +47,7 @@ The `models` blob at the repo root is a tracked JSON snapshot of the upstream An
 | `packages/e2e-tests` | Private black-box flows against a mock Antigravity loopback server (`@cortexkit/antigravity-auth-e2e`, `private: true`). | `packages/opencode`, `packages/core`. |
 | `scripts/` | Workspace-level tooling: dev symlink lifecycle, version sync, release script. | Node built-ins + child process. |
 | `test/` | Preload + global types + a small handful of repo-root sanity tests (`environment.test.ts`, `dev.test.ts`). | Bun test harness. |
-| `test-fixtures/` | Frozen JSON snapshots of captured `agy` CLI metadata and streaming requests, through version 1.1.6. | None. |
+| `test-fixtures/` | Frozen JSON snapshots of captured `agy` CLI metadata and streaming requests, through version 1.1.13. | None. |
 | `.github/` | Workflows (CI, release, issue triage), issue templates, FUNDING. | GitHub Actions. |
 
 ## `packages/core` inventory
@@ -308,7 +308,7 @@ The TUI is a thin Solid sidebar that polls a redacted snapshot file and a loopba
 - `test/environment.test.ts` — pins the env-isolation contract (`HOME`, `XDG_*`, `APPDATA`, `OPENCODE_CONFIG_DIR`, `PI_AGENT_DIR`, etc.).
 - `test/dev.test.ts` — pins `scripts/dev.ts`'s `resolveDevPaths` / `createDevSymlink` / `removeDevSymlink` so a symlink-layout regression fails before the next release.
 - `test-fixtures/agy-cli-1.1.3-model-metadata.json` and `test-fixtures/agy-cli-1.1.3-stream-request.json` — frozen snapshots of the upstream `agy` CLI for comparator tests.
-- `test-fixtures/agy-cli-1.1.5-*` and `test-fixtures/agy-cli-1.1.6-*` — versioned frozen wire snapshots.
+- `test-fixtures/agy-cli-1.1.5-*`, `test-fixtures/agy-cli-1.1.6-*`, and `test-fixtures/agy-cli-1.1.13-*` — versioned frozen wire snapshots.
 
 ### `tsconfig.scripts.json`
 

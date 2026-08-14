@@ -22,11 +22,12 @@ describe('Pi Antigravity model catalog', () => {
     const modelIds = config.models.map((model) => model.id)
 
     expect(modelIds).toContain('antigravity-gemini-3.6-flash')
+    expect(modelIds).toContain('antigravity-gemini-3.7-flash')
     expect(modelIds).toContain('antigravity-gpt-oss-120b-medium')
     expect(modelIds).not.toContain('antigravity-gemini-3.1-flash-image')
     expect(
       config.models.find(
-        (model) => model.id === 'antigravity-gemini-3.6-flash',
+        (model) => model.id === 'antigravity-gemini-3.7-flash',
       ),
     ).toMatchObject({
       reasoning: true,

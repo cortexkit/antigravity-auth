@@ -198,7 +198,10 @@ function getAgyMaxOutputTokens(model: string): number | undefined {
     lower === 'gemini-3-flash-agent' ||
     lower === 'gemini-3.6-flash-low' ||
     lower === 'gemini-3.6-flash-medium' ||
-    lower === 'gemini-3.6-flash-high'
+    lower === 'gemini-3.6-flash-high' ||
+    lower === 'gemini-3.7-flash-low' ||
+    lower === 'gemini-3.7-flash-medium' ||
+    lower === 'gemini-3.7-flash-high'
   ) {
     return 65536
   }
@@ -1770,7 +1773,8 @@ export function prepareAntigravityRequest(
               // Gemini 2.5 and others use numeric budget
               thinkingConfig = {
                 includeThoughts: normalizedThinking.includeThoughts,
-                ...(typeof thinkingBudget === 'number' && thinkingBudget > 0
+                ...(typeof thinkingBudget === 'number' &&
+                (thinkingBudget > 0 || thinkingBudget === -1)
                   ? { thinkingBudget }
                   : {}),
               }

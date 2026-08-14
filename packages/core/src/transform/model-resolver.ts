@@ -9,6 +9,7 @@ import {
   getGemini35FlashAntigravityModel,
   getGemini35FlashGeminiCliFallbackModel,
   getGemini36FlashAntigravityModel,
+  getGemini37FlashAntigravityModel,
   getResolverAliasMap,
 } from '../model-registry.ts'
 import type {
@@ -150,6 +151,10 @@ function getAgyGeminiFlashThinkingBudget(tier?: ThinkingTier): number {
   }
 }
 
+function getAgyGemini37FlashThinkingBudget(tier?: ThinkingTier): number {
+  return tier === 'high' ? -1 : getAgyGeminiFlashThinkingBudget(tier)
+}
+
 function getAgyGemini31ProModel(tier?: ThinkingTier): string {
   return tier === 'high' ? 'gemini-pro-agent' : 'gemini-3.1-pro-low'
 }
@@ -207,13 +212,14 @@ export function resolveModelWithTier(
   const skipAlias = isAntigravity && isGemini3
 
   // For older Antigravity Gemini 3 models without explicit tier, append the
-  // tier to the model id. Gemini 3.5 and 3.6 Flash use live-catalog route maps
-  // with numeric thinking budgets instead.
+  // tier to the model id. Gemini 3.5, 3.6, and 3.7 Flash use live-catalog
+  // route maps with numeric thinking budgets instead.
   const isGemini3Pro = isGemini3ProModel(modelWithoutQuota)
   const isGemini3Flash = isGemini3FlashModel(modelWithoutQuota)
   const isGemini31Pro = /^gemini-3\.1-pro/i.test(baseName)
   const isGemini35Flash = /^gemini-3\.5-flash/i.test(baseName)
   const isGemini36Flash = /^gemini-3\.6-flash/i.test(baseName)
+  const isGemini37Flash = /^gemini-3\.7-flash/i.test(baseName)
   const isGptOss120b = /^gpt-oss-120b(?:-medium)?$/i.test(baseName)
 
   if (isGemini31Pro && quotaPreference === 'antigravity') {
@@ -242,6 +248,17 @@ export function resolveModelWithTier(
     return {
       actualModel: getGemini36FlashAntigravityModel(tier ?? 'medium'),
       thinkingBudget: getAgyGeminiFlashThinkingBudget(tier),
+      tier: tier ?? 'medium',
+      isThinkingModel: true,
+      quotaPreference,
+      explicitQuota,
+    }
+  }
+
+  if (isGemini37Flash && quotaPreference === 'antigravity') {
+    return {
+      actualModel: getGemini37FlashAntigravityModel(tier ?? 'medium'),
+      thinkingBudget: getAgyGemini37FlashThinkingBudget(tier),
       tier: tier ?? 'medium',
       isThinkingModel: true,
       quotaPreference,
