@@ -2,12 +2,13 @@
 
 Google Antigravity OAuth for coding agents. Authenticate with your Google account and access Antigravity quota for Gemini, Claude, and GPT-OSS models from OpenCode, the Pi coding agent, or the standalone CLI.
 
-This monorepo ships three packages:
+This monorepo ships four packages:
 
 | Package | Host | Role |
 | --- | --- | --- |
 | [`@cortexkit/opencode-antigravity-auth`](packages/opencode) | OpenCode 1.x server | Intercepts `fetch()`, runs the account pool + quota manager, drives slash commands, and exposes a TUI sidebar through a loopback RPC. |
 | [`@cortexkit/pi-antigravity-auth`](packages/pi) | Pi coding agent | Registers a custom provider with OAuth login + Gemini streaming. |
+| [`@cortexkit/opencode-v2-antigravity-auth`](packages/opencode-v2) | OpenCode 2.x server | Registers the Antigravity models through the native plugin API: a loopback bridge for the account pool and transport, an OAuth method that appends accounts, and a document tool for PDF input. |
 | [`@cortexkit/antigravity-auth-core`](packages/core) | Any harness | Harness-agnostic core: OAuth PKCE, raw HTTP/1.1 transport, device fingerprint, request transforms, account pool, quota manager, durable storage. Both host packages depend on it. |
 
 ## Risk and terms-of-service warning
