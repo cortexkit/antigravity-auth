@@ -1,0 +1,76 @@
+{
+  "plugins": [
+    {
+      "package": "/absolute/path/to/antigravity-auth/packages/opencode-v2/src/plugin.mjs",
+      "options": {
+        "readDocumentRoots": ["/absolute/path/to/documents"]
+      }
+    }
+  ],
+  "providers": {
+    "google": {
+      "models": {
+        "gemini-3.7-flash": {
+          "name": "Gemini 3.7 Flash",
+          "modelID": "gemini-3.7-flash",
+          "package": "@opencode-ai/ai/providers/google",
+          "capabilities": { "tools": true, "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": { "context": 1048576, "output": 65536 },
+          "variants": [{ "id": "low" }, { "id": "medium" }, { "id": "high" }]
+        },
+        "gemini-3.6-flash": {
+          "name": "Gemini 3.6 Flash",
+          "modelID": "gemini-3.6-flash",
+          "package": "@opencode-ai/ai/providers/google",
+          "capabilities": { "tools": true, "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": { "context": 1048576, "output": 65536 },
+          "variants": [{ "id": "low" }, { "id": "medium" }, { "id": "high" }]
+        },
+        "gemini-3.5-flash": {
+          "name": "Gemini 3.5 Flash",
+          "modelID": "gemini-3.5-flash",
+          "package": "@opencode-ai/ai/providers/google",
+          "capabilities": { "tools": true, "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": { "context": 1048576, "output": 65536 },
+          "variants": [{ "id": "low" }, { "id": "medium" }, { "id": "high" }]
+        },
+        "gemini-3.1-pro": {
+          "name": "Gemini 3.1 Pro",
+          "modelID": "gemini-3.1-pro",
+          "package": "@opencode-ai/ai/providers/google",
+          "capabilities": { "tools": true, "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": { "context": 1048576, "output": 65535 },
+          "variants": [{ "id": "low" }, { "id": "high" }]
+        },
+        "gemini-3.1-flash-image": {
+          "name": "Gemini 3.1 Flash Image",
+          "modelID": "gemini-3.1-flash-image",
+          "package": "@opencode-ai/ai/providers/google",
+          "capabilities": { "tools": true, "input": ["text", "image"], "output": ["text", "image"] },
+          "limit": { "context": 66000, "output": 33000 }
+        },
+        "claude-sonnet-4-6-thinking": {
+          "name": "Claude Sonnet 4.6 (Thinking)",
+          "modelID": "claude-sonnet-4-6-thinking",
+          "package": "@opencode-ai/ai/providers/google",
+          "capabilities": { "tools": true, "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": { "context": 250000, "output": 64000 }
+        },
+        "claude-opus-4-6-thinking": {
+          "name": "Claude Opus 4.6 (Thinking)",
+          "modelID": "claude-opus-4-6-thinking",
+          "package": "@opencode-ai/ai/providers/google",
+          "capabilities": { "tools": true, "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": { "context": 250000, "output": 64000 }
+        },
+        "gpt-oss-120b-medium": {
+          "name": "GPT-OSS 120B",
+          "modelID": "gpt-oss-120b-medium",
+          "package": "@opencode-ai/ai/providers/google",
+          "capabilities": { "tools": true, "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": { "context": 131072, "output": 32768 }
+        }
+      }
+    }
+  }
+}

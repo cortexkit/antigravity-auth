@@ -1,0 +1,51 @@
+{
+  "name": "@cortexkit/opencode-v2-antigravity-auth",
+  "version": "2.1.0",
+  "description": "Google Antigravity provider for OpenCode 2.x (native plugin API)",
+  "type": "module",
+  "license": "MIT",
+  "author": "CortexKit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cortexkit/antigravity-auth.git",
+    "directory": "packages/opencode-v2"
+  },
+  "homepage": "https://github.com/cortexkit/antigravity-auth#readme",
+  "bugs": {
+    "url": "https://github.com/cortexkit/antigravity-auth/issues"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-v2",
+    "antigravity",
+    "gemini",
+    "claude",
+    "oauth",
+    "plugin"
+  ],
+  "engines": {
+    "node": ">=20.0.0",
+    "opencode": ">=2 <3"
+  },
+  "main": "./src/plugin.mjs",
+  "exports": {
+    ".": "./src/plugin.mjs",
+    "./oauth-callback": "./src/oauth-callback.mjs"
+  },
+  "files": [
+    "src/",
+    "example/",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "lint": "biome lint src example",
+    "format:check": "biome format src example README.md README.zh-CN.md",
+    "typecheck": "node --check src/plugin.mjs && node --check src/oauth-callback.mjs",
+    "test": "bun run --cwd ../core build && cd ../.. && bun test --isolate packages/opencode-v2/test"
+  },
+  "dependencies": {
+    "@cortexkit/antigravity-auth-core": "2.1.0"
+  }
+}

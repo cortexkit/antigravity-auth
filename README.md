@@ -2,12 +2,13 @@
 
 Google Antigravity OAuth for coding agents. Authenticate with your Google account and access Antigravity quota for Gemini, Claude, and GPT-OSS models from OpenCode, the Pi coding agent, or the standalone CLI.
 
-This monorepo ships three packages:
+This monorepo ships four packages:
 
 | Package | Host | Role |
 | --- | --- | --- |
 | [`@cortexkit/opencode-antigravity-auth`](packages/opencode) | OpenCode 1.x server | Intercepts `fetch()`, runs the account pool + quota manager, drives slash commands, and exposes a TUI sidebar through a loopback RPC. |
 | [`@cortexkit/pi-antigravity-auth`](packages/pi) | Pi coding agent | Registers a custom provider with OAuth login + Gemini streaming. |
+| [`@cortexkit/opencode-v2-antigravity-auth`](packages/opencode-v2) | OpenCode 2.x server | Registers the Antigravity models through the native plugin API: a loopback bridge for the account pool and transport, an OAuth method that appends accounts, and a document tool for PDF input. |
 | [`@cortexkit/antigravity-auth-core`](packages/core) | Any harness | Harness-agnostic core: OAuth PKCE, raw HTTP/1.1 transport, device fingerprint, request transforms, account pool, quota manager, durable storage. Both host packages depend on it. |
 
 ## Risk and terms-of-service warning
@@ -404,14 +405,14 @@ The script enforces semver, refuses to run on a dirty tree, and refuses to run o
 The `Release` workflow (`.github/workflows/release.yml`) runs on tag push (or `workflow_dispatch`) and:
 
 1. **Test** job — checkout the tag ref → install Bun 1.3 + Node 24 → `bun install --frozen-lockfile` → `bun run typecheck` → `bun run build` → `bun run --cwd packages/opencode smoke:tui` → `bun test` → `bun run test:e2e` → `bun run format:check` → `bun run lint`.
-2. **Publish** job — matrixed across the three packages (`@cortexkit/antigravity-auth-core`, `@cortexkit/opencode-antigravity-auth`, `@cortexkit/pi-antigravity-auth`) with `max-parallel: 1` so each package picks up its own OIDC token; `npm Trusted Publishing` (`npm publish --workspace … --access public --provenance`) handles the upload. The job skips a package if its npm version is already published.
+2. **Publish** job — matrixed across the four packages (`@cortexkit/antigravity-auth-core`, `@cortexkit/opencode-antigravity-auth`, `@cortexkit/pi-antigravity-auth`, `@cortexkit/opencode-v2-antigravity-auth`) with `max-parallel: 1` so each package picks up its own OIDC token; `npm Trusted Publishing` (`npm publish --workspace … --access public --provenance`) handles the upload. The job skips a package if its npm version is already published.
 3. **GitHub Release** job — `softprops/action-gh-release@v2` creates the GitHub release with `generate_release_notes: true`.
 
 CI (`.github/workflows/ci.yml`) reuses the same typecheck → build → smoke → test → e2e → format → lint chain on every push to `main` and on every pull request. The `issue-triage.yml` workflow handles GitHub-issue routing.
 
 ## Architecture and structure links
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — system-of-record architecture doc across all three packages.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — system-of-record architecture doc across all four packages.
 - [STRUCTURE.md](STRUCTURE.md) — file-system map of the monorepo.
 - [packages/opencode/ARCHITECTURE.md](packages/opencode/ARCHITECTURE.md) — OpenCode plugin architecture in detail.
 - [packages/opencode/STRUCTURE.md](packages/opencode/STRUCTURE.md) — OpenCode package file-system map.
