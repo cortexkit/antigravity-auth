@@ -970,7 +970,7 @@ export default {
           required: ['path'],
         },
         async execute(input) {
-          const { readFile } = await import('node:fs/promises')
+          const { readFile, realpath } = await import('node:fs/promises')
           const { extname, basename } = await import('node:path')
           const path = String(input?.path ?? '').trim()
           if (!path)
@@ -990,7 +990,17 @@ export default {
           }
           let data
           try {
-            data = (await readFile(path)).toString('base64')
+            // Resolve symlinks/junctions before reading: the lexical path can
+            // sit inside an allowed root while the real target lives outside
+            // it. The boundary is enforced on the real path as well.
+            const real = await realpath(path)
+            if (!isPathAllowed(real)) {
+              return {
+                content:
+                  'antigravity_read_document: access denied — the real path of this file is outside the allowed document roots or is a protected file. Configure the plugin option `readDocumentRoots` to allow specific directories.',
+              }
+            }
+            data = (await readFile(real)).toString('base64')
           } catch (error) {
             return {
               content: `antigravity_read_document: cannot read ${path}: ${error?.message ?? String(error)}`,

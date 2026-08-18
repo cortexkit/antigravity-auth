@@ -20,6 +20,7 @@ const packageJsonPaths = [
   join(root, 'packages', 'core', 'package.json'),
   join(root, 'packages', 'opencode', 'package.json'),
   join(root, 'packages', 'pi', 'package.json'),
+  join(root, 'packages', 'opencode-v2', 'package.json'),
 ]
 
 function parseArgs(argv) {

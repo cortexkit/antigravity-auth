@@ -42,8 +42,8 @@
   "scripts": {
     "lint": "biome lint src example",
     "format:check": "biome format src example README.md README.zh-CN.md",
-    "typecheck": "node --check src/plugin.mjs src/oauth-callback.mjs",
-    "test": "bun run --cwd ../core build && bun test test"
+    "typecheck": "node --check src/plugin.mjs && node --check src/oauth-callback.mjs",
+    "test": "bun run --cwd ../core build && cd ../.. && bun test --isolate packages/opencode-v2/test"
   },
   "dependencies": {
     "@cortexkit/antigravity-auth-core": "2.1.0"
