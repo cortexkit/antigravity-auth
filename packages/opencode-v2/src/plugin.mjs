@@ -10,7 +10,7 @@
 // back to OpenCode.
 
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, existsSync } from 'node:fs'
+import { appendFileSync, existsSync, realpathSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -733,6 +733,15 @@ export default {
       .flat()
       .map((root) => String(root).trim())
       .filter(Boolean)
+      // Canonicalize configured roots so a root that is itself a symlink or
+      // junction keeps matching the real (resolved) document paths.
+      .map((root) => {
+        try {
+          return realpathSync(root)
+        } catch {
+          return resolve(root)
+        }
+      })
 
     function isPathAllowed(documentPath) {
       const normalized = resolve(documentPath).replace(/\\/g, '/')
@@ -975,12 +984,6 @@ export default {
           const path = String(input?.path ?? '').trim()
           if (!path)
             return { content: 'antigravity_read_document: `path` is required' }
-          if (!isPathAllowed(path)) {
-            return {
-              content:
-                'antigravity_read_document: access denied — this path is outside the allowed document roots or is a protected file. Configure the plugin option `readDocumentRoots` to allow specific directories.',
-            }
-          }
           const extension = extname(path).toLowerCase()
           const mimeType = DOCUMENT_MIME[extension]
           if (!mimeType) {
@@ -990,9 +993,10 @@ export default {
           }
           let data
           try {
-            // Resolve symlinks/junctions before reading: the lexical path can
-            // sit inside an allowed root while the real target lives outside
-            // it. The boundary is enforced on the real path as well.
+            // Canonicalize the target before reading: the boundary is enforced
+            // on the real path, so caller-supplied symlinks/junctions cannot
+            // escape a configured root, while roots that are themselves
+            // junctions/symlinks stay usable (they are canonicalized too).
             const real = await realpath(path)
             if (!isPathAllowed(real)) {
               return {
