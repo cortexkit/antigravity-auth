@@ -39,6 +39,12 @@
     "README.zh-CN.md",
     "LICENSE"
   ],
+  "scripts": {
+    "lint": "biome lint src example",
+    "format:check": "biome format src example README.md README.zh-CN.md",
+    "typecheck": "node --check src/plugin.mjs src/oauth-callback.mjs",
+    "test": "bun run --cwd ../core build && bun test test"
+  },
   "dependencies": {
     "@cortexkit/antigravity-auth-core": "2.1.0"
   }

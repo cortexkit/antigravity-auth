@@ -79,6 +79,8 @@ jobs:
             workspace: "@cortexkit/opencode-antigravity-auth"
           - package: "@cortexkit/pi-antigravity-auth"
             workspace: "@cortexkit/pi-antigravity-auth"
+          - package: "@cortexkit/opencode-v2-antigravity-auth"
+            workspace: "@cortexkit/opencode-v2-antigravity-auth"
     steps:
       - uses: actions/checkout@v5
         with:

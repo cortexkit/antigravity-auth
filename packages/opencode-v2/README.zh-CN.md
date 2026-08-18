@@ -44,15 +44,32 @@ OpenCode 2.x                          本插件                        Antigravi
 ## 安装
 
 ```bash
-npm install @cortexkit/antigravity-auth-core
+# 包发布后：
+npm install @cortexkit/opencode-v2-antigravity-auth
+# 或从本仓库（Bun workspace）：
+bun install
 ```
+
+插件的入口是包内的 `src/plugin.mjs`。在 `opencode.json` 中，把 `plugins[].package` 指向该文件：
+npm 安装时用 `node_modules/@cortexkit/opencode-v2-antigravity-auth/src/plugin.mjs`
+（相对于项目目录），从仓库检出时用绝对路径
+`/path/to/antigravity-auth/packages/opencode-v2/src/plugin.mjs`。下面示例使用检出路径。
 
 然后在 `opencode.json` 中注册插件与模型（完整示例见
 [`example/opencode.json`](example/opencode.json)）：
 
 ```jsonc
 {
-  "plugins": [{ "package": "/绝对路径/opencode-v2-antigravity/src/plugin.mjs" }],
+  "plugins": [
+    {
+      "package": "/绝对路径/antigravity-auth/packages/opencode-v2/src/plugin.mjs",
+      "options": {
+        // 可选：限定 antigravity_read_document 可读取的目录。
+        // 默认：用户主目录下的任意位置（凭据/密钥路径始终被拦截）。
+        "readDocumentRoots": ["/绝对路径/project/docs"]
+      }
+    }
+  ],
   "providers": {
     "google": {
       "models": {
@@ -113,6 +130,13 @@ npm install @cortexkit/antigravity-auth-core
    （请求中没有任何 `inlineData`）。因此插件额外注册了 `antigravity_read_document` 工具，
    由插件自己读取文件：`antigravity_read_document({ path, question?, model? })`，
    支持 `.pdf`、`.png`、`.jpg`、`.webp`、`.gif`、`.heic`。聊天中粘贴的图片无需该工具即可工作。
+   **安全说明**：该工具会读取本地文件并发送到 Antigravity 服务器 —— 不可信的 PDF/图片是
+   prompt-injection 的载体，可能诱导模型读取敏感文件。因此路径经过检查：
+   常见的凭据/密钥位置（`~/.ssh`、`~/.config`、`~/.local`、`AppData`、`.env`、`*.key`、
+   `*.pem`、`*.p12`、`*.pfx`、`id_rsa`、`credentials`、`auth.json`、
+   `antigravity-accounts.json` 等）始终被拒绝；默认只允许读取用户主目录下的文件。如需
+   进一步收窄可读范围，请设置插件选项 `readDocumentRoots`（绝对路径数组）。尽量在聊天中
+   附带文档，宿主会保留附件。
 5. **图片输出**：原生解析器只渲染文本与 tool call，因此生成的图片会写入
    `<data dir>/antigravity-images/`，并以文本形式告知路径。
 

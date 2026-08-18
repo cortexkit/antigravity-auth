@@ -46,16 +46,38 @@ plain SSE response it can stream and cancel.
 
 ## Install
 
+Install the adapter package itself (the shared core is pulled in automatically):
+
 ```bash
-npm install @cortexkit/antigravity-auth-core
+# once the package is published:
+npm install @cortexkit/opencode-v2-antigravity-auth
+# or from this repository (Bun workspace):
+bun install
 ```
+
+The plugin entry is `src/plugin.mjs` inside the package. In `opencode.json`, point
+`plugins[].package` at that file — for an npm install use
+`node_modules/@cortexkit/opencode-v2-antigravity-auth/src/plugin.mjs` relative to the project,
+for a checkout use the absolute path
+`/path/to/antigravity-auth/packages/opencode-v2/src/plugin.mjs`. The example below uses a
+checkout path.
 
 Register the plugin and the models in `opencode.json` (full snippet in
 [`example/opencode.json`](example/opencode.json)):
 
 ```jsonc
 {
-  "plugins": [{ "package": "/absolute/path/to/opencode-v2-antigravity/src/plugin.mjs" }],
+  "plugins": [
+    {
+      "package": "/absolute/path/to/antigravity-auth/packages/opencode-v2/src/plugin.mjs",
+      "options": {
+        // Optional: restrict which directories antigravity_read_document may read.
+        // Default: anything under the user's home directory (credential/secret
+        // paths are always blocked).
+        "readDocumentRoots": ["/absolute/path/to/project/docs"]
+      }
+    }
+  ],
   "providers": {
     "google": {
       "models": {
@@ -119,6 +141,14 @@ source of truth.
    `antigravity_read_document` tool that loads the file itself:
    `antigravity_read_document({ path, question?, model? })` for `.pdf`, `.png`, `.jpg`, `.webp`,
    `.gif`, `.heic`. Images attached in chat work without the tool.
+   **Security note:** the tool reads local files and sends them to the Antigravity server —
+   an untrusted PDF/image is a prompt-injection vector that could instruct the model to read
+   sensitive files. Paths are therefore checked: well-known credential/secret locations
+   (`~/.ssh`, `~/.config`, `~/.local`, `AppData`, `.env`, `*.key`, `*.pem`, `*.p12`, `*.pfx`,
+   `id_rsa`, `credentials`, `auth.json`, `antigravity-accounts.json`, …) are always refused,
+   and by default only files under the user's home directory are readable. To narrow the
+   readable root further, set the `readDocumentRoots` plugin option (array of absolute
+   directories). Prefer attaching documents in chat where the host preserves them.
 5. **Image output** — the native parser renders text and tool calls only, so generated images
    are written to `<data dir>/antigravity-images/` and announced as text.
 

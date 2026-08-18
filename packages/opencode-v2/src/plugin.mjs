@@ -267,6 +267,7 @@ export default {
   id: 'local.antigravity',
 
   async setup(ctx) {
+    const options = ctx.options ?? {}
     const requestSessions = new AgyRequestSessionStore('opencode-v2')
     const jobs = new Map()
 
@@ -407,6 +408,10 @@ export default {
           metadata,
         )
 
+        // A forced refresh happens at most once per account/request; if the
+        // endpoint still answers 401 afterwards the account is excluded and the
+        // pool selection continues instead of refreshing in an unbounded loop.
+        let forcedRefresh = false
         for (
           let endpointIndex = 0;
           endpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length;
@@ -468,12 +473,15 @@ export default {
             continue
 
           if (response.status === 401) {
-            try {
-              auth = await accessFor(account, true)
-              endpointIndex -= 1
-              continue
-            } catch (error) {
-              failure = error
+            if (!forcedRefresh) {
+              try {
+                auth = await accessFor(account, true)
+                forcedRefresh = true
+                endpointIndex -= 1
+                continue
+              } catch (error) {
+                failure = error
+              }
             }
             excluded.add(account.index)
             break
@@ -627,6 +635,83 @@ export default {
       return { text: chunks.join(''), images }
     }
 
+    // Collects one upstream SSE stream into a single JSON GenerateContentResponse
+    // (used when the host issued a non-streaming `generateContent` call — the
+    // loopback must not answer that with `text/event-stream`).
+    async function collectNonStream(upstream) {
+      const reader = upstream.body.getReader()
+      const decoder = new TextDecoder()
+      const LF = String.fromCharCode(10)
+      const CR = String.fromCharCode(13)
+      let buffer = ''
+      const byIndex = new Map()
+      let usageMetadata
+      let promptFeedback
+      try {
+        let terminal = false
+        while (!terminal) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          buffer = buffer.split(CR).join('')
+          let boundary = buffer.indexOf(LF + LF)
+          while (boundary !== -1) {
+            const frame = buffer.slice(0, boundary)
+            buffer = buffer.slice(boundary + 2)
+            boundary = buffer.indexOf(LF + LF)
+            const data = frame
+              .split(LF)
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trimStart())
+              .join(LF)
+              .trim()
+            if (!data || data === '[DONE]') continue
+            let parsed
+            try {
+              parsed = JSON.parse(data)
+            } catch {
+              continue
+            }
+            const inner = sanitizeInner(unwrapFrame(parsed))
+            for (const candidate of inner?.candidates ?? []) {
+              const index = candidate.index ?? 0
+              let entry = byIndex.get(index)
+              if (!entry) {
+                entry = {
+                  ...candidate,
+                  content: { ...(candidate.content ?? {}) },
+                }
+                entry.content.parts = []
+                byIndex.set(index, entry)
+              }
+              for (const part of candidate.content?.parts ?? []) {
+                if (part?.text || part?.inlineData || part?.functionCall)
+                  entry.content.parts.push(part)
+              }
+              if (candidate.finishReason)
+                entry.finishReason = candidate.finishReason
+              if (candidate.thought) entry.thought = candidate.thought
+              if (candidate.index !== undefined) entry.index = index
+            }
+            if (inner?.usageMetadata) usageMetadata = inner.usageMetadata
+            if (inner?.promptFeedback) promptFeedback = inner.promptFeedback
+            if (inner?.candidates?.some((candidate) => candidate.finishReason))
+              terminal = true
+          }
+        }
+      } finally {
+        try {
+          await reader.cancel()
+        } catch {}
+      }
+      const merged = {
+        candidates: [...byIndex.values()],
+        ...(usageMetadata ? { usageMetadata } : {}),
+        ...(promptFeedback ? { promptFeedback } : {}),
+      }
+      return persistInlineImages(merged)
+    }
+
     const DOCUMENT_MIME = {
       '.pdf': 'application/pdf',
       '.png': 'image/png',
@@ -636,6 +721,32 @@ export default {
       '.gif': 'image/gif',
       '.heic': 'image/heic',
       '.heif': 'image/heif',
+    }
+
+    // The document tool is a prompt-injection vector: an untrusted PDF/image can
+    // instruct the model to call it on sensitive local files. Always block the
+    // classic credential/secret locations, and narrow the readable root with the
+    // `readDocumentRoots` plugin option when a stricter policy is wanted.
+    const READ_DENYLIST =
+      /(^|[\\/])(\.ssh|\.gnupg|\.aws|\.azure|\.config|\.local|\.cache|AppData)([\\/]|$)|\.(?:env|key|pem|p12|pfx|p8|asc|gpg)$|(^|[\\/])(?:id_rsa|id_ed25519|id_ecdsa|credentials|secrets?|tokens?|auth\.json|antigravity-accounts\.json)(?:\.|$)/i
+    const readDocumentRoots = [options.readDocumentRoots ?? []]
+      .flat()
+      .map((root) => String(root).trim())
+      .filter(Boolean)
+
+    function isPathAllowed(documentPath) {
+      const normalized = path.resolve(documentPath).replace(/\\/g, '/')
+      if (READ_DENYLIST.test(normalized)) return false
+      if (readDocumentRoots.length === 0) {
+        // Default: anything under the user's home directory (sensitive paths
+        // above are still blocked). Configure `readDocumentRoots` to restrict.
+        const home = homedir().replace(/\\/g, '/')
+        return normalized === home || normalized.startsWith(`${home}/`)
+      }
+      return readDocumentRoots.some((root) => {
+        const base = path.resolve(root).replace(/\\/g, '/')
+        return normalized === base || normalized.startsWith(`${base}/`)
+      })
     }
 
     const server = createServer((req, res) => {
@@ -669,6 +780,45 @@ export default {
             lastError = error
             break
           }
+          const finish = (body) => {
+            requestSessions.completeExecution(
+              String(job.sessionID ?? '__default__'),
+            )
+            if (!res.headersSent) {
+              res.writeHead(200, {
+                'content-type':
+                  job.stream === false
+                    ? 'application/json; charset=utf-8'
+                    : 'text/event-stream; charset=utf-8',
+                'cache-control': 'no-cache',
+              })
+            }
+            res.end(body)
+          }
+          if (job.stream === false) {
+            const collected = await collectNonStream(picked.response)
+            const sawContent =
+              collected.candidates?.some((candidate) =>
+                candidate?.content?.parts?.some(
+                  (part) =>
+                    part?.text || part?.functionCall || part?.inlineData,
+                ),
+              ) ?? false
+            log(
+              'non-stream-done',
+              job.modelID,
+              'content',
+              sawContent,
+              'attempt',
+              attempt,
+            )
+            if (sawContent || attempt === EMPTY_RESPONSE_MAX_ATTEMPTS) {
+              finish(JSON.stringify(collected))
+              return
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1_000))
+            continue
+          }
           if (!res.headersSent) {
             res.writeHead(200, {
               'content-type': 'text/event-stream; charset=utf-8',
@@ -690,7 +840,7 @@ export default {
             attempt,
           )
           if (sawContent || attempt === EMPTY_RESPONSE_MAX_ATTEMPTS) {
-            res.end()
+            finish()
             return
           }
           await new Promise((resolve) => setTimeout(resolve, 1_000))
@@ -760,6 +910,9 @@ export default {
           modelID: event.model.id,
           variant: event.model.variant,
           sessionID: event.sessionID,
+          // The hook matches both endpoints; the loopback answers the streaming
+          // one with SSE and the non-streaming one with a single JSON response.
+          stream: /streamGenerateContent/.test(url.pathname),
         })
         setTimeout(() => jobs.delete(id), 10 * 60_000)
         const attachments = (payload.contents ?? [])
@@ -795,13 +948,14 @@ export default {
       draft.add({
         name: 'antigravity_read_document',
         description:
-          'Read a local PDF or image with an Antigravity multimodal model and return its text. Use for .pdf, .png, .jpg, .webp, .gif, .heic files. Arguments: path (absolute), question (optional), model (optional, defaults to gemini-3.6-flash).',
+          'Read a local PDF or image with an Antigravity multimodal model and return its text. Use for .pdf, .png, .jpg, .webp, .gif, .heic files. Arguments: path (absolute), question (optional), model (optional, defaults to gemini-3.6-flash). Only files under the configured document roots can be read; credential, secret and private-key files are always refused.',
         input: {
           type: 'object',
           properties: {
             path: {
               type: 'string',
-              description: 'Absolute path to the PDF or image file',
+              description:
+                'Absolute path to the PDF or image file (must be inside the configured document roots)',
             },
             question: {
               type: 'string',
@@ -821,6 +975,12 @@ export default {
           const path = String(input?.path ?? '').trim()
           if (!path)
             return { content: 'antigravity_read_document: `path` is required' }
+          if (!isPathAllowed(path)) {
+            return {
+              content:
+                'antigravity_read_document: access denied — this path is outside the allowed document roots or is a protected file. Configure the plugin option `readDocumentRoots` to allow specific directories.',
+            }
+          }
           const extension = extname(path).toLowerCase()
           const mimeType = DOCUMENT_MIME[extension]
           if (!mimeType) {
@@ -877,6 +1037,9 @@ export default {
           )
           const picked = await pickResponse(job, undefined)
           const { text, images } = await collectText(picked.response)
+          requestSessions.completeExecution(
+            String(job.sessionID ?? '__default__'),
+          )
           if (!text && images.length === 0)
             return {
               content:

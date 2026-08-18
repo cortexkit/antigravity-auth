@@ -9,8 +9,11 @@ const CALLBACK_PATH = '/oauth-callback'
 const CALLBACK_PORT = 51121
 const CALLBACK_TIMEOUT_MS = 10 * 60_000
 
-const PAGE_OK = `<!doctype html><meta charset="utf-8"><title>Antigravity login complete</title>
-<body style="font-family:system-ui;padding:2rem"><h2>Login complete</h2><p>The account was added to OpenCode. You can close this tab.</p></body>`
+// The callback page only acknowledges that the authorization code arrived; the
+// token exchange and account persistence happen afterwards in the plugin, so the
+// page must not claim the account was added.
+const PAGE_OK = `<!doctype html><meta charset="utf-8"><title>Antigravity authorization received</title>
+<body style="font-family:system-ui;padding:2rem"><h2>Authorization received</h2><p>Return to OpenCode — the login result is reported there.</p></body>`
 const PAGE_FAIL = `<!doctype html><meta charset="utf-8"><title>Antigravity login failed</title>
 <body style="font-family:system-ui;padding:2rem"><h2>Login failed</h2><p>Return to OpenCode and try again.</p></body>`
 

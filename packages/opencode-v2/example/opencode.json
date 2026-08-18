@@ -1,6 +1,11 @@
 {
   "plugins": [
-    { "package": "/absolute/path/to/opencode-v2-antigravity/src/plugin.mjs" }
+    {
+      "package": "/absolute/path/to/antigravity-auth/packages/opencode-v2/src/plugin.mjs",
+      "options": {
+        "readDocumentRoots": ["/absolute/path/to/documents"]
+      }
+    }
   ],
   "providers": {
     "google": {

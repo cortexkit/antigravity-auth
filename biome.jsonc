@@ -24,6 +24,7 @@
       "packages/*/scripts/**",
       "scripts/**",
       "test/**",
+      "packages/*/test/**",
       "*.json",
       "packages/*/*.json",
       ".github/**/*.yml"
