@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto'
 import { appendFileSync, existsSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 const CORE = '@cortexkit/antigravity-auth-core'
 const {
@@ -735,7 +735,7 @@ export default {
       .filter(Boolean)
 
     function isPathAllowed(documentPath) {
-      const normalized = path.resolve(documentPath).replace(/\\/g, '/')
+      const normalized = resolve(documentPath).replace(/\\/g, '/')
       if (READ_DENYLIST.test(normalized)) return false
       if (readDocumentRoots.length === 0) {
         // Default: anything under the user's home directory (sensitive paths
@@ -744,7 +744,7 @@ export default {
         return normalized === home || normalized.startsWith(`${home}/`)
       }
       return readDocumentRoots.some((root) => {
-        const base = path.resolve(root).replace(/\\/g, '/')
+        const base = resolve(root).replace(/\\/g, '/')
         return normalized === base || normalized.startsWith(`${base}/`)
       })
     }
