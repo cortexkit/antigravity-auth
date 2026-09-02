@@ -138,8 +138,9 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
       limit: { context: 250000, output: 64000 },
       modalities: DEFAULT_MODALITIES,
       variants: {
-        low: { disabled: true },
-        high: { disabled: true },
+        low: { thinkingConfig: { thinkingBudget: 8192 } },
+        medium: { thinkingConfig: { thinkingBudget: 16384 } },
+        high: { thinkingConfig: { thinkingBudget: 32768 } },
       },
     },
   ),
@@ -151,8 +152,9 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
       limit: { context: 250000, output: 64000 },
       modalities: DEFAULT_MODALITIES,
       variants: {
-        low: { disabled: true },
-        high: { disabled: true },
+        low: { thinkingConfig: { thinkingBudget: 8192 } },
+        medium: { thinkingConfig: { thinkingBudget: 16384 } },
+        high: { thinkingConfig: { thinkingBudget: 32768 } },
       },
     },
   ),

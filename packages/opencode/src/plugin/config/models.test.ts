@@ -58,15 +58,17 @@ describe('OPENCODE_MODEL_DEFINITIONS', () => {
     })
   })
 
-  it('disables unsupported automatic Claude budget variants', () => {
+  it('defines Claude thinking budget variants', () => {
     expect(getModel('antigravity-claude-opus-4-6-thinking').variants).toEqual({
-      low: { disabled: true },
-      high: { disabled: true },
+      low: { thinkingConfig: { thinkingBudget: 8192 } },
+      medium: { thinkingConfig: { thinkingBudget: 16384 } },
+      high: { thinkingConfig: { thinkingBudget: 32768 } },
     })
     expect(getModel('antigravity-claude-sonnet-4-6-thinking').variants).toEqual(
       {
-        low: { disabled: true },
-        high: { disabled: true },
+        low: { thinkingConfig: { thinkingBudget: 8192 } },
+        medium: { thinkingConfig: { thinkingBudget: 16384 } },
+        high: { thinkingConfig: { thinkingBudget: 32768 } },
       },
     )
   })
