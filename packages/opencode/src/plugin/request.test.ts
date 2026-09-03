@@ -2334,6 +2334,59 @@ describe('request.ts', () => {
         expect(serialized).toContain('[Continue]')
       })
 
+      it.each([
+        ['antigravity-claude-sonnet-4-6-thinking', 'claude-sonnet-4-6', 8192],
+        ['antigravity-claude-sonnet-4-6-thinking', 'claude-sonnet-4-6', 16384],
+        ['antigravity-claude-sonnet-4-6-thinking', 'claude-sonnet-4-6', 32768],
+        [
+          'antigravity-claude-opus-4-6-thinking',
+          'claude-opus-4-6-thinking',
+          8192,
+        ],
+        [
+          'antigravity-claude-opus-4-6-thinking',
+          'claude-opus-4-6-thinking',
+          16384,
+        ],
+        [
+          'antigravity-claude-opus-4-6-thinking',
+          'claude-opus-4-6-thinking',
+          32768,
+        ],
+      ])('maps Claude variant budget %s -> %s with thinkingBudget %d on Antigravity wire', (requestedModel, wireModel, thinkingBudget) => {
+        const result = prepareAntigravityRequest(
+          `https://generativelanguage.googleapis.com/v1beta/models/${requestedModel}:generateContent`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              contents: [],
+              generationConfig: {},
+              providerOptions: {
+                google: { thinkingConfig: { thinkingBudget } },
+              },
+            }),
+          },
+          mockAccessToken,
+          mockProjectId,
+          undefined,
+          'antigravity',
+        )
+        const wrapped = JSON.parse(result.init.body as string)
+        expect(result.effectiveModel).toBe(wireModel)
+        expect(wrapped.model).toBe(wireModel)
+        expect(wrapped.request.generationConfig.thinkingConfig).toEqual({
+          includeThoughts: true,
+          thinkingBudget,
+        })
+        expect(
+          wrapped.request.generationConfig.thinkingConfig,
+        ).not.toHaveProperty('thinkingLevel')
+        expect(
+          wrapped.request.generationConfig.thinkingConfig,
+        ).not.toHaveProperty('thinking_budget')
+        expect(wrapped.request.generationConfig.maxOutputTokens).toBe(64000)
+      })
+
       it('maps Gemini 3.5 Flash medium variant to the live Antigravity medium-tier model', () => {
         const result = prepareAntigravityRequest(
           'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:generateContent',
