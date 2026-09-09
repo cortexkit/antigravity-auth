@@ -54,6 +54,8 @@ export interface AccountManagerOptions {
   now?: () => number
   random?: () => number
   pid?: number
+  /** Hosts doing field-level persistence can own fingerprint writes themselves. */
+  persistFingerprintUpdates?: boolean
   onDiagnostic?: (message: string, fields?: Record<string, unknown>) => void
 }
 
@@ -481,7 +483,10 @@ export class AccountManager {
       }
 
       // Persist updated fingerprint versions to disk
-      if (fingerprintVersionChanged) {
+      if (
+        fingerprintVersionChanged &&
+        options.persistFingerprintUpdates !== false
+      ) {
         this.requestSaveToDisk()
       }
 
@@ -540,6 +545,58 @@ export class AccountManager {
 
   getAccountCount(): number {
     return this.getEnabledAccounts().length
+  }
+
+  /** Reload durable metadata without resetting this process's routing state.
+   * Access tokens and failure counters are transient and survive only an exact
+   * refresh-token match. Removed accounts are never resurrected.
+   */
+  reconcileStorage(stored: AccountStorageV4): void {
+    const previous = this.accounts
+    const byToken = new Map(
+      previous.map((account) => [account.parts.refreshToken, account]),
+    )
+    const fresh = new AccountManager(undefined, stored, {
+      store: this.store,
+      now: this.now,
+      random: this.random,
+      pid: this.pid,
+      persistFingerprintUpdates: false,
+    })
+    this.accounts = fresh.accounts.map((account) => {
+      const old = byToken.get(account.parts.refreshToken)
+      if (!old) return account
+      return {
+        ...account,
+        access: old.access,
+        expires: old.expires,
+        fingerprint:
+          stored.accounts[account.index]?.fingerprint ??
+          old.fingerprint ??
+          account.fingerprint,
+        touchedForQuota: old.touchedForQuota,
+        consecutiveFailures: old.consecutiveFailures,
+        lastFailureTime: old.lastFailureTime,
+      }
+    })
+    const remap = (index: number): number => {
+      const token = previous[index]?.parts.refreshToken
+      return this.accounts.findIndex(
+        (account) => account.parts.refreshToken === token,
+      )
+    }
+    for (const family of ['claude', 'gemini'] as const) {
+      this.currentAccountIndexByFamily[family] = remap(
+        this.currentAccountIndexByFamily[family],
+      )
+    }
+    for (const state of this.requestSessionStates.values()) {
+      for (const family of ['claude', 'gemini'] as const) {
+        state.currentAccountIndexByFamily[family] = remap(
+          state.currentAccountIndexByFamily[family],
+        )
+      }
+    }
   }
 
   getTotalAccountCount(): number {
@@ -811,6 +868,40 @@ export class AccountManager {
       }
     }
 
+    // PID-based offset for multi-session distribution (opt-in)
+    // Different sessions (PIDs) will prefer different starting accounts
+    const offsetApplied = identity
+      ? this.getRequestSessionState(identity).offsetAppliedByFamily
+      : this.sessionOffsetApplied
+    if (
+      pidOffsetEnabled &&
+      !offsetApplied[family] &&
+      this.accounts.length > 1
+    ) {
+      const pidOffset = this.pid % this.accounts.length
+      const activeIndex = this.getActiveIndex(family, identity)
+      const baseIndex =
+        activeIndex >= 0 ? activeIndex : this.getCursor(family, identity)
+      const newIndex = (baseIndex + pidOffset) % this.accounts.length
+
+      this.onDiagnostic?.('Applying PID account offset', {
+        pid: this.pid,
+        offset: pidOffset,
+        family,
+        fromIndex: baseIndex,
+        toIndex: newIndex,
+      })
+
+      this.setActiveIndex(family, newIndex, identity)
+      if (strategy === 'round-robin') {
+        const cursors = identity
+          ? this.getRequestSessionState(identity).cursorByFamily
+          : this.cursorByFamily
+        cursors[family] = newIndex
+      }
+      offsetApplied[family] = true
+    }
+
     if (strategy === 'round-robin') {
       const next = this.getNextForFamily(
         family,
@@ -886,35 +977,6 @@ export class AccountManager {
           return selected
         }
       }
-    }
-
-    // Fallback: sticky selection (used when hybrid finds no candidates)
-    // PID-based offset for multi-session distribution (opt-in)
-    // Different sessions (PIDs) will prefer different starting accounts
-    const offsetApplied = identity
-      ? this.getRequestSessionState(identity).offsetAppliedByFamily
-      : this.sessionOffsetApplied
-    if (
-      pidOffsetEnabled &&
-      !offsetApplied[family] &&
-      this.accounts.length > 1
-    ) {
-      const pidOffset = this.pid % this.accounts.length
-      const activeIndex = this.getActiveIndex(family, identity)
-      const baseIndex =
-        activeIndex >= 0 ? activeIndex : this.getCursor(family, identity)
-      const newIndex = (baseIndex + pidOffset) % this.accounts.length
-
-      this.onDiagnostic?.('Applying PID account offset', {
-        pid: this.pid,
-        offset: pidOffset,
-        family,
-        fromIndex: baseIndex,
-        toIndex: newIndex,
-      })
-
-      this.setActiveIndex(family, newIndex, identity)
-      offsetApplied[family] = true
     }
 
     const current = this.getCurrentAccountForFamily(family, identity)

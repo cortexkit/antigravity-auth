@@ -42,6 +42,112 @@ const stored: AccountStorageV4 = {
 }
 
 describe('core AccountManager', () => {
+  it.each([
+    'sticky',
+    'hybrid',
+    'round-robin',
+  ] as const)('applies PID offset to %s before selection, only once', (strategy) => {
+    const memory = createStore(stored)
+    const manager = new AccountManager(undefined, structuredClone(stored), {
+      store: memory.store,
+      pid: 1,
+      now: () => 1_000,
+    })
+    expect(
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3.8-flash',
+        strategy,
+        'antigravity',
+        true,
+      )?.index,
+    ).toBe(1)
+    expect(
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3.8-flash',
+        strategy,
+        'antigravity',
+        true,
+      )?.index,
+    ).toBe(strategy === 'round-robin' ? 0 : 1)
+  })
+
+  it('reconciles durable metadata while preserving routing, credentials and per-token failure counters', () => {
+    const memory = createStore(stored)
+    const manager = new AccountManager(
+      {
+        type: 'oauth',
+        refresh: 'r1|p1',
+        access: 'access',
+        expires: 9999999999999,
+      },
+      structuredClone(stored),
+      { store: memory.store },
+    )
+    const first = manager.getCurrentOrNextForFamily(
+      'gemini',
+      null,
+      'round-robin',
+    )!
+    first.consecutiveFailures = 2
+    const next = structuredClone(stored)
+    next.accounts[0]!.enabled = false
+    next.accounts[1]!.rateLimitResetTimes = { claude: Date.now() + 60_000 }
+    manager.reconcileStorage(next)
+    expect(manager.getAccounts()[0]).toMatchObject({
+      access: 'access',
+      consecutiveFailures: 2,
+      enabled: false,
+    })
+    expect(
+      manager.getCurrentOrNextForFamily('gemini', null, 'round-robin')?.index,
+    ).toBe(1)
+    expect(
+      manager.getAccounts()[1]?.rateLimitResetTimes.claude,
+    ).toBeGreaterThan(Date.now())
+    expect(memory.mergedSaves()).toBe(0)
+    next.accounts[0]!.refreshToken = 'rotated'
+    manager.reconcileStorage(next)
+    expect(manager.getAccounts()[0]?.access).toBeUndefined()
+    expect(manager.getAccounts()[0]?.consecutiveFailures).toBeUndefined()
+  })
+
+  it('reconciles removals without resurrecting accounts or transferring session pins', () => {
+    const memory = createStore(stored)
+    const manager = new AccountManager(undefined, structuredClone(stored), {
+      store: memory.store,
+    })
+    const identity = { id: 'session' }
+    manager.getCurrentOrNextForFamily(
+      'gemini',
+      null,
+      'sticky',
+      'antigravity',
+      false,
+      100,
+      60_000,
+      identity,
+    )
+    manager.reconcileStorage({
+      version: 4,
+      activeIndex: 0,
+      accounts: [stored.accounts[1]!],
+    })
+    expect(manager.getTotalAccountCount()).toBe(1)
+    expect(
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        100,
+        60_000,
+        identity,
+      )?.parts.refreshToken,
+    ).toBe('r2')
+  })
   it('constructs from stored and fallback auth', () => {
     const memory = createStore(stored)
     const manager = new AccountManager(
