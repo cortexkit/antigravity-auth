@@ -548,8 +548,8 @@ export class AccountManager {
   }
 
   /** Reload durable metadata without resetting this process's routing state.
-   * Access tokens and failure counters are transient and survive only an exact
-   * refresh-token match. Removed accounts are never resurrected.
+   * Access tokens survive only an exact credential match. Routing and scoring
+   * follow unique normalized email, falling back to token for legacy accounts.
    */
   reconcileStorage(stored: AccountStorageV4): void {
     const previous = this.accounts
@@ -563,13 +563,32 @@ export class AccountManager {
       pid: this.pid,
       persistFingerprintUpdates: false,
     })
+    const keyOf = (account: ManagedAccount): string => {
+      const email = account.email?.trim().toLowerCase()
+      return email ? `email:${email}` : `token:${account.parts.refreshToken}`
+    }
+    const remap = (index: number): number => {
+      const old = previous[index]
+      if (!old) return -1
+      const key = keyOf(old)
+      if (previous.filter((account) => keyOf(account) === key).length !== 1)
+        return -1
+      const matches = fresh.accounts.filter((account) => keyOf(account) === key)
+      return matches.length === 1 ? matches[0]!.index : -1
+    }
+    const indexMap = new Map(
+      previous.map((account) => [account.index, remap(account.index)]),
+    )
     this.accounts = fresh.accounts.map((account) => {
-      const old = byToken.get(account.parts.refreshToken)
+      const old = previous.find(
+        (entry) => indexMap.get(entry.index) === account.index,
+      )
       if (!old) return account
+      const credential = byToken.get(account.parts.refreshToken)
       return {
         ...account,
-        access: old.access,
-        expires: old.expires,
+        access: credential?.access,
+        expires: credential?.expires,
         fingerprint:
           stored.accounts[account.index]?.fingerprint ??
           old.fingerprint ??
@@ -579,19 +598,37 @@ export class AccountManager {
         lastFailureTime: old.lastFailureTime,
       }
     })
-    const remap = (index: number): number => {
-      const token = previous[index]?.parts.refreshToken
-      return this.accounts.findIndex(
-        (account) => account.parts.refreshToken === token,
-      )
+    const remapCursor = (cursor: number): number => {
+      for (let offset = 0; offset < previous.length; offset++) {
+        const next = remap((cursor + offset) % previous.length)
+        if (next >= 0) return next
+      }
+      return 0
+    }
+    const remapUsed = (used: Set<number>): Set<number> =>
+      new Set([...used].map(remap).filter((index) => index >= 0))
+    const changed =
+      previous.length !== this.accounts.length ||
+      previous.some((account) => remap(account.index) !== account.index)
+    if (changed) {
+      getHealthTracker().remapAccounts(indexMap)
+      getTokenTracker().remapAccounts(indexMap)
+      this.sessionUsedAccounts = remapUsed(this.sessionUsedAccounts)
     }
     for (const family of ['claude', 'gemini'] as const) {
+      if (changed)
+        this.cursorByFamily[family] = remapCursor(this.cursorByFamily[family])
       this.currentAccountIndexByFamily[family] = remap(
         this.currentAccountIndexByFamily[family],
       )
     }
     for (const state of this.requestSessionStates.values()) {
+      if (changed) state.usedAccounts = remapUsed(state.usedAccounts)
       for (const family of ['claude', 'gemini'] as const) {
+        if (changed)
+          state.cursorByFamily[family] = remapCursor(
+            state.cursorByFamily[family],
+          )
         state.currentAccountIndexByFamily[family] = remap(
           state.currentAccountIndexByFamily[family],
         )

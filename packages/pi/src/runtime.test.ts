@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import {
   type AntigravityRefreshResult,
   getHealthTracker,
+  getTokenTracker,
   initHealthTracker,
   initTokenTracker,
   loadAccountStorage,
@@ -105,6 +106,117 @@ afterEach(async () => {
 })
 
 describe('Pi shared account runtime', () => {
+  it('attributes in-flight health and refunds after a local reconciliation reorders accounts', async () => {
+    const result = await pool(2)
+    initTokenTracker({ regenerationRatePerMinute: 0 })
+    const balance = getTokenTracker().getTokens(0)
+    const score = getHealthTracker().getScore(0)
+    let calls = 0
+    const response = await result.dispatch(model, async () => {
+      if (++calls > 1) return new Response('ok')
+      await mutateAccountStorage(path, (current) => {
+        current.accounts[0]!.refreshToken = 'rotated'
+        current.accounts.reverse()
+        return current
+      })
+      await result.describe()
+      return new Response('', { status: 429 })
+    })
+    expect(response.account.email).toBe('user2@example.com')
+    expect(getHealthTracker().getScore(0)).toBe(score)
+    expect(getHealthTracker().getScore(1)).toBeLessThan(score)
+    expect(getTokenTracker().getTokens(0)).toBe(balance - 1)
+    expect(getTokenTracker().getTokens(1)).toBe(balance)
+  })
+
+  it.each([
+    429, 500, 503, 529,
+  ])('attributes in-flight HTTP %s to the account after credential rotation', async (status) => {
+    const result = await pool(2)
+    const sends: string[] = []
+    await result.dispatch(model, async (_auth, account) => {
+      sends.push(account.parts.refreshToken)
+      if (sends.length > 1) return new Response('ok')
+      await mutateAccountStorage(path, (current) => {
+        current.accounts[0]!.refreshToken = 'rotated'
+        current.accounts[0]!.email = ' USER1@EXAMPLE.COM '
+        return current
+      })
+      return new Response('', { status })
+    })
+    expect(sends).toEqual(['secret-refresh-1', 'secret-refresh-2'])
+    const account = (await loadAccountStorage(path))!.accounts[0]!
+    expect(account.refreshToken).toBe('rotated')
+    expect(
+      account.rateLimitResetTimes?.[`gemini-antigravity:${model}`],
+    ).toBeGreaterThan(Date.now())
+  })
+
+  it('retains attempted identity even when a peer clears the persisted cooldown', async () => {
+    const result = await pool(2)
+    const sends: string[] = []
+    await expect(
+      result.dispatch(model, async (_auth, account) => {
+        sends.push(account.parts.refreshToken)
+        await mutateAccountStorage(path, (current) => {
+          current.accounts[0]!.refreshToken = 'rotated'
+          current.accounts[0]!.rateLimitResetTimes = {}
+          return current
+        })
+        return new Response('', { status: 429 })
+      }),
+    ).rejects.toThrow('HTTP 429')
+    expect(sends).toEqual(['secret-refresh-1', 'secret-refresh-2'])
+  })
+
+  it('stops failover when a dispatched no-email credential disappears', async () => {
+    const result = await pool(2)
+    await mutateAccountStorage(path, (current) => {
+      delete current.accounts[0]!.email
+      return current
+    })
+    const send = mock(async () => {
+      await mutateAccountStorage(path, (current) => {
+        current.accounts[0]!.refreshToken = 'unknown-replacement'
+        return current
+      })
+      return new Response('', { status: 429 })
+    })
+    await expect(result.dispatch(model, send)).rejects.toThrow(
+      'cooldown not recorded',
+    )
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(
+      (await loadAccountStorage(path))!.accounts[0]!.rateLimitResetTimes,
+    ).toBeUndefined()
+  })
+
+  it.each([
+    true,
+    false,
+  ])('reports whether in-flight quota can be attributed with email=%s', async (withEmail) => {
+    const result = await pool(1)
+    const before = 1
+    await mutateAccountStorage(path, (current) => {
+      current.accounts[0]!.cachedQuotaUpdatedAt = before
+      if (!withEmail) delete current.accounts[0]!.email
+      return current
+    })
+    const response = quotaFetch.getMockImplementation()!
+    quotaFetch.mockImplementation(async () => {
+      await mutateAccountStorage(path, (current) => {
+        current.accounts[0]!.refreshToken = 'quota-rotated'
+        return current
+      })
+      return response()
+    })
+    expect(await result.refreshQuota(true)).toBe(withEmail ? 0 : 1)
+    const account = (await loadAccountStorage(path))!.accounts[0]!
+    expect(account.refreshToken).toBe('quota-rotated')
+    if (withEmail) expect(account.cachedQuotaUpdatedAt).toBeGreaterThan(before)
+    else expect(account.cachedQuotaUpdatedAt).toBe(before)
+  })
+
   it('persists first, second and third logins using v4 and secure permissions', async () => {
     const result = runtime()
     for (let i = 1; i <= 3; i++) {

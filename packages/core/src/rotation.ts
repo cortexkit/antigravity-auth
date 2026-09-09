@@ -257,6 +257,16 @@ export class HealthScoreTracker {
     this.scores.delete(accountIndex)
   }
 
+  /** Move transient state with surviving accounts, dropping unknown identities. */
+  remapAccounts(indexMap: ReadonlyMap<number, number>): void {
+    const previous = new Map(this.scores)
+    this.scores.clear()
+    for (const [oldIndex, newIndex] of indexMap) {
+      const state = previous.get(oldIndex)
+      if (newIndex >= 0 && state) this.scores.set(newIndex, state)
+    }
+  }
+
   /**
    * Get all scores for debugging/logging.
    */
@@ -545,6 +555,16 @@ export class TokenBucketTracker {
 
   getMaxTokens(): number {
     return this.config.maxTokens
+  }
+
+  /** Move balances with surviving accounts, dropping unknown identities. */
+  remapAccounts(indexMap: ReadonlyMap<number, number>): void {
+    const previous = new Map(this.buckets)
+    this.buckets.clear()
+    for (const [oldIndex, newIndex] of indexMap) {
+      const state = previous.get(oldIndex)
+      if (newIndex >= 0 && state) this.buckets.set(newIndex, state)
+    }
   }
 }
 

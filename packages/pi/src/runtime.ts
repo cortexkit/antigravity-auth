@@ -42,6 +42,15 @@ type LoginResult = Extract<AntigravityTokenExchangeResult, { type: 'success' }>
 class AccountUnavailable extends Error {}
 class CredentialRefreshFailed extends Error {}
 
+function attemptKey(account: ManagedAccount): string {
+  return defaultKeyOf({
+    ...account.parts,
+    email: account.email?.trim().toLowerCase(),
+    addedAt: account.addedAt,
+    lastUsed: account.lastUsed,
+  })
+}
+
 export interface PiRuntimeOptions {
   path?: string
   pid?: number
@@ -109,13 +118,17 @@ export class PiAccountRuntime {
             quota = aggregateQuota((await fetchAvailableModels(common)).models)
           }
           signal.throwIfAborted()
-          await this.patch(parts.refreshToken, (current) => {
-            current.projectId = parts.projectId ?? current.projectId
-            current.managedProjectId =
-              parts.managedProjectId ?? current.managedProjectId
-            current.cachedQuota = quota.groups
-            current.cachedQuotaUpdatedAt = Date.now()
-          })
+          const applied = await this.patch(
+            { ...account, refreshToken: parts.refreshToken },
+            (current) => {
+              current.projectId = parts.projectId ?? current.projectId
+              current.managedProjectId =
+                parts.managedProjectId ?? current.managedProjectId
+              current.cachedQuota = quota.groups
+              current.cachedQuotaUpdatedAt = Date.now()
+            },
+          )
+          if (!applied) throw new AccountUnavailable('Quota account changed')
           return { index: 0, status: 'ok', quota }
         } catch {
           // Provider bodies can contain credentials. Never relay them to quota
@@ -196,16 +209,24 @@ export class PiAccountRuntime {
   }
 
   private async patch(
-    token: string,
+    target: { email?: string; refreshToken: string },
     update: (account: AccountMetadataV3) => void,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    let applied = false
     await mutateAccountStorage(this.path, (current) => {
-      const account = current.accounts.find(
-        (entry) => entry.refreshToken === token,
+      const email = target.email?.trim().toLowerCase()
+      const matches = current.accounts.filter((entry) =>
+        email
+          ? entry.email?.trim().toLowerCase() === email
+          : entry.refreshToken === target.refreshToken,
       )
-      if (account) update(account)
+      if (matches.length === 1 && matches[0]) {
+        update(matches[0])
+        applied = true
+      }
       return current
     })
+    return applied
   }
 
   private async credentialFor(token: string): Promise<OAuthAuthDetails> {
@@ -291,15 +312,21 @@ export class PiAccountRuntime {
   }
 
   private async authFailure(account: ManagedAccount): Promise<void> {
-    getHealthTracker().recordFailure(account.index)
+    const current = this.currentAccount(account)
+    if (current) getHealthTracker().recordFailure(current.index)
     this.manager?.markAccountCoolingDown(account, 60_000, 'auth-failure')
-    await this.patch(account.parts.refreshToken, (current) => {
-      current.coolingDownUntil = Math.max(
-        current.coolingDownUntil ?? 0,
-        account.coolingDownUntil ?? 0,
-      )
-      current.cooldownReason = 'auth-failure'
-    })
+    const applied = await this.patch(
+      { ...account.parts, email: account.email },
+      (current) => {
+        current.coolingDownUntil = Math.max(
+          current.coolingDownUntil ?? 0,
+          account.coolingDownUntil ?? 0,
+        )
+        current.cooldownReason = 'auth-failure'
+      },
+    )
+    if (!applied)
+      throw new AccountUnavailable('Account changed; cooldown not recorded')
   }
 
   async refreshQuota(force = false): Promise<number> {
@@ -330,7 +357,7 @@ export class PiAccountRuntime {
     const config = await readSettings(this.settingsPath)
     const attempted = new Set<string>()
     // One extra selection tolerates a peer rotating a token between reload and
-    // credential acquisition. The attempted-token set still bounds sends.
+    // credential acquisition. Stable attempted identities still bound sends.
     const budget = (await this.reload()).getTotalAccountCount() + 1
     let lastError =
       'All Antigravity accounts are disabled, cooling down, or over cached quota'
@@ -344,7 +371,7 @@ export class PiAccountRuntime {
           .getAccounts()
           .filter(
             (a) =>
-              attempted.has(a.parts.refreshToken) ||
+              attempted.has(attemptKey(a)) ||
               a.verificationRequired ||
               a.accountIneligible,
           )
@@ -362,7 +389,6 @@ export class PiAccountRuntime {
         excluded,
       )
       if (!account) break
-      attempted.add(account.parts.refreshToken)
       let auth: OAuthAuthDetails
       try {
         auth = await this.credentialFor(account.parts.refreshToken)
@@ -375,26 +401,34 @@ export class PiAccountRuntime {
         )
           throw error
         lastError = error.message
-        if (error instanceof CredentialRefreshFailed)
+        if (error instanceof CredentialRefreshFailed) {
+          attempted.add(attemptKey(account))
           await this.authFailure(account)
+        }
         continue
       }
       manager.updateFromAuth(account, auth)
       const token = account.parts.refreshToken
-      attempted.add(token)
+      attempted.add(attemptKey(account))
+      const target = { ...account.parts, email: account.email }
       signal?.throwIfAborted()
       manager.markAccountUsed(account.index)
-      await this.patch(token, (current) => {
+      const located = await this.patch(target, (current) => {
         current.lastUsed = Math.max(current.lastUsed, account.lastUsed)
         current.fingerprint ??= account.fingerprint
       })
+      if (!located)
+        throw new AccountUnavailable('Account changed before dispatch')
       const consumed = getTokenTracker().consume(account.index)
       let response: Response
       try {
         response = await send(auth, account)
       } catch (error) {
-        if (consumed) getTokenTracker().refund(account.index)
-        if (!signal?.aborted) getHealthTracker().recordFailure(account.index)
+        const current = this.currentAccount(account)
+        if (current) {
+          if (consumed) getTokenTracker().refund(current.index)
+          if (!signal?.aborted) getHealthTracker().recordFailure(current.index)
+        }
         // Unknown transport failures may occur after upstream accepted work.
         // Surface them without replaying a potentially billable request.
         throw error
@@ -403,7 +437,8 @@ export class PiAccountRuntime {
         this.selected = token
         return { response, account }
       }
-      if (consumed) getTokenTracker().refund(account.index)
+      const current = this.currentAccount(account)
+      if (consumed && current) getTokenTracker().refund(current.index)
       if (![429, 503, 529, 500].includes(response.status))
         return { response, account }
       let body: unknown
@@ -421,8 +456,9 @@ export class PiAccountRuntime {
         parseRateLimitReason(info.reason, info.message, response.status),
         info.retryDelayMs ?? retryAfterMsFromResponse(response),
       )
-      getHealthTracker().recordRateLimit(account.index)
-      await this.patch(token, (current) => {
+      const rateLimited = this.currentAccount(account)
+      if (rateLimited) getHealthTracker().recordRateLimit(rateLimited.index)
+      const applied = await this.patch(target, (current) => {
         for (const [key, until] of Object.entries(
           account.rateLimitResetTimes,
         )) {
@@ -433,15 +469,25 @@ export class PiAccountRuntime {
           )
         }
       })
+      if (!applied)
+        throw new AccountUnavailable(
+          `Antigravity HTTP ${response.status}; account changed; cooldown not recorded`,
+        )
       lastError = `Antigravity HTTP ${response.status}; no eligible account remains (cooldown recorded)`
     }
     throw new Error(lastError)
   }
 
+  private currentAccount(account: ManagedAccount): ManagedAccount | undefined {
+    const matches =
+      this.manager
+        ?.getAccounts()
+        .filter((entry) => attemptKey(entry) === attemptKey(account)) ?? []
+    return matches.length === 1 ? matches[0] : undefined
+  }
+
   complete(account: ManagedAccount, success: boolean): void {
-    const current = this.manager
-      ?.getAccounts()
-      .find((entry) => entry.parts.refreshToken === account.parts.refreshToken)
+    const current = this.currentAccount(account)
     if (!current) return
     if (success) {
       this.manager?.markRequestSuccess(current)

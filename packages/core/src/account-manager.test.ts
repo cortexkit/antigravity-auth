@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it } from 'bun:test'
 import { AccountManager } from './account-manager.ts'
 import type { AccountStorageStore } from './account-storage.ts'
 import type { AccountStorageV4 } from './account-types.ts'
+import { initHealthTracker, initTokenTracker } from './rotation.ts'
 
 function createStore(initial: AccountStorageV4 | null = null) {
   let state = initial
@@ -42,6 +43,128 @@ const stored: AccountStorageV4 = {
 }
 
 describe('core AccountManager', () => {
+  afterEach(() => {
+    initHealthTracker({})
+    initTokenTracker({})
+  })
+
+  it('clears transient penalties when a no-email account is replaced', () => {
+    const health = initHealthTracker({})
+    const tokens = initTokenTracker({})
+    const manager = new AccountManager(undefined, structuredClone(stored), {
+      store: createStore(stored).store,
+      persistFingerprintUpdates: false,
+    })
+    const initialScore = health.getScore(0)
+    const initialTokens = tokens.getTokens(0)
+    health.recordFailure(0)
+    health.recordFailure(0)
+    tokens.consume(0, 3)
+    manager.recordSessionUsage(0)
+    const next = structuredClone(stored)
+    next.accounts[0]!.refreshToken = 'unknown-replacement'
+    manager.reconcileStorage(next)
+    expect(health.getScore(0)).toBe(initialScore)
+    expect(tokens.getTokens(0)).toBe(initialTokens)
+    expect(manager.wasUsedInSession(0)).toBe(false)
+  })
+
+  it.each([
+    { order: [1, 2], next: 'b' },
+    { order: [0, 2], next: 'c' },
+    { order: [0, 1], next: 'b' },
+    { order: [2, 0, 1], next: 'b' },
+  ])('keeps the next surviving RR account across $order', ({ order, next }) => {
+    for (const identity of [undefined, { id: 'request' }]) {
+      const pool: AccountStorageV4 = {
+        version: 4,
+        activeIndex: 0,
+        accounts: ['a', 'b', 'c'].map((refreshToken) => ({
+          refreshToken,
+          email: `${refreshToken}@example.com`,
+          addedAt: 1,
+          lastUsed: 0,
+        })),
+      }
+      const manager = new AccountManager(undefined, structuredClone(pool), {
+        store: createStore(pool).store,
+        persistFingerprintUpdates: false,
+      })
+      const select = () =>
+        manager.getNextForFamily(
+          'gemini',
+          null,
+          'antigravity',
+          100,
+          60_000,
+          identity,
+        )?.parts.refreshToken
+      expect(select()).toBe('a')
+      manager.reconcileStorage({
+        ...pool,
+        accounts: order.map((index) => pool.accounts[index]!),
+      })
+      expect(select()).toBe(next)
+    }
+  })
+
+  it('remaps usage, health and balances by unique identity through removal, reorder and token rotation', () => {
+    const health = initHealthTracker({ recoveryRatePerHour: 0 })
+    const tokens = initTokenTracker({ regenerationRatePerMinute: 0 })
+    const pool: AccountStorageV4 = {
+      version: 4,
+      activeIndex: 0,
+      accounts: ['a', 'b', 'c'].map((refreshToken) => ({
+        refreshToken,
+        email: `${refreshToken}@example.com`,
+        addedAt: 1,
+        lastUsed: 0,
+      })),
+    }
+    const manager = new AccountManager(undefined, structuredClone(pool), {
+      store: createStore(pool).store,
+      persistFingerprintUpdates: false,
+    })
+    const session = { id: 'request' }
+    manager.recordSessionUsage(0)
+    manager.recordSessionUsage(1, session)
+    health.recordFailure(0)
+    health.recordFailure(0)
+    health.recordSuccess(1)
+    health.recordRateLimit(2)
+    tokens.consume(0, 3)
+    tokens.consume(1, 1)
+    tokens.consume(2, 2)
+    const expected = [1, 2].map((index) => ({
+      score: health.getScore(index),
+      tokens: tokens.getTokens(index),
+    }))
+    manager.reconcileStorage({
+      ...pool,
+      accounts: [pool.accounts[1]!, pool.accounts[2]!],
+    })
+    expect(health.getScore(0)).toBe(expected[0]!.score)
+    expect(tokens.getTokens(0)).toBe(expected[0]!.tokens)
+    manager.reconcileStorage({
+      ...pool,
+      accounts: [
+        pool.accounts[2]!,
+        {
+          ...pool.accounts[1]!,
+          email: ' B@EXAMPLE.COM ',
+          refreshToken: 'rotated',
+        },
+      ],
+    })
+    for (const [index, original] of [1, 0].entries()) {
+      expect(health.getScore(index)).toBe(expected[original]!.score)
+      expect(tokens.getTokens(index)).toBe(expected[original]!.tokens)
+    }
+    expect(manager.wasUsedInSession(0)).toBe(false)
+    expect(manager.wasUsedInSession(1, session)).toBe(true)
+    expect(manager.wasUsedInSession(0, session)).toBe(false)
+  })
+
   it.each([
     'sticky',
     'hybrid',
