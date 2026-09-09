@@ -238,7 +238,7 @@ pi
 /login google-antigravity                    # OAuth flow
 ```
 
-The Pi extension registers the `google-antigravity` provider automatically through the package's `pi.extensions` field; no further wiring is needed. Both packages delegate to `@cortexkit/antigravity-auth-core`, so the request transport and model transforms are shared. The account-pool layer is not: Pi holds a single credential locally (no `antigravity-accounts.json`, no rotation, no killswitch, no operator settings). Multi-account rotation, quota routing, and the killswitch are OpenCode-only.
+The Pi extension registers the `google-antigravity` provider automatically through the package's `pi.extensions` field; no further wiring is needed. Both packages delegate transport, transforms, multi-account storage, selection and quota routing to `@cortexkit/antigravity-auth-core`. Repeat `/login google-antigravity` to add accounts; use `/agy-accounts`, `/agy-quota refresh`, `/agy-strategy`, `/agy-enable` and `/agy-disable` to manage the pool. Pi defaults to hybrid selection with PID offset enabled and safely imports existing single-account host credentials. See the [Pi README](packages/pi/README.md) for storage paths, configuration, concurrency semantics and a manual smoke test. OpenCode's killswitch and Gemini CLI header fallback remain host-specific.
 
 ## Configuration reference
 
