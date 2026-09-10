@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as core from '@cortexkit/antigravity-auth-core'
@@ -35,6 +35,7 @@ const commands = new Map<string, Command>()
 const hooks = new Map<string, (...args: unknown[]) => Promise<void>>()
 let directory: string
 let previousPath: string | undefined
+let previousAgentDir: string | undefined
 let previousFetch: typeof fetch
 let sequence: number
 let hostAuth: OAuthCredentials | undefined
@@ -50,6 +51,8 @@ beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'pi-provider-'))
   previousPath = process.env.PI_ANTIGRAVITY_AUTH_FILE
   process.env.PI_ANTIGRAVITY_AUTH_FILE = join(directory, 'accounts.json')
+  previousAgentDir = process.env.PI_CODING_AGENT_DIR
+  process.env.PI_CODING_AGENT_DIR = join(directory, 'agent')
   previousFetch = globalThis.fetch
   globalThis.fetch = mock(async () =>
     Response.json({ groups: [] }),
@@ -91,6 +94,8 @@ afterEach(async () => {
   globalThis.fetch = previousFetch
   if (previousPath === undefined) delete process.env.PI_ANTIGRAVITY_AUTH_FILE
   else process.env.PI_ANTIGRAVITY_AUTH_FILE = previousPath
+  if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR
+  else process.env.PI_CODING_AGENT_DIR = previousAgentDir
   await rm(directory, { recursive: true, force: true })
 })
 
@@ -98,20 +103,34 @@ function context() {
   return {
     hasUI: true,
     ui: { notify, input: async () => 'code', select: async () => undefined },
-    modelRegistry: {
-      authStorage: {
-        get: () => (hostAuth ? { type: 'oauth', ...hostAuth } : undefined),
-        login: async (_id: string, cb: OAuthLoginCallbacks) => {
-          hostAuth = await provider.oauth!.login(cb)
-        },
-      },
-    },
+    modelRegistry: {},
   } as unknown as ExtensionCommandContext
 }
 
+async function persistHostAuth(): Promise<void> {
+  const agentDir = process.env.PI_CODING_AGENT_DIR!
+  await mkdir(agentDir, { recursive: true })
+  await writeFile(
+    join(agentDir, 'auth.json'),
+    JSON.stringify({
+      'google-antigravity': { type: 'oauth', ...hostAuth },
+    }),
+  )
+}
+
 describe('Pi provider multi-account integration', () => {
+  it('directs first-time /agy-add users through the public provider login flow', async () => {
+    await commands.get('agy-add')!.handler('', context())
+    expect(exchange).not.toHaveBeenCalled()
+    expect(notify).toHaveBeenCalledWith(
+      'Authenticate the provider first with /login google-antigravity, then use /agy-add for additional accounts.',
+      'warning',
+    )
+  })
+
   it('repeated /login and /agy-add share the OAuth flow and retain all accounts', async () => {
     hostAuth = await provider.oauth!.login(callbacks)
+    await persistHostAuth()
     hostAuth = await provider.oauth!.login(callbacks)
     await commands.get('agy-add')!.handler('', context())
     const accounts = await core.loadAccountStorage(
@@ -136,6 +155,7 @@ describe('Pi provider multi-account integration', () => {
       access: 'legacy-access',
       expires: Date.now() + 3600_000,
     }
+    await persistHostAuth()
     await hooks.get('session_start')?.({}, context())
     await provider.oauth!.login(callbacks)
     expect(

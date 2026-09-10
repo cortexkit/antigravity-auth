@@ -229,9 +229,14 @@ export class PiAccountRuntime {
     return applied
   }
 
-  private async credentialFor(token: string): Promise<OAuthAuthDetails> {
+  private async credentialFor(
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<OAuthAuthDetails> {
+    signal?.throwIfAborted()
     let auth: OAuthAuthDetails | undefined
     await mutateAccountStorage(this.path, async (current) => {
+      signal?.throwIfAborted()
       const account = current.accounts.find(
         (entry) => entry.refreshToken === token,
       )
@@ -250,7 +255,8 @@ export class PiAccountRuntime {
       }
       let refreshed: Awaited<ReturnType<typeof refreshAntigravityToken>>
       try {
-        refreshed = await this.refreshToken(token)
+        refreshed = await this.refreshToken(token, signal)
+        signal?.throwIfAborted()
         if (
           !refreshed.access ||
           !refreshed.refresh ||
@@ -258,7 +264,8 @@ export class PiAccountRuntime {
         ) {
           throw new Error('Invalid refresh result')
         }
-      } catch {
+      } catch (error) {
+        if (signal?.aborted) throw error
         throw new CredentialRefreshFailed(
           'Antigravity token refresh failed; re-authenticate the account',
         )
@@ -283,12 +290,21 @@ export class PiAccountRuntime {
   /** Pi refreshes its host credential before stream dispatch. A failed last
    * login must not prevent a healthy pool member from reaching the runtime.
    */
-  async refreshHost(credentials: OAuthCredentials): Promise<OAuthCredentials> {
+  async refreshHost(
+    credentials: OAuthCredentials,
+    signal?: AbortSignal,
+  ): Promise<OAuthCredentials> {
+    signal?.throwIfAborted()
     await this.migrate(credentials)
+    signal?.throwIfAborted()
     const manager = await this.reload()
     for (const account of manager.getEnabledAccounts()) {
+      signal?.throwIfAborted()
       try {
-        const auth = await this.credentialFor(account.parts.refreshToken)
+        const auth = await this.credentialFor(
+          account.parts.refreshToken,
+          signal,
+        )
         return {
           refresh: auth.refresh,
           access: auth.access ?? '',

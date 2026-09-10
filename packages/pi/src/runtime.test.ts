@@ -245,7 +245,7 @@ describe('Pi shared account runtime', () => {
     await pool()
     const next = runtime()
     expect(await dispatch(next)).toBe(0)
-    expect(refresh).toHaveBeenCalledWith('secret-refresh-1')
+    expect(refresh.mock.calls[0]?.[0]).toBe('secret-refresh-1')
     expect(await next.describe()).toContain('agy3')
   })
 
@@ -569,6 +569,41 @@ describe('Pi shared account runtime', () => {
     await result.setEnabled(0, false)
     const next = await result.refreshHost({ ...login(1), expires: 0 })
     expect(next.refresh).toStartWith('secret-refresh-2|')
+  })
+
+  it('forwards and honors the Pi OAuth refresh abort signal', async () => {
+    const seeded = runtime()
+    await seeded.login(login(1))
+    const controller = new AbortController()
+    let startRefresh: (() => void) | undefined
+    const refreshStarted = new Promise<void>((resolve) => {
+      startRefresh = resolve
+    })
+    const refreshing = new PiAccountRuntime({
+      path,
+      pid: 0,
+      refreshToken: async (_token, signal) => {
+        startRefresh?.()
+        return await new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), {
+            once: true,
+          })
+        })
+      },
+    })
+    runtimes.push(refreshing)
+
+    const result = refreshing.refreshHost(
+      { ...login(1), expires: 0 },
+      controller.signal,
+    )
+    await refreshStarted
+    controller.abort(new Error('cancelled by Pi'))
+
+    await expect(result).rejects.toThrow('cancelled by Pi')
+    expect(
+      (await loadAccountStorage(path))?.accounts[0]?.cooldownReason,
+    ).toBeUndefined()
   })
 
   it('migrates a legacy Pi credential once without overwriting or resurrecting accounts', async () => {

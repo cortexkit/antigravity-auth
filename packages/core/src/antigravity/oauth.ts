@@ -78,6 +78,7 @@ export interface AntigravityRefreshResult {
  */
 export async function refreshAntigravityToken(
   refreshToken: string,
+  signal?: AbortSignal,
 ): Promise<AntigravityRefreshResult> {
   const startTime = Date.now()
   const response = await fetchWithActiveTimeout(
@@ -91,6 +92,7 @@ export async function refreshAntigravityToken(
         client_id: ANTIGRAVITY_CLIENT_ID,
         client_secret: ANTIGRAVITY_CLIENT_SECRET,
       }),
+      signal,
     },
   )
 

@@ -1,10 +1,18 @@
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import type {
+  OAuthCredentials,
+  OAuthLoginCallbacks,
+} from '@earendil-works/pi-ai'
+import {
+  type ExtensionAPI,
+  readStoredCredential,
+} from '@earendil-works/pi-coding-agent'
 import type { PiAccountRuntime } from './runtime.ts'
 import { isStrategy, readSettings, writeStrategy } from './settings.ts'
 
 export function registerAccountCommands(
   pi: ExtensionAPI,
   runtime: PiAccountRuntime,
+  login: (callbacks: OAuthLoginCallbacks) => Promise<OAuthCredentials>,
 ): void {
   const register = (
     name: string,
@@ -92,7 +100,14 @@ export function registerAccountCommands(
     'Add an account using the provider OAuth login',
     async (_args, ctx) => {
       if (!ctx.hasUI) throw new Error('OAuth requires interactive Pi')
-      await ctx.modelRegistry.authStorage.login('google-antigravity', {
+      if (readStoredCredential('google-antigravity')?.type !== 'oauth') {
+        ctx.ui.notify(
+          'Authenticate the provider first with /login google-antigravity, then use /agy-add for additional accounts.',
+          'warning',
+        )
+        return
+      }
+      await login({
         onAuth: ({ url }) =>
           ctx.ui.notify(`Open this URL in your browser:\n${url}`, 'info'),
         onPrompt: async ({ message }) => {

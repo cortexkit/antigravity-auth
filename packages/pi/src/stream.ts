@@ -409,10 +409,13 @@ async function sendAntigravityRequest(options: {
     userAgent: 'antigravity',
     requestType: 'agent',
   }
+  const payload =
+    (await options.streamOptions?.onPayload?.(envelope, options.model)) ??
+    envelope
 
   const url = `${ANTIGRAVITY_ENDPOINT}/v1internal:${STREAM_ACTION}?alt=sse`
 
-  return fetchWithAgyCliTransport(
+  const response = await fetchWithAgyCliTransport(
     url,
     {
       method: 'POST',
@@ -425,10 +428,18 @@ async function sendAntigravityRequest(options: {
           : {}),
         'Accept-Encoding': 'gzip',
       },
-      body: JSON.stringify(envelope),
+      body: JSON.stringify(payload),
     },
     { signal: options.signal ?? options.streamOptions?.signal ?? null },
   )
+  await options.streamOptions?.onResponse?.(
+    {
+      status: response.status,
+      headers: Object.fromEntries(response.headers),
+    },
+    options.model,
+  )
+  return response
 }
 
 export function streamCortexKitAntigravity(
