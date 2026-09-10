@@ -1,3 +1,4 @@
+import { AccountIdentityAmbiguityError } from '@cortexkit/antigravity-auth-core'
 import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
@@ -24,7 +25,14 @@ export function registerAccountCommands(
       handler: async (args, context) => {
         try {
           await handler(args, context)
-        } catch {
+        } catch (error) {
+          if (error instanceof AccountIdentityAmbiguityError) {
+            context.ui.notify(
+              'Antigravity account identity is ambiguous; no accounts were merged. Re-authenticate or repair the token-only entries before retrying.',
+              'error',
+            )
+            return
+          }
           context.ui.notify(
             'Antigravity command failed. Check the account/ settings file, account number, or re-authenticate. Existing credentials were retained.',
             'error',

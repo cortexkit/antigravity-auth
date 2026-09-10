@@ -211,15 +211,20 @@ export function deduplicateAccountsByEmail<
       continue
     }
 
-    const existingIndex = emailToNewestIndex.get(acc.email)
+    const email = acc.email.trim().toLowerCase()
+    if (!email) {
+      indicesToKeep.add(i)
+      continue
+    }
+    const existingIndex = emailToNewestIndex.get(email)
     if (existingIndex === undefined) {
-      emailToNewestIndex.set(acc.email, i)
+      emailToNewestIndex.set(email, i)
       continue
     }
 
     const existing = accounts[existingIndex]
     if (!existing) {
-      emailToNewestIndex.set(acc.email, i)
+      emailToNewestIndex.set(email, i)
       continue
     }
 
@@ -233,7 +238,7 @@ export function deduplicateAccountsByEmail<
       (currLastUsed === existLastUsed && currAddedAt > existAddedAt)
 
     if (isNewer) {
-      emailToNewestIndex.set(acc.email, i)
+      emailToNewestIndex.set(email, i)
     }
   }
 
@@ -560,6 +565,9 @@ function validateV4AccountRecord(
   }
   if (typeof acc.lastUsed !== 'number' || !Number.isFinite(acc.lastUsed)) {
     return `accounts[${index}].lastUsed is missing or not a finite number`
+  }
+  if (acc.accountId !== undefined && typeof acc.accountId !== 'string') {
+    return `accounts[${index}].accountId is not a string`
   }
   return null
 }

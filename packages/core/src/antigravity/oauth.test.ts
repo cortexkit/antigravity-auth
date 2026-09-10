@@ -47,7 +47,7 @@ function userInfoBody(
   email = 'user@example.com',
   name = 'Alice Example',
 ): string {
-  return JSON.stringify({ email, name })
+  return JSON.stringify({ id: 'google-account-1', email, name })
 }
 
 describe('Antigravity OAuth', () => {
@@ -147,6 +147,7 @@ describe('Antigravity OAuth', () => {
       expect(result.refresh).toBe('refresh-1|project-1')
       expect(result.access).toBe('access-1')
       expect(result.email).toBe('alice@example.com')
+      expect(result.accountId).toBe('google-account-1')
       expect(result.label).toBe('Alice Example')
       expect(result.projectId).toBe('project-1')
 

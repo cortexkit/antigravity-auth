@@ -71,6 +71,7 @@ beforeEach(async () => {
     return {
       type: 'success',
       email: `person${i}@example.com`,
+      accountId: `google-person-${i}`,
       refresh: `refresh-${i}|project|managed`,
       access: `access-${i}`,
       expires: Date.now() + 3600_000,
@@ -128,6 +129,54 @@ describe('Pi provider multi-account integration', () => {
     )
   })
 
+  it('canonical login persists and returns the stable OAuth identity', async () => {
+    hostAuth = await provider.oauth!.login(callbacks)
+    expect(hostAuth).toMatchObject({
+      email: 'person1@example.com',
+      accountId: 'google-person-1',
+    })
+    const accounts = await core.loadAccountStorage(
+      process.env.PI_ANTIGRAVITY_AUTH_FILE!,
+    )
+    expect(accounts?.accounts).toEqual([
+      expect.objectContaining({
+        email: 'person1@example.com',
+        accountId: 'google-person-1',
+      }),
+    ])
+  })
+
+  it('canonical login and agy-add re-authenticate the same stable account in place', async () => {
+    exchange.mockImplementation(async () => {
+      const i = ++sequence
+      return {
+        type: 'success',
+        email: 'same@example.com',
+        accountId: 'google-same-account',
+        refresh: `same-refresh-${i}|project|managed`,
+        access: `same-access-${i}`,
+        expires: Date.now() + 3_600_000,
+        projectId: 'project',
+      }
+    })
+    hostAuth = await provider.oauth!.login(callbacks)
+    await persistHostAuth()
+    await commands.get('agy-disable')!.handler('agy1', context())
+    await commands.get('agy-add')!.handler('', context())
+
+    expect(
+      (await core.loadAccountStorage(process.env.PI_ANTIGRAVITY_AUTH_FILE!))
+        ?.accounts,
+    ).toEqual([
+      expect.objectContaining({
+        email: 'same@example.com',
+        accountId: 'google-same-account',
+        refreshToken: 'same-refresh-2',
+        enabled: false,
+      }),
+    ])
+  })
+
   it('repeated /login and /agy-add share the OAuth flow and retain all accounts', async () => {
     hostAuth = await provider.oauth!.login(callbacks)
     await persistHostAuth()
@@ -154,6 +203,7 @@ describe('Pi provider multi-account integration', () => {
       refresh: 'legacy|project|managed',
       access: 'legacy-access',
       expires: Date.now() + 3600_000,
+      email: 'legacy@example.com',
     }
     await persistHostAuth()
     await hooks.get('session_start')?.({}, context())
@@ -162,6 +212,73 @@ describe('Pi provider multi-account integration', () => {
       (await core.loadAccountStorage(process.env.PI_ANTIGRAVITY_AUTH_FILE!))
         ?.accounts,
     ).toHaveLength(2)
+  })
+
+  it('session_start safely reconciles the live canonical duplicate shape', async () => {
+    const accountPath = process.env.PI_ANTIGRAVITY_AUTH_FILE!
+    await core.mutateAccountStorage(accountPath, (current) => {
+      current.accounts.push(
+        {
+          refreshToken: 'legacy-a',
+          addedAt: 1,
+          lastUsed: 1,
+          enabled: false,
+        },
+        {
+          email: 'person-b@example.com',
+          accountId: 'google-person-b',
+          refreshToken: 'account-b',
+          addedAt: 2,
+          lastUsed: 2,
+          enabled: true,
+        },
+        {
+          email: 'person-a@example.com',
+          accountId: 'google-person-a',
+          refreshToken: 'duplicate-a',
+          addedAt: 3,
+          lastUsed: 3,
+          enabled: true,
+        },
+      )
+      return current
+    })
+    hostAuth = {
+      refresh: 'duplicate-a|project|managed',
+      access: 'duplicate-access',
+      expires: Date.now() + 3_600_000,
+      email: 'person-a@example.com',
+      accountId: 'google-person-a',
+    }
+    await persistHostAuth()
+    globalThis.fetch = mock(async (input) => {
+      const url = String(input)
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return Response.json({
+          access_token: 'legacy-access',
+          expires_in: 3_600,
+        })
+      }
+      if (url.includes('oauth2/v1/userinfo')) {
+        return Response.json({
+          id: 'google-person-a',
+          email: 'person-a@example.com',
+        })
+      }
+      return Response.json({ groups: [] })
+    }) as unknown as typeof fetch
+
+    await hooks.get('session_start')?.({}, context())
+
+    const accounts = (await core.loadAccountStorage(accountPath))!.accounts
+    expect(accounts).toHaveLength(2)
+    expect(accounts[0]).toMatchObject({
+      email: 'person-a@example.com',
+      accountId: 'google-person-a',
+      refreshToken: 'duplicate-a',
+      enabled: false,
+    })
+    expect(accounts[1]?.email).toBe('person-b@example.com')
   })
 
   it('rejects a mismatched OAuth state and cancellation before exchange/persistence', async () => {

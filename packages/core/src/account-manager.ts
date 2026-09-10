@@ -76,6 +76,7 @@ export type QuotaKey = BaseQuotaKey | `${BaseQuotaKey}:${string}`
 export interface ManagedAccount {
   index: number
   email?: string
+  accountId?: string
   label?: string
   addedAt: number
   lastUsed: number
@@ -411,6 +412,7 @@ export class AccountManager {
           return {
             index,
             email: acc.email,
+            accountId: acc.accountId,
             label: acc.label,
             addedAt: clampNonNegativeInt(acc.addedAt, baseNow),
             lastUsed: clampNonNegativeInt(acc.lastUsed, 0),
@@ -550,7 +552,8 @@ export class AccountManager {
 
   /** Reload durable metadata without resetting this process's routing state.
    * Access tokens survive only an exact credential match. Routing and scoring
-   * follow unique normalized email, falling back to token for legacy accounts.
+   * follow unique normalized email, then Google identity, falling back to the
+   * token only for legacy accounts without either stable identity.
    */
   reconcileStorage(stored: AccountStorageV4): void {
     const previous = this.accounts
@@ -566,7 +569,9 @@ export class AccountManager {
     })
     const keyOf = (account: ManagedAccount): string => {
       const email = account.email?.trim().toLowerCase()
-      return email ? `email:${email}` : `token:${account.parts.refreshToken}`
+      if (email) return `email:${email}`
+      if (account.accountId) return `account:${account.accountId}`
+      return `token:${account.parts.refreshToken}`
     }
     const remap = (index: number): number => {
       const old = previous[index]
@@ -575,11 +580,30 @@ export class AccountManager {
       if (previous.filter((account) => keyOf(account) === key).length !== 1)
         return -1
       const matches = fresh.accounts.filter((account) => keyOf(account) === key)
-      return matches.length === 1 ? matches[0]!.index : -1
+      if (matches.length === 1) return matches[0]!.index
+      const tokenMatches = fresh.accounts.filter(
+        (account) => account.parts.refreshToken === old.parts.refreshToken,
+      )
+      return tokenMatches.length === 1 ? tokenMatches[0]!.index : -1
     }
     const indexMap = new Map(
       previous.map((account) => [account.index, remap(account.index)]),
     )
+    const trackerIndexMap = new Map(indexMap)
+    for (const freshAccount of fresh.accounts) {
+      const previousMatches = previous.filter(
+        (account) => indexMap.get(account.index) === freshAccount.index,
+      )
+      if (previousMatches.length < 2) continue
+      const exactToken = previousMatches.find(
+        (account) =>
+          account.parts.refreshToken === freshAccount.parts.refreshToken,
+      )
+      const survivor = exactToken ?? previousMatches[0]
+      for (const account of previousMatches) {
+        if (account !== survivor) trackerIndexMap.set(account.index, -1)
+      }
+    }
     this.accounts = fresh.accounts.map((account) => {
       const old = previous.find(
         (entry) => indexMap.get(entry.index) === account.index,
@@ -617,6 +641,7 @@ export class AccountManager {
     reconcileAccountTrackers(
       previous.map(trackerIdentity),
       this.accounts.map(trackerIdentity),
+      trackerIndexMap,
     )
     if (changed) {
       this.sessionUsedAccounts = remapUsed(this.sessionUsedAccounts)
@@ -1784,6 +1809,7 @@ export class AccountManager {
       version: 4,
       accounts: this.accounts.map((a) => ({
         email: a.email,
+        accountId: a.accountId,
         label: a.label,
         refreshToken: a.parts.refreshToken,
         projectId: a.parts.projectId ?? a.projectId,
@@ -2255,6 +2281,7 @@ export class AccountManager {
   getAccountsForQuotaCheck(): AccountMetadataV3[] {
     return this.accounts.map((a) => ({
       email: a.email,
+      accountId: a.accountId,
       refreshToken: a.parts.refreshToken,
       projectId: a.parts.projectId ?? a.projectId,
       managedProjectId: a.parts.managedProjectId ?? a.managedProjectId,

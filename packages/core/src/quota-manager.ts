@@ -111,11 +111,13 @@ interface AccountState {
 }
 
 /**
- * Default keyOf — prefers email, falls back to refresh-token hash so the
- * same identity is keyed even when emails are missing.
+ * Default keyOf — prefers normalized email, then stable Google identity,
+ * falling back to a refresh-token hash only when identity is unavailable.
  */
 export function defaultKeyOf(account: AccountMetadataV3): string {
-  if (account.email) return `e:${account.email.toLowerCase()}`
+  const email = account.email?.trim().toLowerCase()
+  if (email) return `e:${email}`
+  if (account.accountId) return `a:${account.accountId}`
   const token = account.refreshToken || ''
   return `t:${createHash('sha256').update(token).digest('hex').slice(0, 16)}`
 }

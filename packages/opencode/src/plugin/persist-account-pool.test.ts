@@ -430,6 +430,45 @@ describe('persistAccountPool behavior (lock-held persistence)', () => {
       expect(matches).toHaveLength(1)
     })
 
+    it('enriches a token-only account by stable Google account identity after token rotation', async () => {
+      await storageModule.saveAccountsReplace(
+        createMockStorage([
+          createMockAccount({
+            email: undefined,
+            accountId: 'google-account-a',
+            refreshToken: 'canonical-token',
+            enabled: false,
+          }),
+        ]),
+      )
+
+      await persistAccountPool(
+        [
+          {
+            type: 'success',
+            refresh: 'rotated-token|project-a',
+            access: 'new-access',
+            expires: Date.now() + 3_600_000,
+            email: ' A@Example.com ',
+            accountId: 'google-account-a',
+            projectId: 'project-a',
+          },
+        ],
+        false,
+      )
+
+      expect(await storageModule.loadAccounts()).toMatchObject({
+        accounts: [
+          {
+            email: 'a@example.com',
+            accountId: 'google-account-a',
+            refreshToken: 'rotated-token',
+            enabled: false,
+          },
+        ],
+      })
+    })
+
     it('preserves activeIndex when adding new accounts (replaceAll=false)', async () => {
       await storageModule.saveAccountsReplace(
         createMockStorage(

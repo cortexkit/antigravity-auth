@@ -584,6 +584,7 @@ const trackerLayouts = new WeakMap<
 export function reconcileAccountTrackers(
   previousIdentities: readonly string[],
   nextIdentities: readonly string[],
+  authoritativeIndexMap?: ReadonlyMap<number, number>,
 ): void {
   const uniqueLayout = (identities: readonly string[]) => {
     const counts = new Map<string, number>()
@@ -606,14 +607,24 @@ export function reconcileAccountTrackers(
         (identity, index) => identity === null || identity !== next[index],
       )
     ) {
-      const indexMap = new Map<number, number>()
-      for (const [index, identity] of previous.entries()) {
-        if (identity !== null) {
-          const nextIndex = next.indexOf(identity)
-          if (nextIndex >= 0) indexMap.set(index, nextIndex)
+      const expectedPrevious = uniqueLayout(previousIdentities)
+      const ownsExpectedLayout =
+        previous.length === expectedPrevious.length &&
+        previous.every(
+          (identity, index) => identity === expectedPrevious[index],
+        )
+      if (authoritativeIndexMap && ownsExpectedLayout) {
+        tracker.remapAccounts(authoritativeIndexMap)
+      } else {
+        const indexMap = new Map<number, number>()
+        for (const [index, identity] of previous.entries()) {
+          if (identity !== null) {
+            const nextIndex = next.indexOf(identity)
+            if (nextIndex >= 0) indexMap.set(index, nextIndex)
+          }
         }
+        tracker.remapAccounts(indexMap)
       }
-      tracker.remapAccounts(indexMap)
     }
     trackerLayouts.set(tracker, next)
   }

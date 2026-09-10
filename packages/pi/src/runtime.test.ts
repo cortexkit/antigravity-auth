@@ -32,6 +32,7 @@ function login(index: number, token = `secret-refresh-${index}`) {
   return {
     type: 'success' as const,
     email: `user${index}@example.com`,
+    accountId: `google-user-${index}`,
     refresh: `${token}|project-${index}|managed-${index}`,
     access: `secret-access-${index}`,
     expires: Date.now() + 3600_000,
@@ -169,10 +170,31 @@ describe('Pi shared account runtime', () => {
     expect(sends).toEqual(['secret-refresh-1', 'secret-refresh-2'])
   })
 
+  it('does not retry a no-email account after its token rotates in one request', async () => {
+    const result = await pool(2)
+    await mutateAccountStorage(path, (current) => {
+      delete current.accounts[0]!.email
+      return current
+    })
+    const sends: string[] = []
+    await result.dispatch(model, async (_auth, account) => {
+      sends.push(account.parts.refreshToken)
+      if (sends.length > 1) return new Response('ok')
+      await mutateAccountStorage(path, (current) => {
+        current.accounts[0]!.refreshToken = 'rotated-no-email-token'
+        current.accounts[0]!.rateLimitResetTimes = {}
+        return current
+      })
+      return new Response('', { status: 429 })
+    })
+    expect(sends).toEqual(['secret-refresh-1', 'secret-refresh-2'])
+  })
+
   it('stops failover when a dispatched no-email credential disappears', async () => {
     const result = await pool(2)
     await mutateAccountStorage(path, (current) => {
       delete current.accounts[0]!.email
+      delete current.accounts[0]!.accountId
       return current
     })
     const send = mock(async () => {
@@ -199,7 +221,10 @@ describe('Pi shared account runtime', () => {
     const before = 1
     await mutateAccountStorage(path, (current) => {
       current.accounts[0]!.cachedQuotaUpdatedAt = before
-      if (!withEmail) delete current.accounts[0]!.email
+      if (!withEmail) {
+        delete current.accounts[0]!.email
+        delete current.accounts[0]!.accountId
+      }
       return current
     })
     const response = quotaFetch.getMockImplementation()!
@@ -239,6 +264,163 @@ describe('Pi shared account runtime', () => {
       enabled: false,
     })
     expect(await dispatch(result)).not.toBe(0)
+  })
+
+  it('enriches a canonical token-only account by stable Google identity', async () => {
+    const result = runtime()
+    await result.login({
+      ...login(1),
+      email: undefined,
+      refresh: 'canonical-token|project-1|managed-1',
+    })
+    await result.setEnabled(0, false)
+    await result.login(login(1, 'rotated-token'))
+    expect((await loadAccountStorage(path))?.accounts).toEqual([
+      expect.objectContaining({
+        email: 'user1@example.com',
+        accountId: 'google-user-1',
+        refreshToken: 'rotated-token',
+        enabled: false,
+      }),
+    ])
+  })
+
+  it('keeps only canonical A and additional B after re-authenticating A', async () => {
+    const result = runtime()
+    await result.login(login(1, 'canonical-a'))
+    await result.login(login(2, 'additional-b'))
+    await result.login(login(1, 'rotated-a'))
+    const accounts = (await loadAccountStorage(path))!.accounts
+    expect(accounts).toHaveLength(2)
+    expect(accounts.map((account) => account.accountId)).toEqual([
+      'google-user-1',
+      'google-user-2',
+    ])
+    expect(accounts[0]?.refreshToken).toBe('rotated-a')
+  })
+
+  it('fails closed when token-only accounts cannot be identified', async () => {
+    const result = new PiAccountRuntime({
+      path,
+      refreshToken: refresh,
+      fetchAccountIdentity: async () => ({}),
+    })
+    runtimes.push(result)
+    await mutateAccountStorage(path, (current) => {
+      current.accounts.push(
+        { refreshToken: 'unknown-1', addedAt: 1, lastUsed: 1, enabled: true },
+        { refreshToken: 'unknown-2', addedAt: 2, lastUsed: 2, enabled: false },
+      )
+      return current
+    })
+    await expect(result.login(login(1, 'incoming-a'))).rejects.toThrow(
+      'identity is ambiguous',
+    )
+    expect((await loadAccountStorage(path))?.accounts).toHaveLength(2)
+  })
+
+  it('reconciles the live token-only plus email-duplicate shape to the original slot', async () => {
+    const result = new PiAccountRuntime({
+      path,
+      refreshToken: refresh,
+      fetchAccountIdentity: async (access) =>
+        access === 'access-legacy-a'
+          ? { email: 'user1@example.com', accountId: 'google-user-1' }
+          : {},
+    })
+    runtimes.push(result)
+    await mutateAccountStorage(path, (current) => {
+      current.accounts.push(
+        {
+          refreshToken: 'legacy-a',
+          addedAt: 1,
+          lastUsed: 1,
+          enabled: false,
+          coolingDownUntil: Date.now() + 60_000,
+          cooldownReason: 'auth-failure',
+        },
+        {
+          email: 'user2@example.com',
+          accountId: 'google-user-2',
+          refreshToken: 'account-b',
+          addedAt: 2,
+          lastUsed: 2,
+          enabled: true,
+        },
+        {
+          email: 'user1@example.com',
+          accountId: 'google-user-1',
+          refreshToken: 'duplicate-a',
+          addedAt: 3,
+          lastUsed: 3,
+          enabled: true,
+        },
+      )
+      current.activeIndex = 2
+      return current
+    })
+    await result.describe()
+    getHealthTracker().recordFailure(0)
+    getTokenTracker().consume(0)
+    const healthBefore = getHealthTracker().getScore(0)
+    const tokensBefore = getTokenTracker().getTokens(0)
+    await result.login(login(1, 'current-a'))
+    await result.describe()
+    const storage = (await loadAccountStorage(path))!
+    expect(storage.accounts).toHaveLength(2)
+    expect(storage.accounts[0]).toMatchObject({
+      email: 'user1@example.com',
+      accountId: 'google-user-1',
+      refreshToken: 'current-a',
+      enabled: false,
+      cooldownReason: 'auth-failure',
+    })
+    expect(storage.accounts[1]?.email).toBe('user2@example.com')
+    expect(storage.activeIndex).toBe(0)
+    expect(getHealthTracker().getScore(0)).toBe(healthBefore)
+    expect(getTokenTracker().getTokens(0)).toBeCloseTo(tokensBefore, 2)
+  })
+
+  it('leaves the live duplicate shape untouched when linkage cannot be proven', async () => {
+    const result = new PiAccountRuntime({
+      path,
+      refreshToken: refresh,
+      fetchAccountIdentity: async () => ({}),
+    })
+    runtimes.push(result)
+    await mutateAccountStorage(path, (current) => {
+      current.accounts.push(
+        { refreshToken: 'unknown-a', addedAt: 1, lastUsed: 1, enabled: false },
+        {
+          email: 'user2@example.com',
+          accountId: 'google-user-2',
+          refreshToken: 'account-b',
+          addedAt: 2,
+          lastUsed: 2,
+          enabled: true,
+        },
+        {
+          email: 'user1@example.com',
+          accountId: 'google-user-1',
+          refreshToken: 'possible-duplicate-a',
+          addedAt: 3,
+          lastUsed: 3,
+          enabled: true,
+        },
+      )
+      return current
+    })
+
+    await expect(result.login(login(1, 'incoming-a'))).rejects.toThrow(
+      'identity is ambiguous',
+    )
+    const accounts = (await loadAccountStorage(path))!.accounts
+    expect(accounts).toHaveLength(3)
+    expect(accounts.map((account) => account.refreshToken)).toEqual([
+      'unknown-a',
+      'account-b',
+      'possible-duplicate-a',
+    ])
   })
 
   it('reloads across sessions and refreshes the selected stored credential', async () => {
@@ -569,6 +751,8 @@ describe('Pi shared account runtime', () => {
     await result.setEnabled(0, false)
     const next = await result.refreshHost({ ...login(1), expires: 0 })
     expect(next.refresh).toStartWith('secret-refresh-2|')
+    expect(next.email).toBe('user2@example.com')
+    expect(next.accountId).toBe('google-user-2')
   })
 
   it('forwards and honors the Pi OAuth refresh abort signal', async () => {
@@ -615,6 +799,33 @@ describe('Pi shared account runtime', () => {
     const stored = await loadAccountStorage(path)
     expect(stored?.accounts).toHaveLength(2)
     expect(stored?.accounts[0]?.refreshToken).toBe('new-refresh')
+  })
+
+  it('session migration enriches a canonical credential from its access token', async () => {
+    const result = new PiAccountRuntime({
+      path,
+      refreshToken: refresh,
+      fetchAccountIdentity: async (access) =>
+        access === 'canonical-access'
+          ? {
+              email: 'canonical@example.com',
+              accountId: 'google-canonical',
+            }
+          : {},
+    })
+    runtimes.push(result)
+    await result.migrate({
+      refresh: 'canonical-refresh|project|managed',
+      access: 'canonical-access',
+      expires: Date.now() + 3_600_000,
+    })
+    expect((await loadAccountStorage(path))?.accounts).toEqual([
+      expect.objectContaining({
+        email: 'canonical@example.com',
+        accountId: 'google-canonical',
+        refreshToken: 'canonical-refresh',
+      }),
+    ])
   })
 
   it.each([

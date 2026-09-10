@@ -128,6 +128,20 @@ describe('deduplicateAccountsByEmail', () => {
     expect(deduplicateAccountsByEmail(accounts)).toHaveLength(1)
     expect(deduplicateAccountsByEmail(accounts)[0]?.refreshToken).toBe('new')
   })
+
+  it('normalizes email before deduplicating', () => {
+    const accounts: AccountMetadataV3[] = [
+      {
+        email: ' A@Example.com ',
+        refreshToken: 'old',
+        addedAt: 1,
+        lastUsed: 1,
+      },
+      { email: 'a@example.com', refreshToken: 'new', addedAt: 2, lastUsed: 9 },
+    ]
+    expect(deduplicateAccountsByEmail(accounts)).toHaveLength(1)
+    expect(deduplicateAccountsByEmail(accounts)[0]?.refreshToken).toBe('new')
+  })
 })
 
 describe('mergeAccountStorage', () => {

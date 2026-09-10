@@ -1,4 +1,5 @@
 import {
+  AccountIdentityAmbiguityError,
   authorizeAntigravity,
   exchangeAntigravity,
   getPublicModelDefinitions,
@@ -67,6 +68,7 @@ async function loginAntigravity(
     access: result.access,
     expires: result.expires,
     email: result.email,
+    accountId: result.accountId,
   }
 }
 
@@ -81,9 +83,11 @@ export default function cortexKitPiAntigravityAuth(pi: ExtensionAPI): void {
       if (auth?.type === 'oauth') {
         await runtime.migrate(auth)
       }
-    } catch {
+    } catch (error) {
       context.ui.notify(
-        'Antigravity account migration failed; existing auth and pool were retained. Repair the account file before retrying.',
+        error instanceof AccountIdentityAmbiguityError
+          ? 'Antigravity account migration found ambiguous token-only identity; no accounts were merged. Re-authenticate or repair the account file before retrying.'
+          : 'Antigravity account migration failed; existing auth and pool were retained. Repair the account file before retrying.',
         'error',
       )
     }

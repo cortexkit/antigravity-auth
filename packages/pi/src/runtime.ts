@@ -1,8 +1,10 @@
 import {
+  AccountIdentityAmbiguityError,
   AccountManager,
   type AccountMetadataV3,
   type AccountModelFamily,
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
+  type AntigravityAccountIdentity,
   type AntigravityTokenExchangeResult,
   accessTokenExpired,
   aggregateQuota,
@@ -14,6 +16,7 @@ import {
   ensureProjectContext,
   extractRateLimitBodyInfo,
   type FetchQuotaSummaryOptions,
+  fetchAntigravityAccountIdentity,
   fetchAvailableModels,
   fetchQuotaSummary,
   fetchWithActiveTimeout,
@@ -27,6 +30,7 @@ import {
   parseRateLimitReason,
   parseRefreshParts,
   persistAccountPoolAtPath,
+  reconcileAccountIdentityAtPath,
   refreshAntigravityToken,
   resolveQuotaGroup,
   retryAfterMsFromResponse,
@@ -46,6 +50,7 @@ function attemptKey(account: ManagedAccount): string {
   return defaultKeyOf({
     ...account.parts,
     email: account.email?.trim().toLowerCase(),
+    accountId: account.accountId,
     addedAt: account.addedAt,
     lastUsed: account.lastUsed,
   })
@@ -55,6 +60,7 @@ export interface PiRuntimeOptions {
   path?: string
   pid?: number
   refreshToken?: typeof refreshAntigravityToken
+  fetchAccountIdentity?: typeof fetchAntigravityAccountIdentity
 }
 
 /** Host wiring only: selection/scoring, quota aggregation, cooldowns and all
@@ -67,6 +73,7 @@ export class PiAccountRuntime {
   private manager?: AccountManager
   private readonly credentials = new Map<string, OAuthAuthDetails>()
   private readonly refreshToken: typeof refreshAntigravityToken
+  private readonly fetchAccountIdentity: typeof fetchAntigravityAccountIdentity
   private readonly pid: number
   private selected?: string
   private legacy?: OAuthCredentials
@@ -77,6 +84,8 @@ export class PiAccountRuntime {
     this.settingsPath = `${this.path}.config.json`
     this.pid = options.pid ?? process.pid
     this.refreshToken = options.refreshToken ?? refreshAntigravityToken
+    this.fetchAccountIdentity =
+      options.fetchAccountIdentity ?? fetchAntigravityAccountIdentity
     this.quota = createQuotaManager({
       keyOf: defaultKeyOf,
       fetchAccountQuota: async (account, signal) => {
@@ -153,13 +162,23 @@ export class PiAccountRuntime {
 
   async login(result: LoginResult): Promise<void> {
     if (this.legacy) await this.migrate(this.legacy)
+    await this.reconcileIdentity(
+      {
+        refreshToken: parseRefreshParts(result.refresh).refreshToken,
+        email: result.email,
+        accountId: result.accountId,
+      },
+      true,
+    )
     await persistAccountPoolAtPath(this.path, [result])
     this.remember({
       refresh: result.refresh,
       access: result.access,
       expires: result.expires,
       email: result.email,
+      accountId: result.accountId,
     })
+    this.legacy = undefined
   }
 
   /** Import the host credential only into a missing/empty pool. An existing
@@ -167,22 +186,160 @@ export class PiAccountRuntime {
    */
   async migrate(credentials: OAuthCredentials): Promise<void> {
     this.remember(credentials)
+    // `legacy` is a one-shot bridge from Pi's single canonical credential.
+    // Keeping it armed would re-run migration before every pool request.
+    this.legacy = undefined
     const parts = parseRefreshParts(credentials.refresh)
     if (!parts.refreshToken) return
     const stored = await loadAccountStorage(this.path)
-    if (stored?.accounts.length) return
+    let email =
+      typeof credentials.email === 'string'
+        ? credentials.email.trim().toLowerCase() || undefined
+        : undefined
+    let accountId =
+      typeof credentials.accountId === 'string'
+        ? credentials.accountId.trim() || undefined
+        : undefined
+    if (!email && !accountId && credentials.access) {
+      try {
+        const resolved = await this.fetchAccountIdentity(credentials.access)
+        email = resolved.email
+        accountId = resolved.accountId
+      } catch {
+        // The stored access token may be expired or temporarily unreadable.
+      }
+    }
+    if (!email && !accountId) {
+      try {
+        const refreshed = await this.refreshToken(parts.refreshToken)
+        const resolved = await this.fetchAccountIdentity(refreshed.access)
+        email = resolved.email
+        accountId = resolved.accountId
+      } catch {
+        // Preserve the token-only credential; a future explicit login can
+        // retry resolution and will still fail closed before any merge.
+      }
+    }
+    if (stored?.accounts.length) {
+      const identity: AntigravityAccountIdentity = { email, accountId }
+      if (!identity.email && !identity.accountId) return
+      const reconciled = await this.reconcileIdentity(
+        { refreshToken: parts.refreshToken, ...identity },
+        true,
+      )
+      const current = await loadAccountStorage(this.path)
+      const belongsToPool =
+        reconciled ||
+        current?.accounts.some(
+          (account) => account.refreshToken === parts.refreshToken,
+        )
+      if (belongsToPool) {
+        await persistAccountPoolAtPath(this.path, [
+          {
+            type: 'success',
+            refresh: credentials.refresh,
+            access: credentials.access,
+            expires: credentials.expires,
+            email: identity.email,
+            accountId: identity.accountId,
+            projectId: parts.projectId ?? '',
+          },
+        ])
+        this.remember(credentials)
+      }
+      return
+    }
     await mutateAccountStorage(this.path, (current) => {
       if (current.accounts.length) return current
       current.accounts.push({
         ...parts,
-        email:
-          typeof credentials.email === 'string' ? credentials.email : undefined,
+        email,
+        accountId,
         addedAt: Date.now(),
         lastUsed: 0,
         enabled: true,
       })
       return current
     })
+  }
+
+  private async reconcileIdentity(
+    incoming: {
+      refreshToken: string
+      email?: string
+      accountId?: string
+    },
+    failOnUnresolved: boolean,
+  ): Promise<boolean> {
+    const email = incoming.email?.trim().toLowerCase() || undefined
+    const accountId = incoming.accountId?.trim() || undefined
+    if (!email && !accountId) return false
+    const stored = await loadAccountStorage(this.path)
+    if (!stored?.accounts.length) return false
+    const candidates = stored.accounts
+      .map((account, index) => ({ account, index }))
+      .filter(({ account }) => !account.email)
+    if (!candidates.length) return false
+
+    const matching: typeof candidates = []
+    let unresolved = 0
+    for (const candidate of candidates) {
+      let resolved: AntigravityAccountIdentity
+      if (candidate.account.refreshToken === incoming.refreshToken) {
+        resolved = { email, accountId }
+      } else if (candidate.account.accountId) {
+        resolved = { accountId: candidate.account.accountId }
+      } else {
+        try {
+          const refreshed = await this.refreshToken(
+            candidate.account.refreshToken,
+          )
+          resolved = await this.fetchAccountIdentity(refreshed.access)
+        } catch {
+          unresolved++
+          continue
+        }
+      }
+      const resolvedEmail = resolved.email?.trim().toLowerCase()
+      if (
+        accountId &&
+        resolved.accountId &&
+        accountId !== resolved.accountId &&
+        email &&
+        resolvedEmail === email
+      ) {
+        throw new AccountIdentityAmbiguityError(
+          'Antigravity account identity is ambiguous; matching email has conflicting Google identity',
+        )
+      }
+      const matches =
+        (!!accountId && resolved.accountId === accountId) ||
+        (!!email && resolvedEmail === email)
+      if (matches) matching.push(candidate)
+      else if (!resolved.accountId && !resolvedEmail) unresolved++
+    }
+
+    if (!matching.length) {
+      if (failOnUnresolved && unresolved > 0) {
+        throw new AccountIdentityAmbiguityError(
+          'Antigravity account identity is ambiguous; token-only accounts could not be verified, so no account was added or merged',
+        )
+      }
+      return false
+    }
+    const survivor = matching.reduce((first, candidate) =>
+      candidate.index < first.index ? candidate : first,
+    )
+    await reconcileAccountIdentityAtPath(this.path, {
+      refreshToken: survivor.account.refreshToken,
+      email,
+      accountId,
+    })
+    // Reconcile the identity enrichment while the old token is still an exact
+    // bridge. A subsequent OAuth upsert may rotate that token, at which point
+    // routing and tracker state can follow the newly stable identity.
+    await this.reload()
+    return true
   }
 
   private async reload(): Promise<AccountManager> {
@@ -209,16 +366,19 @@ export class PiAccountRuntime {
   }
 
   private async patch(
-    target: { email?: string; refreshToken: string },
+    target: { email?: string; accountId?: string; refreshToken: string },
     update: (account: AccountMetadataV3) => void,
   ): Promise<boolean> {
     let applied = false
     await mutateAccountStorage(this.path, (current) => {
       const email = target.email?.trim().toLowerCase()
+      const accountId = target.accountId?.trim()
       const matches = current.accounts.filter((entry) =>
         email
           ? entry.email?.trim().toLowerCase() === email
-          : entry.refreshToken === target.refreshToken,
+          : accountId
+            ? entry.accountId === accountId
+            : entry.refreshToken === target.refreshToken,
       )
       if (matches.length === 1 && matches[0]) {
         update(matches[0])
@@ -309,6 +469,8 @@ export class PiAccountRuntime {
           refresh: auth.refresh,
           access: auth.access ?? '',
           expires: auth.expires ?? 0,
+          email: account.email ?? credentials.email,
+          accountId: account.accountId ?? credentials.accountId,
         }
       } catch (error) {
         if (
@@ -332,7 +494,11 @@ export class PiAccountRuntime {
     if (current) getHealthTracker().recordFailure(current.index)
     this.manager?.markAccountCoolingDown(account, 60_000, 'auth-failure')
     const applied = await this.patch(
-      { ...account.parts, email: account.email },
+      {
+        ...account.parts,
+        email: account.email,
+        accountId: account.accountId,
+      },
       (current) => {
         current.coolingDownUntil = Math.max(
           current.coolingDownUntil ?? 0,
@@ -426,7 +592,11 @@ export class PiAccountRuntime {
       manager.updateFromAuth(account, auth)
       const token = account.parts.refreshToken
       attempted.add(attemptKey(account))
-      const target = { ...account.parts, email: account.email }
+      const target = {
+        ...account.parts,
+        email: account.email,
+        accountId: account.accountId,
+      }
       signal?.throwIfAborted()
       manager.markAccountUsed(account.index)
       const located = await this.patch(target, (current) => {
