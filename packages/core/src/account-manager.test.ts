@@ -48,6 +48,227 @@ describe('core AccountManager', () => {
     initTokenTracker({})
   })
 
+  function sharedManagers(emails = true) {
+    const health = initHealthTracker({ recoveryRatePerHour: 0 })
+    const tokens = initTokenTracker({ regenerationRatePerMinute: 0 })
+    const pool: AccountStorageV4 = {
+      version: 4,
+      activeIndex: 0,
+      accounts: ['a', 'b', 'c'].map((refreshToken) => ({
+        refreshToken,
+        email: emails ? `${refreshToken}@example.com` : undefined,
+        addedAt: 1,
+        lastUsed: 0,
+      })),
+    }
+    const memory = createStore(pool)
+    const managers = Array.from(
+      { length: 3 },
+      () =>
+        new AccountManager(undefined, structuredClone(pool), {
+          store: memory.store,
+          persistFingerprintUpdates: false,
+          now: () => 10_000,
+        }),
+    )
+    const values = () =>
+      [0, 1, 2].map((index) => [
+        health.getScore(index),
+        tokens.getTokens(index),
+      ])
+    return { health, tokens, pool, managers, values }
+  }
+
+  it.each([
+    true,
+    false,
+  ])('keeps shared tracker ownership across three stale managers (emails: %s)', (emails) => {
+    const { health, tokens, pool, managers, values } = sharedManagers(emails)
+    health.recordFailure(0)
+    health.recordFailure(0)
+    tokens.consume(0, 7)
+    const next = {
+      ...pool,
+      accounts: [pool.accounts[1]!, pool.accounts[2]!, pool.accounts[0]!],
+    }
+    for (const manager of [...managers, ...managers]) {
+      manager.reconcileStorage(next)
+      expect(values()).toEqual([
+        [70, 50],
+        [70, 50],
+        [30, 43],
+      ])
+      expect(
+        manager.getCurrentOrNextForFamily(
+          'gemini',
+          null,
+          'hybrid',
+          'antigravity',
+          false,
+        )?.parts.refreshToken,
+      ).toBe('b')
+    }
+  })
+
+  it('keeps depleted accounts out of hybrid selection after stale reconciliation', () => {
+    const { tokens, pool, managers, values } = sharedManagers()
+    tokens.consume(0, 50)
+    const next = {
+      ...pool,
+      accounts: [pool.accounts[1]!, pool.accounts[2]!, pool.accounts[0]!],
+    }
+    for (const manager of managers) {
+      manager.reconcileStorage(next)
+      expect(values()).toEqual([
+        [70, 50],
+        [70, 50],
+        [70, 0],
+      ])
+      expect(
+        manager.getCurrentOrNextForFamily(
+          'gemini',
+          null,
+          'hybrid',
+          'antigravity',
+          false,
+        )?.parts.refreshToken,
+      ).toBe('b')
+    }
+  })
+
+  it('uses shared ownership when stale managers skip an intermediate layout', () => {
+    const { health, tokens, pool, managers, values } = sharedManagers()
+    health.recordFailure(0)
+    tokens.consume(0, 7)
+    managers[0]!.reconcileStorage({
+      ...pool,
+      accounts: [pool.accounts[1]!, pool.accounts[2]!, pool.accounts[0]!],
+    })
+    const next = {
+      ...pool,
+      accounts: [pool.accounts[2]!, pool.accounts[0]!, pool.accounts[1]!],
+    }
+    for (const manager of managers) {
+      manager.reconcileStorage(next)
+      expect(values()).toEqual([
+        [70, 50],
+        [50, 43],
+        [70, 50],
+      ])
+    }
+  })
+
+  it.each([
+    'health',
+    'tokens',
+  ] as const)('reinitializing %s does not lose the other shared tracker layout', (reset) => {
+    const { health, tokens, pool, managers } = sharedManagers()
+    health.recordFailure(0)
+    tokens.consume(0, 7)
+    const next = {
+      ...pool,
+      accounts: [pool.accounts[1]!, pool.accounts[2]!, pool.accounts[0]!],
+    }
+    managers[0]!.reconcileStorage(next)
+    if (reset === 'health') initHealthTracker({ recoveryRatePerHour: 0 })
+    else initTokenTracker({ regenerationRatePerMinute: 0 })
+    for (const manager of managers.slice(1)) {
+      manager.reconcileStorage(next)
+      if (reset === 'health') {
+        expect([0, 1, 2].map((index) => tokens.getTokens(index))).toEqual([
+          50, 50, 43,
+        ])
+      } else {
+        expect([0, 1, 2].map((index) => health.getScore(index))).toEqual([
+          70, 70, 50,
+        ])
+      }
+    }
+  })
+
+  it('preserves every survivor through multiple shared tracker layout changes', () => {
+    const { health, tokens, pool, managers, values } = sharedManagers()
+    health.recordFailure(0)
+    health.recordSuccess(1)
+    health.recordRateLimit(2)
+    tokens.consume(0, 7)
+    tokens.consume(1, 11)
+    tokens.consume(2, 19)
+    const original = values()
+    for (const order of [
+      [1, 2, 0],
+      [2, 0, 1],
+    ]) {
+      const next = {
+        ...pool,
+        accounts: order.map((index) => ({
+          ...pool.accounts[index]!,
+          email: ` ${pool.accounts[index]!.email!.toUpperCase()} `,
+          refreshToken: `rotated-${index}`,
+        })),
+      }
+      for (const manager of managers) {
+        manager.reconcileStorage(next)
+        expect(values()).toEqual(order.map((index) => original[index]!))
+      }
+    }
+  })
+
+  it('drops removed state across stale managers and does not reuse it for additions', () => {
+    const { health, tokens, pool, managers, values } = sharedManagers()
+    health.recordFailure(0)
+    health.recordFailure(0)
+    tokens.consume(0, 7)
+    const removed = { ...pool, accounts: pool.accounts.slice(1) }
+    for (const manager of managers) {
+      manager.reconcileStorage(removed)
+      expect(values()).toEqual([
+        [70, 50],
+        [70, 50],
+        [70, 50],
+      ])
+      expect(health.getSnapshot().size).toBe(0)
+    }
+    health.recordRateLimit(0)
+    tokens.consume(0, 11)
+    const added = {
+      ...pool,
+      accounts: [
+        { ...pool.accounts[0]!, email: 'd@example.com', refreshToken: 'd' },
+        ...removed.accounts,
+      ],
+    }
+    for (const manager of managers) {
+      manager.reconcileStorage(added)
+      expect(values()).toEqual([
+        [70, 50],
+        [60, 39],
+        [70, 50],
+      ])
+    }
+  })
+
+  it.each([
+    true,
+    false,
+  ])('clears ambiguous shared identities across stale managers (emails: %s)', (emails) => {
+    const { health, tokens, pool, managers, values } = sharedManagers(emails)
+    health.recordFailure(0)
+    tokens.consume(0, 7)
+    const ambiguous = {
+      ...pool,
+      accounts: [pool.accounts[0]!, pool.accounts[0]!, pool.accounts[2]!],
+    }
+    for (const manager of managers) {
+      manager.reconcileStorage(ambiguous)
+      expect(values()).toEqual([
+        [70, 50],
+        [70, 50],
+        [70, 50],
+      ])
+    }
+  })
+
   it('clears transient penalties when a no-email account is replaced', () => {
     const health = initHealthTracker({})
     const tokens = initTokenTracker({})

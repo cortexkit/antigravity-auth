@@ -572,6 +572,53 @@ export class TokenBucketTracker {
 // SINGLETON TRACKERS
 // ============================================================================
 
+// Ownership belongs to each shared tracker instance, never to a manager's
+// potentially stale index layout. Weak keys also make tracker reinitialization
+// discard the corresponding layout without resetting the other tracker.
+const trackerLayouts = new WeakMap<
+  HealthScoreTracker | TokenBucketTracker,
+  readonly (string | null)[]
+>()
+
+/** Reconcile both global trackers from their own last known identity layout. */
+export function reconcileAccountTrackers(
+  previousIdentities: readonly string[],
+  nextIdentities: readonly string[],
+): void {
+  const uniqueLayout = (identities: readonly string[]) => {
+    const counts = new Map<string, number>()
+    for (const identity of identities) {
+      counts.set(identity, (counts.get(identity) ?? 0) + 1)
+    }
+    return identities.map((identity) =>
+      counts.get(identity) === 1 ? identity : null,
+    )
+  }
+  const next = uniqueLayout(nextIdentities)
+  for (const tracker of [getHealthTracker(), getTokenTracker()]) {
+    const previous =
+      trackerLayouts.get(tracker) ?? uniqueLayout(previousIdentities)
+    // A stale manager targeting an already-applied layout is a no-op. Null
+    // identities must still be cleared, even if the positional layout matches.
+    if (
+      previous.length !== next.length ||
+      previous.some(
+        (identity, index) => identity === null || identity !== next[index],
+      )
+    ) {
+      const indexMap = new Map<number, number>()
+      for (const [index, identity] of previous.entries()) {
+        if (identity !== null) {
+          const nextIndex = next.indexOf(identity)
+          if (nextIndex >= 0) indexMap.set(index, nextIndex)
+        }
+      }
+      tracker.remapAccounts(indexMap)
+    }
+    trackerLayouts.set(tracker, next)
+  }
+}
+
 let globalTokenTracker: TokenBucketTracker | null = null
 
 export function getTokenTracker(): TokenBucketTracker {

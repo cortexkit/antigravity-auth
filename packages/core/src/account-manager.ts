@@ -29,6 +29,7 @@ import {
   type AccountWithMetrics,
   getHealthTracker,
   getTokenTracker,
+  reconcileAccountTrackers,
   selectHybridAccount,
 } from './rotation.ts'
 
@@ -610,9 +611,14 @@ export class AccountManager {
     const changed =
       previous.length !== this.accounts.length ||
       previous.some((account) => remap(account.index) !== account.index)
+    // Retain opaque identities in process-global state, never raw credentials.
+    const trackerIdentity = (account: ManagedAccount): string =>
+      createHash('sha256').update(keyOf(account)).digest('hex')
+    reconcileAccountTrackers(
+      previous.map(trackerIdentity),
+      this.accounts.map(trackerIdentity),
+    )
     if (changed) {
-      getHealthTracker().remapAccounts(indexMap)
-      getTokenTracker().remapAccounts(indexMap)
       this.sessionUsedAccounts = remapUsed(this.sessionUsedAccounts)
     }
     for (const family of ['claude', 'gemini'] as const) {
