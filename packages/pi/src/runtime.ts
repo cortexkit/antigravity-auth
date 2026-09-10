@@ -41,6 +41,7 @@ import { readSettings } from './settings.ts'
 
 const QUOTA_REFRESH_MS = 30 * 60_000
 const QUOTA_TTL_MS = computeSoftQuotaCacheTtlMs('auto', 30)
+const ROUTE_DIAGNOSTIC_ENV = 'ANTIGRAVITY_CORE_CONSOLE_LOG'
 type LoginResult = Extract<AntigravityTokenExchangeResult, { type: 'success' }>
 
 class AccountUnavailable extends Error {}
@@ -54,6 +55,20 @@ function attemptKey(account: ManagedAccount): string {
     addedAt: account.addedAt,
     lastUsed: account.lastUsed,
   })
+}
+
+function redactedEmail(email?: string): string {
+  const match = email?.trim().match(/^(.)([^@]*)@(.+)$/)
+  return match ? `${match[1]}***@${match[3]}` : '(email unavailable)'
+}
+
+function writeRouteDiagnostic(message: string): void {
+  if (process.env[ROUTE_DIAGNOSTIC_ENV] !== '1') return
+  try {
+    console.error(message)
+  } catch {
+    // Diagnostics must never change request dispatch behavior.
+  }
 }
 
 export interface PiRuntimeOptions {
@@ -541,6 +556,7 @@ export class PiAccountRuntime {
     // One extra selection tolerates a peer rotating a token between reload and
     // credential acquisition. Stable attempted identities still bound sends.
     const budget = (await this.reload()).getTotalAccountCount() + 1
+    let dispatched = false
     let lastError =
       'All Antigravity accounts are disabled, cooling down, or over cached quota'
     const family: AccountModelFamily =
@@ -608,6 +624,13 @@ export class PiAccountRuntime {
       const consumed = getTokenTracker().consume(account.index)
       let response: Response
       try {
+        const accountLabel = `agy${account.index + 1} ${redactedEmail(account.email)}`
+        writeRouteDiagnostic(
+          dispatched
+            ? `[agy-failover] ${accountLabel}`
+            : `[agy-route] ${accountLabel} strategy=${config.account_selection_strategy} group=${resolveQuotaGroup('gemini', model)}`,
+        )
+        dispatched = true
         response = await send(auth, account)
       } catch (error) {
         const current = this.currentAccount(account)
@@ -704,10 +727,7 @@ export class PiAccountRuntime {
       manager
         .getAccounts()
         .map((account) => {
-          const email = account.email?.match(/^(.)([^@]*)@(.+)$/)
-          const label = email
-            ? `${email[1]}***@${email[3]}`
-            : '(email unavailable)'
+          const label = redactedEmail(account.email)
           const until = Math.max(
             account.coolingDownUntil ?? 0,
             ...Object.values(account.rateLimitResetTimes).map((n) => n ?? 0),

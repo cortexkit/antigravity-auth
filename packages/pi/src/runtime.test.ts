@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,6 +27,8 @@ let directory: string
 let path: string
 const runtimes: PiAccountRuntime[] = []
 let previousFetch: typeof fetch
+let previousConsoleLogEnv: string | undefined
+let restoreConsoleError: (() => void) | undefined
 const quotaFetch = mock()
 const refresh = mock(
   async (token: string): Promise<AntigravityRefreshResult> => ({
@@ -59,7 +69,15 @@ async function dispatch(result: PiAccountRuntime) {
   return request.account.index
 }
 
+function captureConsoleError() {
+  const errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+  restoreConsoleError = () => errorSpy.mockRestore()
+  return errorSpy
+}
+
 beforeEach(async () => {
+  previousConsoleLogEnv = process.env.ANTIGRAVITY_CORE_CONSOLE_LOG
+  delete process.env.ANTIGRAVITY_CORE_CONSOLE_LOG
   directory = await mkdtemp(join(tmpdir(), 'pi-pool-'))
   path = join(directory, 'accounts.json')
   initHealthTracker({})
@@ -101,6 +119,11 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  restoreConsoleError?.()
+  restoreConsoleError = undefined
+  if (previousConsoleLogEnv === undefined)
+    delete process.env.ANTIGRAVITY_CORE_CONSOLE_LOG
+  else process.env.ANTIGRAVITY_CORE_CONSOLE_LOG = previousConsoleLogEnv
   for (const result of runtimes.splice(0)) await result.dispose()
   globalThis.fetch = previousFetch
   await rm(directory, { recursive: true, force: true })
@@ -503,6 +526,61 @@ describe('Pi shared account runtime', () => {
     expect(await dispatch(runtime())).not.toBe(0)
   })
 
+  it('writes only dispatched account selections to stderr with redacted identities', async () => {
+    const result = await pool()
+    await writeStrategy(result.settingsPath, 'round-robin')
+    process.env.ANTIGRAVITY_CORE_CONSOLE_LOG = '1'
+    const errorSpy = captureConsoleError()
+    const indexes: number[] = []
+    const send = mock(async (_auth: unknown, account: { index: number }) => {
+      indexes.push(account.index)
+      return indexes.length === 1
+        ? new Response('', { status: 429 })
+        : new Response('ok')
+    })
+
+    await result.dispatch(model, send)
+
+    const messages = errorSpy.mock.calls.map(([message]) => String(message))
+    expect(messages).toEqual([
+      `[agy-route] agy${indexes[0]! + 1} u***@example.com strategy=round-robin group=gemini`,
+      `[agy-failover] agy${indexes[1]! + 1} u***@example.com`,
+    ])
+    expect(messages.join('\n')).not.toContain('user1@example.com')
+    expect(messages.join('\n')).not.toContain('google-user')
+    expect(messages.join('\n')).not.toContain('secret-')
+  })
+
+  it('does not log a candidate that fails before request dispatch', async () => {
+    await pool()
+    process.env.ANTIGRAVITY_CORE_CONSOLE_LOG = '1'
+    const errorSpy = captureConsoleError()
+    const broken = new PiAccountRuntime({
+      path,
+      pid: 0,
+      refreshToken: async (token) => {
+        if (token === 'secret-refresh-1') throw new Error('invalid grant')
+        return refresh(token)
+      },
+    })
+    runtimes.push(broken)
+
+    await dispatch(broken)
+
+    expect(errorSpy.mock.calls.map(([message]) => String(message))).toEqual([
+      '[agy-route] agy2 u***@example.com strategy=hybrid group=gemini',
+    ])
+  })
+
+  it('keeps route diagnostics silent when the environment flag is unset', async () => {
+    const result = await pool()
+    const errorSpy = captureConsoleError()
+
+    await dispatch(result)
+
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
   it('terminates when all accounts become rate-limited, without exposing provider secrets', async () => {
     const result = await pool()
     const send = mock(
@@ -627,6 +705,7 @@ describe('Pi shared account runtime', () => {
 
   it('independent OS processes reload the same pool and apply their actual PID offset', async () => {
     await pool()
+    process.env.ANTIGRAVITY_CORE_CONSOLE_LOG = '1'
     const script = `
       import { PiAccountRuntime } from ${JSON.stringify(new URL('./runtime.ts', import.meta.url).pathname)};
       const runtime = new PiAccountRuntime({ path: process.argv[1], refreshToken: async token => ({ refresh: token, access: 'test-access', expires: Date.now() + 3600000 }) });
@@ -636,6 +715,7 @@ describe('Pi shared account runtime', () => {
     `
     const children = Array.from({ length: 3 }, () =>
       Bun.spawn([process.execPath, '--eval', script, path], {
+        env: process.env,
         stdout: 'pipe',
         stderr: 'pipe',
       }),
@@ -647,7 +727,9 @@ describe('Pi shared account runtime', () => {
           new Response(child.stdout).text(),
           new Response(child.stderr).text(),
         ])
-        expect(errors).toBe('')
+        expect(errors).toMatch(
+          /^\[agy-route\] agy\d+ u\*\*\*@example\.com strategy=hybrid group=gemini\n$/,
+        )
         expect(code).toBe(0)
         return JSON.parse(output) as { pid: number; index: number }
       }),
