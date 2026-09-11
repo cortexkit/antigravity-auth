@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it } from 'bun:test'
 import { AccountManager } from './account-manager.ts'
 import type { AccountStorageStore } from './account-storage.ts'
 import type { AccountStorageV4 } from './account-types.ts'
+import { initHealthTracker, initTokenTracker } from './rotation.ts'
 
 function createStore(initial: AccountStorageV4 | null = null) {
   let state = initial
@@ -42,6 +43,455 @@ const stored: AccountStorageV4 = {
 }
 
 describe('core AccountManager', () => {
+  afterEach(() => {
+    initHealthTracker({})
+    initTokenTracker({})
+  })
+
+  function sharedManagers(emails = true) {
+    const health = initHealthTracker({ recoveryRatePerHour: 0 })
+    const tokens = initTokenTracker({ regenerationRatePerMinute: 0 })
+    const pool: AccountStorageV4 = {
+      version: 4,
+      activeIndex: 0,
+      accounts: ['a', 'b', 'c'].map((refreshToken) => ({
+        refreshToken,
+        email: emails ? `${refreshToken}@example.com` : undefined,
+        addedAt: 1,
+        lastUsed: 0,
+      })),
+    }
+    const memory = createStore(pool)
+    const managers = Array.from(
+      { length: 3 },
+      () =>
+        new AccountManager(undefined, structuredClone(pool), {
+          store: memory.store,
+          persistFingerprintUpdates: false,
+          now: () => 10_000,
+        }),
+    )
+    const values = () =>
+      [0, 1, 2].map((index) => [
+        health.getScore(index),
+        tokens.getTokens(index),
+      ])
+    return { health, tokens, pool, managers, values }
+  }
+
+  it.each([
+    true,
+    false,
+  ])('keeps shared tracker ownership across three stale managers (emails: %s)', (emails) => {
+    const { health, tokens, pool, managers, values } = sharedManagers(emails)
+    health.recordFailure(0)
+    health.recordFailure(0)
+    tokens.consume(0, 7)
+    const next = {
+      ...pool,
+      accounts: [pool.accounts[1]!, pool.accounts[2]!, pool.accounts[0]!],
+    }
+    for (const manager of [...managers, ...managers]) {
+      manager.reconcileStorage(next)
+      expect(values()).toEqual([
+        [70, 50],
+        [70, 50],
+        [30, 43],
+      ])
+      expect(
+        manager.getCurrentOrNextForFamily(
+          'gemini',
+          null,
+          'hybrid',
+          'antigravity',
+          false,
+        )?.parts.refreshToken,
+      ).toBe('b')
+    }
+  })
+
+  it('keeps depleted accounts out of hybrid selection after stale reconciliation', () => {
+    const { tokens, pool, managers, values } = sharedManagers()
+    tokens.consume(0, 50)
+    const next = {
+      ...pool,
+      accounts: [pool.accounts[1]!, pool.accounts[2]!, pool.accounts[0]!],
+    }
+    for (const manager of managers) {
+      manager.reconcileStorage(next)
+      expect(values()).toEqual([
+        [70, 50],
+        [70, 50],
+        [70, 0],
+      ])
+      expect(
+        manager.getCurrentOrNextForFamily(
+          'gemini',
+          null,
+          'hybrid',
+          'antigravity',
+          false,
+        )?.parts.refreshToken,
+      ).toBe('b')
+    }
+  })
+
+  it('uses shared ownership when stale managers skip an intermediate layout', () => {
+    const { health, tokens, pool, managers, values } = sharedManagers()
+    health.recordFailure(0)
+    tokens.consume(0, 7)
+    managers[0]!.reconcileStorage({
+      ...pool,
+      accounts: [pool.accounts[1]!, pool.accounts[2]!, pool.accounts[0]!],
+    })
+    const next = {
+      ...pool,
+      accounts: [pool.accounts[2]!, pool.accounts[0]!, pool.accounts[1]!],
+    }
+    for (const manager of managers) {
+      manager.reconcileStorage(next)
+      expect(values()).toEqual([
+        [70, 50],
+        [50, 43],
+        [70, 50],
+      ])
+    }
+  })
+
+  it.each([
+    'health',
+    'tokens',
+  ] as const)('reinitializing %s does not lose the other shared tracker layout', (reset) => {
+    const { health, tokens, pool, managers } = sharedManagers()
+    health.recordFailure(0)
+    tokens.consume(0, 7)
+    const next = {
+      ...pool,
+      accounts: [pool.accounts[1]!, pool.accounts[2]!, pool.accounts[0]!],
+    }
+    managers[0]!.reconcileStorage(next)
+    if (reset === 'health') initHealthTracker({ recoveryRatePerHour: 0 })
+    else initTokenTracker({ regenerationRatePerMinute: 0 })
+    for (const manager of managers.slice(1)) {
+      manager.reconcileStorage(next)
+      if (reset === 'health') {
+        expect([0, 1, 2].map((index) => tokens.getTokens(index))).toEqual([
+          50, 50, 43,
+        ])
+      } else {
+        expect([0, 1, 2].map((index) => health.getScore(index))).toEqual([
+          70, 70, 50,
+        ])
+      }
+    }
+  })
+
+  it('preserves every survivor through multiple shared tracker layout changes', () => {
+    const { health, tokens, pool, managers, values } = sharedManagers()
+    health.recordFailure(0)
+    health.recordSuccess(1)
+    health.recordRateLimit(2)
+    tokens.consume(0, 7)
+    tokens.consume(1, 11)
+    tokens.consume(2, 19)
+    const original = values()
+    for (const order of [
+      [1, 2, 0],
+      [2, 0, 1],
+    ]) {
+      const next = {
+        ...pool,
+        accounts: order.map((index) => ({
+          ...pool.accounts[index]!,
+          email: ` ${pool.accounts[index]!.email!.toUpperCase()} `,
+          refreshToken: `rotated-${index}`,
+        })),
+      }
+      for (const manager of managers) {
+        manager.reconcileStorage(next)
+        expect(values()).toEqual(order.map((index) => original[index]!))
+      }
+    }
+  })
+
+  it('drops removed state across stale managers and does not reuse it for additions', () => {
+    const { health, tokens, pool, managers, values } = sharedManagers()
+    health.recordFailure(0)
+    health.recordFailure(0)
+    tokens.consume(0, 7)
+    const removed = { ...pool, accounts: pool.accounts.slice(1) }
+    for (const manager of managers) {
+      manager.reconcileStorage(removed)
+      expect(values()).toEqual([
+        [70, 50],
+        [70, 50],
+        [70, 50],
+      ])
+      expect(health.getSnapshot().size).toBe(0)
+    }
+    health.recordRateLimit(0)
+    tokens.consume(0, 11)
+    const added = {
+      ...pool,
+      accounts: [
+        { ...pool.accounts[0]!, email: 'd@example.com', refreshToken: 'd' },
+        ...removed.accounts,
+      ],
+    }
+    for (const manager of managers) {
+      manager.reconcileStorage(added)
+      expect(values()).toEqual([
+        [70, 50],
+        [60, 39],
+        [70, 50],
+      ])
+    }
+  })
+
+  it.each([
+    true,
+    false,
+  ])('clears ambiguous shared identities across stale managers (emails: %s)', (emails) => {
+    const { health, tokens, pool, managers, values } = sharedManagers(emails)
+    health.recordFailure(0)
+    tokens.consume(0, 7)
+    const ambiguous = {
+      ...pool,
+      accounts: [pool.accounts[0]!, pool.accounts[0]!, pool.accounts[2]!],
+    }
+    for (const manager of managers) {
+      manager.reconcileStorage(ambiguous)
+      expect(values()).toEqual([
+        [70, 50],
+        [70, 50],
+        [70, 50],
+      ])
+    }
+  })
+
+  it('clears transient penalties when a no-email account is replaced', () => {
+    const health = initHealthTracker({})
+    const tokens = initTokenTracker({})
+    const manager = new AccountManager(undefined, structuredClone(stored), {
+      store: createStore(stored).store,
+      persistFingerprintUpdates: false,
+    })
+    const initialScore = health.getScore(0)
+    const initialTokens = tokens.getTokens(0)
+    health.recordFailure(0)
+    health.recordFailure(0)
+    tokens.consume(0, 3)
+    manager.recordSessionUsage(0)
+    const next = structuredClone(stored)
+    next.accounts[0]!.refreshToken = 'unknown-replacement'
+    manager.reconcileStorage(next)
+    expect(health.getScore(0)).toBe(initialScore)
+    expect(tokens.getTokens(0)).toBe(initialTokens)
+    expect(manager.wasUsedInSession(0)).toBe(false)
+  })
+
+  it.each([
+    { order: [1, 2], next: 'b' },
+    { order: [0, 2], next: 'c' },
+    { order: [0, 1], next: 'b' },
+    { order: [2, 0, 1], next: 'b' },
+  ])('keeps the next surviving RR account across $order', ({ order, next }) => {
+    for (const identity of [undefined, { id: 'request' }]) {
+      const pool: AccountStorageV4 = {
+        version: 4,
+        activeIndex: 0,
+        accounts: ['a', 'b', 'c'].map((refreshToken) => ({
+          refreshToken,
+          email: `${refreshToken}@example.com`,
+          addedAt: 1,
+          lastUsed: 0,
+        })),
+      }
+      const manager = new AccountManager(undefined, structuredClone(pool), {
+        store: createStore(pool).store,
+        persistFingerprintUpdates: false,
+      })
+      const select = () =>
+        manager.getNextForFamily(
+          'gemini',
+          null,
+          'antigravity',
+          100,
+          60_000,
+          identity,
+        )?.parts.refreshToken
+      expect(select()).toBe('a')
+      manager.reconcileStorage({
+        ...pool,
+        accounts: order.map((index) => pool.accounts[index]!),
+      })
+      expect(select()).toBe(next)
+    }
+  })
+
+  it('remaps usage, health and balances by unique identity through removal, reorder and token rotation', () => {
+    const health = initHealthTracker({ recoveryRatePerHour: 0 })
+    const tokens = initTokenTracker({ regenerationRatePerMinute: 0 })
+    const pool: AccountStorageV4 = {
+      version: 4,
+      activeIndex: 0,
+      accounts: ['a', 'b', 'c'].map((refreshToken) => ({
+        refreshToken,
+        email: `${refreshToken}@example.com`,
+        addedAt: 1,
+        lastUsed: 0,
+      })),
+    }
+    const manager = new AccountManager(undefined, structuredClone(pool), {
+      store: createStore(pool).store,
+      persistFingerprintUpdates: false,
+    })
+    const session = { id: 'request' }
+    manager.recordSessionUsage(0)
+    manager.recordSessionUsage(1, session)
+    health.recordFailure(0)
+    health.recordFailure(0)
+    health.recordSuccess(1)
+    health.recordRateLimit(2)
+    tokens.consume(0, 3)
+    tokens.consume(1, 1)
+    tokens.consume(2, 2)
+    const expected = [1, 2].map((index) => ({
+      score: health.getScore(index),
+      tokens: tokens.getTokens(index),
+    }))
+    manager.reconcileStorage({
+      ...pool,
+      accounts: [pool.accounts[1]!, pool.accounts[2]!],
+    })
+    expect(health.getScore(0)).toBe(expected[0]!.score)
+    expect(tokens.getTokens(0)).toBe(expected[0]!.tokens)
+    manager.reconcileStorage({
+      ...pool,
+      accounts: [
+        pool.accounts[2]!,
+        {
+          ...pool.accounts[1]!,
+          email: ' B@EXAMPLE.COM ',
+          refreshToken: 'rotated',
+        },
+      ],
+    })
+    for (const [index, original] of [1, 0].entries()) {
+      expect(health.getScore(index)).toBe(expected[original]!.score)
+      expect(tokens.getTokens(index)).toBe(expected[original]!.tokens)
+    }
+    expect(manager.wasUsedInSession(0)).toBe(false)
+    expect(manager.wasUsedInSession(1, session)).toBe(true)
+    expect(manager.wasUsedInSession(0, session)).toBe(false)
+  })
+
+  it.each([
+    'sticky',
+    'hybrid',
+    'round-robin',
+  ] as const)('applies PID offset to %s before selection, only once', (strategy) => {
+    const memory = createStore(stored)
+    const manager = new AccountManager(undefined, structuredClone(stored), {
+      store: memory.store,
+      pid: 1,
+      now: () => 1_000,
+    })
+    expect(
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3.8-flash',
+        strategy,
+        'antigravity',
+        true,
+      )?.index,
+    ).toBe(1)
+    expect(
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3.8-flash',
+        strategy,
+        'antigravity',
+        true,
+      )?.index,
+    ).toBe(strategy === 'round-robin' ? 0 : 1)
+  })
+
+  it('reconciles durable metadata while preserving routing, credentials and per-token failure counters', () => {
+    const memory = createStore(stored)
+    const manager = new AccountManager(
+      {
+        type: 'oauth',
+        refresh: 'r1|p1',
+        access: 'access',
+        expires: 9999999999999,
+      },
+      structuredClone(stored),
+      { store: memory.store },
+    )
+    const first = manager.getCurrentOrNextForFamily(
+      'gemini',
+      null,
+      'round-robin',
+    )!
+    first.consecutiveFailures = 2
+    const next = structuredClone(stored)
+    next.accounts[0]!.enabled = false
+    next.accounts[1]!.rateLimitResetTimes = { claude: Date.now() + 60_000 }
+    manager.reconcileStorage(next)
+    expect(manager.getAccounts()[0]).toMatchObject({
+      access: 'access',
+      consecutiveFailures: 2,
+      enabled: false,
+    })
+    expect(
+      manager.getCurrentOrNextForFamily('gemini', null, 'round-robin')?.index,
+    ).toBe(1)
+    expect(
+      manager.getAccounts()[1]?.rateLimitResetTimes.claude,
+    ).toBeGreaterThan(Date.now())
+    expect(memory.mergedSaves()).toBe(0)
+    next.accounts[0]!.refreshToken = 'rotated'
+    manager.reconcileStorage(next)
+    expect(manager.getAccounts()[0]?.access).toBeUndefined()
+    expect(manager.getAccounts()[0]?.consecutiveFailures).toBeUndefined()
+  })
+
+  it('reconciles removals without resurrecting accounts or transferring session pins', () => {
+    const memory = createStore(stored)
+    const manager = new AccountManager(undefined, structuredClone(stored), {
+      store: memory.store,
+    })
+    const identity = { id: 'session' }
+    manager.getCurrentOrNextForFamily(
+      'gemini',
+      null,
+      'sticky',
+      'antigravity',
+      false,
+      100,
+      60_000,
+      identity,
+    )
+    manager.reconcileStorage({
+      version: 4,
+      activeIndex: 0,
+      accounts: [stored.accounts[1]!],
+    })
+    expect(manager.getTotalAccountCount()).toBe(1)
+    expect(
+      manager.getCurrentOrNextForFamily(
+        'gemini',
+        null,
+        'sticky',
+        'antigravity',
+        false,
+        100,
+        60_000,
+        identity,
+      )?.parts.refreshToken,
+    ).toBe('r2')
+  })
   it('constructs from stored and fallback auth', () => {
     const memory = createStore(stored)
     const manager = new AccountManager(

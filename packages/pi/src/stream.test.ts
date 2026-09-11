@@ -403,6 +403,35 @@ describe('convertGeminiToolCallPart', () => {
 })
 
 describe('streamCortexKitAntigravity', () => {
+  it('runs Pi payload and response hooks around the provider request', async () => {
+    const calls: string[] = []
+    const response = sseResponse([
+      'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}]}}\n\n',
+    ])
+    fetchWithAgyCliTransportMock.mockImplementationOnce(async () => response)
+
+    const eventStream = streamCortexKitAntigravity(fakeModel(), userContext(), {
+      apiKey: 'test-token',
+      sessionId: 'pi-hooks',
+      onPayload: (payload) => {
+        calls.push('payload')
+        return { ...(payload as object), requestType: 'hooked' }
+      },
+      onResponse: (received) => {
+        calls.push('response')
+        expect(received.status).toBe(response.status)
+        expect(response.body?.locked).toBe(false)
+      },
+    })
+
+    expect((await eventStream.result()).stopReason).toBe('stop')
+    expect(calls).toEqual(['payload', 'response'])
+    expect(
+      JSON.parse(String(fetchWithAgyCliTransportMock.mock.calls[0]?.[1]?.body))
+        .requestType,
+    ).toBe('hooked')
+  })
+
   it('surfaces an embedded SSE error instead of returning an empty success', async () => {
     const { events, result } = await runStream(
       fakeModel(),

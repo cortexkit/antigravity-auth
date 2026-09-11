@@ -29,6 +29,7 @@ import {
   type AccountWithMetrics,
   getHealthTracker,
   getTokenTracker,
+  reconcileAccountTrackers,
   selectHybridAccount,
 } from './rotation.ts'
 
@@ -54,6 +55,8 @@ export interface AccountManagerOptions {
   now?: () => number
   random?: () => number
   pid?: number
+  /** Hosts doing field-level persistence can own fingerprint writes themselves. */
+  persistFingerprintUpdates?: boolean
   onDiagnostic?: (message: string, fields?: Record<string, unknown>) => void
 }
 
@@ -73,6 +76,7 @@ export type QuotaKey = BaseQuotaKey | `${BaseQuotaKey}:${string}`
 export interface ManagedAccount {
   index: number
   email?: string
+  accountId?: string
   label?: string
   addedAt: number
   lastUsed: number
@@ -408,6 +412,7 @@ export class AccountManager {
           return {
             index,
             email: acc.email,
+            accountId: acc.accountId,
             label: acc.label,
             addedAt: clampNonNegativeInt(acc.addedAt, baseNow),
             lastUsed: clampNonNegativeInt(acc.lastUsed, 0),
@@ -481,7 +486,10 @@ export class AccountManager {
       }
 
       // Persist updated fingerprint versions to disk
-      if (fingerprintVersionChanged) {
+      if (
+        fingerprintVersionChanged &&
+        options.persistFingerprintUpdates !== false
+      ) {
         this.requestSaveToDisk()
       }
 
@@ -540,6 +548,123 @@ export class AccountManager {
 
   getAccountCount(): number {
     return this.getEnabledAccounts().length
+  }
+
+  /** Reload durable metadata without resetting this process's routing state.
+   * Access tokens survive only an exact credential match. Routing and scoring
+   * follow unique normalized email, then Google identity, falling back to the
+   * token only for legacy accounts without either stable identity.
+   */
+  reconcileStorage(stored: AccountStorageV4): void {
+    const previous = this.accounts
+    const byToken = new Map(
+      previous.map((account) => [account.parts.refreshToken, account]),
+    )
+    const fresh = new AccountManager(undefined, stored, {
+      store: this.store,
+      now: this.now,
+      random: this.random,
+      pid: this.pid,
+      persistFingerprintUpdates: false,
+    })
+    const keyOf = (account: ManagedAccount): string => {
+      const email = account.email?.trim().toLowerCase()
+      if (email) return `email:${email}`
+      if (account.accountId) return `account:${account.accountId}`
+      return `token:${account.parts.refreshToken}`
+    }
+    const remap = (index: number): number => {
+      const old = previous[index]
+      if (!old) return -1
+      const key = keyOf(old)
+      if (previous.filter((account) => keyOf(account) === key).length !== 1)
+        return -1
+      const matches = fresh.accounts.filter((account) => keyOf(account) === key)
+      if (matches.length === 1) return matches[0]!.index
+      const tokenMatches = fresh.accounts.filter(
+        (account) => account.parts.refreshToken === old.parts.refreshToken,
+      )
+      return tokenMatches.length === 1 ? tokenMatches[0]!.index : -1
+    }
+    const indexMap = new Map(
+      previous.map((account) => [account.index, remap(account.index)]),
+    )
+    const trackerIndexMap = new Map(indexMap)
+    for (const freshAccount of fresh.accounts) {
+      const previousMatches = previous.filter(
+        (account) => indexMap.get(account.index) === freshAccount.index,
+      )
+      if (previousMatches.length < 2) continue
+      const exactToken = previousMatches.find(
+        (account) =>
+          account.parts.refreshToken === freshAccount.parts.refreshToken,
+      )
+      const survivor = exactToken ?? previousMatches[0]
+      for (const account of previousMatches) {
+        if (account !== survivor) trackerIndexMap.set(account.index, -1)
+      }
+    }
+    this.accounts = fresh.accounts.map((account) => {
+      const old = previous.find(
+        (entry) => indexMap.get(entry.index) === account.index,
+      )
+      if (!old) return account
+      const credential = byToken.get(account.parts.refreshToken)
+      return {
+        ...account,
+        access: credential?.access,
+        expires: credential?.expires,
+        fingerprint:
+          stored.accounts[account.index]?.fingerprint ??
+          old.fingerprint ??
+          account.fingerprint,
+        touchedForQuota: old.touchedForQuota,
+        consecutiveFailures: old.consecutiveFailures,
+        lastFailureTime: old.lastFailureTime,
+      }
+    })
+    const remapCursor = (cursor: number): number => {
+      for (let offset = 0; offset < previous.length; offset++) {
+        const next = remap((cursor + offset) % previous.length)
+        if (next >= 0) return next
+      }
+      return 0
+    }
+    const remapUsed = (used: Set<number>): Set<number> =>
+      new Set([...used].map(remap).filter((index) => index >= 0))
+    const changed =
+      previous.length !== this.accounts.length ||
+      previous.some((account) => remap(account.index) !== account.index)
+    // Retain opaque identities in process-global state, never raw credentials.
+    const trackerIdentity = (account: ManagedAccount): string =>
+      createHash('sha256').update(keyOf(account)).digest('hex')
+    reconcileAccountTrackers(
+      previous.map(trackerIdentity),
+      this.accounts.map(trackerIdentity),
+      trackerIndexMap,
+    )
+    if (changed) {
+      this.sessionUsedAccounts = remapUsed(this.sessionUsedAccounts)
+    }
+    for (const family of ['claude', 'gemini'] as const) {
+      if (changed)
+        this.cursorByFamily[family] = remapCursor(this.cursorByFamily[family])
+      this.currentAccountIndexByFamily[family] = remap(
+        this.currentAccountIndexByFamily[family],
+      )
+    }
+    for (const state of this.requestSessionStates.values()) {
+      if (changed) state.usedAccounts = remapUsed(state.usedAccounts)
+      for (const family of ['claude', 'gemini'] as const) {
+        if (changed)
+          state.cursorByFamily[family] = remapCursor(
+            state.cursorByFamily[family],
+          )
+        state.currentAccountIndexByFamily[family] = remap(
+          state.currentAccountIndexByFamily[family],
+        )
+      }
+    }
   }
 
   getTotalAccountCount(): number {
@@ -811,6 +936,40 @@ export class AccountManager {
       }
     }
 
+    // PID-based offset for multi-session distribution (opt-in)
+    // Different sessions (PIDs) will prefer different starting accounts
+    const offsetApplied = identity
+      ? this.getRequestSessionState(identity).offsetAppliedByFamily
+      : this.sessionOffsetApplied
+    if (
+      pidOffsetEnabled &&
+      !offsetApplied[family] &&
+      this.accounts.length > 1
+    ) {
+      const pidOffset = this.pid % this.accounts.length
+      const activeIndex = this.getActiveIndex(family, identity)
+      const baseIndex =
+        activeIndex >= 0 ? activeIndex : this.getCursor(family, identity)
+      const newIndex = (baseIndex + pidOffset) % this.accounts.length
+
+      this.onDiagnostic?.('Applying PID account offset', {
+        pid: this.pid,
+        offset: pidOffset,
+        family,
+        fromIndex: baseIndex,
+        toIndex: newIndex,
+      })
+
+      this.setActiveIndex(family, newIndex, identity)
+      if (strategy === 'round-robin') {
+        const cursors = identity
+          ? this.getRequestSessionState(identity).cursorByFamily
+          : this.cursorByFamily
+        cursors[family] = newIndex
+      }
+      offsetApplied[family] = true
+    }
+
     if (strategy === 'round-robin') {
       const next = this.getNextForFamily(
         family,
@@ -886,35 +1045,6 @@ export class AccountManager {
           return selected
         }
       }
-    }
-
-    // Fallback: sticky selection (used when hybrid finds no candidates)
-    // PID-based offset for multi-session distribution (opt-in)
-    // Different sessions (PIDs) will prefer different starting accounts
-    const offsetApplied = identity
-      ? this.getRequestSessionState(identity).offsetAppliedByFamily
-      : this.sessionOffsetApplied
-    if (
-      pidOffsetEnabled &&
-      !offsetApplied[family] &&
-      this.accounts.length > 1
-    ) {
-      const pidOffset = this.pid % this.accounts.length
-      const activeIndex = this.getActiveIndex(family, identity)
-      const baseIndex =
-        activeIndex >= 0 ? activeIndex : this.getCursor(family, identity)
-      const newIndex = (baseIndex + pidOffset) % this.accounts.length
-
-      this.onDiagnostic?.('Applying PID account offset', {
-        pid: this.pid,
-        offset: pidOffset,
-        family,
-        fromIndex: baseIndex,
-        toIndex: newIndex,
-      })
-
-      this.setActiveIndex(family, newIndex, identity)
-      offsetApplied[family] = true
     }
 
     const current = this.getCurrentAccountForFamily(family, identity)
@@ -1679,6 +1809,7 @@ export class AccountManager {
       version: 4,
       accounts: this.accounts.map((a) => ({
         email: a.email,
+        accountId: a.accountId,
         label: a.label,
         refreshToken: a.parts.refreshToken,
         projectId: a.parts.projectId ?? a.projectId,
@@ -2150,6 +2281,7 @@ export class AccountManager {
   getAccountsForQuotaCheck(): AccountMetadataV3[] {
     return this.accounts.map((a) => ({
       email: a.email,
+      accountId: a.accountId,
       refreshToken: a.parts.refreshToken,
       projectId: a.parts.projectId ?? a.projectId,
       managedProjectId: a.parts.managedProjectId ?? a.managedProjectId,

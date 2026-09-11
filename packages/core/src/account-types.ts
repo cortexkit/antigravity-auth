@@ -36,6 +36,8 @@ export type CooldownReason =
 
 export interface AccountMetadataV3 {
   email?: string
+  /** Stable Google userinfo identity. Never shown in operator output. */
+  accountId?: string
   refreshToken: string
   projectId?: string
   managedProjectId?: string

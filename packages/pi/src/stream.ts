@@ -4,8 +4,11 @@ import {
   ANTIGRAVITY_ENDPOINT,
   buildAgyAgentRequestMetadata,
   buildAntigravityHarnessUserAgent,
+  buildFingerprintHeaders,
   ensureProjectContext,
   fetchWithAgyCliTransport,
+  type ManagedAccount,
+  type OAuthAuthDetails,
   orderAgyRequestPayloadInPlace,
   resolveModelForHeaderStyle,
 } from '@cortexkit/antigravity-auth-core'
@@ -27,6 +30,7 @@ import {
 
 import { buildGeminiRequest } from './convert.ts'
 import { getPackedRefresh } from './credential-cache.ts'
+import type { PiAccountRuntime } from './runtime.ts'
 
 const STREAM_ACTION = 'streamGenerateContent'
 const FALLBACK_SESSION_KEY = '__default__'
@@ -339,7 +343,9 @@ async function sendAntigravityRequest(options: {
   context: Context
   streamOptions?: SimpleStreamOptions
   accessToken: string
-  sessionKey: string
+  auth?: OAuthAuthDetails
+  account?: ManagedAccount
+  requestScope: AgyRequestScope
   signal?: AbortSignal
 }): Promise<Response> {
   const resolved = resolvePiAntigravityModel(
@@ -353,12 +359,14 @@ async function sendAntigravityRequest(options: {
   // With it, ensureProjectContext returns the cached managedProjectId directly
   // instead of re-running loadCodeAssist every turn.
   const packedRefresh = getPackedRefresh(options.accessToken) ?? ''
-  const projectContext = await ensureProjectContext({
-    type: 'oauth',
-    refresh: packedRefresh,
-    access: options.accessToken,
-    expires: Date.now() + 60_000,
-  })
+  const projectContext = await ensureProjectContext(
+    options.auth ?? {
+      type: 'oauth',
+      refresh: packedRefresh,
+      access: options.accessToken,
+      expires: Date.now() + 60_000,
+    },
+  )
 
   const request = buildGeminiRequest(options.context, {
     provider: options.model.provider,
@@ -387,11 +395,10 @@ async function sendAntigravityRequest(options: {
     request.generationConfig = generationConfig
   }
 
-  const requestScope = requestSessions.beginRequest(options.sessionKey)
   const requestId = finalizePiAntigravityRequest(
     request,
     wireModel,
-    requestScope,
+    options.requestScope,
   )
 
   const envelope = {
@@ -402,10 +409,13 @@ async function sendAntigravityRequest(options: {
     userAgent: 'antigravity',
     requestType: 'agent',
   }
+  const payload =
+    (await options.streamOptions?.onPayload?.(envelope, options.model)) ??
+    envelope
 
   const url = `${ANTIGRAVITY_ENDPOINT}/v1internal:${STREAM_ACTION}?alt=sse`
 
-  return fetchWithAgyCliTransport(
+  const response = await fetchWithAgyCliTransport(
     url,
     {
       method: 'POST',
@@ -413,18 +423,30 @@ async function sendAntigravityRequest(options: {
         Authorization: `Bearer ${options.accessToken}`,
         'Content-Type': 'application/json',
         'User-Agent': buildAntigravityHarnessUserAgent(),
+        ...(options.account?.fingerprint
+          ? buildFingerprintHeaders(options.account.fingerprint)
+          : {}),
         'Accept-Encoding': 'gzip',
       },
-      body: JSON.stringify(envelope),
+      body: JSON.stringify(payload),
     },
     { signal: options.signal ?? options.streamOptions?.signal ?? null },
   )
+  await options.streamOptions?.onResponse?.(
+    {
+      status: response.status,
+      headers: Object.fromEntries(response.headers),
+    },
+    options.model,
+  )
+  return response
 }
 
 export function streamCortexKitAntigravity(
   model: Model<Api>,
   context: Context,
   options?: SimpleStreamOptions,
+  runtime?: PiAccountRuntime,
 ): AssistantMessageEventStream {
   const stream = createAssistantMessageEventStream()
 
@@ -434,6 +456,7 @@ export function streamCortexKitAntigravity(
     let response: Response | undefined
     let requestAbort: AbortController | undefined
     let chunkIterator: AsyncIterator<GeminiStreamChunk> | undefined
+    let selectedAccount: ManagedAccount | undefined
 
     try {
       const accessToken = options?.apiKey ?? ''
@@ -441,18 +464,31 @@ export function streamCortexKitAntigravity(
         throw new Error('Missing Antigravity OAuth access token')
 
       const sessionKey = getRequestSessionKey(context, options)
+      const requestScope = requestSessions.beginRequest(sessionKey)
       requestAbort = new AbortController()
       const requestSignal = options?.signal
         ? AbortSignal.any([options.signal, requestAbort.signal])
         : requestAbort.signal
-      response = await sendAntigravityRequest({
-        model,
-        context,
-        streamOptions: options,
-        accessToken,
-        sessionKey,
-        signal: requestSignal,
-      })
+      const send = (auth?: OAuthAuthDetails, account?: ManagedAccount) =>
+        sendAntigravityRequest({
+          model,
+          context,
+          streamOptions: options,
+          accessToken: auth?.access ?? accessToken,
+          auth,
+          account,
+          requestScope,
+          signal: requestSignal,
+        })
+      if (runtime) {
+        const result = await runtime.dispatch(
+          resolvePiAntigravityModel(model, options?.reasoning).actualModel,
+          send,
+          requestSignal,
+        )
+        response = result.response
+        selectedAccount = result.account
+      } else response = await send()
 
       if (!response.ok) {
         throw new Error(
@@ -661,6 +697,7 @@ export function streamCortexKitAntigravity(
         )
       }
 
+      if (selectedAccount) runtime?.complete(selectedAccount, true)
       stream.push({
         type: 'done',
         reason: output.stopReason as 'stop' | 'length' | 'toolUse',
@@ -671,6 +708,8 @@ export function streamCortexKitAntigravity(
       }
       stream.end()
     } catch (error) {
+      if (selectedAccount && !options?.signal?.aborted)
+        runtime?.complete(selectedAccount, false)
       requestAbort?.abort()
       await chunkIterator?.return?.(undefined).catch(() => {})
       await response?.body?.cancel().catch(() => {})

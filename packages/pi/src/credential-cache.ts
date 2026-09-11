@@ -10,7 +10,7 @@
  */
 
 const packedRefreshByAccessToken = new Map<string, string>()
-// Single-account extension: keep the map tiny.
+// Only recent host credentials use this bridge; the runtime owns pool tokens.
 const MAX_ENTRIES = 4
 
 export function rememberPackedRefresh(

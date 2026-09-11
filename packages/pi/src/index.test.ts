@@ -5,7 +5,11 @@ import cortexKitPiAntigravityAuth from './index.ts'
 describe('Pi Antigravity model catalog', () => {
   it('exposes the live GPT-OSS route but not unsupported image-output chat models', () => {
     const registerProvider = mock()
-    cortexKitPiAntigravityAuth({ registerProvider } as never)
+    cortexKitPiAntigravityAuth({
+      registerProvider,
+      registerCommand: mock(),
+      on: mock(),
+    } as never)
 
     expect(registerProvider).toHaveBeenCalledTimes(1)
     const [, config] = registerProvider.mock.calls[0] as [

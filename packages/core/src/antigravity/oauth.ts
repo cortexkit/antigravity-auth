@@ -52,6 +52,7 @@ interface AntigravityTokenExchangeSuccess {
   access: string
   expires: number
   email?: string
+  accountId?: string
   label?: string
   projectId: string
 }
@@ -78,6 +79,7 @@ export interface AntigravityRefreshResult {
  */
 export async function refreshAntigravityToken(
   refreshToken: string,
+  signal?: AbortSignal,
 ): Promise<AntigravityRefreshResult> {
   const startTime = Date.now()
   const response = await fetchWithActiveTimeout(
@@ -91,6 +93,7 @@ export async function refreshAntigravityToken(
         client_id: ANTIGRAVITY_CLIENT_ID,
         client_secret: ANTIGRAVITY_CLIENT_SECRET,
       }),
+      signal,
     },
   )
 
@@ -121,8 +124,48 @@ interface AntigravityTokenResponse {
 }
 
 interface AntigravityUserInfo {
+  id?: string
   email?: string
   name?: string
+}
+
+export interface AntigravityAccountIdentity {
+  accountId?: string
+  email?: string
+  label?: string
+}
+
+/** Resolve the stable Google identity carried by an OAuth access token. */
+export async function fetchAntigravityAccountIdentity(
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<AntigravityAccountIdentity> {
+  const response = await fetchWithActiveTimeout(
+    'https://www.googleapis.com/oauth2/v1/userinfo?alt=json',
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'User-Agent': GEMINI_CLI_HEADERS['User-Agent'],
+      },
+      signal,
+    },
+  )
+  if (!response.ok) return {}
+  const userInfo = (await response.json()) as AntigravityUserInfo
+  const email =
+    typeof userInfo.email === 'string'
+      ? userInfo.email.trim().toLowerCase()
+      : undefined
+  const accountId =
+    typeof userInfo.id === 'string' ? userInfo.id.trim() : undefined
+  return {
+    email: email || undefined,
+    accountId: accountId || undefined,
+    label:
+      typeof userInfo.name === 'string'
+        ? userInfo.name.trim() || undefined
+        : undefined,
+  }
 }
 
 /**
@@ -290,19 +333,9 @@ export async function exchangeAntigravity(
     const tokenPayload =
       (await tokenResponse.json()) as AntigravityTokenResponse
 
-    const userInfoResponse = await fetchWithActiveTimeout(
-      'https://www.googleapis.com/oauth2/v1/userinfo?alt=json',
-      {
-        headers: {
-          Authorization: `Bearer ${tokenPayload.access_token}`,
-          'User-Agent': GEMINI_CLI_HEADERS['User-Agent'],
-        },
-      },
+    const userInfo = await fetchAntigravityAccountIdentity(
+      tokenPayload.access_token,
     )
-
-    const userInfo = userInfoResponse.ok
-      ? ((await userInfoResponse.json()) as AntigravityUserInfo)
-      : {}
 
     const refreshToken = tokenPayload.refresh_token
     if (!refreshToken) {
@@ -322,7 +355,8 @@ export async function exchangeAntigravity(
       access: tokenPayload.access_token,
       expires: calculateTokenExpiry(startTime, tokenPayload.expires_in),
       email: userInfo.email,
-      label: userInfo.name?.trim() || undefined,
+      accountId: userInfo.accountId,
+      label: userInfo.label,
       projectId: effectiveProjectId || '',
     }
   } catch (error) {

@@ -127,7 +127,7 @@ graph TB
   Metadata --> Project
 ```
 
-The dependency graph is acyclic. No layer reaches into `account-manager` from `auth` — the auth module intentionally treats the refresh token as opaque so it can be reused by the Pi extension which has no concept of an account pool.
+The dependency graph is acyclic. No layer reaches into `account-manager` from `auth` — the auth module treats the refresh token as opaque; both host adapters compose it with the shared account pool.
 
 ## OpenCode server plugin
 
@@ -272,9 +272,27 @@ The notification queue is `packages/opencode/src/rpc/notifications.ts:1-59`. `pu
 - `pi.registerProvider(ANTIGRAVITY_PROVIDER_ID, { name, baseUrl, api, models, oauth, streamSimple })` (line 93-110).
 - `models` is `getPublicModelDefinitions()` filtered to drop image-output (Pi's `AssistantMessage` protocol has no image output type) and re-mapped onto Pi's `Model` shape (`packages/pi/src/index.ts:78-91`).
 - `oauth.login` invokes `authorizeAntigravity` from core, asks the host for the callback URL/code via `callbacks.onPrompt`, and calls `exchangeAntigravity` (line 22-58).
-- `oauth.refreshToken` reads the packed `refreshToken|projectId|managedProjectId` triple, calls `refreshAntigravityToken` for the bare refresh, and re-packs the project segments (line 60-75).
+- `oauth.login` persists successful exchanges via core's path-parameterized `persistAccountPoolAtPath`, also used by OpenCode, before returning the host credential. Email/token upserts preserve other accounts and disabled flags.
+- `oauth.refreshToken` delegates to `PiAccountRuntime.refreshHost`: refreshes an enabled pool credential under core's fenced storage lock and can recover through a peer when the host's last credential fails.
 - `oauth.getApiKey` bridges the packed refresh into the stream by stashing it in `credential-cache.ts` so the stream can rejoin project context after the access token is stripped (line 102-107).
 - `streamSimple` is `streamCortexKitAntigravity` from `packages/pi/src/stream.ts`. It preserves same-model thinking/text/tool signatures, keeps native function-call IDs, emits same-target function responses with the AGY CLI model role, and tracks `last_execution_id` plus CLI-compatible step indexes per Pi session.
+
+`packages/pi/src/runtime.ts` wires the existing `AccountManager`, quota manager,
+quota probes and transport into Pi. The manager reconciles durable state before
+selection while retaining process-local cursors and token-matched transient state.
+Pi persists field-level updates through `mutateAccountStorage`; it never saves a
+stale whole-pool snapshot over a peer's enable/disable or OAuth changes. The
+default v4 pool is `$PI_AGENT_DIR/antigravity-accounts.json`, overridden by
+`PI_ANTIGRAVITY_AUTH_FILE`. Legacy host auth is imported only into an empty pool.
+
+The two Pi settings (hybrid strategy and PID offset enabled by default) live at
+`<account-file>.config.json`. Core applies PID offset before all three strategy
+branches. Quota uses current gemini/non-gemini groups, 30-minute on-demand refresh
+and a 60-minute stale TTL; core's single-account and stale-cache exceptions remain.
+Pre-stream rate-limit failover shares OpenCode's extracted response parsing and
+core cooldown classification. Partial streams and ambiguous transport failures
+are not replayed. Minimal `/agy-*` commands expose redacted pool controls; see
+the [Pi README](packages/pi/README.md) for the operator contract and smoke test.
 
 The package's `package.json` (`packages/pi/package.json:34-58`) declares `pi.extensions: ['./dist/index.js']` and pulls Pi's three peer dependencies from `@earendil-works/`.
 

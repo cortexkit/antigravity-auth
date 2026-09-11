@@ -1,16 +1,20 @@
 import {
+  AccountIdentityAmbiguityError,
   authorizeAntigravity,
   exchangeAntigravity,
   getPublicModelDefinitions,
-  refreshAntigravityToken,
 } from '@cortexkit/antigravity-auth-core'
 import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
 } from '@earendil-works/pi-ai'
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-
+import {
+  type ExtensionAPI,
+  readStoredCredential,
+} from '@earendil-works/pi-coding-agent'
+import { registerAccountCommands } from './commands.ts'
 import { rememberPackedRefresh } from './credential-cache.ts'
+import { PiAccountRuntime } from './runtime.ts'
 import { streamCortexKitAntigravity } from './stream.ts'
 
 const ANTIGRAVITY_PROVIDER_ID = 'google-antigravity'
@@ -21,8 +25,10 @@ function textImageInput(): Array<'text' | 'image'> {
 
 async function loginAntigravity(
   callbacks: OAuthLoginCallbacks,
+  runtime: PiAccountRuntime,
 ): Promise<OAuthCredentials> {
   const auth = await authorizeAntigravity()
+  callbacks.signal?.throwIfAborted()
   callbacks.onAuth({ url: auth.url })
   const code = await callbacks.onPrompt({
     message: 'Paste the Antigravity OAuth callback URL or code:',
@@ -40,41 +46,53 @@ async function loginAntigravity(
     const codeParam = url.searchParams.get('code')
     const stateParam = url.searchParams.get('state')
     if (codeParam) rawCode = codeParam
+    if (stateParam && stateParam !== authState)
+      throw new Error('OAuth state mismatch')
     if (stateParam) state = stateParam
-  } catch {
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error
     // Not a URL — treat the input as a bare authorization code.
   }
 
+  callbacks.signal?.throwIfAborted()
   const result = await exchangeAntigravity(rawCode, state)
   if (result.type !== 'success') {
     throw new Error(`Antigravity OAuth exchange failed: ${result.error}`)
   }
 
+  callbacks.signal?.throwIfAborted()
+  await runtime.login(result)
+
   return {
     refresh: result.refresh,
     access: result.access,
     expires: result.expires,
-  }
-}
-
-async function refreshAntigravityCredentials(
-  credentials: OAuthCredentials,
-): Promise<OAuthCredentials> {
-  // Stored refresh is `refreshToken|projectId|managedProjectId`.
-  const refreshToken = credentials.refresh.split('|')[0] ?? credentials.refresh
-  const refreshed = await refreshAntigravityToken(refreshToken)
-  // Preserve the project segments packed into the stored refresh string.
-  const projectSegments = credentials.refresh.includes('|')
-    ? credentials.refresh.slice(credentials.refresh.indexOf('|'))
-    : ''
-  return {
-    refresh: `${refreshed.refresh}${projectSegments}`,
-    access: refreshed.access,
-    expires: refreshed.expires,
+    email: result.email,
+    accountId: result.accountId,
   }
 }
 
 export default function cortexKitPiAntigravityAuth(pi: ExtensionAPI): void {
+  const runtime = new PiAccountRuntime()
+  registerAccountCommands(pi, runtime, (callbacks) =>
+    loginAntigravity(callbacks, runtime),
+  )
+  pi.on('session_start', async (_event, context) => {
+    try {
+      const auth = readStoredCredential(ANTIGRAVITY_PROVIDER_ID)
+      if (auth?.type === 'oauth') {
+        await runtime.migrate(auth)
+      }
+    } catch (error) {
+      context.ui.notify(
+        error instanceof AccountIdentityAmbiguityError
+          ? 'Antigravity account migration found ambiguous token-only identity; no accounts were merged. Re-authenticate or repair the account file before retrying.'
+          : 'Antigravity account migration failed; existing auth and pool were retained. Repair the account file before retrying.',
+        'error',
+      )
+    }
+  })
+  pi.on('session_shutdown', async () => runtime.dispose())
   const models = Object.values(getPublicModelDefinitions())
     // Pi's AssistantMessage protocol has no image-output content type. Keep
     // generation-only image routes out of the chat model catalog rather than
@@ -97,15 +115,18 @@ export default function cortexKitPiAntigravityAuth(pi: ExtensionAPI): void {
     models,
     oauth: {
       name: 'Google Antigravity (CortexKit)',
-      login: loginAntigravity,
-      refreshToken: refreshAntigravityCredentials,
+      login: (callbacks) => loginAntigravity(callbacks, runtime),
+      refreshToken: (credentials, signal) =>
+        runtime.refreshHost(credentials, signal),
       getApiKey: (credentials) => {
         // Bridge the packed refresh (refreshToken|projectId|managedProjectId)
         // to the stream, which otherwise only receives the bare access token.
         rememberPackedRefresh(credentials.access, credentials.refresh)
+        runtime.remember(credentials)
         return credentials.access
       },
     },
-    streamSimple: streamCortexKitAntigravity,
+    streamSimple: (model, context, options) =>
+      streamCortexKitAntigravity(model, context, options, runtime),
   })
 }
