@@ -143,7 +143,7 @@ Each cached quota entry carries `{ remainingFraction, resetTime }` per group:
 - **Soft-quota threshold** — `soft_quota_threshold_percent` (default 80). Accounts above the threshold are skipped as if rate-limited. Set to `100` to disable.
 - **Stale-TTL fail-open** — `soft_quota_cache_ttl_minutes = "auto"` resolves to `max(2 × refresh, 10)` minutes. Cache older than the TTL is treated as unknown and allowed through.
 - **Proactive rotation** — `proactive_rotation_threshold_percent` (default 20). When the active account's remaining quota drops below, dispatch the next request from a warm-cache account.
-- **All-throttled wait** — `max_rate_limit_wait_seconds` (default 300). Cap on how long the interceptor waits when every account is rate-limited before failing fast.
+- **All-throttled wait** — `max_rate_limit_wait_seconds` (default 300). Cumulative contiguous wait budget while every account is unavailable before failing fast.
 
 The **operator killswitch** is a hard rejection layer run BEFORE the soft-quota filter:
 

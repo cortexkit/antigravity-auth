@@ -76,6 +76,10 @@ const log = createLogger('fetch-interceptor')
  * Matches the legacy plugin so callers that compare timing logs see parity.
  */
 const FIRST_RETRY_DELAY_MS = 1000
+const DEFAULT_ALL_ACCOUNTS_WAIT_MS = 60_000
+
+const ALL_ACCOUNTS_BLOCKED_MESSAGE =
+  'All configured Antigravity accounts are blocked until their quota reset.'
 
 /** Production transport — used when the interceptor context omits one. */
 const defaultAgyTransport: AgyTransport = (url, init, options) =>
@@ -542,6 +546,22 @@ export function createFetchInterceptor(
     const maxAccountSwitches = config.max_account_switches ?? 2
     let previousAccountIndex = -1
     let needsCacheWarmup = false
+    let allAccountsBlockedSince: number | null = null
+    const maxAllAccountsWaitMs =
+      (config.max_rate_limit_wait_seconds ?? 300) * 1000
+    const getAllAccountsWaitMs = (waitMs: number | null): number => {
+      if (maxAllAccountsWaitMs === 0) {
+        return waitMs ?? DEFAULT_ALL_ACCOUNTS_WAIT_MS
+      }
+
+      allAccountsBlockedSince ??= Date.now()
+      const remainingWaitMs =
+        maxAllAccountsWaitMs - (Date.now() - allAccountsBlockedSince)
+      if (remainingWaitMs <= 0) {
+        throw new Error(ALL_ACCOUNTS_BLOCKED_MESSAGE)
+      }
+      return Math.min(waitMs ?? remainingWaitMs, remainingWaitMs)
+    }
 
     while (true) {
       checkAborted()
@@ -734,40 +754,21 @@ export function createFetchInterceptor(
             softQuotaCacheTtlMs,
             model,
           )
-          const maxWaitMs = (config.max_rate_limit_wait_seconds ?? 300) * 1000
-
-          if (
-            softQuotaWaitMs === null ||
-            (maxWaitMs > 0 && softQuotaWaitMs > maxWaitMs)
-          ) {
-            const waitTimeFormatted = softQuotaWaitMs
-              ? formatWaitTime(softQuotaWaitMs)
-              : 'unknown'
-            await showToast(
-              `All accounts over ${threshold}% quota threshold. Resets in ${waitTimeFormatted}.`,
-              'error',
-            )
-            return createSyntheticErrorResponse(
-              `Quota protection: All ${accountCount} account(s) are over ${threshold}% usage for ${family}. ` +
-                `Quota resets in ${waitTimeFormatted}. ` +
-                `Add more accounts, wait for quota reset, or set soft_quota_threshold_percent: 100 to disable.`,
-              model ?? 'unknown',
-            )
-          }
+          const boundedWaitMs = getAllAccountsWaitMs(softQuotaWaitMs)
 
           pushDebug(
-            `all-over-soft-quota family=${family} accounts=${accountCount} waitMs=${softQuotaWaitMs}`,
+            `all-over-soft-quota family=${family} accounts=${accountCount} waitMs=${boundedWaitMs}`,
           )
 
           if (!retryState.softQuotaToastShown()) {
             await showToast(
-              `All ${accountCount} account(s) over ${threshold}% quota. Waiting ${formatWaitTime(softQuotaWaitMs)}...`,
+              `All ${accountCount} account(s) over ${threshold}% quota. Waiting ${formatWaitTime(boundedWaitMs)}...`,
               'warning',
             )
             retryState.markSoftQuotaToastShown()
           }
 
-          await sleep(softQuotaWaitMs, abortSignal)
+          await sleep(boundedWaitMs, abortSignal)
           continue
         }
 
@@ -778,10 +779,11 @@ export function createFetchInterceptor(
             model,
             preferredHeaderStyle,
             strictWait,
-          ) || 60_000
+          ) || DEFAULT_ALL_ACCOUNTS_WAIT_MS
+        const boundedWaitMs = getAllAccountsWaitMs(waitMs)
 
         pushDebug(
-          `all-rate-limited family=${family} accounts=${accountCount} waitMs=${waitMs}`,
+          `all-rate-limited family=${family} accounts=${accountCount} waitMs=${boundedWaitMs}`,
         )
         if (isDebugEnabled()) {
           logAccountContext('All accounts rate-limited', {
@@ -792,23 +794,8 @@ export function createFetchInterceptor(
           logRateLimitSnapshot(family, accountManager.getAccountsSnapshot())
         }
 
-        const maxWaitMs = (config.max_rate_limit_wait_seconds ?? 300) * 1000
-        if (maxWaitMs > 0 && waitMs > maxWaitMs) {
-          const waitTimeFormatted = formatWaitTime(waitMs)
-          await showToast(
-            `Rate limited for ${waitTimeFormatted}. Try again later or add another account.`,
-            'error',
-          )
-          return createSyntheticErrorResponse(
-            `All ${accountCount} account(s) rate-limited for ${family}. ` +
-              `Quota resets in ${waitTimeFormatted}. ` +
-              `Add more accounts with \`opencode auth login\` or wait and retry.`,
-            model ?? 'unknown',
-          )
-        }
-
         if (!retryState.rateLimitToastShown()) {
-          const waitSecValue = Math.max(1, Math.ceil(waitMs / 1000))
+          const waitSecValue = Math.max(1, Math.ceil(boundedWaitMs / 1000))
           await showToast(
             `All ${accountCount} account(s) rate-limited for ${family}. Waiting ${waitSecValue}s...`,
             'warning',
@@ -816,11 +803,12 @@ export function createFetchInterceptor(
           retryState.markRateLimitToastShown()
         }
 
-        await sleep(waitMs, abortSignal)
+        await sleep(boundedWaitMs, abortSignal)
         continue
       }
 
       // Account is available - reset the toast flag
+      allAccountsBlockedSince = null
       retryState.resetAllAccountsBlockedToasts()
 
       pushDebug(

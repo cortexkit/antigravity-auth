@@ -540,6 +540,126 @@ describe('createFetchInterceptor', () => {
     })
   })
 
+  describe('all-account wait budget', () => {
+    it('rejects after the cumulative budget when short waits keep recurring', async () => {
+      const controller = new AbortController()
+      const accountManager = new AccountManager(undefined, storedAccounts())
+      accountManager.getCurrentOrNextForFamily = mock(() => null)
+      accountManager.getMinWaitTimeForFamily = mock(() => 5)
+
+      const context = await makeContext({
+        accountManager,
+        config: {
+          ...DEFAULT_CONFIG,
+          max_rate_limit_wait_seconds: 0.02,
+        },
+      })
+      const interceptor = createFetchInterceptor(context)
+      const abortFallback = setTimeout(() => controller.abort(), 100)
+      const request = interceptor.fetch(GENERATIVE_URL, {
+        method: 'POST',
+        signal: controller.signal,
+      })
+
+      await expect(request).rejects.toThrow(
+        'All configured Antigravity accounts are blocked until their quota reset.',
+      )
+      clearTimeout(abortFallback)
+      expect(transportMock).not.toHaveBeenCalled()
+      interceptor.dispose()
+    })
+
+    it('applies the same cumulative budget to soft-quota waits', async () => {
+      const controller = new AbortController()
+      const accountManager = new AccountManager(undefined, storedAccounts())
+      accountManager.getCurrentOrNextForFamily = mock(() => null)
+      accountManager.areAllAccountsOverSoftQuota = mock(() => true)
+      accountManager.getMinWaitTimeForSoftQuota = mock(() => null)
+
+      const context = await makeContext({
+        accountManager,
+        config: {
+          ...DEFAULT_CONFIG,
+          soft_quota_threshold_percent: 80,
+          max_rate_limit_wait_seconds: 0.02,
+        },
+      })
+      const interceptor = createFetchInterceptor(context)
+      const abortFallback = setTimeout(() => controller.abort(), 100)
+      const request = interceptor.fetch(GENERATIVE_URL, {
+        method: 'POST',
+        signal: controller.signal,
+      })
+
+      await expect(request).rejects.toThrow(
+        'All configured Antigravity accounts are blocked until their quota reset.',
+      )
+      clearTimeout(abortFallback)
+      expect(transportMock).not.toHaveBeenCalled()
+      interceptor.dispose()
+    })
+
+    it('keeps unknown soft-quota resets abortable when configured to zero', async () => {
+      const controller = new AbortController()
+      const accountManager = new AccountManager(undefined, storedAccounts())
+      accountManager.getCurrentOrNextForFamily = mock(() => null)
+      accountManager.areAllAccountsOverSoftQuota = mock(() => true)
+      const getMinWaitTimeForSoftQuota = mock(() => null)
+      accountManager.getMinWaitTimeForSoftQuota = getMinWaitTimeForSoftQuota
+
+      const context = await makeContext({
+        accountManager,
+        config: {
+          ...DEFAULT_CONFIG,
+          soft_quota_threshold_percent: 80,
+          max_rate_limit_wait_seconds: 0,
+        },
+      })
+      const interceptor = createFetchInterceptor(context)
+      const abort = setTimeout(() => controller.abort(), 25)
+
+      await expect(
+        interceptor.fetch(GENERATIVE_URL, {
+          method: 'POST',
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow('The operation was aborted.')
+      clearTimeout(abort)
+      expect(getMinWaitTimeForSoftQuota).toHaveBeenCalledTimes(1)
+      expect(transportMock).not.toHaveBeenCalled()
+      interceptor.dispose()
+    })
+
+    it('waits without a budget until the caller aborts when configured to zero', async () => {
+      const controller = new AbortController()
+      const accountManager = new AccountManager(undefined, storedAccounts())
+      accountManager.getCurrentOrNextForFamily = mock(() => null)
+      const getMinWaitTimeForFamily = mock(() => 5)
+      accountManager.getMinWaitTimeForFamily = getMinWaitTimeForFamily
+
+      const context = await makeContext({
+        accountManager,
+        config: {
+          ...DEFAULT_CONFIG,
+          max_rate_limit_wait_seconds: 0,
+        },
+      })
+      const interceptor = createFetchInterceptor(context)
+      const abort = setTimeout(() => controller.abort(), 25)
+
+      await expect(
+        interceptor.fetch(GENERATIVE_URL, {
+          method: 'POST',
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow('The operation was aborted.')
+      clearTimeout(abort)
+      expect(getMinWaitTimeForFamily.mock.calls.length).toBeGreaterThan(1)
+      expect(transportMock).not.toHaveBeenCalled()
+      interceptor.dispose()
+    })
+  })
+
   describe('per-instance isolation', () => {
     it('two interceptors do not share rate-limit state', async () => {
       // After dispose() on instance A, instance B should still be clean.

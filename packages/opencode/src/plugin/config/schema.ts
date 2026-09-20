@@ -294,9 +294,8 @@ export const AntigravityConfigSchema = z.object({
   // =========================================================================
 
   /**
-   * Maximum time in seconds to wait when all accounts are rate-limited.
-   * If the minimum wait time across all accounts exceeds this threshold,
-   * the plugin fails fast with an error instead of hanging.
+   * Cumulative time in seconds to wait while all accounts remain unavailable.
+   * The plugin fails with an error when this contiguous wait budget expires.
    *
    * Set to 0 to disable (wait indefinitely).
    *
