@@ -12,9 +12,14 @@
 
 export const ACTIVE_FETCH_TIMEOUT_MS = 15_000
 
+type FetchImplementation = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>
+
 export type ActiveFetchOptions = {
   timeoutMs?: number
-  fetchImpl?: typeof fetch
+  fetchImpl?: FetchImplementation
 }
 
 /**

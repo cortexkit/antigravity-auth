@@ -162,7 +162,7 @@ Header style controls the `User-Agent`, `X-Goog-Api-Client`, and `Client-Metadat
 - **Style-fallback (`quota_style_fallback: true`):** Re-sends the SAME request through the other header set when the active pool is rate-limited, consuming tokens from BOTH pools (default off to prevent double-spend across pools). The field is mutable from the `/antigravity-routing` dialog at runtime — toggling it does not require a restart.
 - **Claude always uses Antigravity** regardless of the toggles.
 
-When all accounts for a given family cool down, the fetch interceptor waits up to `max_rate_limit_wait_seconds` (default `300`) before failing fast.
+`max_rate_limit_wait_seconds` (default `300`) bounds the full pre-response routing attempt: account waits, token/project bootstrap, endpoint failover, and response-header waits. Once headers arrive, streaming continues under the normal idle watchdog. Set it to `0` only when an unlimited pre-response wait is intended.
 
 ### Model IDs shipped in the registry
 
@@ -202,7 +202,7 @@ Each account carries a per-quota-group `cachedQuota` (`{ remainingFraction, rese
 - **TTL:** `soft_quota_cache_ttl_minutes = "auto"` resolves to `max(2 × refresh_interval, 10)`. While the cache is fresh the threshold check is authoritative.
 - **Stale-TTL fail-open:** when the cache is older than the TTL OR for an account the plugin has never refreshed, the account is allowed through the soft-quota check. A cold start can never deadlock on the first dial.
 - **Soft-quota threshold:** `soft_quota_threshold_percent` (default `80`) — accounts with usage ≥ threshold are skipped as if rate-limited.
-- **All-exhausted:** when every account exceeds the threshold the interceptor waits for the earliest reset time, then waits up to `max_rate_limit_wait_seconds` before failing fast.
+- **All-exhausted:** when every account exceeds the threshold the interceptor waits for the earliest reset time within the request's `max_rate_limit_wait_seconds` budget, then fails visibly.
 - **Proactive rotation:** after a successful request, if the active account's remaining quota drops below `proactive_rotation_threshold_percent` (default `20`) the next request is dispatched from a warm-cache account to avoid a forced 429 mid-conversation.
 
 The **operator killswitch** (`/antigravity-killswitch`) is a hard rejection layer run before dispatch:
@@ -297,7 +297,7 @@ The Pi extension registers the `google-antigravity` provider automatically throu
 | `proactive_token_refresh` | bool | `true` | — | Refresh access tokens before expiry. |
 | `proactive_refresh_buffer_seconds` | number (60-7200) | `1800` | — | Pre-expiry refresh window. |
 | `proactive_refresh_check_interval_seconds` | number (30-1800) | `300` | — | Refresh-check cadence. |
-| `max_rate_limit_wait_seconds` | number (0-3600) | `300` | — | Cap on queueing wait; `0` waits indefinitely. |
+| `max_rate_limit_wait_seconds` | number (0-3600) | `300` | — | Total pre-response routing budget, including waits and header failover; `0` waits indefinitely. |
 | `quota_fallback` | bool | `false` | — | **Deprecated**, ignored at runtime; kept for back-compat. |
 | `cli_first` | bool | `false` | — | CLI header first instead of Antigravity for Gemini. |
 | `account_selection_strategy` | `sticky` \| `round-robin` \| `hybrid` | `hybrid` | `OPENCODE_ANTIGRAVITY_ACCOUNT_SELECTION_STRATEGY` | Account picker. |

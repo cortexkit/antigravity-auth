@@ -294,9 +294,11 @@ export const AntigravityConfigSchema = z.object({
   // =========================================================================
 
   /**
-   * Maximum time in seconds to wait when all accounts are rate-limited.
-   * If the minimum wait time across all accounts exceeds this threshold,
-   * the plugin fails fast with an error instead of hanging.
+   * Maximum time in seconds to wait for a usable response from one account.
+   * A silent request is cooled down and the same message is retried on the
+   * next eligible account. The same limit also caps waits when every account
+   * is rate-limited.
+   * Each dispatch is also capped by the active transport timeout.
    *
    * Set to 0 to disable (wait indefinitely).
    *

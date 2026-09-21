@@ -74,6 +74,54 @@ describe('refreshAccessToken', () => {
     expect(client.auth.set.mock.calls.length).toBe(0)
   })
 
+  it('forwards foreground cancellation to the token request', async () => {
+    const client = createClient()
+    const controller = new AbortController()
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.signal).toBe(controller.signal)
+        return new Response(
+          JSON.stringify({ access_token: 'new-access', expires_in: 3600 }),
+          { status: 200 },
+        )
+      },
+    )
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    await refreshAccessToken(
+      baseAuth,
+      client,
+      ANTIGRAVITY_PROVIDER_ID,
+      controller.signal,
+    )
+  })
+
+  it('propagates a cancelled foreground token refresh', async () => {
+    const client = createClient()
+    const controller = new AbortController()
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(init.signal?.reason),
+            { once: true },
+          )
+        }),
+    )
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const pending = refreshAccessToken(
+      baseAuth,
+      client,
+      ANTIGRAVITY_PROVIDER_ID,
+      controller.signal,
+    )
+    controller.abort(new Error('token refresh deadline'))
+
+    await expect(pending).rejects.toThrow('token refresh deadline')
+  })
+
   it('throws a typed error on invalid_grant', async () => {
     const client = createClient()
     const fetchMock = mock(async () => {

@@ -23,12 +23,20 @@ interface CachedProjectContext {
   cachedAt: number
 }
 
+interface PendingProjectContext {
+  controller: AbortController
+  promise: Promise<ProjectContextResult>
+  waiters: number
+}
+
 const projectContextResultCache = new Map<string, CachedProjectContext>()
-const projectContextPendingCache = new Map<
-  string,
-  Promise<ProjectContextResult>
->()
+const projectContextPendingCache = new Map<string, PendingProjectContext>()
 const provisionFailedKeys = new Set<string>()
+
+export interface ProjectContextOptions {
+  signal?: AbortSignal
+  timeoutMs?: number
+}
 interface AntigravityUserTier {
   id?: string
   isDefault?: boolean
@@ -86,9 +94,74 @@ function getDefaultTierId(
 /**
  * Promise-based delay utility.
  */
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new Error('Aborted')
+  }
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(
+        signal.reason instanceof Error ? signal.reason : new Error('Aborted'),
+      )
+      return
+    }
+    const timeout = setTimeout(() => {
+      cleanup()
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      cleanup()
+      reject(
+        signal?.reason instanceof Error ? signal.reason : new Error('Aborted'),
+      )
+    }
+    const cleanup = () => {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+function waitForProjectContext(
+  pending: PendingProjectContext,
+  signal?: AbortSignal,
+): Promise<ProjectContextResult> {
+  pending.waiters += 1
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const cleanup = () => {
+      if (settled) return false
+      settled = true
+      pending.waiters -= 1
+      signal?.removeEventListener('abort', onAbort)
+      return true
+    }
+    const onAbort = () => {
+      if (!cleanup()) return
+      if (pending.waiters === 0) pending.controller.abort(signal?.reason)
+      reject(
+        signal?.reason instanceof Error ? signal.reason : new Error('Aborted'),
+      )
+    }
+    if (signal?.aborted) {
+      onAbort()
+      return
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    void pending.promise.then(
+      (result) => {
+        if (!cleanup()) return
+        resolve(result)
+      },
+      (error) => {
+        if (!cleanup()) return
+        reject(error)
+      },
+    )
   })
 }
 
@@ -135,6 +208,9 @@ function getCacheKey(auth: OAuthAuthDetails): string | undefined {
  */
 export function invalidateProjectContextCache(refresh?: string): void {
   if (!refresh) {
+    for (const pending of projectContextPendingCache.values()) {
+      pending.controller.abort()
+    }
     projectContextPendingCache.clear()
     projectContextResultCache.clear()
     provisionFailedKeys.clear()
@@ -142,6 +218,7 @@ export function invalidateProjectContextCache(refresh?: string): void {
   }
   const cacheKey = getCacheKeyFromRefresh(refresh)
   if (!cacheKey) return
+  projectContextPendingCache.get(cacheKey)?.controller.abort()
   projectContextPendingCache.delete(cacheKey)
   projectContextResultCache.delete(cacheKey)
   provisionFailedKeys.delete(cacheKey)
@@ -157,7 +234,10 @@ export function clearProvisionFailedKeys(): void {
 export async function loadManagedProject(
   accessToken: string,
   _projectId?: string,
+  options: ProjectContextOptions = {},
 ): Promise<LoadCodeAssistPayload | null> {
+  const { signal, timeoutMs } = options
+  throwIfAborted(signal)
   const requestBody = buildBootstrapRequestBody()
   const loadHeaders = buildAntigravityHarnessBootstrapHeaders(accessToken)
 
@@ -170,6 +250,7 @@ export async function loadManagedProject(
 
   for (const baseEndpoint of loadEndpoints) {
     try {
+      throwIfAborted(signal)
       const response = await fetchWithAgyCliTransport(
         `${baseEndpoint}/v1internal:loadCodeAssist`,
         {
@@ -177,6 +258,7 @@ export async function loadManagedProject(
           headers: loadHeaders,
           body: JSON.stringify(requestBody),
         },
+        { signal, timeoutMs },
       )
 
       if (!response.ok) {
@@ -185,6 +267,7 @@ export async function loadManagedProject(
 
       return (await response.json()) as LoadCodeAssistPayload
     } catch (error) {
+      throwIfAborted(signal)
       log.debug('Failed to load managed project', {
         endpoint: baseEndpoint,
         error: String(error),
@@ -204,7 +287,10 @@ export async function onboardManagedProject(
   projectId?: string,
   attempts = 10,
   delayMs = 5000,
+  options: ProjectContextOptions = {},
 ): Promise<string | undefined> {
+  const { signal, timeoutMs } = options
+  throwIfAborted(signal)
   const requestBody: Record<string, unknown> = { tierId }
   const onboardEndpoints = Array.from(
     new Set<string>([
@@ -217,6 +303,7 @@ export async function onboardManagedProject(
   for (const baseEndpoint of onboardEndpoints) {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
+        throwIfAborted(signal)
         const response = await fetchWithAgyCliTransport(
           `${baseEndpoint}/v1internal:onboardUser`,
           {
@@ -224,6 +311,7 @@ export async function onboardManagedProject(
             headers: buildAntigravityHarnessBootstrapHeaders(accessToken),
             body: JSON.stringify(requestBody),
           },
+          { signal, timeoutMs },
         )
 
         if (!response.ok) {
@@ -244,6 +332,7 @@ export async function onboardManagedProject(
           return projectId
         }
       } catch (error) {
+        throwIfAborted(signal)
         log.debug('Failed to onboard managed project', {
           endpoint: baseEndpoint,
           error: String(error),
@@ -251,7 +340,7 @@ export async function onboardManagedProject(
         break
       }
 
-      await wait(delayMs)
+      await wait(delayMs, signal)
     }
   }
 
@@ -263,7 +352,10 @@ export async function onboardManagedProject(
  */
 export async function ensureProjectContext(
   auth: OAuthAuthDetails,
+  options: ProjectContextOptions = {},
 ): Promise<ProjectContextResult> {
+  const { signal } = options
+  throwIfAborted(signal)
   const accessToken = auth.access
   if (!accessToken) {
     return { auth, effectiveProjectId: '' }
@@ -280,12 +372,15 @@ export async function ensureProjectContext(
       projectContextResultCache.delete(cacheKey)
     }
     const pending = projectContextPendingCache.get(cacheKey)
-    if (pending) {
-      return pending
+    if (pending && !pending.controller.signal.aborted) {
+      return waitForProjectContext(pending, signal)
     }
+    if (pending) projectContextPendingCache.delete(cacheKey)
   }
 
-  const resolveContext = async (): Promise<ProjectContextResult> => {
+  const resolveContext = async (
+    requestOptions: ProjectContextOptions = options,
+  ): Promise<ProjectContextResult> => {
     const parts = parseRefreshParts(auth.refresh)
     if (parts.managedProjectId) {
       return { auth, effectiveProjectId: parts.managedProjectId }
@@ -322,6 +417,7 @@ export async function ensureProjectContext(
     const loadPayload = await loadManagedProject(
       accessToken,
       parts.projectId ?? fallbackProjectId,
+      requestOptions,
     )
     // Capture tier from the loadCodeAssist payload. The raw id is stored
     // as-is; absent payload or missing tier leaves capturedTier undefined.
@@ -355,6 +451,9 @@ export async function ensureProjectContext(
       accessToken,
       tierId,
       parts.projectId,
+      undefined,
+      undefined,
+      requestOptions,
     )
 
     if (provisionedProjectId) {
@@ -395,8 +494,15 @@ export async function ensureProjectContext(
     return resolveContext()
   }
 
-  const promise = resolveContext()
-    .then((result) => {
+  const controller = new AbortController()
+  const pending: PendingProjectContext = {
+    controller,
+    promise: resolveContext({ ...options, signal: controller.signal }),
+    waiters: 0,
+  }
+  void pending.promise.then(
+    (result) => {
+      if (projectContextPendingCache.get(cacheKey) !== pending) return result
       const nextKey = getCacheKey(result.auth) ?? cacheKey
       projectContextPendingCache.delete(cacheKey)
       projectContextResultCache.set(nextKey, { result, cachedAt: Date.now() })
@@ -404,12 +510,14 @@ export async function ensureProjectContext(
         projectContextResultCache.delete(cacheKey)
       }
       return result
-    })
-    .catch((error) => {
-      projectContextPendingCache.delete(cacheKey)
-      throw error
-    })
+    },
+    () => {
+      if (projectContextPendingCache.get(cacheKey) === pending) {
+        projectContextPendingCache.delete(cacheKey)
+      }
+    },
+  )
 
-  projectContextPendingCache.set(cacheKey, promise)
-  return promise
+  projectContextPendingCache.set(cacheKey, pending)
+  return waitForProjectContext(pending, signal)
 }

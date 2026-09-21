@@ -98,6 +98,7 @@ export async function refreshAccessToken(
   auth: OAuthAuthDetails,
   _client: PluginClient,
   _providerId: string,
+  signal?: AbortSignal,
 ): Promise<OAuthAuthDetails | undefined> {
   const parts = parseRefreshParts(auth.refresh)
   if (!parts.refreshToken) {
@@ -119,6 +120,7 @@ export async function refreshAccessToken(
           client_id: ANTIGRAVITY_CLIENT_ID,
           client_secret: ANTIGRAVITY_CLIENT_SECRET,
         }),
+        signal,
       },
     )
 
@@ -187,6 +189,11 @@ export async function refreshAccessToken(
   } catch (error) {
     if (error instanceof AntigravityTokenRefreshError) {
       throw error
+    }
+    if (signal?.aborted) {
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error('Aborted')
     }
     log.error('Unexpected token refresh error', { error: String(error) })
     return undefined

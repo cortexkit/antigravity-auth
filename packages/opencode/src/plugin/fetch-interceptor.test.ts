@@ -538,6 +538,295 @@ describe('createFetchInterceptor', () => {
       expect(transportMock).toHaveBeenCalledTimes(2)
       interceptor.dispose()
     })
+
+    it('fails a silent transport within the configured pre-response budget', async () => {
+      const deadlineError = new Error('silent transport aborted')
+      const silentTransport: AgyTransport = async (_url, _init, options) =>
+        new Promise<Response>((_resolve, reject) => {
+          options?.signal?.addEventListener(
+            'abort',
+            () => reject(options.signal?.reason ?? deadlineError),
+            { once: true },
+          )
+        })
+      const context = await makeContext({
+        agyTransport: silentTransport,
+        config: {
+          ...DEFAULT_CONFIG,
+          max_rate_limit_wait_seconds: 0.01,
+          request_jitter_max_ms: 0,
+        },
+      })
+      const interceptor = createFetchInterceptor(context)
+
+      await expect(
+        interceptor.fetch(GENERATIVE_URL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ contents: [] }),
+        }),
+      ).rejects.toThrow('timed out before receiving usable response data')
+      interceptor.dispose()
+    })
+
+    it('fails a streaming response that never produces its first byte', async () => {
+      const silentStreamTransport: AgyTransport = async () =>
+        new Response(
+          new ReadableStream({
+            start() {},
+          }),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } },
+        )
+      const context = await makeContext({
+        agyTransport: silentStreamTransport,
+        config: {
+          ...DEFAULT_CONFIG,
+          max_rate_limit_wait_seconds: 0.01,
+          request_jitter_max_ms: 0,
+        },
+      })
+      const interceptor = createFetchInterceptor(context)
+
+      await expect(
+        interceptor.fetch(GENERATIVE_URL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ contents: [] }),
+        }),
+      ).rejects.toThrow('timed out before receiving usable response data')
+      interceptor.dispose()
+    })
+
+    it('switches accounts when a response only produces SSE keepalives', async () => {
+      const accountManager = new AccountManager(undefined, {
+        version: 4,
+        accounts: [
+          {
+            email: 'account-a@example.test',
+            refreshToken: 'refresh-a',
+            projectId: 'project-a',
+            managedProjectId: 'managed-a',
+            addedAt: FIXED_NOW - 20_000,
+            lastUsed: FIXED_NOW - 10_000,
+          },
+          {
+            email: 'account-b@example.test',
+            refreshToken: 'refresh-b',
+            projectId: 'project-b',
+            managedProjectId: 'managed-b',
+            addedAt: FIXED_NOW - 20_000,
+            lastUsed: FIXED_NOW - 12_000,
+          },
+        ],
+        activeIndex: 0,
+        activeIndexByFamily: { claude: 0, gemini: 0 },
+      })
+      for (const entry of accountManager.getAccounts()) {
+        entry.access = entry.index === 0 ? 'access-a' : 'access-b'
+        entry.expires = Date.now() + 3_600_000
+      }
+
+      const seenAuthorizations: string[] = []
+      const transport: AgyTransport = async (_url, init) => {
+        const authorization =
+          new Headers(init?.headers).get('authorization') ?? ''
+        seenAuthorizations.push(authorization)
+        if (authorization === 'Bearer access-a') {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode(': keepalive\n\n'))
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'content-type': 'text/event-stream' },
+            },
+          )
+        }
+        return new Response(
+          'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]}}]}}\n\n',
+          { status: 200, headers: { 'content-type': 'text/event-stream' } },
+        )
+      }
+      const context = await makeContext({
+        accountManager,
+        agyTransport: transport,
+        config: {
+          ...DEFAULT_CONFIG,
+          account_selection_strategy: 'sticky',
+          cache_warmup_on_switch: false,
+          max_rate_limit_wait_seconds: 0.1,
+          max_account_switches: 1,
+          request_jitter_max_ms: 0,
+          switch_account_delay_ms: 0,
+        },
+      })
+      const interceptor = createFetchInterceptor(context)
+
+      const response = await interceptor.fetch(GENERATIVE_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [] }),
+      })
+
+      expect(seenAuthorizations).toEqual(['Bearer access-a', 'Bearer access-b'])
+      expect(await response.text()).toContain('done')
+      interceptor.dispose()
+    })
+
+    it('switches accounts when a stream ends before producing data', async () => {
+      const accountManager = new AccountManager(undefined, {
+        version: 4,
+        accounts: [
+          {
+            email: 'account-a@example.test',
+            refreshToken: 'refresh-a',
+            projectId: 'project-a',
+            managedProjectId: 'managed-a',
+            addedAt: FIXED_NOW - 20_000,
+            lastUsed: FIXED_NOW - 10_000,
+          },
+          {
+            email: 'account-b@example.test',
+            refreshToken: 'refresh-b',
+            projectId: 'project-b',
+            managedProjectId: 'managed-b',
+            addedAt: FIXED_NOW - 20_000,
+            lastUsed: FIXED_NOW - 12_000,
+          },
+        ],
+        activeIndex: 0,
+        activeIndexByFamily: { claude: 0, gemini: 0 },
+      })
+      for (const entry of accountManager.getAccounts()) {
+        entry.access = entry.index === 0 ? 'access-a' : 'access-b'
+        entry.expires = Date.now() + 3_600_000
+      }
+
+      const seenAuthorizations: string[] = []
+      const transport: AgyTransport = async (_url, init) => {
+        const authorization =
+          new Headers(init?.headers).get('authorization') ?? ''
+        seenAuthorizations.push(authorization)
+        if (authorization === 'Bearer access-a') {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.close()
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'content-type': 'text/event-stream' },
+            },
+          )
+        }
+        return new Response(
+          'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]}}]}}\n\n',
+          { status: 200, headers: { 'content-type': 'text/event-stream' } },
+        )
+      }
+      const context = await makeContext({
+        accountManager,
+        agyTransport: transport,
+        config: {
+          ...DEFAULT_CONFIG,
+          account_selection_strategy: 'sticky',
+          cache_warmup_on_switch: false,
+          max_account_switches: 1,
+          request_jitter_max_ms: 0,
+          switch_account_delay_ms: 0,
+        },
+      })
+      const interceptor = createFetchInterceptor(context)
+
+      const response = await interceptor.fetch(GENERATIVE_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [] }),
+      })
+
+      expect(seenAuthorizations).toEqual(['Bearer access-a', 'Bearer access-b'])
+      expect(await response.text()).toContain('done')
+      interceptor.dispose()
+    })
+
+    it('keeps a stream readable after its first response byte clears the deadline', async () => {
+      let requestSignal: AbortSignal | null | undefined
+      const streamingTransport: AgyTransport = async (_url, _init, options) => {
+        requestSignal = options?.signal
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              setTimeout(() => {
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]}}]}}\n\n',
+                  ),
+                )
+                controller.close()
+              }, 20)
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } },
+        )
+      }
+      const context = await makeContext({
+        agyTransport: streamingTransport,
+        config: {
+          ...DEFAULT_CONFIG,
+          max_rate_limit_wait_seconds: 0.05,
+          request_jitter_max_ms: 0,
+        },
+      })
+      const interceptor = createFetchInterceptor(context)
+
+      const response = await interceptor.fetch(GENERATIVE_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [] }),
+      })
+
+      expect(await response.text()).toContain('done')
+      expect(requestSignal?.aborted).toBeFalse()
+      interceptor.dispose()
+    })
+
+    it('leaves the request unbounded when the budget is zero', async () => {
+      const controller = new AbortController()
+      let requestSignal: AbortSignal | null | undefined
+      const silentTransport: AgyTransport = async (_url, _init, options) =>
+        new Promise<Response>((_resolve, reject) => {
+          requestSignal = options?.signal
+          options?.signal?.addEventListener(
+            'abort',
+            () => reject(options.signal?.reason),
+            { once: true },
+          )
+        })
+      const context = await makeContext({
+        agyTransport: silentTransport,
+        config: {
+          ...DEFAULT_CONFIG,
+          max_rate_limit_wait_seconds: 0,
+          request_jitter_max_ms: 0,
+        },
+      })
+      const interceptor = createFetchInterceptor(context)
+      const pending = interceptor.fetch(GENERATIVE_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [] }),
+        signal: controller.signal,
+      })
+
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(requestSignal?.aborted).toBeFalse()
+      controller.abort(new Error('caller cancelled'))
+      await expect(pending).rejects.toThrow('caller cancelled')
+      interceptor.dispose()
+    })
   })
 
   describe('per-instance isolation', () => {
