@@ -147,7 +147,8 @@ function convertMessages(
   }
 
   for (const message of messages) {
-    if (!message) continue
+    if (!message || (message as unknown as { role: string }).role === 'system')
+      continue
 
     if (message.role === 'user') {
       const parts =
@@ -214,6 +215,60 @@ function convertTools(tools: Tool[] | undefined): GeminiTool[] | undefined {
   ]
 }
 
+interface SystemMessageLike {
+  role: 'system'
+  content?: string
+  sections?: Record<string, string | null>
+  toolsAdded?: Tool[]
+  toolsRemoved?: Array<{ name: string }>
+}
+
+function extractSystemPrompt(context: Context): string | undefined {
+  const parts: string[] = []
+  if (context.systemPrompt?.trim()) {
+    parts.push(context.systemPrompt.trim())
+  }
+  for (const msg of context.messages) {
+    if ((msg as unknown as SystemMessageLike).role === 'system') {
+      const sys = msg as unknown as SystemMessageLike
+      if (typeof sys.content === 'string' && sys.content.trim()) {
+        parts.push(sys.content.trim())
+      }
+      if (sys.sections && typeof sys.sections === 'object') {
+        for (const text of Object.values(sys.sections)) {
+          if (typeof text === 'string' && text.trim()) {
+            parts.push(text.trim())
+          }
+        }
+      }
+    }
+  }
+  return parts.length > 0 ? parts.join('\n\n') : undefined
+}
+
+function extractTools(context: Context): Tool[] | undefined {
+  if (context.tools?.length) {
+    return context.tools
+  }
+  const toolMap = new Map<string, Tool>()
+  for (const msg of context.messages) {
+    if ((msg as unknown as SystemMessageLike).role === 'system') {
+      const sys = msg as unknown as SystemMessageLike
+      if (Array.isArray(sys.toolsRemoved)) {
+        for (const t of sys.toolsRemoved) {
+          if (t?.name) toolMap.delete(t.name)
+        }
+      }
+      if (Array.isArray(sys.toolsAdded)) {
+        for (const t of sys.toolsAdded) {
+          if (t?.name) toolMap.set(t.name, t)
+        }
+      }
+    }
+  }
+  return toolMap.size > 0 ? Array.from(toolMap.values()) : undefined
+}
+
 /**
  * Convert a pi `Context` into a Gemini `generateContent` request body
  * (the inner `request` object of the Antigravity envelope).
@@ -222,16 +277,21 @@ export function buildGeminiRequest(
   context: Context,
   options?: BuildGeminiRequestOptions,
 ): GeminiRequest {
+  const nonSystemMessages = context.messages.filter(
+    (msg) =>
+      Boolean(msg) && (msg as unknown as SystemMessageLike).role !== 'system',
+  )
   const request: GeminiRequest = {
-    contents: convertMessages(context.messages, options),
+    contents: convertMessages(nonSystemMessages, options),
   }
 
-  const tools = convertTools(context.tools)
+  const tools = convertTools(extractTools(context))
   if (tools) request.tools = tools
 
-  if (context.systemPrompt?.trim()) {
+  const systemText = extractSystemPrompt(context)
+  if (systemText) {
     request.systemInstruction = {
-      parts: [{ text: sanitize(context.systemPrompt) }],
+      parts: [{ text: sanitize(systemText) }],
     }
   }
 

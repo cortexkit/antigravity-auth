@@ -449,4 +449,64 @@ describe('buildGeminiRequest', () => {
       { inlineData: { mimeType: 'image/png', data: 'BASE64' } },
     ])
   })
+
+  it('extracts systemInstruction and tools from transcript system messages', () => {
+    const request = buildGeminiRequest(
+      ctx({
+        messages: [
+          {
+            role: 'system',
+            content: 'Base instructions',
+            sections: { rules: '- Rule 1\n- Rule 2' },
+            toolsAdded: [
+              {
+                name: 'read',
+                description: 'Read a file',
+                parameters: {
+                  type: 'object',
+                  properties: { path: { type: 'string' } },
+                } as never,
+              },
+            ],
+            timestamp: 0,
+          } as never,
+          { role: 'user', content: 'hello', timestamp: 1 },
+        ],
+      }),
+    )
+    expect(request.systemInstruction).toEqual({
+      parts: [{ text: 'Base instructions\n\n- Rule 1\n- Rule 2' }],
+    })
+    expect(request.tools?.[0]?.functionDeclarations[0]?.name).toBe('read')
+    expect(request.contents).toEqual([
+      { role: 'user', parts: [{ text: 'hello' }] },
+    ])
+  })
+
+  it('handles toolsRemoved in transcript system messages', () => {
+    const request = buildGeminiRequest(
+      ctx({
+        messages: [
+          {
+            role: 'system',
+            toolsAdded: [
+              { name: 'read', description: 'Read', parameters: {} as never },
+              { name: 'write', description: 'Write', parameters: {} as never },
+            ],
+            timestamp: 0,
+          } as never,
+          {
+            role: 'system',
+            toolsRemoved: [{ name: 'write' }],
+            timestamp: 1,
+          } as never,
+          { role: 'user', content: 'hello', timestamp: 2 },
+        ],
+      }),
+    )
+    const toolNames = request.tools?.[0]?.functionDeclarations.map(
+      (t) => t.name,
+    )
+    expect(toolNames).toEqual(['read'])
+  })
 })
