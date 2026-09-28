@@ -14,6 +14,65 @@ function scopeForRequest() {
 }
 
 describe('OpenCode 2 Antigravity request envelope', () => {
+  it('cleans snake_case tool schemas emitted by OpenCode 2.0', () => {
+    const payload = {
+      contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
+      tools: [
+        {
+          function_declarations: [
+            {
+              name: 'read_file',
+              parameters_json_schema: {
+                type: 'object',
+                properties: {
+                  offset: { type: 'integer', exclusiveMinimum: 0 },
+                },
+                required: ['offset'],
+              },
+            },
+          ],
+        },
+      ],
+    }
+    const envelope = buildEnvelope(
+      payload,
+      resolveModelForHeaderStyle('gemini-3.8-flash', 'antigravity'),
+      'test-project',
+      scopeForRequest(),
+    )
+    const tools = envelope.request.tools as Array<{
+      functionDeclarations: Array<{
+        name: string
+        parameters: {
+          properties: {
+            offset: {
+              type: string
+              description?: string
+              exclusiveMinimum?: number
+            }
+          }
+        }
+      }>
+    }>
+    expect(tools[0]?.functionDeclarations[0]?.name).toBe('read_file')
+    expect(
+      tools[0]?.functionDeclarations[0]?.parameters.properties.offset.type,
+    ).toBe('INTEGER')
+    expect(
+      tools[0]?.functionDeclarations[0]?.parameters.properties.offset
+        .exclusiveMinimum,
+    ).toBeUndefined()
+    expect(
+      tools[0]?.functionDeclarations[0]?.parameters.properties.offset
+        .description,
+    ).toContain('exclusiveMinimum')
+    expect(JSON.stringify(tools)).not.toContain('parameters_json_schema')
+    expect(
+      payload.tools[0]?.function_declarations[0]?.parameters_json_schema
+        .properties.offset.exclusiveMinimum,
+    ).toBe(0)
+  })
+
   it('appends a real user turn when the host payload ends with a model turn', () => {
     const payload = {
       contents: [

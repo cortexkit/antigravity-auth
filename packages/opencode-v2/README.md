@@ -83,6 +83,38 @@ The complete model catalog is in [`example/opencode.json`](example/opencode.json
 }
 ```
 
+## Windows PowerShell verification
+
+The adapter has been tested with OpenCode **2.0.18** on Windows 11 in Windows
+PowerShell. The similarly named `@cortexkit/opencode-antigravity-auth@2.2.1`
+package is for OpenCode 1.x; use this separate adapter for OpenCode 2.x.
+
+For a built local checkout, register its package directory, for example:
+
+```jsonc
+{
+  "plugins": ["C:/path/to/antigravity-auth/packages/opencode-v2"]
+}
+```
+
+The root `server.js` forwards to the compiled entry. OpenCode's local-directory
+resolver probes `server`/`index` directly rather than the npm exports map.
+Build the package before loading it. With dependencies installed, the TypeScript
+build can run directly in PowerShell without the Unix `rm -rf` build prefix:
+
+```powershell
+cd packages/core
+npx tsc -p tsconfig.build.json
+cd ../opencode-v2
+npx tsc -p tsconfig.build.json
+opencode run --standalone --model google/gemini-3.8-flash "Reply exactly OK"
+```
+
+OpenCode 2.0.18 uses `@opencode/ai/providers/google`; use that package path in
+the model definitions. Its snake_case function declarations must be normalized
+before the shared schema transform; otherwise Antigravity can reject tool
+parameters such as `exclusiveMinimum` with HTTP 400 `INVALID_ARGUMENT`.
+
 ## Accounts
 
 - Pool file: `antigravity-accounts.json` in the OpenCode config dir
