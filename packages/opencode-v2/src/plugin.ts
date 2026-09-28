@@ -464,6 +464,23 @@ export function buildEnvelope(
   options: { preserveFunctionCallSignatures?: boolean } = {},
 ): AntigravityEnvelope {
   const request = structuredClone(payload)
+  // OpenCode 2.0 emits snake_case declarations; the shared transforms consume
+  // camelCase. Normalize before cleaning schemas for Gemini and Claude.
+  for (const tool of request.tools ?? []) {
+    if (!isRecord(tool)) continue
+    if (Array.isArray(tool.function_declarations)) {
+      tool.functionDeclarations ??= tool.function_declarations
+      delete tool.function_declarations
+    }
+    if (!Array.isArray(tool.functionDeclarations)) continue
+    for (const declaration of tool.functionDeclarations) {
+      if (!isRecord(declaration)) continue
+      if (declaration.parameters_json_schema !== undefined) {
+        declaration.parametersJsonSchema ??= declaration.parameters_json_schema
+        delete declaration.parameters_json_schema
+      }
+    }
+  }
   const replaySignatures = options.preserveFunctionCallSignatures
     ? (request.contents ?? []).flatMap((content) =>
         (content.parts ?? []).flatMap((part) =>
@@ -500,12 +517,11 @@ export function buildEnvelope(
     request.generationConfig = generationConfig
   else delete request.generationConfig
 
-  // AGY's GPT bridge re-encodes protobuf numeric constraints as strings before
-  // OpenAI JSON-Schema validation, so `minLength: 1` must move to the description.
+  // AGY rejects some numeric JSON Schema keywords (e.g. exclusiveMinimum),
+  // and its GPT bridge encodes others as strings. Preserve them in descriptions.
   sanitizeCrossModelPayloadInPlace(request, {
     targetModel: resolved.actualModel,
   })
-  const isGpt = /^gpt-/i.test(resolved.actualModel)
   const isImage = isImageGenerationModel(resolved.actualModel)
   const isClaude = familyFor(resolved.actualModel) === 'claude'
   if (isImage) {
@@ -535,7 +551,9 @@ export function buildEnvelope(
           : {}),
       },
       cleanJSONSchema: (schema) => {
-        const clean = toGeminiSchema(schema)
+        const clean = toGeminiSchema(schema, {
+          moveNumericConstraintsToDescription: true,
+        })
         return isRecord(clean) ? clean : {}
       },
     })
@@ -557,7 +575,7 @@ export function buildEnvelope(
     }
   } else {
     normalizeGeminiTools(request, {
-      moveNumericConstraintsToDescription: isGpt,
+      moveNumericConstraintsToDescription: true,
     })
     configureToolCalling(request)
   }

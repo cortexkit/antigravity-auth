@@ -5,6 +5,13 @@ import { Host } from '@opencode-ai/plugin/host'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 describe('OpenCode 2 package manifest', () => {
+  it('resolves a local checkout without an npm package name', () => {
+    const entrypoints = Host.resolve({ directory: packageRoot })
+    expect(entrypoints.server).toBe(
+      new URL('../server.js', import.meta.url).href,
+    )
+  })
+
   it('resolves the built server entry through the real host resolver', () => {
     const entrypoints = Host.resolve({
       directory: packageRoot,

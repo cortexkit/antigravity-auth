@@ -38,6 +38,7 @@
     "server"
   ],
   "files": [
+    "server.js",
     "dist/",
     "example/",
     "README.md",
