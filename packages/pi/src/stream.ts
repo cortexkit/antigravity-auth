@@ -287,9 +287,9 @@ function getRequestSessionKey(
   if (options?.sessionId) {
     return options.sessionId
   }
-  // Pi 0.86+ transcripts can start with a system message, and pi-ai's
-  // normalizeContext stamps that message with timestamp 0 for every
-  // conversation, so key the fallback on the first non-system message instead.
+  // Pi 0.86+ gives the leading system message timestamp 0 in every
+  // conversation. Using it as the fallback key would mix session metadata,
+  // so derive the key from the first non-system message instead.
   const firstTimestamp = context.messages.find(
     (message) => message.role !== 'system',
   )?.timestamp
