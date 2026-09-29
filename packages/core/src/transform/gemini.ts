@@ -105,6 +105,27 @@ export function toGeminiSchema(
       continue
     }
 
+    // Antigravity's strict protobuf validation rejects `exclusiveMinimum` /
+    // `exclusiveMaximum` for every model family (Gemini, Claude, GPT), not
+    // just GPT. OpenCode emits them (zod `.gt(0)` → `exclusiveMinimum: 0`),
+    // producing `400 INVALID_ARGUMENT: Unknown name "exclusiveMinimum"`.
+    // Always strip them; preserve intent as `minimum`/`maximum` + hint.
+    if (key === 'exclusiveMinimum' || key === 'exclusiveMaximum') {
+      const target = key === 'exclusiveMinimum' ? 'minimum' : 'maximum'
+      if (typeof value === 'number') {
+        numericConstraintHints.push(`${key}: ${value}`)
+        if (result[target] === undefined) {
+          result[target] = value
+        }
+      } else if (typeof value === 'boolean') {
+        // OpenAPI 3.0 form (`exclusiveMinimum: true` + `minimum: N`).
+        if (value) numericConstraintHints.push(`${key}: true`)
+      } else if (typeof value === 'string') {
+        numericConstraintHints.push(`${key}: ${value}`)
+      }
+      continue
+    }
+
     if (key === 'type' && typeof value === 'string') {
       // Convert type to uppercase for Gemini API
       result[key] = value.toUpperCase()

@@ -1627,5 +1627,98 @@ describe('transform/gemini', () => {
       expect(tools[0]).toHaveProperty('functionDeclarations')
       expect(tools[1]).toHaveProperty('googleSearch')
     })
+
+    it('strips exclusiveMinimum for Gemini models without opt-in flag', () => {
+      const payload: RequestPayload = {
+        contents: [],
+        tools: [
+          {
+            function: {
+              name: 'read_tool',
+              description: 'Read tool',
+              input_schema: {
+                type: 'object',
+                properties: {
+                  offset: { type: 'number', exclusiveMinimum: 0 },
+                  limit: {
+                    type: 'number',
+                    exclusiveMinimum: 0,
+                    maximum: 100,
+                  },
+                },
+              },
+            },
+          },
+        ],
+      }
+
+      applyGeminiTransforms(payload, { model: 'gemini-3.8-flash' })
+
+      const tools = payload.tools as Array<Record<string, unknown>>
+      const decls = tools[0]?.functionDeclarations as Array<
+        Record<string, unknown>
+      >
+      const params = decls[0]?.parameters as Record<string, unknown>
+      const props = params.properties as Record<string, Record<string, unknown>>
+      expect(props.offset).not.toHaveProperty('exclusiveMinimum')
+      expect(props.offset?.minimum).toBe(0)
+      expect(props.limit).not.toHaveProperty('exclusiveMinimum')
+      expect(props.limit?.minimum).toBe(0)
+      expect(props.limit?.maximum).toBe(100)
+    })
+  })
+
+  describe('toGeminiSchema - exclusive bounds (Antigravity 400)', () => {
+    it('strips numeric exclusiveMinimum without opt-in flag', () => {
+      const result = toGeminiSchema({
+        type: 'number',
+        exclusiveMinimum: 0,
+      }) as Record<string, unknown>
+      expect(result).not.toHaveProperty('exclusiveMinimum')
+      expect(result.minimum).toBe(0)
+      expect(result.description).toContain('exclusiveMinimum: 0')
+    })
+
+    it('strips numeric exclusiveMaximum without opt-in flag', () => {
+      const result = toGeminiSchema({
+        type: 'number',
+        maximum: 100,
+        exclusiveMaximum: 99,
+      }) as Record<string, unknown>
+      expect(result).not.toHaveProperty('exclusiveMaximum')
+      expect(result.maximum).toBe(100)
+      expect(result.description).toContain('exclusiveMaximum: 99')
+    })
+
+    it('downgrades exclusiveMaximum to maximum when absent', () => {
+      const result = toGeminiSchema({
+        type: 'number',
+        exclusiveMaximum: 10,
+      }) as Record<string, unknown>
+      expect(result).not.toHaveProperty('exclusiveMaximum')
+      expect(result.maximum).toBe(10)
+    })
+
+    it('drops boolean OpenAPI exclusiveMinimum form', () => {
+      const result = toGeminiSchema({
+        type: 'number',
+        minimum: 0,
+        exclusiveMinimum: true,
+      }) as Record<string, unknown>
+      expect(result).not.toHaveProperty('exclusiveMinimum')
+      expect(result.minimum).toBe(0)
+    })
+
+    it('strips nested exclusiveMinimum in properties', () => {
+      const result = toGeminiSchema({
+        type: 'object',
+        properties: {
+          offset: { type: 'number', exclusiveMinimum: 0 },
+        },
+      }) as Record<string, unknown>
+      const props = result.properties as Record<string, Record<string, unknown>>
+      expect(props.offset).not.toHaveProperty('exclusiveMinimum')
+      expect(props.offset?.minimum).toBe(0)
+    })
   })
 })
