@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test'
 import * as actualCore from '@cortexkit/antigravity-auth-core'
-import type {
-  Api,
-  AssistantMessage,
-  Context,
-  Model,
-  ThinkingLevel,
+import {
+  type Api,
+  type AssistantMessage,
+  type Context,
+  type Model,
+  normalizeContext,
+  type ThinkingLevel,
+  Type,
 } from '@earendil-works/pi-ai'
 
 const ensureProjectContextMock = mock(async () => ({
@@ -136,11 +138,39 @@ async function runStream(
       return response
     },
   )
-  const eventStream = streamCortexKitAntigravity(model, userContext(), {
-    apiKey: 'test-token',
-    sessionId,
-    reasoning,
-  })
+  return collectStream(
+    streamCortexKitAntigravity(model, userContext(), {
+      apiKey: 'test-token',
+      sessionId,
+      reasoning,
+    }),
+  )
+}
+
+function terminalTextResponse(): Response {
+  return sseResponse([
+    'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}}\n\n',
+  ])
+}
+
+async function runContextStream(context: Context, sessionId?: string) {
+  fetchWithAgyCliTransportMock.mockImplementationOnce(async () =>
+    terminalTextResponse(),
+  )
+  await collectStream(
+    streamCortexKitAntigravity(fakeModel(), context, {
+      apiKey: 'test-token',
+      sessionId,
+    }),
+  )
+  return JSON.parse(
+    String(fetchWithAgyCliTransportMock.mock.calls.at(-1)?.[1]?.body),
+  )
+}
+
+async function collectStream(
+  eventStream: ReturnType<typeof streamCortexKitAntigravity>,
+) {
   const events = []
   for await (const event of eventStream) {
     events.push(event)
@@ -538,6 +568,92 @@ describe('streamCortexKitAntigravity', () => {
     expect(body.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M318')
     expect(call?.[1]?.headers?.['User-Agent']).toContain(
       'antigravity/cli/1.1.24',
+    )
+  })
+
+  it('sends the transcript system prompt and sanitized tools on the wire', async () => {
+    const context = normalizeContext({
+      systemPrompt: 'be terse',
+      tools: [
+        {
+          name: 'read',
+          description: 'Read a file',
+          parameters: Type.Object({
+            path: Type.String({ minLength: 1 }),
+            mode: Type.Optional(
+              Type.Union([Type.Literal('a'), Type.Literal('b')]),
+            ),
+          }),
+        },
+      ],
+      messages: [
+        { role: 'user', content: 'hi', timestamp: 11 },
+        {
+          role: 'system',
+          content: 'answer in English',
+          toolsAdded: [
+            {
+              name: 'grep',
+              description: 'Search files',
+              parameters: Type.Object({ pattern: Type.String() }),
+            },
+          ],
+          timestamp: 12,
+        },
+      ],
+    })
+
+    const body = await runContextStream(context, 'transcript-wire')
+
+    expect(Object.keys(body)).toEqual([
+      'project',
+      'requestId',
+      'request',
+      'model',
+      'userAgent',
+      'requestType',
+    ])
+    expect(body.request.systemInstruction).toEqual({
+      parts: [{ text: 'be terse\n\nanswer in English' }],
+    })
+    expect(body.request.contents).toEqual([
+      { role: 'user', parts: [{ text: 'hi' }] },
+    ])
+    expect(body.request.toolConfig).toEqual({
+      functionCallingConfig: { mode: 'VALIDATED' },
+    })
+    const declarations = body.request.tools[0].functionDeclarations
+    expect(declarations.map((decl: { name: string }) => decl.name)).toEqual([
+      'read',
+      'grep',
+    ])
+    expect(declarations[0]).not.toHaveProperty('parametersJsonSchema')
+    expect(declarations[0].parameters.type).toBe('OBJECT')
+    expect(declarations[0].parameters.properties.path.type).toBe('STRING')
+    expect(declarations[1].parameters).toEqual({
+      type: 'OBJECT',
+      properties: { pattern: { type: 'STRING' } },
+      required: ['pattern'],
+    })
+    expect(body.request.labels.last_step_index).toBe('1')
+  })
+
+  it('keys sessions without a sessionId on the first non-system message', async () => {
+    const conversation = (timestamp: number) =>
+      normalizeContext({
+        systemPrompt: 'be terse',
+        messages: [{ role: 'user', content: 'hi', timestamp }],
+      })
+
+    const first = await runContextStream(conversation(101))
+    const second = await runContextStream(conversation(202))
+    const firstAgain = await runContextStream(conversation(101))
+
+    expect(second.request.labels.trajectory_id).not.toBe(
+      first.request.labels.trajectory_id,
+    )
+    expect(firstAgain.request.labels.trajectory_id).toBe(
+      first.request.labels.trajectory_id,
     )
   })
 

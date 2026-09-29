@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test'
-import type { Context } from '@earendil-works/pi-ai'
+import {
+  type Context,
+  normalizeContext,
+  type SystemMessage,
+  type Tool,
+  Type,
+} from '@earendil-works/pi-ai'
 
 import { buildGeminiRequest } from './convert.ts'
 
@@ -448,5 +454,148 @@ describe('buildGeminiRequest', () => {
       { text: 'look' },
       { inlineData: { mimeType: 'image/png', data: 'BASE64' } },
     ])
+  })
+})
+
+function tool(
+  name: string,
+  parameters: Tool['parameters'] = Type.Object({ path: Type.String() }),
+): Tool {
+  return { name, description: `${name} tool`, parameters }
+}
+
+function system(fields: Omit<SystemMessage, 'role'>): SystemMessage {
+  return { role: 'system', ...fields }
+}
+
+function declarationNames(request: ReturnType<typeof buildGeminiRequest>) {
+  return request.tools?.[0]?.functionDeclarations.map((decl) => decl.name)
+}
+
+describe('buildGeminiRequest with Pi transcript system messages', () => {
+  it('joins the leading prompt with later system content and keeps system messages out of contents', () => {
+    const request = buildGeminiRequest(
+      normalizeContext({
+        systemPrompt: 'base prompt',
+        messages: [
+          { role: 'user', content: 'hi', timestamp: 1 },
+          system({ content: 'extra instruction', timestamp: 2 }),
+          {
+            role: 'system',
+            content: [
+              { type: 'text', text: 'first block' },
+              { type: 'text', text: 'second block' },
+            ],
+            timestamp: 3,
+          },
+          { role: 'user', content: 'again', timestamp: 4 },
+        ],
+      }),
+    )
+
+    expect(request.systemInstruction).toEqual({
+      parts: [
+        {
+          text: 'base prompt\n\nextra instruction\n\nfirst block\nsecond block',
+        },
+      ],
+    })
+    expect(request.contents).toEqual([
+      { role: 'user', parts: [{ text: 'hi' }] },
+      { role: 'user', parts: [{ text: 'again' }] },
+    ])
+  })
+
+  it('replaces and removes named prompt sections', () => {
+    const request = buildGeminiRequest(
+      normalizeContext({
+        messages: [
+          system({
+            content: 'base',
+            sections: { rules: '<rules>old</rules>', env: '<env>x</env>' },
+            timestamp: 0,
+          }),
+          { role: 'user', content: 'hi', timestamp: 1 },
+          system({
+            content: '',
+            sections: { rules: '<rules>new</rules>', env: null },
+            timestamp: 2,
+          }),
+        ],
+      }),
+    )
+
+    expect(request.systemInstruction).toEqual({
+      parts: [{ text: 'base\n\n<rules>new</rules>' }],
+    })
+  })
+
+  it('applies tool additions, removals, and redefinitions in order', () => {
+    const request = buildGeminiRequest(
+      normalizeContext({
+        systemPrompt: 'base',
+        tools: [tool('read'), tool('write')],
+        messages: [
+          { role: 'user', content: 'hi', timestamp: 1 },
+          system({
+            content: '',
+            // A changed definition is expressed as a removal plus an addition.
+            toolsRemoved: [{ name: 'write' }, { name: 'read' }],
+            toolsAdded: [
+              tool('read', Type.Object({ file: Type.Number() })),
+              tool('grep'),
+            ],
+            timestamp: 2,
+          }),
+        ],
+      }),
+    )
+
+    expect(declarationNames(request)).toEqual(['read', 'grep'])
+    expect(request.tools?.[0]?.functionDeclarations[0]?.parameters).toEqual({
+      type: 'OBJECT',
+      properties: { file: { type: 'NUMBER' } },
+      required: ['file'],
+    })
+  })
+
+  it('does not revive flat systemPrompt/tools once the transcript removed them', () => {
+    const request = buildGeminiRequest({
+      systemPrompt: 'stale flat prompt',
+      tools: [tool('stale')],
+      messages: [
+        system({
+          content: '',
+          sections: { rules: '<rules>r</rules>' },
+          toolsAdded: [tool('read')],
+          timestamp: 0,
+        }),
+        { role: 'user', content: 'hi', timestamp: 1 },
+        system({
+          content: '',
+          sections: { rules: null },
+          toolsRemoved: [{ name: 'read' }],
+          timestamp: 2,
+        }),
+      ],
+    })
+
+    expect(request).not.toHaveProperty('systemInstruction')
+    expect(request).not.toHaveProperty('tools')
+  })
+
+  it('reads a flat pre-0.86 Context the same as its normalized transcript', () => {
+    const flat = ctx({
+      systemPrompt: 'be terse',
+      tools: [tool('read')],
+      messages: [{ role: 'user', content: 'hi', timestamp: 1 }],
+    })
+
+    const fromFlat = buildGeminiRequest(flat)
+    expect(fromFlat.systemInstruction).toEqual({
+      parts: [{ text: 'be terse' }],
+    })
+    expect(declarationNames(fromFlat)).toEqual(['read'])
+    expect(buildGeminiRequest(normalizeContext(flat))).toEqual(fromFlat)
   })
 })

@@ -16,6 +16,7 @@ import {
   type Context,
   calculateCost,
   createAssistantMessageEventStream,
+  type JsonObject,
   type Model,
   type SimpleStreamOptions,
   type StopReason,
@@ -173,7 +174,7 @@ export interface GeminiResponsePart {
   text?: string
   thought?: boolean
   thoughtSignature?: string
-  functionCall?: { name?: string; args?: Record<string, unknown>; id?: string }
+  functionCall?: { name?: string; args?: JsonObject; id?: string }
 }
 
 export interface GeminiToolCallState {
@@ -200,7 +201,7 @@ export function convertGeminiToolCallPart(
     type: 'toolCall',
     id: part.functionCall.id ?? `call_${crypto.randomUUID()}`,
     name: part.functionCall.name ?? '',
-    arguments: (part.functionCall.args ?? {}) as Record<string, unknown>,
+    arguments: part.functionCall.args ?? {},
     ...(thoughtSignature ? { thoughtSignature } : {}),
   }
 }
@@ -286,7 +287,12 @@ function getRequestSessionKey(
   if (options?.sessionId) {
     return options.sessionId
   }
-  const firstTimestamp = context.messages[0]?.timestamp
+  // Pi 0.86+ transcripts can start with a system message, and pi-ai's
+  // normalizeContext stamps that message with timestamp 0 for every
+  // conversation, so key the fallback on the first non-system message instead.
+  const firstTimestamp = context.messages.find(
+    (message) => message.role !== 'system',
+  )?.timestamp
   return firstTimestamp !== undefined
     ? `message:${firstTimestamp}`
     : FALLBACK_SESSION_KEY
