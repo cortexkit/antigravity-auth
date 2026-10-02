@@ -17,11 +17,22 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync, statSync } from 'node:fs'
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { acquireFencedFileLock } from '@cortexkit/antigravity-auth-core'
+import {
+  acquireFencedFileLock,
+  type FencedFileLock,
+  FileLockOwnershipError,
+} from '@cortexkit/antigravity-auth-core'
 
 import {
   buildSidebarMachineStateFromAccounts,
@@ -442,6 +453,83 @@ describe('lock contention retry', () => {
 
     const after = readSidebarState(fixture.stateFile)
     expect(after.accounts.map((entry) => entry.id)).toEqual(['acct-released'])
+  }, 5_000)
+})
+
+describe('lease lost between merge and rename', () => {
+  let fixture: Fixture
+
+  beforeEach(() => {
+    fixture = makeFixture()
+  })
+
+  afterEach(async () => {
+    setSidebarMergeHooks(null)
+    fixture.cleanup()
+  })
+
+  it('refuses to replace the state file when a successor takes the lock after the merge, and leaves the successor lock in place', async () => {
+    await setSidebarMachineState(
+      { checkedAt: 100, accounts: [makeAccount({ id: 'acct-before' })] },
+      { stateFile: fixture.stateFile },
+    )
+    const before = readFileSync(fixture.stateFile)
+    const lockPath = `${fixture.stateFile}.sidebar.lock`
+
+    // At the merged-state pause, simulate the original writer's lease being
+    // lost and a successor winning it through the real lock API: the lease
+    // file is removed (as stale eviction would) and a new owner acquires it.
+    let successor: FencedFileLock | null = null
+    setSidebarMergeHooks({
+      onStep: async (step) => {
+        if (step !== 'merged-state' || successor) return
+        await rm(lockPath, { force: true })
+        successor = await acquireFencedFileLock({
+          path: fixture.stateFile,
+          name: 'sidebar',
+          ttlMs: 60_000,
+          renew: false,
+        })
+      },
+    })
+
+    try {
+      await expect(
+        upsertSidebarActiveRouting('sess-late', makeRouting(), {
+          stateFile: fixture.stateFile,
+        }),
+      ).rejects.toBeInstanceOf(FileLockOwnershipError)
+
+      // The takeover really happened, so the rejection above is the fence.
+      const taken = successor as FencedFileLock | null
+      expect(taken).not.toBeNull()
+      // The original writer never committed its merge.
+      expect(Buffer.compare(readFileSync(fixture.stateFile), before)).toBe(0)
+      expect(
+        readdirSync(join(fixture.stateFile, '..')).filter((name) =>
+          name.endsWith('.tmp'),
+        ),
+      ).toEqual([])
+      // The original writer has already run its release; the successor's
+      // lease must still be on disk and still owned by the successor.
+      const onDisk = JSON.parse(readFileSync(lockPath, 'utf8')) as {
+        ownerId: string
+      }
+      expect(onDisk.ownerId).toBe(taken?.ownerId ?? '')
+      await expect(taken?.assertOwned()).resolves.toBeUndefined()
+    } finally {
+      setSidebarMergeHooks(null)
+      await (successor as FencedFileLock | null)?.release()
+    }
+
+    // With the successor gone, ordinary writes still land.
+    await upsertSidebarActiveRouting('sess-after', makeRouting(), {
+      stateFile: fixture.stateFile,
+    })
+    const after = readSidebarState(fixture.stateFile)
+    expect(after.accounts.map((entry) => entry.id)).toEqual(['acct-before'])
+    expect(after.activeRouting['sess-after']?.accountId).toBe('acct-0')
+    expect(after.activeRouting['sess-late']).toBeUndefined()
   }, 5_000)
 })
 

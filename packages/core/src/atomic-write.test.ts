@@ -214,6 +214,81 @@ describe('writeJsonAtomic', () => {
   })
 })
 
+describe('writeJsonAtomic beforeRename guard', () => {
+  it('runs the guard after the temp file is fully staged and before the target is replaced', async () => {
+    const target = join(root, 'state.json')
+    await writeJsonAtomic(target, { original: true })
+    const originalBytes = await readFile(target, 'utf8')
+
+    const seen: Array<{
+      tempPath: string
+      tempContent: string
+      targetContent: string
+    }> = []
+    await writeJsonAtomic(
+      target,
+      { next: 1 },
+      {
+        beforeRename: async (tempPath) => {
+          seen.push({
+            tempPath,
+            tempContent: await readFile(tempPath, 'utf8'),
+            targetContent: await readFile(target, 'utf8'),
+          })
+        },
+      },
+    )
+
+    expect(seen).toHaveLength(1)
+    const [call] = seen
+    // The staged file sits next to the target and already holds the exact
+    // serialized payload; the target has not been touched yet.
+    expect(call?.tempPath.startsWith(`${target}.`)).toBe(true)
+    expect(call?.tempPath.endsWith('.tmp')).toBe(true)
+    expect(call?.tempContent).toBe('{\n  "next": 1\n}\n')
+    expect(call?.targetContent).toBe(originalBytes)
+    // A guard that resolves lets the write land normally.
+    expect(await readFile(target, 'utf8')).toBe('{\n  "next": 1\n}\n')
+    const entries = await readdir(root)
+    expect(entries.filter((n) => n.endsWith('.tmp'))).toHaveLength(0)
+  })
+
+  it('rejects with the guard error, removes the staged temp file, and keeps the target byte-identical', async () => {
+    const target = join(root, 'state.json')
+    await writeJsonAtomic(target, { original: 'keep-me' })
+    const originalBytes = await readFile(target)
+
+    const renameSpy = spyOn(fsp, 'rename')
+    let stagedPath: string | undefined
+    try {
+      await expect(
+        writeJsonAtomic(
+          target,
+          { replaced: true },
+          {
+            beforeRename: async (tempPath) => {
+              stagedPath = tempPath
+              // Prove the temp file really existed when the guard ran, so
+              // the post-rejection absence below is the cleanup's doing.
+              await stat(tempPath)
+              throw new Error('lease lost before rename')
+            },
+          },
+        ),
+      ).rejects.toThrow('lease lost before rename')
+
+      expect(stagedPath).toBeDefined()
+      expect(renameSpy).not.toHaveBeenCalled()
+      expect(Buffer.compare(await readFile(target), originalBytes)).toBe(0)
+      const entries = await readdir(root)
+      expect(entries.filter((n) => n.endsWith('.tmp'))).toHaveLength(0)
+      expect(entries).toEqual(['state.json'])
+    } finally {
+      renameSpy.mockRestore()
+    }
+  })
+})
+
 describe('chmod helper behavior', () => {
   it('chmod 0o600 on an existing file tightens POSIX permissions without altering content', async () => {
     if (process.platform === 'win32') return

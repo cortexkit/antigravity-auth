@@ -29,7 +29,9 @@
  *      surfaces as `SidebarStateLockContentionError`.
  *   3. Re-read and normalize the on-disk state while holding the lock.
  *   4. Merge the new machine or routing payload against the re-read state.
- *   5. `assertOwned()` + `writeJsonAtomic` with mode 0o600, then release.
+ *   5. `assertOwned()` + `writeJsonAtomic` with mode 0o600, re-checking
+ *      `assertOwned()` after the temp file is staged and just before the
+ *      rename, then release.
  *
  * The merge step is deterministic: machine fields adopt only when the new
  * `checkedAt` is ≥ the on-disk one, `routingAuthoritative` is sticky-true,
@@ -880,7 +882,15 @@ async function performSidebarWrite(
       await emitMergeStep('read-state')
       const merged = merge(existing)
       await emitMergeStep('merged-state')
-      await writeJsonAtomic(stateFile, merged)
+      // Re-check ownership once the temp file is staged, right before the
+      // rename: the first check runs before several awaits (step hooks,
+      // temp-file write), and the lease can expire or be taken over by
+      // another writer in between. This shrinks the lost-lease window to the
+      // gap between this check and the rename; it is not an atomic
+      // compare-and-swap.
+      await writeJsonAtomic(stateFile, merged, {
+        beforeRename: () => lock.assertOwned(),
+      })
       // `writeJsonAtomic` stages a tmp file with mode 0o600 and renames onto
       // the target; POSIX rename replaces the inode so the new file inherits
       // the staged mode bits. Windows ignores POSIX modes so the assertion
