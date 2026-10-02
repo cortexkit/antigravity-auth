@@ -45,7 +45,7 @@ export interface WriteJsonAtomicOptions {
 export async function writeJsonAtomic(
   path: string,
   value: unknown,
-  options: WriteJsonAtomicOptions = {},
+  options?: WriteJsonAtomicOptions,
 ): Promise<void> {
   const serialized = `${JSON.stringify(value, null, 2)}\n`
   const tempPath = `${path}.${randomUUID()}.tmp`
@@ -58,7 +58,8 @@ export async function writeJsonAtomic(
       encoding: 'utf8',
       mode: 0o600,
     })
-    await options.beforeRename?.(tempPath)
+    const beforeRename = options?.beforeRename
+    if (beforeRename) await beforeRename(tempPath)
     await rename(tempPath, path)
     renamed = true
   } finally {

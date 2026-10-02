@@ -24,7 +24,7 @@
  *
  *   1. Serialize through `sidebarWriteChain` so concurrent in-process calls
  *      never interleave merges against the same file.
- *   2. Acquire Task 7's `acquireFencedFileLock` with bounded retry+jitter
+ *   2. Acquire `acquireFencedFileLock` with bounded retry+jitter
  *      (≤2s). A live cross-process holder that does not release in time
  *      surfaces as `SidebarStateLockContentionError`.
  *   3. Re-read and normalize the on-disk state while holding the lock.
