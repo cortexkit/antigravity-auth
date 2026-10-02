@@ -3,8 +3,8 @@ import {
   resolveModelForHeaderStyle,
   resolveModelWithTier,
   resolveModelWithVariant,
-} from './model-resolver'
-import type { ThinkingTier } from './types'
+} from './model-resolver.ts'
+import type { ThinkingTier } from './types.ts'
 
 /** requestedModel, expected actualModel, expected thinkingBudget, expected tier */
 type TierRouteCase = [string, string, number, ThinkingTier]

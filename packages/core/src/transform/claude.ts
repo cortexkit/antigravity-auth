@@ -12,7 +12,7 @@ import {
   EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION,
   EMPTY_SCHEMA_PLACEHOLDER_NAME,
 } from '../constants.ts'
-import type { RequestPayload, ThinkingConfig } from './types.ts'
+import type { RequestPayload } from './types.ts'
 
 /** Claude thinking models need a sufficiently large max output token limit when thinking is enabled */
 export const CLAUDE_THINKING_MAX_OUTPUT_TOKENS = 64_000
@@ -85,18 +85,19 @@ export function configureClaudeToolConfig(payload: RequestPayload): void {
 }
 
 /**
- * Build Claude thinking config with snake_case keys.
+ * Build the legacy intermediate config. Request adapters normalize its
+ * snake_case keys before sending an Antigravity request.
  */
 export function buildClaudeThinkingConfig(
   includeThoughts: boolean,
   thinkingBudget?: number,
-): ThinkingConfig {
+): { include_thoughts: boolean; thinking_budget?: number } {
   return {
     include_thoughts: includeThoughts,
     ...(typeof thinkingBudget === 'number' && thinkingBudget > 0
       ? { thinking_budget: thinkingBudget }
       : {}),
-  } as unknown as ThinkingConfig
+  }
 }
 
 /**
