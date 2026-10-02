@@ -161,7 +161,10 @@ describe('buildClaudeThinkingConfig', () => {
   })
 
   it('includes thinking_budget when provided and positive', () => {
-    const config = buildClaudeThinkingConfig(true, 8192)
+    // The builder emits the snake_case `thinking_budget` key the Antigravity
+    // backend expects, which the declared ThinkingConfig type does not list.
+    // Widen to `object` so the assertion checks the real wire shape.
+    const config: object = buildClaudeThinkingConfig(true, 8192)
 
     expect(config).toEqual({
       include_thoughts: true,

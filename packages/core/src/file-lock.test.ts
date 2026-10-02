@@ -227,9 +227,11 @@ describe('acquireFencedFileLock — renewal extends expiry', () => {
     const secondContents = await readLock(lockPath)
     expect(secondContents?.ownerId).toBe(lock?.ownerId)
     // The renewed expiresAt should be past the initial one (≥ firstContents.expiresAt).
-    expect(secondContents?.expiresAt).toBeGreaterThanOrEqual(
-      firstContents?.expiresAt,
-    )
+    const firstExpiresAt = firstContents?.expiresAt
+    if (firstExpiresAt === undefined) {
+      throw new Error('expected the initial lock read to carry expiresAt')
+    }
+    expect(secondContents?.expiresAt).toBeGreaterThanOrEqual(firstExpiresAt)
 
     // Stop renewal cleanly before tearDown removes the dir.
     await lock?.release()
@@ -951,10 +953,12 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
     const target = join(root, 'state.json')
     const lockPath = `${target}.accounts.lock`
     const clearIntervalSpy = spyOn(globalThis, 'clearInterval')
-    let renewalTick: (() => void) | null = null
+    // Held in an object so TypeScript does not narrow the closure-assigned
+    // callback to `null` (and then `never`) at the call site below.
+    const renewal: { tick: (() => void) | null } = { tick: null }
     const setIntervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(
       ((callback: () => void) => {
-        renewalTick = callback
+        renewal.tick = callback
         return 0 as unknown as ReturnType<typeof setInterval>
       }) as typeof setInterval,
     )
@@ -984,11 +988,11 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
         },
       })
       expect(lock).not.toBeNull()
-      expect(renewalTick).not.toBeNull()
+      expect(renewal.tick).not.toBeNull()
 
       // Drive exactly one renewal. With no later timer callback available,
       // only the immediate post-rename re-read can observe B's takeover.
-      renewalTick?.()
+      renewal.tick?.()
       await paused
       await writeLock(lockPath, 'owner-B', Date.now() + 60_000)
       gateResolve()

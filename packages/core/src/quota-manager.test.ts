@@ -7,7 +7,6 @@ import {
   createQuotaManager,
   type FetchAccountQuota,
   fetchQuotaSummary,
-  type RetrieveUserQuotaSummaryBucket,
   type RetrieveUserQuotaSummaryResponse,
 } from './quota-manager.ts'
 import type { AccountQuotaResult } from './quota-types.ts'
@@ -75,7 +74,9 @@ afterEach(() => {
   managers = []
 })
 
-function track(disposable: { dispose: () => void }) {
+// Generic so callers keep the full manager type (refreshAccount, getCached,
+// ...) while the afterEach hook only needs dispose().
+function track<T extends { dispose: () => void }>(disposable: T): T {
   managers.push(disposable)
   return disposable
 }
@@ -643,11 +644,13 @@ describe('dispose', () => {
     // side-effect attached to the refresh promise stands in for that
     // continuation here.
     const order: string[] = []
-    let resolveFetch: ((result: AccountQuotaResult) => void) | null = null
+    // Held in an object so TypeScript does not narrow the closure-assigned
+    // release callback to `null` (and then `never`) at the call site below.
+    const fetchGate: { release: (() => void) | null } = { release: null }
     const fetch: FetchAccountQuota = (account) => {
       order.push('fetch:start')
       return new Promise<AccountQuotaResult>((resolve) => {
-        resolveFetch = () =>
+        fetchGate.release = () =>
           resolve({
             index: 0,
             status: 'ok',
@@ -673,7 +676,7 @@ describe('dispose', () => {
         return result
       })
 
-    // The fetch is now mid-flight (awaiting resolveFetch). Kick off
+    // The fetch is now mid-flight (awaiting fetchGate.release). Kick off
     // dispose, then release the fetch — dispose must await the in-flight
     // refresh and its continuation before resolving.
     const disposed = manager.dispose().then(() => {
@@ -681,7 +684,7 @@ describe('dispose', () => {
       // The producer's side-effect was scheduled before dispose resolved.
       expect(sideEffectRan).toBe(true)
     })
-    resolveFetch?.()
+    fetchGate.release?.()
 
     await Promise.all([disposed, pending])
 
@@ -864,8 +867,13 @@ describe('aggregateQuotaSummary', () => {
     }
   })
 
-  it('sorts unknown window kinds last, deterministically', () => {
-    const buckets: RetrieveUserQuotaSummaryBucket[] = [
+  it('sorts unknown window kinds last, deterministically', async () => {
+    // The server can send window kinds this client does not model yet
+    // ('daily' here); RetrieveUserQuotaSummaryBucket only types the known
+    // ones. fetchQuotaSummary passes the parsed JSON body through
+    // unvalidated, so feed this raw wire payload through it instead of
+    // building a typed response that cannot express an unknown window.
+    const buckets = [
       {
         bucketId: 'gemini-weekly',
         displayName: 'Weekly',
@@ -888,18 +896,28 @@ describe('aggregateQuotaSummary', () => {
         remainingFraction: 0.8,
       },
     ]
-    const summary = aggregateQuotaSummary({
+    const wirePayload = {
       groups: [
         { displayName: 'Gemini', buckets, description: 'Models: A, B, C' },
       ],
+    }
+    const { summary: response } = await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'mp',
+      endpoints: ['http://127.0.0.1:1'],
+      fetchVia: async () =>
+        new Response(JSON.stringify(wirePayload), { status: 200 }),
     })
+    const summary = aggregateQuotaSummary(response)
     const windows = summary.groups.gemini!.windows!
     expect(windows).toHaveLength(3)
     // Known windows sorted shortest-first: 5h → weekly
     expect(windows[0]!.window).toBe('5h')
     expect(windows[1]!.window).toBe('weekly')
-    // Unknown window ('daily') sorts last
-    expect(windows[2]!.window).toBe('daily')
+    // Unknown window ('daily') sorts last. QuotaWindow does not include it,
+    // so read the value as a plain string to assert the raw kind survived.
+    const unknownWindow: string = windows[2]!.window
+    expect(unknownWindow).toBe('daily')
   })
 
   it('counts models from the description minus the prefix label', () => {

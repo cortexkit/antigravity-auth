@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "build": "bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/opencode-v2 build && bun run --cwd packages/pi build",
-    "typecheck": "bun run --cwd packages/core build && bun run --cwd packages/opencode typecheck && bun run --cwd packages/opencode-v2 typecheck && bun run --cwd packages/pi typecheck && tsc -p tsconfig.scripts.json",
+    "typecheck": "bun run --cwd packages/core build && bun run --cwd packages/core typecheck && bun run --cwd packages/opencode typecheck && bun run --cwd packages/opencode-v2 typecheck && bun run --cwd packages/pi typecheck && tsc -p tsconfig.scripts.json",
     "test": "bun run --cwd packages/core build && bun run --cwd packages/opencode-v2 build && bun test --isolate packages/core/src packages/opencode/src packages/pi/src test/ packages/opencode-v2/test/",
     "test:e2e": "bun test --isolate ./packages/e2e-tests/src/plugin-flow.e2e.test.ts ./packages/e2e-tests/src/cli-flow.e2e.test.ts ./packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts ./packages/e2e-tests/src/fetch-guard.test.ts ./packages/e2e-tests/src/mock-antigravity-server.test.ts",
     "test:e2e:opencode-v2": "bash packages/e2e-tests/docker/run-opencode-v2-test.sh",

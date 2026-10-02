@@ -4,6 +4,10 @@ import {
   resolveModelWithTier,
   resolveModelWithVariant,
 } from './model-resolver'
+import type { ThinkingTier } from './types'
+
+/** requestedModel, expected actualModel, expected thinkingBudget, expected tier */
+type TierRouteCase = [string, string, number, ThinkingTier]
 
 describe('resolveModelWithTier', () => {
   describe('Gemini 3 flash models (Issue #109)', () => {
@@ -75,7 +79,7 @@ describe('resolveModelWithTier', () => {
   })
 
   describe('Gemini 3.6 Flash Antigravity routes', () => {
-    it.each([
+    it.each<TierRouteCase>([
       [
         'antigravity-gemini-3.6-flash',
         'gemini-3.6-flash-medium',
@@ -106,7 +110,7 @@ describe('resolveModelWithTier', () => {
   })
 
   describe('Gemini 3.7 Flash Antigravity routes', () => {
-    it.each([
+    it.each<TierRouteCase>([
       [
         'antigravity-gemini-3.7-flash',
         'gemini-3.7-flash-medium',
@@ -137,7 +141,7 @@ describe('resolveModelWithTier', () => {
   })
 
   describe('Gemini 3.8 Flash Antigravity routes', () => {
-    it.each([
+    it.each<TierRouteCase>([
       [
         'antigravity-gemini-3.8-flash',
         'gemini-3.8-flash-medium',
