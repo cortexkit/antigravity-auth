@@ -832,17 +832,18 @@ describe('transform/gemini', () => {
       expect(anyOf[1]?.type).toBe('NUMBER')
     })
 
-    it('transforms oneOf schemas', () => {
+    it('maps oneOf to anyOf (Gemini has no oneOf)', () => {
       const schema = {
         oneOf: [{ type: 'boolean' }, { type: 'string' }],
       }
       const result = toGeminiSchema(schema) as Record<string, unknown>
-      const oneOf = result.oneOf as Array<Record<string, string>>
-      expect(oneOf[0]?.type).toBe('BOOLEAN')
-      expect(oneOf[1]?.type).toBe('STRING')
+      expect(result).not.toHaveProperty('oneOf')
+      const anyOf = result.anyOf as Array<Record<string, string>>
+      expect(anyOf[0]?.type).toBe('BOOLEAN')
+      expect(anyOf[1]?.type).toBe('STRING')
     })
 
-    it('transforms allOf schemas', () => {
+    it('merges allOf branches (Gemini has no allOf)', () => {
       const schema = {
         allOf: [
           { type: 'object', properties: { a: { type: 'string' } } },
@@ -850,18 +851,11 @@ describe('transform/gemini', () => {
         ],
       }
       const result = toGeminiSchema(schema) as Record<string, unknown>
-      const allOf = result.allOf as Array<Record<string, unknown>>
-      expect(allOf[0]?.type).toBe('OBJECT')
-      const props0 = allOf[0]?.properties as Record<
-        string,
-        Record<string, string>
-      >
-      expect(props0.a?.type).toBe('STRING')
-      const props1 = allOf[1]?.properties as Record<
-        string,
-        Record<string, string>
-      >
-      expect(props1.b?.type).toBe('NUMBER')
+      expect(result).not.toHaveProperty('allOf')
+      expect(result.type).toBe('OBJECT')
+      const props = result.properties as Record<string, Record<string, string>>
+      expect(props.a?.type).toBe('STRING')
+      expect(props.b?.type).toBe('NUMBER')
     })
 
     it('preserves enum values', () => {
@@ -1449,6 +1443,119 @@ describe('transform/gemini', () => {
       const result = toGeminiSchema(schema) as Record<string, unknown>
       expect(result).not.toHaveProperty('contentMediaType')
       expect(result).not.toHaveProperty('contentEncoding')
+    })
+
+    it('rewrites exclusiveMinimum/exclusiveMaximum to inclusive bounds', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          count: { type: 'integer', exclusiveMinimum: 0, exclusiveMaximum: 10 },
+        },
+      }
+      const result = toGeminiSchema(schema) as Record<string, unknown>
+      const props = result.properties as Record<string, Record<string, unknown>>
+      expect(props.count).not.toHaveProperty('exclusiveMinimum')
+      expect(props.count).not.toHaveProperty('exclusiveMaximum')
+      expect(props.count?.minimum).toBe(0)
+      expect(props.count?.maximum).toBe(10)
+    })
+
+    it('keeps the tighter bound when inclusive and exclusive bounds coexist', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          count: {
+            type: 'number',
+            minimum: 5,
+            exclusiveMinimum: 2,
+            maximum: 1,
+            exclusiveMaximum: 9,
+          },
+        },
+      }
+      const result = toGeminiSchema(schema) as Record<string, unknown>
+      const props = result.properties as Record<string, Record<string, unknown>>
+      expect(props.count?.minimum).toBe(5)
+      expect(props.count?.maximum).toBe(1)
+    })
+
+    it('drops multipleOf (unsupported by Gemini Schema)', () => {
+      const result = toGeminiSchema({
+        type: 'integer',
+        multipleOf: 5,
+      }) as Record<string, unknown>
+      expect(result).not.toHaveProperty('multipleOf')
+    })
+
+    it('moves exclusive bounds to description for the GPT bridge', () => {
+      const result = toGeminiSchema(
+        { type: 'integer', exclusiveMinimum: 0 },
+        { moveNumericConstraintsToDescription: true },
+      ) as Record<string, unknown>
+      expect(result).not.toHaveProperty('exclusiveMinimum')
+      expect(result).not.toHaveProperty('minimum')
+      expect(result.description).toContain('exclusiveMinimum: 0')
+    })
+
+    it('maps const to a single-value enum', () => {
+      const result = toGeminiSchema({ const: 'fixed_value' }) as Record<
+        string,
+        unknown
+      >
+      expect(result).not.toHaveProperty('const')
+      expect(result.enum).toEqual(['fixed_value'])
+    })
+
+    it('drops any keyword outside the Gemini Schema allowlist', () => {
+      const schema = {
+        type: 'string',
+        readOnly: true,
+        writeOnly: false,
+        deprecated: true,
+        uniqueItems: true,
+        contentSchema: { type: 'string' },
+        examples: ['a', 'b'],
+        example: 'a',
+      }
+      const result = toGeminiSchema(schema) as Record<string, unknown>
+      for (const field of [
+        'readOnly',
+        'writeOnly',
+        'deprecated',
+        'uniqueItems',
+        'contentSchema',
+        'examples',
+      ]) {
+        expect(result).not.toHaveProperty(field)
+      }
+      expect(result.example).toBe('a')
+      expect(result.type).toBe('STRING')
+    })
+
+    it('resolves nested oneOf and allOf inside properties', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          choice: { oneOf: [{ type: 'string' }, { const: 'off' }] },
+          merged: {
+            allOf: [
+              { type: 'object', properties: { x: { type: 'number' } } },
+              { properties: { y: { type: 'string' } } },
+            ],
+          },
+        },
+      }
+      const result = toGeminiSchema(schema) as Record<string, unknown>
+      const props = result.properties as Record<string, Record<string, unknown>>
+      expect(props.choice).not.toHaveProperty('oneOf')
+      const choiceAny = props.choice?.anyOf as Array<Record<string, unknown>>
+      expect(choiceAny?.[1]?.enum).toEqual(['off'])
+      expect(props.merged).not.toHaveProperty('allOf')
+      expect(
+        Object.keys(
+          (props.merged?.properties as Record<string, unknown>) ?? {},
+        ),
+      ).toEqual(['x', 'y'])
     })
 
     it('removes dependentRequired and dependentSchemas', () => {

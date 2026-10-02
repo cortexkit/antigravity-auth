@@ -68,6 +68,109 @@ const NUMERIC_SCHEMA_CONSTRAINTS = new Set([
   'multipleOf',
 ])
 
+/**
+ * Numeric constraints absent from the Gemini/Antigravity `Schema` proto.
+ *
+ * `exclusiveMinimum`/`exclusiveMaximum` are folded into their inclusive
+ * `minimum`/`maximum` counterparts; `multipleOf` has no equivalent and is
+ * dropped. Sending any of them verbatim triggers:
+ *   "Unknown name \"exclusiveMinimum\" ... Cannot find field."
+ */
+const UNSUPPORTED_NUMERIC_SCHEMA_FIELDS = new Set([
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+  'multipleOf',
+])
+
+/**
+ * The exact keyword set Gemini's `Schema` proto declares. Anything else is
+ * dropped by {@link toGeminiSchema} as a final backstop so an unknown keyword
+ * from any tool (built-in, custom, or MCP) can never re-trigger:
+ *   "Unknown name \"<keyword>\" ... Cannot find field."
+ *
+ * Source: https://googleapis.github.io/js-genai/release_docs/interfaces/types.Schema.html
+ */
+export const GEMINI_SUPPORTED_SCHEMA_FIELDS: ReadonlySet<string> = new Set([
+  'anyOf',
+  'default',
+  'description',
+  'enum',
+  'example',
+  'format',
+  'items',
+  'maximum',
+  'maxItems',
+  'maxLength',
+  'maxProperties',
+  'minimum',
+  'minItems',
+  'minLength',
+  'minProperties',
+  'nullable',
+  'pattern',
+  'properties',
+  'propertyOrdering',
+  'required',
+  'title',
+  'type',
+])
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Resolve JSON Schema combinators that Gemini does not declare into the closest
+ * supported equivalent before the allowlist runs:
+ * - `const: X`  -> `enum: [X]`
+ * - `oneOf`     -> `anyOf` (Gemini only has `anyOf`)
+ * - `allOf`     -> shallow-merge branches into the parent (`properties` and
+ *                  `required` are merged instead of overwritten)
+ *
+ * Returns a new object; the input is never mutated.
+ */
+function resolveSchemaComposition(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  let out = schema
+
+  if ('const' in out && !('enum' in out)) {
+    out = { ...out, enum: [out.const] }
+  }
+
+  if (Array.isArray(out.oneOf) && !('anyOf' in out)) {
+    const { oneOf, ...rest } = out
+    out = { ...rest, anyOf: oneOf }
+  }
+
+  if (Array.isArray(out.allOf)) {
+    const { allOf, ...base } = out
+    const merged: Record<string, unknown> = { ...base }
+    for (const branch of allOf) {
+      if (!isPlainObject(branch)) continue
+      const { allOf: _nested, ...rest } = resolveSchemaComposition(branch)
+      for (const [key, value] of Object.entries(rest)) {
+        if (key === 'properties' && isPlainObject(value)) {
+          const existing = isPlainObject(merged.properties)
+            ? (merged.properties as Record<string, unknown>)
+            : {}
+          merged.properties = { ...existing, ...value }
+        } else if (key === 'required' && Array.isArray(value)) {
+          const existing = Array.isArray(merged.required)
+            ? (merged.required as unknown[])
+            : []
+          merged.required = [...new Set([...existing, ...value])]
+        } else {
+          merged[key] = value
+        }
+      }
+    }
+    out = merged
+  }
+
+  return out
+}
+
 export interface GeminiSchemaOptions {
   /**
    * AGY's GPT bridge re-encodes protobuf numeric constraints as strings before
@@ -85,9 +188,13 @@ export function toGeminiSchema(
     return schema
   }
 
-  const inputSchema = schema as Record<string, unknown>
+  const inputSchema = resolveSchemaComposition(
+    schema as Record<string, unknown>,
+  )
   const result: Record<string, unknown> = {}
   const numericConstraintHints: string[] = []
+  let exclusiveMinimum: number | undefined
+  let exclusiveMaximum: number | undefined
 
   // First pass: collect all property names for required validation
   const propertyNames = new Set<string>()
@@ -133,13 +240,20 @@ export function toGeminiSchema(
     } else if (key === 'enum' && Array.isArray(value)) {
       // Keep enum values as-is
       result[key] = value
-    } else if (
-      options.moveNumericConstraintsToDescription &&
-      NUMERIC_SCHEMA_CONSTRAINTS.has(key)
-    ) {
-      if (typeof value === 'string' || typeof value === 'number') {
-        numericConstraintHints.push(`${key}: ${value}`)
+    } else if (NUMERIC_SCHEMA_CONSTRAINTS.has(key)) {
+      if (options.moveNumericConstraintsToDescription) {
+        if (typeof value === 'string' || typeof value === 'number') {
+          numericConstraintHints.push(`${key}: ${value}`)
+        }
+      } else if (key === 'exclusiveMinimum') {
+        if (typeof value === 'number') exclusiveMinimum = value
+      } else if (key === 'exclusiveMaximum') {
+        if (typeof value === 'number') exclusiveMaximum = value
+      } else if (!UNSUPPORTED_NUMERIC_SCHEMA_FIELDS.has(key)) {
+        // Supported numeric constraint (minimum/maximum/minLength/...).
+        result[key] = value
       }
+      // `multipleOf` and non-numeric exclusive bounds are silently dropped.
     } else if (key === 'default' || key === 'examples') {
       // Keep default and examples as-is
       result[key] = value
@@ -171,10 +285,37 @@ export function toGeminiSchema(
         : hint
   }
 
+  // Gemini's Schema proto has no exclusive bounds. Fold them into inclusive
+  // minimum/maximum, keeping the tighter bound when an inclusive one is present.
+  if (exclusiveMinimum !== undefined) {
+    const current =
+      typeof result.minimum === 'number' ? result.minimum : undefined
+    result.minimum =
+      current === undefined
+        ? exclusiveMinimum
+        : Math.max(current, exclusiveMinimum)
+  }
+  if (exclusiveMaximum !== undefined) {
+    const current =
+      typeof result.maximum === 'number' ? result.maximum : undefined
+    result.maximum =
+      current === undefined
+        ? exclusiveMaximum
+        : Math.min(current, exclusiveMaximum)
+  }
+
   // Issue #80: Ensure array schemas have an 'items' field
   // Gemini API requires: "parameters.properties[X].items: missing field"
   if (result.type === 'ARRAY' && !result.items) {
     result.items = { type: 'STRING' }
+  }
+
+  // Backstop: drop any keyword Gemini's Schema proto does not declare, so an
+  // unknown keyword from any tool cannot re-trigger a 400 INVALID_ARGUMENT.
+  for (const key of Object.keys(result)) {
+    if (!GEMINI_SUPPORTED_SCHEMA_FIELDS.has(key)) {
+      delete result[key]
+    }
   }
 
   return result
