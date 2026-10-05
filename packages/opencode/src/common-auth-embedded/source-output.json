@@ -1,0 +1,233 @@
+{
+  "schema": 1,
+  "package": "@cortexkit/common-auth",
+  "version": "0.9.4",
+  "publicRoots": {
+    "./rpc": {
+      "types": "./dist/rpc/index.d.ts",
+      "import": "./dist/rpc/index.js"
+    },
+    "./rpc/client": {
+      "types": "./dist/rpc/client.d.ts",
+      "import": "./dist/rpc/client.js"
+    },
+    "./logger": {
+      "types": "./dist/logger/index.d.ts",
+      "import": "./dist/logger/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui/index.d.ts",
+      "import": "./dist/tui/index.js"
+    }
+  },
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.9.4.tgz",
+  "tarballSha256": "81397782059d2977061043e627b4b3010959b969e17c66ab63e26b8067f09c20",
+  "sri": "sha512-YQvXOEA390gSCRVYM5bFU/eIF/l4aHpY1BcIARjd9LVb5lPsCTicDlA2l6fU2OJO0bZI20tJ+xutpyBqEsMrEw==",
+  "canonicalFiles": 24,
+  "canonicalBytes": 61726,
+  "generator": {
+    "path": "packages/opencode/scripts/embed-common-auth.ts",
+    "version": 1,
+    "sha256": "5b086381b7f1973cddcc20e41a0cca582b1c1daf6e46bdae43003b01c8409390"
+  },
+  "files": [
+    {
+      "source": "package/dist/logger/capture-sink.d.ts",
+      "output": "logger/capture-sink.d.ts",
+      "bytes": 430,
+      "sourceSha256": "20c88825e86688f16b6c1cd38c56980dacb66778b891ffff436348aeaa4a3849",
+      "outputSha256": "20c88825e86688f16b6c1cd38c56980dacb66778b891ffff436348aeaa4a3849",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/logger/capture-sink.js",
+      "output": "logger/capture-sink.js",
+      "bytes": 249,
+      "sourceSha256": "b582535e350e6683f3de2cd1e4147f893afcb739f747f2bd1f713aaba513d604",
+      "outputSha256": "b582535e350e6683f3de2cd1e4147f893afcb739f747f2bd1f713aaba513d604",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/logger/engine.d.ts",
+      "output": "logger/engine.d.ts",
+      "bytes": 4607,
+      "sourceSha256": "646d7438df2aa50853dc8f8220236cee75e480342545d8d94718ea34259ae522",
+      "outputSha256": "646d7438df2aa50853dc8f8220236cee75e480342545d8d94718ea34259ae522",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/logger/engine.js",
+      "output": "logger/engine.js",
+      "bytes": 7925,
+      "sourceSha256": "3ebcd0e8ad5aca437cee85e4b9087ba15d7efbcb07b5fefff937092f2de3f829",
+      "outputSha256": "3ebcd0e8ad5aca437cee85e4b9087ba15d7efbcb07b5fefff937092f2de3f829",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/logger/index.d.ts",
+      "output": "logger/index.d.ts",
+      "bytes": 524,
+      "sourceSha256": "aed1dff9371ca9fd2d3da44ef89a83d6df96274746e18a87058c8551db5a3a9d",
+      "outputSha256": "aed1dff9371ca9fd2d3da44ef89a83d6df96274746e18a87058c8551db5a3a9d",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/logger/index.js",
+      "output": "logger/index.js",
+      "bytes": 261,
+      "sourceSha256": "ea9861f27c73b0194287ead55622b2a16cba3cacb90ad87e4b60e3bd0cb850c3",
+      "outputSha256": "ea9861f27c73b0194287ead55622b2a16cba3cacb90ad87e4b60e3bd0cb850c3",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/logger/redact.d.ts",
+      "output": "logger/redact.d.ts",
+      "bytes": 474,
+      "sourceSha256": "4a74e923b467320e26426f21ed88c8f86ddac42b39acfdbf3e64f97584d132a8",
+      "outputSha256": "4a74e923b467320e26426f21ed88c8f86ddac42b39acfdbf3e64f97584d132a8",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/logger/redact.js",
+      "output": "logger/redact.js",
+      "bytes": 3989,
+      "sourceSha256": "32c85066ec28d52043c9c0b56a363fe4d5b01159dd369796353edde360472f10",
+      "outputSha256": "32c85066ec28d52043c9c0b56a363fe4d5b01159dd369796353edde360472f10",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/client.d.ts",
+      "output": "rpc/client.d.ts",
+      "bytes": 241,
+      "sourceSha256": "42786d690c2e7c264e9476b979f3502810ff3724f2136a013fc5bf7b4efb9150",
+      "outputSha256": "42786d690c2e7c264e9476b979f3502810ff3724f2136a013fc5bf7b4efb9150",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/client.js",
+      "output": "rpc/client.js",
+      "bytes": 85,
+      "sourceSha256": "982d65b56be71c69bf9c4e74d32257394aee022324bd673655405c6a4e381e26",
+      "outputSha256": "982d65b56be71c69bf9c4e74d32257394aee022324bd673655405c6a4e381e26",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/index.d.ts",
+      "output": "rpc/index.d.ts",
+      "bytes": 417,
+      "sourceSha256": "62bda8e27c98b193ba0aee81a9e405472688618952907d91c53b9635b1142eef",
+      "outputSha256": "62bda8e27c98b193ba0aee81a9e405472688618952907d91c53b9635b1142eef",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/index.js",
+      "output": "rpc/index.js",
+      "bytes": 172,
+      "sourceSha256": "31aadda5190c9f8c5dd4b7c0f4bb11ce87fb79715ac4785163008fb5f0062998",
+      "outputSha256": "31aadda5190c9f8c5dd4b7c0f4bb11ce87fb79715ac4785163008fb5f0062998",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/notifications.d.ts",
+      "output": "rpc/notifications.d.ts",
+      "bytes": 3333,
+      "sourceSha256": "a635624ced52a0a747ee7df1576bf9249a69a22c7c19cff827a50624b246d666",
+      "outputSha256": "a635624ced52a0a747ee7df1576bf9249a69a22c7c19cff827a50624b246d666",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/notifications.js",
+      "output": "rpc/notifications.js",
+      "bytes": 3786,
+      "sourceSha256": "80fa1e961293ff0dcbba6e1e2264d765f8a7a92916028fd7e21245ac68902171",
+      "outputSha256": "80fa1e961293ff0dcbba6e1e2264d765f8a7a92916028fd7e21245ac68902171",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/port-file.d.ts",
+      "output": "rpc/port-file.d.ts",
+      "bytes": 1460,
+      "sourceSha256": "f4a59dbd12d85fdad86f80695037a247441c0136064a3dcd4a073d6adf06ccca",
+      "outputSha256": "f4a59dbd12d85fdad86f80695037a247441c0136064a3dcd4a073d6adf06ccca",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/port-file.js",
+      "output": "rpc/port-file.js",
+      "bytes": 7156,
+      "sourceSha256": "632d8f28c2aff3c61eb5fbc04845b500fa50b07a39a451b1131290fae82a6775",
+      "outputSha256": "632d8f28c2aff3c61eb5fbc04845b500fa50b07a39a451b1131290fae82a6775",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/rpc-client.d.ts",
+      "output": "rpc/rpc-client.d.ts",
+      "bytes": 1419,
+      "sourceSha256": "82defb3e489511b50344c372388c09d1d9ec6d773d15e8142107a4acf10d5c89",
+      "outputSha256": "82defb3e489511b50344c372388c09d1d9ec6d773d15e8142107a4acf10d5c89",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/rpc-client.js",
+      "output": "rpc/rpc-client.js",
+      "bytes": 6893,
+      "sourceSha256": "320e6b717edc780cff665c763344e3a039eb767d367ec4f70a634af7ef4e96e1",
+      "outputSha256": "320e6b717edc780cff665c763344e3a039eb767d367ec4f70a634af7ef4e96e1",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/rpc-server.d.ts",
+      "output": "rpc/rpc-server.d.ts",
+      "bytes": 2676,
+      "sourceSha256": "cd60d433c1d0d763544b7ee5c78f905bfffb332bc2622586971b90f8e37dc27d",
+      "outputSha256": "cd60d433c1d0d763544b7ee5c78f905bfffb332bc2622586971b90f8e37dc27d",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/rpc-server.js",
+      "output": "rpc/rpc-server.js",
+      "bytes": 12354,
+      "sourceSha256": "a31758c7d74ded7b781e9b88170fc50c2b3fbd7016413adc92fc6ed039237934",
+      "outputSha256": "a31758c7d74ded7b781e9b88170fc50c2b3fbd7016413adc92fc6ed039237934",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/server-registry.d.ts",
+      "output": "rpc/server-registry.d.ts",
+      "bytes": 507,
+      "sourceSha256": "94289df522440d9f92b7de74185090e8072a18f1b1ad7832584f2b1a0285b691",
+      "outputSha256": "94289df522440d9f92b7de74185090e8072a18f1b1ad7832584f2b1a0285b691",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/rpc/server-registry.js",
+      "output": "rpc/server-registry.js",
+      "bytes": 1537,
+      "sourceSha256": "7a7bb67f11f072e2fd655694445458295c5461579bc4e73b11559c9d18d3c93d",
+      "outputSha256": "7a7bb67f11f072e2fd655694445458295c5461579bc4e73b11559c9d18d3c93d",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/tui/index.d.ts",
+      "output": "tui/index.d.ts",
+      "bytes": 281,
+      "sourceSha256": "9d4555b13b599cdef275f1501154d3802ac237a17ee06fafd34e05a183918921",
+      "outputSha256": "9d4555b13b599cdef275f1501154d3802ac237a17ee06fafd34e05a183918921",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/tui/index.js",
+      "output": "tui/index.js",
+      "bytes": 950,
+      "sourceSha256": "c9a1e381382128b64eea0b3b049beb1b210cb68e768ea04683662b8b1a73bbb1",
+      "outputSha256": "c9a1e381382128b64eea0b3b049beb1b210cb68e768ea04683662b8b1a73bbb1",
+      "transform": "verbatim"
+    }
+  ],
+  "transforms": [],
+  "notice": {
+    "source": "package/LICENSE",
+    "output": "NOTICE.txt",
+    "sha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581"
+  }
+}
