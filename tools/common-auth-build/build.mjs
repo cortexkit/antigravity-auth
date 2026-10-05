@@ -1,4 +1,11 @@
-import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import {
+  lstat,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -55,11 +62,12 @@ async function verifiedCompiler() {
 }
 
 function destination(packageRoot, path) {
-  if (!isAbsolute(path)) throw new Error(`Build path must be absolute: ${path}`)
+  if (typeof path !== 'string' || !isAbsolute(path))
+    throw new Error(`Build path must be absolute: ${path}`)
   const child = relative(packageRoot, path)
-  if (!child || child.startsWith('..') || isAbsolute(child))
+  if (!child || !within(packageRoot, path))
     throw new Error(`Output must be inside package root: ${path}`)
-  return path
+  return resolve(path)
 }
 
 function within(parent, path) {
@@ -70,8 +78,48 @@ function within(parent, path) {
   )
 }
 
-/** Orchestration only: all graph traversal, naming and transforms are public API calls. */
-export async function buildCommonAuthTui({
+async function inspectDestination(packageRoot, path, kind) {
+  let current = packageRoot
+  const parts = relative(packageRoot, path).split(sep)
+  for (const [index, part] of parts.entries()) {
+    current = resolve(current, part)
+    const info = await lstat(current).catch((error) => {
+      if (error.code !== 'ENOENT') throw error
+      return undefined
+    })
+    if (!info) continue
+    // Package-root links are resolved once at admission. Descendant links are not
+    // output ownership: even an in-package alias can name a handwritten source tree.
+    if (info.isSymbolicLink())
+      throw new Error(`Build output aliases are not admitted: ${current}`)
+    const final = index === parts.length - 1
+    if (!(final && kind === 'map') && !info.isDirectory())
+      throw new Error(`Build output directory is not a directory: ${current}`)
+    if (final && kind === 'map' && (!info.isFile() || info.nlink !== 1))
+      throw new Error(`Build map must be a regular unaliased file: ${current}`)
+    current = await realpath(current)
+    if (!within(packageRoot, current))
+      throw new Error(`Resolved output escaped package root: ${current}`)
+    if (final && kind === 'map') {
+      // Existing maps must have the generated-map format, not unrelated authored content.
+      const previous = await readFile(current, 'utf8')
+      let map
+      try {
+        map = JSON.parse(previous)
+      } catch {
+        throw new Error(`Existing build map is not a generated map: ${current}`)
+      }
+      if (
+        map?.schema !== 1 ||
+        map.compiler !== '@cortexkit/common-auth/tui-build@0.9.4'
+      )
+        throw new Error(`Existing build map is not a generated map: ${current}`)
+    }
+  }
+  return current
+}
+
+async function admitBuildPaths({
   packageRoot,
   entryFile,
   rawDir,
@@ -79,17 +127,19 @@ export async function buildCommonAuthTui({
   mapFile,
 }) {
   for (const path of [packageRoot, entryFile]) {
-    if (!isAbsolute(path))
+    if (typeof path !== 'string' || !isAbsolute(path))
       throw new Error(`Build path must be absolute: ${path}`)
   }
-  destination(packageRoot, rawDir)
-  destination(packageRoot, runtimeDir)
+  packageRoot = resolve(packageRoot)
+  entryFile = resolve(entryFile)
+  rawDir = destination(packageRoot, rawDir)
+  runtimeDir = destination(packageRoot, runtimeDir)
+  if (mapFile !== undefined) mapFile = destination(packageRoot, mapFile)
   if (within(rawDir, runtimeDir) || within(runtimeDir, rawDir))
     throw new Error('TUI outputs must be disjoint')
   if (within(rawDir, entryFile) || within(runtimeDir, entryFile))
     throw new Error('TUI output cannot contain its source entry')
   if (mapFile) {
-    destination(packageRoot, mapFile)
     if (
       within(rawDir, mapFile) ||
       within(runtimeDir, mapFile) ||
@@ -99,6 +149,50 @@ export async function buildCommonAuthTui({
         'Build map must be outside emitted trees and source entry',
       )
   }
+
+  const root = await realpath(packageRoot)
+  if (!(await stat(root)).isDirectory())
+    throw new Error('Package root must be a directory')
+  const entry = await realpath(entryFile)
+  if (!(await stat(entry)).isFile())
+    throw new Error('Source entry must be a regular file')
+  const translate = (path) => resolve(root, relative(packageRoot, path))
+  const raw = await inspectDestination(root, translate(rawDir), 'directory')
+  const runtime = await inspectDestination(
+    root,
+    translate(runtimeDir),
+    'directory',
+  )
+  const map =
+    mapFile === undefined
+      ? undefined
+      : await inspectDestination(root, translate(mapFile), 'map')
+  if (within(raw, runtime) || within(runtime, raw))
+    throw new Error('Resolved TUI outputs must be disjoint')
+  if (within(raw, entry) || within(runtime, entry))
+    throw new Error('Resolved TUI output cannot contain its source entry')
+  if (
+    map !== undefined &&
+    (within(raw, map) || within(runtime, map) || map === entry)
+  )
+    throw new Error(
+      'Resolved build map must be outside emitted trees and source entry',
+    )
+  return {
+    packageRoot: root,
+    entryFile: entry,
+    rawDir: raw,
+    runtimeDir: runtime,
+    mapFile: map,
+  }
+}
+
+/** Orchestration only: all graph traversal, naming and transforms are public API calls. */
+export async function buildCommonAuthTui(options) {
+  // This is a static filesystem preflight, not a lock against concurrent changes.
+  // Admission failures cannot enter the compiler, write outputs or run failure cleanup.
+  const { packageRoot, entryFile, rawDir, runtimeDir, mapFile } =
+    await admitBuildPaths(options)
   try {
     const { buildTui, loadSolidTransform, assertEmittedPublishList } =
       await verifiedCompiler()

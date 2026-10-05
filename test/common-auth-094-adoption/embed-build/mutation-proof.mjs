@@ -11,6 +11,10 @@ import {
 } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  classifyMutationResult,
+  embedMutationCases,
+} from './mutation-records.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '../../..')
@@ -166,7 +170,7 @@ try {
     const originalManifest = await readFile(join(base, manifest))
     if (!original.toString().includes(control.from))
       throw new Error(`Unreached mutation anchor: ${control.name}`)
-    // Index is the live disposable state before each mutation, and must have no unstaged diff.
+    // Stage the mutation inputs so the disposable checkout has no unstaged changes before each mutation.
     command(base, 'git', ['add', control.path, manifest])
     if (command(base, 'git', ['diff', '--stat']).trim())
       throw new Error('Dirty mutation baseline')
@@ -188,13 +192,12 @@ try {
       },
     )
     const output = `${result.stdout}${result.stderr}`
-    const failures = [...output.matchAll(/\(fail\) ([^\n[]+)/g)].map((match) =>
-      match[1].trim(),
+    const { failures, passes, outcome } = classifyMutationResult(
+      result,
+      control.red,
+      embedMutationCases,
     )
-    const passes = [...output.matchAll(/\(pass\) ([^\n[]+)/g)].map((match) =>
-      match[1].trim(),
-    )
-    // Restore saved bytes, not a checkout or mtime trick; independently verify both snapshots.
+    // Restore the saved file contents directly, then verify that the mutated file and manifest match their saved contents.
     await writeFile(path, original)
     await writeFile(join(base, manifest), originalManifest)
     const restoredStat = command(base, 'git', ['diff', '--stat']).trim()
@@ -213,17 +216,7 @@ try {
           400,
         ),
       applied_evidence: `${control.path}; original SHA256 ${hash(original)}; NON-VACUITY BREAK; during: ${mutantStat}; after: empty unstaged diff, original hashes verified`,
-      outcome:
-        result.status === 1 &&
-        failures.length === 1 &&
-        failures[0] === control.red &&
-        passes.length === 6
-          ? 'reddened'
-          : result.signal
-            ? 'hung'
-            : failures.length
-              ? 'not_reached'
-              : 'undefended',
+      outcome,
     }
     evidence.push(row)
     console.log(JSON.stringify(row))
