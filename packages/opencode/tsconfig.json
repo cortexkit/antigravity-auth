@@ -5,7 +5,9 @@
     "dist",
     "temp_research",
     "script",
-    "src/tui-compiled"
+    "src/tui-compiled",
+    "src/tui-raw",
+    "src/common-auth-embedded/**/*.js"
   ],
   "compilerOptions": {
     // Environment setup & latest features

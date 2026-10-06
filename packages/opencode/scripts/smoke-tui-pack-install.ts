@@ -1,284 +1,452 @@
-/**
- * Smoke test: pack the opencode package, install it into a temp consumer
- * directory through `bun add ./pack.tgz` (so the package export map is
- * actually exercised), and assert the tarball + install shape:
- *
- *   - `package.json` `engines.opencode` pins the host-version range
- *     that `opencode plugin` enforces.
- *   - `package.json` exports `./tui` pointing at `src/tui/entry.mjs`
- *     (the host installer reads this subpath when wiring the TUI
- *     registration into `tui.json`).
- *   - The compiled tree lands at `src/tui-compiled/tui.tsx` (where the
- *     host entry module expects it after a successful virtual runtime
- *     probe).
- *   - The consumer's `node_modules/@cortexkit/opencode-antigravity-auth`
- *     resolves both the server root and the TUI subpath through the
- *     real package export map (`import('@cortexkit/opencode-antigravity-auth/tui')`).
- *
- * Runs only via `bun run smoke:tui`. Use this on every package change
- * that touches `package.json` `exports`, `files`, or `engines` — a
- * broken pack is a broken ship.
- */
-
+/** Fresh npm/Bun packs and real isolated consumers. Never import a consumer package from this repository process. */
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
+import { dirname, join, relative, resolve } from 'node:path'
+import { build as bundle } from 'esbuild'
+import {
+  auditGraph,
+  inventory,
+  PACKAGE_ROOT,
+  verifyPrerequisites,
+} from './build-tui'
+import { sha256 } from './embed-common-auth'
 
-const REPO_ROOT = resolve(fileURLToPath(import.meta.url), '../../../../')
-const PACKAGE_ROOT = resolve(REPO_ROOT, 'packages/opencode')
-const CORE_ROOT = resolve(REPO_ROOT, 'packages/core')
-
-interface PackageJson {
-  name: string
-  version: string
-  engines?: Record<string, string>
-  exports?: Record<string, unknown>
-  files?: string[]
+const repo = resolve(PACKAGE_ROOT, '../..')
+const productName = '@cortexkit/opencode-antigravity-auth'
+const baselineRevision = '45625093922278e7d8f1f1415df42bbc0ca1883e'
+function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const result = spawnSync(command, args, {
+    cwd,
+    env,
+    encoding: 'utf8',
+    timeout: 180000,
+    maxBuffer: 16 * 1024 * 1024,
+  })
+  if (result.status !== 0)
+    throw new Error(
+      `${command} ${args.join(' ')} failed (${result.status}): ${result.error ?? ''}\n${result.stdout}\n${result.stderr}`,
+    )
+  return result.stdout
+}
+function requireEqual(actual: unknown, expected: unknown, label: string) {
+  if (JSON.stringify(actual) !== JSON.stringify(expected))
+    throw new Error(
+      `${label}: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`,
+    )
 }
 
-async function run(): Promise<void> {
-  const workspace = createTempWorkspace('agy-smoke-pack')
-  const packDir = join(workspace, 'pack')
-  const consumerDir = join(workspace, 'consumer')
-  mkdirSync(packDir, { recursive: true })
-  mkdirSync(consumerDir, { recursive: true })
-  console.log('[smoke-tui] workspace:', workspace)
-
-  // Pack the core package first — the opencode tarball declares it as a
-  // workspace-only dependency, so the consumer's `bun install` cannot
-  // resolve it from the npm registry. A tgz over the core's `dist/`
-  // gives `bun add` a concrete source it can unpack without the registry.
-  const coreTarball = packPackage(CORE_ROOT, packDir)
-  console.log('[smoke-tui] core tarball:', coreTarball)
-
-  // The compiled TUI tree is produced by `bun run build:tui`, not by
-  // `bun pm pack` itself. Pre-run it so the precompiled tree lands inside
-  // the opencode tarball — otherwise the assertion in step 3 fails.
-  runScript('bun', ['run', 'build:tui'], PACKAGE_ROOT)
-
-  const opencodeTarball = packPackage(PACKAGE_ROOT, packDir)
-  console.log('[smoke-tui] opencode tarball:', opencodeTarball)
-
-  const pkgRaw = readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf-8')
-  const pkg = JSON.parse(pkgRaw) as PackageJson
-
-  // 1) `engines.opencode` must pin the host-version range that
-  //    `opencode plugin` enforces at install time.
-  const opencodeEngine = pkg.engines?.opencode
-  if (typeof opencodeEngine !== 'string' || opencodeEngine.length === 0) {
-    throw new Error('package.json is missing engines.opencode metadata')
-  }
-
-  // 2) `./tui` must be exposed in the exports map and point at
-  //    `tui/entry.mjs` — the host installer reads this subpath to
-  //    wire the TUI registration into `tui.json`.
-  const tuiExport = pkg.exports?.['./tui']
-  if (!tuiExport || typeof tuiExport !== 'object') {
-    throw new Error('package.json exports must include "./tui" entry')
-  }
-  const tuiImport =
-    (tuiExport as Record<string, unknown>).import ??
-    (tuiExport as Record<string, unknown>).default
-  if (typeof tuiImport !== 'string') {
-    throw new Error('package.json exports["./tui"] must declare an "import"')
-  }
-  if (!tuiImport.endsWith('tui/entry.mjs')) {
-    throw new Error(
-      `package.json exports["./tui"] import must point at tui/entry.mjs, got ${tuiImport}`,
+export async function pack(
+  root: string,
+  destination: string,
+  manager: 'npm' | 'bun',
+  scripts: boolean,
+) {
+  await mkdir(destination, { recursive: true })
+  const flags = scripts ? [] : ['--ignore-scripts']
+  // The destination starts empty; a successful command cannot discover an old tarball.
+  if (manager === 'npm')
+    run(
+      'npm',
+      ['pack', '--json', '--pack-destination', destination, ...flags],
+      root,
     )
-  }
+  else run('bun', ['pm', 'pack', '--destination', destination, ...flags], root)
+  const names = (await readdir(destination)).filter((path) =>
+    path.endsWith('.tgz'),
+  )
+  requireEqual(names.length, 1, 'pack.paths: fresh pack count')
+  return join(destination, names[0]!)
+}
 
-  // 3) Inspect the tarball: the source tree, the compiled tree, and the
-  //    precompiled entry must all ship.
-  const tarballList = runTar(['-tzf', opencodeTarball])
-  const requiredFiles = [
-    'package/src/tui.tsx',
-    'package/src/tui/entry.mjs',
-    'package/src/sidebar-state.ts',
-    'package/src/tui-compiled/tui.tsx',
-  ]
-  for (const required of requiredFiles) {
-    if (
-      !tarballList.some(
-        (entry) => entry === required || entry.endsWith(`/${required}`),
-      )
-    ) {
-      throw new Error(
-        `tarball missing ${required}; listed (head): ${tarballList.slice(0, 5).join(', ')}`,
+export async function inspectPack(tar: string, target: string) {
+  await mkdir(target, { recursive: true })
+  const listed = run('tar', ['-tzf', tar], repo)
+    .trim()
+    .split('\n')
+    .filter((path) => !path.endsWith('/'))
+    .sort()
+  if (new Set(listed).size !== listed.length)
+    throw new Error('pack.paths: duplicate tar entry')
+  if (
+    listed.some(
+      (path) => path.startsWith('package/tools/') || path.endsWith('.tgz'),
+    )
+  )
+    throw new Error('pack.repository_input_excluded: private input shipped')
+  run('tar', ['-xzf', tar, '-C', target], repo)
+  const root = join(target, 'package')
+  const required = new Set([
+    'src/tui/entry.mjs',
+    'src/sidebar-state.ts',
+    'src/tui-preferences.ts',
+    'src/tui-raw/tui.tsx',
+    'src/tui-compiled/tui.js',
+    'src/tui-raw/selector.js',
+    'src/tui-compiled/selector.js',
+    'dist/index.d.ts',
+    'dist/src/tui.d.ts',
+    'dist/index.meta.json',
+    'dist/cli.meta.json',
+    'src/common-auth-embedded/NOTICE.txt',
+    'dist/src/common-auth-embedded/NOTICE.txt',
+  ])
+  // Check the 24 published JS/d.ts payloads against reference SHA256 values from the
+  // archive-verified canonical manifest, not hashes computed from this pack. Require
+  // the notice and manifest too, and compare complete inventories rather than subsets.
+  const manifest = JSON.parse(
+    await readFile(
+      join(PACKAGE_ROOT, 'src/common-auth-embedded/source-output.json'),
+      'utf8',
+    ),
+  )
+  const canonical = [
+    ...manifest.files.map((file: { output: string }) => file.output),
+    'NOTICE.txt',
+    'source-output.json',
+  ].sort()
+  for (const prefix of [
+    'src/common-auth-embedded',
+    'dist/src/common-auth-embedded',
+  ]) {
+    requireEqual(
+      await inventory(join(root, prefix)),
+      canonical,
+      `pack.paths: ${prefix}`,
+    )
+    for (const file of manifest.files) {
+      required.add(`${prefix}/${file.output}`)
+      requireEqual(
+        sha256(await readFile(join(root, prefix, file.output))),
+        file.outputSha256,
+        `pack.copy_order: ${prefix}/${file.output}`,
       )
     }
+    requireEqual(
+      sha256(await readFile(join(root, prefix, 'NOTICE.txt'))),
+      manifest.notice.sha256,
+      `pack.paths: ${prefix}/NOTICE.txt`,
+    )
   }
-
-  // 4) Install the opencode tarball into a real consumer. The opencode
-  //    package declares core as a workspace dependency, so the consumer
-  //    overrides it with the local core tarball. OpenTUI packages are optional
-  //    host peers: provide them explicitly here to exercise the raw fallback,
-  //    while standalone CLI installs remain free of the TUI compiler stack.
-  //    `bun install` follows the export map exactly the way a real host
-  //    would — this is the round-trip we actually care about.
-  writeFileSync(
-    join(consumerDir, 'package.json'),
-    `${JSON.stringify(
-      {
-        name: 'antigravity-smoke-consumer',
-        private: true,
-        type: 'module',
-        dependencies: {
-          '@cortexkit/opencode-antigravity-auth': opencodeTarball,
-          '@opentui/core': '0.4.5',
-          '@opentui/keymap': '0.4.5',
-          '@opentui/solid': '0.4.5',
-          'solid-js': '1.9.12',
-        },
-        overrides: {
-          '@cortexkit/antigravity-auth-core': coreTarball,
-        },
-      },
-      null,
-      2,
-    )}\n`,
+  const map = JSON.parse(
+    await readFile(join(root, 'dist/tui-build-map.json'), 'utf8'),
   )
-  const installOutput = spawnSync('bun', ['install', '--no-save'], {
-    cwd: consumerDir,
-    encoding: 'utf-8',
-  })
-  if (installOutput.status !== 0) {
-    throw new Error(
-      `bun install failed: ${installOutput.stderr || installOutput.stdout}`,
+  for (const [variant, prefix, entry] of [
+    [map.raw, 'src/tui-raw', 'tui.tsx'],
+    [map.runtime, 'src/tui-compiled', 'tui.js'],
+  ] as const) {
+    const expected = variant.files
+      .map((file: { output: string }) =>
+        relative(prefix, file.output).split('\\').join('/'),
+      )
+      .sort()
+    requireEqual(
+      await inventory(join(root, prefix)),
+      expected,
+      `pack.regeneration_paths: ${prefix}`,
+    )
+    for (const file of variant.files) {
+      required.add(file.output)
+      requireEqual(
+        sha256(await readFile(join(root, file.output))),
+        file.sha256,
+        `pack.paths: ${file.output}`,
+      )
+    }
+    await auditGraph(join(root, prefix, entry))
+    requireEqual(
+      await readFile(join(root, prefix, 'selector.js'), 'utf8'),
+      await readFile(
+        join(root, 'src/common-auth-embedded/tui/index.js'),
+        'utf8',
+      ),
+      'build.selector_inert',
     )
   }
-
-  // 5) Resolve the server root and the TUI subpath through the package
-  //    export map (NOT by direct path). The subpath resolution exercises
-  //    `package.json#exports["./tui"]` exactly the way a real host would.
-  const installedRoot = join(
-    consumerDir,
-    'node_modules',
-    '@cortexkit',
-    'opencode-antigravity-auth',
-  )
-  const serverEntry = join('@cortexkit/opencode-antigravity-auth', '.')
-  const serverModule = (await import(serverEntry)) as Record<string, unknown>
-  if (
-    !serverModule.AntigravityCLIOAuthPlugin &&
-    !serverModule.GoogleOAuthPlugin
-  ) {
-    throw new Error(
-      'server root exports neither AntigravityCLIOAuthPlugin nor GoogleOAuthPlugin',
-    )
+  for (const path of required)
+    if (!listed.includes(`package/${path}`))
+      throw new Error(`pack.paths: missing ${path}`)
+  for (const entry of ['dist/index.d.ts', 'dist/src/tui.d.ts'])
+    await auditGraph(join(root, entry), { tui: false, types: true })
+  const readme = await readFile(join(root, 'README.md'), 'utf8')
+  for (const value of [
+    'Bun 1.4.2',
+    'bun run --cwd packages/opencode build:tui',
+    'src/tui-raw/tui.tsx',
+    'src/tui-compiled/tui.js',
+  ]) {
+    if (!readme.includes(value))
+      throw new Error(`pack.paths: README missing ${value}`)
   }
-
-  const tuiEntry = join('@cortexkit/opencode-antigravity-auth', 'tui')
-  const tuiModule = (await import(tuiEntry)) as { default?: unknown }
-  const tuiDefault = tuiModule.default as
-    | { id?: unknown; tui?: unknown }
-    | undefined
-  if (!tuiDefault || typeof tuiDefault !== 'object') {
-    throw new Error('tui subpath default export is not an object')
-  }
-  if (tuiDefault.id !== 'cortexkit.antigravity-auth') {
-    throw new Error(
-      `tui subpath default.id expected 'cortexkit.antigravity-auth', got ${String(tuiDefault.id)}`,
-    )
-  }
-  if (typeof tuiDefault.tui !== 'function') {
-    throw new Error(
-      'tui subpath default.tui must be a function (Solid component)',
-    )
-  }
-
-  // 6) Cross-check: the entry module's expected compiled entry path must
-  //    resolve to a real file on disk in the installed tree. If the
-  //    build layout ever drifts (Must 1 class), this assertion catches it
-  //    before a host loads the broken path.
-  const installedEntry = join(installedRoot, 'src/tui/entry.mjs')
-  const entrySrc = readFileSync(installedEntry, 'utf-8')
-  const compiledMatch = entrySrc.match(
-    /resolve\(ENTRY_DIR,\s*['"]([^'"]+)['"]\)/,
-  )
-  const compiledRel = compiledMatch?.[1]
-  if (!compiledRel) {
-    throw new Error(
-      `installed entry.mjs does not contain a recognisable compiled-entry path; first 200 chars: ${entrySrc.slice(0, 200)}`,
-    )
-  }
-  const expectedCompiled = resolve(dirname(installedEntry), compiledRel)
-  if (!existsSync(expectedCompiled)) {
-    throw new Error(
-      `compiled entry path referenced by entry.mjs does not resolve to a real file: ${expectedCompiled}`,
-    )
-  }
-
-  // Suppress the unused-import warning: pathToFileURL is part of the
-  // intended public surface for future re-exports.
-  void pathToFileURL
-
-  console.log(
-    `[smoke-tui] OK — installed via bun add, exports resolve, compiled entry at ${expectedCompiled}`,
-  )
-}
-
-function packPackage(packageRoot: string, destination: string): string {
-  const output = spawnSync(
-    'bun',
-    ['pm', 'pack', '--destination', destination],
-    { cwd: packageRoot, encoding: 'utf-8' },
-  )
-  if (output.status !== 0) {
-    throw new Error(
-      `bun pm pack failed for ${packageRoot}: ${output.stderr || output.stdout}`,
-    )
-  }
-  const tail = output.stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-  const tarball = tail
-    .reverse()
-    .find((line) => line.endsWith('.tgz') && existsSync(line))
-  if (!tarball) {
-    throw new Error(
-      `bun pm pack produced no discoverable tarball for ${packageRoot} (stdout tail: ${tail.slice(0, 3).join(' | ')})`,
-    )
-  }
-  return tarball
-}
-
-function runTar(args: string[]): string[] {
-  const output = spawnSync('tar', args, { encoding: 'utf-8' })
-  if (output.status !== 0) {
-    throw new Error(`tar ${args.join(' ')} failed: ${output.stderr}`)
-  }
-  return output.stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-}
-
-function runScript(cmd: string, args: string[], cwd: string): void {
-  const output = spawnSync(cmd, args, { cwd, encoding: 'utf-8' })
-  if (output.status !== 0) {
-    throw new Error(
-      `${cmd} ${args.join(' ')} failed in ${cwd}: ${output.stderr || output.stdout}`,
-    )
-  }
-}
-
-function createTempWorkspace(prefix: string): string {
-  const root = join(
-    tmpdir(),
-    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  )
-  mkdirSync(root, { recursive: true })
+  for (const path of await inventory(root))
+    if (/\.(md|txt)$/.test(path)) {
+      const document = await readFile(join(root, path), 'utf8')
+      if (
+        /bunx tsx|dist\/src\/tui-compiled|tui-compiled\/tui\.tsx/.test(document)
+      )
+        throw new Error(`pack.paths: removed target in ${path}`)
+    }
   return root
 }
 
-run().catch((error: unknown) => {
-  console.error(
-    '[smoke-tui] FAIL:',
-    error instanceof Error ? error.message : error,
+async function installedGraph(root: string, prefix = ''): Promise<unknown[]> {
+  const graph: unknown[] = []
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (entry.name.startsWith('.')) continue
+    const path = join(root, entry.name),
+      name = `${prefix}${entry.name}`
+    if (entry.name.startsWith('@'))
+      graph.push(...(await installedGraph(path, `${name}/`)))
+    else {
+      const pkg = JSON.parse(await readFile(join(path, 'package.json'), 'utf8'))
+      graph.push([
+        name,
+        pkg.name,
+        pkg.version,
+        pkg.dependencies ?? {},
+        pkg.peerDependencies ?? {},
+      ])
+      const nested = join(path, 'node_modules')
+      try {
+        graph.push(...(await installedGraph(nested, `${name}/node_modules/`)))
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
+  }
+  return graph.sort((a, b) =>
+    JSON.stringify(a).localeCompare(JSON.stringify(b)),
   )
-  process.exitCode = 1
-})
+}
+
+async function baseline(workspace: string) {
+  const root = join(workspace, 'baseline')
+  await mkdir(root)
+  const archive = join(root, 'source.tar')
+  run(
+    'git',
+    ['archive', baselineRevision, 'packages/opencode', '-o', archive],
+    repo,
+  )
+  run('tar', ['-xf', archive, '-C', root], repo)
+  const packageRoot = join(root, 'packages/opencode')
+  // Reuse compiler dependency links only while building the archived baseline.
+  // The installed consumers below are separate fresh-tar installs with no workspace links.
+  await symlink(
+    join(PACKAGE_ROOT, 'node_modules'),
+    join(packageRoot, 'node_modules'),
+    'dir',
+  )
+  await symlink(join(repo, 'node_modules'), join(root, 'node_modules'), 'dir')
+  run(
+    join(repo, 'node_modules/.bin/tsc'),
+    ['-p', 'tsconfig.build.json'],
+    packageRoot,
+  )
+  for (const [entry, name] of [
+    ['index.ts', 'index'],
+    ['src/cli.ts', 'cli'],
+  ] as const)
+    await bundle({
+      absWorkingDir: packageRoot,
+      entryPoints: [entry],
+      outfile: `dist/${name}.js`,
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      external: ['zod'],
+      banner: name === 'cli' ? { js: '#!/usr/bin/env node' } : undefined,
+    })
+  run('bun', ['scripts/build-tui.ts'], packageRoot)
+  return packageRoot
+}
+
+async function install(
+  workspace: string,
+  name: string,
+  tar: string,
+  core: string,
+  manager: 'npm' | 'bun',
+  ui: boolean,
+  scripts: boolean,
+) {
+  const root = join(workspace, name)
+  await mkdir(root)
+  await writeFile(
+    join(root, 'package.json'),
+    JSON.stringify({
+      name: 'owned-pack-consumer',
+      private: true,
+      type: 'module',
+      dependencies: {
+        [productName]: tar,
+        ...(ui
+          ? {
+              '@opentui/core': '0.4.5',
+              '@opentui/keymap': '0.4.5',
+              '@opentui/solid': '0.4.5',
+              'solid-js': '1.9.12',
+            }
+          : {}),
+      },
+      overrides: { '@cortexkit/antigravity-auth-core': core },
+    }),
+  )
+  const env = {
+    ...process.env,
+    HOME: join(root, 'home'),
+    XDG_CONFIG_HOME: join(root, 'config'),
+    XDG_STATE_HOME: join(root, 'state'),
+    BUN_INSTALL_CACHE_DIR:
+      process.env.BUN_INSTALL_CACHE_DIR ??
+      resolve(dirname(process.execPath), '../install/cache'),
+    npm_config_audit: 'false',
+    npm_config_fund: 'false',
+  }
+  await mkdir(env.HOME, { recursive: true })
+  run(manager, ['install', ...(scripts ? [] : ['--ignore-scripts'])], root, env)
+  const installed = join(root, 'node_modules', productName)
+  if ((await realpath(installed)) !== installed)
+    throw new Error('consumer.installed_resolution: workspace link')
+  const graph = await installedGraph(join(root, 'node_modules'))
+  if (JSON.stringify(graph).includes('@cortexkit/common-auth'))
+    throw new Error('consumer.cli_lean: common/tool runtime dependency')
+  const probe = join(root, 'probe.mjs')
+  await writeFile(
+    probe,
+    `import assert from 'node:assert/strict';
+import { realpathSync, readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+const root = ${JSON.stringify(installed)};
+const pkg = JSON.parse(readFileSync(root + '/package.json'));
+assert.equal(import.meta.resolve(${JSON.stringify(productName)}), pathToFileURL(root + '/' + pkg.exports['.'].import).href);
+assert.equal(import.meta.resolve(${JSON.stringify(`${productName}/tui`)}), pathToFileURL(root + '/' + pkg.exports['./tui'].import).href);
+assert.equal(realpathSync(root), root);
+const server = await import(${JSON.stringify(productName)});
+assert.equal(typeof server.AntigravityCLIOAuthPlugin, 'function');
+assert.equal(typeof server.GoogleOAuthPlugin, 'function');
+${
+  ui
+    ? `const { default: tui } = await import(${JSON.stringify(`${productName}/tui`)});
+assert.equal(tui.id, 'cortexkit.antigravity-auth'); assert.equal(typeof tui.tui, 'function');`
+    : ''
+}
+console.log('consumer.installed_resolution: 5 checks${ui ? '; consumer.ui045: 2 checks' : ''}');
+`,
+  )
+  const args = ui ? ['--preload', '@opentui/solid/preload', probe] : [probe]
+  const output = run('bun', args, root, env)
+  if (!output.includes('consumer.installed_resolution: 5 checks'))
+    throw new Error('consumer.installed_resolution: absent child witness')
+  // Run Node import and CLI probes from the consumer, with its isolated HOME,
+  // XDG_CONFIG_HOME and XDG_STATE_HOME; never resolve repository packages or use real user state.
+  await writeFile(
+    join(root, 'node-probe.mjs'),
+    `import assert from 'node:assert/strict'; import { pathToFileURL } from 'node:url';
+assert.equal(import.meta.resolve(${JSON.stringify(productName)}), pathToFileURL(${JSON.stringify(join(installed, 'dist/index.js'))}).href);
+assert.equal(typeof (await import(${JSON.stringify(productName)})).GoogleOAuthPlugin, 'function'); console.log('Node installed imports: 2 checks');`,
+  )
+  run('node', [join(root, 'node-probe.mjs')], root, env)
+  const cli = run('node', [join(installed, 'dist/cli.js'), '--help'], root, env)
+  if (!cli.includes('antigravity-auth'))
+    throw new Error('consumer.cli_lean: CLI help witness absent')
+  return { installed, graph }
+}
+
+async function main() {
+  await verifyPrerequisites()
+  run('bun', ['run', '--cwd', 'packages/core', 'build'], repo)
+  run('bun', ['run', 'build'], PACKAGE_ROOT)
+  const workspace = await mkdtemp(join(repo, '.tui-pack-'))
+  try {
+    const core = await pack(
+      join(repo, 'packages/core'),
+      join(workspace, 'core-pack'),
+      'npm',
+      false,
+    )
+    const baseRoot = await baseline(workspace)
+    const baseTar = await pack(
+      baseRoot,
+      join(workspace, 'baseline-pack'),
+      'npm',
+      false,
+    )
+    let observations = 0
+    for (const manager of ['npm', 'bun'] as const) {
+      const baselines = new Map<boolean, unknown[]>()
+      for (const ui of [false, true]) {
+        const base = await install(
+          workspace,
+          `baseline-${manager}-${ui}`,
+          baseTar,
+          core,
+          manager,
+          ui,
+          false,
+        )
+        baselines.set(ui, base.graph)
+      }
+      for (const scripts of [true, false]) {
+        const tar = await pack(
+          PACKAGE_ROOT,
+          join(workspace, `pack-${manager}-${scripts}`),
+          manager,
+          scripts,
+        )
+        const packedRoot = await inspectPack(
+          tar,
+          join(workspace, `inspect-${manager}-${scripts}`),
+        )
+        for (const ui of [false, true]) {
+          const consumer = await install(
+            workspace,
+            `product-${manager}-${scripts}-${ui}`,
+            tar,
+            core,
+            manager,
+            ui,
+            scripts,
+          )
+          requireEqual(
+            consumer.graph,
+            baselines.get(ui),
+            `consumer.cli_lean: ${manager}/${scripts}/${ui} full baseline graph delta`,
+          )
+          const packed = await inventory(packedRoot)
+          requireEqual(
+            await inventory(consumer.installed),
+            packed,
+            `pack.paths: ${manager} installed inventory`,
+          )
+          for (const path of packed)
+            requireEqual(
+              sha256(await readFile(join(consumer.installed, path))),
+              sha256(await readFile(join(packedRoot, path))),
+              `pack.paths: installed ${path}`,
+            )
+          observations++
+        }
+      }
+    }
+    console.log(
+      `smoke-tui: pack.paths, pack.copy_order, pack.regeneration_paths, pack.repository_input_excluded, consumer.ui045, consumer.cli_lean, consumer.installed_resolution passed; 4 fresh packs, ${observations} product and 4 baseline consumers`,
+    )
+  } finally {
+    await rm(workspace, { recursive: true, force: true })
+  }
+}
+if (import.meta.main) await main()
