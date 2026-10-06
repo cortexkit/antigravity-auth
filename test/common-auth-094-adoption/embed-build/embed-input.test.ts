@@ -2,14 +2,17 @@ import { afterEach, expect, test } from 'bun:test'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
+  cp,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
 } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -378,12 +381,82 @@ test('embed.clean_input', async () => {
 
 test('build.repo_hygiene', async () => {
   const target = await owned()
+  const childManifest = 'packages/opencode/package.json'
+  const privateRoot = 'tools/common-auth-build'
+  const privateLock = `${privateRoot}/bun.lock`
   await copy(target, [
     'biome.jsonc',
     'package.json',
     'lefthook.yml',
+    '.gitattributes',
+    '.gitignore',
+    childManifest,
+    'packages/opencode/scripts/build-tui.ts',
+    'packages/opencode/scripts/embed-common-auth.ts',
+    `${privateRoot}/package.json`,
+    privateLock,
     ...protectedPaths,
   ])
+  // Without the child manifest Bun falls back to the root script, recursively
+  // delegating to itself. Refuse incomplete fixtures before running a wrapper.
+  async function admitChild() {
+    const bytes = await readFile(join(target, childManifest), 'utf8').catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error
+        throw new Error('build.repo_hygiene: child manifest missing')
+      },
+    )
+    if (
+      JSON.parse(bytes).scripts?.['embed:check'] !==
+      'bun scripts/build-tui.ts --check'
+    )
+      throw new Error('build.repo_hygiene: child embed:check misresolved')
+  }
+  await admitChild()
+  const childBytes = await readFile(join(target, childManifest))
+  try {
+    await rm(join(target, childManifest))
+    await expect(admitChild()).rejects.toThrow(
+      'build.repo_hygiene: child manifest missing',
+    )
+    const manifest = JSON.parse(childBytes.toString())
+    manifest.scripts['embed:check'] =
+      'bun run --cwd packages/opencode embed:check'
+    await put(target, childManifest, JSON.stringify(manifest))
+    await expect(admitChild()).rejects.toThrow(
+      'build.repo_hygiene: child embed:check misresolved',
+    )
+  } finally {
+    await put(target, childManifest, childBytes)
+  }
+  expect(await readFile(join(target, childManifest))).toEqual(childBytes)
+  await admitChild()
+  // The real embedding check resolves scripts relative to their own files and
+  // requires a private installation contained in this fixture, not vendor links.
+  const lockBytes = await readFile(join(target, privateLock))
+  const installed = command(join(target, privateRoot), 'bun', [
+    'install',
+    '--frozen-lockfile',
+    '--offline',
+    '--ignore-scripts',
+    '--cache-dir',
+    process.env.COMMON_AUTH_BUN_CACHE ??
+      resolve(dirname(process.execPath), '../install/cache'),
+  ])
+  expect(installed).toMatch(/\d+ packages? installed|Checked \d+ installs/)
+  expect(await readFile(join(target, privateLock))).toEqual(lockBytes)
+  // Bun's workspace install can keep these two build-script imports under the
+  // product package rather than the root vendor directory. Copy only their
+  // package contents; never copy the workspace store or link the private tool.
+  const buildRequire = createRequire(
+    join(root, 'packages/opencode/scripts/build-tui.ts'),
+  )
+  for (const name of ['esbuild', 'jsonc-parser'])
+    await cp(
+      dirname(await realpath(buildRequire.resolve(`${name}/package.json`))),
+      join(target, 'packages/opencode/node_modules', name),
+      { recursive: true, dereference: true },
+    )
   await symlink(join(root, 'node_modules'), join(target, 'node_modules'))
   const generated = [
     'packages/opencode/src/tui-raw/canary.js',
@@ -395,8 +468,37 @@ test('build.repo_hygiene', async () => {
   const before = await hashes(target, immutable)
   const handwritten = 'packages/opencode/src/handwritten.ts'
   await put(target, handwritten, 'export const handwritten = 1\n')
+  // A success-only embedding command must not satisfy the hygiene fixture:
+  // an invalid private lock must stop the real wrapper before Biome runs.
+  try {
+    await put(
+      target,
+      privateLock,
+      Buffer.concat([lockBytes, Buffer.from('\n')]),
+    )
+    const invalidLock = spawnSync(process.execPath, ['run', 'format:check'], {
+      cwd: target,
+      encoding: 'utf8',
+      timeout: 120000,
+    })
+    expect(invalidLock.status).toBe(1)
+    expect(`${invalidLock.stdout}${invalidLock.stderr}`).toContain(
+      'build.prerequisite_order: private Bun lock mismatch',
+    )
+    expect(`${invalidLock.stdout}${invalidLock.stderr}`).not.toMatch(
+      /(?:Formatted|Checked) [1-9]\d* files?/,
+    )
+  } finally {
+    await put(target, privateLock, lockBytes)
+  }
+  expect(await readFile(join(target, privateLock))).toEqual(lockBytes)
+  expect(await hashes(target, immutable)).toEqual(before)
   for (const script of ['format:check', 'lint', 'format']) {
+    await admitChild()
     const output = command(target, 'bun', ['run', script])
+    expect(output).toContain(
+      'Embedding and private Bun-lock roots verified (Bun 1.4.2)',
+    )
     expect(output).toMatch(/(?:Formatted|Checked) [1-9]\d* files?/)
     expect(await hashes(target, immutable)).toEqual(before)
   }
