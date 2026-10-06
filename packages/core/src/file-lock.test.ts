@@ -35,10 +35,92 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'file-lock-'))
 })
 
-afterEach(async () => {
-  await Promise.all(Array.from(activeLocks, (lock) => lock.release()))
-  activeLocks.clear()
-  await rm(root, { recursive: true, force: true })
+async function cleanupFileLocks(
+  currentRoot: () => string,
+  locks: Set<Pick<FencedFileLock, 'release'>>,
+): Promise<void> {
+  // A timed-out Bun hook can continue after the next case starts. Snapshot
+  // its root and consume only its handles before awaiting any releases, so
+  // resumed cleanup cannot delete the next root or clear the next handles.
+  const ownedRoot = currentRoot()
+  const ownedLocks = Array.from(locks)
+  for (const lock of ownedLocks) locks.delete(lock)
+  await Promise.all(ownedLocks.map((lock) => lock.release()))
+  await rm(ownedRoot, { recursive: true, force: true })
+}
+
+afterEach(() => cleanupFileLocks(() => root, activeLocks))
+
+describe('file-lock test cleanup', () => {
+  it('preserves a later root and handle when an earlier cleanup resumes', async () => {
+    const firstRoot = join(root, 'cleanup-first')
+    const nextRoot = join(root, 'cleanup-next')
+    await mkdir(firstRoot)
+    await mkdir(nextRoot)
+
+    let currentRoot = firstRoot
+    // Cleanup needs only release(), not the rest of a live lock's API.
+    const locks = new Set<Pick<FencedFileLock, 'release'>>()
+    let releaseStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      releaseStarted = resolve
+    })
+    let finishRelease!: () => void
+    const gate = new Promise<void>((resolve) => {
+      finishRelease = resolve
+    })
+    const firstLock = {
+      release: () => {
+        releaseStarted()
+        return gate
+      },
+    }
+    let nextReleaseCalls = 0
+    const nextLock = {
+      release: async () => {
+        nextReleaseCalls++
+      },
+    }
+    locks.add(firstLock)
+    const cleanup = cleanupFileLocks(() => currentRoot, locks)
+
+    try {
+      await started
+      // Neither root may be removed while the captured release is pending.
+      expect((await fsp.readdir(root)).sort()).toEqual([
+        'cleanup-first',
+        'cleanup-next',
+      ])
+      const firstLockTrackedWhileReleasing = locks.has(firstLock)
+      currentRoot = nextRoot
+      locks.add(nextLock)
+      finishRelease()
+      await cleanup
+
+      expect({
+        remainingRoots: await fsp.readdir(root),
+        firstLockTrackedWhileReleasing,
+        nextLockTracked: locks.has(nextLock),
+        nextReleaseCalls,
+      }).toEqual({
+        remainingRoots: ['cleanup-next'],
+        firstLockTrackedWhileReleasing: false,
+        nextLockTracked: true,
+        nextReleaseCalls: 0,
+      })
+    } finally {
+      finishRelease()
+      try {
+        await cleanup
+      } finally {
+        await Promise.all(
+          [firstRoot, nextRoot].map((path) =>
+            rm(path, { recursive: true, force: true }),
+          ),
+        )
+      }
+    }
+  })
 })
 
 async function readLock(lockPath: string): Promise<{
@@ -1038,13 +1120,12 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
     expect(lock).not.toBeNull()
     expect(lock?.hasLost()).toBe(false)
 
-    // Write a different owner into the lock. Note: this happens AFTER
-    // the initial acquire, so ownership is "fresh-stolen" — the renewal
-    // must detect and bail.
+    // Replace the owner after acquisition; the renewal must detect that
+    // the lock no longer belongs to this owner and stop.
     await writeLock(lockPath, 'thief', Date.now() + 60_000)
 
-    // Bounded wait — if whenLost() never resolves, the pipeline is
-    // broken. 500ms is generous for the 10ms tick + sync re-read.
+    // Await ownership loss within this test's deadline. Renewal and its
+    // filesystem reads are asynchronous.
     const lostPromise = lock?.whenLost()
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null
     const timeout = new Promise<'timeout'>((resolve) => {
