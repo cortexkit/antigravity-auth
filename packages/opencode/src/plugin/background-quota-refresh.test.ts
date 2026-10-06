@@ -363,11 +363,15 @@ describe('BackgroundQuotaRefresh', () => {
     expect(callCount).toBeGreaterThanOrEqual(2)
   })
 
-  // ── In-flight tick not double-entered ────────────────────────────────────
+  // ── Held refresh and disposal ────────────────────────────────────────────
 
-  it('a slow tick prevents re-entry while it is in flight', async () => {
+  it('a held quota refresh enters once before release and disposal', async () => {
     let active = 0
     let maxActive = 0
+    let tickStartedResolve!: () => void
+    const tickStartedP = new Promise<void>((r) => {
+      tickStartedResolve = r
+    })
     let tickDone!: () => void
     const tickBlocked = new Promise<void>((r) => {
       tickDone = r
@@ -379,6 +383,7 @@ describe('BackgroundQuotaRefresh', () => {
       refreshAccounts: mock(async () => {
         active++
         maxActive = Math.max(maxActive, active)
+        tickStartedResolve()
         await tickBlocked
         active--
         return []
@@ -394,12 +399,18 @@ describe('BackgroundQuotaRefresh', () => {
       random: () => 0,
       now: () => Date.now(),
     })
-    poller.start()
-    // Give the first tick a moment to start.
-    await new Promise((r) => setTimeout(r, 20))
-    tickDone()
-    await poller.dispose()
-    expect(maxActive).toBe(1)
+    try {
+      poller.start()
+      // A startup timer can fire before async lock acquisition admits the refresh.
+      // Wait for the quota mock itself to enter before releasing it or disposing.
+      await tickStartedP
+      tickDone()
+      await poller.dispose()
+      expect(maxActive).toBe(1)
+    } finally {
+      tickDone()
+      await poller.dispose()
+    }
   })
 
   // ── Async dispose awaits in-flight tick ───────────────────────────────────
