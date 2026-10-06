@@ -3,8 +3,9 @@ import { DEFAULT_CONFIG } from './config'
 import type { PluginClient } from './types'
 
 describe('logger sink routing', () => {
-  beforeEach(() => {
-    // Each test re-imports the modules to start with a clean debug state.
+  beforeEach(async () => {
+    const { setRuntimeLogLevel } = await import('./logger')
+    setRuntimeLogLevel('debug')
   })
 
   afterEach(async () => {

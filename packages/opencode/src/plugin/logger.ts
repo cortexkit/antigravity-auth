@@ -10,6 +10,11 @@
  */
 
 import { setLogSink } from '@cortexkit/antigravity-auth-core'
+import {
+  type ChannelLogger,
+  createLoggerInstance,
+} from '../common-auth-embedded/logger/index.js'
+import { isProviderSecretKey } from '../logging/provider-key-policy'
 import { isDebugTuiEnabled } from './debug'
 import { isTruthyFlag, writeConsoleLog } from './logging-utils'
 import type { OperatorSettings } from './operator-settings'
@@ -18,13 +23,6 @@ import type { PluginClient } from './types'
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 const ENV_CONSOLE_LOG = 'OPENCODE_ANTIGRAVITY_CONSOLE_LOG'
-
-const LEVEL_PRIORITY: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-}
 
 const LOG_LEVEL_FROM_OPERATOR: Record<OperatorSettings['log_level'], LogLevel> =
   {
@@ -45,9 +43,19 @@ export interface Logger {
 let _client: PluginClient | null = null
 let _configuredLevel: LogLevel = 'debug'
 
-function shouldEmit(level: LogLevel): boolean {
-  return LEVEL_PRIORITY[level] >= LEVEL_PRIORITY[_configuredLevel]
-}
+// Sink-only mode scrubs before forwarding and owns no file buffer or timer.
+// The dynamic floor also applies to channels created before initialization.
+const providerLogger = createLoggerInstance({
+  level: () => _configuredLevel,
+  extraSecretKeys: isProviderSecretKey,
+  captureSink: ({ channel, level, message, data }) => {
+    const extra =
+      data !== null && typeof data === 'object' && !Array.isArray(data)
+        ? Object.fromEntries(Object.entries(data))
+        : undefined
+    emitLog(channel, level === 'trace' ? 'debug' : level, message, extra)
+  },
+})
 
 /**
  * Set the runtime log level. Reads from the operator settings controller
@@ -68,7 +76,7 @@ export function initLogger(client: PluginClient): void {
   // Route core (@cortexkit/antigravity-auth-core) logs into the same TUI/console
   // sinks the OpenCode logger uses, so logs from migrated core modules surface.
   setLogSink(({ service, level, message, extra }) => {
-    emitLog(service, level as LogLevel, message, extra)
+    providerLogger.createLogger(service)[level](message, extra)
   })
 }
 
@@ -91,19 +99,21 @@ function emitLog(
   message: string,
   extra?: Record<string, unknown>,
 ): void {
-  if (!shouldEmit(level)) return
-
   // TUI logging: controlled only by debug_tui policy
   if (isDebugTuiEnabled()) {
     const app = _client?.app
     if (app && typeof app.log === 'function') {
-      app
-        .log({
-          body: { service, level, message, extra },
-        })
-        .catch(() => {
-          // Silently ignore logging errors
-        })
+      try {
+        app
+          .log({
+            body: { service, level, message, extra },
+          })
+          .catch(() => {
+            // Silently ignore logging errors
+          })
+      } catch {
+        // A synchronous host failure must not suppress the independent console.
+      }
     }
   }
 
@@ -111,7 +121,11 @@ function emitLog(
   if (isConsoleLogEnabled()) {
     const prefix = `[${service}]`
     const args = extra ? [prefix, message, extra] : [prefix, message]
-    writeConsoleLog(level, ...args)
+    try {
+      writeConsoleLog(level, ...args)
+    } catch {
+      // Logging failures must not escape into provider operations.
+    }
   }
   // If neither TUI nor console logging is enabled, log is silently discarded
 }
@@ -121,16 +135,19 @@ function isConsoleLogEnabled(): boolean {
 }
 
 export function createLogger(module: string): Logger {
+  // Channel names must be static nonsecret module names, never identifiers.
   const service = `antigravity.${module}`
-
+  let channel: ChannelLogger | undefined
+  // Debug/config/storage can create channels while this module is still being
+  // evaluated through a cycle. Defer touching the engine until the first log.
   const log = (
     level: LogLevel,
     message: string,
     extra?: Record<string, unknown>,
   ): void => {
-    emitLog(service, level, message, extra)
+    channel ??= providerLogger.createLogger(service)
+    channel[level](message, extra)
   }
-
   return {
     debug: (message, extra) => log('debug', message, extra),
     info: (message, extra) => log('info', message, extra),

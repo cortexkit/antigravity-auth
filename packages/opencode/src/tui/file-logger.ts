@@ -23,6 +23,8 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { createLoggerInstance } from '../common-auth-embedded/logger/index.js'
+import { isProviderSecretKey } from '../logging/provider-key-policy'
 
 export type TuiLogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -57,9 +59,8 @@ interface FileLoggerOptions {
  *   never touch a real user log file).
  * - Otherwise write under `<xdg-state>/cortexkit/antigravity-auth/tui.log`.
  *
- * Falls back to a temp file when the host path cannot be resolved (e.g. no
- * home directory on a hostile CI box); the file logger itself never throws,
- * it just drops the line.
+ * There is no temporary-file fallback. The writer silently drops lines when
+ * the resolved destination cannot be written.
  */
 export function resolveTuiLogPath(): string {
   const override = process.env.ANTIGRAVITY_AUTH_TUI_LOG_FILE
@@ -135,11 +136,25 @@ function createFileLogger(options: FileLoggerOptions): TuiLogger {
     }
   }
 
+  // Keep the immediate host writer, not the public logger's buffered file mode.
+  // Each TUI writer owns a separate sink-only engine with an explicit debug floor.
+  const instance = createLoggerInstance({
+    level: 'debug',
+    extraSecretKeys: isProviderSecretKey,
+    captureSink: ({ level, message, data }) => {
+      const extra =
+        data !== null && typeof data === 'object' && !Array.isArray(data)
+          ? Object.fromEntries(Object.entries(data))
+          : undefined
+      write(level === 'trace' ? 'debug' : level, message, extra)
+    },
+  })
+  const channel = instance.createLogger('antigravity.tui')
   return {
-    debug: (message, extra) => write('debug', message, extra),
-    info: (message, extra) => write('info', message, extra),
-    warn: (message, extra) => write('warn', message, extra),
-    error: (message, extra) => write('error', message, extra),
+    debug: channel.debug,
+    info: channel.info,
+    warn: channel.warn,
+    error: channel.error,
     getLogPath: () => filePath,
   }
 }

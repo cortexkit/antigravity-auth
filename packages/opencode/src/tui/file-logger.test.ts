@@ -14,8 +14,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -59,6 +61,18 @@ describe('createTuiFileLogger', () => {
     const stat = statSync(fixture.logPath)
     expect(stat.isFile()).toBe(true)
     expect(stat.size).toBeGreaterThan(0)
+    const lines = readFileSync(fixture.logPath, 'utf8').trimEnd().split('\n')
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toStartWith('[opencode-antigravity-auth/tui] ')
+    const first = JSON.parse(
+      (lines[0] ?? '').slice('[opencode-antigravity-auth/tui] '.length),
+    )
+    expect(first).toEqual({
+      ts: expect.any(Number),
+      level: 'info',
+      message: 'hello',
+      extra: { a: 1 },
+    })
   })
 
   it('returns the configured log path from getLogPath()', () => {
@@ -96,10 +110,8 @@ describe('createTuiFileLogger', () => {
     // Pre-create the file with a permissive mode so we can prove the
     // logger tightens it back to 0o600 during rotation.
     mkdirSync(join(fixture.logPath, '..'), { recursive: true })
-    const f = Bun.file(fixture.logPath)
-    // Use Bun's writer to create a 4 KiB file (above the rotation
-    // threshold we'll pass to the logger) with mode 0o644.
-    Bun.write(f, 'x'.repeat(4096))
+    // Create synchronously so the chmod and rotation observe the seeded file.
+    writeFileSync(fixture.logPath, 'x'.repeat(4096))
     chmodSync(fixture.logPath, 0o644)
 
     const logger = createTuiFileLogger({
@@ -127,8 +139,7 @@ describe('createTuiFileLogger', () => {
       // Pre-create the file with a permissive mode so we can prove the
       // logger re-asserts the owner-only mode on every append.
       mkdirSync(join(fixture.logPath, '..'), { recursive: true })
-      const f = Bun.file(fixture.logPath)
-      Bun.write(f, 'pre-existing log line\n')
+      writeFileSync(fixture.logPath, 'pre-existing log line\n')
       chmodSync(fixture.logPath, 0o644)
 
       const before = statSync(fixture.logPath).mode & 0o777
