@@ -5,14 +5,14 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 import {
-  ModuleKind,
-  ModuleResolutionKind,
-  ScriptTarget,
   createCompilerHost,
   createProgram,
   createSourceFile,
   flattenDiagnosticMessageText,
   getPreEmitDiagnostics,
+  ModuleKind,
+  ModuleResolutionKind,
+  ScriptTarget,
   version as typescriptVersion,
 } from 'typescript'
 import {
@@ -28,18 +28,18 @@ import {
   commandForCase,
   inventory,
   isolatedEnv,
+  type Matrix,
   materialize,
+  PinSchema,
+  PORTS,
   parseArgs,
   parseLines,
   parseTunnelRequests,
-  PinSchema,
-  PORTS,
   selectCases,
   sha256,
   sourceDigests,
   validateMatrix,
   verifiedBinary,
-  type Matrix,
   type Wire,
 } from './measure-ga-proxy-matrix.ts'
 

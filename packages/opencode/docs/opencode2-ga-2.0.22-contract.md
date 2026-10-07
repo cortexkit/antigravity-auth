@@ -1,9 +1,12 @@
 # OpenCode 2.0.22 released-host contract
 
-This is a **source/API contract**, not an adapter acceptance report. The selected
-transport is the stock Google HTTP driver, a request-hook rewrite to an owned
-IPv4 loopback bridge, and the unchanged raw AGY sender behind that bridge.
-Proxy users must explicitly exclude loopback. No custom AI SDK factory, host
+This is a **source/API contract**, not an adapter acceptance report. OpenCode 2's
+HTTP client dispatches native Google model requests. The selected transport keeps
+the stock Google HTTP driver and rewrites matching requests to our owned IPv4
+loopback bridge, which hands them to the unchanged raw AGY sender. OpenCode 2's
+HTTP client can send that loopback request through an environment proxy, so proxy
+users must explicitly exclude loopback. Fail-closed validation and the unchanged
+raw sender remain required. No custom AI SDK factory, host
 patch, process-wide fetch override, or environment mutation is part of this
 contract. Real-host loading, native amd64 measurements, TLS negatives,
 compaction, cancellation and full TUI parity remain separate gates.
@@ -113,7 +116,7 @@ any effects; actual loader outcomes belong in the later no-op outcomes report.
 | Request hook | `context.session.hook('http.request', callback, {providerID:'google'})`. Callback mutates `event.request`, does not return a Response. Event has immutable `sessionID`, `agent`, `model: Model.Ref`, `kind`, mutable `request`. GA `plugin/src/promise/session.ts:61-87,138-151`; `registration.ts:15-19`. |
 | Model filter/kinds | `primary | compaction | title | generate`, not inferred from agent name. Stock Google hooks cover off-catalog titles as well as registered primaries. Provider scoping is host-supported, not a plugin guess. GA `session.ts:57-78`; `core/src/session/model-request.ts:237,333-342,420-424`. |
 | Rewrite point | Only HTTP request replacement. Changing `model.request.baseURL` changes route provenance and can die once history has compaction parts. GA `core/src/session/model-request.ts:300-331`. Its HTTP wrapper converts the replacement Request/body back to host HTTP transport at `:333-360`. |
-| Hook stop/rejections | Throw/reject from HTTP callback before replacement to stop dispatch; no catch-and-public-fallthrough. The Promise hook uses `Effect.promise` (Life `plugin/src/promise/adapter.ts:576-580`); request preparation records rejections as a cause rather than promising a typed callback error channel. Google `core/src/session/runner/model.ts` and retained same-commit post-header `source/step.ts:263-270`/`source/hooks.ts:21-29,88-95` expose the downstream cause channel. Retained proxy control `004-control-hook-throw/stdout.jsonl:1` records native `error.type='unknown'` and the original exception message, zero bridge/provider requests. This is a prior research control, not this component's run. |
+| Hook stop/rejections | Throw/reject from HTTP callback before replacement to stop dispatch; no catch-and-public-fallthrough. The Promise hook uses `Effect.promise` (Life `plugin/src/promise/adapter.ts:576-580`); request preparation records rejections as a cause rather than promising a typed callback error channel. Google `core/src/session/runner/model.ts` and retained same-commit post-header `source/step.ts:263-270`/`source/hooks.ts:21-29,88-95` expose the downstream cause channel. The retained control `004-control-hook-throw/stdout.jsonl:1` from an earlier proxy-research run tested whether an HTTP-hook exception stops dispatch. It recorded native `error.type='unknown'`, the original exception message and zero bridge/provider requests. Those observations separately establish that a thrown HTTP-hook exception stops dispatch; they are not results of this delivery's measurement runner. |
 | Response observation | `http.response` gets immutable replaced Request and mutable Response before driver status classification. It sees upstream `response.status`, `headers.get('content-type')`, clone-readable body bytes. GA `plugin/src/promise/session.ts:80-87`; `core/src/session/model-request.ts:350-360`; `ai/src/route/executor.ts:241-254`. This is the overflow verbatim-byte assertion point. |
 | Late-error channel | Replace only the exact owned job's response body with a reader that errors with the captured genuine Error. Host response read errors retain HTTP status 200 and yield `provider.transport`, prefix `Connection lost while reading the response: `. Destroying the loopback socket alone loses the genuine cause. GA `ai/src/route/executor.ts:162-223`; accepted `refs/alfonso/accepted/bg_03056afad04772b3` (`c46182d`), `ga-post-header-independent-r2/raw-inputs.json` and `review-summary.json`. This research is not adapter coverage. |
 | JSON session error | `opencode run --standalone --format json ...`: top-level `type:'error'`, `sessionID`, nested `error.type`, `error.message`, optional `error.status`; not an assistant text part. Hook rejection control is `unknown`; captured late read failure is `provider.transport`, status 200. Retained control stdout above and GA executor `:169-205`; post-header `source/to-session-error.ts:28-52,85-95` maps transport errors to the session discriminator. |
@@ -164,7 +167,8 @@ a replacement for the required object shape.
   sidebar claims render with session metadata (`context.ts:462-514`; SlotClaim
   and SlotMap in the same source tree). Keymap `layer(() => layer)` is owned by
   the calling Solid component, plus `dispatch`, shortcut and command APIs
-  (`:384-459`). Use append/prepend sidebar claims, not replacement of others.
+  (`:384-459`). Use append/prepend sidebar claims to preserve other plugins'
+  claims rather than replace them.
 - Runtime module ids are registered by TUI
   `packages/tui/src/plugin/runtime-plugin-support.bun.ts:1-8`:
   `@opencode/plugin/tui` binds `Plugin`, `PluginContextProvider`, `usePlugin`;
@@ -222,7 +226,9 @@ original nonce/body hash/session/kind and fresh job id before replacing the
 Request, with inherited AbortSignal. It registers only the request hook and a
 scoped one-attempt retry policy; the host performs actual dispatch.
 
-The runner is complete for future native admission, not executed here:
+The source for a native Linux/amd64 proxy measurement runner is ready. Actual
+execution requires verified binary inputs, the pinned runtime and admitted
+native host/container; this delivery did not execute it:
 
 ```sh
 # Run from a clean git archive/checkout with repository Bun dependencies installed.
@@ -306,9 +312,11 @@ aggregate) certify no native amd64 or long-lived-server behavior.
 
 ### Actual raw-sender AbortSignal: original instrumentation gap
 
-This source finding predates the additive diagnostic ruling below. It remains
-retained evidence of the original missing seam, not an assertion that the later
-correction has already been implemented or exercised.
+The original limitation was that forwarding the host Request.signal did not
+expose the signal actually passed to the raw sender. The later observation
+contract adds a read-only dispatch seam; this source-only component does not
+implement or exercise that production binding. The original missing-seam
+finding below remains retained evidence.
 
 The measurement plugin's `event.request.signal` is the **host Web Request's
 signal**. Supplying it to the replacement Request establishes that Request's
@@ -349,7 +357,10 @@ or certified in this component.
 
 ### Additive diagnostic correction: implementation and host proofs pending
 
-The parent approved the narrow correction in the read-only
+The dispatch observation contract specifies a synchronous, read-only observer
+of the signal on the same dispatch-options object handed to the original
+production sender, exposed as a direct optional property of the public factory's
+existing overrides. Its provenance is the read-only
 `ga-cancellation-observation-ruling.md`, SHA-256
 `57a6e4b3a149b8746a09177263e2e7bec96e72044e90b48b346f9280960bbfc5`.
 The prior ruling body with hash
@@ -400,7 +411,9 @@ budgets and startup-trust requirements are unchanged. Socket/DNS monkeypatches,
 transport replacement, sender-byte changes, altered timeouts, host Request
 signals and fixture teardown remain forbidden substitutes.
 
-Required binding control: **`ga.raw-cancel.detached-dispatch-signal`** replaces
+The binding control checks that cancellation reaches the exact production
+transport signal, not an unrelated host or controller signal. Required binding
+control: **`ga.raw-cancel.detached-dispatch-signal`** replaces
 only the production dispatch-options signal with a fresh never-aborted
 controller's signal, while the observer still reads that same options object.
 Run at the **pre-header cancellation barrier**, with the mock withholding
@@ -414,9 +427,14 @@ fixture teardown:
   peer close within the original budget.
 - `ga.raw-cancel.uncancelled-request-completes` must remain unaffected.
 
-An unrelated timeout/error, missing case or supervisor kill is not this
-mutation's accepted failure. Those runtime assertions and mutation are not run
-by this component.
+To verify that cancellation depends on the production dispatch signal,
+`ga.raw-cancel.detached-dispatch-signal` requires both
+`ga.raw-cancel.sender-signal-aborted` and
+`ga.raw-cancel.peer-closed-before-teardown` to fail, while
+`ga.raw-cancel.uncancelled-request-completes` remains unchanged. An unrelated
+timeout/error, missing case or supervisor kill does not prove that pattern. This
+mutation and those two assertions have not been executed in this
+contracts/runner component.
 
 The pure strict negative fixture **`ga.raw-cancel.async-observer-rejected`**
 assigns an async callback directly to this component's actual exported
@@ -444,7 +462,12 @@ was changed or removed here. The oracle must run in a separate worktree at
 isolated DB, HOME/XDG/config/account file. Existing title tests do not assert
 verbatim primary overflow or parent identity and cannot substitute.
 
-Parent admission argv for the additional frozen-base assertion suite is:
+The displayed beta-boundary-oracle command below is intended to check the
+preserved beta adapter's overflow forwarding and parent-session identity against
+frozen base `b3d0c5d54d9f` before deletion. Before execution, that suite requires
+verified frozen source and its matching dependencies, the isolated DB and
+HOME/XDG/config paths shown below, and a network restriction allowing only the
+fixture loopback. The command has not executed in this delivery:
 
 ```sh
 HOME="$ORACLE_ROOT/home" XDG_CONFIG_HOME="$ORACLE_ROOT/config" \
@@ -454,7 +477,8 @@ OPENCODE_CONFIG_DIR="$ORACLE_ROOT/config/opencode" \
 bun test --isolate "$ORACLE_ROOT/beta-boundary-oracle.test.ts"
 ```
 
-The separately authored oracle must import that base's
+Frozen base `b3d0c5d54d9f` is the preserved pre-GA beta-source baseline. The
+separately authored assertion suite must import
 `createOpenCodeV2AntigravityPlugin`, not GA or this runner; inject only fake
 refresh/project/send seams; register/capture its real HTTP hook using the
 existing beta fake-context pattern (`packages/opencode-v2/test/plugin.test.ts:165-230`);
@@ -465,9 +489,11 @@ point status/content-type/body bytes, attempt count one, and the selected
 request identity's **non-null** parent via an AccountManager observer. Retain
 all independent assertion results so early overflow failure cannot prevent
 parent/attempt assertions; cleanup in finally. Network fetch beyond that
-loopback is refused. It must redden the verbatim and parent assertions, not an
-import or setup prerequisite; attempt count may pass. The suite's actual bytes,
-SHA and assertion output still require parent admission and archival. There is
+loopback is refused. It must fail at the specified verbatim-body and
+parent-identity assertions, not at an import or setup prerequisite; attempt
+count may pass. The suite's actual bytes,
+SHA and assertion output still require verified-source/dependency and isolation
+review before execution and archival. There is
 no claim that an absent test file or this source description ran successfully.
 
 ## Verification handoffs
@@ -480,14 +506,21 @@ measurement. The ordinary base typecheck does not include these Docker files.
 
 The manifest/typeconfig owner must pin `@opencode/plugin@2.0.22` in e2e, include
 this plugin and runner in the root e2e TypeScript program and add the Docker
-glob to Biome. **No SDK shims, casts or suppression substitute for that gate.**
+glob to Biome. The required strict e2e TypeScript check must type the plugin and
+measurement runner against the actual pinned SDK declarations. **No SDK shims,
+casts or suppression substitute for that check.**
 SDK-free runner/contract/tests receive a separate strict TypeScript check now;
 measurement plugin's actual GA SDK check and planted-error control remain
 pending that handoff. Focused lint explicitly feeds the four file bytes to the
 pinned Biome using existing src virtual paths until the Docker glob lands.
 
-Pending runtime gates: full verified native-amd64 matrix/promotion/conformance;
-pre-deletion beta oracle; real V1 1.17.13 name/directory/direct-file and PTY
+Completed proxy verification requires actual raw observations from the pinned
+native-amd64 host, complete independently validated matrix evidence, and
+comparison of production guard decisions against that matrix for conformance.
+Source/synthetic tests, ARM or emulated results and pending provenance do not
+certify any of those operations.
+Other pending runtime gates: pre-deletion beta oracle; real V1 1.17.13
+name/directory/direct-file and PTY
 loading/no-op outcomes; GA packed consumers/loading, stock Google compaction,
 raw-sender startup trust and hostname negatives, three cancellation phases,
 native error/overflow fidelity, returned Cleanup, two locations and full TUI

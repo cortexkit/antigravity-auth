@@ -1,5 +1,5 @@
-// The frozen request contract contains only dispatch-affecting fields. Session
-// ownership and response adaptation must not broaden this URL predicate.
+// This request contract lists only fields used to match and dispatch requests.
+// Session ownership and response handling stay out of URL pathname matching.
 export const GA_LOOPBACK_REQUEST_CONTRACT = Object.freeze({
   hook: 'http.request',
   providerID: 'google',

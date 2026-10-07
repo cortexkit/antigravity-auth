@@ -2,12 +2,12 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   writeFileSync,
-  chmodSync,
 } from 'node:fs'
 import {
   createServer,
@@ -555,8 +555,9 @@ export function classify(
       item.target === `127.0.0.1:${PORTS.mock}`,
   )
   for (const connection of connects) {
-    // An authority alone carries neither a job nor a kind. The observed inner
-    // HTTP request on that same tunnel must tie it to the primary job.
+    // A tunnel's destination authority identifies only a host and port, not a
+    // job or request kind. An observed inner HTTP request on that same tunnel
+    // must bind the connection to the primary job.
     if (
       !wire.some(
         (item) =>

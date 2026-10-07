@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import type { Plugin } from '@opencode/plugin'
 import {
@@ -7,8 +7,8 @@ import {
   normalizedRewrite,
 } from './ga-loopback-request-contract.ts'
 
-// The host, not this plugin, dispatches the rewritten Request. In particular,
-// reading routing environment here would make the measurement circular.
+// Native host dispatch of the rewritten Request is what this plugin measures.
+// It must not predict that route from proxy environment variables.
 const plugin: Plugin.Plugin = {
   id: 'cortexkit.measure.ga-host-contract',
   async setup(context) {
