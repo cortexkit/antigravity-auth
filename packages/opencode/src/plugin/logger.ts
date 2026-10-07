@@ -43,8 +43,8 @@ export interface Logger {
 let _client: PluginClient | null = null
 let _configuredLevel: LogLevel = 'debug'
 
-// Sink-only mode scrubs before forwarding and owns no file buffer or timer.
-// The dynamic floor also applies to channels created before initialization.
+// The library scrubs records before forwarding them to our TUI/console callback;
+// it owns no file buffer or timer. Each channel reads the current minimum level.
 const providerLogger = createLoggerInstance({
   level: () => _configuredLevel,
   extraSecretKeys: isProviderSecretKey,
@@ -58,10 +58,9 @@ const providerLogger = createLoggerInstance({
 })
 
 /**
- * Set the runtime log level. Reads from the operator settings controller
- * on each call so a /antigravity-logging dialog flip takes effect
- * immediately. Falls back to "debug" when the operator level is not
- * yet known.
+ * Set the runtime log level from the supplied operator level.
+ * Existing channels use the updated level on their next log call.
+ * Use debug when the supplied level has no mapping.
  */
 export function setRuntimeLogLevel(level: OperatorSettings['log_level']): void {
   _configuredLevel = LOG_LEVEL_FROM_OPERATOR[level] ?? 'debug'
@@ -80,19 +79,7 @@ export function initLogger(client: PluginClient): void {
   })
 }
 
-/**
- * Create a logger instance for a specific module.
- *
- * @param module - The module name (e.g., "refresh-queue", "transform.claude")
- * @returns Logger instance with debug, info, warn, error methods
- *
- * @example
- * ```typescript
- * const log = createLogger("refresh-queue");
- * log.debug("Checking tokens", { count: 5 });
- * log.warn("Token expired", { accountIndex: 0 });
- * ```
- */
+/** Forward a scrubbed record to the independently enabled destinations. */
 function emitLog(
   service: string,
   level: LogLevel,
@@ -134,8 +121,12 @@ function isConsoleLogEnabled(): boolean {
   return isTruthyFlag(process.env[ENV_CONSOLE_LOG])
 }
 
+/**
+ * Create a logger for a static module name, such as refresh-queue.
+ * Its debug, info, warn and error methods share the current minimum level.
+ */
 export function createLogger(module: string): Logger {
-  // Channel names must be static nonsecret module names, never identifiers.
+  // Channel names are not scrubbed; do not put account or session IDs in them.
   const service = `antigravity.${module}`
   let channel: ChannelLogger | undefined
   // Debug/config/storage can create channels while this module is still being

@@ -1,7 +1,7 @@
 # Common-auth logging bridge
 
-OpenCode consumes the canonical, byte-preserved common-auth 0.9.4 public logger
-root at `src/common-auth-embedded/logger/index.js`. The provider and each TUI file
+OpenCode uses the common-auth 0.9.4 public logger at
+`src/common-auth-embedded/logger/index.js`. The provider and each TUI file
 writer create **separate sink-only `createLoggerInstance` engines**. They never
 configure the library's global/default engine, use its file mode, flush a buffer,
 schedule a flush timer or install lifecycle handlers.
@@ -10,7 +10,8 @@ schedule a flush timer or install lifecycle handlers.
 
 - The provider explicitly supplies a dynamic level function, initially `debug`.
   Operator `error`, `warn`, `info` and `debug` levels apply immediately to existing
-  channels; `trace` maps to `debug`. The library's default `info` is not equivalent.
+  channels; `trace` maps to `debug`. The provider's initial `debug` level includes
+  records that the library's default `info` level would omit.
 - `debug_tui` forwards scrubbed provider records to `client.app.log`, independently
   of `debug` file tracing. `OPENCODE_ANTIGRAVITY_CONSOLE_LOG=1` (or `true`, ignoring
   case) independently enables the provider console destination. Otherwise provider
@@ -37,7 +38,7 @@ and enumerable custom fields are retained and scrubbed, including cross-realm
 Errors. Cycles become `[Circular]`; Error causes beyond eight Errors become
 `[Truncated]`. Redaction creates new data and does not mutate the caller's input.
 Event/notification IDs, command names, counts, status and code remain useful.
-Secret absence with erased Error details is not a valid privacy result.
+Redaction must preserve useful Error details rather than discard the entire Error.
 
 Capture sinks adapt `{channel,level,message,data}` to
 `{service,level,message,extra}`. Only checked record-shaped data is forwarded as
@@ -68,8 +69,8 @@ three backups are not used.
 
 The unchanged core nullable global `setLogSink` remains last-registration-wins.
 OpenCode initialization registers one bridge; reinitialization uses the latest
-client. There is no context/slot/global-isolation redesign and no shutdown clearing
-of another harness's registration. `ANTIGRAVITY_CORE_CONSOLE_LOG` independently
+client. Registrations are not isolated by workspace. This bridge does not clear
+another harness's registration during shutdown. `ANTIGRAVITY_CORE_CONSOLE_LOG` independently
 prints direct core records **even when a sink exists**; that opt-in is outside
 bridge privacy. TUI load/render/poll/file failures must never produce plugin
 terminal diagnostics, even with both console opt-ins set. Host UI rendering is
@@ -78,7 +79,8 @@ not logging.
 ## Verification
 
 `bun test --isolate test/common-auth-094-adoption/log/` runs the named logger
-contracts against source and an OpenTUI test-render/load/poll terminal witness.
+contracts against source. It also checks that TUI loading, rendering, polling and
+file-write failures produce no plugin diagnostics on stdout or stderr.
 After `npm run build`, `node test/common-auth-094-adoption/log/contract.mjs` runs
 the same seven non-render logger contracts against the actual adapters in a
 temporary esbuild Node bundle with canonical core module identity. The handwritten
