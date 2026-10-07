@@ -530,6 +530,7 @@ describe('location operator settings', () => {
     const settingsB = acquire(makeProject('b'))
     const dirC = makeProject('c', { operator: { log_level: 'warn' } })
     const settingsC = acquire(dirC)
+    expect(settingsB.get().routing.cli_first).toBe(false)
 
     await settingsA.update((draft) => {
       draft.routing.cli_first = true
@@ -757,12 +758,10 @@ describe('process-shared signature cache', () => {
       expect(handles.A.diskCache).not.toBeNull()
       expect(handles.B.diskCache).toBeNull()
       expect(handles.A.diskCache?.getStats().memoryEntries).toBe(1)
-      expect(handles.B.getCachedSignature('session-b', 'thought b')).toBe(
-        'sig-b',
-      )
+      expect(state.hasHotEntry('session-b', 'thought b')).toBe(true)
       // Hot entries are process-shared by session id.
-      expect(handles.B.getCachedSignature('session-a', 'thought a')).toBe(
-        'sig-a',
+      expect(handles.A.getCachedSignature('session-b', 'thought b')).toBe(
+        'sig-b',
       )
     })
   }
@@ -790,7 +789,7 @@ describe('process-shared signature cache', () => {
 
   it('applies the hot gate at exactly one hour', () => {
     const state = newState()
-    const memoryOnly = acquire(state, { keepThinking: false })
+    const memoryOnly = acquire(state, { keepThinking: true })
     memoryOnly.cacheSignature('session-e', 'edge thought', 'sig-e')
     memoryOnly.cacheSignature('session-e', 'past edge', 'sig-p')
 
@@ -888,10 +887,15 @@ describe('process-shared signature cache', () => {
     const path = join(root, 'signature-cache.json')
     const state = newState()
     const ownerA = acquire(state, { keepThinking: true, cache: LONG_CACHE })
-    const memoryOnly = acquire(state, { keepThinking: false })
+    // A location whose disk cache is disabled owns no persistence.
+    const memoryOnly = acquire(state, {
+      keepThinking: true,
+      cache: { ...LONG_CACHE, enabled: false },
+    })
     const ownerC = acquire(state, { keepThinking: true, cache: LONG_CACHE })
     const shared = ownerA.diskCache
     expect(ownerC.diskCache).toBe(shared)
+    expect(memoryOnly.diskCache).toBeNull()
 
     memoryOnly.cacheSignature('session-m', 'memory thought', 'sig-m')
     memoryOnly.signatureStore.set('session-m', {
