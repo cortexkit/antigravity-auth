@@ -1,5 +1,5 @@
-// Only dispatch-affecting fields belong here. Session ownership and response
-// adaptation are separate contracts; they must not broaden this URL predicate.
+// The frozen request contract contains only dispatch-affecting fields. Session
+// ownership and response adaptation must not broaden this URL predicate.
 export const GA_LOOPBACK_REQUEST_CONTRACT = Object.freeze({
   hook: 'http.request',
   providerID: 'google',
@@ -58,3 +58,7 @@ export async function assertRewriteConformance(
       'dispatch fields differ from the measured loopback contract',
     )
 }
+
+// A diagnostic is not a sender replacement. Returning undefined rather than
+// void prevents Promise-returning observers from satisfying this contract.
+export type ObserveRawSenderSignal = (signal: AbortSignal) => undefined

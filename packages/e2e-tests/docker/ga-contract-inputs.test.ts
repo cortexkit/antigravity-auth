@@ -5,6 +5,17 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 import {
+  ModuleKind,
+  ModuleResolutionKind,
+  ScriptTarget,
+  createCompilerHost,
+  createProgram,
+  createSourceFile,
+  flattenDiagnosticMessageText,
+  getPreEmitDiagnostics,
+  version as typescriptVersion,
+} from 'typescript'
+import {
   assertRewriteConformance,
   GA_LOOPBACK_REQUEST_CONTRACT,
   matchesGoogleContentPath,
@@ -135,6 +146,82 @@ function syntheticArchive() {
     },
   }
 }
+
+function checkObserverFixture(name: string, source: string) {
+  const filename = join(HERE, `${name}.fixture.ts`)
+  const options = {
+    strict: true,
+    noEmit: true,
+    target: ScriptTarget.ES2023,
+    module: ModuleKind.Preserve,
+    moduleResolution: ModuleResolutionKind.Bundler,
+    allowImportingTsExtensions: true,
+    lib: ['lib.es2023.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
+    types: [],
+  }
+  const host = createCompilerHost(options)
+  const originalGetSourceFile = host.getSourceFile
+  // Only the fixture is virtual. The diagnostic type and its source closure
+  // are read from the real contract file by the ordinary compiler host.
+  host.getSourceFile = (
+    path,
+    languageVersion,
+    onError,
+    shouldCreateNewSourceFile,
+  ) =>
+    path === filename
+      ? createSourceFile(path, source, languageVersion, true)
+      : originalGetSourceFile(
+          path,
+          languageVersion,
+          onError,
+          shouldCreateNewSourceFile,
+        )
+  const program = createProgram([filename], options, host)
+  return getPreEmitDiagnostics(program).map((diagnostic) => ({
+    code: diagnostic.code,
+    file: diagnostic.file?.fileName,
+    message: flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+  }))
+}
+
+describe('actual raw-sender observer type contract', () => {
+  test('ga.raw-cancel.async-observer-rejected', () => {
+    const preamble =
+      "import type { ObserveRawSenderSignal } from './ga-loopback-request-contract.ts'\n"
+    const positive = `${preamble}
+export const observeRawSenderSignal: ObserveRawSenderSignal = (signal) => {
+  signal.addEventListener('abort', () => {})
+  return undefined
+}
+`
+    const negative = `${preamble}
+export const observeRawSenderSignal: ObserveRawSenderSignal = async (signal) => {
+  signal.addEventListener('abort', () => {})
+  return undefined
+}
+`
+    expect(
+      checkObserverFixture('ga.raw-cancel.sync-observer-accepted', positive),
+    ).toEqual([])
+    const diagnostics = checkObserverFixture(
+      'ga.raw-cancel.async-observer-rejected',
+      negative,
+    )
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]?.code).toBe(2322)
+    expect(diagnostics[0]?.file).toBe(
+      join(HERE, 'ga.raw-cancel.async-observer-rejected.fixture.ts'),
+    )
+    expect(diagnostics[0]?.message).toContain('Promise<undefined>')
+    expect(diagnostics[0]?.message).toContain(
+      "not assignable to type 'undefined'",
+    )
+    console.info(
+      `TypeScript ${typescriptVersion}: synchronous observer accepted; async observer rejected with TS2322`,
+    )
+  }, 30_000)
+})
 
 describe('GA materialized inputs', () => {
   test('GA pin is the independently verified released x64 artifact, not a source attestation', () => {

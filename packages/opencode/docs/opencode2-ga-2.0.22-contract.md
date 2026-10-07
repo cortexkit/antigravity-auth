@@ -304,14 +304,18 @@ and raw-empty cases measure that distinction. Accepted 71-case native ARM
 research and 65 completed emulated x64 cases (six pre-setup timeouts, failed
 aggregate) certify no native amd64 or long-lived-server behavior.
 
-### Actual raw-sender AbortSignal: unresolved instrumentation prerequisite
+### Actual raw-sender AbortSignal: original instrumentation gap
+
+This source finding predates the additive diagnostic ruling below. It remains
+retained evidence of the original missing seam, not an assertion that the later
+correction has already been implemented or exercised.
 
 The measurement plugin's `event.request.signal` is the **host Web Request's
 signal**. Supplying it to the replacement Request establishes that Request's
 following signal; it neither observes nor proves the identity or abort
 transition of the signal passed to the raw AGY sender. The source/API contract
-and proxy measurement are complete independently of the following unresolved
-runtime observation prerequisite.
+and proxy-measurement component are independent of this separate runtime
+observation prerequisite.
 
 At this adapter's baseline `53684d66af97ea4cd44b6dc18d0e039f2526a978`, the actual
 unchanged sender is `packages/core/src/agy-transport.ts`:
@@ -329,19 +333,106 @@ unchanged sender is `packages/core/src/agy-transport.ts`:
   not the actual signal object or its abort transition. Neither the sealed
   override list nor these diagnostics provides an actual-signal observer API.
 
-**Hard prerequisite for the three cancellation gates:** an explicitly admitted
-observation mechanism for the actual sender's `options.signal` is still missing.
-The supplied C-CANCEL/C-HOSTS and A4 requirements retain all their force: `send`
+**Original hard prerequisite, before the additive correction:** an explicitly
+admitted observation mechanism for the actual sender's `options.signal` was
+missing. The supplied C-CANCEL/C-HOSTS and A4 requirements retain all their force: `send`
 is omitted, the raw sender is unchanged, and each connecting/pre-header/
 post-header case must separately record that signal's transition **and** the
 peer's natural TCP/TLS close within 2000 ms with no further bytes. Peer close
 alone, a host Request signal, an injected/wrapped `send`, transport monkeypatching,
-or forced teardown cannot certify cancellation. No nonexistent observer API or
-approved addendum is named here. Parent owns the bounded sealed-body/wiring
-reconciliation and any minimal explicit design correction plus cross-owner
-handoff before a concrete mechanism may be admitted. This prerequisite does not
-pause preparation or source/pin completion of unrelated GA components, and it
-was not run or certified in this component.
+or forced teardown cannot certify cancellation. At that point no observer API
+or approved addendum was asserted. Parent owned the sealed-body/wiring
+reconciliation and explicit design correction plus cross-owner handoff, now
+recorded below. The original missing-seam finding did not pause preparation or
+source/pin completion of unrelated GA components; no cancellation gate was run
+or certified in this component.
+
+### Additive diagnostic correction: implementation and host proofs pending
+
+The parent approved the narrow correction in the read-only
+`ga-cancellation-observation-ruling.md`, SHA-256
+`57a6e4b3a149b8746a09177263e2e7bec96e72044e90b48b346f9280960bbfc5`.
+The prior ruling body with hash
+`ff2677453da42f0fd9e57069c92a8625a954091c26195839853c0706fa1e8afd`
+remains retained by the parent; the final body clarifies public factory exposure.
+It addresses the original design gap without changing the source findings above.
+The correction adds exactly this **direct optional property** to the existing
+SDK-free `GaPluginOverrides` accepted by `createGaAntigravityPlugin(overrides)`:
+
+```ts
+observeRawSenderSignal?: (signal: AbortSignal) => undefined
+```
+
+The existing named `createGaAntigravityPlugin` factory remains reachable through
+the packed `@cortexkit/opencode-antigravity-auth/server` entry and its public
+declarations. The real-host wrapper calls that factory with this property and
+`send` omitted. No nested diagnostics bag, environment switch, new factory,
+global hook or private dist-leaf import is admitted. If `send` is supplied,
+the observer is not invoked because the production sender is not exercised.
+
+`ga-loopback-request-contract.ts` exposes the exact callback type as
+`ObserveRawSenderSignal` for the measurement-declaration fixture; it does not
+invent a replacement or partial `GaPluginOverrides` declaration. The return
+type is **undefined**, not void: an async observer returning
+`Promise<undefined>` cannot satisfy it. There is no additional credential,
+headers, body, project or account argument, no new configuration surface and
+no core/common-auth transport API change. The runtime owner incorporates this
+one direct property into the actual existing factory/declaration closure.
+
+The **GA runtime owner** implements the following exact default-sender binding:
+construct one transport-options object, synchronously observe the `signal`
+property of that **same object**, then hand the identical object to the original
+production `agyTransport`. Observing a separate controller variable and then
+constructing different dispatch options is not admitted. Call the original
+sender directly, only in the default sender branch; do not wrap it or supply a
+`send` override. The observer is absent on normal calls, non-awaited, introduces
+no microtask boundary and cannot alter dispatch when it throws synchronously.
+Diagnostic implementations manage their own work and may not return a Promise.
+The measurement plugin performs no AGY send and therefore does not invoke this
+observer or claim that its host Request signal is the observed sender signal.
+
+The **real-host harness owner** supplies the observer with `send` omitted,
+records the actual signal object and its abort transition, and removes its own
+listeners during test teardown. It separately observes the upstream peer's
+natural close; absent/incomplete signal observation or peer-close evidence
+refuses certification. Original connecting/pre-header/post-header cancellation
+budgets and startup-trust requirements are unchanged. Socket/DNS monkeypatches,
+transport replacement, sender-byte changes, altered timeouts, host Request
+signals and fixture teardown remain forbidden substitutes.
+
+Required binding control: **`ga.raw-cancel.detached-dispatch-signal`** replaces
+only the production dispatch-options signal with a fresh never-aborted
+controller's signal, while the observer still reads that same options object.
+Run at the **pre-header cancellation barrier**, with the mock withholding
+response headers, not after headers where reader cancellation could obscure the
+signal binding. Collect both named failure records **before** deliberate
+fixture teardown:
+
+- `ga.raw-cancel.sender-signal-aborted` must fail for the missing actual-signal
+  abort transition.
+- `ga.raw-cancel.peer-closed-before-teardown` must fail for the missing natural
+  peer close within the original budget.
+- `ga.raw-cancel.uncancelled-request-completes` must remain unaffected.
+
+An unrelated timeout/error, missing case or supervisor kill is not this
+mutation's accepted failure. Those runtime assertions and mutation are not run
+by this component.
+
+The pure strict negative fixture **`ga.raw-cancel.async-observer-rejected`**
+assigns an async callback directly to this component's actual exported
+`ObserveRawSenderSignal` declaration for that property. It requires exactly one
+TS2322 diagnostic (`Promise<undefined>` is not assignable to `undefined`); the
+corresponding synchronous callback compiles with zero diagnostics. Both
+programs read the real declaration and source closure; only the fixture source
+is virtual, with no stubs or suppressions. This is an actual measurement-declaration
+type check, **not** a future packed `GaPluginOverrides` declaration, runtime
+implementation or host/sender execution pass. The future packed-declaration
+fixture must assign directly to
+`NonNullable<GaPluginOverrides['observeRawSenderSignal']>` from the public server
+entry; it cannot count this measurement signature check in its place. Runtime
+and harness owners must repeat their actual declaration/binding/abort gates
+once the correction is integrated; source/pin completion and preparation of
+other GA gates need not pause.
 
 ## Pre-deletion beta boundary oracle: pending parent admission
 
@@ -400,7 +491,9 @@ pre-deletion beta oracle; real V1 1.17.13 name/directory/direct-file and PTY
 loading/no-op outcomes; GA packed consumers/loading, stock Google compaction,
 raw-sender startup trust and hostname negatives, three cancellation phases,
 native error/overflow fidelity, returned Cleanup, two locations and full TUI
-mount/parity. The actual raw-sender signal observer above is a distinct hard
-prerequisite for the three cancellation gates, not an inferred host-signal pass.
+mount/parity. Implementation of the additive actual raw-sender observer and its
+binding control above remains a distinct hard prerequisite for the three
+cancellation gates, not an inferred host-signal pass. The signature-only strict
+fixture does not certify that runtime binding.
 No source reading, synthetic matrix, ARM result, emulated result
 or pending provenance is counted as one of those passes.
