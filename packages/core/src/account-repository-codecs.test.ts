@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 
 import {
   AccountCodecError,
+  createProviderStateCodec,
   decodeProviderMetadata,
   decodeProviderState,
   decodeQuotaState,
@@ -15,7 +16,6 @@ import {
   isValidProviderState,
   isValidQuotaState,
   mergeQuotaState,
-  PROVIDER_STATE_CODEC,
   providerStateCredentialBound,
   QUOTA_CODEC,
 } from './account-repository-codecs.ts'
@@ -25,11 +25,25 @@ import {
   legacyAccountsLock,
   type ProviderMetadata,
   type ProviderStateEnvelope,
+  type ProviderStatePolicy,
   refreshProviderLock,
 } from './account-repository-types.ts'
 
 // Every value below is synthetic. Nothing here reads account files or talks
 // to a provider.
+
+/**
+ * A stand-in for the repository's rules: merge lets incoming metadata fields
+ * win, and a replace keeps only the metadata handed to it.
+ */
+const testPolicy: ProviderStatePolicy = {
+  merge: (onDisk, incoming) => ({
+    ...onDisk,
+    metadata: { ...onDisk.metadata, ...incoming.metadata },
+  }),
+  onReplace: (_previous, replacement) => replacement.incoming,
+}
+const PROVIDER_STATE_CODEC = createProviderStateCodec(testPolicy)
 
 const json = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
@@ -627,7 +641,7 @@ describe('provider-state credential-bound projection', () => {
     expect(metadata.projectId).toBeNull()
     expect(Object.hasOwn(metadata, 'managedProjectId')).toBe(false)
     expect(bound.schemaVersion).toBe(1)
-    expect(PROVIDER_STATE_CODEC.credentialBound?.(wire)).toEqual(bound)
+    expect(PROVIDER_STATE_CODEC.credentialBound(wire)).toEqual(bound)
   })
 
   it('ignores fields the stamp must not cover', () => {
@@ -707,6 +721,179 @@ describe('provider-state credential-bound projection', () => {
     expectRefused(
       () => providerStateCredentialBound(withMetadata({ email: 1 })),
       '$.metadata.email',
+    )
+  })
+})
+
+describe('provider-state codec factory', () => {
+  it('opens with every store hook when both rules are given', () => {
+    const codec = createProviderStateCodec(testPolicy)
+    for (const hook of [
+      'validate',
+      'credentialBound',
+      'merge',
+      'onReplace',
+    ] as const) {
+      expect(typeof codec[hook]).toBe('function')
+    }
+    expect(codec.validate(fullEnvelopeWire())).toBe(true)
+    expect(codec.validate(withMetadata({ email: 1 }))).toBe(false)
+    expect(codec.credentialBound(fullEnvelopeWire())).toEqual(
+      providerStateCredentialBound(fullEnvelopeWire()),
+    )
+  })
+
+  it('hands merge decoded values and stores its encoded result', () => {
+    const seen: ProviderStateEnvelope[] = []
+    const codec = createProviderStateCodec({
+      ...testPolicy,
+      merge: (onDisk, incoming) => {
+        seen.push(onDisk, incoming)
+        return testPolicy.merge(onDisk, incoming)
+      },
+    })
+    const incoming: ProviderStateEnvelope = {
+      schemaVersion: 1,
+      metadata: { addedAt: 1, lastUsed: 99, projectId: 'proj-new' },
+    }
+    const merged = codec.merge(fullEnvelopeWire(), incoming) as JsonObject
+
+    expect(seen[0]?.metadata.extensions).toEqual({
+      futureTopLevel: { anything: ['goes', null, true, 1.5] },
+    })
+    expect(seen[1]).toEqual(incoming)
+    const metadata = merged.metadata as JsonObject
+    expect(metadata.projectId).toBe('proj-new')
+    expect(metadata.lastUsed).toBe(99)
+    expect(metadata.futureTopLevel).toEqual({
+      anything: ['goes', null, true, 1.5],
+    })
+    expect(merged.envelopeExtra).toBe('kept')
+  })
+
+  it('refuses to show merge invalid stored metadata', () => {
+    let called = false
+    const codec = createProviderStateCodec({
+      ...testPolicy,
+      merge: (onDisk) => {
+        called = true
+        return onDisk
+      },
+    })
+    expectRefused(
+      () => codec.merge(withMetadata({ enabled: 'yes' }), fullEnvelopeWire()),
+      '$.metadata.enabled',
+    )
+    expect(called).toBe(false)
+  })
+
+  it('refuses a merge result that is not valid metadata', () => {
+    const codec = createProviderStateCodec({
+      ...testPolicy,
+      merge: () => undefined as unknown as ProviderStateEnvelope,
+    })
+    expectRefused(
+      () => codec.merge(fullEnvelopeWire(), fullEnvelopeWire()),
+      '$',
+    )
+  })
+
+  it('hands onReplace decoded values, and an undefined result clears', () => {
+    const calls: unknown[][] = []
+    const codec = createProviderStateCodec({
+      ...testPolicy,
+      onReplace: (previous, replacement) => {
+        calls.push([previous, replacement])
+        return replacement.identity === 'clear-me'
+          ? undefined
+          : replacement.incoming
+      },
+    })
+    const incoming = { schemaVersion: 1, metadata: { addedAt: 5, lastUsed: 6 } }
+    expect(
+      codec.onReplace(fullEnvelopeWire(), {
+        id: 'row-1',
+        credentialEpoch: 4,
+        identity: 'wire-id',
+        incoming,
+      }),
+    ).toEqual(incoming)
+    expect(calls[0]?.[0]).toEqual(decodeProviderState(fullEnvelopeWire()))
+    expect(calls[0]?.[1]).toEqual({
+      id: 'row-1',
+      credentialEpoch: 4,
+      identity: 'wire-id',
+      incoming,
+    })
+
+    expect(
+      codec.onReplace(undefined, {
+        id: 'row-1',
+        credentialEpoch: 5,
+        identity: 'clear-me',
+      }),
+    ).toBeUndefined()
+    expect(calls[1]?.[0]).toBeUndefined()
+    expect(Object.hasOwn(calls[1]?.[1] as object, 'incoming')).toBe(false)
+  })
+
+  it('lets the replacement rule refuse a replace whose epoch is not the expected successor', () => {
+    // The repository's fence for replaceCredential: the store reports the
+    // new epoch, which is the replaced one plus one.
+    const expected = { id: 'row-1', credentialEpoch: 3 }
+    const codec = createProviderStateCodec({
+      ...testPolicy,
+      onReplace: (previous, replacement) => {
+        if (replacement.credentialEpoch !== expected.credentialEpoch + 1) {
+          throw new Error('stale replacement')
+        }
+        return previous
+      },
+    })
+    expect(
+      codec.onReplace(fullEnvelopeWire(), { id: 'row-1', credentialEpoch: 4 }),
+    ).toEqual(fullEnvelopeWire())
+    expect(() =>
+      codec.onReplace(fullEnvelopeWire(), { id: 'row-1', credentialEpoch: 5 }),
+    ).toThrow('stale replacement')
+  })
+
+  it('refuses a policy without a merge rule', () => {
+    expectRefused(
+      () =>
+        createProviderStateCodec({
+          onReplace: testPolicy.onReplace,
+        } as unknown as ProviderStatePolicy),
+      'policy.merge',
+    )
+  })
+
+  it('refuses a policy without an onReplace rule', () => {
+    expectRefused(
+      () =>
+        createProviderStateCodec({
+          merge: testPolicy.merge,
+        } as unknown as ProviderStatePolicy),
+      'policy.onReplace',
+    )
+  })
+
+  it('refuses a policy whose merge rule is not a function', () => {
+    expectRefused(
+      () =>
+        createProviderStateCodec({
+          merge: 'last-write-wins',
+          onReplace: testPolicy.onReplace,
+        } as unknown as ProviderStatePolicy),
+      'policy.merge',
+    )
+  })
+
+  it('refuses a missing policy', () => {
+    expectRefused(
+      () =>
+        createProviderStateCodec(undefined as unknown as ProviderStatePolicy),
+      'policy',
     )
   })
 })

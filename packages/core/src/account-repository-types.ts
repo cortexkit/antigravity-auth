@@ -1,24 +1,27 @@
 /**
- * Contract of the Antigravity account repository built on the common-auth
- * lease-backed pool store.
+ * Contract of the Antigravity account repository built on the lease-backed
+ * pool store of @cortexkit/common-auth 0.10.0 (its public `./store` entry).
  *
  * The repository replaces whole-file snapshots of `antigravity-accounts.json`
- * with typed, attributed operations on individual rows. A row is addressed by
- * a `RowRef` (local id, credential epoch and recorded identity) rather than by
- * its position, because positions move under reorder/remove while a ref names
- * one credential lineage of one row: work started for a credential that has
- * since been replaced or removed is refused instead of landing on its
- * successor.
+ * with typed operations on individual rows. A row is addressed by a `RowRef`
+ * rather than by its position, because positions move under reorder and
+ * removal while a ref names one credential of one row: work started for a
+ * credential that has since been replaced or removed is refused instead of
+ * landing on its successor.
  *
- * Persisted data is split by owner:
- * - native roster/credential (N): bare refresh token, enabled flag, order;
- *   owned by the store itself.
- * - provider metadata (P): `ProviderStateEnvelope`, kept beside the
- *   credential in the state file. Its credential-bound part is covered by the
- *   store's credential stamp, so an edit by a writer that does not know the
- *   stamp hides the value instead of attaching it to the wrong account.
- * - quota (Q): `QuotaState`, kept in the config file's per-row entry.
- * - routing settings (G): `RoutingSettings`, a plugin settings key.
+ * Persisted data has four owners:
+ * - the store's own roster and credential entries: the bare refresh token,
+ *   the effective enabled flag and the row order;
+ * - provider metadata (`ProviderStateEnvelope`), kept beside the credential
+ *   in the store's state file. The part of it that describes the signed-in
+ *   account (see `CREDENTIAL_BOUND_METADATA_FIELDS`) is covered by the
+ *   store's credential stamp, so a writer that edits it without knowing the
+ *   stamp makes the value disappear from reads instead of attaching it to
+ *   the wrong account;
+ * - the latest quota reading (`QuotaState`), kept in the row's entry in the
+ *   store's config file;
+ * - account selection (`RoutingSettings`), kept as a plugin settings key in
+ *   the store's config file.
  *
  * Every shape below that carries `extensions` keeps JSON it does not
  * recognise there, so a file written by a newer build survives a read and
@@ -26,9 +29,27 @@
  * `null`; the codecs never collapse one into the other. Readers treat an
  * optional `null` like absent when they project the data for routing.
  *
- * Shapes that mirror common-auth 0.10.0 public declarations are structural
- * copies, so the repository can hand them to the embedded store without this
- * module depending on it at runtime.
+ * Credential epochs and identities. The store gives every credential a row
+ * holds an epoch number (common-auth `dist/store/attribution.d.ts`,
+ * `Attribution`): `add` and `replace` start a new epoch, while refresh and
+ * `rotate` keep it. An id that is removed and added again starts past every
+ * epoch it held before, in any process. A row without a per-row entry counts
+ * as epoch 1. The recorded identity is the account id the provider reported
+ * for the credential. Within one epoch it can only go from absent to one
+ * value: `recordIdentity`, `rotate`, a re-`add` of the same secret and a
+ * refresh all refuse a different identity (`identity-mismatch`, or
+ * `identity-contradicted` for a refresh) rather than overwrite it
+ * (`dist/store/rows.js` `recordRowIdentity`, `rotateRow`, `addRow`;
+ * `dist/store/refresh.d.ts`).
+ *
+ * Locks. The store takes, in this order and releases in reverse: the row
+ * lock `row-<encodeURIComponent(identity ?? id)>` at the state path
+ * (`dist/store/runtime.js` `rowLockSpec`), the provider lock (by default
+ * `provider-antigravity` at the state path, `dist/store/pool.js`), any extra
+ * locks the caller passes, then the `save` locks at the config path and then
+ * the state path. A refresh holds the store's `save` locks only while it
+ * reads and while it commits, never across the token exchange
+ * (`dist/store/refresh.d.ts` `refreshRow`).
  */
 
 import type { AccountModelFamily, CooldownReason } from './account-types.ts'
@@ -50,11 +71,11 @@ export interface JsonObject {
 /** Provider name the pool store is opened with; keys its provider-wide lock. */
 export const ACCOUNT_STORE_PROVIDER = 'antigravity'
 
-/** Schema version written inside the provider-state envelope (P). */
+/** Schema version written inside `ProviderStateEnvelope`. */
 export const PROVIDER_STATE_SCHEMA_VERSION = 1
-/** Schema version written inside the per-row quota value (Q). */
+/** Schema version written inside `QuotaState`. */
 export const QUOTA_STATE_SCHEMA_VERSION = 1
-/** Schema version written inside the routing settings value (G). */
+/** Schema version written inside `RoutingSettings`. */
 export const ROUTING_SETTINGS_SCHEMA_VERSION = 1
 
 /** Settings key holding `RoutingSettings`. */
@@ -67,15 +88,15 @@ export const MANAGEMENT_SETTINGS_KEY = 'antigravityManagement'
 /** Lock name, at the config path, guarding `MANAGEMENT_SETTINGS_KEY`. */
 export const MANAGEMENT_LOCK_NAME = 'antigravity-management'
 /**
- * Prefix of the account-keyed provider lock a refresh holds across its token
- * exchange. It differs from the store's own `row-` lease name, so passing it
- * as the refresh `providerLock` can never wait on a lease the same refresh
- * already holds.
+ * Prefix of the per-account lock passed as a refresh's `providerLock`, in
+ * place of the store-wide `provider-antigravity` lock. It must differ from the
+ * store's `row-` prefix: the same refresh already holds the row lock, and a
+ * provider lock with the same name and path would wait on itself.
  */
 export const REFRESH_PROVIDER_LOCK_PREFIX = 'agy-refresh-'
-/** Lock name the legacy writers hold on `antigravity-accounts.json`. */
+/** Lock name the pre-store writers hold on `antigravity-accounts.json`. */
 export const LEGACY_ACCOUNTS_LOCK_NAME = 'accounts'
-/** Lease of the legacy accounts lock taken while importing from it. */
+/** Lease of that lock while the migration holds it. */
 export const LEGACY_ACCOUNTS_LOCK_TTL_MS = 10_000
 
 // ---------------------------------------------------------------------------
@@ -83,14 +104,11 @@ export const LEGACY_ACCOUNTS_LOCK_TTL_MS = 10_000
 // ---------------------------------------------------------------------------
 
 /**
- * Names one credential lineage of one row. `credentialEpoch` is assigned by
- * the store: `add` and `replace` start a lineage, refresh and rotate keep it,
- * and an id that is removed and added again starts past every epoch it held,
- * in any process. `identity` is the recorded wire identity; leaving it out
- * means "the row had none", never "any identity".
- *
- * A row's index in the roster is presentation only and is never part of a
- * ref.
+ * Names one credential of one row: its local id, the credential epoch the
+ * store assigned it (1 for a row without a per-row entry) and the identity
+ * recorded for it, as explained at the top of this file. Leaving `identity`
+ * out means "the row had none recorded", never "any identity". A row's
+ * position in the roster is never part of a ref.
  */
 export interface RowRef {
   readonly id: string
@@ -98,7 +116,11 @@ export interface RowRef {
   readonly identity?: string
 }
 
-/** A lock as the store takes it (mirror of common-auth `PoolLockSpec`). */
+/**
+ * A lock file the store takes: its name and directory path plus optional
+ * lease tuning. Same shape as `PoolLockSpec` in common-auth
+ * `dist/store/refresh-lock.d.ts`, so it can be passed to the store as is.
+ */
 export interface AccountLockSpec {
   readonly name: string
   readonly path: string
@@ -110,11 +132,11 @@ export interface AccountLockSpec {
 }
 
 /**
- * The account-keyed provider lock a refresh of `row` holds across its token
- * exchange: distinct accounts refresh concurrently while two refreshes of one
- * account stay single-flight. Keyed like the store's row lock (recorded
- * identity, else local id) so it follows the account, and URI-encoded so any
- * identity is a safe lock-file name.
+ * The per-account lock a refresh of `row` passes as its `providerLock` and
+ * holds across the token exchange, so refreshes of different accounts run
+ * concurrently while two refreshes of one account stay one at a time. It is
+ * keyed like the store's row lock (recorded identity, else local id) and
+ * URI-encoded so any identity is a safe lock-file name.
  */
 export function refreshProviderLock(
   statePath: string,
@@ -128,9 +150,9 @@ export function refreshProviderLock(
 }
 
 /**
- * The legacy accounts lock taken while capturing from or retiring the legacy
- * file. It is released before any store call so it never nests inside the
- * store's row → provider → extra → save lock order.
+ * The lock the pre-store writers hold on `antigravity-accounts.json`, taken
+ * while the migration reads or retires that file. It is released before any
+ * store call, so it never sits inside the store's lock order.
  */
 export function legacyAccountsLock(legacyPath: string): AccountLockSpec {
   return {
@@ -142,7 +164,7 @@ export function legacyAccountsLock(legacyPath: string): AccountLockSpec {
 }
 
 // ---------------------------------------------------------------------------
-// Provider metadata (P)
+// Provider metadata kept beside the credential in the state file
 // ---------------------------------------------------------------------------
 
 export type LastSwitchReason = 'rate-limit' | 'initial' | 'rotation'
@@ -172,8 +194,13 @@ export interface StoredFingerprintVersion {
   extensions?: JsonObject
 }
 
+/**
+ * Requests sent through the account per model family on one day. `date` is
+ * the UTC day the counts belong to (`YYYY-MM-DD`, as
+ * `new Date(now).toISOString().slice(0, 10)` gives it). Decoding keeps a
+ * past day and its counts as stored; only a usage write starts a new day.
+ */
 export interface StoredDailyRequestCounts {
-  /** Kept exactly as written; reading never resets an old date. */
   date: string
   claude: number
   gemini: number
@@ -181,31 +208,33 @@ export interface StoredDailyRequestCounts {
 }
 
 /**
- * Every rate-limit reset the account carries, keyed by quota pool or model.
- * The well-known keys are `claude`, `gemini-antigravity` and `gemini-cli`;
- * every other key is kept as written.
+ * When each rate limit on the account ends, in epoch milliseconds, keyed by
+ * quota pool (`claude`, `gemini-antigravity`, `gemini-cli`) or by a
+ * model-specific key; `null` where an older writer stored one. Every key is
+ * kept as stored.
  */
 export type StoredRateLimitResetTimes = Record<string, number | null>
 
 /**
- * Antigravity metadata kept beside a row's credential. It never holds a
- * credential. Fields marked bound are the credential-bound projection: they
- * describe the account the credential signs in to, so the store's stamp
- * covers them.
+ * Antigravity metadata kept beside a row's credential; it never holds a
+ * credential. The fields named in `CREDENTIAL_BOUND_METADATA_FIELDS`
+ * describe the account the credential signs in to (its email, projects,
+ * device fingerprint, access verdicts and plan tier), so the store's
+ * credential stamp covers them; the rest track how this plugin uses the
+ * account.
  */
 export interface ProviderMetadata {
-  /** Bound. Exact as received; never case-folded or inferred. */
+  /** Exactly as received; never case-folded, and never inferred. */
   email?: string | null
-  /** Bound. Kept bare here; packed only at host boundaries. */
+  /** Kept bare here; packed with the refresh token only at host boundaries. */
   projectId?: string | null
-  /** Bound. */
   managedProjectId?: string | null
-  /** Original add time shown to the user; the store's own add time differs. */
+  /** Add time shown to the user; the store's own add time is separate. */
   addedAt: number
   lastUsed: number
   /**
-   * How the legacy file encoded the enabled flag (absent, true, false or
-   * null). The effective flag is the row's native one, `value !== false`.
+   * How the pre-store file encoded the enabled flag (absent, true, false or
+   * null). The effective flag is the store's own, `value !== false`.
    */
   enabled?: boolean | null
   lastSwitchReason?: LastSwitchReason | null
@@ -214,39 +243,33 @@ export interface ProviderMetadata {
   cooldownReason?: CooldownReason | null
   /** Display label; may hold personal data and must stay out of telemetry. */
   label?: string | null
-  /** Bound. */
   fingerprint?: StoredFingerprint | null
-  /** Bound. Ordered oldest first, kept untruncated. */
+  /** Kept in the stored array order; never re-sorted or truncated. */
   fingerprintHistory?: StoredFingerprintVersion[] | null
-  /** Bound. */
   verificationRequired?: boolean | null
-  /** Bound. */
   verificationRequiredAt?: number | null
-  /** Bound. */
   verificationRequiredReason?: string | null
-  /** Bound. Validated where it is captured, kept here as written. */
+  /** Checked where it is captured; kept here as stored. */
   verificationUrl?: string | null
-  /** Bound. `true` excludes the row from routing. */
+  /** `true` excludes the row from routing. */
   accountIneligible?: boolean | null
-  /** Bound. */
   accountIneligibleAt?: number | null
-  /** Bound. */
   accountIneligibleReason?: string | null
-  /** Bound. */
   eligibilityStateUpdatedAt?: number | null
-  /** Bound. Raw upstream tier id, never normalised. */
+  /** Upstream tier id exactly as reported, never normalised. */
   capturedTierId?: string | null
-  /** Bound. Raw; absence does not mean the account is paid. */
+  /** As reported; its absence does not mean the account is unpaid or paid. */
   capturedPaidTierId?: string | null
-  /** Bound. */
   capturedTierAt?: number | null
-  /** Bound. */
   capturedTierSchemaVersion?: number | null
   dailyRequestCounts?: StoredDailyRequestCounts | null
   extensions?: JsonObject
 }
 
-/** Names of the `ProviderMetadata` fields covered by the credential stamp. */
+/**
+ * The `ProviderMetadata` fields that describe the signed-in account rather
+ * than this plugin's use of it. The credential stamp covers exactly these.
+ */
 export const CREDENTIAL_BOUND_METADATA_FIELDS = [
   'email',
   'projectId',
@@ -271,8 +294,9 @@ export type CredentialBoundMetadataField =
   (typeof CREDENTIAL_BOUND_METADATA_FIELDS)[number]
 
 /**
- * The value stored under the state file's `commonAuthProviderState` for a
- * row. A newer `schemaVersion` is refused rather than reinterpreted.
+ * The value the store keeps for a row under the state file's
+ * `commonAuthProviderState` key. A newer `schemaVersion` is refused rather
+ * than reinterpreted.
  */
 export interface ProviderStateEnvelope {
   schemaVersion: typeof PROVIDER_STATE_SCHEMA_VERSION
@@ -281,7 +305,7 @@ export interface ProviderStateEnvelope {
 }
 
 // ---------------------------------------------------------------------------
-// Quota (Q)
+// Quota reading kept in the row's config entry
 // ---------------------------------------------------------------------------
 
 export type QuotaWindowName = 'weekly' | '5h'
@@ -294,12 +318,12 @@ export interface StoredQuotaWindow {
 }
 
 export interface StoredQuotaGroup {
-  /** Kept exactly as reported; never rounded. */
+  /** Exactly as reported; never rounded. */
   remainingFraction?: number | null
-  /** Raw upstream timestamp string. */
+  /** Upstream reset timestamp string, kept as reported. */
   resetTime?: string | null
   modelCount: number
-  /** Ordered as reported. */
+  /** Kept in the reported order. */
   windows?: StoredQuotaWindow[] | null
   extensions?: JsonObject
 }
@@ -315,9 +339,9 @@ export interface StoredModelQuota {
 }
 
 /**
- * The quota value stored in a row's config entry. Nothing in it authorises a
- * request: `cachedQuotaAccountId` only records which account produced the
- * reading.
+ * The latest quota reading, which the store keeps in the row's config entry.
+ * Nothing in it authorises a request: `cachedQuotaAccountId` only records
+ * which account produced the reading.
  */
 export interface QuotaState {
   schemaVersion: typeof QUOTA_STATE_SCHEMA_VERSION
@@ -329,7 +353,7 @@ export interface QuotaState {
 }
 
 // ---------------------------------------------------------------------------
-// Routing settings (G)
+// Account selection kept in plugin settings
 // ---------------------------------------------------------------------------
 
 export interface StoredFamilyIndices {
@@ -345,11 +369,12 @@ export interface StoredFamilyRows {
 }
 
 /**
- * Account selection kept in the plugin settings. The index fields keep the
- * legacy encoding exactly (the effective index is clamped when read, as the
- * legacy loader did); the row fields name the selected rows independently per
- * family. A ref that no longer matches a row falls back to the legacy index
- * rules.
+ * Account selection, kept under `ROUTING_SETTINGS_KEY` in the store's config
+ * file. The index fields keep the pre-store `activeIndex` and
+ * `activeIndexByFamily` values exactly as stored (readers clamp the index to
+ * the roster, as the pre-store loader did); the row fields name the selected
+ * row for each family independently. A ref that no longer matches a row
+ * falls back to the index rules.
  */
 export interface RoutingSettings {
   schemaVersion: typeof ROUTING_SETTINGS_SCHEMA_VERSION
@@ -361,10 +386,14 @@ export interface RoutingSettings {
 }
 
 // ---------------------------------------------------------------------------
-// Codec contracts (structural mirrors of common-auth 0.10.0)
+// Codec hooks the pool store calls
 // ---------------------------------------------------------------------------
 
-/** Mirror of common-auth `ProviderStateReplacement`. */
+/**
+ * What the store tells the provider-state replacement hook about a
+ * `replace`. Same shape as `ProviderStateReplacement` in common-auth
+ * `dist/store/schema.d.ts`.
+ */
 export interface ProviderStateReplacementInfo {
   id: string
   credentialEpoch: number
@@ -372,7 +401,14 @@ export interface ProviderStateReplacementInfo {
   incoming?: unknown
 }
 
-/** Mirror of common-auth `ProviderStateCodec`. */
+/**
+ * The hooks the store calls for the value it keeps beside each credential:
+ * validation on every load and write, the digest input for the credential
+ * stamp, combining a stored value with an incoming one, and the value a
+ * credential replacement leaves. Same shape as `ProviderStateCodec` in
+ * common-auth `dist/store/schema.d.ts`, where every hook but `validate` is
+ * optional.
+ */
 export interface ProviderStateCodecContract {
   validate(value: unknown): boolean
   credentialBound?(value: unknown): unknown
@@ -383,7 +419,73 @@ export interface ProviderStateCodecContract {
   ): unknown | undefined
 }
 
-/** Mirror of common-auth `QuotaCodec`. */
+/**
+ * The provider-state codec this plugin opens the store with: every hook is
+ * present. Left out, the store would fall back to its defaults (the incoming
+ * value replaces the stored one; a replace keeps only the value handed to
+ * it), which would bypass the repository's merge and replacement rules.
+ */
+export interface ConfiguredProviderStateCodec
+  extends ProviderStateCodecContract {
+  credentialBound(value: unknown): unknown
+  merge(onDisk: unknown, incoming: unknown): unknown
+  onReplace(
+    previous: unknown | undefined,
+    replacement: ProviderStateReplacementInfo,
+  ): unknown | undefined
+}
+
+/** A credential replacement as the replacement policy sees it. */
+export interface ProviderStateReplacement {
+  id: string
+  /**
+   * The epoch the new credential starts. The store computes it under the
+   * row and save locks as the replaced credential's epoch plus one (a row
+   * without a per-row entry counts as epoch 1), before anything is written
+   * (`dist/store/rows.js` `replaceRow`).
+   */
+  credentialEpoch: number
+  /**
+   * The identity the replace records for the new credential. The store does
+   * not tell the hook which identity the replaced credential had.
+   */
+  identity?: string
+  /** The metadata handed to `replace`, already validated. */
+  incoming?: ProviderStateEnvelope
+}
+
+/**
+ * The repository's rules for combining provider metadata, which the codec
+ * factory requires. Both run synchronously under the store's locks and must
+ * not call back into the store. A rule that throws refuses the whole write
+ * before anything is written.
+ */
+export interface ProviderStatePolicy {
+  /**
+   * Combines the stored metadata with metadata that arrives with a
+   * credential write of the same epoch: a refresh, a `rotate`, or an `add`
+   * of a secret the pool already holds.
+   */
+  merge(
+    onDisk: ProviderStateEnvelope,
+    incoming: ProviderStateEnvelope,
+  ): ProviderStateEnvelope
+  /**
+   * The metadata a row keeps once `replace` gives it a new credential;
+   * `undefined` clears it. `previous` is the replaced credential's metadata
+   * when the row showed any.
+   */
+  onReplace(
+    previous: ProviderStateEnvelope | undefined,
+    replacement: ProviderStateReplacement,
+  ): ProviderStateEnvelope | undefined
+}
+
+/**
+ * The hooks the store calls for the quota reading: validation, and folding a
+ * new reading into the stored one. Same shape as `QuotaCodec` in common-auth
+ * `dist/store/schema.d.ts`.
+ */
 export interface QuotaCodecContract {
   validate(value: unknown): boolean
   merge(stored: unknown | undefined, observation: unknown): unknown
@@ -394,15 +496,15 @@ export interface QuotaCodecContract {
 // ---------------------------------------------------------------------------
 
 /**
- * Files the repository owns. The legacy pool path (L) is read only by the
- * migration and retired by it; everything else lives in a private directory
- * beside it, so a legacy writer that still runs can never touch the
- * successor's credentials or epochs.
+ * Files the repository owns. The pre-store pool file is read only by the
+ * migration, which then retires it; everything else lives in a private
+ * directory beside it, so a pre-store writer that still runs can never touch
+ * the store's credentials or epochs.
  */
 export interface AccountStorePaths {
-  /** The legacy v4 `antigravity-accounts.json`. */
+  /** The pre-store v4 `antigravity-accounts.json`. */
   legacyPath: string
-  /** `dirname(L)/<basename(L)>.store/` */
+  /** `<dirname(legacyPath)>/<basename(legacyPath)>.store/` */
   storeDir: string
   configPath: string
   statePath: string
@@ -452,7 +554,12 @@ export type CreateAccountRepository = (
 // Reads
 // ---------------------------------------------------------------------------
 
-/** Mirror of common-auth `CredentialStampStatus`. */
+/**
+ * What the store proves about a row's credential. Same values as
+ * `CredentialStampStatus` in common-auth `dist/store/schema.d.ts`; only
+ * `bound` is usable, since the store is opened with credential stamps
+ * required.
+ */
 export type AccountCredentialStamp =
   | 'none'
   | 'bound'
@@ -470,9 +577,9 @@ export interface AccountCredentialView {
 
 /**
  * The provider metadata a row shows. `dropped` means the state file holds a
- * value the row does not show (another writer changed its bound part, or the
- * codec refuses it); callers treat that as an error to surface, never as an
- * empty value to regenerate.
+ * value the row does not show (another writer changed its account-describing
+ * part, or the codec refuses it); callers treat that as an error to surface,
+ * never as an empty value to regenerate.
  */
 export type AccountMetadataView =
   | { status: 'present'; metadata: ProviderMetadata }
@@ -487,7 +594,7 @@ export interface AccountRow {
   ref: RowRef
   /** Position in the roster; presentation only. */
   index: number
-  /** Effective native flag. */
+  /** The store's effective enabled flag. */
   enabled: boolean
   disabledReason?: string
   /** When the store admitted the row; not the user-visible add time. */
@@ -632,7 +739,7 @@ export interface AccountRefreshOptions {
 
 export interface AccountEnableInput {
   enabled: boolean
-  /** Native disabled reason when disabling. */
+  /** The store's `disabledReason` when disabling. */
   reason?: string
   /** A user enable refuses an ineligible account; a system one may not. */
   actor: 'user' | 'system'
@@ -707,7 +814,10 @@ export interface ManagementReceipt {
   outcome: 'completed' | 'pending'
 }
 
-/** Mirror of common-auth `PoolFailureKind`, plus repository-level kinds. */
+/**
+ * Same failure kinds as `PoolFailureKind` in common-auth
+ * `dist/store/errors.d.ts`, followed by the repository's own.
+ */
 export type AccountRepositoryFailureKind =
   | 'lock-contention'
   | 'lock-ownership'
@@ -789,12 +899,16 @@ export interface AccountFlushReport {
 }
 
 /**
- * Typed operations on the Antigravity account pool. Every write that is
- * about a credential takes the `RowRef` the caller's evidence was gathered
- * under and is refused (`attribution`) once the row holds another epoch or
- * identity, and (`unknown-row`) once it is removed. Ordinary operations use
- * the store's row/provider/save locks; only `clear` and `replacePool` write a
- * `ManagementRecord`.
+ * Typed operations on the Antigravity account pool.
+ *
+ * Every operation about an existing credential takes the `RowRef` the
+ * caller's evidence was gathered under, and the repository must refuse it
+ * (`attribution`, or `unknown-row` once the row is removed) when the row no
+ * longer holds that epoch and identity. Each method below names the public
+ * store hook that makes this check under the row and save locks, before
+ * anything is written; where the store offers none, the method says so and
+ * names what is not covered. Ordinary operations take only the store's
+ * locks; only `clear` and `replacePool` write a `ManagementRecord`.
  */
 export interface AccountRepository {
   /** Reads the pool and settings without writing or firing quota pulls. */
@@ -804,49 +918,100 @@ export interface AccountRepository {
 
   /**
    * Admits a login: matches an existing row by exact email, then by secret;
-   * contradictory matches refuse. The returned ref is authoritative.
+   * contradictory matches refuse. It names no existing credential, so it
+   * takes no ref; the returned ref is authoritative.
    */
   login(input: AccountLoginInput): Promise<AccountLoginResult>
   /**
-   * Gives a row a new credential and a new epoch (re-authentication). Quota,
-   * rate limits, cooldown and access blocks of the old credential are
-   * cleared; same-account display fields are kept.
+   * Gives the row in `expected` a new credential and a new epoch
+   * (re-authentication). Quota, rate limits, cooldown and access blocks of
+   * the old credential are cleared; same-account display fields are kept.
+   *
+   * Fence: the store's `replace(id, ...)` takes no expected epoch, but it
+   * calls the provider-state codec's `onReplace` under the row, provider and
+   * save locks before writing, with the new epoch, which is the stored epoch
+   * plus one (`dist/store/rows.js` `replaceRow`). The policy is configured
+   * once per store, so the repository hands it the `expected` ref of the
+   * replace in progress through the call's async context (the hook runs
+   * synchronously inside that `replace` call). The policy must refuse, by
+   * throwing, unless the new epoch equals `expected.credentialEpoch + 1`;
+   * the store then fails the replace with
+   * nothing written (kind `unexpected`), which the repository reports as
+   * `attribution`. A removed row fails with `unknown-row` before the hook
+   * runs, and an id removed and added again has a later epoch, so it fails
+   * the same check.
+   *
+   * Not covered: the hook is not told the identity the replaced credential
+   * had recorded. Since an identity can only be recorded once per epoch, a
+   * matching epoch proves a matching identity whenever `expected.identity`
+   * is set. When it is absent, an identity recorded for the same credential
+   * after the caller captured `expected` is not detected under the locks;
+   * the repository can only compare it on an unlocked read before calling
+   * `replace`.
    */
   replaceCredential(
-    id: string,
+    expected: RowRef,
     input: AccountReplaceInput,
   ): Promise<{ ref: RowRef }>
-  /** Stores an authoritative successor of the same lineage; keeps the epoch. */
+  /**
+   * Stores an authoritative successor of the same credential; keeps the
+   * epoch.
+   *
+   * Not covered: the store's `rotate` takes no expected epoch or identity
+   * and calls no hook that sees the row's epoch, so the repository can only
+   * compare `ref` on an unlocked read before calling it. A `replace` or a
+   * remove-and-add landing in between is not detected, and the rotated
+   * secret would be written over the newer credential. Callers that can use
+   * `refresh` (which is fenced) should.
+   */
   rotateCredential(
     ref: RowRef,
     input: AccountRotateInput,
   ): Promise<{ ref: RowRef }>
   /**
-   * Refreshes under the row lease and the account-keyed provider lock, held
-   * across the token exchange; only the save locks are released around it.
+   * Refreshes while holding the row lock and the per-account lock from
+   * `refreshProviderLock` across the token exchange.
+   *
+   * Fence: the store's refresh `refuse(row)` callback runs before locking,
+   * on the locked re-read and at commit under the save locks
+   * (`dist/store/refresh.d.ts`); the repository refuses there when the row's
+   * epoch or identity differs from `ref`, and the store then discards the
+   * new token material.
    */
   refresh(
     ref: RowRef,
     options?: AccountRefreshOptions,
   ): Promise<AccountRefreshOutcome>
-  /** Records an authenticated identity lookup for the credential in `ref`. */
+  /**
+   * Records an authenticated identity lookup for the credential in `ref`.
+   * Fence: the store's `recordIdentity` attribution checks the epoch; a
+   * different identity already recorded refuses with `identity-mismatch`.
+   */
   recordIdentity(ref: RowRef, identity: string): Promise<{ ref: RowRef }>
 
   /**
    * Enables or disables a row, optionally changing its metadata in the same
-   * crash-consistent write.
+   * crash-consistent write. Fence: the store's `enable`/`disable`
+   * `attribution` option (epoch and identity).
    */
   setEnabled(
     ref: RowRef,
     input: AccountEnableInput,
   ): Promise<AccountTransitionResult>
-  /** Applies access evidence (verification, eligibility) with its flag. */
+  /**
+   * Applies access evidence (verification, eligibility) together with the
+   * enabled flag. Fence: as `setEnabled`.
+   */
   recordAccessVerdict(
     ref: RowRef,
     verdict: AccessVerdict,
   ): Promise<AccountTransitionResult>
 
-  /** Changes metadata only; the credential and its stamp status stay. */
+  /**
+   * Changes metadata only; the credential and its stamp status stay. Fence
+   * for this and every metadata `record*` method below: the store's
+   * `updateProviderState` fence (epoch and identity).
+   */
   updateMetadata(
     ref: RowRef,
     mutator: MetadataMutator,
@@ -867,7 +1032,9 @@ export interface AccountRepository {
     ref: RowRef,
     observation: CooldownObservation,
   ): Promise<AccountMetadataResult>
-  /** Merges resets key by key, keeping the later reset of each key. */
+  /**
+   * Merges reset times key by key, keeping the later time for each key.
+   */
   recordRateLimits(
     ref: RowRef,
     resets: Readonly<StoredRateLimitResetTimes>,
@@ -877,17 +1044,21 @@ export interface AccountRepository {
     reason: LastSwitchReason,
   ): Promise<AccountMetadataResult>
   /**
-   * Increments today's (UTC, from the injected clock) count for the family
-   * under the row lock and keeps the later `lastUsed`. An ambiguous failure
-   * is reported, never replayed.
+   * Adds one request for the family to the account's count for the current
+   * UTC day (from the injected clock), starting from zero when the stored
+   * `date` is another day, and keeps the later of the stored and given
+   * `lastUsed`. It runs under the row lock. A failure that leaves unknown
+   * whether the increment landed is reported as `ambiguous` and is never
+   * retried, so a request is never counted twice.
    */
   recordUsage(
     ref: RowRef,
     observation: UsageObservation,
   ): Promise<AccountUsageResult>
   /**
-   * Records a quota reading for the credential in `ref`. Separate from
-   * `recordTier`: the two land as independent attributed writes.
+   * Records a quota reading for the credential in `ref`, separately from
+   * `recordTier`: the two are independent writes. Fence: the store's
+   * `recordQuota` attribution (epoch and identity).
    */
   recordQuota(ref: RowRef, observation: QuotaState): Promise<void>
 
@@ -895,7 +1066,12 @@ export interface AccountRepository {
   selectAccount(target: RoutingTarget, row: RowRef | null): Promise<void>
   /** Sets the roster order; `ids` names every row exactly once. */
   reorder(ids: readonly string[]): Promise<void>
-  /** Removes one row; its epochs stay retired so the id is never reused. */
+  /**
+   * Removes one row; the store keeps its epochs retired, so a later add of
+   * the same id starts past them. Fence: the store's `remove` `protect`
+   * callback, which sees the row under every lock before anything is
+   * written.
+   */
   remove(ref: RowRef): Promise<void>
   /** Removes every row as one journaled operation. */
   clear(): Promise<ManagementReceipt>

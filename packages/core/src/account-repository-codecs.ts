@@ -1,6 +1,8 @@
 /**
- * Pure codecs for the Antigravity values the account store keeps beside each
- * row: provider metadata (P), quota (Q) and routing settings (G).
+ * Pure codecs for the Antigravity values the account store keeps for each
+ * row: the provider metadata beside its credential in the state file, the
+ * latest quota reading in its config entry, and the account selection kept in
+ * plugin settings.
  *
  * The store never interprets these values itself; it asks the codec whether a
  * value is valid before every write and on every load. A value the codec
@@ -16,13 +18,14 @@
  */
 
 import {
+  type ConfiguredProviderStateCodec,
   CREDENTIAL_BOUND_METADATA_FIELDS,
   type JsonObject,
   type JsonValue,
   PROVIDER_STATE_SCHEMA_VERSION,
   type ProviderMetadata,
-  type ProviderStateCodecContract,
   type ProviderStateEnvelope,
+  type ProviderStatePolicy,
   QUOTA_STATE_SCHEMA_VERSION,
   type QuotaCodecContract,
   type QuotaState,
@@ -427,9 +430,9 @@ function closedRecord<S extends Shape>(shape: S): Codec<Fields<S>> {
 // ---------------------------------------------------------------------------
 
 const CREDENTIAL_REFUSAL =
-  'is a credential field; credentials live only in the native row'
+  "is a credential field; credentials live only in the store's own credential entry"
 
-/** Keys that would put a credential into P or Q. */
+/** Keys that would put a credential into the metadata or quota values. */
 const CREDENTIAL_KEYS: Readonly<Record<string, string>> = {
   refreshToken: CREDENTIAL_REFUSAL,
   accessToken: CREDENTIAL_REFUSAL,
@@ -440,14 +443,14 @@ const CREDENTIAL_KEYS: Readonly<Record<string, string>> = {
 }
 
 const POOL_FIELD_REFUSAL =
-  'belongs to the native roster or routing settings, not provider metadata'
+  "belongs to the store's roster or to the routing settings, not provider metadata"
 const QUOTA_FIELD_REFUSAL = 'belongs to the quota value, not provider metadata'
 const LEGACY_FIELD_REFUSAL =
   'is a pre-v4 field; the migration normalises it before import'
 const METADATA_FIELD_REFUSAL = 'belongs to provider metadata, not quota'
 
 // ---------------------------------------------------------------------------
-// Provider metadata (P)
+// Provider metadata
 // ---------------------------------------------------------------------------
 
 const clientMetadataCodec = openRecord({
@@ -595,7 +598,7 @@ const providerStateCodec = openRecord(
 const quotaCodec = openRecord(quotaShape, { forbidden: quotaForbidden })
 
 // ---------------------------------------------------------------------------
-// Routing settings (G)
+// Account selection
 // ---------------------------------------------------------------------------
 
 const rowRefCodec = closedRecord({
@@ -706,10 +709,11 @@ export function isValidProviderState(raw: unknown): boolean {
 
 /**
  * The credential-bound projection of a stored provider state: the schema
- * version and every bound metadata field that is present (a `null` counts as
- * present), with keys sorted at every depth. Unknown top-level metadata is
- * not bound: nothing says it describes the account. Throws for an invalid
- * value; the store only asks for valid ones.
+ * version and every field named in `CREDENTIAL_BOUND_METADATA_FIELDS` that
+ * is present (a `null` counts as present), with keys sorted at every depth.
+ * Unknown top-level metadata is left out: nothing says it describes the
+ * signed-in account. Throws for an invalid value; the store only asks for
+ * valid ones.
  */
 export function providerStateCredentialBound(raw: unknown): JsonObject {
   const stored = encodeProviderState(decodeProviderState(raw))
@@ -774,17 +778,66 @@ export function encodeRowRef(value: RowRef): JsonObject {
 }
 
 /**
- * The provider-state codec to open the store with. It has no `merge` or
- * `onReplace`: how a refresh's metadata combines with the stored value and
- * what survives a credential replacement are repository policy decided with
- * identity evidence, not by the codec.
+ * The provider-state codec to open the store with. The repository's merge
+ * and replacement rules are required: without them the store would fall
+ * back to its defaults (incoming metadata replacing the stored metadata on a
+ * refresh, a replace keeping only what it was handed), silently bypassing
+ * those rules. A policy missing either rule is refused here, before any
+ * store is opened.
+ *
+ * The rules see decoded values and return decoded values; the codec
+ * validates both sides, so a rule can neither be shown nor store malformed
+ * metadata, and a rule that returns nothing from `merge` is refused rather
+ * than read as "clear".
  */
-export const PROVIDER_STATE_CODEC: ProviderStateCodecContract = {
-  validate: isValidProviderState,
-  credentialBound: providerStateCredentialBound,
+export function createProviderStateCodec(
+  policy: ProviderStatePolicy,
+): ConfiguredProviderStateCodec {
+  if (policy === null || typeof policy !== 'object') {
+    fail('policy', 'must be an object with merge and onReplace rules')
+  }
+  for (const rule of ['merge', 'onReplace'] as const) {
+    if (typeof policy[rule] !== 'function') {
+      fail(
+        `policy.${rule}`,
+        "must be a function; the store's default would bypass the repository's rule",
+      )
+    }
+  }
+  return {
+    validate: isValidProviderState,
+    credentialBound: providerStateCredentialBound,
+    merge(onDisk, incoming) {
+      return encodeProviderState(
+        policy.merge(
+          decodeProviderState(onDisk),
+          decodeProviderState(incoming),
+        ),
+      )
+    },
+    onReplace(previous, replacement) {
+      const next = policy.onReplace(
+        previous === undefined ? undefined : decodeProviderState(previous),
+        {
+          id: replacement.id,
+          credentialEpoch: replacement.credentialEpoch,
+          ...(replacement.identity !== undefined
+            ? { identity: replacement.identity }
+            : {}),
+          ...(replacement.incoming !== undefined
+            ? { incoming: decodeProviderState(replacement.incoming) }
+            : {}),
+        },
+      )
+      return next === undefined ? undefined : encodeProviderState(next)
+    },
+  }
 }
 
-/** The quota codec to open the store with. */
+/**
+ * The quota codec to open the store with. Its merge is the whole quota rule
+ * (`mergeQuotaState`), so it needs no configuration.
+ */
 export const QUOTA_CODEC: QuotaCodecContract = {
   validate: isValidQuotaState,
   merge: mergeQuotaState,
