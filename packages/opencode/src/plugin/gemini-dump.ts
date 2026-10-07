@@ -20,7 +20,10 @@ const DEFAULT_DUMP_DIR = join(tmpdir(), 'opencode-antigravity-gemini-dumps')
 const DUMP_DIR_MODE = 0o700
 const DUMP_FILE_MODE = 0o600
 
-let dumpEnabled = process.env.OPENCODE_ANTIGRAVITY_GEMINI_DUMP === '1'
+// Dump ids are `<timestamp>-<sequence>-<kind>` file names in one directory.
+// The sequence is process-wide so two locations dumping in the same
+// millisecond cannot overwrite each other's files; whether dumping is enabled
+// is per location (see createGeminiDumpState).
 let nextDumpId = 0
 
 export type GeminiDumpCommandAction =
@@ -39,16 +42,73 @@ export interface GeminiDumpContext {
   metadata: Record<string, unknown>
 }
 
+export interface GeminiDumpRequestInput {
+  originalUrl: string
+  resolvedUrl: string
+  method?: string
+  headers?: HeadersInit | Headers
+  body?: BodyInit | null
+  streaming: boolean
+  requestedModel?: string
+  effectiveModel?: string
+  sessionId?: string
+  projectId?: string
+}
+
+/**
+ * One location's dump switch. `/gemini-dump on` in one location never
+ * enables dumping for another, and each location's requests consult only
+ * their own switch.
+ */
+export interface GeminiDumpState {
+  isEnabled(): boolean
+  setEnabled(enabled: boolean): void
+  /** Dump a request when this location's switch is on; null otherwise. */
+  dumpRequest(input: GeminiDumpRequestInput): GeminiDumpContext | null
+  /** Status text reflecting this location's switch unless `enabled` is given. */
+  buildStatusSummary(input?: { enabled?: boolean }): string
+  /** Command reply reflecting this location's switch unless `enabled` is given. */
+  executeCommand(input: { argumentsText: string; enabled?: boolean }): string
+}
+
+/** Initial switch value when a location supplies none: the environment flag. */
+function dumpEnabledFromEnvironment(): boolean {
+  return process.env.OPENCODE_ANTIGRAVITY_GEMINI_DUMP === '1'
+}
+
+/** Build one location's dump switch, defaulting to the environment flag. */
+export function createGeminiDumpState(
+  options: { enabled?: boolean } = {},
+): GeminiDumpState {
+  let enabled = options.enabled ?? dumpEnabledFromEnvironment()
+  return {
+    isEnabled: () => enabled,
+    setEnabled: (next) => {
+      enabled = next
+    },
+    dumpRequest: (input) => (enabled ? writeGeminiDump(input) : null),
+    buildStatusSummary: (input) =>
+      renderGeminiDumpStatus(input?.enabled ?? enabled),
+    executeCommand: (input) =>
+      renderGeminiDumpCommand(input.argumentsText, input.enabled ?? enabled),
+  }
+}
+
+// The OpenCode 1 composition's single switch. The module-level functions
+// below keep its existing calls working until it adopts a location dump
+// state; no location state reads or writes it.
+const legacyDumpState = createGeminiDumpState()
+
 export function isGeminiDumpEnabled() {
-  return dumpEnabled
+  return legacyDumpState.isEnabled()
 }
 
 export function setGeminiDumpEnabled(enabled: boolean) {
-  dumpEnabled = enabled
+  legacyDumpState.setEnabled(enabled)
 }
 
 export function resetGeminiDumpState() {
-  dumpEnabled = process.env.OPENCODE_ANTIGRAVITY_GEMINI_DUMP === '1'
+  legacyDumpState.setEnabled(dumpEnabledFromEnvironment())
   nextDumpId = 0
 }
 
@@ -69,7 +129,10 @@ export function parseGeminiDumpCommandAction(
 }
 
 export function buildGeminiDumpStatusSummary(input?: { enabled?: boolean }) {
-  const enabled = input?.enabled ?? dumpEnabled
+  return legacyDumpState.buildStatusSummary(input)
+}
+
+function renderGeminiDumpStatus(enabled: boolean): string {
   return [
     DUMP_STATUS_TITLE,
     '',
@@ -84,25 +147,23 @@ export function executeGeminiDumpCommand(input: {
   argumentsText: string
   enabled?: boolean
 }) {
-  const action = parseGeminiDumpCommandAction(input.argumentsText)
-  const enabled = input.enabled ?? dumpEnabled
+  return legacyDumpState.executeCommand(input)
+}
 
-  if (action.type === 'status') return buildGeminiDumpStatusSummary({ enabled })
+function renderGeminiDumpCommand(
+  argumentsText: string,
+  enabled: boolean,
+): string {
+  const action = parseGeminiDumpCommandAction(argumentsText)
+
+  if (action.type === 'status') return renderGeminiDumpStatus(enabled)
 
   if (action.type === 'enable') {
-    return [
-      DUMP_ENABLED_TITLE,
-      '',
-      buildGeminiDumpStatusSummary({ enabled: true }),
-    ].join('\n')
+    return [DUMP_ENABLED_TITLE, '', renderGeminiDumpStatus(true)].join('\n')
   }
 
   if (action.type === 'disable') {
-    return [
-      DUMP_DISABLED_TITLE,
-      '',
-      buildGeminiDumpStatusSummary({ enabled: false }),
-    ].join('\n')
+    return [DUMP_DISABLED_TITLE, '', renderGeminiDumpStatus(false)].join('\n')
   }
 
   return [
@@ -110,7 +171,7 @@ export function executeGeminiDumpCommand(input: {
     '',
     DUMP_USAGE,
     '',
-    buildGeminiDumpStatusSummary({ enabled }),
+    renderGeminiDumpStatus(enabled),
   ].join('\n')
 }
 
@@ -263,19 +324,15 @@ function updateMetadata(
   writeJson(context.files.metadata, context.metadata)
 }
 
-export function dumpGeminiRequest(input: {
-  originalUrl: string
-  resolvedUrl: string
-  method?: string
-  headers?: HeadersInit | Headers
-  body?: BodyInit | null
-  streaming: boolean
-  requestedModel?: string
-  effectiveModel?: string
-  sessionId?: string
-  projectId?: string
-}): GeminiDumpContext | null {
-  if (!dumpEnabled) return null
+export function dumpGeminiRequest(
+  input: GeminiDumpRequestInput,
+): GeminiDumpContext | null {
+  return legacyDumpState.dumpRequest(input)
+}
+
+function writeGeminiDump(
+  input: GeminiDumpRequestInput,
+): GeminiDumpContext | null {
   if (typeof input.body !== 'string') return null
 
   nextDumpId += 1

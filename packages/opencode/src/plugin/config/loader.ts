@@ -8,17 +8,21 @@
  * 3. Project config file
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { createLogger } from '../logger'
+import { basename, dirname, join, resolve } from 'node:path'
+import { createLogger, type Logger } from '../logger'
 import {
   type AntigravityConfig,
   AntigravityConfigSchema,
   DEFAULT_CONFIG,
 } from './schema'
 
-const log = createLogger('config')
+// OpenCode 1 composition's config channel; a location passes its own logger.
+const legacyLog = createLogger('config')
+
+/** The logger capability config loading needs: invalid-file warnings. */
+export type ConfigLoadLogger = Pick<Logger, 'warn'>
 
 // =============================================================================
 // Path Utilities
@@ -61,7 +65,10 @@ export function getProjectConfigPath(directory: string): string {
 /**
  * Load and parse a config file, returning null if not found or invalid.
  */
-function loadConfigFile(path: string): Partial<AntigravityConfig> | null {
+function loadConfigFile(
+  path: string,
+  log: ConfigLoadLogger,
+): Partial<AntigravityConfig> | null {
   try {
     if (!existsSync(path)) {
       return null
@@ -122,22 +129,28 @@ function mergeConfigs(
  * Load the complete configuration.
  *
  * @param directory - The project directory (for project-level config)
+ * @param options.logger - Where invalid-file warnings go; a location passes
+ *   its own logger, OpenCode 1 callers omit it.
  * @returns Fully resolved configuration
  */
-export function loadConfig(directory: string): AntigravityConfig {
+export function loadConfig(
+  directory: string,
+  options: { logger?: ConfigLoadLogger } = {},
+): AntigravityConfig {
+  const log = options.logger ?? legacyLog
   // Start with defaults
   let config: AntigravityConfig = { ...DEFAULT_CONFIG }
 
   // Load user config file (if exists)
   const userConfigPath = getUserConfigPath()
-  const userConfig = loadConfigFile(userConfigPath)
+  const userConfig = loadConfigFile(userConfigPath, log)
   if (userConfig) {
     config = mergeConfigs(config, userConfig)
   }
 
   // Load project config file (if exists) - overrides user config
   const projectConfigPath = getProjectConfigPath(directory)
-  const projectConfig = loadConfigFile(projectConfigPath)
+  const projectConfig = loadConfigFile(projectConfigPath, log)
   if (projectConfig) {
     config = mergeConfigs(config, projectConfig)
   }
@@ -158,6 +171,69 @@ export function configExists(path: string): boolean {
 export function getDefaultLogsDir(): string {
   return join(getConfigDir(), 'antigravity-logs')
 }
+
+/**
+ * One server location's resolved configuration. Each location loads its own
+ * from its own project directory; nothing here is process-wide, so a second
+ * location never sees the first location's values.
+ */
+export interface LocationConfig {
+  readonly directory: string
+  readonly config: AntigravityConfig
+  /**
+   * The keep_thinking policy: gates thought restoration/injection and disk
+   * signature-cache ownership, never signature lookup or extraction.
+   */
+  readonly keepThinking: boolean
+  readonly projectConfigPath: string
+  readonly userConfigPath: string
+}
+
+/** Load one location's configuration from its project directory. */
+export function createLocationConfig(
+  directory: string,
+  options: { logger?: ConfigLoadLogger } = {},
+): LocationConfig {
+  const config = loadConfig(directory, options)
+  return {
+    directory,
+    config,
+    keepThinking: config.keep_thinking,
+    projectConfigPath: getProjectConfigPath(directory),
+    userConfigPath: getUserConfigPath(),
+  }
+}
+
+/**
+ * Canonical identity for a file a process-shared controller owns: the
+ * real path of the file, or of its nearest existing ancestor joined with
+ * the missing remainder. Two spellings of one file (relative, symlinked
+ * directory, `..` segments) therefore share one controller.
+ */
+export function canonicalizeOwnedPath(path: string): string {
+  const absolute = resolve(path)
+  const missing: string[] = []
+  let current = absolute
+  for (;;) {
+    try {
+      return join(realpathSync(current), ...missing.reverse())
+    } catch {
+      const parent = dirname(current)
+      if (parent === current) return absolute
+      missing.push(basename(current))
+      current = parent
+    }
+  }
+}
+
+// =============================================================================
+// OpenCode 1 single-location binding
+//
+// `initRuntimeConfig`/`getKeepThinking` hold the OpenCode 1 composition's one
+// configuration for request helpers that have not yet adopted a location's
+// `LocationConfig`. A location never writes this binding, so it cannot make
+// one location's keep_thinking govern another's.
+// =============================================================================
 
 let runtimeConfig: AntigravityConfig | null = null
 
