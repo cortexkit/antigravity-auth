@@ -304,6 +304,45 @@ and raw-empty cases measure that distinction. Accepted 71-case native ARM
 research and 65 completed emulated x64 cases (six pre-setup timeouts, failed
 aggregate) certify no native amd64 or long-lived-server behavior.
 
+### Actual raw-sender AbortSignal: unresolved instrumentation prerequisite
+
+The measurement plugin's `event.request.signal` is the **host Web Request's
+signal**. Supplying it to the replacement Request establishes that Request's
+following signal; it neither observes nor proves the identity or abort
+transition of the signal passed to the raw AGY sender. The source/API contract
+and proxy measurement are complete independently of the following unresolved
+runtime observation prerequisite.
+
+At this adapter's baseline `53684d66af97ea4cd44b6dc18d0e039f2526a978`, the actual
+unchanged sender is `packages/core/src/agy-transport.ts`:
+
+- `AgyTransportOptions.signal` is the sender's signal input (`:18-32`). The
+  sender checks `options.signal.aborted` before work (`:576-578`), passes that
+  signal to connection setup (`:587-591`), installs its abort listener before
+  dispatch (`:594-600`) and passes it into response-body handling (`:615-621`).
+- Direct TLS uses that signal in `tls.connect` (`:281-293`); proxy TCP and TLS
+  use it at `:189-200,252-257`. Body handling independently observes the same
+  signal's abort state/listener (`:541-551`). Those are source facts, not a
+  measured abort transition or proof that the future packed bridge passes the
+  right object.
+- Existing `onDebug` exposes only message strings (`:18-32,584-585,601-613`),
+  not the actual signal object or its abort transition. Neither the sealed
+  override list nor these diagnostics provides an actual-signal observer API.
+
+**Hard prerequisite for the three cancellation gates:** an explicitly admitted
+observation mechanism for the actual sender's `options.signal` is still missing.
+The supplied C-CANCEL/C-HOSTS and A4 requirements retain all their force: `send`
+is omitted, the raw sender is unchanged, and each connecting/pre-header/
+post-header case must separately record that signal's transition **and** the
+peer's natural TCP/TLS close within 2000 ms with no further bytes. Peer close
+alone, a host Request signal, an injected/wrapped `send`, transport monkeypatching,
+or forced teardown cannot certify cancellation. No nonexistent observer API or
+approved addendum is named here. Parent owns the bounded sealed-body/wiring
+reconciliation and any minimal explicit design correction plus cross-owner
+handoff before a concrete mechanism may be admitted. This prerequisite does not
+pause preparation or source/pin completion of unrelated GA components, and it
+was not run or certified in this component.
+
 ## Pre-deletion beta boundary oracle: pending parent admission
 
 Source inspection at the frozen base sees beta identity's hardcoded
@@ -361,5 +400,7 @@ pre-deletion beta oracle; real V1 1.17.13 name/directory/direct-file and PTY
 loading/no-op outcomes; GA packed consumers/loading, stock Google compaction,
 raw-sender startup trust and hostname negatives, three cancellation phases,
 native error/overflow fidelity, returned Cleanup, two locations and full TUI
-mount/parity. No source reading, synthetic matrix, ARM result, emulated result
+mount/parity. The actual raw-sender signal observer above is a distinct hard
+prerequisite for the three cancellation gates, not an inferred host-signal pass.
+No source reading, synthetic matrix, ARM result, emulated result
 or pending provenance is counted as one of those passes.
