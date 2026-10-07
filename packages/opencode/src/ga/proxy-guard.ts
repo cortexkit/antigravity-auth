@@ -29,6 +29,9 @@
  *   `NO_PROXY`, with the same raw-before-quote-stripping rule. The two lists
  *   are never merged.
  * - The selected list is split on commas only; each entry is trimmed.
+ * - Only these exact spellings are read (`env.get(b"http_proxy")` and so on in
+ *   the pinned source). A key with any other capitalisation, such as
+ *   `Http_Proxy`, is ignored like any other unrelated variable.
  *
  * The guard is deliberately narrower than the host: it only treats an entry as
  * excluding the bridge when it is one of the loopback forms measured as direct
@@ -52,15 +55,16 @@ export type ExclusionVariableName = 'no_proxy' | 'NO_PROXY'
 /**
  * Why a configuration was refused. The letters follow the guard contract:
  * (a) a proxy applies and no entry excludes the bridge;
- * (b) a proxy or exclusion variable is spelled in a way whose precedence was
- *     never measured, so the effective setting is unknown;
  * (c) the proxy that applies is not an absolute http(s) URL;
  * (d) the exclusion list names loopback, but only in a form the host does not
  *     treat as direct (or that was never measured as direct).
+ * The contract's trigger (b), a conflict without recorded precedence, has no
+ * case here. The host reads only the exact lowercase and uppercase names, and
+ * every conflict between those has a measured winner: lowercase when its raw
+ * value is non-empty.
  */
 export type LoopbackProxyGuardTrigger =
   | 'a-no-loopback-exclusion'
-  | 'b-unrecorded-conflict'
   | 'c-proxy-not-url'
   | 'd-loopback-entry-not-direct'
 
@@ -99,8 +103,6 @@ export type LoopbackProxyRefused = {
   readonly proxyVariable: ProxyVariableName | null
   /** The exclusion variable the host would consult, when one was selected. */
   readonly exclusionVariable: ExclusionVariableName | null
-  /** Variable names (never values) whose spelling caused trigger (b). */
-  readonly conflictingVariables: readonly string[]
   /** User-facing text. Contains no environment values. */
   readonly message: string
 }
@@ -155,28 +157,6 @@ function selectLowerThenUpper<Lower extends string, Upper extends string>(
 /** Empty, or exactly two double quotes, or exactly two single quotes. */
 function isEmptyish(raw: string): boolean {
   return raw === '' || raw === '""' || raw === "''"
-}
-
-/**
- * Environment keys that spell `http_proxy` / `no_proxy` with any capitalisation
- * other than all-lowercase or all-uppercase. The pinned host on Linux reads
- * only the exact spellings, but environments are case-insensitive on some
- * platforms and no measurement records which spelling would win, so such a
- * key makes the effective setting unknown.
- */
-function nonstandardSpellings(
-  env: LoopbackProxyEnv,
-  family: 'http_proxy' | 'no_proxy',
-): string[] {
-  const upper = family.toUpperCase()
-  const found: string[] = []
-  for (const key of Object.keys(env)) {
-    if (key === family || key === upper) continue
-    if (key.toLowerCase() !== family) continue
-    if (env[key] === undefined) continue
-    found.push(key)
-  }
-  return found.sort()
 }
 
 /**
@@ -267,7 +247,6 @@ function refuse(
   trigger: LoopbackProxyGuardTrigger,
   proxyVariable: ProxyVariableName | null,
   exclusionVariable: ExclusionVariableName | null,
-  conflictingVariables: readonly string[],
 ): LoopbackProxyRefused {
   const lead =
     'Antigravity stopped this request before sending it: the OpenCode host would route the ' +
@@ -288,18 +267,12 @@ function refuse(
         `${proxyVariable} is not an absolute http:// or https:// URL; fix or unset it. ` +
         'Loopback must also stay excluded from the proxy.'
       break
-    case 'b-unrecorded-conflict':
-      detail =
-        `Proxy variables with nonstandard capitalisation are set (${conflictingVariables.join(', ')}); ` +
-        'use only the all-lowercase or all-uppercase names. Loopback must also stay excluded from the proxy.'
-      break
   }
   return {
     ok: false,
     trigger,
     proxyVariable,
     exclusionVariable,
-    conflictingVariables,
     message: `${lead} ${detail} ${exclusionAdvice(exclusionVariable)}`,
   }
 }
@@ -337,11 +310,6 @@ export function evaluateLoopbackProxyGuard(
   const bridgePort = bridgePortOf(input.target)
   const env = input.env
 
-  const proxySpellings = nonstandardSpellings(env, 'http_proxy')
-  if (proxySpellings.length > 0) {
-    return refuse('b-unrecorded-conflict', null, null, proxySpellings)
-  }
-
   const proxy = selectLowerThenUpper(env, 'http_proxy', 'HTTP_PROXY')
   if (proxy === null)
     return {
@@ -365,21 +333,11 @@ export function evaluateLoopbackProxyGuard(
   const exclusionVariable = exclusion?.name ?? null
 
   if (!isSupportedProxyUrl(proxy.raw)) {
-    return refuse('c-proxy-not-url', proxy.name, exclusionVariable, [])
-  }
-
-  const exclusionSpellings = nonstandardSpellings(env, 'no_proxy')
-  if (exclusionSpellings.length > 0) {
-    return refuse(
-      'b-unrecorded-conflict',
-      proxy.name,
-      exclusionVariable,
-      exclusionSpellings,
-    )
+    return refuse('c-proxy-not-url', proxy.name, exclusionVariable)
   }
 
   if (exclusion === null || isEmptyish(exclusion.raw)) {
-    return refuse('a-no-loopback-exclusion', proxy.name, exclusionVariable, [])
+    return refuse('a-no-loopback-exclusion', proxy.name, exclusionVariable)
   }
 
   let loopbackAttempt = false
@@ -404,7 +362,6 @@ export function evaluateLoopbackProxyGuard(
     loopbackAttempt ? 'd-loopback-entry-not-direct' : 'a-no-loopback-exclusion',
     proxy.name,
     exclusionVariable,
-    [],
   )
 }
 

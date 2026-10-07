@@ -515,14 +515,14 @@ function evaluate(env: LoopbackProxyEnv): LoopbackProxyDecision {
 type Guard = (input: LoopbackProxyGuardInput) => LoopbackProxyDecision
 
 /**
- * Compare a guard against every measured row and return the cases where it
- * disagrees. A refusal agrees with a proxied row only when it names the
+ * Compare a guard against the given measured rows and return the cases where
+ * it disagrees. A refusal agrees with a proxied row only when it names the
  * variable the host actually used (the one pointing at the recorder that
  * received the request).
  */
-function conformanceMismatches(guard: Guard): string[] {
+function rowMismatches(guard: Guard, rows: readonly MeasuredRow[]): string[] {
   const mismatches: string[] = []
-  for (const [caseNo, , verdict, template, via] of MEASURED_ROWS) {
+  for (const [caseNo, , verdict, template, via] of rows) {
     const decision = guard({ env: materialize(template), target: BRIDGE_URL })
     if (verdict === 'direct') {
       const expectOk = !GUARD_STRICTER_THAN_HOST.has(caseNo)
@@ -540,6 +540,34 @@ function conformanceMismatches(guard: Guard): string[] {
   }
   return mismatches
 }
+
+function rowsNumbered(caseNos: readonly string[]): MeasuredRow[] {
+  return caseNos.map((caseNo) => {
+    const row = MEASURED_ROWS.find(([no]) => no === caseNo)
+    if (row === undefined) throw new Error(`missing measured row ${caseNo}`)
+    return row
+  })
+}
+
+/**
+ * Rows checked by a dedicated named test instead of the general conformance
+ * test. Every row is checked by exactly one test, so breaking one rule turns
+ * only the test that owns that rule red.
+ */
+const QUOTED_NO_PROXY_ROWS = ['030', '031', '055', '056'] as const
+const QUOTED_HTTP_PROXY_ROWS = ['069', '070'] as const
+const PORT_ROWS = ['021', '022', '046', '047'] as const
+const DEDICATED_ROWS = new Set<string>([
+  ...QUOTED_NO_PROXY_ROWS,
+  ...QUOTED_HTTP_PROXY_ROWS,
+  ...PORT_ROWS,
+])
+const GENERAL_ROWS = MEASURED_ROWS.filter(([no]) => !DEDICATED_ROWS.has(no))
+
+/** Rows where some variable holds exactly `""` or `''`. */
+const QUOTED_VALUE_ROWS = MEASURED_ROWS.filter(([, , , template]) =>
+  Object.values(template).some((value) => value === '""' || value === "''"),
+)
 
 /**
  * The mistake this guard exists to avoid: strip quoted-empty values first,
@@ -588,10 +616,19 @@ describe('measured arm64 rows', () => {
     for (const caseNo of GUARD_STRICTER_THAN_HOST) {
       expect(MEASURED_ROWS.find(([no]) => no === caseNo)?.[2]).toBe('direct')
     }
+    // Every row is owned by exactly one conformance check.
+    expect(GENERAL_ROWS.length + DEDICATED_ROWS.size).toBe(66)
+    expect(DEDICATED_ROWS.size).toBe(
+      QUOTED_NO_PROXY_ROWS.length +
+        QUOTED_HTTP_PROXY_ROWS.length +
+        PORT_ROWS.length,
+    )
+    expect(rowsNumbered([...DEDICATED_ROWS])).toHaveLength(DEDICATED_ROWS.size)
   })
 
-  it('agrees with every measured row, including which variable the host used', () => {
-    expect(conformanceMismatches(evaluateLoopbackProxyGuard)).toEqual([])
+  it('agrees with every general measured row, including which variable the host used', () => {
+    expect(GENERAL_ROWS).toHaveLength(56)
+    expect(rowMismatches(evaluateLoopbackProxyGuard, GENERAL_ROWS)).toEqual([])
   })
 
   it('conservative policy: refuses host-direct suffix spellings (0.0.1, .0.0.1) as loopback entries', () => {
@@ -603,8 +640,20 @@ describe('measured arm64 rows', () => {
     }
   })
 
-  it('failure control: the normalize-then-fall-through guard fails conformance', () => {
-    const mismatches = conformanceMismatches(normalizeThenFallThroughGuard)
+  it('failure control: the normalize-then-fall-through guard fails conformance on the quoted-value rows', () => {
+    expect(QUOTED_VALUE_ROWS.map(([no]) => no)).toEqual([
+      '030',
+      '031',
+      '055',
+      '056',
+      '069',
+      '070',
+      '071',
+    ])
+    const mismatches = rowMismatches(
+      normalizeThenFallThroughGuard,
+      QUOTED_VALUE_ROWS,
+    )
     // Unsafe direction: quoted-empty no_proxy treated as absent, so the
     // uppercase NO_PROXY=127.0.0.1 is wrongly honoured while the host proxies.
     // Safe-but-wrong direction: quoted-empty http_proxy falls through to
@@ -668,7 +717,13 @@ describe('honoured and ignored proxy variables', () => {
 })
 
 describe('raw-before-strip precedence', () => {
-  it('quoted-empty lowercase http_proxy suppresses HTTP_PROXY and routes direct', () => {
+  it('quoted-empty lowercase http_proxy suppresses HTTP_PROXY and routes direct (rows 069, 070)', () => {
+    expect(
+      rowMismatches(
+        evaluateLoopbackProxyGuard,
+        rowsNumbered(QUOTED_HTTP_PROXY_ROWS),
+      ),
+    ).toEqual([])
     for (const quoted of ['""', "''"]) {
       expect(evaluate({ http_proxy: quoted, HTTP_PROXY: RECORDERS.A })).toEqual(
         {
@@ -701,7 +756,13 @@ describe('raw-before-strip precedence', () => {
     )
   })
 
-  it('quoted-empty lowercase no_proxy suppresses a matching NO_PROXY and is refused', () => {
+  it('quoted-empty lowercase no_proxy suppresses a matching NO_PROXY and is refused (rows 030, 031, 055, 056)', () => {
+    expect(
+      rowMismatches(
+        evaluateLoopbackProxyGuard,
+        rowsNumbered(QUOTED_NO_PROXY_ROWS),
+      ),
+    ).toEqual([])
     for (const quoted of ['""', "''"]) {
       for (const proxyVariable of ['HTTP_PROXY', 'http_proxy'] as const) {
         const decision = expectRefused(
@@ -741,14 +802,10 @@ describe('raw-before-strip precedence', () => {
 
   it('padded or other quote strings never substitute for the quoted-empty value', () => {
     for (const padded of [' "" ', '"" ', "' '", '"', '"""', '``']) {
+      // Selected as a real proxy value (refused), not treated as "no proxy".
       const asProxy = expectRefused(
-        evaluate({
-          http_proxy: padded,
-          HTTP_PROXY: RECORDERS.A,
-          NO_PROXY: '127.0.0.1',
-        }),
+        evaluate({ http_proxy: padded, HTTP_PROXY: RECORDERS.A }),
       )
-      expect(asProxy.trigger).toBe('c-proxy-not-url')
       expect(asProxy.proxyVariable).toBe('http_proxy')
 
       const asExclusion = expectRefused(
@@ -795,40 +852,66 @@ describe('conflicts', () => {
     })
   })
 
-  it('refuses nonstandard capitalisation of http_proxy as an unrecorded conflict', () => {
-    for (const env of [
-      { Http_Proxy: RECORDERS.A },
-      { Http_Proxy: RECORDERS.A, NO_PROXY: '127.0.0.1' },
-      { HTTP_proxy: '', http_proxy: RECORDERS.A, NO_PROXY: '127.0.0.1' },
-    ]) {
-      const decision = expectRefused(evaluate(env))
-      expect(decision.trigger).toBe('b-unrecorded-conflict')
-      expect(decision.conflictingVariables.length).toBe(1)
+  // The pinned host reads only the exact lowercase and uppercase names, so any
+  // other key (including another capitalisation) must leave the decision
+  // unchanged. This is the measured Linux behaviour; no other platform is
+  // claimed here.
+  it('mixed-case and unrelated keys do not alter selection', () => {
+    const bases: LoopbackProxyEnv[] = [
+      {},
+      { HTTP_PROXY: RECORDERS.A },
+      { http_proxy: RECORDERS.A, NO_PROXY: '127.0.0.1' },
+      { http_proxy: '""', HTTP_PROXY: RECORDERS.A },
+      { HTTP_PROXY: RECORDERS.A, NO_PROXY: '127.0.0.1', no_proxy: "''" },
+      { HTTP_PROXY: RECORDERS.A, NO_PROXY: 'localhost' },
+      { http_proxy: 'not a url', NO_PROXY: '127.0.0.1' },
+    ]
+    const extraKeys = [
+      'Http_Proxy',
+      'HTTP_proxy',
+      'http_PROXY',
+      'No_Proxy',
+      'no_PROXY',
+      'NO_proxy',
+      'Https_Proxy',
+      'All_Proxy',
+      'PROXY',
+      'FTP_PROXY',
+      'SOCKS_PROXY',
+      'npm_config_proxy',
+      'GLOBAL_AGENT_HTTP_PROXY',
+    ]
+    const extraValues = [RECORDERS.B, 'not a url', '127.0.0.1', '*', '""', '']
+    for (const base of bases) {
+      const expected = evaluate(base)
+      for (const key of extraKeys) {
+        for (const value of extraValues) {
+          expect({
+            key,
+            value,
+            decision: evaluate({ ...base, [key]: value }),
+          }).toEqual({
+            key,
+            value,
+            decision: expected,
+          })
+        }
+      }
     }
   })
 
-  it('refuses nonstandard capitalisation of no_proxy when a proxy applies', () => {
+  it('a mixed-case proxy key alone means no proxy, and a mixed-case exclusion key excludes nothing', () => {
+    expect(evaluate({ Http_Proxy: RECORDERS.A })).toEqual({
+      ok: true,
+      route: 'direct',
+      basis: 'no-proxy-selected',
+      proxyVariable: null,
+    })
     const decision = expectRefused(
-      evaluate({
-        HTTP_PROXY: RECORDERS.A,
-        NO_PROXY: '127.0.0.1',
-        No_Proxy: 'x',
-      }),
+      evaluate({ HTTP_PROXY: RECORDERS.A, No_Proxy: '127.0.0.1' }),
     )
-    expect(decision.trigger).toBe('b-unrecorded-conflict')
-    expect(decision.conflictingVariables).toEqual(['No_Proxy'])
-  })
-
-  it('ignores nonstandard no_proxy spellings when no proxy applies, and undefined values', () => {
-    expect(evaluate({ No_Proxy: 'example.com' }).ok).toBe(true)
-    expect(
-      evaluate({
-        HTTP_PROXY: RECORDERS.A,
-        NO_PROXY: '127.0.0.1',
-        No_Proxy: undefined,
-      }).ok,
-    ).toBe(true)
-    expect(evaluate({ Http_Proxy: undefined }).ok).toBe(true)
+    expect(decision.trigger).toBe('a-no-loopback-exclusion')
+    expect(decision.exclusionVariable).toBeNull()
   })
 })
 
@@ -896,9 +979,6 @@ describe('exclusion lists', () => {
       '[::1]',
       `[::1]:${BRIDGE_PORT}`,
       '127.0.0.0/8',
-      `127.0.0.1:${OTHER_PORT}`,
-      `127.0.0.1:0${BRIDGE_PORT}`,
-      '127.0.0.1:',
       '127.0.0.1/',
       '127.0.0.1.evil.test',
       `[127.0.0.1]:${BRIDGE_PORT}`,
@@ -938,7 +1018,25 @@ describe('exclusion lists', () => {
     }
   })
 
-  it('compares the port against the bridge URL being dispatched', () => {
+  it('requires the exact bridge port in a host:port entry (rows 021, 022, 046, 047)', () => {
+    expect(
+      rowMismatches(evaluateLoopbackProxyGuard, rowsNumbered(PORT_ROWS)),
+    ).toEqual([])
+    for (const entry of [
+      `127.0.0.1:${OTHER_PORT}`,
+      `127.0.0.1:0${BRIDGE_PORT}`,
+      `127.0.0.1:${BRIDGE_PORT}0`,
+      '127.0.0.1:',
+    ]) {
+      const decision = expectRefused(
+        evaluate({ HTTP_PROXY: RECORDERS.A, NO_PROXY: entry }),
+      )
+      expect({ entry, trigger: decision.trigger }).toEqual({
+        entry,
+        trigger: 'd-loopback-entry-not-direct',
+      })
+    }
+    // The port compared is the one in the bridge URL being dispatched.
     const env = {
       HTTP_PROXY: RECORDERS.A,
       NO_PROXY: `127.0.0.1:${BRIDGE_PORT}`,
@@ -971,6 +1069,8 @@ describe('proxy URL validation', () => {
       '"http://proxy.test:3128"',
       'http://',
       'http:// bad host',
+      'hunter2-not-a-url',
+      'socks5://alice:hunter2@corp-proxy.test:1080',
     ]) {
       for (const exclusion of [{}, { NO_PROXY: '127.0.0.1' }]) {
         const decision = expectRefused(
@@ -980,6 +1080,10 @@ describe('proxy URL validation', () => {
           value,
           trigger: 'c-proxy-not-url',
         })
+        expect(decision.message).toContain(DOCUMENTED_LOOPBACK_EXCLUSION)
+        for (const secret of ['alice', 'hunter2', 'corp-proxy', '3128']) {
+          expect(JSON.stringify(decision)).not.toContain(secret)
+        }
       }
     }
   })
@@ -1096,15 +1200,13 @@ describe('errors and assertion', () => {
     })
   })
 
-  it('every refusal names NO_PROXY=127.0.0.1 and leaks no environment value', () => {
+  it('exclusion refusals name NO_PROXY=127.0.0.1 and leak no environment value', () => {
     const secretProxy = 'http://alice:hunter2@corp-proxy.internal.test:3128'
     const refusals = [
       { HTTP_PROXY: secretProxy },
       { http_proxy: secretProxy, NO_PROXY: 'secret-host.internal.test' },
       { http_proxy: secretProxy, NO_PROXY: 'localhost.secret-zone.test' },
-      { http_proxy: 'hunter2-not-a-url', NO_PROXY: '127.0.0.1' },
-      { Http_Proxy: secretProxy },
-      { HTTP_PROXY: secretProxy, NO_PROXY: '127.0.0.1', no_proxy: '""' },
+      { HTTP_PROXY: secretProxy, no_proxy: 'secret-host.internal.test' },
     ]
     const triggers = new Set<string>()
     for (const env of refusals) {
@@ -1123,10 +1225,9 @@ describe('errors and assertion', () => {
         expect(serialized).not.toContain(secret)
       }
     }
+    // Trigger (c) messages are checked in the proxy URL validation test.
     expect([...triggers].sort()).toEqual([
       'a-no-loopback-exclusion',
-      'b-unrecorded-conflict',
-      'c-proxy-not-url',
       'd-loopback-entry-not-direct',
     ])
   })
