@@ -1297,3 +1297,16 @@ describe('purity', () => {
     expect(fetchCalls).toBe(0)
   })
 })
+
+it('describes a host-direct suffix refusal as guard policy, not host routing', () => {
+  const decision = evaluateLoopbackProxyGuard({
+    env: { HTTP_PROXY: 'http://proxy.invalid:3128', NO_PROXY: '0.0.1' },
+    target: 'http://127.0.0.1:43119/job/synthetic',
+  })
+  expect(decision.ok).toBe(false)
+  if (decision.ok)
+    throw new Error('The explicit loopback policy must refuse the suffix')
+  expect(decision.trigger).toBe('d-loopback-entry-not-direct')
+  expect(decision.message).toContain('accepted by the guard')
+  expect(decision.message).not.toContain('host does not exclude')
+})

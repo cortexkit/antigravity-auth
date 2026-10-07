@@ -136,10 +136,10 @@ type Selected<Name extends string> = {
 }
 
 /**
- * The host's selection: the lowercase variable wins when its RAW value is
- * non-empty; otherwise the uppercase variable is used as-is (it may be unset
- * or empty). Quote stripping is not applied here on purpose: the measured host
- * selects first and only then treats a quoted-empty value as empty.
+ * OpenCode sends the rewritten bridge request, so the guard must match its
+ * pinned Linux/Bun variable selection. A non-empty raw lowercase value wins
+ * before quoted-empty handling; reversing that order can select an uppercase
+ * proxy that OpenCode would ignore, or trust an exclusion it would ignore.
  */
 function selectLowerThenUpper<Lower extends string, Upper extends string>(
   env: LoopbackProxyEnv,
@@ -160,10 +160,8 @@ function isEmptyish(raw: string): boolean {
 }
 
 /**
- * A proxy value counts as a URL only when it is an absolute `http:` or
- * `https:` URL with a host and no surrounding whitespace. Scheme-less values
- * (`proxy:3128`), other schemes and padded values were never measured, so they
- * fail closed instead of being guessed at.
+ * Accept only absolute HTTP(S) proxy URLs with a host and no surrounding
+ * whitespace. Reject other forms rather than guess how to interpret them.
  */
 function isSupportedProxyUrl(raw: string): boolean {
   if (raw.trim() !== raw) return false
@@ -178,10 +176,8 @@ function isSupportedProxyUrl(raw: string): boolean {
 }
 
 /**
- * Trim the characters the measurements show the host trims around an entry.
- * Only ASCII spaces are removed: leading spaces after a comma were measured as
- * trimmed; tabs, newlines and other whitespace were not measured, so an entry
- * padded with them stays unmatched and fails closed.
+ * The guard trims ASCII spaces around exclusion entries. It rejects entries
+ * padded with other whitespace, even if a host implementation accepts them.
  */
 function trimEntry(entry: string): string {
   let start = 0
@@ -259,8 +255,8 @@ function refuse(
       break
     case 'd-loopback-entry-not-direct':
       detail =
-        `${proxyVariable} is set and ${exclusionVariable} names loopback only in a form the ` +
-        'host does not exclude (for example localhost, ::1, a CIDR range or a different port).'
+        `${proxyVariable} is set, but ${exclusionVariable} has no explicit loopback exclusion ` +
+        'accepted by the guard. Use 127.0.0.1, optionally with the exact bridge port, or *.'
       break
     case 'c-proxy-not-url':
       detail =
@@ -300,9 +296,11 @@ function bridgePortOf(target: string | URL): string {
 }
 
 /**
- * Decide whether the host would send a request for `target` straight to the
- * loopback bridge under `env`. Pure: reads `env`, writes nothing, performs no
- * I/O. Throws `TypeError` only when `target` is not a loopback bridge URL.
+ * Allow the bridge request when no HTTP proxy applies, or the selected
+ * exclusion list contains `*`, `127.0.0.1`, or that host with the bridge port.
+ * Reject suffix spellings even when OpenCode accepts them, so the exclusion
+ * stays explicit. No I/O or writes occur. Invalid bridge targets throw
+ * `TypeError`.
  */
 export function evaluateLoopbackProxyGuard(
   input: LoopbackProxyGuardInput,
