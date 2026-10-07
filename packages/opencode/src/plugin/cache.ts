@@ -8,16 +8,18 @@
 //   one hour (fixed), timed from when the hot entry was written.
 // - The disk cache (`./cache/signature-cache`) persists signatures to a
 //   file. One instance per canonical file path is shared by every location
-//   that owns it; each location reads it with its own configured
-//   `memory_ttl_seconds` against the entry's original timestamp.
+//   that owns it. Every location whose signature_cache is enabled reads it,
+//   while an owner holds it, with its own configured `memory_ttl_seconds`
+//   against the entry's original timestamp.
 //
 // A location's `keep_thinking` setting decides thought restoration/injection
 // (a request-pipeline concern exposed as `keepThinking`) and whether the
-// location owns disk persistence. It never disables signature lookup,
+// location owns disk persistence: only an owner creates the disk cache,
+// writes to it and keeps it running. It never disables signature lookup,
 // extraction or hot-map writes. Disposing a location releases only its own
-// ownership: persistence continues while any enabled owner remains and stops
-// at the last one, and no location's hot entries or SignatureStore are
-// cleared by another location's disposal.
+// share: persistence continues while any enabled owner remains and stops at
+// the last one, and no location's hot entries or SignatureStore are cleared
+// by another location's disposal.
 // ============================================================================
 
 import { createHash } from 'node:crypto'
@@ -90,8 +92,11 @@ export interface LocationSignatureCache {
    */
   readonly keepThinking: boolean
   /**
-   * The shared disk cache while this location owns persistence (keep_thinking
-   * and signature_cache.enabled both on), else null.
+   * This location's owned handle on the shared disk cache when keep_thinking
+   * and signature_cache.enabled are both on, else null. With thought replay
+   * disabled (keep_thinking off) and signature_cache.enabled on, the location
+   * has read-only lookup access to a cache another owner is running, and this
+   * stays null.
    */
   readonly diskCache: SignatureCache | null
   /** This location's current-session signed-thinking replay store. */
@@ -99,15 +104,17 @@ export interface LocationSignatureCache {
   /** Record a signature in the hot map and, when owned, the disk cache. */
   cacheSignature(sessionId: string, text: string, signature: string): void
   /**
-   * Hot map first (fixed one-hour gate), then the owned disk cache against
-   * this location's memory TTL; a disk hit is promoted into the hot map.
+   * Hot map first (fixed one-hour gate), then the disk cache for this
+   * location's file, when one is running, against this location's memory
+   * TTL; a disk hit is promoted into the hot map.
    */
   getCachedSignature(sessionId: string, text: string): string | undefined
   /**
-   * Release this location's ownership. Idempotent. The last enabled owner of
-   * a disk cache flushes and stops it; otherwise the remaining owners' TTLs
-   * take over. Nothing is cleared for any other location, and this handle
-   * neither reads nor writes afterwards.
+   * Release this location's share of the disk cache. Idempotent. The last
+   * enabled owner of a disk cache flushes and stops it, even while readers
+   * remain; otherwise retention is recomputed from the remaining consumers.
+   * Nothing is cleared for any other location, and this handle neither reads
+   * nor writes afterwards.
    */
   dispose(): Promise<void>
 }
@@ -131,7 +138,8 @@ export interface SignatureProcessStateOptions {
   now?: Clock
 }
 
-interface DiskOwner {
+/** One live location's claim on a disk cache file. */
+interface DiskConsumer {
   memoryTtlMs: number
   diskTtlMs: number
   writeIntervalMs: number
@@ -140,17 +148,25 @@ interface DiskOwner {
 interface SharedDiskCache {
   path: string
   cache: SignatureCache
-  owners: Set<DiskOwner>
+  owners: Set<DiskConsumer>
 }
 
-/** Longest TTLs and shortest write interval among the live owners. */
-function aggregateRetention(owners: Set<DiskOwner>): SignatureCacheRetention {
+/**
+ * Longest TTLs among every live consumer of a file (owners and readers) and
+ * the shortest write interval among its owners, who alone write.
+ */
+function aggregateRetention(
+  owners: Set<DiskConsumer>,
+  readers: Set<DiskConsumer> | undefined,
+): SignatureCacheRetention {
   let memoryTtlMs = 0
   let diskTtlMs = 0
   let writeIntervalMs = Number.POSITIVE_INFINITY
+  for (const consumer of [...owners, ...(readers ?? [])]) {
+    memoryTtlMs = Math.max(memoryTtlMs, consumer.memoryTtlMs)
+    diskTtlMs = Math.max(diskTtlMs, consumer.diskTtlMs)
+  }
   for (const owner of owners) {
-    memoryTtlMs = Math.max(memoryTtlMs, owner.memoryTtlMs)
-    diskTtlMs = Math.max(diskTtlMs, owner.diskTtlMs)
     writeIntervalMs = Math.min(writeIntervalMs, owner.writeIntervalMs)
   }
   return { memoryTtlMs, diskTtlMs, writeIntervalMs }
@@ -168,6 +184,19 @@ export function createSignatureProcessState(
   // Map: sessionId -> Map<textHash, SignatureEntry>
   const hot = new Map<string, Map<string, SignatureEntry>>()
   const disks = new Map<string, SharedDiskCache>()
+  // Locations with signature_cache enabled but keep_thinking off, by file.
+  // They read a running cache and widen its retention but never create it
+  // or keep it running.
+  const readers = new Map<string, Set<DiskConsumer>>()
+
+  const updateRetention = (path: string): void => {
+    const shared = disks.get(path)
+    if (shared) {
+      shared.cache.setRetention(
+        aggregateRetention(shared.owners, readers.get(path)),
+      )
+    }
+  }
 
   /**
    * Prune stale sessions from the hot map.
@@ -281,11 +310,10 @@ export function createSignatureProcessState(
   }
 
   const acquireDisk = (
-    filePath: string,
+    path: string,
     config: SignatureCacheConfig,
-    owner: DiskOwner,
+    owner: DiskConsumer,
   ): SharedDiskCache => {
-    const path = canonicalizeOwnedPath(filePath)
     let shared = disks.get(path)
     if (!shared) {
       shared = {
@@ -296,17 +324,17 @@ export function createSignatureProcessState(
       disks.set(path, shared)
     }
     shared.owners.add(owner)
-    shared.cache.setRetention(aggregateRetention(shared.owners))
+    updateRetention(path)
     return shared
   }
 
   const releaseDisk = async (
     shared: SharedDiskCache,
-    owner: DiskOwner,
+    owner: DiskConsumer,
   ): Promise<void> => {
     shared.owners.delete(owner)
     if (shared.owners.size > 0) {
-      shared.cache.setRetention(aggregateRetention(shared.owners))
+      updateRetention(shared.path)
       return
     }
     // Last enabled owner: unregister first so a new owner starts a fresh
@@ -322,23 +350,37 @@ export function createSignatureProcessState(
   return {
     acquireLocation(locationOptions) {
       const config = locationOptions.signatureCache
-      const ownsDisk = locationOptions.keepThinking && config?.enabled === true
-      const owner: DiskOwner | null =
-        ownsDisk && config
-          ? {
-              memoryTtlMs: config.memory_ttl_seconds * 1000,
-              diskTtlMs: config.disk_ttl_seconds * 1000,
-              writeIntervalMs: config.write_interval_seconds * 1000,
-            }
-          : null
+      // A disabled signature_cache means no disk use at all for this location.
+      const consumer: DiskConsumer | null = config?.enabled
+        ? {
+            memoryTtlMs: config.memory_ttl_seconds * 1000,
+            diskTtlMs: config.disk_ttl_seconds * 1000,
+            writeIntervalMs: config.write_interval_seconds * 1000,
+          }
+        : null
+      const path =
+        consumer &&
+        canonicalizeOwnedPath(
+          locationOptions.cacheFilePath ?? getSignatureCacheFilePath(),
+        )
+      const owns = locationOptions.keepThinking
       const shared =
-        owner && config
-          ? acquireDisk(
-              locationOptions.cacheFilePath ?? getSignatureCacheFilePath(),
-              config,
-              owner,
-            )
+        consumer && path && config && owns
+          ? acquireDisk(path, config, consumer)
           : null
+      if (consumer && path && !owns) {
+        let pathReaders = readers.get(path)
+        if (!pathReaders) {
+          pathReaders = new Set()
+          readers.set(path, pathReaders)
+        }
+        pathReaders.add(consumer)
+        updateRetention(path)
+      }
+      // An owner reads its own instance; a reader looks up whichever instance
+      // an owner is currently running for the file, if any.
+      const readableCache = (): SignatureCache | undefined =>
+        shared?.cache ?? (path ? disks.get(path)?.cache : undefined)
       const signatureStore = createSignatureStore()
       let disposed = false
 
@@ -366,10 +408,11 @@ export function createSignatureProcessState(
           const hotValue = readHot(sessionId, textHash)
           if (hotValue) return hotValue
 
-          if (shared && owner) {
-            const diskValue = shared.cache.retrieve(
+          const diskCache = consumer ? readableCache() : undefined
+          if (diskCache && consumer) {
+            const diskValue = diskCache.retrieve(
               makeDiskKey(sessionId, textHash),
-              owner.memoryTtlMs,
+              consumer.memoryTtlMs,
             )
             if (diskValue) {
               // Promote to the hot map for faster subsequent access
@@ -384,7 +427,14 @@ export function createSignatureProcessState(
         async dispose() {
           if (disposed) return
           disposed = true
-          if (shared && owner) await releaseDisk(shared, owner)
+          if (shared && consumer) {
+            await releaseDisk(shared, consumer)
+          } else if (consumer && path) {
+            const pathReaders = readers.get(path)
+            pathReaders?.delete(consumer)
+            if (pathReaders?.size === 0) readers.delete(path)
+            updateRetention(path)
+          }
         },
       }
     },
@@ -418,14 +468,9 @@ export function acquireLocationSignatureCache(
   return processSignatureState.acquireLocation(options)
 }
 
-// ============================================================================
-// OpenCode 1 single-location binding
-//
-// The functions below keep the OpenCode 1 composition's existing calls
-// working until it adopts a location handle. They act through handles on
-// `processSignatureState` like any location; a location handle never reads
-// or replaces this binding.
-// ============================================================================
+// The functions below keep the existing OpenCode 1 call sites working
+// through one separate module-level handle on `processSignatureState`. New
+// location handles never read or replace that handle.
 
 let legacyMemoryHandle: LocationSignatureCache | undefined
 let legacyDiskHandle: LocationSignatureCache | null = null
@@ -440,7 +485,7 @@ function getLegacyHandle(): LocationSignatureCache {
 }
 
 /**
- * Initialize the OpenCode 1 disk-based signature cache.
+ * Make the module-level OpenCode 1 handle own the disk cache for `config`.
  * Called from OpenCode 1 plugin initialization when keep_thinking is enabled.
  */
 export function initDiskSignatureCache(

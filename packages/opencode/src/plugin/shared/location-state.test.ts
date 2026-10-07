@@ -32,6 +32,7 @@ import {
 import {
   createLocationConfig,
   getKeepThinking,
+  getUserConfigPath,
   initRuntimeConfig,
   type SignatureCacheConfig,
 } from '../config'
@@ -50,8 +51,8 @@ import {
   setGeminiDumpEnabled,
 } from '../gemini-dump'
 import {
-  createLocationLogger,
   createLogger as createLegacyLogger,
+  createLocationLogger,
   initLogger,
   setRuntimeLogLevel,
 } from '../logger'
@@ -126,6 +127,37 @@ function readJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
 }
 
+/** A config warning logger whose records the test can inspect. */
+function recordingWarn(into: string[] = []): {
+  warn: (message: string) => void
+} {
+  return { warn: (message) => into.push(message) }
+}
+
+/**
+ * Paths (in `candidate`) of every object or array that is also reachable from
+ * `owner`. Empty means the two trees share no mutable node.
+ */
+function sharedNodePaths(owner: unknown, candidate: unknown): string[] {
+  const owned = new Set<object>()
+  const collect = (value: unknown): void => {
+    if (value === null || typeof value !== 'object' || owned.has(value)) return
+    owned.add(value)
+    for (const child of Object.values(value)) collect(child)
+  }
+  collect(owner)
+  const shared: string[] = []
+  const visit = (value: unknown, path: string): void => {
+    if (value === null || typeof value !== 'object') return
+    if (owned.has(value)) shared.push(path)
+    for (const [key, child] of Object.entries(value)) {
+      visit(child, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`)
+    }
+  }
+  visit(candidate, 'config')
+  return shared
+}
+
 function debugFor(config: Partial<typeof DEFAULT_CONFIG>): LocationDebug {
   const handle = createLocationDebug({ ...DEFAULT_CONFIG, ...config })
   cleanups.push(() => handle.close())
@@ -147,7 +179,7 @@ describe('OpenCode 1 binding transition contract', () => {
 
   it('isolates location capabilities from the module-level OpenCode 1 binding in both directions', () => {
     const dir = makeProject('a', { keep_thinking: false, debug_tui: true })
-    const location = createLocationConfig(dir)
+    const location = createLocationConfig(dir, { logger: recordingWarn() })
     const debug = debugFor(location.config)
     const dump = createGeminiDumpState({ enabled: false })
     const locationRecords: string[] = []
@@ -166,7 +198,10 @@ describe('OpenCode 1 binding transition contract', () => {
       },
     })
 
-    // The OpenCode 1 binding changes; the location keeps its own values.
+    // initRuntimeConfig, initializeDebug, setGeminiDumpEnabled and
+    // setRuntimeLogLevel change the module-level config, debug, dump and
+    // logger state; the location's own config, debug, dump and logger values
+    // stay unchanged.
     initRuntimeConfig({ ...DEFAULT_CONFIG, keep_thinking: true })
     initializeDebug({ ...DEFAULT_CONFIG, debug_tui: false })
     setGeminiDumpEnabled(true)
@@ -177,7 +212,9 @@ describe('OpenCode 1 binding transition contract', () => {
     logger.createLogger('x').warn('location-warn-filtered')
     expect(locationRecords).toEqual([])
 
-    // The location changes; the OpenCode 1 binding keeps its values.
+    // When the location's dump switch and log level change, the module-level
+    // config (getKeepThinking), dump switch (isGeminiDumpEnabled) and logger
+    // retain their existing values.
     dump.setEnabled(true)
     dump.setEnabled(false)
     logger.setLevel('debug')
@@ -253,7 +290,10 @@ describe('location configuration', () => {
       initRuntimeConfig({ ...DEFAULT_CONFIG, keep_thinking: false })
 
       const loaded = Object.fromEntries(
-        order.map((name) => [name, createLocationConfig(dirs[name])]),
+        order.map((name) => [
+          name,
+          createLocationConfig(dirs[name], { logger: recordingWarn() }),
+        ]),
       )
 
       expect(loaded.A?.keepThinking).toBe(true)
@@ -283,6 +323,123 @@ describe('location configuration', () => {
     expect(warnings.good).toEqual([])
     expect(warnings.bad).toEqual(['Invalid JSON in config file'])
     expect(badConfig.keepThinking).toBe(DEFAULT_CONFIG.keep_thinking)
+  })
+
+  it('gives each location its own copy of every nested default', () => {
+    const first = createLocationConfig(makeProject('first'), {
+      logger: recordingWarn(),
+    })
+    const second = createLocationConfig(makeProject('second'), {
+      logger: recordingWarn(),
+    })
+
+    expect(first.config).toEqual(DEFAULT_CONFIG)
+    expect(second.config).toEqual(DEFAULT_CONFIG)
+    expect(first.config.health_score).not.toBe(second.config.health_score)
+    expect(sharedNodePaths(first.config, second.config)).toEqual([])
+    expect(sharedNodePaths(DEFAULT_CONFIG, first.config)).toEqual([])
+    expect(sharedNodePaths(DEFAULT_CONFIG, second.config)).toEqual([])
+  })
+
+  it('keeps user/project merge branches independent while retaining unspecified defaults', () => {
+    const userPath = getUserConfigPath()
+    mkdirSync(dirname(userPath), { recursive: true })
+    writeFileSync(
+      userPath,
+      JSON.stringify({ signature_cache: { memory_ttl_seconds: 120 } }),
+    )
+    cleanups.push(() => rmSync(userPath, { force: true }))
+    const tokenProject = makeProject('token', {
+      token_bucket: { max_tokens: 10 },
+    })
+    const cacheProject = makeProject('cache', {
+      signature_cache: { disk_ttl_seconds: 7200 },
+    })
+    const defaultsSnapshot = structuredClone(DEFAULT_CONFIG)
+
+    const userOnly = createLocationConfig(makeProject('plain'), {
+      logger: recordingWarn(),
+    }).config
+    const token = createLocationConfig(tokenProject, {
+      logger: recordingWarn(),
+    }).config
+    const cache = createLocationConfig(cacheProject, {
+      logger: recordingWarn(),
+    }).config
+
+    expect(userOnly.signature_cache).toEqual({
+      ...DEFAULT_CONFIG.signature_cache!,
+      memory_ttl_seconds: 120,
+    })
+    expect(token.token_bucket).toEqual({
+      ...DEFAULT_CONFIG.token_bucket!,
+      max_tokens: 10,
+    })
+    expect(token.signature_cache).toEqual(userOnly.signature_cache)
+    // Existing precedence: the schema fills the project file's unspecified
+    // signature_cache fields with their defaults before the merge, so the
+    // project's memory_ttl_seconds default replaces the user file's 120.
+    expect(cache.signature_cache).toEqual({
+      ...DEFAULT_CONFIG.signature_cache!,
+      disk_ttl_seconds: 7200,
+    })
+    expect(cache.health_score).toEqual(DEFAULT_CONFIG.health_score)
+    const trees = { userOnly, token, cache }
+    for (const [ownerName, owner] of Object.entries(trees)) {
+      expect(sharedNodePaths(DEFAULT_CONFIG, owner)).toEqual([])
+      for (const [otherName, other] of Object.entries(trees)) {
+        if (ownerName === otherName) continue
+        expect(sharedNodePaths(owner, other)).toEqual([])
+      }
+    }
+
+    // Writing into one location's nested objects changes no other tree.
+    token.health_score!.initial = 1
+    token.operator!.routing!.cli_first = true
+    cache.signature_cache!.enabled = false
+    expect(userOnly.health_score?.initial).toBe(70)
+    expect(cache.operator?.routing?.cli_first).toBe(false)
+    expect(userOnly.signature_cache?.enabled).toBe(true)
+    expect(DEFAULT_CONFIG).toEqual(defaultsSnapshot)
+  })
+
+  it("never sends a new location's malformed-file warning to the OpenCode 1 host logger", () => {
+    const legacyRecords: string[] = []
+    initLogger({
+      app: {
+        log: ({ body }) => {
+          legacyRecords.push(body.message)
+          return Promise.resolve()
+        },
+      },
+    })
+    initializeDebug({ ...DEFAULT_CONFIG, debug_tui: true })
+    setRuntimeLogLevel('debug')
+    cleanups.push(() => {
+      initializeDebug(DEFAULT_CONFIG)
+      setLogSink(null)
+    })
+    const bad = makeProject('bad')
+    writeFileSync(join(bad, '.opencode', 'antigravity.json'), '{ not json')
+    const locationWarnings: string[] = []
+
+    createLocationConfig(bad, { logger: recordingWarn(locationWarnings) })
+
+    expect(locationWarnings).toEqual(['Invalid JSON in config file'])
+    expect(legacyRecords).toEqual([])
+  })
+
+  it('refuses to create a location config without a warning logger', () => {
+    const dir = makeProject('a')
+    const missing = [undefined, {}, { logger: undefined }, { logger: {} }]
+    for (const options of missing) {
+      expect(() =>
+        createLocationConfig(
+          dir,
+          options as unknown as Parameters<typeof createLocationConfig>[1],
+        ),
+      ).toThrow('createLocationConfig requires a logger with a warn function')
+    }
   })
 })
 
@@ -930,6 +1087,141 @@ describe('process-shared signature cache', () => {
       'sig-c',
     )
     expect(memoryOnly.signatureStore.get('session-m')?.signature).toBe('sig-m')
+  })
+
+  for (const order of ['enabled-first', 'false-first'] as const) {
+    it(`lets a keep_thinking=false location read the running cache cold without owning it (${order})`, async () => {
+      const path = join(root, 'signature-cache.json')
+      const state = newState()
+      let enabled: LocationSignatureCache
+      let reader: LocationSignatureCache
+      if (order === 'enabled-first') {
+        enabled = acquire(state, { keepThinking: true, cache: LONG_CACHE })
+        reader = acquire(state, { keepThinking: false, cache: LONG_CACHE })
+      } else {
+        reader = acquire(state, { keepThinking: false, cache: LONG_CACHE })
+        // A non-owning reader alone does not initialize a disk cache.
+        expect(state.diskCacheFor(path)).toBeNull()
+        expect(existsSync(path)).toBe(false)
+        enabled = acquire(state, { keepThinking: true, cache: LONG_CACHE })
+      }
+
+      expect(reader.diskCache).toBeNull()
+      expect(enabled.diskCache).toBe(state.diskCacheFor(path))
+      enabled.cacheSignature('session-r', 'shared thought', 'sig-shared')
+      reader.cacheSignature('session-r', 'reader thought', 'sig-reader')
+      expect(enabled.diskCache?.getStats().memoryEntries).toBe(1)
+      state.clearHot()
+
+      expect(state.hasHotEntry('session-r', 'shared thought')).toBe(false)
+      expect(reader.getCachedSignature('session-r', 'shared thought')).toBe(
+        'sig-shared',
+      )
+      expect(reader.getCachedSignature('session-r', 'reader thought')).toBe(
+        undefined,
+      )
+    })
+  }
+
+  it("applies a reader's own inner TTL at the cold boundary while the enabled reader is unaffected", () => {
+    const state = newState()
+    const enabled = acquire(state, { keepThinking: true, cache: LONG_CACHE })
+    const reader = acquire(state, { keepThinking: false, cache: SHORT_CACHE })
+    enabled.cacheSignature('session-b', 'at reader boundary', 'sig-at')
+    enabled.cacheSignature('session-b', 'past reader boundary', 'sig-past')
+    state.clearHot()
+
+    clock = T0 + 60_000
+    expect(state.hasHotEntry('session-b', 'at reader boundary')).toBe(false)
+    expect(reader.getCachedSignature('session-b', 'at reader boundary')).toBe(
+      'sig-at',
+    )
+
+    clock = T0 + 60_001
+    expect(state.hasHotEntry('session-b', 'past reader boundary')).toBe(false)
+    expect(
+      reader.getCachedSignature('session-b', 'past reader boundary'),
+    ).toBeUndefined()
+    expect(state.hasHotEntry('session-b', 'past reader boundary')).toBe(false)
+    expect(
+      enabled.getCachedSignature('session-b', 'past reader boundary'),
+    ).toBe('sig-past')
+  })
+
+  it("keeps entries a longer-TTL reader can still use through the short owner's pruning and flush", async () => {
+    const path = join(root, 'signature-cache.json')
+    const state = newState()
+    const shortOwner = acquire(state, {
+      keepThinking: true,
+      cache: SHORT_CACHE,
+    })
+    const reader = acquire(state, { keepThinking: false, cache: LONG_CACHE })
+    shortOwner.cacheSignature('session-w', 'wide thought', 'sig-wide')
+    state.clearHot()
+
+    clock = T0 + 30 * 60 * 1000
+    shortOwner.diskCache?.pruneExpired()
+    await shortOwner.diskCache?.flush()
+    expect(Object.values(diskEntries(path))).toEqual([
+      { value: 'sig-wide', timestamp: T0 },
+    ])
+
+    expect(state.hasHotEntry('session-w', 'wide thought')).toBe(false)
+    expect(
+      shortOwner.getCachedSignature('session-w', 'wide thought'),
+    ).toBeUndefined()
+    expect(state.hasHotEntry('session-w', 'wide thought')).toBe(false)
+    expect(reader.getCachedSignature('session-w', 'wide thought')).toBe(
+      'sig-wide',
+    )
+  })
+
+  it('shuts the cache down at the last enabled owner while a reader remains', async () => {
+    const path = join(root, 'signature-cache.json')
+    const state = newState()
+    const firstOwner = acquire(state, { keepThinking: true, cache: LONG_CACHE })
+    const lastOwner = acquire(state, { keepThinking: true, cache: LONG_CACHE })
+    const reader = acquire(state, { keepThinking: false, cache: LONG_CACHE })
+    const shared = firstOwner.diskCache
+    firstOwner.cacheSignature('session-l', 'owner thought', 'sig-owner')
+    firstOwner.cacheSignature('session-l', 'control thought', 'sig-control')
+
+    await firstOwner.dispose()
+    expect(state.diskCacheFor(path)).toBe(shared)
+    state.clearHot()
+    expect(reader.getCachedSignature('session-l', 'owner thought')).toBe(
+      'sig-owner',
+    )
+    // The last enabled owner can still read the control signature without a
+    // hot-cache entry, independently of the non-owning reader.
+    expect(state.hasHotEntry('session-l', 'control thought')).toBe(false)
+    expect(lastOwner.getCachedSignature('session-l', 'control thought')).toBe(
+      'sig-control',
+    )
+    reader.signatureStore.set('session-l', {
+      text: 'owner thought',
+      signature: 'sig-owner',
+    })
+
+    await lastOwner.dispose()
+    expect(state.diskCacheFor(path)).toBeNull()
+    expect(
+      Object.values(diskEntries(path))
+        .map((entry) => entry.value)
+        .sort(),
+    ).toEqual(['sig-control', 'sig-owner'])
+
+    // The reader's hot-map and signature-store values remain. With no owner
+    // left, its cold lookup returns undefined rather than creating a cache.
+    expect(reader.getCachedSignature('session-l', 'owner thought')).toBe(
+      'sig-owner',
+    )
+    expect(reader.signatureStore.get('session-l')?.signature).toBe('sig-owner')
+    state.clearHot()
+    expect(
+      reader.getCachedSignature('session-l', 'owner thought'),
+    ).toBeUndefined()
+    expect(state.diskCacheFor(path)).toBeNull()
   })
 
   it('starts a fresh shared instance from the flushed file after the last owner left', async () => {

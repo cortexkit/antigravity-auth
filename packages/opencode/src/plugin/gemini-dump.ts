@@ -94,9 +94,9 @@ export function createGeminiDumpState(
   }
 }
 
-// The OpenCode 1 composition's single switch. The module-level functions
-// below keep its existing calls working until it adopts a location dump
-// state; no location state reads or writes it.
+// One shared switch behind the exported module-level dump functions below.
+// A state from `createGeminiDumpState` is separate and never reads or writes
+// it.
 const legacyDumpState = createGeminiDumpState()
 
 export function isGeminiDumpEnabled() {

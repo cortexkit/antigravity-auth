@@ -207,7 +207,9 @@ export class SignatureCache {
         this.stats.memoryHits++
         return entry.value
       }
-      // Expired for this reader; remove it only if no owner can use it.
+      // Too old for this caller's TTL. Delete it only once it is also past
+      // the retention TTL (the longest TTL of any live consumer), so a
+      // longer-TTL reader can still use it.
       this.deleteIfPastRetention(key, age)
     }
 

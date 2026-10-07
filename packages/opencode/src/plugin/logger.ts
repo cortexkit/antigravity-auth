@@ -15,9 +15,8 @@
  * a location hands `coreLogSink` to the core objects it constructs instead.
  *
  * The module-level `initLogger`, `setRuntimeLogLevel` and `createLogger`
- * below are the OpenCode 1 composition's single-location binding. They keep
- * working unchanged until that composition adopts a location logger; no
- * location logger reads or writes them.
+ * below serve the existing OpenCode 1 callers through one module-level
+ * logger; no location logger reads or writes it.
  */
 
 import { setLogSink } from '@cortexkit/antigravity-auth-core'
@@ -93,7 +92,8 @@ export function createLocationLogger(
     : 'debug'
 
   const emit = (record: LocationLogRecord): void => {
-    // Host destination: controlled only by this location's debug_tui policy.
+    // Host destination: sent only while the caller's sinkEnabled policy
+    // returns true.
     if (options.sink && options.sinkEnabled()) {
       try {
         const pending = options.sink(record)
@@ -186,9 +186,8 @@ function isConsoleLogEnabled(): boolean {
   return isTruthyFlag(process.env[ENV_CONSOLE_LOG])
 }
 
-// =============================================================================
-// OpenCode 1 single-location binding
-// =============================================================================
+// Module-level logger used by the existing OpenCode 1 callers. Its sink
+// policy is the module-level debug_tui state from ./debug.
 
 let legacyClient: AppLogClient | null = null
 let legacyLogger: LocationLogger | undefined
@@ -205,9 +204,9 @@ function getLegacyLogger(): LocationLogger {
 }
 
 /**
- * Set the OpenCode 1 logger's level from the supplied operator level.
- * Existing channels use the updated level on their next log call.
- * Use debug when the supplied level has no mapping.
+ * Set the OpenCode 1 logger's level from the supplied operator level
+ * (`trace` becomes `debug`). Existing channels use the updated level on their
+ * next log call.
  */
 export function setRuntimeLogLevel(level: OperatorSettings['log_level']): void {
   getLegacyLogger().setLevel(level)

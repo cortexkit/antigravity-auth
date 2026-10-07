@@ -25,8 +25,9 @@ function listSourceFiles(dir: string): string[] {
   return files
 }
 
-// The refresh-token keyed auth snapshot cache had no production reader, so
-// it was removed with its writers and clears rather than moved elsewhere.
+// The refresh-token keyed auth snapshot cache was write-only: no production
+// code read from it. It was removed with its writers and clears, and nothing
+// replaces it.
 describe('removed auth cache', () => {
   it('exports no auth-cache API from the cache module', () => {
     const exported = Object.keys(cacheModule)
@@ -71,11 +72,12 @@ describe('OpenCode 1 disk signature binding', () => {
 
     await shutdownDiskSignatureCache()
     expect(getDiskSignatureCache()).toBeNull()
-    // The shutdown flushed: a fresh owner reads the signature from disk
-    // even though the hot map was cleared.
+    // Shutdown cleared the hot map and left no disk cache to fall back to.
     expect(getCachedSignature('legacy-session', 'legacy thinking')).toBe(
       undefined,
     )
+    // Shutdown also flushed: a new disk cache loads the signature from the
+    // file, so the lookup succeeds again.
     initDiskSignatureCache({
       enabled: true,
       memory_ttl_seconds: 3600,

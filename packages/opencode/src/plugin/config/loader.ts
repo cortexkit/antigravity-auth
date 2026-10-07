@@ -18,10 +18,11 @@ import {
   DEFAULT_CONFIG,
 } from './schema'
 
-// OpenCode 1 composition's config channel; a location passes its own logger.
+// Shared module-level warning logger used only by `loadConfig`.
+// `createLocationConfig` uses the location's required logger instead.
 const legacyLog = createLogger('config')
 
-/** The logger capability config loading needs: invalid-file warnings. */
+/** The `warn` capability a location passes to receive invalid-file warnings. */
 export type ConfigLoadLogger = Pick<Logger, 'warn'>
 
 // =============================================================================
@@ -126,20 +127,25 @@ function mergeConfigs(
 // =============================================================================
 
 /**
- * Load the complete configuration.
+ * Load the complete configuration, sending invalid-file warnings to the
+ * shared module-level logger.
  *
  * @param directory - The project directory (for project-level config)
- * @param options.logger - Where invalid-file warnings go; a location passes
- *   its own logger, OpenCode 1 callers omit it.
  * @returns Fully resolved configuration
  */
-export function loadConfig(
+export function loadConfig(directory: string): AntigravityConfig {
+  return loadConfigWithLogger(directory, legacyLog)
+}
+
+function loadConfigWithLogger(
   directory: string,
-  options: { logger?: ConfigLoadLogger } = {},
+  log: ConfigLoadLogger,
 ): AntigravityConfig {
-  const log = options.logger ?? legacyLog
-  // Start with defaults
-  let config: AntigravityConfig = { ...DEFAULT_CONFIG }
+  // Start from a deep copy of the defaults so each loaded configuration owns
+  // its nested objects (signature_cache, health_score, ...); merged branches
+  // that keep unspecified defaults must not alias DEFAULT_CONFIG or another
+  // location's tree.
+  let config: AntigravityConfig = structuredClone(DEFAULT_CONFIG)
 
   // Load user config file (if exists)
   const userConfigPath = getUserConfigPath()
@@ -181,20 +187,31 @@ export interface LocationConfig {
   readonly directory: string
   readonly config: AntigravityConfig
   /**
-   * The keep_thinking policy: gates thought restoration/injection and disk
-   * signature-cache ownership, never signature lookup or extraction.
+   * keep_thinking: controls thought-content replay and signature persistence
+   * (disk-cache initialization and ownership), not signature lookup or
+   * extraction.
    */
   readonly keepThinking: boolean
   readonly projectConfigPath: string
   readonly userConfigPath: string
 }
 
-/** Load one location's configuration from its project directory. */
+/**
+ * Load one location's configuration from its project directory. Invalid-file
+ * warnings go only to the required location logger `options.logger`, never
+ * to the shared module-level logger.
+ */
 export function createLocationConfig(
   directory: string,
-  options: { logger?: ConfigLoadLogger } = {},
+  options: { logger: ConfigLoadLogger },
 ): LocationConfig {
-  const config = loadConfig(directory, options)
+  const logger = options?.logger
+  if (typeof logger?.warn !== 'function') {
+    throw new TypeError(
+      'createLocationConfig requires a logger with a warn function',
+    )
+  }
+  const config = loadConfigWithLogger(directory, logger)
   return {
     directory,
     config,
@@ -226,14 +243,10 @@ export function canonicalizeOwnedPath(path: string): string {
   }
 }
 
-// =============================================================================
-// OpenCode 1 single-location binding
-//
-// `initRuntimeConfig`/`getKeepThinking` hold the OpenCode 1 composition's one
-// configuration for request helpers that have not yet adopted a location's
-// `LocationConfig`. A location never writes this binding, so it cannot make
-// one location's keep_thinking govern another's.
-// =============================================================================
+// `initRuntimeConfig`/`getKeepThinking` hold one module-level configuration,
+// read by request helpers that take no `LocationConfig`. A `LocationConfig`
+// is owned by its location; `createLocationConfig` never writes the
+// module-level one, so one location's keep_thinking cannot govern another's.
 
 let runtimeConfig: AntigravityConfig | null = null
 

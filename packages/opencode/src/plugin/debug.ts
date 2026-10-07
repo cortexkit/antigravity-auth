@@ -173,9 +173,9 @@ function createLogWriter(filePath?: string): {
 }
 
 /**
- * Derive debug state from a configuration, or from the environment alone
- * when no configuration is supplied (the OpenCode 1 pre-initialization
- * fallback).
+ * Derive debug state from the optional configuration plus the debug
+ * environment variables; with no configuration, the environment variables
+ * alone decide.
  */
 function createDebugState(config: DebugConfig | null): DebugState {
   if (!config) {
@@ -712,14 +712,10 @@ function maskHeaders(headers?: HeadersInit | Headers): Record<string, string> {
   return redactSensitiveFields(result) as Record<string, string>
 }
 
-// =============================================================================
-// OpenCode 1 single-location binding
-//
-// The functions below keep the OpenCode 1 composition's existing calls
-// working until it adopts a location debug handle. They operate on one
-// module-level state, lazily initialized from the environment, which no
-// location handle reads or replaces.
-// =============================================================================
+// The existing module-level exported functions below share one module-level
+// debug state, created from the environment on first use and replaced by
+// `initializeDebug`. A handle from `createLocationDebug` is independent: it
+// never reads or replaces this state.
 
 let debugState: DebugState | null = null
 const legacyRequestCounter: RequestCounter = { value: 0 }
