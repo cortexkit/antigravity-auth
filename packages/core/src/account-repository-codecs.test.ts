@@ -26,6 +26,7 @@ import {
   type ProviderMetadata,
   type ProviderStateEnvelope,
   type ProviderStatePolicy,
+  type ProviderStateReplacement,
   refreshProviderLock,
 } from './account-repository-types.ts'
 
@@ -838,8 +839,9 @@ describe('provider-state codec factory', () => {
   })
 
   it('lets the replacement rule refuse a replace whose epoch is not the expected successor', () => {
-    // The repository's fence for replaceCredential: the store reports the
-    // new epoch, which is the replaced one plus one.
+    // A replacement rule may refuse by throwing; the codec must let the
+    // refusal out rather than swallow it. This is a codec property, not the
+    // repository's attribution check, which the store makes before the hook.
     const expected = { id: 'row-1', credentialEpoch: 3 }
     const codec = createProviderStateCodec({
       ...testPolicy,
@@ -856,6 +858,36 @@ describe('provider-state codec factory', () => {
     expect(() =>
       codec.onReplace(fullEnvelopeWire(), { id: 'row-1', credentialEpoch: 5 }),
     ).toThrow('stale replacement')
+  })
+
+  it('passes the prior recorded identity to onReplace separately from the incoming one', () => {
+    const seen: ProviderStateReplacement[] = []
+    const codec = createProviderStateCodec({
+      ...testPolicy,
+      onReplace: (previous, replacement) => {
+        seen.push(replacement)
+        return previous
+      },
+    })
+    codec.onReplace(fullEnvelopeWire(), {
+      id: 'row-1',
+      credentialEpoch: 2,
+      previousIdentity: 'wire-id-old',
+      identity: 'wire-id-new',
+    })
+    codec.onReplace(fullEnvelopeWire(), { id: 'row-1', credentialEpoch: 3 })
+    expect(seen[0]).toEqual({
+      id: 'row-1',
+      credentialEpoch: 2,
+      previousIdentity: 'wire-id-old',
+      identity: 'wire-id-new',
+    })
+    expect(seen).toHaveLength(2)
+    const second = seen[1]
+    if (second === undefined)
+      throw new Error('The second replacement was not observed')
+    expect(second).toStrictEqual({ id: 'row-1', credentialEpoch: 3 })
+    expect(Object.hasOwn(second, 'previousIdentity')).toBe(false)
   })
 
   it('refuses a policy without a merge rule', () => {

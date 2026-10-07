@@ -1,6 +1,9 @@
 /**
- * Contract of the Antigravity account repository built on the lease-backed
- * pool store of @cortexkit/common-auth 0.10.0 (its public `./store` entry).
+ * Contract of the Antigravity account repository. The foundation uses the
+ * public lease-backed pool store of @cortexkit/common-auth (its `./store`
+ * entry). Atomic credential replacement additionally requires a store that
+ * exposes the credential-write attribution API described at
+ * `AccountRepository.replaceCredential`.
  *
  * The repository replaces whole-file snapshots of `antigravity-accounts.json`
  * with typed operations on individual rows. A row is addressed by a `RowRef`
@@ -392,11 +395,13 @@ export interface RoutingSettings {
 /**
  * What the store tells the provider-state replacement hook about a
  * `replace`. Same shape as `ProviderStateReplacement` in common-auth
- * `dist/store/schema.d.ts`.
+ * `dist/store/schema.d.ts`. `previousIdentity` is optional because stores
+ * without the locked prior-identity field (0.10.0 among them) never pass it.
  */
 export interface ProviderStateReplacementInfo {
   id: string
   credentialEpoch: number
+  previousIdentity?: string
   identity?: string
   incoming?: unknown
 }
@@ -438,17 +443,21 @@ export interface ConfiguredProviderStateCodec
 /** A credential replacement as the replacement policy sees it. */
 export interface ProviderStateReplacement {
   id: string
-  /**
-   * The epoch the new credential starts. The store computes it under the
-   * row and save locks as the replaced credential's epoch plus one (a row
-   * without a per-row entry counts as epoch 1), before anything is written
-   * (`dist/store/rows.js` `replaceRow`).
-   */
+  /** The epoch the new credential starts. */
   credentialEpoch: number
   /**
-   * The identity the replace records for the new credential. The store does
-   * not tell the hook which identity the replaced credential had.
+   * The known prior identity: what the row had recorded before the replace,
+   * read by the store under its locks. Absent when the row recorded none or
+   * the store does not supply the field (0.10.0 does not). Without a known
+   * prior identity a rule cannot conclude that the new credential belongs
+   * to the same account, neither from `identity` alone nor from both being
+   * absent, so it must not carry the credential-bound account metadata
+   * (`CREDENTIAL_BOUND_METADATA_FIELDS`) across on that basis. This is an
+   * input to a retention rule only; it is not the attribution check (see
+   * `AccountRepository.replaceCredential`).
    */
+  previousIdentity?: string
+  /** The identity the replace records for the new credential. */
   identity?: string
   /** The metadata handed to `replace`, already validated. */
   incoming?: ProviderStateEnvelope
@@ -463,8 +472,8 @@ export interface ProviderStateReplacement {
 export interface ProviderStatePolicy {
   /**
    * Combines the stored metadata with metadata that arrives with a
-   * credential write of the same epoch: a refresh, a `rotate`, or an `add`
-   * of a secret the pool already holds.
+   * credential write of the same epoch: a refresh, or an `add` of a secret
+   * the pool already holds (the store's own `rotate` also calls it).
    */
   merge(
     onDisk: ProviderStateEnvelope,
@@ -704,14 +713,6 @@ export interface AccountReplaceInput {
   disabled: 'keep' | 'enable'
 }
 
-export interface AccountRotateInput {
-  refreshToken: string
-  accessToken?: string
-  expiresAt?: number
-  /** Present fields replace stored ones; omitted fields are kept. */
-  metadata?: Partial<ProviderMetadata>
-}
-
 export type AccountRefreshOutcome =
   | {
       status: 'rotated'
@@ -857,7 +858,6 @@ export type AccountRepositoryOperation =
   | 'read'
   | 'login'
   | 'replaceCredential'
-  | 'rotateCredential'
   | 'refresh'
   | 'recordIdentity'
   | 'setEnabled'
@@ -902,13 +902,13 @@ export interface AccountFlushReport {
  * Typed operations on the Antigravity account pool.
  *
  * Every operation about an existing credential takes the `RowRef` the
- * caller's evidence was gathered under, and the repository must refuse it
- * (`attribution`, or `unknown-row` once the row is removed) when the row no
- * longer holds that epoch and identity. Each method below names the public
- * store hook that makes this check under the row and save locks, before
- * anything is written; where the store offers none, the method says so and
- * names what is not covered. Ordinary operations take only the store's
- * locks; only `clear` and `replacePool` write a `ManagementRecord`.
+ * caller's evidence was gathered under. The repository refuses it with
+ * `attribution` when the row's epoch or recorded identity has changed since
+ * then, and with `unknown-row` when the row has been removed. Each method
+ * below names the store API that makes this check under the row and save
+ * locks before anything is written. Ordinary operations take only the
+ * store's locks; only `clear` and `replacePool` write a `ManagementRecord`,
+ * the resumable record of a destructive multi-row or migration operation.
  */
 export interface AccountRepository {
   /** Reads the pool and settings without writing or firing quota pulls. */
@@ -927,56 +927,39 @@ export interface AccountRepository {
    * (re-authentication). Quota, rate limits, cooldown and access blocks of
    * the old credential are cleared; same-account display fields are kept.
    *
-   * Fence: the store's `replace(id, ...)` takes no expected epoch, but it
-   * calls the provider-state codec's `onReplace` under the row, provider and
-   * save locks before writing, with the new epoch, which is the stored epoch
-   * plus one (`dist/store/rows.js` `replaceRow`). The policy is configured
-   * once per store, so the repository hands it the `expected` ref of the
-   * replace in progress through the call's async context (the hook runs
-   * synchronously inside that `replace` call). The policy must refuse, by
-   * throwing, unless the new epoch equals `expected.credentialEpoch + 1`;
-   * the store then fails the replace with
-   * nothing written (kind `unexpected`), which the repository reports as
-   * `attribution`. A removed row fails with `unknown-row` before the hook
-   * runs, and an id removed and added again has a later epoch, so it fails
-   * the same check.
+   * The repository must refuse it (`attribution`, nothing written) unless,
+   * under the row and save locks and before anything is written, the row
+   * still holds exactly `expected`: the same epoch and the same recorded
+   * identity, an absent identity matching only an absent one.
    *
-   * Not covered: the hook is not told the identity the replaced credential
-   * had recorded. Since an identity can only be recorded once per epoch, a
-   * matching epoch proves a matching identity whenever `expected.identity`
-   * is set. When it is absent, an identity recorded for the same credential
-   * after the caller captured `expected` is not detected under the locks;
-   * the repository can only compare it on an unlocked read before calling
-   * `replace`.
+   * Requires a store exposing atomic credential-write attribution:
+   * `RowWriteOptions.attribution` on `replace` (`dist/store/rows.d.ts`),
+   * which common-auth 0.10.0 lacks. The repository passes `expected`'s
+   * epoch and identity exactly as that attribution; the store compares them
+   * under the row and store locks before completing an interrupted replace,
+   * before any write and before the replacement hook, and refuses with
+   * `attribution` (retryable, nothing written). Without that API this
+   * method has no conforming implementation. The hook's `previousIdentity`
+   * is only an input to the retention rule, never this check.
    */
   replaceCredential(
     expected: RowRef,
     input: AccountReplaceInput,
   ): Promise<{ ref: RowRef }>
   /**
-   * Stores an authoritative successor of the same credential; keeps the
-   * epoch.
+   * Exchanges the row's refresh token for a new access token (and possibly
+   * a new refresh token). The epoch names the login or replacement that put
+   * the credential there, not each refresh, so a refresh keeps it; metadata
+   * the exchange leaves out (projects included) is kept. This is the only
+   * path by which a successor of an existing credential reaches the store.
    *
-   * Not covered: the store's `rotate` takes no expected epoch or identity
-   * and calls no hook that sees the row's epoch, so the repository can only
-   * compare `ref` on an unlocked read before calling it. A `replace` or a
-   * remove-and-add landing in between is not detected, and the rotated
-   * secret would be written over the newer credential. Callers that can use
-   * `refresh` (which is fenced) should.
-   */
-  rotateCredential(
-    ref: RowRef,
-    input: AccountRotateInput,
-  ): Promise<{ ref: RowRef }>
-  /**
-   * Refreshes while holding the row lock and the per-account lock from
-   * `refreshProviderLock` across the token exchange.
-   *
-   * Fence: the store's refresh `refuse(row)` callback runs before locking,
-   * on the locked re-read and at commit under the save locks
-   * (`dist/store/refresh.d.ts`); the repository refuses there when the row's
-   * epoch or identity differs from `ref`, and the store then discards the
-   * new token material.
+   * The row lock and the per-account lock from `refreshProviderLock` are
+   * held across the exchange; the save locks are held only while the store
+   * reads the row and while it commits the files. The store calls
+   * `refuse(row)` before locking, on the locked re-read and at commit
+   * (`dist/store/refresh.d.ts`); the repository refuses there when the
+   * row's epoch or identity differs from `ref`, and the store then drops the
+   * refreshed token instead of committing it to a changed or replaced row.
    */
   refresh(
     ref: RowRef,

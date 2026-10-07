@@ -843,6 +843,9 @@ export function createProviderStateCodec(
         {
           id: replacement.id,
           credentialEpoch: replacement.credentialEpoch,
+          ...(replacement.previousIdentity !== undefined
+            ? { previousIdentity: replacement.previousIdentity }
+            : {}),
           ...(replacement.identity !== undefined
             ? { identity: replacement.identity }
             : {}),
