@@ -1,10 +1,15 @@
 # Common-auth RPC boundary
 
 OpenCode embeds the published common-auth 0.9.4 public RPC modules byte-for-byte.
-The server and `RpcRequestError` use one canonical `rpc/index.js` instance;
-the TUI uses only `rpc/client.js` (client, discovery and their public types).
-The private discovery adapter does **not** export a writer. No fetch, proxy,
-private transport engine, or producer patch is used.
+The server and `RpcRequestError` resolve through the same canonical public module
+instance via `rpc/index.js`. The TUI's client-only `rpc/client.js` entry does not
+import the server or server-registry modules and exposes no writer. Its runtime
+closure is client/port-file/rpc-client; the shared public port-file module is
+reachable for discovery, while its declaration dependencies are broader.
+The private `rpc/port-file.ts` discovery module exposes discovery and public
+types, not `writePortFile`. The former private fetch transport was
+removed; current RPC calls use the public direct-loopback client. No second
+transport engine or producer patch is used.
 
 ## Application policy
 
@@ -23,16 +28,20 @@ Malformed apply replies use `{ text: 'apply failed', knobs: {} }`.
 
 ## Deliberate discovery tightening
 
-The old no-PID discovery selected the newest live server. Both adapters now pass
-`exactPid: true`: an absent or unmatched expected PID fails closed, with no socket
-and no fallback to another live process. This is a deliberate safety tightening,
+The old no-PID discovery selected the newest live server. The private
+`createRpcClient` factory and `discoverPortFile` wrapper both pass `exactPid: true`.
+An absent or unmatched expected PID returns the discovery/client fallback without
+a client socket or selection of another live process. This is a deliberate safety tightening,
 not compatibility with newest-live selection. Discovery has no `secureDir`
-option and does not create or repair directories. It retains malformed files;
+option and does not create or repair directories. Malformed discovery files
+remain untouched;
 valid stale-process files can still be removed by public discovery.
 
 Only the server writer uses `secureDir: true`, creating and repairing mode 0700
 directories. Public exclusive (`wx`) staging uses mode 0600 and cleans up only a
-stage it created. No cross-project sweep is enabled. Shutdown uses the public
+stage it created. The server does not sweep or clean up other projects' files.
+Within the supplied RPC directory, discovery may remove valid dead-PID files;
+it does not remove malformed files. Shutdown uses the public
 tracked-connection stop, coalesces one Promise, closes partial and in-flight peers,
 and removes its port file only if the current port and token still match.
 
@@ -59,8 +68,18 @@ late results are discarded. The deadline timer is unreferenced so unresolved wor
 does not keep a stopped host alive. Natural process exit, live 504 and delayed
 effects are separate properties, not interchangeable socket-close observations.
 
-The RPC acceptance fixture runs reached 6500 ms apply/drain and shorter nonzero
-idle controls on Node 20.0.0/24.16.0 and Bun 1.3.14/1.4.2. The Bun 1.3.14
-observation spans its four-second native idle sweep; a subsecond test alone would
-not establish disabled idle behavior. These runtime checks do not certify other
-platforms or substitute for real-host integration checks.
+Routine units run every RPC contract on the current test runtime without personal
+runtime paths. The separate mandatory `runtime-matrix.mjs` runner requires explicit
+`--node20`, `--node24`, `--bun13` and `--bun14` executable paths and exact versions
+20.0.0/24.16.0/1.3.14/1.4.2. Missing paths or versions fail rather than skip.
+CI and release verification must provision those tools and invoke the matrix;
+the runner does not download them. See the RPC acceptance README for commands.
+
+The `rpc.timeout_zero` case measures reached 6500 ms apply/drain work against
+shorter nonzero idle controls. On Bun1.3.14 this spans the four-second native idle
+sweep; a subsecond test alone cannot establish disabled idle behavior.
+`rpc.live_504` separately measures the apply deadline, and
+`rpc.client_deadline_socket_close` measures the total client-response deadline
+and teardown. These checks do not certify other platforms or replace real-host
+integration. Receipt hashes record executed candidate bytes; independent expected
+artifact hashes must come from a separate frozen source, not these self-records.

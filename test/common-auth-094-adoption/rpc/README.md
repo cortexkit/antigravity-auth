@@ -1,31 +1,40 @@
 # S-RPC acceptance
 
-Run `bun test --isolate test/common-auth-094-adoption/rpc/rpc-adoption.test.ts`.
-The required executables are Node **20.0.0**, Node **24.16.0**, Bun **1.3.14** and
-Bun **1.4.2**, not runtime aliases or semver ranges. Set `RPC_NODE20`, `RPC_NODE24`,
-`RPC_BUN13`, `RPC_BUN14` to provisioned executable paths on other machines. Missing
-or wrong versions fail acquisition explicitly, never skip or count as acceptance.
-Defaults use an owned Node20 download and the local mise Node24/Bun13 installs;
-Bun14 defaults to the executing Bun. All subprocesses run inside this worktree.
+## Portable routine units and the mandatory exact-runtime matrix
 
-For Darwin arm64, provision Node20 into the ignored, owned `.owned` directory:
+The plain repository `npm run test` includes the complete 17-contract suite on
+the executing unit-test runtime (`process.execPath`). It uses no personal runtime
+locations, HOME lookups or `RPC_*` overrides, including when the preload isolates
+HOME. The narrow unit command is
+`bun test --isolate test/common-auth-094-adoption/rpc/`.
+
+Routine units do **not** replace the separately mandatory matrix. CI and release
+verification must invoke `test:rpc:matrix`, whose runner is
+`bun test/common-auth-094-adoption/rpc/runtime-matrix.mjs`, with all four flags:
 
 ```sh
-mkdir -p test/common-auth-094-adoption/rpc/.owned
-curl -fL https://nodejs.org/dist/v20.0.0/node-v20.0.0-darwin-arm64.tar.gz \
-  -o test/common-auth-094-adoption/rpc/.owned/node20.tgz
-tar -xzf test/common-auth-094-adoption/rpc/.owned/node20.tgz \
-  -C test/common-auth-094-adoption/rpc/.owned \
-  node-v20.0.0-darwin-arm64/bin/node
+bun test/common-auth-094-adoption/rpc/runtime-matrix.mjs \
+  --node20 /absolute/path/to/node-20.0.0 \
+  --node24 /absolute/path/to/node-24.16.0 \
+  --bun13 /absolute/path/to/bun-1.3.14 \
+  --bun14 /absolute/path/to/bun-1.4.2
 ```
 
-This acquisition is test tooling only, never a product/build dependency. Other
-platforms must provision their own official executables and set the four paths.
-This fixture does not certify host-render or other-platform support.
+The flags supply executable paths, not aliases or version ranges. Relative paths
+resolve inside the repository. Missing, duplicate, unknown or valueless flags,
+missing executables and wrong exact versions fail before any RPC fixture runs.
+All four binaries are admitted first; none may be skipped. This runner does not
+download runtimes or add runtime dependencies. Automation provisions them with
+the Node/Bun setup actions and supplies their paths explicitly; save Bun1.3.14
+in an owned temporary directory before a later Bun1.4.2 setup replaces its path.
+Other platforms must provide their own official executables. These checks do not
+certify real-host rendering or unmeasured platforms.
 
 `fixture.mjs` transpiles the actual three handwritten adapters with the installed
-TypeScript, without substitutions, and copies the canonical public graph into one
-module domain. Typechecking remains the repository `npm run typecheck` gate, not
+TypeScript, without substitutions, and copies each public module unchanged into
+one temporary directory's `common-auth-embedded/` tree. Imports of the server,
+Error and client entry points therefore share their normal ESM module identities
+within that directory. Typechecking remains the repository `npm run typecheck` gate, not
 this transpilation. Two explicit test variants change **only** the adapter's idle
 setting to 1500 ms and its apply deadline to 150 ms. The production zero variant
 retains the full 2000/120000/0 settings. Apply/drain callbacks take 6500 ms, beyond
@@ -33,11 +42,22 @@ the Bun1.3.14 four-second native sweep. Reached observations record both zero an
 nonzero elapsed time. Live 504, callback effects and natural child exit after stop
 are independently observed rather than inferred from peer closure.
 
-Each runtime runs the complete ordered 17-case inventory. Fresh child stdout is
-parsed, exact names reconciled, and exit status checked. Receipt directories under
+Each unit or matrix runtime runs the complete ordered 17-case inventory. Fresh
+child stdout is parsed through the same strict validator: exact ordered names,
+boolean `ok`, nonempty observations/errors and matching exit 0/1. Truthy strings
+such as `ok: 'yes'`, missing rows and contradictory exits are not acceptance.
+The pure result-boundary tests cover both genuine boolean success data and these
+malformed-success refusal controls without fake executables. Receipt directories under
 `.owned/receipt-*` preserve executable hashes/versions, adapter input/output hashes,
-argv, cwd, stderr, exit and nonempty named observations. Fixture module/state trees
-are removed after execution. No default RPC/store/config/HOME path is used.
+argv, cwd, stderr, exit and nonempty named observations. These hashes are recorded
+observations of candidate inputs, not independent expected pins. Compare them
+against separately frozen expected hashes; deriving expectations from these same
+receipts would not establish provenance. Fixtures use `.owned/runtime-*/rpc/`,
+`.owned/runtime-*/common-auth-embedded/` and `.owned/runtime-*/state/<case>/`.
+Those module/state trees are removed after execution. Receipts remain separately
+under `.owned/receipt-*/result.receipt`. The `.receipt` files contain JSON data;
+their extension keeps repository source format/write gates from rewriting evidence.
+No default RPC/store/config/HOME path is used.
 
 Mutation proofs use **only owned disposable copies**. Stage intentional source
 changes before running `node test/common-auth-094-adoption/rpc/mutation-proof.mjs`
@@ -50,7 +70,17 @@ and removes only the disposable index entry. No checkout, touch or stash is used
 Each control must redden **only its named case**, with all sixteen others green.
 Controls scoped to a particular scenario avoid changing unrelated test conditions;
 effect suppression and foreign Error identity are explicit callback/witness controls.
-Receipts are saved in `.owned/mutation-receipts.json`; no mutant is committed.
+Receipts are saved in `.owned/mutation-receipts.receipt`; no mutant is committed.
+
+The strict-result boundary has a separate data-only defense proof. After staging
+intentional changes, run
+`bun test/common-auth-094-adoption/rpc/result-mutation-proof.mjs`. It copies the
+validator and refusal tests into an owned temporary directory, changes only the
+validator's boolean check into truthy coercion, and requires exactly
+`rpc.results.strict_boolean_refusal` to fail while the other eight tests pass.
+The original bytes and hash are restored with an empty unstaged diff before
+the disposable directory is removed. Its receipt is
+`.owned/result-mutation-receipt.receipt`; no runtime or transport is simulated.
 
 The no-PID newest-live and malformed-removal baseline assertions were intentionally
 replaced, not dropped: no PID now fails closed; malformed bytes remain unchanged,

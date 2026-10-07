@@ -10,8 +10,9 @@ export const repository = resolve(
 )
 export const hash = (bytes) => createHash('sha256').update(bytes).digest('hex')
 
-// Transpile only handwritten adapters. Supplied public modules stay byte-exact
-// and share a single canonical module directory inside each owned test domain.
+// Transpile only the handwritten adapters. Copy the published modules unchanged
+// into root/common-auth-embedded so imports share normal ESM module identities
+// within this one temporary test directory.
 export async function fixture(root) {
   await mkdir(join(root, 'rpc'), { recursive: true })
   await cp(

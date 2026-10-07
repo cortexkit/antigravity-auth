@@ -256,7 +256,8 @@ if (mode?.startsWith('lifetime:')) {
       publicRpc.DEFAULT_RPC_TIMEOUT_MS,
       publicClient.DEFAULT_RPC_TIMEOUT_MS,
     )
-    // Import roots, not cloned factories or query-qualified instances.
+    // Both public entry points must expose the same cached client factory and
+    // discovery function, rather than cloned or query-qualified instances.
     const source = await readFile(join(root, 'rpc/rpc-client.js'), 'utf8')
     assert.match(
       source,
@@ -926,8 +927,9 @@ if (mode?.startsWith('lifetime:')) {
     return observations
   })
   await run('rpc.deadlines', async () => {
-    // Configuration belongs to the adopted adapter; live timing is independently
-    // witnessed by timeout_zero, live_504 and client_deadline_socket_close.
+    // Check the adapter's configured budgets here. The separate timeout_zero
+    // case measures idle behavior, live_504 measures the apply deadline, and
+    // client_deadline_socket_close measures the full client-response deadline.
     const source = await readFile(join(root, 'rpc/rpc-server.js'), 'utf8')
     assert.match(source, /receiptTimeoutMs: 2_?000/)
     assert.match(source, /applyDeadlineMs: 120_?000/)

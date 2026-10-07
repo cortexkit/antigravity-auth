@@ -195,7 +195,8 @@ describe('port-file discovery', () => {
       JSON.stringify({ pid: 99_999_999, port: 44_002, token: 'stale' }),
       { mode: 0o600 },
     )
-    // Public discovery retains malformed files; only the server owns cleanup.
+    // Malformed discovery files remain untouched; only valid dead-PID entries
+    // are removed by discovery. The server does not sweep these malformed files.
     await writeFile(malformed, '{nope', { mode: 0o600 })
 
     const discovered = await discoverPortFile(dir, process.pid)

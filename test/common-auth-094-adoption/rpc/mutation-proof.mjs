@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { caseNames, fixture, hash, repository } from './fixture.mjs'
+import { validateResult } from './result-validator.mjs'
 
 const owned = join(repository, 'test/common-auth-094-adoption/rpc/.owned')
 await mkdir(owned, { recursive: true })
@@ -10,7 +11,9 @@ const start = Number(process.env.RPC_MUTATION_START ?? 0)
 const receipts =
   start === 0
     ? []
-    : JSON.parse(await readFile(join(owned, 'mutation-receipts.json'), 'utf8'))
+    : JSON.parse(
+        await readFile(join(owned, 'mutation-receipts.receipt'), 'utf8'),
+      )
 const git = (...argv) => {
   const child = spawnSync('git', argv, { cwd: repository, encoding: 'utf8' })
   assert.equal(child.status, 0, child.stderr)
@@ -251,12 +254,10 @@ for (const control of controls.slice(start)) {
         { cwd: repository, encoding: 'utf8', timeout: 45000 },
       )
       assert.equal(child.error, undefined, `${control.control}: ${child.error}`)
-      const result = JSON.parse(child.stdout.trim())
-      assert.deepEqual(
-        result.rows.map((row) => row.name),
-        caseNames,
+      const { result, failures: failed } = validateResult(
+        JSON.parse(child.stdout.trim()),
+        child.status,
       )
-      const failed = result.rows.filter((row) => !row.ok)
       assert.equal(
         child.status,
         1,
@@ -278,7 +279,9 @@ for (const control of controls.slice(start)) {
           0,
           400,
         ),
-        unaffected: result.rows.filter((row) => row.ok).map((row) => row.name),
+        unaffected: result.rows
+          .filter((row) => row.ok === true)
+          .map((row) => row.name),
         outcome: 'reddened',
         applied,
       })
@@ -297,14 +300,14 @@ for (const control of controls.slice(start)) {
       git('rm', '--cached', '-f', '--', relativePath)
       await rm(root, { recursive: true, force: true })
       await writeFile(
-        join(owned, 'mutation-receipts.json'),
+        join(owned, 'mutation-receipts.receipt'),
         JSON.stringify(receipts, null, 2),
       )
     }
   }
 }
 await writeFile(
-  join(owned, 'mutation-receipts.json'),
+  join(owned, 'mutation-receipts.receipt'),
   JSON.stringify(receipts, null, 2),
 )
 console.log(
