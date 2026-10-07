@@ -632,15 +632,37 @@ const routingCodec = openRecord(
   { forbidden: CREDENTIAL_KEYS },
 )
 
-// The decoded shapes must be exactly the public contract types; a field
-// added to one and not the other fails the typecheck here.
+// The decoded shapes must be exactly the public contract types. Mutual
+// assignability alone would accept an optional field present on one side
+// only, so `Exact` also compares the key sets, at every nested object and
+// array element; a field added to one side and not the other fails the
+// typecheck here.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+type Exact<A, B> =
+  Same<A, B> extends true
+    ? [A] extends [readonly (infer ItemA)[]]
+      ? [B] extends [readonly (infer ItemB)[]]
+        ? Exact<NonNullable<ItemA>, NonNullable<ItemB>>
+        : false
+      : [A] extends [object]
+        ? Same<keyof A, keyof B> extends true
+          ? {
+              [K in keyof A]-?: Exact<
+                NonNullable<A[K]>,
+                NonNullable<K extends keyof B ? B[K] : never>
+              >
+            }[keyof A] extends true
+            ? true
+            : false
+          : false
+        : true
+    : false
 type CodecContractCheck = [
-  Same<ReturnType<typeof metadataCodec.decode>, ProviderMetadata>,
-  Same<ReturnType<typeof providerStateCodec.decode>, ProviderStateEnvelope>,
-  Same<ReturnType<typeof quotaCodec.decode>, QuotaState>,
-  Same<ReturnType<typeof routingCodec.decode>, RoutingSettings>,
-  Same<ReturnType<typeof rowRefCodec.decode>, RowRef>,
+  Exact<ReturnType<typeof metadataCodec.decode>, ProviderMetadata>,
+  Exact<ReturnType<typeof providerStateCodec.decode>, ProviderStateEnvelope>,
+  Exact<ReturnType<typeof quotaCodec.decode>, QuotaState>,
+  Exact<ReturnType<typeof routingCodec.decode>, RoutingSettings>,
+  Exact<ReturnType<typeof rowRefCodec.decode>, RowRef>,
 ] extends [true, true, true, true, true]
   ? true
   : never
