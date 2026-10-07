@@ -18,7 +18,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import {
   createLogger as createCoreLogger,
@@ -39,11 +39,22 @@ import { DEFAULT_CONFIG } from '../config/schema'
 import { createStreamingTransformer } from '../core/streaming/transformer'
 import {
   createLocationDebug,
+  initializeDebug,
   isDebugEnabled,
   type LocationDebug,
 } from '../debug'
-import { createGeminiDumpState, isGeminiDumpEnabled } from '../gemini-dump'
-import { createLocationLogger } from '../logger'
+import {
+  createGeminiDumpState,
+  isGeminiDumpEnabled,
+  resetGeminiDumpState,
+  setGeminiDumpEnabled,
+} from '../gemini-dump'
+import {
+  createLocationLogger,
+  createLogger as createLegacyLogger,
+  initLogger,
+  setRuntimeLogLevel,
+} from '../logger'
 import type { LocationLogRecord } from '../neutral-types'
 import {
   acquireLocationOperatorSettings,
@@ -120,6 +131,110 @@ function debugFor(config: Partial<typeof DEFAULT_CONFIG>): LocationDebug {
   cleanups.push(() => handle.close())
   return handle
 }
+
+// =============================================================================
+// Transition contract and module graph
+// =============================================================================
+
+describe('OpenCode 1 binding transition contract', () => {
+  afterEach(() => {
+    initRuntimeConfig(DEFAULT_CONFIG)
+    initializeDebug(DEFAULT_CONFIG)
+    resetGeminiDumpState()
+    setRuntimeLogLevel('debug')
+    setLogSink(null)
+  })
+
+  it('isolates location capabilities from the module-level OpenCode 1 binding in both directions', () => {
+    const dir = makeProject('a', { keep_thinking: false, debug_tui: true })
+    const location = createLocationConfig(dir)
+    const debug = debugFor(location.config)
+    const dump = createGeminiDumpState({ enabled: false })
+    const locationRecords: string[] = []
+    const logger = createLocationLogger({
+      sink: (record) => locationRecords.push(record.message),
+      sinkEnabled: debug.isDebugTuiEnabled,
+      level: 'error',
+    })
+    const legacyRecords: string[] = []
+    initLogger({
+      app: {
+        log: ({ body }) => {
+          legacyRecords.push(body.message)
+          return Promise.resolve()
+        },
+      },
+    })
+
+    // The OpenCode 1 binding changes; the location keeps its own values.
+    initRuntimeConfig({ ...DEFAULT_CONFIG, keep_thinking: true })
+    initializeDebug({ ...DEFAULT_CONFIG, debug_tui: false })
+    setGeminiDumpEnabled(true)
+    setRuntimeLogLevel('debug')
+    expect(location.keepThinking).toBe(false)
+    expect(debug.isDebugTuiEnabled()).toBe(true)
+    expect(dump.isEnabled()).toBe(false)
+    logger.createLogger('x').warn('location-warn-filtered')
+    expect(locationRecords).toEqual([])
+
+    // The location changes; the OpenCode 1 binding keeps its values.
+    dump.setEnabled(true)
+    dump.setEnabled(false)
+    logger.setLevel('debug')
+    initializeDebug({ ...DEFAULT_CONFIG, debug_tui: true })
+    createLegacyLogger('legacy').info('legacy-info')
+    logger.createLogger('x').info('location-info')
+    expect(getKeepThinking()).toBe(true)
+    expect(isGeminiDumpEnabled()).toBe(true)
+    expect(legacyRecords).toEqual(['legacy-info'])
+    expect(locationRecords).toEqual(['location-info'])
+  })
+
+  it('keeps location modules free of host SDK and plugin types edges', () => {
+    const pluginDir = resolve(import.meta.dir, '..')
+    const roots = [
+      'logger.ts',
+      'debug.ts',
+      'gemini-dump.ts',
+      'cache.ts',
+      'operator-settings.ts',
+      'config/index.ts',
+      'neutral-types.ts',
+    ].map((file) => join(pluginDir, file))
+    const importPattern =
+      /(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\sfrom\s+)?['"]([^'"]+)['"]/g
+    const resolveRelative = (from: string, spec: string): string | null => {
+      const base = resolve(dirname(from), spec)
+      for (const candidate of [base, `${base}.ts`, join(base, 'index.ts')]) {
+        if (/\.(ts|js)$/.test(candidate) && existsSync(candidate)) {
+          return candidate
+        }
+      }
+      return null
+    }
+    const seen = new Set<string>()
+    const banned: string[] = []
+    const walk = (file: string): void => {
+      if (seen.has(file)) return
+      seen.add(file)
+      for (const match of readFileSync(file, 'utf8').matchAll(importPattern)) {
+        const spec = match[1] ?? ''
+        if (spec.startsWith('@opencode-ai/')) banned.push(`${file} -> ${spec}`)
+        if (!spec.startsWith('.')) continue
+        const target = resolveRelative(file, spec)
+        if (!target) continue
+        if (target === join(pluginDir, 'types.ts')) {
+          banned.push(`${file} -> ${target}`)
+        }
+        walk(target)
+      }
+    }
+    for (const rootFile of roots) walk(rootFile)
+
+    expect(seen.has(join(pluginDir, 'cache', 'signature-cache.ts'))).toBe(true)
+    expect(banned).toEqual([])
+  })
+})
 
 // =============================================================================
 // Configuration
