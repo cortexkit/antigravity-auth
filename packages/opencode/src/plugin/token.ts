@@ -5,7 +5,6 @@ import {
   formatRefreshParts,
   parseRefreshParts,
 } from './auth'
-import { clearCachedAuth, storeCachedAuth } from './cache'
 import { createLogger } from './logger'
 import { invalidateProjectContextCache } from './project'
 import type { OAuthAuthDetails, PluginClient, RefreshParts } from './types'
@@ -147,7 +146,6 @@ export async function refreshAccessToken(
           'Google revoked the stored refresh token - reauthentication required',
         )
         invalidateProjectContextCache(auth.refresh)
-        clearCachedAuth(auth.refresh)
       }
 
       throw new AntigravityTokenRefreshError({
@@ -178,7 +176,6 @@ export async function refreshAccessToken(
       refresh: formatRefreshParts(refreshedParts),
     }
 
-    storeCachedAuth(updatedAuth)
     // Project context cache is intentionally not invalidated on successful token
     // refresh: managedProjectId survives access-token rotation. Invalid grants
     // still invalidate above because the refresh key is no longer usable.

@@ -46,11 +46,23 @@ export interface WriteOperatorConfigOptions {
 export async function writeOperatorConfig(
   options: WriteOperatorConfigOptions,
 ): Promise<void> {
-  const operator = OperatorSettingsSchema.parse(options.operator)
-
   const target = existsSync(options.projectConfigPath)
     ? options.projectConfigPath
     : options.userConfigPath
+  await writeOperatorConfigAt(target, options.operator)
+}
+
+/**
+ * Replace the operator block of one explicit config file under the same
+ * fenced lock and atomic rename, keeping every other top-level field. A
+ * process-shared settings controller owns exactly one file and writes it
+ * through this, so it never re-derives the target from file existence.
+ */
+export async function writeOperatorConfigAt(
+  target: string,
+  settings: OperatorSettings,
+): Promise<void> {
+  const operator = OperatorSettingsSchema.parse(settings)
 
   const lock = await acquireFencedFileLock({
     path: target,
