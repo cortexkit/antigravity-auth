@@ -487,9 +487,10 @@ const MEASURED_ROWS: readonly MeasuredRow[] = [
 
 /**
  * Rows the host measured as direct but the guard refuses on purpose: label
- * suffix and leading-dot spellings of 127.0.0.1. The guard accepts only the
- * loopback forms the native matrix must measure as direct, so these fail
- * closed with the documented-exclusion error instead of passing.
+ * suffix and leading-dot spellings of 127.0.0.1. The host routes these rows
+ * direct, and the expected verdicts below record that. The guard accepts only
+ * `*`, `127.0.0.1` and `127.0.0.1:<bridge port>`, so these rows fail closed
+ * with the documented-exclusion error.
  */
 const GUARD_STRICTER_THAN_HOST = new Set(['032', '033', '057', '058'])
 
@@ -593,7 +594,7 @@ describe('measured arm64 rows', () => {
     expect(conformanceMismatches(evaluateLoopbackProxyGuard)).toEqual([])
   })
 
-  it('refuses the host-direct suffix spellings it does not accept, as loopback entries', () => {
+  it('conservative policy: refuses host-direct suffix spellings (0.0.1, .0.0.1) as loopback entries', () => {
     for (const caseNo of GUARD_STRICTER_THAN_HOST) {
       const row = MEASURED_ROWS.find(([no]) => no === caseNo)
       if (row === undefined) throw new Error(`missing row ${caseNo}`)

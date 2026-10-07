@@ -212,9 +212,15 @@ function trimEntry(entry: string): string {
 }
 
 /**
- * The guard's direct forms: the exact entries measured as sending the bridge
- * request direct. Host-side equivalents that were not measured (such as a
- * leading-dot or label-suffix spelling) are intentionally not accepted.
+ * The guard's direct forms: `*`, `127.0.0.1` and `127.0.0.1:<bridge port>`,
+ * each measured as sending the bridge request direct.
+ *
+ * Conservative policy: the host also matches label suffixes after stripping
+ * one leading dot, and the measurements show `0.0.1` and `.0.0.1` going direct
+ * too. The guard still refuses those spellings, and every other suffix form,
+ * on purpose. General suffix matching would accept unmeasured spellings such
+ * as `1` or `.127.0.0.1`. Refusing them only costs an error that asks for
+ * NO_PROXY=127.0.0.1. It never changes where the host routes a request.
  */
 function directFormOf(
   entry: string,
