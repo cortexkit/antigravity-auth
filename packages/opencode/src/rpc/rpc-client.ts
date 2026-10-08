@@ -1,10 +1,12 @@
-// Subpath import (not the barrel): this module ships into the TUI's
-// compiled tree, which must not pull the credential-bearing barrel into
-// the host's render path.
-import { fetchWithActiveTimeout } from '@cortexkit/antigravity-auth-core/fetch-timeout'
-
-import { discoverPortFile } from './port-file'
-import type { ApplyRequest, ApplyResult, RpcNotification } from './protocol'
+// This client-only public entry point keeps server and writer modules out of
+// the TUI's dependency graph.
+import { createRpcClient as createPublicRpcClient } from '../common-auth-embedded/rpc/client.js'
+import type {
+  ApplyRequest,
+  ApplyResult,
+  CommandModalName,
+  RpcNotification,
+} from './protocol'
 
 const DEFAULT_TIMEOUT_MS = 2_000
 
@@ -28,75 +30,69 @@ export interface RpcClient {
 }
 
 export function createRpcClient(dir: string, expectedPid?: number): RpcClient {
+  const client = createPublicRpcClient(dir, expectedPid, undefined, {
+    exactPid: true,
+  })
   return {
     async apply(request, options) {
-      const result = await post<ApplyResult>(
-        dir,
-        expectedPid,
-        '/rpc/apply',
-        request,
-        options,
-      )
-      return result ?? APPLY_FALLBACK
+      try {
+        const result: unknown = await client.apply(
+          request,
+          options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        )
+        return isApplyResult(result) ? result : APPLY_FALLBACK
+      } catch {
+        return APPLY_FALLBACK
+      }
     },
     async pendingNotifications(lastReceivedId, sessionId, options) {
-      const result = await post<{ messages: RpcNotification[] }>(
-        dir,
-        expectedPid,
-        '/rpc/pending-notifications',
-        {
+      try {
+        const messages: unknown = await client.pending(
           lastReceivedId,
-          ...(sessionId === undefined ? {} : { sessionId }),
-        },
-        options,
-      )
-      return result?.messages ?? PENDING_FALLBACK
+          sessionId,
+          options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        )
+        return Array.isArray(messages) && messages.every(isNotification)
+          ? messages
+          : PENDING_FALLBACK
+      } catch {
+        return PENDING_FALLBACK
+      }
     },
   }
 }
 
-async function post<T>(
-  dir: string,
-  expectedPid: number | undefined,
-  path: string,
-  body: unknown,
-  options: RpcRequestOptions | undefined,
-): Promise<T | null> {
-  // Internal nullable — every RPC call site (apply, pending) must absorb a
-  // missing/unreachable server gracefully. The TUI render path never
-  // crashes because the server is dead; the user sees a fallback text and
-  // a fresh poll retries the next tick.
-  const entry = await discoverPortFileSafe(dir, expectedPid)
-  if (!entry) return null
-
-  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  try {
-    const response = await fetchWithActiveTimeout(
-      `http://127.0.0.1:${entry.port}${path}`,
-      {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${entry.token}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      },
-      { timeoutMs },
-    )
-    if (!response.ok) return null
-    return (await response.json()) as T
-  } catch {
-    return null
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-async function discoverPortFileSafe(
-  dir: string,
-  expectedPid: number | undefined,
-): Promise<Awaited<ReturnType<typeof discoverPortFile>>> {
-  try {
-    return await discoverPortFile(dir, expectedPid)
-  } catch {
-    return null
-  }
+function isApplyResult(value: unknown): value is ApplyResult {
+  return (
+    isRecord(value) && typeof value.text === 'string' && isRecord(value.knobs)
+  )
+}
+
+function isCommand(value: unknown): value is CommandModalName {
+  return (
+    value === 'antigravity-quota' ||
+    value === 'antigravity-account' ||
+    value === 'antigravity-routing' ||
+    value === 'antigravity-killswitch' ||
+    value === 'antigravity-dump' ||
+    value === 'antigravity-logging'
+  )
+}
+
+function isNotification(value: unknown): value is RpcNotification {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'number' &&
+    Number.isSafeInteger(value.id) &&
+    value.id >= 0 &&
+    value.type === 'open-dialog' &&
+    (value.sessionId === undefined || typeof value.sessionId === 'string') &&
+    isRecord(value.payload) &&
+    isApplyResult(value.payload) &&
+    isCommand(value.payload.command)
+  )
 }

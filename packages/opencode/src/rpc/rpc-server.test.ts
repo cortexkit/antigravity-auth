@@ -3,7 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { discoverPortFile, writePortFile } from './port-file'
+import { writePortFile as writePublicPortFile } from '../common-auth-embedded/rpc/index.js'
+import { discoverPortFile } from './port-file'
 import { type RpcServerHandle, startRpcServer } from './rpc-server'
 
 const APPLY_PATH = '/rpc/apply'
@@ -145,7 +146,7 @@ describe('RPC server HTTP boundary', () => {
     expect(unknown.status).toBe(404)
   })
 
-  it('rejects invalid JSON and bodies larger than one MiB', async () => {
+  it('rejects invalid JSON and bodies larger than the decimal million-byte cap', async () => {
     handle = await startRpcServer({
       dir,
       apply: async () => ({ text: 'ok', knobs: {} }),
@@ -161,7 +162,7 @@ describe('RPC server HTTP boundary', () => {
     const oversized = await request(handle, APPLY_PATH, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ value: 'x'.repeat(1024 * 1024) }),
+      body: JSON.stringify({ value: 'x'.repeat(1_000_000) }),
     })
 
     expect(invalid.status).toBe(400)
@@ -176,11 +177,15 @@ describe('RPC server HTTP boundary', () => {
     })
     const ownFile = join(dir, `port-${process.pid}.json`)
     const otherFile = join(dir, `port-${process.ppid}.json`)
-    await writePortFile(dir, {
-      pid: process.ppid,
-      port: 49_999,
-      token: 'other',
-    })
+    await writePublicPortFile(
+      dir,
+      {
+        pid: process.ppid,
+        port: 49_999,
+        token: 'other',
+      },
+      { secureDir: true },
+    )
 
     await handle.stop()
     await handle.stop()
