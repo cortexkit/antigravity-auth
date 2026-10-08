@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "package": "@opencode/cli-linux-x64",
+  "version": "2.0.22",
+  "tarballURL": "https://registry.npmjs.org/@opencode/cli-linux-x64/-/cli-linux-x64-2.0.22.tgz",
+  "sri": "sha512-DlV1qgEDDnVqpTWMPqv7tCHCcXodzZBFaMcxjsiYdY6E5gHH2Q68JfasVksyQ1nu6m1887WQKGhOsepE+oKyYw==",
+  "binaryPath": "package/bin/opencode",
+  "binarySha256": "32cf5aa0a69a650e36277e3315d189835ddc79fb9aa1d0aef5025be5af5ad122",
+  "binaryBytes": 204482016,
+  "elfMachine": 62,
+  "platform": "linux/amd64",
+  "reportedVersion": "opencode v2.0.22",
+  "runtime": {
+    "name": "Bun",
+    "version": "1.4.2",
+    "revision": "744846f844374847c902b5e7fd59b4342a51ef99"
+  },
+  "source": {
+    "repository": "https://github.com/anomalyco/opencode",
+    "tag": "v2.0.22",
+    "commit": "527f0b931d1f9b3ebd34e106c51b31ce5db5b075"
+  },
+  "provenance": {
+    "artifact": "Independent retained public npm verification: ga-proxy-independent-r3/x64-registry-pin-independent.json (2026-10-03); GitHub release asset returned 404",
+    "artifactRecordSha256": "02e0668b11310d7f3965b92299f002ddc8ebe8f01dc2c2be9c7c768f834888b2",
+    "runtime": "Retained emulated x64 worker-amd64/cases/001-control-no-proxy/plugin.jsonl setup and preflight; runtime revision is Bun's reported git identity, not an executable digest",
+    "runtimeRecordSha256": "964fa2e86331c4374f6bd35622c17ebf5d430e264b9b97ef11c4be5ed43957de",
+    "limits": "Artifact integrity and reported runtime identity do not attest binary-to-source equivalence. The emulated x64 aggregate failed six pre-setup cases; neither it nor accepted ARM research certifies native amd64, long-lived server behavior, or the migrated adapter. Native measurement remains required. No binary was executed while materializing this pin."
+  }
+}

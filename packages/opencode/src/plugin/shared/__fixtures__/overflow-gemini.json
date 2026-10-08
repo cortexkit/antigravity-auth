@@ -1,0 +1,20 @@
+{
+  "status": 400,
+  "contentType": "application/json",
+  "body": "{\"error\":{\"code\":400,\"message\":\"The input token count (123456) exceeds the maximum number of tokens allowed (100000).\",\"status\":\"INVALID_ARGUMENT\"}}",
+  "bodyBase64": "eyJlcnJvciI6eyJjb2RlIjo0MDAsIm1lc3NhZ2UiOiJUaGUgaW5wdXQgdG9rZW4gY291bnQgKDEyMzQ1NikgZXhjZWVkcyB0aGUgbWF4aW11bSBudW1iZXIgb2YgdG9rZW5zIGFsbG93ZWQgKDEwMDAwMCkuIiwic3RhdHVzIjoiSU5WQUxJRF9BUkdVTUVOVCJ9fQ==",
+  "bodyByteLength": 148,
+  "bodySha256": "8f7c248c6ea08caa5db181b1e4f27290a5cc508e259ef00bc2281035c42e982a",
+  "provenance": {
+    "kind": "retained canned mock response, not a live backend capture",
+    "observedHttpHook": true,
+    "observedHostVersion": "opencode v2.0.20",
+    "observedMagicContextRevision": "cda6851df61b3d53b900174e285cedcfecedb213",
+    "sourceSummary": ".cortexkit/alfonso/evidence/mc-fixed-cda6851/evidence/gemini-overflow/summary.json",
+    "sourceSummarySha256": "372fd369935b1fd2c10e3e68adf82231a49c5dd638d1646ec27b3c81aad81775",
+    "mockSource": ".cortexkit/alfonso/evidence/mc-overflow-probe-08c4835/research/opencode2-mc-overflow-probe/upstream-mock.mjs:38-49",
+    "scope": "Google INVALID_ARGUMENT envelope; Claude fixture uses Claude overflow wording, not Anthropic-native envelope",
+    "runChecks": 75,
+    "runRedChecks": 0
+  }
+}

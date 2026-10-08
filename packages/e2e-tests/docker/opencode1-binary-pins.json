@@ -1,0 +1,31 @@
+{
+  "wrapperPackage": "opencode-ai",
+  "wrapperVersion": "1.17.13",
+  "artifacts": [
+    {
+      "package": "opencode-linux-x64",
+      "version": "1.17.13",
+      "tarballURL": "https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.17.13.tgz",
+      "sri": "sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw==",
+      "tarballSha256": "04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331",
+      "binaryPath": "package/bin/opencode",
+      "binarySha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+      "elfMachine": 62,
+      "platform": "linux/amd64",
+      "executed": false
+    },
+    {
+      "package": "opencode-linux-arm64",
+      "version": "1.17.13",
+      "tarballURL": "https://registry.npmjs.org/opencode-linux-arm64/-/opencode-linux-arm64-1.17.13.tgz",
+      "sri": "sha512-NgBu9go6DTgi2OJ04Q54kgbQFWOmv70cdBUsGr74SdXWEpi/VNIWc/5e5eYJ123ogW25uB03H5jFQx5XKsKzUQ==",
+      "tarballSha256": "cacc0db4e072ff29ac16ec78f53433c3d5ea74412c43027eae1a447f697ce1b4",
+      "binaryPath": "package/bin/opencode",
+      "binarySha256": "97cec34266f1fb21752755c1539a9accc1b5a1b8b3d1642046db9c15f424da54",
+      "elfMachine": 183,
+      "platform": "linux/arm64",
+      "executed": false
+    }
+  ],
+  "policy": "Only execute inside isolated network-disabled Docker with explicit temporary DB and HOME/XDG paths."
+}
