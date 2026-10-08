@@ -51,7 +51,7 @@ import {
 } from './auth'
 import { logQuotaFetch, logQuotaStatus } from './debug'
 import { buildAntigravityHarnessUserAgent } from './fingerprint'
-import { createLogger } from './logger'
+import { createLogger, type Logger } from './logger'
 import { ensureProjectContext, loadManagedProject } from './project'
 import { refreshAccessToken } from './token'
 import type { OAuthAuthDetails, PluginClient } from './types'
@@ -111,15 +111,7 @@ export function createOpenCodeQuotaManager(
      * a sidebar snapshot from the actual cached quota + cooldown. When
      * omitted, the wrapper falls back to a no-op snapshot push.
      */
-    getAccountsForSidebar?: () => Array<{
-      index: number
-      label?: string
-      enabled?: boolean
-      coolingDownUntil?: number
-      cachedQuota?: AccountMetadataV3['cachedQuota']
-      cachedQuotaAccountId?: string
-      currentQuotaAccountId?: string
-    }> | null
+    getAccountsForSidebar?: () => SidebarQuotaAccount[] | null
     /**
      * Optional provider for the active-account indexes per model family.
      * Wired by the plugin entry so every quota-refresh sidebar snapshot
@@ -151,22 +143,121 @@ export function createOpenCodeQuotaManager(
     maxBackoffMs: options.maxBackoffMs,
     fetchTimeoutMs: options.fetchTimeoutMs,
   })
-  const originalRefreshAccount = manager.refreshAccount
-  const originalRefreshAccounts = manager.refreshAccounts
   const getAccountsForSidebar = options.getAccountsForSidebar
   const getActiveIndexByFamily = options.getActiveIndexByFamily
+  return withSidebarPushAfterRefresh(
+    manager,
+    getAccountsForSidebar
+      ? (account) =>
+          pushSidebarQuotaSnapshot(
+            getAccountsForSidebar,
+            manager.getBackoffUntil(account),
+            getActiveIndexByFamily,
+          )
+      : undefined,
+  )
+}
+
+/**
+ * Sidebar binding for one location's quota manager. `createOpenCodeQuotaManager`
+ * (the OpenCode 1 plugin's quota manager) reads these from process-wide
+ * state; a location passes each one explicitly.
+ */
+export interface LocationQuotaSidebarOptions {
+  /** The sidebar state file this location's snapshots are written to. */
+  stateFile: string
+  /** Live account rows for the snapshot; `null` before accounts load. */
+  getAccounts: () => SidebarQuotaAccount[] | null
+  getActiveIndexByFamily?: () => { claude: number; gemini: number } | null
+  /**
+   * Health score (0–100, how reliably the account has answered recently)
+   * per account index, from this location's account rotation. When omitted
+   * the snapshot carries no score, and the sidebar shows its default of 100.
+   */
+  healthScore?: (index: number) => number
+  /** Clock for the snapshot's `checkedAt`. Defaults to `Date.now`. */
+  now?: () => number
+}
+
+export interface LocationQuotaManagerOptions
+  extends CreateOpenCodeQuotaManagerOptions {
+  /** This location's logger. Required: there is no module-level fallback. */
+  logger: Logger
+  /**
+   * Fetches one account's quota with this location's credentials and
+   * transport. The location's account service supplies it; this module never
+   * builds a host client or reads a shared credential cache.
+   */
+  fetchAccountQuota: FetchAccountQuota
+  /** Sidebar snapshot binding; without it refreshes write no snapshot. */
+  sidebar?: LocationQuotaSidebarOptions
+}
+
+/**
+ * Build one location's quota manager. Backoff, in-flight dedupe and the
+ * per-account cache belong to the returned manager alone, so a second
+ * location never shares another location's backoff or cached results.
+ * Refreshes push a sidebar snapshot exactly like `createOpenCodeQuotaManager`
+ * does, but to the location's own state file and through its own logger.
+ */
+export function createLocationQuotaManager(
+  options: LocationQuotaManagerOptions,
+): QuotaManager {
+  if (typeof options?.logger?.debug !== 'function') {
+    throw new TypeError('createLocationQuotaManager requires a location logger')
+  }
+  if (typeof options.fetchAccountQuota !== 'function') {
+    throw new TypeError(
+      'createLocationQuotaManager requires a fetchAccountQuota function',
+    )
+  }
+  const manager = createQuotaManager({
+    fetchAccountQuota: options.fetchAccountQuota,
+    keyOf: options.keyOf ?? defaultKeyOf,
+    baseBackoffMs: options.baseBackoffMs,
+    maxBackoffMs: options.maxBackoffMs,
+    fetchTimeoutMs: options.fetchTimeoutMs,
+  })
+  const sidebar = options.sidebar
+  const logger = options.logger
+  return withSidebarPushAfterRefresh(
+    manager,
+    sidebar
+      ? (account) =>
+          pushSidebarQuotaSnapshot(
+            sidebar.getAccounts,
+            manager.getBackoffUntil(account),
+            sidebar.getActiveIndexByFamily,
+            {
+              stateFile: sidebar.stateFile,
+              logger,
+              healthScore: sidebar.healthScore ?? null,
+              now: sidebar.now,
+            },
+          )
+      : undefined,
+  )
+}
+
+/**
+ * Wrap a quota manager so every refresh started before disposal pushes one
+ * sidebar snapshot after it settles, and so `dispose()` waits for those
+ * pushes. A refresh that starts after disposal pushes nothing.
+ */
+function withSidebarPushAfterRefresh(
+  manager: QuotaManager,
+  push: ((account: AccountMetadataV3) => Promise<void>) | undefined,
+): QuotaManager {
+  const originalRefreshAccount = manager.refreshAccount
+  const originalRefreshAccounts = manager.refreshAccounts
   let disposed = false
   const inFlight = new Set<Promise<unknown>>()
 
   const pushAfterRefresh = async (
     account: AccountMetadataV3,
   ): Promise<void> => {
-    if (!getAccountsForSidebar) return
-    await pushSidebarQuotaSnapshot(
-      getAccountsForSidebar,
-      manager.getBackoffUntil(account),
-      getActiveIndexByFamily,
-    ).catch(() => {
+    if (!push) return
+    await push(account).catch(() => {
       // Sidebar persistence remains best-effort when lock contention
       // outlives its retry budget.
     })
@@ -280,6 +371,39 @@ export async function checkAccountsQuota(
   )
 }
 
+/** One live account row a sidebar quota snapshot is built from. */
+export interface SidebarQuotaAccount {
+  index: number
+  label?: string
+  enabled?: boolean
+  coolingDownUntil?: number
+  cachedQuota?: AccountMetadataV3['cachedQuota']
+  cachedQuotaAccountId?: string
+  currentQuotaAccountId?: string
+  /** Captured plan tier to surface in the sidebar state file. */
+  tier?: { id: string; paidId?: string; capturedAt: number }
+}
+
+/**
+ * Where a sidebar quota snapshot goes and which state it reads. Omitted
+ * fields use process-wide defaults, as the OpenCode 1 plugin (one location
+ * per process) always has: the default sidebar file, module logger, health
+ * tracker and wall clock.
+ */
+export interface SidebarQuotaSnapshotOptions {
+  /** Sidebar state file to write. Defaults to the process-wide file. */
+  stateFile?: string
+  /** Receives best-effort write failures. Defaults to the module logger. */
+  logger?: Pick<Logger, 'debug'>
+  /**
+   * Health score per account index. `undefined` reads the process-wide
+   * tracker; `null` writes no score so the projection uses its default.
+   */
+  healthScore?: ((index: number) => number) | null
+  /** Clock for `checkedAt`. Defaults to `Date.now`. */
+  now?: () => number
+}
+
 /**
  * Push a quota refresh into the sidebar. Called by every quota refresh
  * call site (manual `/antigravity-quota`, the `check` menu action, and the
@@ -295,26 +419,25 @@ export async function checkAccountsQuota(
  * never fails just because the sidebar file is busy.
  */
 export async function pushSidebarQuotaSnapshot(
-  getAccounts: () => Array<{
-    index: number
-    label?: string
-    enabled?: boolean
-    coolingDownUntil?: number
-    cachedQuota?: AccountMetadataV3['cachedQuota']
-    cachedQuotaAccountId?: string
-    currentQuotaAccountId?: string
-    /** Captured plan tier to surface in the sidebar state file. */
-    tier?: { id: string; paidId?: string; capturedAt: number }
-  }> | null,
+  getAccounts: () => SidebarQuotaAccount[] | null,
   backoffUntil: number = 0,
   getActiveIndexByFamily?: () => {
     claude: number
     gemini: number
   } | null,
+  options: SidebarQuotaSnapshotOptions = {},
 ): Promise<void> {
   const accounts = getAccounts()
   if (!accounts || accounts.length === 0) return
   const activeByFamily = getActiveIndexByFamily?.() ?? null
+  // `undefined` keeps the process-wide health tracker the OpenCode 1 plugin
+  // uses; `null` means the caller has no health source and the sidebar shows
+  // its default.
+  const healthScore =
+    options.healthScore === undefined
+      ? (index: number) => getHealthTracker().getScore(index)
+      : options.healthScore
+  const now = options.now ?? Date.now
   try {
     await setSidebarMachineState(
       buildSidebarMachineStateFromAccounts(
@@ -329,17 +452,20 @@ export async function pushSidebarQuotaSnapshot(
           cachedQuota: entry.cachedQuota,
           cachedQuotaAccountId: entry.cachedQuotaAccountId,
           currentQuotaAccountId: entry.currentQuotaAccountId,
-          healthScore: getHealthTracker().getScore(entry.index),
+          ...(healthScore ? { healthScore: healthScore(entry.index) } : {}),
           tier: entry.tier,
         })),
         {
-          checkedAt: Date.now(),
+          checkedAt: now(),
           quotaBackoffUntil: backoffUntil > 0 ? backoffUntil : undefined,
         },
       ),
+      options.stateFile === undefined ? {} : { stateFile: options.stateFile },
     )
   } catch (error) {
-    log.debug('sidebar-quota-write-failed', { error: String(error) })
+    ;(options.logger ?? log).debug('sidebar-quota-write-failed', {
+      error: String(error),
+    })
   }
 }
 

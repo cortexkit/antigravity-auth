@@ -8,7 +8,11 @@ import {
   mock,
 } from 'bun:test'
 import { AccountManager } from './accounts'
-import { ProactiveRefreshQueue } from './refresh-queue'
+import type { Logger } from './logger'
+import {
+  createLocationProactiveRefreshQueue,
+  ProactiveRefreshQueue,
+} from './refresh-queue'
 import type { AccountStorageV4 } from './storage'
 import type { OAuthAuthDetails, PluginClient } from './types'
 
@@ -268,5 +272,75 @@ describe('ProactiveRefreshQueue disposal', () => {
       'queue:disposed-returned',
     ])
     expect(jest.getTimerCount()).toBe(0)
+  })
+})
+
+describe('location refresh queue', () => {
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('refreshes and logs only through the location’s own collaborators', async () => {
+    jest.useFakeTimers()
+    const now = Date.now()
+    const manager = new AccountManager(undefined, {
+      version: 4,
+      accounts: [
+        {
+          refreshToken: 'fake-refresh',
+          projectId: 'fake-project',
+          addedAt: now,
+          lastUsed: 0,
+          enabled: true,
+        },
+      ],
+      activeIndex: 0,
+    })
+    manager.getAccounts()[0]!.expires = now + 60_000
+    manager.saveToDisk = mock(async () => {})
+    const refreshed: string[] = []
+    const messages: string[] = []
+    const logger: Logger = {
+      debug: (message) => void messages.push(message),
+      info: (message) => void messages.push(message),
+      warn: (message) => void messages.push(message),
+      error: (message) => void messages.push(message),
+    }
+    const queue = createLocationProactiveRefreshQueue(
+      {
+        logger,
+        refreshToken: async (auth) => {
+          refreshed.push(auth.refresh)
+          return {
+            type: 'oauth',
+            refresh: auth.refresh,
+            access: 'fake-access',
+            expires: now + 3_600_000,
+          }
+        },
+      },
+      { enabled: true, bufferSeconds: 1800, checkIntervalSeconds: 300 },
+    )
+    queue.setAccountManager(manager)
+    queue.start()
+    jest.advanceTimersByTime(5000)
+    await queue.dispose()
+
+    expect(refreshed).toEqual(['fake-refresh|fake-project'])
+    expect(messages).toContain('Proactively refreshing token')
+    expect(mockClient.auth.set).not.toHaveBeenCalled()
+    expect(queue.getStats().refreshCount).toBe(1)
+  })
+
+  it('refuses to build without a logger and token refresher', () => {
+    expect(() =>
+      createLocationProactiveRefreshQueue({
+        logger: undefined as unknown as Logger,
+        refreshToken: async () => undefined,
+      }),
+    ).toThrow('requires a logger and refreshToken')
+    expect(
+      () => new ProactiveRefreshQueue(null, 'test-provider', { enabled: true }),
+    ).toThrow('host client or explicit dependencies')
   })
 })

@@ -7,7 +7,7 @@ import {
   mock,
   spyOn,
 } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -24,8 +24,10 @@ import {
 } from '../sidebar-state'
 import { registerQuotaManagerProducer } from './index.ts'
 import { createPluginLifecycle } from './lifecycle.ts'
+import type { Logger } from './logger.ts'
 import {
   classifyQuotaGroup,
+  createLocationQuotaManager,
   createOpenCodeQuotaManager,
   pushSidebarQuotaSnapshot,
 } from './quota.ts'
@@ -625,5 +627,153 @@ describe('pushSidebarQuotaSnapshot', () => {
     if (result?.status !== 'ok') return
     expect(result.quota?.groups).toBeDefined()
     expect(result.geminiCliQuota?.error).toBeTruthy()
+  })
+})
+
+describe('location-scoped quota', () => {
+  let dir: string
+  let processFile: string
+  let locationFile: string
+  let savedSidebarEnv: string | undefined
+
+  beforeEach(() => {
+    savedSidebarEnv = process.env[SIDEBAR_STATE_ENV]
+    dir = mkdtempSync(join(tmpdir(), 'agy-quota-location-'))
+    processFile = join(dir, 'process-sidebar.json')
+    locationFile = join(dir, 'location-sidebar.json')
+    // The process-wide sidebar file (named by the environment), which
+    // location-specific snapshots must never write.
+    process.env[SIDEBAR_STATE_ENV] = processFile
+  })
+
+  afterEach(() => {
+    if (savedSidebarEnv !== undefined)
+      process.env[SIDEBAR_STATE_ENV] = savedSidebarEnv
+    else delete process.env[SIDEBAR_STATE_ENV]
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  function recordingLogger(): Logger & { debugMessages: string[] } {
+    const debugMessages: string[] = []
+    return {
+      debugMessages,
+      debug: (message) => void debugMessages.push(message),
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    }
+  }
+
+  const ACCOUNTS = (): QuotaSnapshotAccount[] => [
+    {
+      index: 0,
+      enabled: true,
+      cachedQuota: { gemini: { remainingFraction: 0.5, modelCount: 1 } },
+    },
+  ]
+
+  it('writes the snapshot to the given file with the given health source and clock', async () => {
+    await pushSidebarQuotaSnapshot(ACCOUNTS, 0, undefined, {
+      stateFile: locationFile,
+      healthScore: (index) => (index === 0 ? 37 : 0),
+      now: () => 1_700_000_000_000,
+    })
+    const state = readSidebarState(locationFile)
+    expect(state.checkedAt).toBe(1_700_000_000_000)
+    expect(state.accounts[0]?.health).toBe(37)
+    expect(readSidebarState(processFile).checkedAt).toBe(0)
+  })
+
+  it('writes no health score when the location has no health source', async () => {
+    await pushSidebarQuotaSnapshot(ACCOUNTS, 0, undefined, {
+      stateFile: locationFile,
+      healthScore: null,
+    })
+    // The redactor's documented default for a missing score.
+    expect(readSidebarState(locationFile).accounts[0]?.health).toBe(100)
+  })
+
+  it('reports a failed write to the location logger', async () => {
+    const blocker = join(dir, 'not-a-directory')
+    writeFileSync(blocker, 'file')
+    const logger = recordingLogger()
+    await pushSidebarQuotaSnapshot(ACCOUNTS, 0, undefined, {
+      stateFile: join(blocker, 'sidebar.json'),
+      logger,
+      healthScore: null,
+    })
+    expect(logger.debugMessages).toEqual(['sidebar-quota-write-failed'])
+  })
+
+  it('requires a location logger and a quota fetch function', () => {
+    expect(() =>
+      createLocationQuotaManager({
+        logger: undefined as unknown as Logger,
+        fetchAccountQuota: async () => ({ index: 0, status: 'disabled' }),
+      }),
+    ).toThrow('location logger')
+    expect(() =>
+      createLocationQuotaManager({
+        logger: recordingLogger(),
+        fetchAccountQuota: undefined as unknown as Parameters<
+          typeof createLocationQuotaManager
+        >[0]['fetchAccountQuota'],
+      }),
+    ).toThrow('fetchAccountQuota')
+  })
+
+  it('pushes a snapshot after each refresh to its own file only', async () => {
+    const manager = createLocationQuotaManager({
+      logger: recordingLogger(),
+      fetchAccountQuota: async (account) => ({
+        index: 0,
+        email: account.email,
+        status: 'ok',
+        disabled: false,
+        quota: { groups: {}, modelCount: 0 },
+      }),
+      sidebar: {
+        stateFile: locationFile,
+        getAccounts: ACCOUNTS,
+        healthScore: () => 64,
+        now: () => 1_700_000_000_000,
+      },
+    })
+    try {
+      await manager.refreshAccounts(
+        [{ refreshToken: 'fake-refresh', addedAt: 0, lastUsed: 0 }],
+        { indexFor: () => 0, force: true },
+      )
+    } finally {
+      await manager.dispose()
+    }
+    await drainSidebarWrites()
+    expect(readSidebarState(locationFile).accounts[0]?.health).toBe(64)
+    expect(readSidebarState(processFile).checkedAt).toBe(0)
+  })
+
+  it('keeps backoff per manager, as the OpenCode 1 manager does', async () => {
+    const failing = createLocationQuotaManager({
+      logger: recordingLogger(),
+      fetchAccountQuota: async () => ({
+        index: 0,
+        status: 'error',
+        error: 'fake failure',
+        disabled: false,
+      }),
+    })
+    const healthy = createLocationQuotaManager({
+      logger: recordingLogger(),
+      fetchAccountQuota: async () => ({ index: 0, status: 'disabled' }),
+    })
+    const account = { refreshToken: 'fake-refresh', addedAt: 0, lastUsed: 0 }
+    try {
+      await failing.refreshAccount(account, { index: 0 })
+      expect(failing.getBackoffUntil(account)).toBeGreaterThan(0)
+      expect(healthy.getBackoffUntil(account)).toBe(0)
+    } finally {
+      await failing.dispose()
+      await healthy.dispose()
+    }
   })
 })
