@@ -28,4 +28,6 @@ export interface DiscoverPortFileOptions {
      */
     exactPid?: boolean;
 }
+/** Internal cache validation: probe only the selected file and its PID. */
+export declare function portFileIdentity(dir: string, entry: PortFileEntry): Promise<string | null>;
 export declare function discoverPortFile(dir: string, expectedPid?: number, options?: DiscoverPortFileOptions): Promise<PortFileEntry | null>;

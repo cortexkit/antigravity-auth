@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, mkdir, open, readdir, readFile, rename, rmdir, unlink, } from 'node:fs/promises';
+import { chmod, mkdir, open, readdir, readFile, rename, rmdir, stat, unlink, } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 /**
  * A PID a liveness probe may address. `process.kill(0 | negative, 0)` signals
@@ -164,6 +164,19 @@ export async function sweepRpcState(root, activeDir, isManagedDir, log) {
         }
         if (resolve(dir) !== active)
             await rmdir(dir).catch(() => { });
+    }
+}
+/** Internal cache validation: probe only the selected file and its PID. */
+export async function portFileIdentity(dir, entry) {
+    if (!pidAlive(entry.pid))
+        return null;
+    const path = join(resolve(dir), `port-${entry.pid}.json`);
+    try {
+        const info = await stat(path);
+        return `${path}:${info.dev}:${info.ino}:${info.mtimeMs}:${info.size}`;
+    }
+    catch {
+        return null;
     }
 }
 export async function discoverPortFile(dir, expectedPid, options = {}) {

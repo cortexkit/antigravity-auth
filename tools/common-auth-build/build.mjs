@@ -10,6 +10,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   inputPath,
+  producerVersion,
   productionPin,
   readVerifiedArchive,
   sha256,
@@ -28,7 +29,7 @@ async function verifiedCompiler() {
   )
   validatePublication(archive)
   for (const [name, version] of Object.entries({
-    '@cortexkit/common-auth': '0.9.4',
+    '@cortexkit/common-auth': producerVersion,
     '@opentui/core': '0.5.14',
     '@opentui/solid': '0.5.14',
     'solid-js': '1.9.12',
@@ -111,7 +112,15 @@ async function inspectDestination(packageRoot, path, kind) {
       }
       if (
         map?.schema !== 1 ||
-        map.compiler !== '@cortexkit/common-auth/tui-build@0.9.4'
+        // A configured common-auth-map.json (or another build-map path) is owned only
+        // when its schema-1 producer is @cortexkit/common-auth/tui-build at 0.9.4,
+        // 0.11.4 or current 0.11.6. Verified owned maps may be replaced on upgrade;
+        // unrelated maps are refused rather than treated as compiler outputs.
+        ![
+          '@cortexkit/common-auth/tui-build@0.9.4',
+          '@cortexkit/common-auth/tui-build@0.11.4',
+          `@cortexkit/common-auth/tui-build@${producerVersion}`,
+        ].includes(map.compiler)
       )
         throw new Error(`Existing build map is not a generated map: ${current}`)
     }
@@ -226,7 +235,7 @@ export async function buildCommonAuthTui(options) {
     })
     const map = {
       schema: 1,
-      compiler: '@cortexkit/common-auth/tui-build@0.9.4',
+      compiler: `@cortexkit/common-auth/tui-build@${producerVersion}`,
       bun: Bun.version,
       raw: await describe(raw, rawDir),
       runtime: await describe(runtime, runtimeDir),

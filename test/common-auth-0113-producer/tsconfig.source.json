@@ -1,0 +1,11 @@
+{
+  "extends": "../../packages/opencode/tsconfig.json",
+  "include": [
+    "../../packages/opencode/scripts/embed-common-auth.ts",
+    "../../packages/opencode/scripts/build-tui.ts",
+    "../../packages/opencode/scripts/build-tui.test.ts",
+    "./*.test.ts",
+    "../common-auth-094-adoption/embed-build/*.test.ts"
+  ],
+  "compilerOptions": { "noEmit": true }
+}

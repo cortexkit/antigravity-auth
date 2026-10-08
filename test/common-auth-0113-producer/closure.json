@@ -1,0 +1,463 @@
+{
+  "schema": 1,
+  "fileIdentityOracle": "test/common-auth-0113-producer/publication.json",
+  "resolution": "Resolve relative .js specifiers from declarations to .d.ts; runtime edges retain .js. Lists are deduplicated. Files absent from imports have no static import/re-export edges.",
+  "nonlocalStaticImports": [
+    "@cortexkit/claustrum-client",
+    "node:async_hooks",
+    "node:child_process",
+    "node:crypto",
+    "node:fs",
+    "node:fs/promises",
+    "node:http",
+    "node:net",
+    "node:path",
+    "node:util"
+  ],
+  "dynamicImports": {
+    "tui/index.js": {
+      "loader": "import(entry) through the caller-supplied/default importModule",
+      "runtimeProbe": "opentui:runtime-module:%40opentui%2Fsolid",
+      "entries": ["caller rawEntry", "caller runtimeEntry"],
+      "localStaticTargets": []
+    }
+  },
+  "slimRuntimeFiles": [
+    "rpc/client.js",
+    "rpc/port-file.js",
+    "rpc/rpc-client.js",
+    "tui/index.js"
+  ],
+  "routingFiles": [
+    "routing/admission.d.ts",
+    "routing/admission.js",
+    "routing/index.d.ts",
+    "routing/index.js",
+    "routing/ordered.d.ts",
+    "routing/ordered.js",
+    "routing/pins.d.ts",
+    "routing/pins.js",
+    "routing/sticky.d.ts",
+    "routing/sticky.js"
+  ],
+  "imports": {
+    "auth-menu/accounts.d.ts": [
+      "../store/index.js",
+      "./doctor.js",
+      "./login.js",
+      "./menu.js",
+      "./terminal.js"
+    ],
+    "auth-menu/accounts.js": [
+      "../quota/index.js",
+      "../store/index.js",
+      "./doctor.js",
+      "./login.js",
+      "./menu.js"
+    ],
+    "auth-menu/confirm.d.ts": ["./terminal.js"],
+    "auth-menu/confirm.js": ["./select.js", "./terminal.js"],
+    "auth-menu/doctor.d.ts": ["./menu.js"],
+    "auth-menu/index.d.ts": [
+      "./accounts.js",
+      "./ansi.js",
+      "./confirm.js",
+      "./doctor.js",
+      "./login.js",
+      "./menu.js",
+      "./opencode-v1.js",
+      "./select.js",
+      "./terminal.js"
+    ],
+    "auth-menu/index.js": [
+      "./accounts.js",
+      "./ansi.js",
+      "./confirm.js",
+      "./doctor.js",
+      "./login.js",
+      "./menu.js",
+      "./opencode-v1.js",
+      "./select.js",
+      "./terminal.js"
+    ],
+    "auth-menu/login.d.ts": ["../store/index.js", "./menu.js"],
+    "auth-menu/login.js": ["node:child_process"],
+    "auth-menu/menu.d.ts": ["./select.js", "./terminal.js"],
+    "auth-menu/menu.js": ["./confirm.js", "./select.js", "./terminal.js"],
+    "auth-menu/select.d.ts": ["./terminal.js"],
+    "auth-menu/select.js": ["./ansi.js", "./terminal.js"],
+    "claustrum/consumer.d.ts": [
+      "@cortexkit/claustrum-client",
+      "../quota/index.js",
+      "../routing/index.js",
+      "./custody.js",
+      "./errors.js",
+      "./roster.js"
+    ],
+    "claustrum/consumer.js": [
+      "../logger/index.js",
+      "./custody.js",
+      "./errors.js",
+      "./roster.js"
+    ],
+    "claustrum/custody.d.ts": ["@cortexkit/claustrum-client", "./errors.js"],
+    "claustrum/custody.js": [
+      "@cortexkit/claustrum-client",
+      "../logger/index.js",
+      "./enrollment.js",
+      "./errors.js",
+      "./host-slot.js"
+    ],
+    "claustrum/enrollment.d.ts": ["@cortexkit/claustrum-client"],
+    "claustrum/enrollment.js": [
+      "node:crypto",
+      "node:fs",
+      "node:fs/promises",
+      "node:path",
+      "@cortexkit/claustrum-client",
+      "../fs/index.js",
+      "./errors.js"
+    ],
+    "claustrum/host-slot.js": ["./errors.js"],
+    "claustrum/index.d.ts": [
+      "@cortexkit/claustrum-client",
+      "./consumer.js",
+      "./custody.js",
+      "./enrollment.js",
+      "./errors.js",
+      "./host-slot.js",
+      "./interlock.js",
+      "./roster.js"
+    ],
+    "claustrum/index.js": [
+      "@cortexkit/claustrum-client",
+      "./consumer.js",
+      "./custody.js",
+      "./enrollment.js",
+      "./errors.js",
+      "./host-slot.js",
+      "./interlock.js",
+      "./roster.js"
+    ],
+    "claustrum/roster.d.ts": [
+      "../quota/index.js",
+      "../routing/index.js",
+      "./custody.js",
+      "./interlock.js"
+    ],
+    "claustrum/roster.js": [
+      "node:crypto",
+      "node:fs/promises",
+      "../fs/index.js",
+      "../quota/index.js",
+      "./errors.js",
+      "./interlock.js"
+    ],
+    "commands/builtins.d.ts": ["../store/index.js", "./model.js", "./seam.js"],
+    "commands/builtins.js": [
+      "../quota/index.js",
+      "../routing/index.js",
+      "./seam.js"
+    ],
+    "commands/index.d.ts": [
+      "./builtins.js",
+      "./menu.js",
+      "./model.js",
+      "./pi.js",
+      "./seam.js"
+    ],
+    "commands/index.js": [
+      "./builtins.js",
+      "./menu.js",
+      "./model.js",
+      "./pi.js",
+      "./seam.js"
+    ],
+    "commands/menu.d.ts": [
+      "../logger/index.js",
+      "../store/index.js",
+      "./builtins.js",
+      "./model.js",
+      "./seam.js"
+    ],
+    "commands/menu.js": ["../logger/index.js", "./builtins.js", "./seam.js"],
+    "commands/pi.d.ts": ["./menu.js", "./model.js"],
+    "commands/seam.d.ts": ["../logger/index.js", "./model.js"],
+    "commands/seam.js": ["../logger/index.js", "../store/index.js"],
+    "fs/atomic-write.js": ["node:crypto", "node:fs/promises", "node:path"],
+    "fs/index.d.ts": [
+      "./atomic-write.js",
+      "./lock-constants.js",
+      "./refresh-file-lock.js",
+      "./with-lock.js"
+    ],
+    "fs/index.js": [
+      "./atomic-write.js",
+      "./lock-constants.js",
+      "./refresh-file-lock.js",
+      "./with-lock.js"
+    ],
+    "fs/refresh-file-lock.js": [
+      "node:crypto",
+      "node:fs/promises",
+      "node:path",
+      "./with-lock.js"
+    ],
+    "fs/with-lock.js": ["./refresh-file-lock.js"],
+    "logger/capture-sink.d.ts": ["./engine.js"],
+    "logger/engine.d.ts": ["./capture-sink.js", "./redact.js"],
+    "logger/engine.js": ["node:fs", "./redact.js"],
+    "logger/index.d.ts": ["./capture-sink.js", "./engine.js", "./redact.js"],
+    "logger/index.js": ["./capture-sink.js", "./engine.js", "./redact.js"],
+    "quota/codec.js": ["./map.js", "./merge.js"],
+    "quota/index.d.ts": [
+      "./codec.js",
+      "./map.js",
+      "./merge.js",
+      "./projection.js"
+    ],
+    "quota/index.js": [
+      "./codec.js",
+      "./map.js",
+      "./merge.js",
+      "./projection.js"
+    ],
+    "quota/merge.d.ts": ["./map.js"],
+    "quota/merge.js": ["./map.js"],
+    "quota/projection.d.ts": ["./map.js"],
+    "quota/projection.js": ["./map.js"],
+    "routing/admission.d.ts": ["../quota/map.js", "../quota/projection.js"],
+    "routing/admission.js": ["../quota/map.js", "../quota/projection.js"],
+    "routing/index.d.ts": [
+      "./admission.js",
+      "./ordered.js",
+      "./pins.js",
+      "./sticky.js"
+    ],
+    "routing/index.js": [
+      "./admission.js",
+      "./ordered.js",
+      "./pins.js",
+      "./sticky.js"
+    ],
+    "routing/ordered.d.ts": ["./admission.js"],
+    "routing/ordered.js": ["./admission.js"],
+    "routing/sticky.d.ts": [
+      "../quota/projection.js",
+      "./admission.js",
+      "./pins.js"
+    ],
+    "routing/sticky.js": [
+      "../quota/projection.js",
+      "./admission.js",
+      "./pins.js"
+    ],
+    "rpc/client.d.ts": [
+      "./notifications.js",
+      "./port-file.js",
+      "./rpc-client.js"
+    ],
+    "rpc/client.js": ["./port-file.js", "./rpc-client.js"],
+    "rpc/index.d.ts": [
+      "./notifications.js",
+      "./port-file.js",
+      "./rpc-client.js",
+      "./rpc-server.js",
+      "./server-registry.js"
+    ],
+    "rpc/index.js": [
+      "./notifications.js",
+      "./port-file.js",
+      "./rpc-client.js",
+      "./rpc-server.js",
+      "./server-registry.js"
+    ],
+    "rpc/port-file.d.ts": ["./index.js"],
+    "rpc/port-file.js": ["node:crypto", "node:fs/promises", "node:path"],
+    "rpc/rpc-client.d.ts": ["./notifications.js", "./port-file.js"],
+    "rpc/rpc-client.js": [
+      "node:fs/promises",
+      "node:net",
+      "node:path",
+      "./port-file.js"
+    ],
+    "rpc/rpc-server.d.ts": ["./index.js", "./notifications.js"],
+    "rpc/rpc-server.js": [
+      "node:crypto",
+      "node:fs/promises",
+      "node:http",
+      "node:path",
+      "./notifications.js",
+      "./port-file.js"
+    ],
+    "rpc/server-registry.d.ts": ["./rpc-server.js"],
+    "store/attribution.d.ts": ["./runtime.js"],
+    "store/attribution.js": [
+      "./errors.js",
+      "./mutate.js",
+      "./refresh-lock.js",
+      "./runtime.js",
+      "./schema.js"
+    ],
+    "store/errors.d.ts": ["./schema.js"],
+    "store/hooks.d.ts": ["./errors.js"],
+    "store/hooks.js": ["node:async_hooks", "./errors.js"],
+    "store/identity.d.ts": ["./schema.js"],
+    "store/index.d.ts": [
+      "./attribution.js",
+      "./errors.js",
+      "./hooks.js",
+      "./identity.js",
+      "./mutate.js",
+      "./pool.js",
+      "./provider-state.js",
+      "./pull.js",
+      "./refresh.js",
+      "./refresh-lock.js",
+      "./rows.js",
+      "./runtime.js",
+      "./schema.js",
+      "./settings.js"
+    ],
+    "store/index.js": [
+      "./errors.js",
+      "./identity.js",
+      "./pool.js",
+      "./provider-state.js",
+      "./refresh-lock.js",
+      "./schema.js",
+      "./settings.js"
+    ],
+    "store/mutate.d.ts": [
+      "./errors.js",
+      "./hooks.js",
+      "./refresh-lock.js",
+      "./schema.js"
+    ],
+    "store/mutate.js": [
+      "node:fs/promises",
+      "../fs/atomic-write.js",
+      "../fs/with-lock.js",
+      "./errors.js",
+      "./hooks.js",
+      "./refresh-lock.js",
+      "./schema.js",
+      "./torn.js"
+    ],
+    "store/pool.d.ts": [
+      "./attribution.js",
+      "./errors.js",
+      "./hooks.js",
+      "./mutate.js",
+      "./provider-state.js",
+      "./pull.js",
+      "./refresh.js",
+      "./refresh-lock.js",
+      "./rows.js",
+      "./schema.js",
+      "./settings.js"
+    ],
+    "store/pool.js": [
+      "./attribution.js",
+      "./mutate.js",
+      "./provider-state.js",
+      "./pull.js",
+      "./refresh.js",
+      "./refresh-lock.js",
+      "./rows.js",
+      "./schema.js",
+      "./settings.js"
+    ],
+    "store/provider-state.d.ts": [
+      "./attribution.js",
+      "./errors.js",
+      "./mutate.js",
+      "./rows.js",
+      "./runtime.js",
+      "./schema.js"
+    ],
+    "store/provider-state.js": [
+      "./hooks.js",
+      "./mutate.js",
+      "./runtime.js",
+      "./schema.js"
+    ],
+    "store/pull.d.ts": [
+      "./errors.js",
+      "./hooks.js",
+      "./runtime.js",
+      "./schema.js"
+    ],
+    "store/pull.js": [
+      "./attribution.js",
+      "./errors.js",
+      "./mutate.js",
+      "./refresh-lock.js",
+      "./runtime.js"
+    ],
+    "store/refresh-lock.d.ts": ["../fs/refresh-file-lock.js"],
+    "store/refresh-lock.js": [
+      "../fs/refresh-file-lock.js",
+      "../fs/with-lock.js"
+    ],
+    "store/refresh.d.ts": [
+      "./refresh-lock.js",
+      "./rows.js",
+      "./runtime.js",
+      "./schema.js"
+    ],
+    "store/refresh.js": [
+      "node:crypto",
+      "./errors.js",
+      "./hooks.js",
+      "./identity.js",
+      "./mutate.js",
+      "./provider-state.js",
+      "./rows.js",
+      "./runtime.js",
+      "./schema.js",
+      "./torn.js"
+    ],
+    "store/rows.d.ts": [
+      "./attribution.js",
+      "./errors.js",
+      "./mutate.js",
+      "./provider-state.js",
+      "./refresh-lock.js",
+      "./runtime.js",
+      "./schema.js",
+      "./torn.js"
+    ],
+    "store/rows.js": [
+      "node:crypto",
+      "./errors.js",
+      "./hooks.js",
+      "./identity.js",
+      "./mutate.js",
+      "./provider-state.js",
+      "./runtime.js",
+      "./schema.js",
+      "./torn.js"
+    ],
+    "store/runtime.d.ts": [
+      "./errors.js",
+      "./mutate.js",
+      "./refresh-lock.js",
+      "./schema.js"
+    ],
+    "store/runtime.js": ["./errors.js", "./mutate.js", "./schema.js"],
+    "store/schema.js": ["node:crypto"],
+    "store/settings.d.ts": ["./errors.js", "./refresh-lock.js", "./runtime.js"],
+    "store/settings.js": [
+      "node:util",
+      "../fs/atomic-write.js",
+      "./errors.js",
+      "./hooks.js",
+      "./mutate.js",
+      "./schema.js"
+    ],
+    "store/torn.d.ts": ["./identity.js", "./schema.js"],
+    "store/torn.js": ["./identity.js", "./schema.js"],
+    "tui/index.js": ["node:path"]
+  }
+}

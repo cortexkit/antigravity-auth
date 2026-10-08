@@ -408,6 +408,19 @@ test('build.map_admission_valid_generated', async () => {
   const raw = await hashes(root, 'src/tui-raw')
   const runtime = await hashes(root, 'src/tui-compiled')
   const generated = await readFile(map)
+  expect(JSON.parse(generated.toString()).compiler).toBe(
+    '@cortexkit/common-auth/tui-build@0.11.6',
+  )
+  for (const compiler of [
+    '@cortexkit/common-auth/tui-build@0.9.4',
+    '@cortexkit/common-auth/tui-build@0.11.4',
+  ]) {
+    const previous = JSON.parse(generated.toString())
+    previous.compiler = compiler
+    await writeFile(map, `${JSON.stringify(previous, null, 2)}\n`)
+    await buildTui({ packageRoot: root })
+    expect(await readFile(map)).toEqual(generated)
+  }
   await writeFile(join(root, 'src/tui-raw/stale.js'), 'previous raw output')
   await writeFile(
     join(root, 'src/tui-compiled/stale.js'),

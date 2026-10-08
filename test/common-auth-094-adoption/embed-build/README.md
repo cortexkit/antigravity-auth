@@ -1,7 +1,7 @@
 # Immutable common-auth input and private compiler
 
 The embedding script reads only the tracked
-`tools/common-auth-build/inputs/cortexkit-common-auth-0.9.4.tgz`. It checks both
+`tools/common-auth-build/inputs/cortexkit-common-auth-0.11.4.tgz`. It checks both
 compressed-archive pins before decoding headers, checks publication identity,
 exports, license, inventory and selected-file hashes in memory, then replaces
 the canonical output. `--check` refuses missing, stale or extra output instead
@@ -49,8 +49,13 @@ bun test/common-auth-094-adoption/embed-build/path-mutation-proof.mjs
 bun test/common-auth-094-adoption/embed-build/record-mutation-proof.mjs
 ```
 
-`publication.json` contains the independently frozen publication oracle (24
-paths, byte lengths and hashes), not a projection of generated output.
+`publication.json` retains the historical 0.9.4 publication oracle (24 paths).
+The active acceptance sources use the independently frozen
+`test/common-auth-0113-producer/publication.json` (134 paths, byte lengths and
+hashes), not a projection of generated output. Five RPC files change
+among the original 24 paths; four are new client/port-file changes in 0.11.4,
+and the server stop-order fix is retained from 0.11.3. Historical mutation records remain historical;
+none are evidence for an unexecuted producer upgrade.
 `archive-fixtures.json` contains independently Python/USTAR-generated gzip
 fixtures and whole compressed SHA256/SHA512 pins. They exercise archive guards
 without changing the production pin. The mutation runner stages an owned
@@ -64,3 +69,12 @@ The record-parser runner uses only pure-data controls. Both runners require
 actual line-anchored Bun records and the exact distinct unaffected-name
 complement; diagnostic snippets, incomplete/foreign/duplicate records and
 process or reporter errors cannot be classified as a reached named red.
+
+The initial source proposal did not materialize outputs or execute these commands.
+The subsequent finish release admits exact input/output materialization, private
+offline installation and targeted gates. Retained historical records are not
+rewritten as current passes. See
+`research/common-auth-0113-producer-preparation/UPGRADE-PLAN.json` for the held
+gate boundaries. The declaration check additionally needs the genuine
+`@cortexkit/claustrum-client >=0.6.2` intake; no local declaration substitute is
+provided.

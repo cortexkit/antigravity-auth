@@ -38,7 +38,7 @@ test('build.private_toolchain', async () => {
   for (const path of [
     'package.json',
     'bun.lock',
-    'inputs/cortexkit-common-auth-0.9.4.tgz',
+    'inputs/cortexkit-common-auth-0.11.6.tgz',
   ]) {
     await mkdir(dirname(join(target, path)), { recursive: true })
     await cp(join(root, prefix, path), join(target, path))
@@ -46,7 +46,7 @@ test('build.private_toolchain', async () => {
   const before = digest(await readFile(join(target, 'bun.lock')))
   // Check the lockfile digest before installation to verify all transitive dependency integrity values separately from the install.
   expect(before).toBe(
-    '9a9f86d0ca9034c8fe09edc0a90523b5aee03b92bcfa87b5cdcdcbbc63cb3041',
+    'c2f8b23860f7438cf825295bf68b4693d5ea117f6bb7c2877783dca6ea50b3f7',
   )
   const installed = run(target, [
     'install',
@@ -63,7 +63,7 @@ test('build.private_toolchain', async () => {
     await readFile(join(target, 'package.json'), 'utf8'),
   )
   expect(manifest.dependencies).toEqual({
-    '@cortexkit/common-auth': 'file:inputs/cortexkit-common-auth-0.9.4.tgz',
+    '@cortexkit/common-auth': 'file:inputs/cortexkit-common-auth-0.11.6.tgz',
     '@opentui/core': '0.5.14',
     '@opentui/solid': '0.5.14',
     'solid-js': '1.9.12',
@@ -98,12 +98,12 @@ test('build.private_toolchain', async () => {
     const pkg = JSON.parse(await readFile(packageFile, 'utf8'))
     expect(entry[0]).toBe(
       name === '@cortexkit/common-auth'
-        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.9.4.tgz'
+        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.11.6.tgz'
         : `${pkg.name}@${pkg.version}`,
     )
   }
   for (const [name, version] of Object.entries({
-    '@cortexkit/common-auth': '0.9.4',
+    '@cortexkit/common-auth': '0.11.6',
     '@opentui/core': '0.5.14',
     '@opentui/solid': '0.5.14',
     'solid-js': '1.9.12',
@@ -177,7 +177,49 @@ test('build.private_public_contract', async () => {
     'opentui:runtime-module:',
   )
   const map = JSON.parse(await readFile(join(target, 'map.json'), 'utf8'))
-  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.9.4')
+  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.11.6')
+  // Check each manifest record's path, hash and byte count against the emitted
+  // regular file itself, rather than crosschecking two self-reported fields.
+  for (const tree of [map.raw, map.runtime]) {
+    for (const file of tree.files) {
+      const emitted = await readFile(join(target, file.output))
+      expect(file.bytes).toBe(emitted.length)
+      expect(file.sha256).toBe(digest(emitted))
+      if (file.transform === 'verbatim-selector') {
+        expect(file.source.endsWith('/dist/tui/index.js')).toBe(true)
+        expect(emitted).toEqual(await readFile(resolve(target, file.source)))
+        expect(emitted).toEqual(
+          await readFile(
+            join(
+              root,
+              'packages/opencode/src/common-auth-embedded/tui/index.js',
+            ),
+          ),
+        )
+      } else {
+        expect(file.source).not.toMatch(/^(?:\/|\.\.)/)
+        expect(file.transform).toBe(
+          tree === map.raw ? 'public-raw' : 'public-solid-runtime',
+        )
+        if (file.output.endsWith('/leaf.js')) {
+          expect(file.source).toBe('leaf.ts')
+          expect(await readFile(join(target, file.source), 'utf8')).toBe(
+            "export const value: string = 'owned'\n",
+          )
+          expect(emitted.toString()).toContain('owned')
+          expect(emitted.toString()).not.toContain(': string')
+        } else {
+          expect(file.source).toBe('tui.tsx')
+          expect(await readFile(join(target, file.source), 'utf8')).toContain(
+            '<text>',
+          )
+          expect(emitted.toString()).toContain(
+            tree === map.raw ? '<text>' : 'opentui:runtime-module:',
+          )
+        }
+      }
+    }
+  }
   expect(
     map.raw.files.map((file: { output: string }) => file.output).sort(),
   ).toEqual(['raw/leaf.js', 'raw/selector.js', 'raw/tui.tsx'])

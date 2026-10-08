@@ -175,6 +175,14 @@ test('build.map_source_alias', async () => {
     { ...paths, mapFile: sourceMap },
     'Existing build map is not a generated map',
   )
+  for (const map of [
+    { schema: 1, compiler: '@cortexkit/common-auth/tui-build@0.11.2' },
+    { schema: 1, compiler: 'foreign/tui-build@0.11.4' },
+    { schema: 2, compiler: '@cortexkit/common-auth/tui-build@0.11.4' },
+  ]) {
+    await writeFile(paths.mapFile!, `${JSON.stringify(map)}\n`)
+    await refuses(root, paths, 'Existing build map is not a generated map')
+  }
 }, 120000)
 
 test('build.output_ancestor_alias', async () => {
@@ -305,6 +313,16 @@ test('build.symlink_root_equivalence', async () => {
   const realRaw = await snapshot(paths.rawDir)
   const realRuntime = await snapshot(paths.runtimeDir)
   const realMap = await readFile(paths.mapFile!)
+  // A map with a validated producer identity and output hashes remains eligible
+  // for replacement by the upgraded compiler; an unrelated map is not owned.
+  const previousMap = JSON.parse(realMap.toString())
+  previousMap.compiler = '@cortexkit/common-auth/tui-build@0.9.4'
+  await writeFile(paths.mapFile!, `${JSON.stringify(previousMap, null, 2)}\n`)
+  const upgraded = invoke(root, paths)
+  expect(upgraded.status).toBe(0)
+  expect(await readFile(paths.mapFile!)).toEqual(realMap)
+  expect(await snapshot(paths.rawDir)).toEqual(realRaw)
+  expect(await snapshot(paths.runtimeDir)).toEqual(realRuntime)
   const alias = join(root, 'linked-package')
   await symlink(paths.packageRoot, alias, 'dir')
   const linked = invoke(root, {

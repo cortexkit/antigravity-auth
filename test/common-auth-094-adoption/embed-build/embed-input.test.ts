@@ -22,8 +22,8 @@ import {
   readVerifiedArchive,
   validatePublication,
 } from '../../../packages/opencode/scripts/embed-common-auth.ts'
+import publication from '../../common-auth-0113-producer/publication.json'
 import fixtures from './archive-fixtures.json'
-import publication from './publication.json'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const temporary: string[] = []
@@ -149,10 +149,10 @@ test('embed.inventory', async () => {
     expect(hash(data)).toBe(String(digest))
     total += data.length
   }
-  expect(total).toBe(61726)
+  expect(total).toBe(648487)
   for (const [property, value, message] of [
     ['name', 'wrong', 'identity'],
-    ['version', '0.9.3', 'version'],
+    ['version', '0.9.4', 'version'],
     ['exports', {}, 'exports'],
     ['license', 'BSD', 'license'],
   ] as const) {
@@ -225,21 +225,14 @@ test('embed.attribution', async () => {
     await readFile(join(root, outputPath, 'source-output.json'), 'utf8'),
   )
   expect(manifest.package).toBe('@cortexkit/common-auth')
-  expect(manifest.version).toBe('0.9.4')
+  expect(manifest.version).toBe('0.11.6')
+  expect(manifest.artifactStatus).toBe('released')
   expect(manifest.tarballSha256).toBe(publication.sha256)
   expect(manifest.sri).toBe(publication.sri)
-  expect(manifest.publicRoots).toEqual({
-    './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
-    './rpc/client': {
-      types: './dist/rpc/client.d.ts',
-      import: './dist/rpc/client.js',
-    },
-    './logger': {
-      types: './dist/logger/index.d.ts',
-      import: './dist/logger/index.js',
-    },
-    './tui': { types: './dist/tui/index.d.ts', import: './dist/tui/index.js' },
-  })
+  expect(manifest.publicRoots).toEqual(publication.publicRoots)
+  expect(manifest.canonicalFiles).toBe(134)
+  expect(manifest.canonicalBytes).toBe(648487)
+  expect(manifest.generator.version).toBe(3)
   expect(manifest.files).toEqual(
     publication.files.map(([path, bytes, digest]) => ({
       source: `package/dist/${path}`,
@@ -297,7 +290,7 @@ test('embed.clean_input', async () => {
   expect(attr.length).toBe(protectedPaths.length * 4)
   for (const line of attr) expect(line.endsWith(': unset')).toBe(true)
   expect(git(target, 'check-ignore', '-v', '--', inputPath)).toContain(
-    `!/tools/common-auth-build/inputs/cortexkit-common-auth-0.9.4.tgz`,
+    `!/tools/common-auth-build/inputs/cortexkit-common-auth-0.11.6.tgz`,
   )
   await put(
     target,
@@ -339,7 +332,7 @@ test('embed.clean_input', async () => {
   const dockerignore = await readFile(join(target, '.dockerignore'), 'utf8')
   expect(
     dockerignore.indexOf(
-      '!tools/common-auth-build/inputs/cortexkit-common-auth-0.9.4.tgz',
+      '!tools/common-auth-build/inputs/cortexkit-common-auth-0.11.6.tgz',
     ),
   ).toBeGreaterThan(dockerignore.indexOf('**/*.tgz'))
   expect(dockerignore).not.toMatch(/^!.*\*.*tgz/m)
@@ -373,9 +366,9 @@ test('embed.clean_input', async () => {
     if (container) command(target, 'docker', ['rm', container])
     if (built) command(target, 'docker', ['image', 'rm', tag])
   }
-  expect(await names(exported)).toEqual(['cortexkit-common-auth-0.9.4.tgz'])
+  expect(await names(exported)).toEqual(['cortexkit-common-auth-0.11.6.tgz'])
   expect(
-    hash(await readFile(join(exported, 'cortexkit-common-auth-0.9.4.tgz'))),
+    hash(await readFile(join(exported, 'cortexkit-common-auth-0.11.6.tgz'))),
   ).toBe(publication.sha256)
 }, 120000)
 
@@ -481,6 +474,13 @@ test('build.repo_hygiene', async () => {
       encoding: 'utf8',
       timeout: 120000,
     })
+    if (invalidLock.status !== 1)
+      console.error(
+        'Unexpected prerequisite exit',
+        invalidLock.status,
+        invalidLock.stdout,
+        invalidLock.stderr,
+      )
     expect(invalidLock.status).toBe(1)
     expect(`${invalidLock.stdout}${invalidLock.stderr}`).toContain(
       'build.prerequisite_order: private Bun lock mismatch',

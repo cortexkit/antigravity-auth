@@ -95,7 +95,7 @@ const controls = [
   {
     name: 'publication version guard',
     path: embed,
-    from: "if (pkg.version !== '0.9.4')",
+    from: 'if (pkg.version !== producerVersion)',
     to: 'if (false)',
     red: 'embed.inventory',
   },
@@ -141,6 +141,7 @@ try {
     'tools/common-auth-build/inputs',
     `${tests}/embed-input.test.ts`,
     `${tests}/publication.json`,
+    'test/common-auth-0113-producer/publication.json',
     `${tests}/archive-fixtures.json`,
   ]) {
     await mkdir(dirname(join(base, path)), { recursive: true })

@@ -77,7 +77,7 @@ try {
     testFile,
     'tools/common-auth-build/package.json',
     'tools/common-auth-build/bun.lock',
-    'tools/common-auth-build/inputs/cortexkit-common-auth-0.9.4.tgz',
+    'tools/common-auth-build/inputs/cortexkit-common-auth-0.11.6.tgz',
     'packages/opencode/scripts/embed-common-auth.ts',
   ]) {
     await mkdir(dirname(join(base, path)), { recursive: true })
