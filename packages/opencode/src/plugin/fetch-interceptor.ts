@@ -57,7 +57,7 @@ import {
   transformAntigravityResponse,
 } from './request'
 import {
-  createSyntheticErrorResponse,
+  createNativeGoogleErrorResponse,
   createSyntheticTextResponse,
   isEmptyResponseBody,
 } from './request-helpers'
@@ -71,13 +71,10 @@ import type { PluginClient, ProjectContextResult } from './types'
 
 const log = createLogger('fetch-interceptor')
 
-/**
- * Per-call delay applied before the first 429 retry on the same account.
- * Matches the legacy plugin so callers that compare timing logs see parity.
- */
+/** Delay before the first same-account retry after an HTTP 429 response. */
 const FIRST_RETRY_DELAY_MS = 1000
 
-/** Production transport — used when the interceptor context omits one. */
+/** Default transport used when the caller supplies no override. */
 const defaultAgyTransport: AgyTransport = (url, init, options) =>
   fetchWithAgyCliTransport(url, init, options)
 
@@ -88,8 +85,7 @@ const defaultFetchImpl: FetchImpl = (input, init) =>
 /**
  * Builds a Google-style 401 envelope describing a missing-account failure.
  *
- * The legacy plugin returned `createSyntheticErrorResponse(...)`, which yields
- * a 200 SSE body pretending to be a Gemini stream. That hid the underlying
+ * A synthetic 200 SSE body pretending to be a Gemini stream hid the underlying
  * misconfiguration from any caller that inspected `response.status`. Callers
  * (notably OpenCode's HTTP layer) treat 200 as success and silently swallow
  * the payload, so the user sees nothing. Surfacing a real 401 with the
@@ -147,7 +143,7 @@ function retryAfterMsFromResponse(
   return defaultRetryMs
 }
 
-/** Formats a millisecond duration the way the legacy toast pipeline did. */
+/** Formats a millisecond duration for human-readable wait/status messages. */
 function formatWaitTime(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   const seconds = Math.ceil(ms / 1000)
@@ -263,8 +259,7 @@ export function createFetchInterceptor(
     operatorSettings,
     agyTransport = defaultAgyTransport,
     fetchImpl = defaultFetchImpl,
-    // directory is part of the contract but not consumed by this interceptor;
-    // callers use it when constructing sibling services (e.g. project context).
+    // Other plugin services use the directory; the interceptor does not read it.
   } = context
   void (context as { directory: string }).directory
 
@@ -279,11 +274,8 @@ export function createFetchInterceptor(
   // stub survives a process-wide fetch replacement.
   const upstreamFetch = fetchImpl
 
-  // Cache the bound transport so the three call sites (warmup, probe,
-  // dispatch) reuse the same closure. The binding happens once per
-  // interceptor to mirror the historical `fetchWithAgyCliTransport`
-  // import behavior — call sites used the function reference, not a
-  // re-bind per request.
+  // Capture the transport once so warmup, probe and dispatch consistently use
+  // the same injected dependency throughout this interceptor's lifetime.
   const transport = agyTransport
 
   async function triggerAsyncQuotaRefreshForAccount(
@@ -632,10 +624,10 @@ export function createFetchInterceptor(
               threshold: error.thresholdPercent,
               summaries: error.summaries,
             })
-            return createSyntheticErrorResponse(
-              error.message,
-              model ?? 'unknown',
-            )
+            return createNativeGoogleErrorResponse({
+              status: 412,
+              reason: 'operator_policy',
+            })
           }
           throw error
         }
@@ -703,9 +695,8 @@ export function createFetchInterceptor(
             `selected-by-fallback idx=${account.index} preferred=${preferredHeaderStyle} alternate=${alternateHeaderStyle}`,
           )
         }
-        // The fallback path also has to clear the killswitch — a
-        // previous pre-filter scoped to the preferred-header accounts
-        // may have allowed an account only on the fallback header.
+        // Quota policy restricts the account indexes allowed for this request.
+        // Choosing fallback headers must not allow an excluded account.
         if (
           account &&
           eligibleIndexes !== null &&
@@ -747,12 +738,11 @@ export function createFetchInterceptor(
               `All accounts over ${threshold}% quota threshold. Resets in ${waitTimeFormatted}.`,
               'error',
             )
-            return createSyntheticErrorResponse(
-              `Quota protection: All ${accountCount} account(s) are over ${threshold}% usage for ${family}. ` +
-                `Quota resets in ${waitTimeFormatted}. ` +
-                `Add more accounts, wait for quota reset, or set soft_quota_threshold_percent: 100 to disable.`,
-              model ?? 'unknown',
-            )
+            return createNativeGoogleErrorResponse({
+              status: 412,
+              reason: 'soft_quota',
+              resetAfterMs: softQuotaWaitMs,
+            })
           }
 
           pushDebug(
@@ -772,13 +762,13 @@ export function createFetchInterceptor(
         }
 
         const strictWait = !allowQuotaFallback
-        const waitMs =
-          accountManager.getMinWaitTimeForFamily(
-            family,
-            model,
-            preferredHeaderStyle,
-            strictWait,
-          ) || 60_000
+        const minWaitMs = accountManager.getMinWaitTimeForFamily(
+          family,
+          model,
+          preferredHeaderStyle,
+          strictWait,
+        )
+        const waitMs = minWaitMs || 60_000
 
         pushDebug(
           `all-rate-limited family=${family} accounts=${accountCount} waitMs=${waitMs}`,
@@ -799,12 +789,13 @@ export function createFetchInterceptor(
             `Rate limited for ${waitTimeFormatted}. Try again later or add another account.`,
             'error',
           )
-          return createSyntheticErrorResponse(
-            `All ${accountCount} account(s) rate-limited for ${family}. ` +
-              `Quota resets in ${waitTimeFormatted}. ` +
-              `Add more accounts with \`opencode auth login\` or wait and retry.`,
-            model ?? 'unknown',
-          )
+          return createNativeGoogleErrorResponse({
+            status: 412,
+            reason: 'pool_unavailable',
+            // Zero means the account manager has no future reset to report.
+            // The fallback sleep duration above is not a quota reset estimate.
+            resetAfterMs: minWaitMs > 0 ? minWaitMs : undefined,
+          })
         }
 
         if (!retryState.rateLimitToastShown()) {
@@ -978,10 +969,10 @@ export function createFetchInterceptor(
       if (!accessToken) {
         lastError = new Error('Missing access token')
         if (accountCount <= 1) {
-          return createSyntheticErrorResponse(
-            'Missing access token. Run `opencode auth login` to reauthenticate.',
-            model ?? 'unknown',
-          )
+          return createNativeGoogleErrorResponse({
+            status: 401,
+            reason: 'missing_access_token',
+          })
         }
         continue
       }
@@ -1862,11 +1853,9 @@ export function createFetchInterceptor(
                     'Context too long - use /compact to reduce size',
                     'warning',
                   )
-                  const errorMessage = `[Antigravity Error] Context is too long for this model.\n\nPlease use /compact to reduce context size, then retry your request.\n\nAlternatively, you can:\n- Use /clear to start fresh\n- Use /undo to remove recent messages\n- Switch to a model with larger context window`
-                  return createSyntheticErrorResponse(
-                    errorMessage,
-                    prepared.requestedModel,
-                  )
+                  // Only the clone was inspected; the host must receive the
+                  // original overflow payload, status, headers and unread body.
+                  return response
                 }
               }
             }
@@ -1897,10 +1886,10 @@ export function createFetchInterceptor(
                 }
 
                 retryState.clearEmptyResponseAttempts()
-                return createSyntheticErrorResponse(
-                  `Empty response after ${currentAttempts} attempts for model ${prepared.effectiveModel ?? 'unknown'}.`,
-                  prepared.effectiveModel ?? 'unknown',
-                )
+                return createNativeGoogleErrorResponse({
+                  status: 502,
+                  reason: 'empty_response',
+                })
               }
 
               const _emptyAttemptKeyClean = `${prepared.sessionId ?? 'none'}:${prepared.effectiveModel ?? 'unknown'}`

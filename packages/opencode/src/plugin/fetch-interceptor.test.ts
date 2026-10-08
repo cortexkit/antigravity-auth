@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test'
 import { join } from 'node:path'
 
 import { ANTIGRAVITY_ENDPOINT_DAILY } from '@cortexkit/antigravity-auth-core'
@@ -50,7 +58,57 @@ function storedAccounts(): AccountStorageV4 {
   }
 }
 
-function fakeClient(): PluginClient {
+function twoStoredAccounts(): AccountStorageV4 {
+  const stored = storedAccounts()
+  stored.accounts.push({
+    email: 'account-b@example.test',
+    refreshToken: 'refresh-b',
+    projectId: 'project-b',
+    managedProjectId: 'managed-b',
+    addedAt: FIXED_NOW - 20_000,
+    lastUsed: FIXED_NOW - 12_000,
+  })
+  return stored
+}
+
+const GENERATIVE_INIT: RequestInit = {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
+  }),
+}
+
+async function expectNativeFailure(
+  response: Response,
+  status: 401 | 412 | 502,
+  googleStatus: 'UNAUTHENTICATED' | 'FAILED_PRECONDITION' | 'UNAVAILABLE',
+): Promise<string> {
+  expect(response.status).toBe(status)
+  expect(response.ok).toBe(false)
+  expect(response.headers.get('content-type')).toBe('application/json')
+  expect(response.headers.get('x-antigravity-synthetic')).toBeNull()
+  expect(response.headers.get('x-antigravity-error-type')).toBeNull()
+  const text = await response.text()
+  const body: unknown = JSON.parse(text)
+  expect(body).toEqual({
+    error: { code: status, status: googleStatus, message: expect.any(String) },
+  })
+  expect(text).not.toMatch(/candidates|finishReason|usageMetadata|data:/)
+  return text
+}
+
+function expectFailFastBody(text: string): void {
+  // OpenCode 1.x's native retry classifier searches serialized error text for
+  // retryable HTTP-status substrings even when the response itself is 412.
+  // Checking the body alongside status prevents accidental host retries.
+  expect(text).not.toMatch(
+    /429|500|502|503|504|524|rate limited|rate_limit|resource_exhausted|try again later/i,
+  )
+  expect(text).not.toMatch(/account-a|account-b|refresh-a|refresh-b|access-a/)
+}
+
+function fakeClient(onToast?: (message: string) => void): PluginClient {
   return {
     app: { log: mock(async () => {}) },
     auth: { set: mock(async () => {}) },
@@ -59,7 +117,11 @@ function fakeClient(): PluginClient {
       prompt: mock(async () => ({})),
       updateMessage: mock(async () => ({})),
     },
-    tui: { showToast: mock(async () => {}) },
+    tui: {
+      showToast: mock(async (input: { body: { message: string } }) => {
+        onToast?.(input.body.message)
+      }),
+    },
   } as unknown as PluginClient
 }
 
@@ -145,6 +207,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   globalThis.unstubAllGlobals()
+  mock.restore()
 })
 
 describe('createFetchInterceptor', () => {
@@ -215,6 +278,51 @@ describe('createFetchInterceptor', () => {
       expect(upstreamFetch).toHaveBeenCalledTimes(1)
       expect(response).toBe(upstreamResponse)
       interceptor.dispose()
+    })
+  })
+
+  describe('local image titles', () => {
+    it('retains successful synthetic text for local image-model title requests', async () => {
+      const context = await makeContext()
+      const interceptor = createFetchInterceptor(context)
+      try {
+        const response = await interceptor.fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.1-flash-image:streamGenerateContent',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    { text: 'Generate a title for this conversation:\n' },
+                  ],
+                },
+                { role: 'user', parts: [{ text: 'Generate a red triangle' }] },
+              ],
+            }),
+          },
+        )
+        expect(response.status).toBe(200)
+        expect(response.headers.get('content-type')).toBe('text/event-stream')
+        expect(response.headers.get('x-antigravity-response-type')).toBe(
+          'local_title',
+        )
+        expect(response.headers.get('x-antigravity-error-type')).toBeNull()
+        const text = await response.text()
+        expect(JSON.parse(text.slice('data: '.length).trim())).toMatchObject({
+          candidates: [
+            {
+              content: { parts: [{ text: 'Generate a red triangle' }] },
+              finishReason: 'STOP',
+            },
+          ],
+        })
+        expect(transportMock).not.toHaveBeenCalled()
+      } finally {
+        interceptor.dispose()
+        await context.accountManager.dispose()
+      }
     })
   })
 
@@ -472,12 +580,10 @@ describe('createFetchInterceptor', () => {
           access: 'access-b',
           expires: Date.now() + 3_600_000,
         }),
-        // Sticky so the killed current (index 0) is the deterministic
-        // first candidate — hybrid would rotate to index 1 on its own
-        // and mask a missing killswitch exclusion. A regression that
-        // re-enters the wait path hits the max-wait guard and returns
-        // a synthetic error immediately instead of sleeping out the
-        // 60s default.
+        // Sticky selection deliberately tries account index 0, which the quota
+        // policy excludes. Automatic rotation to index 1 could mask a missing
+        // policy check. If selection regresses into the all-accounts-unavailable
+        // wait branch, the max-wait limit avoids the default 60-second sleep.
         config: {
           ...DEFAULT_CONFIG,
           account_selection_strategy: 'sticky',
@@ -503,6 +609,380 @@ describe('createFetchInterceptor', () => {
     })
   })
 
+  describe('native error responses', () => {
+    const config: typeof DEFAULT_CONFIG = {
+      ...DEFAULT_CONFIG,
+      account_selection_strategy: 'sticky',
+      soft_quota_threshold_percent: 100,
+      max_rate_limit_wait_seconds: 1,
+      quota_refresh_interval_minutes: 0,
+      proactive_rotation_threshold_percent: 0,
+      cache_warmup_on_switch: false,
+      empty_response_max_attempts: 2,
+      empty_response_retry_delay_ms: 0,
+    }
+
+    it('returns a fail-fast 412 when the killswitch excludes the entire pool', async () => {
+      const context = await makeContext({ config })
+      context.accountManager.updateQuotaCache(0, {
+        gemini: { remainingFraction: 0.3, modelCount: 1 },
+      })
+      const interceptor = createFetchInterceptor({
+        ...context,
+        operatorSettings: {
+          get: () => ({
+            routing: { cli_first: false, quota_style_fallback: false },
+            killswitch: { enabled: true, minimum_remaining_percent: 40 },
+            log_level: 'info',
+          }),
+          update: async () => {},
+          dispose: async () => {},
+        },
+      })
+      try {
+        const response = await interceptor.fetch(
+          GENERATIVE_URL,
+          GENERATIVE_INIT,
+        )
+        const text = await expectNativeFailure(
+          response,
+          412,
+          'FAILED_PRECONDITION',
+        )
+        expect(text).toContain('operator quota policy')
+        expectFailFastBody(text)
+        expect(response.headers.get('retry-after')).toBeNull()
+        expect(transportMock).not.toHaveBeenCalled()
+      } finally {
+        interceptor.dispose()
+        await context.accountManager.dispose()
+      }
+    })
+
+    for (const resetTime of [
+      new Date(FIXED_NOW + 5_700_000).toISOString(),
+      undefined,
+      'invalid-reset',
+    ]) {
+      it(`returns a fail-fast soft-quota 412 with ${resetTime ?? 'unknown'} reset`, async () => {
+        spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
+        const accountManager = new AccountManager(
+          undefined,
+          twoStoredAccounts(),
+        )
+        for (const account of accountManager.getAccounts()) {
+          accountManager.updateQuotaCache(account.index, {
+            gemini: { remainingFraction: 0.1, modelCount: 1, resetTime },
+          })
+        }
+        const context = await makeContext({
+          accountManager,
+          config: { ...config, soft_quota_threshold_percent: 80 },
+        })
+        const interceptor = createFetchInterceptor(context)
+        try {
+          const response = await interceptor.fetch(
+            GENERATIVE_URL,
+            GENERATIVE_INIT,
+          )
+          const text = await expectNativeFailure(
+            response,
+            412,
+            'FAILED_PRECONDITION',
+          )
+          expect(text).toContain('quota protection policy')
+          expectFailFastBody(text)
+          if (resetTime?.endsWith('Z')) {
+            expect(text).toContain('Quota resets in 1h 35m')
+            expect(response.headers.get('retry-after')).toBe('5700')
+          } else {
+            expect(text).not.toContain('Quota resets in')
+            expect(response.headers.get('retry-after')).toBeNull()
+          }
+          expect(transportMock).not.toHaveBeenCalled()
+        } finally {
+          interceptor.dispose()
+          await accountManager.dispose()
+        }
+      })
+    }
+
+    for (const { now, waitMs, retryAfter, resetClause } of [
+      {
+        now: FIXED_NOW,
+        waitMs: 5_700_000,
+        retryAfter: '5700',
+        resetClause: 'Quota resets in 1h 35m',
+      },
+      { now: FIXED_NOW, waitMs: 1_544_400_000, retryAfter: '1544400' },
+      { now: FIXED_NOW, waitMs: 1_800_000_000, retryAfter: '1800000' },
+      { now: FIXED_NOW, waitMs: 1_807_200_000, retryAfter: '1807200' },
+      { now: FIXED_NOW, waitMs: 1_810_800_000, retryAfter: '1810800' },
+      { now: FIXED_NOW, waitMs: 1_814_400_000, retryAfter: '1814400' },
+      { now: FIXED_NOW, waitMs: 1_886_400_000, retryAfter: '1886400' },
+      { now: FIXED_NOW, waitMs: 5_400_000_000, retryAfter: '5400000' },
+      {
+        now: -1_000_000_000_000,
+        waitMs: 1_800_000_000,
+        retryAfter: '1800000',
+      },
+    ]) {
+      it(`returns a fail-fast pool 412 without clamping ${waitMs}ms at clock ${now}`, async () => {
+        const accountManager = new AccountManager(undefined, storedAccounts(), {
+          now: () => now,
+        })
+        for (const account of accountManager.getAccounts()) {
+          accountManager.markRateLimited(
+            account,
+            waitMs,
+            'gemini',
+            'antigravity',
+            'gemini-3-flash',
+          )
+        }
+        const context = await makeContext({ accountManager, config })
+        const interceptor = createFetchInterceptor(context)
+        try {
+          const response = await interceptor.fetch(
+            GENERATIVE_URL,
+            GENERATIVE_INIT,
+          )
+          const text = await expectNativeFailure(
+            response,
+            412,
+            'FAILED_PRECONDITION',
+          )
+          expectFailFastBody(text)
+          if (resetClause) expect(text).toContain(resetClause)
+          else expect(text).not.toContain('Quota resets in')
+          expect(response.headers.get('retry-after')).toBe(retryAfter)
+          expect(transportMock).not.toHaveBeenCalled()
+        } finally {
+          interceptor.dispose()
+          await accountManager.dispose()
+        }
+      })
+    }
+
+    it('does not invent a quota reset from the fallback sleep duration', async () => {
+      const context = await makeContext({ config })
+      for (const account of context.accountManager.getAccounts()) {
+        context.accountManager.markAccountCoolingDown(
+          account,
+          60_000,
+          'auth-failure',
+        )
+      }
+      const interceptor = createFetchInterceptor(context)
+      try {
+        const response = await interceptor.fetch(
+          GENERATIVE_URL,
+          GENERATIVE_INIT,
+        )
+        const text = await expectNativeFailure(
+          response,
+          412,
+          'FAILED_PRECONDITION',
+        )
+        expectFailFastBody(text)
+        expect(text).not.toContain('Quota resets in')
+        expect(response.headers.get('retry-after')).toBeNull()
+        expect(transportMock).not.toHaveBeenCalled()
+      } finally {
+        interceptor.dispose()
+        await context.accountManager.dispose()
+      }
+    })
+
+    it('does not emit an invalid reset header for a nonfinite pool wait', async () => {
+      const context = await makeContext({ config })
+      for (const account of context.accountManager.getAccounts()) {
+        context.accountManager.markRateLimited(
+          account,
+          Infinity,
+          'gemini',
+          'antigravity',
+          'gemini-3-flash',
+        )
+      }
+      const interceptor = createFetchInterceptor(context)
+      try {
+        const response = await interceptor.fetch(
+          GENERATIVE_URL,
+          GENERATIVE_INIT,
+        )
+        const text = await expectNativeFailure(
+          response,
+          412,
+          'FAILED_PRECONDITION',
+        )
+        expectFailFastBody(text)
+        expect(text).not.toContain('Quota resets in')
+        expect(response.headers.get('retry-after')).toBeNull()
+        expect(transportMock).not.toHaveBeenCalled()
+      } finally {
+        interceptor.dispose()
+        await context.accountManager.dispose()
+      }
+    })
+
+    for (const policy of ['soft_quota', 'pool_unavailable']) {
+      it(`still waits below the configured maximum for ${policy}`, async () => {
+        spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
+        const accountManager = new AccountManager(
+          undefined,
+          twoStoredAccounts(),
+        )
+        for (const account of accountManager.getAccounts()) {
+          if (policy === 'soft_quota') {
+            accountManager.updateQuotaCache(account.index, {
+              gemini: {
+                remainingFraction: 0.1,
+                modelCount: 1,
+                resetTime: new Date(FIXED_NOW + 50).toISOString(),
+              },
+            })
+          } else {
+            accountManager.markRateLimited(
+              account,
+              50,
+              'gemini',
+              'antigravity',
+              'gemini-3-flash',
+            )
+          }
+        }
+        const controller = new AbortController()
+        const abortReason = new Error('cancel the quota wait')
+        const toasts: string[] = []
+        const client = fakeClient((message) => {
+          toasts.push(message)
+          if (message.includes('Waiting')) controller.abort(abortReason)
+        })
+        const context = await makeContext({
+          accountManager,
+          client,
+          config: { ...config, soft_quota_threshold_percent: 80 },
+        })
+        const interceptor = createFetchInterceptor(context)
+        try {
+          await expect(
+            interceptor.fetch(GENERATIVE_URL, {
+              ...GENERATIVE_INIT,
+              signal: controller.signal,
+            }),
+          ).rejects.toBe(abortReason)
+          expect(toasts).toHaveLength(1)
+          expect(toasts[0]).toContain('Waiting')
+          expect(transportMock).not.toHaveBeenCalled()
+        } finally {
+          interceptor.dispose()
+          await accountManager.dispose()
+        }
+      })
+    }
+
+    it('returns a native 401 when token refresh supplies no access token', async () => {
+      const accountManager = new AccountManager(undefined, storedAccounts())
+      const tokenFetch = mock(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe('https://oauth2.googleapis.com/token')
+        return new Response(
+          JSON.stringify({ access_token: '', expires_in: 3600 }),
+          { headers: { 'content-type': 'application/json' } },
+        )
+      })
+      globalThis.stubbed('fetch', tokenFetch)
+      const context = await makeContext({ accountManager, config })
+      const interceptor = createFetchInterceptor(context)
+      try {
+        const response = await interceptor.fetch(
+          GENERATIVE_URL,
+          GENERATIVE_INIT,
+        )
+        const text = await expectNativeFailure(response, 401, 'UNAUTHENTICATED')
+        expect(text).toContain('Missing access token')
+        expect(text).toContain('opencode auth login')
+        expect(tokenFetch).toHaveBeenCalledTimes(1)
+        expect(transportMock).not.toHaveBeenCalled()
+      } finally {
+        interceptor.dispose()
+        await accountManager.dispose()
+      }
+    })
+
+    for (const contextMessage of ['Prompt is too long', 'prompt_too_long']) {
+      it(`preserves original context 400 bytes and headers for ${contextMessage}`, async () => {
+        const payload = ` { "error": { "code": 400, "status": "INVALID_ARGUMENT", "message": "${contextMessage}", "details": [{"original":true}] } }\n`
+        const original = new Response(payload, {
+          status: 400,
+          statusText: 'Bad Request',
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'x-original-overflow': 'retained',
+            'retry-after': '17',
+          },
+        })
+        transportHandler = async () => original
+        const toasts: string[] = []
+        const context = await makeContext({
+          config,
+          client: fakeClient((message) => toasts.push(message)),
+        })
+        const interceptor = createFetchInterceptor(context)
+        try {
+          const response = await interceptor.fetch(
+            GENERATIVE_URL,
+            GENERATIVE_INIT,
+          )
+          expect(response).toBe(original)
+          expect(response.ok).toBe(false)
+          expect(response.status).toBe(400)
+          expect(response.statusText).toBe('Bad Request')
+          expect(response.bodyUsed).toBe(false)
+          expect([...response.headers]).toEqual([
+            ['content-type', 'application/json; charset=utf-8'],
+            ['retry-after', '17'],
+            ['x-original-overflow', 'retained'],
+          ])
+          expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+            new TextEncoder().encode(payload),
+          )
+          expect(transportMock).toHaveBeenCalledTimes(1)
+          expect(toasts).toEqual([
+            'Context too long - use /compact to reduce size',
+          ])
+        } finally {
+          interceptor.dispose()
+          await context.accountManager.dispose()
+        }
+      })
+    }
+
+    it('returns a native 502 only after the bounded empty-response attempts', async () => {
+      transportHandler = async () =>
+        new Response('{"response":{"candidates":[]}}', {
+          headers: { 'content-type': 'application/json' },
+        })
+      const context = await makeContext({ config })
+      const interceptor = createFetchInterceptor(context)
+      try {
+        const response = await interceptor.fetch(
+          GENERATIVE_URL.replace(
+            ':streamGenerateContent?alt=sse',
+            ':generateContent',
+          ),
+          GENERATIVE_INIT,
+        )
+        const text = await expectNativeFailure(response, 502, 'UNAVAILABLE')
+        expect(text).toContain('empty response')
+        expect(transportMock).toHaveBeenCalledTimes(2)
+      } finally {
+        interceptor.dispose()
+        await context.accountManager.dispose()
+      }
+    })
+  })
+
   describe('transport failures', () => {
     it('propagates connection resets instead of emitting them as assistant text', async () => {
       const resetError = Object.assign(new Error('read ECONNRESET'), {
@@ -522,19 +1002,19 @@ describe('createFetchInterceptor', () => {
       })
       const interceptor = createFetchInterceptor(context)
 
-      await expect(
-        interceptor.fetch(GENERATIVE_URL, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
-          }),
+      const request = interceptor.fetch(GENERATIVE_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
         }),
-      ).rejects.toMatchObject({
+      })
+      await expect(request).rejects.toMatchObject({
         message: 'read ECONNRESET',
         code: 'ECONNRESET',
         syscall: 'read',
       })
+      await expect(request).rejects.toBe(resetError)
       expect(transportMock).toHaveBeenCalledTimes(2)
       interceptor.dispose()
     })

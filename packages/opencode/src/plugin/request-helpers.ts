@@ -3052,13 +3052,11 @@ export function applyToolPairingFixes(
 }
 
 // ============================================================================
-// SYNTHETIC GEMINI SSE RESPONSE
-// Used to return error messages as successful Gemini stream responses to avoid
-// locking OpenCode sessions when unrecoverable loader errors occur.
+// LOCAL TEXT AND NATIVE GOOGLE ERROR RESPONSES
 // ============================================================================
 
 /**
- * Creates a synthetic Gemini SSE streaming response with error content.
+ * Creates a synthetic Gemini SSE streaming response with successful local text.
  *
  * The intercepted provider route is Google/Gemini, so the synthetic body must
  * match OpenCode's Gemini protocol (`data: { candidates, usageMetadata }`).
@@ -3099,11 +3097,89 @@ export function createSyntheticTextResponse(
   })
 }
 
-export function createSyntheticErrorResponse(
-  errorMessage: string,
-  _requestedModel: string = 'unknown',
+type NativeGoogleErrorOptions =
+  | {
+      status: 412
+      reason: 'operator_policy' | 'soft_quota' | 'pool_unavailable'
+      /** Remaining milliseconds until a known reset; omit unknown resets. Do not substitute a retry sleep or cap this value at the configured maximum wait. */
+      resetAfterMs?: number | null
+    }
+  | { status: 401; reason: 'missing_access_token' }
+  | { status: 502; reason: 'empty_response' }
+
+const NATIVE_GOOGLE_ERROR_MESSAGES = {
+  operator_policy:
+    'Antigravity account pool is unavailable under the operator quota policy. Adjust /antigravity-killswitch or refresh quota.',
+  soft_quota:
+    'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or disable soft quota protection.',
+  pool_unavailable:
+    'Antigravity account pool has no account available within the configured wait limit. Add accounts with `opencode auth login` or wait for quota reset.',
+  missing_access_token:
+    'Missing access token. Run `opencode auth login` to reauthenticate.',
+  empty_response:
+    'Antigravity returned an empty response after the internal retry attempts.',
+} satisfies Record<NativeGoogleErrorOptions['reason'], string>
+
+function formatQuotaResetWait(seconds: bigint): string {
+  const hours = seconds / 3600n
+  const minutes = (seconds % 3600n) / 60n
+  const remainingSeconds = seconds % 60n
+  const parts: string[] = []
+  if (hours > 0n) parts.push(`${hours}h`)
+  if (minutes > 0n) parts.push(`${minutes}m`)
+  if (remainingSeconds > 0n || parts.length === 0) {
+    parts.push(`${remainingSeconds}s`)
+  }
+  return parts.join(' ')
+}
+
+/**
+ * Return errors through the host's native Google failure pipeline, never as
+ * assistant content. Local policy blocks use 412 rather than a retryable quota
+ * status; fixed messages keep account details and upstream payloads out of the
+ * body that hosts also scan when deciding whether to retry.
+ */
+export function createNativeGoogleErrorResponse(
+  options: NativeGoogleErrorOptions,
 ): Response {
-  return createSyntheticTextResponse(errorMessage, {
-    'X-Antigravity-Error-Type': 'synthetic_error',
+  const headers = new Headers({ 'Content-Type': 'application/json' })
+  const message = NATIVE_GOOGLE_ERROR_MESSAGES[options.reason]
+  const status =
+    options.status === 412
+      ? 'FAILED_PRECONDITION'
+      : options.status === 401
+        ? 'UNAUTHENTICATED'
+        : 'UNAVAILABLE'
+  let body = JSON.stringify({
+    error: { code: options.status, status, message },
+  })
+  if (
+    options.status === 412 &&
+    typeof options.resetAfterMs === 'number' &&
+    Number.isFinite(options.resetAfterMs) &&
+    options.resetAfterMs >= 0
+  ) {
+    // Round milliseconds before integer division: floating seconds division
+    // can underflow small positive waits or round large finite delays wrongly.
+    // Decimal BigInt rendering also preserves the delay-seconds header grammar.
+    const delaySeconds =
+      (BigInt(Math.ceil(options.resetAfterMs)) + 999n) / 1000n
+    headers.set('Retry-After', delaySeconds.toString())
+    const resetBody = JSON.stringify({
+      error: {
+        code: options.status,
+        status,
+        message: `${message} Quota resets in ${formatQuotaResetWait(delaySeconds)}.`,
+      },
+    })
+    // OpenCode 1.x's native error classifier searches serialized error text
+    // for retryable HTTP-status substrings, even when the response is 412.
+    // A duration such as 500h would cause an accidental retry. Omit only the
+    // unsafe clause; Retry-After retains the exact delay for quota consumers.
+    if (!/429|500|502|503|504|524/.test(resetBody)) body = resetBody
+  }
+  return new Response(body, {
+    status: options.status,
+    headers,
   })
 }
