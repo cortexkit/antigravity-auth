@@ -37,13 +37,14 @@
     ]
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=esm --external:@earendil-works/* --external:@cortexkit/antigravity-auth-core --outfile=dist/index.js --sourcemap",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=esm --external:@earendil-works/* --external:@cortexkit/antigravity-auth-core --external:@cortexkit/claustrum-client --outfile=dist/index.js --sourcemap",
     "typecheck": "tsc --noEmit",
     "test": "bun test --isolate ./src",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@cortexkit/antigravity-auth-core": "2.2.1"
+    "@cortexkit/antigravity-auth-core": "2.2.1",
+    "@cortexkit/claustrum-client": "0.6.2"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

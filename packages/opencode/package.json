@@ -32,16 +32,16 @@
   },
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./server": {
-      "import": "./dist/server.js",
-      "types": "./dist/types/src/server.d.ts"
+      "types": "./dist/types/src/server.d.ts",
+      "import": "./dist/server.js"
     },
     "./tui": {
-      "import": "./src/tui/entry.mjs",
-      "types": "./src/tui/entry.d.mts"
+      "types": "./src/tui/entry.d.mts",
+      "import": "./src/tui/entry.mjs"
     }
   },
   "files": [

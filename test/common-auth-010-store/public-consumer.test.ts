@@ -12,7 +12,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
+  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -25,6 +25,9 @@ import { dirname, join, resolve } from 'node:path'
 
 const repoRoot = resolve(import.meta.dir, '../..')
 const coreRoot = join(repoRoot, 'packages/core')
+const piRoot = join(repoRoot, 'packages/pi')
+const piPackage = '@cortexkit/pi-antigravity-auth'
+const CLAUSTRUM_CLIENT = '@cortexkit/claustrum-client'
 const corePackage = '@cortexkit/antigravity-auth-core'
 const ENTRIES = [
   'store',
@@ -66,6 +69,30 @@ function linkDependency(name: string) {
   symlinkSync(dirname(manifest), target, 'dir')
 }
 
+/** Packs `packageRoot` (already built) and unpacks it as an installed package. */
+function installPacked(packageRoot: string, name: string, filename: string) {
+  run(
+    process.execPath,
+    [
+      'pm',
+      'pack',
+      '--ignore-scripts',
+      '--filename',
+      join(root, filename),
+      '--quiet',
+    ],
+    packageRoot,
+  )
+  const target = join(consumer, 'node_modules', name)
+  mkdirSync(target, { recursive: true })
+  run(
+    'tar',
+    ['-xzf', join(root, filename), '-C', target, '--strip-components=1'],
+    root,
+  )
+  return target
+}
+
 function runConsumer(source: string): string {
   const script = join(consumer, `probe-${Date.now()}-${Math.random()}.mjs`)
   writeFileSync(script, source)
@@ -80,21 +107,9 @@ beforeAll(() => {
     join(consumer, 'package.json'),
     `${JSON.stringify({ name: 'core-public-consumer', private: true, type: 'module' })}\n`,
   )
-  run(
-    process.execPath,
-    ['pm', 'pack', '--ignore-scripts', '--destination', root, '--quiet'],
-    coreRoot,
-  )
-  const tarball = readdirSync(root).find((name) => name.endsWith('.tgz'))
-  if (!tarball) throw new Error('bun pm pack produced no tarball')
-  installed = join(consumer, 'node_modules', corePackage)
-  mkdirSync(installed, { recursive: true })
-  run(
-    'tar',
-    ['-xzf', join(root, tarball), '-C', installed, '--strip-components=1'],
-    root,
-  )
-  for (const name of ['@cortexkit/claustrum-client', 'xdg-basedir', 'zod'])
+  installed = installPacked(coreRoot, corePackage, 'core.tgz')
+  installPacked(piRoot, piPackage, 'pi.tgz')
+  for (const name of [CLAUSTRUM_CLIENT, 'xdg-basedir', 'zod'])
     linkDependency(name)
 })
 
@@ -287,4 +302,45 @@ export const menu: CommandMenu = createAntigravityCommandMenu(menuOptions)
     // process, takes several seconds; Bun's default 5 s test limit is too short.
     COMPILER_RUN_MS,
   )
+})
+
+describe('packed Pi extension and core share one Claustrum client', () => {
+  it('declares the same exact client release as core', () => {
+    const pi = JSON.parse(
+      readFileSync(
+        join(consumer, 'node_modules', piPackage, 'package.json'),
+        'utf8',
+      ),
+    )
+    const core = JSON.parse(
+      readFileSync(join(installed, 'package.json'), 'utf8'),
+    )
+    expect(pi.dependencies[CLAUSTRUM_CLIENT]).toBe(
+      core.dependencies[CLAUSTRUM_CLIENT],
+    )
+    expect(pi.dependencies[corePackage]).toBe(core.version)
+  })
+
+  it('resolves the client to one installed copy from Pi and from core', () => {
+    const piDir = join(consumer, 'node_modules', piPackage)
+    const claustrumEntry = join(
+      installed,
+      'dist/common-auth-embedded/claustrum/index.js',
+    )
+    const fromPi = realpathSync(Bun.resolveSync(CLAUSTRUM_CLIENT, piDir))
+    const fromCore = realpathSync(
+      Bun.resolveSync(CLAUSTRUM_CLIENT, dirname(claustrumEntry)),
+    )
+    expect(fromPi).toBe(fromCore)
+  })
+
+  it('keeps the client out of the Pi bundle', () => {
+    // The client's own function definition appears in a bundle only when
+    // esbuild inlined a second copy instead of leaving the import external.
+    const bundle = readFileSync(
+      join(consumer, 'node_modules', piPackage, 'dist/index.js'),
+      'utf8',
+    )
+    expect(bundle).not.toContain('function resolveClaustrumConnectionPath(')
+  })
 })
