@@ -1,5 +1,15 @@
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import {
+  type AccountRepository,
+  type CommonAuthCommandsModule,
+  loadCommonAuthCommands,
+} from '@cortexkit/antigravity-auth-core'
+
+/** The `/antigravity` menu, as the shared core factory builds it. */
+type CommandMenu = ReturnType<CommonAuthCommandsModule['createCommandMenu']>
+
+import { cliAccountOf } from '../cli'
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
 import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
 import { drainNotifications, pushNotification } from '../rpc/notifications'
@@ -24,15 +34,11 @@ import {
   applyAntigravityProviderCatalog,
   registerAntigravityCommands,
 } from './catalog'
+import { projectCommandAccountRows } from './command-data'
 import {
-  type CommandDataService,
-  createCommandDataService,
-  projectCommandAccountRows,
-} from './command-data'
-import {
-  applyCommand,
-  createCommandExecuteBefore,
-  createSidebarRefresher,
+  createAntigravityCommandExecuteBefore,
+  createOpenCodeAntigravityMenu,
+  menuInvocation,
 } from './commands'
 import { initRuntimeConfig, loadConfig } from './config'
 import { getUserConfigPath } from './config/loader'
@@ -44,6 +50,7 @@ import {
 } from './dependencies'
 import { createEventHandler } from './event-handler'
 import { createFetchInterceptor } from './fetch-interceptor'
+import { isGeminiDumpEnabled, setGeminiDumpEnabled } from './gemini-dump'
 import { createGoogleSearchTool } from './google-search-tool'
 import { createPluginLifecycle, type PluginLifecycle } from './lifecycle'
 import { createLogger, initLogger, setRuntimeLogLevel } from './logger'
@@ -52,18 +59,18 @@ import {
   createOperatorSettingsController,
   type OperatorSettingsController,
 } from './operator-settings'
-import { persistAccountPool } from './persist-account-pool'
+import {
+  commitLogins,
+  persistAccountPool,
+  replacePoolLogins,
+} from './persist-account-pool'
 import {
   createOpenCodeQuotaManager,
   makeTierLoader,
   type QuotaManager,
 } from './quota'
 import { createSessionRecoveryHook } from './recovery'
-import {
-  getHealthTracker,
-  initHealthTracker,
-  initTokenTracker,
-} from './rotation'
+import { initHealthTracker, initTokenTracker } from './rotation'
 import { AgySessionRegistry } from './session-context'
 import {
   clearAccounts,
@@ -271,101 +278,136 @@ export const createAntigravityPlugin =
       updateChecker,
       logger,
     })
-    // This service intentionally closes over lifecycle getters, so both OPEN
-    // notifications and RPC apply actions observe the current account manager.
-    const commandData: CommandDataService = createCommandDataService({
-      accountManagerView: {
-        getAccounts: () => {
-          const manager = lifecycle.getAccountManager()
-          if (!manager) return []
-          const activeByFamily = manager.getActiveIndexByFamily()
-          return manager.getAccounts().map((entry, index) => ({
-            index,
-            refreshToken: entry.parts.refreshToken,
-            label: entry.label,
-            enabled: entry.enabled !== false,
-            active: isAccountCurrent(index, activeByFamily),
-            cachedQuota: entry.cachedQuota,
-            cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
-            cachedQuotaAccountId: entry.cachedQuotaAccountId,
-            accountIneligible: entry.accountIneligible,
-            coolingDownUntil: entry.coolingDownUntil,
-            healthScore: getHealthTracker().getScore(entry.index),
-            capturedTierId: entry.capturedTierId,
-            capturedPaidTierId: entry.capturedPaidTierId,
-            capturedTierAt: entry.capturedTierAt,
-          }))
-        },
-        getAccountsForQuotaCheck: () => {
-          const manager = lifecycle.getAccountManager()
-          return manager ? manager.getAccountsForQuotaCheck() : []
-        },
-        updateQuotaCache: (index, groups, expectedRefreshToken) => {
-          lifecycle
-            .getAccountManager()
-            ?.updateQuotaCache(index, groups, expectedRefreshToken)
-        },
-        requestSaveToDisk: () => {
-          lifecycle.getAccountManager()?.requestSaveToDisk()
-        },
-        flushSaveToDisk: async () => {
-          await lifecycle.getAccountManager()?.flushSaveToDisk()
-        },
-        getActiveIndexByFamily: () => {
-          const manager = lifecycle.getAccountManager()
-          if (!manager) return { claude: 0, gemini: 0 }
-          return manager.getActiveIndexByFamily()
-        },
-        setAccountEnabled: (index, enabled) => {
-          const manager = lifecycle.getAccountManager()
-          if (!manager) return false
-          return manager.setAccountEnabled(index, enabled)
-        },
-        setAccountCurrent: (index) => {
-          const manager = lifecycle.getAccountManager()
-          if (!manager) return false
-          const account = manager.getAccounts()[index]
-          if (!account) return false
-          manager.markSwitched(account, 'initial', 'claude')
-          manager.markSwitched(account, 'initial', 'gemini')
-          return true
-        },
-        removeAccountByIndex: (index) => {
-          const manager = lifecycle.getAccountManager()
-          if (!manager) return false
-          return manager.removeAccountByIndex(index)
-        },
-        getRefreshTokenAt: (index) => {
-          const manager = lifecycle.getAccountManager()
-          if (!manager) return undefined
-          return manager.getAccounts()[index]?.parts.refreshToken
-        },
-      },
-      quotaManager,
-      sidebarStateFile: getSidebarStateFile(),
-      storage: {
-        mutate: (mutator) => mutateAccountStorage(getStoragePath(), mutator),
+    // The `/antigravity` menu is built once per account-store repository,
+    // on the same common-auth commands module whose request parser the RPC
+    // server uses, so a request is parsed and applied by one module instance.
+    const commandsModule = await loadCommonAuthCommands()
+    let builtMenu: {
+      readonly repository: AccountRepository
+      readonly menu: Promise<CommandMenu>
+    } | null = null
+    const currentMenu = async (): Promise<
+      | { kind: 'menu'; menu: CommandMenu }
+      | { kind: 'unavailable'; message: string }
+    > => {
+      const opening = await authLoader.accountStore()
+      if (opening.status !== 'ready') {
+        return {
+          kind: 'unavailable',
+          message: authLoader.usesPoolFile(opening)
+            ? 'Antigravity accounts are still in the pre-store account file. Stop OpenCode and run `antigravity-auth migrate --offline` to manage them from /antigravity.'
+            : opening.status === 'refused'
+              ? opening.message
+              : 'The Antigravity account store cannot be opened.',
+        }
+      }
+      if (builtMenu?.repository !== opening.repository) {
+        builtMenu = {
+          repository: opening.repository,
+          menu: createOpenCodeAntigravityMenu({
+            commands: commandsModule,
+            accounts: opening.repository,
+            settings: operatorSettings,
+            dump: {
+              isEnabled: isGeminiDumpEnabled,
+              setEnabled: setGeminiDumpEnabled,
+            },
+            applyLogLevel: setRuntimeLogLevel,
+            signIn: accountOAuth,
+          }),
+        }
+      }
+      return { kind: 'menu', menu: await builtMenu.menu }
+    }
+    const commandExecuteBefore = createAntigravityCommandExecuteBefore({
+      client,
+      push: pushNotification,
+      open: async (sessionId) => {
+        const current = await currentMenu()
+        if (current.kind === 'unavailable') return current
+        return {
+          kind: 'menu',
+          payload: await current.menu.open(
+            menuInvocation(pushNotification, sessionId),
+          ),
+        }
       },
     })
-    const commandExecuteBefore = createCommandExecuteBefore(
-      client,
-      operatorSettings,
-      pushNotification,
-      commandData,
-    )
     const googleSearchTool = createGoogleSearchTool({
       getAuth: async () => (cachedGetAuth ? cachedGetAuth() : null),
       client,
       providerId,
     })
+    /**
+     * The location's account source for pool-file style callers: the pool
+     * file before migration, else the account store's repository. Any other
+     * store state stops the caller with the store's message.
+     */
+    const openPoolFileOrStore = async (): Promise<
+      'pool-file' | AccountRepository
+    > => {
+      const opening = await authLoader.accountStore()
+      if (opening.status === 'ready') return opening.repository
+      if (authLoader.usesPoolFile(opening)) return 'pool-file'
+      throw new Error(
+        opening.status === 'refused'
+          ? opening.message
+          : 'The Antigravity account store cannot be opened',
+      )
+    }
     const accountAccess = createAccountAccessService({
       client,
       providerId,
+      // Before migration these are the pool file's operations. Once the
+      // account store is active, logins are admitted by its repository, the
+      // accounts are read from it, and pool-file edits are refused: the
+      // retired file is never read or written.
       store: {
-        load: loadAccounts,
-        mutate: (mutate) => mutateAccountStorage(getStoragePath(), mutate),
-        clear: clearAccounts,
-        persistAccountPool,
+        load: async () => {
+          const opening = await openPoolFileOrStore()
+          if (opening === 'pool-file') return loadAccounts()
+          const read = await opening.read()
+          if (read.status !== 'ready')
+            throw new Error(`The account store is ${read.status}`)
+          return {
+            version: 4,
+            activeIndex: Math.max(
+              0,
+              read.rows.findIndex(
+                (row) => row.ref.id === read.routing?.activeRow?.id,
+              ),
+            ),
+            accounts: read.rows.map(cliAccountOf),
+          }
+        },
+        mutate: async (mutate) => {
+          const opening = await openPoolFileOrStore()
+          if (opening === 'pool-file')
+            return mutateAccountStorage(getStoragePath(), mutate)
+          throw new Error(
+            'Accounts live in the account store; change them from the /antigravity menu',
+          )
+        },
+        clear: async () => {
+          const opening = await openPoolFileOrStore()
+          if (opening === 'pool-file') return clearAccounts()
+          throw new Error(
+            'Accounts live in the account store; remove them from the /antigravity menu',
+          )
+        },
+        persistAccountPool: async (results, replaceAll) => {
+          const opening = await openPoolFileOrStore()
+          if (opening === 'pool-file')
+            return persistAccountPool(results, replaceAll)
+          if (replaceAll) {
+            await replacePoolLogins(opening, results)
+            return
+          }
+          const refused = (await commitLogins(opening, results)).find(
+            (entry) => entry.status === 'refused',
+          )
+          if (refused?.status === 'refused') throw new Error(refused.message)
+        },
       },
       openBrowser: openBrowserWithSystem,
       prompt: {
@@ -405,9 +447,55 @@ export const createAntigravityPlugin =
       // Google OAuth endpoints when adding an account.
       authorize: dependencies.oauth.authorize,
       exchange: dependencies.oauth.exchange,
-      persist: (result) => accountAccess.persistAccountPool([result], false),
-      listAccounts: async () =>
-        projectCommandAccountRows(await accountAccess.loadAccounts()),
+      // Once the account store is active a new login is admitted by the
+      // repository the runtime routes with; the retired pool file is never
+      // written or read. Before migration the pool file path is unchanged.
+      persist: async (result) => {
+        const opening = await authLoader.accountStore()
+        if (opening.status === 'ready') {
+          const [committed] = await commitLogins(opening.repository, [result])
+          if (committed?.status === 'refused')
+            throw new Error(committed.message)
+          return
+        }
+        if (!authLoader.usesPoolFile(opening)) {
+          throw new Error(
+            opening.status === 'refused'
+              ? opening.message
+              : 'The Antigravity account store cannot accept a login',
+          )
+        }
+        await accountAccess.persistAccountPool([result], false)
+      },
+      listAccounts: async () => {
+        const opening = await authLoader.accountStore()
+        if (opening.status === 'ready') {
+          const read = await opening.repository.read()
+          if (read.status !== 'ready') return []
+          const activeId = read.routing?.activeRow?.id
+          const activeIndex = read.rows.findIndex(
+            (row) => row.ref.id === activeId,
+          )
+          return projectCommandAccountRows({
+            activeIndex: activeIndex === -1 ? 0 : activeIndex,
+            version: 4,
+            accounts: read.rows.map((row) => ({
+              refreshToken: row.credential?.refreshToken ?? '',
+              enabled: row.enabled,
+              addedAt:
+                row.metadata.status === 'present'
+                  ? row.metadata.metadata.addedAt
+                  : 0,
+              lastUsed:
+                row.metadata.status === 'present'
+                  ? row.metadata.metadata.lastUsed
+                  : 0,
+            })),
+          })
+        }
+        if (!authLoader.usesPoolFile(opening)) return []
+        return projectCommandAccountRows(await accountAccess.loadAccounts())
+      },
       // After the new account lands on disk, reload the live
       // AccountManager + fetch interceptor so routing sees it
       // immediately — without waiting for an auth reload.
@@ -433,43 +521,14 @@ export const createAntigravityPlugin =
 
     const rpcServer = await startRpcServer({
       dir: getRpcDir(directory),
+      parseApplyRequest: commandsModule.parseApplyRequest,
       apply: async (request) => {
-        // Sidebar refresher is bound to the live account manager so every
-        // /antigravity-* mutation bumps `checkedAt` for the next TUI poll.
-        // The refresher is best-effort and never breaks the apply response.
-        const refreshSidebar = createSidebarRefresher(() => {
-          const manager = lifecycle.getAccountManager()
-          if (!manager) return null
-          const activeByFamily = manager.getActiveIndexByFamily()
-          return manager.getAccounts().map((entry) => ({
-            index: entry.index,
-            label: entry.label,
-            enabled: entry.enabled,
-            current: isAccountCurrent(entry.index, activeByFamily),
-            coolingDownUntil: entry.coolingDownUntil,
-            cachedQuota: entry.cachedQuota,
-            // Carry the identity stamp so the sidebar projection can
-            // detect a stale snapshot that landed on the wrong account
-            // after an index shift (see `redactAccountForSidebar`).
-            cachedQuotaAccountId: entry.cachedQuotaAccountId,
-            currentQuotaAccountId: quotaAccountIdentity(
-              entry.parts.refreshToken,
-            ),
-            tier: toCapturedTier(entry),
-          }))
-        })
-        const result = await applyCommand(request, {
-          client,
-          sessionID: request.sessionId ?? '',
-          settings: operatorSettings,
-          onApplied: refreshSidebar,
-          commandData,
-          accountOAuth,
-        })
-        // /antigravity-logging mutates the log level — propagate
-        // immediately so subsequent log calls in this session respect it.
-        setRuntimeLogLevel(operatorSettings.get().log_level)
-        return result
+        const current = await currentMenu()
+        if (current.kind === 'unavailable') throw new Error(current.message)
+        return current.menu.apply(
+          request,
+          menuInvocation(pushNotification, request.sessionId),
+        )
       },
       drain: drainNotifications,
     })

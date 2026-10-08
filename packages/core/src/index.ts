@@ -9,6 +9,7 @@ export type {
   ManagedAccount,
 } from './account-manager.ts'
 export { AccountManager, resolveQuotaGroup } from './account-manager.ts'
+export * from './account-migration.ts'
 export * from './account-repository.ts'
 export * from './account-repository-codecs.ts'
 export * from './account-repository-types.ts'

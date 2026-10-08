@@ -9,7 +9,16 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -896,11 +905,13 @@ describe('mutateAccountStorage fail-closed on unreadable file', () => {
 
   it('still preserves the file when the backup itself fails', async () => {
     const { path, raw } = await seedCorrupt('corrupt-5.json', '{ broken')
+    const unavailable = join(root, 'backup-destination-is-a-directory')
+    await mkdir(unavailable, { mode: 0o700 })
 
     let captured: unknown
     try {
       await mutateAccountStorage(path, (current) => current, {
-        buildBackupPath: () => '/proc/this-cannot-be-written/corrupt-5.json',
+        buildBackupPath: () => unavailable,
       })
     } catch (error) {
       captured = error
@@ -933,5 +944,36 @@ describe('mutateAccountStorage fail-closed on unreadable file', () => {
     const onDisk = JSON.parse(await readFile(path, 'utf8'))
     expect(onDisk.version).toBe(4)
     expect(onDisk.accounts[0]?.refreshToken).toBe('r1')
+  })
+})
+
+describe('legacy writer migration ownership fence', () => {
+  it('refuses malformed successor receipts before load, mutation, replacement or clear and leaves L unchanged', async () => {
+    const path = join(await realpath(root), 'owned-accounts.json')
+    const initial = makeV4([
+      { refreshToken: 'synthetic-refusal-control', addedAt: 1, lastUsed: 2 },
+    ])
+    await writeFile(path, JSON.stringify(initial), { mode: 0o600 })
+    await mkdir(`${path}.store`, { mode: 0o700 })
+    await writeFile(join(`${path}.store`, 'migration.json'), '{}', {
+      mode: 0o600,
+    })
+    const before = await readFile(path)
+    let mutations = 0
+    for (const write of [
+      () => loadAccountStorage(path),
+      () =>
+        mutateAccountStorage(path, (current) => {
+          mutations++
+          return current
+        }),
+      () => saveAccountStorage(path, initial),
+      () => saveAccountStorageReplace(path, initial),
+      () => clearAccountStorage(path),
+    ]) {
+      await expect(write()).rejects.toThrow()
+      expect(await readFile(path)).toEqual(before)
+    }
+    expect(mutations).toBe(0)
   })
 })

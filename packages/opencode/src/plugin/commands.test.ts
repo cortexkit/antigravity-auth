@@ -1,1500 +1,280 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+/**
+ * The single `/antigravity` command: its host registration, the
+ * `command.execute.before` hook that queues the menu for the TUI, and the
+ * OpenCode menu over a real fresh account store with the genuine common-auth
+ * commands entry. Every path lives under a temporary directory.
+ */
+
+import { describe, expect, it } from 'bun:test'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AccountStorageUnreadableError } from '@cortexkit/antigravity-auth-core'
+import {
+  createAccountRepositoryFactory,
+  initializeFreshAccountStore,
+  loadCommonAuthStoreModules,
+  readAccountStoreAdmission,
+} from '@cortexkit/antigravity-auth-core'
 
-import type { CommandModalName } from '../rpc/protocol'
-import { readSidebarState } from '../sidebar-state'
+import type { RpcNotificationPayload } from '../rpc/protocol'
 import { registerAntigravityCommands } from './catalog'
-import type { CommandAccountRow } from './command-data'
 import {
-  applyCommand,
-  buildDialogPayload,
-  createCommandExecuteBefore,
-  createSidebarRefresher,
-  MODAL_COMMANDS,
+  createAntigravityCommandExecuteBefore,
+  createOpenCodeAntigravityMenu,
+  menuInvocation,
 } from './commands'
-import { GEMINI_DUMP_COMMAND_NAME } from './gemini-dump'
-import {
-  createOperatorSettingsController,
-  type OperatorSettingsController,
-} from './operator-settings'
-
-interface CommandContext {
-  settings: OperatorSettingsController
-}
-
-async function makeContext(dir: string): Promise<CommandContext> {
-  const settings = createOperatorSettingsController({
-    projectConfigPath: join(dir, 'antigravity.json'),
-    userConfigPath: join(dir, 'user.json'),
-  })
-  // Pre-create project file so updates land there.
-  return { settings }
-}
+import { createOperatorSettingsController } from './operator-settings'
 
 describe('registerAntigravityCommands', () => {
-  it('merges the dump command into existing commands', () => {
-    const config = {
-      command: { existing: { template: 'existing', description: 'kept' } },
+  it('registers /antigravity and the /gemini-dump alias, keeping host commands', () => {
+    const config: Record<string, unknown> = {
+      command: { init: { template: 'init' } },
     }
-
     registerAntigravityCommands(config)
-
-    expect(config.command.existing).toEqual({
-      template: 'existing',
-      description: 'kept',
-    })
+    expect(Object.keys(config.command as object).sort()).toEqual([
+      'antigravity',
+      'gemini-dump',
+      'init',
+    ])
     expect(
-      (config.command as Record<string, unknown>)[GEMINI_DUMP_COMMAND_NAME],
-    ).toEqual({
-      template: GEMINI_DUMP_COMMAND_NAME,
-      description:
-        'Show or toggle Gemini/Antigravity wire dump capture for debugging.',
-    })
-  })
-
-  it('registers every modal command under its host-name key', () => {
-    const config: Record<string, unknown> = {}
-
-    registerAntigravityCommands(config)
-
-    const registered = config.command as Record<string, unknown>
-    for (const name of MODAL_COMMANDS) {
-      expect(registered[name]).toBeDefined()
-    }
+      (config.command as Record<string, { template: string }>).antigravity
+        ?.template,
+    ).toBe('antigravity')
   })
 })
 
-describe('three-wiring invariant', () => {
-  it('catalog.ts registrations, MODAL_COMMANDS, and buildDialogPayload agree bidirectionally', async () => {
-    const config: Record<string, unknown> = {}
-    registerAntigravityCommands(config)
-    const registered = new Set(Object.keys(config.command as object))
+describe('createAntigravityCommandExecuteBefore', () => {
+  const payload = {
+    command: 'antigravity',
+    menu: { command: 'antigravity', title: 'Antigravity', sections: [] },
+  }
 
-    const modals = new Set(MODAL_COMMANDS)
-
-    // Set equality bidirectional — both directions catch drift.
-    const registeredOnly = [...registered].filter(
-      (key) => !modals.has(key as CommandModalName),
-    )
-    const modalsOnly = [...modals].filter((key) => !registered.has(key))
-
-    // /gemini-dump is a backward-compat alias, so allow it in registered.
-    const filteredRegisteredOnly = registeredOnly.filter(
-      (key) => key !== GEMINI_DUMP_COMMAND_NAME,
-    )
-    expect(filteredRegisteredOnly).toEqual([])
-    expect(modalsOnly).toEqual([])
-
-    // Every modal command must produce a payload (round-trip via buildDialogPayload).
-    const dir = mkdtempSync(join(tmpdir(), 'agy-commands-wiring-'))
-    const ctx = await makeContext(dir)
-    for (const command of MODAL_COMMANDS) {
-      const payload = await buildDialogPayload(command, '', {
-        client: {} as never,
-        sessionID: 'session-1',
-        settings: ctx.settings,
-      })
-      expect(payload.command).toBe(command)
-      expect(typeof payload.text).toBe('string')
-      expect(typeof payload.knobs).toBe('object')
-    }
-    await ctx.settings.dispose()
-    rmSync(dir, { recursive: true, force: true })
-  })
-
-  it('keeps /gemini-dump registered as the existing compatibility alias', () => {
-    const config: Record<string, unknown> = {}
-    registerAntigravityCommands(config)
-    const registered = config.command as Record<string, unknown>
-
-    expect(registered[GEMINI_DUMP_COMMAND_NAME]).toBeDefined()
-    // The compatibility alias must remain alongside the modal name — the host
-    // invokes the dump command as /gemini-dump, not /antigravity-dump.
-    expect(MODAL_COMMANDS).toContain('antigravity-dump')
-  })
-})
-
-describe('createCommandExecuteBefore', () => {
-  let dir: string
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'agy-cmd-test-'))
-  })
-
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true })
-  })
-
-  it('ignores unrelated commands', async () => {
-    const promptAsync = mock(async () => {})
-    const settings = createOperatorSettingsController({
-      projectConfigPath: join(dir, 'antigravity.json'),
-      userConfigPath: join(dir, 'user.json'),
-    })
-    const pushNotification = mock(() => 1)
-    const handler = createCommandExecuteBefore(
-      { session: { promptAsync } } as never,
-      settings,
-      pushNotification,
-    )
-
-    await expect(
-      handler?.(
-        { command: 'other', arguments: '', sessionID: 'session-1' },
-        { parts: [] },
-      ),
-    ).resolves.toBeUndefined()
-    expect(promptAsync).not.toHaveBeenCalled()
-    expect(pushNotification).not.toHaveBeenCalled()
-    await settings.dispose()
-  })
-
-  it('sends an ignored assistant message then throws the handled sentinel for gemini-dump', async () => {
-    const promptAsync = mock(async () => {})
-    const messages = mock(async () => ({ data: [] }))
-    const settings = createOperatorSettingsController({
-      projectConfigPath: join(dir, 'antigravity.json'),
-      userConfigPath: join(dir, 'user.json'),
-    })
-    const pushNotification = mock(() => 1)
-    const handler = createCommandExecuteBefore(
-      { session: { messages, promptAsync } } as never,
-      settings,
-      pushNotification,
-    )
-
-    await expect(
-      handler?.(
-        {
-          command: GEMINI_DUMP_COMMAND_NAME,
-          arguments: '',
-          sessionID: 'session-1',
-        },
-        { parts: [] },
-      ),
-    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
-    expect(promptAsync).toHaveBeenCalledTimes(1)
-    expect(promptAsync).toHaveBeenCalledWith({
-      path: { id: 'session-1' },
-      body: {
-        noReply: true,
-        parts: [
-          expect.objectContaining({
-            type: 'text',
-            ignored: true,
-          }),
-        ],
-      },
-    })
-    await settings.dispose()
-  })
-
-  it('forwards each modal command through the same handled-sentinel abort', async () => {
-    const promptAsync = mock(async () => {})
-    const messages = mock(async () => ({ data: [] }))
-    const pushNotification = mock(() => 1)
-    const settings = createOperatorSettingsController({
-      projectConfigPath: join(dir, 'antigravity.json'),
-      userConfigPath: join(dir, 'user.json'),
-    })
-    const handler = createCommandExecuteBefore(
-      { session: { messages, promptAsync } } as never,
-      settings,
-      pushNotification,
-    )
-
-    for (const command of MODAL_COMMANDS) {
-      const result = handler?.(
-        { command, arguments: '', sessionID: 'session-1' },
-        { parts: [] },
-      )
-      await expect(result).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
-    }
-    expect(promptAsync).toHaveBeenCalledTimes(MODAL_COMMANDS.length)
-    expect(pushNotification).toHaveBeenCalledTimes(MODAL_COMMANDS.length)
-    await settings.dispose()
-  })
-
-  it('includes cached accounts in the quota OPEN notification payload', async () => {
-    const notifications: Array<Awaited<ReturnType<typeof buildDialogPayload>>> =
-      []
-    const pushNotification = (
-      payload: Awaited<ReturnType<typeof buildDialogPayload>>,
-    ) => {
-      notifications.push(payload)
-    }
-    const settings = createOperatorSettingsController({
-      projectConfigPath: join(dir, 'antigravity.json'),
-      userConfigPath: join(dir, 'user.json'),
-    })
-    const handler = createCommandExecuteBefore(
-      { session: { promptAsync: mock(async () => {}) } } as never,
-      settings,
-      pushNotification,
-      {
-        listAccounts: async () => [
-          {
-            index: 0,
-            label: 'Account 1',
-            enabled: true,
-            active: true,
-            quota: {},
+  function hook(connected: boolean, opening: 'menu' | 'unavailable') {
+    const pushed: { payload: RpcNotificationPayload; sessionId?: string }[] = []
+    const prompts: unknown[] = []
+    const opened: string[] = []
+    const before = createAntigravityCommandExecuteBefore({
+      client: {
+        session: {
+          promptAsync: async (request: unknown) => {
+            prompts.push(request)
           },
-        ],
-        refreshQuota: async () => [],
-        refreshQuotaRespectingBackoff: async () => {},
+        },
       } as never,
-      { isTuiConnected: () => true },
+      push: (entry, sessionId) => {
+        pushed.push({
+          payload: entry,
+          ...(sessionId !== undefined ? { sessionId } : {}),
+        })
+      },
+      open: async (sessionId) => {
+        opened.push(sessionId)
+        return opening === 'menu'
+          ? { kind: 'menu', payload }
+          : { kind: 'unavailable', message: 'migrate first' }
+      },
+      connection: { isTuiConnected: () => connected },
+    })
+    return { before, pushed, prompts, opened }
+  }
+
+  it('leaves every other command alone', async () => {
+    const { before, pushed, opened } = hook(true, 'menu')
+    await before?.(
+      { command: 'antigravity-quota', sessionID: 's1', arguments: '' },
+      { parts: [] } as never,
     )
-
-    await expect(
-      handler?.(
-        { command: 'antigravity-quota', arguments: '', sessionID: 'session-1' },
-        { parts: [] },
-      ),
-    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
-
-    const payload = notifications[0]
-    expect(payload?.knobs.accounts as unknown[] | undefined).toHaveLength(1)
-    await settings.dispose()
+    expect(opened).toEqual([])
+    expect(pushed).toEqual([])
   })
 
-  it('includes cached accounts in the account OPEN notification payload', async () => {
-    const notifications: Array<Awaited<ReturnType<typeof buildDialogPayload>>> =
-      []
-    const pushNotification = (
-      payload: Awaited<ReturnType<typeof buildDialogPayload>>,
-    ) => {
-      notifications.push(payload)
-    }
-    const settings = createOperatorSettingsController({
-      projectConfigPath: join(dir, 'antigravity.json'),
-      userConfigPath: join(dir, 'user.json'),
-    })
-    const handler = createCommandExecuteBefore(
-      { session: { promptAsync: mock(async () => {}) } } as never,
-      settings,
-      pushNotification,
+  it('queues the menu for the session and stops the prompt', async () => {
+    const { before, pushed, prompts, opened } = hook(true, 'menu')
+    await expect(
+      before?.({ command: 'antigravity', sessionID: 's1', arguments: '' }, {
+        parts: [],
+      } as never),
+    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
+    expect(opened).toEqual(['s1'])
+    expect(pushed).toEqual([{ payload, sessionId: 's1' }])
+    expect(prompts).toEqual([])
+  })
+
+  it('queues the reason as a notice when the menu is unavailable, and writes it without a TUI', async () => {
+    const { before, pushed, prompts } = hook(false, 'unavailable')
+    await expect(
+      before?.({ command: 'antigravity', sessionID: 's2', arguments: '' }, {
+        parts: [],
+      } as never),
+    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
+    expect(pushed).toEqual([
       {
-        listAccounts: async () => [
-          {
-            index: 0,
-            label: 'Primary account',
-            enabled: true,
-            active: true,
-            quota: {},
-          },
-        ],
-      } as never,
-      { isTuiConnected: () => true },
-    )
-
-    await expect(
-      handler?.(
-        {
-          command: 'antigravity-account',
-          arguments: '',
-          sessionID: 'session-1',
+        payload: {
+          command: 'antigravity',
+          notify: { message: 'migrate first', kind: 'warning' },
         },
-        { parts: [] },
-      ),
-    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
-
-    const payload = notifications[0]
-    expect(payload?.knobs.accounts as unknown[] | undefined).toHaveLength(1)
-    await settings.dispose()
-  })
-
-  it('suppresses the ignored fallback for every modal command when the tui is connected', async () => {
-    const promptAsync = mock(async () => {})
-    const messages = mock(async () => ({ data: [] }))
-    const pushNotification = mock(() => 1)
-    const settings = createOperatorSettingsController({
-      projectConfigPath: join(dir, 'antigravity.json'),
-      userConfigPath: join(dir, 'user.json'),
-    })
-    const handler = createCommandExecuteBefore(
-      { session: { messages, promptAsync } } as never,
-      settings,
-      pushNotification,
-      undefined,
-      { isTuiConnected: () => true },
-    )
-
-    for (const command of MODAL_COMMANDS) {
-      const result = handler?.(
-        { command, arguments: '', sessionID: 'session-1' },
-        { parts: [] },
-      )
-      await expect(result).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
-    }
-    expect(promptAsync).toHaveBeenCalledTimes(0)
-    expect(pushNotification).toHaveBeenCalledTimes(MODAL_COMMANDS.length)
-    await settings.dispose()
-  })
-
-  it('suppresses the ignored fallback for /gemini-dump when the tui is connected', async () => {
-    const promptAsync = mock(async () => {})
-    const messages = mock(async () => ({ data: [] }))
-    const pushNotification = mock(() => 1)
-    const settings = createOperatorSettingsController({
-      projectConfigPath: join(dir, 'antigravity.json'),
-      userConfigPath: join(dir, 'user.json'),
-    })
-    const handler = createCommandExecuteBefore(
-      { session: { messages, promptAsync } } as never,
-      settings,
-      pushNotification,
-      undefined,
-      { isTuiConnected: () => true },
-    )
-
-    await expect(
-      handler?.(
-        {
-          command: GEMINI_DUMP_COMMAND_NAME,
-          arguments: '',
-          sessionID: 'session-1',
-        },
-        { parts: [] },
-      ),
-    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
-    expect(promptAsync).toHaveBeenCalledTimes(0)
-    expect(pushNotification).toHaveBeenCalledTimes(0)
-    await settings.dispose()
-  })
-
-  it('still sends the ignored fallback when the tui is disconnected', async () => {
-    const promptAsync = mock(async () => {})
-    const messages = mock(async () => ({ data: [] }))
-    const pushNotification = mock(() => 1)
-    const settings = createOperatorSettingsController({
-      projectConfigPath: join(dir, 'antigravity.json'),
-      userConfigPath: join(dir, 'user.json'),
-    })
-    const handler = createCommandExecuteBefore(
-      { session: { messages, promptAsync } } as never,
-      settings,
-      pushNotification,
-      undefined,
-      { isTuiConnected: () => false },
-    )
-
-    await expect(
-      handler?.(
-        {
-          command: 'antigravity-quota',
-          arguments: '',
-          sessionID: 'session-1',
-        },
-        { parts: [] },
-      ),
-    ).rejects.toThrow('ANTIGRAVITY_COMMAND_HANDLED')
-    expect(promptAsync).toHaveBeenCalledTimes(1)
-    expect(pushNotification).toHaveBeenCalledTimes(1)
-    await settings.dispose()
+        sessionId: 's2',
+      },
+    ])
+    expect(JSON.stringify(prompts)).toContain('migrate first')
   })
 })
 
-describe('buildDialogPayload', () => {
-  let dir: string
-  let ctx: CommandContext
-
-  beforeEach(async () => {
-    dir = mkdtempSync(join(tmpdir(), 'agy-payload-'))
-    ctx = await makeContext(dir)
-  })
-
-  afterEach(async () => {
-    await ctx.settings.dispose()
-    rmSync(dir, { recursive: true, force: true })
-  })
-
-  it('rejects unknown commands explicitly', async () => {
-    await expect(
-      buildDialogPayload('not-a-command' as CommandModalName, '', {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-      }),
-    ).rejects.toThrow()
-  })
-
-  it('produces the quota refresh payload', async () => {
-    const payload = await buildDialogPayload('antigravity-quota', '', {
-      client: {} as never,
-      sessionID: '',
-      settings: ctx.settings,
-    })
-    expect(payload.command).toBe('antigravity-quota')
-    expect(payload.knobs).toHaveProperty('mode')
-  })
-
-  it('produces the account CRUD payload with action argument', async () => {
-    const payload = await buildDialogPayload('antigravity-account', 'add', {
-      client: {} as never,
-      sessionID: '',
-      settings: ctx.settings,
-    })
-    expect(payload.command).toBe('antigravity-account')
-    expect(payload.knobs).toHaveProperty('action', 'add')
-  })
-
-  it('produces the routing toggle payload (argument override flows through)', async () => {
-    const payload = await buildDialogPayload(
-      'antigravity-routing',
-      'cli_first=true',
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-      },
+describe('menuInvocation', () => {
+  it('turns menu notifications into notices for the invoking session', () => {
+    const pushed: unknown[] = []
+    const invocation = menuInvocation(
+      (entry, sessionId) => pushed.push({ entry, sessionId }),
+      's3',
     )
-    expect(payload.command).toBe('antigravity-routing')
-    expect(payload.knobs).toHaveProperty('cli_first', true)
-  })
-
-  it('produces the killswitch threshold payload (argument override flows through)', async () => {
-    const payload = await buildDialogPayload(
-      'antigravity-killswitch',
-      'minimum_remaining_percent=15',
+    expect(invocation.sessionId).toBe('s3')
+    invocation.notify('Account added', 'info')
+    invocation.notify('Default kind')
+    expect(pushed).toEqual([
       {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
+        entry: {
+          command: 'antigravity',
+          notify: { message: 'Account added', kind: 'info' },
+        },
+        sessionId: 's3',
       },
-    )
-    expect(payload.command).toBe('antigravity-killswitch')
-    expect(payload.knobs).toHaveProperty('minimum_remaining_percent', 15)
-  })
-
-  // -------------------------------------------------------------------------
-  // Task 11 — state-first routing/killswitch dialogs.
-  //
-  // The opening payload must report the CURRENT persisted state (no
-  // inversion), so the dialog mounts with the operator's existing
-  // settings as the user sees them. The plan trap: prior code negated
-  // the boolean fallback (`!settings.routing.cli_first`) which showed
-  // the wrong value on open.
-  // -------------------------------------------------------------------------
-
-  it('routing payload reports the current state when no argument is provided', async () => {
-    await ctx.settings.update((draft) => {
-      draft.routing.cli_first = true
-      draft.routing.quota_style_fallback = true
-    })
-    const payload = await buildDialogPayload('antigravity-routing', '', {
-      client: {} as never,
-      sessionID: '',
-      settings: ctx.settings,
-    })
-    expect(payload.command).toBe('antigravity-routing')
-    // Both flags report the seeded (true) state — no inversion.
-    expect(payload.knobs).toHaveProperty('cli_first', true)
-    expect(payload.knobs).toHaveProperty('quota_style_fallback', true)
-    expect(payload.knobs).toHaveProperty('timeoutMs', 2_000)
-  })
-
-  it('routing payload reports the current state (false defaults) without inversion', async () => {
-    const payload = await buildDialogPayload('antigravity-routing', '', {
-      client: {} as never,
-      sessionID: '',
-      settings: ctx.settings,
-    })
-    // Defaults: both false. The pre-fix code inverted these to `true`,
-    // which is the regression this assertion pins against.
-    expect(payload.knobs).toHaveProperty('cli_first', false)
-    expect(payload.knobs).toHaveProperty('quota_style_fallback', false)
-  })
-
-  it('killswitch payload reports the current state when no argument is provided', async () => {
-    await ctx.settings.update((draft) => {
-      draft.killswitch.enabled = true
-      draft.killswitch.minimum_remaining_percent = 15
-    })
-    const payload = await buildDialogPayload('antigravity-killswitch', '', {
-      client: {} as never,
-      sessionID: '',
-      settings: ctx.settings,
-    })
-    expect(payload.command).toBe('antigravity-killswitch')
-    expect(payload.knobs).toHaveProperty('enabled', true)
-    expect(payload.knobs).toHaveProperty('minimum_remaining_percent', 15)
-    // accounts map (empty after no overrides) is always present.
-    expect(payload.knobs).toHaveProperty('accounts')
-    expect(payload.knobs).toHaveProperty('timeoutMs', 2_000)
-  })
-
-  it('killswitch payload surfaces per-account override map when present', async () => {
-    const key = 'abcdef012345'
-    await ctx.settings.update((draft) => {
-      draft.killswitch.accounts = { [key]: 30 }
-    })
-    const payload = await buildDialogPayload('antigravity-killswitch', '', {
-      client: {} as never,
-      sessionID: '',
-      settings: ctx.settings,
-    })
-    const accounts = payload.knobs.accounts as Record<string, number>
-    expect(accounts[key]).toBe(30)
-  })
-
-  it('produces the dump toggle payload', async () => {
-    const payload = await buildDialogPayload('antigravity-dump', 'on', {
-      client: {} as never,
-      sessionID: '',
-      settings: ctx.settings,
-    })
-    expect(payload.command).toBe('antigravity-dump')
-    expect(payload.knobs).toHaveProperty('mode', 'enable')
-  })
-
-  it('produces the logging level payload', async () => {
-    const payload = await buildDialogPayload('antigravity-logging', 'debug', {
-      client: {} as never,
-      sessionID: '',
-      settings: ctx.settings,
-    })
-    expect(payload.command).toBe('antigravity-logging')
-    expect(payload.knobs).toHaveProperty('log_level', 'debug')
+      {
+        entry: {
+          command: 'antigravity',
+          notify: { message: 'Default kind', kind: 'info' },
+        },
+        sessionId: 's3',
+      },
+    ])
   })
 })
 
-describe('applyCommand', () => {
-  let dir: string
-  let ctx: CommandContext
-
-  beforeEach(async () => {
-    dir = mkdtempSync(join(tmpdir(), 'agy-apply-'))
-    ctx = await makeContext(dir)
-  })
-
-  afterEach(async () => {
-    await ctx.settings.dispose()
-    rmSync(dir, { recursive: true, force: true })
-  })
-
-  it('dispatches every modal command through applyCommand and returns an ApplyResult', async () => {
-    for (const command of MODAL_COMMANDS) {
-      const result = await applyCommand(
-        { command, arguments: '', sessionId: 'session-1' },
-        {
-          client: {} as never,
-          sessionID: 'session-1',
-          settings: ctx.settings,
-        },
-      )
-      expect(result.text).toBeTruthy()
-      expect(result.knobs).toBeDefined()
-    }
-  })
-
-  it('rejects apply for an unknown command', async () => {
-    await expect(
-      applyCommand(
-        { command: 'not-a-command' as CommandModalName, arguments: '' },
-        {
-          client: {} as never,
-          sessionID: '',
-          settings: ctx.settings,
-        },
-      ),
-    ).rejects.toThrow()
-  })
-
-  it('account add and refresh opt into the 120s RPC timeout', async () => {
-    const add = await applyCommand(
-      { command: 'antigravity-account', arguments: 'add' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-      },
-    )
-    expect(add.knobs.timeoutMs).toBe(120_000)
-    const refresh = await applyCommand(
-      { command: 'antigravity-account', arguments: 'refresh' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-      },
-    )
-    expect(refresh.knobs.timeoutMs).toBe(120_000)
-  })
-
-  it('returns an OAuth URL and current rows when add-oauth-start is applied', async () => {
-    const start = mock(async () => ({
-      url: 'https://accounts.google.test/authorize',
-      accounts: [
-        {
-          id: 'acct-0',
-          index: 0,
-          label: 'Primary account',
-          enabled: true,
-          current: true,
-          quota: [],
-        },
-      ],
-    }))
-
-    const result = await applyCommand(
-      { command: 'antigravity-account', arguments: 'add-oauth-start' },
-      {
-        client: {} as never,
-        sessionID: 'session-1',
-        settings: ctx.settings,
-        accountOAuth: { start } as never,
-      },
-    )
-
-    expect(start).toHaveBeenCalledWith('session-1')
-    expect(result.text).toContain('Open this URL')
-    expect(result.knobs.oauthUrl).toBe('https://accounts.google.test/authorize')
-    expect(result.knobs.accounts as unknown[]).toHaveLength(1)
-    expect(result.knobs.timeoutMs).toBe(120_000)
-  })
-
-  it('returns refreshed rows after add-oauth-finish', async () => {
-    const finish = mock(async () => ({
-      text: 'OAuth account added.',
-      accounts: [
-        {
-          id: 'acct-0',
-          index: 0,
-          label: 'Primary account',
-          enabled: true,
-          current: true,
-          quota: [],
-        },
-        {
-          id: 'acct-1',
-          index: 1,
-          label: 'Work account',
-          enabled: true,
-          current: false,
-          quota: [],
-        },
-      ],
-    }))
-
-    const result = await applyCommand(
-      {
-        command: 'antigravity-account',
-        arguments: 'add-oauth-finish callback-code',
-      },
-      {
-        client: {} as never,
-        sessionID: 'session-1',
-        settings: ctx.settings,
-        accountOAuth: { finish } as never,
-      },
-    )
-
-    expect(finish).toHaveBeenCalledWith('session-1', 'callback-code')
-    expect(result.text).toBe('OAuth account added.')
-    expect(result.knobs.accounts as unknown[]).toHaveLength(2)
-    expect(result.knobs.timeoutMs).toBe(120_000)
-  })
-
-  it('preserves an existing cached quota in the sidebar after add-oauth-finish', async () => {
-    const sidebarFile = join(dir, 'sidebar-state.json')
-    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
-    try {
-      const finish = mock(async () => ({
-        text: 'OAuth account added.',
-        accounts: [
-          {
-            id: 'acct-0',
-            index: 0,
-            label: 'Primary account',
-            enabled: true,
-            current: true,
-            quota: [
-              {
-                key: 'non-gemini' as const,
-                label: 'Non-Gemini',
-                remainingPercent: 50,
-              },
-            ],
-          },
-          {
-            id: 'acct-1',
-            index: 1,
-            label: 'New account',
-            enabled: true,
-            current: false,
-            quota: [],
-          },
-        ],
-      }))
-
-      await applyCommand(
-        {
-          command: 'antigravity-account',
-          arguments: 'add-oauth-finish callback-code',
-        },
-        {
-          client: {} as never,
-          sessionID: 'session-1',
-          settings: ctx.settings,
-          accountOAuth: { finish } as never,
-          onApplied: createSidebarRefresher(() => []),
-        },
-      )
-
-      const state = readSidebarState(sidebarFile)
-      expect(state.accounts).toHaveLength(2)
-      expect(state.accounts[0]?.quota['non-gemini']?.remainingPercent).toBe(50)
-      expect(state.accounts[1]?.quota).toEqual({})
-    } finally {
-      // Restore rather than delete when previousSidebarFile was unset —
-      // a delete drops resolution to the operator's real state dir.
-      if (previousSidebarFile !== undefined) {
-        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
-      }
-    }
-  })
-
-  it('V2 windows: per-window quota arrays survive the post-apply sidebar projection', async () => {
-    // After an account or quota apply, createSidebarRefresher rebuilds
-    // cachedQuota from CommandAccountRow.quota. Without the fix the
-    // `windows` array was not carried and the sidebar collapsed to a
-    // single aggregate bar after every apply.
-    const sidebarFile = join(dir, 'sidebar-windows-v2.json')
-    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
-    try {
-      const resetAt = Date.now() + 7 * 24 * 60 * 60_000
-      const dialogRows: CommandAccountRow[] = [
-        {
-          id: 'acct-0',
-          index: 0,
-          label: 'Account 1',
-          enabled: true,
-          current: true,
-          quota: [
-            {
-              key: 'non-gemini' as const,
-              label: 'Non-Gemini',
-              remainingPercent: 60,
-              resetAt,
-              windows: [
-                {
-                  window: '5h' as const,
-                  remainingPercent: 85,
-                  resetAt: resetAt - 1000,
-                },
-                { window: 'weekly' as const, remainingPercent: 60, resetAt },
-              ],
-            },
-          ],
-        },
-      ]
-
-      const refresher = createSidebarRefresher(() => [])
-      await refresher(dialogRows)
-
-      const state = readSidebarState(sidebarFile)
-      expect(state.accounts).toHaveLength(1)
-      const quota = state.accounts[0]?.quota['non-gemini']
-      expect(quota?.remainingPercent).toBe(60)
-      // Per-window entries must survive the post-apply sidebar write.
-      expect(quota?.windows).toBeDefined()
-      expect(quota?.windows?.length).toBeGreaterThanOrEqual(2)
-      const weekly = quota?.windows?.find((w) => w.window === 'weekly')
-      expect(weekly).toBeDefined()
-      expect(weekly?.remainingPercent).toBe(60)
-    } finally {
-      // Restore rather than delete when previousSidebarFile was unset —
-      // a delete drops resolution to the operator's real state dir.
-      if (previousSidebarFile !== undefined) {
-        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
-      }
-    }
-  })
-
-  it('carries healthScore from dialog rows into the sidebar state file', async () => {
-    // Covers the M1 seam AND the M3 gap: the final projection inside
-    // createSidebarRefresher must not re-map fields (dropping healthScore),
-    // and the sidebar state file (not just the returned row) must carry
-    // the tracker score. A score of 42 should appear as health: 42 in the
-    // persisted state - not reset to the default 100.
-    const sidebarFile = join(dir, 'sidebar-health-seam.json')
-    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
-    try {
-      const refresher = createSidebarRefresher(() => [])
-      const dialogRows: CommandAccountRow[] = [
-        {
-          id: 'acct-0',
-          index: 0,
-          label: 'Alpha',
-          enabled: true,
-          current: true,
-          healthScore: 42,
-          quota: [
-            {
-              key: 'gemini' as const,
-              label: 'Gemini',
-              remainingPercent: 80,
-              windows: [
-                {
-                  window: '5h' as const,
-                  remainingPercent: 80,
-                  resetAt: Date.now() + 5 * 60 * 1000,
-                },
-                {
-                  window: 'weekly' as const,
-                  remainingPercent: 75,
-                  resetAt: Date.now() + 7 * 24 * 60 * 60_000,
-                },
-              ],
-            },
-          ],
-        },
-        {
-          id: 'acct-1',
-          index: 1,
-          label: 'Beta',
-          enabled: false,
-          current: false,
-          healthScore: 17,
-          quota: [],
-        },
-      ]
-
-      await refresher(dialogRows)
-
-      const state = readSidebarState(sidebarFile)
-      expect(state.accounts).toHaveLength(2)
-      // Core seam assertion: tracker scores must reach the state file.
-      expect(state.accounts[0]?.health).toBe(42)
-      expect(state.accounts[1]?.health).toBe(17)
-      // Per-window data must also survive the same projection.
-      const gemini = state.accounts[0]?.quota.gemini
-      expect(gemini?.windows).toBeDefined()
-      expect(gemini?.windows?.length).toBeGreaterThanOrEqual(2)
-    } finally {
-      // Restore rather than delete when previousSidebarFile was unset —
-      // a delete drops resolution to the operator's real state dir.
-      if (previousSidebarFile !== undefined) {
-        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
-      }
-    }
-  })
-
-  it('preserves the live coolingDownUntil when an account action refreshes the sidebar', async () => {
-    // The dialog path builds sidebar rows from the post-mutation
-    // command data, which does NOT carry the running cooldown. The
-    // sidebar refresher must look up the live account's timer by
-    // index so a rate-limited account doesn't momentarily flash as
-    // available right after the user toggles / removes / sets active.
-    const sidebarFile = join(dir, 'sidebar-state.json')
-    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
-    try {
-      const getAccounts = mock(() => [
-        {
-          index: 0,
-          label: 'Rate-limited',
-          enabled: true,
-          coolingDownUntil: 1_900_000_000_000,
-        },
-        {
-          index: 1,
-          label: 'Available',
-          enabled: true,
-          coolingDownUntil: undefined,
-        },
-      ])
-      const refresher = createSidebarRefresher(getAccounts)
-      const dialogRows = [
-        {
-          id: 'acct-0',
-          index: 0,
-          label: 'Rate-limited',
-          enabled: true,
-          current: true,
-          quota: [],
-        },
-        {
-          id: 'acct-1',
-          index: 1,
-          label: 'Available',
-          enabled: true,
-          current: false,
-          quota: [],
-        },
-      ]
-
-      await refresher(dialogRows)
-
-      const state = readSidebarState(sidebarFile)
-      expect(state.accounts).toHaveLength(2)
-      expect(state.accounts[0]?.cooldownUntil).toBe(1_900_000_000_000)
-      expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
-    } finally {
-      // Restore rather than delete when previousSidebarFile was unset —
-      // a delete drops resolution to the operator's real state dir.
-      if (previousSidebarFile !== undefined) {
-        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
-      }
-    }
-  })
-
-  it('uses the dialog row cooldown over the live-by-index fallback when the row carries it', async () => {
-    // Live accounts have been renumbered between projection and
-    // refresh (e.g. a concurrent reload). The dialog row projected
-    // before the reorder carries its own cooldown, which must survive
-    // through the refresher — the live-by-index lookup at the row's
-    // stale index would give the wrong account's cooldown.
-    const sidebarFile = join(dir, 'sidebar-reorder.json')
-    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
-    try {
-      // Live accounts AFTER reorder: index 0 now has cooldown
-      // 1_800_000_000_000 (the wrong account's timer).
-      const getAccounts = mock(() => [
-        {
-          index: 0,
-          label: 'Shifted account',
-          enabled: true,
-          coolingDownUntil: 1_800_000_000_000,
-        },
-        {
-          index: 1,
-          label: 'Unlimited',
-          enabled: true,
-          coolingDownUntil: undefined,
-        },
-      ])
-      const refresher = createSidebarRefresher(getAccounts)
-      // Dialog rows projected BEFORE the reorder: index 0 already
-      // carries the original cooldown from the projection.
-      const dialogRows: CommandAccountRow[] = [
-        {
-          id: 'acct-0',
-          index: 0,
-          label: 'Rate-limited',
-          enabled: true,
-          current: true,
-          coolingDownUntil: 1_900_000_000_000,
-          quota: [],
-        },
-        {
-          id: 'acct-1',
-          index: 1,
-          label: 'Available',
-          enabled: true,
-          current: false,
-          coolingDownUntil: undefined,
-          quota: [],
-        },
-      ]
-
-      await refresher(dialogRows)
-
-      const state = readSidebarState(sidebarFile)
-      expect(state.accounts).toHaveLength(2)
-      // The row's own cooldown (1_900_000_000_000) must be used, not
-      // the live-by-index fallback (1_800_000_000_000) which belongs
-      // to the account that shifted into slot 0 after the reorder.
-      expect(state.accounts[0]?.cooldownUntil).toBe(1_900_000_000_000)
-      expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
-    } finally {
-      // Restore rather than delete when previousSidebarFile was unset —
-      // a delete drops resolution to the operator's real state dir.
-      if (previousSidebarFile !== undefined) {
-        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
-      }
-    }
-  })
-
-  it('does not fall through to the live-by-index map when the row carries its own undefined cooldown', async () => {
-    // After a concurrent reorder, the index that belonged to a
-    // no-cooldown account now holds a DIFFERENT account WITH a
-    // cooldown. The dialog row (projected before the reorder)
-    // carries coolingDownUntil: undefined (present = genuinely no
-    // cooldown) — this must NOT fall through to the index map and
-    // inherit the wrong account's timer.
-    const sidebarFile = join(dir, 'sidebar-misattrib.json')
-    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
-    try {
-      // Live accounts AFTER reorder: the account that shifted into
-      // slot 0 has a cooldown.
-      const getAccounts = mock(() => [
-        {
-          index: 0,
-          label: 'Shifted-in account',
-          enabled: true,
-          coolingDownUntil: 1_700_000_000_000,
-        },
-        {
-          index: 1,
-          label: 'Second account',
-          enabled: true,
-          coolingDownUntil: undefined,
-        },
-      ])
-      const refresher = createSidebarRefresher(getAccounts)
-      // Dialog rows projected BEFORE the reorder. Index 0 was the
-      // no-cooldown account and the row carries undefined (present).
-      const dialogRows: CommandAccountRow[] = [
-        {
-          id: 'acct-0',
-          index: 0,
-          label: 'No-cooldown account',
-          enabled: true,
-          current: true,
-          coolingDownUntil: undefined,
-          quota: [],
-        },
-      ]
-
-      await refresher(dialogRows)
-
-      const state = readSidebarState(sidebarFile)
-      expect(state.accounts).toHaveLength(1)
-      // Must NOT inherit 1_700_000_000_000 from the shifted-in
-      // account at live index 0.
-      expect(state.accounts[0]?.cooldownUntil).toBeUndefined()
-    } finally {
-      // Restore rather than delete when previousSidebarFile was unset —
-      // a delete drops resolution to the operator's real state dir.
-      if (previousSidebarFile !== undefined) {
-        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
-      }
-    }
-  })
-
-  it('falls back to the live-by-index cooldown when the row lacks the property entirely', async () => {
-    // Legacy projection rows (pre-coolingDownUntil field) do not
-    // carry the key at all. The refresher must still read the live
-    // timer from the index map so a rate-limited account's cooldown
-    // survives through the sidebar update.
-    const sidebarFile = join(dir, 'sidebar-legacy.json')
-    const previousSidebarFile = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-    process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = sidebarFile
-    try {
-      const getAccounts = mock(() => [
-        {
-          index: 0,
-          label: 'Rate-limited',
-          enabled: true,
-          coolingDownUntil: 1_800_000_000_000,
-        },
-        {
-          index: 1,
-          label: 'Available',
-          enabled: true,
-          coolingDownUntil: undefined,
-        },
-      ])
-      const refresher = createSidebarRefresher(getAccounts)
-      // Legacy dialog rows that DO NOT have coolingDownUntil at
-      // all (the property is absent, not undefined).
-      const dialogRows = [
-        {
-          id: 'acct-0',
-          index: 0,
-          label: 'Rate-limited',
-          enabled: true,
-          current: true,
-          quota: [],
-        },
-        {
-          id: 'acct-1',
-          index: 1,
-          label: 'Available',
-          enabled: true,
-          current: false,
-          quota: [],
-        },
-      ] as CommandAccountRow[]
-
-      await refresher(dialogRows)
-
-      const state = readSidebarState(sidebarFile)
-      expect(state.accounts).toHaveLength(2)
-      expect(state.accounts[0]?.cooldownUntil).toBe(1_800_000_000_000)
-      expect(state.accounts[1]?.cooldownUntil).toBeUndefined()
-    } finally {
-      // Restore rather than delete when previousSidebarFile was unset —
-      // a delete drops resolution to the operator's real state dir.
-      if (previousSidebarFile !== undefined) {
-        process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE = previousSidebarFile
-      }
-    }
-  })
-
-  it('starts a backoff-respecting quota check when the quota dialog opens without delaying its cached payload', async () => {
-    // N6: the dialog OPEN path now calls refreshQuotaRespectingBackoff
-    // (non-forced) instead of refreshQuota (forced). The fire-and-forget
-    // semantics are preserved: if buildDialogPayload accidentally awaits
-    // the call this test hangs and surfaces as a timeout.
-    const listAccounts = mock(async () => [
-      {
-        id: 'acct-0',
-        index: 0,
-        label: 'Primary account',
-        enabled: true,
-        current: true,
-        quota: [],
-      },
-    ])
-    let refreshStarted = false
-    const refreshQuotaRespectingBackoff = mock(() => {
-      refreshStarted = true
-      return new Promise<never>(() => {})
+describe('createOpenCodeAntigravityMenu', () => {
+  it('serves the fixed sections and sign-in over a real store and writes settings through the controller', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'v1-menu-')))
+    const settings = createOperatorSettingsController({
+      projectConfigPath: join(root, 'project', 'antigravity.json'),
+      userConfigPath: join(root, 'user', 'antigravity.json'),
     })
-
-    const payload = await buildDialogPayload('antigravity-quota', '', {
-      client: {} as never,
-      sessionID: 'session-1',
-      settings: ctx.settings,
-      commandData: { listAccounts, refreshQuotaRespectingBackoff } as never,
-    })
-
-    expect(payload.knobs.accounts).toHaveLength(1)
-    expect(refreshStarted).toBe(true)
-    expect(refreshQuotaRespectingBackoff).toHaveBeenCalledTimes(1)
-  })
-
-  it('returns the expired-pending result from add-oauth-finish', async () => {
-    const finish = mock(async () => ({
-      text: 'OAuth session expired. Please start again.',
-      accounts: [],
-    }))
-
-    const result = await applyCommand(
-      {
-        command: 'antigravity-account',
-        arguments: 'add-oauth-finish callback-code',
-      },
-      {
-        client: {} as never,
-        sessionID: 'session-1',
-        settings: ctx.settings,
-        accountOAuth: { finish } as never,
-      },
-    )
-
-    expect(finish).toHaveBeenCalledWith('session-1', 'callback-code')
-    expect(result.text).toBe('OAuth session expired. Please start again.')
-    expect(result.knobs.accounts as unknown[]).toHaveLength(0)
-  })
-
-  it('account apply dispatches current/toggle/remove through the data service', async () => {
-    const toggleSpy = mock(async () => [
-      {
-        id: 'acct-0',
-        index: 0,
-        label: 'Alpha',
-        enabled: false,
-        current: true,
-        quota: [],
-      },
-    ])
-    const setCurrentSpy = mock(async () => [
-      {
-        id: 'acct-1',
-        index: 1,
-        label: 'Beta',
-        enabled: true,
-        current: true,
-        quota: [],
-      },
-    ])
-    const removeSpy = mock(async () => [
-      {
-        id: 'acct-0',
-        index: 0,
-        label: 'Alpha',
-        enabled: true,
-        current: true,
-        quota: [],
-      },
-    ])
-    const commandData = {
-      listAccounts: mock(async () => []),
-      refreshQuota: mock(async () => []),
-      setCurrentAccount: setCurrentSpy,
-      toggleAccountEnabled: toggleSpy,
-      removeAccount: removeSpy,
-    }
-
-    const toggle = await applyCommand(
-      { command: 'antigravity-account', arguments: 'toggle 0' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-        commandData: commandData as never,
-      },
-    )
-    expect(toggleSpy).toHaveBeenCalledWith(0)
-    expect(toggle.knobs.timeoutMs).toBe(2_000)
-    expect(toggle.text).toContain('enabled')
-
-    const setCurrent = await applyCommand(
-      { command: 'antigravity-account', arguments: 'current 1' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-        commandData: commandData as never,
-      },
-    )
-    expect(setCurrentSpy).toHaveBeenCalledWith(1)
-    expect(setCurrent.knobs.timeoutMs).toBe(2_000)
-
-    const remove = await applyCommand(
-      { command: 'antigravity-account', arguments: 'remove 0' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-        commandData: commandData as never,
-      },
-    )
-    expect(removeSpy).toHaveBeenCalledWith(0)
-    expect(remove.knobs.timeoutMs).toBe(2_000)
-    expect(remove.text).toContain('removed')
-  })
-
-  it('account apply rejects an out-of-range index with a friendly text', async () => {
-    const setCurrentSpy = mock(async () => null)
-    const commandData = {
-      listAccounts: mock(async () => []),
-      refreshQuota: mock(async () => []),
-      setCurrentAccount: setCurrentSpy,
-      toggleAccountEnabled: mock(async () => null),
-      removeAccount: mock(async () => null),
-    }
-    const result = await applyCommand(
-      { command: 'antigravity-account', arguments: 'current 99' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-        commandData: commandData as never,
-      },
-    )
-    expect(setCurrentSpy).toHaveBeenCalledWith(99)
-    expect(result.text).toContain('99')
-    expect(result.knobs.timeoutMs).toBe(2_000)
-  })
-
-  it('account apply rejects malformed arguments without throwing', async () => {
-    const commandData = {
-      listAccounts: mock(async () => []),
-      refreshQuota: mock(async () => []),
-      setCurrentAccount: mock(async () => null),
-      toggleAccountEnabled: mock(async () => null),
-      removeAccount: mock(async () => null),
-    }
-    const result = await applyCommand(
-      { command: 'antigravity-account', arguments: 'toggle not-a-number' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-        commandData: commandData as never,
-      },
-    )
-    expect(result.text).toContain('Unknown account action')
-    expect(result.knobs.timeoutMs).toBe(2_000)
-  })
-
-  it('account apply degrades to a friendly error when the data service is missing', async () => {
-    const result = await applyCommand(
-      { command: 'antigravity-account', arguments: 'toggle 0' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-      },
-    )
-    // Without a data service the locked-storage write cannot land,
-    // so the apply surfaces a friendly error rather than silently
-    // toasting success and leaving the runtime ahead of disk.
-    expect(result.text).toContain('Command data service is not wired')
-    expect(result.knobs.timeoutMs).toBe(2_000)
-    expect(result.knobs.error).toBe(true)
-  })
-
-  // SHOULD-3 — when the data service throws AccountStorageUnreadableError
-  // (corrupt file) or a lock-contention error, the apply layer must
-  // surface the message as `text` so the dialog toasts it and stays
-  // mounted (T8 pattern). The runtime view is left untouched because
-  // the service does not apply the live mutation on a failed write.
-  it('account apply surfaces locked-storage errors as friendly text', async () => {
-    const removeSpy = mock(async () => {
-      throw new AccountStorageUnreadableError('corrupt', {
-        path: '/tmp/accounts.json',
-        reason: 'invalid-shape',
-        detail: 'unexpected',
-        backupPath: null,
+    try {
+      const legacyPath = join(root, 'antigravity-accounts.json')
+      const modules = await loadCommonAuthStoreModules()
+      await initializeFreshAccountStore(modules, { legacyPath, now: Date.now })
+      const admission = await readAccountStoreAdmission(
+        legacyPath,
+        modules,
+        Date.now,
+      )
+      if (admission.status !== 'active') throw new Error(admission.status)
+      const repository = createAccountRepositoryFactory(modules)({
+        paths: admission.paths,
+        now: Date.now,
+        exchange: async () => {
+          throw new Error('token exchange is not part of this test')
+        },
       })
-    })
-    const commandData = {
-      listAccounts: mock(async () => []),
-      refreshQuota: mock(async () => []),
-      setCurrentAccount: mock(async () => null),
-      toggleAccountEnabled: mock(async () => null),
-      removeAccount: removeSpy,
-    }
-    const result = await applyCommand(
-      { command: 'antigravity-account', arguments: 'remove 0' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-        commandData: commandData as never,
-      },
-    )
-    expect(removeSpy).toHaveBeenCalledWith(0)
-    // The friendly text surfaces the actual storage failure so the
-    // dialog can toast a real cause rather than a generic "failed".
-    expect(result.text).toContain('unreadable')
-    expect(result.text).toContain('invalid-shape')
-    expect(result.knobs.timeoutMs).toBe(2_000)
-    expect(result.knobs.error).toBe(true)
-  })
+      try {
+        await repository.login({
+          id: crypto.randomUUID(),
+          refreshToken: 'menu-refresh-secret',
+          metadata: { email: 'menu@example.com', addedAt: 1, lastUsed: 1 },
+        })
+        let dumping = false
+        const levels: string[] = []
+        const signIns: string[] = []
+        const menu = await createOpenCodeAntigravityMenu({
+          accounts: repository,
+          settings,
+          dump: {
+            isEnabled: () => dumping,
+            setEnabled: (enabled) => {
+              dumping = enabled
+            },
+          },
+          applyLogLevel: (level) => levels.push(level),
+          signIn: {
+            start: async (sessionId) => {
+              signIns.push(`start:${sessionId}`)
+              return { url: 'https://accounts.example/auth', accounts: [] }
+            },
+            finish: async (sessionId, callback, label) => {
+              signIns.push(`finish:${sessionId}:${callback}:${label ?? ''}`)
+              return { text: 'Account added', accounts: [] }
+            },
+          },
+        })
+        const invocation = { sessionId: 's1', notify: () => undefined }
+        const payload = await menu.open(invocation)
+        expect(payload.menu.sections.map((section) => section.slot)).toEqual([
+          'accounts',
+          'quota',
+          'routing',
+          'limits',
+          'diagnostics',
+          'extra',
+        ])
+        const text = JSON.stringify(payload)
+        expect(text).not.toContain('menu@example.com')
+        expect(text).not.toContain('secret')
 
-  it('quota refresh keeps the 2s default timeout', async () => {
-    const result = await applyCommand(
-      { command: 'antigravity-quota', arguments: 'refresh' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-      },
-    )
-    expect(result.knobs.timeoutMs).toBe(2_000)
-  })
+        const routed = await menu.apply(
+          {
+            command: 'antigravity',
+            sectionId: 'routing',
+            actionId: 'set',
+            values: { cliFirst: true },
+          },
+          invocation,
+        )
+        expect(routed.ok).toBe(true)
+        expect(settings.get().routing.cli_first).toBe(true)
 
-  // -------------------------------------------------------------------------
-  // Task 11 — state-first apply: return the complete persisted state in
-  // knobs so the dialog can re-render in place from the same shape
-  // `buildDialogPayload` produced on open. The pre-fix code returned
-  // only the parsed delta, which left the dialog with stale data after
-  // a toggle.
-  // -------------------------------------------------------------------------
+        const logged = await menu.apply(
+          {
+            command: 'antigravity',
+            sectionId: 'diagnostics',
+            actionId: 'logging',
+            values: { level: 'debug' },
+          },
+          invocation,
+        )
+        expect(logged.ok).toBe(true)
+        expect(settings.get().log_level).toBe('debug')
+        expect(levels).toEqual(['debug'])
 
-  it('routing apply returns the complete persisted state in knobs', async () => {
-    // Seed both flags true; toggle only cli_first.
-    await ctx.settings.update((draft) => {
-      draft.routing.cli_first = true
-      draft.routing.quota_style_fallback = true
-    })
-    const result = await applyCommand(
-      { command: 'antigravity-routing', arguments: 'cli_first=false' },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-      },
-    )
-    expect(result.text).toBe('Routing updated')
-    // Complete state in knobs (not just the parsed delta).
-    expect(result.knobs).toHaveProperty('cli_first', false)
-    expect(result.knobs).toHaveProperty('quota_style_fallback', true)
-    expect(result.knobs).toHaveProperty('timeoutMs', 2_000)
-  })
+        const dumped = await menu.apply(
+          {
+            command: 'antigravity',
+            sectionId: 'diagnostics',
+            actionId: 'dump',
+          },
+          invocation,
+        )
+        expect(dumped.ok).toBe(true)
+        expect(dumping).toBe(true)
 
-  it('killswitch apply returns the complete persisted state in knobs', async () => {
-    await ctx.settings.update((draft) => {
-      draft.killswitch.enabled = true
-      draft.killswitch.minimum_remaining_percent = 15
-    })
-    const result = await applyCommand(
-      {
-        command: 'antigravity-killswitch',
-        arguments: 'minimum_remaining_percent=25',
-      },
-      {
-        client: {} as never,
-        sessionID: '',
-        settings: ctx.settings,
-      },
-    )
-    expect(result.text).toBe('Killswitch updated')
-    expect(result.knobs).toHaveProperty('enabled', true)
-    expect(result.knobs).toHaveProperty('minimum_remaining_percent', 25)
-    // accounts map is always carried back so the dialog re-renders it.
-    expect(result.knobs).toHaveProperty('accounts')
-    expect(result.knobs).toHaveProperty('timeoutMs', 2_000)
-  })
-
-  // -------------------------------------------------------------------------
-  // Task 11 — error path: when the fenced-lock writer rejects (lock
-  // contention or unreadable config), the apply layer surfaces the
-  // message as friendly `text` so the dialog can toast it and keep the
-  // user on the same dialog (T8/T10 pattern). The pre-fix code would
-  // throw, blowing the apply promise and leaving the dialog without
-  // feedback.
-  // -------------------------------------------------------------------------
-
-  it('routing apply surfaces a friendly error when the writer is contended', async () => {
-    const updateMock = mock(async () => {
-      throw new Error(
-        'Could not acquire operator-config lock at /tmp/test.json (already held by another writer).',
-      )
-    })
-    // Replace the controller's update method to force the lock failure.
-    const origUpdate = ctx.settings.update
-    ctx.settings.update = updateMock as never
-    try {
-      const result = await applyCommand(
-        { command: 'antigravity-routing', arguments: 'cli_first=true' },
-        {
-          client: {} as never,
-          sessionID: '',
-          settings: ctx.settings,
-        },
-      )
-      expect(updateMock).toHaveBeenCalled()
-      // The friendly text surfaces the lock reason, not a stack trace.
-      expect(result.text).toContain('Routing update failed')
-      expect(result.text).toContain('lock')
-      expect(result.knobs).toHaveProperty('timeoutMs', 2_000)
-      expect(result.knobs.error).toBe(true)
+        const started = await menu.apply(
+          { command: 'antigravity', sectionId: 'sign-in', actionId: 'start' },
+          invocation,
+        )
+        expect(started.text).toContain('https://accounts.example/auth')
+        const finished = await menu.apply(
+          {
+            command: 'antigravity',
+            sectionId: 'sign-in',
+            actionId: 'finish',
+            values: { callback: 'code-123', label: 'Work' },
+          },
+          invocation,
+        )
+        expect(finished.text).toBe('Account added')
+        expect(signIns).toEqual(['start:s1', 'finish:s1:code-123:Work'])
+      } finally {
+        await repository.dispose()
+      }
     } finally {
-      ctx.settings.update = origUpdate
-    }
-  })
-
-  it('killswitch apply surfaces a friendly error when the writer is contended', async () => {
-    const updateMock = mock(async () => {
-      throw new Error(
-        'Could not acquire operator-config lock at /tmp/test.json (already held by another writer).',
-      )
-    })
-    const origUpdate = ctx.settings.update
-    ctx.settings.update = updateMock as never
-    try {
-      const result = await applyCommand(
-        { command: 'antigravity-killswitch', arguments: 'enabled=true' },
-        {
-          client: {} as never,
-          sessionID: '',
-          settings: ctx.settings,
-        },
-      )
-      expect(updateMock).toHaveBeenCalled()
-      expect(result.text).toContain('Killswitch update failed')
-      expect(result.text).toContain('lock')
-      expect(result.knobs).toHaveProperty('timeoutMs', 2_000)
-      expect(result.knobs.error).toBe(true)
-    } finally {
-      ctx.settings.update = origUpdate
+      await settings.dispose()
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })
