@@ -35,6 +35,7 @@ import {
   createProviderStateCodec,
   decodeProviderState,
   encodeProviderMetadata,
+  encodeProviderState,
   QUOTA_CODEC,
 } from './account-repository-codecs.ts'
 import {
@@ -47,6 +48,7 @@ import {
   type AccountTokenExchange,
   MANAGEMENT_LOCK_NAME,
   MANAGEMENT_SETTINGS_KEY,
+  type ManagementReceipt,
   type ProviderMetadata,
   type ProviderStateEnvelope,
   type RowRef,
@@ -397,7 +399,7 @@ describe('observations', () => {
 
 const STORE_CONSUMER_ENV = 'AGY_COMMON_AUTH_STORE_CONSUMER'
 const STORE_PACKAGE_NAME = '@cortexkit/common-auth'
-const STORE_PACKAGE_VERSION = '0.11.3'
+const STORE_PACKAGE_VERSION = '0.11.4'
 const STORE_SPECIFIER = `${STORE_PACKAGE_NAME}/store`
 const STORE_BRIDGE_FILE = 'store-bridge.mjs'
 const STORE_BRIDGE_SOURCE = `export * from '${STORE_SPECIFIER}'\n`
@@ -410,7 +412,7 @@ const FS_BRIDGE_SOURCE = `export * from '${FS_SPECIFIER}'\n`
  * store entry's whole import closure) of the admitted package.
  */
 const STORE_CLOSURE_SHA256 =
-  '174083d8f7fde6ec46d8732f0238ced5834b9e79535a39ca1d6079f454ddc78b'
+  '1457c1741246d51c5aa311b60d7f2e17a760b861e4fdb880033d92b60869bc6a'
 /** Bound on the child process of the cross-process test. */
 const CHILD_BOUND_MS = 30_000
 /** Grace between SIGTERM and SIGKILL for that child. */
@@ -2560,6 +2562,476 @@ describe('management on the genuine public store', () => {
         expect(
           ready(read).rows.map((row) => row.credential?.refreshToken),
         ).toEqual(['tok-new-1', 'tok-new-2'])
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+})
+
+// ---------------------------------------------------------------------------
+// Replacement checks: each records what the genuine store actually leaves
+// behind and asserts the exact outcome the repository must produce.
+// ---------------------------------------------------------------------------
+
+describe('replacement diagnostics on the genuine public store', () => {
+  /** A repository failure's fields; any other error is rethrown, not recorded. */
+  function repositoryFailure(error: unknown, store: AccountStoreModule) {
+    if (!(error instanceof AccountRepositoryError)) throw error
+    const cause = error.cause
+    return {
+      operation: error.failure.operation,
+      rowId: error.failure.rowId,
+      kind: error.failure.kind,
+      retryable: error.failure.retryable,
+      ambiguous: error.failure.ambiguous,
+      message: error.failure.message,
+      storeKind:
+        cause instanceof store.PoolOperationError ? cause.kind : undefined,
+      storeCauseMessage:
+        cause instanceof store.PoolOperationError &&
+        cause.cause instanceof Error
+          ? cause.cause.message
+          : undefined,
+    }
+  }
+
+  /** A receipt or a repository failure; any other error is rethrown. */
+  async function settle(
+    operation: Promise<ManagementReceipt>,
+    store: AccountStoreModule,
+  ) {
+    try {
+      const receipt = await operation
+      return { receipt: { outcome: receipt.outcome } } as const
+    } catch (error) {
+      return { failure: repositoryFailure(error, store) } as const
+    }
+  }
+
+  /** Transfer file names; only a missing directory reads as none. */
+  async function transferFiles(dir: string): Promise<string[]> {
+    try {
+      return await readdir(dir)
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'ENOENT'
+      ) {
+        return []
+      }
+      throw error
+    }
+  }
+
+  /** The pool's rows as the store holds them, tokens named by `label`. */
+  async function rawRows(pool: Pool, label: (token: string) => string) {
+    const load = await openStoreDirectly(pool).read()
+    if (load.status !== 'ready') throw new Error(`pool is ${load.status}`)
+    return load.rows.map((row) => ({
+      id: row.id,
+      identity: row.identity,
+      credentialEpoch: row.credentialEpoch,
+      enabled: row.enabled,
+      token:
+        row.credential?.type === 'oauth'
+          ? label(row.credential.refresh)
+          : undefined,
+      email:
+        row.providerState === undefined
+          ? undefined
+          : decodeProviderState(row.providerState).metadata.email,
+    }))
+  }
+
+  /** The journal as `read()` shows it, or undefined when none is pending. */
+  async function journalOf(repository: AccountRepository) {
+    const read = await repository.read()
+    return read.status === 'management-pending'
+      ? {
+          kind: read.management.kind,
+          step: read.management.progress.step,
+          targets: [...read.management.targets],
+          completedTargets: [...read.management.progress.completedTargets],
+        }
+      : undefined
+  }
+
+  const knownToken = (tokens: readonly string[]) => (token: string) =>
+    tokens.includes(token) ? token : '<other>'
+
+  it(
+    'resumes an interrupted replacement with the same inputs whose nested metadata keys are ordered differently',
+    async () => {
+      await withPool(async (pool) => {
+        // The genuine public store with a test-injected fault: the first
+        // write that would drop the management record throws inside the
+        // store's settings mutator, so the store writes nothing.
+        const injected = 'injected fault before the journal clear'
+        let armed = true
+        const faulted: AccountStoreModule = {
+          ...pool.module,
+          openPoolStore: (options) => {
+            const store = pool.module.openPoolStore(options)
+            return {
+              ...store,
+              updateSettings: (mutator, settingsOptions) =>
+                store.updateSettings((settings) => {
+                  const next = mutator(settings)
+                  if (
+                    armed &&
+                    settings[MANAGEMENT_SETTINGS_KEY] !== undefined &&
+                    next !== undefined &&
+                    next[MANAGEMENT_SETTINGS_KEY] === undefined
+                  ) {
+                    armed = false
+                    throw new Error(injected)
+                  }
+                  return next
+                }, settingsOptions),
+            }
+          },
+        }
+        const setup = pool.open()
+        await setup.login(login('old-1', 'tok-old-1'))
+        const history = [
+          {
+            fingerprint: fingerprint('h1'),
+            timestamp: 20,
+            reason: 'regenerated' as const,
+          },
+          {
+            fingerprint: fingerprint('h0'),
+            timestamp: 10,
+            reason: 'initial' as const,
+          },
+        ]
+        const started: AccountLoginInput = {
+          id: 'new-1',
+          refreshToken: 'tok-new-1',
+          metadata: {
+            addedAt: 1_000,
+            lastUsed: 0,
+            email: 'n1@example.test',
+            rateLimitResetTimes: { claude: 9_000, 'gemini-cli': 8_000 },
+            fingerprint: {
+              deviceId: 'device-n1',
+              sessionToken: 'session-n1',
+              userAgent: 'antigravity-cli/test n1',
+              apiClient: 'antigravity-cli',
+              clientMetadata: {
+                ideType: 'IDE_UNSPECIFIED',
+                platform: 'darwin',
+                pluginType: 'GEMINI',
+              },
+              createdAt: 1_700_000_000_000,
+            },
+            fingerprintHistory: history,
+          },
+        }
+        // The same values, every map built in another key order; the array
+        // keeps its order.
+        const reordered: AccountLoginInput = {
+          refreshToken: 'tok-new-1',
+          metadata: {
+            fingerprintHistory: history,
+            fingerprint: {
+              createdAt: 1_700_000_000_000,
+              clientMetadata: {
+                pluginType: 'GEMINI',
+                platform: 'darwin',
+                ideType: 'IDE_UNSPECIFIED',
+              },
+              apiClient: 'antigravity-cli',
+              userAgent: 'antigravity-cli/test n1',
+              sessionToken: 'session-n1',
+              deviceId: 'device-n1',
+            },
+            rateLimitResetTimes: { 'gemini-cli': 8_000, claude: 9_000 },
+            email: 'n1@example.test',
+            lastUsed: 0,
+            addedAt: 1_000,
+          },
+          id: 'new-1',
+        }
+        expect(reordered).toEqual(started)
+        expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(started))
+
+        const interrupted = createAccountRepositoryFactory({
+          store: faulted,
+          fs: pool.fs,
+        })({
+          paths: pool.paths,
+          now: () => Date.now(),
+          exchange: unusedExchange,
+        })
+        const first = await settle(
+          interrupted.replacePool([started]),
+          pool.module,
+        ).finally(() => interrupted.dispose())
+        // The first attempt failed at the injected journal clear, after the
+        // verified phase was written and the transfer file deleted.
+        expect(armed).toBe(false)
+        expect(first).toMatchObject({
+          failure: {
+            kind: 'unexpected',
+            storeKind: 'unexpected',
+            storeCauseMessage: injected,
+          },
+        })
+        expect(await journalOf(setup)).toMatchObject({
+          kind: 'replace-pool',
+          step: 'verified',
+          completedTargets: ['new-1'],
+        })
+        expect(await transferFiles(pool.paths.transfersDir)).toEqual([])
+
+        const resumed = await settle(
+          pool.open().replacePool([reordered]),
+          pool.module,
+        )
+        const after = {
+          resumed,
+          journal: await journalOf(setup),
+          transfers: await transferFiles(pool.paths.transfersDir),
+        }
+        expect(after).toMatchObject({
+          resumed: { receipt: { outcome: 'completed' } },
+          journal: undefined,
+          transfers: [],
+        })
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'records what replacing a pool with a reused current id and a new token leaves behind',
+    async () => {
+      await withPool(async (pool) => {
+        const tokens = knownToken(['tok-keep-old', 'tok-keep-new'])
+        const setup = pool.open()
+        await setup.login(login('keep', 'tok-keep-old', {}, 'acct-keep'))
+        const before = await rawRows(pool, tokens)
+        const outcome = await settle(
+          pool
+            .open()
+            .replacePool([login('keep', 'tok-keep-new', {}, 'acct-keep')]),
+          pool.module,
+        )
+        const journal = await journalOf(setup)
+        const after = await rawRows(pool, tokens)
+        const transfers = await transferFiles(pool.paths.transfersDir)
+        const keep = after.find((row) => row.id === 'keep')
+        const observed = { before, outcome, journal, after, transfers }
+        // The broad safety property: an input the operation cannot complete
+        // must not remove the old credential first and then leave the pool
+        // pending.
+        const stranded =
+          journal !== undefined &&
+          !after.some((row) => row.token === 'tok-keep-old')
+        // A replacement adds new rows: an input naming a held row is refused
+        // before anything is written, so the old row, no journal and no
+        // transfer file remain.
+        expect({
+          outcome,
+          keep,
+          journal,
+          transfers,
+          stranded,
+          observed,
+        }).toMatchObject({
+          outcome: {
+            failure: {
+              operation: 'replacePool',
+              rowId: 'keep',
+              kind: 'invalid-input',
+              retryable: false,
+              ambiguous: false,
+              message:
+                'input keep names a row the pool already holds; a replacement adds new rows',
+              storeKind: undefined,
+              storeCauseMessage: undefined,
+            },
+          },
+          keep: { id: 'keep', identity: 'acct-keep', token: 'tok-keep-old' },
+          journal: undefined,
+          transfers: [],
+          stranded: false,
+        })
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  type AddInput = {
+    id: string
+    credential: { type: 'oauth'; refresh: string }
+    identity?: string
+    providerState?: unknown
+  }
+
+  /**
+   * Replaces a pool of `old-1` with `new-1` and `new-2` through a store
+   * whose first `add` passes `alter(input)` to the genuine public `add`,
+   * so the backend really writes a row holding `tok-new-1` with one field
+   * changed. Returns what the store and the repository then show.
+   */
+  async function replaceWithAlteredAdd(
+    pool: Pool,
+    alter: (input: AddInput) => AddInput,
+  ) {
+    const seen: { written?: AddInput } = {}
+    const altering: AccountStoreModule = {
+      ...pool.module,
+      openPoolStore: (options) => {
+        const store = pool.module.openPoolStore(options)
+        return {
+          ...store,
+          add: (input) => {
+            if (seen.written !== undefined) return store.add(input)
+            const written = alter(input)
+            seen.written = written
+            return store.add(written)
+          },
+        }
+      },
+    }
+    const tokens = knownToken(['tok-old-1', 'tok-new-1', 'tok-new-2'])
+    const setup = pool.open()
+    await setup.login(login('old-1', 'tok-old-1'))
+    const inputs = [
+      login('new-1', 'tok-new-1', { email: 'n1@example.test' }, 'acct-new-1'),
+      login('new-2', 'tok-new-2', { email: 'n2@example.test' }, 'acct-new-2'),
+    ]
+    const outcome = await settle(
+      pool
+        .open(unusedExchange, {}, { store: altering, fs: pool.fs })
+        .replacePool(inputs),
+      pool.module,
+    )
+    const rows = await rawRows(pool, tokens)
+    const written = seen.written
+    return {
+      written: written && {
+        id: written.id,
+        identity: written.identity,
+        token: tokens(written.credential.refresh),
+      },
+      holder: rows.find((row) => row.token === 'tok-new-1'),
+      rows,
+      outcome,
+      journal: await journalOf(setup),
+      transfers: await transferFiles(pool.paths.transfersDir),
+    }
+  }
+
+  /**
+   * The refusal every corruption variant requires, with what was seen: the
+   * replacement's own verification of its inputs (`verifyPool`) refusing
+   * `new-1` with the variant's exact message, with no store failure beneath
+   * it, and the journal and transfer file kept. A completed receipt, or a
+   * refusal from anywhere else, does not pass.
+   */
+  function expectRefusedAndKept(
+    observed: Awaited<ReturnType<typeof replaceWithAlteredAdd>>,
+    message: string,
+  ) {
+    expect({
+      outcome: observed.outcome,
+      pending: observed.journal !== undefined,
+      transferKept: observed.transfers.length === 1,
+      observed,
+    }).toMatchObject({
+      outcome: {
+        failure: {
+          operation: 'replacePool',
+          rowId: 'new-1',
+          kind: 'unexpected',
+          retryable: false,
+          ambiguous: false,
+          message,
+          storeKind: undefined,
+          storeCauseMessage: undefined,
+        },
+      },
+      pending: true,
+      transferKept: true,
+    })
+  }
+
+  it(
+    'refuses to complete a replacement whose stored row holds the requested token under another id',
+    async () => {
+      await withPool(async (pool) => {
+        const observed = await replaceWithAlteredAdd(pool, (input) => ({
+          ...input,
+          id: 'wrong-id',
+        }))
+        // The backend wrote exactly this corruption.
+        expect(observed.holder).toMatchObject({
+          id: 'wrong-id',
+          identity: 'acct-new-1',
+          token: 'tok-new-1',
+          email: 'n1@example.test',
+        })
+        expectRefusedAndKept(
+          observed,
+          'input new-1 is not in the pool after the replacement',
+        )
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'refuses to complete a replacement whose stored row holds the requested token under another identity',
+    async () => {
+      await withPool(async (pool) => {
+        const observed = await replaceWithAlteredAdd(pool, (input) => ({
+          ...input,
+          identity: 'acct-wrong',
+        }))
+        expect(observed.holder).toMatchObject({
+          id: 'new-1',
+          identity: 'acct-wrong',
+          token: 'tok-new-1',
+          email: 'n1@example.test',
+        })
+        expectRefusedAndKept(
+          observed,
+          'input new-1 is recorded for another identity after the replacement',
+        )
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'refuses to complete a replacement whose stored row holds the requested token under other metadata',
+    async () => {
+      await withPool(async (pool) => {
+        const observed = await replaceWithAlteredAdd(pool, (input) => {
+          const envelope = decodeProviderState(input.providerState)
+          return {
+            ...input,
+            providerState: encodeProviderState({
+              ...envelope,
+              metadata: { ...envelope.metadata, email: 'wrong@example.test' },
+            }),
+          }
+        })
+        expect(observed.holder).toMatchObject({
+          id: 'new-1',
+          identity: 'acct-new-1',
+          token: 'tok-new-1',
+          email: 'wrong@example.test',
+        })
+        expectRefusedAndKept(
+          observed,
+          'input new-1 does not hold its requested metadata after the replacement',
+        )
       })
     },
     STORE_TEST_TIMEOUT_MS,

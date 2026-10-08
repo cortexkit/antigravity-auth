@@ -82,6 +82,7 @@ import {
   type CreateAccountRepository,
   type FingerprintObservation,
   type JsonObject,
+  type JsonValue,
   type LastSwitchReason,
   MANAGEMENT_LOCK_NAME,
   MANAGEMENT_SETTINGS_KEY,
@@ -985,6 +986,24 @@ const MANAGEMENT_STEPS: Record<
   'replace-pool': ['remove', 'add', 'verified'],
 }
 
+/**
+ * JSON with the keys of every object sorted, so two values that differ only
+ * in key order serialize the same. Array order is kept.
+ */
+function canonicalJson(value: JsonValue): string {
+  const sorted = (item: JsonValue): JsonValue => {
+    if (Array.isArray(item)) return item.map(sorted)
+    if (item === null || typeof item !== 'object') return item
+    const out: JsonObject = {}
+    for (const key of Object.keys(item).sort()) {
+      const child = item[key]
+      if (child !== undefined) out[key] = sorted(child)
+    }
+    return out
+  }
+  return JSON.stringify(sorted(value))
+}
+
 /** A SHA-256 digest in lowercase hex. */
 const SHA256_HEX = /^[0-9a-f]{64}$/
 
@@ -1000,15 +1019,17 @@ export interface StoredManagementRecord extends ManagementRecord {
 }
 
 /**
- * SHA-256 of the inputs' canonical encoding, in their order: ids, refresh
- * tokens, identities and metadata all count. It identifies a replacement
- * without the journal holding any credential.
+ * SHA-256 of the inputs' encoding as key-sorted JSON (`canonicalJson`), in
+ * their order: ids, refresh tokens, identities and metadata values all
+ * count, as do array order and an explicit `null`, while the order in which
+ * an object's keys were built does not. It identifies a replacement without
+ * the journal holding any credential.
  */
 export function replacementInputDigest(
   inputs: readonly AccountLoginInput[],
 ): string {
   return createHash('sha256')
-    .update(JSON.stringify(inputs.map(encodeLoginInput)))
+    .update(canonicalJson(inputs.map(encodeLoginInput)))
     .digest('hex')
 }
 
@@ -2365,6 +2386,20 @@ class StoreAccountRepository implements AccountRepository {
           }
         } else {
           const rows = await this.readRows('replacePool')
+          // A replacement adds new rows. An input naming a row the pool
+          // already holds is refused here, before anything is written: the
+          // store does not re-add an id removed in this process, so removing
+          // that row first would strand the pool without it.
+          const held = new Set(rows.map((row) => row.id))
+          const reused = inputs.find((input) => held.has(input.id))
+          if (reused !== undefined) {
+            throw refusal(
+              'replacePool',
+              'invalid-input',
+              `input ${reused.id} names a row the pool already holds; a replacement adds new rows`,
+              { rowId: reused.id },
+            )
+          }
           const id = randomUUID()
           // The inputs reach their private file before the record names it,
           // so a record that still needs its inputs always has them.
@@ -2650,27 +2685,67 @@ class StoreAccountRepository implements AccountRepository {
     }
   }
 
+  /**
+   * Checks the pool a replacement leaves before the replacement is recorded
+   * verified and its transfer file deleted. The pool must hold exactly the
+   * inputs' rows, in input order, and each row must be valid and complete
+   * (not invalid, not torn) with the input's id, its refresh token under a
+   * bound stamp, its identity (absent only when the
+   * input gives none), the metadata it requested and no quota reading. A
+   * token present under another id, identity or metadata is not the input.
+   * Any mismatch refuses, which leaves the journal and the transfer file in
+   * place.
+   */
   private async verifyPool(
     inputs: readonly AccountLoginInput[],
   ): Promise<void> {
     const rows = await this.readRows('replacePool')
-    for (const input of inputs) {
-      const held = rows.some(
-        (row) =>
-          row.credential?.type === 'oauth' &&
-          row.credential.refresh === input.refreshToken &&
-          row.stamp === 'bound',
+    const mismatch = (input: AccountLoginInput, problem: string) =>
+      refusal(
+        'replacePool',
+        'unexpected',
+        `input ${input.id} ${problem} after the replacement`,
+        { rowId: input.id },
       )
-      if (!held) {
-        throw refusal(
-          'replacePool',
-          'unexpected',
-          `input ${input.id} is not in the pool after the replacement`,
-          {
-            rowId: input.id,
-          },
-        )
+    for (const input of inputs) {
+      const row = rows.find((candidate) => candidate.id === input.id)
+      if (
+        row === undefined ||
+        row.invalid !== undefined ||
+        row.torn === true ||
+        row.credential?.type !== 'oauth' ||
+        row.credential.refresh !== input.refreshToken ||
+        row.stamp !== 'bound'
+      ) {
+        throw mismatch(input, 'is not in the pool')
       }
+      if (row.identity !== input.identity) {
+        throw mismatch(input, 'is recorded for another identity')
+      }
+      if (
+        row.providerStateDropped !== undefined ||
+        row.providerState === undefined ||
+        canonicalJson(
+          encodeProviderMetadata(
+            decodeProviderState(row.providerState).metadata,
+          ),
+        ) !== canonicalJson(encodeProviderMetadata(input.metadata))
+      ) {
+        throw mismatch(input, 'does not hold its requested metadata')
+      }
+      if (row.quota !== undefined) {
+        throw mismatch(input, 'holds a quota reading')
+      }
+    }
+    if (
+      rows.length !== inputs.length ||
+      rows.some((row, index) => row.id !== inputs[index]?.id)
+    ) {
+      throw refusal(
+        'replacePool',
+        'unexpected',
+        'the pool does not hold exactly the replacement inputs, in their order',
+      )
     }
   }
 
