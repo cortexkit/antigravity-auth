@@ -523,6 +523,21 @@ function laterCounts(
   }
 }
 
+/**
+ * An account handed to a quota check. In memory only: `rowRef` is never
+ * written to the pool file, provider metadata, the sidebar or logs.
+ */
+export interface AccountQuotaTarget extends AccountMetadataV3 {
+  /**
+   * The repository row and credential the account was loaded under, as it
+   * was when the target was taken. A quota reading for this target is
+   * recorded against exactly this ref, so one taken before the credential
+   * was replaced or the row removed is refused, not attached to its
+   * successor. Absent only for accounts of a pool-file manager.
+   */
+  readonly rowRef?: RowRef
+}
+
 export interface AccountSessionIdentity {
   id: string
   parentId?: string | null
@@ -3224,16 +3239,32 @@ export class AccountManager {
     )
   }
 
-  getAccountsForQuotaCheck(): AccountMetadataV3[] {
-    return this.accounts.map((a) => ({
-      email: a.email,
-      refreshToken: a.parts.refreshToken,
-      projectId: a.parts.projectId ?? a.projectId,
-      managedProjectId: a.parts.managedProjectId ?? a.managedProjectId,
-      addedAt: a.addedAt,
-      lastUsed: a.lastUsed,
-      enabled: a.enabled,
-    }))
+  /**
+   * The accounts a quota check should cover. For a repository-backed
+   * manager each target carries the ref its account is loaded under,
+   * captured now, before any quota work starts; an account without a ref
+   * has no row to attribute a reading to and is left out rather than
+   * matched by position, email or token.
+   */
+  getAccountsForQuotaCheck(): AccountQuotaTarget[] {
+    const targets: AccountQuotaTarget[] = []
+    for (const a of this.accounts) {
+      const target: AccountMetadataV3 = {
+        email: a.email,
+        refreshToken: a.parts.refreshToken,
+        projectId: a.parts.projectId ?? a.projectId,
+        managedProjectId: a.parts.managedProjectId ?? a.managedProjectId,
+        addedAt: a.addedAt,
+        lastUsed: a.lastUsed,
+        enabled: a.enabled,
+      }
+      if (this.repository === undefined) {
+        targets.push(target)
+      } else if (a.ref !== undefined) {
+        targets.push({ ...target, rowRef: a.ref })
+      }
+    }
+    return targets
   }
 
   getOldestQuotaCacheAge(): number | null {

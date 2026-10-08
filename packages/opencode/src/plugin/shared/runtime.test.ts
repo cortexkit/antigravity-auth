@@ -7,7 +7,14 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,6 +23,7 @@ import type {
   FetchAccountQuota,
 } from '@cortexkit/antigravity-auth-core'
 
+import { AccountManager } from '../accounts.ts'
 import {
   createSignatureProcessState,
   type SignatureProcessState,
@@ -27,7 +35,9 @@ import {
 } from '../operator-settings.ts'
 import {
   createLocationRuntime,
+  createMemoryQuotaSnapshots,
   createRuntimeScope,
+  createSidebarFileQuotaSnapshots,
   type LocationAccountView,
   type LocationRuntime,
   type LocationRuntimeOptions,
@@ -80,7 +90,9 @@ function options(
 ): LocationRuntimeOptions {
   return {
     directory,
-    sidebarStateFile: join(directory, 'sidebar-state.json'),
+    quotaSnapshots: createSidebarFileQuotaSnapshots(
+      join(directory, 'sidebar-state.json'),
+    ),
     fetchAccountQuota: okQuota,
     refreshToken: async () => undefined,
     operatorSettingsRegistry: registry,
@@ -403,5 +415,76 @@ describe('location runtime', () => {
     )
     await runtime.replaceAccounts(fakeAccounts())
     expect(runtime.refreshQueue()).toBeNull()
+  })
+})
+
+describe('OpenCode 2 location without a sidebar file', () => {
+  function listFiles(directory: string): string[] {
+    return readdirSync(directory, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => join(entry.parentPath, entry.name))
+  }
+
+  it('keeps quota snapshots in memory and writes no sidebar file', async () => {
+    const snapshots = createMemoryQuotaSnapshots()
+    const directory = location('ga', { background_quota_refresh: false })
+    const runtime = await start(
+      options(directory, {
+        quotaSnapshots: snapshots,
+        now: () => 1_700_000_000_000,
+      }),
+    )
+    // A real account manager over an in-memory pool; nothing is read from
+    // or written to disk.
+    await runtime.replaceAccounts(
+      new AccountManager(undefined, {
+        version: 4,
+        accounts: [
+          {
+            refreshToken: 'fake-refresh',
+            addedAt: 0,
+            lastUsed: 0,
+            enabled: true,
+          },
+        ],
+        activeIndex: 0,
+      }),
+    )
+    await runtime.quotaManager.refreshAccounts([ACCOUNT], {
+      indexFor: () => 0,
+      force: true,
+    })
+    const latest = snapshots.latest()
+    expect(latest?.checkedAt).toBe(1_700_000_000_000)
+    expect(latest?.accounts.map((account) => account.id)).toEqual(['acct-0'])
+    expect(snapshots.lastCheckedAt()).toBe(1_700_000_000_000)
+    expect(snapshots.pollLockPath).toBeNull()
+    // Nothing but the project configuration exists under the location, and
+    // the process-wide sidebar file named by ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    // was not created.
+    expect(listFiles(directory)).toEqual([
+      join(directory, '.opencode', 'antigravity.json'),
+    ])
+    const processSidebar = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
+    if (processSidebar) expect(existsSync(processSidebar)).toBe(false)
+  })
+
+  it('polls without a cross-process lock when the store has no lock path', async () => {
+    let lockCalls = 0
+    const runtime = await start(
+      options(location('ga', { background_quota_refresh: true }), {
+        quotaSnapshots: createMemoryQuotaSnapshots(),
+        random: () => 0,
+        acquireLock: async () => {
+          lockCalls += 1
+          return null
+        },
+      }),
+    )
+    await runtime.replaceAccounts(fakeAccounts())
+    const poller = runtime.backgroundQuotaRefresh
+    expect(poller).not.toBeNull()
+    await (poller as unknown as { runTick(): Promise<void> }).runTick()
+    expect(lockCalls).toBe(0)
   })
 })

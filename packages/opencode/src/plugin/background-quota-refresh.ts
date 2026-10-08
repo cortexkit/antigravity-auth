@@ -2,17 +2,19 @@
  * Background quota poller.
  *
  * Runs a jittered, `unref()`'d timer that periodically refreshes quota for
- * all accounts and pushes ONE sidebar snapshot per tick. Three-layer
- * cross-process dedup:
+ * all accounts and pushes ONE snapshot per tick to its snapshot store (the
+ * sidebar state file for OpenCode 1, memory for an OpenCode 2 location).
+ * Three-layer cross-process dedup:
  *
  *   1. Freshness gate — the only hard correctness bound for quota snapshots.
- *      Reads `checkedAt` from the on-disk sidebar state; skips quota work when
+ *      Reads `checkedAt` from the snapshot store; skips quota work when
  *      it is fresher than
  *      `max(intervalMs − 60_000, floor(intervalMs / 2))`. The /2 floor
  *      ensures the gate still fires at the 1-minute minimum interval.
  *
  *   2. Advisory fenced lock — an optimization that lets a single process do
  *      the network work when several wake up simultaneously. Held → skip.
+ *      A store without a lock path skips this layer.
  *
  *   3. Lock throws → FAIL CLOSED (skip this tick, add jitter to next). A
  *      fallback mutex is NOT used here. The correct reasoning is: the
@@ -21,9 +23,7 @@
  *      the fenced lock we just failed to acquire — it replicates the same
  *      ownership problem without the protocol guarantees, and any transient
  *      I/O error that made the lock throw will likely affect a claim file
- *      too. The previous poller attempt fell into this trap across three
- *      review rounds; this comment exists so a future reviewer stops
- *      re-litigating it.
+ *      too.
  */
 
 import { createHash } from 'node:crypto'
@@ -37,7 +37,12 @@ import {
   type FencedFileLock,
 } from '@cortexkit/antigravity-auth-core/file-lock'
 
-import { readSidebarState, toCapturedTier } from '../sidebar-state'
+import {
+  readSidebarState,
+  type SidebarMachineState,
+  setSidebarMachineState,
+  toCapturedTier,
+} from '../sidebar-state'
 import type { Logger } from './logger'
 import type { QuotaManager } from './quota'
 import { pushSidebarQuotaSnapshot } from './quota'
@@ -117,15 +122,59 @@ const ERROR_JITTER_MS = 15_000
 /** TTL for the renewable advisory poll lock. */
 const POLL_LOCK_TTL_MS = 60_000
 
+/**
+ * No-op lock handle used in place of the fenced poll lock when the snapshot
+ * store has no lock path; releasing it does nothing.
+ */
+const NO_POLL_LOCK: Pick<FencedFileLock, 'release'> = {
+  release: async () => {},
+}
+
 /** Maximum age of a captured tier before the poller refreshes it. 24 h. */
 const TIER_STALENESS_TTL_MS = 24 * 60 * 60 * 1_000
 
 /** A capture at this version distinguishes an absent paid tier from old data. */
 const CAPTURED_TIER_SCHEMA_VERSION = 1
 
+/**
+ * Where the poller keeps its snapshots and how it coordinates with other
+ * processes. The OpenCode 1 layout uses the sidebar state file for both;
+ * an OpenCode 2 location keeps snapshots in memory.
+ */
+export interface PollerSnapshotStore {
+  /** `checkedAt` of the newest snapshot, or 0 when there is none. */
+  lastCheckedAt(): number
+  write(state: SidebarMachineState): Promise<void>
+  /**
+   * File the cross-process poll lock is taken on, or `null` to poll without
+   * one (each process then polls on its own schedule).
+   */
+  readonly pollLockPath: string | null
+}
+
+/** The OpenCode 1 store: the sidebar state file and a lock beside it. */
+export function createSidebarFileSnapshotStore(
+  stateFile: string,
+): PollerSnapshotStore {
+  return {
+    lastCheckedAt: () => readSidebarState(stateFile).checkedAt,
+    write: (state) => setSidebarMachineState(state, { stateFile }),
+    pollLockPath: stateFile,
+  }
+}
+
 export interface BackgroundQuotaRefreshOptions {
   intervalMs: number
-  sidebarStateFile: string
+  /**
+   * The sidebar state file (OpenCode 1). One of `sidebarStateFile` and
+   * `snapshots` is required.
+   */
+  sidebarStateFile?: string
+  /**
+   * Snapshot store and lock path. When given it takes precedence and
+   * `sidebarStateFile` is ignored.
+   */
+  snapshots?: PollerSnapshotStore
   /**
    * Supplier for the live account pool. Called inside each locked phase, so it
    * observes any concurrent add/remove that completed while waiting for the
@@ -175,7 +224,7 @@ export interface BackgroundQuotaRefreshOptions {
  */
 export class BackgroundQuotaRefresh {
   private readonly intervalMs: number
-  private readonly sidebarStateFile: string
+  private readonly snapshots: PollerSnapshotStore
   private readonly getAccountManager: () => PollerAccountView | null
   private readonly quotaManager: QuotaManager
   private readonly loadAccountTier?: (
@@ -194,7 +243,15 @@ export class BackgroundQuotaRefresh {
 
   constructor(options: BackgroundQuotaRefreshOptions) {
     this.intervalMs = options.intervalMs
-    this.sidebarStateFile = options.sidebarStateFile
+    if (options.snapshots) {
+      this.snapshots = options.snapshots
+    } else if (typeof options.sidebarStateFile === 'string') {
+      this.snapshots = createSidebarFileSnapshotStore(options.sidebarStateFile)
+    } else {
+      throw new TypeError(
+        'BackgroundQuotaRefresh needs a sidebarStateFile or a snapshot store',
+      )
+    }
     this.getAccountManager = options.getAccountManager
     this.quotaManager = options.quotaManager
     this.loadAccountTier = options.loadAccountTier
@@ -274,17 +331,22 @@ export class BackgroundQuotaRefresh {
       this.intervalMs - MIN_INTERVAL_MS,
       Math.floor(this.intervalMs / 2),
     )
-    const state = readSidebarState(this.sidebarStateFile)
-    const ageMs = this.now() - state.checkedAt
+    const ageMs = this.now() - this.snapshots.lastCheckedAt()
 
     // ── 2. Advisory fenced lock ──────────────────────────────────────────
-    let lock: FencedFileLock | null = null
+    // A store without a lock path polls on its own schedule; its tick takes
+    // no lock and always proceeds to the freshness decision.
+    const lockPath = this.snapshots.pollLockPath
+    let lock: Pick<FencedFileLock, 'release'> | null = null
     try {
-      lock = await this.acquireLock({
-        path: this.sidebarStateFile,
-        name: 'bg-quota-poll',
-        ttlMs: POLL_LOCK_TTL_MS,
-      })
+      lock =
+        lockPath === null
+          ? NO_POLL_LOCK
+          : await this.acquireLock({
+              path: lockPath,
+              name: 'bg-quota-poll',
+              ttlMs: POLL_LOCK_TTL_MS,
+            })
     } catch {
       // Lock mechanism threw (I/O error, filesystem issue). FAIL CLOSED:
       // skip this tick. See module-level invariant comment for why we do not
@@ -455,11 +517,10 @@ export class BackgroundQuotaRefresh {
   }
 
   private async pushSnapshot(): Promise<void> {
-    // ONE sidebar write per poll. `pushSidebarQuotaSnapshot` reads the live
-    // account view (with the just-updated cached values) and writes atomically
-    // to the same state file whose `checkedAt` the freshness check reads and
-    // beside which the poll lock lives, so each location's poller writes only
-    // its own file.
+    // ONE snapshot write per poll. `pushSidebarQuotaSnapshot` reads the live
+    // account view (with the just-updated cached values) and writes it to
+    // the same store whose `checkedAt` the freshness check reads, so each
+    // location's poller writes only its own store.
     const getAccounts = () => {
       const m = this.getAccountManager()
       return m ? m.getAccounts() : null
@@ -490,7 +551,7 @@ export class BackgroundQuotaRefresh {
         return m ? m.getActiveIndexByFamily() : null
       },
       {
-        stateFile: this.sidebarStateFile,
+        write: (state) => this.snapshots.write(state),
         ...(this.healthScore === undefined
           ? {}
           : { healthScore: this.healthScore }),

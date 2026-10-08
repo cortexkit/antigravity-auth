@@ -1248,3 +1248,68 @@ describe('reloading a repository-backed AccountManager', () => {
     expect(manager.getAccounts()).toEqual([a, b, c])
   })
 })
+
+describe('quota check targets', () => {
+  const now = Date.UTC(2026, 9, 7, 12)
+  const refA: RowRef = { id: 'a', credentialEpoch: 2, identity: 'acct-a' }
+  const refB: RowRef = { id: 'b', credentialEpoch: 1 }
+
+  async function managerOver(rows: AccountRow[]) {
+    const recording = recordingRepository(rows)
+    return AccountManager.fromRepository(await recording.repository.read(), {
+      repository: recording.repository,
+      now: () => now,
+    })
+  }
+
+  it('gives each target the exact ref of its own row, even when two rows share a token', async () => {
+    const manager = await managerOver([
+      repositoryRow(refA, 0, { credential: { refreshToken: 'tok-shared' } }),
+      repositoryRow(refB, 1, { credential: { refreshToken: 'tok-shared' } }),
+    ])
+    const targets = manager.getAccountsForQuotaCheck()
+    expect(targets.map((target) => target.refreshToken)).toEqual([
+      'tok-shared',
+      'tok-shared',
+    ])
+    expect(targets.map((target) => target.rowRef)).toEqual([refA, refB])
+  })
+
+  it('keeps a target on the ref it was taken under after its credential is replaced', async () => {
+    const manager = await managerOver([
+      repositoryRow(refA, 0),
+      repositoryRow(refB, 1),
+    ])
+    const [, before] = manager.getAccountsForQuotaCheck()
+    const replacedB: RowRef = { ...refB, credentialEpoch: 2 }
+    manager.reloadFromRepository({
+      status: 'ready',
+      rows: [repositoryRow(refA, 0), repositoryRow(replacedB, 1)],
+    })
+    const [, after] = manager.getAccountsForQuotaCheck()
+    // The earlier target still names the old credential, so a reading for it
+    // is fenced on epoch 1 and cannot land on the replacement.
+    expect(before?.rowRef).toEqual(refB)
+    expect(after?.rowRef).toEqual(replacedB)
+  })
+
+  it('leaves out a repository account without a ref, and gives pool-file targets none', async () => {
+    const manager = await managerOver([
+      repositoryRow(refA, 0),
+      repositoryRow(refB, 1),
+    ])
+    const unbound = manager.getAccounts()[1]
+    if (unbound === undefined) throw new Error('no account b')
+    delete unbound.ref
+    const targets = manager.getAccountsForQuotaCheck()
+    expect(targets).toHaveLength(1)
+    expect(targets[0]?.rowRef).toEqual(refA)
+
+    const legacy = new AccountManager(undefined, stored, {
+      store: createStore(stored).store,
+    })
+    const legacyTargets = legacy.getAccountsForQuotaCheck()
+    expect(legacyTargets).toHaveLength(2)
+    expect(legacyTargets.every((target) => !('rowRef' in target))).toBe(true)
+  })
+})

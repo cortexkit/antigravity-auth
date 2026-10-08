@@ -51,6 +51,9 @@ mock.module('@cortexkit/antigravity-auth-core', () => ({
 }))
 
 const server = await import('./index.ts')
+const { createMemoryQuotaSnapshots } = await import(
+  '../../plugin/shared/runtime.ts'
+)
 const { LoopbackProxyGuardError } = await import('../proxy-guard.ts')
 
 type GaSendInput = import('./index.ts').GaSendInput
@@ -670,6 +673,85 @@ describe('hook bodies', () => {
     }
   })
 
+  it('delivers a first chunk and then the genuine error when the upstream fails immediately after it', async () => {
+    const genuine = new Error('upstream reset right after the first frame')
+    const firstFrame = 'data: {"a":1}\n\n'
+    // No barrier: the upstream errors on the very next read after its first
+    // chunk, before the client has read anything.
+    const active = await startBridge(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(firstFrame))
+            },
+            pull(controller) {
+              controller.error(genuine)
+            },
+          }),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+    )
+    const rewritten = active.rewrite(hostRequest(), JOB, NO_PROXY_ENV)
+    // The host's dispatch must get a response, not a connection reset.
+    const response = await fetch(rewritten)
+    const event = { request: rewritten, response }
+    server.adaptGaHttpResponse(event, active)
+    expect(event.response).not.toBe(response)
+    expect(event.response.status).toBe(200)
+    const body = event.response.body
+    expect(body).not.toBeNull()
+    if (!body) throw new Error('the adapted response has no body')
+    const reader = body.getReader()
+    try {
+      const decoder = new TextDecoder()
+      let received = ''
+      let failure: unknown = null
+      while (failure === null) {
+        const chunk = await reader.read().then(
+          (result) => result,
+          (error: unknown) => {
+            failure = error
+            return null
+          },
+        )
+        if (!chunk || chunk.done) break
+        received += decoder.decode(chunk.value, { stream: true })
+      }
+      // The real content arrives first, then the original error, never a
+      // clean end.
+      expect(received).toBe(firstFrame)
+      expect(failure).toBe(genuine)
+    } finally {
+      await reader.cancel().catch(() => undefined)
+    }
+  })
+
+  it('delivers the genuine error when the upstream body fails before any byte', async () => {
+    const genuine = new Error('upstream reset before the first frame')
+    const active = await startBridge(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.error(genuine)
+            },
+          }),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+    )
+    const rewritten = active.rewrite(hostRequest(), JOB, NO_PROXY_ENV)
+    const response = await fetch(rewritten)
+    const event = { request: rewritten, response }
+    server.adaptGaHttpResponse(event, active)
+    expect(event.response.status).toBe(200)
+    const failure = await event.response.text().then(
+      (text) => text,
+      (error: unknown) => error,
+    )
+    expect(failure).toBe(genuine)
+  })
+
   it('leaves responses to requests it does not own unchanged', async () => {
     const active = await startBridge()
     const response = new Response('ok')
@@ -799,7 +881,7 @@ describe('setup against a host context', () => {
       calls.push(directory)
       const services: GaLocationServices = {
         runtime: {
-          sidebarStateFile: join(directory, 'sidebar-state.json'),
+          quotaSnapshots: createMemoryQuotaSnapshots(),
           fetchAccountQuota: async () => ({ index: 0, status: 'disabled' }),
           refreshToken: async () => undefined,
         },
@@ -878,17 +960,17 @@ describe('setup against a host context', () => {
       'register antigravity-auth',
       'transform provider',
       'reload provider',
-      'hook http.request {"providerID":"google"}',
       'hook http.response {"providerID":"google"}',
       'hook retry {"providerID":"google"}',
+      'hook http.request {"providerID":"google"}',
     ])
     log.length = 0
     await cleanup?.()
     await cleanup?.()
     expect(log).toEqual([
+      'dispose hook http.request',
       'dispose hook retry',
       'dispose hook http.response',
-      'dispose hook http.request',
       'dispose provider transform',
       'dispose rpc antigravity-auth',
       'dispose services',
@@ -913,18 +995,18 @@ describe('setup against a host context', () => {
     const log: string[] = []
     await expect(
       server.setupGaActivation(
-        fakeHost(locationDirectory('a'), log, { hook: 'retry' }),
+        fakeHost(locationDirectory('a'), log, { hook: 'http.request' }),
         fakeServices(log),
       ),
-    ).rejects.toThrow('no hook retry')
+    ).rejects.toThrow('no hook http.request')
     expect(log).toEqual([
       'register antigravity-auth',
       'transform provider',
       'reload provider',
-      'hook http.request {"providerID":"google"}',
       'hook http.response {"providerID":"google"}',
+      'hook retry {"providerID":"google"}',
+      'dispose hook retry',
       'dispose hook http.response',
-      'dispose hook http.request',
       'dispose provider transform',
       'dispose rpc antigravity-auth',
       'dispose services',

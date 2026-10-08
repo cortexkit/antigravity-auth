@@ -18,17 +18,19 @@
  * Process-shared state stays shared on purpose and is reached only through
  * per-location handles: operator files have one controller per file
  * (`acquireLocationOperatorSettings`), the signature disk cache has one
- * writer per file (`acquireLocationSignatureCache`), and background pollers
- * in different processes coordinate through the sidebar file: a poll is
- * skipped while the file's `checkedAt` is recent, and a lock file beside it
- * lets only one process poll at a time.
+ * writer per file (`acquireLocationSignatureCache`). With the OpenCode 1
+ * sidebar file as the quota snapshot store, background pollers in different
+ * processes coordinate through it: a poll is skipped while the file's
+ * `checkedAt` is recent, and a lock file beside it lets only one process
+ * poll at a time. An OpenCode 2 location keeps its snapshots in memory and
+ * writes no sidebar file.
  *
  * Teardown order:
- *   1. producers (everything that can still queue sidebar writes) are
+ *   1. producers (everything that can still queue snapshot writes) are
  *      stopped and awaited, newest first: the refresh queue, the background
  *      poller and the quota manager, plus anything the host binding adds
  *      (request bridge, RPC handlers);
- *   2. queued sidebar writes drain;
+ *   2. queued snapshot writes drain;
  *   3. consumers close, newest first: signature handle, operator settings,
  *      debug file.
  * Stopping producers before the drain means no write can be queued after
@@ -45,10 +47,16 @@ import type {
 } from '@cortexkit/antigravity-auth-core'
 import type { acquireFencedFileLock } from '@cortexkit/antigravity-auth-core/file-lock'
 
-import { drainSidebarWrites, toCapturedTier } from '../../sidebar-state.ts'
+import {
+  drainSidebarWrites,
+  type SidebarMachineState,
+  toCapturedTier,
+} from '../../sidebar-state.ts'
 import {
   BackgroundQuotaRefresh,
+  createSidebarFileSnapshotStore,
   type PollerAccountView,
+  type PollerSnapshotStore,
 } from '../background-quota-refresh.ts'
 import {
   acquireLocationSignatureCache,
@@ -168,6 +176,63 @@ export function createRuntimeScope(): RuntimeScope {
   }
 }
 
+// Quota snapshot stores
+
+/**
+ * Where a location's quota snapshots (redacted accounts plus `checkedAt` and
+ * backoff) go. The background poller also reads `checkedAt` from it and
+ * takes its cross-process lock on `pollLockPath`.
+ */
+export interface LocationQuotaSnapshots extends PollerSnapshotStore {
+  /**
+   * Wait until every queued quota snapshot write has landed. The runtime
+   * calls it after all producers stopped and before any consumer closes.
+   */
+  drain(): Promise<void>
+}
+
+/**
+ * The OpenCode 1 sidebar file: snapshots merge into the file the TUI reads,
+ * pollers in other processes see its `checkedAt`, and the poll lock sits
+ * beside it.
+ */
+export function createSidebarFileQuotaSnapshots(
+  stateFile: string,
+): LocationQuotaSnapshots {
+  return {
+    ...createSidebarFileSnapshotStore(stateFile),
+    drain: () => drainSidebarWrites(),
+  }
+}
+
+/**
+ * An OpenCode 2 location's snapshots, kept in memory: no sidebar file is
+ * written or read, and clients get the data through the native RPC
+ * `state` method. Without `pollLockPath` the poller takes no cross-process
+ * lock.
+ */
+export interface MemoryQuotaSnapshots extends LocationQuotaSnapshots {
+  /** The newest snapshot, or `null` before the first refresh. */
+  latest(): SidebarMachineState | null
+}
+
+export function createMemoryQuotaSnapshots(
+  options: { readonly pollLockPath?: string | null } = {},
+): MemoryQuotaSnapshots {
+  let latest: SidebarMachineState | null = null
+  return {
+    latest: () => latest,
+    lastCheckedAt: () => latest?.checkedAt ?? 0,
+    write: async (state) => {
+      // Snapshots are built from the live account view, so the newest one
+      // replaces the previous one whole.
+      latest = state
+    },
+    pollLockPath: options.pollLockPath ?? null,
+    drain: async () => {},
+  }
+}
+
 // Location runtime
 
 /**
@@ -185,8 +250,13 @@ export interface LocationRuntimeOptions {
    * reach only the environment-gated console fallback.
    */
   logSink?: LocationLogSink
-  /** The sidebar state file for this location directory. */
-  sidebarStateFile: string
+  /**
+   * Where this location's quota snapshots go:
+   * `createSidebarFileQuotaSnapshots` for the OpenCode 1 sidebar file, or
+   * `createMemoryQuotaSnapshots` for an OpenCode 2 location, which keeps no
+   * sidebar file.
+   */
+  quotaSnapshots: LocationQuotaSnapshots
   /** Fetches one account's model quota with the location's credentials. */
   fetchAccountQuota: FetchAccountQuota
   /**
@@ -293,10 +363,10 @@ async function buildLocationRuntime(
     throw new TypeError('createLocationRuntime requires the location directory')
   }
   if (
-    typeof options.sidebarStateFile !== 'string' ||
-    options.sidebarStateFile === ''
+    typeof options.quotaSnapshots?.write !== 'function' ||
+    typeof options.quotaSnapshots.drain !== 'function'
   ) {
-    throw new TypeError('createLocationRuntime requires a sidebar state file')
+    throw new TypeError('createLocationRuntime requires a quota snapshot store')
   }
   if (typeof options.refreshToken !== 'function') {
     throw new TypeError(
@@ -366,14 +436,14 @@ async function buildLocationRuntime(
     logger: logger.createLogger('quota'),
     fetchAccountQuota: options.fetchAccountQuota,
     sidebar: {
-      stateFile: options.sidebarStateFile,
+      write: (state) => options.quotaSnapshots.write(state),
       getAccounts: sidebarAccounts,
       getActiveIndexByFamily: () => accounts?.getActiveIndexByFamily() ?? null,
       ...(options.healthScore ? { healthScore: options.healthScore } : {}),
       ...(options.now ? { now: options.now } : {}),
     },
   })
-  // Producer: refreshes enqueue sidebar writes, so the manager must stop
+  // Producer: refreshes enqueue snapshot writes, so the manager must stop
   // before the drain asserts the queue is empty.
   scope.add(quotaManager, 'producer')
 
@@ -382,7 +452,7 @@ async function buildLocationRuntime(
     backgroundQuotaRefresh = new BackgroundQuotaRefresh({
       intervalMs:
         config.config.background_quota_refresh_interval_minutes * 60_000,
-      sidebarStateFile: options.sidebarStateFile,
+      snapshots: options.quotaSnapshots,
       getAccountManager: () => accounts,
       quotaManager,
       ...(options.loadAccountTier
@@ -420,7 +490,7 @@ async function buildLocationRuntime(
     'producer',
   )
 
-  scope.addDrain(() => drainSidebarWrites())
+  scope.addDrain(() => options.quotaSnapshots.drain())
 
   const replaceAccounts = (view: LocationAccountView | null): Promise<void> => {
     const next = accountChange.then(async () => {

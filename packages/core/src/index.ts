@@ -4,6 +4,7 @@
 export * from './account-identity.ts'
 export type {
   AccountManagerOptions,
+  AccountQuotaTarget,
   AccountSessionIdentity,
   ManagedAccount,
 } from './account-manager.ts'

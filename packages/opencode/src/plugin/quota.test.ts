@@ -20,6 +20,7 @@ import {
   SIDEBAR_STATE_ENV,
   SIDEBAR_STATE_VERSION,
   type SidebarStateV1,
+  setSidebarMachineState,
   setSidebarMergeHooks,
 } from '../sidebar-state'
 import { registerQuotaManagerProducer } from './index.ts'
@@ -733,7 +734,8 @@ describe('location-scoped quota', () => {
         quota: { groups: {}, modelCount: 0 },
       }),
       sidebar: {
-        stateFile: locationFile,
+        write: (state) =>
+          setSidebarMachineState(state, { stateFile: locationFile }),
         getAccounts: ACCOUNTS,
         healthScore: () => 64,
         now: () => 1_700_000_000_000,

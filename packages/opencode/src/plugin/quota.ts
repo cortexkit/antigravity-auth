@@ -42,6 +42,7 @@ import {
 import {
   buildSidebarMachineStateFromAccounts,
   isAccountCurrent,
+  type SidebarMachineState,
   setSidebarMachineState,
 } from '../sidebar-state'
 import {
@@ -164,8 +165,11 @@ export function createOpenCodeQuotaManager(
  * state; a location passes each one explicitly.
  */
 export interface LocationQuotaSidebarOptions {
-  /** The sidebar state file this location's snapshots are written to. */
-  stateFile: string
+  /**
+   * Receives each snapshot: the sidebar file for the OpenCode 1 layout, or
+   * an in-memory store for an OpenCode 2 location, which keeps no file.
+   */
+  write: (state: SidebarMachineState) => Promise<void>
   /** Live account rows for the snapshot; `null` before accounts load. */
   getAccounts: () => SidebarQuotaAccount[] | null
   getActiveIndexByFamily?: () => { claude: number; gemini: number } | null
@@ -229,7 +233,7 @@ export function createLocationQuotaManager(
             manager.getBackoffUntil(account),
             sidebar.getActiveIndexByFamily,
             {
-              stateFile: sidebar.stateFile,
+              write: sidebar.write,
               logger,
               healthScore: sidebar.healthScore ?? null,
               now: sidebar.now,
@@ -393,6 +397,12 @@ export interface SidebarQuotaAccount {
 export interface SidebarQuotaSnapshotOptions {
   /** Sidebar state file to write. Defaults to the process-wide file. */
   stateFile?: string
+  /**
+   * Receives the redacted quota snapshot (account rows, `checkedAt` and
+   * backoff) instead of it being written to a sidebar file. When given,
+   * `stateFile` is ignored and no file is written.
+   */
+  write?: (state: SidebarMachineState) => Promise<void>
   /** Receives best-effort write failures. Defaults to the module logger. */
   logger?: Pick<Logger, 'debug'>
   /**
@@ -438,8 +448,15 @@ export async function pushSidebarQuotaSnapshot(
       ? (index: number) => getHealthTracker().getScore(index)
       : options.healthScore
   const now = options.now ?? Date.now
+  const write =
+    options.write ??
+    ((state: SidebarMachineState) =>
+      setSidebarMachineState(
+        state,
+        options.stateFile === undefined ? {} : { stateFile: options.stateFile },
+      ))
   try {
-    await setSidebarMachineState(
+    await write(
       buildSidebarMachineStateFromAccounts(
         accounts.map((entry) => ({
           index: entry.index,
@@ -460,7 +477,6 @@ export async function pushSidebarQuotaSnapshot(
           quotaBackoffUntil: backoffUntil > 0 ? backoffUntil : undefined,
         },
       ),
-      options.stateFile === undefined ? {} : { stateFile: options.stateFile },
     )
   } catch (error) {
     ;(options.logger ?? log).debug('sidebar-quota-write-failed', {

@@ -395,10 +395,10 @@ export interface GaLoopbackBridge {
   /**
    * For the host's `http.response` hook. When `request` is one of this
    * bridge's job requests, return a response whose body reads the original
-   * bytes and, if the loopback stream fails after headers, fails with the
-   * error the bridge captured for that job (the genuine upstream cause)
-   * instead of the socket error the host would otherwise see. Any other
-   * request returns `null` and its response is left alone.
+   * bytes and then, if the upstream body failed after headers, fails with
+   * the error the bridge captured for that job (the genuine upstream cause)
+   * instead of ending. Any other request returns `null` and its response is
+   * left alone.
    */
   adaptResponse(request: Request, response: Response): Response | null
   /** Jobs registered or running (diagnostics and tests). */
@@ -579,8 +579,12 @@ export async function startGaLoopbackBridge(
           try {
             const { done, value } = await reader.read()
             if (done) {
-              takeFailure(id)
-              controller.close()
+              // The bridge ends a failed job's loopback body cleanly after
+              // its last byte and records the failure first, so the end of
+              // the body is where the genuine error is delivered.
+              const failure = takeFailure(id)
+              if (failure) controller.error(failure)
+              else controller.close()
               return
             }
             controller.enqueue(value)
@@ -643,10 +647,22 @@ function writeResponseHead(
 /**
  * Stream a Response to the loopback client. Bytes pass through unchanged,
  * except that an event stream ending without its final blank line gets one,
- * so the host's SSE reader sees the last frame. A body read failure after
- * headers is handed to `onFailure` and then destroys the socket instead of
- * ending it cleanly: the host then reports a transport error rather than a
- * truncated success, and never sees fabricated assistant text.
+ * so the host's SSE reader sees the last frame.
+ *
+ * When the upstream body fails, the failure is handed to `onFailure` first,
+ * and then the loopback response is ended normally: the status, the headers
+ * and every byte already written still reach the host. The job's
+ * `http.response` adapter turns that end into the genuine error, so the host
+ * receives the real content followed by the original failure, and never a
+ * fabricated success. Setup registers that adapter before the request hook,
+ * so every rewritten job has it.
+ *
+ * The response is not destroyed on failure. Bun's `ServerResponse` calls a
+ * write's callback while the bytes are still in the response's own buffer
+ * (its `writableLength` has not dropped yet), and destroying it then
+ * discards those bytes and the unsent headers. The host's fetch would then
+ * fail with a connection reset before any response exists, and its
+ * `http.response` hook would never run.
  */
 async function pipeResponse(
   upstream: Response,
@@ -686,10 +702,11 @@ async function pipeResponse(
     }
   } catch (caught) {
     const error = caught instanceof Error ? caught : new Error(String(caught))
-    // Recorded before the socket is destroyed, so the job's adapted response
-    // can already read it when the host's body read fails.
+    // The captured upstream body error is recorded before the loopback body
+    // ends, so the job's `http.response` hook adapter (`adaptResponse`) finds
+    // it when the host reads the end of the body and fails the read with it.
     onFailure(error)
-    response.destroy(error)
+    response.end()
     return
   }
   if (eventStream && wroteAny && tail !== '\n\n') {
@@ -1228,9 +1245,10 @@ const PARENT_SESSION_HEADERS = [
 ] as const
 
 /**
- * What the location runtime needs from the account service: the sidebar
- * file and the functions that use credentials to fetch quota, look up the
- * plan tier and refresh tokens.
+ * What the location runtime needs from the account service: the quota
+ * snapshot store (in memory for an OpenCode 2 location) and the functions
+ * that use credentials to fetch quota, look up the plan tier and refresh
+ * tokens.
  */
 export type GaRuntimeCollaborators = Omit<
   LocationRuntimeOptions,
@@ -1504,7 +1522,7 @@ function headerValue(
  * retry policy (all scoped to the Google provider);
  * and returns a Cleanup that removes only this activation's hooks and RPC
  * and stops everything else: producers are stopped and awaited, queued
- * sidebar writes drain, and then the remaining handles close.
+ * quota snapshot writes drain, and then the remaining handles close.
  *
  * Any failure before the Cleanup is returned releases everything acquired
  * so far before the error propagates, so a failed setup leaves no hook,
@@ -1535,9 +1553,9 @@ export async function setupGaActivation(
   }
 
   // Everything below is registered on the runtime scope as a producer. The
-  // scope stops producers newest first, so teardown runs: retry, response
-  // and request hooks, model registration, RPC, activation, bridge,
-  // services, then the runtime's own producers; after that queued sidebar
+  // scope stops producers newest first, so teardown runs: request, retry
+  // and response hooks, model registration, RPC, activation, bridge,
+  // services, then the runtime's own producers; after that queued snapshot
   // writes drain and the runtime's files and handles close.
   try {
     runtime.scope.add(services, 'producer')
@@ -1601,18 +1619,6 @@ export async function setupGaActivation(
     runtime.scope.add(modelRegistration, 'producer')
     await context.provider.reload()
 
-    const requestHook: Registration = await context.session.hook(
-      'http.request',
-      (event: SessionHttpRequest) =>
-        rewriteGaHttpRequest(event, {
-          bridge,
-          isRegisteredModel,
-          env: process.env,
-        }),
-      { providerID: GA_PROVIDER_ID },
-    )
-    runtime.scope.add(requestHook, 'producer')
-
     const responseHook: Registration = await context.session.hook(
       'http.response',
       (event: SessionHttpResponse) => adaptGaHttpResponse(event, bridge),
@@ -1626,6 +1632,22 @@ export async function setupGaActivation(
       { providerID: GA_PROVIDER_ID },
     )
     runtime.scope.add(retryHook, 'producer')
+
+    // The `http.request` hook, which rewrites requests to the bridge, is
+    // installed last, so every request it rewrites already has the
+    // `http.response` adapter and the retry policy in place. Teardown removes
+    // producers newest first, so this hook is removed first.
+    const requestHook: Registration = await context.session.hook(
+      'http.request',
+      (event: SessionHttpRequest) =>
+        rewriteGaHttpRequest(event, {
+          bridge,
+          isRegisteredModel,
+          env: process.env,
+        }),
+      { providerID: GA_PROVIDER_ID },
+    )
+    runtime.scope.add(requestHook, 'producer')
   } catch (error) {
     await runtime.dispose().catch(() => {
       // The setup error is the one the host needs to see.
