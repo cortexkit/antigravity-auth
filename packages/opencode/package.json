@@ -67,7 +67,7 @@
   ],
   "scripts": {
     "embed:check": "bun scripts/build-tui.ts --check",
-    "build": "bun run embed:check && bun scripts/build-tui.ts --library && esbuild src/server.ts --bundle --platform=node --format=esm --external:zod --outfile=dist/server.js --sourcemap --metafile=dist/server.meta.json --log-level=warning && tsc -p tsconfig.ga.emit.json",
+    "build": "bun run embed:check && bun scripts/build-tui.ts --library && esbuild src/server.ts --bundle --platform=node --format=esm --external:zod --outfile=dist/server.js --sourcemap --metafile=dist/server.meta.json --log-level=warning && tsc -p tsconfig.ga.emit.json && bun ../../scripts/finalize-declaration-specifiers.ts dist/types .",
     "build:tui": "bun run embed:check && bun scripts/build-tui.ts",
     "build:schema": "bun script/build-schema.ts",
     "smoke:tui": "bun run embed:check && bun scripts/smoke-tui-pack-install.ts",
@@ -116,9 +116,12 @@
   "devDependencies": {
     "@opencode-ai/sdk": "1.17.13",
     "@opencode/plugin": "2.0.22",
+    "@opentui/core-ga": "npm:@opentui/core@0.5.14",
+    "@opentui/solid-ga": "npm:@opentui/solid@0.5.14",
     "@types/json-schema": "7.0.15",
     "@types/node": "25.0.0",
     "esbuild": "^0.27.7",
+    "solid-js-ga": "npm:solid-js@1.9.15",
     "zod-to-json-schema": "^3.25.1"
   },
   "dependencies": {

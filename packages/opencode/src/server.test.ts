@@ -11,6 +11,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -28,6 +29,9 @@ import { Host } from '@opencode/plugin/host'
 
 const packageRoot = resolve(import.meta.dir, '..')
 const packageName = '@cortexkit/opencode-antigravity-auth'
+
+/** Bound on one type-check test: one tsc process over the packed types. */
+const COMPILER_RUN_MS = 60_000
 
 let root: string
 let consumer: string
@@ -140,6 +144,64 @@ describe('packed ./server entry', () => {
     expect(typeof plain.AntigravityCLIOAuthPlugin).toBe('function')
     expect(plain.default).toBeUndefined()
   })
+
+  it.each([
+    ['NodeNext', { module: 'NodeNext', moduleResolution: 'NodeNext' }],
+    ['Bundler', { module: 'ESNext', moduleResolution: 'Bundler' }],
+  ] as const)(
+    'type-checks the published server declarations under %s with library checking on',
+    (label, resolution) => {
+      // Type-only packages the declarations name: both host SDKs, Node types
+      // and the JSON Schema types the GA SDK's provider package needs.
+      for (const name of [
+        '@opencode/plugin',
+        '@opencode-ai/plugin',
+        '@opencode-ai/sdk',
+        '@types/node',
+        '@types/json-schema',
+      ])
+        if (!existsSync(join(consumer, 'node_modules', name)))
+          linkDependency(name)
+      writeFileSync(
+        join(consumer, 'server-consumer.ts'),
+        `import plugin, {
+  createGaAntigravityPlugin,
+  type GaPluginOverrides,
+} from '${packageName}/server'
+import type { Plugin } from '@opencode/plugin'
+
+const ga: Plugin.Plugin = plugin
+const observe: NonNullable<GaPluginOverrides['observeRawSenderSignal']> = () => undefined
+export const made: Plugin.Plugin = createGaAntigravityPlugin({ observeRawSenderSignal: observe })
+export const v1: typeof plugin.server = plugin.server
+export { ga }
+`,
+      )
+      const config = `tsconfig.server.${label}.json`
+      writeFileSync(
+        join(consumer, config),
+        `${JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            ...resolution,
+            lib: ['ESNext', 'DOM', 'DOM.Iterable'],
+            strict: true,
+            noEmit: true,
+            skipLibCheck: false,
+            types: ['node'],
+          },
+          files: ['server-consumer.ts'],
+        })}\n`,
+      )
+      const tsc = createRequire(join(packageRoot, 'package.json')).resolve(
+        'typescript/bin/tsc',
+      )
+      run(process.execPath, [tsc, '-p', config], consumer)
+    },
+    // A full strict compiler run over the published declarations, as a separate
+    // process, takes several seconds; Bun's default 5 s test limit is too short.
+    COMPILER_RUN_MS,
+  )
 
   it('admits both host lines by engines.opencode', () => {
     const manifest = JSON.parse(

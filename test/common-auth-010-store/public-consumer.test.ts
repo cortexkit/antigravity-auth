@@ -37,6 +37,9 @@ const ENTRIES = [
   'logger',
 ] as const
 
+/** Bound on one type-check test: one tsc process over the packed types. */
+const COMPILER_RUN_MS = 60_000
+
 let root: string
 let consumer: string
 let installed: string
@@ -182,19 +185,21 @@ describe('packed core common-auth bindings', () => {
   it.each([
     ['NodeNext', { module: 'NodeNext', moduleResolution: 'NodeNext' }],
     ['Bundler', { module: 'ESNext', moduleResolution: 'Bundler' }],
-  ] as const)('type-checks root and subpath imports under %s resolution with library checking on', (label, resolution) => {
-    const types = join(consumer, 'node_modules/@types/node')
-    if (!existsSync(types)) {
-      mkdirSync(dirname(types), { recursive: true })
-      symlinkSync(
-        realpathSync(join(repoRoot, 'node_modules/@types/node')),
-        types,
-        'dir',
-      )
-    }
-    writeFileSync(
-      join(consumer, 'consumer.ts'),
-      `import {
+  ] as const)(
+    'type-checks root and subpath imports under %s resolution with library checking on',
+    (label, resolution) => {
+      const types = join(consumer, 'node_modules/@types/node')
+      if (!existsSync(types)) {
+        mkdirSync(dirname(types), { recursive: true })
+        symlinkSync(
+          realpathSync(join(repoRoot, 'node_modules/@types/node')),
+          types,
+          'dir',
+        )
+      }
+      writeFileSync(
+        join(consumer, 'consumer.ts'),
+        `import {
   type CommonAuthStoreModules,
   loadCommonAuthStoreModules,
 } from '${corePackage}'
@@ -208,25 +213,29 @@ const open: (...args: Parameters<typeof modules.store.openPoolStore>) => PoolSto
 export const surface: [typeof open, CommandMenu | undefined, ClaustrumConsumer | undefined] =
   [open, undefined, undefined]
 `,
-    )
-    const config = `tsconfig.${label}.json`
-    writeFileSync(
-      join(consumer, config),
-      `${JSON.stringify({
-        compilerOptions: {
-          target: 'ES2022',
-          ...resolution,
-          strict: true,
-          noEmit: true,
-          skipLibCheck: false,
-          types: ['node'],
-        },
-        files: ['consumer.ts'],
-      })}\n`,
-    )
-    const tsc = createRequire(join(repoRoot, 'package.json')).resolve(
-      'typescript/bin/tsc',
-    )
-    run(process.execPath, [tsc, '-p', config], consumer)
-  })
+      )
+      const config = `tsconfig.${label}.json`
+      writeFileSync(
+        join(consumer, config),
+        `${JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            ...resolution,
+            strict: true,
+            noEmit: true,
+            skipLibCheck: false,
+            types: ['node'],
+          },
+          files: ['consumer.ts'],
+        })}\n`,
+      )
+      const tsc = createRequire(join(repoRoot, 'package.json')).resolve(
+        'typescript/bin/tsc',
+      )
+      run(process.execPath, [tsc, '-p', config], consumer)
+    },
+    // A full strict compiler run over the published declarations, as a separate
+    // process, takes several seconds; Bun's default 5 s test limit is too short.
+    COMPILER_RUN_MS,
+  )
 })
