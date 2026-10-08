@@ -1,0 +1,33 @@
+{
+  // Type program for the OpenCode 2 (GA 2.0.22) server graph. It checks the
+  // GA sources against the published @opencode/plugin 2.0.22 declarations
+  // with library checking on, using the @types/node 25 and @types/bun 1.3
+  // pair the Bun 1.3 release is built with. The OpenCode 1 program in
+  // tsconfig.json keeps the repository's root @types/node 24 declarations.
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    // This package's own @types (node 25) come first, so every `node`
+    // reference, including the one inside bun-types, resolves to node 25.
+    "typeRoots": ["./node_modules/@types", "../../node_modules/@types"],
+    "types": ["node", "bun"],
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": false,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true
+  },
+  "include": [
+    "src/ga/**/*.ts",
+    "src/server.ts",
+    "src/server.test.ts",
+    "../../test/global.d.ts"
+  ]
+}

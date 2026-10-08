@@ -57,9 +57,6 @@ jobs:
       - name: Smoke test TUI
         run: bun run --cwd packages/opencode smoke:tui
 
-      - name: Smoke test packed OpenCode 2 adapter
-        run: bun run smoke:opencode-v2
-
       - name: Test
         run: bun run test
 
@@ -75,10 +72,69 @@ jobs:
       - name: Lint
         run: bun run lint
 
+  rpc-runtime-matrix:
+    name: RPC runtime matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      # Each runtime is installed in turn; its executable path is recorded
+      # before the next setup step changes PATH. Bun 1.3.14 is copied aside
+      # because a later setup-bun step may replace the same binary.
+      - name: Setup Node.js 20.0.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.0.0
+
+      - name: Record Node.js 20.0.0
+        run: echo "NODE20=$(command -v node)" >> "$GITHUB_ENV"
+
+      - name: Setup Node.js 24.16.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24.16.0
+
+      - name: Record Node.js 24.16.0
+        run: echo "NODE24=$(command -v node)" >> "$GITHUB_ENV"
+
+      - name: Setup Bun 1.3.14
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Record Bun 1.3.14
+        run: |
+          mkdir -p "$RUNNER_TEMP/bun-1.3.14"
+          cp "$(command -v bun)" "$RUNNER_TEMP/bun-1.3.14/bun"
+          echo "BUN13=$RUNNER_TEMP/bun-1.3.14/bun" >> "$GITHUB_ENV"
+
+      - name: Setup Bun 1.4.2
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Record Bun 1.4.2
+        run: echo "BUN14=$(command -v bun)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install private TUI compiler from locked repository input
+        run: |
+          test -f tools/common-auth-build/inputs/cortexkit-common-auth-0.9.4.tgz
+          bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
+          bun run embed:check
+
+      - name: Run RPC contracts on all four runtimes
+        run: bun run test:rpc:matrix
+
   publish-npm:
     name: Publish ${{ matrix.package }} to npm
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [test, rpc-runtime-matrix]
     strategy:
       fail-fast: false
       # Publish core first so dependents can resolve the pinned version.
@@ -91,8 +147,6 @@ jobs:
             workspace: "@cortexkit/opencode-antigravity-auth"
           - package: "@cortexkit/pi-antigravity-auth"
             workspace: "@cortexkit/pi-antigravity-auth"
-          - package: "@cortexkit/opencode-v2-antigravity-auth"
-            workspace: "@cortexkit/opencode-v2-antigravity-auth"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -153,7 +207,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [test, publish-npm]
+    needs: [test, rpc-runtime-matrix, publish-npm]
     if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v5

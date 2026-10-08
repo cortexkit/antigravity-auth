@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -178,13 +179,19 @@ describe('packed core common-auth bindings', () => {
     } catch {}
   })
 
-  it('type-checks root and subpath imports with library checking on', () => {
-    mkdirSync(join(consumer, 'node_modules/@types'), { recursive: true })
-    symlinkSync(
-      realpathSync(join(repoRoot, 'node_modules/@types/node')),
-      join(consumer, 'node_modules/@types/node'),
-      'dir',
-    )
+  it.each([
+    ['NodeNext', { module: 'NodeNext', moduleResolution: 'NodeNext' }],
+    ['Bundler', { module: 'ESNext', moduleResolution: 'Bundler' }],
+  ] as const)('type-checks root and subpath imports under %s resolution with library checking on', (label, resolution) => {
+    const types = join(consumer, 'node_modules/@types/node')
+    if (!existsSync(types)) {
+      mkdirSync(dirname(types), { recursive: true })
+      symlinkSync(
+        realpathSync(join(repoRoot, 'node_modules/@types/node')),
+        types,
+        'dir',
+      )
+    }
     writeFileSync(
       join(consumer, 'consumer.ts'),
       `import {
@@ -202,13 +209,13 @@ export const surface: [typeof open, CommandMenu | undefined, ClaustrumConsumer |
   [open, undefined, undefined]
 `,
     )
+    const config = `tsconfig.${label}.json`
     writeFileSync(
-      join(consumer, 'tsconfig.json'),
+      join(consumer, config),
       `${JSON.stringify({
         compilerOptions: {
           target: 'ES2022',
-          module: 'ESNext',
-          moduleResolution: 'Bundler',
+          ...resolution,
           strict: true,
           noEmit: true,
           skipLibCheck: false,
@@ -220,6 +227,6 @@ export const surface: [typeof open, CommandMenu | undefined, ClaustrumConsumer |
     const tsc = createRequire(join(repoRoot, 'package.json')).resolve(
       'typescript/bin/tsc',
     )
-    run(process.execPath, [tsc, '-p', 'tsconfig.json'], consumer)
+    run(process.execPath, [tsc, '-p', config], consumer)
   })
 })

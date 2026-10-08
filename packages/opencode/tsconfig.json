@@ -20,7 +20,9 @@
 
     // Bundler mode
     "moduleResolution": "bundler",
-    "typeRoots": ["./node_modules/@types", "../../node_modules/@types"],
+    // Only the repository root's @types: this package's own @types/node 25
+    // belongs to the OpenCode 2 program (tsconfig.ga.json).
+    "typeRoots": ["../../node_modules/@types"],
     "types": ["bun", "node"],
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
