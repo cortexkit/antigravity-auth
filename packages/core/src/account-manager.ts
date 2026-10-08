@@ -1,4 +1,28 @@
 import { createHash } from 'node:crypto'
+import { rowRefKey, sameRowRef } from './account-identity.ts'
+import {
+  AccountRepositoryError,
+  applyCooldownObservation,
+  applyRateLimitObservation,
+  applySwitch,
+} from './account-repository.ts'
+import type {
+  AccessVerdict,
+  AccountFlushReport,
+  AccountRefreshOptions,
+  AccountRefreshOutcome,
+  AccountRepository,
+  AccountRepositoryFailure,
+  AccountRepositoryRead,
+  AccountRow,
+  CooldownObservation,
+  LastSwitchReason,
+  ProviderMetadata,
+  QuotaState,
+  RoutingTarget,
+  RowRef,
+  StoredQuotaGroup,
+} from './account-repository-types.ts'
 import type { AccountStorageStore } from './account-storage.ts'
 import { AccountStorageLockContentionError } from './account-storage.ts'
 import type {
@@ -49,8 +73,18 @@ function isStorageLockContention(error: unknown): boolean {
 }
 
 export interface AccountManagerOptions {
-  store: AccountStorageStore
+  /**
+   * The pre-store pool file's store. Exactly one of `store` and
+   * `repository` is given.
+   */
+  store?: AccountStorageStore
   storagePath?: string
+  /**
+   * The account repository. With it, every persisted change becomes an
+   * attributed write on the row the account was loaded from (see
+   * `AccountManager.fromRepository`); the pool file is never written.
+   */
+  repository?: AccountRepository
   now?: () => number
   random?: () => number
   pid?: number
@@ -72,6 +106,13 @@ export type QuotaKey = BaseQuotaKey | `${BaseQuotaKey}:${string}`
 
 export interface ManagedAccount {
   index: number
+  /**
+   * The repository row and credential this account was loaded from. Every
+   * write about the account is fenced on it, so a write decided for a
+   * credential that was since replaced or removed never lands on its
+   * successor. Absent for accounts loaded from the pre-store pool file.
+   */
+  ref?: RowRef
   email?: string
   label?: string
   addedAt: number
@@ -306,6 +347,142 @@ function isOverSoftQuotaThreshold(
   return isOverThreshold
 }
 
+/**
+ * Absolute-state changes to one repository row waiting for the next save.
+ * Later changes to the same field replace earlier ones, so a burst of them
+ * becomes one write; counters are never kept here (see `recordRequest`).
+ */
+interface PendingRowWrite {
+  ref: RowRef
+  /** Per rate-limit key: a reset time to merge, or `clear` to drop it. */
+  rateLimits: Map<string, number | 'clear'>
+  cooldown?: { value: CooldownObservation }
+  switchReason?: LastSwitchReason
+  lastUsed?: number
+}
+
+/** Applies a coalesced row write to the metadata read under the row lock. */
+function applyPendingRowWrite(
+  metadata: ProviderMetadata,
+  pending: PendingRowWrite,
+): ProviderMetadata {
+  let next = metadata
+  const resets: Record<string, number> = {}
+  const cleared: string[] = []
+  for (const [key, value] of pending.rateLimits) {
+    if (value === 'clear') cleared.push(key)
+    else resets[key] = value
+  }
+  if (Object.keys(resets).length > 0) {
+    next = applyRateLimitObservation(next, resets)
+  }
+  if (cleared.length > 0 && next.rateLimitResetTimes != null) {
+    const rates = { ...next.rateLimitResetTimes }
+    for (const key of cleared) delete rates[key]
+    next = { ...next, rateLimitResetTimes: rates }
+  }
+  if (pending.cooldown !== undefined) {
+    next = applyCooldownObservation(next, pending.cooldown.value)
+  }
+  if (pending.switchReason !== undefined) {
+    next = applySwitch(next, pending.switchReason)
+  }
+  if (pending.lastUsed !== undefined && pending.lastUsed > next.lastUsed) {
+    next = { ...next, lastUsed: pending.lastUsed }
+  }
+  return next
+}
+
+/**
+ * Repository failures a save reports but does not fail on: the write was
+ * about a credential the row no longer holds (it is dropped, as intended),
+ * or it met lock contention and was queued again for the next save.
+ */
+const TOLERATED_FAILURES = new Set<AccountRepositoryFailure['kind']>([
+  'attribution',
+  'unknown-row',
+  'lock-contention',
+])
+
+/**
+ * Thrown by a save, flush or dispose of a repository-backed manager when a
+ * write failed. `message` and `failure` are the first failure; `report`
+ * holds every failure the repository reported while draining.
+ */
+export class AccountManagerPersistError extends Error {
+  readonly failure: AccountRepositoryFailure
+  readonly report: AccountFlushReport
+
+  constructor(failure: AccountRepositoryFailure, report: AccountFlushReport) {
+    super(failure.message)
+    this.name = 'AccountManagerPersistError'
+    this.failure = failure
+    this.report = report
+  }
+}
+
+function present<T>(value: T | null | undefined): T | undefined {
+  return value === null ? undefined : value
+}
+
+function quotaGroupsOf(
+  quota: QuotaState | undefined,
+): AccountMetadataV3['cachedQuota'] {
+  if (quota?.cachedQuota == null) return undefined
+  const groups: NonNullable<AccountMetadataV3['cachedQuota']> = {}
+  for (const [name, group] of Object.entries(quota.cachedQuota)) {
+    groups[name] = {
+      modelCount: group.modelCount,
+      ...(group.remainingFraction != null
+        ? { remainingFraction: group.remainingFraction }
+        : {}),
+      ...(group.resetTime != null ? { resetTime: group.resetTime } : {}),
+      ...(group.windows != null
+        ? {
+            windows: group.windows.map((window) => ({
+              window: window.window,
+              remainingFraction: window.remainingFraction,
+              resetTime: window.resetTime,
+            })),
+          }
+        : {}),
+    }
+  }
+  return groups
+}
+
+function storedQuotaGroups(
+  groups: Partial<Record<QuotaGroup, QuotaGroupSummary>>,
+): Record<string, StoredQuotaGroup> {
+  const stored: Record<string, StoredQuotaGroup> = {}
+  for (const [name, group] of Object.entries(groups)) {
+    if (group === undefined) continue
+    stored[name] = {
+      modelCount: group.modelCount,
+      ...(group.remainingFraction !== undefined
+        ? { remainingFraction: group.remainingFraction }
+        : {}),
+      ...(group.resetTime !== undefined ? { resetTime: group.resetTime } : {}),
+      ...(group.windows !== undefined
+        ? { windows: group.windows.map((window) => ({ ...window })) }
+        : {}),
+    }
+  }
+  return stored
+}
+
+/** Why a repository row cannot be routed to, or undefined when it can. */
+function unroutableReason(row: AccountRow): string | undefined {
+  if (row.invalid !== undefined) return `invalid ${row.invalid}`
+  if (row.torn) return 'torn'
+  if (row.unbound) return `unbound credential (${row.stamp})`
+  if (row.credential === undefined) return 'no credential'
+  if (row.metadata.status === 'dropped') {
+    return `metadata not shown (${row.metadata.reason})`
+  }
+  return undefined
+}
+
 export interface AccountSessionIdentity {
   id: string
   parentId?: string | null
@@ -330,7 +507,10 @@ const MAX_ACCOUNT_SESSION_STATES = 256
  * Rate limits are tracked per-model-family (claude/gemini) so an account
  * rate-limited for Claude can still be used for Gemini.
  *
- * Source of truth for the pool is `antigravity-accounts.json`.
+ * Persists either to the pre-store pool file `antigravity-accounts.json`
+ * (whole-pool snapshots through an `AccountStorageStore`) or, when built with
+ * `fromRepository`, to the account repository, where every change is an
+ * attributed write on the row and credential the account was loaded from.
  */
 export class AccountManager {
   private accounts: ManagedAccount[] = []
@@ -363,7 +543,12 @@ export class AccountManager {
   private sessionUsedAccounts: Set<number> = new Set()
   private requestSessionStates = new Map<string, AccountSessionState>()
 
-  private readonly store: AccountStorageStore
+  private readonly store: AccountStorageStore | undefined
+  private readonly repository: AccountRepository | undefined
+  /** Coalesced absolute-state writes per repository credential. */
+  private pendingRowWrites = new Map<string, PendingRowWrite>()
+  /** Latest selection per routing target, written at the next save. */
+  private pendingSelections = new Map<RoutingTarget, RowRef | null>()
   private readonly storagePath: string
   private readonly onDiagnostic: AccountManagerOptions['onDiagnostic']
   private readonly now: () => number
@@ -375,7 +560,18 @@ export class AccountManager {
     stored: AccountStorageV4 | null | undefined,
     options: AccountManagerOptions,
   ) {
+    if ((options.store === undefined) === (options.repository === undefined)) {
+      throw new Error(
+        'AccountManager needs exactly one of a pool-file store and an account repository',
+      )
+    }
+    if (options.repository !== undefined && (stored || authFallback)) {
+      throw new Error(
+        'a repository-backed AccountManager is loaded with AccountManager.fromRepository',
+      )
+    }
     this.store = options.store
+    this.repository = options.repository
     this.storagePath = options.storagePath ?? ''
     this.onDiagnostic = options.onDiagnostic
     this.now = options.now ?? (() => Date.now())
@@ -538,6 +734,342 @@ export class AccountManager {
     }
   }
 
+  /**
+   * A manager over the rows of a ready repository read. Rows that cannot be
+   * routed to (no credential, torn, unbound, invalid, or metadata the store
+   * keeps but does not show) are left out and reported through
+   * `onDiagnostic`; selection follows the stored row refs, falling back to
+   * the stored indexes as the pool-file loader did.
+   */
+  static fromRepository(
+    read: AccountRepositoryRead,
+    options: Omit<
+      AccountManagerOptions,
+      'store' | 'storagePath' | 'repository'
+    > & {
+      repository: AccountRepository
+    },
+  ): AccountManager {
+    if (read.status !== 'ready') {
+      throw new Error(
+        `the account repository is not ready (${read.status}); resolve it before routing`,
+      )
+    }
+    const manager = new AccountManager(undefined, null, options)
+    manager.loadRepositoryRows(read)
+    return manager
+  }
+
+  private loadRepositoryRows(
+    read: Extract<AccountRepositoryRead, { status: 'ready' }>,
+  ): void {
+    const baseNow = this.now()
+    const generated: ManagedAccount[] = []
+    const versionUpdated: ManagedAccount[] = []
+    for (const row of read.rows) {
+      const reason = unroutableReason(row)
+      const credential = row.credential
+      if (reason !== undefined || credential === undefined) {
+        this.onDiagnostic?.('Skipped an account row that cannot be routed to', {
+          rowId: row.ref.id,
+          reason: reason ?? 'no credential',
+        })
+        continue
+      }
+      const meta =
+        row.metadata.status === 'present' ? row.metadata.metadata : undefined
+      const quota = row.quota.status === 'present' ? row.quota.quota : undefined
+      const rateLimitResetTimes: RateLimitStateV3 = {}
+      for (const [key, value] of Object.entries(
+        meta?.rateLimitResetTimes ?? {},
+      )) {
+        if (typeof value === 'number') rateLimitResetTimes[key] = value
+      }
+      const projectId = present(meta?.projectId)
+      const managedProjectId = present(meta?.managedProjectId)
+      const counts = present(meta?.dailyRequestCounts)
+      const account: ManagedAccount = {
+        index: this.accounts.length,
+        ref: row.ref,
+        email: present(meta?.email),
+        label: present(meta?.label),
+        addedAt: meta?.addedAt ?? row.storeAddedAt ?? baseNow,
+        lastUsed: meta?.lastUsed ?? 0,
+        parts: {
+          refreshToken: credential.refreshToken,
+          projectId,
+          managedProjectId,
+        },
+        projectId,
+        managedProjectId,
+        access: credential.accessToken,
+        expires: credential.expiresAt,
+        enabled: row.enabled,
+        rateLimitResetTimes,
+        lastSwitchReason: present(meta?.lastSwitchReason),
+        coolingDownUntil: present(meta?.coolingDownUntil),
+        cooldownReason: present(meta?.cooldownReason),
+        touchedForQuota: {},
+        // Copies: the manager updates fingerprints in place, and the read
+        // it was given belongs to the caller.
+        fingerprint: structuredClone(present(meta?.fingerprint)),
+        fingerprintHistory:
+          structuredClone(present(meta?.fingerprintHistory)) ?? [],
+        cachedQuota: normalizeLegacyCachedQuota(quotaGroupsOf(quota)),
+        cachedQuotaAccountId: present(quota?.cachedQuotaAccountId),
+        cachedQuotaUpdatedAt: present(quota?.cachedQuotaUpdatedAt),
+        capturedTierId: present(meta?.capturedTierId),
+        capturedPaidTierId: present(meta?.capturedPaidTierId),
+        capturedTierAt: present(meta?.capturedTierAt),
+        capturedTierSchemaVersion: present(meta?.capturedTierSchemaVersion),
+        dailyRequestCounts:
+          counts === undefined
+            ? undefined
+            : {
+                date: counts.date,
+                claude: counts.claude,
+                gemini: counts.gemini,
+              },
+        verificationRequired: present(meta?.verificationRequired),
+        verificationRequiredAt: present(meta?.verificationRequiredAt),
+        verificationRequiredReason: present(meta?.verificationRequiredReason),
+        verificationUrl: present(meta?.verificationUrl),
+        accountIneligible: present(meta?.accountIneligible),
+        accountIneligibleAt: present(meta?.accountIneligibleAt),
+        accountIneligibleReason: present(meta?.accountIneligibleReason),
+        eligibilityStateUpdatedAt: present(meta?.eligibilityStateUpdatedAt),
+      }
+      if (account.fingerprint === undefined) {
+        account.fingerprint = generateFingerprint()
+        generated.push(account)
+      } else if (updateFingerprintVersion(account.fingerprint)) {
+        versionUpdated.push(account)
+      }
+      this.accounts.push(account)
+    }
+    // A fingerprint generated or brought to the current runtime version is
+    // recorded, as the pool-file loader saved it.
+    for (const account of [...generated, ...versionUpdated]) {
+      this.persistFingerprint(account)
+    }
+
+    const count = this.accounts.length
+    if (count === 0) return
+    const routing = read.routing
+    const indexOf = (ref: RowRef | null | undefined): number | undefined => {
+      if (ref == null) return undefined
+      const found = this.accounts.findIndex(
+        (account) => account.ref !== undefined && sameRowRef(account.ref, ref),
+      )
+      return found < 0 ? undefined : found
+    }
+    const defaultIndex =
+      indexOf(routing?.activeRow) ??
+      clampNonNegativeInt(routing?.activeIndex, 0) % count
+    const families: ModelFamily[] = ['claude', 'gemini']
+    for (const family of families) {
+      const index =
+        indexOf(routing?.activeRowByFamily?.[family]) ??
+        clampNonNegativeInt(
+          routing?.activeIndexByFamily?.[family],
+          defaultIndex,
+        ) % count
+      this.currentAccountIndexByFamily[family] = index
+      this.cursorByFamily[family] = index
+    }
+  }
+
+  // ========== Repository writes ==========
+
+  /**
+   * Starts one attributed repository write about `account`. Its failure is
+   * reported here and kept by the repository for the next flush, which
+   * decides whether a save fails.
+   */
+  private dispatch(
+    account: ManagedAccount,
+    label: string,
+    write: (repository: AccountRepository, ref: RowRef) => Promise<unknown>,
+  ): void {
+    const repository = this.repository
+    const ref = account.ref
+    if (repository === undefined || ref === undefined) return
+    write(repository, ref).catch((error: unknown) => {
+      this.onDiagnostic?.(`Account ${label} was not persisted`, {
+        rowId: ref.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
+
+  /** Queues an absolute-state change of `account` for the next save. */
+  private queueRowWrite(
+    account: ManagedAccount,
+    change: (pending: PendingRowWrite) => void,
+  ): void {
+    if (this.repository === undefined || account.ref === undefined) return
+    const key = rowRefKey(account.ref)
+    let pending = this.pendingRowWrites.get(key)
+    if (pending === undefined) {
+      pending = { ref: account.ref, rateLimits: new Map() }
+      this.pendingRowWrites.set(key, pending)
+    }
+    change(pending)
+    this.requestSaveToDisk()
+  }
+
+  /** Merges a write that met lock contention back into the queue. */
+  private requeueRowWrite(failed: PendingRowWrite): void {
+    const key = rowRefKey(failed.ref)
+    const newer = this.pendingRowWrites.get(key)
+    if (newer === undefined) {
+      this.pendingRowWrites.set(key, failed)
+    } else {
+      for (const [rateKey, value] of failed.rateLimits) {
+        if (!newer.rateLimits.has(rateKey)) newer.rateLimits.set(rateKey, value)
+      }
+      newer.cooldown ??= failed.cooldown
+      newer.switchReason ??= failed.switchReason
+      if (
+        failed.lastUsed !== undefined &&
+        (newer.lastUsed === undefined || failed.lastUsed > newer.lastUsed)
+      ) {
+        newer.lastUsed = failed.lastUsed
+      }
+    }
+    this.requestSaveToDisk()
+  }
+
+  /** Records the global selection of `family` (and `active`, as the pool file kept claude's). */
+  private queueSelection(family: ModelFamily): void {
+    if (this.repository === undefined) return
+    const index = this.currentAccountIndexByFamily[family]
+    const ref = this.accounts[index]?.ref ?? null
+    this.pendingSelections.set(family, ref)
+    if (family === 'claude') this.pendingSelections.set('active', ref)
+    this.requestSaveToDisk()
+  }
+
+  private persistFingerprint(account: ManagedAccount): void {
+    const fingerprint = account.fingerprint
+    if (fingerprint === undefined) return
+    const history = [...(account.fingerprintHistory ?? [])]
+    this.dispatch(account, 'fingerprint', (repository, ref) =>
+      repository.recordFingerprint(ref, { fingerprint, history }),
+    )
+  }
+
+  private persistAccessVerdict(
+    account: ManagedAccount,
+    verdict: AccessVerdict,
+  ): void {
+    this.dispatch(account, 'access verdict', (repository, ref) =>
+      repository.recordAccessVerdict(ref, verdict),
+    )
+  }
+
+  /** Starts every queued coalesced write. */
+  private dispatchQueuedWrites(): void {
+    const repository = this.repository
+    if (repository === undefined) return
+    const rows = [...this.pendingRowWrites.values()]
+    const selections = [...this.pendingSelections]
+    this.pendingRowWrites = new Map()
+    this.pendingSelections = new Map()
+    for (const pending of rows) {
+      repository
+        .updateMetadata(pending.ref, (current, row) => ({
+          kind: 'set',
+          metadata: applyPendingRowWrite(
+            current ?? { addedAt: row.storeAddedAt ?? this.now(), lastUsed: 0 },
+            pending,
+          ),
+        }))
+        .catch((error: unknown) => {
+          if (
+            error instanceof AccountRepositoryError &&
+            error.failure.kind === 'lock-contention' &&
+            !error.failure.ambiguous
+          ) {
+            this.requeueRowWrite(pending)
+          }
+        })
+    }
+    for (const [target, ref] of selections) {
+      repository.selectAccount(target, ref).catch(() => {
+        // Reported by the flush that follows.
+      })
+    }
+  }
+
+  /**
+   * Starts the queued writes and waits until the repository has drained
+   * every write, including the ones started immediately (usage, access,
+   * removal). Throws `AccountManagerPersistError` for the first failure that
+   * is not tolerated; every failure is reported through `onDiagnostic`.
+   */
+  private async flushRepositoryWrites(): Promise<void> {
+    const repository = this.repository
+    if (repository === undefined) return
+    this.dispatchQueuedWrites()
+    const report = await repository.flush()
+    for (const failure of report.failures) {
+      this.onDiagnostic?.('Account repository write failed', {
+        operation: failure.operation,
+        kind: failure.kind,
+        rowId: failure.rowId,
+        ambiguous: failure.ambiguous,
+        message: failure.message,
+      })
+    }
+    const primary = report.failures.find(
+      (failure) => !TOLERATED_FAILURES.has(failure.kind),
+    )
+    if (primary !== undefined)
+      throw new AccountManagerPersistError(primary, report)
+  }
+
+  /**
+   * Refreshes the account's credential through the repository: the only
+   * path by which a successor token is stored. A rotation updates the
+   * account's bearer and ref (an identity learnt by the refresh is part of
+   * it) and reads the committed refresh token back; a contradicted identity
+   * disables the account in memory, as the store disabled its row.
+   */
+  async refreshAccount(
+    account: ManagedAccount,
+    options?: AccountRefreshOptions,
+  ): Promise<AccountRefreshOutcome> {
+    const repository = this.repository
+    const ref = account.ref
+    if (repository === undefined || ref === undefined) {
+      throw new Error('refreshAccount needs a repository-backed account')
+    }
+    const outcome = await repository.refresh(ref, options)
+    if (outcome.status === 'rotated') {
+      account.ref = outcome.ref
+      account.access = outcome.accessToken
+      account.expires = outcome.expiresAt
+      const read = await repository.read()
+      if (read.status === 'ready') {
+        const row = read.rows.find((candidate) =>
+          sameRowRef(candidate.ref, outcome.ref),
+        )
+        if (row?.credential !== undefined) {
+          account.parts = {
+            ...account.parts,
+            refreshToken: row.credential.refreshToken,
+          }
+        }
+      }
+    } else if (outcome.status === 'identity-contradicted') {
+      account.access = undefined
+      account.expires = undefined
+      this.applyEnabled(account.index, false)
+    }
+    return outcome
+  }
+
   getAccountCount(): number {
     return this.getEnabledAccounts().length
   }
@@ -636,7 +1168,7 @@ export class AccountManager {
     identity?: AccountSessionIdentity,
   ): void {
     if (!identity) {
-      this.currentAccountIndexByFamily[family] = index
+      this.setGlobalActiveIndex(family, index)
       return
     }
 
@@ -644,8 +1176,15 @@ export class AccountManager {
     state.currentAccountIndexByFamily[family] = index
     if (!state.parentId) {
       // Preserve a useful persisted starting point without coupling active root sessions.
-      this.currentAccountIndexByFamily[family] = index
+      this.setGlobalActiveIndex(family, index)
     }
+  }
+
+  /** Sets the persisted selection of a family; a change is queued for saving. */
+  private setGlobalActiveIndex(family: ModelFamily, index: number): void {
+    if (this.currentAccountIndexByFamily[family] === index) return
+    this.currentAccountIndexByFamily[family] = index
+    this.queueSelection(family)
   }
 
   private getCursor(
@@ -736,6 +1275,9 @@ export class AccountManager {
     identity?: AccountSessionIdentity,
   ): void {
     account.lastSwitchReason = reason
+    this.queueRowWrite(account, (pending) => {
+      pending.switchReason = reason
+    })
     this.setActiveIndex(family, account.index, identity)
   }
 
@@ -880,7 +1422,7 @@ export class AccountManager {
       if (selectedIndex !== null) {
         const selected = this.accounts[selectedIndex]
         if (selected) {
-          selected.lastUsed = this.now()
+          this.touchLastUsed(selected)
           this.markTouchedForQuota(selected, quotaKey)
           this.setActiveIndex(family, selected.index, identity)
           return selected
@@ -1030,7 +1572,33 @@ export class AccountManager {
     model?: string | null,
   ): void {
     const key = getQuotaKey(family, headerStyle, model)
-    account.rateLimitResetTimes[key] = this.now() + retryAfterMs
+    this.setRateLimit(account, key, this.now() + retryAfterMs)
+  }
+
+  private setRateLimit(
+    account: ManagedAccount,
+    key: QuotaKey,
+    resetAt: number,
+  ): void {
+    account.rateLimitResetTimes[key] = resetAt
+    this.queueRowWrite(account, (pending) => {
+      pending.rateLimits.set(key, resetAt)
+    })
+  }
+
+  private clearRateLimit(account: ManagedAccount, key: QuotaKey): void {
+    delete account.rateLimitResetTimes[key]
+    this.queueRowWrite(account, (pending) => {
+      pending.rateLimits.set(key, 'clear')
+    })
+  }
+
+  private touchLastUsed(account: ManagedAccount): void {
+    const now = this.now()
+    account.lastUsed = now
+    this.queueRowWrite(account, (pending) => {
+      pending.lastUsed = Math.max(pending.lastUsed ?? 0, now)
+    })
   }
 
   /**
@@ -1041,7 +1609,7 @@ export class AccountManager {
   markAccountUsed(accountIndex: number): void {
     const account = this.accounts.find((a) => a.index === accountIndex)
     if (account) {
-      account.lastUsed = this.now()
+      this.touchLastUsed(account)
     }
   }
 
@@ -1178,7 +1746,7 @@ export class AccountManager {
       this.random,
     )
     const key = getQuotaKey(family, headerStyle, model)
-    account.rateLimitResetTimes[key] = now + backoffMs
+    this.setRateLimit(account, key, now + backoffMs)
 
     return backoffMs
   }
@@ -1195,12 +1763,12 @@ export class AccountManager {
   ): void {
     for (const account of this.accounts) {
       if (family === 'claude') {
-        delete account.rateLimitResetTimes.claude
+        this.clearRateLimit(account, 'claude')
       } else {
         const antigravityKey = getQuotaKey(family, 'antigravity', model)
         const cliKey = getQuotaKey(family, 'gemini-cli', model)
-        delete account.rateLimitResetTimes[antigravityKey]
-        delete account.rateLimitResetTimes[cliKey]
+        this.clearRateLimit(account, antigravityKey)
+        this.clearRateLimit(account, cliKey)
       }
       account.consecutiveFailures = 0
     }
@@ -1219,8 +1787,12 @@ export class AccountManager {
     cooldownMs: number,
     reason: CooldownReason,
   ): void {
-    account.coolingDownUntil = this.now() + cooldownMs
+    const until = this.now() + cooldownMs
+    account.coolingDownUntil = until
     account.cooldownReason = reason
+    this.queueRowWrite(account, (pending) => {
+      pending.cooldown = { value: { until, reason } }
+    })
   }
 
   isAccountCoolingDown(account: ManagedAccount): boolean {
@@ -1235,8 +1807,16 @@ export class AccountManager {
   }
 
   clearAccountCooldown(account: ManagedAccount): void {
+    const hadCooldown =
+      account.coolingDownUntil !== undefined ||
+      account.cooldownReason !== undefined
     delete account.coolingDownUntil
     delete account.cooldownReason
+    if (hadCooldown) {
+      this.queueRowWrite(account, (pending) => {
+        pending.cooldown = { value: null }
+      })
+    }
   }
 
   getAccountCooldownReason(
@@ -1390,6 +1970,19 @@ export class AccountManager {
     if (enabled && account.accountIneligible) {
       return false
     }
+    this.applyEnabled(accountIndex, enabled)
+    this.dispatch(account, 'enabled flag', (repository, ref) =>
+      repository.setEnabled(ref, { enabled, actor: 'user' }),
+    )
+
+    this.requestSaveToDisk()
+    return true
+  }
+
+  /** Changes the in-memory flag and moves a selection off a disabled account. */
+  private applyEnabled(accountIndex: number, enabled: boolean): void {
+    const account = this.accounts[accountIndex]
+    if (!account) return
     account.enabled = enabled
 
     if (!enabled) {
@@ -1400,13 +1993,10 @@ export class AccountManager {
           const next = this.accounts.find(
             (a, i) => i !== accountIndex && a.enabled !== false,
           )
-          this.currentAccountIndexByFamily[family] = next?.index ?? -1
+          this.setGlobalActiveIndex(family, next?.index ?? -1)
         }
       }
     }
-
-    this.requestSaveToDisk()
-    return true
   }
 
   markAccountVerificationRequired(
@@ -1440,10 +2030,19 @@ export class AccountManager {
     }
 
     if (account.enabled !== false) {
-      this.setAccountEnabled(accountIndex, false)
-    } else {
-      this.requestSaveToDisk()
+      this.applyEnabled(accountIndex, false)
     }
+    // The verdict, its metadata and the disabled flag land in one
+    // attributed transition.
+    this.persistAccessVerdict(account, {
+      kind: 'verification-required',
+      observedAt: timestamp,
+      ...(account.verificationRequiredReason !== undefined
+        ? { reason: account.verificationRequiredReason }
+        : {}),
+      ...(normalizedVerifyUrl ? { verificationUrl: normalizedVerifyUrl } : {}),
+    })
+    this.requestSaveToDisk()
 
     return true
   }
@@ -1466,10 +2065,14 @@ export class AccountManager {
     account.verificationUrl = undefined
 
     if (account.enabled !== false) {
-      this.setAccountEnabled(accountIndex, false)
-    } else {
-      this.requestSaveToDisk()
+      this.applyEnabled(accountIndex, false)
     }
+    this.persistAccessVerdict(account, {
+      kind: 'ineligible',
+      observedAt: timestamp,
+      reason: account.accountIneligibleReason,
+    })
+    this.requestSaveToDisk()
     return true
   }
 
@@ -1501,17 +2104,24 @@ export class AccountManager {
     account.accountIneligible = false
     account.accountIneligibleAt = undefined
     account.accountIneligibleReason = undefined
+    const observedAt = this.now()
     if (wasIneligible || account.eligibilityStateUpdatedAt !== undefined) {
-      account.eligibilityStateUpdatedAt = this.now()
+      account.eligibilityStateUpdatedAt = observedAt
     }
 
-    if (
+    const reenable =
       enableAccount &&
       (wasVerificationRequired || wasIneligible) &&
       account.enabled === false
-    ) {
-      this.setAccountEnabled(accountIndex, true)
-    } else if (hadMetadata) {
+    if (reenable) {
+      this.applyEnabled(accountIndex, true)
+    }
+    if (reenable || hadMetadata) {
+      this.persistAccessVerdict(account, {
+        kind: 'cleared',
+        observedAt,
+        enable: enableAccount,
+      })
       this.requestSaveToDisk()
     }
     return true
@@ -1534,6 +2144,16 @@ export class AccountManager {
       return false
     }
 
+    // Fenced on the account's credential: a row replaced or re-added since
+    // it was loaded is refused rather than removed.
+    this.dispatch(account, 'removal', (repository, ref) =>
+      repository.remove(ref),
+    )
+    for (const [key, pending] of this.pendingRowWrites) {
+      if (account.ref !== undefined && sameRowRef(pending.ref, account.ref)) {
+        this.pendingRowWrites.delete(key)
+      }
+    }
     this.accounts.splice(idx, 1)
     this.accounts.forEach((acc, index) => {
       acc.index = index
@@ -1590,6 +2210,23 @@ export class AccountManager {
 
   updateFromAuth(account: ManagedAccount, auth: OAuthAuthDetails): void {
     const parts = parseRefreshParts(auth.refresh)
+    // Only the projects packed into the host's refresh string are recorded;
+    // the refresh token itself reaches the repository only through
+    // `refreshAccount`.
+    const projectChange = {
+      ...(parts.projectId !== undefined && parts.projectId !== account.projectId
+        ? { projectId: parts.projectId }
+        : {}),
+      ...(parts.managedProjectId !== undefined &&
+      parts.managedProjectId !== account.managedProjectId
+        ? { managedProjectId: parts.managedProjectId }
+        : {}),
+    }
+    if (Object.keys(projectChange).length > 0) {
+      this.dispatch(account, 'project', (repository, ref) =>
+        repository.recordProject(ref, projectChange),
+      )
+    }
     // Preserve existing projectId/managedProjectId if not in the new parts
     account.parts = {
       ...parts,
@@ -1726,7 +2363,21 @@ export class AccountManager {
   }
 
   async saveToDisk(): Promise<void> {
-    await this.store.saveMerged(this.storagePath, this.buildStorageSnapshot())
+    if (this.repository !== undefined) {
+      await this.flushRepositoryWrites()
+      return
+    }
+    await this.requireStore().saveMerged(
+      this.storagePath,
+      this.buildStorageSnapshot(),
+    )
+  }
+
+  private requireStore(): AccountStorageStore {
+    if (this.store === undefined) {
+      throw new Error('this AccountManager persists through its repository')
+    }
+    return this.store
   }
 
   /**
@@ -1735,8 +2386,14 @@ export class AccountManager {
    * mergeAccountStorage re-reading it from disk.
    */
   async saveToDiskReplace(): Promise<void> {
+    // A repository-backed manager removes rows by attributed `remove`
+    // writes, so nothing can bring a removed row back; draining suffices.
+    if (this.repository !== undefined) {
+      await this.flushRepositoryWrites()
+      return
+    }
     const snapshot = this.buildStorageSnapshot()
-    await this.store.mutate(this.storagePath, () => snapshot)
+    await this.requireStore().mutate(this.storagePath, () => snapshot)
   }
 
   requestSaveToDisk(): void {
@@ -1752,6 +2409,12 @@ export class AccountManager {
   }
 
   async flushSaveToDisk(): Promise<void> {
+    // Writes such as request counts start immediately rather than waiting
+    // for a scheduled save, so a repository-backed flush always drains.
+    if (this.repository !== undefined) {
+      await this.drainRepository()
+      return
+    }
     if (!this.savePending) {
       await this.saveInFlight
       return
@@ -1767,10 +2430,42 @@ export class AccountManager {
       clearTimeout(this.saveTimeout)
       this.saveTimeout = null
     }
+    if (this.repository !== undefined) {
+      await this.drainRepository()
+      return
+    }
     if (this.savePending) {
       await this.executeSave()
     }
     await this.saveInFlight
+  }
+
+  /**
+   * Cancels a scheduled save and drains every repository write now. A
+   * failure rejects every waiting flush and is thrown to the caller.
+   */
+  private async drainRepository(): Promise<void> {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout)
+      this.saveTimeout = null
+    }
+    this.savePending = false
+    const resolvers = this.savePromiseResolvers
+    this.savePromiseResolvers = []
+    await this.saveInFlight
+    await this.settleRepositoryDrain(resolvers)
+  }
+
+  private async settleRepositoryDrain(
+    resolvers: Array<{ resolve: () => void; reject: (err: unknown) => void }>,
+  ): Promise<void> {
+    try {
+      await this.flushRepositoryWrites()
+    } catch (error) {
+      for (const { reject } of resolvers) reject(error)
+      throw error
+    }
+    for (const { resolve } of resolvers) resolve()
   }
 
   private async executeSave(): Promise<void> {
@@ -1779,6 +2474,13 @@ export class AccountManager {
 
     const resolvers = this.savePromiseResolvers
     this.savePromiseResolvers = []
+
+    if (this.repository !== undefined) {
+      // A scheduled save has no caller to throw to: its failures reach
+      // waiting flushes and the diagnostics.
+      await this.settleRepositoryDrain(resolvers).catch(() => {})
+      return
+    }
 
     try {
       await this.saveToDisk()
@@ -1844,6 +2546,7 @@ export class AccountManager {
 
     // Generate and assign new fingerprint
     account.fingerprint = generateFingerprint()
+    this.persistFingerprint(account)
     this.requestSaveToDisk()
 
     return account.fingerprint
@@ -1892,6 +2595,7 @@ export class AccountManager {
     // Restore the fingerprint
     account.fingerprint = { ...fingerprintToRestore, createdAt: this.now() }
 
+    this.persistFingerprint(account)
     this.requestSaveToDisk()
 
     return account.fingerprint
@@ -1930,6 +2634,17 @@ export class AccountManager {
       account.parts.refreshToken,
     )
     account.cachedQuotaUpdatedAt = this.now()
+    // A separate attributed write from the tier; the per-model readings the
+    // store keeps are left as they are because this reading carries none.
+    const reading: QuotaState = {
+      schemaVersion: 1,
+      cachedQuotaAccountId: account.cachedQuotaAccountId,
+      cachedQuota: storedQuotaGroups(quotaGroups),
+      cachedQuotaUpdatedAt: account.cachedQuotaUpdatedAt,
+    }
+    this.dispatch(account, 'quota reading', (repository, ref) =>
+      repository.recordQuota(ref, reading),
+    )
   }
 
   /**
@@ -1979,6 +2694,35 @@ export class AccountManager {
     if (patch.capturedTierSchemaVersion !== undefined) {
       account.capturedTierSchemaVersion = patch.capturedTierSchemaVersion
     }
+    const tier: Partial<ProviderMetadata> = {}
+    if (patch.capturedTierId !== undefined)
+      tier.capturedTierId = patch.capturedTierId
+    if (patch.capturedPaidTierId !== undefined) {
+      tier.capturedPaidTierId = patch.capturedPaidTierId
+    }
+    if (patch.capturedTierAt !== undefined)
+      tier.capturedTierAt = patch.capturedTierAt
+    if (patch.capturedTierSchemaVersion !== undefined) {
+      tier.capturedTierSchemaVersion = patch.capturedTierSchemaVersion
+    }
+    if (Object.keys(tier).length === 0) return
+    this.dispatch(account, 'tier', (repository, ref) =>
+      repository.updateMetadata(ref, (current, row) => {
+        const base = current ?? {
+          addedAt: row.storeAddedAt ?? this.now(),
+          lastUsed: 0,
+        }
+        // A capture older than the stored one does not replace it.
+        if (
+          patch.capturedTierAt !== undefined &&
+          typeof base.capturedTierAt === 'number' &&
+          patch.capturedTierAt < base.capturedTierAt
+        ) {
+          return { kind: 'keep' }
+        }
+        return { kind: 'set', metadata: { ...base, ...tier } }
+      }),
+    )
   }
 
   /**
@@ -2000,6 +2744,12 @@ export class AccountManager {
 
     account.dailyRequestCounts[family]++
     account.lastUsed = this.now()
+    // Each request is its own increment, computed under the row lock from
+    // the stored count, so no request is lost to a concurrent writer.
+    const at = account.lastUsed
+    this.dispatch(account, 'request count', (repository, ref) =>
+      repository.recordUsage(ref, { family, at }),
+    )
 
     // Also track for session
     this.recordSessionRequest(accountIndex, family)
