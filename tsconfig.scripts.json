@@ -7,6 +7,7 @@
   },
   "include": [
     "scripts/**/*.ts",
+    "packages/core/scripts/**/*.ts",
     "test/**/*.ts",
     "packages/e2e-tests/src/**/*.ts"
   ],

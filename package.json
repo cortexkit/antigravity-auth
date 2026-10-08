@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "embed:check": "bun run --cwd packages/opencode embed:check",
+    "embed:check": "bun run --cwd packages/opencode embed:check && bun packages/core/scripts/embed-common-auth.ts --check",
     "build": "bun run embed:check && bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/pi build",
     "build:tui": "bun run embed:check && bun run --cwd packages/opencode build:tui",
     "typecheck": "bun run embed:check && bun run --cwd packages/core build && bun run --cwd packages/core typecheck && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck && bun run --cwd packages/e2e-tests typecheck:ga && tsc -p tsconfig.scripts.json",
