@@ -250,11 +250,14 @@ async function connectViaProxy(
   }
 
   return await new Promise<tls.TLSSocket>((resolve, reject) => {
-    const tlsSocket = tls.connect({
+    // TLS forwards `signal` to net.Socket, though TLS declarations omit it.
+    const tlsOptions = {
       socket: proxySocket,
       servername: targetHost,
       signal: signal ?? undefined,
-    })
+    } satisfies tls.ConnectionOptions &
+      Pick<net.SocketConstructorOpts, 'signal'>
+    const tlsSocket = tls.connect(tlsOptions)
     const timeout = setTimeout(() => {
       onDebug?.(
         `agy transport proxy TLS handshake timeout after ${timeoutMs}ms`,
@@ -285,12 +288,14 @@ async function connectDirect(
   onDebug?: (message: string) => void,
 ): Promise<tls.TLSSocket> {
   return await new Promise<tls.TLSSocket>((resolve, reject) => {
-    const socket = tls.connect({
+    const tlsOptions = {
       host: targetUrl.hostname,
       port: Number(targetUrl.port || DEFAULT_HTTPS_PORT),
       servername: targetUrl.hostname,
       signal: signal ?? undefined,
-    })
+    } satisfies tls.ConnectionOptions &
+      Pick<net.SocketConstructorOpts, 'signal'>
+    const socket = tls.connect(tlsOptions)
     const timeout = setTimeout(() => {
       onDebug?.(`agy transport TLS connect timeout after ${timeoutMs}ms`)
       socket.destroy()
