@@ -43,7 +43,8 @@ owned candidate copy. The expected failure pattern was one failed
 `rpc.shutdown_ownership` result with exact `tracked peers still open`, sixteen
 successful results and exit 1; that exact pattern was recorded with no
 timeout. All 24 copied files were restored to independent original hashes,
-with an empty disposable index and unstaged diff. The admitted server hash is
+with an empty disposable index and unstaged diff. The original server-file hash,
+verified against the supplied inventory, is
 `d431feb3556e684ae0539e8818391dcf64028f3e4b12fe7a1d2b391a430d843d`;
 the order-only mutant hash is
 `7d935b28b724e7446011be80aa4b78e0046804cf404951d395aaa7d77b0800c4`.
@@ -88,8 +89,9 @@ The corrected preparer does not execute anything, modify the first preparation
 receipt, copy its mutable state, import host plugins, install peers, or mutate
 existing cache/profile state. Each role receives private HOME/XDG/temp paths,
 the same compiled adapter bytes and candidate public-root files, and an exact
-canonical `runtime.mjs` copy. The parent-owned positive and negative execution
-records, including both failed setup runs, are the evidence for these observations.
+canonical `runtime.mjs` copy. The positive and negative execution records
+provided with the handoff, including both failed setup runs, are the evidence for
+these observations.
 
 A later checker wrongly expected policy-file `-f` arguments instead of the
 prepared/accepted inline `-p` text. That verifier defect and failed check were

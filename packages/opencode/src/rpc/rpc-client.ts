@@ -1,4 +1,5 @@
-// The client-only public root keeps server/writer code out of the TUI graph.
+// This client-only public entry point keeps server and writer modules out of
+// the TUI's dependency graph.
 import { createRpcClient as createPublicRpcClient } from '../common-auth-embedded/rpc/client.js'
 import type {
   ApplyRequest,

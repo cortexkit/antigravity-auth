@@ -30,7 +30,8 @@ export async function startRpcServer(
   const server = await startPublicRpcServer({
     dir: options.dir,
     secureDir: true,
-    // No sweepRoot: this adapter never manages other projects' RPC files.
+    // Do not set sweepRoot: this adapter manages no other project directories
+    // or their RPC files.
     isManagedDir: () => false,
     receiptTimeoutMs: 2_000,
     applyDeadlineMs: 120_000,

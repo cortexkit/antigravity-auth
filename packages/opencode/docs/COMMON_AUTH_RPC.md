@@ -68,8 +68,8 @@ late results are discarded. The deadline timer is unreferenced so unresolved wor
 does not keep a stopped host alive. Natural process exit, live 504 and delayed
 effects are separate properties, not interchangeable socket-close observations.
 
-Routine units run every RPC contract on the current test runtime without personal
-runtime paths. The separate mandatory `runtime-matrix.mjs` runner requires explicit
+The unit suite runs all 17 RPC contracts on the current Bun executable
+(`process.execPath`) without personal runtime paths. The separate mandatory `runtime-matrix.mjs` runner requires explicit
 `--node20`, `--node24`, `--bun13` and `--bun14` executable paths and exact versions
 20.0.0/24.16.0/1.3.14/1.4.2. Missing paths or versions fail rather than skip.
 CI and release verification must provision those tools and invoke the matrix;

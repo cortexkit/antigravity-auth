@@ -36,7 +36,8 @@ export function parseMatrixArgs(args) {
 }
 
 export async function main(args) {
-  // Admit every required executable before any fixture or RPC callback runs.
+  // Run --version on every supplied binary and require its exact version before
+  // creating fixtures or running RPC callbacks.
   const runtimes = parseMatrixArgs(args).map(admitRuntime)
   const failures = []
   for (const runtime of runtimes) {

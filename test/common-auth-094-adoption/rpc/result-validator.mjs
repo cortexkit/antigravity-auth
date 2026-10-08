@@ -11,8 +11,9 @@ const hasObservation = (value) =>
       ? value.length > 0
       : isRecord(value) && Object.keys(value).length > 0
 
-// This is the result boundary shared by unit, matrix and mutation runners.
-// Type annotations and truthiness cannot establish a child's success status.
+// Validate each child process's complete RPC result before accepting it in unit,
+// runtime-matrix, or mutation runs. A declared type or truthy `ok` value alone
+// does not prove the child passed.
 export function validateResult(value, exitCode) {
   assert(isRecord(value), 'RPC result must be a record')
   assert(

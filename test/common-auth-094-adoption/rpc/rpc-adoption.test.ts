@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test'
 import { caseNames } from './fixture.mjs'
 import { admitRuntime, runRuntime } from './run-runtime.mjs'
 
-// Routine units use the executing Bun, even when the preload isolates HOME.
-// The separately mandatory matrix admits all four explicitly supplied binaries.
+// The unit suite runs on the current Bun, even when the preload isolates HOME.
+// The separate required matrix checks all four supplied binaries and versions.
 test('S-RPC complete contracts on the current unit-test runtime', async () => {
   const version = process.versions.bun ?? process.version
   const runtime = admitRuntime({

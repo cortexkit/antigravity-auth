@@ -55,8 +55,8 @@ test('rpc.results.strict_boolean_refusal: malformed truthy success is not accept
         index === 0 ? { ...row, ok } : row,
       ),
     }
-    // This is the former boundary's predicate, demonstrating the admission bug
-    // with data alone rather than a fake runtime or a transport substitution.
+    // The former truthiness check treated each value as success. This shows the
+    // mismatch using result data alone, without a fake runtime or substituted transport.
     expect(value.rows.filter((row) => !row.ok)).toHaveLength(0)
     expect(() => validateResult(value, 0)).toThrow('row.ok must be a boolean')
   }

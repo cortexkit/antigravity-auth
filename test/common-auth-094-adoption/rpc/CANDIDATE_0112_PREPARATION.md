@@ -1,18 +1,17 @@
 # Private 0.11.2 candidate comparison — initial preparation record
 
-This initial `.owned/candidate-0112-prep-p0YnCd/` setup is separate from the
-corrected four-role preparation. Review found invalid SBPL literal-IP grammar,
-shared state roots and empty startup loopback proxy exclusions. Only those setup
-inputs were corrected for the technical comparison. `CANDIDATE_0112_ACCEPTANCE.md`
-records its results and corrected preparation; this historical invocation must
-not be executed.
+This initial `.owned/candidate-0112-prep-p0YnCd/` setup used invalid SBPL
+literal-IP grammar, shared state roots and empty startup loopback proxy
+exclusions. Only those setup inputs were corrected for the technical comparison.
+`CANDIDATE_0112_ACCEPTANCE.md` records the results and corrected preparation; do
+not execute this initial setup.
 
 This is a separate candidate-only comparison. It does not update the production
 0.9.4 embedding or replace the original failure receipts: the 0.9.4 stop sequence
 left the unfinished-header peer open at the 500 ms close-event guard. The
 preserved `1d85fda63ba6faadaf9e797ec30acf016b428a27` diagnostic still records that failure.
 
-## Admission and provenance
+## Input verification and provenance
 
 Before reading `.cortexkit/parent-inputs/rpc-0112-stop-order-prep-r1/packet-final.json`,
 which lists exact input paths/sizes/hashes, its out-of-band SHA256 was checked:
@@ -21,13 +20,13 @@ The preparer then verified all 191 payloads / 1146442 bytes inside
 `.cortexkit/parent-inputs/rpc-0112-stop-order-prep-r1/` against that inventory.
 The candidate archive SHA256 is
 `19331d5b8935d3309e769dec04591d5649dbc3cdafe47f1a0c0b7f12ae393146`;
-it was rechecked before reading the already-admitted extracted package, without
+it was rechecked before reading the already-verified extracted package, without
 parsing or evaluating the archive. All 175 regular package payloads / 805706 bytes
-were matched against the independent admission file, with exact path inventory.
+were matched against the independent package inventory, with exact path inventory.
 
 The exact server is `candidate/package/dist/rpc/rpc-server.js` within this
-packet, not a repository `dist/rpc/rpc-server.js`. The admitted delta is against
-the superseded **private 0.11.2** archive
+packet, not a repository `dist/rpc/rpc-server.js`. The package comparison is
+against the superseded **private 0.11.2** archive
 `99323ae4f4ab402d4579c59b32f6f73e8f4561a343887f5cf5f3d7a04369f2b9`:
 174 payloads are identical, and only its RPC server stop-order block changes.
 This is not a claim that 0.11.2 otherwise equals production 0.9.4. For example,
@@ -57,7 +56,8 @@ client, index, notifications, port-file, rpc-client, rpc-server and server-regis
 Their only external imports are `node:crypto`, `node:fs/promises`, `node:http`,
 `node:net` and `node:path`. The separate public declaration traversal found the
 seven corresponding declarations. All fourteen files were copied unchanged
-from the admitted package, preserving their relative paths and bytes. No
+from the package whose inventory was verified, preserving their relative paths
+and bytes. No
 private-leaf substitution, bare consumer dependency installation, compatibility
 facade or host-plugin import is used.
 
@@ -73,8 +73,8 @@ adapter file, not a proxy inspection view.
 `runtime.mjs` is byte-identical to `test/common-auth-094-adoption/rpc/runtime.mjs`
 at commit `e0426393cfda2e03674ec25cfd1b53256ee9944b`. Its seventeen callback bodies test RPC
 validation, exact-PID discovery, stage ownership, shutdown, timing, notification
-shape, module identity, proxy bypass and socket teardown. The copy preserves their
-admission/observation order and the 500 ms actual peer-close guard. No loader or
+shape, module identity, proxy bypass and socket teardown. The copy preserves
+case execution and observation order and the 500 ms actual peer-close guard. No loader or
 callback rewrite is needed: its existing root-relative public paths resolve to
 the candidate public roots in the synthetic tree. The existing two explicit test
 variants remain identical in purpose and settings: nonzero idle 1500 ms and apply
@@ -83,10 +83,10 @@ deadline 150 ms, while the unchanged base adapter retains 2000/120000/0.
 ## Four runtime inputs
 
 `runtimes/runtime-admission-final.json` supplies the exact four executable
-paths, versions and independently expected hashes. Earlier incomplete
-availability paths are historical records, not fallback runtimes. Each executable was only read
-and matched to its independently supplied expected hash. No `--version` or other
-runtime invocation occurred during preparation.
+paths, versions and independently expected hashes. Earlier incomplete executable
+paths document the unsuccessful availability check; they are not fallback runtimes.
+Each executable was only read and matched to its independently supplied expected
+hash. No `--version` or other runtime invocation occurred during preparation.
 
 | Role / required version | Exact executable | Expected SHA256 |
 | --- | --- | --- |
@@ -162,18 +162,21 @@ all other producer code, callbacks, budgets and strict result boundaries intact.
 The planned order-only mutant hash is computed in memory and recorded in the
 receipt; **no mutant producer bytes have been written or evaluated**.
 
-Stage that disposable target with its admitted bytes, confirm an empty unstaged
-diff, save its bytes and independently admitted hash, apply the order reversal
+Stage that disposable target with bytes copied from the verified package,
+confirm an empty unstaged diff, save its bytes and hash verified against the
+independent package inventory, apply the order reversal
 with `NON-VACUITY BREAK`, and capture a nonempty diffstat. Run the same full
 seventeen-contract child on the pinned Bun13 input. Require exactly
-`rpc.shutdown_ownership` red, all sixteen other names green, and consistent exit 1.
+`rpc.shutdown_ownership` to fail, all sixteen other cases to pass, and a consistent
+exit 1.
 Bun1.4.2 is **not** expected to kill this specific order mutant; no such control is
 planned on that runtime.
 
 In a finally block, restore the saved bytes without checkout/touch/stash, verify
-the independent original admission hash and empty unstaged diff, and remove only
+the independently verified original server-file hash from the package inventory
+and an empty unstaged diff, and remove only
 the disposable index entry. Preserve every earlier failed-run receipt and the original
 diagnostic separately. No control retry, semantic fix, production pin bump,
 integration, publication, commit or full RPC acceptance is authorized by this
-preparation record. Parent review and explicit execution authorization are still
-required.
+preparation record. Review by the coordinating agent and explicit execution
+authorization are still required.

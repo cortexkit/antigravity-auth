@@ -42,7 +42,8 @@ added no timer or network operation. The two existing deferred resolvers were
 wrapped synchronously to record actual apply/drain entry before delegating their
 original resolution. No additional promise hop was introduced.
 
-Client labels follow the unchanged sequential connect/admit/write loop. Server
+Client labels follow the unchanged loop that connects each socket and writes its
+request before continuing. Server
 facades are paired to clients by loopback endpoint ports. Bun's facade is its
 Node-compatible socket wrapper; reading a request/socket getter solely for logging
 could instantiate it before native handling does. Observers watch actual runtime access instead.
@@ -145,12 +146,13 @@ method therefore takes its no-server return path rather than reaching
 ordinary close completes, the force-close call has lost its handle, and manual
 fallback covers only already-observed HTTP connection facades.
 
-This is suitable source/wire evidence for OAIAUTH about the **measured public stop
-sequence on this runtime**. It is not permission to patch that sequence here,
-reorder calls, change the guard, or assert that a standalone native force-close
-cannot work. It does not blame machine load for the missing event/handle.
+These observations support conclusions about the measured public server stop
+sequence on this runtime. They do not authorize patching that sequence here,
+reordering calls, changing the guard, or asserting that standalone native force-close
+cannot work. The missing event/handle is not attributed to machine load.
 
-The supplied exact-tag native source corroborates the parsing boundary:
+The Bun-version-tagged native source supplied for this diagnostic corroborates
+how incomplete HTTP requests are parsed:
 `packages/bun-uws/src/HttpContext.h:185–199` initializes native socket state on
 open; `242–281` receives/parses bytes; the request-consumption callback at
 `281–322` marks a pending HTTP request and routes it. Its SHA256 is
@@ -160,8 +162,9 @@ bridge or Server.close/closeAllConnections implementation. Function text is an
 observation of the pinned executable, not replacement native implementation
 source. Bun intrinsics such as `@undefined`, hidden helper implementations and
 native operations remain outside this source proof. A separate exact JS source
-freeze can establish that layer before any semantic proposal. Historical 1.4.2
-mentions in the original authority records are not source inputs for this trace.
+freeze can establish that layer before any semantic proposal. The original
+source-authority records mention Bun 1.4.2, but that version's source was not used
+for this trace.
 The observer temporarily wraps an event-emission method to record events. The
 broad raw source collection includes that installed wrapper's body, which is not
 an original Bun implementation and is not used as runtime-implementation evidence. The focused extract
@@ -192,10 +195,11 @@ The five inherited-only paths are:
 - `test/common-auth-094-adoption/rpc/.gitignore`.
 
 Their absence from that revision declaration is not a reason to edit adapters.
-The parent's package/CI/release wiring and stable-tree comment corrections remain
-reserved. This delivery adds diagnostic preparation/observation/reporting only;
+Package, CI and release integration, plus source-comment corrections outside
+this preserved diagnostic, belong to the main integration. This delivery adds
+diagnostic preparation/observation/reporting only;
 it does not establish successful shutdown or four-runtime RPC acceptance. Acceptance
 still requires all four peers to close naturally after server stop, and every
 one of the seventeen RPC contracts to pass on all four exact runtimes. This
-diagnostic is a preserved failing measurement, not acceptance; a separate
-stop-order candidate must not be added to its historical results.
+diagnostic preserves a failing measurement, not acceptance; a separate stop-order
+candidate must not be added to these diagnostic results.

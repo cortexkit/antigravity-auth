@@ -1,14 +1,14 @@
 # S-RPC acceptance
 
-## Portable routine units and the mandatory exact-runtime matrix
+## Portable RPC unit suite and the mandatory exact-runtime matrix
 
 The plain repository `npm run test` includes the complete 17-contract suite on
-the executing unit-test runtime (`process.execPath`). It uses no personal runtime
+the current Bun executable (`process.execPath`). It uses no personal runtime
 locations, HOME lookups or `RPC_*` overrides, including when the preload isolates
 HOME. The narrow unit command is
 `bun test --isolate test/common-auth-094-adoption/rpc/`.
 
-Routine units do **not** replace the separately mandatory matrix. CI and release
+The complete unit suite does **not** replace the separately mandatory matrix. CI and release
 verification must invoke `test:rpc:matrix`, whose runner is
 `bun test/common-auth-094-adoption/rpc/runtime-matrix.mjs`, with all four flags:
 
@@ -23,7 +23,8 @@ bun test/common-auth-094-adoption/rpc/runtime-matrix.mjs \
 The flags supply executable paths, not aliases or version ranges. Relative paths
 resolve inside the repository. Missing, duplicate, unknown or valueless flags,
 missing executables and wrong exact versions fail before any RPC fixture runs.
-All four binaries are admitted first; none may be skipped. This runner does not
+All four executables are checked first by running `--version` and requiring the
+exact version; none may be skipped. The runner does not
 download runtimes or add runtime dependencies. Automation provisions them with
 the Node/Bun setup actions and supplies their paths explicitly; save Bun1.3.14
 in an owned temporary directory before a later Bun1.4.2 setup replaces its path.
@@ -46,8 +47,8 @@ Each unit or matrix runtime runs the complete ordered 17-case inventory. Fresh
 child stdout is parsed through the same strict validator: exact ordered names,
 boolean `ok`, nonempty observations/errors and matching exit 0/1. Truthy strings
 such as `ok: 'yes'`, missing rows and contradictory exits are not acceptance.
-The pure result-boundary tests cover both genuine boolean success data and these
-malformed-success refusal controls without fake executables. Receipt directories under
+The strict child-result tests cover genuine boolean success data and
+malformed-success refusal without fake executables. Receipt directories under
 `.owned/receipt-*` preserve executable hashes/versions, adapter input/output hashes,
 argv, cwd, stderr, exit and nonempty named observations. These hashes are recorded
 observations of candidate inputs, not independent expected pins. Compare them
@@ -67,12 +68,12 @@ The script stages each owned mutant target, confirms an empty unstaged diff,
 marks `NON-VACUITY BREAK`, records a nonempty diffstat, runs the complete inventory,
 then restores saved bytes, verifies the original SHA256 and empty unstaged diff,
 and removes only the disposable index entry. No checkout, touch or stash is used.
-Each control must redden **only its named case**, with all sixteen others green.
+Each control must fail only its named case; all sixteen others must pass.
 Controls scoped to a particular scenario avoid changing unrelated test conditions;
 effect suppression and foreign Error identity are explicit callback/witness controls.
 Receipts are saved in `.owned/mutation-receipts.receipt`; no mutant is committed.
 
-The strict-result boundary has a separate data-only defense proof. After staging
+The strict child-result validator has a separate data-only defense proof. After staging
 intentional changes, run
 `bun test/common-auth-094-adoption/rpc/result-mutation-proof.mjs`. It copies the
 validator and refusal tests into an owned temporary directory, changes only the

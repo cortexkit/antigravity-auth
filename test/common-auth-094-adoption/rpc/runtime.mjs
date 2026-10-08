@@ -67,7 +67,8 @@ const wire = (handle, path, body, token = handle.token) =>
 const applyWire = (handle, body = JSON.stringify(applyRequest)) =>
   wire(handle, '/rpc/apply', body)
 
-// Child liveness is observed by the parent, not by a timer in this process.
+// The test runner checks this child process's exit; no timer in this process
+// decides whether the server stayed alive.
 if (mode?.startsWith('lifetime:')) {
   const kind = mode.slice('lifetime:'.length)
   const entered = deferred()
@@ -257,7 +258,8 @@ if (mode?.startsWith('lifetime:')) {
       publicClient.DEFAULT_RPC_TIMEOUT_MS,
     )
     // Both public entry points must expose the same cached client factory and
-    // discovery function, rather than cloned or query-qualified instances.
+    // discovery function. Separate imports with query parameters can load duplicate
+    // module copies and break identity.
     const source = await readFile(join(root, 'rpc/rpc-client.js'), 'utf8')
     assert.match(
       source,
