@@ -182,6 +182,34 @@ describe('packed core common-auth bindings', () => {
     } catch {}
   })
 
+  it('builds the shared /antigravity menu in sections mode from the packed root', () => {
+    // The mode a host without account rows (Pi) uses: four host sections run
+    // through the embedded library dispatcher.
+    const output = runConsumer(`
+      const core = await import('${corePackage}')
+      const section = (title) => ({ title, build: () => ({ lines: [title] }) })
+      const menu = core.createAntigravityCommandMenu({
+        source: 'sections',
+        commands: await core.loadCommonAuthCommands(),
+        sections: {
+          accounts: section('Accounts'),
+          quota: section('Quota'),
+          routing: section('Routing'),
+          limits: section('Limits'),
+        },
+      })
+      const payload = await menu.open({ notify: () => undefined })
+      console.log(JSON.stringify({
+        command: menu.command,
+        slots: payload.menu.sections.map((entry) => entry.slot),
+      }))
+    `)
+    expect(JSON.parse(output.trim())).toEqual({
+      command: 'antigravity',
+      slots: ['accounts', 'quota', 'routing', 'limits'],
+    })
+  })
+
   it.each([
     ['NodeNext', { module: 'NodeNext', moduleResolution: 'NodeNext' }],
     ['Bundler', { module: 'ESNext', moduleResolution: 'Bundler' }],
@@ -206,12 +234,33 @@ describe('packed core common-auth bindings', () => {
 import type { PoolStore } from '${corePackage}/common-auth/store'
 import type { CommandMenu } from '${corePackage}/common-auth/commands'
 import type { ClaustrumConsumer } from '${corePackage}/common-auth/claustrum'
+import type { PluginSection } from '${corePackage}/common-auth/commands'
+import {
+  type AntigravityMenuSections,
+  type AntigravitySectionsMenuOptions,
+  createAntigravityCommandMenu,
+  loadCommonAuthCommands,
+} from '${corePackage}'
 
 const modules: CommonAuthStoreModules = await loadCommonAuthStoreModules()
 const open: (...args: Parameters<typeof modules.store.openPoolStore>) => PoolStore =
   modules.store.openPoolStore
 export const surface: [typeof open, CommandMenu | undefined, ClaustrumConsumer | undefined] =
   [open, undefined, undefined]
+
+const section: PluginSection = { title: 'Accounts', build: () => ({ lines: [] }) }
+const sections: AntigravityMenuSections = {
+  accounts: section,
+  quota: section,
+  routing: section,
+  limits: section,
+}
+const menuOptions: AntigravitySectionsMenuOptions = {
+  source: 'sections',
+  commands: await loadCommonAuthCommands(),
+  sections,
+}
+export const menu: CommandMenu = createAntigravityCommandMenu(menuOptions)
 `,
       )
       const config = `tsconfig.${label}.json`
