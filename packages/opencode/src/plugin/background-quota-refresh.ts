@@ -38,6 +38,7 @@ import {
 } from '@cortexkit/antigravity-auth-core/file-lock'
 
 import { readSidebarState, toCapturedTier } from '../sidebar-state'
+import type { Logger } from './logger'
 import type { QuotaManager } from './quota'
 import { pushSidebarQuotaSnapshot } from './quota'
 
@@ -152,6 +153,18 @@ export interface BackgroundQuotaRefreshOptions {
   random?: () => number
   /** Lock acquisition seam used by deterministic concurrency tests. */
   acquireLock?: typeof acquireFencedFileLock
+  /**
+   * Health score per account index for the poller's sidebar snapshot.
+   * Omitted: the process-wide health tracker, which the OpenCode 1 plugin
+   * (one location per process) keeps using. `null`: no score, for a location
+   * that has no health tracker of its own.
+   */
+  healthScore?: ((index: number) => number) | null
+  /**
+   * Receives best-effort snapshot write failures. Omitted: the quota
+   * module's process-wide logger, as the OpenCode 1 plugin uses it.
+   */
+  logger?: Pick<Logger, 'debug'>
 }
 
 /**
@@ -171,6 +184,8 @@ export class BackgroundQuotaRefresh {
   private readonly now: () => number
   private readonly random: () => number
   private readonly acquireLock: typeof acquireFencedFileLock
+  private readonly healthScore?: ((index: number) => number) | null
+  private readonly logger?: Pick<Logger, 'debug'>
 
   private timer: ReturnType<typeof setTimeout> | null = null
   /** Resolves when the currently-running tick completes (or immediately if none). */
@@ -186,6 +201,8 @@ export class BackgroundQuotaRefresh {
     this.now = options.now ?? (() => Date.now())
     this.random = options.random ?? Math.random
     this.acquireLock = options.acquireLock ?? acquireFencedFileLock
+    this.healthScore = options.healthScore
+    this.logger = options.logger
   }
 
   /** Start the background timer. Idempotent: a second call is a no-op. */
@@ -439,7 +456,10 @@ export class BackgroundQuotaRefresh {
 
   private async pushSnapshot(): Promise<void> {
     // ONE sidebar write per poll. `pushSidebarQuotaSnapshot` reads the live
-    // account view (with the just-updated cached values) and writes atomically.
+    // account view (with the just-updated cached values) and writes atomically
+    // to the same state file whose `checkedAt` the freshness check reads and
+    // beside which the poll lock lives, so each location's poller writes only
+    // its own file.
     const getAccounts = () => {
       const m = this.getAccountManager()
       return m ? m.getAccounts() : null
@@ -468,6 +488,13 @@ export class BackgroundQuotaRefresh {
       () => {
         const m = this.getAccountManager()
         return m ? m.getActiveIndexByFamily() : null
+      },
+      {
+        stateFile: this.sidebarStateFile,
+        ...(this.healthScore === undefined
+          ? {}
+          : { healthScore: this.healthScore }),
+        ...(this.logger ? { logger: this.logger } : {}),
       },
     ).catch(() => {
       // Sidebar write failure is not fatal; the next tick will retry.

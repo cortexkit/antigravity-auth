@@ -215,6 +215,30 @@ describe('BackgroundQuotaRefresh', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('writes its snapshot to its own sidebar file with the location health source', async () => {
+    const locationFile = join(dir, 'location-sidebar.json')
+    const debugMessages: string[] = []
+    const poller = new BackgroundQuotaRefresh({
+      intervalMs: 5 * 60_000,
+      sidebarStateFile: locationFile,
+      getAccountManager: () => makeAccountManager(),
+      quotaManager:
+        makeQuotaManager() as unknown as import('./quota').QuotaManager,
+      random: () => 0,
+      now: () => Date.now(),
+      healthScore: () => 55,
+      logger: { debug: (message) => void debugMessages.push(message) },
+    })
+    await (poller as unknown as TickablePoller).runTick()
+    await poller.dispose()
+    const written = readSidebarState(locationFile)
+    expect(written.accounts).toHaveLength(1)
+    expect(written.accounts[0]?.health).toBe(55)
+    // The process-wide file named by the environment is never written.
+    expect(readSidebarState(stateFile).checkedAt).toBe(0)
+    expect(debugMessages).toEqual([])
+  })
+
   // ── Timer: idempotent start/stop ──────────────────────────────────────────
 
   it('start is idempotent — a second call before the first tick does not double-schedule', async () => {
