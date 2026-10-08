@@ -24,6 +24,8 @@
       "!!packages/core/src/common-auth-embedded",
       "!!packages/opencode/src/tui-raw",
       "!!packages/opencode/src/tui-compiled",
+      "!!packages/opencode/src/tui-ga-raw",
+      "!!packages/opencode/src/tui-ga-compiled",
       "packages/*/script/**",
       "packages/*/scripts/**",
       "scripts/**",

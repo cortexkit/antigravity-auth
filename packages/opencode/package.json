@@ -41,7 +41,7 @@
     },
     "./tui": {
       "import": "./src/tui/entry.mjs",
-      "types": "./dist/src/tui.d.ts"
+      "types": "./src/tui/entry.d.mts"
     }
   },
   "files": [
@@ -50,6 +50,7 @@
     "server.js",
     "src/tui.tsx",
     "src/tui/entry.mjs",
+    "src/tui/entry.d.mts",
     "src/tui/command-dialogs.tsx",
     "src/tui/file-logger.ts",
     "src/tui-preferences.ts",
@@ -62,6 +63,8 @@
     "src/common-auth-embedded/",
     "src/tui-raw/",
     "src/tui-compiled/",
+    "src/tui-ga-raw/",
+    "src/tui-ga-compiled/",
     "README.md",
     "LICENSE"
   ],

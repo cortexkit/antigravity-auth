@@ -21,6 +21,8 @@
     "src/**/*.spec.tsx",
     "src/tui-compiled",
     "src/tui-raw",
+    "src/tui-ga-raw",
+    "src/tui-ga-compiled",
     "src/common-auth-embedded/**/*.js"
   ]
 }
