@@ -26,14 +26,13 @@ import {
 import { createOperatorSettingsController } from './operator-settings'
 
 describe('registerAntigravityCommands', () => {
-  it('registers /antigravity and the /gemini-dump alias, keeping host commands', () => {
+  it('registers only /antigravity and keeps the host commands', () => {
     const config: Record<string, unknown> = {
       command: { init: { template: 'init' } },
     }
     registerAntigravityCommands(config)
     expect(Object.keys(config.command as object).sort()).toEqual([
       'antigravity',
-      'gemini-dump',
       'init',
     ])
     expect(
@@ -78,12 +77,13 @@ describe('createAntigravityCommandExecuteBefore', () => {
     return { before, pushed, prompts, opened }
   }
 
-  it('leaves every other command alone', async () => {
+  it('leaves every other command alone, retired ones included', async () => {
     const { before, pushed, opened } = hook(true, 'menu')
-    await before?.(
-      { command: 'antigravity-quota', sessionID: 's1', arguments: '' },
-      { parts: [] } as never,
-    )
+    for (const command of ['antigravity-quota', 'gemini-dump', 'init']) {
+      await before?.({ command, sessionID: 's1', arguments: 'enable' }, {
+        parts: [],
+      } as never)
+    }
     expect(opened).toEqual([])
     expect(pushed).toEqual([])
   })

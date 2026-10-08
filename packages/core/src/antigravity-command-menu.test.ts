@@ -20,6 +20,7 @@ import type {
 } from './account-repository-types.ts'
 import {
   type AntigravityMenuSettings,
+  type AntigravityRepositoryMenuOptions,
   createAntigravityCommandMenu,
 } from './antigravity-command-menu.ts'
 import {
@@ -79,7 +80,10 @@ async function readyRows(): Promise<
   return read.rows
 }
 
-async function menu(settingsLog: AntigravityMenuSettings[] = []) {
+async function menu(
+  settingsLog: AntigravityMenuSettings[] = [],
+  refreshQuota?: AntigravityRepositoryMenuOptions['refreshQuota'],
+) {
   let settings: AntigravityMenuSettings = {
     routing: { cliFirst: false, quotaStyleFallback: false },
     killswitch: { enabled: false, minimumRemainingPercent: 5 },
@@ -99,6 +103,7 @@ async function menu(settingsLog: AntigravityMenuSettings[] = []) {
         settingsLog.push(settings)
       },
     },
+    ...(refreshQuota ? { refreshQuota } : {}),
   })
 }
 
@@ -224,6 +229,40 @@ describe('createAntigravityCommandMenu', () => {
       (section) => section.id === 'routing',
     )
     expect(routing?.lines[0]).toBe('Gemini CLI headers first: on')
+  })
+})
+
+describe('createAntigravityCommandMenu quota check', () => {
+  const request = {
+    command: 'antigravity',
+    sectionId: 'quota',
+    actionId: 'refresh',
+  }
+
+  it('offers no check action without a quota service', async () => {
+    const payload = await (await menu()).open(invocation)
+    const quota = payload.menu.sections.find((entry) => entry.id === 'quota')
+    expect(quota?.actions).toEqual([])
+  })
+
+  it('checks exactly the rows read and reports the readings taken', async () => {
+    const asked: string[][] = []
+    const built = await menu([], async (refs) => {
+      asked.push(refs.map((ref) => ref.id))
+      return { checked: 1, notChecked: 1 }
+    })
+    const result = await built.apply(request, invocation)
+    expect(asked).toEqual([(await readyRows()).map((row) => row.ref.id)])
+    expect(result).toMatchObject({
+      ok: true,
+      text: 'Quota checked for 1 of 2 accounts; 1 could not be checked',
+    })
+  })
+
+  it('never reports success when no reading was taken', async () => {
+    const built = await menu([], async () => ({ checked: 0, notChecked: 2 }))
+    const result = await built.apply(request, invocation)
+    expect(result).toMatchObject({ ok: false, code: 'quota-unavailable' })
   })
 })
 

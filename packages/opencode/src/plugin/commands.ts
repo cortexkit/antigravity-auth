@@ -23,12 +23,6 @@ import {
 import { isTuiConnected as defaultIsTuiConnected } from '../rpc/notifications'
 import type { NotifyKind, RpcNotificationPayload } from '../rpc/protocol'
 import type { AccountCommandOAuthService } from './account-command-oauth'
-import {
-  executeGeminiDumpCommand,
-  GEMINI_DUMP_COMMAND_NAME,
-  parseGeminiDumpCommandAction,
-  setGeminiDumpEnabled,
-} from './gemini-dump'
 import type {
   OperatorSettings,
   OperatorSettingsController,
@@ -141,22 +135,6 @@ export function createAntigravityCommandExecuteBefore(options: {
     isTuiConnected: defaultIsTuiConnected,
   }
   return async (input) => {
-    if (input.command === GEMINI_DUMP_COMMAND_NAME) {
-      // `/gemini-dump` stays a compatibility alias for sessions that still
-      // call it; it toggles the same switch as the menu's Diagnostics.
-      const action = parseGeminiDumpCommandAction(input.arguments)
-      if (action.type === 'enable' || action.type === 'disable') {
-        setGeminiDumpEnabled(action.type === 'enable')
-      }
-      if (!connection.isTuiConnected(input.sessionID)) {
-        await sendIgnoredMessage(
-          options.client,
-          input.sessionID,
-          executeGeminiDumpCommand({ argumentsText: input.arguments }),
-        )
-      }
-      throwHandledCommandSentinel()
-    }
     if (input.command !== ANTIGRAVITY_MENU_COMMAND) return
     const opening = await options.open(input.sessionID)
     if (opening.kind === 'menu') {

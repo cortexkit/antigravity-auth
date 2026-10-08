@@ -81,6 +81,17 @@ export interface AntigravityMenuSettingsSource {
   updateKillswitch(next: AntigravityMenuSettings['killswitch']): Promise<void>
 }
 
+/**
+ * The outcome of one quota check over the menu's accounts. `checked` counts
+ * readings taken and recorded for exactly the credential they were asked
+ * for; `notChecked` counts the rest (refused because the credential changed
+ * or is unusable, or failed).
+ */
+export interface AntigravityQuotaCheckReport {
+  readonly checked: number
+  readonly notChecked: number
+}
+
 /** Options both menu modes share; the host's sections and the menu plumbing. */
 interface AntigravityMenuSharedOptions {
   /** common-auth's public `./commands` entry, as `loadCommonAuthCommands` returns it. */
@@ -104,13 +115,14 @@ export interface AntigravityRepositoryMenuOptions
   readonly accounts: AntigravityMenuAccounts
   readonly settings: AntigravityMenuSettingsSource
   /**
-   * Checks quota now for the given accounts. Without it the Quota section
-   * offers no refresh action.
+   * Checks quota now for exactly the given account credentials and reports
+   * how many readings were taken. Without it the Quota section offers no
+   * check action.
    */
   readonly refreshQuota?: (
     refs: readonly RowRef[],
     invocation: CommandInvocation,
-  ) => Promise<void>
+  ) => Promise<AntigravityQuotaCheckReport>
   /**
    * The host's login. It returns the text to show; the host owns the OAuth
    * flow (browser, callback, manual paste) and adds the account itself.
@@ -431,8 +443,8 @@ function quotaSection(
                 id: 'refresh',
                 label: 'Check quota now',
                 run: async ({ invocation }) => {
-                  await refresh(refs, invocation)
-                  return 'Quota checked'
+                  const report = await refresh(refs, invocation)
+                  return quotaCheckOutcome(report)
                 },
               },
             ]
@@ -440,6 +452,22 @@ function quotaSection(
       }
     },
   }
+}
+
+/** What a quota check shows: never success when no reading was taken. */
+function quotaCheckOutcome(
+  report: AntigravityQuotaCheckReport,
+): string | ActionOutcome {
+  const total = report.checked + report.notChecked
+  if (total === 0) return 'No accounts to check'
+  if (report.checked === 0)
+    return failure(
+      `Quota could not be checked for any of the ${total} accounts.`,
+      'quota-unavailable',
+    )
+  if (report.notChecked === 0)
+    return `Quota checked for ${report.checked} of ${total} accounts`
+  return `Quota checked for ${report.checked} of ${total} accounts; ${report.notChecked} could not be checked`
 }
 
 function onOff(value: boolean): string {

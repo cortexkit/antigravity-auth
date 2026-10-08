@@ -17,6 +17,7 @@ import {
 import * as packageRoot from '../index'
 
 import { ANTIGRAVITY_PROVIDER_ID } from './constants.ts'
+import { ANTIGRAVITY_MENU_COMMAND } from './plugin/commands.ts'
 import { GEMINI_DUMP_COMMAND_NAME } from './plugin/gemini-dump.ts'
 import { createAntigravityPlugin } from './plugin/index'
 import type { PluginClient, PluginInput } from './plugin/types.ts'
@@ -115,7 +116,7 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
     expect(fetchSpy).toHaveBeenCalled()
   })
 
-  it('config hook registers the antigravity model catalog, whitelist, and gemini-dump command without deleting existing entries', async () => {
+  it('config hook registers the antigravity model catalog, whitelist, and the /antigravity command without deleting existing entries', async () => {
     const client = createMinimalClient()
     const ctx = createPluginInput(client, tempProjectDir)
     const plugin = await createAntigravityPlugin(ANTIGRAVITY_PROVIDER_ID)(ctx)
@@ -168,16 +169,19 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
       description: 'pre-existing',
     })
 
-    // The gemini-dump command is registered under the well-known name.
-    const dumpCommand = finalConfig.command?.[GEMINI_DUMP_COMMAND_NAME] as
+    // Exactly one command is added beside the host's: /antigravity, which
+    // opens the shared menu. The retired /gemini-dump alias is not
+    // registered; the request dump switch lives in the menu's Diagnostics.
+    expect(Object.keys(finalConfig.command ?? {}).sort()).toEqual(
+      [ANTIGRAVITY_MENU_COMMAND, 'existing'].sort(),
+    )
+    const menuCommand = finalConfig.command?.[ANTIGRAVITY_MENU_COMMAND] as
       | { template: string; description: string }
       | undefined
-    expect(dumpCommand).toBeDefined()
-    expect(dumpCommand?.template).toBe(GEMINI_DUMP_COMMAND_NAME)
-    expect(dumpCommand?.description).toContain('wire dump')
+    expect(menuCommand?.template).toBe(ANTIGRAVITY_MENU_COMMAND)
   })
 
-  it('command.execute.before ignores non-gemini-dump commands and routes gemini-dump to the dump command handler', async () => {
+  it('command.execute.before leaves other commands, the retired gemini-dump included, to the host', async () => {
     const client = createMinimalClient()
     const ctx = createPluginInput(client, tempProjectDir)
     const plugin = await createAntigravityPlugin(ANTIGRAVITY_PROVIDER_ID)(ctx)
@@ -190,9 +194,7 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
       ),
     ).resolves.toBeUndefined()
 
-    // gemini-dump command with a recognized action throws the handled sentinel.
-    // The handler ignores the no-op "status" subcommand and re-throws the
-    // sentinel because it considers the message handled.
+    // The retired /gemini-dump name is no longer handled here either.
     await expect(
       plugin['command.execute.before']?.(
         {
@@ -202,7 +204,7 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
         },
         { parts: [] },
       ),
-    ).rejects.toBeDefined()
+    ).resolves.toBeUndefined()
   })
 })
 
