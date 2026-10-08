@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'bun:test'
-import { AccountManager } from './account-manager.ts'
+import {
+  AccountManager,
+  AccountManagerPersistError,
+} from './account-manager.ts'
+import type {
+  AccountFlushReport,
+  AccountRefreshOutcome,
+  AccountRepository,
+  AccountRow,
+  FingerprintObservation,
+  MetadataMutator,
+  ProviderMetadata,
+  RoutingSettings,
+  RowRef,
+} from './account-repository-types.ts'
 import type { AccountStorageStore } from './account-storage.ts'
 import type { AccountStorageV4 } from './account-types.ts'
 
@@ -526,5 +540,413 @@ describe('managedProjectId projection', () => {
     })
     const accounts = manager2.getAccountsForQuotaCheck()
     expect(accounts[0]!.managedProjectId).toBe('my-managed-project')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Repository-backed manager
+//
+// These check which attributed repository operation each manager change
+// becomes. The repository below only records calls; the repository's own
+// behaviour on the real store is covered by account-repository.test.ts.
+// ---------------------------------------------------------------------------
+
+type RecordedCall = { method: string; args: readonly unknown[] }
+
+function recordingRepository(rows: AccountRow[], routing?: RoutingSettings) {
+  const calls: RecordedCall[] = []
+  const metadataWrites: Array<{ ref: RowRef; mutator: MetadataMutator }> = []
+  const fingerprintWrites: Array<{
+    ref: RowRef
+    observation: FingerprintObservation
+  }> = []
+  let flushReport: AccountFlushReport = { completed: 0, failures: [] }
+  let refreshOutcome: AccountRefreshOutcome | undefined
+  let currentRows = rows
+  const notUsed = (method: string) => async (): Promise<never> => {
+    throw new Error(`the manager does not call ${method} in these tests`)
+  }
+  const repository: AccountRepository = {
+    read: async () => ({
+      status: 'ready',
+      rows: currentRows,
+      ...(routing !== undefined ? { routing } : {}),
+    }),
+    settled: async () => {},
+    login: notUsed('login'),
+    replaceCredential: notUsed('replaceCredential'),
+    refresh: async (ref, options) => {
+      calls.push({ method: 'refresh', args: [ref, options] })
+      if (refreshOutcome === undefined)
+        throw new Error('no refresh outcome set')
+      return refreshOutcome
+    },
+    recordIdentity: notUsed('recordIdentity'),
+    setEnabled: async (ref, input) => {
+      calls.push({ method: 'setEnabled', args: [ref, input] })
+      return { ref }
+    },
+    recordAccessVerdict: async (ref, verdict) => {
+      calls.push({ method: 'recordAccessVerdict', args: [ref, verdict] })
+      return { ref }
+    },
+    updateMetadata: async (ref, mutator) => {
+      calls.push({ method: 'updateMetadata', args: [ref] })
+      metadataWrites.push({ ref, mutator })
+      return { ref, outcome: 'updated' }
+    },
+    recordProject: async (ref, observation) => {
+      calls.push({ method: 'recordProject', args: [ref, observation] })
+      return { ref, outcome: 'updated' }
+    },
+    recordFingerprint: async (ref, observation) => {
+      calls.push({ method: 'recordFingerprint', args: [ref] })
+      fingerprintWrites.push({ ref, observation })
+      return { ref, outcome: 'updated' }
+    },
+    recordTier: notUsed('recordTier'),
+    recordCooldown: notUsed('recordCooldown'),
+    recordRateLimits: notUsed('recordRateLimits'),
+    recordSwitch: notUsed('recordSwitch'),
+    recordUsage: async (ref, observation) => {
+      calls.push({ method: 'recordUsage', args: [ref, observation] })
+      return {
+        ref,
+        lastUsed: observation.at,
+        dailyRequestCounts: { date: '2026-10-07', claude: 0, gemini: 0 },
+      }
+    },
+    recordQuota: async (ref, observation) => {
+      calls.push({ method: 'recordQuota', args: [ref, observation] })
+    },
+    selectAccount: async (target, row) => {
+      calls.push({ method: 'selectAccount', args: [target, row] })
+    },
+    reorder: notUsed('reorder'),
+    remove: async (ref) => {
+      calls.push({ method: 'remove', args: [ref] })
+    },
+    clear: notUsed('clear'),
+    replacePool: notUsed('replacePool'),
+    flush: async () => {
+      calls.push({ method: 'flush', args: [] })
+      return flushReport
+    },
+    dispose: async () => {
+      calls.push({ method: 'dispose', args: [] })
+      return flushReport
+    },
+  }
+  return {
+    repository,
+    metadataWrites,
+    fingerprintWrites,
+    calls: (method?: string) =>
+      method === undefined
+        ? calls
+        : calls.filter((call) => call.method === method),
+    setFlushReport: (report: AccountFlushReport) => {
+      flushReport = report
+    },
+    setRefreshOutcome: (outcome: AccountRefreshOutcome) => {
+      refreshOutcome = outcome
+    },
+    setRows: (next: AccountRow[]) => {
+      currentRows = next
+    },
+  }
+}
+
+const testFingerprint = {
+  deviceId: 'device-1',
+  sessionToken: 'session-1',
+  userAgent: 'antigravity-cli/test',
+  apiClient: 'antigravity-cli',
+  clientMetadata: { ideType: 'IDE', platform: 'darwin', pluginType: 'GEMINI' },
+  createdAt: 1,
+}
+
+/** A routable repository row (bound, usable, metadata shown) unless overridden. */
+function repositoryRow(
+  ref: RowRef,
+  index: number,
+  overrides: Partial<AccountRow> = {},
+): AccountRow {
+  return {
+    ref,
+    index,
+    enabled: true,
+    credential: { refreshToken: `tok-${ref.id}` },
+    usable: true,
+    stamp: 'bound',
+    metadata: {
+      status: 'present',
+      metadata: {
+        addedAt: 10,
+        lastUsed: 20,
+        projectId: `proj-${ref.id}`,
+        fingerprint: testFingerprint,
+      },
+    },
+    quota: { status: 'absent' },
+    ...overrides,
+  }
+}
+
+const refA: RowRef = { id: 'a', credentialEpoch: 2, identity: 'acct-a' }
+const refB: RowRef = { id: 'b', credentialEpoch: 1 }
+const refC: RowRef = { id: 'c', credentialEpoch: 1 }
+const refD: RowRef = { id: 'd', credentialEpoch: 3 }
+
+/**
+ * One row per load path: routable (`a`), metadata not shown (`b`), torn (`c`)
+ * and without metadata (`d`); the stored selection names `d` for gemini.
+ */
+function repositoryFixture() {
+  const recording = recordingRepository(
+    [
+      repositoryRow(refA, 0),
+      repositoryRow(refB, 1, {
+        metadata: { status: 'dropped', reason: 'uncovered' },
+      }),
+      repositoryRow(refC, 2, { torn: true }),
+      repositoryRow(refD, 3, { metadata: { status: 'absent' } }),
+    ],
+    {
+      schemaVersion: 1,
+      activeIndex: 0,
+      activeRowByFamily: { gemini: refD },
+    },
+  )
+  const diagnostics: Array<{
+    message: string
+    fields?: Record<string, unknown>
+  }> = []
+  return {
+    ...recording,
+    diagnostics,
+    load: async () =>
+      AccountManager.fromRepository(await recording.repository.read(), {
+        repository: recording.repository,
+        now: () => Date.UTC(2026, 9, 7, 12),
+        onDiagnostic: (message, fields) =>
+          diagnostics.push({ message, fields }),
+      }),
+  }
+}
+
+describe('repository-backed AccountManager', () => {
+  it('needs exactly one of a pool-file store and a repository', () => {
+    const { repository } = recordingRepository([])
+    expect(() => new AccountManager(undefined, null, {})).toThrow('exactly one')
+    expect(
+      () =>
+        new AccountManager(undefined, null, {
+          repository,
+          store: createStore().store,
+        }),
+    ).toThrow('exactly one')
+  })
+
+  it('loads routable rows with their refs and follows the stored selection refs', async () => {
+    const fixture = repositoryFixture()
+    const manager = await fixture.load()
+    const accounts = manager.getAccounts()
+    expect(accounts.map((account) => account.ref)).toEqual([refA, refD])
+    expect(accounts[0]?.projectId).toBe('proj-a')
+    expect(accounts[0]?.parts.refreshToken).toBe('tok-a')
+    expect(manager.getCurrentAccountForFamily('gemini')?.ref).toEqual(refD)
+    expect(manager.getCurrentAccountForFamily('claude')?.ref).toEqual(refA)
+    expect(
+      fixture.diagnostics
+        .filter((d) => d.message.startsWith('Skipped'))
+        .map((d) => d.fields?.rowId),
+    ).toEqual(['b', 'c'])
+    // A generated fingerprint (the row had none) and one brought to the
+    // runtime user agent are recorded, as the pool-file loader saved them.
+    const fingerprints = fixture.fingerprintWrites
+    expect(fingerprints.map((write) => write.ref)).toEqual([refD, refA])
+    const updated = fingerprints[1]?.observation
+    expect(updated?.fingerprint.userAgent).toBe(
+      accounts[0]?.fingerprint?.userAgent ?? 'missing',
+    )
+    expect(updated?.fingerprint.userAgent).not.toBe(testFingerprint.userAgent)
+  })
+
+  it('records every request as its own increment, never coalesced', async () => {
+    const fixture = repositoryFixture()
+    const manager = await fixture.load()
+    manager.recordRequest(0, 'claude')
+    manager.recordRequest(0, 'claude')
+    manager.recordRequest(1, 'gemini')
+    await manager.flushSaveToDisk()
+    expect(fixture.calls('recordUsage').map((call) => call.args)).toEqual([
+      [refA, { family: 'claude', at: Date.UTC(2026, 9, 7, 12) }],
+      [refA, { family: 'claude', at: Date.UTC(2026, 9, 7, 12) }],
+      [refD, { family: 'gemini', at: Date.UTC(2026, 9, 7, 12) }],
+    ])
+    await manager.dispose()
+  })
+
+  it('coalesces absolute state into one attributed write per row', async () => {
+    const fixture = repositoryFixture()
+    const manager = await fixture.load()
+    const now = Date.UTC(2026, 9, 7, 12)
+    const account = manager.getAccounts()[0]
+    if (account === undefined) throw new Error('no account')
+    manager.markRateLimited(account, 1_000, 'claude')
+    manager.markRateLimited(account, 5_000, 'claude')
+    manager.markRateLimited(account, 2_000, 'gemini', 'gemini-cli')
+    manager.markAccountCoolingDown(account, 3_000, 'network-error')
+    manager.markSwitched(account, 'rate-limit', 'gemini')
+    await manager.flushSaveToDisk()
+
+    const writes = fixture.metadataWrites
+    expect(writes).toHaveLength(1)
+    expect(writes[0]?.ref).toEqual(refA)
+    const mutator = writes[0]?.mutator
+    if (mutator === undefined) throw new Error('no metadata write')
+    const stored: ProviderMetadata = {
+      addedAt: 10,
+      lastUsed: 20,
+      rateLimitResetTimes: { claude: now + 9_000, other: 1 },
+      label: 'kept',
+    }
+    const update = await mutator(stored, repositoryRow(refA, 0))
+    expect(update).toEqual({
+      kind: 'set',
+      metadata: {
+        addedAt: 10,
+        lastUsed: 20,
+        label: 'kept',
+        // The stored later reset wins over this process's earlier one.
+        rateLimitResetTimes: {
+          claude: now + 9_000,
+          other: 1,
+          'gemini-cli': now + 2_000,
+        },
+        coolingDownUntil: now + 3_000,
+        cooldownReason: 'network-error',
+        lastSwitchReason: 'rate-limit',
+      },
+    })
+    expect(fixture.calls('selectAccount').map((call) => call.args)).toEqual([
+      ['gemini', refA],
+    ])
+    // Nothing went through a pool-file snapshot.
+    expect(fixture.calls('flush').length).toBeGreaterThan(0)
+  })
+
+  it('removes by ref and drops writes still queued for the removed account', async () => {
+    const fixture = repositoryFixture()
+    const manager = await fixture.load()
+    const account = manager.getAccounts()[0]
+    if (account === undefined) throw new Error('no account')
+    manager.markRateLimited(account, 1_000, 'claude')
+    expect(manager.removeAccount(account)).toBe(true)
+    await manager.saveToDiskReplace()
+    expect(fixture.calls('remove').map((call) => call.args)).toEqual([[refA]])
+    expect(fixture.calls('updateMetadata')).toHaveLength(0)
+  })
+
+  it('records access verdicts as one transition instead of a separate disable', async () => {
+    const fixture = repositoryFixture()
+    const manager = await fixture.load()
+    manager.markAccountIneligible(0, 'blocked')
+    manager.clearAccountAccessBlocks(0, true)
+    await manager.flushSaveToDisk()
+    expect(fixture.calls('setEnabled')).toHaveLength(0)
+    expect(
+      fixture.calls('recordAccessVerdict').map((call) => call.args),
+    ).toEqual([
+      [
+        refA,
+        {
+          kind: 'ineligible',
+          observedAt: Date.UTC(2026, 9, 7, 12),
+          reason: 'blocked',
+        },
+      ],
+      [
+        refA,
+        { kind: 'cleared', observedAt: Date.UTC(2026, 9, 7, 12), enable: true },
+      ],
+    ])
+    expect(manager.getAccounts()[0]?.enabled).toBe(true)
+    manager.setAccountEnabled(0, false)
+    await manager.flushSaveToDisk()
+    expect(fixture.calls('setEnabled').map((call) => call.args)).toEqual([
+      [refA, { enabled: false, actor: 'user' }],
+    ])
+  })
+
+  it('fails a flush on a write failure but tolerates refusals of stale credentials', async () => {
+    const fixture = repositoryFixture()
+    const manager = await fixture.load()
+    const stale = {
+      operation: 'recordUsage' as const,
+      kind: 'attribution' as const,
+      retryable: true,
+      ambiguous: false,
+      rowId: 'a',
+      message: 'stale',
+    }
+    fixture.setFlushReport({ completed: 0, failures: [stale] })
+    await manager.flushSaveToDisk()
+    const broken = {
+      ...stale,
+      kind: 'load-error' as const,
+      message: 'state file unreadable',
+    }
+    fixture.setFlushReport({ completed: 0, failures: [stale, broken] })
+    const error = await manager.flushSaveToDisk().then(
+      () => undefined,
+      (caught: unknown) => caught,
+    )
+    expect(error).toBeInstanceOf(AccountManagerPersistError)
+    expect(
+      error instanceof AccountManagerPersistError && error.failure,
+    ).toEqual(broken)
+    expect(
+      error instanceof AccountManagerPersistError && error.report.failures,
+    ).toEqual([stale, broken])
+    await expect(manager.dispose()).rejects.toBeInstanceOf(
+      AccountManagerPersistError,
+    )
+  })
+
+  it('takes a refreshed credential only from the repository', async () => {
+    const fixture = repositoryFixture()
+    const manager = await fixture.load()
+    const account = manager.getAccounts()[0]
+    if (account === undefined) throw new Error('no account')
+    const learnt: RowRef = { ...refA }
+    fixture.setRefreshOutcome({
+      status: 'rotated',
+      ref: learnt,
+      accessToken: 'access-new',
+      expiresAt: 99,
+    })
+    fixture.setRows([
+      repositoryRow(learnt, 0, {
+        credential: { refreshToken: 'tok-a-next', accessToken: 'access-new' },
+      }),
+    ])
+    const outcome = await manager.refreshAccount(account)
+    expect(outcome.status).toBe('rotated')
+    expect(fixture.calls('refresh')[0]?.args[0]).toEqual(refA)
+    expect(account.access).toBe('access-new')
+    expect(account.expires).toBe(99)
+    expect(account.parts.refreshToken).toBe('tok-a-next')
+
+    fixture.setRefreshOutcome({
+      status: 'identity-contradicted',
+      ref: learnt,
+      expectedIdentity: 'acct-a',
+      returnedIdentity: 'acct-z',
+    })
+    await manager.refreshAccount(account)
+    expect(account.enabled).toBe(false)
+    expect(account.access).toBeUndefined()
   })
 })
