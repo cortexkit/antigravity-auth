@@ -7,6 +7,7 @@ import type {
   AccountFlushReport,
   AccountRefreshOutcome,
   AccountRepository,
+  AccountRepositoryRead,
   AccountRow,
   FingerprintObservation,
   MetadataMutator,
@@ -16,6 +17,7 @@ import type {
 } from './account-repository-types.ts'
 import type { AccountStorageStore } from './account-storage.ts'
 import type { AccountStorageV4 } from './account-types.ts'
+import { HealthScoreTracker, TokenBucketTracker } from './rotation.ts'
 
 function createStore(initial: AccountStorageV4 | null = null) {
   let state = initial
@@ -948,5 +950,301 @@ describe('repository-backed AccountManager', () => {
     await manager.refreshAccount(account)
     expect(account.enabled).toBe(false)
     expect(account.access).toBeUndefined()
+  })
+})
+
+describe('reloading a repository-backed AccountManager', () => {
+  const now = Date.UTC(2026, 9, 7, 12)
+  const refA: RowRef = { id: 'a', credentialEpoch: 1, identity: 'acct-a' }
+  const refB: RowRef = { id: 'b', credentialEpoch: 1, identity: 'acct-b' }
+  const refC: RowRef = { id: 'c', credentialEpoch: 1 }
+  const session = { id: 'session-1' }
+
+  /** A manager over rows a, b, c, with its own trackers. */
+  async function loaded() {
+    const recording = recordingRepository([
+      repositoryRow(refA, 0),
+      repositoryRow(refB, 1),
+      repositoryRow(refC, 2),
+    ])
+    const diagnostics: string[] = []
+    const manager = AccountManager.fromRepository(
+      await recording.repository.read(),
+      {
+        repository: recording.repository,
+        now: () => now,
+        onDiagnostic: (message) => diagnostics.push(message),
+      },
+    )
+    const [a, b, c] = manager.getAccounts()
+    if (a === undefined || b === undefined || c === undefined) {
+      throw new Error('three accounts expected')
+    }
+    return { recording, manager, diagnostics, a, b, c }
+  }
+
+  function rows(
+    ...entries: Array<[RowRef, Partial<AccountRow>?]>
+  ): AccountRepositoryRead {
+    return {
+      status: 'ready',
+      rows: entries.map(([ref, overrides], index) =>
+        repositoryRow(ref, index, overrides),
+      ),
+    }
+  }
+
+  it('keeps the same accounts, their pins, selection and health across a reorder', async () => {
+    const { manager, a, b, c } = await loaded()
+    const bRef = b.ref
+    manager.markSwitched(b, 'rotation', 'claude', session)
+    manager.markTouchedForQuota(b, 'claude')
+    manager.healthTracker.recordFailure(b.index)
+    const bScore = manager.healthTracker.getScore(b.index)
+    const untouched = manager.healthTracker.getScore(a.index)
+    expect(bScore).not.toBe(untouched)
+
+    manager.reloadFromRepository(rows([refC], [refA], [refB]))
+
+    expect(manager.getAccounts()).toEqual([c, a, b])
+    expect(manager.getAccounts()[2]).toBe(b)
+    expect(b.index).toBe(2)
+    expect(b.ref).toBe(bRef)
+    expect(manager.getCurrentAccountForFamily('claude', session)).toBe(b)
+    expect(manager.getCurrentAccountForFamily('claude')).toBe(b)
+    expect(b.touchedForQuota.claude).toBe(now)
+    expect(manager.healthTracker.getScore(2)).toBe(bScore)
+    expect(manager.healthTracker.getScore(1)).toBe(untouched)
+  })
+
+  it('refreshes unchanged accounts from the read, keeping newer evidence held here', async () => {
+    const { manager, a } = await loaded()
+    // This manager holds a tier captured after the one the read will show.
+    manager.applyUpdatedAccount(0, {
+      capturedTierId: 'local-tier',
+      capturedTierAt: 300,
+    })
+    manager.reloadFromRepository(
+      rows(
+        [
+          refA,
+          {
+            metadata: {
+              status: 'present',
+              metadata: {
+                addedAt: 10,
+                lastUsed: 20,
+                email: 'renamed@example.test',
+                capturedTierId: 'stored-tier',
+                capturedTierAt: 200,
+                fingerprint: testFingerprint,
+              },
+            },
+            quota: {
+              status: 'present',
+              quota: {
+                schemaVersion: 1,
+                cachedQuota: {
+                  gemini: { modelCount: 1, remainingFraction: 0.25 },
+                },
+                cachedQuotaUpdatedAt: 500,
+              },
+            },
+          },
+        ],
+        [refB],
+        [refC],
+      ),
+    )
+    expect(manager.getAccounts()[0]).toBe(a)
+    expect(a.email).toBe('renamed@example.test')
+    expect(a.capturedTierId).toBe('local-tier')
+    expect(a.cachedQuotaUpdatedAt).toBe(500)
+    expect(a.cachedQuota?.gemini?.remainingFraction).toBe(0.25)
+  })
+
+  it('drops replaced and removed accounts with their pins and queued writes', async () => {
+    const { recording, manager, b, c } = await loaded()
+    manager.markSwitched(b, 'rotation', 'claude', session)
+    manager.markRateLimited(c, 1_000, 'claude')
+    const replacedB: RowRef = { ...refB, credentialEpoch: 2 }
+
+    manager.reloadFromRepository(rows([refA], [replacedB]))
+
+    const accounts = manager.getAccounts()
+    expect(accounts.map((account) => account.ref)).toEqual([refA, replacedB])
+    expect(accounts[1]).not.toBe(b)
+    // The old object keeps the ref its writes were decided for.
+    expect(b.ref).toEqual(refB)
+    expect(manager.getCurrentAccountForFamily('claude', session)).toBeNull()
+    await manager.flushSaveToDisk()
+    expect(
+      recording.metadataWrites.filter((write) => write.ref.id === 'c'),
+    ).toEqual([])
+  })
+
+  it('sends no write about an account that left at a reload', async () => {
+    const { recording, manager, diagnostics, b } = await loaded()
+    manager.reloadFromRepository(
+      rows([refA], [{ ...refB, credentialEpoch: 2 }], [refC]),
+    )
+    // Calls made before this point include the load's own writes.
+    const callsBefore = recording.calls().length
+    manager.markRateLimited(b, 1_000, 'claude')
+    manager.markAccountCoolingDown(b, 1_000, 'network-error')
+    manager.markSwitched(b, 'rate-limit', 'gemini')
+    expect(manager.removeAccount(b)).toBe(false)
+    await manager.flushSaveToDisk()
+    const aboutOldB = recording
+      .calls()
+      .slice(callsBefore)
+      .filter(
+        (call) =>
+          call.args[0] !== null &&
+          typeof call.args[0] === 'object' &&
+          'credentialEpoch' in call.args[0] &&
+          call.args[0].credentialEpoch === 1 &&
+          'id' in call.args[0] &&
+          call.args[0].id === 'b',
+      )
+    expect(aboutOldB).toEqual([])
+    expect(
+      recording.metadataWrites.filter((write) => write.ref.id === 'b'),
+    ).toEqual([])
+    expect(
+      diagnostics.filter((message) => message.includes('ignored')),
+    ).toHaveLength(3)
+  })
+
+  it('admits a new or replaced credential as a new account writing under its own ref', async () => {
+    const { recording, manager } = await loaded()
+    const replacedB: RowRef = { ...refB, credentialEpoch: 2 }
+    const refD: RowRef = { id: 'd', credentialEpoch: 1, identity: 'acct-d' }
+    manager.reloadFromRepository(rows([refA], [replacedB], [refC], [refD]))
+    const newB = manager.getAccounts()[1]
+    if (newB === undefined) throw new Error('no account at 1')
+    manager.markRateLimited(newB, 1_000, 'claude')
+    manager.recordRequest(3, 'gemini')
+    await manager.flushSaveToDisk()
+    expect(recording.metadataWrites.map((write) => write.ref)).toEqual([
+      replacedB,
+    ])
+    expect(recording.calls('recordUsage').map((call) => call.args[0])).toEqual([
+      refD,
+    ])
+    // Their fingerprints are recorded under their own refs, as at load.
+    expect(
+      recording.fingerprintWrites.slice(-2).map((write) => write.ref),
+    ).toEqual([replacedB, refD])
+  })
+
+  it("reindexes only its own trackers, never another manager's", async () => {
+    const first = await loaded()
+    const now2 = () => now
+    const secondHealth = new HealthScoreTracker({}, now2)
+    const secondTokens = new TokenBucketTracker({}, now2)
+    const otherRecording = recordingRepository([
+      repositoryRow({ id: 'x', credentialEpoch: 1 }, 0),
+      repositoryRow({ id: 'y', credentialEpoch: 1 }, 1),
+    ])
+    const second = AccountManager.fromRepository(
+      await otherRecording.repository.read(),
+      {
+        repository: otherRecording.repository,
+        now: () => now,
+        healthTracker: secondHealth,
+        tokenTracker: secondTokens,
+      },
+    )
+    // Both managers hold state at the same indexes.
+    first.manager.healthTracker.recordFailure(0)
+    first.manager.tokenTracker.consume(0, 7)
+    second.healthTracker.recordFailure(0)
+    second.healthTracker.recordFailure(0)
+    second.tokenTracker.consume(0, 3)
+    const secondPinned = second.getAccounts()[0]
+    if (secondPinned === undefined) throw new Error('no account x')
+    second.markSwitched(secondPinned, 'rotation', 'gemini', session)
+    const secondScore = second.healthTracker.getScore(0)
+    const secondTokensLeft = second.tokenTracker.getTokens(0)
+    const firstScore = first.manager.healthTracker.getScore(0)
+    const firstTokensLeft = first.manager.tokenTracker.getTokens(0)
+
+    // Reordering the first manager moves its account 0 (a) to 1.
+    first.manager.reloadFromRepository(rows([refC], [refA], [refB]))
+
+    expect(first.manager.healthTracker.getScore(1)).toBe(firstScore)
+    expect(first.manager.tokenTracker.getTokens(1)).toBe(firstTokensLeft)
+    expect(second.healthTracker.getScore(0)).toBe(secondScore)
+    expect(second.healthTracker.getConsecutiveFailures(0)).toBe(2)
+    expect(second.tokenTracker.getTokens(0)).toBe(secondTokensLeft)
+    expect(second.getCurrentAccountForFamily('gemini', session)).toBe(
+      secondPinned,
+    )
+    // The second manager selects with the trackers it was given.
+    expect(second.healthTracker).toBe(secondHealth)
+    expect(second.tokenTracker).toBe(secondTokens)
+    expect(first.manager.healthTracker).not.toBe(secondHealth)
+  })
+
+  it('refreshes from the repository one call at a time, in call order', async () => {
+    const { recording, manager } = await loaded()
+    const older = rows([refA], [refB], [refC])
+    const newer = rows([refC], [refB])
+    // The first read is held until after the second call starts, so an
+    // unordered refresh would apply the older read last.
+    let releaseOlder: () => void = () => {}
+    const olderReady = new Promise<void>((resolve) => {
+      releaseOlder = resolve
+    })
+    const reads: Array<() => Promise<AccountRepositoryRead>> = [
+      async () => {
+        await olderReady
+        return older
+      },
+      async () => newer,
+    ]
+    recording.repository.read = () => {
+      const next = reads.shift()
+      if (next === undefined) throw new Error('unexpected read')
+      return next()
+    }
+    const first = manager.refreshFromRepository()
+    const second = manager.refreshFromRepository()
+    releaseOlder()
+    await Promise.all([first, second])
+    expect(manager.getAccounts().map((account) => account.ref)).toEqual([
+      refC,
+      refB,
+    ])
+    expect(reads).toEqual([])
+  })
+
+  it('selects with its own health tracker', async () => {
+    const recording = recordingRepository([
+      repositoryRow(refA, 0),
+      repositoryRow(refB, 1),
+    ])
+    const healthTracker = new HealthScoreTracker(
+      { failurePenalty: -60 },
+      () => now,
+    )
+    const manager = AccountManager.fromRepository(
+      await recording.repository.read(),
+      { repository: recording.repository, now: () => now, healthTracker },
+    )
+    // The selected account (a, at index 0) is unhealthy only in this
+    // manager's tracker, so hybrid selection moves to b.
+    healthTracker.recordFailure(0)
+    const selected = manager.getCurrentOrNextForFamily('claude', null, 'hybrid')
+    expect(selected?.ref).toEqual(refB)
+  })
+
+  it('refuses a read that is not ready and keeps its accounts', async () => {
+    const { manager, a, b, c } = await loaded()
+    expect(() =>
+      manager.reloadFromRepository({ status: 'pending-migration' }),
+    ).toThrow('not ready')
+    expect(manager.getAccounts()).toEqual([a, b, c])
   })
 })
