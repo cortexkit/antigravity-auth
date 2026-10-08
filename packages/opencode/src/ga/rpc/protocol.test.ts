@@ -2,9 +2,18 @@ import { describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-
 import {
-  ANTIGRAVITY_RPC_COMMANDS,
+  ANTIGRAVITY_MENU_COMMAND,
+  createAntigravityCommandMenu,
+  loadCommonAuthCommands,
+} from '@cortexkit/antigravity-auth-core'
+
+import type {
+  CommandApplyResult,
+  RpcNotificationPayload,
+} from '../../rpc/protocol.ts'
+import {
+  ANTIGRAVITY_MENU_COMMAND_NAME,
   ANTIGRAVITY_RPC_CONTRACT,
   ANTIGRAVITY_RPC_DEFINITION,
   ANTIGRAVITY_RPC_ID,
@@ -12,10 +21,11 @@ import {
   ANTIGRAVITY_RPC_METHODS,
   ANTIGRAVITY_RPC_VERSION,
   type AntigravityAccountDto,
+  type AntigravityApplyInput,
   AntigravityApplyInputSchema,
   AntigravityApplyOutputSchema,
-  type AntigravityCommandResult,
-  AntigravityCommandResultSchema,
+  AntigravityApplyResultSchema,
+  AntigravityNotificationPayloadSchema,
   type AntigravityRpcParseResult,
   type AntigravityStateInput,
   AntigravityStateInputSchema,
@@ -55,6 +65,68 @@ const ACCOUNT: AntigravityAccountDto = {
   tier: { id: 'free-tier', capturedAt: 1_700_000_000_000 },
 }
 
+/** A toast notification payload. */
+const TOAST: RpcNotificationPayload = {
+  command: 'antigravity',
+  notify: { message: 'Quota refreshed', kind: 'info' },
+}
+
+/** A small menu as the shared menu's renderer payload. */
+const MENU: CommandApplyResult['menu'] = {
+  command: 'antigravity',
+  title: 'Antigravity',
+  sections: [
+    {
+      id: 'accounts',
+      slot: 'accounts',
+      title: 'Accounts',
+      lines: ['1 account'],
+      items: [
+        {
+          id: 'item-0f1e2d3c',
+          label: 'Account 1',
+          account: { id: 'item-0f1e2d3c', enabled: true, type: 'oauth' },
+          facts: { tier: 'free', windows: [{ name: '5h', left: 42 }] },
+          actions: [
+            {
+              id: 'remove',
+              label: 'Remove',
+              knobs: [],
+              confirm: { message: 'Remove?', irreversible: true },
+            },
+          ],
+        },
+      ],
+      actions: [
+        {
+          id: 'login',
+          label: 'Add account',
+          knobs: [
+            { kind: 'text', id: 'code', label: 'Code', masked: true },
+            { kind: 'toggle', id: 'manual', label: 'Paste', value: false },
+            { kind: 'number', id: 'n', label: 'N', min: 0, max: 5 },
+            {
+              kind: 'choice',
+              id: 'mode',
+              label: 'Mode',
+              choices: [{ value: 'browser', label: 'Browser' }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+}
+
+const DIALOG: RpcNotificationPayload = { command: 'antigravity', menu: MENU }
+
+const RESULT: CommandApplyResult = {
+  command: 'antigravity',
+  ok: true,
+  text: 'Done',
+  menu: MENU,
+}
+
 const SNAPSHOT: AntigravityStateSnapshot = {
   version: 1,
   kind: 'snapshot',
@@ -65,8 +137,8 @@ const SNAPSHOT: AntigravityStateSnapshot = {
   dropped: 0,
   more: false,
   notifications: [
-    { cursor: 1, type: 'open-dialog', command: 'antigravity-quota', text: 'q' },
-    { cursor: 2, type: 'open-dialog', command: 'antigravity-dump', text: 'd' },
+    { cursor: 1, payload: TOAST },
+    { cursor: 2, payload: DIALOG },
   ],
   readSeq: 1,
   accountsStatus: { kind: 'complete' },
@@ -107,15 +179,9 @@ describe('antigravity-auth RPC identity', () => {
     expect(Object.keys(ANTIGRAVITY_RPC_DEFINITION.events)).toEqual(['changed'])
   })
 
-  it('keeps the OpenCode 1 command names in their original order', () => {
-    expect([...ANTIGRAVITY_RPC_COMMANDS]).toEqual([
-      'antigravity-quota',
-      'antigravity-account',
-      'antigravity-routing',
-      'antigravity-killswitch',
-      'antigravity-dump',
-      'antigravity-logging',
-    ])
+  it('names the shared menu by the same command core builds it under', () => {
+    expect(ANTIGRAVITY_MENU_COMMAND_NAME).toBe('antigravity')
+    expect(ANTIGRAVITY_MENU_COMMAND_NAME).toBe(ANTIGRAVITY_MENU_COMMAND)
   })
 
   it('every definition schema is a Standard Schema V1 object', () => {
@@ -149,17 +215,18 @@ describe('antigravity-auth RPC identity', () => {
       .update(JSON.stringify(ANTIGRAVITY_RPC_CONTRACT))
       .digest('hex')
     expect(hash).toBe(
-      'faf4683aade586900aa13b29e2d197584c050a22ef34cd144ee8b395489fe3d6',
+      '8c6084fd187e9aca6c1f8b1740cfcc6f6effe8f8c11ca7ee7e90be8efe19b532',
     )
   })
 
-  it('has no runtime import, only a type-only import of the V1 command union', () => {
+  it('has only type-only imports: the menu types and core’s menu command', () => {
     const source = readFileSync(join(import.meta.dir, 'protocol.ts'), 'utf8')
-    const imports = source
-      .split('\n')
-      .filter((line) => /^import\b/.test(line) || /^export .* from /.test(line))
-    expect(imports).toEqual([
-      "import type { CommandModalName } from '../../rpc/protocol.ts'",
+    const statements = source.match(/^(?:import|export)\b[^;]*?from '[^']+'/gms)
+    expect(
+      (statements ?? []).map((statement) => statement.replace(/\s+/g, ' ')),
+    ).toEqual([
+      "import type { ANTIGRAVITY_MENU_COMMAND } from '@cortexkit/antigravity-auth-core'",
+      "import type { CommandApplyRequest, CommandApplyResult, RpcNotificationPayload, } from '../../rpc/protocol.ts'",
     ])
   })
 })
@@ -311,73 +378,131 @@ describe('state input', () => {
 })
 
 describe('apply input', () => {
-  const APPLY = {
+  const APPLY: AntigravityApplyInput = {
     version: 1,
     generation: GENERATION,
     scope: { kind: 'session', sessionID: 'ses_fake_one' },
-    command: 'antigravity-account',
-    arguments: 'toggle 0',
-  } as const
+    request: {
+      command: 'antigravity',
+      sectionId: 'accounts',
+      itemId: 'item-0f1e2d3c',
+      actionId: 'remove',
+      confirmed: true,
+    },
+  }
 
-  it('accepts every OpenCode 1 command with a string argument', () => {
-    for (const command of ANTIGRAVITY_RPC_COMMANDS) {
-      expect(AntigravityApplyInputSchema.parse({ ...APPLY, command }).ok).toBe(
-        true,
-      )
-    }
+  it('accepts a menu action with or without an item, values and confirmation', () => {
+    expect(AntigravityApplyInputSchema.parse(APPLY).ok).toBe(true)
+    expect(
+      AntigravityApplyInputSchema.parse({
+        ...APPLY,
+        request: {
+          command: 'antigravity',
+          sectionId: 'limits',
+          actionId: 'set',
+          values: { enabled: true, floor: 5, label: 'x', cleared: null },
+        },
+      }).ok,
+    ).toBe(true)
   })
 
-  it('refuses unknown commands, null generation, non-string and oversized arguments', () => {
+  it('refuses another command, a null generation and malformed ids', () => {
     expect(
       pathsOf(
-        AntigravityApplyInputSchema.parse({ ...APPLY, command: 'gemini-dump' }),
+        AntigravityApplyInputSchema.parse({
+          ...APPLY,
+          request: { ...APPLY.request, command: 'antigravity-account' },
+        }),
       ),
-    ).toEqual(['command'])
+    ).toEqual(['request.command'])
     expect(
       pathsOf(
         AntigravityApplyInputSchema.parse({ ...APPLY, generation: null }),
       ),
     ).toEqual(['generation'])
-    for (const args of [1, true, ['toggle'], { text: 'toggle' }]) {
+    for (const itemId of [
+      '',
+      'has space',
+      7,
+      'x'.repeat(ANTIGRAVITY_RPC_LIMITS.menuIdMaxLength + 1),
+    ]) {
       expect(
         pathsOf(
-          AntigravityApplyInputSchema.parse({ ...APPLY, arguments: args }),
+          AntigravityApplyInputSchema.parse({
+            ...APPLY,
+            request: { ...APPLY.request, itemId },
+          }),
         ),
-      ).toEqual(['arguments'])
+      ).toEqual(['request.itemId'])
     }
-    expect(
-      pathsOf(
-        AntigravityApplyInputSchema.parse({
-          ...APPLY,
-          arguments: 'x'.repeat(ANTIGRAVITY_RPC_LIMITS.argumentsMaxLength + 1),
-        }),
-      ),
-    ).toEqual(['arguments'])
-    expect(
-      pathsOf(
-        AntigravityApplyInputSchema.parse({ ...APPLY, arguments: 'a\u0000b' }),
-      ),
-    ).toEqual(['arguments'])
   })
 
-  it('refuses the OpenCode 1 knobs and sessionId fields', () => {
+  it('refuses non-scalar values, too many values and a non-boolean confirmation', () => {
+    for (const value of [[], { nested: true }, Number.NaN, 'a\u0000b']) {
+      expect(
+        pathsOf(
+          AntigravityApplyInputSchema.parse({
+            ...APPLY,
+            request: { ...APPLY.request, values: { v: value } },
+          }),
+        ),
+      ).toEqual(['request.values.v'])
+    }
+    const many = Object.fromEntries(
+      Array.from({ length: ANTIGRAVITY_RPC_LIMITS.menuValues + 1 }, (_, i) => [
+        `v${i}`,
+        true,
+      ]),
+    )
     expect(
       pathsOf(
         AntigravityApplyInputSchema.parse({
           ...APPLY,
-          knobs: { timeoutMs: 1 },
-          sessionId: 'ses_fake_one',
+          request: { ...APPLY.request, values: many },
+        }),
+      ),
+    ).toEqual(['request.values'])
+    expect(
+      pathsOf(
+        AntigravityApplyInputSchema.parse({
+          ...APPLY,
+          request: { ...APPLY.request, confirmed: 'yes' },
+        }),
+      ),
+    ).toEqual(['request.confirmed'])
+  })
+
+  it('refuses a request-level sessionId and the retired dialog fields', () => {
+    expect(
+      pathsOf(
+        AntigravityApplyInputSchema.parse({
+          ...APPLY,
+          request: { ...APPLY.request, sessionId: 'ses_other' },
+        }),
+      ),
+    ).toEqual(['request.sessionId'])
+    expect(
+      pathsOf(
+        AntigravityApplyInputSchema.parse({
+          version: 1,
+          generation: GENERATION,
+          scope: { kind: 'sessionless' },
+          command: 'antigravity-dump',
+          arguments: 'on',
         }),
       ).sort(),
-    ).toEqual(['knobs', 'sessionId'])
+    ).toEqual(['arguments', 'command', 'request'])
   })
 
   it('never echoes a rejected value in an issue message', () => {
-    const secret = 'add-oauth-finish 4/0AVMBsJ-fake-code-value'
+    const secret = '4/0AVMBsJ-fake-code-value'
     const result = AntigravityApplyInputSchema.parse({
       ...APPLY,
-      arguments: `${secret}\u0000`,
-      command: secret,
+      request: {
+        ...APPLY.request,
+        command: secret,
+        values: { code: `${secret}\u0000` },
+      },
     })
     const text = JSON.stringify(issuesOf(result))
     expect(text).not.toContain('fake-code-value')
@@ -482,12 +607,7 @@ describe('state output', () => {
     ).toEqual(['reset'])
     const many = Array.from(
       { length: ANTIGRAVITY_RPC_LIMITS.notificationsPerState + 1 },
-      (_, index) => ({
-        cursor: index + 1,
-        type: 'open-dialog',
-        command: 'antigravity-quota',
-        text: '',
-      }),
+      (_, index) => ({ cursor: index + 1, payload: TOAST }),
     )
     expect(
       pathsOf(
@@ -501,103 +621,175 @@ describe('state output', () => {
   })
 })
 
-describe('apply output', () => {
-  const RESULTS: AntigravityCommandResult[] = [
-    {
-      command: 'antigravity-quota',
-      status: 'applied',
-      text: 'Quota refreshed',
-      accounts: [ACCOUNT],
-    },
-    {
-      command: 'antigravity-account',
-      status: 'applied',
-      text: 'Open this URL',
-      accounts: null,
-      authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?x=1',
-      targetOutcome: null,
-    },
-    {
-      command: 'antigravity-routing',
-      status: 'applied',
-      text: 'Routing updated',
-      routing: { cliFirst: true, quotaStyleFallback: false },
-    },
-    {
-      command: 'antigravity-killswitch',
-      status: 'failed',
-      text: 'Killswitch update failed',
-      killswitch: null,
-    },
-    {
-      command: 'antigravity-dump',
-      status: 'applied',
-      text: 'Dump on',
-      dump: { enabled: true },
-    },
-    {
-      command: 'antigravity-logging',
-      status: 'rejected',
-      text: 'Unknown level',
-      logLevel: null,
-    },
-  ]
-
-  it('accepts one result per command, discriminated by the command name', () => {
-    for (const result of RESULTS) {
-      expect(AntigravityCommandResultSchema.parse(result).ok).toBe(true)
-      expect(
-        AntigravityApplyOutputSchema.parse({
-          version: 1,
-          kind: 'applied',
-          generation: GENERATION,
-          scope: { kind: 'sessionless' },
-          result,
-        }).ok,
-      ).toBe(true)
-    }
+describe('notification payloads and apply output', () => {
+  it('accepts the genuine shared menu’s payload and apply answer', async () => {
+    // The real core menu over the embedded common-auth commands module, in
+    // the host-sections mode, so the check needs no account store.
+    const section = (title: string) => ({
+      title,
+      build: () => ({
+        lines: [`${title} line`],
+        items: [
+          {
+            id: `${title.toLowerCase()}-item`,
+            label: `${title} item`,
+            actions: [
+              {
+                id: 'run',
+                label: 'Run',
+                run: async () => 'ran',
+              },
+            ],
+          },
+        ],
+      }),
+    })
+    const menu = createAntigravityCommandMenu({
+      source: 'sections',
+      commands: await loadCommonAuthCommands(),
+      sections: {
+        accounts: section('Accounts'),
+        quota: section('Quota'),
+        routing: section('Routing'),
+        limits: section('Limits'),
+      },
+    })
+    const invocation = { notify: () => undefined }
+    const payload = await menu.open(invocation)
+    expect(AntigravityNotificationPayloadSchema.parse(payload).ok).toBe(true)
+    const result = await menu.apply(
+      {
+        command: 'antigravity',
+        sectionId: payload.menu.sections[0]?.id ?? '',
+        itemId: 'accounts-item',
+        actionId: 'run',
+      },
+      invocation,
+    )
+    expect(result.ok).toBe(true)
+    expect(AntigravityApplyResultSchema.parse(result).ok).toBe(true)
+    expect(
+      AntigravityApplyOutputSchema.parse({
+        version: 1,
+        kind: 'applied',
+        generation: GENERATION,
+        scope: { kind: 'sessionless' },
+        result,
+      }).ok,
+    ).toBe(true)
   })
 
-  it('refuses another command’s fields, a missing nullable field and free knobs', () => {
+  it('accepts a toast and refuses a payload that mixes or misses its forms', () => {
+    expect(AntigravityNotificationPayloadSchema.parse(TOAST).ok).toBe(true)
+    expect(AntigravityNotificationPayloadSchema.parse(DIALOG).ok).toBe(true)
     expect(
       pathsOf(
-        AntigravityCommandResultSchema.parse({
-          ...RESULTS[0],
-          routing: { cliFirst: true, quotaStyleFallback: true },
+        AntigravityNotificationPayloadSchema.parse({ ...TOAST, menu: MENU }),
+      ),
+    ).toEqual(['menu'])
+    expect(
+      pathsOf(
+        AntigravityNotificationPayloadSchema.parse({
+          command: 'antigravity',
+          notify: { message: 'x', kind: 'debug' },
         }),
       ),
-    ).toEqual(['routing'])
-    const { authorizationUrl: _omitted, ...account } = RESULTS[1] as Extract<
-      AntigravityCommandResult,
-      { command: 'antigravity-account' }
-    >
-    expect(pathsOf(AntigravityCommandResultSchema.parse(account))).toEqual([
-      'authorizationUrl',
+    ).toEqual(['notify.kind'])
+    expect(
+      pathsOf(
+        AntigravityNotificationPayloadSchema.parse({ command: 'antigravity' }),
+      ),
+    ).toEqual(['menu'])
+  })
+
+  it('accepts the menu’s refusals: a stale or failed action and a missing confirmation', () => {
+    // An account action whose item id names a credential that changed, a
+    // failed action and an unconfirmed irreversible action all answer with
+    // ok false, a stable code and the refreshed menu; none is reshaped here.
+    for (const failure of [
+      { ok: false, text: 'That account changed', code: 'refused' },
+      { ok: false, text: 'Could not remove', code: 'action-failed' },
+      {
+        ok: false,
+        text: 'Confirm first',
+        code: 'needs-confirmation',
+        needsConfirmation: true,
+      },
+    ]) {
+      expect(
+        AntigravityApplyResultSchema.parse({ ...RESULT, ...failure }).ok,
+      ).toBe(true)
+    }
+    expect(
+      pathsOf(
+        AntigravityApplyResultSchema.parse({
+          ...RESULT,
+          ok: false,
+          code: 'stale target',
+        }),
+      ),
+    ).toEqual(['code'])
+  })
+
+  it('refuses a result for another command, without a menu or with unknown keys', () => {
+    expect(
+      pathsOf(AntigravityApplyResultSchema.parse({ ...RESULT, command: 'x' })),
+    ).toEqual(['command'])
+    const { menu: _menu, ...withoutMenu } = RESULT
+    expect(pathsOf(AntigravityApplyResultSchema.parse(withoutMenu))).toEqual([
+      'menu',
     ])
     expect(
       pathsOf(
-        AntigravityCommandResultSchema.parse({
-          ...RESULTS[4],
-          knobs: { timeoutMs: 2000 },
-        }),
+        AntigravityApplyResultSchema.parse({ ...RESULT, accounts: [ACCOUNT] }),
       ),
-    ).toEqual(['knobs'])
+    ).toEqual(['accounts'])
   })
 
-  it('refuses a non-https authorization URL and unknown statuses', () => {
+  it('refuses an unknown section slot, knob kind and a function-valued fact', () => {
+    const [section] = MENU.sections
+    if (!section) throw new Error('fixture has a section')
     expect(
       pathsOf(
-        AntigravityCommandResultSchema.parse({
-          ...RESULTS[1],
-          authorizationUrl: 'http://127.0.0.1/callback',
+        AntigravityApplyResultSchema.parse({
+          ...RESULT,
+          menu: { ...MENU, sections: [{ ...section, slot: 'billing' }] },
         }),
       ),
-    ).toEqual(['authorizationUrl'])
+    ).toEqual(['menu.sections.0.slot'])
     expect(
       pathsOf(
-        AntigravityCommandResultSchema.parse({ ...RESULTS[0], status: 'ok' }),
+        AntigravityApplyResultSchema.parse({
+          ...RESULT,
+          menu: {
+            ...MENU,
+            sections: [
+              {
+                ...section,
+                actions: [
+                  {
+                    id: 'a',
+                    label: 'A',
+                    knobs: [{ kind: 'slider', id: 's', label: 'S' }],
+                  },
+                ],
+              },
+            ],
+          },
+        }),
       ),
-    ).toEqual(['status'])
+    ).toEqual(['menu.sections.0.actions.0.knobs.0.kind'])
+    expect(
+      pathsOf(
+        AntigravityApplyResultSchema.parse({
+          ...RESULT,
+          menu: {
+            ...MENU,
+            sections: [{ ...section, facts: { run: () => undefined } }],
+          },
+        }),
+      ),
+    ).toEqual(['menu.sections.0.facts.run'])
   })
 
   it('accepts the stale-generation and disposed answers with nothing else', () => {
@@ -615,7 +807,7 @@ describe('apply output', () => {
             version: 1,
             kind,
             generation: GENERATION,
-            result: RESULTS[0],
+            result: RESULT,
           }),
         ),
       ).toEqual(['result'])
@@ -639,13 +831,12 @@ describe('client call helpers', () => {
       method: 'state',
       input: STATE_INPUT,
     })
-    const apply = {
+    const apply: AntigravityApplyInput = {
       version: 1,
       generation: GENERATION,
       scope: { kind: 'sessionless' },
-      command: 'antigravity-dump',
-      arguments: 'status',
-    } as const
+      request: { command: 'antigravity', sectionId: 'limits', actionId: 'set' },
+    }
     expect(applyCall(apply)).toEqual({
       rpcID: 'antigravity-auth',
       method: 'apply',
@@ -669,96 +860,7 @@ describe('client call helpers', () => {
   })
 })
 
-describe('selectors, typed account actions, account limit and settings', () => {
-  const ACTION_BASE = {
-    version: 1,
-    generation: GENERATION,
-    scope: { kind: 'sessionless' },
-    command: 'antigravity-account',
-  } as const
-
-  it('accepts each typed account action with a well-formed selector', () => {
-    for (const action of [
-      { kind: 'select', selector: SELECTOR, target: 'claude' },
-      { kind: 'enable', selector: SELECTOR },
-      { kind: 'disable', selector: SELECTOR },
-      { kind: 'remove', selector: SELECTOR },
-    ] as const) {
-      expect(
-        AntigravityApplyInputSchema.parse({ ...ACTION_BASE, action }).ok,
-      ).toBe(true)
-    }
-  })
-
-  it('refuses positions, acct ids and malformed selectors as targets', () => {
-    for (const selector of [
-      0,
-      '0',
-      'acct-0',
-      'sel-short',
-      `sel-${'A'.repeat(33)}`,
-      `sel-${'A'.repeat(31)}=`,
-      `SEL-${'A'.repeat(32)}`,
-    ]) {
-      expect(
-        pathsOf(
-          AntigravityApplyInputSchema.parse({
-            ...ACTION_BASE,
-            action: { kind: 'remove', selector },
-          }),
-        ),
-      ).toEqual(['action.selector'])
-    }
-  })
-
-  it('refuses an action and an argument string together, or an action on another command', () => {
-    expect(
-      pathsOf(
-        AntigravityApplyInputSchema.parse({
-          ...ACTION_BASE,
-          arguments: 'remove 0',
-          action: { kind: 'remove', selector: SELECTOR },
-        }),
-      ),
-    ).toEqual(['arguments'])
-    expect(
-      pathsOf(
-        AntigravityApplyInputSchema.parse({
-          ...ACTION_BASE,
-          command: 'antigravity-routing',
-          action: { kind: 'remove', selector: SELECTOR },
-        }),
-      ),
-    ).toEqual(['command'])
-  })
-
-  it('refuses unknown action kinds, extra action keys and a bad select target', () => {
-    expect(
-      pathsOf(
-        AntigravityApplyInputSchema.parse({
-          ...ACTION_BASE,
-          action: { kind: 'rename', selector: SELECTOR },
-        }),
-      ),
-    ).toEqual(['action.kind'])
-    expect(
-      pathsOf(
-        AntigravityApplyInputSchema.parse({
-          ...ACTION_BASE,
-          action: { kind: 'enable', selector: SELECTOR, index: 0 },
-        }),
-      ),
-    ).toEqual(['action.index'])
-    expect(
-      pathsOf(
-        AntigravityApplyInputSchema.parse({
-          ...ACTION_BASE,
-          action: { kind: 'select', selector: SELECTOR, target: 'openai' },
-        }),
-      ),
-    ).toEqual(['action.target'])
-  })
-
+describe('selectors, account limit and settings', () => {
   it('requires a selector on every account', () => {
     const { selector: _omitted, ...withoutSelector } = ACCOUNT
     expect(
@@ -827,39 +929,5 @@ describe('selectors, typed account actions, account limit and settings', () => {
         }),
       ),
     ).toEqual(['settings.killswitch.accounts'])
-  })
-
-  it('accepts every target outcome on an account result and refuses others', () => {
-    for (const targetOutcome of [
-      'applied',
-      'stale-target',
-      'unknown-target',
-      'unsupported-index-action',
-      'failed',
-      null,
-    ] as const) {
-      expect(
-        AntigravityCommandResultSchema.parse({
-          command: 'antigravity-account',
-          status: 'rejected',
-          text: '',
-          accounts: null,
-          authorizationUrl: null,
-          targetOutcome,
-        }).ok,
-      ).toBe(true)
-    }
-    expect(
-      pathsOf(
-        AntigravityCommandResultSchema.parse({
-          command: 'antigravity-account',
-          status: 'rejected',
-          text: '',
-          accounts: null,
-          authorizationUrl: null,
-          targetOutcome: 'index-fallback',
-        }),
-      ),
-    ).toEqual(['targetOutcome'])
   })
 })

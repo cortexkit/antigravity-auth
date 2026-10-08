@@ -15,7 +15,13 @@
  */
 
 import { afterEach, beforeAll, describe, expect, it, mock } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 
@@ -51,6 +57,9 @@ mock.module('@cortexkit/antigravity-auth-core', () => ({
 }))
 
 const server = await import('./index.ts')
+const { createGaLocationServices } = await import(
+  '../../plugin/ga-location-services.ts'
+)
 const { createMemoryQuotaSnapshots } = await import(
   '../../plugin/shared/runtime.ts'
 )
@@ -907,18 +916,14 @@ describe('setup against a host context', () => {
           },
           commands: {
             apply: async () => ({
-              command: 'antigravity-dump',
-              status: 'applied',
+              command: 'antigravity',
+              ok: true,
               text: '',
-              dump: { enabled: false },
-            }),
-            applyAccountAction: async () => ({
-              command: 'antigravity-account',
-              status: 'rejected',
-              text: '',
-              accounts: null,
-              authorizationUrl: null,
-              targetOutcome: 'unknown-target',
+              menu: {
+                command: 'antigravity',
+                title: 'Antigravity',
+                sections: [],
+              },
             }),
           },
         }),
@@ -1011,6 +1016,44 @@ describe('setup against a host context', () => {
       'dispose rpc antigravity-auth',
       'dispose services',
     ])
+  })
+
+  it('createGaAntigravityPlugin is the plugin over the production services factory', async () => {
+    // Compile time: the production export is a services factory and the
+    // wrapper's result is the host plugin type.
+    const factory: GaLocationServicesFactory = createGaLocationServices
+    const plugin: import('@opencode/plugin').Plugin.Plugin =
+      server.createGaAntigravityPlugin()
+    expect(typeof factory).toBe('function')
+    expect(plugin.id).toBe('cortexkit.antigravity-auth')
+    // An OpenCode 1 core loader's context makes setup a no-op that never
+    // reaches the services. JSON.parse yields an untyped value standing in
+    // for that differently shaped host input.
+    const legacy: GaHostContext = JSON.parse('{"options":{}}')
+    expect(
+      await server.setupGaActivation(legacy, createGaLocationServices),
+    ).toBeUndefined()
+  })
+
+  it('createGaAntigravityPlugin runs the real services factory, which refuses an uninitialized location', async () => {
+    prepareRoot()
+    const log: string[] = []
+    const directory = locationDirectory('uninitialized')
+    const plugin = server.createGaAntigravityPlugin()
+    // The production setup accepts the full host context type; the fake
+    // host provides only the parts setup uses, through the same function.
+    await expect(
+      server.setupGaActivation(
+        fakeHost(directory, log),
+        createGaLocationServices,
+      ),
+    ).rejects.toThrow('not initialized')
+    expect(typeof plugin.setup).toBe('function')
+    // Nothing was registered with the host and no store was created.
+    expect(log).toEqual([])
+    expect(
+      readdirSync(directory, { recursive: true }).map((entry) => String(entry)),
+    ).toEqual(['.opencode', join('.opencode', 'antigravity.json')])
   })
 
   it('one location’s Cleanup leaves another location’s registrations in place', async () => {

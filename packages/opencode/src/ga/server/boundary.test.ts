@@ -6,22 +6,27 @@
  *   never delivered to another scope;
  * - cursors acknowledge, page and reset as the protocol describes;
  * - accounts are redacted before they leave the server;
+ * - `apply` passes one shared-menu action, through common-auth's own
+ *   request parser, to the menu service and returns the menu's answer;
  * - disposal answers `disposed` and ignores late callbacks.
  * It also covers the check that turns an OpenCode 1 setup call into a no-op.
  * Every collaborator is an in-memory fake.
  */
 
 import { describe, expect, it } from 'bun:test'
-
+import { loadCommonAuthCommands } from '@cortexkit/antigravity-auth-core'
+import type {
+  CommandApplyResult,
+  RpcNotificationPayload,
+} from '../../rpc/protocol.ts'
 import type {
   SidebarAccountRedactionInput,
   SidebarRoutingEntry,
 } from '../../sidebar-state.ts'
 import type {
-  AntigravityAccountAction,
-  AntigravityAccountResult,
   AntigravityApplyInput,
-  AntigravityCommandResult,
+  AntigravityMenuRequest,
+  AntigravityNotificationDto,
   AntigravityRpcScope,
   AntigravityStateInput,
   AntigravityStateOutput,
@@ -34,6 +39,7 @@ import {
   type GaAccountsRead,
   type GaApplyRequest,
   type GaCommandService,
+  type GaRpcActivationOptions,
   GaRpcContractError,
   GaRpcInputError,
   GaSetupContextError,
@@ -44,6 +50,40 @@ import {
 const SESSION_A: AntigravityRpcScope = { kind: 'session', sessionID: 'ses_a' }
 const SESSION_B: AntigravityRpcScope = { kind: 'session', sessionID: 'ses_b' }
 const SESSIONLESS: AntigravityRpcScope = { kind: 'sessionless' }
+
+/** common-auth's own request parser, as the server binding supplies it. */
+const { parseApplyRequest } = await loadCommonAuthCommands()
+
+/** An activation over the genuine request parser. */
+function activate(options: Omit<GaRpcActivationOptions, 'parseApplyRequest'>) {
+  return createGaRpcActivation({ ...options, parseApplyRequest })
+}
+
+const MENU_REQUEST: AntigravityMenuRequest = {
+  command: 'antigravity',
+  sectionId: 'limits',
+  actionId: 'toggle-dump',
+}
+
+const MENU: CommandApplyResult['menu'] = {
+  command: 'antigravity',
+  title: 'Antigravity',
+  sections: [],
+}
+
+function menuResult(text: string, command = 'antigravity'): CommandApplyResult {
+  return { command, ok: true, text, menu: MENU }
+}
+
+/** A toast notification carrying `message`. */
+function toast(message: string): RpcNotificationPayload {
+  return { command: 'antigravity', notify: { message, kind: 'info' } }
+}
+
+function messageOf(notification: AntigravityNotificationDto): string {
+  const payload = notification.payload
+  return 'notify' in payload ? payload.notify.message : payload.menu.title
+}
 
 /**
  * An account row as the account service might hold it, including email,
@@ -128,40 +168,16 @@ function makeState(
 }
 
 function makeCommands(
-  respond: (
-    request: GaApplyRequest,
-  ) => Promise<AntigravityCommandResult> = async (request) => ({
-    command: 'antigravity-dump',
-    status: 'applied',
-    text: `dump ${request.arguments}`,
-    dump: { enabled: true },
-  }),
-  respondToAction: (
-    action: AntigravityAccountAction,
-  ) => Promise<AntigravityAccountResult> = async () => ({
-    command: 'antigravity-account',
-    status: 'rejected',
-    text: 'Unknown account',
-    accounts: null,
-    authorizationUrl: null,
-    targetOutcome: 'unknown-target',
-  }),
-): GaCommandService & {
-  calls: GaApplyRequest[]
-  actions: AntigravityAccountAction[]
-} {
+  respond: (request: GaApplyRequest) => Promise<CommandApplyResult> = async (
+    request,
+  ) => menuResult(`ran ${request.request.actionId}`),
+): GaCommandService & { calls: GaApplyRequest[] } {
   const calls: GaApplyRequest[] = []
-  const actions: AntigravityAccountAction[] = []
   return {
     calls,
-    actions,
     apply: (request) => {
       calls.push(request)
       return respond(request)
-    },
-    applyAccountAction: ({ action }) => {
-      actions.push(action)
-      return respondToAction(action)
     },
   }
 }
@@ -177,9 +193,9 @@ function stateInput(
 function applyInput(
   generation: string,
   scope: AntigravityRpcScope = SESSION_A,
-  command: AntigravityApplyInput['command'] = 'antigravity-dump',
+  request: AntigravityMenuRequest = MENU_REQUEST,
 ): AntigravityApplyInput {
-  return { version: 1, generation, scope, command, arguments: 'on' }
+  return { version: 1, generation, scope, request }
 }
 
 function snapshot(output: AntigravityStateOutput): AntigravityStateSnapshot {
@@ -196,7 +212,7 @@ describe('generation', () => {
   })
 
   it('answers first contact with reset initial and the current generation', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen-one',
@@ -209,23 +225,23 @@ describe('generation', () => {
   })
 
   it('resets a client holding another generation and redelivers from cursor 0', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen-new',
     })
-    activation.notify(SESSION_A, 'antigravity-quota', 'first')
+    activation.notify(SESSION_A, toast('first'))
     const output = snapshot(
       await activation.handlers.state(stateInput('gen-old', SESSION_A, 1)),
     )
     expect(output.reset).toBe('generation-changed')
-    expect(output.notifications.map((n) => n.text)).toEqual(['first'])
+    expect(output.notifications.map(messageOf)).toEqual(['first'])
     expect(output.cursor).toBe(1)
   })
 
   it('refuses apply from a stale generation before calling the service', async () => {
     const commands = makeCommands()
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands,
       generation: 'gen-new',
@@ -242,64 +258,64 @@ describe('generation', () => {
 
 describe('scoped notifications', () => {
   it('delivers a session’s notifications only to that session', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
     })
-    activation.notify(SESSION_A, 'antigravity-quota', 'for a')
-    activation.notify(SESSION_B, 'antigravity-account', 'for b')
+    activation.notify(SESSION_A, toast('for a'))
+    activation.notify(SESSION_B, toast('for b'))
     const a = snapshot(
       await activation.handlers.state(stateInput('gen', SESSION_A, 0)),
     )
     const b = snapshot(
       await activation.handlers.state(stateInput('gen', SESSION_B, 0)),
     )
-    expect(a.notifications.map((n) => n.text)).toEqual(['for a'])
-    expect(b.notifications.map((n) => n.text)).toEqual(['for b'])
+    expect(a.notifications.map(messageOf)).toEqual(['for a'])
+    expect(b.notifications.map(messageOf)).toEqual(['for b'])
     // Each scope numbers its own cursors from 1.
     expect(a.notifications[0]?.cursor).toBe(1)
     expect(b.notifications[0]?.cursor).toBe(1)
   })
 
   it('keeps sessionless and session notifications disjoint in both directions', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
     })
-    activation.notify(SESSIONLESS, 'antigravity-logging', 'no session')
-    activation.notify(SESSION_A, 'antigravity-quota', 'session a')
+    activation.notify(SESSIONLESS, toast('no session'))
+    activation.notify(SESSION_A, toast('session a'))
     const sessionless = snapshot(
       await activation.handlers.state(stateInput('gen', SESSIONLESS, 0)),
     )
     const a = snapshot(
       await activation.handlers.state(stateInput('gen', SESSION_A, 0)),
     )
-    expect(sessionless.notifications.map((n) => n.text)).toEqual(['no session'])
-    expect(a.notifications.map((n) => n.text)).toEqual(['session a'])
+    expect(sessionless.notifications.map(messageOf)).toEqual(['no session'])
+    expect(a.notifications.map(messageOf)).toEqual(['session a'])
   })
 
   it('acknowledges through the cursor and never redelivers', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
     })
-    activation.notify(SESSION_A, 'antigravity-quota', 'one')
-    activation.notify(SESSION_A, 'antigravity-quota', 'two')
+    activation.notify(SESSION_A, toast('one'))
+    activation.notify(SESSION_A, toast('two'))
     const first = snapshot(
       await activation.handlers.state(stateInput('gen', SESSION_A, 0)),
     )
     expect(first.reset).toBeNull()
     expect(first.cursor).toBe(2)
-    activation.notify(SESSION_A, 'antigravity-quota', 'three')
+    activation.notify(SESSION_A, toast('three'))
     const second = snapshot(
       await activation.handlers.state(
         stateInput('gen', SESSION_A, first.cursor),
       ),
     )
-    expect(second.notifications.map((n) => n.text)).toEqual(['three'])
+    expect(second.notifications.map(messageOf)).toEqual(['three'])
     const third = snapshot(
       await activation.handlers.state(
         stateInput('gen', SESSION_A, second.cursor),
@@ -310,51 +326,51 @@ describe('scoped notifications', () => {
   })
 
   it('resets a cursor ahead of the scope instead of silently skipping', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
     })
-    activation.notify(SESSION_A, 'antigravity-quota', 'one')
+    activation.notify(SESSION_A, toast('one'))
     const output = snapshot(
       await activation.handlers.state(stateInput('gen', SESSION_A, 5)),
     )
     expect(output.reset).toBe('cursor-ahead')
-    expect(output.notifications.map((n) => n.text)).toEqual(['one'])
+    expect(output.notifications.map(messageOf)).toEqual(['one'])
   })
 
   it('a cursor issued in one session is ahead in another, never an acknowledgement there', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
     })
-    activation.notify(SESSION_A, 'antigravity-quota', 'a1')
-    activation.notify(SESSION_A, 'antigravity-quota', 'a2')
-    activation.notify(SESSION_B, 'antigravity-quota', 'b1')
+    activation.notify(SESSION_A, toast('a1'))
+    activation.notify(SESSION_A, toast('a2'))
+    activation.notify(SESSION_B, toast('b1'))
     const b = snapshot(
       await activation.handlers.state(stateInput('gen', SESSION_B, 2)),
     )
     expect(b.reset).toBe('cursor-ahead')
-    expect(b.notifications.map((n) => n.text)).toEqual(['b1'])
+    expect(b.notifications.map(messageOf)).toEqual(['b1'])
   })
 
   it('pages long queues and counts evicted notifications as dropped', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
       notificationsPerScope: 40,
     })
     for (let index = 1; index <= 45; index += 1) {
-      activation.notify(SESSION_A, 'antigravity-quota', `n${index}`)
+      activation.notify(SESSION_A, toast(`n${index}`))
     }
     const page = snapshot(
       await activation.handlers.state(stateInput('gen', SESSION_A, 0)),
     )
     expect(page.dropped).toBe(5)
     expect(page.notifications).toHaveLength(32)
-    expect(page.notifications[0]?.text).toBe('n6')
+    expect(page.notifications.map(messageOf)[0]).toBe('n6')
     expect(page.more).toBe(true)
     const rest = snapshot(
       await activation.handlers.state(
@@ -362,7 +378,7 @@ describe('scoped notifications', () => {
       ),
     )
     expect(rest.dropped).toBe(0)
-    expect(rest.notifications.map((n) => n.text)).toEqual(
+    expect(rest.notifications.map(messageOf)).toEqual(
       Array.from({ length: 8 }, (_, index) => `n${index + 38}`),
     )
     expect(rest.more).toBe(false)
@@ -370,7 +386,7 @@ describe('scoped notifications', () => {
 
   it('reports a scope connected only while it is being pulled', async () => {
     let now = 1_000_000
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
@@ -387,20 +403,20 @@ describe('scoped notifications', () => {
 
   it('emits the changed hint carrying only the version and generation', () => {
     const events: unknown[] = []
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
       onChanged: (event) => events.push(event),
     })
-    activation.notify(SESSION_A, 'antigravity-quota', 'private text')
+    activation.notify(SESSION_A, toast('private text'))
     expect(events).toEqual([{ version: 1, generation: 'gen' }])
   })
 })
 
 describe('state redaction', () => {
   it('projects live rows through the sidebar redactor', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
@@ -433,7 +449,7 @@ describe('state redaction', () => {
       headerStyle: 'antigravity',
       updatedAt: 1_700_000_000_000,
     }
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState({ ses_a: route }),
       commands: makeCommands(),
       generation: 'gen',
@@ -453,7 +469,7 @@ describe('state redaction', () => {
   })
 
   it('refuses to answer when the state source breaks the contract', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState({}, (read) => {
         // Extra fields beyond the status DTO, including error text that names
         // an account, as a careless state source might return them.
@@ -477,17 +493,35 @@ describe('state redaction', () => {
 describe('raw input', () => {
   it('rejects malformed input before any effect', async () => {
     const commands = makeCommands()
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands,
       generation: 'gen',
     })
     const malformed: unknown[] = [
       { ...applyInput('gen'), version: '1' },
-      { ...applyInput('gen'), command: 'antigravity-unknown' },
-      { ...applyInput('gen'), arguments: 7 },
+      {
+        ...applyInput('gen'),
+        request: { ...MENU_REQUEST, command: 'antigravity-quota' },
+      },
+      {
+        ...applyInput('gen'),
+        request: { ...MENU_REQUEST, values: { level: [] } },
+      },
+      {
+        ...applyInput('gen'),
+        request: { ...MENU_REQUEST, sessionId: 'ses_b' },
+      },
       { ...applyInput('gen'), scope: { kind: 'session' } },
       { ...applyInput('gen'), knobs: {} },
+      // The retired per-command dialog form.
+      {
+        version: 1,
+        generation: 'gen',
+        scope: SESSION_A,
+        command: 'antigravity-dump',
+        arguments: 'on',
+      },
     ]
     for (const input of malformed) {
       await expect(activation.handlers.apply(input)).rejects.toBeInstanceOf(
@@ -505,8 +539,8 @@ describe('raw input', () => {
     expect(commands.calls).toHaveLength(0)
   })
 
-  it('does not echo the rejected argument in the error', async () => {
-    const activation = createGaRpcActivation({
+  it('does not echo a rejected menu value in the error', async () => {
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
@@ -514,7 +548,10 @@ describe('raw input', () => {
     const error = await activation.handlers
       .apply({
         ...applyInput('gen'),
-        arguments: 'add-oauth-finish fake-oauth-code\u0000',
+        request: {
+          ...MENU_REQUEST,
+          values: { code: 'fake-oauth-code\u0000' },
+        },
       })
       .catch((caught: unknown) => caught)
     expect(error).toBeInstanceOf(GaRpcInputError)
@@ -523,9 +560,9 @@ describe('raw input', () => {
 })
 
 describe('apply', () => {
-  it('passes the command, arguments and scope to the service and returns its result', async () => {
+  it('passes the menu action and scope to the service and returns the menu answer', async () => {
     const commands = makeCommands()
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands,
       generation: 'gen',
@@ -536,25 +573,45 @@ describe('apply', () => {
       kind: 'applied',
       generation: 'gen',
       scope: SESSION_A,
-      result: {
-        command: 'antigravity-dump',
-        status: 'applied',
-        text: 'dump on',
-        dump: { enabled: true },
-      },
+      result: menuResult('ran toggle-dump'),
     })
     expect(commands.calls[0]?.scope).toEqual(SESSION_A)
   })
 
-  it('refuses a result for a different command', async () => {
+  it('gives the menu the scope’s session, and no session for the sessionless scope', async () => {
+    const commands = makeCommands()
+    const activation = activate({
+      state: makeState(),
+      commands,
+      generation: 'gen',
+    })
+    const named = { ...MENU_REQUEST, sectionId: 'accounts', itemId: 'item-7' }
+    await activation.handlers.apply(applyInput('gen', SESSION_A, named))
+    await activation.handlers.apply(applyInput('gen', SESSIONLESS, named))
+    expect(commands.calls.map((call) => call.request)).toEqual([
+      { ...named, sessionId: 'ses_a' },
+      named,
+    ])
+  })
+
+  it('refuses a request the menu’s parser does not accept before the service runs', async () => {
+    const commands = makeCommands()
     const activation = createGaRpcActivation({
       state: makeState(),
-      commands: makeCommands(async () => ({
-        command: 'antigravity-logging',
-        status: 'applied',
-        text: 'Logging level set',
-        logLevel: 'debug',
-      })),
+      commands,
+      generation: 'gen',
+      parseApplyRequest: () => undefined,
+    })
+    await expect(
+      activation.handlers.apply(applyInput('gen')),
+    ).rejects.toBeInstanceOf(GaRpcInputError)
+    expect(commands.calls).toHaveLength(0)
+  })
+
+  it('refuses a result for a different command', async () => {
+    const activation = activate({
+      state: makeState(),
+      commands: makeCommands(async () => menuResult('done', 'other-command')),
       generation: 'gen',
     })
     await expect(
@@ -564,16 +621,11 @@ describe('apply', () => {
 
   it('forwards the host call signal to the service', async () => {
     let seen: AbortSignal | undefined
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(async (request) => {
         seen = request.signal
-        return {
-          command: 'antigravity-dump',
-          status: 'applied',
-          text: '',
-          dump: { enabled: false },
-        }
+        return menuResult('')
       }),
       generation: 'gen',
     })
@@ -586,7 +638,7 @@ describe('apply', () => {
 
 describe('disposal and stale activations', () => {
   it('answers disposed and ignores late notifications', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
@@ -602,25 +654,19 @@ describe('disposal and stale activations', () => {
       kind: 'disposed',
       generation: 'gen',
     })
-    expect(activation.notify(SESSION_A, 'antigravity-quota', 'late')).toBeNull()
+    expect(activation.notify(SESSION_A, toast('late'))).toBeNull()
   })
 
   it('aborts and awaits a running apply; its late result is reported as disposed', async () => {
     let release: (() => void) | undefined
     let serviceSignal: AbortSignal | undefined
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(
         (request) =>
           new Promise((resolve) => {
             serviceSignal = request.signal
-            release = () =>
-              resolve({
-                command: 'antigravity-dump',
-                status: 'applied',
-                text: 'late',
-                dump: { enabled: true },
-              })
+            release = () => resolve(menuResult('late'))
           }),
       ),
       generation: 'old',
@@ -645,19 +691,19 @@ describe('disposal and stale activations', () => {
   })
 
   it('a disposed activation’s late callbacks cannot reach its replacement', async () => {
-    const old = createGaRpcActivation({
+    const old = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'old',
     })
-    const replacement = createGaRpcActivation({
+    const replacement = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'new',
     })
-    old.notify(SESSION_A, 'antigravity-quota', 'before')
+    old.notify(SESSION_A, toast('before'))
     await old.dispose()
-    old.notify(SESSION_A, 'antigravity-quota', 'late')
+    old.notify(SESSION_A, toast('late'))
     const output = snapshot(
       await replacement.handlers.state(stateInput('old', SESSION_A, 1)),
     )
@@ -667,23 +713,23 @@ describe('disposal and stale activations', () => {
   })
 
   it('disposing one location’s activation leaves another serving', async () => {
-    const first = createGaRpcActivation({
+    const first = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'loc-a',
     })
-    const second = createGaRpcActivation({
+    const second = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'loc-b',
     })
-    second.notify(SESSION_A, 'antigravity-quota', 'b')
+    second.notify(SESSION_A, toast('b'))
     await first.dispose()
     const output = snapshot(
       await second.handlers.state(stateInput('loc-b', SESSION_A, 0)),
     )
-    expect(output.notifications.map((n) => n.text)).toEqual(['b'])
-    expect(second.notify(SESSION_A, 'antigravity-quota', 'b2')).toBe(2)
+    expect(output.notifications.map(messageOf)).toEqual(['b'])
+    expect(second.notify(SESSION_A, toast('b2'))).toBe(2)
   })
 })
 
@@ -753,9 +799,9 @@ describe('setup context predicate', () => {
   })
 })
 
-describe('selectors, account limit, settings and typed actions', () => {
+describe('selectors, account limit, settings and stale applies', () => {
   it('sends each row with its selector and the read’s settings and readSeq', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands: makeCommands(),
       generation: 'gen',
@@ -776,7 +822,7 @@ describe('selectors, account limit, settings and typed actions', () => {
   })
 
   it('answers an over-limit roster with no accounts and its count', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState({}, (read) => ({
         ...read,
         accounts: { kind: 'over-limit', count: 65 },
@@ -796,7 +842,7 @@ describe('selectors, account limit, settings and typed actions', () => {
   })
 
   it('refuses a complete read longer than the limit instead of shortening it', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState({}, (read) => ({
         ...read,
         accounts: {
@@ -817,7 +863,7 @@ describe('selectors, account limit, settings and typed actions', () => {
   })
 
   it('refuses a readSeq that does not increase', async () => {
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState({}, (read) => ({ ...read, readSeq: 1 })),
       commands: makeCommands(),
       generation: 'gen',
@@ -832,7 +878,7 @@ describe('selectors, account limit, settings and typed actions', () => {
     let release: (() => void) | undefined
     let readSignal: AbortSignal | undefined
     const base = makeState()
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: {
         read: async (input) => {
           readSignal = input.signal
@@ -858,51 +904,22 @@ describe('selectors, account limit, settings and typed actions', () => {
     })
   })
 
-  it('routes a typed action to the action service, never to the text command service', async () => {
+  it('refuses a menu action from a stale generation before the service runs', async () => {
     const commands = makeCommands()
-    const activation = createGaRpcActivation({
+    const activation = activate({
       state: makeState(),
       commands,
       generation: 'gen',
     })
-    const action: AntigravityAccountAction = {
-      kind: 'remove',
-      selector: selectorFor(0),
-    }
-    const output = await activation.handlers.apply({
-      version: 1,
-      generation: 'gen',
-      scope: SESSIONLESS,
-      command: 'antigravity-account',
-      action,
-    })
-    expect(commands.actions).toEqual([action])
-    expect(commands.calls).toHaveLength(0)
-    expect(output.kind === 'applied' && output.result).toEqual({
-      command: 'antigravity-account',
-      status: 'rejected',
-      text: 'Unknown account',
-      accounts: null,
-      authorizationUrl: null,
-      targetOutcome: 'unknown-target',
-    })
-  })
-
-  it('refuses a typed action from a stale generation before the service runs', async () => {
-    const commands = makeCommands()
-    const activation = createGaRpcActivation({
-      state: makeState(),
-      commands,
-      generation: 'gen',
-    })
-    const output = await activation.handlers.apply({
-      version: 1,
-      generation: 'old',
-      scope: SESSIONLESS,
-      command: 'antigravity-account',
-      action: { kind: 'enable', selector: selectorFor(0) },
-    })
+    const output = await activation.handlers.apply(
+      applyInput('old', SESSIONLESS, {
+        ...MENU_REQUEST,
+        sectionId: 'accounts',
+        itemId: 'item-1',
+        actionId: 'enable',
+      }),
+    )
     expect(output.kind).toBe('stale-generation')
-    expect(commands.actions).toHaveLength(0)
+    expect(commands.calls).toHaveLength(0)
   })
 })

@@ -1,31 +1,10 @@
 /**
- * Server plugin for OpenCode 2. "OpenCode 2" is the 2.x host line, and "GA"
- * in names here means its general-availability release, 2.0.22, whose
- * published plugin API (`@opencode/plugin@2.0.22`) this module is written
- * against. "OpenCode 1" is the 1.x host line, served by `src/plugin/`.
- * "AGY" names the native Antigravity CLI's request format:
- * `fetchWithAgyCliTransport` in the core package sends HTTP/1.1 requests
- * exactly as that CLI does.
- *
- * The host's stock Google model driver builds and parses Gemini traffic.
- * This plugin redirects that traffic to Antigravity accounts:
- * - `GaPluginOverrides`: dependency overrides for tests, declared without
- *   host SDK types, including the `observeRawSenderSignal` diagnostic.
- * - `createGaRawSender`: sends one request. By default it calls
- *   `fetchWithAgyCliTransport` directly and unchanged.
- * - The loopback bridge: an ephemeral server on `127.0.0.1`. The request hook
- *   rewrites each Google request this plugin handles into a request to the
- *   bridge (after the loopback proxy guard allows it); the bridge runs the
- *   recorded job against Antigravity and streams the answer back to the host.
- * - The RPC store: one per activation (one setup at one location), serving
- *   the `antigravity-auth` v1 `state` and `apply` methods defined in
- *   `../rpc/protocol`.
- * - `createGaPluginFromServices`: registers all of the above with the host.
- *   Host SDK imports are type-only; this module loads no SDK code at runtime.
- *
- * The request pipeline, account state and dialog commands come from the
- * `GaLocationServices` passed in for each activation. Nothing here
- * duplicates the OpenCode 1 fetch interceptor.
+ * OpenCode 2 (2.0.22) server plugin. It sends the host's Google model
+ * requests for this plugin's models to Antigravity accounts through a
+ * loopback bridge, and serves the `antigravity-auth` v1 RPC with each
+ * location's account state and commands. `createGaAntigravityPlugin` is the
+ * plugin the host loads; `createGaPluginFromServices` builds one over a
+ * given location-services factory. Host SDK imports are type-only.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -45,6 +24,7 @@ import {
   type FetchAvailableModelsOptions,
   fetchWithAgyCliTransport,
   getPublicModelDefinitions,
+  loadCommonAuthCommands,
   type loadManagedProject,
   type OAuthAuthDetails,
   type OpencodeModelDefinition,
@@ -61,12 +41,18 @@ import type {
   SessionRetry,
 } from '@opencode/plugin/promise/session'
 
+import { createGaLocationServices } from '../../plugin/ga-location-services.ts'
 import type { persistAccountPool } from '../../plugin/persist-account-pool.ts'
 import {
   createLocationRuntime,
   type LocationRuntime,
   type LocationRuntimeOptions,
 } from '../../plugin/shared/runtime.ts'
+import type {
+  CommandApplyRequest,
+  CommandApplyResult,
+  RpcNotificationPayload,
+} from '../../rpc/protocol.ts'
 import {
   redactAccountForSidebar,
   type SidebarAccountRedactionInput,
@@ -77,22 +63,20 @@ import {
   type LoopbackProxyEnv,
 } from '../proxy-guard.ts'
 import {
+  ANTIGRAVITY_MENU_COMMAND_NAME,
   ANTIGRAVITY_RPC_DEFINITION,
   ANTIGRAVITY_RPC_LIMITS,
   ANTIGRAVITY_RPC_VERSION,
-  type AntigravityAccountAction,
   type AntigravityAccountDto,
-  type AntigravityAccountResult,
   type AntigravityAccountsStatus,
   AntigravityApplyInputSchema,
   type AntigravityApplyOutput,
   AntigravityApplyOutputSchema,
+  AntigravityApplyResultSchema,
   type AntigravityChangedEvent,
-  type AntigravityCommandResult,
-  AntigravityCommandResultSchema,
   type AntigravityNotificationDto,
+  AntigravityNotificationPayloadSchema,
   type AntigravityRouteDto,
-  type AntigravityRpcCommand,
   type AntigravityRpcIssue,
   type AntigravityRpcScope,
   type AntigravitySettingsDto,
@@ -215,11 +199,7 @@ export type ObserveAccountSnapshot = (
   observation: HarnessAccountsObservation,
 ) => undefined
 
-/**
- * Dependency overrides for `createGaAntigravityPlugin(overrides)`. Every
- * field is optional and declared without host SDK types. Tests use them to
- * stay off the network; production passes none.
- */
+/** Dependency overrides for tests; production passes none. */
 export interface GaPluginOverrides {
   /**
    * Replaces the production raw sender. When given, the production sender is
@@ -628,7 +608,7 @@ export async function startGaLoopbackBridge(
   }
 }
 
-/** Accept only the job ids `rewrite` produces. */
+/** Accept only job IDs produced by request rewrite. */
 export function isGaJobId(value: string): boolean {
   return JOB_ID_PATTERN.test(value)
 }
@@ -740,8 +720,8 @@ export class GaSetupContextError extends Error {
 }
 
 /**
- * Decide how `setup` treats its context, reading only `session` and
- * `location` before deciding:
+ * Validate host setup capabilities before allocating resources. Only
+ * `session` and `location` are read before deciding:
  * - neither present: `'legacy'`, an OpenCode 1 core loader; setup returns
  *   `undefined` with no side effect;
  * - exactly one present, or both with a required capability missing: throws
@@ -831,9 +811,13 @@ export interface GaStateRead {
   readonly settings: AntigravitySettingsDto
 }
 
+/**
+ * One action of the shared `/antigravity` menu for the location's command
+ * service. `request` passed common-auth's own `parseApplyRequest`; for a
+ * session scope its `sessionId` is that session, set from the scope.
+ */
 export interface GaApplyRequest {
-  readonly command: AntigravityRpcCommand
-  readonly arguments: string
+  readonly request: CommandApplyRequest
   readonly scope: AntigravityRpcScope
   /**
    * Aborts when the activation is disposed. The service must not start new
@@ -843,28 +827,23 @@ export interface GaApplyRequest {
 }
 
 /**
- * The dialog command service, supplied by the location's services. It
- * returns the result for the requested command; the activation validates it
- * before it reaches a client.
+ * The location's shared-menu service. It runs the action through the menu
+ * and returns the menu's answer; the activation validates it before it
+ * reaches a client.
  */
 export interface GaCommandService {
-  apply(request: GaApplyRequest): Promise<AntigravityCommandResult>
-  /**
-   * Run one typed account action. The service resolves the selector to the
-   * exact credential it was issued for and refuses unknown or stale
-   * selectors before any write; it never falls back to an account position.
-   */
-  applyAccountAction(request: {
-    readonly action: AntigravityAccountAction
-    readonly scope: AntigravityRpcScope
-    /** As in `GaApplyRequest`. */
-    readonly signal: AbortSignal
-  }): Promise<AntigravityAccountResult>
+  apply(request: GaApplyRequest): Promise<CommandApplyResult>
 }
 
 export interface GaRpcActivationOptions {
   state: GaStateSource
   commands: GaCommandService
+  /**
+   * common-auth's `parseApplyRequest`, from the commands module the
+   * location's menu was built with. Every request passes it after the wire
+   * schema, so the menu receives only what the library itself accepts.
+   */
+  parseApplyRequest: (value: unknown) => CommandApplyRequest | undefined
   /** Defaults to `createGaGeneration()`. */
   generation?: string
   /** Called after a notification is queued, e.g. to emit `changed`. */
@@ -893,6 +872,7 @@ export class GaRpcContractError extends Error {
   override readonly name = 'GaRpcContractError'
 }
 
+/** Account state and RPC handlers belong to this location activation. */
 export interface GaRpcActivation {
   readonly generation: string
   /**
@@ -904,13 +884,14 @@ export interface GaRpcActivation {
     apply(input: unknown, signal?: AbortSignal): Promise<AntigravityApplyOutput>
   }
   /**
-   * Queue an open-dialog notification in one scope and return its cursor.
-   * After disposal it does nothing and returns `null`.
+   * Queue a notification (the menu that opens the drawer, or a toast) in one
+   * scope and return its cursor. A payload that fails the wire contract is
+   * refused with `GaRpcContractError`. After disposal it does nothing and
+   * returns `null`.
    */
   notify(
     scope: AntigravityRpcScope,
-    command: AntigravityRpcCommand,
-    text: string,
+    payload: RpcNotificationPayload,
   ): number | null
   /** Whether a client pulled this scope's state within the last 3 s. */
   isConnected(scope: AntigravityRpcScope): boolean
@@ -1131,28 +1112,30 @@ export function createGaRpcActivation(
         generation,
       }
     }
-    const result: AntigravityCommandResult = await track(
-      signal,
-      (applySignal) =>
-        'action' in request
-          ? options.commands.applyAccountAction({
-              action: request.action,
-              scope: request.scope,
-              signal: applySignal,
-            })
-          : options.commands.apply({
-              command: request.command,
-              arguments: request.arguments,
-              scope: request.scope,
-              signal: applySignal,
-            }),
+    const menuRequest = options.parseApplyRequest({
+      ...request.request,
+      ...(request.scope.kind === 'session'
+        ? { sessionId: request.scope.sessionID }
+        : {}),
+    })
+    if (!menuRequest) {
+      throw new GaRpcInputError([
+        { path: ['request'], message: 'not a menu action the menu accepts' },
+      ])
+    }
+    const result: CommandApplyResult = await track(signal, (applySignal) =>
+      options.commands.apply({
+        request: menuRequest,
+        scope: request.scope,
+        signal: applySignal,
+      }),
     )
     // A completion that arrives after disposal is not reported as applied.
     if (disposed) return disposedOutput()
-    const checked = AntigravityCommandResultSchema.parse(result)
-    if (!checked.ok || result.command !== request.command) {
+    const checked = AntigravityApplyResultSchema.parse(result)
+    if (!checked.ok || result.command !== ANTIGRAVITY_MENU_COMMAND_NAME) {
       throw new GaRpcContractError(
-        'Command service produced a result that does not match the command',
+        'Command service produced a result that is not a menu answer',
       )
     }
     const output: AntigravityApplyOutput = {
@@ -1171,17 +1154,15 @@ export function createGaRpcActivation(
   return {
     generation,
     handlers: { state, apply },
-    notify(scope, command, text) {
+    notify(scope, payload) {
       if (disposed) return null
+      if (!AntigravityNotificationPayloadSchema.parse(payload).ok) {
+        throw new GaRpcContractError('Notification payload failed the contract')
+      }
       const queue = queueFor(scope)
       queue.lastIssued += 1
       const cursor = queue.lastIssued
-      queue.notifications.push({
-        cursor,
-        type: 'open-dialog',
-        command,
-        text: text.slice(0, ANTIGRAVITY_RPC_LIMITS.textMaxLength),
-      })
+      queue.notifications.push({ cursor, payload })
       while (queue.notifications.length > perScope) {
         const evicted = queue.notifications.shift()
         if (evicted) queue.evictedThrough = evicted.cursor
@@ -1261,7 +1242,7 @@ export interface GaServingServices {
   readonly execute: GaJobExecutor
   /** Accounts, routes and status for the RPC `state` method. */
   readonly state: GaStateSource
-  /** Applies dialog commands for the RPC `apply` method. */
+  /** Applies shared-menu actions for the RPC `apply` method. */
   readonly commands: GaCommandService
 }
 
@@ -1274,7 +1255,7 @@ export interface GaLocationServices {
   readonly runtime: GaRuntimeCollaborators
   /**
    * Start serving on the built runtime. `notify` and `isConnected` belong to
-   * this activation's RPC store, for commands that open a dialog.
+   * this activation's RPC store, for the menu's drawer and toasts.
    */
   start(input: {
     readonly runtime: LocationRuntime
@@ -1316,7 +1297,7 @@ export interface GaHttpResponseEvent {
   response: Response
 }
 
-/** The fields the retry hook reads and writes (`SessionRetry`). */
+/** The fields the retry hook reads and writes. */
 export interface GaRetryEvent {
   readonly model: { readonly id: string; readonly providerID: string }
   decision: { retry: false } | { retry: true; delay: number }
@@ -1368,7 +1349,7 @@ export async function rewriteGaHttpRequest(
   event.request = input.bridge.rewrite(original, job, input.env)
 }
 
-/** Response hook body: adapt only this bridge's own job responses. */
+/** Adapt only responses whose request belongs to a recognized bridge job. */
 export function adaptGaHttpResponse(
   event: GaHttpResponseEvent,
   bridge: Pick<GaLoopbackBridge, 'adaptResponse'>,
@@ -1568,18 +1549,18 @@ export async function setupGaActivation(
     let rpcRegistration: RpcRegistration<
       typeof ANTIGRAVITY_RPC_DEFINITION
     > | null = null
+    const commandsModule = await loadCommonAuthCommands()
     const activation = createGaRpcActivation({
       state: {
         read: (input) => requireServing().state.read(input),
       },
       commands: {
         apply: (request) => requireServing().commands.apply(request),
-        applyAccountAction: (request) =>
-          requireServing().commands.applyAccountAction(request),
       },
+      parseApplyRequest: commandsModule.parseApplyRequest,
       onChanged: (event) => {
         void rpcRegistration?.events.emit('changed', event).catch(() => {
-          // A missed wake-up only delays the client's next pull.
+          // A missed changed notification delays the client's next state request.
         })
       },
     })
@@ -1650,7 +1631,7 @@ export async function setupGaActivation(
     runtime.scope.add(requestHook, 'producer')
   } catch (error) {
     await runtime.dispose().catch(() => {
-      // The setup error is the one the host needs to see.
+      // Preserve the initialization error if disposal also throws.
     })
     throw error
   }
@@ -1672,4 +1653,16 @@ export function createGaPluginFromServices(
     setup: (context: Plugin.Context) =>
       setupGaActivation(context, factory, overrides),
   }
+}
+
+/**
+ * The plugin the OpenCode 2 host loads: setup over the production location
+ * services (`createGaLocationServices`), which open the location's account
+ * store, keep its quota snapshots in memory and run the shared request
+ * pipeline. `overrides` exist for tests; the host passes none.
+ */
+export function createGaAntigravityPlugin(
+  overrides: GaPluginOverrides = {},
+): Plugin.Plugin {
+  return createGaPluginFromServices(createGaLocationServices, overrides)
 }

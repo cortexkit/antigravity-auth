@@ -17,8 +17,9 @@
  * object backed by a strict hand-written validator.
  *
  * Portability: this module has no runtime imports. Clients can bundle it
- * without pulling in server, account, OAuth or credential code. The one
- * type-only import keeps the command list identical to the OpenCode 1 RPC.
+ * without pulling in server, account, OAuth or credential code. Its imports
+ * are type-only: the shared `/antigravity` menu's request, result and
+ * payload types, which the OpenCode 1 RPC carries as well.
  *
  * Contract rules (each has a test in `protocol.test.ts`):
  *
@@ -49,9 +50,16 @@
  *   There is no field for an email, token, project id, fingerprint, profile
  *   name or upstream error text, and unknown keys are refused, so a live
  *   account object spread into a DTO fails validation.
- * - Selectors: each account carries an opaque random `selector` naming its
- *   current credential. Typed account actions name accounts only by
- *   selector; positions and `acct-<n>` ids are never accepted as targets.
+ * - Menu: `apply` carries one action of the shared `/antigravity` menu
+ *   (common-auth's `CommandApplyRequest`, minus `sessionId`: the scope says
+ *   which session asks) and answers with the library's `CommandApplyResult`,
+ *   which holds the refreshed menu. A notification carries the menu payload
+ *   that opens the drawer, or a message for a toast. Menu actions name an
+ *   account by the opaque item id the menu issued for its current
+ *   credential; account positions and `acct-<n>` ids are never targets.
+ * - Selectors: each account in a snapshot carries an opaque random
+ *   `selector` naming its current credential, so a client can tell a
+ *   replaced credential from the same one across reads.
  * - Account limit: a roster larger than `ANTIGRAVITY_RPC_LIMITS.accounts` is
  *   answered with `accountsStatus: over-limit` and no accounts, never with a
  *   shortened list.
@@ -60,10 +68,15 @@
  * - Validation never coerces: `true`, `"5"`, `5.5`, `-1`, `-0`, `NaN` and
  *   `Infinity` are not cursors, and no value is passed through `Number()`.
  *   Issue messages name the field, never the received value, so a rejected
- *   argument string (which can hold an OAuth code) is not echoed back.
+ *   menu value (which can hold a pasted OAuth code) is not echoed back.
  */
 
-import type { CommandModalName } from '../../rpc/protocol.ts'
+import type { ANTIGRAVITY_MENU_COMMAND } from '@cortexkit/antigravity-auth-core'
+import type {
+  CommandApplyRequest,
+  CommandApplyResult,
+  RpcNotificationPayload,
+} from '../../rpc/protocol.ts'
 
 // Identity
 
@@ -80,29 +93,13 @@ export type AntigravityRpcMethod = (typeof ANTIGRAVITY_RPC_METHODS)[number]
 export const ANTIGRAVITY_RPC_EVENTS = ['changed'] as const
 export type AntigravityRpcEvent = (typeof ANTIGRAVITY_RPC_EVENTS)[number]
 
-/** The dialog commands of the OpenCode 1 RPC, in that RPC's order. */
-export const ANTIGRAVITY_RPC_COMMANDS = [
-  'antigravity-quota',
-  'antigravity-account',
-  'antigravity-routing',
-  'antigravity-killswitch',
-  'antigravity-dump',
-  'antigravity-logging',
-] as const
-export type AntigravityRpcCommand = (typeof ANTIGRAVITY_RPC_COMMANDS)[number]
+/** The shared menu's slash command; every menu request and payload names it. */
+export const ANTIGRAVITY_MENU_COMMAND_NAME = 'antigravity' as const
 
-// Compile-time guard: this command list and the OpenCode 1 union must be
-// the same set. Adding a command to only one of them fails type checking.
-type MutuallyAssignable<A, B> = [A] extends [B]
-  ? [B] extends [A]
-    ? true
-    : false
-  : false
-const COMMANDS_MATCH_V1: MutuallyAssignable<
-  AntigravityRpcCommand,
-  CommandModalName
-> = true
-void COMMANDS_MATCH_V1
+// Compile-time guard: core builds the shared menu under this same command.
+const MENU_COMMAND_MATCHES_CORE: typeof ANTIGRAVITY_MENU_COMMAND =
+  ANTIGRAVITY_MENU_COMMAND_NAME
+void MENU_COMMAND_MATCHES_CORE
 
 export const ANTIGRAVITY_LOG_LEVELS = [
   'error',
@@ -120,8 +117,26 @@ export const ANTIGRAVITY_RPC_LIMITS = {
   generationMaxLength: 64,
   /** Session ids: 1–256 visible ASCII characters (0x21–0x7E). */
   sessionIDMaxLength: 256,
-  /** `apply` arguments: at most 4096 UTF-16 code units, no NUL. */
-  argumentsMaxLength: 4096,
+  /** Menu ids (command, section, item, action, knob, choice values). */
+  menuIdMaxLength: 256,
+  /** Knob values in one menu request. */
+  menuValues: 64,
+  /** Sections in one menu. */
+  menuSections: 16,
+  /** Items in one menu section. */
+  menuItemsPerSection: 512,
+  /** Actions on one section or item. */
+  menuActions: 64,
+  /** Knobs on one action. */
+  menuKnobs: 64,
+  /** Choices of one `choice` knob. */
+  menuChoices: 256,
+  /** Read-only lines of one section. */
+  menuLines: 256,
+  /** Entries in one `facts` record. */
+  menuFacts: 64,
+  /** Nesting depth of a `facts` value. */
+  menuFactsDepth: 4,
   /** Any user-facing text in an output. */
   textMaxLength: 4096,
   /** Notifications returned by one `state` call. */
@@ -154,8 +169,19 @@ export interface AntigravityStateInput {
   readonly cursor: number
 }
 
-/** A dialog command with its argument string. */
-export interface AntigravityApplyTextInput {
+/**
+ * One action of the shared menu: common-auth's `CommandApplyRequest` for
+ * the `antigravity` command, without `sessionId`. The scope names the
+ * session; a request that names one itself is refused.
+ */
+export type AntigravityMenuRequest = Omit<
+  CommandApplyRequest,
+  'command' | 'sessionId'
+> & {
+  readonly command: typeof ANTIGRAVITY_MENU_COMMAND_NAME
+}
+
+export interface AntigravityApplyInput {
   readonly version: typeof ANTIGRAVITY_RPC_VERSION
   /**
    * Must equal the generation of the activation serving this location;
@@ -163,50 +189,8 @@ export interface AntigravityApplyTextInput {
    */
   readonly generation: string
   readonly scope: AntigravityRpcScope
-  readonly command: AntigravityRpcCommand
-  /**
-   * The dialog's argument string, in the format the OpenCode 1 `/rpc/apply`
-   * endpoint accepts, so both hosts share one command parser.
-   */
-  readonly arguments: string
+  readonly request: AntigravityMenuRequest
 }
-
-/**
- * One account action. `selector` is the opaque value the server sent with
- * that account in a `state` answer; it names exactly the credential that was
- * on the account then. Account positions and `acct-<n>` ids are never
- * accepted as targets.
- */
-export type AntigravityAccountAction =
-  | {
-      readonly kind: 'select'
-      readonly selector: string
-      readonly target: 'active' | 'claude' | 'gemini'
-    }
-  | { readonly kind: 'enable'; readonly selector: string }
-  | { readonly kind: 'disable'; readonly selector: string }
-  | { readonly kind: 'remove'; readonly selector: string }
-
-export const ANTIGRAVITY_ACCOUNT_ACTION_KINDS = [
-  'select',
-  'enable',
-  'disable',
-  'remove',
-] as const satisfies readonly AntigravityAccountAction['kind'][]
-
-/** A typed account action, instead of a dialog argument string. */
-export interface AntigravityApplyAccountActionInput {
-  readonly version: typeof ANTIGRAVITY_RPC_VERSION
-  /** As in `AntigravityApplyTextInput`. */
-  readonly generation: string
-  readonly scope: AntigravityRpcScope
-  readonly command: 'antigravity-account'
-  readonly action: AntigravityAccountAction
-}
-
-export type AntigravityApplyInput =
-  | AntigravityApplyTextInput
-  | AntigravityApplyAccountActionInput
 
 export interface AntigravityQuotaWindowDto {
   readonly window: 'weekly' | '5h'
@@ -227,10 +211,9 @@ export interface AntigravityQuotaEntryDto {
  */
 export interface AntigravityAccountDto {
   /**
-   * Opaque value naming this account's current credential for typed account
-   * actions. It is random, carries no account data, and stops working when
-   * the credential is replaced, its identity changes or the account is
-   * removed.
+   * Opaque value naming this account's current credential. It is random,
+   * carries no account data, and changes when the credential is replaced or
+   * its identity changes.
    */
   readonly selector: string
   readonly id: string
@@ -298,11 +281,13 @@ export type AntigravityAccountsStatus =
       readonly limit: (typeof ANTIGRAVITY_RPC_LIMITS)['accounts']
     }
 
+/**
+ * One queued notification: the menu payload that opens the drawer, or a
+ * message for a toast (the same payloads the OpenCode 1 RPC queues).
+ */
 export interface AntigravityNotificationDto {
   readonly cursor: number
-  readonly type: 'open-dialog'
-  readonly command: AntigravityRpcCommand
-  readonly text: string
+  readonly payload: RpcNotificationPayload
 }
 
 export type AntigravityStateReset =
@@ -354,112 +339,13 @@ export type AntigravityStateOutput =
   | AntigravityStateSnapshot
   | AntigravityDisposedOutput
 
-/**
- * `applied`: the command ran and changed state. `rejected`: the arguments
- * were not a valid action; nothing changed. `failed`: the action was valid
- * but could not be completed; nothing is known to have changed.
- */
-export type AntigravityApplyStatus = 'applied' | 'rejected' | 'failed'
-
-export const ANTIGRAVITY_APPLY_STATUSES = [
-  'applied',
-  'rejected',
-  'failed',
-] as const satisfies readonly AntigravityApplyStatus[]
-
-interface CommandResultBase<C extends AntigravityRpcCommand> {
-  readonly command: C
-  readonly status: AntigravityApplyStatus
-  /** Redacted, user-facing summary. */
-  readonly text: string
-}
-
-export interface AntigravityQuotaResult
-  extends CommandResultBase<'antigravity-quota'> {
-  /** `null` when the roster is larger than the account limit. */
-  readonly accounts: readonly AntigravityAccountDto[] | null
-}
-
-/**
- * What happened to the account a typed action named:
- * - `applied`: the action ran;
- * - `stale-target`: the selector named a credential that has since been
- *   replaced or removed, or whose identity changed; nothing was written;
- * - `unknown-target`: the selector was never issued by this activation (or
- *   is too old to be remembered); nothing was written;
- * - `unsupported-index-action`: a dialog argument named an account by
- *   position, which this host does not accept; nothing was written;
- * - `failed`: the action was attempted and did not complete.
- */
-export type AntigravityTargetOutcome =
-  | 'applied'
-  | 'stale-target'
-  | 'unknown-target'
-  | 'unsupported-index-action'
-  | 'failed'
-
-export const ANTIGRAVITY_TARGET_OUTCOMES = [
-  'applied',
-  'stale-target',
-  'unknown-target',
-  'unsupported-index-action',
-  'failed',
-] as const satisfies readonly AntigravityTargetOutcome[]
-
-export interface AntigravityAccountResult
-  extends CommandResultBase<'antigravity-account'> {
-  /** Accounts after the action, or `null` when the action did not run. */
-  readonly accounts: readonly AntigravityAccountDto[] | null
-  /** OAuth authorization URL to open for an account add, else `null`. */
-  readonly authorizationUrl: string | null
-  /** The named account's outcome; `null` for actions that name none. */
-  readonly targetOutcome: AntigravityTargetOutcome | null
-}
-
-export interface AntigravityRoutingResult
-  extends CommandResultBase<'antigravity-routing'> {
-  readonly routing: {
-    readonly cliFirst: boolean
-    readonly quotaStyleFallback: boolean
-  } | null
-}
-
-export interface AntigravityKillswitchResult
-  extends CommandResultBase<'antigravity-killswitch'> {
-  readonly killswitch: {
-    readonly enabled: boolean
-    readonly minimumRemainingPercent: number
-  } | null
-}
-
-export interface AntigravityDumpResult
-  extends CommandResultBase<'antigravity-dump'> {
-  readonly dump: { readonly enabled: boolean } | null
-}
-
-export interface AntigravityLoggingResult
-  extends CommandResultBase<'antigravity-logging'> {
-  readonly logLevel: AntigravityLogLevel | null
-}
-
-export type AntigravityCommandResult =
-  | AntigravityQuotaResult
-  | AntigravityAccountResult
-  | AntigravityRoutingResult
-  | AntigravityKillswitchResult
-  | AntigravityDumpResult
-  | AntigravityLoggingResult
-
-/** The result type for one command. */
-export type AntigravityCommandResultFor<C extends AntigravityRpcCommand> =
-  Extract<AntigravityCommandResult, { readonly command: C }>
-
 export interface AntigravityAppliedOutput {
   readonly version: typeof ANTIGRAVITY_RPC_VERSION
   readonly kind: 'applied'
   readonly generation: string
   readonly scope: AntigravityRpcScope
-  readonly result: AntigravityCommandResult
+  /** The menu's answer: the message, failure code and refreshed menu. */
+  readonly result: CommandApplyResult
 }
 
 export interface AntigravityStaleGenerationOutput {
@@ -727,10 +613,6 @@ function checkVersion(
   }
 }
 
-function checkCommand(value: unknown, path: Path, issues: Issues): void {
-  checkLiteral(value, ANTIGRAVITY_RPC_COMMANDS, path, issues)
-}
-
 function checkText(value: unknown, path: Path, issues: Issues): void {
   checkString(value, path, issues, {
     max: ANTIGRAVITY_RPC_LIMITS.textMaxLength,
@@ -974,21 +856,13 @@ function checkStatus(value: unknown, path: Path, issues: Issues): void {
 }
 
 function checkNotification(value: unknown, path: Path, issues: Issues): void {
-  if (
-    !checkRecord(value, path, issues, ['cursor', 'type', 'command', 'text'])
-  ) {
-    return
-  }
+  if (!checkRecord(value, path, issues, ['cursor', 'payload'])) return
   if (present(value, 'cursor')) {
     checkPositiveCursor(value.cursor, [...path, 'cursor'], issues)
   }
-  if (present(value, 'type')) {
-    checkLiteral(value.type, ['open-dialog'], [...path, 'type'], issues)
+  if (present(value, 'payload')) {
+    checkNotificationPayload(value.payload, [...path, 'payload'], issues)
   }
-  if (present(value, 'command')) {
-    checkCommand(value.command, [...path, 'command'], issues)
-  }
-  if (present(value, 'text')) checkText(value.text, [...path, 'text'], issues)
 }
 
 /**
@@ -1022,150 +896,485 @@ function checkDisposed(
   }
 }
 
-function checkCommandResult(value: unknown, path: Path, issues: Issues): void {
+// Shared menu (common-auth `./commands` model)
+
+const MENU_ID_PATTERN = /^[\x21-\x7e]+$/
+const SECTION_SLOTS = [
+  'accounts',
+  'quota',
+  'routing',
+  'limits',
+  'cache',
+  'diagnostics',
+  'extra',
+] as const
+const KNOB_KINDS = ['choice', 'toggle', 'number', 'text'] as const
+const NOTIFY_KINDS = ['info', 'warning', 'error'] as const
+
+function checkMenuId(value: unknown, path: Path, issues: Issues): void {
+  checkString(value, path, issues, {
+    min: 1,
+    max: ANTIGRAVITY_RPC_LIMITS.menuIdMaxLength,
+    pattern: MENU_ID_PATTERN,
+  })
+}
+
+function checkMenuCommand(value: unknown, path: Path, issues: Issues): void {
+  checkLiteral(value, [ANTIGRAVITY_MENU_COMMAND_NAME], path, issues)
+}
+
+function checkFiniteNumber(value: unknown, path: Path, issues: Issues): void {
+  checkFinite(value, path, issues, -Number.MAX_VALUE)
+}
+
+/** A knob value: string, finite number, boolean or `null`. */
+function checkKnobValue(value: unknown, path: Path, issues: Issues): void {
+  if (value === null || typeof value === 'boolean') return
+  if (typeof value === 'number') {
+    checkFiniteNumber(value, path, issues)
+    return
+  }
+  if (typeof value === 'string') {
+    checkText(value, path, issues)
+    return
+  }
+  issues.add(path, 'expected a string, finite number, boolean or null')
+}
+
+function checkKnobValues(value: unknown, path: Path, issues: Issues): void {
   if (!isPlainRecord(value)) {
     issues.add(path, 'expected a plain object')
     return
   }
-  const base = ['command', 'status', 'text']
-  const command = value.command
-  let extra: readonly string[]
-  switch (command) {
-    case 'antigravity-quota':
-      extra = ['accounts']
+  const names = Object.keys(value)
+  if (names.length > ANTIGRAVITY_RPC_LIMITS.menuValues) {
+    issues.add(
+      path,
+      `expected at most ${ANTIGRAVITY_RPC_LIMITS.menuValues} values`,
+    )
+    return
+  }
+  for (const name of names) {
+    checkMenuId(name, [...path, name], issues)
+    checkKnobValue(value[name], [...path, name], issues)
+  }
+}
+
+/** One action request; `sessionId` is never part of it on this wire. */
+function checkMenuRequest(value: unknown, path: Path, issues: Issues): void {
+  if (
+    !checkRecord(
+      value,
+      path,
+      issues,
+      ['command', 'sectionId', 'actionId'],
+      ['itemId', 'values', 'confirmed'],
+    )
+  ) {
+    return
+  }
+  if (present(value, 'command')) {
+    checkMenuCommand(value.command, [...path, 'command'], issues)
+  }
+  for (const key of ['sectionId', 'actionId', 'itemId']) {
+    if (present(value, key)) checkMenuId(value[key], [...path, key], issues)
+  }
+  if (present(value, 'values')) {
+    checkKnobValues(value.values, [...path, 'values'], issues)
+  }
+  if (present(value, 'confirmed')) {
+    checkBoolean(value.confirmed, [...path, 'confirmed'], issues)
+  }
+}
+
+/**
+ * Plugin facts: JSON data a drawer lists by name. Only plain records,
+ * arrays, strings, finite numbers, booleans and `null`, bounded in size and
+ * depth.
+ */
+function checkFactValue(
+  value: unknown,
+  path: Path,
+  issues: Issues,
+  depth: number,
+): void {
+  if (value === null || typeof value === 'boolean') return
+  if (typeof value === 'number') {
+    checkFiniteNumber(value, path, issues)
+    return
+  }
+  if (typeof value === 'string') {
+    checkText(value, path, issues)
+    return
+  }
+  if (depth >= ANTIGRAVITY_RPC_LIMITS.menuFactsDepth) {
+    issues.add(path, 'value is nested too deeply')
+    return
+  }
+  if (Array.isArray(value)) {
+    checkArray(
+      value,
+      path,
+      issues,
+      ANTIGRAVITY_RPC_LIMITS.menuFacts,
+      (item, p, i) => checkFactValue(item, p, i, depth + 1),
+    )
+    return
+  }
+  checkFacts(value, path, issues, depth + 1)
+}
+
+function checkFacts(
+  value: unknown,
+  path: Path,
+  issues: Issues,
+  depth = 0,
+): void {
+  if (!isPlainRecord(value)) {
+    issues.add(path, 'expected a plain object')
+    return
+  }
+  const names = Object.keys(value)
+  if (names.length > ANTIGRAVITY_RPC_LIMITS.menuFacts) {
+    issues.add(
+      path,
+      `expected at most ${ANTIGRAVITY_RPC_LIMITS.menuFacts} entries`,
+    )
+    return
+  }
+  for (const name of names) {
+    checkText(name, [...path, name], issues)
+    checkFactValue(value[name], [...path, name], issues, depth)
+  }
+}
+
+function checkChoice(value: unknown, path: Path, issues: Issues): void {
+  if (!checkRecord(value, path, issues, ['value', 'label'])) return
+  if (present(value, 'value'))
+    checkMenuId(value.value, [...path, 'value'], issues)
+  if (present(value, 'label'))
+    checkText(value.label, [...path, 'label'], issues)
+}
+
+function checkKnob(value: unknown, path: Path, issues: Issues): void {
+  if (!isPlainRecord(value)) {
+    issues.add(path, 'expected a plain object')
+    return
+  }
+  const base = ['kind', 'id', 'label']
+  switch (value.kind) {
+    case 'choice':
+      if (!checkRecord(value, path, issues, [...base, 'choices'], ['value'])) {
+        return
+      }
+      if (present(value, 'choices')) {
+        checkArray(
+          value.choices,
+          [...path, 'choices'],
+          issues,
+          ANTIGRAVITY_RPC_LIMITS.menuChoices,
+          checkChoice,
+        )
+      }
+      if (present(value, 'value'))
+        checkMenuId(value.value, [...path, 'value'], issues)
       break
-    case 'antigravity-account':
-      extra = ['accounts', 'authorizationUrl', 'targetOutcome']
+    case 'toggle':
+      if (!checkRecord(value, path, issues, [...base, 'value'])) return
+      if (present(value, 'value'))
+        checkBoolean(value.value, [...path, 'value'], issues)
       break
-    case 'antigravity-routing':
-      extra = ['routing']
+    case 'number':
+      if (
+        !checkRecord(value, path, issues, base, [
+          'value',
+          'min',
+          'max',
+          'required',
+        ])
+      ) {
+        return
+      }
+      for (const key of ['value', 'min', 'max']) {
+        if (present(value, key))
+          checkFiniteNumber(value[key], [...path, key], issues)
+      }
+      if (present(value, 'required')) {
+        checkBoolean(value.required, [...path, 'required'], issues)
+      }
       break
-    case 'antigravity-killswitch':
-      extra = ['killswitch']
-      break
-    case 'antigravity-dump':
-      extra = ['dump']
-      break
-    case 'antigravity-logging':
-      extra = ['logLevel']
+    case 'text':
+      if (
+        !checkRecord(value, path, issues, base, [
+          'value',
+          'placeholder',
+          'masked',
+          'required',
+        ])
+      ) {
+        return
+      }
+      for (const key of ['value', 'placeholder']) {
+        if (present(value, key)) checkText(value[key], [...path, key], issues)
+      }
+      for (const key of ['masked', 'required']) {
+        if (present(value, key))
+          checkBoolean(value[key], [...path, key], issues)
+      }
       break
     default:
-      issues.add([...path, 'command'], 'unknown command')
+      issues.add([...path, 'kind'], `expected one of ${KNOB_KINDS.join(', ')}`)
       return
   }
-  // The command-specific keys may be null, so only their presence is
-  // required here; their values are checked below.
-  if (!checkRecord(value, path, issues, base, extra)) return
-  checkNullableKeysPresent(value, extra, path, issues)
-  if (present(value, 'status')) {
-    checkLiteral(
-      value.status,
-      ANTIGRAVITY_APPLY_STATUSES,
-      [...path, 'status'],
+  if (present(value, 'id')) checkMenuId(value.id, [...path, 'id'], issues)
+  if (present(value, 'label'))
+    checkText(value.label, [...path, 'label'], issues)
+}
+
+function checkMenuAction(value: unknown, path: Path, issues: Issues): void {
+  if (
+    !checkRecord(
+      value,
+      path,
+      issues,
+      ['id', 'label', 'knobs'],
+      ['description', 'confirm'],
+    )
+  ) {
+    return
+  }
+  if (present(value, 'id')) checkMenuId(value.id, [...path, 'id'], issues)
+  if (present(value, 'label'))
+    checkText(value.label, [...path, 'label'], issues)
+  if (present(value, 'description')) {
+    checkText(value.description, [...path, 'description'], issues)
+  }
+  if (present(value, 'knobs')) {
+    checkArray(
+      value.knobs,
+      [...path, 'knobs'],
+      issues,
+      ANTIGRAVITY_RPC_LIMITS.menuKnobs,
+      checkKnob,
+    )
+  }
+  if (present(value, 'confirm')) {
+    const confirmPath = [...path, 'confirm']
+    if (
+      checkRecord(value.confirm, confirmPath, issues, [
+        'message',
+        'irreversible',
+      ])
+    ) {
+      if (present(value.confirm, 'message')) {
+        checkText(value.confirm.message, [...confirmPath, 'message'], issues)
+      }
+      if (present(value.confirm, 'irreversible')) {
+        checkBoolean(
+          value.confirm.irreversible,
+          [...confirmPath, 'irreversible'],
+          issues,
+        )
+      }
+    }
+  }
+}
+
+function checkMenuActions(value: unknown, path: Path, issues: Issues): void {
+  checkArray(
+    value,
+    path,
+    issues,
+    ANTIGRAVITY_RPC_LIMITS.menuActions,
+    checkMenuAction,
+  )
+}
+
+function checkMenuAccount(value: unknown, path: Path, issues: Issues): void {
+  if (
+    !checkRecord(
+      value,
+      path,
+      issues,
+      ['id', 'enabled', 'type'],
+      ['label', 'identity'],
+    )
+  ) {
+    return
+  }
+  if (present(value, 'id')) checkMenuId(value.id, [...path, 'id'], issues)
+  if (present(value, 'enabled')) {
+    checkBoolean(value.enabled, [...path, 'enabled'], issues)
+  }
+  if (present(value, 'type')) {
+    checkLiteral(value.type, ['oauth', 'api'], [...path, 'type'], issues)
+  }
+  for (const key of ['label', 'identity']) {
+    if (present(value, key)) checkText(value[key], [...path, key], issues)
+  }
+}
+
+function checkMenuItem(value: unknown, path: Path, issues: Issues): void {
+  if (
+    !checkRecord(
+      value,
+      path,
+      issues,
+      ['id', 'label', 'actions'],
+      ['detail', 'account', 'facts'],
+    )
+  ) {
+    return
+  }
+  if (present(value, 'id')) checkMenuId(value.id, [...path, 'id'], issues)
+  if (present(value, 'label'))
+    checkText(value.label, [...path, 'label'], issues)
+  if (present(value, 'detail')) {
+    checkText(value.detail, [...path, 'detail'], issues)
+  }
+  if (present(value, 'account')) {
+    checkMenuAccount(value.account, [...path, 'account'], issues)
+  }
+  if (present(value, 'facts'))
+    checkFacts(value.facts, [...path, 'facts'], issues)
+  if (present(value, 'actions')) {
+    checkMenuActions(value.actions, [...path, 'actions'], issues)
+  }
+}
+
+function checkMenuSection(value: unknown, path: Path, issues: Issues): void {
+  if (
+    !checkRecord(
+      value,
+      path,
+      issues,
+      ['id', 'slot', 'title', 'lines', 'items', 'actions'],
+      ['facts'],
+    )
+  ) {
+    return
+  }
+  if (present(value, 'id')) checkMenuId(value.id, [...path, 'id'], issues)
+  if (present(value, 'slot')) {
+    checkLiteral(value.slot, SECTION_SLOTS, [...path, 'slot'], issues)
+  }
+  if (present(value, 'title'))
+    checkText(value.title, [...path, 'title'], issues)
+  if (present(value, 'lines')) {
+    checkArray(
+      value.lines,
+      [...path, 'lines'],
+      issues,
+      ANTIGRAVITY_RPC_LIMITS.menuLines,
+      checkText,
+    )
+  }
+  if (present(value, 'items')) {
+    checkArray(
+      value.items,
+      [...path, 'items'],
+      issues,
+      ANTIGRAVITY_RPC_LIMITS.menuItemsPerSection,
+      checkMenuItem,
+    )
+  }
+  if (present(value, 'actions')) {
+    checkMenuActions(value.actions, [...path, 'actions'], issues)
+  }
+  if (present(value, 'facts'))
+    checkFacts(value.facts, [...path, 'facts'], issues)
+}
+
+function checkMenuModel(value: unknown, path: Path, issues: Issues): void {
+  if (!checkRecord(value, path, issues, ['command', 'title', 'sections'])) {
+    return
+  }
+  if (present(value, 'command')) {
+    checkMenuCommand(value.command, [...path, 'command'], issues)
+  }
+  if (present(value, 'title'))
+    checkText(value.title, [...path, 'title'], issues)
+  if (present(value, 'sections')) {
+    checkArray(
+      value.sections,
+      [...path, 'sections'],
+      issues,
+      ANTIGRAVITY_RPC_LIMITS.menuSections,
+      checkMenuSection,
+    )
+  }
+}
+
+/** The menu that opens the drawer, or a message for a toast. */
+function checkNotificationPayload(
+  value: unknown,
+  path: Path,
+  issues: Issues,
+): void {
+  if (!isPlainRecord(value)) {
+    issues.add(path, 'expected a plain object')
+    return
+  }
+  if (Object.hasOwn(value, 'notify')) {
+    if (!checkRecord(value, path, issues, ['command', 'notify'])) return
+    if (present(value, 'command')) {
+      checkMenuCommand(value.command, [...path, 'command'], issues)
+    }
+    const notifyPath = [...path, 'notify']
+    if (
+      present(value, 'notify') &&
+      checkRecord(value.notify, notifyPath, issues, ['message', 'kind'])
+    ) {
+      if (present(value.notify, 'message')) {
+        checkText(value.notify.message, [...notifyPath, 'message'], issues)
+      }
+      if (present(value.notify, 'kind')) {
+        checkLiteral(
+          value.notify.kind,
+          NOTIFY_KINDS,
+          [...notifyPath, 'kind'],
+          issues,
+        )
+      }
+    }
+    return
+  }
+  if (!checkRecord(value, path, issues, ['command', 'menu'])) return
+  if (present(value, 'command')) {
+    checkMenuCommand(value.command, [...path, 'command'], issues)
+  }
+  if (present(value, 'menu'))
+    checkMenuModel(value.menu, [...path, 'menu'], issues)
+}
+
+/** common-auth's `CommandApplyResult` for the shared menu. */
+function checkApplyResult(value: unknown, path: Path, issues: Issues): void {
+  if (
+    !checkRecord(
+      value,
+      path,
+      issues,
+      ['command', 'ok', 'text', 'menu'],
+      ['code', 'needsConfirmation'],
+    )
+  ) {
+    return
+  }
+  if (present(value, 'command')) {
+    checkMenuCommand(value.command, [...path, 'command'], issues)
+  }
+  if (present(value, 'ok')) checkBoolean(value.ok, [...path, 'ok'], issues)
+  if (present(value, 'text')) checkText(value.text, [...path, 'text'], issues)
+  if (present(value, 'code')) checkMenuId(value.code, [...path, 'code'], issues)
+  if (present(value, 'needsConfirmation')) {
+    checkBoolean(
+      value.needsConfirmation,
+      [...path, 'needsConfirmation'],
       issues,
     )
   }
-  if (present(value, 'text')) checkText(value.text, [...path, 'text'], issues)
-
-  switch (command) {
-    case 'antigravity-quota':
-      if (value.accounts !== null && present(value, 'accounts')) {
-        checkAccounts(value.accounts, [...path, 'accounts'], issues)
-      }
-      return
-    case 'antigravity-account':
-      if (value.accounts !== null && present(value, 'accounts')) {
-        checkAccounts(value.accounts, [...path, 'accounts'], issues)
-      }
-      if (value.targetOutcome !== null && present(value, 'targetOutcome')) {
-        checkLiteral(
-          value.targetOutcome,
-          ANTIGRAVITY_TARGET_OUTCOMES,
-          [...path, 'targetOutcome'],
-          issues,
-        )
-      }
-      if (
-        value.authorizationUrl !== null &&
-        present(value, 'authorizationUrl')
-      ) {
-        if (
-          checkString(
-            value.authorizationUrl,
-            [...path, 'authorizationUrl'],
-            issues,
-            {
-              min: 9,
-              max: ANTIGRAVITY_RPC_LIMITS.authorizationURLMaxLength,
-              noNul: true,
-            },
-          ) &&
-          !value.authorizationUrl.startsWith('https://')
-        ) {
-          issues.add([...path, 'authorizationUrl'], 'expected an https URL')
-        }
-      }
-      return
-    case 'antigravity-routing': {
-      const routing = value.routing
-      if (routing === null || routing === undefined) return
-      const routingPath = [...path, 'routing']
-      if (
-        checkRecord(routing, routingPath, issues, [
-          'cliFirst',
-          'quotaStyleFallback',
-        ])
-      ) {
-        checkBoolean(routing.cliFirst, [...routingPath, 'cliFirst'], issues)
-        checkBoolean(
-          routing.quotaStyleFallback,
-          [...routingPath, 'quotaStyleFallback'],
-          issues,
-        )
-      }
-      return
-    }
-    case 'antigravity-killswitch': {
-      const killswitch = value.killswitch
-      if (killswitch === null || killswitch === undefined) return
-      const killswitchPath = [...path, 'killswitch']
-      if (
-        checkRecord(killswitch, killswitchPath, issues, [
-          'enabled',
-          'minimumRemainingPercent',
-        ])
-      ) {
-        checkBoolean(killswitch.enabled, [...killswitchPath, 'enabled'], issues)
-        checkFinite(
-          killswitch.minimumRemainingPercent,
-          [...killswitchPath, 'minimumRemainingPercent'],
-          issues,
-          0,
-          100,
-        )
-      }
-      return
-    }
-    case 'antigravity-dump': {
-      const dump = value.dump
-      if (dump === null || dump === undefined) return
-      const dumpPath = [...path, 'dump']
-      if (checkRecord(dump, dumpPath, issues, ['enabled'])) {
-        checkBoolean(dump.enabled, [...dumpPath, 'enabled'], issues)
-      }
-      return
-    }
-    case 'antigravity-logging':
-      if (value.logLevel !== null && present(value, 'logLevel')) {
-        checkLiteral(
-          value.logLevel,
-          ANTIGRAVITY_LOG_LEVELS,
-          [...path, 'logLevel'],
-          issues,
-        )
-      }
-      return
-  }
+  if (present(value, 'menu'))
+    checkMenuModel(value.menu, [...path, 'menu'], issues)
 }
 
 // Top-level validators
@@ -1193,57 +1402,14 @@ function validateStateInput(value: unknown, issues: Issues): void {
   if (present(value, 'cursor')) checkCursor(value.cursor, ['cursor'], issues)
 }
 
-function checkAccountAction(value: unknown, path: Path, issues: Issues): void {
-  if (!isPlainRecord(value)) {
-    issues.add(path, 'expected a plain object')
-    return
-  }
-  if (value.kind === 'select') {
-    if (!checkRecord(value, path, issues, ['kind', 'selector', 'target'])) {
-      return
-    }
-    if (present(value, 'target')) {
-      checkLiteral(
-        value.target,
-        ['active', 'claude', 'gemini'],
-        [...path, 'target'],
-        issues,
-      )
-    }
-  } else if (
-    value.kind === 'enable' ||
-    value.kind === 'disable' ||
-    value.kind === 'remove'
-  ) {
-    if (!checkRecord(value, path, issues, ['kind', 'selector'])) return
-  } else {
-    issues.add(
-      [...path, 'kind'],
-      `expected one of ${ANTIGRAVITY_ACCOUNT_ACTION_KINDS.join(', ')}`,
-    )
-    return
-  }
-  if (present(value, 'selector')) {
-    checkSelector(value.selector, [...path, 'selector'], issues)
-  }
-}
-
 function validateApplyInput(value: unknown, issues: Issues): void {
   const path: Path = []
-  if (!isPlainRecord(value)) {
-    issues.add(path, 'expected a plain object')
-    return
-  }
-  // A typed account action and a dialog argument string are separate forms;
-  // an input carrying both, or neither, is refused.
-  const isAction = Object.hasOwn(value, 'action')
   if (
     !checkRecord(value, path, issues, [
       'version',
       'generation',
       'scope',
-      'command',
-      isAction ? 'action' : 'arguments',
+      'request',
     ])
   ) {
     return
@@ -1253,23 +1419,8 @@ function validateApplyInput(value: unknown, issues: Issues): void {
     checkGeneration(value.generation, ['generation'], issues)
   }
   if (present(value, 'scope')) checkScope(value.scope, ['scope'], issues)
-  if (isAction) {
-    if (present(value, 'command')) {
-      checkLiteral(value.command, ['antigravity-account'], ['command'], issues)
-    }
-    if (present(value, 'action')) {
-      checkAccountAction(value.action, ['action'], issues)
-    }
-    return
-  }
-  if (present(value, 'command')) {
-    checkCommand(value.command, ['command'], issues)
-  }
-  if (present(value, 'arguments')) {
-    checkString(value.arguments, ['arguments'], issues, {
-      max: ANTIGRAVITY_RPC_LIMITS.argumentsMaxLength,
-      noNul: true,
-    })
+  if (present(value, 'request')) {
+    checkMenuRequest(value.request, ['request'], issues)
   }
 }
 
@@ -1506,7 +1657,7 @@ function validateApplyOutput(value: unknown, issues: Issues): void {
         }
         if (present(value, 'scope')) checkScope(value.scope, ['scope'], issues)
         if (present(value, 'result')) {
-          checkCommandResult(value.result, ['result'], issues)
+          checkApplyResult(value.result, ['result'], issues)
         }
       }
       return
@@ -1569,9 +1720,12 @@ export const AntigravityChangedEventSchema =
 export const AntigravityAccountsSchema = makeSchema<
   readonly AntigravityAccountDto[]
 >((value, issues) => checkAccounts(value, [], issues))
-export const AntigravityCommandResultSchema =
-  makeSchema<AntigravityCommandResult>((value, issues) =>
-    checkCommandResult(value, [], issues),
+export const AntigravityApplyResultSchema = makeSchema<CommandApplyResult>(
+  (value, issues) => checkApplyResult(value, [], issues),
+)
+export const AntigravityNotificationPayloadSchema =
+  makeSchema<RpcNotificationPayload>((value, issues) =>
+    checkNotificationPayload(value, [], issues),
   )
 
 // Definition
@@ -1687,35 +1841,30 @@ export const ANTIGRAVITY_RPC_CONTRACT = {
   version: ANTIGRAVITY_RPC_VERSION,
   methods: ANTIGRAVITY_RPC_METHODS,
   events: ANTIGRAVITY_RPC_EVENTS,
-  commands: ANTIGRAVITY_RPC_COMMANDS,
+  menuCommand: ANTIGRAVITY_MENU_COMMAND_NAME,
   logLevels: ANTIGRAVITY_LOG_LEVELS,
   scopeKinds: ['session', 'sessionless'],
   stateKinds: ['snapshot', 'disposed'],
   applyKinds: ['applied', 'stale-generation', 'disposed'],
   stateResets: ANTIGRAVITY_STATE_RESETS,
-  applyStatuses: ANTIGRAVITY_APPLY_STATUSES,
-  accountActionKinds: ANTIGRAVITY_ACCOUNT_ACTION_KINDS,
-  accountActionTargets: ['active', 'claude', 'gemini'],
-  targetOutcomes: ANTIGRAVITY_TARGET_OUTCOMES,
+  menuSectionSlots: SECTION_SLOTS,
+  menuKnobKinds: KNOB_KINDS,
+  notifyKinds: NOTIFY_KINDS,
+  menuIdPattern: '^[\\x21-\\x7e]+$',
   accountsStatusKinds: ['complete', 'over-limit'],
   selectorPattern: '^sel-[A-Za-z0-9_-]{32}$',
   limits: ANTIGRAVITY_RPC_LIMITS,
   keys: {
     stateInput: ['version', 'generation', 'scope', 'cursor'],
-    applyTextInput: ['version', 'generation', 'scope', 'command', 'arguments'],
-    applyAccountActionInput: [
-      'version',
-      'generation',
-      'scope',
+    applyInput: ['version', 'generation', 'scope', 'request'],
+    menuRequest: [
       'command',
-      'action',
+      'sectionId',
+      'actionId',
+      'itemId?',
+      'values?',
+      'confirmed?',
     ],
-    accountAction: {
-      select: ['kind', 'selector', 'target'],
-      enable: ['kind', 'selector'],
-      disable: ['kind', 'selector'],
-      remove: ['kind', 'selector'],
-    },
     stateSnapshot: [
       'version',
       'kind',
@@ -1733,7 +1882,41 @@ export const ANTIGRAVITY_RPC_CONTRACT = {
       'status',
       'settings',
     ],
-    notification: ['cursor', 'type', 'command', 'text'],
+    notification: ['cursor', 'payload'],
+    notificationPayload: {
+      menu: ['command', 'menu'],
+      notify: ['command', 'notify'],
+      notifyBody: ['message', 'kind'],
+    },
+    menu: ['command', 'title', 'sections'],
+    menuSection: ['id', 'slot', 'title', 'lines', 'items', 'actions', 'facts?'],
+    menuItem: ['id', 'label', 'actions', 'detail?', 'account?', 'facts?'],
+    menuAccount: ['id', 'enabled', 'type', 'label?', 'identity?'],
+    menuAction: ['id', 'label', 'knobs', 'description?', 'confirm?'],
+    menuConfirm: ['message', 'irreversible'],
+    menuKnob: {
+      choice: ['kind', 'id', 'label', 'choices', 'value?'],
+      toggle: ['kind', 'id', 'label', 'value'],
+      number: ['kind', 'id', 'label', 'value?', 'min?', 'max?', 'required?'],
+      text: [
+        'kind',
+        'id',
+        'label',
+        'value?',
+        'placeholder?',
+        'masked?',
+        'required?',
+      ],
+    },
+    menuChoice: ['value', 'label'],
+    applyResult: [
+      'command',
+      'ok',
+      'text',
+      'menu',
+      'code?',
+      'needsConfirmation?',
+    ],
     account: [
       'selector',
       'id',
@@ -1757,14 +1940,6 @@ export const ANTIGRAVITY_RPC_CONTRACT = {
     },
     route: ['accountId', 'modelFamily', 'headerStyle', 'strategy', 'updatedAt'],
     status: ['checkedAt', 'quotaBackoffUntil', 'routingAuthoritative'],
-    commandResult: {
-      'antigravity-quota': ['accounts'],
-      'antigravity-account': ['accounts', 'authorizationUrl', 'targetOutcome'],
-      'antigravity-routing': ['routing'],
-      'antigravity-killswitch': ['killswitch'],
-      'antigravity-dump': ['dump'],
-      'antigravity-logging': ['logLevel'],
-    },
     changedEvent: ['version', 'generation'],
   },
 } as const
