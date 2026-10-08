@@ -36,7 +36,7 @@
       "types": "./dist/index.d.ts"
     },
     "./server": {
-      "import": "./dist/src/server.js",
+      "import": "./dist/server.js",
       "types": "./dist/types/src/server.d.ts"
     },
     "./tui": {
@@ -67,7 +67,7 @@
   ],
   "scripts": {
     "embed:check": "bun scripts/build-tui.ts --check",
-    "build": "bun run embed:check && bun scripts/build-tui.ts --library && tsc -p tsconfig.ga.emit.json",
+    "build": "bun run embed:check && bun scripts/build-tui.ts --library && esbuild src/server.ts --bundle --platform=node --format=esm --external:zod --outfile=dist/server.js --sourcemap --metafile=dist/server.meta.json --log-level=warning && tsc -p tsconfig.ga.emit.json",
     "build:tui": "bun run embed:check && bun scripts/build-tui.ts",
     "build:schema": "bun script/build-schema.ts",
     "smoke:tui": "bun run embed:check && bun scripts/smoke-tui-pack-install.ts",

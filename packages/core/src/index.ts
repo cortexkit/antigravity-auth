@@ -1,12 +1,16 @@
 // @cortexkit/antigravity-auth-core
 // Harness-agnostic core surface. Modules are migrated here in stages.
 
+export * from './account-identity.ts'
 export type {
   AccountManagerOptions,
   AccountSessionIdentity,
   ManagedAccount,
 } from './account-manager.ts'
 export { AccountManager, resolveQuotaGroup } from './account-manager.ts'
+export * from './account-repository.ts'
+export * from './account-repository-codecs.ts'
+export * from './account-repository-types.ts'
 export * from './account-storage.ts'
 export * from './account-types.ts'
 export * from './agy-request-metadata.ts'

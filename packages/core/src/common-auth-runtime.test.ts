@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  type AccountStoreModules,
   type CommonAuthStoreModules,
+  createAccountRepositoryFactory,
   loadCommonAuthAuthMenu,
   loadCommonAuthClaustrum,
   loadCommonAuthCommands,
@@ -73,6 +75,13 @@ describe('common-auth runtime bindings', () => {
     const modules: CommonAuthStoreModules = await loadCommonAuthStoreModules()
     expect(modules.store).toBe(await loadCommonAuthStore())
     expect(modules.fs).toBe(await loadCommonAuthFs())
+  })
+
+  it('serves the account repository factory without adaptation', async () => {
+    // A plain typed assignment: the loaded modules satisfy the repository's
+    // declared requirements as they are, with no cast or wrapper.
+    const modules: AccountStoreModules = await loadCommonAuthStoreModules()
+    expect(typeof createAccountRepositoryFactory(modules)).toBe('function')
   })
 
   it('runs genuine library file operations through the loaded fs entry', async () => {

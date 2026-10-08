@@ -17,6 +17,10 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./account-identity": {
+      "types": "./dist/account-identity.d.ts",
+      "import": "./dist/account-identity.js"
+    },
     "./file-lock": {
       "types": "./dist/file-lock.d.ts",
       "import": "./dist/file-lock.js"
