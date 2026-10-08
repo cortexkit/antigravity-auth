@@ -1,17 +1,53 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import {
+  type AccountMigrationModules,
+  type AccountRepository,
+  type AccountStoreModules,
+  type AccountTokenExchange,
+  createAccountMigrationFactory,
+  createAccountRepositoryFactory,
+} from '@cortexkit/antigravity-auth-core'
+import { createRepositoryAccountAccessService } from './account-access'
+import {
+  createLocalAccountCredentials,
+  loadAccountManagerFromRepository,
+} from './accounts'
+import { commitLogins, persistAccountPool } from './persist-account-pool'
 import {
   type AccountMetadataV2 as AccountMetadata,
   type AccountStorageV2 as AccountStorage,
   type AccountStorageV4,
+  assertLegacyPoolInUse,
+  clearAccounts,
   deduplicateAccountsByEmail,
   ensureGitignore,
   ensureGitignoreSync,
+  getStoragePath,
+  initializeFreshAccountStoreFor,
+  LegacyAccountPoolRetiredError,
   loadAccounts,
   mergeAccountStorage,
   migrateV2ToV3,
+  mutateAccountByRefreshToken,
+  mutateAccountStorage,
+  type OpenAccountStoreOptions,
+  openAccountStore,
+  saveAccounts,
+  saveAccountsReplace,
 } from './storage'
 
 describe('deduplicateAccountsByEmail', () => {
@@ -516,6 +552,7 @@ describe('Storage Migration', () => {
         '.gitignore',
         'antigravity-accounts.json',
         'antigravity-accounts.json.*.tmp',
+        'antigravity-accounts.json.store*',
         'antigravity-signature-cache.json',
         'antigravity-logs/',
       ].join('\n')
@@ -575,6 +612,7 @@ describe('Storage Migration', () => {
         '.gitignore',
         'antigravity-accounts.json',
         'antigravity-accounts.json.*.tmp',
+        'antigravity-accounts.json.store*',
         'antigravity-signature-cache.json',
         'antigravity-logs/',
       ].join('\n')
@@ -588,5 +626,531 @@ describe('Storage Migration', () => {
       )
       expect(after).toBe(existing)
     })
+  })
+})
+
+describe('pool file retired by the account store', () => {
+  let configDir = ''
+  let previousConfigDir: string | undefined
+  const pool: AccountStorageV4 = {
+    version: 4,
+    activeIndex: 0,
+    accounts: [
+      { email: 'a@example.test', refreshToken: 'r-a', addedAt: 1, lastUsed: 2 },
+    ],
+  }
+
+  beforeEach(async () => {
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    configDir = await mkdtemp(join(tmpdir(), 'agy-retired-pool-'))
+    process.env.OPENCODE_CONFIG_DIR = configDir
+  })
+
+  afterEach(async () => {
+    if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+    await rm(configDir, { recursive: true, force: true })
+  })
+
+  it('still reads and writes the pool file while no store exists', async () => {
+    await saveAccountsReplace(pool)
+    await expect(loadAccounts()).resolves.toMatchObject({
+      accounts: [expect.objectContaining({ refreshToken: 'r-a' })],
+    })
+  })
+
+  it('refuses every pool-file reader and writer once the store directory exists, leaving a recreated file untouched', async () => {
+    const legacyPath = getStoragePath()
+    await saveAccountsReplace(pool)
+    const before = await readFile(legacyPath, 'utf8')
+    // A store directory that no pointer publishes is not proof that the
+    // store is absent; the migration's check refuses it.
+    await mkdir(`${legacyPath}.store`)
+
+    const attempts: Array<[string, () => Promise<unknown>]> = [
+      ['loadAccounts', () => loadAccounts()],
+      ['saveAccounts', () => saveAccounts(pool)],
+      ['saveAccountsReplace', () => saveAccountsReplace(pool)],
+      ['clearAccounts', () => clearAccounts()],
+      [
+        'mutateAccountByRefreshToken',
+        () =>
+          mutateAccountByRefreshToken('r-a', (account) => {
+            account.label = 'changed'
+            return true
+          }),
+      ],
+      [
+        'mutateAccountStorage',
+        () =>
+          mutateAccountStorage(legacyPath, () => ({ ...pool, accounts: [] })),
+      ],
+    ]
+    for (const [name, attempt] of attempts) {
+      const failure = await attempt().then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      expect([name, failure]).toEqual([
+        name,
+        expect.any(LegacyAccountPoolRetiredError),
+      ])
+    }
+    expect(await readFile(legacyPath, 'utf8')).toBe(before)
+  })
+
+  it('does not create the pool file when the store exists and it is gone', async () => {
+    await mkdir(`${getStoragePath()}.store`)
+    await expect(saveAccountsReplace(pool)).rejects.toBeInstanceOf(
+      LegacyAccountPoolRetiredError,
+    )
+    await expect(stat(getStoragePath())).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  })
+
+  it('refuses on a store pointer it cannot read rather than treat it as absent', async () => {
+    const legacyPath = getStoragePath()
+    await saveAccountsReplace(pool)
+    const before = await readFile(legacyPath, 'utf8')
+    await writeFile(`${legacyPath}.store.pointer.json`, '{"schemaVersion":', {
+      mode: 0o600,
+    })
+    const failure = await assertLegacyPoolInUse(legacyPath).catch(
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(LegacyAccountPoolRetiredError)
+    expect((failure as Error).cause).toMatchObject({
+      name: 'AccountMigrationError',
+    })
+    await expect(saveAccounts(pool)).rejects.toBeInstanceOf(
+      LegacyAccountPoolRetiredError,
+    )
+    expect(await readFile(legacyPath, 'utf8')).toBe(before)
+  })
+})
+
+describe('openAccountStore', () => {
+  let configDir = ''
+  let previousConfigDir: string | undefined
+
+  beforeEach(async () => {
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    configDir = await mkdtemp(join(tmpdir(), 'agy-open-store-'))
+    process.env.OPENCODE_CONFIG_DIR = configDir
+  })
+
+  afterEach(async () => {
+    if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+    await rm(configDir, { recursive: true, force: true })
+  })
+
+  // None of these cases may open a store or build a repository: only an
+  // active, verified generation does.
+  function options() {
+    const built: unknown[] = []
+    return {
+      built,
+      options: {
+        modules: {
+          store: {
+            openPoolStore: () => {
+              throw new Error(
+                'admission opened a store for a non-active result',
+              )
+            },
+          },
+        },
+        createRepository: (input: unknown) => {
+          built.push(input)
+          throw new Error('a repository was built for a non-active store')
+        },
+        exchange: async () => {
+          throw new Error('no exchange')
+        },
+        now: () => 1,
+      } satisfies OpenAccountStoreOptions,
+    }
+  }
+
+  it('answers initialization-required for a fresh installation and creates nothing', async () => {
+    const { built, options: open } = options()
+    await expect(openAccountStore(open)).resolves.toEqual({
+      status: 'initialization-required',
+    })
+    expect(built).toEqual([])
+    expect(await readdir(configDir)).toEqual([])
+  })
+
+  it('refuses an existing pool file without a store as pending migration, naming the offline command', async () => {
+    await saveAccountsReplace({ version: 4, accounts: [], activeIndex: 0 })
+    const before = await readdir(configDir)
+    const { built, options: open } = options()
+    const opening = await openAccountStore(open)
+    expect(opening).toMatchObject({
+      status: 'refused',
+      admission: { status: 'pending' },
+    })
+    expect(opening.status === 'refused' ? opening.message : '').toContain(
+      'antigravity-auth account-store migrate --offline',
+    )
+    expect(built).toEqual([])
+    expect(await readdir(configDir)).toEqual(before)
+  })
+
+  it('refuses unowned store files instead of initializing or resetting them', async () => {
+    await mkdir(join(configDir, 'antigravity-accounts.json.store'))
+    const { built, options: open } = options()
+    await expect(openAccountStore(open)).resolves.toMatchObject({
+      status: 'refused',
+      admission: { status: 'error' },
+    })
+    expect(built).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Genuine published store
+//
+// These run the adapters against common-auth's genuine public `./store` and
+// `./fs` entries and the migration's real admission, publication and
+// retirement, in disposable directories. The modules are loaded the way a
+// package consumer loads them: AGY_COMMON_AUTH_STORE_CONSUMER names a
+// directory holding `node_modules/@cortexkit/common-auth` (the admitted
+// release) and two bridges that re-export exactly `@cortexkit/common-auth/store`
+// and `@cortexkit/common-auth/fs`. The consumer is checked before anything is
+// imported, so a missing or different input fails these tests instead of
+// skipping them or substituting a stand-in.
+// ---------------------------------------------------------------------------
+
+const CONSUMER_ENV = 'AGY_COMMON_AUTH_STORE_CONSUMER'
+const ADMITTED_VERSION = '0.11.4'
+/**
+ * SHA-256 over the sorted lines `<path>\0<sha256>\n` of `package.json` and
+ * every file under `dist/store/` and `dist/fs/` of the admitted package (the
+ * digest the repository's own real-store tests admit).
+ */
+const ADMITTED_CLOSURE_SHA256 =
+  '1457c1741246d51c5aa311b60d7f2e17a760b861e4fdb880033d92b60869bc6a'
+const BRIDGES = {
+  store: ['store-bridge.mjs', "export * from '@cortexkit/common-auth/store'\n"],
+  fs: ['fs-bridge.mjs', "export * from '@cortexkit/common-auth/fs'\n"],
+} as const
+
+async function filesBelow(root: string, dir: string): Promise<string[]> {
+  const out: string[] = []
+  for (const entry of await readdir(join(root, dir), { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`
+    if (entry.isDirectory()) out.push(...(await filesBelow(root, path)))
+    else out.push(path)
+  }
+  return out
+}
+
+interface GenuineModules {
+  migration: AccountMigrationModules
+  repository: AccountStoreModules
+}
+
+let genuine: Promise<GenuineModules> | undefined
+
+function genuineModules(): Promise<GenuineModules> {
+  genuine ??= (async () => {
+    const consumer = process.env[CONSUMER_ENV]
+    if (!consumer) {
+      throw new Error(
+        `${CONSUMER_ENV} is not set: these tests need a consumer of @cortexkit/common-auth ${ADMITTED_VERSION}`,
+      )
+    }
+    const root = join(consumer, 'node_modules', '@cortexkit', 'common-auth')
+    const manifest = JSON.parse(
+      await readFile(join(root, 'package.json'), 'utf8'),
+    ) as { name?: unknown; version?: unknown }
+    if (
+      manifest.name !== '@cortexkit/common-auth' ||
+      manifest.version !== ADMITTED_VERSION
+    ) {
+      throw new Error(
+        `${root} is not @cortexkit/common-auth ${ADMITTED_VERSION}`,
+      )
+    }
+    const files = [
+      'package.json',
+      ...(await filesBelow(root, 'dist/store')),
+      ...(await filesBelow(root, 'dist/fs')),
+    ].sort()
+    let lines = ''
+    for (const file of files) {
+      const bytes = await readFile(join(root, file))
+      lines += `${file}\0${createHash('sha256').update(bytes).digest('hex')}\n`
+    }
+    const digest = createHash('sha256').update(lines).digest('hex')
+    if (digest !== ADMITTED_CLOSURE_SHA256) {
+      throw new Error(`store closure digest ${digest} is not the admitted one`)
+    }
+    const loaded: Record<string, unknown> = {}
+    for (const [key, [file, source]] of Object.entries(BRIDGES)) {
+      const bridge = join(consumer, file)
+      if ((await readFile(bridge, 'utf8')) !== source) {
+        throw new Error(`${bridge} must contain exactly: ${source}`)
+      }
+      loaded[key] = await import(pathToFileURL(bridge).href)
+    }
+    // The genuine module namespaces; the repository and migration declare
+    // the public capabilities they call as structural types.
+    const modules = { store: loaded.store, fs: loaded.fs } as never
+    return { migration: modules, repository: modules }
+  })()
+  return genuine
+}
+
+describe('account store over the genuine published store', () => {
+  let configDir = ''
+  let previousConfigDir: string | undefined
+  const opened: AccountRepository[] = []
+
+  beforeEach(async () => {
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    configDir = await realpath(await mkdtemp(join(tmpdir(), 'agy-real-store-')))
+    process.env.OPENCODE_CONFIG_DIR = configDir
+  })
+
+  afterEach(async () => {
+    for (const repository of opened.splice(0)) await repository.dispose()
+    if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+    await rm(configDir, { recursive: true, force: true })
+  })
+
+  async function open(
+    exchange: AccountTokenExchange = async () => {
+      throw new Error('this test performs no token exchange')
+    },
+  ) {
+    const modules = await genuineModules()
+    const opening = await openAccountStore({
+      modules: modules.migration,
+      createRepository: createAccountRepositoryFactory(modules.repository),
+      exchange,
+    })
+    if (opening.status === 'ready') opened.push(opening.repository)
+    return opening
+  }
+
+  const success = (refresh: string, email: string) => ({
+    type: 'success' as const,
+    refresh,
+    access: 'never-stored',
+    expires: 1,
+    email,
+    projectId: '',
+  })
+
+  it('initializes a fresh store only when asked, then serves it and refuses the pool file', async () => {
+    const modules = await genuineModules()
+    await expect(open()).resolves.toEqual({
+      status: 'initialization-required',
+    })
+
+    const initialized = await initializeFreshAccountStoreFor(modules.migration)
+    expect(initialized.status).toBe('completed')
+
+    const opening = await open()
+    expect(opening.status).toBe('ready')
+    if (opening.status !== 'ready') return
+    await expect(opening.repository.read()).resolves.toMatchObject({
+      status: 'ready',
+      rows: [],
+    })
+
+    const [login] = await commitLogins(opening.repository, [
+      success('fresh-token|fresh-project', 'fresh@example.test'),
+    ])
+    expect(login).toMatchObject({ status: 'committed', outcome: 'added' })
+    const read = await opening.repository.read()
+    if (login?.status !== 'committed' || read.status !== 'ready') {
+      throw new Error('the login was not committed to a ready store')
+    }
+    expect(read.rows.map((row) => row.ref)).toEqual([login.ref])
+
+    // The store owns the accounts now: no pool-file reader or writer runs,
+    // and the pool file is never created.
+    for (const attempt of [
+      () => loadAccounts(),
+      () => saveAccountsReplace({ version: 4, accounts: [], activeIndex: 0 }),
+      () => persistAccountPool([success('late-token', 'late@example.test')]),
+    ]) {
+      await expect(attempt()).rejects.toBeInstanceOf(
+        LegacyAccountPoolRetiredError,
+      )
+    }
+    await expect(stat(getStoragePath())).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  })
+
+  it('serves a migrated pool, refuses its retired file, and refuses again when the file is recreated', async () => {
+    const modules = await genuineModules()
+    await saveAccountsReplace({
+      version: 4,
+      activeIndex: 1,
+      accounts: [
+        {
+          email: 'one@example.test',
+          refreshToken: 'token-one',
+          projectId: 'project-one',
+          addedAt: 10,
+          lastUsed: 20,
+        },
+        {
+          email: 'two@example.test',
+          refreshToken: 'token-two',
+          addedAt: 11,
+          lastUsed: 21,
+          enabled: false,
+        },
+      ],
+    })
+    await expect(open()).resolves.toMatchObject({
+      status: 'refused',
+      admission: { status: 'pending' },
+    })
+
+    const migrated = await createAccountMigrationFactory(modules.migration)({
+      legacyPath: getStoragePath(),
+      offline: { processesStopped: true },
+      now: () => Date.now(),
+    })
+    expect(migrated.status).toBe('completed')
+    await expect(stat(getStoragePath())).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+
+    const opening = await open()
+    expect(opening.status).toBe('ready')
+    if (opening.status !== 'ready') return
+    const read = await opening.repository.read()
+    expect(read.status).toBe('ready')
+    if (read.status !== 'ready') return
+    expect(
+      read.rows.map((row) => ({
+        token: row.credential?.refreshToken,
+        enabled: row.enabled,
+        email:
+          row.metadata.status === 'present'
+            ? row.metadata.metadata.email
+            : undefined,
+      })),
+    ).toEqual([
+      { token: 'token-one', enabled: true, email: 'one@example.test' },
+      { token: 'token-two', enabled: false, email: 'two@example.test' },
+    ])
+
+    // Retired: every pool-file path refuses and nothing recreates the file.
+    await expect(
+      saveAccounts({ version: 4, accounts: [], activeIndex: 0 }),
+    ).rejects.toBeInstanceOf(LegacyAccountPoolRetiredError)
+    await expect(stat(getStoragePath())).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+
+    // A pool file recreated after activation (an older build, a restore) is
+    // neither served nor written.
+    const recreated = '{"version":4,"accounts":[],"activeIndex":0}'
+    await writeFile(getStoragePath(), recreated, { mode: 0o600 })
+    await expect(
+      mutateAccountStorage(getStoragePath(), (current) => current),
+    ).rejects.toBeInstanceOf(LegacyAccountPoolRetiredError)
+    await expect(loadAccounts()).rejects.toBeInstanceOf(
+      LegacyAccountPoolRetiredError,
+    )
+    expect(await readFile(getStoragePath(), 'utf8')).toBe(recreated)
+    await expect(open()).resolves.toMatchObject({
+      status: 'refused',
+      admission: { status: 'error' },
+    })
+  })
+
+  it('refreshes accounts concurrently and drops a verdict for a credential replaced meanwhile', async () => {
+    const modules = await genuineModules()
+    expect(
+      (await initializeFreshAccountStoreFor(modules.migration)).status,
+    ).toBe('completed')
+    // Each exchange finishes only once both have started: refreshes that
+    // were serialized across accounts would never both get there.
+    let started = 0
+    let bothStarted: () => void = () => {}
+    const bothHaveStarted = new Promise<void>((resolve) => {
+      bothStarted = resolve
+    })
+    const exchanged: string[] = []
+    const opening = await open(async ({ refreshToken }) => {
+      exchanged.push(`start ${refreshToken}`)
+      started += 1
+      if (started === 2) bothStarted()
+      await bothHaveStarted
+      exchanged.push(`end ${refreshToken}`)
+      return {
+        accessToken: `access-for-${refreshToken}`,
+        refreshToken,
+        expiresAt: Date.now() + 3_600_000,
+      }
+    })
+    if (opening.status !== 'ready') throw new Error('store is not ready')
+    const repository = opening.repository
+    await commitLogins(repository, [
+      success('token-a', 'a@example.test'),
+      success('token-b', 'b@example.test'),
+    ])
+
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager)
+    const [accountA, accountB] = manager.getAccounts()
+    const [authA, authB] = await Promise.all([
+      credentials.refresh(accountA!),
+      credentials.refresh(accountB!),
+    ])
+    expect(authA?.access).toBe('access-for-token-a')
+    expect(authB?.access).toBe('access-for-token-b')
+    expect(exchanged.slice(0, 2).sort()).toEqual([
+      'start token-a',
+      'start token-b',
+    ])
+
+    // A verdict probed for row A's first credential arrives after row A was
+    // re-authenticated: the store refuses it and nothing changes.
+    const service = createRepositoryAccountAccessService({
+      repository,
+      openBrowser: async () => false,
+      prompt: {
+        selectAccount: async () => undefined,
+        confirmOpenVerificationUrl: async () => false,
+      },
+    })
+    const [listedA] = await service.listAccounts()
+    await service.reauthorizeAccount(
+      listedA!.ref,
+      success('token-a2', 'a@example.test'),
+    )
+    await expect(
+      service.applyVerificationResult({
+        status: 'probed',
+        ref: listedA!.ref,
+        result: { status: 'ineligible', message: 'ACCOUNT_INELIGIBLE' },
+        observedAt: Date.now(),
+      }),
+    ).resolves.toEqual({ status: 'stale', rowId: listedA!.ref.id })
+    const after = await repository.read()
+    const rowA = after.status === 'ready' ? after.rows[0] : undefined
+    expect(rowA?.enabled).toBe(true)
+    expect(rowA?.credential?.refreshToken).toBe('token-a2')
+    expect(
+      rowA?.metadata.status === 'present'
+        ? rowA.metadata.metadata.accountIneligible
+        : undefined,
+    ).not.toBe(true)
   })
 })

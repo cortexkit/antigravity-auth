@@ -1,8 +1,24 @@
+import {
+  type AccountRepository,
+  AccountRepositoryError,
+  type AccountRow,
+  type RowRef,
+  sameRowRef,
+} from '@cortexkit/antigravity-auth-core'
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
 import {
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
   ANTIGRAVITY_ENDPOINT_PROD,
 } from '../constants'
+import {
+  type AccountAccessBlock,
+  accessBlockOf,
+  accessVerdictFromProbe,
+  clearLegacyAccessBlocks,
+  markLegacyIneligible,
+  markLegacyVerificationRequired,
+  type VerificationProbeResult,
+} from './account-blocks'
 import {
   buildAgyAgentRequestMetadata,
   createAgyRequestSessionContext,
@@ -15,15 +31,7 @@ import type { AccountMetadataV3, AccountStorageV4 } from './storage'
 import { AntigravityTokenRefreshError, refreshAccessToken } from './token'
 import type { PluginClient } from './types'
 
-export type VerificationProbeResult =
-  | { status: 'ok'; message: string }
-  | { status: 'ineligible'; message: string }
-  | {
-      status: 'verification-required'
-      message: string
-      verifyUrl?: string
-    }
-  | { status: 'error'; message: string }
+export type { VerificationProbeResult }
 
 export interface AccountIdentity {
   refreshToken?: string
@@ -342,131 +350,21 @@ export function markStoredAccountVerificationRequired(
   reason: string,
   verifyUrl?: string,
 ): boolean {
-  let changed = false
-  const wasVerificationRequired = account.verificationRequired === true
-  const timestamp = Date.now()
-
-  if (!wasVerificationRequired) {
-    account.verificationRequired = true
-    changed = true
-  }
-  if (
-    !wasVerificationRequired ||
-    account.verificationRequiredAt === undefined
-  ) {
-    account.verificationRequiredAt = timestamp
-    changed = true
-  }
-  if (
-    account.accountIneligible === true ||
-    account.accountIneligibleAt !== undefined ||
-    account.accountIneligibleReason !== undefined
-  ) {
-    account.accountIneligible = false
-    account.accountIneligibleAt = undefined
-    account.accountIneligibleReason = undefined
-    account.eligibilityStateUpdatedAt = timestamp
-    changed = true
-  }
-
-  if (account.accountIneligible === undefined) {
-    account.accountIneligible = false
-    changed = true
-  }
-
-  const normalizedReason = reason.trim()
-  if (account.verificationRequiredReason !== normalizedReason) {
-    account.verificationRequiredReason = normalizedReason
-    changed = true
-  }
-
-  const normalizedUrl = verifyUrl?.trim()
-  if (normalizedUrl && account.verificationUrl !== normalizedUrl) {
-    account.verificationUrl = normalizedUrl
-    changed = true
-  }
-  if (account.enabled !== false) {
-    account.enabled = false
-    changed = true
-  }
-  return changed
+  return markLegacyVerificationRequired(account, reason, verifyUrl, Date.now())
 }
 
 export function markStoredAccountIneligible(
   account: VerificationStoredAccount,
   reason: string,
 ): boolean {
-  const timestamp = Date.now()
-  const normalizedReason =
-    reason.trim() || 'Google marked this account as ineligible.'
-  const changed =
-    account.accountIneligible !== true ||
-    account.accountIneligibleReason !== normalizedReason ||
-    account.verificationRequired === true ||
-    account.verificationRequiredAt !== undefined ||
-    account.verificationRequiredReason !== undefined ||
-    account.verificationUrl !== undefined ||
-    account.enabled !== false
-
-  account.accountIneligible = true
-  account.accountIneligibleAt = timestamp
-  account.accountIneligibleReason = normalizedReason
-  account.eligibilityStateUpdatedAt = timestamp
-  account.verificationRequired = false
-  account.verificationRequiredAt = undefined
-  account.verificationRequiredReason = undefined
-  account.verificationUrl = undefined
-  account.enabled = false
-  return changed
+  return markLegacyIneligible(account, reason, Date.now())
 }
 
 export function clearStoredAccountAccessBlocks(
   account: VerificationStoredAccount,
   enableIfBlocked = false,
 ): { changed: boolean; wasAccessBlocked: boolean } {
-  const wasVerificationRequired = account.verificationRequired === true
-  const wasIneligible = account.accountIneligible === true
-  const wasAccessBlocked = wasVerificationRequired || wasIneligible
-  let changed = false
-
-  if (account.verificationRequired !== false) {
-    account.verificationRequired = false
-    changed = true
-  }
-  if (account.verificationRequiredAt !== undefined) {
-    account.verificationRequiredAt = undefined
-    changed = true
-  }
-  if (account.verificationRequiredReason !== undefined) {
-    account.verificationRequiredReason = undefined
-    changed = true
-  }
-  if (account.verificationUrl !== undefined) {
-    account.verificationUrl = undefined
-    changed = true
-  }
-  if (account.accountIneligible !== false) {
-    account.accountIneligible = false
-    changed = true
-  }
-  if (account.accountIneligibleAt !== undefined) {
-    account.accountIneligibleAt = undefined
-    changed = true
-  }
-  if (account.accountIneligibleReason !== undefined) {
-    account.accountIneligibleReason = undefined
-    changed = true
-  }
-  if (wasIneligible || account.eligibilityStateUpdatedAt !== undefined) {
-    account.eligibilityStateUpdatedAt = Date.now()
-    changed = true
-  }
-  if (enableIfBlocked && wasAccessBlocked && account.enabled === false) {
-    account.enabled = true
-    changed = true
-  }
-
-  return { changed, wasAccessBlocked }
+  return clearLegacyAccessBlocks(account, enableIfBlocked, Date.now())
 }
 
 function findAccountIndex(
@@ -485,6 +383,51 @@ function findAccountIndex(
     )
   }
   return -1
+}
+
+/**
+ * Sends one minimal generation request with `accessToken` for `projectId`
+ * and classifies the answer. Network failures and timeouts become `error`
+ * results, never an access verdict.
+ */
+async function probeAccountAccess(
+  accessToken: string,
+  projectId: string,
+  transport: typeof fetchWithAgyCliTransport,
+): Promise<VerificationProbeResult> {
+  const fingerprintHeaders = buildFingerprintHeaders(getSessionFingerprint())
+  const headers: Record<string, string> = {
+    'User-Agent':
+      fingerprintHeaders['User-Agent'] ?? getSessionFingerprint().userAgent,
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    'Accept-Encoding': 'gzip',
+  }
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 20_000)
+
+  try {
+    const response = await transport(
+      `${ANTIGRAVITY_ENDPOINT_PROD}/v1internal:streamGenerateContent?alt=sse`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(buildAccountAccessProbeRequest(projectId)),
+      },
+      { signal: controller.signal },
+    )
+    return interpretAccountAccessProbeResponse(response)
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      return { status: 'error', message: 'Verification check timed out.' }
+    }
+    return {
+      status: 'error',
+      message: `Verification check failed: ${String(error)}`,
+    }
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 export function createAccountAccessService({
@@ -546,39 +489,7 @@ export function createAccountAccessService({
       account.managedProjectId ??
       account.projectId ??
       ANTIGRAVITY_DEFAULT_PROJECT_ID
-    const fingerprintHeaders = buildFingerprintHeaders(getSessionFingerprint())
-    const headers: Record<string, string> = {
-      'User-Agent':
-        fingerprintHeaders['User-Agent'] ?? getSessionFingerprint().userAgent,
-      Authorization: `Bearer ${refreshedAuth.access}`,
-      'Content-Type': 'application/json',
-      'Accept-Encoding': 'gzip',
-    }
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 20_000)
-
-    try {
-      const response = await transport(
-        `${ANTIGRAVITY_ENDPOINT_PROD}/v1internal:streamGenerateContent?alt=sse`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(buildAccountAccessProbeRequest(projectId)),
-        },
-        { signal: controller.signal },
-      )
-      return interpretAccountAccessProbeResponse(response)
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        return { status: 'error', message: 'Verification check timed out.' }
-      }
-      return {
-        status: 'error',
-        message: `Verification check failed: ${String(error)}`,
-      }
-    } finally {
-      clearTimeout(timeoutId)
-    }
+    return probeAccountAccess(refreshedAuth.access, projectId, transport)
   }
 
   return {
@@ -624,6 +535,335 @@ export function createAccountAccessService({
       return outcome
     },
     selectAccount: (accounts) => prompt.selectAccount(accounts),
+    async openVerificationUrl(url) {
+      if (!(await prompt.confirmOpenVerificationUrl())) return false
+      return openBrowser(url)
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Account-store access service
+// ---------------------------------------------------------------------------
+
+/** Exact text shown when a re-authentication lost its row. */
+export const ACCOUNT_CHANGED_DURING_REAUTHORIZATION_MESSAGE =
+  'Account changed during reauthorization. Reopen the account dialog.'
+
+/**
+ * Thrown when a re-authentication cannot land on the row it was started
+ * for: the row was removed, re-added or given another credential since the
+ * dialog captured it, or the browser signed in to a different account than
+ * the row holds. Nothing is written.
+ */
+export class AccountChangedDuringReauthorizationError extends Error {
+  readonly rowId: string
+
+  constructor(rowId: string, options?: { cause?: unknown }) {
+    super(ACCOUNT_CHANGED_DURING_REAUTHORIZATION_MESSAGE, options)
+    this.name = 'AccountChangedDuringReauthorizationError'
+    this.rowId = rowId
+  }
+}
+
+/**
+ * Thrown when the account store cannot list accounts (pending migration or
+ * management operation, unreadable file). Nothing falls back to the pool
+ * file or to an empty list.
+ */
+export class AccountStoreUnavailableError extends Error {
+  readonly status: 'pending-migration' | 'management-pending' | 'error'
+
+  constructor(status: AccountStoreUnavailableError['status'], detail: string) {
+    super(`The account store is not available (${status}): ${detail}`)
+    this.name = 'AccountStoreUnavailableError'
+    this.status = status
+  }
+}
+
+/**
+ * One account as an access dialog shows it. `ref` is captured when the list
+ * is read; every later action on the entry uses it, never the position, so
+ * an entry whose row was reordered, removed or re-authenticated meanwhile
+ * is refused rather than redirected to whatever row sits there now.
+ */
+export interface AccountAccessView {
+  ref: RowRef
+  /** Roster position at read time; presentation only. */
+  index: number
+  email?: string
+  label?: string
+  enabled: boolean
+  block: AccountAccessBlock
+  projectId?: string
+  managedProjectId?: string
+}
+
+export type VerificationOutcome =
+  | {
+      /** The probe ran with a bearer refreshed for exactly `ref`. */
+      status: 'probed'
+      ref: RowRef
+      result: VerificationProbeResult
+      observedAt: number
+    }
+  | {
+      /** No bearer was obtained; nothing about access was learnt. */
+      status: 'not-probed'
+      ref: RowRef
+      result: Extract<VerificationProbeResult, { status: 'error' }>
+    }
+
+export type AccessVerdictOutcome =
+  | { status: 'applied'; ref: RowRef; declined: boolean }
+  /** The probe proved nothing about access, so nothing was written. */
+  | { status: 'no-verdict' }
+  /** The row no longer holds the probed credential; nothing was written. */
+  | { status: 'stale'; rowId: string }
+
+export interface RepositoryAccountAccessService {
+  listAccounts(): Promise<AccountAccessView[]>
+  verifyAccount(
+    account: Pick<AccountAccessView, 'ref'>,
+  ): Promise<VerificationOutcome>
+  applyVerificationResult(
+    outcome: VerificationOutcome,
+    options?: { enableIfBlocked?: boolean },
+  ): Promise<AccessVerdictOutcome>
+  reauthorizeAccount(
+    expected: RowRef,
+    result: Extract<AntigravityTokenExchangeResult, { type: 'success' }>,
+  ): Promise<{ ref: RowRef }>
+  selectAccount(
+    accounts: Array<{ email?: string; index: number }>,
+  ): Promise<number | undefined>
+  openVerificationUrl(url: string): Promise<boolean>
+}
+
+interface CreateRepositoryAccountAccessServiceOptions {
+  repository: AccountRepository
+  openBrowser(url: string): Promise<boolean>
+  prompt: AccountAccessPrompt
+  now?: () => number
+  transport?: typeof fetchWithAgyCliTransport
+}
+
+function textOf(value: string | null | undefined): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+function accessViewOf(row: AccountRow): AccountAccessView {
+  const metadata =
+    row.metadata.status === 'present' ? row.metadata.metadata : undefined
+  const email = textOf(metadata?.email)
+  const label = textOf(metadata?.label)
+  const projectId = textOf(metadata?.projectId)
+  const managedProjectId = textOf(metadata?.managedProjectId)
+  return {
+    ref: row.ref,
+    index: row.index,
+    enabled: row.enabled,
+    block: accessBlockOf(metadata),
+    ...(email !== undefined ? { email } : {}),
+    ...(label !== undefined ? { label } : {}),
+    ...(projectId !== undefined ? { projectId } : {}),
+    ...(managedProjectId !== undefined ? { managedProjectId } : {}),
+  }
+}
+
+/** A repository refusal meaning the ref no longer names the row's credential. */
+function isStaleRefFailure(error: unknown): error is AccountRepositoryError {
+  return (
+    error instanceof AccountRepositoryError &&
+    (error.failure.kind === 'attribution' ||
+      error.failure.kind === 'unknown-row')
+  )
+}
+
+/**
+ * The access service over the account repository. Every operation names its
+ * row by the `RowRef` captured when the account list was read:
+ * - verification refreshes the bearer through `AccountRepository.refresh`
+ *   on that ref (the stored credential, fenced by the store), never with a
+ *   token copied out of an earlier read;
+ * - the verdict is recorded with `recordAccessVerdict` on the ref the
+ *   refresh confirmed, timestamped when the answer arrived, so a late
+ *   verdict cannot undo newer evidence and a verdict about a replaced or
+ *   re-added credential is refused;
+ * - re-authentication replaces the credential of exactly that ref
+ *   (`replaceCredential`), keeping a user's disabled choice.
+ */
+export function createRepositoryAccountAccessService({
+  repository,
+  openBrowser,
+  prompt,
+  now = () => Date.now(),
+  transport = fetchWithAgyCliTransport,
+}: CreateRepositoryAccountAccessServiceOptions): RepositoryAccountAccessService {
+  const readRows = async (): Promise<readonly AccountRow[]> => {
+    const read = await repository.read()
+    switch (read.status) {
+      case 'ready':
+        return read.rows
+      case 'pending-migration':
+        throw new AccountStoreUnavailableError(
+          read.status,
+          'run `antigravity-auth account-store migrate --offline`',
+        )
+      case 'management-pending':
+        throw new AccountStoreUnavailableError(
+          read.status,
+          `an account ${read.management.kind} operation must be resumed first`,
+        )
+      case 'error':
+        throw new AccountStoreUnavailableError(
+          read.status,
+          `${read.file}: ${read.reason}`,
+        )
+    }
+  }
+
+  return {
+    async listAccounts() {
+      return (await readRows()).map(accessViewOf)
+    },
+
+    async verifyAccount({ ref }) {
+      const rows = await readRows()
+      const row = rows.find((candidate) => sameRowRef(candidate.ref, ref))
+      if (row === undefined) {
+        return {
+          status: 'not-probed',
+          ref,
+          result: {
+            status: 'error',
+            message:
+              'This account changed since the list was opened. Reopen the account list.',
+          },
+        }
+      }
+      const view = accessViewOf(row)
+      let outcome: Awaited<ReturnType<AccountRepository['refresh']>>
+      try {
+        outcome = await repository.refresh(ref)
+      } catch (error) {
+        const message = isStaleRefFailure(error)
+          ? 'This account changed since the list was opened. Reopen the account list.'
+          : error instanceof AntigravityTokenRefreshError
+            ? error.message
+            : `Token refresh failed: ${error instanceof Error ? error.message : String(error)}`
+        return {
+          status: 'not-probed',
+          ref,
+          result: { status: 'error', message },
+        }
+      }
+      if (outcome.status !== 'rotated') {
+        // A refused or identity-contradicted refresh never yields a bearer.
+        return {
+          status: 'not-probed',
+          ref,
+          result: {
+            status: 'error',
+            message:
+              outcome.status === 'refused'
+                ? `Token refresh was refused: ${outcome.reason}`
+                : 'Google answered for a different account; re-authenticate this account.',
+          },
+        }
+      }
+      const projectId =
+        view.managedProjectId ??
+        view.projectId ??
+        ANTIGRAVITY_DEFAULT_PROJECT_ID
+      const result = await probeAccountAccess(
+        outcome.accessToken,
+        projectId,
+        transport,
+      )
+      return { status: 'probed', ref: outcome.ref, result, observedAt: now() }
+    },
+
+    async applyVerificationResult(outcome, options = {}) {
+      if (outcome.status !== 'probed') return { status: 'no-verdict' }
+      const verdict = accessVerdictFromProbe(
+        outcome.result,
+        outcome.observedAt,
+        options.enableIfBlocked ?? false,
+      )
+      if (verdict === undefined) return { status: 'no-verdict' }
+      try {
+        const applied = await repository.recordAccessVerdict(
+          outcome.ref,
+          verdict,
+        )
+        return {
+          status: 'applied',
+          ref: applied.ref,
+          declined: applied.declined === true,
+        }
+      } catch (error) {
+        if (isStaleRefFailure(error)) {
+          return { status: 'stale', rowId: outcome.ref.id }
+        }
+        throw error
+      }
+    },
+
+    async reauthorizeAccount(expected, result) {
+      const parts = parseRefreshParts(result.refresh)
+      if (!parts.refreshToken) {
+        throw new Error('The sign-in returned no refresh token')
+      }
+      const row = (await readRows()).find((candidate) =>
+        sameRowRef(candidate.ref, expected),
+      )
+      if (row === undefined) {
+        throw new AccountChangedDuringReauthorizationError(expected.id)
+      }
+      const stored =
+        row.metadata.status === 'present' ? row.metadata.metadata : undefined
+      const storedEmail = textOf(stored?.email)
+      // A sign-in to a different Google account is not a re-authentication
+      // of this row, whatever the row's position or token.
+      if (
+        storedEmail !== undefined &&
+        result.email !== undefined &&
+        result.email !== storedEmail
+      ) {
+        throw new AccountChangedDuringReauthorizationError(expected.id)
+      }
+      const at = now()
+      try {
+        return await repository.replaceCredential(expected, {
+          refreshToken: parts.refreshToken,
+          metadata: {
+            addedAt: at,
+            lastUsed: at,
+            ...(result.email !== undefined ? { email: result.email } : {}),
+            ...(result.label !== undefined ? { label: result.label } : {}),
+            ...(parts.projectId !== undefined
+              ? { projectId: parts.projectId }
+              : {}),
+            ...(parts.managedProjectId !== undefined
+              ? { managedProjectId: parts.managedProjectId }
+              : {}),
+          },
+          // OpenCode 1.x keeps a disabled account disabled.
+          disabled: 'keep',
+        })
+      } catch (error) {
+        if (isStaleRefFailure(error)) {
+          throw new AccountChangedDuringReauthorizationError(expected.id, {
+            cause: error,
+          })
+        }
+        throw error
+      }
+    },
+
+    selectAccount: (accounts) => prompt.selectAccount(accounts),
+
     async openVerificationUrl(url) {
       if (!(await prompt.confirmOpenVerificationUrl())) return false
       return openBrowser(url)

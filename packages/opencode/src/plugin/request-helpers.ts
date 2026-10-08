@@ -1297,10 +1297,11 @@ function filterContentArray(
   ) => string | undefined,
   isClaudeModel?: boolean,
   isLastAssistantMessage: boolean = false,
+  keepThinking: boolean = getKeepThinking(),
 ): any[] {
   // For Claude models, strip thinking blocks by default for reliability
   // User can opt-in to keep thinking via config: { "keep_thinking": true }
-  if (isClaudeModel && !getKeepThinking()) {
+  if (isClaudeModel && !keepThinking) {
     return stripAllThinkingBlocks(contentArray)
   }
 
@@ -1443,6 +1444,8 @@ export function filterUnsignedThinkingBlocks(
     text: string,
   ) => string | undefined,
   isClaudeModel?: boolean,
+  /** The location's keep_thinking; the OpenCode 1 setting when omitted. */
+  keepThinking: boolean = getKeepThinking(),
 ): any[] {
   const lastAssistantIdx = findLastAssistantIndex(contents, 'model')
 
@@ -1460,6 +1463,7 @@ export function filterUnsignedThinkingBlocks(
         getCachedSignatureFn,
         isClaudeModel,
         isLastAssistant,
+        keepThinking,
       )
 
       const trimmedParts =
@@ -1487,6 +1491,7 @@ export function filterUnsignedThinkingBlocks(
         getCachedSignatureFn,
         isClaudeModel,
         isLastAssistantContent,
+        keepThinking,
       )
 
       const trimmedContent =
@@ -1516,6 +1521,8 @@ export function filterMessagesThinkingBlocks(
     text: string,
   ) => string | undefined,
   isClaudeModel?: boolean,
+  /** The location's keep_thinking; the OpenCode 1 setting when omitted. */
+  keepThinking: boolean = getKeepThinking(),
 ): any[] {
   const lastAssistantIdx = findLastAssistantIndex(messages, 'assistant')
 
@@ -1534,6 +1541,7 @@ export function filterMessagesThinkingBlocks(
         getCachedSignatureFn,
         isClaudeModel,
         isLastAssistant,
+        keepThinking,
       )
 
       const trimmedContent =
@@ -1560,6 +1568,8 @@ export function deepFilterThinkingBlocks(
     text: string,
   ) => string | undefined,
   isClaudeModel?: boolean,
+  /** The location's keep_thinking; the OpenCode 1 setting when omitted. */
+  keepThinking: boolean = getKeepThinking(),
 ): unknown {
   const visited = new WeakSet<object>()
 
@@ -1589,6 +1599,7 @@ export function deepFilterThinkingBlocks(
         sessionId,
         getCachedSignatureFn,
         isClaudeModel,
+        keepThinking,
       )
     }
 
@@ -1598,6 +1609,7 @@ export function deepFilterThinkingBlocks(
         sessionId,
         getCachedSignatureFn,
         isClaudeModel,
+        keepThinking,
       )
     }
 

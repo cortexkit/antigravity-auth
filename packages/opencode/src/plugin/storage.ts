@@ -24,7 +24,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import type {
   AccountMetadataV2,
@@ -40,7 +40,15 @@ import type {
   RateLimitStateV3,
 } from '@cortexkit/antigravity-auth-core'
 import {
+  type AccountMigrationModules,
+  type AccountMigrationOutcome,
+  type AccountRepository,
   AccountStorageUnreadableError,
+  type AccountStoreAdmission,
+  type AccountStoreAdmissionModules,
+  type AccountTokenExchange,
+  assertLegacyAccountStorageWritable,
+  type CreateAccountRepository,
   clearAccountStorage as coreClearAccountStorage,
   deduplicateAccountsByEmail as coreDeduplicateAccountsByEmail,
   loadAccountStorage as coreLoadAccountStorage,
@@ -49,6 +57,8 @@ import {
   mutateAccountStorage as coreMutateAccountStorage,
   saveAccountStorage as coreSaveAccountStorage,
   saveAccountStorageReplace as coreSaveAccountStorageReplace,
+  initializeFreshAccountStore,
+  readAccountStoreAdmission,
 } from '@cortexkit/antigravity-auth-core'
 import { createLogger } from './logger'
 
@@ -98,7 +108,19 @@ export { AccountStorageUnreadableError }
 export const deduplicateAccountsByEmail = coreDeduplicateAccountsByEmail
 export const mergeAccountStorage = coreMergeAccountStorage
 export const migrateV2ToV3 = coreMigrateV2ToV3
-export const mutateAccountStorage = coreMutateAccountStorage
+
+/**
+ * The pre-store engine's mutation of the legacy pool file at `path`, run
+ * while holding that file's lock; refused once the account store owns the
+ * accounts (see `assertLegacyPoolInUse`).
+ */
+export const mutateAccountStorage: typeof coreMutateAccountStorage = async (
+  path,
+  mutate,
+) => {
+  await assertLegacyPoolInUse(path)
+  return coreMutateAccountStorage(path, mutate)
+}
 
 /**
  * Files/directories that should be gitignored in the config directory.
@@ -110,6 +132,9 @@ export const mutateAccountStorage = coreMutateAccountStorage
 export const GITIGNORE_ENTRIES = [
   'antigravity-accounts.json',
   'antigravity-accounts.json.*.tmp',
+  // The account store's generation directories hold credential files; its
+  // pointer file names the current generation only.
+  'antigravity-accounts.json.store*',
   'antigravity-signature-cache.json',
   'antigravity-logs/',
 ]
@@ -331,6 +356,158 @@ export function getStoragePath(): string {
 export { getConfigDir }
 
 // ============================================================================
+// The account store that replaces the legacy pool file
+// ============================================================================
+
+/**
+ * Thrown by every pre-store reader and writer of the pool file once the
+ * account store owns the accounts: a published store generation whose
+ * journal is not an inactive rollback, or successor files without a
+ * journal. A write then would land in a file the migration captured or
+ * retired, and a read would serve accounts the store no longer agrees with.
+ * The decision is the migration's own (`assertLegacyAccountStorageWritable`);
+ * `cause` carries its reason, which never contains a credential.
+ */
+export class LegacyAccountPoolRetiredError extends Error {
+  readonly legacyPath: string
+
+  constructor(legacyPath: string, options?: { cause?: unknown }) {
+    super(
+      `Account pool file ${legacyPath} is owned by the account store and is no longer read or written. Use the account store, or roll it back with \`antigravity-auth account-store rollback --offline\` before using an older build.`,
+      options,
+    )
+    this.name = 'LegacyAccountPoolRetiredError'
+    this.legacyPath = legacyPath
+  }
+}
+
+/**
+ * Refuses pool-file access once the account store owns the accounts. Any
+ * failure of the check (an unreadable pointer or journal included) refuses
+ * too: it is not proof that the store is absent.
+ */
+export async function assertLegacyPoolInUse(legacyPath: string): Promise<void> {
+  try {
+    await assertLegacyAccountStorageWritable(resolve(legacyPath))
+  } catch (error) {
+    throw new LegacyAccountPoolRetiredError(legacyPath, { cause: error })
+  }
+}
+
+/** What opening the account store found: ready, initialization-required or refused. */
+export type AccountStoreOpening =
+  | {
+      status: 'ready'
+      repository: AccountRepository
+      admission: Extract<AccountStoreAdmission, { status: 'active' }>
+    }
+  /**
+   * Neither a pool file nor a store exists. Nothing is created: a genuinely
+   * fresh installation calls `initializeFreshAccountStoreFor` explicitly,
+   * then opens again.
+   */
+  | { status: 'initialization-required' }
+  /**
+   * The store cannot serve: a migration or rollback is pending (a pool file
+   * without a store is pending migration too), the store was rolled back
+   * (inactive), or its journal, backups or files failed validation.
+   * Nothing falls back to the pool file or to an empty pool.
+   */
+  | {
+      status: 'refused'
+      admission: Exclude<
+        AccountStoreAdmission,
+        { status: 'active' } | { status: 'initialization-required' }
+      >
+      message: string
+    }
+
+export interface OpenAccountStoreOptions {
+  /** The genuine public common-auth `./store` module; admission uses only its read methods. */
+  modules: AccountStoreAdmissionModules
+  /**
+   * Builds the repository for the verified active generation's paths;
+   * `createAccountRepositoryFactory(modules)`.
+   */
+  createRepository: CreateAccountRepository
+  exchange: AccountTokenExchange
+  now?: () => number
+  /** Defaults to the resolved pool-file path (`getStoragePath`). */
+  legacyPath?: string
+}
+
+function refusalMessage(
+  admission: Extract<AccountStoreOpening, { status: 'refused' }>['admission'],
+): string {
+  switch (admission.status) {
+    case 'pending':
+      return admission.operation === 'rollback'
+        ? 'An account-store rollback is pending; rerun `antigravity-auth account-store rollback --offline`.'
+        : 'Accounts must be migrated to the account store; stop every Antigravity process and run `antigravity-auth account-store migrate --offline`.'
+    case 'inactive':
+      return 'The account store was rolled back; use the build that matches the restored pool file, or migrate again offline.'
+    case 'error':
+      return `The account store cannot be admitted: ${admission.reason}`
+  }
+}
+
+/**
+ * Opens the account store through the migration's canonical admission: the
+ * repository is built only on the paths of an active, verified store
+ * generation. Every other admission result is returned, never repaired: no
+ * implicit fresh store, no reset after a corrupt or unavailable store and no
+ * fall-through to the pool file.
+ */
+export async function openAccountStore(
+  options: OpenAccountStoreOptions,
+): Promise<AccountStoreOpening> {
+  const now = options.now ?? (() => Date.now())
+  const legacyPath = resolve(options.legacyPath ?? getStoragePath())
+  const admission = await readAccountStoreAdmission(
+    legacyPath,
+    options.modules,
+    now,
+  )
+  switch (admission.status) {
+    case 'active':
+      return {
+        status: 'ready',
+        admission,
+        repository: options.createRepository({
+          paths: admission.paths,
+          now,
+          exchange: options.exchange,
+        }),
+      }
+    case 'initialization-required':
+      return { status: 'initialization-required' }
+    default:
+      return {
+        status: 'refused',
+        admission,
+        message: refusalMessage(admission),
+      }
+  }
+}
+
+/**
+ * Creates an empty account store for a genuinely fresh installation (no
+ * pool file), as an explicit step the caller takes after `openAccountStore`
+ * answered `initialization-required`. The migration's
+ * `initializeFreshAccountStore` refuses
+ * when a pool file exists or appears, or when unrelated store files exist.
+ */
+export function initializeFreshAccountStoreFor(
+  modules: AccountMigrationModules,
+  options: { legacyPath?: string; now?: () => number } = {},
+): Promise<AccountMigrationOutcome> {
+  return initializeFreshAccountStore(modules, {
+    legacyPath: resolve(options.legacyPath ?? getStoragePath()),
+    now: options.now ?? (() => Date.now()),
+  })
+}
+
+// ============================================================================
 // Host path delegation. Each of these resolves the on-disk path via the
 // adapter above and hands it to the core lock-held engine. Callers that
 // want to run their own mutator (e.g. persist-account-pool) should
@@ -340,6 +517,7 @@ export { getConfigDir }
 
 export async function loadAccounts(): Promise<AccountStorageV4 | null> {
   const path = getStoragePath()
+  await assertLegacyPoolInUse(path)
   await ensureGitignore(dirname(path))
   return coreLoadAccountStorage(path)
 }
@@ -351,6 +529,7 @@ export async function loadAccounts(): Promise<AccountStorageV4 | null> {
  */
 export async function saveAccounts(storage: AccountStorageV4): Promise<void> {
   const path = getStoragePath()
+  await assertLegacyPoolInUse(path)
   const configDir = dirname(path)
   await fs.mkdir(configDir, { recursive: true })
   await ensureGitignore(configDir)
@@ -366,6 +545,7 @@ export async function saveAccountsReplace(
   storage: AccountStorageV4,
 ): Promise<void> {
   const path = getStoragePath()
+  await assertLegacyPoolInUse(path)
   const configDir = dirname(path)
   await fs.mkdir(configDir, { recursive: true })
   await ensureGitignore(configDir)
@@ -374,6 +554,9 @@ export async function saveAccountsReplace(
 
 export async function clearAccounts(): Promise<void> {
   const path = getStoragePath()
+  // Outside the try below: a refusal must reach the caller, not be logged
+  // as a failed unlink.
+  await assertLegacyPoolInUse(path)
   try {
     await coreClearAccountStorage(path)
   } catch (error) {
@@ -400,6 +583,7 @@ export async function mutateAccountByRefreshToken(
   mutate: (account: AccountMetadataV3) => boolean,
 ): Promise<AccountMetadataV3 | undefined> {
   const path = getStoragePath()
+  await assertLegacyPoolInUse(path)
   const configDir = dirname(path)
   await fs.mkdir(configDir, { recursive: true })
   await ensureGitignore(configDir)

@@ -14,19 +14,33 @@
  * Destructive (`replaceAll: true`) writes start from an empty v4 inside
  * the same locked callback so a stale merge cannot resurrect a removed
  * account.
+ *
+ * `persistAccountPool` writes the pre-store pool file and is refused once
+ * the account store has replaced it. `commitLogins` and `replacePoolLogins`
+ * are the account-store equivalents.
  */
 
-import type {
-  AccountMetadataV3,
-  AccountStorageV4,
+import { randomUUID } from 'node:crypto'
+import {
+  type AccountLoginInput,
+  type AccountMetadataV3,
+  type AccountRepository,
+  AccountRepositoryError,
+  type AccountRepositoryFailureKind,
+  type AccountStorageV4,
+  type ManagementReceipt,
+  type ProviderMetadata,
+  type RowRef,
 } from '@cortexkit/antigravity-auth-core'
-import { mutateAccountStorage } from '@cortexkit/antigravity-auth-core'
 
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
 import { parseRefreshParts } from './auth'
-import { getStoragePath } from './storage'
+import { getStoragePath, mutateAccountStorage } from './storage'
 
-type TokenSuccess = Extract<AntigravityTokenExchangeResult, { type: 'success' }>
+export type TokenSuccess = Extract<
+  AntigravityTokenExchangeResult,
+  { type: 'success' }
+>
 
 function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) {
@@ -173,4 +187,158 @@ export async function persistAccountPool(
   await mutateAccountStorage(path, (current) =>
     applyUpserts(current, results, false),
   )
+}
+
+// ---------------------------------------------------------------------------
+// Account store logins
+// ---------------------------------------------------------------------------
+
+/**
+ * The repository login input for one OAuth result: a fresh row id, the bare
+ * refresh token (project ids live in metadata, never packed into the stored
+ * secret) and the account fields the login established. No identity is
+ * asserted: the OAuth email is display metadata, not the provider identity
+ * a credential is fenced on. Returns `undefined`
+ * for a result without a refresh token.
+ */
+export function loginInputOf(
+  result: TokenSuccess,
+  now: number,
+  newId: () => string = randomUUID,
+): AccountLoginInput | undefined {
+  const parts = parseRefreshParts(result.refresh)
+  if (!parts.refreshToken) return undefined
+  const metadata: ProviderMetadata = {
+    addedAt: now,
+    lastUsed: now,
+    enabled: true,
+  }
+  if (result.email !== undefined) metadata.email = result.email
+  if (result.label !== undefined) metadata.label = result.label
+  if (parts.projectId !== undefined) metadata.projectId = parts.projectId
+  if (parts.managedProjectId !== undefined) {
+    metadata.managedProjectId = parts.managedProjectId
+  }
+  return { id: newId(), refreshToken: parts.refreshToken, metadata }
+}
+
+/**
+ * Login refusals that concern only the one result: the pool already holds
+ * this account under another credential, or holds this credential for
+ * another account. A login never moves a credential onto another row;
+ * only re-authentication of the exact captured row and epoch replaces one.
+ */
+const PER_LOGIN_REFUSALS = new Set<AccountRepositoryFailureKind>([
+  'duplicate-identity',
+  'duplicate-secret',
+])
+
+export type CommittedLogin =
+  | {
+      status: 'committed'
+      /** The authoritative ref of the row that now holds the login. */
+      ref: RowRef
+      outcome: 'added' | 'added-disabled' | 'completed' | 'rotated'
+    }
+  | {
+      status: 'refused'
+      kind: 'duplicate-identity' | 'duplicate-secret'
+      rowId?: string
+      message: string
+    }
+  | { status: 'skipped'; reason: 'no-refresh-token' }
+
+/**
+ * Admits OAuth results into the account store one login at a time, in
+ * order, through `AccountRepository.login`: each is matched by exact email,
+ * then by secret, and committed under the repository's topology lease, the
+ * same lease that orders `clear` and pool replacement. Unlike the
+ * pre-store upsert, a login never overwrites the credential of an existing
+ * row: an email already held under another credential is refused and must
+ * go through re-authentication with that row's captured ref. Any other
+ * failure (pending migration, contention, I/O) stops the batch and is
+ * thrown; logins committed before it stay committed and their refs are on
+ * the error's `committed` list.
+ */
+export async function commitLogins(
+  repository: AccountRepository,
+  results: readonly TokenSuccess[],
+  options: { now?: () => number; newId?: () => string } = {},
+): Promise<CommittedLogin[]> {
+  const now = options.now ?? (() => Date.now())
+  const committed: CommittedLogin[] = []
+  for (const result of results) {
+    const input = loginInputOf(result, now(), options.newId)
+    if (input === undefined) {
+      committed.push({ status: 'skipped', reason: 'no-refresh-token' })
+      continue
+    }
+    try {
+      const login = await repository.login(input)
+      committed.push({
+        status: 'committed',
+        ref: login.ref,
+        outcome: login.outcome,
+      })
+    } catch (error) {
+      if (
+        error instanceof AccountRepositoryError &&
+        PER_LOGIN_REFUSALS.has(error.failure.kind)
+      ) {
+        committed.push({
+          status: 'refused',
+          kind: error.failure.kind as 'duplicate-identity' | 'duplicate-secret',
+          ...(error.failure.rowId !== undefined
+            ? { rowId: error.failure.rowId }
+            : {}),
+          message: error.failure.message,
+        })
+        continue
+      }
+      throw new LoginBatchError(committed, error)
+    }
+  }
+  return committed
+}
+
+/** A login batch that stopped early; `committed` lists what landed first. */
+export class LoginBatchError extends Error {
+  readonly committed: readonly CommittedLogin[]
+
+  constructor(committed: readonly CommittedLogin[], cause: unknown) {
+    super(
+      cause instanceof Error
+        ? `Account login stopped: ${cause.message}`
+        : 'Account login stopped',
+      { cause },
+    )
+    this.name = 'LoginBatchError'
+    this.committed = committed
+  }
+}
+
+/**
+ * Replaces the whole pool with fresh logins as one journaled repository
+ * operation. The inputs stay in the repository's
+ * private transfer file until the new rows are verified, so an interrupted
+ * replacement resumes rather than losing them. `pending` means the journal
+ * is waiting to be resumed; the caller must not serve the pool until a
+ * later `replacePool`/resume completes. Results without a refresh token are
+ * left out; a batch with none is refused rather than clearing the pool.
+ */
+export async function replacePoolLogins(
+  repository: AccountRepository,
+  results: readonly TokenSuccess[],
+  options: { now?: () => number; newId?: () => string } = {},
+): Promise<ManagementReceipt> {
+  const at = (options.now ?? (() => Date.now()))()
+  const inputs = results
+    .map((result) => loginInputOf(result, at, options.newId))
+    .filter((input): input is AccountLoginInput => input !== undefined)
+  if (inputs.length === 0) {
+    throw new Error(
+      'Refusing to replace the account pool with no usable logins',
+    )
+  }
+  return repository.replacePool(inputs)
 }

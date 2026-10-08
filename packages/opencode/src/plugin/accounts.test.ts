@@ -9,9 +9,18 @@ import {
   spyOn,
 } from 'bun:test'
 
+import type {
+  AccountRepository,
+  AccountRepositoryRead,
+  AccountRow,
+  RowRef,
+} from '@cortexkit/antigravity-auth-core'
 import {
   AccountManager,
+  AccountStoreNotReadyError,
   calculateBackoffMs,
+  createLocalAccountCredentials,
+  loadAccountManagerFromRepository,
   type ModelFamily,
   parseRateLimitReason,
   resolveQuotaGroup,
@@ -25,6 +34,7 @@ import {
   saveAccounts,
   saveAccountsReplace,
 } from './storage'
+import { AntigravityTokenRefreshError } from './token'
 import type { OAuthAuthDetails } from './types'
 
 mock.module('./storage', () => ({
@@ -2720,5 +2730,317 @@ describe('AccountManager disposal', () => {
 
     expect(save).not.toHaveBeenCalled()
     expect(jest.getTimerCount()).toBe(0)
+  })
+})
+
+describe('loadAccountManagerFromRepository', () => {
+  interface Row {
+    ref: RowRef
+    token: string
+    email: string
+  }
+
+  function repositoryOver(rows: Row[], refresh: AccountRepository['refresh']) {
+    let order = [...rows]
+    const reads: number[] = []
+    const repository = {
+      read: async (): Promise<AccountRepositoryRead> => {
+        reads.push(reads.length)
+        return {
+          status: 'ready',
+          rows: order.map(
+            (row, index): AccountRow => ({
+              ref: row.ref,
+              index,
+              enabled: true,
+              credential: { refreshToken: row.token },
+              usable: true,
+              stamp: 'bound',
+              metadata: {
+                status: 'present',
+                metadata: {
+                  email: row.email,
+                  addedAt: 1,
+                  lastUsed: 1,
+                  // A stored fingerprint keeps the load from recording a
+                  // generated one, so the only repository writes are the
+                  // ones each test makes.
+                  fingerprint: {
+                    deviceId: `device-${row.ref.id}`,
+                    sessionToken: 'session',
+                    userAgent: 'antigravity-cli/test',
+                    apiClient: 'antigravity-cli',
+                    clientMetadata: {
+                      ideType: 'IDE_UNSPECIFIED',
+                      platform: 'darwin',
+                      pluginType: 'GEMINI',
+                    },
+                    createdAt: 1,
+                  },
+                },
+              },
+              quota: { status: 'absent' },
+            }),
+          ),
+        }
+      },
+      refresh,
+      recordFingerprint: async (ref: RowRef) => ({ ref, outcome: 'unchanged' }),
+      flush: async () => ({ completed: 0, failures: [] }),
+      dispose: async () => ({ completed: 0, failures: [] }),
+    } as unknown as AccountRepository
+    return {
+      repository,
+      reverse: () => {
+        order = [...order].reverse()
+      },
+    }
+  }
+
+  const rowA: Row = {
+    ref: { id: 'row-a', credentialEpoch: 1 },
+    token: 'token-a',
+    email: 'a@example.test',
+  }
+  const rowB: Row = {
+    ref: { id: 'row-b', credentialEpoch: 4, identity: 'google-b' },
+    token: 'token-b',
+    email: 'b@example.test',
+  }
+
+  it('refuses a store that is not ready instead of building an empty or pool-file manager', async () => {
+    const notReady: Exclude<AccountRepositoryRead, { status: 'ready' }>[] = [
+      { status: 'pending-migration' },
+      {
+        status: 'management-pending',
+        management: {
+          id: 'op',
+          kind: 'clear',
+          targets: [],
+          progress: { step: 'started', completedTargets: [] },
+        },
+      },
+      { status: 'error', file: 'state', reason: 'malformed' },
+    ]
+    for (const read of notReady) {
+      const repository = {
+        read: async () => read,
+      } as unknown as AccountRepository
+      const failure = await loadAccountManagerFromRepository(repository, {
+        onDiagnostic: () => {},
+      }).catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(AccountStoreNotReadyError)
+      expect((failure as AccountStoreNotReadyError).read).toBe(read)
+    }
+    expect(saveAccounts).not.toHaveBeenCalled()
+    expect(saveAccountsReplace).not.toHaveBeenCalled()
+  })
+
+  it('gives every account the exact ref it was read under, identity absence included', async () => {
+    const { repository } = repositoryOver([rowA, rowB], async () => {
+      throw new Error('no refresh in this test')
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const refs = manager.getAccounts().map((account) => account.ref)
+    expect(refs).toEqual([rowA.ref, rowB.ref])
+    expect(refs[0] && 'identity' in refs[0]).toBe(false)
+  })
+
+  it('refreshes different accounts concurrently', async () => {
+    const events: string[] = []
+    let bStarted: () => void = () => {}
+    const bHasStarted = new Promise<void>((resolve) => {
+      bStarted = resolve
+    })
+    const { repository } = repositoryOver([rowA, rowB], async (ref) => {
+      events.push(`start ${ref.id}`)
+      if (ref.id === 'row-a') {
+        // Finishes only once row-b's refresh is running: a manager that
+        // serialized refreshes across accounts would never get there.
+        await bHasStarted
+      } else {
+        bStarted()
+      }
+      events.push(`end ${ref.id}`)
+      return {
+        status: 'rotated',
+        ref,
+        accessToken: `access-${ref.id}`,
+        expiresAt: 99,
+      }
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const [accountA, accountB] = manager.getAccounts()
+
+    const outcomes = await Promise.all([
+      manager.refreshAccount(accountA!),
+      manager.refreshAccount(accountB!),
+    ])
+
+    expect(outcomes.map((outcome) => outcome.status)).toEqual([
+      'rotated',
+      'rotated',
+    ])
+    expect(events).toEqual([
+      'start row-a',
+      'start row-b',
+      'end row-b',
+      'end row-a',
+    ])
+    expect(accountA?.access).toBe('access-row-a')
+    expect(accountB?.access).toBe('access-row-b')
+  })
+
+  it('hands the request engine a bearer only for a committed rotation of the captured ref', async () => {
+    const outcomes: Array<Awaited<ReturnType<AccountRepository['refresh']>>> = [
+      {
+        status: 'identity-contradicted',
+        ref: rowB.ref,
+        expectedIdentity: 'google-b',
+        returnedIdentity: 'google-x',
+      },
+      { status: 'refused', ref: rowB.ref, reason: 'torn row' },
+      { status: 'rotated', ref: rowB.ref, accessToken: 'new', expiresAt: 7 },
+    ]
+    const { repository } = repositoryOver([rowB], async () => {
+      const next = outcomes.shift()
+      if (next === undefined) throw new Error('unexpected refresh')
+      return next
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager, {
+      ensureProject: async () => {
+        throw new Error('not used')
+      },
+    })
+    const [account] = manager.getAccounts()
+
+    await expect(credentials.refresh(account!)).resolves.toBeUndefined()
+    await expect(credentials.refresh(account!)).resolves.toBeUndefined()
+    await expect(credentials.refresh(account!)).resolves.toMatchObject({
+      type: 'oauth',
+      access: 'new',
+      expires: 7,
+      refresh: 'token-b|',
+    })
+  })
+
+  it('refreshes the selected row when two distinct rows hold the same token, leaving the other untouched', async () => {
+    const twinA: Row = {
+      ref: { id: 'twin-a', credentialEpoch: 2 },
+      token: 'shared-token',
+      email: 'a@example.test',
+    }
+    const twinB: Row = {
+      ref: { id: 'twin-b', credentialEpoch: 5, identity: 'google-b' },
+      token: 'shared-token',
+      email: 'b@example.test',
+    }
+    const refreshed: RowRef[] = []
+    const { repository } = repositoryOver([twinA, twinB], async (ref) => {
+      refreshed.push(ref)
+      return {
+        status: 'rotated',
+        ref,
+        accessToken: `access-${ref.id}`,
+        expiresAt: 50,
+      }
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager)
+    const [accountA, accountB] = manager.getAccounts()
+
+    // Matching the token would find twin-a first; the selected account is twin-b.
+    await expect(credentials.refresh(accountB!)).resolves.toMatchObject({
+      access: 'access-twin-b',
+    })
+    expect(refreshed).toEqual([twinB.ref])
+    expect(accountA?.access).toBeUndefined()
+    expect(accountA?.ref).toEqual(twinA.ref)
+  })
+
+  it('keeps each concurrent rotation on its own account and binds the ref the repository returned', async () => {
+    const learnt = { id: 'row-a', credentialEpoch: 1, identity: 'google-a' }
+    let releaseA: () => void = () => {}
+    const aMayFinish = new Promise<void>((resolve) => {
+      releaseA = resolve
+    })
+    const { repository } = repositoryOver([rowA, rowB], async (ref) => {
+      if (ref.id === 'row-a') {
+        await aMayFinish
+        // The refresh learnt row-a's identity; same epoch.
+        return {
+          status: 'rotated',
+          ref: learnt,
+          accessToken: 'a2',
+          expiresAt: 1,
+        }
+      }
+      releaseA()
+      return { status: 'rotated', ref, accessToken: 'b2', expiresAt: 2 }
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager)
+    const [accountA, accountB] = manager.getAccounts()
+
+    const [authA, authB] = await Promise.all([
+      credentials.refresh(accountA!),
+      credentials.refresh(accountB!),
+    ])
+    expect(authA?.access).toBe('a2')
+    expect(authB?.access).toBe('b2')
+    expect(accountA?.ref).toEqual(learnt)
+    expect(accountB?.ref).toEqual(rowB.ref)
+  })
+
+  it('recognizes a revoked refresh token through the repository failure that wraps it', async () => {
+    const { repository } = repositoryOver([rowA], async () => {
+      throw new Error('refresh failed', {
+        cause: new AntigravityTokenRefreshError({
+          message: 'revoked',
+          code: 'invalid_grant',
+          status: 400,
+          statusText: 'Bad Request',
+        }),
+      })
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager)
+    const failure = await credentials
+      .refresh(manager.getAccounts()[0]!)
+      .catch((error: unknown) => error)
+    expect(credentials.isInvalidGrant(failure)).toBe(true)
+    expect(credentials.isInvalidGrant(new Error('network'))).toBe(false)
+  })
+
+  it('refreshes the account it was asked about after the roster is reordered', async () => {
+    const refreshed: RowRef[] = []
+    const { repository, reverse } = repositoryOver(
+      [rowA, rowB],
+      async (ref) => {
+        refreshed.push(ref)
+        return { status: 'rotated', ref, accessToken: 'x', expiresAt: 1 }
+      },
+    )
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const [accountA] = manager.getAccounts()
+    reverse()
+
+    await manager.refreshAccount(accountA!)
+    expect(refreshed).toEqual([rowA.ref])
   })
 })
