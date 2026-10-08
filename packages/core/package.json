@@ -28,6 +28,38 @@
     "./fetch-timeout": {
       "types": "./dist/fetch-timeout.d.ts",
       "import": "./dist/fetch-timeout.js"
+    },
+    "./common-auth/store": {
+      "types": "./dist/common-auth-embedded/store/index.d.ts",
+      "import": "./dist/common-auth-embedded/store/index.js"
+    },
+    "./common-auth/fs": {
+      "types": "./dist/common-auth-embedded/fs/index.d.ts",
+      "import": "./dist/common-auth-embedded/fs/index.js"
+    },
+    "./common-auth/routing": {
+      "types": "./dist/common-auth-embedded/routing/index.d.ts",
+      "import": "./dist/common-auth-embedded/routing/index.js"
+    },
+    "./common-auth/quota": {
+      "types": "./dist/common-auth-embedded/quota/index.d.ts",
+      "import": "./dist/common-auth-embedded/quota/index.js"
+    },
+    "./common-auth/commands": {
+      "types": "./dist/common-auth-embedded/commands/index.d.ts",
+      "import": "./dist/common-auth-embedded/commands/index.js"
+    },
+    "./common-auth/auth-menu": {
+      "types": "./dist/common-auth-embedded/auth-menu/index.d.ts",
+      "import": "./dist/common-auth-embedded/auth-menu/index.js"
+    },
+    "./common-auth/claustrum": {
+      "types": "./dist/common-auth-embedded/claustrum/index.d.ts",
+      "import": "./dist/common-auth-embedded/claustrum/index.js"
+    },
+    "./common-auth/logger": {
+      "types": "./dist/common-auth-embedded/logger/index.d.ts",
+      "import": "./dist/common-auth-embedded/logger/index.js"
     }
   },
   "files": [
@@ -36,12 +68,13 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs",
     "typecheck": "tsc --noEmit",
     "test": "bun test --isolate ./src",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
+    "@cortexkit/claustrum-client": "0.6.2",
     "xdg-basedir": "^5.1.0",
     "zod": "^4.0.0"
   },

@@ -21,6 +21,7 @@
       "name": "@cortexkit/antigravity-auth-core",
       "version": "2.2.1",
       "dependencies": {
+        "@cortexkit/claustrum-client": "0.6.2",
         "xdg-basedir": "^5.1.0",
         "zod": "^4.0.0",
       },
@@ -245,11 +246,15 @@
 
     "@cortexkit/antigravity-auth-e2e": ["@cortexkit/antigravity-auth-e2e@workspace:packages/e2e-tests"],
 
+    "@cortexkit/claustrum-client": ["@cortexkit/claustrum-client@0.6.2", "", { "dependencies": { "@cortexkit/subc-client": "^0.16.0" } }, "sha512-9eZwP08q10r2t3YgZQLE0e5qL861L+IevkcEik0G6E2ZT2pXJwpygxnc6o1AFc1vF4N3jqA0PMOf4NzTmiXViw=="],
+
     "@cortexkit/opencode-antigravity-auth": ["@cortexkit/opencode-antigravity-auth@workspace:packages/opencode"],
 
     "@cortexkit/opencode-v2-antigravity-auth": ["@cortexkit/opencode-v2-antigravity-auth@workspace:packages/opencode-v2"],
 
     "@cortexkit/pi-antigravity-auth": ["@cortexkit/pi-antigravity-auth@workspace:packages/pi"],
+
+    "@cortexkit/subc-client": ["@cortexkit/subc-client@0.16.1", "", {}, "sha512-TJqOcfMVxhCfZMANmEH/9w+L+zYxFSy5p5Zl/shDErtGSeUF6HFiwZ7OR/P2qFvpSg/yxCbsdenZ7rs5SE6fhA=="],
 
     "@earendil-works/chord": ["@earendil-works/chord@0.87.1", "", { "dependencies": { "esbuild": "0.28.2" } }, "sha512-bg7IkJGFcEaMqqYgOGUiq5Ky9RghpRfrlZ8I/v/1b4bBZ02A7t3E+6uhPRbadwWb/kWsnVFbZsqOKRN4a3LLCg=="],
 
