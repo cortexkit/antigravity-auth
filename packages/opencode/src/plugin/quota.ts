@@ -28,6 +28,7 @@ import {
   fetchAvailableModels,
   fetchGeminiCliQuota,
   fetchQuotaSummary,
+  fetchWithActiveTimeout,
   type GeminiCliQuotaSummary,
   getHealthTracker,
   type QuotaManager,
@@ -522,6 +523,273 @@ async function fetchLegacyModelsFallback(options: {
   }
 }
 
+/**
+ * Fetches both quota payloads for one account with a bearer and project the
+ * caller already resolved: the windowed quota summary (with the legacy
+ * model-list fallback) and the Gemini CLI quota. Shared by the OpenCode 1
+ * fetcher and `createAuthorizedFetchAccountQuota`.
+ */
+async function fetchQuotaPayloads(options: {
+  accessToken: string
+  managedProjectId: string | undefined
+  projectId: string
+  fetchVia: QuotaFetch | undefined
+  logger: Pick<Logger, 'debug'>
+}): Promise<{
+  quota: QuotaSummary
+  geminiCliQuota: GeminiCliQuotaSummary
+  fellBackToLegacy: boolean
+}> {
+  const { accessToken, managedProjectId, projectId, fetchVia } = options
+  // Two independent payload contracts: the windowed summary
+  // (with legacy fallback) and the gemini-CLI quota. They share
+  // access + project but target different endpoints, so the
+  // two 10s timeouts ran back-to-back for ~20s per account on
+  // modal open. Run them concurrently; either rejection is
+  // handled by its own branch and the result is still merged.
+  const fetchSummaryPayload = (async (): Promise<{
+    result: QuotaSummary
+    fellBackToLegacy: boolean
+  }> => {
+    try {
+      const summaryResult = await fetchQuotaSummary({
+        accessToken,
+        managedProjectId,
+        projectId,
+        endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+        userAgent: buildAntigravityHarnessUserAgent(),
+        timeoutMs: 10_000,
+        ...(fetchVia ? { fetchVia } : {}),
+      })
+      return {
+        result: aggregateQuotaSummary(summaryResult.summary),
+        fellBackToLegacy: summaryResult.fellBackToLegacy ?? false,
+      }
+    } catch {
+      return {
+        result: await fetchLegacyModelsFallback({
+          accessToken,
+          projectId,
+          fetchVia,
+        }),
+        fellBackToLegacy: true,
+      }
+    }
+  })()
+
+  // CLI fetch is independent of the summary fetch. A CLI failure must
+  // NOT kill the summary result, but it also must not be laundered into
+  // "No Gemini CLI quota available" (a permanent-looking status) when
+  // the real cause is a transient network error. Capture the error
+  // message separately so the annotated result can carry it.
+  let geminiCliFetchError: string | undefined
+  const fetchGeminiCliPayload = fetchGeminiCliQuota({
+    accessToken,
+    projectId,
+    endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+    userAgent: buildGeminiCliUserAgent(),
+    timeoutMs: 10_000,
+    ...(fetchVia ? { fetchVia } : {}),
+  }).catch((error: unknown) => {
+    geminiCliFetchError = error instanceof Error ? error.message : String(error)
+    options.logger.debug('fetchGeminiCliQuota failed', {
+      error: geminiCliFetchError,
+    })
+    return { buckets: undefined } as Awaited<
+      ReturnType<typeof fetchGeminiCliQuota>
+    >
+  })
+
+  const [summary, geminiCliResponse] = await Promise.all([
+    fetchSummaryPayload,
+    fetchGeminiCliPayload,
+  ])
+
+  const geminiCliQuotaResult = aggregateGeminiCliQuota(geminiCliResponse)
+  const annotated: GeminiCliQuotaSummary =
+    geminiCliResponse.buckets === undefined ||
+    geminiCliResponse.buckets.length === 0
+      ? {
+          ...geminiCliQuotaResult,
+          error:
+            // A real fetch exception is a transient failure, not a
+            // "no CLI configured" scenario — propagate the actual message.
+            geminiCliFetchError ??
+            (geminiCliQuotaResult.models.length === 0
+              ? 'No Gemini CLI quota available'
+              : undefined),
+        }
+      : geminiCliQuotaResult
+  return {
+    quota: summary.result,
+    geminiCliQuota: annotated,
+    fellBackToLegacy: summary.fellBackToLegacy,
+  }
+}
+
+/** Result of re-checking a local grant immediately before one request. */
+export type LocalQuotaGrantCheck =
+  | { readonly status: 'current' }
+  | { readonly status: 'stale'; readonly reason: string }
+
+/**
+ * The bearer and project one quota check may use, or why it may not run.
+ * Only a LOCAL credential (a stored OAuth grant the caller resolved for the
+ * exact account being checked) can authorize a check here. A vault
+ * credential needs a fresh admission for every physical request and goes
+ * through the vault source's own per-send admission instead.
+ */
+export type LocalQuotaCheckAuthorization =
+  | {
+      readonly status: 'authorized'
+      readonly domain: 'local'
+      readonly accessToken: string
+      readonly projectId: string
+      readonly managedProjectId?: string
+      /**
+       * Required per-send freshness check, bound by the caller to the
+       * account reference it captured and to this access token. It runs
+       * immediately before every physical quota request (after every earlier
+       * await of that request); `stale` means the account no longer holds
+       * that exact credential, and no further request of the check is sent.
+       */
+      readonly confirmSend: (
+        signal: AbortSignal,
+      ) => Promise<LocalQuotaGrantCheck>
+    }
+  | { readonly status: 'refused'; readonly reason: string }
+
+export interface AuthorizedFetchAccountQuotaOptions {
+  /**
+   * Resolves the local bearer and project for exactly the account being
+   * checked. It is called once per check, before this fetcher awaits
+   * anything, with the same account object the quota manager handed in, so
+   * the callback can capture that account's identity (for example a
+   * repository row reference it carries) before any other work runs. This
+   * fetcher never refreshes, caches or stores a token.
+   */
+  authorize(
+    account: AccountMetadataV3,
+    signal: AbortSignal,
+  ): Promise<LocalQuotaCheckAuthorization>
+  /** Receives the fetcher's diagnostic records; never tokens. */
+  logger: Pick<Logger, 'debug'>
+  /**
+   * Transport for one check's quota requests, given the check's abort
+   * signal. Without it, requests go through `fetchWithActiveTimeout` (the
+   * core package's default quota transport) with that signal.
+   */
+  transport?: (signal: AbortSignal) => QuotaFetch
+}
+
+/** Raised inside a check when a request's local grant is no longer current. */
+class LocalQuotaGrantStaleError extends Error {
+  override readonly name = 'LocalQuotaGrantStaleError'
+}
+
+/**
+ * A quota fetcher for LOCAL credentials whose bearer and project come from
+ * the caller's `authorize` callback instead of the account's stored refresh
+ * token. The network requests and result shape are the OpenCode 1
+ * fetcher's (`fetchQuotaPayloads`), sent through a transport that calls the
+ * authorization's `confirmSend` before every physical request.
+ *
+ * - A disabled account is answered without calling `authorize`.
+ * - A refused authorization, an authorization that is not `local`, or a
+ *   throw from `authorize` is answered as an error result without any
+ *   request.
+ * - Once `confirmSend` reports `stale`, no further request of the check is
+ *   sent and the whole check is answered as an error, so a reading taken
+ *   for a replaced or removed credential is never applied.
+ * - The result never carries `updatedAccount`: any credential or project
+ *   change belongs to the `authorize` callback, which knows which stored row
+ *   it may write to.
+ */
+export function createAuthorizedFetchAccountQuota(
+  options: AuthorizedFetchAccountQuotaOptions,
+): FetchAccountQuota {
+  return async (account, signal) => {
+    const base = { index: 0, email: account.email }
+    if (account.enabled === false) {
+      return { ...base, status: 'disabled', disabled: true }
+    }
+    if (signal.aborted) {
+      return { ...base, status: 'error', disabled: false, error: 'aborted' }
+    }
+    let staleReason: string | null = null
+    try {
+      // Called before the first await, so the callback sees the account as
+      // handed in; a synchronous throw lands in the catch below.
+      const authorizing = options.authorize(account, signal)
+      const authorization = await authorizing
+      if (authorization.status !== 'authorized') {
+        return {
+          ...base,
+          status: 'error',
+          disabled: false,
+          error: `quota check refused (${authorization.reason})`,
+        }
+      }
+      if (authorization.domain !== 'local') {
+        return {
+          ...base,
+          status: 'error',
+          disabled: false,
+          error: 'quota check refused (unsupported credential domain)',
+        }
+      }
+      if (signal.aborted) {
+        return { ...base, status: 'error', disabled: false, error: 'aborted' }
+      }
+      const send: QuotaFetch =
+        options.transport?.(signal) ??
+        ((url, init, extra) =>
+          fetchWithActiveTimeout(
+            url,
+            { ...init, signal: extra.signal ?? signal },
+            { timeoutMs: extra.timeoutMs },
+          ))
+      const guarded: QuotaFetch = async (url, init, extra) => {
+        if (staleReason !== null)
+          throw new LocalQuotaGrantStaleError(staleReason)
+        const check = await authorization.confirmSend(signal)
+        if (check.status !== 'current') {
+          staleReason = check.reason
+          throw new LocalQuotaGrantStaleError(check.reason)
+        }
+        // Sent right after the check, with the check's own signal.
+        return send(url, init, { ...extra, signal })
+      }
+      const payloads = await fetchQuotaPayloads({
+        accessToken: authorization.accessToken,
+        managedProjectId: authorization.managedProjectId,
+        projectId: authorization.projectId,
+        fetchVia: guarded,
+        logger: options.logger,
+      })
+      if (staleReason !== null) {
+        return {
+          ...base,
+          status: 'error',
+          disabled: false,
+          error: `quota check refused (stale grant: ${staleReason})`,
+        }
+      }
+      return {
+        ...base,
+        status: 'ok',
+        disabled: false,
+        quota: payloads.quota,
+        geminiCliQuota: payloads.geminiCliQuota,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      options.logger.debug('authorized quota check failed', { error: message })
+      return { ...base, status: 'error', disabled: false, error: message }
+    }
+  }
+}
+
 function makeFetchAccountQuota(
   client: PluginClient | undefined,
   providerId: string,
@@ -590,86 +858,16 @@ function makeFetchAccountQuota(
       const managedProjectId =
         authParts.managedProjectId ?? account.managedProjectId
 
-      // Two independent payload contracts: the windowed summary
-      // (with legacy fallback) and the gemini-CLI quota. They share
-      // access + project but target different endpoints, so the
-      // two 10s timeouts ran back-to-back for ~20s per account on
-      // modal open. Run them concurrently; either rejection is
-      // handled by its own branch and the result is still merged.
-      const fetchSummaryPayload = (async (): Promise<{
-        result: QuotaSummary
-        fellBackToLegacy: boolean
-      }> => {
-        try {
-          const summaryResult = await fetchQuotaSummary({
-            accessToken: auth.access ?? '',
-            managedProjectId,
-            projectId: projectContext.effectiveProjectId,
-            endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
-            userAgent: buildAntigravityHarnessUserAgent(),
-            timeoutMs: 10_000,
-            ...(fetchVia ? { fetchVia } : {}),
-          })
-          return {
-            result: aggregateQuotaSummary(summaryResult.summary),
-            fellBackToLegacy: summaryResult.fellBackToLegacy ?? false,
-          }
-        } catch {
-          return {
-            result: await fetchLegacyModelsFallback({
-              accessToken: auth.access ?? '',
-              projectId: projectContext.effectiveProjectId,
-              fetchVia,
-            }),
-            fellBackToLegacy: true,
-          }
-        }
-      })()
-
-      // CLI fetch is independent of the summary fetch. A CLI failure must
-      // NOT kill the summary result, but it also must not be laundered into
-      // "No Gemini CLI quota available" (a permanent-looking status) when
-      // the real cause is a transient network error. Capture the error
-      // message separately so the annotated result can carry it.
-      let geminiCliFetchError: string | undefined
-      const fetchGeminiCliPayload = fetchGeminiCliQuota({
+      const payloads = await fetchQuotaPayloads({
         accessToken: auth.access ?? '',
+        managedProjectId,
         projectId: projectContext.effectiveProjectId,
-        endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
-        userAgent: buildGeminiCliUserAgent(),
-        timeoutMs: 10_000,
-        ...(fetchVia ? { fetchVia } : {}),
-      }).catch((error: unknown) => {
-        geminiCliFetchError =
-          error instanceof Error ? error.message : String(error)
-        log.debug('fetchGeminiCliQuota failed', { error: geminiCliFetchError })
-        return { buckets: undefined } as Awaited<
-          ReturnType<typeof fetchGeminiCliQuota>
-        >
+        fetchVia,
+        logger: log,
       })
-
-      const [summary, geminiCliResponse] = await Promise.all([
-        fetchSummaryPayload,
-        fetchGeminiCliPayload,
-      ])
-      quotaResult = summary.result
-      fellBackToLegacy = summary.fellBackToLegacy
-
-      const geminiCliQuotaResult = aggregateGeminiCliQuota(geminiCliResponse)
-      const annotated: GeminiCliQuotaSummary =
-        geminiCliResponse.buckets === undefined ||
-        geminiCliResponse.buckets.length === 0
-          ? {
-              ...geminiCliQuotaResult,
-              error:
-                // A real fetch exception is a transient failure, not a
-                // "no CLI configured" scenario — propagate the actual message.
-                geminiCliFetchError ??
-                (geminiCliQuotaResult.models.length === 0
-                  ? 'No Gemini CLI quota available'
-                  : undefined),
-            }
-          : geminiCliQuotaResult
+      quotaResult = payloads.quota
+      fellBackToLegacy = payloads.fellBackToLegacy
+      const annotated = payloads.geminiCliQuota
 
       for (const [family, groupQuota] of Object.entries(quotaResult.groups)) {
         const remainingPercent = (groupQuota.remainingFraction ?? 0) * 100

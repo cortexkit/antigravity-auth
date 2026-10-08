@@ -6,14 +6,16 @@ import {
   pushNotification,
   resetNotificationsForTest,
 } from './notifications'
-import type { OpenDialogPayload } from './protocol'
+import type { MenuNotifyPayload, RpcNotification } from './protocol'
 
-function payload(text: string): OpenDialogPayload {
-  return {
-    command: 'antigravity-quota',
-    text,
-    knobs: {},
-  }
+function payload(message: string): MenuNotifyPayload {
+  return { command: 'antigravity', notify: { message, kind: 'info' } }
+}
+
+function messages(notifications: RpcNotification[]): string[] {
+  return notifications.map(({ payload: item }) =>
+    'notify' in item ? item.notify.message : item.menu.title,
+  )
 }
 
 describe('notification queue', () => {
@@ -28,18 +30,30 @@ describe('notification queue', () => {
     expect(drainNotifications(0)).toEqual([
       {
         id: 1,
-        type: 'open-dialog',
         payload: payload('first'),
         sessionId: undefined,
       },
       {
         id: 2,
-        type: 'open-dialog',
         payload: payload('second'),
         sessionId: undefined,
       },
     ])
     expect(drainNotifications(1).map(({ id }) => id)).toEqual([2])
+  })
+
+  it('carries a menu dialog payload unchanged to its own session only', () => {
+    const dialog = {
+      command: 'antigravity',
+      menu: { command: 'antigravity', title: 'Antigravity', sections: [] },
+    }
+    pushNotification(dialog, 'a')
+
+    expect(drainNotifications(0, 'a')).toEqual([
+      { id: 1, payload: dialog, sessionId: 'a' },
+    ])
+    expect(drainNotifications(0, 'b')).toEqual([])
+    expect(drainNotifications(0)).toEqual([])
   })
 
   it('evicts the oldest notifications after the 100-entry cap', () => {
@@ -58,23 +72,24 @@ describe('notification queue', () => {
     pushNotification(payload('session-a'), 'a')
     pushNotification(payload('session-b'), 'b')
 
-    expect(
-      drainNotifications(0, 'a').map(({ payload: item }) => item.text),
-    ).toEqual(['broadcast', 'session-a'])
+    expect(messages(drainNotifications(0, 'a'))).toEqual([
+      'broadcast',
+      'session-a',
+    ])
 
     drainNotifications(2, 'a')
 
-    expect(
-      drainNotifications(0, 'b').map(({ payload: item }) => item.text),
-    ).toEqual(['broadcast', 'session-b'])
+    expect(messages(drainNotifications(0, 'b'))).toEqual([
+      'broadcast',
+      'session-b',
+    ])
     // Polling before a route has an active session must not consume a
     // targeted notification that belongs to a later session.
-    expect(drainNotifications(0).map(({ payload: item }) => item.text)).toEqual(
-      ['broadcast'],
-    )
-    expect(
-      drainNotifications(0, 'b').map(({ payload: item }) => item.text),
-    ).toEqual(['broadcast', 'session-b'])
+    expect(messages(drainNotifications(0))).toEqual(['broadcast'])
+    expect(messages(drainNotifications(0, 'b'))).toEqual([
+      'broadcast',
+      'session-b',
+    ])
   })
 
   it('reports a TUI connected within the 3000ms drain window', () => {

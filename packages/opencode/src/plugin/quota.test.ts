@@ -28,6 +28,7 @@ import { createPluginLifecycle } from './lifecycle.ts'
 import type { Logger } from './logger.ts'
 import {
   classifyQuotaGroup,
+  createAuthorizedFetchAccountQuota,
   createLocationQuotaManager,
   createOpenCodeQuotaManager,
   pushSidebarQuotaSnapshot,
@@ -777,5 +778,271 @@ describe('location-scoped quota', () => {
       await failing.dispose()
       await healthy.dispose()
     }
+  })
+})
+
+describe('authorized local quota fetcher', () => {
+  type Options = Parameters<typeof createAuthorizedFetchAccountQuota>[0]
+  type Transport = NonNullable<Options['transport']>
+  type Authorization = Awaited<ReturnType<Options['authorize']>>
+  type SentRequest = {
+    url: string
+    authorization: string | null
+    body: string
+    signal: AbortSignal | null | undefined
+  }
+
+  const silent = { debug: () => undefined }
+  const ACCOUNT: AccountMetadataV3 = {
+    refreshToken: 'fake-refresh-never-sent',
+    addedAt: 0,
+    lastUsed: 0,
+  }
+
+  /** A transport that records every physical request and answers it. */
+  function recordingTransport(
+    requests: SentRequest[],
+    cli: 'ok' | 'fail' = 'ok',
+  ): Transport {
+    return () => async (url, init, extra) => {
+      const headers = new Headers(init.headers)
+      requests.push({
+        url,
+        authorization: headers.get('authorization'),
+        body: String(init.body ?? ''),
+        signal: extra.signal,
+      })
+      if (url.includes('retrieveUserQuotaSummary')) {
+        return new Response(
+          JSON.stringify({
+            groups: [
+              {
+                displayName: 'Gemini',
+                buckets: [{ remainingFraction: 0.25, window: 'WEEKLY' }],
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }
+      if (cli === 'fail') throw new Error('fake cli transport failure')
+      return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+    }
+  }
+
+  function authorized(
+    confirmSend: () => Promise<
+      { status: 'current' } | { status: 'stale'; reason: string }
+    > = async () => ({ status: 'current' }),
+  ): Authorization {
+    return {
+      status: 'authorized',
+      domain: 'local',
+      accessToken: 'fake-authorized-access',
+      projectId: 'fake-authorized-project',
+      confirmSend,
+    }
+  }
+
+  it('authorizes once, synchronously, with the exact account object before any await', async () => {
+    const seen: AccountMetadataV3[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async (account) => {
+        seen.push(account)
+        return { status: 'refused', reason: 'stale' }
+      },
+      logger: silent,
+    })
+    const pending = fetchQuota(ACCOUNT, new AbortController().signal)
+    // Called during the synchronous part of the check.
+    expect(seen).toEqual([ACCOUNT])
+    expect(seen[0]).toBe(ACCOUNT)
+    await pending
+    expect(seen).toHaveLength(1)
+  })
+
+  it('answers a synchronous throw from authorize with an error and sends no request', async () => {
+    const requests: SentRequest[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: () => {
+        throw new Error('fake authorize failure')
+      },
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(result).toEqual({
+      index: 0,
+      email: undefined,
+      status: 'error',
+      disabled: false,
+      error: 'fake authorize failure',
+    })
+    expect(requests).toEqual([])
+  })
+
+  it('answers a refused authorization with an error and sends no request', async () => {
+    const requests: SentRequest[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => ({ status: 'refused', reason: 'unattributed' }),
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(result).toEqual({
+      index: 0,
+      email: undefined,
+      status: 'error',
+      disabled: false,
+      error: 'quota check refused (unattributed)',
+    })
+    expect(requests).toEqual([])
+  })
+
+  it('answers a disabled account without authorizing it or sending a request', async () => {
+    let calls = 0
+    const requests: SentRequest[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => {
+        calls += 1
+        return { status: 'refused', reason: 'unexpected' }
+      },
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(
+      { ...ACCOUNT, enabled: false },
+      new AbortController().signal,
+    )
+    expect(result.status).toBe('disabled')
+    expect(calls).toBe(0)
+    expect(requests).toEqual([])
+  })
+
+  it('refuses a vault authorization at compile time and at run time, without a request', async () => {
+    // Compile time: an authorization naming the vault domain is not a
+    // LocalQuotaCheckAuthorization.
+    type Assignable<A, B> = [A] extends [B] ? true : false
+    const vaultRejected: Assignable<
+      {
+        status: 'authorized'
+        domain: 'vault'
+        accessToken: string
+        projectId: string
+        confirmSend: (signal: AbortSignal) => Promise<{ status: 'current' }>
+      },
+      Authorization
+    > = false
+    expect(vaultRejected).toBe(false)
+
+    // Run time: a caller that bypasses the type still gets no request.
+    const requests: SentRequest[] = []
+    const vault: unknown = { ...authorized(), domain: 'vault' }
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => vault as Authorization,
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(result).toEqual({
+      index: 0,
+      email: undefined,
+      status: 'error',
+      disabled: false,
+      error: 'quota check refused (unsupported credential domain)',
+    })
+    expect(requests).toEqual([])
+  })
+
+  it('checks the grant before every physical request and sends with the check’s own signal', async () => {
+    const requests: SentRequest[] = []
+    let checks = 0
+    const controller = new AbortController()
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () =>
+        authorized(async () => {
+          checks += 1
+          return { status: 'current' }
+        }),
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, controller.signal)
+    expect(result.status).toBe('ok')
+    expect('updatedAccount' in result).toBe(false)
+    expect(requests.length).toBeGreaterThan(0)
+    expect(checks).toBe(requests.length)
+    for (const request of requests) {
+      expect(request.signal).toBe(controller.signal)
+      expect(request.authorization).toBe('Bearer fake-authorized-access')
+      expect(request.body).not.toContain('fake-refresh-never-sent')
+    }
+    expect(
+      requests.some((request) =>
+        request.body.includes('fake-authorized-project'),
+      ),
+    ).toBe(true)
+  })
+
+  it('stops sending once the grant goes stale and does not apply the reading', async () => {
+    const requests: SentRequest[] = []
+    let checks = 0
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () =>
+        authorized(async () => {
+          checks += 1
+          // Current for the first request only; replaced afterwards.
+          return checks === 1
+            ? { status: 'current' }
+            : { status: 'stale', reason: 'credential replaced' }
+        }),
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(requests).toHaveLength(1)
+    expect(result).toEqual({
+      index: 0,
+      email: undefined,
+      status: 'error',
+      disabled: false,
+      error: 'quota check refused (stale grant: credential replaced)',
+    })
+  })
+
+  it('keeps the summary when the Gemini CLI request fails, carrying the real error', async () => {
+    const requests: SentRequest[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => authorized(),
+      logger: silent,
+      transport: recordingTransport(requests, 'fail'),
+    })
+    const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.quota).toBeDefined()
+    expect(result.geminiCliQuota?.error).toContain('fake cli transport failure')
+  })
+
+  it('stops after authorization when the check was aborted meanwhile', async () => {
+    const requests: SentRequest[] = []
+    const controller = new AbortController()
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => {
+        controller.abort()
+        return authorized()
+      },
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, controller.signal)
+    expect(result).toEqual({
+      index: 0,
+      email: undefined,
+      status: 'error',
+      disabled: false,
+      error: 'aborted',
+    })
+    expect(requests).toEqual([])
   })
 })

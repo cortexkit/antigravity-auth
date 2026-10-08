@@ -3,12 +3,48 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { parseApplyRequest } from '../common-auth-embedded/commands/index.js'
 import { writePortFile as writePublicPortFile } from '../common-auth-embedded/rpc/index.js'
 import { discoverPortFile } from './port-file'
-import { type RpcServerHandle, startRpcServer } from './rpc-server'
+import type {
+  CommandApplyRequest,
+  CommandApplyResult,
+  RpcNotification,
+} from './protocol'
+import {
+  type RpcServerHandle,
+  type StartRpcServerOptions,
+  startRpcServer,
+} from './rpc-server'
 
 const APPLY_PATH = '/rpc/apply'
 const NOTIFICATIONS_PATH = '/rpc/pending-notifications'
+
+const MENU = { command: 'antigravity', title: 'Antigravity', sections: [] }
+
+function result(text: string): CommandApplyResult {
+  return { command: 'antigravity', ok: true, text, menu: MENU }
+}
+
+function start(
+  dir: string,
+  overrides: Partial<StartRpcServerOptions> = {},
+): Promise<RpcServerHandle> {
+  return startRpcServer({
+    dir,
+    parseApplyRequest,
+    apply: async () => result('ok'),
+    drain: () => [],
+    ...overrides,
+  })
+}
+
+const APPLY_BODY: CommandApplyRequest = {
+  command: 'antigravity',
+  sectionId: 'routing',
+  actionId: 'set-routing',
+  values: { cliFirst: true },
+}
 
 function request(
   handle: RpcServerHandle,
@@ -33,11 +69,7 @@ describe('RPC server HTTP boundary', () => {
   })
 
   it('listens on loopback and publishes discovery only after startup', async () => {
-    handle = await startRpcServer({
-      dir,
-      apply: async () => ({ text: 'ok', knobs: {} }),
-      drain: () => [],
-    })
+    handle = await start(dir)
 
     const discovered = await discoverPortFile(dir, process.pid)
     expect(discovered).not.toBeNull()
@@ -48,15 +80,8 @@ describe('RPC server HTTP boundary', () => {
   })
 
   it('requires the bearer token for both exposed routes', async () => {
-    handle = await startRpcServer({
-      dir,
-      apply: async () => ({ text: 'ok', knobs: {} }),
-      drain: () => [],
-    })
-    const body = JSON.stringify({
-      command: 'antigravity-quota',
-      arguments: '',
-    })
+    handle = await start(dir)
+    const body = JSON.stringify(APPLY_BODY)
 
     const missing = await request(handle, APPLY_PATH, { method: 'POST', body })
     const wrong = await request(handle, APPLY_PATH, {
@@ -75,19 +100,12 @@ describe('RPC server HTTP boundary', () => {
   })
 
   it('wraps pending notifications in a messages response', async () => {
-    const notification = {
+    const notification: RpcNotification = {
       id: 4,
-      type: 'open-dialog' as const,
-      payload: {
-        command: 'antigravity-quota' as const,
-        text: 'quota changed',
-        knobs: {},
-      },
+      payload: { command: 'antigravity', menu: MENU },
       sessionId: 'session-a',
     }
-    handle = await startRpcServer({
-      dir,
-      apply: async () => ({ text: 'ok', knobs: {} }),
+    handle = await start(dir, {
       drain: (lastReceivedId, sessionId) => {
         expect(lastReceivedId).toBe(3)
         expect(sessionId).toBe('session-a')
@@ -105,12 +123,130 @@ describe('RPC server HTTP boundary', () => {
     await expect(response.json()).resolves.toEqual({ messages: [notification] })
   })
 
-  it('returns 404 for non-POST requests and unknown paths', async () => {
-    handle = await startRpcServer({
-      dir,
-      apply: async () => ({ text: 'ok', knobs: {} }),
-      drain: () => [],
+  it('hands apply only the parsed menu request and answers its result', async () => {
+    const received: CommandApplyRequest[] = []
+    handle = await start(dir, {
+      apply: async (request) => {
+        received.push(request)
+        return result('applied')
+      },
     })
+
+    const response = await request(handle, APPLY_PATH, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${handle.token}` },
+      body: JSON.stringify({
+        ...APPLY_BODY,
+        itemId: 'item-1',
+        confirmed: true,
+        sessionId: 'session-a',
+        unexpected: 'dropped by the parser',
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual(result('applied'))
+    expect(received).toEqual([
+      {
+        ...APPLY_BODY,
+        itemId: 'item-1',
+        confirmed: true,
+        sessionId: 'session-a',
+      },
+    ])
+  })
+
+  it('refuses malformed and retired apply bodies before apply runs', async () => {
+    let applied = 0
+    handle = await start(dir, {
+      apply: async () => {
+        applied += 1
+        return result('ok')
+      },
+    })
+    const bodies = [
+      '{}',
+      '[]',
+      'null',
+      '"antigravity"',
+      // The request shape of the older per-command dialogs, which the menu replaced; it must be refused.
+      '{"command":"antigravity-quota","arguments":""}',
+      '{"command":"antigravity","sectionId":"routing"}',
+      '{"command":"antigravity","sectionId":"routing","actionId":7}',
+      '{"command":"antigravity","sectionId":"routing","actionId":"a","itemId":3}',
+      '{"command":"antigravity","sectionId":"routing","actionId":"a","sessionId":null}',
+      '{"command":"antigravity","sectionId":"routing","actionId":"a","confirmed":"yes"}',
+      '{"command":"antigravity","sectionId":"routing","actionId":"a","values":[]}',
+      '{"command":"antigravity","sectionId":"routing","actionId":"a","values":{"k":{}}}',
+    ]
+
+    for (const body of bodies) {
+      const response = await request(handle, APPLY_PATH, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${handle.token}` },
+        body,
+      })
+      expect({ body, status: response.status }).toEqual({ body, status: 400 })
+      await expect(response.json()).resolves.toEqual({
+        error: 'Invalid apply request',
+      })
+    }
+    expect(applied).toBe(0)
+  })
+
+  it('validates apply bodies only with the injected parser', async () => {
+    const parsed: unknown[] = []
+    let applied = 0
+    handle = await start(dir, {
+      parseApplyRequest: (value) => {
+        parsed.push(value)
+        return undefined
+      },
+      apply: async () => {
+        applied += 1
+        return result('ok')
+      },
+    })
+
+    const response = await request(handle, APPLY_PATH, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${handle.token}` },
+      body: JSON.stringify(APPLY_BODY),
+    })
+
+    expect(response.status).toBe(400)
+    expect(parsed).toEqual([APPLY_BODY])
+    expect(applied).toBe(0)
+  })
+
+  it('refuses malformed pending-notification cursors before drain runs', async () => {
+    let drained = 0
+    handle = await start(dir, {
+      drain: () => {
+        drained += 1
+        return []
+      },
+    })
+    for (const body of [
+      '{}',
+      '{"lastReceivedId":-1}',
+      '{"lastReceivedId":0.5}',
+      '{"lastReceivedId":"0"}',
+      '{"lastReceivedId":9007199254740992}',
+      '{"lastReceivedId":0,"sessionId":null}',
+    ]) {
+      const response = await request(handle, NOTIFICATIONS_PATH, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${handle.token}` },
+        body,
+      })
+      expect({ body, status: response.status }).toEqual({ body, status: 400 })
+    }
+    expect(drained).toBe(0)
+  })
+
+  it('returns 404 for non-POST requests and unknown paths', async () => {
+    handle = await start(dir)
 
     const get = await request(handle, APPLY_PATH)
     const unknown = await request(handle, '/rpc/unknown', {
@@ -124,11 +260,7 @@ describe('RPC server HTTP boundary', () => {
   })
 
   it('serves GET /health without authentication', async () => {
-    handle = await startRpcServer({
-      dir,
-      apply: async () => ({ text: 'ok', knobs: {} }),
-      drain: () => [],
-    })
+    handle = await start(dir)
 
     const response = await request(handle, '/health')
     expect(response.status).toBe(200)
@@ -136,22 +268,14 @@ describe('RPC server HTTP boundary', () => {
   })
 
   it('returns 404 for unknown GET paths', async () => {
-    handle = await startRpcServer({
-      dir,
-      apply: async () => ({ text: 'ok', knobs: {} }),
-      drain: () => [],
-    })
+    handle = await start(dir)
 
     const unknown = await request(handle, '/not-a-real-route')
     expect(unknown.status).toBe(404)
   })
 
   it('rejects invalid JSON and bodies larger than the decimal million-byte cap', async () => {
-    handle = await startRpcServer({
-      dir,
-      apply: async () => ({ text: 'ok', knobs: {} }),
-      drain: () => [],
-    })
+    handle = await start(dir)
     const headers = { authorization: `Bearer ${handle.token}` }
 
     const invalid = await request(handle, APPLY_PATH, {
@@ -170,11 +294,7 @@ describe('RPC server HTTP boundary', () => {
   })
 
   it('stops idempotently and removes only its own PID file', async () => {
-    handle = await startRpcServer({
-      dir,
-      apply: async () => ({ text: 'ok', knobs: {} }),
-      drain: () => [],
-    })
+    handle = await start(dir)
     const ownFile = join(dir, `port-${process.pid}.json`)
     const otherFile = join(dir, `port-${process.ppid}.json`)
     await writePublicPortFile(
