@@ -33,11 +33,11 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const ARCHIVE =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.11.4.tgz'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.11.6.tgz'
 const ARCHIVE_SHA256 =
-  'e28fbd6e44e1cb990dec02379510d3c81677490be5785c1b9934590c79280eca'
+  '2e1cbbdd2c5e75bbeecada6a64b93c29b64c5d3b41d3742312e1390cfaa6d9df'
 const PACKAGE_NAME = '@cortexkit/common-auth'
-const PACKAGE_VERSION = '0.11.4'
+const PACKAGE_VERSION = '0.11.6'
 const ENV_NAME = 'AGY_COMMON_AUTH_STORE_CONSUMER'
 
 const [command, ...args] = process.argv.slice(2)

@@ -44,7 +44,7 @@ jobs:
 
       - name: Install private TUI compiler from locked repository input
         run: |
-          test -f tools/common-auth-build/inputs/cortexkit-common-auth-0.11.4.tgz
+          test -f tools/common-auth-build/inputs/cortexkit-common-auth-0.11.6.tgz
           bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
           bun run embed:check
 
@@ -124,7 +124,7 @@ jobs:
 
       - name: Install private TUI compiler from locked repository input
         run: |
-          test -f tools/common-auth-build/inputs/cortexkit-common-auth-0.11.4.tgz
+          test -f tools/common-auth-build/inputs/cortexkit-common-auth-0.11.6.tgz
           bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
           bun run embed:check
 
@@ -170,7 +170,7 @@ jobs:
 
       - name: Install private TUI compiler from locked repository input
         run: |
-          test -f tools/common-auth-build/inputs/cortexkit-common-auth-0.11.4.tgz
+          test -f tools/common-auth-build/inputs/cortexkit-common-auth-0.11.6.tgz
           bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
           bun run embed:check
 
