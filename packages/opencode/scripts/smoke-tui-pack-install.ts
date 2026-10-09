@@ -209,6 +209,43 @@ export async function inspectPack(tar: string, target: string) {
   return root
 }
 
+function orderedMap(value: object): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).sort(([a], [b]) => a.localeCompare(b)),
+  )
+}
+
+export function expectedCandidateGraph(
+  baselineGraph: readonly unknown[],
+): unknown[] {
+  let productRows = 0
+  const graph = baselineGraph.map((row) => {
+    if (!Array.isArray(row) || row[0] !== productName) return row
+    productRows++
+    const peers: unknown = row[4]
+    if (
+      row.length !== 5 ||
+      row[1] !== productName ||
+      !peers ||
+      typeof peers !== 'object' ||
+      Array.isArray(peers) ||
+      Object.hasOwn(peers, '@opencode/plugin')
+    )
+      throw new Error('Unexpected historical product graph row')
+    // Both consumers use the same core tarball. Only the product's optional
+    // OpenCode 2 peer declaration changes; no installed package is exempted.
+    return [
+      ...row.slice(0, 4),
+      orderedMap({ ...peers, '@opencode/plugin': '>=2.0.22' }),
+    ]
+  })
+  if (productRows !== 1)
+    throw new Error('Expected one historical product graph row')
+  return graph.sort((a, b) =>
+    JSON.stringify(a).localeCompare(JSON.stringify(b)),
+  )
+}
+
 async function installedGraph(root: string, prefix = ''): Promise<unknown[]> {
   const graph: unknown[] = []
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -223,8 +260,8 @@ async function installedGraph(root: string, prefix = ''): Promise<unknown[]> {
         name,
         pkg.name,
         pkg.version,
-        pkg.dependencies ?? {},
-        pkg.peerDependencies ?? {},
+        orderedMap(pkg.dependencies ?? {}),
+        orderedMap(pkg.peerDependencies ?? {}),
       ])
       const nested = join(path, 'node_modules')
       try {
@@ -439,7 +476,7 @@ async function main() {
           false,
           'baseline',
         )
-        baselines.set(ui, base.graph)
+        baselines.set(ui, expectedCandidateGraph(base.graph))
       }
       for (const scripts of [true, false]) {
         const tar = await pack(
