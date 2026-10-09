@@ -650,8 +650,12 @@ describe('createRequestExecutor retry contract', () => {
     }
   })
 
+  // With another account in the pool a failed refresh is retried through
+  // selection; the only account's failed refresh is a native 401 instead
+  // (see the test below).
   it('retries selection after a failed refresh and sends with the next grant', async () => {
     const h = harness({
+      pool: makePool(2),
       refresh: async (auth, attempt) =>
         attempt === 1
           ? undefined
@@ -700,6 +704,28 @@ describe('createRequestExecutor retry contract', () => {
       expect(checked).toEqual(
         ANTIGRAVITY_ENDPOINT_FALLBACKS.map(() => 'access-stale'),
       )
+      expect(h.calls).toHaveLength(0)
+    } finally {
+      executor.dispose()
+    }
+  })
+
+  it("returns the native 401 when the only account's refresh yields no credential", async () => {
+    const h = harness({
+      refresh: async () => undefined,
+      respond: async () => okJson(),
+      config: { max_rate_limit_wait_seconds: 1 },
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(401)
+      const body = (await response.json()) as {
+        error: { status: string; message: string }
+      }
+      expect(body.error.status).toBe('UNAUTHENTICATED')
+      expect(body.error.message).toContain('Missing access token')
+      expect(h.refreshed).toHaveLength(1)
       expect(h.calls).toHaveLength(0)
     } finally {
       executor.dispose()

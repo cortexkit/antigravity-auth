@@ -487,13 +487,14 @@ export const createAntigravityPlugin =
       onGetAuth: (getAuth) => {
         cachedGetAuth = getAuth
       },
-      createFetch: ({ accountManager, getAuth }) =>
+      createFetch: ({ accountManager, getAuth, source }) =>
         createFetchInterceptor({
           client,
           directory,
           providerId,
           config,
           accountManager,
+          accountSource: source,
           quotaManager,
           getAuth,
           agySessionRegistry: sessionRegistry,

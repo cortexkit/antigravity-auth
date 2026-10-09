@@ -76,6 +76,8 @@ export type RuntimeAccountManager = AccountManager | CoreAccountManager
 export type CreateAuthFetch = (input: {
   accountManager: RuntimeAccountManager
   getAuth: GetAuth
+  /** Where `accountManager`'s accounts come from; see `installRuntime`. */
+  source: 'pool-file' | 'store'
 }) => AuthFetchRuntime
 
 /**
@@ -309,7 +311,7 @@ export function createAuthLoader({
     // runtime's dispose. The swap-then-dispose order guarantees there
     // is no fetch gap between the old and new runtimes.
     const previousRuntime = fetchRuntime
-    fetchRuntime = createFetch({ accountManager, getAuth })
+    fetchRuntime = createFetch({ accountManager, getAuth, source })
     await previousRuntime?.dispose()
 
     // Push the freshly materialized account pool into the sidebar so the

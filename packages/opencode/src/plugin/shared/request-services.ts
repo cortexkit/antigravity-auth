@@ -1294,6 +1294,16 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 retryState.trackAccountFailure(account.index)
               trackers.health.recordFailure(account.index)
               lastError = new Error('Antigravity token refresh failed')
+              // A refresh that yields no credential is an authentication
+              // failure. With no other account to try, answer the native 401
+              // the missing-token check below gives, rather than retrying
+              // until the cooldown turns it into a pool-unavailable 412.
+              if (accountCount <= 1) {
+                return createNativeGoogleErrorResponse({
+                  status: 401,
+                  reason: 'missing_access_token',
+                })
+              }
               if (shouldCooldown) {
                 accountManager.markAccountCoolingDown(
                   account,

@@ -8,14 +8,22 @@ import {
   spyOn,
 } from 'bun:test'
 import { join } from 'node:path'
-
+import type {
+  AccountRepository,
+  AccountRepositoryRead,
+  AccountRow,
+  RowRef,
+} from '@cortexkit/antigravity-auth-core'
 import { ANTIGRAVITY_ENDPOINT_DAILY } from '@cortexkit/antigravity-auth-core'
-
-import { AccountManager } from './accounts'
+import { AccountManager, loadAccountManagerFromRepository } from './accounts'
 import { DEFAULT_CONFIG } from './config'
 import type { AgyTransport } from './dependencies'
-import { createFetchInterceptor } from './fetch-interceptor'
+import {
+  createFetchInterceptor,
+  createVaultFetchInterceptor,
+} from './fetch-interceptor'
 import { AgySessionRegistry } from './session-context'
+import type { VaultRequestSource } from './shared/vault-request-credentials'
 import { type AccountStorageV4, saveAccountsReplace } from './storage'
 import type { GetAuth, PluginClient } from './types'
 
@@ -189,6 +197,8 @@ async function makeContext(overrides: ContextOverrides = {}) {
         expires: Date.now() + 3_600_000,
       })),
     agySessionRegistry: new AgySessionRegistry(directory),
+    // These tests run on the pool-file manager built above.
+    accountSource: 'pool-file' as const,
     // Default to the shared `transport` mock so tests that exercise the
     // dispatch path do not need to opt in to transport mocking explicitly.
     agyTransport: overrides.agyTransport ?? transport,
@@ -979,6 +989,281 @@ describe('createFetchInterceptor', () => {
       } finally {
         interceptor.dispose()
         await context.accountManager.dispose()
+      }
+    })
+  })
+
+  describe('account-store source', () => {
+    // A repository over one store row that refreshes through `refresh`. It
+    // implements the read and refresh paths the store-backed manager uses;
+    // the queued usage and fingerprint writes are accepted and dropped.
+    function storeRepository(
+      refresh: (ref: RowRef) => ReturnType<AccountRepository['refresh']>,
+    ) {
+      const ref: RowRef = {
+        id: 'store-row',
+        credentialEpoch: 3,
+        identity: 'google-store',
+      }
+      const read = async (): Promise<AccountRepositoryRead> => ({
+        status: 'ready',
+        rows: [
+          {
+            ref,
+            index: 0,
+            enabled: true,
+            credential: { refreshToken: 'store-refresh-token' },
+            usable: true,
+            stamp: 'bound',
+            metadata: {
+              status: 'present',
+              metadata: {
+                email: 'store@example.test',
+                addedAt: 1,
+                lastUsed: 1,
+                managedProjectId: 'managed-store',
+                fingerprint: {
+                  deviceId: 'device-store',
+                  sessionToken: 'session',
+                  userAgent: 'antigravity-cli/test',
+                  apiClient: 'antigravity-cli',
+                  clientMetadata: {
+                    ideType: 'IDE_UNSPECIFIED',
+                    platform: 'darwin',
+                    pluginType: 'GEMINI',
+                  },
+                  createdAt: 1,
+                },
+              },
+            },
+            quota: { status: 'absent' },
+          } as AccountRow,
+        ],
+      })
+      const settled = async () => ({ completed: 0, failures: [] })
+      const repository = new Proxy(
+        { read, refresh, flush: settled, dispose: settled },
+        {
+          get: (target, property) =>
+            property in target
+              ? target[property as keyof typeof target]
+              : async (written: RowRef) => ({
+                  ref: written,
+                  outcome: 'unchanged',
+                }),
+        },
+      ) as unknown as AccountRepository
+      return { repository, ref }
+    }
+
+    it('refreshes the selected store account through the repository on its own row', async () => {
+      const refreshedRefs: RowRef[] = []
+      const { repository, ref } = storeRepository(async (target) => {
+        refreshedRefs.push(target)
+        return {
+          status: 'rotated',
+          ref: target,
+          accessToken: 'access-from-store',
+          expiresAt: Date.now() + 3_600_000,
+        }
+      })
+      const tokenFetch = mock(async () => {
+        throw new Error(
+          'the host OAuth refresh must not run for a store account',
+        )
+      })
+      globalThis.stubbed('fetch', tokenFetch)
+      transportHandler = async () =>
+        new Response(
+          JSON.stringify({
+            response: {
+              candidates: [
+                { content: { role: 'model', parts: [{ text: 'hi' }] } },
+              ],
+            },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        )
+      const accountManager = await loadAccountManagerFromRepository(
+        repository,
+        { onDiagnostic: () => {} },
+      )
+      const context = await makeContext({
+        config: {
+          ...DEFAULT_CONFIG,
+          account_selection_strategy: 'sticky',
+          request_jitter_max_ms: 0,
+          quota_refresh_interval_minutes: 0,
+          proactive_rotation_threshold_percent: 0,
+        },
+      })
+      const interceptor = createFetchInterceptor({
+        ...context,
+        accountManager,
+        accountSource: 'store',
+      })
+      try {
+        const response = await interceptor.fetch(
+          GENERATIVE_URL.replace(
+            ':streamGenerateContent?alt=sse',
+            ':generateContent',
+          ),
+          GENERATIVE_INIT,
+        )
+        expect(response.status).toBe(200)
+        expect(refreshedRefs).toEqual([ref])
+        expect(tokenFetch).not.toHaveBeenCalled()
+        expect(transportMock).toHaveBeenCalledTimes(1)
+        const sentInit = transportMock.mock.calls[0]?.[1] as RequestInit
+        expect(new Headers(sentInit.headers).get('authorization')).toBe(
+          'Bearer access-from-store',
+        )
+      } finally {
+        interceptor.dispose()
+        await context.accountManager.dispose()
+        await accountManager.dispose()
+      }
+    })
+  })
+
+  describe('vault custody source', () => {
+    const route = {
+      routeId: 'route-work',
+      credentialId: 'credential-work',
+      accountIdentity: 'identity-work',
+      label: 'Work',
+      email: 'work@example.test',
+    }
+
+    // The vault account source operations the vault interceptor uses. Each
+    // admission is a new receipt with its own version, token and project.
+    function vaultSource(versions: number[] = [1, 2, 3, 4]) {
+      const admitted: Array<{ ref: typeof route; signal?: AbortSignal }> = []
+      const reported: Array<{ recordVersion: number; status: number }> = []
+      let refreshes = 0
+      const source: VaultRequestSource = {
+        refresh: async () => {
+          refreshes++
+          return undefined
+        },
+        routes: () => [route],
+        admit: async (ref, signal) => {
+          admitted.push({ ref: ref as typeof route, signal })
+          const recordVersion = versions.shift() ?? 99
+          return {
+            routeId: ref.routeId,
+            credentialId: ref.credentialId,
+            accountIdentity: ref.accountIdentity,
+            recordVersion,
+            projectId: `vault-project-${recordVersion}`,
+            accessToken: `vault-token-${recordVersion}`,
+            expiresAtMs: null,
+          }
+        },
+        reportServedStatus: async (admission, status) => {
+          reported.push({ recordVersion: admission.recordVersion, status })
+          return status === 401
+        },
+      }
+      return { source, admitted, reported, refreshes: () => refreshes }
+    }
+
+    async function vaultInterceptor(source: VaultRequestSource) {
+      const context = await makeContext({
+        config: {
+          ...DEFAULT_CONFIG,
+          account_selection_strategy: 'sticky',
+          request_jitter_max_ms: 0,
+          quota_refresh_interval_minutes: 0,
+          proactive_rotation_threshold_percent: 0,
+        },
+      })
+      await context.accountManager.dispose()
+      return createVaultFetchInterceptor({
+        client: context.client,
+        config: context.config,
+        agySessionRegistry: context.agySessionRegistry,
+        agyTransport: context.agyTransport,
+        source,
+      })
+    }
+
+    const NON_STREAM_URL = GENERATIVE_URL.replace(
+      ':streamGenerateContent?alt=sse',
+      ':generateContent',
+    )
+    const okJson = () =>
+      new Response(
+        JSON.stringify({
+          response: {
+            candidates: [
+              { content: { role: 'model', parts: [{ text: 'hi' }] } },
+            ],
+          },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      )
+    const sent = (index: number) => {
+      const init = transportMock.mock.calls[index]?.[1] as RequestInit
+      return {
+        authorization: new Headers(init.headers).get('authorization'),
+        project: (JSON.parse(String(init.body)) as { project: string }).project,
+      }
+    }
+
+    it("admits every physical attempt and sends with that receipt's token and project", async () => {
+      const vault = vaultSource()
+      const hostFetch = mock(async () => {
+        throw new Error('no host token or host fetch is used for vault sends')
+      })
+      globalThis.stubbed('fetch', hostFetch)
+      transportHandler = async () =>
+        transportMock.mock.calls.length === 1
+          ? new Response('missing', { status: 404 })
+          : okJson()
+      const interceptor = await vaultInterceptor(vault.source)
+      try {
+        const first = await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)
+        expect(first.status).toBe(200)
+        const second = await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)
+        expect(second.status).toBe(200)
+
+        // Two endpoint attempts for the first request, one for the second:
+        // three receipts, each used once, nothing reused from a prior send.
+        expect(vault.admitted.map((entry) => entry.ref)).toEqual([
+          route,
+          route,
+          route,
+        ])
+        expect([0, 1, 2].map(sent)).toEqual([
+          { authorization: 'Bearer vault-token-1', project: 'vault-project-1' },
+          { authorization: 'Bearer vault-token-2', project: 'vault-project-2' },
+          { authorization: 'Bearer vault-token-3', project: 'vault-project-3' },
+        ])
+        expect(vault.refreshes()).toBe(1)
+        expect(hostFetch).not.toHaveBeenCalled()
+      } finally {
+        interceptor.dispose()
+      }
+    })
+
+    it('reports a served 401 against the receipt that served it', async () => {
+      // The re-admission after the 401 is not a newer version, so the 401
+      // stands and nothing else is sent.
+      const vault = vaultSource([5, 5])
+      transportHandler = async () =>
+        new Response('{"error":{"code":401}}', { status: 401 })
+      const interceptor = await vaultInterceptor(vault.source)
+      try {
+        const response = await interceptor.fetch(
+          NON_STREAM_URL,
+          GENERATIVE_INIT,
+        )
+        expect(response.status).toBe(401)
+        expect(vault.reported).toEqual([{ recordVersion: 5, status: 401 }])
+        expect(transportMock).toHaveBeenCalledTimes(1)
+      } finally {
+        interceptor.dispose()
       }
     })
   })

@@ -1,7 +1,15 @@
-import { fetchWithAgyCliTransport } from '@cortexkit/antigravity-auth-core'
+import {
+  AccountSelector,
+  fetchWithAgyCliTransport,
+} from '@cortexkit/antigravity-auth-core'
 import { upsertSidebarActiveRouting } from '../sidebar-state'
 import { extractAccountAccessErrorDetails } from './account-access'
-import type { AccountManager, ManagedAccount } from './accounts'
+import {
+  type AccountManager,
+  createLocalAccountCredentials,
+  type ManagedAccount,
+  StaleAccountGrantError,
+} from './accounts'
 import type { GetAuth } from './auth'
 import { isOAuthAuth } from './auth'
 import type { AntigravityConfig } from './config'
@@ -20,25 +28,25 @@ import {
   prepareAntigravityRequest,
   transformAntigravityResponse,
 } from './request'
-import { getHealthTracker, getTokenTracker } from './rotation'
 import type { AgySessionRegistry } from './session-context'
 import {
   createLocalQuotaRefresh,
   createRequestExecutor,
+  type LocalRequestCredentials,
   type RequestServicesDeps,
 } from './shared/request-services'
+import {
+  createVaultRequestCredentials,
+  refreshVaultAccountRow,
+  type VaultAccountRow,
+  type VaultRequestSource,
+  vaultAccountRowKey,
+  vaultAccountRows,
+} from './shared/vault-request-credentials'
 import { AntigravityTokenRefreshError, refreshAccessToken } from './token'
 import type { PluginClient } from './types'
 
 const log = createLogger('fetch-interceptor')
-
-/** The selected account's grant is no longer its current credential. */
-class StaleAccountGrantError extends Error {
-  constructor() {
-    super('The selected account no longer holds this credential')
-    this.name = 'StaleAccountGrantError'
-  }
-}
 
 /** Production transport — used when the interceptor context omits one. */
 const defaultAgyTransport: AgyTransport = (url, init, options) =>
@@ -60,6 +68,14 @@ export interface FetchInterceptorContext {
   readonly providerId: string
   readonly config: AntigravityConfig
   readonly accountManager: AccountManager
+  /**
+   * Where `accountManager`'s accounts come from, as the auth loader opened
+   * them. `pool-file`: the pre-store pool file, whose tokens are refreshed
+   * through the host's OAuth refresh. `store`: the account store, whose
+   * tokens are refreshed only by the repository on the selected account's
+   * own row reference.
+   */
+  readonly accountSource: 'pool-file' | 'store'
   readonly quotaManager: QuotaManager
   readonly getAuth: GetAuth
   readonly agySessionRegistry: AgySessionRegistry
@@ -93,89 +109,83 @@ export interface FetchInterceptor {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
   dispose(): void
 }
+
+/** The local credential operations that differ between account sources. */
+type SourceCredentials = Pick<
+  LocalRequestCredentials<ManagedAccount>,
+  'refresh' | 'assertGrantCurrent' | 'ensureProject' | 'isInvalidGrant'
+>
+
 /**
- * OpenCode 1 binding of the shared request engine. The retry, rotation and
- * quota-fallback pipeline lives in `createRequestExecutor`; this wrapper
- * decides which requests reach it and binds OpenCode 1's module-level
- * debug/dump/logger/trackers, host toasts, sidebar routing file and host
- * auth store as that engine's collaborators.
+ * A pool-file account: the selected account's stored OAuth record is
+ * refreshed through the host's OAuth refresh, and a grant is sent only while
+ * that account is still in the pool, enabled and still holds the token.
  */
-export function createFetchInterceptor(
-  context: FetchInterceptorContext,
-): FetchInterceptor {
-  const {
-    client,
-    providerId,
-    config,
-    accountManager,
-    quotaManager,
-    getAuth,
-    agySessionRegistry,
-    operatorSettings,
-    agyTransport = defaultAgyTransport,
-    fetchImpl = defaultFetchImpl,
-    // directory is part of the contract but not consumed by this interceptor;
-    // callers use it when constructing sibling services (e.g. project context).
-  } = context
-  void (context as { directory: string }).directory
-
-  // Capture the host fetch at factory time so the interceptor never shadows
-  // it with its own (recursive) fetch binding. Production wires this up via
-  // the OpenCode plugin runtime; tests inject a mock by stubbing globalThis
-  // OR — preferred for e2e — pass `fetchImpl` through the context so the
-  // stub survives a process-wide fetch replacement.
-  const upstreamFetch = fetchImpl
-
-  const deps: RequestServicesDeps<ManagedAccount> = {
-    config,
-    accounts: accountManager,
-    credentials: {
-      domain: 'local',
-      toAuthDetails: (account) => accountManager.toAuthDetails(account),
-      updateFromAuth: (account, auth) =>
-        accountManager.updateFromAuth(account, auth),
-      removeAccount: (account) => accountManager.removeAccount(account),
-      saveToDisk: () => accountManager.saveToDisk(),
-      saveToDiskReplace: () => accountManager.saveToDiskReplace(),
-      // OpenCode 1's rows have no repository ref: the selected row's own
-      // stored record is refreshed.
-      refresh: (account) =>
-        refreshAccessToken(
-          accountManager.toAuthDetails(account),
-          client,
-          providerId,
-        ),
-      // The grant is sent only while the selected row is still in the pool,
-      // enabled, and still holds the grant's access token.
-      assertGrantCurrent: ({ account, accessToken }) => {
-        if (
-          !accountManager.getAccounts().includes(account) ||
-          account.enabled === false ||
-          accountManager.toAuthDetails(account).access !== accessToken
-        ) {
-          throw new StaleAccountGrantError()
-        }
-      },
-      ensureProject: (auth) => ensureProjectContext(auth),
-      isInvalidGrant: (error) =>
-        error instanceof AntigravityTokenRefreshError &&
-        error.code === 'invalid_grant',
-      clearStoredAuth: async () => {
-        await client.auth.set({
-          path: { id: providerId },
-          body: { type: 'oauth', refresh: '', access: '', expires: 0 },
-        })
-      },
-      refreshQuotaAfterSuccess: createLocalQuotaRefresh(
-        accountManager,
-        quotaManager,
-        log,
+function poolFileCredentials(
+  accountManager: AccountManager,
+  client: PluginClient,
+  providerId: string,
+): SourceCredentials {
+  return {
+    refresh: (account) =>
+      refreshAccessToken(
+        accountManager.toAuthDetails(account),
+        client,
+        providerId,
       ),
+    assertGrantCurrent: ({ account, accessToken }) => {
+      if (
+        !accountManager.getAccounts().includes(account) ||
+        account.enabled === false ||
+        accountManager.toAuthDetails(account).access !== accessToken
+      ) {
+        throw new StaleAccountGrantError()
+      }
     },
-    sessions: agySessionRegistry,
-    operatorSettings,
-    transport: agyTransport,
-    fetchImpl: upstreamFetch,
+    ensureProject: (auth) => ensureProjectContext(auth),
+    isInvalidGrant: (error) =>
+      error instanceof AntigravityTokenRefreshError &&
+      error.code === 'invalid_grant',
+  }
+}
+
+/**
+ * An account-store account: refresh, grant check and invalid-grant
+ * recognition are the store adapter's own (`createLocalAccountCredentials`),
+ * so a token is refreshed only through the repository on the selected
+ * account's row reference and never through the host client.
+ */
+function storeCredentials(accountManager: AccountManager): SourceCredentials {
+  const credentials = createLocalAccountCredentials(accountManager)
+  return {
+    refresh: (account) => credentials.refresh(account),
+    assertGrantCurrent: (request) => credentials.assertGrantCurrent(request),
+    ensureProject: (auth) => credentials.ensureProject(auth),
+    isInvalidGrant: (error) => credentials.isInvalidGrant(error),
+  }
+}
+
+/**
+ * The engine collaborators every OpenCode 1 interceptor shares, whatever
+ * holds its accounts: wire functions, the module-level debug, dump and
+ * logger bindings, host toasts and the sidebar routing file.
+ */
+function openCode1EngineCollaborators(
+  common: Pick<
+    FetchInterceptorContext,
+    'client' | 'config' | 'agySessionRegistry' | 'operatorSettings'
+  > & { transport: AgyTransport; fetchImpl: FetchImpl },
+): Omit<
+  RequestServicesDeps<ManagedAccount>,
+  'accounts' | 'credentials' | 'trackers'
+> {
+  const { client } = common
+  return {
+    config: common.config,
+    sessions: common.agySessionRegistry,
+    operatorSettings: common.operatorSettings,
+    transport: common.transport,
+    fetchImpl: common.fetchImpl,
     wire: {
       prepare: prepareAntigravityRequest,
       transformResponse: transformAntigravityResponse,
@@ -188,14 +198,6 @@ export function createFetchInterceptor(
     debug: moduleDebug,
     dump: { dumpRequest: dumpGeminiRequest },
     logger: log,
-    trackers: {
-      get health() {
-        return getHealthTracker()
-      },
-      get token() {
-        return getTokenTracker()
-      },
-    },
     classifyAccessError: extractAccountAccessErrorDetails,
     notify: (message, variant) =>
       client.tui.showToast({ body: { message, variant } }),
@@ -210,7 +212,80 @@ export function createFetchInterceptor(
       })
     },
   }
-  const executor = createRequestExecutor(deps)
+}
+
+/**
+ * OpenCode 1 binding of the shared request engine for accounts this plugin
+ * holds itself (pool file or account store). The retry, rotation and
+ * quota-fallback pipeline lives in `createRequestExecutor`; this wrapper
+ * decides which requests reach it and binds the account manager, its
+ * source's credential operations and OpenCode 1's collaborators.
+ */
+export function createFetchInterceptor(
+  context: FetchInterceptorContext,
+): FetchInterceptor {
+  const {
+    client,
+    providerId,
+    accountManager,
+    accountSource,
+    quotaManager,
+    getAuth,
+    agyTransport = defaultAgyTransport,
+    fetchImpl = defaultFetchImpl,
+    // directory is part of the contract but not consumed by this interceptor;
+    // callers use it when constructing sibling services (e.g. project context).
+  } = context
+  void (context as { directory: string }).directory
+
+  // Capture the host fetch at factory time so the interceptor never shadows
+  // it with its own (recursive) fetch binding. Production wires this up via
+  // the OpenCode plugin runtime; tests inject a mock by stubbing globalThis
+  // OR — preferred for e2e — pass `fetchImpl` through the context so the
+  // stub survives a process-wide fetch replacement.
+  const upstreamFetch = fetchImpl
+
+  const executor = createRequestExecutor<ManagedAccount>({
+    ...openCode1EngineCollaborators({
+      ...context,
+      transport: agyTransport,
+      fetchImpl: upstreamFetch,
+    }),
+    accounts: accountManager,
+    credentials: {
+      domain: 'local',
+      toAuthDetails: (account) => accountManager.toAuthDetails(account),
+      updateFromAuth: (account, auth) =>
+        accountManager.updateFromAuth(account, auth),
+      removeAccount: (account) => accountManager.removeAccount(account),
+      saveToDisk: () => accountManager.saveToDisk(),
+      saveToDiskReplace: () => accountManager.saveToDiskReplace(),
+      ...(accountSource === 'store'
+        ? storeCredentials(accountManager)
+        : poolFileCredentials(accountManager, client, providerId)),
+      clearStoredAuth: async () => {
+        await client.auth.set({
+          path: { id: providerId },
+          body: { type: 'oauth', refresh: '', access: '', expires: 0 },
+        })
+      },
+      refreshQuotaAfterSuccess: createLocalQuotaRefresh(
+        accountManager,
+        quotaManager,
+        log,
+      ),
+    },
+    // The trackers the manager selects with: its own for a store-backed
+    // manager, the process-wide ones for the pool-file manager.
+    trackers: {
+      get health() {
+        return accountManager.healthTracker
+      },
+      get token() {
+        return accountManager.tokenTracker
+      },
+    },
+  })
   let disposed = false
 
   async function fetch(
@@ -233,6 +308,104 @@ export function createFetchInterceptor(
       return upstreamFetch(input, init)
     }
 
+    return executor.execute(input, init)
+  }
+
+  function dispose(): void {
+    if (disposed) return
+    disposed = true
+    executor.dispose()
+  }
+
+  return { fetch, dispose }
+}
+
+/**
+ * Inputs of the OpenCode 1 interceptor for a location whose accounts the
+ * vault holds (custody). There is no account manager, host OAuth record or
+ * quota manager: accounts are the vault's selectable routes and every
+ * credential comes from the vault source.
+ */
+export interface VaultFetchInterceptorContext
+  extends Pick<
+    FetchInterceptorContext,
+    | 'client'
+    | 'config'
+    | 'agySessionRegistry'
+    | 'operatorSettings'
+    | 'agyTransport'
+    | 'fetchImpl'
+  > {
+  /** This location's custody source (the vault account source). */
+  readonly source: VaultRequestSource
+}
+
+/**
+ * OpenCode 1 binding of the shared request engine for vault-held accounts.
+ * Selection runs on an `AccountSelector` over the vault's selectable routes
+ * (metadata rows, no credential). Every physical send takes a fresh receipt
+ * for the selected route through `createVaultRequestCredentials`: its token
+ * and project serve that one send, and a 401 is reported against it.
+ * Nothing is refreshed locally, cached or copied from the host's own Google
+ * sign-in, which is why no host auth is read here.
+ */
+export function createVaultFetchInterceptor(
+  context: VaultFetchInterceptorContext,
+): FetchInterceptor {
+  const {
+    source,
+    agyTransport = defaultAgyTransport,
+    fetchImpl = defaultFetchImpl,
+  } = context
+  const upstreamFetch = fetchImpl
+  const selector = new AccountSelector<VaultAccountRow>()
+  const executor = createRequestExecutor<VaultAccountRow>({
+    ...openCode1EngineCollaborators({
+      ...context,
+      transport: agyTransport,
+      fetchImpl: upstreamFetch,
+    }),
+    accounts: selector,
+    credentials: createVaultRequestCredentials(source),
+    trackers: {
+      health: selector.healthTracker,
+      token: selector.tokenTracker,
+    },
+  })
+
+  // The roster is read from the vault once before the first request; after
+  // that each request takes the source's last committed routes, keeping each
+  // route's in-memory selection state while its route, credential and
+  // asserted account stay the same. A failed first read is retried by the
+  // next request.
+  let firstRead: Promise<void> | null = null
+  const readRoster = (): Promise<void> => {
+    firstRead ??= source.refresh().then(
+      () => {
+        selector.resetAccounts(vaultAccountRows(source.routes()))
+      },
+      (error: unknown) => {
+        firstRead = null
+        throw error
+      },
+    )
+    return firstRead
+  }
+
+  let disposed = false
+
+  async function fetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    if (disposed || !isGenerativeLanguageRequest(input)) {
+      return upstreamFetch(input, init)
+    }
+    await readRoster()
+    selector.replaceAccounts(vaultAccountRows(source.routes()), {
+      keyOf: vaultAccountRowKey,
+      refresh: refreshVaultAccountRow,
+    })
     return executor.execute(input, init)
   }
 

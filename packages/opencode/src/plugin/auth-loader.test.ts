@@ -262,6 +262,7 @@ describe('createAuthLoader', () => {
     expect(createFetch).toHaveBeenCalledWith({
       accountManager: secondManager,
       getAuth,
+      source: 'pool-file',
     })
 
     await lifecycle.dispose()
