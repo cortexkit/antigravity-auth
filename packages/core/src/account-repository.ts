@@ -2547,6 +2547,16 @@ class StoreAccountRepository implements AccountRepository {
               { rowId: reused.id },
             )
           }
+          // The current store cannot atomically publish a replacement roster.
+          // Refuse before any journal, transfer or account write instead of
+          // deleting working credentials before the new rows are accepted.
+          if (rows.length > 0) {
+            throw refusal(
+              'replacePool',
+              'replacement-unavailable',
+              'Replacing a non-empty account pool is temporarily unavailable. Existing accounts are unchanged.',
+            )
+          }
           const id = randomUUID()
           // The inputs reach their private file before the record names it,
           // so a record that still needs its inputs always has them.
@@ -2571,6 +2581,13 @@ class StoreAccountRepository implements AccountRepository {
             let next = current
             if (next.progress.step !== 'verified') {
               if (next.progress.step === 'remove') {
+                if (next.targets.length > 0) {
+                  throw refusal(
+                    'replacePool',
+                    'replacement-unavailable',
+                    'Replacing a non-empty account pool is temporarily unavailable. Existing accounts are unchanged.',
+                  )
+                }
                 next = await this.removeTargets('replacePool', next, lease)
                 next = await this.saveProgress(
                   'replacePool',
@@ -2917,6 +2934,16 @@ class StoreAccountRepository implements AccountRepository {
       await handle.sync()
     } finally {
       await handle.close()
+    }
+    // Persist both the transfer entry and its containing directory before
+    // publishing a journal that requires the transfer to recover.
+    for (const path of [this.paths.transfersDir, this.paths.storeDir]) {
+      const directory = await open(path, 'r')
+      try {
+        await directory.sync()
+      } finally {
+        await directory.close()
+      }
     }
   }
 

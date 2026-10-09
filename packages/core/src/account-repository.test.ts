@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
   realpath,
   rm,
   writeFile,
@@ -2089,6 +2090,72 @@ describe('repository on the genuine public store', () => {
   )
 
   it(
+    'refuses replacement of a non-empty pool without changing its files or credentials',
+    async () => {
+      await withPool(async (pool) => {
+        const repository = pool.open()
+        const original = await repository.login(login('old', 'tok-old'))
+        const beforeConfig = await readFile(pool.paths.configPath)
+        const beforeState = await readFile(pool.paths.statePath)
+        const beforeTransfers = await readdir(pool.paths.transfersDir).catch(
+          () => [],
+        )
+        const failure = await failureOf(
+          repository.replacePool([login('new', 'tok-new')]),
+        )
+        expect(failure.kind).toBe('replacement-unavailable')
+        expect(failure.message).toContain('temporarily unavailable')
+        expect(await readFile(pool.paths.configPath)).toEqual(beforeConfig)
+        expect(await readFile(pool.paths.statePath)).toEqual(beforeState)
+        expect(await readdir(pool.paths.transfersDir).catch(() => [])).toEqual(
+          beforeTransfers,
+        )
+        const rows = ready(await repository.read()).rows
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.ref).toEqual(original.ref)
+        expect(rows[0]?.credential?.refreshToken).toBe('tok-old')
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'refuses an old pending destructive replacement before removing its remaining accounts',
+    async () => {
+      await withPool(async (pool) => {
+        const repository = pool.open()
+        await repository.login(login('old', 'tok-old'))
+        const inputs = [login('new', 'tok-new')]
+        await openStoreDirectly(pool).updateSettings(
+          (settings) => ({
+            ...settings,
+            [MANAGEMENT_SETTINGS_KEY]: {
+              id: randomUUID(),
+              kind: 'replace-pool',
+              targets: ['old'],
+              progress: { step: 'remove', completedTargets: [] },
+              inputDigest: replacementInputDigest(inputs),
+            },
+          }),
+          {
+            extraLocks: [
+              { name: MANAGEMENT_LOCK_NAME, path: pool.paths.configPath },
+            ],
+          },
+        )
+        const beforeConfig = await readFile(pool.paths.configPath)
+        const beforeState = await readFile(pool.paths.statePath)
+        const failure = await failureOf(repository.replacePool(inputs))
+        expect(failure.kind).toBe('replacement-unavailable')
+        expect(await readFile(pool.paths.configPath)).toEqual(beforeConfig)
+        expect(await readFile(pool.paths.statePath)).toEqual(beforeState)
+        expect((await repository.read()).status).toBe('management-pending')
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
     'drains on flush and dispose, reports failures and then refuses work',
     async () => {
       await withPool(async (pool) => {
@@ -2299,7 +2366,6 @@ describe('management on the genuine public store', () => {
           const signals = new Signals()
           const trace: string[] = []
           const setup = pool.open()
-          await setup.login(login('old-1', 'tok-old-1'))
           const inputs = [
             login('new-1', 'tok-new-1', { email: 'n1@example.test' }),
             login('new-2', 'tok-new-2', { email: 'n2@example.test' }),
@@ -2571,7 +2637,6 @@ describe('management on the genuine public store', () => {
           },
         }
         const old = pool.open()
-        await old.login(login('old-1', 'tok-old-1'))
         const interrupted = createAccountRepositoryFactory({
           store: faulted,
           fs: pool.fs,
@@ -2734,7 +2799,6 @@ describe('replacement diagnostics on the genuine public store', () => {
           },
         }
         const setup = pool.open()
-        await setup.login(login('old-1', 'tok-old-1'))
         const history = [
           {
             fingerprint: fingerprint('h1'),
@@ -2913,7 +2977,7 @@ describe('replacement diagnostics on the genuine public store', () => {
   }
 
   /**
-   * Replaces a pool of `old-1` with `new-1` and `new-2` through a store
+   * Initializes an empty pool with `new-1` and `new-2` through a store
    * whose first `add` passes `alter(input)` to the genuine public `add`,
    * so the backend really writes a row holding `tok-new-1` with one field
    * changed. Returns what the store and the repository then show.
@@ -2940,7 +3004,6 @@ describe('replacement diagnostics on the genuine public store', () => {
     }
     const tokens = knownToken(['tok-old-1', 'tok-new-1', 'tok-new-2'])
     const setup = pool.open()
-    await setup.login(login('old-1', 'tok-old-1'))
     const inputs = [
       login('new-1', 'tok-new-1', { email: 'n1@example.test' }, 'acct-new-1'),
       login('new-2', 'tok-new-2', { email: 'n2@example.test' }, 'acct-new-2'),

@@ -849,6 +849,7 @@ export type AccountRepositoryFailureKind =
   | 'after-persist-hook'
   | 'unexpected'
   | 'management-pending'
+  | 'replacement-unavailable'
   | 'metadata-dropped'
   | 'account-ineligible'
   | 'duplicate-secret'
