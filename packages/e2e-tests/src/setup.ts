@@ -110,7 +110,11 @@ beforeEach(() => {
   )
   installFetchGuard()
   // Per-test temp root + env reset. Tests must not touch the host HOME.
-  const root = fs.mkdtempSync(join(tmpdir(), 'agy-e2e-'))
+  // Canonicalize the root this hook just created, before anything is
+  // derived from or tracked by it: the system temp directory can sit under a
+  // symbolic link (macOS's /var), and the account store refuses an account
+  // file whose parent passes through one.
+  const root = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'agy-e2e-')))
   rootsOwnedByThisFile.add(root)
   const home = join(root, 'home')
   const config = join(root, 'config')

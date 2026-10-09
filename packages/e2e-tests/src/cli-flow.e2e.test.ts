@@ -24,7 +24,7 @@
 import './setup'
 
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, realpathSync } from 'node:fs'
+import { mkdirSync, realpathSync, symlinkSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
 import {
@@ -61,23 +61,6 @@ async function seedAccounts(): Promise<void> {
     activeIndex: 0,
     activeIndexByFamily: { claude: 0, gemini: 0 },
   })
-}
-
-/**
- * The genuine account-store operations, given the account file's canonical
- * path. The store refuses an account file whose parent directories pass
- * through a symbolic link, and the temporary root can (macOS's /var is
- * one), so the canonical spelling of the same file is used.
- */
-function storeOperations(): CliDependencies['accountStore'] {
-  const operations = createDefaultAccountStoreOperations()
-  return {
-    ...operations,
-    legacyPath: () => {
-      const file = operations.legacyPath()
-      return join(realpathSync(dirname(file)), basename(file))
-    },
-  }
 }
 
 class StringBuffer {
@@ -134,7 +117,7 @@ function buildCliDeps(overrides: Partial<CliDependencies> = {}): CliTestHandle {
         },
       },
     ],
-    accountStore: storeOperations(),
+    accountStore: createDefaultAccountStoreOperations(),
     ...overrides,
   }
   return { deps, stdout, stderr }
@@ -272,6 +255,23 @@ describe('cli flow (e2e)', () => {
     expect(await runCli(['quota', '--json'], quota.deps)).toBe(0)
     expect(quotaEmails).toEqual(['cli@example.test'])
     expect(fileReads).toBe(0)
+  })
+
+  it('runs in a canonical fixture root, and the store refuses the same file through a symbolic link', async () => {
+    const root = process.env.ANTIGRAVITY_TEST_ROOT
+    if (!root) throw new Error('ANTIGRAVITY_TEST_ROOT not set by preload')
+    expect(realpathSync(root)).toBe(root)
+    await seedAccounts()
+    const operations = createDefaultAccountStoreOperations()
+    const file = operations.legacyPath()
+    // The same account file, reached through a link to its directory.
+    const link = join(root, 'linked-config')
+    symlinkSync(dirname(file), link, 'dir')
+    await expect(
+      operations.migrate(join(link, basename(file))),
+    ).rejects.toThrow('legacy parent traverses a symbolic link')
+    // Through its real path, the genuine migration succeeds.
+    expect((await operations.migrate(file)).status).toBe('completed')
   })
 
   it('refuses migrate without --offline and without the typed confirmation', async () => {

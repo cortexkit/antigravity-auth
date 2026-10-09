@@ -33,8 +33,8 @@
 import './setup'
 
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, realpathSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { createDefaultAccountStoreOperations } from '../../opencode/src/cli'
 import {
   AntigravityApplyResultSchema,
@@ -64,10 +64,7 @@ let harness: E2eHarness | undefined
 
 /**
  * Seeds one account in the pre-store account file, then moves it into the
- * account store with the genuine offline migration. The store refuses an
- * account file whose parent passes through a symbolic link, and the
- * temporary root can (macOS /var), so the migration is given the canonical
- * spelling of the same file.
+ * account store with the genuine offline migration.
  */
 async function seedStore(): Promise<void> {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
@@ -89,10 +86,7 @@ async function seedStore(): Promise<void> {
     activeIndexByFamily: { claude: 0, gemini: 0 },
   })
   const operations = createDefaultAccountStoreOperations()
-  const file = operations.legacyPath()
-  const outcome = await operations.migrate(
-    join(realpathSync(dirname(file)), basename(file)),
-  )
+  const outcome = await operations.migrate(operations.legacyPath())
   expect(outcome.status).toBe('completed')
 }
 
