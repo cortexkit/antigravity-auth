@@ -18,8 +18,9 @@
  *
  * Portability: this module has no runtime imports. Clients can bundle it
  * without pulling in server, account, OAuth or credential code. Its imports
- * are type-only: the shared `/antigravity` menu's request, result and
- * payload types, which the OpenCode 1 RPC carries as well.
+ * are type-only: the request, result and payload types of the Antigravity
+ * menu (`/antigravity`), defined by `@cortexkit/common-auth/commands` and
+ * carried by the OpenCode 1 RPC as well, and core's name for that command.
  *
  * Contract rules (each has a test in `protocol.test.ts`):
  *
@@ -50,11 +51,12 @@
  *   There is no field for an email, token, project id, fingerprint, profile
  *   name or upstream error text, and unknown keys are refused, so a live
  *   account object spread into a DTO fails validation.
- * - Menu: `apply` carries one action of the shared `/antigravity` menu
- *   (common-auth's `CommandApplyRequest`, minus `sessionId`: the scope says
- *   which session asks) and answers with the library's `CommandApplyResult`,
- *   which holds the refreshed menu. A notification carries the menu payload
- *   that opens the drawer, or a message for a toast. Menu actions name an
+ * - Menu: the GA `apply` input carries one action of the Antigravity menu,
+ *   a `CommandApplyRequest` of `@cortexkit/common-auth/commands` without
+ *   `sessionId`; the server sets `sessionId` from the input's scope. The
+ *   answer is that module's `CommandApplyResult`, which holds the refreshed
+ *   menu. A notification carries either the Antigravity menu payload (the
+ *   client opens the menu) or a message for a toast. Menu actions name an
  *   account by the opaque item id the menu issued for its current
  *   credential; account positions and `acct-<n>` ids are never targets.
  * - Selectors: each account in a snapshot carries an opaque random
@@ -170,9 +172,10 @@ export interface AntigravityStateInput {
 }
 
 /**
- * One action of the shared menu: common-auth's `CommandApplyRequest` for
- * the `antigravity` command, without `sessionId`. The scope names the
- * session; a request that names one itself is refused.
+ * The `request` of a GA `apply` input: one Antigravity menu action, as
+ * `@cortexkit/common-auth/commands`' `CommandApplyRequest` for the
+ * `antigravity` command without `sessionId`. The server derives `sessionId`
+ * from the input's scope; a request that names one itself is refused.
  */
 export type AntigravityMenuRequest = Omit<
   CommandApplyRequest,
@@ -282,8 +285,8 @@ export type AntigravityAccountsStatus =
     }
 
 /**
- * One queued notification: the menu payload that opens the drawer, or a
- * message for a toast (the same payloads the OpenCode 1 RPC queues).
+ * One queued notification: the Antigravity menu payload the client opens,
+ * or a message for a toast (the same payloads the OpenCode 1 RPC queues).
  */
 export interface AntigravityNotificationDto {
   readonly cursor: number
@@ -896,7 +899,9 @@ function checkDisposed(
   }
 }
 
-// Shared menu (common-auth `./commands` model)
+// Antigravity menu: validators for the `@cortexkit/common-auth/commands`
+// menu model, request and result, which this module mirrors by hand
+// because it may not import that module at runtime.
 
 const MENU_ID_PATTERN = /^[\x21-\x7e]+$/
 const SECTION_SLOTS = [
@@ -988,7 +993,7 @@ function checkMenuRequest(value: unknown, path: Path, issues: Issues): void {
 }
 
 /**
- * Plugin facts: JSON data a drawer lists by name. Only plain records,
+ * Plugin facts: JSON data the Antigravity menu lists by name. Only plain records,
  * arrays, strings, finite numbers, booleans and `null`, bounded in size and
  * depth.
  */
@@ -1305,7 +1310,7 @@ function checkMenuModel(value: unknown, path: Path, issues: Issues): void {
   }
 }
 
-/** The menu that opens the drawer, or a message for a toast. */
+/** The Antigravity menu payload the client opens, or a toast message. */
 function checkNotificationPayload(
   value: unknown,
   path: Path,
@@ -1347,7 +1352,7 @@ function checkNotificationPayload(
     checkMenuModel(value.menu, [...path, 'menu'], issues)
 }
 
-/** common-auth's `CommandApplyResult` for the shared menu. */
+/** `@cortexkit/common-auth/commands`' `CommandApplyResult` for the Antigravity menu. */
 function checkApplyResult(value: unknown, path: Path, issues: Issues): void {
   if (
     !checkRecord(

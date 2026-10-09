@@ -812,9 +812,11 @@ export interface GaStateRead {
 }
 
 /**
- * One action of the shared `/antigravity` menu for the location's command
- * service. `request` passed common-auth's own `parseApplyRequest`; for a
- * session scope its `sessionId` is that session, set from the scope.
+ * One Antigravity menu action for this location's command service.
+ * `request` has passed the `parseApplyRequest` of the same
+ * `@cortexkit/common-auth/commands` module the location's menu was built
+ * with; for a session scope its `sessionId` was set from the GA apply
+ * input's scope.
  */
 export interface GaApplyRequest {
   readonly request: CommandApplyRequest
@@ -827,8 +829,9 @@ export interface GaApplyRequest {
 }
 
 /**
- * The location's shared-menu service. It runs the action through the menu
- * and returns the menu's answer; the activation validates it before it
+ * The per-location command service: it runs one action through this
+ * location's Antigravity menu and returns the menu's answer. The activation
+ * that owns this location's generation validates the answer before it
  * reaches a client.
  */
 export interface GaCommandService {
@@ -839,9 +842,10 @@ export interface GaRpcActivationOptions {
   state: GaStateSource
   commands: GaCommandService
   /**
-   * common-auth's `parseApplyRequest`, from the commands module the
-   * location's menu was built with. Every request passes it after the wire
-   * schema, so the menu receives only what the library itself accepts.
+   * `parseApplyRequest` of the `@cortexkit/common-auth/commands` module
+   * the location's Antigravity menu was built with. Every GA apply request
+   * passes it after the wire schema, so the menu receives only what that
+   * module itself accepts.
    */
   parseApplyRequest: (value: unknown) => CommandApplyRequest | undefined
   /** Defaults to `createGaGeneration()`. */
@@ -884,7 +888,7 @@ export interface GaRpcActivation {
     apply(input: unknown, signal?: AbortSignal): Promise<AntigravityApplyOutput>
   }
   /**
-   * Queue a notification (the menu that opens the drawer, or a toast) in one
+   * Queue a notification (the Antigravity menu payload, or a toast) in one
    * scope and return its cursor. A payload that fails the wire contract is
    * refused with `GaRpcContractError`. After disposal it does nothing and
    * returns `null`.
@@ -1242,7 +1246,7 @@ export interface GaServingServices {
   readonly execute: GaJobExecutor
   /** Accounts, routes and status for the RPC `state` method. */
   readonly state: GaStateSource
-  /** Applies shared-menu actions for the RPC `apply` method. */
+  /** Applies Antigravity menu actions for the RPC `apply` method. */
   readonly commands: GaCommandService
 }
 
@@ -1255,7 +1259,7 @@ export interface GaLocationServices {
   readonly runtime: GaRuntimeCollaborators
   /**
    * Start serving on the built runtime. `notify` and `isConnected` belong to
-   * this activation's RPC store, for the menu's drawer and toasts.
+   * this activation's RPC store, for opening the Antigravity menu and toasts.
    */
   start(input: {
     readonly runtime: LocationRuntime
