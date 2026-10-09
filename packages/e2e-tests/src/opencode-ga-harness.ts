@@ -1,7 +1,6 @@
 import {
   type ChildProcessWithoutNullStreams,
   execFileSync,
-  spawn,
 } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import {
@@ -57,6 +56,11 @@ import type {
   AntigravityStateOutput,
   AntigravityStateSnapshot,
 } from '../../opencode/src/ga/rpc/protocol.ts'
+import {
+  assertMeasuredNativeJob,
+  measureNativeJob,
+} from './fixtures/opencode-ga-host/native-job.ts'
+import { startOwnedCommand } from './fixtures/opencode-ga-host/owned-command.ts'
 
 // Committed repository files: the pinned OpenCode binary digest and the
 // released host contract. The runner reads them from the checkout, never from
@@ -201,6 +205,8 @@ export function gaChildEnvironment(
     OPENCODE_CONFIG_DIR: paths.opencodeConfig,
     OPENCODE_DB: paths.database,
     ANTIGRAVITY_AUTH_RPC_DIR: paths.rpc,
+    PI_AGENT_DIR: join(paths.config, 'pi-agent'),
+    PI_CODING_AGENT_DIR: join(paths.config, 'pi-coding-agent'),
     GOOGLE_GENERATIVE_AI_API_KEY: 'synthetic-ga-key',
     OPENCODE_DISABLE_DEFAULT_PLUGINS: 'true',
     TERM: 'xterm-256color',
@@ -503,14 +509,26 @@ export function verifiedArchiveMember(
   integrity: string,
   member: string,
 ): Buffer {
-  verifySri(archive, integrity)
   requireCondition(
     /^package\/[A-Za-z0-9_./-]+$/.test(member) &&
       !member.split('/').includes('..'),
     'Unsafe binary member path',
   )
+  const found = verifiedArchiveFiles(archive, integrity).get(member)
+  requireCondition(found, 'Missing executable archive member')
+  requireCondition(found.length > 0, 'Empty executable archive member')
+  return found
+}
+
+/** The same bounded parser also installs locally packed files without running package lifecycle scripts. */
+export function verifiedArchiveFiles(
+  archive: Uint8Array,
+  integrity: string,
+): Map<string, Buffer> {
+  verifySri(archive, integrity)
   const tar = gunzipSync(archive, { maxOutputLength: 512 * 1024 * 1024 })
-  let found: Buffer | undefined
+  const files = new Map<string, Buffer>()
+  const names = new Set<string>()
   for (let offset = 0; offset + 512 <= tar.length; ) {
     const header = tar.subarray(offset, offset + 512)
     if (header.every((byte) => byte === 0)) break
@@ -527,6 +545,11 @@ export function verifiedArchiveMember(
       `Unsafe archive path: ${name}`,
     )
     const type = header[156]
+    requireCondition(
+      !names.has(name) && names.size < 10_000,
+      'Duplicate archive member or excessive inventory',
+    )
+    names.add(name)
     requireCondition(
       type === 0 || type === 48 || type === 53,
       `Unsupported archive member type: ${name}`,
@@ -548,21 +571,21 @@ export function verifiedArchiveMember(
       checksum === Number.parseInt(field(148, 8).trim(), 8),
       'Invalid archive header checksum',
     )
-    if (name === member) {
-      requireCondition(
-        !found && type !== 53 && size > 0,
-        'Duplicate or empty executable member',
+    if (type !== 53)
+      files.set(
+        name,
+        Buffer.from(tar.subarray(offset + 512, offset + 512 + size)),
       )
-      found = Buffer.from(tar.subarray(offset + 512, offset + 512 + size))
-    }
     offset += 512 + Math.ceil(size / 512) * 512
   }
-  requireCondition(found, 'Missing executable archive member')
-  return found
+  requireCondition(files.size > 0, 'Missing executable archive member')
+  return files
 }
 
 export interface GaRunResult {
   outputCapExceeded: boolean
+  cleanupFailures?: string[]
+  spawnError?: string
   code: number | null
   signal: NodeJS.Signals | null
   stdout: string
@@ -574,6 +597,7 @@ export interface GaChild {
   process: ChildProcessWithoutNullStreams
   result: Promise<GaRunResult>
   output: () => { stdout: string; stderr: string }
+  signal(value: NodeJS.Signals): void
 }
 
 export interface GaVerifiedExecutable {
@@ -602,17 +626,25 @@ export function launchGaHost(
     process.env.ANTIGRAVITY_GA_HOST_EXECUTION === '1',
     'GA host execution is not admitted',
   )
-  requireCondition(
-    process.platform === 'linux' &&
-      process.arch === 'x64' &&
-      existsSync('/.dockerenv'),
-    'GA host launch requires native Linux amd64 Docker',
-  )
-  requireCondition(
-    process.env.GA_HOST_UNAME === 'x86_64' &&
-      ['x86_64', 'amd64'].includes(process.env.GA_DAEMON_ARCH ?? ''),
-    'not native x86_64: outside host/daemon provenance is missing or emulated',
-  )
+  if (process.env.GA_CONTAINMENT_MODE === 'native-job')
+    assertMeasuredNativeJob()
+  else {
+    requireCondition(
+      process.env.GA_CONTAINMENT_MODE === undefined,
+      'Unknown GA containment mode',
+    )
+    requireCondition(
+      process.platform === 'linux' &&
+        process.arch === 'x64' &&
+        existsSync('/.dockerenv'),
+      'GA host launch requires native Linux amd64 Docker',
+    )
+    requireCondition(
+      process.env.GA_HOST_UNAME === 'x86_64' &&
+        ['x86_64', 'amd64'].includes(process.env.GA_DAEMON_ARCH ?? ''),
+      'not native x86_64: outside host/daemon provenance is missing or emulated',
+    )
+  }
   requireCondition(
     readdirSync('/sys/class/net').join(',') === 'lo',
     'GA host launch requires network-none',
@@ -638,63 +670,26 @@ export function launchGaHost(
         '/dev/null',
       ]
     : [...args]
-  const child = spawn(command, argv, {
+  const owned = startOwnedCommand(command, argv, {
     cwd: paths.project,
     env,
-    stdio: 'pipe',
-    detached: true,
+    deadlineMs,
   })
-  let stdout = ''
-  let stderr = ''
-  let timedOut = false
-  let outputCapExceeded = false
-  let outputBytes = 0
-  const retain = (bytes: Buffer, stream: 'stdout' | 'stderr') => {
-    outputBytes += bytes.length
-    if (outputBytes > 8 * 1024 * 1024) {
-      outputCapExceeded = true
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, 'SIGKILL')
-        } catch (error) {
-          if (record(error).code !== 'ESRCH') throw error
-        }
-      }
-      return
-    }
-    if (stream === 'stdout') stdout += bytes.toString()
-    else stderr += bytes.toString()
+  return {
+    ...owned,
+    result: owned.result.then((result) => {
+      writeFileSync(
+        join(paths.state, `owned-child-${newGaNonce()}.json`),
+        JSON.stringify({ command, argv, result }),
+        { mode: 0o600, flag: 'wx' },
+      )
+      requireCondition(
+        !result.spawnError && result.cleanupFailures.length === 0,
+        `Host child ownership/reap failure: ${JSON.stringify(result)}`,
+      )
+      return result
+    }),
   }
-  child.stdout.on('data', (bytes: Buffer) => retain(bytes, 'stdout'))
-  child.stderr.on('data', (bytes: Buffer) => retain(bytes, 'stderr'))
-  const result = new Promise<GaRunResult>((resolveResult, reject) => {
-    const timer = setTimeout(() => {
-      timedOut = true
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, 'SIGKILL')
-        } catch (error) {
-          if (record(error).code !== 'ESRCH') reject(error)
-        }
-      } else child.kill('SIGKILL')
-    }, deadlineMs)
-    child.once('error', (error) => {
-      clearTimeout(timer)
-      reject(error)
-    })
-    child.once('close', (code, signal) => {
-      clearTimeout(timer)
-      resolveResult({
-        code,
-        signal,
-        stdout,
-        stderr,
-        timedOut,
-        outputCapExceeded,
-      })
-    })
-  })
-  return { process: child, result, output: () => ({ stdout, stderr }) }
 }
 
 export async function waitForGaObservation(
@@ -786,8 +781,15 @@ export async function startGaHost(
       15_000,
     )
   } catch (error) {
-    server.process.kill('SIGKILL')
-    await server.result
+    server.signal('SIGKILL')
+    try {
+      await server.result
+    } catch (cleanup) {
+      throw new AggregateError(
+        [error, cleanup],
+        'Host startup and cleanup failed',
+      )
+    }
     throw error
   }
   return {
@@ -819,8 +821,8 @@ export async function startGaHost(
       return result
     },
     async close() {
-      server.process.kill('SIGTERM')
-      const timer = setTimeout(() => server.process.kill('SIGKILL'), 3000)
+      server.signal('SIGTERM')
+      const timer = setTimeout(() => server.signal('SIGKILL'), 3000)
       try {
         return await server.result
       } finally {
@@ -2114,12 +2116,16 @@ async function prepareGaImage(repoRoot: string, prefix: string): Promise<void> {
     mkdirSync(path, { recursive: true, mode: 0o700 })
   const pack = (directory: string, filename: string) => {
     const target = join(prefix, filename)
-    execFileSync('/usr/local/bin/bun', ['pm', 'pack', '--filename', target], {
-      cwd: join(repoRoot, directory),
-      env,
-      stdio: 'pipe',
-      timeout: 60_000,
-    })
+    execFileSync(
+      '/usr/local/bin/bun',
+      ['pm', 'pack', '--ignore-scripts', '--filename', target],
+      {
+        cwd: join(repoRoot, directory),
+        env,
+        stdio: 'pipe',
+        timeout: 60_000,
+      },
+    )
     return target
   }
   const core = pack('packages/core', 'core.tgz')
@@ -2187,8 +2193,42 @@ async function gaMain(): Promise<void> {
   const [mode, root, flag, inputPath, ...extra] = process.argv.slice(2)
   requireCondition(
     typeof root === 'string' && extra.length === 0,
-    'Expected --prepare-image <prefix> or --run <fresh-output-root> --inputs <approved-repository-module>',
+    'Expected --prepare-image/--prepare-native <prefix> or --run <fresh-output-root> --inputs <repository-module>',
   )
+  if (process.env.GA_CONTAINMENT_MODE === 'native-job') {
+    requireCondition(
+      process.env.ANTIGRAVITY_GA_HOST_EXECUTION === '1',
+      'Native preparation/execution has not been admitted',
+    )
+    requireCondition(
+      mode === '--prepare-native' || mode === '--run',
+      'Native job cannot use online image preparation',
+    )
+    assertGaPinnedHostnameMappings(readFileSync('/etc/hosts', 'utf8'))
+    const scratch = realpathSync(
+      mkdtempSync(join(dirname(resolve(root)), 'ga-boundary-')),
+    )
+    const paths = prepareGaRoot(scratch)
+    await measureNativeJob(
+      realpathSync(resolve('.')),
+      paths.temp,
+      gaChildEnvironment(paths, process.env),
+      `${resolve(root)}.boundary.json`,
+    )
+  }
+  if (mode === '--prepare-native') {
+    requireCondition(
+      process.env.GA_CONTAINMENT_MODE === 'native-job' &&
+        flag === undefined &&
+        inputPath === undefined,
+      'Native preparation requires the measured job path and no runtime inputs',
+    )
+    const { prepareNativeGaConsumer } = await import(
+      './opencode-ga-host-inputs.ts'
+    )
+    await prepareNativeGaConsumer(realpathSync(resolve('.')), resolve(root))
+    return
+  }
   if (mode === '--prepare-image') {
     requireCondition(
       flag === undefined && inputPath === undefined,
@@ -2794,13 +2834,25 @@ export async function createOpenCodeGaHarness(
   } = {},
 ): Promise<GaHarness> {
   const repoRoot = resolve('.')
-  const prefix = options.consumerPrefix ?? '/opt/ga-consumer'
+  const { gaConsumerPrefix, gaInstalledServer } = await import(
+    './opencode-ga-host-inputs.ts'
+  )
+  const prefix = options.consumerPrefix ?? gaConsumerPrefix()
   const pin = readGaPin(repoRoot)
   const root = realpathSync(mkdtempSync(join(outputRoot, `${caseId}-`)))
   const paths = prepareGaRoot(root)
   const nonce = newGaNonce()
   const executable: GaVerifiedExecutable = {
-    path: join(prefix, 'opencode'),
+    path:
+      process.env.GA_CONTAINMENT_MODE === 'native-job'
+        ? join(
+            prefix,
+            'node_modules',
+            ...pin.package.split('/'),
+            'bin',
+            'opencode',
+          )
+        : join(prefix, 'opencode'),
     sha256: pin.binarySha256,
     elfMachine: 62,
   }
@@ -2810,6 +2862,37 @@ export async function createOpenCodeGaHarness(
   let tlsFiles: GaTlsFiles | undefined
   let host: GaHostSession | undefined
   let disposed = false
+  const cleanup = async () => {
+    const failures: unknown[] = []
+    for (const close of [
+      async () => {
+        if (!host) return
+        const result = await host.close()
+        writeFileSync(
+          join(paths.state, 'serve-result.json'),
+          JSON.stringify(result),
+          { mode: 0o600 },
+        )
+      },
+      () => mock.close(),
+      () => proxyRecorder?.close(),
+      () => rawPeer?.close(),
+    ]) {
+      try {
+        await close()
+      } catch (error) {
+        failures.push(error)
+      }
+    }
+    if (failures.length) {
+      writeFileSync(
+        join(paths.state, 'cleanup-failures.json'),
+        JSON.stringify(failures.map(String)),
+        { mode: 0o600 },
+      )
+      throw new AggregateError(failures, 'GA host and peer cleanup failed')
+    }
+  }
   try {
     const startup = { trust: options.trust, proxy: options.proxy }
     if (options.rawTls) {
@@ -2832,14 +2915,7 @@ export async function createOpenCodeGaHarness(
     const wrapper = writeGaWrapper({
       paths,
       consumerPrefix: prefix,
-      packedServerEntry: join(
-        prefix,
-        'node_modules',
-        '@cortexkit',
-        'opencode-antigravity-auth',
-        'dist',
-        'server.js',
-      ),
+      packedServerEntry: gaInstalledServer(prefix, 'import'),
       mockUrl: mock.url,
       rawSender: options.rawSender ?? false,
       duplicateCleanup: caseId === 'cleanup-idempotent',
@@ -2961,22 +3037,18 @@ export async function createOpenCodeGaHarness(
       async dispose() {
         if (disposed) return
         disposed = true
-        const result = await runningHost.close()
-        writeFileSync(
-          join(paths.state, 'serve-result.json'),
-          JSON.stringify(result),
-          { mode: 0o600 },
-        )
-        await mock.close()
-        await proxyRecorder?.close()
-        await rawPeer?.close()
+        await cleanup()
       },
     }
   } catch (error) {
-    await host?.close()
-    await mock.close()
-    await proxyRecorder?.close()
-    await rawPeer?.close()
+    try {
+      await cleanup()
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'GA setup and cleanup failed',
+      )
+    }
     throw error
   }
 }
@@ -4547,7 +4619,7 @@ export async function runGaPtyScenario(
     }
     await accounts.assertNoPortOrSidebarFiles(harness)
   } finally {
-    pty.process.kill('SIGTERM')
+    pty.signal('SIGTERM')
     const result = await pty.result
     writeFileSync(capture, JSON.stringify(result), { mode: 0o600 })
     requireCondition(
@@ -5411,7 +5483,7 @@ async function runGaRequiredControl(
       'SIGINT genuinely held upstream stream',
     )
     const at = gaTimestamp()
-    harness.host.server.process.kill('SIGINT')
+    harness.host.server.signal('SIGINT')
     await waitForGaObservation(
       () =>
         harness.mock.events.some(
@@ -5913,8 +5985,15 @@ export function assertGaPinnedHostnameMappings(hosts: string): void {
   const mapped = new Set<string>()
   for (const line of hosts.split(/\r?\n/)) {
     const fields = line.split('#')[0]?.trim().split(/\s+/) ?? []
-    if (fields[0] === '127.0.0.1')
-      for (const host of fields.slice(1)) mapped.add(host.toLowerCase())
+    for (const host of fields.slice(1)) {
+      const canonical = host.toLowerCase()
+      if (!GA_HOSTNAMES.some((hostname) => hostname === canonical)) continue
+      requireCondition(
+        fields[0] === '127.0.0.1' && !mapped.has(canonical),
+        'Conflicting or duplicate pinned AGY hostname mapping',
+      )
+      mapped.add(canonical)
+    }
   }
   requireCondition(
     GA_HOSTNAMES.every((hostname) => mapped.has(hostname)),

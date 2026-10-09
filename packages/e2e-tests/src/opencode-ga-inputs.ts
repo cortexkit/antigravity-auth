@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process'
 import {
   existsSync,
   mkdtempSync,
@@ -6,7 +5,6 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs'
-import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { sameRowRef } from '../../core/src/account-identity.ts'
@@ -26,6 +24,10 @@ import {
   validateMatrix,
 } from '../docker/measure-ga-proxy-matrix.ts'
 import {
+  assertOwnedCommandSucceeded,
+  startOwnedCommand,
+} from './fixtures/opencode-ga-host/owned-command.ts'
+import {
   createGaProtocolClient,
   GA_CONTRACT_PATH,
   GA_PIN_PATH,
@@ -40,9 +42,11 @@ import {
   type GaOpenedMenu,
   type GaPaths,
   type GaSessionRef,
+  gaChildEnvironment,
   gaDriverTypeFixture,
   gaObserverTypeFixtures,
   ownedPath,
+  prepareGaRoot,
   record,
   sha256,
 } from './opencode-ga-harness.ts'
@@ -50,7 +54,7 @@ import {
 /**
  * Builds the inputs the GA host runner needs from the real modules: the RPC
  * protocol schemas, the public account store and filesystem modules, and the
- * production factory from the package installed under /opt/ga-consumer.
+ * production factory from the installed packed consumer, outside the checkout.
  */
 export const GA_HOST_INPUT_MODULE =
   'packages/e2e-tests/src/opencode-ga-inputs.ts'
@@ -438,34 +442,39 @@ function pullMsFromActualCompiledArm(prefix: string): number {
     '@cortexkit',
     'opencode-antigravity-auth',
     'src',
-    'tui-compiled',
-    'ga',
-    'ga',
-    'tui',
-    'host-ga.tsx',
+    'tui-ga-compiled',
+    'host-ga.js',
   )
   assertInput(existsSync(entry), 'Actual packed compiled GA TUI arm is missing')
   const source = readFileSync(entry, 'utf8')
-  const match = /(?:const|let|var)\s+GA_SIDEBAR_PULL_MS\s*=\s*(\d+)/.exec(
+  const match = /(?:const|let|var)\s+GA_SIDEBAR_PULL_MS\s*=\s*([\d_]+)/.exec(
     source,
   )
   assertInput(
     match?.[1],
     'Compiled TUI does not expose the actual GA_SIDEBAR_PULL_MS binding',
   )
-  return Number(match[1])
+  const milliseconds = Number(match[1].replaceAll('_', ''))
+  assertInput(
+    Number.isSafeInteger(milliseconds) && milliseconds > 0,
+    'Invalid packed sidebar pull interval',
+  )
+  return milliseconds
 }
 
 /**
- * Called only by the GA host runner (run-opencode-ga-test.sh inside the
- * container). Nothing is imported and no store is touched until it runs.
+ * Called by the isolated Docker or native-job runner. No installed factory
+ * is imported and no store is touched until host execution is admitted.
  */
 export async function createGaHostIntegrationInputs(): Promise<GaHostIntegrationInputs> {
   assertInput(
     process.env.ANTIGRAVITY_GA_HOST_EXECUTION === '1',
     'GA integration inputs require explicit owned host admission',
   )
-  const prefix = '/opt/ga-consumer'
+  const { gaConsumerPrefix, gaInstalledServer } = await import(
+    './opencode-ga-host-inputs.ts'
+  )
+  const prefix = gaConsumerPrefix()
   const packageRoot = join(
     prefix,
     'node_modules',
@@ -480,8 +489,7 @@ export async function createGaHostIntegrationInputs(): Promise<GaHostIntegration
     exportsMap['./server'],
     'Actual installed package has no public ./server export',
   )
-  const require = createRequire(join(prefix, 'package.json'))
-  const entry = require.resolve('@cortexkit/opencode-antigravity-auth/server')
+  const entry = gaInstalledServer(prefix, 'import')
   assertInput(
     entry.startsWith(`${packageRoot}/`) &&
       !entry.startsWith(`${resolve('.')}/`),
@@ -658,6 +666,9 @@ async function runActualConsumerBindingGate(
   writeFileSync(negative, fixtures.asynchronous, { mode: 0o600 })
   const repo = resolve('.')
   const compiler = join(repo, 'node_modules', 'typescript', 'bin', 'tsc')
+  const { gaInstalledServer, gaSdkDeclarationPaths } = await import(
+    './opencode-ga-host-inputs.ts'
+  )
   assertInput(
     existsSync(compiler),
     'Pinned repository TypeScript compiler is absent',
@@ -665,29 +676,31 @@ async function runActualConsumerBindingGate(
   const common = {
     compilerOptions: {
       target: 'ES2023',
-      module: 'NodeNext',
-      moduleResolution: 'NodeNext',
+      module: 'Preserve',
+      moduleResolution: 'bundler',
       strict: true,
       skipLibCheck: false,
       noEmit: true,
       types: ['node', 'bun'],
-      lib: ['ES2023', 'DOM', 'DOM.Iterable'],
-      typeRoots: [join(repo, 'node_modules', '@types')],
+      lib: ['ESNext', 'DOM', 'DOM.Iterable'],
+      typeRoots: [
+        join(repo, 'packages', 'opencode', 'node_modules', '@types'),
+        join(repo, 'node_modules', '@types'),
+      ],
       paths: {
         '@cortexkit/opencode-antigravity-auth/server': [
-          join(
-            prefix,
-            'node_modules',
-            '@cortexkit',
-            'opencode-antigravity-auth',
-            'dist',
-            'server.d.ts',
-          ),
+          gaInstalledServer(prefix, 'types'),
         ],
-        '@opencode/*': [join(repo, 'node_modules', '@opencode', '*')],
-        '@opencode-ai/*': [join(repo, 'node_modules', '@opencode-ai', '*')],
+        ...gaSdkDeclarationPaths(repo),
         '@opentui/core': [
-          join(repo, 'packages', 'opencode', 'node_modules', 'ga-opentui-core'),
+          join(
+            repo,
+            'packages',
+            'opencode',
+            'node_modules',
+            '@opentui',
+            'core-ga',
+          ),
         ],
         '@opentui/solid': [
           join(
@@ -695,11 +708,12 @@ async function runActualConsumerBindingGate(
             'packages',
             'opencode',
             'node_modules',
-            'ga-opentui-solid',
+            '@opentui',
+            'solid-ga',
           ),
         ],
         'solid-js': [
-          join(repo, 'packages', 'opencode', 'node_modules', 'ga-solid-js'),
+          join(repo, 'packages', 'opencode', 'node_modules', 'solid-js-ga'),
         ],
         'solid-js/*': [
           join(
@@ -707,31 +721,42 @@ async function runActualConsumerBindingGate(
             'packages',
             'opencode',
             'node_modules',
-            'ga-solid-js',
+            'solid-js-ga',
             '*',
           ),
         ],
       },
     },
   }
-  const env = { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: root, TMPDIR: root }
-  const invoke = (file: string, name: string) => {
+  const env = gaChildEnvironment(
+    prepareGaRoot(mkdtempSync(join(root, 'profile-'))),
+    {},
+  )
+  const invoke = async (file: string, name: string) => {
     const config = join(root, `${name}.json`)
     writeFileSync(config, JSON.stringify({ ...common, files: [file] }))
-    return execFileSync(
-      '/usr/local/bin/node',
+    const result = await startOwnedCommand(
+      process.execPath,
       [compiler, '-p', config, '--pretty', 'false'],
-      { cwd: root, env, encoding: 'utf8', timeout: 30_000 },
-    )
+      { cwd: root, env, deadlineMs: 30_000 },
+    ).result
+    writeFileSync(join(root, `${name}.result.json`), JSON.stringify(result), {
+      mode: 0o600,
+      flag: 'wx',
+    })
+    return result
   }
-  invoke(positive, 'positive')
-  let diagnostics = ''
-  try {
-    invoke(negative, 'negative')
-  } catch (error) {
-    const failure = record(error)
-    diagnostics = String(failure.stdout ?? '')
-  }
+  assertOwnedCommandSucceeded(await invoke(positive, 'positive'))
+  const rejected = await invoke(negative, 'negative')
+  assertInput(
+    rejected.code !== 0 &&
+      !rejected.timedOut &&
+      !rejected.outputCapExceeded &&
+      !rejected.spawnError &&
+      rejected.cleanupFailures.length === 0,
+    'Async observer gate did not terminate with an ordinary compiler rejection',
+  )
+  const diagnostics = `${rejected.stdout}${rejected.stderr}`
   const codes = [...diagnostics.matchAll(/error TS(\d+):/g)].map(
     (match) => match[1],
   )
@@ -739,6 +764,17 @@ async function runActualConsumerBindingGate(
     codes.length === 1 && codes[0] === '2322',
     'Actual exposed async observer fixture did not produce exactly one TS2322',
   )
+  const version = await startOwnedCommand(
+    process.execPath,
+    [compiler, '--version'],
+    { cwd: root, env, deadlineMs: 5_000 },
+  ).result
+  writeFileSync(
+    join(root, 'compiler-version.result.json'),
+    JSON.stringify(version),
+    { mode: 0o600, flag: 'wx' },
+  )
+  assertOwnedCommandSucceeded(version)
   writeFileSync(
     join(root, 'proof.json'),
     JSON.stringify({
@@ -746,11 +782,7 @@ async function runActualConsumerBindingGate(
       actualPackedDeclarations: true,
       synchronousDiagnostics: 0,
       asynchronousDiagnostics: diagnostics,
-      compilerVersion: execFileSync(
-        '/usr/local/bin/node',
-        [compiler, '--version'],
-        { env, encoding: 'utf8' },
-      ).trim(),
+      compilerVersion: version.stdout.trim(),
     }),
     { mode: 0o600 },
   )
@@ -823,19 +855,11 @@ async function runActualOwnershipSupplement(
   )
   const root = harness.paths.root
   const env = {
-    PATH: '/usr/local/bin:/usr/bin:/bin',
-    HOME: harness.paths.home,
-    XDG_CONFIG_HOME: harness.paths.config,
-    XDG_DATA_HOME: harness.paths.data,
-    XDG_STATE_HOME: harness.paths.state,
-    XDG_CACHE_HOME: harness.paths.cache,
-    TMPDIR: harness.paths.temp,
-    OPENCODE_DB: harness.paths.database,
-    OPENCODE_CONFIG_DIR: harness.paths.opencodeConfig,
+    ...gaChildEnvironment(harness.paths, {}),
     ANTIGRAVITY_TEST_ROOT: root,
   }
-  const output = execFileSync(
-    '/usr/local/bin/bun',
+  const result = await startOwnedCommand(
+    process.execPath,
     [
       'test',
       '--isolate',
@@ -845,14 +869,15 @@ async function runActualOwnershipSupplement(
         .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
         .join('|'),
     ],
-    {
-      cwd: resolve('.'),
-      env,
-      encoding: 'utf8',
-      timeout: 30_000,
-      stdio: 'pipe',
-    },
+    { cwd: resolve('.'), env, deadlineMs: 30_000 },
+  ).result
+  writeFileSync(
+    join(root, 'typed-facade-supplement.result.json'),
+    JSON.stringify(result),
+    { mode: 0o600, flag: 'wx' },
   )
+  assertOwnedCommandSucceeded(result)
+  const output = `${result.stdout}${result.stderr}`
   assertInput(
     matching.every((name) => output.includes(name)) &&
       !/0 pass|0 tests|\(skip\)|\(fail\)/.test(output),
