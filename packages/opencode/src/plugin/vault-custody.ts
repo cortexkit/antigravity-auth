@@ -29,6 +29,7 @@ import {
   createAntigravityVaultAccountSource,
   getAntigravityVaultEnrollmentName,
   loadCommonAuthClaustrum,
+  resolveClaustrumConnectionPath,
   type VaultLogger,
   type VaultReporterSource,
   type VaultScopedClient,
@@ -195,10 +196,11 @@ export interface OpenCodeVaultCustodyOptions {
   /** Which side reads a send's HTTP status for 401 reports. */
   readonly reporterSource: VaultReporterSource
   /**
-   * The vault's connection file (the vault client library's own resolution
-   * of it). Read only when a vault client is opened.
+   * The vault's connection file; defaults to the vault client library's own
+   * resolution of it (core `resolveClaustrumConnectionPath`). Read only when
+   * a vault client is opened.
    */
-  readonly connectionFile: () => string | Promise<string>
+  readonly connectionFile?: () => string | Promise<string>
   readonly loadClaustrum?: () => Promise<Claustrum>
   /** Opens the request-path vault client; defaults to the connection file. */
   readonly connect?: () => Promise<VaultScopedClient>
@@ -236,6 +238,8 @@ export function createOpenCodeVaultCustody(
 ): OpenCodeVaultCustody {
   const paths = openCodeVaultPaths(options.accountFile)
   const loadClaustrum = options.loadClaustrum ?? loadCommonAuthClaustrum
+  const connectionFile =
+    options.connectionFile ?? (() => resolveClaustrumConnectionPath())
   let source: AntigravityVaultAccountSource | null = null
   let creating: Promise<AntigravityVaultAccountSource> | null = null
 
@@ -326,7 +330,7 @@ export function createOpenCodeVaultCustody(
             options.connect ??
             (async () =>
               claustrum.connectClaustrumScopedClient({
-                connectionFile: await options.connectionFile(),
+                connectionFile: await connectionFile(),
               })),
           // The vault serves this host only while the mode file says custody
           // and an approved enrollment token is on disk.
@@ -379,7 +383,7 @@ export function createOpenCodeVaultCustody(
       const client = await (options.connectEnrollment
         ? options.connectEnrollment()
         : claustrum.connectClaustrumEnrollmentClient({
-            connectionFile: await options.connectionFile(),
+            connectionFile: await connectionFile(),
           }))
       try {
         const manager = new claustrum.ClaustrumEnrollmentManager({

@@ -35,7 +35,6 @@ import {
   type AntigravityMenuAccounts,
   type AntigravityQuotaCheckReport,
   type AntigravityRepositoryMenuOptions,
-  type AntigravityVaultAccountSource,
   antigravitySettingsSections,
   authorizeAntigravity,
   type CommonAuthCommandsModule,
@@ -56,9 +55,7 @@ import {
   readAccountStoreBinding,
   refreshAntigravityToken,
   rowRefKey,
-  type SelectableAccount,
   sameRowRef,
-  type VaultRouteRef,
 } from '@cortexkit/antigravity-auth-core'
 import type {
   AntigravityRpcScope,
@@ -119,12 +116,19 @@ import {
   createRequestExecutor,
   type LocalRequestCredentials,
   type RequestRoutingEntry,
-  type VaultRequestCredentials,
 } from './shared/request-services.ts'
 import {
   createMemoryQuotaSnapshots,
   type LocationRuntime,
 } from './shared/runtime.ts'
+import {
+  createVaultRequestCredentials,
+  refreshVaultAccountRow,
+  type VaultAccountRow,
+  type VaultRequestSource,
+  vaultAccountRowKey,
+  vaultAccountRows,
+} from './shared/vault-request-credentials.ts'
 import {
   createOpenCodeVaultCustody,
   type OpenCodeVaultCustody,
@@ -935,7 +939,7 @@ export interface GaLocationServicesBindings {
 /** The vault custody operations a GA location uses. */
 export interface GaLocationCustody
   extends Pick<OpenCodeVaultCustody, 'readMode' | 'menuSection' | 'dispose'> {
-  custodySource(): Promise<GaVaultSource>
+  custodySource(): Promise<VaultRequestSource>
 }
 
 /**
@@ -1202,86 +1206,6 @@ export async function authorizeGaQuotaCheck(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Vault credentials
-// ---------------------------------------------------------------------------
-
-/**
- * A vault-backed pool row: selection metadata plus the vault route it was
- * listed under. It carries no token, refresh token or project.
- */
-export type GaVaultAccountRow = SelectableAccount & {
-  route: VaultRouteRef
-}
-
-/**
- * Keeps a vault row's in-memory selection state across a roster re-read and
- * takes only the route's display fields from the fresh roster; the vault
- * keeps no cooldown, rate-limit or usage state for the plugin to reload.
- */
-export function refreshGaVaultRow(
-  prior: GaVaultAccountRow,
-  fresh: GaVaultAccountRow,
-): void {
-  prior.route = fresh.route
-  if (fresh.email === undefined) delete prior.email
-  else prior.email = fresh.email
-}
-
-/** A vault row's identity: its route, credential and asserted account. */
-export function gaVaultRowKey(row: GaVaultAccountRow): string {
-  return JSON.stringify([
-    row.route.routeId,
-    row.route.credentialId,
-    row.route.accountIdentity,
-  ])
-}
-
-/**
- * Selection rows for the vault's selectable routes, in roster order. A row
- * holds the route and selection bookkeeping only: no token, refresh token,
- * project or local reference.
- */
-export function gaVaultRows(
-  routes: readonly VaultRouteRef[],
-): GaVaultAccountRow[] {
-  return routes.map((route, index) => ({
-    index,
-    enabled: true,
-    lastUsed: 0,
-    rateLimitResetTimes: {},
-    touchedForQuota: {},
-    route,
-    ...(route.email !== undefined ? { email: route.email } : {}),
-  }))
-}
-
-/**
- * The shared engine's vault credential domain over the core vault account
- * source. Every physical send asks the source for a fresh receipt for the
- * selected row's route and uses that receipt's token and project for that
- * send only; a 401 is reported against the exact receipt that served it.
- * Nothing is refreshed locally, cached or written to a row.
- */
-export function createGaVaultCredentials(
-  source: Pick<AntigravityVaultAccountSource, 'admit' | 'reportServedStatus'>,
-): VaultRequestCredentials<GaVaultAccountRow> {
-  return {
-    domain: 'vault',
-    async admit({ account, signal }) {
-      const admission = await source.admit(account.route, signal)
-      return {
-        credentialId: admission.credentialId,
-        accountIdentity: admission.accountIdentity,
-        recordVersion: admission.recordVersion,
-        accessToken: admission.accessToken,
-        projectId: admission.projectId,
-        report401: (status) => source.reportServedStatus(admission, status),
-      }
-    },
-  }
-}
-
 function isRowRef(value: unknown): value is RowRef {
   return (
     typeof value === 'object' &&
@@ -1536,36 +1460,30 @@ export async function createGaLocalRequestPipeline(
   }
 }
 
-/** The vault account source operations a vault request pipeline uses. */
-export type GaVaultSource = Pick<
-  AntigravityVaultAccountSource,
-  'refresh' | 'routes' | 'admit' | 'reportServedStatus'
->
-
 /**
  * The shared request engine for a location whose accounts are held by the
  * vault. Selection runs on the shared `AccountSelector` over the vault's
  * selectable routes (metadata rows, no credential); every physical send
  * takes a fresh receipt for the selected route through
- * `createGaVaultCredentials`. Nothing is refreshed or cached locally.
+ * `createVaultRequestCredentials`. Nothing is refreshed or cached locally.
  * `refreshAccounts` re-reads the vault roster and keeps each route's
  * selection state while its route, credential and asserted account stay
  * the same. Selection state is in memory only.
  */
 export async function createGaVaultRequestPipeline(input: {
-  readonly source: GaVaultSource
+  readonly source: VaultRequestSource
   readonly runtime: GaStartInput['runtime']
   readonly overrides: GaPluginOverrides
   readonly routes: GaRouteBook
   readonly now?: () => number
 }): Promise<GaRequestPipeline> {
-  const selector = new AccountSelector<GaVaultAccountRow>({
+  const selector = new AccountSelector<VaultAccountRow>({
     ...(input.now ? { now: input.now } : {}),
   })
   await input.source.refresh()
-  selector.resetAccounts(gaVaultRows(input.source.routes()))
+  selector.resetAccounts(vaultAccountRows(input.source.routes()))
   const logger = input.runtime.logger.createLogger('request')
-  const executor = createRequestExecutor<GaVaultAccountRow>({
+  const executor = createRequestExecutor<VaultAccountRow>({
     ...gaEngineCollaborators({
       runtime: input.runtime,
       overrides: input.overrides,
@@ -1573,7 +1491,7 @@ export async function createGaVaultRequestPipeline(input: {
       logger,
     }),
     accounts: selector,
-    credentials: createGaVaultCredentials(input.source),
+    credentials: createVaultRequestCredentials(input.source),
     trackers: {
       health: selector.healthTracker,
       token: selector.tokenTracker,
@@ -1583,9 +1501,9 @@ export async function createGaVaultRequestPipeline(input: {
     execute: createGaJobExecutor(executor),
     async refreshAccounts() {
       await input.source.refresh()
-      selector.replaceAccounts(gaVaultRows(input.source.routes()), {
-        keyOf: gaVaultRowKey,
-        refresh: refreshGaVaultRow,
+      selector.replaceAccounts(vaultAccountRows(input.source.routes()), {
+        keyOf: vaultAccountRowKey,
+        refresh: refreshVaultAccountRow,
       })
     },
     async dispose() {
@@ -1604,8 +1522,8 @@ export async function createGaVaultRequestPipeline(input: {
  */
 function vaultSelectors(createSelector: () => string) {
   const byKey = new Map<string, string>()
-  return (row: GaVaultAccountRow): string => {
-    const key = gaVaultRowKey(row)
+  return (row: VaultAccountRow): string => {
+    const key = vaultAccountRowKey(row)
     let selector = byKey.get(key)
     if (selector === undefined) {
       selector = createSelector()
@@ -1622,14 +1540,14 @@ function vaultSelectors(createSelector: () => string) {
  * offered.
  */
 function gaVaultAccountSections(
-  source: GaVaultSource,
-  selectorOf: (row: GaVaultAccountRow) => string,
+  source: VaultRequestSource,
+  selectorOf: (row: VaultAccountRow) => string,
 ): { accounts: GaMenuSection; quota: GaMenuSection } {
   return {
     accounts: {
       title: 'Accounts',
       build: () => {
-        const rows = gaVaultRows(source.routes())
+        const rows = vaultAccountRows(source.routes())
         return {
           lines: [
             rows.length === 0
@@ -1659,8 +1577,8 @@ function gaVaultAccountSections(
  * Vault rows carry no metadata or access blocks of this plugin's own.
  */
 function createGaVaultStateSource(input: {
-  readonly source: GaVaultSource
-  readonly selectorOf: (row: GaVaultAccountRow) => string
+  readonly source: VaultRequestSource
+  readonly selectorOf: (row: VaultAccountRow) => string
   readonly generation: string
   readonly settings: () => AntigravitySettingsDto
   readonly route: (scope: AntigravityRpcScope) => SidebarRoutingEntry | null
@@ -1670,7 +1588,7 @@ function createGaVaultStateSource(input: {
   let queue: Promise<unknown> = Promise.resolve()
   const readOnce = async (scope: AntigravityRpcScope, signal: AbortSignal) => {
     if (signal.aborted) throw abortError(signal)
-    const rows = gaVaultRows(input.source.routes())
+    const rows = vaultAccountRows(input.source.routes())
     const settings = input.settings()
     const route = input.route(scope)
     if (signal.aborted) throw abortError(signal)
@@ -1749,7 +1667,7 @@ async function createGaVaultLocationServices(input: {
   readonly bindings: Pick<GaLocationServicesBindings, 'createSelector'>
 }): Promise<GaLocationServices> {
   const { custody, overrides } = input
-  let source: GaVaultSource
+  let source: VaultRequestSource
   try {
     source = await custody.custodySource()
   } catch (error) {
@@ -2011,8 +1929,11 @@ export interface GaVaultHost {
    * (see `createGaHostSlotReader`); rejects when it cannot be read.
    */
   readonly readHostSlot: () => Promise<unknown>
-  /** The vault client library's resolution of its connection file. */
-  readonly connectionFile: () => string | Promise<string>
+  /**
+   * The vault's connection file; defaults to the vault client library's
+   * own resolution of it.
+   */
+  readonly connectionFile?: () => string | Promise<string>
 }
 
 /**
@@ -2045,7 +1966,9 @@ export function createGaLocationServicesForHost(
               createOpenCodeVaultCustody({
                 accountFile,
                 readHostSlot: vault.readHostSlot,
-                connectionFile: vault.connectionFile,
+                ...(vault.connectionFile
+                  ? { connectionFile: vault.connectionFile }
+                  : {}),
                 // The engine reads each send's HTTP status itself.
                 reporterSource: 'direct',
               }),

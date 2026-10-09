@@ -259,6 +259,8 @@ export async function createOpenCodeAntigravityMenu(options: {
   readonly login?: AntigravityRepositoryMenuOptions['login']
   /** The OAuth add flow, shown as the Sign in section. */
   readonly signIn?: Pick<AccountCommandOAuthService, 'start' | 'finish'>
+  /** The Vault section (OpenCode vault custody setup). */
+  readonly vault?: MenuPluginExtraSection
   readonly commands?: CommonAuthCommandsModule
 }): Promise<ReturnType<typeof createAntigravityCommandMenu>> {
   return createAntigravityCommandMenu({
@@ -270,6 +272,89 @@ export async function createOpenCodeAntigravityMenu(options: {
     ...(options.refreshQuota ? { refreshQuota: options.refreshQuota } : {}),
     ...(options.accountLimits ? { accountLimits: options.accountLimits } : {}),
     ...(options.login ? { login: options.login } : {}),
-    ...(options.signIn ? { extras: [signInMenuSection(options.signIn)] } : {}),
+    extras: [
+      ...(options.signIn ? [signInMenuSection(options.signIn)] : []),
+      ...(options.vault ? [options.vault] : []),
+    ],
   })
+}
+
+// ---------------------------------------------------------------------------
+// Where accounts are read and logins admitted (OpenCode 1)
+// ---------------------------------------------------------------------------
+
+/** The account-store opening, as the auth loader reports it. */
+interface AccountStoreOpeningView {
+  readonly status: string
+  readonly repository?: unknown
+  readonly message?: string
+}
+
+/** The auth loader's single account-store opening and its fresh-install step. */
+export interface AccountTargetsLoader<O extends AccountStoreOpeningView> {
+  accountStore(): Promise<O>
+  usesPoolFile(opening: O): boolean
+  initializeFreshStore(): Promise<O>
+}
+
+type RepositoryOf<O> = O extends {
+  readonly status: 'ready'
+  readonly repository: infer R
+}
+  ? R
+  : never
+
+function storeRefusal(opening: AccountStoreOpeningView): Error {
+  return new Error(
+    opening.status === 'refused' && typeof opening.message === 'string'
+      ? opening.message
+      : 'The Antigravity account store cannot be opened',
+  )
+}
+
+/**
+ * Where OpenCode 1 reads accounts and admits new logins, from the auth
+ * loader's single account-store opening.
+ *
+ * - `accountSource`: the account store, the pool file of a location not
+ *   yet migrated, or nothing on a fresh installation; any other store
+ *   state refuses.
+ * - `loginTarget`: a fresh installation first gets its explicit empty
+ *   account store (`initializeFreshStore`), so the first login is admitted
+ *   by the store and never written to a new pool file; a location still on
+ *   its pool file keeps it until it is migrated; any other store state
+ *   (pending migration or recovery, an unreadable store) refuses the login.
+ *   Nothing is initialized over an existing pool file or store.
+ */
+export function createAccountTargets<
+  O extends AccountStoreOpeningView & { readonly status: string },
+>(loader: AccountTargetsLoader<O>) {
+  const isReady = (
+    opening: O,
+  ): opening is O & { status: 'ready'; repository: RepositoryOf<O> } =>
+    opening.status === 'ready' && opening.repository !== undefined
+  return {
+    async accountSource(): Promise<
+      | { kind: 'store'; repository: RepositoryOf<O> }
+      | { kind: 'pool-file' }
+      | { kind: 'none' }
+    > {
+      const opening = await loader.accountStore()
+      if (isReady(opening))
+        return { kind: 'store', repository: opening.repository }
+      if (opening.status === 'initialization-required') return { kind: 'none' }
+      if (loader.usesPoolFile(opening)) return { kind: 'pool-file' }
+      throw storeRefusal(opening)
+    },
+    async loginTarget(): Promise<RepositoryOf<O> | 'pool-file'> {
+      const opening = await loader.initializeFreshStore()
+      if (isReady(opening)) return opening.repository
+      if (
+        opening.status !== 'initialization-required' &&
+        loader.usesPoolFile(opening)
+      )
+        return 'pool-file'
+      throw storeRefusal(opening)
+    },
+  }
 }

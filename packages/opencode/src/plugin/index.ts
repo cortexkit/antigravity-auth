@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   type AccountRepository,
   type AntigravityQuotaCheckReport,
@@ -40,6 +40,7 @@ import { createStoreAccountLimits } from './command-apply'
 import { projectCommandAccountRows } from './command-data'
 import {
   ANTIGRAVITY_MENU_COMMAND,
+  createAccountTargets,
   createAntigravityCommandExecuteBefore,
   createOpenCodeAntigravityMenu,
   menuInvocation,
@@ -85,6 +86,7 @@ import {
   mutateAccountStorage,
 } from './storage'
 import type { GetAuth, PluginContext, PluginInput, PluginResult } from './types'
+import { createOpenCodeVaultCustody } from './vault-custody'
 
 export type { PluginResult } from './types'
 
@@ -323,6 +325,21 @@ export const createAntigravityPlugin =
       },
       'producer',
     )
+    // OpenCode vault custody setup, beside the resolved account file. The
+    // host slot is OpenCode's own stored sign-in for this provider, read
+    // through the auth loader's host accessor; before the loader has run it
+    // cannot be read, which refuses custody rather than reading as empty.
+    const vaultCustody = createOpenCodeVaultCustody({
+      accountFile: resolve(getStoragePath()),
+      readHostSlot: async () => {
+        if (!cachedGetAuth)
+          throw new Error('OpenCode has not provided its sign-in yet')
+        return cachedGetAuth()
+      },
+      // The engine reads each send's HTTP status itself.
+      reporterSource: 'direct',
+    })
+    lifecycle.register({ dispose: () => vaultCustody.dispose() })
     // The `/antigravity` menu is built once per account-store repository,
     // on the same common-auth commands module whose request parser the RPC
     // server uses, so a request is parsed and applied by one module instance.
@@ -339,11 +356,14 @@ export const createAntigravityPlugin =
       if (opening.status !== 'ready') {
         return {
           kind: 'unavailable',
-          message: authLoader.usesPoolFile(opening)
-            ? 'Antigravity accounts are still in the pre-store account file. Stop OpenCode and run `antigravity-auth migrate --offline` to manage them from /antigravity.'
-            : opening.status === 'refused'
-              ? opening.message
-              : 'The Antigravity account store cannot be opened.',
+          message:
+            opening.status === 'initialization-required'
+              ? 'No Antigravity accounts yet. Sign in to Google from OpenCode\u2019s provider login to add the first one.'
+              : authLoader.usesPoolFile(opening)
+                ? 'Antigravity accounts are still in the pre-store account file. Stop OpenCode and run `antigravity-auth migrate --offline` to manage them from /antigravity.'
+                : opening.status === 'refused'
+                  ? opening.message
+                  : 'The Antigravity account store cannot be opened.',
         }
       }
       if (builtMenu?.repository !== opening.repository) {
@@ -364,6 +384,7 @@ export const createAntigravityPlugin =
             }),
             refreshQuota: (refs) => checkStoreQuota(opening.repository, refs),
             signIn: accountOAuth,
+            vault: vaultCustody.menuSection(),
           }),
         }
       }
@@ -388,23 +409,11 @@ export const createAntigravityPlugin =
       client,
       providerId,
     })
-    /**
-     * The location's account source for pool-file style callers: the pool
-     * file before migration, else the account store's repository. Any other
-     * store state stops the caller with the store's message.
-     */
-    const openPoolFileOrStore = async (): Promise<
-      'pool-file' | AccountRepository
-    > => {
-      const opening = await authLoader.accountStore()
-      if (opening.status === 'ready') return opening.repository
-      if (authLoader.usesPoolFile(opening)) return 'pool-file'
-      throw new Error(
-        opening.status === 'refused'
-          ? opening.message
-          : 'The Antigravity account store cannot be opened',
-      )
-    }
+    const { accountSource, loginTarget } = createAccountTargets({
+      accountStore: () => authLoader.accountStore(),
+      usesPoolFile: (opening) => authLoader.usesPoolFile(opening),
+      initializeFreshStore: () => authLoader.initializeFreshStore(),
+    })
     const accountAccess = createAccountAccessService({
       client,
       providerId,
@@ -414,9 +423,10 @@ export const createAntigravityPlugin =
       // retired file is never read or written.
       store: {
         load: async () => {
-          const opening = await openPoolFileOrStore()
-          if (opening === 'pool-file') return loadAccounts()
-          const read = await opening.read()
+          const source = await accountSource()
+          if (source.kind === 'none') return null
+          if (source.kind === 'pool-file') return loadAccounts()
+          const read = await source.repository.read()
           if (read.status !== 'ready')
             throw new Error(`The account store is ${read.status}`)
           return {
@@ -431,29 +441,33 @@ export const createAntigravityPlugin =
           }
         },
         mutate: async (mutate) => {
-          const opening = await openPoolFileOrStore()
-          if (opening === 'pool-file')
+          const source = await accountSource()
+          if (source.kind === 'pool-file')
             return mutateAccountStorage(getStoragePath(), mutate)
           throw new Error(
-            'Accounts live in the account store; change them from the /antigravity menu',
+            source.kind === 'none'
+              ? 'There are no Antigravity accounts yet; sign in to add one'
+              : 'Accounts live in the account store; change them from the /antigravity menu',
           )
         },
         clear: async () => {
-          const opening = await openPoolFileOrStore()
-          if (opening === 'pool-file') return clearAccounts()
+          const source = await accountSource()
+          // A fresh installation has nothing to clear.
+          if (source.kind === 'none') return
+          if (source.kind === 'pool-file') return clearAccounts()
           throw new Error(
             'Accounts live in the account store; remove them from the /antigravity menu',
           )
         },
         persistAccountPool: async (results, replaceAll) => {
-          const opening = await openPoolFileOrStore()
-          if (opening === 'pool-file')
+          const target = await loginTarget()
+          if (target === 'pool-file')
             return persistAccountPool(results, replaceAll)
           if (replaceAll) {
-            await replacePoolLogins(opening, results)
+            await replacePoolLogins(target, results)
             return
           }
-          const refused = (await commitLogins(opening, results)).find(
+          const refused = (await commitLogins(target, results)).find(
             (entry) => entry.status === 'refused',
           )
           if (refused?.status === 'refused') throw new Error(refused.message)
@@ -501,21 +515,13 @@ export const createAntigravityPlugin =
       // repository the runtime routes with; the retired pool file is never
       // written or read. Before migration the pool file path is unchanged.
       persist: async (result) => {
-        const opening = await authLoader.accountStore()
-        if (opening.status === 'ready') {
-          const [committed] = await commitLogins(opening.repository, [result])
-          if (committed?.status === 'refused')
-            throw new Error(committed.message)
+        const target = await loginTarget()
+        if (target === 'pool-file') {
+          await persistAccountPool([result], false)
           return
         }
-        if (!authLoader.usesPoolFile(opening)) {
-          throw new Error(
-            opening.status === 'refused'
-              ? opening.message
-              : 'The Antigravity account store cannot accept a login',
-          )
-        }
-        await accountAccess.persistAccountPool([result], false)
+        const [committed] = await commitLogins(target, [result])
+        if (committed?.status === 'refused') throw new Error(committed.message)
       },
       listAccounts: async () => {
         const opening = await authLoader.accountStore()
@@ -543,6 +549,7 @@ export const createAntigravityPlugin =
             })),
           })
         }
+        if (opening.status === 'initialization-required') return []
         if (!authLoader.usesPoolFile(opening)) return []
         return projectCommandAccountRows(await accountAccess.loadAccounts())
       },
