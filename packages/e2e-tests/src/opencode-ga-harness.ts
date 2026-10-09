@@ -2291,13 +2291,15 @@ async function gaMain(): Promise<void> {
     existsSync(join(repoRoot, GA_CONTRACT_PATH)),
     'Missing tracked GA contract note',
   )
-  requireCondition(
-    existsSync('packages/e2e-tests/docker/ga-proxy-env-matrix.json') &&
-      existsSync(
-        'packages/e2e-tests/docker/ga-proxy-env-matrix.provenance.json',
-      ),
-    'Verified native GA matrix/provenance join is required',
-  )
+  if (mode === '--run') {
+    requireCondition(
+      existsSync('packages/e2e-tests/docker/ga-proxy-env-matrix.json') &&
+        existsSync(
+          'packages/e2e-tests/docker/ga-proxy-env-matrix.provenance.json',
+        ),
+      'Verified native GA matrix/provenance join is required',
+    )
+  }
   const supplied: unknown = await import(pathToFileURL(modulePath).href)
   const module = record(supplied)
   requireCondition(
@@ -2345,6 +2347,7 @@ async function gaMain(): Promise<void> {
   // These checks only prove the functions exist. The protocol binding, menu
   // targeting and store seeding behind them live in opencode-ga-inputs.ts.
   if (mode === '--smoke') {
+    mkdirSync(root, { recursive: true, mode: 0o700 })
     const supplied = inputs as GaHostIntegrationInputs
     const harness = await createOpenCodeGaHarness('terminal-frame', root, {
       accounts: supplied.accounts,
