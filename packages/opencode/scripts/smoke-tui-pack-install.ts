@@ -281,6 +281,59 @@ async function baseline(workspace: string) {
   return packageRoot
 }
 
+/**
+ * What the installed `./tui` entry must export. The baseline is the last
+ * release before the unified menu, whose entry is the OpenCode 1 module
+ * `{ id, tui }`. The candidate is this package's hybrid entry
+ * `{ id, tui, setup }`, typed by `src/tui/entry.d.mts`.
+ */
+export type TuiContract = 'baseline' | 'candidate'
+
+const UI_CHECKS: Record<TuiContract, number> = { baseline: 3, candidate: 5 }
+
+/**
+ * The probe each consumer runs from its own directory against its installed
+ * package: package-root and `./tui` resolution, the server factories, and
+ * with `ui` the `./tui` default export checked against `contract`.
+ */
+export function consumerProbe(options: {
+  installed: string
+  ui: boolean
+  contract: TuiContract
+}): string {
+  const { installed, ui, contract } = options
+  const tuiChecks =
+    contract === 'baseline'
+      ? `assert.deepEqual(Object.keys(tui).sort(), ['id', 'tui']);`
+      : `assert.deepEqual(Object.keys(tui).sort(), ['id', 'setup', 'tui']); assert.equal(typeof tui.setup, 'function');
+assert.equal(pkg.exports['./tui'].types, './src/tui/entry.d.mts');`
+  return `import assert from 'node:assert/strict';
+import { realpathSync, readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+const root = ${JSON.stringify(installed)};
+const pkg = JSON.parse(readFileSync(root + '/package.json'));
+assert.equal(import.meta.resolve(${JSON.stringify(productName)}), pathToFileURL(root + '/' + pkg.exports['.'].import).href);
+assert.equal(import.meta.resolve(${JSON.stringify(`${productName}/tui`)}), pathToFileURL(root + '/' + pkg.exports['./tui'].import).href);
+assert.equal(realpathSync(root), root);
+const server = await import(${JSON.stringify(productName)});
+assert.equal(typeof server.AntigravityCLIOAuthPlugin, 'function');
+assert.equal(typeof server.GoogleOAuthPlugin, 'function');
+${
+  ui
+    ? `const { default: tui } = await import(${JSON.stringify(`${productName}/tui`)});
+assert.equal(tui.id, 'cortexkit.antigravity-auth'); assert.equal(typeof tui.tui, 'function');
+${tuiChecks}`
+    : ''
+}
+console.log(${JSON.stringify(consumerWitness(ui, contract))});
+`
+}
+
+/** The line a consumer probe prints after every assertion passed. */
+export function consumerWitness(ui: boolean, contract: TuiContract): string {
+  return `consumer.installed_resolution: 5 checks${ui ? `; consumer.ui045: ${UI_CHECKS[contract]} ${contract} checks` : ''}`
+}
+
 async function install(
   workspace: string,
   name: string,
@@ -289,6 +342,7 @@ async function install(
   manager: 'npm' | 'bun',
   ui: boolean,
   scripts: boolean,
+  contract: TuiContract,
 ) {
   const root = join(workspace, name)
   await mkdir(root)
@@ -332,33 +386,10 @@ async function install(
   if (JSON.stringify(graph).includes('@cortexkit/common-auth'))
     throw new Error('consumer.cli_lean: common/tool runtime dependency')
   const probe = join(root, 'probe.mjs')
-  await writeFile(
-    probe,
-    `import assert from 'node:assert/strict';
-import { realpathSync, readFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
-const root = ${JSON.stringify(installed)};
-const pkg = JSON.parse(readFileSync(root + '/package.json'));
-assert.equal(import.meta.resolve(${JSON.stringify(productName)}), pathToFileURL(root + '/' + pkg.exports['.'].import).href);
-assert.equal(import.meta.resolve(${JSON.stringify(`${productName}/tui`)}), pathToFileURL(root + '/' + pkg.exports['./tui'].import).href);
-assert.equal(realpathSync(root), root);
-const server = await import(${JSON.stringify(productName)});
-assert.equal(typeof server.AntigravityCLIOAuthPlugin, 'function');
-assert.equal(typeof server.GoogleOAuthPlugin, 'function');
-${
-  ui
-    ? `const { default: tui } = await import(${JSON.stringify(`${productName}/tui`)});
-assert.equal(tui.id, 'cortexkit.antigravity-auth'); assert.equal(typeof tui.tui, 'function');
-assert.deepEqual(Object.keys(tui).sort(), ['id', 'setup', 'tui']); assert.equal(typeof tui.setup, 'function');
-assert.equal(pkg.exports['./tui'].types, './src/tui/entry.d.mts');`
-    : ''
-}
-console.log('consumer.installed_resolution: 5 checks${ui ? '; consumer.ui045: 5 checks' : ''}');
-`,
-  )
+  await writeFile(probe, consumerProbe({ installed, ui, contract }))
   const args = ui ? ['--preload', '@opentui/solid/preload', probe] : [probe]
   const output = run('bun', args, root, env)
-  if (!output.includes('consumer.installed_resolution: 5 checks'))
+  if (!output.includes(consumerWitness(ui, contract)))
     throw new Error('consumer.installed_resolution: absent child witness')
   // Run Node import and CLI probes from the consumer, with its isolated HOME,
   // XDG_CONFIG_HOME and XDG_STATE_HOME; never resolve repository packages or use real user state.
@@ -406,6 +437,7 @@ async function main() {
           manager,
           ui,
           false,
+          'baseline',
         )
         baselines.set(ui, base.graph)
       }
@@ -429,6 +461,7 @@ async function main() {
             manager,
             ui,
             scripts,
+            'candidate',
           )
           requireEqual(
             consumer.graph,
