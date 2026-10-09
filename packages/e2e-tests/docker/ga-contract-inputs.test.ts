@@ -902,3 +902,33 @@ describe('GA shell runner fixture preflight, not native host certification', () 
     }
   })
 })
+
+test('Docker bootstrap avoids Hub and verifies Bun before extraction', () => {
+  const source = readFileSync(join(HERE, 'opencode-ga/Dockerfile'), 'utf8')
+  expect(source).toContain(
+    'FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20',
+  )
+  expect(source).not.toContain('# syntax=')
+  expect(source).not.toContain('FROM oven/bun')
+  expect(source).not.toContain('FROM node:')
+  expect(source).toContain(
+    'https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64.zip',
+  )
+  expect(source).toContain(
+    '99ebf3e6afe003b57eae3f257abce7e9aa851452429e84ef16b1b401e9d7cff1  /tmp/SHASUMS256.txt',
+  )
+  const manifestCheck = source.indexOf('sha256sum --check -')
+  const archiveCheck = source.indexOf(
+    'sha256sum --check --ignore-missing SHASUMS256.txt',
+  )
+  const extraction = source.indexOf('unzip -q')
+  expect(manifestCheck).toBeGreaterThan(0)
+  expect(archiveCheck).toBeGreaterThan(manifestCheck)
+  expect(extraction).toBeGreaterThan(archiveCheck)
+  expect(source).toContain('test "$(bun --version)" = 1.4.2')
+  expect(
+    source.indexOf(
+      'bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts',
+    ),
+  ).toBeLessThan(source.indexOf('bun run build'))
+})
