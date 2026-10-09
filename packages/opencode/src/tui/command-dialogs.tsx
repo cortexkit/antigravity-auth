@@ -1,832 +1,441 @@
-/** @jsxImportSource @opentui/solid */
-
 /**
- * Imperative command-dialog dispatcher for the /antigravity-* slash commands.
+ * The `/antigravity` drawer: one renderer for the server's command menu,
+ * shared by the OpenCode 1 and OpenCode GA TUIs.
  *
- * Mirrors the fleet sibling layout (see `anthropic-auth-live` /
- * `openai-auth-live` `packages/opencode/src/tui/command-dialogs.tsx`):
- * each command's dialog opens with its data/status content rendered into the
- * dialog BODY as a column of plain `<text>` nodes — non-selectable,
- * non-searchable — and a separate `<DialogSelect>` below carries ONLY the
- * real actions with proper `{title, description}` shapes the host renders
- * on separate lines. The earlier implementation crammed the data rows into
- * `DialogSelect`'s `placeholder` (which participates in type-ahead search)
- * and concatenated label+description into a single highlighted option line;
- * this rewrite separates data from actions the way the host expects.
+ * The server builds the whole menu with the shared command menu of
+ * `@cortexkit/common-auth/commands`: Accounts, Quota, Routing, Limits
+ * (killswitch), Cache, Diagnostics (logging and wire dump) and the plugin's
+ * extras (vault setup), each with its read-only lines, its items, and its
+ * actions with their typed inputs and confirmations. This file only walks
+ * that payload through the host's dialogs and sends back which action the
+ * user chose, by the opaque section, item and action ids the server gave.
+ * It never builds an account target of its own, never looks an account up
+ * by position, and never retries a choice against a different target: an id
+ * the server no longer knows comes back as a refused apply and the user sees
+ * the server's message.
  *
- * Contract:
- * - Every main/subdialog calls `api.ui.dialog.setSize('xlarge')` before
- *   `api.ui.dialog.replace()` so the host reserves enough width for the
- *   longest line in any branch.
- * - `apply(command, args, options?)` is the RPC apply path the dispatch
- *   site (the module-scoped poll in `tui.tsx`) supplies. The dispatcher
- *   forwards `options.timeoutMs` so a long-running apply (account add /
- *   refresh, future quota refresh) gets the right RPC timeout.
- * - All `DialogSelect` options must remain VISIBLE — the host's
- *   `disabled: true` is a hard hide, so this file must never set it.
- *   Invalid actions stay visible with an explanatory description and are
- *   rejected in `onSelect`. The `no hide-property option scan` test in
- *   the verification gates pins this contract.
- * - `onSelect` awaits the apply, toasts the result, then either clears
- *   the dialog or replaces it for multi-step flows. The dialog stack
- *   never sees a `clear()` between apply and re-render so the user
- *   always sees feedback (per the dispatcher contract).
+ * Every redraw after an apply uses the menu that apply returned, which the
+ * server built fresh for that answer; settings shown here are never a
+ * replay of an earlier answer.
+ *
+ * The drawer talks to the host only through `MenuUi` (dialog primitives as
+ * promises) and `MenuApply` (the transport), so the same code runs on both
+ * hosts. Nothing here writes to the terminal or picks colors.
  */
 
-import type { TuiPluginApi } from '@opencode-ai/plugin/tui'
-import type { CommandAccountRow } from '../plugin/command-data'
-import type { CommandModalName, OpenDialogPayload } from '../rpc/protocol'
+import {
+  type KnobValue,
+  MENU_REFUSED_TEXT,
+  type MenuAction,
+  type MenuApply,
+  type MenuApplyRequest,
+  type MenuApplyResult,
+  type MenuDialogPayload,
+  type MenuItem,
+  type MenuKnob,
+  type MenuModel,
+  type MenuSection,
+  type MenuSelectOption,
+  type MenuUi,
+} from './host-api'
+
+const BACK = 'back'
+
+/** Text longer than this, or with a line break, is shown in full, not toasted. */
+const TOAST_MAX_LENGTH = 120
 
 /**
- * Apply handler the dispatcher calls when the user selects a dialog
- * option. Mirrors `ApplyRequest` from `rpc/protocol` plus the
- * `RpcRequestOptions.timeoutMs` knob the RPC client already accepts —
- * the call site in `tui.tsx` forwards these directly into
- * `rpcClient.apply(request, options)`.
+ * Raised by a transport when an answer fails validation, so the drawer can
+ * tell a refused answer from an unreachable server.
  */
-export type ApplyFn = (
-  command: CommandModalName,
-  args: string,
-  options?: { timeoutMs?: number },
-) => Promise<{ text: string; knobs: Record<string, unknown> }>
-
-/**
- * Mount the dialog for `payload.command` on the live TUI.
- *
- * The dispatcher branches on `payload.command` — each branch is
- * self-contained: render the data body, render the host DialogSelect
- * below it with the real actions, wire `onSelect` to await `apply(...)`,
- * then toast the result and clear (or replace for multi-step flows).
- * Unknown commands throw so a future command registered in
- * `MODAL_COMMANDS` without a dispatcher branch fails loudly at the first
- * dialog open.
- */
-export function openCommandDialog(
-  api: TuiPluginApi,
-  payload: OpenDialogPayload,
-  apply: ApplyFn,
-): void {
-  if (payload.command === 'antigravity-dump') {
-    renderDumpDialog(api, payload, apply)
-    return
+export class MenuRefusedError extends Error {
+  constructor(readonly issues: readonly string[]) {
+    super(MENU_REFUSED_TEXT)
+    this.name = 'MenuRefusedError'
   }
-  if (payload.command === 'antigravity-logging') {
-    renderLoggingDialog(api, payload, apply)
-    return
-  }
-  if (payload.command === 'antigravity-quota') {
-    throw new Error('antigravity-quota is rendered by the TUI quota panel')
-  }
-  if (payload.command === 'antigravity-account') {
-    renderAccountDialog(api, payload, apply)
-    return
-  }
-  if (payload.command === 'antigravity-routing') {
-    renderRoutingDialog(api, payload, apply)
-    return
-  }
-  if (payload.command === 'antigravity-killswitch') {
-    renderKillswitchDialog(api, payload, apply)
-    return
-  }
-  const exhaustiveCheck: never = payload.command
-  throw new Error(`Unknown command ${exhaustiveCheck as string}`)
 }
 
-// ---------------------------------------------------------------------------
-// Fully wired branches — non-data-first dialogs.
-// ---------------------------------------------------------------------------
+function factLines(
+  facts: Readonly<Record<string, unknown>> | undefined,
+): string[] {
+  return Object.entries(facts ?? {}).map(
+    ([name, value]) =>
+      `${name}: ${typeof value === 'string' ? value : JSON.stringify(value)}`,
+  )
+}
 
-/**
- * /antigravity-dump: three actions (on / off / status). Each selection
- * applies through the RPC, toasts the result text, and clears the
- * dialog. Status is a read-only check that still goes through apply so
- * the dump helper runs once and reports the current state.
- */
-function renderDumpDialog(
-  api: TuiPluginApi,
-  _payload: OpenDialogPayload,
-  apply: ApplyFn,
-): void {
-  const DialogSelect = api.ui.DialogSelect<string>
-  api.ui.dialog.setSize('xlarge')
-  api.ui.dialog.replace(() => (
-    <DialogSelect
-      title='Antigravity wire dump'
-      options={[
-        {
-          title: 'Turn dump on',
-          value: 'on',
-          description: 'Write request and response bodies to the dump dir.',
-        },
-        {
-          title: 'Turn dump off',
-          value: 'off',
-          description: 'Stop writing new dump files.',
-        },
-        {
-          title: 'Show dump status',
-          value: 'status',
-          description: 'Display whether dumps are enabled and where they go.',
-        },
-      ]}
-      onSelect={(option) => {
-        void apply('antigravity-dump', String(option.value)).then((result) => {
-          api.ui.toast({ message: result.text })
-          api.ui.dialog.clear()
-        })
-      }}
-    />
-  ))
+/** One option per section, in the order the menu gives them. */
+export function sectionListOptions(menu: MenuModel): MenuSelectOption[] {
+  return menu.sections.map((section) => ({
+    title: section.title,
+    value: `section:${section.id}`,
+    ...(section.lines[0] ? { description: section.lines[0] } : {}),
+  }))
 }
 
 /**
- * /antigravity-logging: every log level as an option. The dispatcher
- * forwards the level as the apply arg; the apply path persists it
- * through `OperatorSettingsController` and toasts the resolution text.
+ * A section's rows: its read-only lines and facts first (choosing one only
+ * redraws the section), then its items, its own actions, and Back.
  */
-function renderLoggingDialog(
-  api: TuiPluginApi,
-  payload: OpenDialogPayload,
-  apply: ApplyFn,
-): void {
-  const DialogSelect = api.ui.DialogSelect<string>
-  const current = (payload.knobs.log_level as string) ?? 'info'
-  api.ui.dialog.setSize('xlarge')
-  api.ui.dialog.replace(() => (
-    <DialogSelect
-      title='Antigravity logging'
-      current={current}
-      options={[
-        { title: 'Error', value: 'error', description: 'Errors only.' },
-        { title: 'Warn', value: 'warn', description: 'Warnings and errors.' },
-        {
-          title: 'Info',
-          value: 'info',
-          description: 'Default. Includes informational events.',
-        },
-        {
-          title: 'Debug',
-          value: 'debug',
-          description: 'Includes debug-level events.',
-        },
-        {
-          title: 'Trace',
-          value: 'trace',
-          description: 'Most verbose — every diagnostic event.',
-        },
-      ]}
-      onSelect={(option) => {
-        void apply('antigravity-logging', String(option.value)).then(
-          (result) => {
-            api.ui.toast({ message: result.text })
-            api.ui.dialog.clear()
-          },
-        )
-      }}
-    />
-  ))
+export function sectionOptions(section: MenuSection): MenuSelectOption[] {
+  return [
+    ...[...section.lines, ...factLines(section.facts)].map((line, index) => ({
+      title: line,
+      value: `line:${index}`,
+    })),
+    ...section.items.map((item) => ({
+      title: item.label,
+      value: `item:${item.id}`,
+      ...(item.detail ? { description: item.detail } : {}),
+    })),
+    ...section.actions.map((action) => ({
+      title: action.label,
+      value: `action:${action.id}`,
+      ...(action.description ? { description: action.description } : {}),
+    })),
+    { title: 'Back', value: BACK },
+  ]
 }
 
-// ---------------------------------------------------------------------------
-// Shared helpers — render data rows as plain text in the dialog body.
-// ---------------------------------------------------------------------------
-
-function formatQuotaRowLine(row: CommandAccountRow): string {
-  const status = row.enabled ? '' : ' (disabled)'
-  const current = row.current ? ' *' : ''
-  if (row.quota.length === 0) {
-    return `${row.label}${status}${current}: no cached quota`
-  }
-  const parts = row.quota.map((q) => {
-    const pct = q.remainingPercent == null ? '–%' : `${q.remainingPercent}%`
-    return `${q.label} ${pct}`
-  })
-  return `${row.label}${status}${current}: ${parts.join(', ')}`
+/** An item's rows: its detail and facts (read-only), its actions, and Back. */
+export function itemOptions(item: MenuItem): MenuSelectOption[] {
+  return [
+    ...(item.detail ? [{ title: item.detail, value: 'line:detail' }] : []),
+    ...factLines(item.facts).map((line, index) => ({
+      title: line,
+      value: `line:${index}`,
+    })),
+    ...item.actions.map((action) => ({
+      title: action.label,
+      value: `action:${action.id}`,
+      ...(action.description ? { description: action.description } : {}),
+    })),
+    { title: 'Back', value: BACK },
+  ]
 }
 
 /**
- * /antigravity-account data-first dialog.
- *
- * The body lists each account row as a plain `<text>` node (cache-only
- * — no network I/O on open). The DialogSelect carries ONLY real
- * actions: Add account… and one drill-in entry per row. Drill-in
- * navigates to a row-level subdialog that exposes toggle / set-current
- * / remove with a DialogConfirm gate for the destructive path.
- *
- * Each action calls `apply('antigravity-account', '<verb> <index>')`,
- * which the apply path translates into a locked-storage mutation.
- * The service returns fresh `CommandAccountRow[]`; the dialog mutates
- * its closed-over payload and re-renders via `renderMain()` so the
- * user never sees a clear-then-redraw gap.
+ * The value a typed `number` or `text` input sends. Empty is `null` (the
+ * action reads that as "leave unset"); a number input sends a number when
+ * the text parses as one and the text otherwise, so the server can say what
+ * is wrong with it.
  */
-function renderAccountDialog(
-  api: TuiPluginApi,
-  initialPayload: OpenDialogPayload,
-  apply: ApplyFn,
-): void {
-  // Closed-over payload: every render reads from the latest snapshot.
-  const payload: OpenDialogPayload = { ...initialPayload }
+export function promptValue(knob: MenuKnob, raw: string): KnobValue {
+  const text = raw.trim()
+  if (text === '') return null
+  if (knob.kind === 'number') {
+    const number = Number(text)
+    return Number.isFinite(number) ? number : text
+  }
+  return raw
+}
 
-  const rowsFromKnobs = (): CommandAccountRow[] => {
-    const raw = payload.knobs.accounts
-    return Array.isArray(raw) ? (raw as CommandAccountRow[]) : []
+function knobDefault(knob: MenuKnob): string {
+  if (knob.kind === 'toggle') return knob.value ? 'on' : 'off'
+  if (knob.kind === 'text' && knob.masked) return ''
+  return knob.value === undefined ? '' : String(knob.value)
+}
+
+/** The first web link in a message, such as a sign-in URL. */
+export function firstLink(text: string): string | undefined {
+  return /https?:\/\/\S+/.exec(text)?.[0]
+}
+
+export interface DrawerOptions {
+  readonly ui: MenuUi
+  readonly apply: MenuApply
+  /**
+   * Copies text to the clipboard; returns false when the terminal cannot.
+   * Absent when the host offers no clipboard.
+   */
+  readonly copy?: (text: string) => boolean
+  /** Receives drawer failures; must not write to the terminal. */
+  readonly onError?: (message: string, detail: Record<string, unknown>) => void
+  /** Opens on this section instead of the section list, when it exists. */
+  readonly startSection?: string
+}
+
+/**
+ * Opens the drawer on a payload the server pushed for `/antigravity`. The
+ * returned promise settles when the user closes the drawer.
+ */
+export function openAntigravityMenu(
+  options: DrawerOptions,
+  payload: MenuDialogPayload,
+): Promise<void> {
+  return new Drawer(options, payload.menu).start()
+}
+
+const CANCEL = '\u0000cancel'
+
+class Drawer {
+  private menu: MenuModel
+
+  constructor(
+    private readonly options: DrawerOptions,
+    menu: MenuModel,
+  ) {
+    this.menu = menu
   }
 
-  const runApply = async (
-    args: string,
-    options?: { timeoutMs?: number },
-  ): Promise<CommandAccountRow[] | null> => {
-    const result = await apply('antigravity-account', args, options)
-    api.ui.toast({ message: result.text })
-    const next = result.knobs.accounts
-    if (Array.isArray(next)) {
-      payload.knobs = {
-        ...payload.knobs,
-        accounts: next as CommandAccountRow[],
+  async start(): Promise<void> {
+    const start = this.options.startSection
+    if (start && this.menu.sections.some((section) => section.id === start)) {
+      await this.section(start)
+      return
+    }
+    const only =
+      this.menu.sections.length === 1 ? this.menu.sections[0] : undefined
+    if (only) {
+      await this.section(only.id)
+      return
+    }
+    await this.list()
+  }
+
+  private async list(): Promise<void> {
+    const { ui } = this.options
+    const chosen = await ui.select({
+      title: this.menu.title,
+      options: sectionListOptions(this.menu),
+    })
+    if (chosen === undefined) return
+    await this.section(chosen.slice('section:'.length))
+  }
+
+  private async closeOrList(): Promise<void> {
+    if (this.menu.sections.length === 1) {
+      this.options.ui.clear()
+      return
+    }
+    await this.list()
+  }
+
+  private async section(sectionId: string): Promise<void> {
+    const { ui } = this.options
+    const section = this.menu.sections.find((entry) => entry.id === sectionId)
+    if (!section) {
+      ui.toast('That section is no longer offered.', 'warning')
+      await this.list()
+      return
+    }
+    const chosen = await ui.select({
+      title: section.title,
+      options: sectionOptions(section),
+    })
+    // Dismissing the dialog (Escape) closes the drawer; Back goes up a level.
+    if (chosen === undefined) return
+    if (chosen === BACK) {
+      await this.closeOrList()
+      return
+    }
+    if (chosen.startsWith('item:')) {
+      await this.item(section.id, chosen.slice('item:'.length))
+      return
+    }
+    if (chosen.startsWith('action:')) {
+      const action = section.actions.find(
+        (entry) => entry.id === chosen.slice('action:'.length),
+      )
+      if (action) {
+        await this.run(section, undefined, action)
+        return
       }
-      renderMain()
-      return next as CommandAccountRow[]
     }
-    renderMain()
-    return null
+    // A read-only line: redraw the same section.
+    await this.section(section.id)
   }
 
-  const updateAccounts = (knobs: Record<string, unknown>): void => {
-    const accounts = knobs.accounts
-    if (!Array.isArray(accounts)) return
-    payload.knobs = {
-      ...payload.knobs,
-      accounts: accounts as CommandAccountRow[],
-    }
-  }
-
-  const openOAuthLabelPrompt = (code: string, oauthUrl: string): void => {
-    const DialogPrompt = api.ui.DialogPrompt
-    api.ui.dialog.setSize('xlarge')
-    api.ui.dialog.replace(() => (
-      <DialogPrompt
-        title='OAuth sign-in — label'
-        description={() => (
-          <text>A short name for this account (optional).</text>
-        )}
-        placeholder='e.g. work'
-        value=''
-        onConfirm={(value: string) => {
-          const label = value.trim()
-          const args = label
-            ? `add-oauth-finish ${code} --label ${label}`
-            : `add-oauth-finish ${code}`
-          void apply('antigravity-account', args, { timeoutMs: 120_000 })
-            .then((result) => {
-              api.ui.toast({ message: result.text })
-              updateAccounts(result.knobs)
-              renderMain()
-            })
-            .catch(() => {
-              api.ui.toast({ message: 'OAuth account add failed' })
-              renderMain()
-            })
-        }}
-        onCancel={() => openOAuthCodePrompt(oauthUrl)}
-      />
-    ))
-  }
-
-  const openOAuthCodePrompt = (oauthUrl: string): void => {
-    const DialogPrompt = api.ui.DialogPrompt
-    api.ui.dialog.setSize('xlarge')
-    api.ui.dialog.replace(() => (
-      <DialogPrompt
-        title='OAuth sign-in — enter code'
-        description={() => (
-          <text>
-            After signing in, paste the full callback URL or authorization code.
-          </text>
-        )}
-        placeholder='Paste callback URL or code here'
-        value=''
-        onConfirm={(value: string) => {
-          const code = value.trim()
-          if (!code) {
-            // Empty submit must keep the user inside the flow, not
-            // silently drop them back to the account list. Surface the
-            // validation message and reopen the same prompt so the
-            // user can paste again.
-            api.ui.toast({
-              message: 'Please paste the callback URL or authorization code.',
-            })
-            openOAuthCodePrompt(oauthUrl)
-            return
-          }
-          openOAuthLabelPrompt(code, oauthUrl)
-        }}
-        onCancel={() => openOAuthUrlScreen(oauthUrl)}
-      />
-    ))
-  }
-
-  const openOAuthUrlScreen = (oauthUrl: string): void => {
-    const DialogSelect = api.ui.DialogSelect<string>
-    api.ui.dialog.setSize('xlarge')
-    api.ui.dialog.replace(() => (
-      <DialogSelect
-        title='OAuth sign-in'
-        options={[
-          {
-            title: 'Copy URL to clipboard',
-            value: 'copy',
-            description: oauthUrl,
-          },
-          {
-            title: 'Enter sign-in code',
-            value: 'code',
-            description:
-              'Open the URL in your browser, sign in, then paste the callback URL or code.',
-          },
-          { title: 'Cancel', value: 'cancel' },
-        ]}
-        onSelect={(option) => {
-          if (option.value === 'cancel') {
-            renderMain()
-            return
-          }
-          if (option.value === 'copy') {
-            const copied = api.renderer.copyToClipboardOSC52(oauthUrl)
-            api.ui.toast({
-              message: copied
-                ? 'URL copied to clipboard'
-                : 'Copy unavailable — select the URL text above to copy',
-            })
-            openOAuthUrlScreen(oauthUrl)
-            return
-          }
-          openOAuthCodePrompt(oauthUrl)
-        }}
-      />
-    ))
-  }
-
-  const openAddOAuthStart = (): void => {
-    void apply('antigravity-account', 'add-oauth-start', {
-      timeoutMs: 120_000,
-    })
-      .then((result) => {
-        updateAccounts(result.knobs)
-        const oauthUrl = result.knobs.oauthUrl
-        if (typeof oauthUrl === 'string' && oauthUrl.length > 0) {
-          openOAuthUrlScreen(oauthUrl)
-          return
-        }
-        api.ui.toast({ message: result.text })
-        renderMain()
-      })
-      .catch(() => {
-        api.ui.toast({ message: 'OAuth account add failed' })
-        renderMain()
-      })
-  }
-
-  const renderManageRow = (row: CommandAccountRow): void => {
-    const DialogSelect = api.ui.DialogSelect<string>
-    api.ui.dialog.setSize('xlarge')
-    api.ui.dialog.replace(() => (
-      <box flexDirection='column' padding={1} width='100%'>
-        <text>{row.label}</text>
-        <text>
-          {row.quota.length === 0
-            ? 'no cached quota'
-            : row.quota
-                .map((q) =>
-                  q.remainingPercent == null
-                    ? `${q.label} –%`
-                    : `${q.label} ${q.remainingPercent}%`,
-                )
-                .join(', ')}
-        </text>
-        <box marginTop={1}>
-          <DialogSelect
-            title={`Manage ${row.label}`}
-            options={[
-              {
-                title: row.enabled ? 'Disable account' : 'Enable account',
-                value: `toggle ${row.index}`,
-                description: row.enabled
-                  ? 'Skip this account in rotation when its quota is low.'
-                  : 'Include this account in rotation again.',
-              },
-              {
-                title: 'Set as current',
-                value: `current ${row.index}`,
-                description:
-                  'Pin this account as the active Claude + Gemini choice.',
-              },
-              {
-                title: 'Remove account…',
-                value: `__remove_prompt__ ${row.index}`,
-                description:
-                  'Permanently delete this account from the local pool.',
-              },
-              {
-                title: 'Back',
-                value: '__back__',
-                description: 'Return to the account list.',
-              },
-            ]}
-            onSelect={(option) => {
-              const raw = String(option.value)
-              if (raw === '__back__') {
-                renderMain()
-                return
-              }
-              if (raw.startsWith('__remove_prompt__ ')) {
-                const targetIndex = Number.parseInt(raw.split(' ')[1] ?? '', 10)
-                promptRemove(targetIndex)
-                return
-              }
-              if (raw.startsWith('toggle ') || raw.startsWith('current ')) {
-                void runApply(raw, { timeoutMs: 2_000 }).catch(() => {
-                  api.ui.toast({
-                    message: `${row.label}: action failed`,
-                  })
-                })
-                return
-              }
-              api.ui.toast({
-                message: `${row.label}: unknown action`,
-              })
-            }}
-          />
-        </box>
-      </box>
-    ))
-  }
-
-  const promptRemove = (index: number): void => {
-    const DialogConfirm = api.ui.DialogConfirm
-    const row = rowsFromKnobs()[index]
-    api.ui.dialog.setSize('xlarge')
-    api.ui.dialog.replace(() => (
-      <DialogConfirm
-        title='Remove account'
-        message={`Permanently remove ${row?.label ?? `account ${index + 1}`} from the local pool? This cannot be undone.`}
-        onConfirm={async () => {
-          try {
-            const next = await runApply(`remove ${index}`, {
-              timeoutMs: 2_000,
-            })
-            if (next === null) {
-              renderMain()
-            }
-          } catch {
-            api.ui.toast({ message: 'Account remove failed' })
-            renderMain()
-          }
-        }}
-        onCancel={() => {
-          renderMain()
-        }}
-      />
-    ))
-  }
-
-  const renderMain = (): void => {
-    const DialogSelect = api.ui.DialogSelect<string>
-    api.ui.dialog.setSize('xlarge')
-    const rows = rowsFromKnobs()
-    const bodyLines = rows.length
-      ? rows.map(formatQuotaRowLine)
-      : ['No accounts configured. Add one via the menu below.']
-    api.ui.dialog.replace(() => (
-      <box flexDirection='column' padding={1} width='100%'>
-        {bodyLines.map((line) => (
-          <text>{line}</text>
-        ))}
-        <box marginTop={1}>
-          <DialogSelect
-            title='Antigravity accounts'
-            options={[
-              {
-                title: 'Add account…',
-                value: 'add',
-                description:
-                  'Open the OAuth flow to add a new account (120s timeout).',
-              },
-              ...rows.map((row) => ({
-                title: row.label,
-                value: `__manage__ ${row.index}`,
-                description: row.enabled
-                  ? row.current
-                    ? 'Current account — toggle, remove, or back.'
-                    : 'Enabled — toggle, set as current, or remove.'
-                  : 'Disabled — toggle to re-enable, or remove.',
-              })),
-              { title: 'Back', value: 'back' },
-            ]}
-            onSelect={(option) => {
-              const raw = String(option.value)
-              if (raw === 'back') {
-                api.ui.dialog.clear()
-                return
-              }
-              if (raw === 'add') {
-                openAddOAuthStart()
-                return
-              }
-              if (raw.startsWith('__manage__ ')) {
-                const targetIndex = Number.parseInt(raw.split(' ')[1] ?? '', 10)
-                const target = rows[targetIndex]
-                if (target) renderManageRow(target)
-                return
-              }
-              api.ui.toast({ message: 'Unknown action' })
-            }}
-          />
-        </box>
-      </box>
-    ))
-  }
-
-  renderMain()
-}
-
-/**
- * /antigravity-routing data-first dialog.
- *
- * The body lists the current persisted values (`cli_first`,
- * `quota_style_fallback`) as plain `<text>` nodes so the data is
- * visible without filtering the action list. The DialogSelect carries
- * ONLY real toggle actions — each row flips exactly one flag, awaits
- * apply, toasts the result, and re-renders in place from the
- * freshly-returned state.
- *
- * Re-render contract mirrors the quota/account dialogs: the
- * closed-over `payload.knobs` is mutated with the apply response and
- * `renderMain()` is re-invoked. The dialog stack never sees a
- * `clear()` between apply and re-render.
- *
- * Error path: when apply returns a `knobs.error === true` payload
- * (lock contention, unreadable config), the dispatcher does NOT swap
- * the closed-over payload — the dialog stays mounted on the previous
- * state so the user can retry or back out. The error message was
- * already toasted by `runApply`.
- */
-function renderRoutingDialog(
-  api: TuiPluginApi,
-  initialPayload: OpenDialogPayload,
-  apply: ApplyFn,
-): void {
-  // Closed-over payload: every render reads from the latest snapshot.
-  const payload: OpenDialogPayload = { ...initialPayload }
-
-  const readRouting = (): { cliFirst: boolean; quotaFallback: boolean } => ({
-    cliFirst: payload.knobs.cli_first === true,
-    quotaFallback: payload.knobs.quota_style_fallback === true,
-  })
-
-  const runApply = async (args: string): Promise<void> => {
-    const result = await apply('antigravity-routing', args, {
-      timeoutMs: 2_000,
-    })
-    api.ui.toast({ message: result.text })
-    if (result.knobs.error === true) {
+  private async item(sectionId: string, itemId: string): Promise<void> {
+    const { ui } = this.options
+    const section = this.menu.sections.find((entry) => entry.id === sectionId)
+    const item = section?.items.find((entry) => entry.id === itemId)
+    if (!section || !item) {
+      ui.toast('That entry is no longer offered.', 'warning')
+      if (section) await this.section(section.id)
+      else await this.list()
       return
     }
-    payload.knobs = {
-      ...payload.knobs,
-      cli_first: result.knobs.cli_first,
-      quota_style_fallback: result.knobs.quota_style_fallback,
-    }
-    renderMain()
-  }
-
-  const renderMain = (): void => {
-    const DialogSelect = api.ui.DialogSelect<string>
-    api.ui.dialog.setSize('xlarge')
-    const { cliFirst, quotaFallback } = readRouting()
-    const bodyLines = [
-      `cli_first: ${cliFirst ? 'on' : 'off'}`,
-      `quota_style_fallback: ${quotaFallback ? 'on' : 'off'}`,
-    ]
-    api.ui.dialog.replace(() => (
-      <box flexDirection='column' padding={1} width='100%'>
-        {bodyLines.map((line) => (
-          <text>{line}</text>
-        ))}
-        <box marginTop={1}>
-          <DialogSelect
-            title='Antigravity routing'
-            options={[
-              {
-                title: `${cliFirst ? '●' : '○'} cli_first: ${cliFirst}`,
-                value: `cli_first=${!cliFirst}`,
-                description: cliFirst
-                  ? 'CLI is preferred before Antigravity. Click to turn off.'
-                  : 'Antigravity runs before CLI. Click to turn on.',
-              },
-              {
-                title: `${quotaFallback ? '●' : '○'} quota_style_fallback: ${quotaFallback}`,
-                value: `quota_style_fallback=${!quotaFallback}`,
-                description: quotaFallback
-                  ? 'Falls back to the alternate quota style on exhaustion. Click to turn off.'
-                  : 'No quota-style fallback today. Click to turn on.',
-              },
-              { title: 'Back', value: 'back' },
-            ]}
-            onSelect={(option) => {
-              const raw = String(option.value)
-              if (raw === 'back') {
-                api.ui.dialog.clear()
-                return
-              }
-              if (
-                !raw.startsWith('cli_first=') &&
-                !raw.startsWith('quota_style_fallback=')
-              ) {
-                api.ui.toast({ message: 'Unknown routing action' })
-                return
-              }
-              void runApply(raw).catch(() => {
-                api.ui.toast({ message: 'Routing update failed' })
-                renderMain()
-              })
-            }}
-          />
-        </box>
-      </box>
-    ))
-  }
-
-  renderMain()
-}
-
-/**
- * /antigravity-killswitch data-first dialog.
- *
- * The body lists the current persisted killswitch state (`enabled`,
- * `minimum_remaining_percent`, and the per-account override map) as
- * plain `<text>` nodes. The DialogSelect carries ONLY real actions:
- * the global enabled toggle, the threshold-edit prompt, and a Back
- * affordance. The threshold edit opens a DialogPrompt for a fresh
- * integer in `0..100`; out-of-range input stays at the prompt without
- * applying.
- *
- * Re-render contract matches the routing dialog: the closed-over
- * `payload.knobs` is swapped to the apply response on success and
- * `renderMain()` re-runs. Errors leave the payload untouched.
- */
-function renderKillswitchDialog(
-  api: TuiPluginApi,
-  initialPayload: OpenDialogPayload,
-  apply: ApplyFn,
-): void {
-  const payload: OpenDialogPayload = { ...initialPayload }
-
-  const readKillswitch = (): {
-    enabled: boolean
-    minimum: number
-    accounts: Record<string, number>
-  } => {
-    const enabled = payload.knobs.enabled === true
-    const rawMin = payload.knobs.minimum_remaining_percent
-    const minimum =
-      typeof rawMin === 'number' && Number.isFinite(rawMin)
-        ? Math.max(0, Math.min(100, Math.round(rawMin)))
-        : 0
-    const rawAccounts = payload.knobs.accounts
-    const accounts =
-      rawAccounts &&
-      typeof rawAccounts === 'object' &&
-      !Array.isArray(rawAccounts)
-        ? (rawAccounts as Record<string, number>)
-        : {}
-    return { enabled, minimum, accounts }
-  }
-
-  const runApply = async (args: string): Promise<void> => {
-    const result = await apply('antigravity-killswitch', args, {
-      timeoutMs: 2_000,
+    const chosen = await ui.select({
+      title: `${section.title}: ${item.label}`,
+      options: itemOptions(item),
     })
-    api.ui.toast({ message: result.text })
-    if (result.knobs.error === true) {
+    if (chosen === undefined) return
+    if (chosen === BACK) {
+      await this.section(section.id)
       return
     }
-    payload.knobs = {
-      ...payload.knobs,
-      enabled: result.knobs.enabled,
-      minimum_remaining_percent: result.knobs.minimum_remaining_percent,
-      accounts: result.knobs.accounts ?? {},
+    if (chosen.startsWith('action:')) {
+      const action = item.actions.find(
+        (entry) => entry.id === chosen.slice('action:'.length),
+      )
+      if (action) {
+        await this.run(section, item, action)
+        return
+      }
     }
-    renderMain()
+    await this.item(section.id, item.id)
   }
 
-  const openThresholdPrompt = (currentMinimum: number): void => {
-    const DialogPrompt = api.ui.DialogPrompt
-    api.ui.dialog.setSize('xlarge')
-    api.ui.dialog.replace(() => (
-      <DialogPrompt
-        title='Antigravity killswitch — set threshold'
-        description={() => (
-          <text>
-            Enter a new minimum_remaining_percent (0-100). Empty input cancels.
-          </text>
-        )}
-        placeholder={`${currentMinimum}`}
-        value={`${currentMinimum}`}
-        onConfirm={(value: string) => {
-          const trimmed = value.trim()
-          if (!trimmed) {
-            renderMain()
-            return
-          }
-          const parsed = Number.parseInt(trimmed, 10)
-          if (
-            !Number.isInteger(parsed) ||
-            parsed < 0 ||
-            parsed > 100 ||
-            String(parsed) !== trimmed
-          ) {
-            api.ui.toast({
-              message: 'Threshold must be an integer between 0 and 100',
-            })
-            openThresholdPrompt(currentMinimum)
-            return
-          }
-          void runApply(`minimum_remaining_percent=${parsed}`).catch(() => {
-            api.ui.toast({ message: 'Killswitch update failed' })
-            renderMain()
-          })
-        }}
-        onCancel={() => {
-          renderMain()
-        }}
-      />
-    ))
+  /** Asks for one input; resolves undefined when the user backs out. */
+  private async knob(
+    title: string,
+    knob: MenuKnob,
+  ): Promise<KnobValue | undefined> {
+    const { ui } = this.options
+    if (knob.kind === 'choice' || knob.kind === 'toggle') {
+      const choices: MenuSelectOption[] =
+        knob.kind === 'choice'
+          ? knob.choices.map((choice) => ({
+              title: choice.label,
+              value: choice.value,
+            }))
+          : [
+              { title: 'On', value: 'on' },
+              { title: 'Off', value: 'off' },
+            ]
+      const chosen = await ui.select({
+        title: `${title}: ${knob.label}`,
+        current: knobDefault(knob),
+        options: [...choices, { title: 'Cancel', value: CANCEL }],
+      })
+      if (chosen === undefined || chosen === CANCEL) return undefined
+      return knob.kind === 'toggle' ? chosen === 'on' : chosen
+    }
+    const placeholder = knob.kind === 'text' ? knob.placeholder : undefined
+    const raw = await ui.prompt({
+      title: `${title}: ${knob.label}`,
+      ...(placeholder ? { placeholder } : {}),
+      value: knobDefault(knob),
+    })
+    if (raw === undefined) return undefined
+    return promptValue(knob, raw)
   }
 
-  const renderMain = (): void => {
-    const DialogSelect = api.ui.DialogSelect<string>
-    api.ui.dialog.setSize('xlarge')
-    const { enabled, minimum, accounts } = readKillswitch()
-    const accountKeys = Object.keys(accounts)
-    const bodyLines = [
-      `Killswitch: ${enabled ? 'enabled' : 'disabled'}`,
-      `Minimum remaining percent: ${minimum}%`,
-      ...(accountKeys.length > 0
-        ? [
-            'Per-account overrides:',
-            ...accountKeys.map((key) => `  ${key}: ${accounts[key] ?? 0}%`),
-          ]
-        : []),
-    ]
-    api.ui.dialog.replace(() => (
-      <box flexDirection='column' padding={1} width='100%'>
-        {bodyLines.map((line) => (
-          <text>{line}</text>
-        ))}
-        <box marginTop={1}>
-          <DialogSelect
-            title='Antigravity killswitch'
-            options={[
-              {
-                title: `${enabled ? '●' : '○'} Killswitch: ${enabled ? 'enabled' : 'disabled'}`,
-                value: `enabled=${!enabled}`,
-                description: enabled
-                  ? 'Drop candidates below the floor before dispatch. Click to turn off.'
-                  : 'Resume candidate selection regardless of quota. Click to turn on.',
-              },
-              {
-                title: `Set minimum remaining percent (${minimum}%)`,
-                value: '__edit_threshold__',
-                description:
-                  'Prompt for a new global floor (0-100). Per-account overrides are listed above.',
-              },
-              { title: 'Back', value: 'back' },
-            ]}
-            onSelect={(option) => {
-              const raw = String(option.value)
-              if (raw === 'back') {
-                api.ui.dialog.clear()
-                return
-              }
-              if (raw === '__edit_threshold__') {
-                openThresholdPrompt(minimum)
-                return
-              }
-              if (raw === 'enabled=true' || raw === 'enabled=false') {
-                void runApply(raw).catch(() => {
-                  api.ui.toast({ message: 'Killswitch update failed' })
-                  renderMain()
-                })
-                return
-              }
-              api.ui.toast({ message: 'Unknown killswitch action' })
-            }}
-          />
-        </box>
-      </box>
-    ))
+  private back(section: MenuSection, item: MenuItem | undefined) {
+    return item ? this.item(section.id, item.id) : this.section(section.id)
   }
 
-  renderMain()
+  /**
+   * Collects an action's inputs, confirms it when it carries a confirmation,
+   * applies it and redraws from the refreshed menu.
+   */
+  private async run(
+    section: MenuSection,
+    item: MenuItem | undefined,
+    action: MenuAction,
+  ): Promise<void> {
+    const { ui } = this.options
+    const values: Record<string, KnobValue> = {}
+    for (const knob of action.knobs) {
+      const value = await this.knob(action.label, knob)
+      if (value === undefined) {
+        await this.back(section, item)
+        return
+      }
+      values[knob.id] = value
+    }
+    let confirmed = false
+    if (action.confirm) {
+      confirmed = await ui.confirm({
+        title: action.label,
+        message: action.confirm.message,
+      })
+      if (!confirmed) {
+        await this.back(section, item)
+        return
+      }
+    }
+    const request: MenuApplyRequest = {
+      command: this.menu.command,
+      sectionId: section.id,
+      ...(item ? { itemId: item.id } : {}),
+      actionId: action.id,
+      values,
+      ...(confirmed ? { confirmed: true as const } : {}),
+    }
+    let result = await this.send(request)
+    if (!result) {
+      await this.back(section, item)
+      return
+    }
+    if (result.needsConfirmation && !confirmed) {
+      const yes = await ui.confirm({
+        title: action.label,
+        message: result.text,
+      })
+      if (!yes) {
+        this.menu = result.menu
+        await this.section(section.id)
+        return
+      }
+      const again = await this.send({ ...request, confirmed: true })
+      if (!again) {
+        this.menu = result.menu
+        await this.back(section, item)
+        return
+      }
+      result = again
+    }
+    this.menu = result.menu
+    await this.finish(section.id, result)
+  }
+
+  private async send(
+    request: MenuApplyRequest,
+  ): Promise<MenuApplyResult | undefined> {
+    const { ui, apply, onError } = this.options
+    try {
+      return await apply(request)
+    } catch (error) {
+      if (error instanceof MenuRefusedError) {
+        onError?.('menu-apply-refused', { issues: error.issues })
+        ui.toast(MENU_REFUSED_TEXT, 'error')
+        return undefined
+      }
+      onError?.('menu-apply-failed', {
+        error: error instanceof Error ? error.name : typeof error,
+      })
+      ui.toast('The action could not reach Antigravity auth.', 'error')
+      return undefined
+    }
+  }
+
+  /**
+   * Shows the apply's message and returns to the section. A long message (a
+   * sign-in URL, a multi-line result) is shown in full; a link in it can be
+   * copied when the host has a clipboard. A short one is a toast.
+   */
+  private async finish(sectionId: string, result: MenuApplyResult) {
+    const { ui, copy } = this.options
+    const kind = result.ok ? 'info' : 'warning'
+    const long =
+      result.text.includes('\n') || result.text.length > TOAST_MAX_LENGTH
+    const link = firstLink(result.text)
+    if (link && copy) {
+      const chosen = await ui.select({
+        title: result.ok ? 'Done' : 'Not done',
+        options: [
+          { title: 'Copy link', value: 'copy', description: link },
+          { title: 'Continue', value: 'continue', description: result.text },
+        ],
+      })
+      if (chosen === 'copy') {
+        ui.toast(
+          copy(link)
+            ? 'Link copied to the clipboard.'
+            : 'Copy is unavailable here; select the link to copy it.',
+          'info',
+        )
+      }
+    } else if (long) {
+      await ui.alert({
+        title: result.ok ? 'Done' : 'Not done',
+        message: result.text,
+      })
+    } else {
+      ui.toast(result.text, kind)
+    }
+    await this.section(sectionId)
+  }
 }

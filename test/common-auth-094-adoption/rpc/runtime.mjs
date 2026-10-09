@@ -17,12 +17,33 @@ import { pathToFileURL } from 'node:url'
 const root = process.argv[2]
 const mode = process.argv[3]
 const load = (path) => import(pathToFileURL(join(root, path)).href)
-const { startRpcServer } = await load('rpc/rpc-server.js')
+// The plugin hands the server the parser of the commands module its menu was
+// built with; this harness loads that same public module from the fixture.
+const { parseApplyRequest } = await load(
+  'common-auth-embedded/commands/index.js',
+)
+assert.equal(typeof parseApplyRequest, 'function')
+const withParser = (start) => (options) =>
+  start({ parseApplyRequest, ...options })
+// The adapter exactly as the plugin imports it, without the harness's parser.
+const startAdapter = (await load('rpc/rpc-server.js')).startRpcServer
+const startRpcServer = withParser(startAdapter)
 const { createRpcClient } = await load('rpc/rpc-client.js')
 const { discoverPortFile } = await load('rpc/port-file.js')
 const publicRpc = await load('common-auth-embedded/rpc/index.js')
 const publicClient = await load('common-auth-embedded/rpc/client.js')
-const applyRequest = { command: 'antigravity-quota', arguments: '' }
+const applyRequest = {
+  command: 'antigravity',
+  sectionId: 'routing',
+  actionId: 'set-routing',
+  values: {},
+}
+const result = (text) => ({
+  command: 'antigravity',
+  ok: true,
+  text,
+  menu: { command: 'antigravity', title: 'Antigravity', sections: [] },
+})
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const deferred = () => {
   let resolve
@@ -77,9 +98,7 @@ if (mode?.startsWith('lifetime:')) {
     dir,
     apply: () => {
       entered.resolve()
-      return kind === 'completed'
-        ? { text: 'ok', knobs: {} }
-        : new Promise(() => {})
+      return kind === 'completed' ? result('ok') : new Promise(() => {})
     },
     drain: () => {
       entered.resolve()
@@ -131,6 +150,30 @@ if (mode?.startsWith('lifetime:')) {
     }
   }
   await run('rpc.auth_validation', async () => {
+    // A JavaScript caller can omit the parser the TypeScript type requires.
+    // The adapter must refuse at construction, before it listens or writes
+    // a port file, rather than start a server whose every apply fails.
+    const refusedDir = join(root, 'state', 'validation-no-parser')
+    const listeners = () =>
+      process
+        .getActiveResourcesInfo?.()
+        .filter((kind) => kind === 'TCPServerWrap').length
+    const listenersBefore = listeners()
+    let refused = 0
+    for (const parser of [undefined, null, {}, 'parseApplyRequest']) {
+      await assert.rejects(
+        startAdapter({
+          dir: refusedDir,
+          apply: () => result('never'),
+          drain: () => [],
+          ...(parser === undefined ? {} : { parseApplyRequest: parser }),
+        }),
+        { name: 'TypeError', message: /parseApplyRequest/ },
+      )
+      refused++
+    }
+    await assert.rejects(stat(refusedDir), { code: 'ENOENT' })
+    assert.equal(listeners(), listenersBefore)
     let effects = 0
     const seen = []
     const handle = await startRpcServer({
@@ -138,7 +181,7 @@ if (mode?.startsWith('lifetime:')) {
       apply: (value) => {
         effects++
         seen.push(value)
-        return { text: 'ok', knobs: {} }
+        return result('ok')
       },
       drain: (cursor, sessionId) => {
         effects++
@@ -161,10 +204,16 @@ if (mode?.startsWith('lifetime:')) {
           '{bad',
           ...(path.endsWith('apply')
             ? [
-                '{"command":"unknown","arguments":""}',
-                '{"command":"antigravity-quota"}',
-                '{"command":"antigravity-quota","arguments":7}',
-                '{"command":"antigravity-quota","arguments":"","sessionId":null}',
+                // The older per-command dialog request `{command, arguments}`, which the
+                // menu request replaced; the server must refuse it.
+                '{"command":"antigravity-quota","arguments":""}',
+                '{"command":"antigravity","sectionId":"routing"}',
+                '{"command":"antigravity","sectionId":"routing","actionId":7}',
+                '{"command":"antigravity","sectionId":"routing","actionId":"a","itemId":3}',
+                '{"command":"antigravity","sectionId":"routing","actionId":"a","sessionId":null}',
+                '{"command":"antigravity","sectionId":"routing","actionId":"a","confirmed":"yes"}',
+                '{"command":"antigravity","sectionId":"routing","actionId":"a","values":[]}',
+                '{"command":"antigravity","sectionId":"routing","actionId":"a","values":{"k":{}}}',
               ]
             : [
                 '{"lastReceivedId":-1}',
@@ -207,28 +256,42 @@ if (mode?.startsWith('lifetime:')) {
         seen.filter((_, i) => i % 2 === 1).map((v) => v.sessionId),
         [undefined, '', 'session-a'],
       )
-      for (const command of [
-        'antigravity-quota',
-        'antigravity-account',
-        'antigravity-routing',
-        'antigravity-killswitch',
-        'antigravity-dump',
-        'antigravity-logging',
-      ]) {
+      const accepted = [
+        { ...applyRequest, itemId: 'item-1' },
+        { ...applyRequest, confirmed: true },
+        { ...applyRequest, confirmed: false },
+        { ...applyRequest, values: { a: 'x', b: 2, c: true, d: null } },
+        { command: 'antigravity', sectionId: 'quota', actionId: 'refresh' },
+        { ...applyRequest, unexpected: 'dropped by the parser' },
+      ]
+      for (const body of accepted) {
         assert.equal(
-          (await applyWire(handle, JSON.stringify({ command, arguments: '' })))
-            .status,
+          (await applyWire(handle, JSON.stringify(body))).status,
           200,
+          JSON.stringify(body),
         )
       }
       assert.equal(effects, 12)
+      // apply receives the parser's output, not the raw body.
+      assert.deepEqual(seen.slice(6), [
+        { ...applyRequest, itemId: 'item-1' },
+        { ...applyRequest, confirmed: true },
+        applyRequest,
+        { ...applyRequest, values: { a: 'x', b: 2, c: true, d: null } },
+        { command: 'antigravity', sectionId: 'quota', actionId: 'refresh' },
+        applyRequest,
+      ])
       assert.equal(
         (await wire(handle, '/rpc/unknown', '{bad', 'wrong')).status,
         401,
       )
       assert.equal((await wire(handle, '/rpc/unknown', '{bad')).status, 400)
       assert.equal((await wire(handle, '/rpc/unknown', '{}')).status, 404)
-      return { invalidEffects: 0, validEffects: effects }
+      return {
+        missingParserRefused: refused,
+        invalidEffects: 0,
+        validEffects: effects,
+      }
     } finally {
       await handle.stop()
     }
@@ -275,15 +338,15 @@ if (mode?.startsWith('lifetime:')) {
       drain: () => [],
       apply: () => {
         effects++
-        return { text: 'ok', knobs: {} }
+        return result('ok')
       },
     })
     try {
       for (const pid of [undefined, process.ppid, 99999999]) {
-        assert.deepEqual(await createRpcClient(dir, pid).apply(applyRequest), {
-          text: 'apply failed',
-          knobs: {},
-        })
+        assert.equal(
+          await createRpcClient(dir, pid).apply(applyRequest),
+          undefined,
+        )
         assert.deepEqual(
           await createRpcClient(dir, pid).pendingNotifications(0),
           [],
@@ -304,7 +367,7 @@ if (mode?.startsWith('lifetime:')) {
     await chmod(dir, 0o755)
     const handle = await startRpcServer({
       dir,
-      apply: async () => ({ text: 'ok', knobs: {} }),
+      apply: async () => result('ok'),
       drain: () => [],
     })
     try {
@@ -361,18 +424,16 @@ if (mode?.startsWith('lifetime:')) {
   await run('rpc.async_drain', async () => {
     const handle = await startRpcServer({
       dir: await dirFor('async'),
-      apply: async () => ({ text: 'ok', knobs: {} }),
+      apply: async () => result('ok'),
       drain: async (cursor, sessionId) => {
         await delay(40)
         return [
           {
             id: cursor + 1,
-            type: 'open-dialog',
             sessionId,
             payload: {
-              command: 'antigravity-account',
-              text: 'ready',
-              knobs: { diagnostic: 4 },
+              command: 'antigravity',
+              notify: { message: 'ready', kind: 'info' },
             },
           },
         ]
@@ -388,12 +449,10 @@ if (mode?.startsWith('lifetime:')) {
       assert.deepEqual(out.body.messages, [
         {
           id: 6,
-          type: 'open-dialog',
           sessionId: '',
           payload: {
-            command: 'antigravity-account',
-            text: 'ready',
-            knobs: { diagnostic: 4 },
+            command: 'antigravity',
+            notify: { message: 'ready', kind: 'info' },
           },
         },
       ])
@@ -403,7 +462,7 @@ if (mode?.startsWith('lifetime:')) {
     let entered = false
     const failing = await startRpcServer({
       dir: await dirFor('async-failure'),
-      apply: async () => ({ text: 'ok', knobs: {} }),
+      apply: async () => result('ok'),
       drain: async () => {
         entered = true
         await delay(20)
@@ -498,23 +557,20 @@ if (mode?.startsWith('lifetime:')) {
     }
   })
   await run('rpc.notification_narrowing', async () => {
-    const commands = [
-      'antigravity-quota',
-      'antigravity-account',
-      'antigravity-routing',
-      'antigravity-killswitch',
-      'antigravity-dump',
-      'antigravity-logging',
-    ]
-    let messages = commands.map((command, i) => ({
+    let messages = [0, 1, 2, 3, 4, 5].map((i) => ({
       id: i + 1,
-      type: 'open-dialog',
       ...(i === 5 ? {} : { sessionId: i === 0 ? '' : `session-${i}` }),
-      payload: { command, text: 'text', knobs: { count: i } },
+      payload:
+        i % 2 === 0
+          ? { command: 'antigravity', menu: result('').menu }
+          : {
+              command: 'antigravity',
+              notify: { message: `message-${i}`, kind: 'warning' },
+            },
     }))
     const handle = await startRpcServer({
       dir: await dirFor('narrowing'),
-      apply: async () => ({ text: 'ok', knobs: {} }),
+      apply: async () => result('ok'),
       drain: () => messages,
     })
     const client = createRpcClient(join(root, 'state/narrowing'), process.pid)
@@ -525,14 +581,17 @@ if (mode?.startsWith('lifetime:')) {
         null,
         [],
         { ...valid, id: '1' },
+        { ...valid, id: 0 },
         { ...valid, id: -1 },
         { ...valid, id: 9007199254740992 },
-        { ...valid, type: 'unknown' },
+        // An older per-command dialog notification carried `type: 'open-dialog'`.
+        // The menu envelope has only `id`, `payload` and `sessionId`, so this
+        // one extra key makes the whole batch resolve [].
+        { ...valid, type: 'open-dialog' },
         { ...valid, sessionId: 1 },
         { ...valid, payload: null },
-        { ...valid, payload: { ...valid.payload, command: 'unknown' } },
-        { ...valid, payload: { ...valid.payload, text: 7 } },
-        { ...valid, payload: { ...valid.payload, knobs: [] } },
+        { ...valid, payload: [] },
+        { ...valid, payload: 'menu' },
       ]) {
         messages = [valid, invalid]
         assert.deepEqual(await client.pendingNotifications(0), [])
@@ -542,7 +601,9 @@ if (mode?.startsWith('lifetime:')) {
     }
   })
   await run('rpc.timeout_zero', async () => {
-    const nonzero = (await load('rpc/server-nonzero.js')).startRpcServer
+    const nonzero = withParser(
+      (await load('rpc/server-nonzero.js')).startRpcServer,
+    )
     const observations = []
     for (const [label, factory] of [
       ['zero', startRpcServer],
@@ -558,7 +619,7 @@ if (mode?.startsWith('lifetime:')) {
             apply: async () => {
               reached = true
               await delay(6500)
-              return { text: 'finished', knobs: {} }
+              return result('finished')
             },
             drain: async () => {
               reached = true
@@ -583,19 +644,14 @@ if (mode?.startsWith('lifetime:')) {
             assert(elapsedMs >= 6400 && elapsedMs < 10000)
             assert.deepEqual(
               kind === 'apply' ? out : out.body,
-              kind === 'apply'
-                ? { text: 'finished', knobs: {} }
-                : { messages: [] },
+              kind === 'apply' ? result('finished') : { messages: [] },
             )
           } else {
             assert(
               elapsedMs >= 1000 && elapsedMs < 6200,
               `${kind} idle cutoff: ${elapsedMs}ms`,
             )
-            assert.deepEqual(
-              out,
-              kind === 'apply' ? { text: 'apply failed', knobs: {} } : null,
-            )
+            assert.equal(out, kind === 'apply' ? undefined : null)
           }
           observations.push({ label, kind, reached, elapsedMs })
         })
@@ -606,7 +662,9 @@ if (mode?.startsWith('lifetime:')) {
     }
     return observations
   })
-  const shortServer = (await load('rpc/server-short.js')).startRpcServer
+  const shortServer = withParser(
+    (await load('rpc/server-short.js')).startRpcServer,
+  )
   await run('rpc.live_504', async () => {
     let reached = 0
     const dir = await dirFor('live504')
@@ -630,11 +688,11 @@ if (mode?.startsWith('lifetime:')) {
         status: 504,
         body: { error: 'handler deadline exceeded' },
       })
-      assert.deepEqual(
+      assert.equal(
         await createRpcClient(dir, process.pid).apply(applyRequest, {
           timeoutMs: 2000,
         }),
-        { text: 'apply failed', knobs: {} },
+        undefined,
       )
       const elapsedMs = Math.round(performance.now() - before)
       assert(elapsedMs >= 250 && elapsedMs < 1800)
@@ -659,7 +717,7 @@ if (mode?.startsWith('lifetime:')) {
           await delay(350)
           effects++
           effect.resolve()
-          return { text: 'late', knobs: {} }
+          return result('late')
         },
       })
       const response =
@@ -673,7 +731,7 @@ if (mode?.startsWith('lifetime:')) {
         if (kind === '504') assert.equal((await response).status, 504)
         else if (kind === 'stop') await handle.stop()
         else {
-          assert.deepEqual(await response, { text: 'apply failed', knobs: {} })
+          assert.equal(await response, undefined)
         }
         await Promise.race([
           effect.promise,
@@ -694,7 +752,7 @@ if (mode?.startsWith('lifetime:')) {
     const dir = await dirFor('effect-drain')
     const handle = await startRpcServer({
       dir,
-      apply: async () => ({ text: 'ok', knobs: {} }),
+      apply: async () => result('ok'),
       drain: async () => {
         entered.resolve()
         await delay(350)
@@ -816,7 +874,7 @@ if (mode?.startsWith('lifetime:')) {
       dir,
       apply: async () => {
         entered++
-        return { text: 'direct', knobs: {} }
+        return result('direct')
       },
       drain: () => [],
     })
@@ -905,7 +963,7 @@ if (mode?.startsWith('lifetime:')) {
           timeoutMs: 180,
         })
         await entered.promise
-        assert.deepEqual(await response, { text: 'apply failed', knobs: {} })
+        assert.equal(await response, undefined)
         await Promise.race([
           closed.promise,
           delay(500).then(() => {

@@ -481,7 +481,8 @@ describe('vault provider-state with the real common-auth locks', () => {
     const before = await stored()
     const result = await commitVaultProviderState({
       ...input,
-      // Another writer takes the state lock over while this commit is checking.
+      // Another writer takes over the state-file lock while the second
+      // commit is running its fresh check, before it renames the file.
       verify: async () => {
         await rm(
           realFs.lockPathFor(statePath, VAULT_PROVIDER_STATE_LOCK.name),

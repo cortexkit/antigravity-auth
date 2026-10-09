@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -126,7 +126,9 @@ describe('RPC client', () => {
       { ...valid, payload: null },
       { ...valid, payload: [] },
       { ...valid, payload: 'menu' },
-      // Notifications of the older per-command dialogs had a `type` field; the menu envelope has none, so the client refuses one.
+      // An older per-command dialog notification carried `type: 'open-dialog'`.
+      // The menu envelope has only `id`, `payload` and `sessionId`, so this
+      // one extra key makes the whole batch resolve [].
       { ...valid, type: 'open-dialog' },
     ]) {
       messages = [valid, invalid]
@@ -161,7 +163,7 @@ describe('RPC client', () => {
     await expect(client.apply(APPLY)).resolves.toBeUndefined()
   }, 5_000)
 
-  it('resolves undefined on a non-2xx response', async () => {
+  it('resolves undefined when the server refuses a malformed request', async () => {
     let applied = 0
     await start({
       apply: async () => {
@@ -171,14 +173,39 @@ describe('RPC client', () => {
     })
     const client = createRpcClient(dir, process.pid)
 
-    // The server refuses the retired request shape with 400.
-    await expect(
-      client.apply({
-        command: 'antigravity-quota',
-        arguments: '',
-      } as unknown as CommandApplyRequest),
-    ).resolves.toBeUndefined()
+    for (const request of [
+      // The older per-command dialog request `{command, arguments}`.
+      { command: 'antigravity-quota', arguments: '' },
+      { command: 'antigravity', sectionId: 'routing' },
+      { ...APPLY, values: { cliFirst: { nested: true } } },
+      { ...APPLY, sessionId: null },
+      [],
+      'antigravity',
+      null,
+    ]) {
+      // The server answers each with 400, so `apply` never runs.
+      expect({ request, answer: await client.apply(request) }).toEqual({
+        request,
+        answer: undefined,
+      })
+    }
     expect(applied).toBe(0)
+  })
+
+  it('imports nothing but the public RPC client, type imports included', async () => {
+    // The TUI build copies every relative module this file imports, so any
+    // other import would pull more modules into the TUI.
+    const source = await readFile(
+      join(import.meta.dir, 'rpc-client.ts'),
+      'utf8',
+    )
+    const specifiers = [
+      ...source.matchAll(
+        /\bfrom\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]/g,
+      ),
+    ].map((match) => match[1] ?? match[2])
+
+    expect(specifiers).toEqual(['../common-auth-embedded/rpc/client.js'])
   })
 
   it('resolves undefined when the answer is not a JSON object', async () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   loadCommonAuthClaustrum,
@@ -11,6 +12,7 @@ import {
   type AntigravityVaultAccountSource,
   AntigravityVaultSourceError,
   createAntigravityVaultAccountSource,
+  resolveClaustrumConnectionPath,
   type VaultClaustrumConsumer,
   type VaultClaustrumPort,
   type VaultConsumerOptions,
@@ -153,7 +155,8 @@ function harness(): Harness {
         throw new Error('host-slot-login')
       return 'placeholder'
     },
-    // Same rule as the library's `isScopedCredentialRotation`.
+    // Retry only when the vault now serves a different record version of the
+    // same credential and account (the library's `isScopedCredentialRotation`).
     decideScopedRetryAfter401(
       _site: string,
       served: VaultScopedReceipt,
@@ -309,10 +312,12 @@ describe('per-send admission', () => {
       seen.push({ token: admission.accessToken, project: admission.projectId })
       return response(seen.length === 1 ? 401 : 200)
     }
-    // First request: 401, the vault rotated to version 2, retry succeeds.
+    // First request: its receipt (record version 1) gets a 401, the vault now
+    // serves record version 2 of the same credential, and the retry succeeds.
     h.receipts.push(receipt(1), receipt(2))
     expect((await src.send(ref, dispatch, { site: 'model' })).status).toBe(200)
-    // Endpoint fallback: a second request gets a third, fresh receipt.
+    // A second send attempt, as when the caller tries another endpoint, gets
+    // its own receipt (the third one served).
     h.receipts.push(receipt(3))
     expect((await src.send(ref, dispatch, { site: 'model' })).status).toBe(200)
     expect(h.authorized).toEqual([ROUTE, ROUTE, ROUTE])
@@ -710,8 +715,10 @@ describe('genuine public common-auth modules', () => {
 })
 
 // ---------------------------------------------------------------------------
-// The real public consumer, custody, roster and locks, with only the vault
-// transport replaced by a local client that serves controlled receipts.
+// These tests load the library's own `./claustrum` and `./fs` modules, so the
+// consumer's identity checks, roster file and file locks are the shipped
+// code. Only the vault connection is replaced, by a local client that serves
+// receipts the test controls.
 // ---------------------------------------------------------------------------
 
 type ScopedInventory = Awaited<ReturnType<VaultScopedClient['listScoped']>>
@@ -730,7 +737,7 @@ interface LocalVault {
   reports: ReportInput[]
   listTokens: (string | undefined)[]
   closed: number
-  /** When set, `getScoped` waits for it before answering. */
+  /** When this promise is set, `getScoped` waits for it before answering. */
   hold?: Promise<void>
 }
 
@@ -1068,5 +1075,90 @@ describe('real public consumer with a local vault transport', () => {
         })),
       ).rejects.toMatchObject({ kind: 'invalid-attribution' })
     expect(vault.gets).toHaveLength(1)
+  })
+})
+
+describe('Claustrum connection-file path', () => {
+  const ENV_KEYS = [
+    'SUBC_CONNECTION_FILE',
+    'CLAUSTRUM_SUBC_CONNECTION',
+    'XDG_RUNTIME_DIR',
+    'HOME',
+  ] as const
+  let saved: Partial<Record<(typeof ENV_KEYS)[number], string>>
+
+  beforeEach(() => {
+    saved = {}
+    for (const key of ENV_KEYS) {
+      if (process.env[key] !== undefined) saved[key] = process.env[key]
+      delete process.env[key]
+    }
+  })
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      if (saved[key] === undefined) delete process.env[key]
+      else process.env[key] = saved[key]
+    }
+  })
+
+  it('resolves through the client: explicit, then environment, then its default', async () => {
+    process.env.HOME = dir
+    process.env.XDG_RUNTIME_DIR = dir
+    const runtimeFile = join(dir, 'subc-connection.json')
+    await writeFile(runtimeFile, '{}')
+    expect(
+      await resolveClaustrumConnectionPath(join(dir, 'explicit.json')),
+    ).toBe(join(dir, 'explicit.json'))
+    expect(await resolveClaustrumConnectionPath()).toBe(runtimeFile)
+    process.env.CLAUSTRUM_SUBC_CONNECTION = join(dir, 'claustrum.json')
+    expect(await resolveClaustrumConnectionPath()).toBe(
+      join(dir, 'claustrum.json'),
+    )
+    process.env.SUBC_CONNECTION_FILE = join(dir, 'subc.json')
+    expect(await resolveClaustrumConnectionPath()).toBe(join(dir, 'subc.json'))
+  })
+
+  it('does not load the client package until the path is resolved', async () => {
+    const source = fileURLToPath(
+      new URL('./vault-account-source.ts', import.meta.url),
+    )
+    const probe = join(dir, 'lazy-probe.ts')
+    await writeFile(
+      probe,
+      `import { plugin } from 'bun'
+let loads = 0
+plugin({
+  name: 'count-claustrum-client',
+  setup(build) {
+    build.onLoad({ filter: /claustrum-client[\\/]dist[\\/]index\\.js$/ }, async (args) => {
+      loads++
+      return { contents: await Bun.file(args.path).text(), loader: 'js' }
+    })
+  },
+})
+const core = await import(${JSON.stringify(source)})
+const before = loads
+const path = await core.resolveClaustrumConnectionPath('/explicit/connection.json')
+console.log(JSON.stringify({ before, after: loads, path }))
+`,
+    )
+    const child = Bun.spawn([process.execPath, probe], {
+      cwd: dir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ])
+    expect(stderr).toBe('')
+    expect(code).toBe(0)
+    expect(JSON.parse(stdout)).toEqual({
+      before: 0,
+      after: 1,
+      path: '/explicit/connection.json',
+    })
   })
 })

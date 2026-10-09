@@ -169,7 +169,8 @@ describe('RPC server HTTP boundary', () => {
       '[]',
       'null',
       '"antigravity"',
-      // The request shape of the older per-command dialogs, which the menu replaced; it must be refused.
+      // The older per-command dialog request `{command, arguments}`, which the
+      // menu request replaced; the server must refuse it.
       '{"command":"antigravity-quota","arguments":""}',
       '{"command":"antigravity","sectionId":"routing"}',
       '{"command":"antigravity","sectionId":"routing","actionId":7}',
@@ -243,6 +244,32 @@ describe('RPC server HTTP boundary', () => {
       expect({ body, status: response.status }).toEqual({ body, status: 400 })
     }
     expect(drained).toBe(0)
+  })
+
+  it('refuses to start without a parser function before creating anything', async () => {
+    const { stat } = await import('node:fs/promises')
+    for (const parseApplyRequest of [
+      undefined,
+      null,
+      {},
+      'parseApplyRequest',
+    ]) {
+      // A JavaScript caller can omit the option the type requires.
+      const options = {
+        dir,
+        apply: async () => result('ok'),
+        drain: () => [],
+        ...(parseApplyRequest === undefined ? {} : { parseApplyRequest }),
+      } as unknown as StartRpcServerOptions
+
+      await expect(startRpcServer(options)).rejects.toThrow(
+        new TypeError(
+          'startRpcServer needs parseApplyRequest from the common-auth commands module',
+        ),
+      )
+      // Nothing was published: the RPC directory was never created.
+      await expect(stat(dir)).rejects.toMatchObject({ code: 'ENOENT' })
+    }
   })
 
   it('returns 404 for non-POST requests and unknown paths', async () => {

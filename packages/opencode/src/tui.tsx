@@ -40,22 +40,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type {
   TuiPlugin,
-  TuiPluginApi,
   TuiPluginModule,
   TuiThemeCurrent,
 } from '@opencode-ai/plugin/tui'
 import { createSlot } from '@opentui/solid'
-import {
-  createEffect,
-  createSignal,
-  For,
-  type JSX,
-  onCleanup,
-  onMount,
-  Show,
-} from 'solid-js'
-import type { RpcNotification } from './rpc/protocol'
-import { createRpcClient } from './rpc/rpc-client'
+import { createSignal, For, type JSX, onCleanup, onMount, Show } from 'solid-js'
 import { getRpcDir } from './rpc/rpc-dir'
 import {
   readSidebarState,
@@ -64,8 +53,12 @@ import {
   type SidebarQuotaKey,
   type SidebarStateV1,
 } from './sidebar-state'
-import { openCommandDialog } from './tui/command-dialogs'
 import { createTuiFileLogger, type TuiLogger } from './tui/file-logger'
+import {
+  createV1MenuTransport,
+  dispatchV1Notification,
+  type V1Notification,
+} from './tui/host-v1'
 import {
   type AntigravityAuthTuiPrefs,
   type AppearancePrefs,
@@ -657,64 +650,6 @@ function formatWait(ms: number): string {
   return remaining > 0 ? `${minutes}m ${remaining}s` : `${minutes}m`
 }
 
-export function resolveQuotaDialogActiveId(
-  state: SidebarStateV1,
-  sessionId: string | undefined,
-): string | undefined {
-  return (
-    (sessionId ? state.activeRouting[sessionId]?.accountId : undefined) ??
-    state.accounts.find((account) => account.current)?.id
-  )
-}
-
-export function QuotaDialogContent(props: {
-  api: TuiPluginApi
-  controller: SidebarController
-  sessionId: string | undefined
-}): JSX.Element {
-  const prefs = props.controller.prefs
-  const [state, setState] = createSignal<SidebarStateV1>(EMPTY_STATE)
-  const refresh = (): void => {
-    setState(readSidebarState())
-  }
-  createEffect(() => {
-    const timer = setInterval(refresh, prefs().pollMs)
-    onCleanup(() => clearInterval(timer))
-  })
-  setTimeout(refresh, 0)
-
-  const theme = (): Theme => props.api.theme.current
-  const visibleAccounts = () => {
-    if (prefs().sections.fallbackAccounts) return state().accounts
-    return state().accounts.filter((account) => account.current)
-  }
-  const activeId = () => resolveQuotaDialogActiveId(state(), props.sessionId)
-
-  return (
-    <box flexDirection='column' padding={2} width='100%' alignItems='center'>
-      <box flexDirection='column' width={58}>
-        <box width='100%' justifyContent='center' marginBottom={1}>
-          <text fg={theme().text}>
-            <b>Antigravity Quota</b>
-          </text>
-        </box>
-        <For each={visibleAccounts()}>
-          {(account, index) => (
-            <AccountBlock
-              theme={theme}
-              appearance={prefs().appearance}
-              account={account}
-              active={activeId() === account.id}
-              now={() => Date.now()}
-              marginTop={index() === 0 ? 0 : 1}
-            />
-          )}
-        </For>
-      </box>
-    </box>
-  )
-}
-
 // --- SidebarPanel ----------------------------------------------------------
 
 export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
@@ -1023,9 +958,9 @@ interface RpcNotificationPollOptions {
   pending: (
     lastReceivedId: number,
     sessionId?: string,
-  ) => Promise<RpcNotification[]>
+  ) => Promise<readonly V1Notification[]>
   currentSessionId: () => string | undefined
-  dispatch: (notification: RpcNotification) => void | Promise<void>
+  dispatch: (notification: V1Notification) => void | Promise<void>
   schedule: (poll: () => Promise<void>, intervalMs: number) => void
   /**
    * File logger used to surface poll errors. Must be a file logger — the
@@ -1096,14 +1031,15 @@ const tui: TuiPlugin = async (api) => {
       resolveAntigravityAuthPrefs(prefsRoot),
     )
   }
-  const rpcClient = createRpcClient(
+  // The `/antigravity` drawer: the server pushes the menu as a notification
+  // on this process's private RPC; the drawer applies through the same RPC.
+  const transport = createV1MenuTransport(
     getRpcDir(api.state.path.directory ?? ''),
     process.pid,
   )
-
   startRpcNotificationPolling({
     pending: (lastReceivedId, sessionId) =>
-      rpcClient.pendingNotifications(lastReceivedId, sessionId),
+      transport.pending(lastReceivedId, sessionId),
     currentSessionId: () => {
       const current = (api.route as { current?: unknown }).current
       const resolved =
@@ -1111,36 +1047,12 @@ const tui: TuiPlugin = async (api) => {
       return (resolved as { params?: { sessionID?: string } } | undefined)
         ?.params?.sessionID
     },
-    dispatch: async (notification) => {
+    dispatch: (notification) => {
       logger.debug('rpc-notification-received', {
-        command: notification.payload.command,
         id: notification.id,
         sessionId: notification.sessionId,
       })
-      // Call the imperative dispatcher directly — the prior
-      // two-phase `collectDialogFlow` + `renderDialogFlow` is gone.
-      // The dispatcher awaits `apply`, toasts the result, then clears
-      // (or replaces for multi-step flows). The RPC `apply` accepts the
-      // optional `timeoutMs` knob so account add / refresh can opt into
-      // the 120s RPC timeout without the dialog layer having to know
-      // about it.
-      if (notification.payload.command === 'antigravity-quota') {
-        api.ui.dialog.setSize('xlarge')
-        api.ui.dialog.replace(() => (
-          <QuotaDialogContent
-            api={api}
-            controller={getSidebarController()}
-            sessionId={notification.sessionId}
-          />
-        ))
-        return
-      }
-      openCommandDialog(api, notification.payload, (command, args, options) =>
-        rpcClient.apply(
-          { command, arguments: args, sessionId: notification.sessionId },
-          options,
-        ),
-      )
+      dispatchV1Notification(api, transport, notification, logger)
     },
     schedule: (poll, intervalMs) => {
       setInterval(() => void poll(), intervalMs)

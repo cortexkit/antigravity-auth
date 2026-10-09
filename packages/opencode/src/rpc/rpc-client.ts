@@ -1,14 +1,19 @@
 // This client-only public entry point keeps server and writer modules out of
-// the TUI's dependency graph.
+// the TUI's dependency graph. This file imports nothing else, not even types:
+// the TUI build copies every relative module a file imports, type-only ones
+// included, so importing `./protocol` here would bring the commands, store
+// and fs modules into the TUI. The client is a raw JSON transport; the
+// renderer builds and validates the menu shapes, and the server parses every
+// apply request with the commands module before acting on it.
 import { createRpcClient as createPublicRpcClient } from '../common-auth-embedded/rpc/client.js'
-import type { CommandApplyRequest } from './protocol'
 
 const DEFAULT_TIMEOUT_MS = 2_000
 
 const PENDING_FALLBACK: ReceivedNotification[] = []
 
-// The public client sends any JSON value as the request body, but declares
-// `apply` with the request shape of the older per-command dialogs.
+// The public client sends the fields of any object as the request body, but
+// types `apply`'s request as the older per-command dialog request
+// `{command, arguments, sessionId?}`.
 type PublicApplyRequest = Parameters<
   ReturnType<typeof createPublicRpcClient>['apply']
 >[0]
@@ -18,9 +23,10 @@ export interface RpcRequestOptions {
 }
 
 /**
- * One queued notification as received. Only the envelope has been checked
- * here; `payload` is still unchecked JSON, and the renderer must validate it
- * as a menu or notify payload before showing anything from it.
+ * The wire envelope of one queued notification, after this client's check:
+ * exactly `{id, payload, sessionId?}`, with `payload` a JSON object. `payload` is still unchecked JSON; the
+ * renderer must validate it as a menu or notify payload before showing
+ * anything from it.
  */
 export interface ReceivedNotification {
   id: number
@@ -30,14 +36,17 @@ export interface ReceivedNotification {
 
 export interface RpcClient {
   /**
-   * Sends one menu action. Resolves the server's answer as unchecked JSON,
-   * which the renderer must validate as a `CommandApplyResult` before using
-   * it, or `undefined` when there was no answer object: no server for the
-   * expected PID, a refusal or other non-2xx status, a timeout, or a body
-   * that is not a JSON object.
+   * Sends one menu action, given as the JSON object the renderer built (a
+   * `CommandApplyRequest`); the server parses it and refuses anything else
+   * with 400. Resolves the server's answer as unchecked JSON, which the
+   * renderer must validate as a `CommandApplyResult` before using it, or
+   * `undefined` when there was no answer object: no server published
+   * for `expectedPid` (the process ID of the OpenCode process hosting the
+   * server), a refusal or other non-2xx status, a timeout, or a body that is
+   * not a JSON object.
    */
   apply(
-    request: CommandApplyRequest,
+    request: unknown,
     options?: RpcRequestOptions,
   ): Promise<object | undefined>
   /**
@@ -59,7 +68,7 @@ export function createRpcClient(dir: string, expectedPid?: number): RpcClient {
     async apply(request, options) {
       try {
         const result: unknown = await client.apply(
-          request as unknown as PublicApplyRequest,
+          request as PublicApplyRequest,
           options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         )
         return isRecord(result) && !isPublicApplyFailure(result)
@@ -91,9 +100,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // When an apply gets no answer (no server for the PID, a non-2xx status, a
-// timeout or an unparseable body), the public client resolves this fixed
-// object from the older dialog protocol instead of a server answer. A menu
-// result always carries `command`, `ok` and `menu`, so it cannot match.
+// timeout or an unparseable body), the public client resolves the fixed
+// object `{text: 'apply failed', knobs: {}}` instead of a server answer: the
+// failure result of the older per-command dialogs, whose results were
+// `{text, knobs}`. A menu result always carries `command`, `ok` and `menu`,
+// so it cannot match.
 function isPublicApplyFailure(value: Record<string, unknown>): boolean {
   return (
     Object.keys(value).length === 2 &&
@@ -105,8 +116,9 @@ function isPublicApplyFailure(value: Record<string, unknown>): boolean {
 
 const ENVELOPE_KEYS = new Set(['id', 'payload', 'sessionId'])
 
-// Checks the queue's envelope only. A key outside it (such as the `type`
-// field the older per-command dialog notifications carried) refuses the message.
+// Checks only the envelope: exactly the keys `id`, `payload` and optional
+// `sessionId`. Any other key, such as the `type: 'open-dialog'` field of the
+// older per-command dialog notifications, refuses the message.
 function isNotification(value: unknown): value is ReceivedNotification {
   return (
     isRecord(value) &&

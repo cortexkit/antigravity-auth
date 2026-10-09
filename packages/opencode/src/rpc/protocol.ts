@@ -1,6 +1,9 @@
 /**
- * Wire shapes of the private OpenCode 1 RPC between this plugin's server and
- * the TUI running in the same OpenCode process.
+ * Wire shapes of the OpenCode 1 RPC between this plugin's server and the TUI
+ * running in the same OpenCode process. The RPC is private to that process:
+ * the server listens only on 127.0.0.1 and accepts only requests that carry
+ * the bearer token from the owner-only port file it writes for its own
+ * process ID.
  *
  * The RPC carries the shared `/antigravity` command menu of common-auth's
  * public `./commands` entry: the TUI sends back a `CommandApplyRequest` on
@@ -38,14 +41,23 @@ export interface MenuNotifyPayload {
   }
 }
 
-/** What one queued notification carries. */
+/**
+ * The payload of one queued notification: the menu that opens the drawer
+ * (`CommandDialogPayload`) or a message shown as a toast
+ * (`MenuNotifyPayload`).
+ */
 export type RpcNotificationPayload = CommandDialogPayload | MenuNotifyPayload
 
 /**
- * One queued notification as `/rpc/pending-notifications` returns it inside
- * `{ messages: [...] }`. `id` grows by one per notification and is the
- * cursor the TUI sends back as `lastReceivedId`. A notification without
- * `sessionId` is a broadcast that every session receives.
+ * The envelope `{id, payload, sessionId?}` of one queued notification, as
+ * `/rpc/pending-notifications` returns it inside `{ messages: [...] }`.
+ *
+ * `id` comes from one counter shared by every session of this server
+ * process: it starts at 1 and grows by one per notification. The TUI sends
+ * the last `id` it received back as `lastReceivedId` and then receives only
+ * notifications with a larger `id`. A notification with `sessionId` goes
+ * only to that session; one without it is a broadcast that every session
+ * receives.
  */
 export interface RpcNotification {
   id: number

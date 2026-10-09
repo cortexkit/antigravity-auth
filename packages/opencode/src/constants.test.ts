@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  ANTIGRAVITY_MENU_COMMAND,
+  ANTIGRAVITY_MENU_TITLE,
   buildGeminiCliUserAgent,
   GEMINI_CLI_DEFAULT_MODEL,
   GEMINI_CLI_HEADERS,
   GEMINI_CLI_VERSION,
   getRandomizedHeaders,
   type HeaderSet,
+  MENU_SECTION_SLOTS,
 } from './constants.ts'
+import * as hostApi from './tui/host-api.ts'
 
 describe('GEMINI_CLI_HEADERS (deprecated)', () => {
   it('still exposes legacy Code Assist headers for backward compat', () => {
@@ -126,5 +130,29 @@ describe('HeaderSet type', () => {
     expect(headers['User-Agent']).toBe('test')
     expect(headers['X-Goog-Api-Client']).toBe('test-client')
     expect(headers['Client-Metadata']).toBe('test-metadata')
+  })
+})
+
+describe('/antigravity menu constants', () => {
+  it('names one slash command, without the slash', () => {
+    expect(ANTIGRAVITY_MENU_COMMAND).toBe('antigravity')
+    expect(ANTIGRAVITY_MENU_TITLE).toBe('Antigravity')
+  })
+
+  it('keeps the shared command menu slot order', () => {
+    expect(MENU_SECTION_SLOTS).toEqual([
+      'accounts',
+      'quota',
+      'routing',
+      'limits',
+      'cache',
+      'diagnostics',
+      'extra',
+    ])
+  })
+
+  it('re-exports the TUI values rather than a second copy', () => {
+    expect(ANTIGRAVITY_MENU_COMMAND).toBe(hostApi.ANTIGRAVITY_MENU_COMMAND)
+    expect(MENU_SECTION_SLOTS).toBe(hostApi.MENU_SECTION_SLOTS)
   })
 })

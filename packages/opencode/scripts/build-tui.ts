@@ -52,6 +52,83 @@ interface VariantMap {
   }[]
 }
 const portable = (path: string) => path.split('\\').join('/')
+
+/**
+ * One compiled TUI root: a source entry and the raw and runtime trees the
+ * private compiler emits for it, with its own map. The OpenCode 1 root is the
+ * sidebar/dialog plugin in src/tui.tsx; the GA root is the OpenCode 2 module
+ * in src/ga/tui/host-ga.tsx. Both go through the same compiler, so both
+ * runtime trees import only the host's registered runtime modules.
+ */
+export interface TuiRoot {
+  readonly name: 'v1' | 'ga'
+  readonly entry: string
+  readonly raw: string
+  readonly runtime: string
+  readonly map: string
+  readonly rawEntry: string
+  readonly runtimeEntry: string
+}
+export const V1_TUI_ROOT: TuiRoot = {
+  name: 'v1',
+  entry: 'src/tui.tsx',
+  raw: 'src/tui-raw',
+  runtime: 'src/tui-compiled',
+  map: 'dist/tui-build-map.json',
+  rawEntry: 'tui.tsx',
+  runtimeEntry: 'tui.js',
+}
+export const GA_TUI_ROOT: TuiRoot = {
+  name: 'ga',
+  entry: 'src/ga/tui/host-ga.tsx',
+  raw: 'src/tui-ga-raw',
+  runtime: 'src/tui-ga-compiled',
+  map: 'dist/tui-ga-build-map.json',
+  rawEntry: 'host-ga.tsx',
+  runtimeEntry: 'host-ga.js',
+}
+export const TUI_ROOTS: readonly TuiRoot[] = [V1_TUI_ROOT, GA_TUI_ROOT]
+
+/**
+ * The GA root reaches only the shared drawer, the host-neutral menu types and
+ * the sidebar projection: no OpenCode 1 RPC, port file, sidebar file,
+ * preferences, file logger, OpenCode 1 adapter or embedded library module.
+ */
+const GA_FORBIDDEN_SOURCE =
+  /\/(?:rpc|plugin|antigravity|hooks)\/|\/ga\/(?:server|rpc)\/|\/common-auth-embedded\/|\/(?:sidebar-state|tui-preferences|constants)\.ts$|\/tui\/(?:file-logger|host-v1|vault-setup)\.tsx?$/
+/** The only bare packages GA source may import; the host supplies each one. */
+const GA_EXTERNALS = new Set([
+  'solid-js',
+  'solid-js/store',
+  '@opentui/core',
+  '@opentui/solid',
+  '@opentui/solid/components',
+  '@opentui/solid/jsx-runtime',
+  '@opentui/solid/jsx-dev-runtime',
+])
+const RUNTIME_MODULE = 'opentui:runtime-module:'
+
+/** Applies the GA root's narrower graph policy to an audited graph. */
+export function checkGaGraph(
+  graph: Graph,
+  emitted: 'source' | 'raw' | 'runtime',
+) {
+  for (const path of graph.files)
+    if (GA_FORBIDDEN_SOURCE.test(portable(path)))
+      throw new Error(`graph.ga: forbidden GA source ${path}`)
+  for (const edge of graph.externals) {
+    if (emitted === 'runtime') {
+      // Emitted runtime code must name host runtime modules, never a package
+      // or a development alias the host does not register.
+      if (
+        !edge.startsWith(RUNTIME_MODULE) ||
+        !GA_EXTERNALS.has(decodeURIComponent(edge.slice(RUNTIME_MODULE.length)))
+      )
+        throw new Error(`graph.ga: runtime edge is not a host module ${edge}`)
+    } else if (!GA_EXTERNALS.has(edge))
+      throw new Error(`graph.ga: forbidden GA external ${edge}`)
+  }
+}
 const externalLeaves = new Set([
   '@cortexkit/antigravity-auth-core/atomic-write',
   '@cortexkit/antigravity-auth-core/file-lock',
@@ -349,22 +426,26 @@ export async function inventory(directory: string): Promise<string[]> {
   return result.sort()
 }
 
-export async function verifySelectors(packageRoot: string): Promise<void> {
+export async function verifySelectors(
+  packageRoot: string,
+  root: TuiRoot = V1_TUI_ROOT,
+): Promise<void> {
   const canonical = await readFile(
     join(REPO_ROOT, 'packages/opencode/src/common-auth-embedded/tui/index.js'),
   )
-  for (const tree of ['tui-raw', 'tui-compiled']) {
+  for (const [tree, entry] of [
+    [root.raw, root.rawEntry],
+    [root.runtime, root.runtimeEntry],
+  ] as const) {
     if (
-      !(await readFile(join(packageRoot, 'src', tree, 'selector.js'))).equals(
+      !(await readFile(join(packageRoot, tree, 'selector.js'))).equals(
         canonical,
       )
     )
       throw new Error(
-        `build.selector_inert: ${tree}/selector.js differs from canonical`,
+        `build.selector_inert: ${tree.slice('src/'.length)}/selector.js differs from canonical`,
       )
-    const graph = await auditGraph(
-      join(packageRoot, 'src', tree, tree === 'tui-raw' ? 'tui.tsx' : 'tui.js'),
-    )
+    const graph = await auditGraph(join(packageRoot, tree, entry))
     if (graph.files.some((path) => path.endsWith('/selector.js')))
       throw new Error('build.selector_inert: imported selector copy')
   }
@@ -385,19 +466,28 @@ function run(command: string, args: string[], cwd = PACKAGE_ROOT) {
 
 export async function buildTui({
   packageRoot = PACKAGE_ROOT,
-  entry = 'src/tui.tsx',
+  root = V1_TUI_ROOT,
+}: {
+  packageRoot?: string
+  root?: TuiRoot
 } = {}): Promise<TuiMap> {
   packageRoot = await admitProductPaths(packageRoot)
+  const entry = root.entry
   const entryRelative = relative(packageRoot, resolve(packageRoot, entry))
   if (entryRelative.startsWith('..') || isAbsolute(entryRelative))
     throw new Error('build: entry escaped package root')
-  const raw = join(packageRoot, 'src/tui-raw'),
-    runtime = join(packageRoot, 'src/tui-compiled')
-  const mapFile = join(packageRoot, 'dist/tui-build-map.json')
+  const raw = join(packageRoot, root.raw),
+    runtime = join(packageRoot, root.runtime)
+  const mapFile = join(packageRoot, root.map)
+  const ga = root.name === 'ga'
   try {
     await verifyPrerequisites()
-    await auditGraph(join(packageRoot, entry))
-    await auditGraph(join(packageRoot, entry), { types: true })
+    const source = await auditGraph(join(packageRoot, entry))
+    const types = await auditGraph(join(packageRoot, entry), { types: true })
+    if (ga) {
+      checkGaGraph(source, 'source')
+      checkGaGraph(types, 'source')
+    }
     await mkdir(join(packageRoot, 'dist'), { recursive: true })
     run(
       process.execPath,
@@ -416,7 +506,7 @@ export async function buildTui({
       ],
       packageRoot,
     )
-    await verifySelectors(packageRoot)
+    await verifySelectors(packageRoot, root)
     const map: TuiMap = JSON.parse(await readFile(mapFile, 'utf8'))
     for (const [variant, tree] of [
       [map.raw, raw],
@@ -431,8 +521,10 @@ export async function buildTui({
         const bytes = await readFile(join(packageRoot, file.output))
         if (bytes.length !== file.bytes || sha256(bytes) !== file.sha256)
           throw new Error(`graph: emitted hash mismatch ${file.output}`)
-        if (!file.output.endsWith('/selector.js'))
-          await auditGraph(join(packageRoot, file.output))
+        if (!file.output.endsWith('/selector.js')) {
+          const emitted = await auditGraph(join(packageRoot, file.output))
+          if (ga) checkGaGraph(emitted, variant === map.raw ? 'raw' : 'runtime')
+        }
       }
       for (const edge of variant.externals) checkExternal(edge, true, false)
     }
@@ -441,6 +533,31 @@ export async function buildTui({
     await Promise.all(
       [raw, runtime, mapFile].map((path) =>
         rm(path, { force: true, recursive: true }),
+      ),
+    )
+    throw error
+  }
+}
+
+/**
+ * Builds every TUI root in order. A failure in any root removes the outputs
+ * of all roots, so a package never ships one host's tree without the other's.
+ */
+export async function buildTuiRoots({
+  packageRoot = PACKAGE_ROOT,
+} = {}): Promise<Record<TuiRoot['name'], TuiMap>> {
+  const maps = {} as Record<TuiRoot['name'], TuiMap>
+  // Admission runs before the try: a refused (unowned or aliased) output path
+  // must survive, so cleanup only follows a build that was admitted.
+  const admitted = await admitProductPaths(packageRoot)
+  try {
+    for (const root of TUI_ROOTS)
+      maps[root.name] = await buildTui({ packageRoot: admitted, root })
+    return maps
+  } catch (error) {
+    await Promise.all(
+      TUI_ROOTS.flatMap((root) => [root.raw, root.runtime, root.map]).map(
+        (path) => rm(join(admitted, path), { recursive: true, force: true }),
       ),
     )
     throw error
@@ -467,7 +584,11 @@ export function checkMetafile(meta: {
 /** Reject linked output paths and maps outside the generated format before cleanup. These checks do not lock paths against concurrent changes. */
 async function admitProductPaths(packageRoot: string) {
   const root = await realpath(packageRoot)
-  for (const name of ['src', 'dist', 'src/tui-raw', 'src/tui-compiled']) {
+  for (const name of [
+    'src',
+    'dist',
+    ...TUI_ROOTS.flatMap((root) => [root.raw, root.runtime]),
+  ]) {
     const info = await lstat(join(root, name)).catch(
       (error: NodeJS.ErrnoException) => {
         if (error.code !== 'ENOENT') throw error
@@ -477,7 +598,12 @@ async function admitProductPaths(packageRoot: string) {
     if (info && (!info.isDirectory() || info.isSymbolicLink()))
       throw new Error(`build: output directory alias refused ${name}`)
   }
-  const mapFile = join(root, 'dist/tui-build-map.json')
+  for (const tuiRoot of TUI_ROOTS)
+    await admitExistingMap(join(root, tuiRoot.map))
+  return root
+}
+
+async function admitExistingMap(mapFile: string) {
   const existingMap = await lstat(mapFile).catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT') throw error
@@ -511,7 +637,6 @@ async function admitProductPaths(packageRoot: string) {
     )
       throw new Error('build: existing TUI map is not owned generated metadata')
   }
-  return root
 }
 
 export async function buildLibrary(packageRoot = PACKAGE_ROOT) {
@@ -559,14 +684,14 @@ export async function buildLibrary(packageRoot = PACKAGE_ROOT) {
       )
     }
     run('chmod', ['0755', 'dist/cli.js'], packageRoot)
-    await buildTui({ packageRoot })
+    await buildTuiRoots({ packageRoot })
     console.log(
-      'Product build: tsc, canonical copy, 2 audited bundles, raw/runtime TUI',
+      'Product build: tsc, canonical copy, 2 audited bundles, raw/runtime TUI for OpenCode 1 and GA',
     )
   } catch (error) {
     await Promise.all(
-      ['dist', 'src/tui-raw', 'src/tui-compiled'].map((path) =>
-        rm(join(packageRoot, path), { recursive: true, force: true }),
+      ['dist', ...TUI_ROOTS.flatMap((root) => [root.raw, root.runtime])].map(
+        (path) => rm(join(packageRoot, path), { recursive: true, force: true }),
       ),
     )
     throw error
@@ -587,5 +712,5 @@ if (import.meta.main) {
     await verifyPrerequisites()
     await checkEmbeddedTypes()
   } else if (args[0] === '--library') await buildLibrary()
-  else await buildTui()
+  else await buildTuiRoots()
 }

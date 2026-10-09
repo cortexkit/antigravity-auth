@@ -4,17 +4,21 @@
  * Terms used below:
  * - roster: the non-secret list of vault accounts this host may route to
  *   (route id, credential id, account identity, enabled/declined state).
- * - receipt: what the vault serves for one physical send: a fresh bearer, the
- *   Antigravity project, the account identity the vault asserted and the
- *   record version of the credential.
+ * - receipt: what Claustrum serves for one send attempt: a fresh bearer, the
+ *   Antigravity project for the model request, the account identity the vault
+ *   asserted, and the record version it served for the credential.
+ * - host auth slot: the credential record the host itself stores for this
+ *   provider (OpenCode's or Pi's own login entry). Under custody it holds a
+ *   placeholder, never a real login.
  *
  * The host passes in the library's public `./claustrum` module; every library
  * type here is taken from that module's own declarations.
  *
  * Rules:
- * - Each physical upstream send (each endpoint fallback, each 401 retry,
- *   quota and profile reads) gets a fresh receipt, and takes its bearer and
- *   project from that receipt only. Nothing is cached or refreshed locally.
+ * - Each send attempt to Google (each endpoint fallback, each 401 retry,
+ *   quota and profile reads) gets a new admission with a fresh receipt, and
+ *   takes its bearer and project from that receipt only. Nothing is cached or
+ *   refreshed locally.
  * - Google bearers are opaque: a receipt is accepted only when the vault
  *   asserted the credential and the account the selected route names. No
  *   token is parsed for an identity, and API-key credentials are refused.
@@ -106,7 +110,10 @@ export type AntigravityVaultSourceFailureKind =
   | 'not-issued'
   | 'state-unavailable'
 
-/** A refusal made here before anything is sent; library refusals keep their own errors. */
+/**
+ * A refusal by this source before any request reaches Google. Refusals made
+ * by the Claustrum library itself arrive as the library's own errors.
+ */
 export class AntigravityVaultSourceError extends Error {
   readonly kind: AntigravityVaultSourceFailureKind
 
@@ -118,35 +125,42 @@ export class AntigravityVaultSourceError extends Error {
 }
 
 /**
- * A selectable vault account, captured from the roster before any await.
- * Admission refuses it once its route names another credential or account.
+ * A selectable vault account: the route plus the credential id and account
+ * identity the roster named when it was captured, before any await. `admit`
+ * refuses the ref once the current roster routes it to another credential or
+ * account.
  */
 export interface VaultRouteRef {
   readonly routeId: string
   readonly credentialId: string
   readonly accountIdentity: string
-  /** Display label; may hold personal data. */
+  /** The roster row's display label; may hold personal data. */
   readonly label: string
   readonly email?: string
 }
 
 /**
- * One physical send's inputs, all from one receipt. Use it for exactly one
- * send. `accessToken` is non-enumerable, so spreads and JSON never copy it.
+ * The inputs of one send attempt, all taken from one Claustrum receipt. Use it
+ * for exactly one attempt. `accessToken` is non-enumerable, so spreads and JSON
+ * never copy it.
  */
 export interface VaultSendAdmission {
   readonly routeId: string
   readonly credentialId: string
   readonly accountIdentity: string
+  /** The record version Claustrum served; a 401 is reported against it. */
   readonly recordVersion: number
-  /** Project for the request envelope. */
+  /** Antigravity project to put in the model request body. */
   readonly projectId: string
   readonly accessToken: string
   readonly expiresAtMs: number | null
 }
 
 export interface VaultSendOptions {
-  /** Request kind (`model`, `quota`, `profile`), logged with a 401 retry. */
+  /**
+   * Request kind (`model`, `quota`, `profile`). The library logs it with its
+   * decision whether to retry a 401.
+   */
   site: string
   signal?: AbortSignal
   reporterSource?: VaultReporterSource
@@ -155,18 +169,31 @@ export interface VaultSendOptions {
 export interface AntigravityVaultSourceOptions {
   claustrum: VaultClaustrumPort
   host: AntigravityVaultHost
-  /** Provider id of the host auth slot: `google` (OpenCode), `google-antigravity` (Pi). */
+  /**
+   * Provider id the host stores its credential record under: `google`
+   * (OpenCode), `google-antigravity` (Pi).
+   */
   hostProvider: string
   rosterPath: string
-  /** This host's enrollment token file. */
+  /** Enrollment token file that setup wrote for this host (`host`). */
   tokenPath: string
   connect: () => Promise<VaultScopedClient>
   isCustodyActive: () => boolean | Promise<boolean>
-  /** The host auth slot's current value, read through the host's own API. */
+  /**
+   * The host's stored credential record for `hostProvider`, read through the
+   * host's own API. Checked before every admission and state commit.
+   */
   readHostSlot: () => unknown | Promise<unknown>
-  /** Reporter source for a 401 seen by `send`. */
+  /**
+   * How a 401 reached this plugin, passed to Claustrum with the 401 report
+   * that `send` makes.
+   */
   reporterSource: VaultReporterSource
-  /** Provider-state file; without it `commitState` is refused. */
+  /**
+   * Credential-free per-account state file (see `vault-provider-state.ts`) and
+   * the `./fs` functions that lock and write it. Without it `commitState` has
+   * nowhere to write and is refused.
+   */
   state?: { path: string; fs: AntigravityVaultStateFs }
   reservedRouteIds?: () => Iterable<string>
   routePrefix?: string
@@ -189,7 +216,9 @@ export interface AntigravityVaultAccountSource {
    * Admit and dispatch. When the original response status of the dispatch is
    * 401, retry once with a fresh receipt only if the vault now serves a newer
    * version of the same credential and account; a final 401 is reported with
-   * the receipt that dispatch used. Call again for an endpoint fallback.
+   * the receipt that dispatch used. When the caller tries another Antigravity
+   * endpoint after a failure, that attempt is a new `send` with a new
+   * admission.
    */
   send(
     ref: VaultRouteRef,
@@ -200,17 +229,29 @@ export interface AntigravityVaultAccountSource {
     options: VaultSendOptions,
   ): Promise<Response>
   /**
-   * Report the original response status of a dispatch made with `admission`.
-   * Only 401 is reported, once per admission; other statuses return false.
+   * Report to Claustrum that the request sent with `admission` got a 401, so
+   * the vault can mark that served record version bad. Pass the original
+   * response status; only 401 is reported, once per admission, against that
+   * admission's own receipt and record version. Other statuses return false.
    */
   reportServedStatus(
     admission: VaultSendAdmission,
     status: number,
     reporterSource?: VaultReporterSource,
   ): Promise<boolean>
-  /** Token- and project-free attribution of an admission, for `commitState`. */
+  /**
+   * The non-secret facts that tie an observation (usage, quota) to the send
+   * that produced it: route, credential id, asserted account and served record
+   * version. Carries no token or project; pass it to `commitState`.
+   */
   attribution(admission: VaultSendAdmission): VaultStateAttribution
-  /** Update the account's provider state; see `commitVaultProviderState`. */
+  /**
+   * Update the account's provider state; see `commitVaultProviderState`. The
+   * write is refused unless the roster and a fresh receipt still show the
+   * attributed credential, account and record version. If the vault has since
+   * served a newer record version, even for the same account, the observation
+   * is dropped rather than attributed to the newer version.
+   */
   commitState(
     attribution: VaultStateAttribution,
     update: AntigravityVaultStateUpdate,
@@ -219,6 +260,23 @@ export interface AntigravityVaultAccountSource {
   accept(ref: VaultRouteRef): Promise<void>
   /** Close the vault connection; later calls are refused. */
   close(): void
+}
+
+/**
+ * Path of the Claustrum connection file to pass as the client's
+ * `connectionFile`, resolved by `@cortexkit/claustrum-client`'s own
+ * `resolveClaustrumConnectionPath`: `explicit` when given, else the
+ * `SUBC_CONNECTION_FILE` or `CLAUSTRUM_SUBC_CONNECTION` environment variable,
+ * else the client's default path. The client package is imported only when
+ * this is called, so importing core never loads it, and its errors pass
+ * through unchanged. Resolving the path opens no connection and reads no
+ * enrollment or host credential.
+ */
+export async function resolveClaustrumConnectionPath(
+  explicit?: string,
+): Promise<string> {
+  const client = await import('@cortexkit/claustrum-client')
+  return client.resolveClaustrumConnectionPath(explicit)
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +431,10 @@ export function createAntigravityVaultAccountSource(
     signal?.throwIfAborted()
   }
 
-  /** Custody must be on and the host slot must not hold a real login. */
+  /**
+   * Custody must be on and the host's stored credential record must not be a
+   * real login.
+   */
   const assertServing = async (signal?: AbortSignal) => {
     assertOpen(signal)
     if (!(await options.isCustodyActive()))

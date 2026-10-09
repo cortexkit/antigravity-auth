@@ -35,6 +35,13 @@ const controls = [
     expected: 'rpc.auth_validation',
   },
   {
+    control: 'Remove the required parser construction guard',
+    path: 'rpc/rpc-server.js',
+    from: "if (typeof options.parseApplyRequest !== 'function') {",
+    to: 'if (false) {',
+    expected: 'rpc.auth_validation',
+  },
+  {
     control: 'Drop client exactPid',
     path: 'rpc/rpc-client.js',
     from: 'exactPid: true',
@@ -72,12 +79,12 @@ const controls = [
   {
     control: 'Serialize a Promise instead of awaiting async drain',
     path: 'rpc/rpc-server.js',
-    from: 'drainAsync: async (cursor, session) => Promise.resolve(options.drain(cursor, session)),',
-    to: "drainAsync: options.dir.endsWith('/async') ? undefined : async (cursor, session) => Promise.resolve(options.drain(cursor, session)),\n        drain: options.dir.endsWith('/async') ? (cursor, session) => options.drain(cursor, session) : undefined,",
+    from: 'drainAsync: (async (cursor, session) => Promise.resolve(options.drain(cursor, session))),',
+    to: "drainAsync: options.dir.endsWith('/async') ? undefined : (async (cursor, session) => Promise.resolve(options.drain(cursor, session))),\n        drain: options.dir.endsWith('/async') ? (cursor, session) => options.drain(cursor, session) : undefined,",
     expected: 'rpc.async_drain',
   },
   {
-    control: 'Remove notification command/payload validator',
+    control: 'Remove notification envelope validator',
     path: 'rpc/rpc-client.js',
     from: 'messages.every(isNotification)',
     to: 'true',

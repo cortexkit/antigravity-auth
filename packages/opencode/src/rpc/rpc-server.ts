@@ -13,12 +13,12 @@ import type {
 export interface StartRpcServerOptions {
   dir: string
   /**
-   * The `parseApplyRequest` of the common-auth commands module whose menu
-   * `apply` answers. The caller passes the function from the same loaded
-   * module it built the menu with, so this server neither loads a second
-   * copy of the commands module nor keeps its own copy of the request
-   * schema. Every `/rpc/apply` body goes through it before `apply` runs; a
-   * body it does not accept is answered 400 and `apply` is not called.
+   * Use the `parseApplyRequest` of the same common-auth commands module that
+   * built the menu `apply` runs against. Passing it in means this server
+   * loads no second copy of the commands module and keeps no request schema
+   * of its own. Every `/rpc/apply` body goes through this parser before
+   * `apply` runs; a body the parser refuses is answered 400 and `apply` is
+   * not called.
    */
   parseApplyRequest: typeof Commands.parseApplyRequest
   /** Runs one parsed menu action and returns the refreshed menu. */
@@ -37,16 +37,26 @@ export interface RpcServerHandle {
   stop(): Promise<void>
 }
 
-// The public RPC server sends whatever JSON its handlers return, but declares
-// the handler types with the request and notification shapes of the older
-// per-command dialogs. These two aliases are where the menu shapes above are
-// handed to it.
+// The public RPC server sends whatever JSON its handlers return, but its
+// handler types still use the older per-command dialog shapes: requests
+// `{command, arguments, sessionId?}`, results `{text, knobs}` and
+// notifications `{id, type: 'open-dialog', payload, sessionId?}`. The menu
+// handlers below are cast to these two aliases to be passed to that server.
 type PublicApply = RpcServerAsyncOptions['apply']
 type PublicDrain = RpcServerAsyncOptions['drainAsync']
 
 export async function startRpcServer(
   options: StartRpcServerOptions,
 ): Promise<RpcServerHandle> {
+  // JavaScript callers get no compile-time check for this required option.
+  // Without the guard, a missing parser would only surface as a failure on
+  // the first apply, after the server had started and published its port
+  // file. Refuse before anything is created instead.
+  if (typeof options.parseApplyRequest !== 'function') {
+    throw new TypeError(
+      'startRpcServer needs parseApplyRequest from the common-auth commands module',
+    )
+  }
   const parseApply = (value: unknown): CommandApplyRequest => {
     const request = options.parseApplyRequest(value)
     if (request === undefined) {

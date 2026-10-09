@@ -14,8 +14,10 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { build as bundle } from 'esbuild'
 import {
   auditGraph,
+  checkGaGraph,
   inventory,
   PACKAGE_ROOT,
+  TUI_ROOTS,
   verifyPrerequisites,
 } from './build-tui'
 import { sha256 } from './embed-common-auth'
@@ -91,6 +93,7 @@ export async function inspectPack(tar: string, target: string) {
   const root = join(target, 'package')
   const required = new Set([
     'src/tui/entry.mjs',
+    'src/tui/entry.d.mts',
     'src/sidebar-state.ts',
     'src/tui-preferences.ts',
     'src/tui-raw/tui.tsx',
@@ -141,40 +144,44 @@ export async function inspectPack(tar: string, target: string) {
       `pack.paths: ${prefix}/NOTICE.txt`,
     )
   }
-  const map = JSON.parse(
-    await readFile(join(root, 'dist/tui-build-map.json'), 'utf8'),
-  )
-  for (const [variant, prefix, entry] of [
-    [map.raw, 'src/tui-raw', 'tui.tsx'],
-    [map.runtime, 'src/tui-compiled', 'tui.js'],
-  ] as const) {
-    const expected = variant.files
-      .map((file: { output: string }) =>
-        relative(prefix, file.output).split('\\').join('/'),
-      )
-      .sort()
-    requireEqual(
-      await inventory(join(root, prefix)),
-      expected,
-      `pack.regeneration_paths: ${prefix}`,
-    )
-    for (const file of variant.files) {
-      required.add(file.output)
+  // Every TUI root ships both trees exactly as its own map lists them.
+  for (const tuiRoot of TUI_ROOTS) {
+    const map = JSON.parse(await readFile(join(root, tuiRoot.map), 'utf8'))
+    required.add(join(tuiRoot.raw, tuiRoot.rawEntry))
+    required.add(join(tuiRoot.runtime, tuiRoot.runtimeEntry))
+    for (const [variant, prefix, entry, kind] of [
+      [map.raw, tuiRoot.raw, tuiRoot.rawEntry, 'raw'],
+      [map.runtime, tuiRoot.runtime, tuiRoot.runtimeEntry, 'runtime'],
+    ] as const) {
+      const expected = variant.files
+        .map((file: { output: string }) =>
+          relative(prefix, file.output).split('\\').join('/'),
+        )
+        .sort()
       requireEqual(
-        sha256(await readFile(join(root, file.output))),
-        file.sha256,
-        `pack.paths: ${file.output}`,
+        await inventory(join(root, prefix)),
+        expected,
+        `pack.regeneration_paths: ${prefix}`,
+      )
+      for (const file of variant.files) {
+        required.add(file.output)
+        requireEqual(
+          sha256(await readFile(join(root, file.output))),
+          file.sha256,
+          `pack.paths: ${file.output}`,
+        )
+      }
+      const graph = await auditGraph(join(root, prefix, entry))
+      if (tuiRoot.name === 'ga') checkGaGraph(graph, kind)
+      requireEqual(
+        await readFile(join(root, prefix, 'selector.js'), 'utf8'),
+        await readFile(
+          join(root, 'src/common-auth-embedded/tui/index.js'),
+          'utf8',
+        ),
+        'build.selector_inert',
       )
     }
-    await auditGraph(join(root, prefix, entry))
-    requireEqual(
-      await readFile(join(root, prefix, 'selector.js'), 'utf8'),
-      await readFile(
-        join(root, 'src/common-auth-embedded/tui/index.js'),
-        'utf8',
-      ),
-      'build.selector_inert',
-    )
   }
   for (const path of required)
     if (!listed.includes(`package/${path}`))
@@ -341,10 +348,12 @@ assert.equal(typeof server.GoogleOAuthPlugin, 'function');
 ${
   ui
     ? `const { default: tui } = await import(${JSON.stringify(`${productName}/tui`)});
-assert.equal(tui.id, 'cortexkit.antigravity-auth'); assert.equal(typeof tui.tui, 'function');`
+assert.equal(tui.id, 'cortexkit.antigravity-auth'); assert.equal(typeof tui.tui, 'function');
+assert.deepEqual(Object.keys(tui).sort(), ['id', 'setup', 'tui']); assert.equal(typeof tui.setup, 'function');
+assert.equal(pkg.exports['./tui'].types, './src/tui/entry.d.mts');`
     : ''
 }
-console.log('consumer.installed_resolution: 5 checks${ui ? '; consumer.ui045: 2 checks' : ''}');
+console.log('consumer.installed_resolution: 5 checks${ui ? '; consumer.ui045: 5 checks' : ''}');
 `,
   )
   const args = ui ? ['--preload', '@opentui/solid/preload', probe] : [probe]

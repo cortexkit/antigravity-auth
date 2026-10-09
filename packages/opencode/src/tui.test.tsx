@@ -28,12 +28,7 @@ import {
   SIDEBAR_STATE_VERSION,
   type SidebarStateV1,
 } from './sidebar-state'
-import {
-  createSidebarController,
-  QuotaDialogContent,
-  SidebarPanel,
-  startRpcNotificationPolling,
-} from './tui'
+import { SidebarPanel, startRpcNotificationPolling } from './tui'
 import type { TuiLogger } from './tui/file-logger'
 import * as tuiPrefs from './tui-preferences'
 import {
@@ -437,83 +432,6 @@ describe('SidebarPanel', () => {
     expect(frame).toContain('Waiting for quota')
     expect(existsSync(fixture.logPath)).toBe(false)
     testSetup.renderer.destroy()
-  })
-})
-
-describe('QuotaDialogContent', () => {
-  let fixture: Fixture
-
-  beforeEach(() => {
-    fixture = makeFixture()
-  })
-
-  afterEach(() => {
-    fixture.cleanup()
-  })
-
-  it('renders the shared account bars from the sidebar state file without a select control', async () => {
-    const payload = writeState({
-      checkedAt: Date.now(),
-      routingAuthoritative: true,
-      accounts: [
-        {
-          id: 'acc-1',
-          label: 'Primary',
-          enabled: true,
-          health: 85,
-          current: true,
-          quota: {
-            'non-gemini': { remainingPercent: 75 },
-            gemini: { remainingPercent: 10 },
-          },
-        },
-      ],
-    })
-    mkdirSync(join(fixture.statePath, '..'), { recursive: true })
-    writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
-
-    const controller = createSidebarController(DEFAULT_PREFS)
-    const testSetup = await testRender(
-      () => (
-        <QuotaDialogContent
-          api={
-            {
-              theme: { current: { text: '#e5e7eb', textMuted: '#6b7280' } },
-            } as never
-          }
-          controller={controller}
-          sessionId='session-abc'
-        />
-      ),
-      { width: 80, height: 20 },
-    )
-    await settle()
-    const frame = testSetup.captureCharFrame()
-    expect(frame).toContain('Antigravity Quota')
-    expect(frame).toContain('Primary')
-    expect(frame).toContain('active')
-    expect(frame).toContain('Gm')
-    expect(frame).toContain('NG')
-    expect(frame).toContain('███░░░░░░░')
-    expect(frame).not.toContain('Refresh')
-    expect(frame).not.toContain('Search')
-    testSetup.renderer.destroy()
-  })
-
-  it('dispatches antigravity-quota to QuotaDialogContent before DialogSelect commands', () => {
-    const source = readFileSync(new URL('./tui.tsx', import.meta.url), 'utf-8')
-    const quotaBranch = source.indexOf(
-      "if (notification.payload.command === 'antigravity-quota')",
-    )
-    const commandDispatcher = source.indexOf(
-      'openCommandDialog(api',
-      quotaBranch,
-    )
-    expect(quotaBranch).toBeGreaterThan(-1)
-    expect(commandDispatcher).toBeGreaterThan(quotaBranch)
-    expect(source.slice(quotaBranch, commandDispatcher)).toContain(
-      '<QuotaDialogContent',
-    )
   })
 })
 
@@ -1488,5 +1406,971 @@ describe('Tui plugin — fleet slot ordering + module export shape (T7)', () => 
     await plugin.tui(api)
     expect(registered).toHaveLength(1)
     expect(registered[0]?.order).toBe(42)
+  })
+})
+
+// ── `/antigravity` drawer adapters and TUI module graph ─────────────────────
+
+const MENU_PAYLOAD = {
+  command: 'antigravity',
+  menu: {
+    command: 'antigravity',
+    title: 'Antigravity',
+    sections: [
+      {
+        id: 'routing',
+        slot: 'routing',
+        title: 'Routing',
+        lines: ['Mode: sticky'],
+        items: [],
+        actions: [{ id: 'mode', label: 'Change mode', knobs: [] }],
+      },
+      {
+        id: 'diagnostics',
+        slot: 'diagnostics',
+        title: 'Diagnostics',
+        lines: ['Logging: info'],
+        items: [],
+        actions: [],
+      },
+    ],
+  },
+} as const
+
+const APPLY_RESULT = {
+  command: 'antigravity',
+  ok: true,
+  text: 'Mode changed.',
+  menu: MENU_PAYLOAD.menu,
+} as const
+
+describe('OpenCode 1 menu transport', () => {
+  // A genuine OpenCode 1 RPC server (the plugin's own rpc-server over the
+  // public common-auth server) with the genuine commands parseApplyRequest,
+  // published for this test process's PID in an owned temporary directory.
+  // Only this test imports the server; the TUI graph never does.
+  let dir: string
+  let handle: { stop(): Promise<void> } | undefined
+  let received: unknown[]
+  let applyAnswer: unknown
+  let queued: unknown[]
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'agy-v1-rpc-'))
+    received = []
+    applyAnswer = APPLY_RESULT
+    queued = []
+  })
+  afterEach(async () => {
+    await handle?.stop()
+    handle = undefined
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  async function serve() {
+    const { startRpcServer } = await import('./rpc/rpc-server')
+    const { parseApplyRequest } = await import(
+      './common-auth-embedded/commands/index.js'
+    )
+    handle = await startRpcServer({
+      dir,
+      parseApplyRequest,
+      apply: async (request) => {
+        received.push(request)
+        return applyAnswer as never
+      },
+      drain: (lastReceivedId) =>
+        (queued as Array<{ id: number }>).filter(
+          (message) => message.id > lastReceivedId,
+        ) as never,
+    })
+  }
+
+  const REQUEST = {
+    command: 'antigravity',
+    sectionId: 'routing',
+    actionId: 'mode',
+    values: {},
+  } as const
+
+  it('sends the chosen action with its session to its own process server and validates the answer', async () => {
+    const { createV1MenuTransport } = await import('./tui/host-v1')
+    await serve()
+    const transport = createV1MenuTransport(dir, process.pid)
+    const result = await transport.apply(REQUEST, 'ses_1')
+    expect(result.text).toBe('Mode changed.')
+    expect(received).toEqual([{ ...REQUEST, sessionId: 'ses_1' }])
+  })
+
+  it('refuses an answer that is not a menu result', async () => {
+    const { createV1MenuTransport } = await import('./tui/host-v1')
+    const { MenuRefusedError } = await import('./tui/command-dialogs')
+    applyAnswer = { text: 'ok', knobs: {} }
+    await serve()
+    const transport = createV1MenuTransport(dir, process.pid)
+    await expect(transport.apply(REQUEST, undefined)).rejects.toBeInstanceOf(
+      MenuRefusedError,
+    )
+  })
+
+  it('never reaches a server published for another process', async () => {
+    const { createV1MenuTransport, V1TransportError } = await import(
+      './tui/host-v1'
+    )
+    await serve()
+    const transport = createV1MenuTransport(dir, process.pid + 1)
+    await expect(transport.apply(REQUEST, undefined)).rejects.toBeInstanceOf(
+      V1TransportError,
+    )
+    expect(await transport.pending(0, undefined)).toEqual([])
+    expect(received).toEqual([])
+  })
+
+  it('reads queued notifications and drops a batch with a malformed envelope', async () => {
+    const { createV1MenuTransport } = await import('./tui/host-v1')
+    await serve()
+    const transport = createV1MenuTransport(dir, process.pid)
+    queued = [
+      { id: 3, payload: MENU_PAYLOAD, sessionId: 's' },
+      {
+        id: 4,
+        payload: {
+          command: 'antigravity',
+          notify: { message: 'm', kind: 'info' },
+        },
+      },
+    ]
+    expect(await transport.pending(2, 's')).toEqual([
+      { id: 3, payload: MENU_PAYLOAD, sessionId: 's' },
+      {
+        id: 4,
+        payload: {
+          command: 'antigravity',
+          notify: { message: 'm', kind: 'info' },
+        },
+      },
+    ])
+    // The retired notification shape carried a `type` field; one such entry
+    // refuses the whole batch rather than showing part of it.
+    queued = [
+      { id: 5, payload: MENU_PAYLOAD },
+      { id: 6, type: 'open-dialog', payload: MENU_PAYLOAD },
+    ]
+    expect(await transport.pending(4, undefined)).toEqual([])
+  })
+})
+
+describe('OpenCode 1 notification dispatch', () => {
+  function fakeApi() {
+    const replaced: Array<() => unknown> = []
+    const toasts: Array<{ message: string; variant?: string }> = []
+    const selects: Array<{ title: string; options: Array<{ title: string }> }> =
+      []
+    const api = {
+      ui: {
+        DialogSelect: (props: {
+          title: string
+          options: Array<{ title: string }>
+        }) => {
+          selects.push(props)
+          return null
+        },
+        DialogPrompt: () => null,
+        DialogConfirm: () => null,
+        DialogAlert: () => null,
+        dialog: {
+          setSize: () => undefined,
+          replace: (render: () => unknown) => {
+            replaced.push(render)
+            render()
+          },
+          clear: () => undefined,
+        },
+        toast: (input: { message: string; variant?: string }) =>
+          toasts.push(input),
+      },
+      renderer: { copyToClipboardOSC52: () => true },
+    }
+    return { api, replaced, toasts, selects }
+  }
+
+  it('opens the drawer for a menu payload', async () => {
+    const { dispatchV1Notification } = await import('./tui/host-v1')
+    const fake = fakeApi()
+    dispatchV1Notification(
+      fake.api as never,
+      { pending: async () => [], apply: async () => APPLY_RESULT },
+      { id: 1, payload: MENU_PAYLOAD, sessionId: 's' },
+      makeCapturingLogger(),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(fake.selects[0]?.title).toBe('Antigravity')
+    expect(fake.selects[0]?.options.map((option) => option.title)).toEqual([
+      'Routing',
+      'Diagnostics',
+    ])
+  })
+
+  it('shows a notify payload as a toast', async () => {
+    const { dispatchV1Notification } = await import('./tui/host-v1')
+    const fake = fakeApi()
+    dispatchV1Notification(
+      fake.api as never,
+      { pending: async () => [], apply: async () => APPLY_RESULT },
+      {
+        id: 2,
+        payload: {
+          command: 'antigravity',
+          notify: { message: 'Account added.', kind: 'info' },
+        },
+      },
+      makeCapturingLogger(),
+    )
+    expect(fake.toasts).toEqual([
+      { message: 'Account added.', variant: 'info' },
+    ])
+    expect(fake.replaced).toHaveLength(0)
+  })
+
+  it('refuses a retired per-command payload visibly and logs field names only', async () => {
+    const { dispatchV1Notification } = await import('./tui/host-v1')
+    const fake = fakeApi()
+    const logger = makeCapturingLogger()
+    dispatchV1Notification(
+      fake.api as never,
+      { pending: async () => [], apply: async () => APPLY_RESULT },
+      {
+        id: 3,
+        payload: {
+          command: 'antigravity-account',
+          text: 'Antigravity accounts',
+          knobs: { accounts: [{ label: 'someone@example.com' }] },
+        },
+      },
+      logger,
+    )
+    expect(fake.replaced).toHaveLength(0)
+    expect(fake.toasts[0]?.variant).toBe('error')
+    const entry = logger.entries.find(
+      (e) => e.message === 'menu-payload-refused',
+    )
+    expect(entry).toBeDefined()
+    expect(JSON.stringify(entry)).not.toContain('someone@example.com')
+  })
+})
+
+const SEL_A = `sel-${'a'.repeat(32)}`
+const SEL_B = `sel-${'b'.repeat(32)}`
+
+function gaAccount(overrides: Record<string, unknown> = {}) {
+  return {
+    selector: SEL_A,
+    id: 'acct-0',
+    label: 'Account 1',
+    enabled: true,
+    health: 90,
+    current: true,
+    quota: { gemini: { remainingPercent: 55 } },
+    ...overrides,
+  }
+}
+
+function gaSettings(overrides: Record<string, unknown> = {}) {
+  return {
+    routing: { cliFirst: false, quotaStyleFallback: false },
+    killswitch: { enabled: false, minimumRemainingPercent: 10 },
+    logLevel: 'info',
+    dump: { enabled: false },
+    ...overrides,
+  }
+}
+
+function gaSnapshot(overrides: Record<string, unknown> = {}) {
+  return {
+    output: {
+      version: 1,
+      kind: 'snapshot',
+      generation: 'gen-1',
+      scope: { kind: 'session', sessionID: 'ses_a' },
+      reset: null,
+      cursor: 0,
+      dropped: 0,
+      more: false,
+      notifications: [],
+      readSeq: 1,
+      accountsStatus: { kind: 'complete' },
+      accounts: [gaAccount()],
+      route: null,
+      status: {
+        checkedAt: 1,
+        quotaBackoffUntil: null,
+        routingAuthoritative: true,
+      },
+      settings: gaSettings(),
+      ...overrides,
+    },
+  }
+}
+
+function gaApplied(result: Record<string, unknown>) {
+  return {
+    output: {
+      version: 1,
+      kind: 'applied',
+      generation: 'gen-1',
+      scope: { kind: 'session', sessionID: 'ses_a' },
+      result,
+    },
+  }
+}
+
+const ROUTING_APPLIED = {
+  command: 'antigravity-routing',
+  status: 'applied',
+  text: 'Routing updated.',
+  routing: { cliFirst: true, quotaStyleFallback: false },
+}
+
+describe('GA location client', () => {
+  const LOCATION = { directory: '/work/a' }
+  const SCOPE_A = { kind: 'session', sessionID: 'ses_a' } as const
+
+  async function load() {
+    return import('./ga/tui/host-ga')
+  }
+
+  it('binds on first contact, then sends its generation and per-scope cursor to the named location', async () => {
+    const { createGaLocationClient } = await load()
+    const calls: Array<Record<string, any>> = []
+    const answers = [
+      gaSnapshot({ reset: 'initial', cursor: 4 }),
+      gaSnapshot({ cursor: 4 }),
+      gaSnapshot({ scope: { kind: 'sessionless' }, cursor: 1 }),
+    ]
+    const client = createGaLocationClient({
+      call: async (input) => {
+        calls.push(input as never)
+        return answers.shift()
+      },
+      location: LOCATION,
+    })
+    await client.pull(SCOPE_A)
+    await client.pull(SCOPE_A)
+    await client.pull({ kind: 'sessionless' })
+    expect(
+      calls.map((call) => [call.rpcID, call.method, call.location]),
+    ).toEqual([
+      ['antigravity-auth', 'state', LOCATION],
+      ['antigravity-auth', 'state', LOCATION],
+      ['antigravity-auth', 'state', LOCATION],
+    ])
+    expect(
+      calls.map((call) => [call.input.generation, call.input.cursor]),
+    ).toEqual([
+      [null, 0],
+      ['gen-1', 4],
+      ['gen-1', 0],
+    ])
+    expect(client.cursor(SCOPE_A)).toBe(4)
+    expect(client.cursor({ kind: 'sessionless' })).toBe(1)
+  })
+
+  it('rebinds every scope cursor when the generation changes', async () => {
+    const { createGaLocationClient } = await load()
+    const answers = [
+      gaSnapshot({ cursor: 6 }),
+      gaSnapshot({ scope: { kind: 'sessionless' }, cursor: 2 }),
+      gaSnapshot({
+        generation: 'gen-2',
+        reset: 'generation-changed',
+        cursor: 1,
+      }),
+    ]
+    const client = createGaLocationClient({
+      call: async () => answers.shift(),
+      location: LOCATION,
+    })
+    await client.pull(SCOPE_A)
+    await client.pull({ kind: 'sessionless' })
+    await client.pull(SCOPE_A)
+    expect(client.generation()).toBe('gen-2')
+    expect(client.cursor(SCOPE_A)).toBe(1)
+    expect(client.cursor({ kind: 'sessionless' })).toBe(0)
+  })
+
+  it('runs pulls one at a time so a cursor is never sent twice', async () => {
+    const { createGaLocationClient } = await load()
+    const cursors: number[] = []
+    let n = 0
+    const client = createGaLocationClient({
+      call: async (input) => {
+        cursors.push((input.input as { cursor: number }).cursor)
+        n += 1
+        return gaSnapshot({ cursor: n * 3 })
+      },
+      location: LOCATION,
+    })
+    await Promise.all([client.pull(SCOPE_A), client.pull(SCOPE_A)])
+    expect(cursors).toEqual([0, 3])
+  })
+
+  it('drops an answer that arrives after disposal', async () => {
+    const { createGaLocationClient } = await load()
+    let release: (value: unknown) => void = () => undefined
+    const client = createGaLocationClient({
+      call: () =>
+        new Promise((resolve) => {
+          release = resolve
+        }),
+      location: LOCATION,
+    })
+    const pending = client.pull(SCOPE_A)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    client.dispose()
+    release(gaSnapshot({ cursor: 9 }))
+    expect(await pending).toEqual({ kind: 'dropped' })
+    expect(client.generation()).toBeNull()
+  })
+
+  it('refuses a snapshot whose account carries a field outside the redacted shape', async () => {
+    const { createGaLocationClient } = await load()
+    const { MenuRefusedError } = await import('./tui/command-dialogs')
+    const client = createGaLocationClient({
+      call: async () =>
+        gaSnapshot({ accounts: [gaAccount({ email: 'someone@example.com' })] }),
+      location: LOCATION,
+    })
+    await expect(client.pull(SCOPE_A)).rejects.toBeInstanceOf(MenuRefusedError)
+  })
+
+  it('refuses an account without an opaque selector', async () => {
+    const { createGaLocationClient } = await load()
+    const client = createGaLocationClient({
+      call: async () =>
+        gaSnapshot({ accounts: [gaAccount({ selector: 'acct-0' })] }),
+      location: LOCATION,
+    })
+    await expect(client.pull(SCOPE_A)).rejects.toThrow()
+  })
+
+  it('refuses a snapshot answered for another scope', async () => {
+    const { createGaLocationClient } = await load()
+    const client = createGaLocationClient({
+      call: async () =>
+        gaSnapshot({ scope: { kind: 'session', sessionID: 'ses_b' } }),
+      location: LOCATION,
+    })
+    await expect(client.pull(SCOPE_A)).rejects.toThrow()
+  })
+
+  it('applies with the bound generation and scope; a stale answer rebinds', async () => {
+    const { createGaLocationClient, GaStaleError } = await load()
+    const calls: Array<Record<string, any>> = []
+    const answers: unknown[] = [
+      gaSnapshot(),
+      gaApplied(ROUTING_APPLIED),
+      { output: { version: 1, kind: 'stale-generation', generation: 'gen-2' } },
+    ]
+    const client = createGaLocationClient({
+      call: async (input) => {
+        calls.push(input as never)
+        return answers.shift()
+      },
+      location: LOCATION,
+    })
+    const body = {
+      command: 'antigravity-routing',
+      arguments: 'cli_first=true',
+    } as const
+    await expect(client.apply(SCOPE_A, body)).rejects.toBeInstanceOf(
+      GaStaleError,
+    )
+    expect(calls).toHaveLength(0)
+    await client.pull(SCOPE_A)
+    expect((await client.apply(SCOPE_A, body)).text).toBe('Routing updated.')
+    expect(calls[1]?.input).toEqual({
+      version: 1,
+      generation: 'gen-1',
+      scope: SCOPE_A,
+      command: 'antigravity-routing',
+      arguments: 'cli_first=true',
+    })
+    await expect(client.apply(SCOPE_A, body)).rejects.toBeInstanceOf(
+      GaStaleError,
+    )
+    expect(client.generation()).toBeNull()
+  })
+})
+
+describe('GA menu over native state', () => {
+  it('builds every section from the snapshot, settings included', async () => {
+    const { buildGaMenu } = await import('./ga/tui/host-ga')
+    const snapshot = gaSnapshot({
+      settings: gaSettings({
+        killswitch: { enabled: true, minimumRemainingPercent: 25 },
+        logLevel: 'debug',
+      }),
+    }).output
+    const menu = buildGaMenu(snapshot as never, 0)
+    expect(menu.command).toBe('antigravity')
+    expect(menu.sections.map((section) => section.slot)).toEqual([
+      'accounts',
+      'quota',
+      'routing',
+      'limits',
+      'diagnostics',
+    ])
+    const limits = menu.sections.find((section) => section.id === 'limits')
+    expect(limits?.lines).toEqual([
+      'Killswitch: on',
+      'Minimum remaining quota: 25%',
+    ])
+    expect(limits?.actions[0]?.id).toBe('killswitch-off')
+    const accounts = menu.sections[0]
+    expect(accounts?.items.map((item) => [item.id, item.label])).toEqual([
+      [`account:${SEL_A}`, 'Account 1'],
+    ])
+    expect(JSON.stringify(menu)).not.toContain('acct-0')
+  })
+
+  it('names an account only by its selector and sends explicit values', async () => {
+    const { gaApplyBody } = await import('./ga/tui/host-ga')
+    expect(
+      gaApplyBody({
+        command: 'antigravity',
+        sectionId: 'accounts',
+        itemId: `account:${SEL_B}`,
+        actionId: 'select-claude',
+        values: {},
+      }),
+    ).toEqual({
+      command: 'antigravity-account',
+      action: { kind: 'select', selector: SEL_B, target: 'claude' },
+    })
+    expect(
+      gaApplyBody({
+        command: 'antigravity',
+        sectionId: 'routing',
+        actionId: 'cli-first-on',
+        values: {},
+      }),
+    ).toEqual({ command: 'antigravity-routing', arguments: 'cli_first=true' })
+    expect(
+      gaApplyBody({
+        command: 'antigravity',
+        sectionId: 'limits',
+        actionId: 'killswitch-minimum',
+        values: { percent: 30 },
+      }),
+    ).toEqual({
+      command: 'antigravity-killswitch',
+      arguments: 'minimum_remaining_percent=30',
+    })
+  })
+
+  it('refuses an index, an ordinal id, an unconfirmed remove and out-of-range input', async () => {
+    const { gaApplyBody, GaMenuChoiceError } = await import('./ga/tui/host-ga')
+    const base = {
+      command: 'antigravity',
+      sectionId: 'accounts',
+      values: {},
+    } as const
+    for (const itemId of ['account:0', 'account:acct-0', 'acct-0', '0']) {
+      expect(() =>
+        gaApplyBody({ ...base, itemId, actionId: 'disable' }),
+      ).toThrow(GaMenuChoiceError)
+    }
+    expect(() =>
+      gaApplyBody({ ...base, itemId: `account:${SEL_A}`, actionId: 'remove' }),
+    ).toThrow(GaMenuChoiceError)
+    expect(() =>
+      gaApplyBody({
+        command: 'antigravity',
+        sectionId: 'limits',
+        actionId: 'killswitch-minimum',
+        values: { percent: 101 },
+      }),
+    ).toThrow(GaMenuChoiceError)
+  })
+
+  it('reports a stale target as not done, and a sign-in link without a paste step', async () => {
+    const { buildGaMenu, gaMenuResult } = await import('./ga/tui/host-ga')
+    const menu = buildGaMenu(gaSnapshot().output as never, 0)
+    const stale = gaMenuResult(
+      {
+        command: 'antigravity-account',
+        status: 'applied',
+        text: 'ok',
+        authorizationUrl: null,
+        targetOutcome: 'stale-target',
+      },
+      menu,
+    )
+    expect(stale.ok).toBe(false)
+    expect(stale.code).toBe('stale-target')
+    expect(stale.text).toContain('nothing was changed')
+    const add = gaMenuResult(
+      {
+        command: 'antigravity-account',
+        status: 'applied',
+        text: 'Sign in',
+        authorizationUrl: 'https://accounts.google.com/o/oauth2/auth?x=1',
+        targetOutcome: null,
+      },
+      menu,
+    )
+    expect(add.ok).toBe(true)
+    expect(add.text).toContain('https://accounts.google.com/o/oauth2/auth?x=1')
+    expect(add.text).toContain('nothing to paste')
+  })
+})
+
+function renderClaim(
+  claim: { render: (input: { sessionID: string }) => unknown } | undefined,
+  sessionID: string,
+): never {
+  if (!claim) throw new Error('the sidebar was not claimed')
+  return claim.render({ sessionID }) as never
+}
+
+describe('GA TUI setup', () => {
+  type Select = {
+    title: string
+    options: Array<{ title: string; value: string }>
+  }
+  function fakeContext(answers: unknown[], picks: string[] = []) {
+    const calls: Array<Record<string, any>> = []
+    const selects: Select[] = []
+    const toasts: unknown[] = []
+    let claim: { render: (input: { sessionID: string }) => unknown } | undefined
+    let released = 0
+    const context = {
+      location: { directory: '/work/a' },
+      client: {
+        rpc: {
+          call: async (input: Record<string, any>) => {
+            calls.push(input)
+            return answers.shift()
+          },
+        },
+      },
+      ui: {
+        dialog: {
+          set: () => undefined,
+          clear: () => undefined,
+          alert: async () => undefined,
+          confirm: async () => false,
+          prompt: async () => undefined,
+          select: async (input: Select) => {
+            selects.push(input)
+            const pick = picks.shift()
+            return input.options.find((option) => option.title === pick)?.value
+          },
+        },
+        toast: { show: (input: unknown) => toasts.push(input) },
+        router: {
+          current: () => ({ type: 'session', sessionID: 'ses_a' }) as const,
+        },
+        slot: (value: typeof claim) => {
+          claim = value
+          return () => {
+            released += 1
+          }
+        },
+      },
+    }
+    return {
+      context,
+      calls,
+      selects,
+      toasts,
+      claim: () => claim,
+      released: () => released,
+    }
+  }
+
+  const NOTIFIED = gaSnapshot({
+    reset: 'initial',
+    cursor: 1,
+    notifications: [
+      {
+        cursor: 1,
+        type: 'open-dialog',
+        command: 'antigravity-routing',
+        text: 'Antigravity routing',
+      },
+    ],
+    route: {
+      accountId: 'acct-0',
+      modelFamily: 'gemini',
+      headerStyle: 'antigravity',
+      strategy: 'sticky',
+      updatedAt: 1,
+    },
+  })
+
+  const settle0 = () => new Promise((resolve) => setTimeout(resolve, 5))
+
+  it('opens the drawer on the notified section, draws the sidebar, and stops completely on cleanup', async () => {
+    const { setupGaTui } = await import('./ga/tui/host-ga')
+    const fake = fakeContext([NOTIFIED])
+    let tick: () => void = () => undefined
+    let stopped = 0
+    const cleanup = setupGaTui(fake.context as never, {
+      schedule: (fn) => {
+        tick = fn
+        return () => {
+          stopped += 1
+        }
+      },
+    })
+    await settle0()
+    expect(fake.selects[0]?.title).toBe('Routing')
+    expect(fake.selects[0]?.options.map((option) => option.title)).toEqual([
+      'Gemini CLI first: off',
+      'Quota-style fallback: off',
+      'Turn Gemini CLI first on',
+      'Turn quota-style fallback on',
+      'Back',
+    ])
+
+    const view = await testRender(() => renderClaim(fake.claim(), 'ses_a'), {
+      width: 40,
+      height: 12,
+    })
+    await settle()
+    const frame = view.captureCharFrame()
+    expect(frame).toContain('Account 1')
+    expect(frame).toContain('Gm    55%')
+    expect(frame).toContain('Route Account 1 · gemini · antigravity')
+    view.renderer.destroy()
+
+    await cleanup()
+    expect(stopped).toBe(1)
+    expect(fake.released()).toBe(1)
+    const before = fake.calls.length
+    tick()
+    expect(fake.calls.length).toBe(before)
+  })
+
+  it('applies a choice, then redraws from a fresh state read rather than the apply answer', async () => {
+    const { setupGaTui } = await import('./ga/tui/host-ga')
+    const fresh = gaSnapshot({
+      cursor: 1,
+      settings: gaSettings({
+        routing: { cliFirst: true, quotaStyleFallback: false },
+      }),
+    })
+    const fake = fakeContext(
+      [NOTIFIED, gaApplied(ROUTING_APPLIED), fresh],
+      ['Turn Gemini CLI first on'],
+    )
+    const cleanup = setupGaTui(fake.context as never, {
+      schedule: () => () => undefined,
+    })
+    await settle0()
+    expect(fake.calls.map((call) => call.method)).toEqual([
+      'state',
+      'apply',
+      'state',
+    ])
+    expect(fake.calls[1]?.input).toEqual({
+      version: 1,
+      generation: 'gen-1',
+      scope: { kind: 'session', sessionID: 'ses_a' },
+      command: 'antigravity-routing',
+      arguments: 'cli_first=true',
+    })
+    expect(fake.toasts).toEqual([
+      { message: 'Routing updated.', variant: 'info' },
+    ])
+    const last = fake.selects.at(-1)
+    expect(last?.title).toBe('Routing')
+    expect(last?.options[0]?.title).toBe('Gemini CLI first: on')
+    expect(last?.options[2]?.title).toBe('Turn Gemini CLI first off')
+    await cleanup()
+  })
+
+  it('default export is an inert { id, setup } definition', async () => {
+    const mod = await import('./ga/tui/host-ga')
+    expect(Object.keys(mod.default).sort()).toEqual(['id', 'setup'])
+    expect(mod.default.id).toBe('cortexkit.antigravity-auth')
+    const fake = fakeContext([NOTIFIED])
+    const cleanup = mod.default.setup(fake.context as never)
+    await settle0()
+    expect(fake.calls[0]?.method).toBe('state')
+    await cleanup()
+    expect(fake.released()).toBe(1)
+  })
+
+  it('does not show one session route in another session sidebar', async () => {
+    const { setupGaTui } = await import('./ga/tui/host-ga')
+    const fake = fakeContext([NOTIFIED])
+    const cleanup = setupGaTui(fake.context as never, {
+      schedule: () => () => undefined,
+    })
+    await settle0()
+    const view = await testRender(
+      () => renderClaim(fake.claim(), 'ses_other'),
+      { width: 40, height: 12 },
+    )
+    await settle()
+    expect(view.captureCharFrame()).not.toContain('Route')
+    view.renderer.destroy()
+    await cleanup()
+  })
+})
+
+// ── TUI module graph ────────────────────────────────────────────────────────
+
+/**
+ * Walks the relative-import graph from `roots` and reports every edge or
+ * statement the TUI must not have. Type-only imports count: a type edge to
+ * a credential module still drags that module into a declaration build.
+ */
+function tuiGraphViolations(
+  roots: readonly string[],
+  read: (path: string) => string | undefined,
+  rules: { forbiddenFiles: RegExp; forbiddenPackages: RegExp },
+): { files: string[]; violations: string[] } {
+  const seen = new Set<string>()
+  const violations: string[] = []
+  const queue = [...roots]
+  const specifier =
+    /(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)|import\s+['"]([^'"]+)['"]/g
+  while (queue.length > 0) {
+    const file = queue.shift() as string
+    if (seen.has(file)) continue
+    seen.add(file)
+    const source = read(file)
+    if (source === undefined) {
+      violations.push(`${file}: unresolved`)
+      continue
+    }
+    if (
+      /process\.(stdout|stderr)|console\.(log|info|warn|error|debug)/.test(
+        source,
+      )
+    ) {
+      violations.push(`${file}: writes to the terminal`)
+    }
+    for (const match of source.matchAll(specifier)) {
+      const spec = match[1] ?? match[2] ?? match[3] ?? ''
+      if (spec.startsWith('.')) {
+        const base = join(dirname(file), spec)
+        const resolved = ['', '.ts', '.tsx', '/index.ts']
+          .map((suffix) => base + suffix)
+          .find((candidate) => read(candidate) !== undefined)
+        const target = resolved ?? base
+        if (rules.forbiddenFiles.test(target)) {
+          violations.push(`${file} -> ${spec}: forbidden module`)
+        }
+        queue.push(target)
+      } else if (rules.forbiddenPackages.test(spec)) {
+        violations.push(`${file} -> ${spec}: forbidden package`)
+      }
+    }
+  }
+  return { files: [...seen], violations }
+}
+
+const SRC = dirname(fileURLToPath(import.meta.url))
+
+function readSource(path: string): string | undefined {
+  try {
+    return /\.(ts|tsx|js)$/.test(path) ? readFileSync(path, 'utf8') : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Server, account, OAuth, token and vault-client code: never in a TUI graph. */
+const CREDENTIAL_FILES =
+  /\/(plugin|antigravity|hooks|ga\/server|ga\/rpc)\/|\/constants\.ts$|storage|accounts?\.ts|oauth|token|vault-client/
+/** The core barrel and the shared library's runtime; only leaf subpaths. */
+const CREDENTIAL_PACKAGES =
+  /^@cortexkit\/antigravity-auth-core$|^@cortexkit\/common-auth(\/|$)|^@opencode-ai\/sdk/
+
+describe('TUI module graph', () => {
+  it('OpenCode 1 graph reaches no server, account, OAuth or token module and never writes to the terminal', () => {
+    const { files, violations } = tuiGraphViolations(
+      [join(SRC, 'tui.tsx')],
+      readSource,
+      {
+        forbiddenFiles: CREDENTIAL_FILES,
+        forbiddenPackages: CREDENTIAL_PACKAGES,
+      },
+    )
+    expect(violations).toEqual([])
+    expect(files).toContain(join(SRC, 'tui', 'host-v1.tsx'))
+    expect(files).toContain(join(SRC, 'tui', 'command-dialogs.tsx'))
+  })
+
+  it('GA graph additionally reaches no port file, RPC directory or sidebar file', () => {
+    const { files, violations } = tuiGraphViolations(
+      [join(SRC, 'ga', 'tui', 'host-ga.tsx')],
+      readSource,
+      {
+        forbiddenFiles: new RegExp(
+          `${CREDENTIAL_FILES.source}|/rpc/|sidebar-state|tui-preferences|file-logger|host-v1`,
+        ),
+        forbiddenPackages: new RegExp(
+          `${CREDENTIAL_PACKAGES.source}|^@opencode-ai/plugin|^node:`,
+        ),
+      },
+    )
+    expect(violations).toEqual([])
+    expect(files.sort()).toEqual(
+      [
+        join(SRC, 'ga', 'tui', 'host-ga.tsx'),
+        join(SRC, 'sidebar-projection.ts'),
+        join(SRC, 'tui', 'command-dialogs.tsx'),
+        join(SRC, 'tui', 'host-api.ts'),
+      ].sort(),
+    )
+  })
+
+  it('the graph check fails on an injected credential import, type edge or terminal write', () => {
+    const real = (path: string) => readSource(path)
+    const inject =
+      (target: string, extra: string) =>
+      (path: string): string | undefined =>
+        path === target ? `${extra}\n${real(path) ?? ''}` : real(path)
+    const hostApi = join(SRC, 'tui', 'host-api.ts')
+    const rules = {
+      forbiddenFiles: CREDENTIAL_FILES,
+      forbiddenPackages: CREDENTIAL_PACKAGES,
+    }
+    const root = [join(SRC, 'ga', 'tui', 'host-ga.tsx')]
+    expect(
+      tuiGraphViolations(
+        root,
+        inject(hostApi, "import { x } from '../plugin/storage'"),
+        rules,
+      ).violations,
+    ).toContain(`${hostApi} -> ../plugin/storage: forbidden module`)
+    expect(
+      tuiGraphViolations(
+        root,
+        inject(hostApi, "import type { T } from '../antigravity/oauth'"),
+        rules,
+      ).violations,
+    ).toContain(`${hostApi} -> ../antigravity/oauth: forbidden module`)
+    expect(
+      tuiGraphViolations(
+        root,
+        inject(hostApi, "import { y } from '@cortexkit/antigravity-auth-core'"),
+        rules,
+      ).violations,
+    ).toContain(
+      `${hostApi} -> @cortexkit/antigravity-auth-core: forbidden package`,
+    )
+    expect(
+      tuiGraphViolations(
+        root,
+        inject(hostApi, "process.stdout.write('x')"),
+        rules,
+      ).violations,
+    ).toContain(`${hostApi}: writes to the terminal`)
   })
 })

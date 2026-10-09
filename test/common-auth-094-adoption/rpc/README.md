@@ -43,6 +43,22 @@ the Bun1.3.14 four-second native sweep. Reached observations record both zero an
 nonzero elapsed time. Live 504, callback effects and natural child exit after stop
 are independently observed rather than inferred from peer closure.
 
+The cases speak the shared `/antigravity` menu protocol. The adapter server
+receives `parseApplyRequest` through its options, as the plugin passes it, and
+the harness takes that function from the copied public
+`common-auth-embedded/commands/index.js`; the suite therefore needs the commands
+entry in the embedded tree. Starting the adapter without a parser function is
+refused with a `TypeError` before it listens or writes a port file;
+`rpc.auth_validation` checks that first. Apply bodies are `CommandApplyRequest` values and
+answers are `CommandApplyResult` values. Bodies the library parser refuses,
+including the retired `{command, arguments}` request, answer 400 before the
+apply callback runs. Notifications carry `{id, payload, sessionId?}`; the
+client checks only that envelope and refuses the whole batch if any message has
+another key (such as the retired `type`), a non-positive or unsafe `id`, a
+non-string `sessionId` or a payload that is not an object. Validating the menu
+or notify payload itself is the renderer's job. A failed client `apply`
+resolves `undefined`.
+
 Each unit or matrix runtime runs the complete ordered 17-case inventory. Fresh
 child stdout is parsed through the same strict validator: exact ordered names,
 boolean `ok`, nonempty observations/errors and matching exit 0/1. Truthy strings

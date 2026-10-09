@@ -4,11 +4,14 @@
  * fingerprint, quota) keyed by the account identity the vault asserted, with
  * the route, credential and record version that last wrote it.
  *
- * The roster drops fields it does not know, so this state lives beside it.
- * Keying by asserted account means a different account inherits nothing,
- * while the same account keeps its state across token refreshes. The file
- * never holds a bearer, refresh or enrollment secret, a receipt or a project
- * (a vault send's project comes from its receipt); such input is refused, not
+ * The roster (the Claustrum library's non-secret list of vault accounts this
+ * host may route to) keeps only the fields the library defines and drops any
+ * other field when it rewrites the file, so Antigravity's own state lives in
+ * this separate file. Keying by asserted account means a different account
+ * inherits nothing, while the same account keeps its state across token
+ * refreshes. The file never holds a bearer, refresh or enrollment secret, a
+ * receipt or a project (a vault send's project comes from the receipt
+ * Claustrum serves for that send attempt); such input is refused, not
  * stripped. The fingerprint `sessionToken` is locally generated tracking
  * metadata, not a credential, and is kept.
  *
@@ -16,6 +19,11 @@
  * rewritten), then this file's lock, re-checks the roster binding and asks the
  * vault for a fresh receipt for the same version, and re-asserts both locks
  * just before the atomic rename.
+ *
+ * A write must carry the record version its observation was served under.
+ * Once the vault serves a newer record version, even for the same account,
+ * that write is refused and the observation (usage, quota) is dropped; it is
+ * never re-attributed to the newer version.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -38,7 +46,10 @@ import type { VaultClaustrumPort, VaultRoster } from './vault-account-source.ts'
 
 export const VAULT_PROVIDER_STATE_SCHEMA_VERSION = 1
 
-/** Lock taken at the state path. */
+/**
+ * File lock (`./fs` `withLock`) a commit holds on the state file, so two
+ * writers cannot interleave their read and rename.
+ */
 export const VAULT_PROVIDER_STATE_LOCK = Object.freeze({
   name: 'antigravity-vault-state',
   ttlMs: 10_000,
@@ -46,21 +57,29 @@ export const VAULT_PROVIDER_STATE_LOCK = Object.freeze({
   renew: true,
 })
 
-/** The `./fs` functions a commit uses. */
+/**
+ * The `./fs` lock and atomic-write functions `commitVaultProviderState`
+ * uses.
+ */
 export type AntigravityVaultStateFs = Pick<
   CommonAuthFsModule,
   'withLock' | 'writeJsonAtomic'
 >
 
-/** The `./claustrum` functions a commit uses. */
+/**
+ * The `./claustrum` functions `commitVaultProviderState` uses: the roster write
+ * lock as an ownership guard and the decline check.
+ */
 export type VaultRosterGuardModule = Pick<
   VaultClaustrumPort,
   'mutateVaultRoster' | 'isDeclined'
 >
 
 /**
- * Which send an observation came from: the selected route plus what the
- * vault served for it. Carries no token and no project.
+ * Non-secret facts tying an observation (usage, quota) to the send attempt
+ * that produced it: the selected route, the credential id and asserted
+ * account, and the record version Claustrum served. Carries no token and no
+ * project.
  */
 export interface VaultStateAttribution {
   readonly routeId: string
@@ -71,7 +90,8 @@ export interface VaultStateAttribution {
 
 /**
  * Provider metadata a vault account may keep. The project fields are left
- * out because a vault send's project comes from its receipt only, and
+ * out because a send's project comes only from the receipt Claustrum serves
+ * for that attempt, and
  * `enabled` because the roster owns whether an account routes.
  */
 export type VaultProviderMetadata = Omit<
@@ -79,7 +99,11 @@ export type VaultProviderMetadata = Omit<
   'projectId' | 'managedProjectId' | 'enabled'
 >
 
-/** Where the stored state was last written from. Provenance only, never an epoch. */
+/**
+ * The route, credential and served record version of the send whose
+ * observation last wrote this state. Kept as a record only; never counted or
+ * compared as a local version number.
+ */
 export interface VaultStateProvenance {
   readonly routeId: string
   readonly credentialId: string
@@ -99,7 +123,10 @@ export interface VaultProviderStateFile {
   readonly extensions?: JsonObject
 }
 
-/** What an update asks to store for the account (provenance is set by the commit). */
+/**
+ * What an update asks to store for the account. `observed` is not part of it:
+ * `commitVaultProviderState` sets it from the attribution.
+ */
 export interface VaultAccountStateValue {
   metadata?: VaultProviderMetadata
   quota?: QuotaState
@@ -107,9 +134,9 @@ export interface VaultAccountStateValue {
 }
 
 /**
- * Computes the account's next state from its current one. It must be
- * synchronous and must not start another commit. Return `undefined` to leave
- * the state as it is and `null` to remove the account's entry.
+ * Computes the account's next state from its current one. The function must
+ * be synchronous and must not start another commit. Return `undefined` to
+ * leave the state as it is and `null` to remove the account's entry.
  */
 export type AntigravityVaultStateUpdate = (
   current: VaultAccountState | undefined,
@@ -121,7 +148,8 @@ export type VaultProviderStateCommitResult =
   | { status: 'unchanged'; state?: VaultAccountState }
   /**
    * The write failed part-way; the file may or may not hold the new state.
-   * It is not retried. `state` is what a reload found, when it could read.
+   * The write is not retried. `state` is what a reload of the file found,
+   * when the reload could read it.
    */
   | { status: 'uncertain'; error: unknown; state?: VaultAccountState }
 
@@ -134,7 +162,10 @@ export type VaultProviderStateFailureKind =
   | 'project-field'
   | 'invalid-update'
 
-/** A refused read or commit. Messages name the place, never the stored value. */
+/**
+ * A refused read or commit. Messages name the field path or step that was
+ * refused, never the stored value.
+ */
 export class VaultProviderStateError extends Error {
   readonly kind: VaultProviderStateFailureKind
 
@@ -158,8 +189,9 @@ function isNonEmpty(value: unknown): value is string {
 }
 
 /**
- * Key names that hold credentials, compared lower-case with punctuation
- * removed (`access_token`, `accessToken` and `access-token` are one name).
+ * Key names refused anywhere in the file because they hold credentials. Keys
+ * are compared lower-case with punctuation removed, so `access_token`,
+ * `accessToken` and `access-token` all match `accesstoken`.
  */
 const CREDENTIAL_KEYS = new Set([
   'access',
@@ -180,7 +212,11 @@ const CREDENTIAL_KEYS = new Set([
   'receipt',
 ])
 
-/** Value shapes of Google bearer and refresh tokens and of auth headers. */
+/**
+ * String values refused anywhere in the file: those starting like a Google
+ * access token (`ya29.`), a Google refresh token (`1//`) or an Authorization
+ * header (`Bearer `).
+ */
 const CREDENTIAL_VALUE = /^(?:ya29\.|1\/\/|bearer\s)/i
 
 const PROJECT_KEYS = new Set(['projectid', 'managedprojectid', 'project'])
@@ -189,7 +225,11 @@ function normalizedKey(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-/** `metadata.fingerprint.sessionToken` and the same field in history entries. */
+/**
+ * True for `metadata.fingerprint.sessionToken` and for the same field in each
+ * `metadata.fingerprintHistory` entry: the one token-named field the file may
+ * keep, because it is local tracking metadata.
+ */
 function isFingerprintSessionToken(path: readonly string[]): boolean {
   const n = path.length
   if (path[n - 1] !== 'sessionToken' || path[n - 2] !== 'fingerprint')
@@ -275,9 +315,10 @@ function decodeExtensions(raw: unknown, path: string): JsonObject | undefined {
 }
 
 /**
- * Decodes the parts of an account entry an update may set. `stored` is the
- * JSON form read from the file; `typed` is the in-memory form an update
- * returns, which is encoded first so both pass the same codec checks.
+ * Decodes the parts of an account entry an update may set: `metadata`,
+ * `quota` and `extensions` (never `observed`). `stored` is the JSON form read
+ * from the file; `typed` is the in-memory form an update returns, which is
+ * encoded first so both pass the same codec checks.
  */
 function decodeValue(
   raw: unknown,
@@ -528,10 +569,11 @@ export interface CommitVaultProviderStateInput {
   statePath: string
   attribution: VaultStateAttribution
   /**
-   * Fresh proof, under both locks, that custody is still active, the host
-   * slot still matches, and the vault still serves the attributed credential,
-   * account and record version. Throws to refuse. Must not use or keep the
-   * proving receipt's token or project.
+   * Fresh proof, while the roster write lock and the state-file lock are both
+   * held, that custody is still active, the host's stored credential record
+   * is still not a real login, and the vault still serves the attributed
+   * credential, account and record version. Throws to refuse. Must not use
+   * or keep the proving receipt's token or project.
    */
   verify: (attribution: VaultStateAttribution) => Promise<void>
   update: AntigravityVaultStateUpdate

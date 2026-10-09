@@ -20,9 +20,13 @@ import {
   auditGraph,
   buildLibrary,
   buildTui,
+  buildTuiRoots,
+  checkGaGraph,
   checkMetafile,
+  GA_TUI_ROOT,
   inventory,
   PACKAGE_ROOT,
+  TUI_ROOTS,
   verifyPrerequisites,
   verifySelectors,
 } from './build-tui'
@@ -41,7 +45,12 @@ async function fixture(full = false) {
   )
   if (full) {
     for (const name of await readdir(join(PACKAGE_ROOT, 'src'))) {
-      if (['tui-raw', 'tui-compiled'].includes(name)) continue
+      if (
+        ['tui-raw', 'tui-compiled', 'tui-ga-raw', 'tui-ga-compiled'].includes(
+          name,
+        )
+      )
+        continue
       await cp(join(PACKAGE_ROOT, 'src', name), join(root, 'src', name), {
         recursive: true,
       })
@@ -91,7 +100,7 @@ beforeAll(async () => {
   owned = await mkdtemp(join(PACKAGE_ROOT, 'src/tui-raw/.checks-'))
   await verifyPrerequisites()
   product = await fixture(true)
-  await buildTui({ packageRoot: product })
+  await buildTuiRoots({ packageRoot: product })
 }, 120000)
 afterAll(async () => {
   if (owned) await rm(owned, { recursive: true, force: true })
@@ -229,7 +238,7 @@ test('graph.server_cli', async () => {
     checkMetafile(result.metafile!)
     expect(
       Object.keys(result.metafile!.inputs).some((path) =>
-        /tui-(raw|compiled)/.test(path),
+        /tui-(?:ga-)?(raw|compiled)/.test(path),
       ),
     ).toBe(false)
   }
@@ -437,7 +446,7 @@ test('build.map_admission_valid_generated', async () => {
 }, 120000)
 
 test('build.selector_inert', async () => {
-  await verifySelectors(product)
+  for (const root of TUI_ROOTS) await verifySelectors(product, root)
   const entry = await readFile(join(PACKAGE_ROOT, 'src/tui/entry.mjs'), 'utf8')
   const ast = ts.createSourceFile(
     'entry.mjs',
@@ -453,8 +462,26 @@ test('build.selector_inert', async () => {
   expect(entry).toContain(
     "new URL('../tui-compiled/tui.js', import.meta.url).href",
   )
-  expect(entry).toContain('export default await loadTui(')
-  expect(entry).not.toContain('mod.tui')
+  expect(entry).toContain(
+    "new URL('../tui-ga-raw/host-ga.tsx', import.meta.url).href",
+  )
+  expect(entry).toContain(
+    "new URL('../tui-ga-compiled/host-ga.js', import.meta.url)",
+  )
+  // Lazy: importing the entry loads neither root.
+  expect(entry).not.toContain('await loadTui(')
+  expect(entry).not.toMatch(/^export default await/m)
+  const hybrid = (
+    await import(pathToFileURL(join(PACKAGE_ROOT, 'src/tui/entry.mjs')).href)
+  ).default
+  expect(Object.keys(hybrid).sort()).toEqual(['id', 'setup', 'tui'])
+  expect(hybrid.id).toBe('cortexkit.antigravity-auth')
+  // The declaration imports no host SDK: either host's plugin type accepts it.
+  const declaration = await readFile(
+    join(PACKAGE_ROOT, 'src/tui/entry.d.mts'),
+    'utf8',
+  )
+  expect(declaration).not.toMatch(/^\s*import\s/m)
   const copy = join(product, 'src/tui-raw/selector.js')
   const bytes = await readFile(copy)
   try {
@@ -465,6 +492,151 @@ test('build.selector_inert', async () => {
   } finally {
     await writeFile(copy, bytes)
   }
+})
+
+test('graph.ga_roots', async () => {
+  const source = await auditGraph(join(product, GA_TUI_ROOT.entry))
+  expect(source.files.map((path) => relative(product, path)).sort()).toEqual([
+    'src/ga/tui/host-ga.tsx',
+    'src/sidebar-projection.ts',
+    'src/tui/command-dialogs.tsx',
+    'src/tui/host-api.ts',
+  ])
+  checkGaGraph(source, 'source')
+  const map = JSON.parse(await readFile(join(product, GA_TUI_ROOT.map), 'utf8'))
+  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.11.6')
+  for (const [variant, tree, entry, kind] of [
+    [map.raw, GA_TUI_ROOT.raw, GA_TUI_ROOT.rawEntry, 'raw'],
+    [map.runtime, GA_TUI_ROOT.runtime, GA_TUI_ROOT.runtimeEntry, 'runtime'],
+  ] as const) {
+    const graph = await auditGraph(join(product, tree, entry))
+    checkGaGraph(graph, kind)
+    expect(graph.files.length).toBe(source.files.length)
+    expect(
+      variant.files
+        .map((file: { output: string }) => file.output)
+        .every((output: string) => output.startsWith(`${tree}/`)),
+    ).toBe(true)
+    for (const path of await inventory(join(product, tree))) {
+      const code = await readFile(join(product, tree, path), 'utf8')
+      // No development alias may reach shipped code.
+      expect(code).not.toMatch(/(?:core|solid)-ga|solid-js-ga/)
+    }
+    if (kind === 'runtime')
+      expect(graph.externals.sort()).toEqual([
+        'opentui:runtime-module:%40opentui%2Fsolid',
+        'opentui:runtime-module:solid-js',
+      ])
+  }
+})
+
+test('graph.ga_policy_refusals', async () => {
+  const ok = { files: ['/x/src/ga/tui/host-ga.tsx'], externals: ['solid-js'] }
+  checkGaGraph(ok, 'source')
+  const refusals: Array<
+    [Parameters<typeof checkGaGraph>[0], 'source' | 'runtime', string]
+  > = [
+    [
+      { files: ['/x/src/rpc/port-file.ts'], externals: [] },
+      'source',
+      'forbidden GA source',
+    ],
+    [
+      { files: ['/x/src/tui/host-v1.tsx'], externals: [] },
+      'source',
+      'forbidden GA source',
+    ],
+    [
+      { files: ['/x/src/sidebar-state.ts'], externals: [] },
+      'source',
+      'forbidden GA source',
+    ],
+    [
+      {
+        files: ['/x/src/common-auth-embedded/commands/menu.js'],
+        externals: [],
+      },
+      'source',
+      'forbidden GA source',
+    ],
+    [
+      { files: ['/x/src/plugin/storage.ts'], externals: [] },
+      'source',
+      'forbidden GA source',
+    ],
+    [
+      { files: [], externals: ['@opencode-ai/plugin/tui'] },
+      'source',
+      'forbidden GA external',
+    ],
+    [
+      {
+        files: [],
+        externals: ['@cortexkit/antigravity-auth-core/fetch-timeout'],
+      },
+      'source',
+      'forbidden GA external',
+    ],
+    [
+      { files: [], externals: ['@opentui/solid-ga'] },
+      'source',
+      'forbidden GA external',
+    ],
+    [{ files: [], externals: ['solid-js'] }, 'runtime', 'not a host module'],
+    [
+      { files: [], externals: ['opentui:runtime-module:solid-js-ga'] },
+      'runtime',
+      'not a host module',
+    ],
+  ]
+  for (const [graph, kind, message] of refusals)
+    expect(() => checkGaGraph(graph, kind)).toThrow(message)
+})
+
+test('build.roots_failure_removes_every_root', async () => {
+  const root = await fixture(true)
+  await buildTuiRoots({ packageRoot: root })
+  for (const tree of TUI_ROOTS.flatMap((item) => [item.raw, item.runtime]))
+    expect((await inventory(join(root, tree))).length).toBeGreaterThan(0)
+  const gaEntry = join(root, GA_TUI_ROOT.entry)
+  const original = await readFile(gaEntry)
+  try {
+    // A GA root that reaches the OpenCode 1 adapter is refused, and the
+    // already-built OpenCode 1 trees go with it.
+    await writeFile(
+      gaEntry,
+      `import '../../tui/host-v1'\n${original.toString()}`,
+    )
+    await expect(buildTuiRoots({ packageRoot: root })).rejects.toThrow(
+      'forbidden GA source',
+    )
+    for (const item of TUI_ROOTS) {
+      for (const tree of [item.raw, item.runtime])
+        await expect(lstat(join(root, tree))).rejects.toThrow('ENOENT')
+      await expect(lstat(join(root, item.map))).rejects.toThrow('ENOENT')
+    }
+  } finally {
+    await writeFile(gaEntry, original)
+  }
+}, 180000)
+
+test('build.ga_map_admission_preserves_unowned', async () => {
+  const root = await fixture(true)
+  await mkdir(join(root, 'dist'))
+  const map = join(root, GA_TUI_ROOT.map)
+  await writeFile(map, JSON.stringify({ owned: 'unrelated content' }))
+  for (const tree of [GA_TUI_ROOT.raw, GA_TUI_ROOT.runtime]) {
+    await mkdir(join(root, tree), { recursive: true })
+    await writeFile(join(root, tree, 'canary.js'), 'export default 1\n')
+  }
+  await expect(buildTuiRoots({ packageRoot: root })).rejects.toThrow(
+    'not owned generated metadata',
+  )
+  expect(await readFile(map, 'utf8')).toBe(
+    JSON.stringify({ owned: 'unrelated content' }),
+  )
+  for (const tree of [GA_TUI_ROOT.raw, GA_TUI_ROOT.runtime])
+    expect(await inventory(join(root, tree))).toEqual(['canary.js'])
 })
 
 test('build.prerequisite_order', async () => {
@@ -516,7 +688,9 @@ test('build.prerequisite_order', async () => {
       dirname(join(repo, path)),
     )
     expect(
-      parsed.fileNames.some((path) => /\/tui-(raw|compiled)\//.test(path)),
+      parsed.fileNames.some((path) =>
+        /\/tui-(?:ga-)?(raw|compiled)\//.test(path),
+      ),
     ).toBe(false)
     expect(
       parsed.fileNames.some((path) =>
