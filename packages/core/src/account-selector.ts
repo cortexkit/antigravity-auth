@@ -6,10 +6,15 @@
  * `AccountSelector` is the single owner of that state. The local
  * `AccountManager` delegates every selection method to one selector over its
  * `ManagedAccount` rows; a vault-backed pool builds a selector over rows that
- * carry only roster metadata. The selector never reads, copies, hashes or
- * serializes a credential: its policy reads only the `SelectableAccount`
- * fields, so a row type with a credential field (the local one) and a row
- * type without one (a vault's) select identically.
+ * carry only roster metadata. Selection policy reads only the
+ * `SelectableAccount` fields, so a row type with a credential field (the
+ * local one) and a row type without one (a vault's) select identically.
+ *
+ * Two helpers copy whole rows: `refreshSelectableRow` (the default refresh
+ * of `replaceAccounts`) and `getAccountsSnapshot`. They copy every field a
+ * row has, so they are for rows without credentials. A pool whose rows
+ * carry credentials passes its own refresh and takes its own snapshots, as
+ * the local `AccountManager` does.
  *
  * Persisting a transition is not the selector's concern. Each transition is
  * reported to an injected `SelectionSink` with the exact row object it was
@@ -60,7 +65,10 @@ export interface SelectableAccount {
   index: number
   enabled: boolean
   lastUsed: number
-  /** Reset time per quota key: family, model and header style. */
+  /**
+   * Rate-limit reset time per quota key (see `getQuotaKey`): `claude`, or
+   * a Gemini header style, optionally with a model.
+   */
   rateLimitResetTimes: RateLimitStateV3
   lastSwitchReason?: LastSwitchReason
   coolingDownUntil?: number
@@ -163,7 +171,8 @@ export interface ReplaceAccountsOptions<A extends SelectableAccount> {
   keyOf(row: A): unknown
   /**
    * Brings a kept row up to date with the matched fresh row. Defaults to
-   * `refreshSelectableRow`. Not called when the fresh row is the kept row.
+   * `refreshSelectableRow`, which copies every field and so suits only rows
+   * without credentials. Not called when the fresh row is the kept row.
    */
   refresh?(prior: A, fresh: A): void
   /**
@@ -344,8 +353,8 @@ function isOverSoftQuotaThreshold(
 }
 
 /**
- * Bookkeeping a pool holds only in memory: a fresh roster row cannot know
- * it, so a refresh keeps it on the kept row.
+ * Row fields that only this selector maintains, in memory: a roster read
+ * never carries them, so `refreshSelectableRow` leaves them on the kept row.
  */
 const IN_MEMORY_FIELDS: ReadonlySet<string> = new Set([
   'index',
@@ -362,6 +371,10 @@ const IN_MEMORY_FIELDS: ReadonlySet<string> = new Set([
  * (quota-key touches, consecutive failures, the row's index), plus two
  * observations this pool may hold before its roster shows them: the later
  * `lastUsed`, and per rate-limit key the later reset time.
+ *
+ * It copies every field of the fresh row, whatever it is, so it is meant
+ * for rows without credentials (a vault roster's). A row type that carries
+ * credentials refreshes them under its own rules instead.
  */
 export function refreshSelectableRow<A extends SelectableAccount>(
   prior: A,
@@ -456,8 +469,8 @@ export class AccountSelector<A extends SelectableAccount> {
   }
 
   /**
-   * The health scores this selector selects with, keyed by its current row
-   * indexes. Record request outcomes here.
+   * The health tracker this selector selects with, keyed by its current
+   * row indexes. Callers record request outcomes on this tracker.
    */
   get healthTracker(): HealthScoreTracker {
     const source = this.healthSource
@@ -691,9 +704,9 @@ export class AccountSelector<A extends SelectableAccount> {
   }
 
   /**
-   * Copies of the rows with their own rate-limit maps. A row type with
-   * nested fields of its own (the local manager's credential parts) copies
-   * those itself; this copies only what is on the row.
+   * Copies of the rows with their own rate-limit maps. Every field of a row
+   * is copied, so this suits rows without credentials; a pool whose rows
+   * carry credentials (the local `AccountManager`) takes its own snapshot.
    */
   getAccountsSnapshot(): A[] {
     return this.accounts.map((a) => ({
