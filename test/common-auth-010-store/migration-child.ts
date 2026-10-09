@@ -22,6 +22,11 @@ import {
 } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
+  admitPublicConsumer,
+  requirePublicConsumerRoot,
+} from '../../packages/core/src/__fixtures__/common-auth-public-consumer.test.ts'
+import { admitLegacyWriter } from '../../packages/core/src/__fixtures__/legacy-writer.test.ts'
+import {
   type AccountMigrationModules,
   createAccountMigrationFactory,
   createAccountRollbackFactory,
@@ -38,12 +43,6 @@ import {
 } from '../../packages/core/src/account-repository-codecs.ts'
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const INPUT_ROOT = join(
-  PROJECT_ROOT,
-  '.cortexkit/parent-inputs/common-auth-0114-public-current',
-)
-const INPUT_MANIFEST_SHA256 =
-  'e40b2d3e89391c5728dcaeac45d083dc2114b55350ec0a4c5276d0ff7d538e7c'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function record(value: unknown): Record<string, unknown> {
@@ -101,20 +100,21 @@ export interface MigrationFixtureInputs {
   publicRoot: string
   oldDistRoot?: string
 }
-/** Accepts only the common-auth publication fixture root and the separately pinned old-writer dist root from the gate environment. */
+/** Requires the test command to name a process-created consumer directory under this worktree's node_modules; package bytes are verified before use. */
 export function migrationFixtureInputs(
   environment: NodeJS.ProcessEnv,
 ): MigrationFixtureInputs {
-  if (environment.ACCOUNT_MIGRATION_PUBLIC_INPUT_ROOT !== INPUT_ROOT)
-    throw new Error('explicit worktree-local public package fixture required')
+  const publicRoot = requirePublicConsumerRoot(
+    environment.ACCOUNT_MIGRATION_PUBLIC_INPUT_ROOT,
+  )
   const oldDistRoot = environment.ACCOUNT_MIGRATION_OLD_DIST_ROOT
   if (
     oldDistRoot !== undefined &&
-    oldDistRoot !== join(PROJECT_ROOT, 'packages/core/dist')
+    oldDistRoot !== join(publicRoot, 'old-writer-dist')
   )
     throw new Error('old writer fixture location differs')
   return {
-    publicRoot: INPUT_ROOT,
+    publicRoot,
     ...(oldDistRoot === undefined ? {} : { oldDistRoot }),
   }
 }
@@ -194,9 +194,10 @@ export async function loadOldMigrationWriter(
     | 'clearAccountStorage'
   >
 > {
-  const root = join(PROJECT_ROOT, 'packages/core/dist')
+  const root = join(inputs.publicRoot, 'old-writer-dist')
   if (inputs.oldDistRoot !== root)
     throw new Error('explicit prepared baseline old-writer build required')
+  await admitLegacyWriter(inputs.publicRoot)
   const entry = join(root, 'account-storage.js')
   if (
     sha(await regularBytes(entry)) !==
@@ -213,9 +214,9 @@ export async function loadOldMigrationWriter(
   ])
     if (typeof loaded[key] !== 'function')
       throw new Error('baseline old writer API differs')
-  // This pinned legacy-writer build predates canonical pointer/journal retirement
-  // refusal. Its source SHA256 is f210df44f53ae605fa29b05aaf03a63c83e2fd80d00a34ce15d6cc5e31f664ac.
-  // It tests old writers only, not supported common-auth package export resolution.
+  // This historical writer can still write legacy JSON after migration retires it.
+  // Check its original source, compiler output and all runtime dependencies, rather
+  // than accidentally testing the current writer that refuses those legacy writes.
   return module as Pick<
     typeof import('../../packages/core/src/account-storage.ts'),
     | 'loadAccountStorage'
@@ -225,46 +226,23 @@ export async function loadOldMigrationWriter(
   >
 }
 
-/** Checks every common-auth package payload against its recorded bytes/SHA256 before copying it unchanged into the owned local consumer. */
+/** Verifies every member of published common-auth 0.11.6 before copying unchanged files into a consumer dedicated to this test case. */
 export async function preparePublicMigrationConsumer(
   fixture: MigrationFixture,
   inputs: MigrationFixtureInputs,
   reuseVerified = false,
 ): Promise<PublicMigrationConsumer> {
-  if (
-    inputs.publicRoot !== INPUT_ROOT ||
-    (await realpath(INPUT_ROOT)) !== INPUT_ROOT
-  )
-    throw new Error('public fixture location differs')
   await assertFixtureOwner(fixture)
-  const manifestBytes = await regularBytes(
-    join(INPUT_ROOT, 'copy-manifest.json'),
-  )
-  if (sha(manifestBytes) !== INPUT_MANIFEST_SHA256)
-    throw new Error('public input manifest identity differs')
-  const manifest = record(JSON.parse(manifestBytes.toString('utf8')))
-  if (!Array.isArray(manifest.rows) || manifest.version !== '0.11.4')
-    throw new Error('public input manifest rows/version missing')
+  const { entries } = await admitPublicConsumer(inputs.publicRoot)
   const consumerDir = join(fixture.root, 'public-consumer')
   const packageRoot = join(consumerDir, 'node_modules/@cortexkit/common-auth')
   if (!reuseVerified) {
     await mkdir(consumerDir, { mode: 0o700 })
     await mkdir(packageRoot, { mode: 0o700, recursive: true })
   }
-  let files = 0
-  let bytes = 0
   let packageManifest: Record<string, unknown> | undefined
-  for (const entry of manifest.rows) {
-    const row = record(entry)
-    if (typeof row.path !== 'string')
-      throw new Error('public payload path missing')
-    const source = join(INPUT_ROOT, 'package', row.path)
-    if (!source.startsWith(`${INPUT_ROOT}${sep}`) || source !== resolve(source))
-      throw new Error('public input path escapes fixture root')
-    const payload = await regularBytes(source)
-    if (payload.length !== row.bytes || sha(payload) !== row.sha256)
-      throw new Error('public payload byte identity differs')
-    const relative = row.path
+  for (const [member, payload] of entries) {
+    const relative = member.slice('package/'.length)
     const destination = join(packageRoot, relative)
     if (
       !destination.startsWith(`${packageRoot}${sep}`) ||
@@ -275,18 +253,14 @@ export async function preparePublicMigrationConsumer(
       await mkdir(dirname(destination), { mode: 0o700, recursive: true })
       await writeFile(destination, payload, { mode: 0o600, flag: 'wx' })
     }
-    if (sha(await regularBytes(destination)) !== row.sha256)
+    if (!(await regularBytes(destination)).equals(payload))
       throw new Error('consumer package copy differs')
     if (relative === 'package.json')
       packageManifest = record(JSON.parse(payload.toString('utf8')))
-    files++
-    bytes += payload.length
   }
   if (
-    files !== 175 ||
-    bytes !== 819855 ||
     packageManifest?.name !== '@cortexkit/common-auth' ||
-    packageManifest.version !== '0.11.4'
+    packageManifest.version !== '0.11.6'
   )
     throw new Error('public package inventory differs')
   const exports = record(packageManifest.exports)
@@ -501,9 +475,9 @@ export function migrationChildEnvironment(
   inputs: MigrationFixtureInputs,
 ): NodeJS.ProcessEnv {
   if (
-    inputs.publicRoot !== INPUT_ROOT ||
+    requirePublicConsumerRoot(inputs.publicRoot) !== inputs.publicRoot ||
     (inputs.oldDistRoot !== undefined &&
-      inputs.oldDistRoot !== join(PROJECT_ROOT, 'packages/core/dist'))
+      inputs.oldDistRoot !== join(inputs.publicRoot, 'old-writer-dist'))
   )
     throw new Error('child fixture input location differs')
   const root = fixture.root

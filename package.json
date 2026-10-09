@@ -10,7 +10,7 @@
     "build": "bun run embed:check && bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/pi build",
     "build:tui": "bun run embed:check && bun run --cwd packages/opencode build:tui",
     "typecheck": "bun run embed:check && bun run --cwd packages/core build && bun run --cwd packages/core typecheck && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck && bun run --cwd packages/e2e-tests typecheck:ga && tsc -p tsconfig.scripts.json",
-    "test": "bun run embed:check && bun run --cwd packages/core build && bun scripts/prepare-common-auth-tests.ts bun test --isolate packages/core/src packages/opencode/src packages/opencode/scripts/build-tui.test.ts packages/pi/src test/ packages/e2e-tests/docker/ga-contract-inputs.test.ts",
+    "test": "bun run embed:check && bun run --cwd packages/core build && bun scripts/prepare-common-auth-public-consumer.ts bun test --isolate packages/core/src packages/opencode/src packages/opencode/scripts/build-tui.test.ts packages/pi/src test/ packages/e2e-tests/docker/ga-contract-inputs.test.ts",
     "test:rpc:matrix": "node test/common-auth-094-adoption/rpc/runtime-matrix.mjs --node20 \"$NODE20\" --node24 \"$NODE24\" --bun13 \"$BUN13\" --bun14 \"$BUN14\"",
     "test:e2e": "bun test --isolate ./packages/e2e-tests/src/plugin-flow.e2e.test.ts ./packages/e2e-tests/src/cli-flow.e2e.test.ts ./packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts ./packages/e2e-tests/src/fetch-guard.test.ts ./packages/e2e-tests/src/mock-antigravity-server.test.ts",
     "test:e2e:opencode-v2": "bash packages/e2e-tests/docker/run-opencode-ga-test.sh --inputs packages/e2e-tests/src/opencode-ga-inputs.ts",
