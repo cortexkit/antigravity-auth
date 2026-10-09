@@ -14,6 +14,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          # Package installation tests build an older commit for comparison;
+          # a shallow checkout cannot provide that commit to git archive.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v5

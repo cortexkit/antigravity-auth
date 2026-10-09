@@ -29,6 +29,9 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
+          # Package installation tests build an older commit for comparison;
+          # a shallow checkout cannot provide that commit to git archive.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
