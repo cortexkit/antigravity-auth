@@ -54,6 +54,7 @@
         "zod": "^4.0.0",
       },
       "devDependencies": {
+        "@cortexkit/claustrum-client": "0.6.2",
         "@opencode-ai/sdk": "1.17.13",
         "@opencode/plugin": "2.0.22",
         "@opentui/core-ga": "npm:@opentui/core@0.5.14",
