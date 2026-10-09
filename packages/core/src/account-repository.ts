@@ -30,14 +30,22 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, realpath, unlink } from 'node:fs/promises'
+import { mkdir, open, readFile, realpath, stat, unlink } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import {
   credentialFenceOf,
   refMismatchReason,
   rowRefKey,
   rowRefOf,
 } from './account-identity.ts'
+import {
+  ACCOUNT_MIGRATION_MANAGEMENT_STEPS,
+  ACCOUNT_STORE_GENERATION_SETTINGS_KEY,
+  type AccountStoreBinding,
+  decodeAccountStoreGeneration,
+  readAccountStoreBinding,
+} from './account-migration.ts'
 import {
   AccountCodecError,
   createProviderStateCodec,
@@ -397,6 +405,17 @@ export interface AccountStoreModules {
   /** The package's `./fs` entry, from the same package. */
   fs: AccountLockModule
 }
+
+/**
+ * Read config and state under the writer's save locks so generation
+ * validation cannot observe a partial store write.
+ */
+const STORE_SAVE_LOCK = {
+  name: 'save',
+  ttlMs: 10_000,
+  timeoutMs: 15_000,
+  renew: true,
+} as const
 
 /**
  * The lease that orders the local operations that change which rows the
@@ -972,18 +991,14 @@ const MANAGEMENT_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
- * The steps this repository's management operations pass through. `clear`
- * only removes rows. `replace-pool` removes the old rows, adds the transfer
- * file's inputs, and records `verified` once the pool holds them; only then
- * is the transfer file deleted. A migration record is written by the
- * migration, which names its own steps; here it only blocks ordinary work.
+ * Reject management steps outside each operation's published schema.
+ * Migration owns its phase list; this repository uses it to reject malformed
+ * journals and block ordinary work.
  */
-const MANAGEMENT_STEPS: Record<
-  Exclude<ManagementKind, 'migration'>,
-  readonly string[]
-> = {
+const MANAGEMENT_STEPS: Record<ManagementKind, readonly string[]> = {
   clear: ['remove'],
   'replace-pool': ['remove', 'add', 'verified'],
+  migration: ACCOUNT_MIGRATION_MANAGEMENT_STEPS,
 }
 
 /**
@@ -1091,13 +1106,8 @@ export function decodeManagementRecord(raw: unknown): StoredManagementRecord {
     throw new AccountCodecError('$.progress', 'must be an object')
   }
   const { step } = progress
-  const steps =
-    record.kind === 'migration' ? undefined : MANAGEMENT_STEPS[record.kind]
-  if (
-    typeof step !== 'string' ||
-    !step ||
-    (steps !== undefined && !steps.includes(step))
-  ) {
+  const steps = MANAGEMENT_STEPS[record.kind]
+  if (typeof step !== 'string' || !steps.includes(step)) {
     throw new AccountCodecError(
       '$.progress.step',
       `must be a step of a ${record.kind} record`,
@@ -1235,6 +1245,58 @@ function decodeLoginInput(raw: unknown): AccountLoginInput {
 // The repository
 // ---------------------------------------------------------------------------
 
+/** Refuse unpublished, pending, rolled-back or invalid store generations. */
+function unbound(
+  operation: AccountRepositoryOperation,
+  binding: Exclude<AccountStoreBinding, { status: 'bound' }>,
+): AccountRepositoryError {
+  switch (binding.status) {
+    case 'pending':
+      return refusal(
+        operation,
+        'pending-migration',
+        'the account store has a migration or rollback in progress',
+        { retryable: true },
+      )
+    case 'initialization-required':
+      return refusal(
+        operation,
+        'pending-migration',
+        'the account store has not been initialized',
+        { retryable: true },
+      )
+    case 'inactive':
+      return refusal(
+        operation,
+        'load-error',
+        'the account-store generation was rolled back',
+      )
+    case 'error':
+      return refusal(operation, 'load-error', binding.reason)
+  }
+}
+
+/**
+ * Return a reason when settings do not name the expected generation and
+ * directory; otherwise return undefined.
+ */
+function generationMismatch(
+  settings: Record<string, unknown>,
+  id: string,
+  paths: AccountStorePaths,
+): string | undefined {
+  try {
+    const generation = decodeAccountStoreGeneration(
+      settings[ACCOUNT_STORE_GENERATION_SETTINGS_KEY],
+    )
+    return generation.id === id && generation.storeDir === paths.storeDir
+      ? undefined
+      : 'the store now belongs to another account-store generation'
+  } catch {
+    return 'the store holds no valid account-store generation'
+  }
+}
+
 /**
  * The lock guarding the management record. Every write of the record, and
  * every row removal a management operation makes, passes it to the store
@@ -1263,6 +1325,9 @@ class StoreAccountRepository implements AccountRepository {
   private readonly decline: symbol
   private readonly storeFailure: AccountStoreModule['PoolOperationError']
   private readonly locks: AccountLockModule
+  private readonly storeModule: AccountStoreModule
+  /** Cached promise for the validated generation ID. Failed attempts are discarded. */
+  private binding: Promise<string> | undefined
   /** The canonical config path the topology lease is named after. */
   private leaseTarget: Promise<string> | undefined
   private readonly paths: AccountStorePaths
@@ -1291,6 +1356,7 @@ class StoreAccountRepository implements AccountRepository {
     factoryOptions: AccountRepositoryFactoryOptions,
   ) {
     const module = modules.store
+    this.storeModule = module
     this.locks = modules.fs
     this.paths = options.paths
     this.now = options.now
@@ -1430,8 +1496,12 @@ class StoreAccountRepository implements AccountRepository {
    * write it makes; a lease found lost stops it there.
    */
   private async withTopology<T>(
+    operation: AccountRepositoryOperation,
     body: (lease: AccountLease) => Promise<T>,
   ): Promise<T> {
+    // The lease is named after the bound generation's config file, so the
+    // generation is bound (and its directory known to exist) first.
+    await this.bindGeneration(operation)
     this.leaseTarget ??= realpath(dirname(this.paths.configPath)).then((dir) =>
       join(dir, basename(this.paths.configPath)),
     )
@@ -1446,12 +1516,74 @@ class StoreAccountRepository implements AccountRepository {
     })
   }
 
-  /** Refuses ordinary work while a management operation is pending. */
+  /**
+   * Verify which completed active generation owns these physical paths.
+   * Cache only successful binding; separate journal and row checks still
+   * decide serving readiness.
+   */
+  private bindGeneration(
+    operation: AccountRepositoryOperation,
+  ): Promise<string> {
+    if (this.binding === undefined) {
+      const binding = this.readBinding().then((result) => {
+        if (result.status !== 'bound') throw unbound(operation, result)
+        if (!isDeepStrictEqual(result.paths, this.paths)) {
+          throw refusal(
+            operation,
+            'load-error',
+            "the published account-store generation is not this repository's",
+          )
+        }
+        return result.receipt.id
+      })
+      this.binding = binding
+      binding.catch(() => {
+        if (this.binding === binding) this.binding = undefined
+      })
+    }
+    return this.binding
+  }
+
+  /**
+   * Read the migration's published-generation binding. When its directory
+   * exists, acquire config then state save locks to avoid validating a
+   * partial store write.
+   */
+  private async readBinding(): Promise<AccountStoreBinding> {
+    const read = () =>
+      readAccountStoreBinding(
+        this.paths.legacyPath,
+        { store: this.storeModule },
+        this.now,
+      )
+    const directory = await stat(this.paths.storeDir).catch(() => undefined)
+    if (directory === undefined || !directory.isDirectory()) return read()
+    return this.locks.withLock(this.paths.configPath, STORE_SAVE_LOCK, () =>
+      this.locks.withLock(this.paths.statePath, STORE_SAVE_LOCK, read),
+    )
+  }
+
+  /**
+   * Read current settings and refuse if their generation no longer matches
+   * this repository's binding.
+   */
+  private async boundSettings(
+    operation: AccountRepositoryOperation,
+  ): Promise<Record<string, unknown>> {
+    const id = await this.bindGeneration(operation)
+    const settings = await this.readSettings(operation)
+    const mismatch = generationMismatch(settings, id, this.paths)
+    if (mismatch !== undefined) throw refusal(operation, 'load-error', mismatch)
+    return settings
+  }
+
   private async admit(
     operation: AccountRepositoryOperation,
     rowId?: string,
   ): Promise<void> {
-    const pending = await this.readManagement(operation)
+    const settings = await this.boundSettings(operation)
+    const raw = settings[MANAGEMENT_SETTINGS_KEY]
+    const pending = raw === undefined ? undefined : decodeManagementRecord(raw)
     if (pending !== undefined) {
       throw refusal(
         operation,
@@ -1532,6 +1664,15 @@ class StoreAccountRepository implements AccountRepository {
 
   read(): Promise<AccountRepositoryRead> {
     return this.run('read', undefined, async () => {
+      let generation: string
+      try {
+        generation = await this.bindGeneration('read')
+      } catch (error) {
+        if (!(error instanceof AccountRepositoryError)) throw error
+        return error.failure.kind === 'pending-migration'
+          ? { status: 'pending-migration' }
+          : { status: 'error', file: 'config', reason: error.failure.message }
+      }
       const load = await this.store.read()
       if (load.status === 'pending-migration')
         return { status: 'pending-migration' }
@@ -1547,6 +1688,10 @@ class StoreAccountRepository implements AccountRepository {
         }
       }
       const settings = settingsRead.settings
+      const mismatch = generationMismatch(settings, generation, this.paths)
+      if (mismatch !== undefined) {
+        return { status: 'error', file: 'settings', reason: mismatch }
+      }
       let routing: RoutingSettings | undefined
       try {
         const management = settings[MANAGEMENT_SETTINGS_KEY]
@@ -1585,7 +1730,7 @@ class StoreAccountRepository implements AccountRepository {
 
   login(input: AccountLoginInput): Promise<AccountLoginResult> {
     return this.run('login', input.id, () =>
-      this.withTopology(async (lease) => {
+      this.withTopology('login', async (lease) => {
         await this.admit('login', input.id)
         return this.addLogin(input, lease)
       }),
@@ -1671,7 +1816,7 @@ class StoreAccountRepository implements AccountRepository {
     input: AccountReplaceInput,
   ): Promise<{ ref: RowRef }> {
     return this.run('replaceCredential', expected.id, () =>
-      this.withTopology(async (lease) => {
+      this.withTopology('replaceCredential', async (lease) => {
         await this.admit('replaceCredential', expected.id)
         if (!input.refreshToken.trim()) {
           throw refusal(
@@ -2317,7 +2462,8 @@ class StoreAccountRepository implements AccountRepository {
 
   clear(): Promise<ManagementReceipt> {
     return this.run('clear', undefined, () =>
-      this.withTopology(async (lease) => {
+      this.withTopology('clear', async (lease) => {
+        await this.boundSettings('clear')
         let record = await this.readManagement('clear')
         if (record !== undefined && record.kind !== 'clear') {
           throw refusal(
@@ -2356,10 +2502,11 @@ class StoreAccountRepository implements AccountRepository {
     inputs: readonly AccountLoginInput[],
   ): Promise<ManagementReceipt> {
     return this.run('replacePool', undefined, () =>
-      this.withTopology(async (lease) => {
+      this.withTopology('replacePool', async (lease) => {
         this.checkPoolInputs(inputs)
         const inputDigest = replacementInputDigest(inputs)
         const inputIds = inputs.map((input) => input.id)
+        await this.boundSettings('replacePool')
         let record = await this.readManagement('replacePool')
         if (record !== undefined) {
           if (record.kind !== 'replace-pool') {

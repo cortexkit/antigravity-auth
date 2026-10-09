@@ -1,18 +1,32 @@
 import { describe, expect, it } from 'bun:test'
-import { createHash } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import {
   mkdir,
   mkdtemp,
   readdir,
-  readFile,
   realpath,
   rm,
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative, sep } from 'node:path'
+import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-
+import {
+  admitPublicConsumer,
+  PUBLIC_CONSUMER_ENV,
+  PUBLIC_CONSUMER_PROJECT_ROOT,
+  provisionPublicConsumer,
+  publicFixtureBytes,
+  requirePublicConsumerRoot,
+} from './__fixtures__/common-auth-public-consumer.test.ts'
+import { AccountManager } from './account-manager.ts'
+import {
+  ACCOUNT_MIGRATION_MANAGEMENT_STEPS,
+  type AccountMigrationModules,
+  initializeFreshAccountStore,
+  readAccountStoreBinding,
+  resolveAccountStorePaths,
+} from './account-migration.ts'
 import {
   ACCOUNT_STATE_POLICY,
   type AccountLease,
@@ -384,35 +398,26 @@ describe('observations', () => {
 //
 // These run the repository against common-auth's genuine public store, in
 // disposable directories, loaded the way a consumer of the package loads
-// it: through the bare specifier `@cortexkit/common-auth/store`, resolved by
-// the package's own `exports`. AGY_COMMON_AUTH_STORE_CONSUMER names a
-// consumer directory holding:
-// - `node_modules/@cortexkit/common-auth`: the admitted package;
-// - `store-bridge.mjs`: exactly `export * from '@cortexkit/common-auth/store'`,
-//   so importing it yields the package's own bindings;
-// - `fs-bridge.mjs`: exactly `export * from '@cortexkit/common-auth/fs'`, the
-//   same package's lease helper the repository takes its topology lease with.
-// The harness checks all of this before importing anything, so a missing or
-// different input fails every test here instead of skipping it or
-// substituting a stand-in.
+// it: through the bare specifiers `@cortexkit/common-auth/store` and
+// `@cortexkit/common-auth/fs`, resolved by the package's own `exports`.
+//
+// The consumer directory is the shared public-consumer fixture
+// (`__fixtures__/common-auth-public-consumer.test.ts`), which
+// `scripts/prepare-common-auth-public-consumer.ts` provisions offline from
+// the repository's verified 0.11.6 archive and names in
+// AGY_COMMON_AUTH_STORE_CONSUMER. Before anything is imported, the fixture's
+// own `admitPublicConsumer` checks it: an owned, worktree-local directory,
+// every package member byte-identical to the archive (name and version
+// included), and the two one-line bridges `store-bridge.mjs` and
+// `fs-bridge.mjs`. A missing or different consumer fails every test here
+// instead of skipping it or substituting a stand-in.
 // ---------------------------------------------------------------------------
 
-const STORE_CONSUMER_ENV = 'AGY_COMMON_AUTH_STORE_CONSUMER'
 const STORE_PACKAGE_NAME = '@cortexkit/common-auth'
-const STORE_PACKAGE_VERSION = '0.11.4'
 const STORE_SPECIFIER = `${STORE_PACKAGE_NAME}/store`
 const STORE_BRIDGE_FILE = 'store-bridge.mjs'
-const STORE_BRIDGE_SOURCE = `export * from '${STORE_SPECIFIER}'\n`
 const FS_SPECIFIER = `${STORE_PACKAGE_NAME}/fs`
 const FS_BRIDGE_FILE = 'fs-bridge.mjs'
-const FS_BRIDGE_SOURCE = `export * from '${FS_SPECIFIER}'\n`
-/**
- * SHA-256 over the sorted lines `<path>\0<sha256 of the file>\n` of
- * `package.json` and every file under `dist/store/` and `dist/fs/` (the
- * store entry's whole import closure) of the admitted package.
- */
-const STORE_CLOSURE_SHA256 =
-  '1457c1741246d51c5aa311b60d7f2e17a760b861e4fdb880033d92b60869bc6a'
 /** Bound on the child process of the cross-process test. */
 const CHILD_BOUND_MS = 30_000
 /** Grace between SIGTERM and SIGKILL for that child. */
@@ -422,40 +427,6 @@ const CHILD_TERM_GRACE_MS = 5_000
  * default bounded wait for a lock (15 s).
  */
 const STORE_TEST_WORK_MS = 15_000
-
-async function filesUnder(root: string, dir: string): Promise<string[]> {
-  const out: string[] = []
-  for (const entry of await readdir(join(root, dir), { withFileTypes: true })) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) out.push(...(await filesUnder(root, path)))
-    else out.push(path)
-  }
-  return out
-}
-
-async function storeClosureDigest(root: string): Promise<string> {
-  const files = [
-    'package.json',
-    ...(await filesUnder(root, join('dist', 'store'))),
-    ...(await filesUnder(root, join('dist', 'fs'))),
-  ]
-    .map((path) => relative(root, join(root, path)).split(sep).join('/'))
-    .sort()
-  let lines = ''
-  for (const path of files) {
-    const bytes = await readFile(join(root, path))
-    lines += `${path}\0${createHash('sha256').update(bytes).digest('hex')}\n`
-  }
-  return createHash('sha256').update(lines).digest('hex')
-}
-
-async function readIfPresent(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(path, 'utf8')
-  } catch {
-    return undefined
-  }
-}
 
 /** The `import` target `exports[subpath]` names, when it names one. */
 function exportOf(manifest: unknown, subpath: string): string | undefined {
@@ -472,64 +443,30 @@ function exportOf(manifest: unknown, subpath: string): string | undefined {
 }
 
 /**
- * Checks a consumer directory without importing anything from it: the
- * bridge's exact text, the package's name, version and store closure
- * digest, and that the bare specifier, resolved from the bridge, lands on
- * the file the package's own `exports['./store']` names. Returns the bridge
- * to import.
+ * Admits a consumer directory without importing anything from it. The
+ * shared fixture's `admitPublicConsumer` is the only check of the package
+ * itself; this adds that each bare specifier, resolved from its bridge,
+ * lands on the file the admitted package's own `exports` names, so the
+ * imports below load exactly the admitted package. Returns the bridges.
  */
-async function verifyStoreConsumer(
+async function admitStoreConsumer(
   consumer: string | undefined,
 ): Promise<{ bridge: string; fsBridge: string }> {
-  if (!consumer) {
-    throw new Error(
-      `${STORE_CONSUMER_ENV} is not set: the real-store tests need a consumer of the admitted ${STORE_PACKAGE_NAME} ${STORE_PACKAGE_VERSION}`,
-    )
-  }
-  const bridge = join(consumer, STORE_BRIDGE_FILE)
-  if ((await readIfPresent(bridge)) !== STORE_BRIDGE_SOURCE) {
-    throw new Error(`${bridge} must contain exactly: ${STORE_BRIDGE_SOURCE}`)
-  }
-  const packageRoot = join(
-    consumer,
-    'node_modules',
-    '@cortexkit',
-    'common-auth',
+  const root = requirePublicConsumerRoot(consumer)
+  const { packageRoot } = await admitPublicConsumer(root)
+  const manifest: unknown = JSON.parse(
+    (await publicFixtureBytes(join(packageRoot, 'package.json'))).toString(),
   )
-  const rawManifest = await readIfPresent(join(packageRoot, 'package.json'))
-  const manifest: unknown =
-    rawManifest === undefined ? undefined : JSON.parse(rawManifest)
-  if (
-    typeof manifest !== 'object' ||
-    manifest === null ||
-    !('name' in manifest) ||
-    manifest.name !== STORE_PACKAGE_NAME ||
-    !('version' in manifest) ||
-    manifest.version !== STORE_PACKAGE_VERSION
-  ) {
-    throw new Error(
-      `${packageRoot} is not ${STORE_PACKAGE_NAME} ${STORE_PACKAGE_VERSION}`,
-    )
-  }
-  const storeExport = exportOf(manifest, './store')
-  const fsExport = exportOf(manifest, './fs')
-  if (storeExport === undefined || fsExport === undefined) {
-    throw new Error(`${packageRoot} exports no ./store or ./fs import entry`)
-  }
-  const digest = await storeClosureDigest(packageRoot)
-  if (digest !== STORE_CLOSURE_SHA256) {
-    throw new Error(
-      `${packageRoot} store closure digest ${digest} is not the admitted ${STORE_CLOSURE_SHA256}`,
-    )
-  }
-  const fsBridge = join(consumer, FS_BRIDGE_FILE)
-  if ((await readIfPresent(fsBridge)) !== FS_BRIDGE_SOURCE) {
-    throw new Error(`${fsBridge} must contain exactly: ${FS_BRIDGE_SOURCE}`)
-  }
-  for (const [specifier, from, target] of [
-    [STORE_SPECIFIER, bridge, storeExport],
-    [FS_SPECIFIER, fsBridge, fsExport],
+  const bridge = join(root, STORE_BRIDGE_FILE)
+  const fsBridge = join(root, FS_BRIDGE_FILE)
+  for (const [specifier, from, subpath] of [
+    [STORE_SPECIFIER, bridge, './store'],
+    [FS_SPECIFIER, fsBridge, './fs'],
   ] as const) {
+    const target = exportOf(manifest, subpath)
+    if (target === undefined) {
+      throw new Error(`${packageRoot} exports no ${subpath} import entry`)
+    }
     const resolved = await realpath(Bun.resolveSync(specifier, from))
     const exported = await realpath(join(packageRoot, target))
     if (resolved !== exported) {
@@ -567,9 +504,36 @@ function isAccountLockModule(value: unknown): value is AccountLockModule {
   )
 }
 
+/** The migration's view of the same store module (its own public subset). */
+function isMigrationStore(
+  value: unknown,
+): value is AccountMigrationModules['store'] {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'openPoolStore' in value &&
+    typeof value.openPoolStore === 'function' &&
+    'PoolOperationError' in value &&
+    typeof value.PoolOperationError === 'function'
+  )
+}
+
+/** The migration's view of the same fs module: the lease helper and writer. */
+function isMigrationFs(value: unknown): value is AccountMigrationModules['fs'] {
+  return (
+    isAccountLockModule(value) &&
+    'lockPathFor' in value &&
+    typeof value.lockPathFor === 'function' &&
+    'writeJsonAtomic' in value &&
+    typeof value.writeJsonAtomic === 'function'
+  )
+}
+
 interface AdmittedStore {
   module: AccountStoreModule
   fs: AccountLockModule
+  /** The same two modules, as the migration's initializer takes them. */
+  migration: AccountMigrationModules
   bridge: string
   fsBridge: string
 }
@@ -579,20 +543,28 @@ let admitted: Promise<AdmittedStore> | undefined
 /** Loads the admitted public modules through their consumer, or fails the test. */
 function admittedStore(): Promise<AdmittedStore> {
   admitted ??= (async () => {
-    const { bridge, fsBridge } = await verifyStoreConsumer(
-      process.env[STORE_CONSUMER_ENV],
+    const { bridge, fsBridge } = await admitStoreConsumer(
+      process.env[PUBLIC_CONSUMER_ENV],
     )
     const module: unknown = await import(pathToFileURL(bridge).href)
-    if (!isAccountStoreModule(module)) {
+    if (!isAccountStoreModule(module) || !isMigrationStore(module)) {
       throw new Error(
         `${STORE_SPECIFIER} does not export the store entry points`,
       )
     }
     const fs: unknown = await import(pathToFileURL(fsBridge).href)
-    if (!isAccountLockModule(fs)) {
-      throw new Error(`${FS_SPECIFIER} does not export withLock and its errors`)
+    if (!isAccountLockModule(fs) || !isMigrationFs(fs)) {
+      throw new Error(
+        `${FS_SPECIFIER} does not export withLock, its errors and the writer`,
+      )
     }
-    return { module, fs, bridge, fsBridge }
+    return {
+      module,
+      fs,
+      migration: { store: module, fs },
+      bridge,
+      fsBridge,
+    }
   })()
   return admitted
 }
@@ -647,11 +619,46 @@ const POOL_CLEANUP_BOUND_MS = 20_000
  * runs and is bounded: a body failure is rethrown, joined by any cleanup
  * failure, and a cleanup that does not finish reports how far it got.
  */
+/**
+ * A disposable directory, by its real path: the migration refuses a path
+ * reached through a symbolic link (the system temporary directory often is).
+ */
+async function realTempDir(): Promise<string> {
+  return realpath(await mkdtemp(join(tmpdir(), 'agy-account-repository-')))
+}
+
+/**
+ * A fresh account-store generation for a legacy file that never existed,
+ * created by the migration's own initializer, and its bound paths.
+ */
+async function freshGeneration(
+  admitted: AdmittedStore,
+  dir: string,
+): Promise<AccountStorePaths> {
+  const legacyPath = join(dir, 'antigravity-accounts.json')
+  const outcome = await initializeFreshAccountStore(admitted.migration, {
+    legacyPath,
+    now: () => Date.now(),
+  })
+  if (outcome.status !== 'completed') {
+    throw new Error(`fresh initialization is ${outcome.status}`)
+  }
+  const binding = await readAccountStoreBinding(
+    legacyPath,
+    { store: admitted.module },
+    () => Date.now(),
+  )
+  if (binding.status !== 'bound') {
+    throw new Error(`the fresh generation did not bind: ${binding.status}`)
+  }
+  return binding.paths
+}
+
 async function withPool(body: (pool: Pool) => Promise<void>): Promise<void> {
-  const { module, fs, bridge, fsBridge } = await admittedStore()
-  const dir = await mkdtemp(join(tmpdir(), 'agy-account-repository-'))
-  const paths = pathsIn(dir)
-  await mkdir(paths.storeDir, { recursive: true, mode: 0o700 })
+  const admitted = await admittedStore()
+  const { module, fs, bridge, fsBridge } = admitted
+  const dir = await realTempDir()
+  const paths = await freshGeneration(admitted, dir)
   const opened: AccountRepository[] = []
   let failure: { error: unknown } | undefined
   try {
@@ -1154,6 +1161,22 @@ describe('management records and transfer files', () => {
     ).toBe('clear')
   })
 
+  it("accepts a migration record only at the migration's published phases", () => {
+    const migration = (step: string) =>
+      record({
+        kind: 'migration',
+        targets: [],
+        progress: { step, completedTargets: [] },
+        inputDigest: undefined,
+      })
+    for (const step of ACCOUNT_MIGRATION_MANAGEMENT_STEPS) {
+      expect(decodeManagementRecord(migration(step)).progress.step).toBe(step)
+    }
+    expect(() => decodeManagementRecord(migration('anything'))).toThrow(
+      '$.progress.step',
+    )
+  })
+
   it('identifies replacement inputs by every field, in order', () => {
     const one = login('new-1', 'tok-1', { email: 'one@example.test' })
     const two = login('new-2', 'tok-2')
@@ -1239,63 +1262,75 @@ describe('management records and transfer files', () => {
 })
 
 describe('real-store harness', () => {
-  async function consumerFixture(
-    files: Record<string, string>,
-  ): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), 'agy-store-consumer-'))
-    for (const [path, text] of Object.entries(files)) {
-      await mkdir(join(dir, path, '..'), { recursive: true })
-      await writeFile(join(dir, path), text)
-    }
-    return dir
-  }
-  const pkg = 'node_modules/@cortexkit/common-auth'
-  const manifest = (version: string) =>
-    JSON.stringify({
-      name: STORE_PACKAGE_NAME,
-      version,
-      exports: {
-        './store': { import: './dist/store/index.js' },
-        './fs': { import: './dist/fs/index.js' },
-      },
-    })
-
-  it('refuses a missing consumer, bridge, package or digest before importing anything', async () => {
-    const cases: Array<[Record<string, string> | undefined, string]> = [
-      [undefined, `${STORE_CONSUMER_ENV} is not set`],
-      [{ 'package.json': '{}' }, 'must contain exactly'],
-      [
-        {
-          // A bridge to a file inside the package is not the public entry.
-          [STORE_BRIDGE_FILE]: `export * from './${pkg}/dist/store/index.js'\n`,
-        },
-        'must contain exactly',
-      ],
-      [{ [STORE_BRIDGE_FILE]: STORE_BRIDGE_SOURCE }, 'is not @cortexkit'],
-      [
-        {
-          [STORE_BRIDGE_FILE]: STORE_BRIDGE_SOURCE,
-          [`${pkg}/package.json`]: manifest('0.11.2'),
-        },
-        'is not @cortexkit',
-      ],
-      [
-        {
-          [STORE_BRIDGE_FILE]: STORE_BRIDGE_SOURCE,
-          [`${pkg}/package.json`]: manifest(STORE_PACKAGE_VERSION),
-          [`${pkg}/dist/store/index.js`]: 'export const openPoolStore = 1\n',
-          [`${pkg}/dist/fs/index.js`]: '',
-        },
-        'store closure digest',
-      ],
-    ]
-    for (const [files, message] of cases) {
-      const dir = files === undefined ? undefined : await consumerFixture(files)
-      try {
-        await expect(verifyStoreConsumer(dir)).rejects.toThrow(message)
-      } finally {
-        if (dir !== undefined) await rm(dir, { recursive: true, force: true })
+  it('refuses a missing consumer, bridge, package or payload before importing anything', async () => {
+    // No consumer, or a directory the shared fixture did not provision.
+    const stray = await mkdtemp(join(tmpdir(), 'agy-store-consumer-'))
+    try {
+      for (const consumer of [undefined, '', stray]) {
+        await expect(admitStoreConsumer(consumer)).rejects.toThrow(
+          'explicit worktree-local public package fixture required',
+        )
       }
+    } finally {
+      await rm(stray, { recursive: true, force: true })
+    }
+    // A well-formed fixture name that was never provisioned.
+    await expect(
+      admitStoreConsumer(
+        join(
+          PUBLIC_CONSUMER_PROJECT_ROOT,
+          'node_modules',
+          '.common-auth-public-consumer-missing',
+        ),
+      ),
+    ).rejects.toThrow('ENOENT')
+
+    const fixture = await provisionPublicConsumer()
+    try {
+      expect(await admitStoreConsumer(fixture.root)).toEqual({
+        bridge: join(fixture.root, STORE_BRIDGE_FILE),
+        fsBridge: join(fixture.root, FS_BRIDGE_FILE),
+      })
+      const changes: Array<[string, string, string]> = [
+        // A bridge to a file inside the package is not the public entry.
+        [
+          STORE_BRIDGE_FILE,
+          `export * from './node_modules/${STORE_PACKAGE_NAME}/dist/store/index.js'\n`,
+          'public consumer entrypoint bytes differ: store',
+        ],
+        // Another version of the package, with otherwise identical bytes.
+        [
+          `node_modules/${STORE_PACKAGE_NAME}/package.json`,
+          'version',
+          'public payload byte identity differs: package/package.json',
+        ],
+        // A changed store payload.
+        [
+          `node_modules/${STORE_PACKAGE_NAME}/dist/store/index.js`,
+          'export const openPoolStore = 1\n',
+          'public payload byte identity differs: package/dist/store/index.js',
+        ],
+      ]
+      for (const [path, replacement, message] of changes) {
+        const file = join(fixture.root, path)
+        const original = await publicFixtureBytes(file)
+        const changed =
+          replacement === 'version'
+            ? `${JSON.stringify({ ...JSON.parse(original.toString()), version: '0.11.4' })}\n`
+            : replacement
+        await writeFile(file, changed)
+        try {
+          await expect(admitStoreConsumer(fixture.root)).rejects.toThrow(
+            message,
+          )
+        } finally {
+          await writeFile(file, original)
+        }
+      }
+      // Restoring every change admits the consumer again.
+      await admitStoreConsumer(fixture.root)
+    } finally {
+      await fixture.remove()
     }
   })
 
@@ -2101,10 +2136,12 @@ function openStoreDirectly(pool: Pool) {
 
 /**
  * Wraps the supplied genuine public `fs.withLock`, which still takes and
- * releases the lease itself, and records what happens around it: raises
- * `<label>-requested` when a lease is asked for and `<label>-entered` once
- * it is held, and appends `<label>-entered` and `<label>-left` to `trace`
- * around the holder's work.
+ * releases every lease itself, and records what happens around the
+ * topology lease (`antigravity-topology`) only: raises `<label>-requested`
+ * when it is asked for and `<label>-entered` once it is held, and appends
+ * `<label>-entered` and `<label>-left` to `trace` around the holder's work.
+ * Other leases taken through it (the store's save locks around binding)
+ * pass through unrecorded.
  */
 function tracedLocks(
   fs: AccountLockModule,
@@ -2119,6 +2156,9 @@ function tracedLocks(
       options: Parameters<AccountLockModule['withLock']>[1],
       fn: (lease: AccountLease) => Promise<T>,
     ): Promise<T> => {
+      if (options.name !== 'antigravity-topology') {
+        return fs.withLock(target, options, fn)
+      }
       signals.raise(`${label}-requested`)
       return fs.withLock(target, options, async (lease) => {
         signals.raise(`${label}-entered`)
@@ -3032,6 +3072,308 @@ describe('replacement diagnostics on the genuine public store', () => {
           observed,
           'input new-1 does not hold its requested metadata after the replacement',
         )
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+})
+
+describe('account-store generation binding on the genuine public store', () => {
+  /** A repository over `paths` with the admitted modules, outside `withPool`. */
+  function repositoryAt(admitted: AdmittedStore, paths: AccountStorePaths) {
+    return createAccountRepositoryFactory({
+      store: admitted.module,
+      fs: admitted.fs,
+    })({ paths, now: () => Date.now(), exchange: unusedExchange })
+  }
+
+  async function withDir(body: (dir: string) => Promise<void>) {
+    const dir = await realTempDir()
+    try {
+      await body(dir)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  it(
+    'serves nothing for a legacy path with no published generation',
+    async () => {
+      const admitted = await admittedStore()
+      await withDir(async (dir) => {
+        const repository = repositoryAt(admitted, pathsIn(dir))
+        try {
+          expect(await repository.read()).toEqual({
+            status: 'pending-migration',
+          })
+          const refused = await failureOf(
+            repository.login(login('main', 'tok-1')),
+          )
+          expect(refused).toMatchObject({
+            kind: 'pending-migration',
+            message: 'the account store has not been initialized',
+          })
+        } finally {
+          await repository.dispose()
+        }
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'serves nothing while a migration or initialization is unfinished',
+    async () => {
+      const admitted = await admittedStore()
+      await withDir(async (dir) => {
+        const legacyPath = join(dir, 'antigravity-accounts.json')
+        // The initializer stops right after publishing its pending
+        // generation, through its own boundary hook.
+        const stopped = await initializeFreshAccountStore(admitted.migration, {
+          legacyPath,
+          now: () => Date.now(),
+          onBoundary: (boundary) => {
+            if (boundary === 'pointer:after-publication') {
+              throw new Error('stopped after publishing the pointer')
+            }
+          },
+        }).then(
+          () => 'completed',
+          (error: unknown) => (error instanceof Error ? error.message : ''),
+        )
+        expect(stopped).not.toBe('completed')
+        const binding = await readAccountStoreBinding(
+          legacyPath,
+          { store: admitted.module },
+          () => Date.now(),
+        )
+        expect(binding.status).toBe('pending')
+        const repository = repositoryAt(
+          admitted,
+          resolveAccountStorePaths(legacyPath),
+        )
+        try {
+          expect(await repository.read()).toEqual({
+            status: 'pending-migration',
+          })
+          expect(
+            await failureOf(repository.login(login('main', 'tok-1'))),
+          ).toMatchObject({
+            kind: 'pending-migration',
+            message:
+              'the account store has a migration or rollback in progress',
+          })
+        } finally {
+          await repository.dispose()
+        }
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'refuses a repository whose paths are not the published generation',
+    async () => {
+      await withPool(async (pool) => {
+        const repository = repositoryAt(
+          await admittedStore(),
+          resolveAccountStorePaths(pool.paths.legacyPath, randomUUID()),
+        )
+        try {
+          expect(
+            await failureOf(repository.login(login('main', 'tok-1'))),
+          ).toMatchObject({
+            kind: 'load-error',
+            message:
+              "the published account-store generation is not this repository's",
+          })
+        } finally {
+          await repository.dispose()
+        }
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'stops serving once the store names another generation',
+    async () => {
+      await withPool(async (pool) => {
+        const repository = pool.open()
+        const { ref } = await repository.login(login('main', 'tok-1'))
+        const other = resolveAccountStorePaths(
+          pool.paths.legacyPath,
+          randomUUID(),
+        )
+        await openStoreDirectly(pool).updateSettings((settings) => {
+          const current = settings.antigravityGeneration
+          if (typeof current !== 'object' || current === null) {
+            throw new Error('no generation setting')
+          }
+          return {
+            ...settings,
+            antigravityGeneration: {
+              ...current,
+              id: basename(other.storeDir).slice(
+                'antigravity-accounts.json.store.'.length,
+                -'.generation'.length,
+              ),
+              storeDir: other.storeDir,
+            },
+          }
+        }, {})
+        expect(await repository.read()).toEqual({
+          status: 'error',
+          file: 'settings',
+          reason: 'the store now belongs to another account-store generation',
+        })
+        expect(
+          await failureOf(
+            repository.recordUsage(ref, { family: 'claude', at: 1 }),
+          ),
+        ).toMatchObject({
+          kind: 'load-error',
+          message: 'the store now belongs to another account-store generation',
+        })
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'refuses to bind once the legacy file is recreated after activation',
+    async () => {
+      await withPool(async (pool) => {
+        await writeFile(pool.paths.legacyPath, '{"version":4,"accounts":[]}')
+        const read = await pool.open().read()
+        expect(read).toEqual({
+          status: 'error',
+          file: 'config',
+          reason: 'legacy source was recreated after activation',
+        })
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'resumes an interrupted clear in a newly opened repository and serves nothing meanwhile',
+    async () => {
+      await withPool(async (pool) => {
+        let armed = true
+        const faulted: AccountStoreModule = {
+          ...pool.module,
+          openPoolStore: (options) => {
+            const store = pool.module.openPoolStore(options)
+            return {
+              ...store,
+              updateSettings: (mutator, settingsOptions) =>
+                store.updateSettings((settings) => {
+                  const next = mutator(settings)
+                  if (
+                    armed &&
+                    settings[MANAGEMENT_SETTINGS_KEY] !== undefined &&
+                    next !== undefined &&
+                    next[MANAGEMENT_SETTINGS_KEY] === undefined
+                  ) {
+                    armed = false
+                    throw new Error('injected fault before the journal clear')
+                  }
+                  return next
+                }, settingsOptions),
+            }
+          },
+        }
+        const setup = pool.open()
+        const kept = await setup.login(login('main', 'tok-1'))
+        await setup.login(login('other', 'tok-2'))
+        const interrupted = pool.open(
+          unusedExchange,
+          {},
+          { store: faulted, fs: pool.fs },
+        )
+        const first = await failureOf(interrupted.clear())
+        expect(first.message).toContain('injected fault')
+        expect(armed).toBe(false)
+
+        // A repository opened afterwards binds the same generation, refuses
+        // ordinary work while the clear is pending, and finishes the clear.
+        const reopened = pool.open()
+        expect((await reopened.read()).status).toBe('management-pending')
+        expect(
+          (
+            await failureOf(
+              reopened.recordUsage(kept.ref, { family: 'claude', at: 1 }),
+            )
+          ).kind,
+        ).toBe('management-pending')
+        const receipt = await reopened.clear()
+        expect(receipt.outcome).toBe('completed')
+        expect(ready(await reopened.read()).rows).toEqual([])
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'binds a generation holding a torn row, without routing that row',
+    async () => {
+      await withPool(async (pool) => {
+        const setup = pool.open()
+        const torn = await setup.login(
+          login('torn', 'tok-torn', {}, 'acct-torn'),
+        )
+        const healthy = await setup.login(
+          login('healthy', 'tok-healthy', {}, 'acct-healthy'),
+        )
+        // A replace through the genuine store stops between its state write
+        // and its config write, through the store's public write-step hook.
+        const options = {
+          provider: ACCOUNT_STORE_PROVIDER,
+          configPath: pool.paths.configPath,
+          statePath: pool.paths.statePath,
+          quota: QUOTA_CODEC,
+          providerState: createProviderStateCodec(ACCOUNT_STATE_POLICY),
+          requireCredentialStamps: true as const,
+          now: () => Date.now(),
+          onStep: (step: string, info: { operation: string }) => {
+            if (
+              info.operation === 'replace' &&
+              step === 'before-config-write'
+            ) {
+              throw new Error('stopped between the replace writes')
+            }
+          },
+        }
+        const stopping = pool.module.openPoolStore(options)
+        const stopped = await stopping
+          .replace(
+            torn.ref.id,
+            { type: 'oauth', refresh: 'tok-torn-next' },
+            { identity: 'acct-torn' },
+            {
+              attribution: {
+                credentialEpoch: torn.ref.credentialEpoch,
+                identity: 'acct-torn',
+              },
+            },
+          )
+          .then(
+            () => 'completed',
+            () => 'stopped',
+          )
+        expect(stopped).toBe('stopped')
+
+        const reopened = pool.open()
+        const read = ready(await reopened.read())
+        expect(read.rows.find((row) => row.ref.id === 'torn')?.torn).toBe(true)
+        const manager = AccountManager.fromRepository(read, {
+          repository: reopened,
+          now: () => Date.now(),
+        })
+        expect(manager.getAccounts().map((account) => account.ref)).toEqual([
+          healthy.ref,
+        ])
       })
     },
     STORE_TEST_TIMEOUT_MS,
