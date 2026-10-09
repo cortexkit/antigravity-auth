@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM oven/bun:1.3.14-debian AS bun
+FROM oven/bun:1.4.2-debian AS bun
 FROM node:24-bookworm-slim
 ARG SOURCE_REVISION
 ENV GA_SOURCE_REVISION="${SOURCE_REVISION}"
@@ -11,6 +11,7 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /workspace
 COPY . .
 RUN bun install --frozen-lockfile \
+  && bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts \
   && bun run build
 
 # Bootstrap validates the tracked manifest, SRI before decoding the archive,

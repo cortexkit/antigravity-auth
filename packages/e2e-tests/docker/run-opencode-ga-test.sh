@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Runs the 102-case OpenCode 2.0.22 GA suite in a network-less container.
-# This is the GA runner; run-opencode-v2-test.sh and its Dockerfile and
-# harness exercise the earlier 2.0 beta adapter and are expected to be
-# removed together when the package switches to GA, not kept as an alias.
+# Runs the OpenCode 2.0.22 single-request smoke or extended suite with no network.
 # --inputs names the committed module exporting createGaHostIntegrationInputs
 # (packages/e2e-tests/src/opencode-ga-inputs.ts).
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -16,7 +13,7 @@ if [[ "${1:-}" == --smoke ]]; then
   shift
 fi
 [[ "$#" == 2 && "$1" == --inputs && "$2" == packages/* && "$2" != *..* ]] || {
-  echo 'usage: run-opencode-ga-test.sh --inputs <committed packages/... input module>' >&2
+  echo 'usage: run-opencode-ga-test.sh [--smoke] --inputs <committed packages/... input module>' >&2
   exit 2
 }
 HOST_INPUT_MODULE="$2"
@@ -44,11 +41,17 @@ trap 'rm -rf "$CONTEXT"' EXIT
 # Only committed files enter the build context, so an ignored or untracked
 # local file cannot supply a pin, fixture or measurement.
 git -C "$REPO_ROOT" archive "$REVISION" | tar -x -C "$CONTEXT"
-for input in \
-  packages/e2e-tests/docker/ga-binary-pin.json \
-  packages/opencode/docs/opencode2-ga-2.0.22-contract.md \
-  packages/e2e-tests/docker/ga-proxy-env-matrix.json \
-  packages/e2e-tests/docker/ga-proxy-env-matrix.provenance.json; do
+INPUTS=(
+  packages/e2e-tests/docker/ga-binary-pin.json
+  packages/opencode/docs/opencode2-ga-2.0.22-contract.md
+)
+if [[ "$HOST_TEST_MODE" == --run ]]; then
+  INPUTS+=(
+    packages/e2e-tests/docker/ga-proxy-env-matrix.json
+    packages/e2e-tests/docker/ga-proxy-env-matrix.provenance.json
+  )
+fi
+for input in "${INPUTS[@]}"; do
   [[ -s "$CONTEXT/$input" ]] || { echo "Missing GA join input: $input" >&2; exit 2; }
 done
 

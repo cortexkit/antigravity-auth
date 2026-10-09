@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test'
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
@@ -795,5 +803,102 @@ describe('primary-request attribution and native result validation', () => {
     expect(() =>
       assertConformance({ ...good, full: false }, good, pin),
     ).toThrow()
+  })
+})
+
+describe('GA shell runner fixture preflight, not native host certification', () => {
+  test.each([
+    { smoke: true, status: 42, witness: 'OWNED_DOCKER_BUILD_BOUNDARY' },
+    {
+      smoke: false,
+      status: 2,
+      witness:
+        'Missing GA join input: packages/e2e-tests/docker/ga-proxy-env-matrix.json',
+    },
+  ])('enforces the correct fixture set with smoke=$smoke', ({
+    smoke,
+    status,
+    witness,
+  }) => {
+    const root = mkdtempSync(join(tmpdir(), 'agy-shell-preflight-'))
+    const bin = join(root, 'bin')
+    const env = {
+      PATH: `${bin}:/usr/bin:/bin`,
+      HOME: root,
+      TMPDIR: root,
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_SYSTEM: '/dev/null',
+      GIT_AUTHOR_NAME: 'Fixture',
+      GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+      GIT_COMMITTER_NAME: 'Fixture',
+      GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+    }
+    const command = (file: string, args: string[]) =>
+      spawnSync(file, args, {
+        cwd: root,
+        env,
+        encoding: 'utf8',
+        timeout: 10_000,
+        maxBuffer: 128 * 1024,
+      })
+    try {
+      mkdirSync(bin)
+      const runner = 'packages/e2e-tests/docker/run-opencode-ga-test.sh'
+      const input = 'packages/e2e-tests/src/owned-input.ts'
+      for (const [path, contents] of [
+        [runner, readFileSync(join(HERE, 'run-opencode-ga-test.sh'), 'utf8')],
+        ['packages/e2e-tests/docker/ga-binary-pin.json', '{}'],
+        [
+          'packages/opencode/docs/opencode2-ga-2.0.22-contract.md',
+          'Owned fixture',
+        ],
+        [input, 'export {}'],
+      ] as const) {
+        mkdirSync(dirname(join(root, path)), { recursive: true })
+        writeFileSync(join(root, path), contents)
+      }
+      // These inert executables stop at image-build invocation. They never
+      // create an image, start OpenCode or claim network-isolation evidence.
+      writeFileSync(join(bin, 'uname'), '#!/bin/bash\necho x86_64\n', {
+        mode: 0o700,
+      })
+      writeFileSync(
+        join(bin, 'docker'),
+        '#!/bin/bash\nif [[ "$1" == info ]]; then echo amd64; else echo OWNED_DOCKER_BUILD_BOUNDARY; exit 42; fi\n',
+        { mode: 0o700 },
+      )
+      writeFileSync(join(bin, 'timeout'), '#!/bin/bash\nshift 3\nexec "$@"\n', {
+        mode: 0o700,
+      })
+      for (const args of [
+        ['init', '--quiet'],
+        ['add', '.'],
+        [
+          '-c',
+          'core.hooksPath=/dev/null',
+          'commit',
+          '--quiet',
+          '-m',
+          'Owned preflight fixture',
+        ],
+      ]) {
+        const result = command('git', args)
+        expect(result.error).toBeUndefined()
+        expect(result.status).toBe(0)
+      }
+      const result = command('/bin/bash', [
+        join(root, runner),
+        ...(smoke ? ['--smoke'] : []),
+        '--inputs',
+        input,
+      ])
+      expect(result.error).toBeUndefined()
+      expect(result.status).toBe(status)
+      expect(`${result.stdout}${result.stderr}`).toContain(witness)
+      if (!smoke)
+        expect(result.stdout).not.toContain('OWNED_DOCKER_BUILD_BOUNDARY')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
