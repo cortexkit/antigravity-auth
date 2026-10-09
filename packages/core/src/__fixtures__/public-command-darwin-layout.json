@@ -1,0 +1,45 @@
+{
+  "size": 136,
+  "pidSize": 4,
+  "allPids": 1,
+  "bsdInfo": 3,
+  "zombie": 5,
+  "missingError": 3,
+  "offsets": {
+    "pid": 12,
+    "ppid": 16,
+    "pgid": 100,
+    "status": 4,
+    "seconds": 120,
+    "microseconds": 128
+  },
+  "provenance": {
+    "sdk": "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk",
+    "compiler": "Apple clang 21.0.0 (clang-2100.3.34.2), arm64-apple-darwin27.0.0",
+    "verifiedArchitectures": ["arm64", "x86_64"],
+    "source": "packages/core/src/__fixtures__/public-command-darwin-layout.c",
+    "sourceSha256": "26e3fea9e95a8bf3530701f6610306e211ef05754b492e2356c92f9b62731300",
+    "headers": [
+      {
+        "path": "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk/usr/include/libproc.h",
+        "sha256": "246d87709fc6b9157ce5cf3c475656ac48e0e1ae8bbdc46cf45acd34294448cd"
+      },
+      {
+        "path": "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk/usr/include/sys/proc_info.h",
+        "sha256": "e427fa96b348537b21552b9de71e01039410bcad2cedee5584c5e5fddafd70fc"
+      },
+      {
+        "path": "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk/usr/include/sys/proc.h",
+        "sha256": "593af71b2740ba6248995691280bcb15f8900d46b1d9868f7345084aa0692949"
+      },
+      {
+        "path": "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk/usr/include/unistd.h",
+        "sha256": "8d535079658f063bcef358ef4c1c1b52b8e88dacfc22cbf4db0f6bf8abe40637"
+      },
+      {
+        "path": "/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk/usr/include/sys/errno.h",
+        "sha256": "109ace10e79b9467dee3b8c7890f1d5bea1102d982c521922e9d372ab9863c97"
+      }
+    ]
+  }
+}

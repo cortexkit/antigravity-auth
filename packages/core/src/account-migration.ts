@@ -1,14 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import {
-  link,
-  lstat,
-  mkdir,
-  open,
-  readdir,
-  realpath,
-  unlink,
-} from 'node:fs/promises'
+import { link, lstat, mkdir, open, realpath, unlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
@@ -738,12 +730,6 @@ export interface AccountMigrationJournal {
   /** Row IDs are saved before calling store.add and are never derived from an email address. */
   mapping: { id: string; ordinal: number }[]
   completedRows: string[]
-  ownedTemps?: {
-    name: string
-    sha256: string
-    targetPresent: boolean
-    priorSha256?: string
-  }[]
   verification?: MigrationVerification
   retiredSha256?: string
   rollback?: MigrationRollback
@@ -844,7 +830,6 @@ export function decodeAccountMigrationJournal(
       'manifest',
       'mapping',
       'completedRows',
-      'ownedTemps',
       'verification',
       'retiredSha256',
       'rollback',
@@ -1005,47 +990,6 @@ export function decodeAccountMigrationJournal(
     throw new AccountMigrationError(
       'completed rows are not the captured prefix order',
     )
-  let ownedTemps:
-    | {
-        name: string
-        sha256: string
-        targetPresent: boolean
-        priorSha256?: string
-      }[]
-    | undefined
-  if (Object.hasOwn(raw, 'ownedTemps')) {
-    ownedTemps = list(raw.ownedTemps, 'owned temps').map((value) => {
-      const temp = exact(
-        value,
-        ['name', 'sha256', 'targetPresent', 'priorSha256'],
-        'owned temp',
-      )
-      if (
-        typeof temp.targetPresent !== 'boolean' ||
-        (!temp.targetPresent && Object.hasOwn(temp, 'priorSha256'))
-      )
-        throw new AccountMigrationError('owned stage prior presence is invalid')
-      return {
-        name: text(
-          temp.name,
-          /^(?:config|state)\.json\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/,
-          'owned temp name',
-        ),
-        sha256: text(temp.sha256, SHA256, 'owned temp hash'),
-        targetPresent: temp.targetPresent,
-        ...(temp.targetPresent
-          ? { priorSha256: text(temp.priorSha256, SHA256, 'prior target hash') }
-          : {}),
-      }
-    })
-    if (
-      ownedTemps.length > 2 ||
-      new Set(ownedTemps.map((temp) => temp.name)).size !== ownedTemps.length
-    )
-      throw new AccountMigrationError(
-        'owned temp references are duplicated or excessive',
-      )
-  }
   let verification: MigrationVerification | undefined
   if (Object.hasOwn(raw, 'verification')) {
     const v = exact(
@@ -1226,7 +1170,6 @@ export function decodeAccountMigrationJournal(
     manifest,
     mapping,
     completedRows,
-    ...(ownedTemps === undefined ? {} : { ownedTemps }),
     ...(verification === undefined ? {} : { verification }),
     ...(retiredSha256 === undefined ? {} : { retiredSha256 }),
     ...(rollback === undefined ? {} : { rollback }),
@@ -1696,14 +1639,7 @@ async function verifyCopies(
   journal: AccountMigrationJournal,
   retired: boolean,
 ): Promise<void> {
-  if (journal.sourceKind === 'absent') {
-    for (const directory of [paths.backupsDir, paths.retiredDir])
-      if ((await readdir(directory)).length)
-        throw new AccountMigrationError(
-          'absent source has unrelated backup or retired artifacts',
-        )
-    return
-  }
+  if (journal.sourceKind === 'absent') return
   const backup = await secureRead(
     join(paths.backupsDir, `${journal.sourceSha256}.json`),
   )
@@ -2078,7 +2014,7 @@ export async function readAccountStoreBinding(
       throw new AccountMigrationError(
         'bound repository generation differs from pointer',
       )
-    if (journal.status === 'pending' || journal.ownedTemps?.length)
+    if (journal.status === 'pending')
       return {
         status: 'pending',
         phase: journal.phase,
@@ -2652,18 +2588,11 @@ export function createAccountMigrationFactory(
                     throw new AccountMigrationError(
                       'inactive physical paths missing',
                     )
-                  await recoverStoreTemps(
-                    modules,
-                    paths,
-                    oldLease,
-                    existing,
-                    options.onBoundary,
-                  )
                   const oldStore = openMigrationStore(
                     modules,
                     paths,
                     options.now,
-                    writeObserver(modules, paths, oldLease, options.onBoundary),
+                    writeObserver(paths, oldLease, options.onBoundary),
                   )
                   await discardInactive(oldStore, paths, existing)
                 },
@@ -2729,18 +2658,11 @@ export function createAccountMigrationFactory(
                 await options.onBoundary?.('after-capture')
               }
               await assertPublishedAccountStoreGeneration(physical)
-              await recoverStoreTemps(
-                modules,
-                physical,
-                lease,
-                journal,
-                options.onBoundary,
-              )
               const store = openMigrationStore(
                 modules,
                 physical,
                 options.now,
-                writeObserver(modules, physical, lease, options.onBoundary),
+                writeObserver(physical, lease, options.onBoundary),
               )
               if (journal.status === 'active') {
                 if (await exists(physical.legacyPath))
@@ -2996,18 +2918,11 @@ export function createAccountRollbackFactory(modules: AccountMigrationModules) {
                 'rollback requires an owned migration generation',
               )
             let journal = initialJournal
-            await recoverStoreTemps(
-              modules,
-              paths,
-              lease,
-              journal,
-              options.onBoundary,
-            )
             const store = openMigrationStore(
               modules,
               paths,
               options.now,
-              writeObserver(modules, paths, lease, options.onBoundary),
+              writeObserver(paths, lease, options.onBoundary),
             )
             if (journal.status === 'inactive') {
               if (journal.cancelled) {
@@ -3301,7 +3216,6 @@ async function assertSourceAbsent(paths: AccountStorePaths): Promise<void> {
 }
 async function expectedFreshArtifacts(
   paths: AccountStorePaths,
-  modules: AccountMigrationModules,
   journal: AccountMigrationJournal,
 ): Promise<void> {
   if (
@@ -3314,26 +3228,9 @@ async function expectedFreshArtifacts(
     )
   await assertSourceAbsent(paths)
   await verifyCopies(paths, journal, false)
-  if (
-    (await readdir(paths.transfersDir)).length ||
-    (await exists(paths.statePath))
-  )
+  if (await exists(paths.statePath))
     throw new AccountMigrationError(
-      'fresh initialization found unrelated credential or transfer artifacts',
-    )
-  const allowed = [
-    'backups',
-    'retired',
-    'transfers',
-    'migration.json',
-    'config.json',
-    basename(modules.fs.lockPathFor(paths.configPath, MANAGEMENT_LOCK_NAME)),
-    basename(modules.fs.lockPathFor(paths.configPath, 'save')),
-    basename(modules.fs.lockPathFor(paths.statePath, 'save')),
-  ]
-  if ((await readdir(paths.storeDir)).some((entry) => !allowed.includes(entry)))
-    throw new AccountMigrationError(
-      'fresh initialization found unrelated successor artifacts',
+      'fresh initialization found unrelated credential artifacts',
     )
   if (!(await exists(paths.configPath))) return
   if (journal.phase === 'capture')
@@ -3519,13 +3416,6 @@ export async function initializeFreshAccountStore(
                 'fresh resume has no compatible pointed generation',
               )
             await assertPublishedAccountStoreGeneration(physical)
-            await recoverStoreTemps(
-              modules,
-              physical,
-              lease,
-              journal,
-              options.onBoundary,
-            )
             const guardBoundary = async (name: string) => {
               await assertSourceAbsent(physical)
               await options.onBoundary?.(name)
@@ -3536,7 +3426,7 @@ export async function initializeFreshAccountStore(
               modules,
               physical,
               options.now,
-              writeObserver(modules, physical, lease, guardBoundary),
+              writeObserver(physical, lease, guardBoundary),
             )
             if (journal.status === 'active') {
               await verifyCopies(physical, journal, false)
@@ -3544,7 +3434,7 @@ export async function initializeFreshAccountStore(
               await management(store, journal, true)
               return { status: 'completed', receipt: receipt(journal) }
             }
-            await expectedFreshArtifacts(physical, modules, journal)
+            await expectedFreshArtifacts(physical, journal)
             if (journal.phase === 'capture') {
               await guardBoundary('after-capture')
               journal.phase = 'build'
@@ -3570,7 +3460,7 @@ export async function initializeFreshAccountStore(
                 journal,
                 phaseOptions,
               )
-              await expectedFreshArtifacts(physical, modules, journal)
+              await expectedFreshArtifacts(physical, journal)
               journal.phase = 'verify'
               await saveJournal(
                 modules,
@@ -3596,7 +3486,7 @@ export async function initializeFreshAccountStore(
             }
             if (journal.phase === 'retire') {
               await guardBoundary('before-retire')
-              await expectedFreshArtifacts(physical, modules, journal)
+              await expectedFreshArtifacts(physical, journal)
               await verifyImported(store, journal)
               const retiring = journal
               await modules.fs.withLock(
@@ -3633,7 +3523,7 @@ export async function initializeFreshAccountStore(
               )
             }
             await guardBoundary('before-activate')
-            await expectedFreshArtifacts(physical, modules, journal)
+            await expectedFreshArtifacts(physical, journal)
             await verifyImported(store, journal)
             journal.status = 'active'
             await saveJournal(
@@ -3655,114 +3545,6 @@ export async function initializeFreshAccountStore(
     const pending = pendingLockFailure(modules, error)
     if (pending) return pending
     throw error
-  }
-}
-
-/** Deletes only byte-identical stages explicitly recorded before a public write. */
-async function recoverStoreTemps(
-  modules: AccountMigrationModules,
-  paths: AccountStorePaths,
-  lease: MigrationLease,
-  journal: AccountMigrationJournal,
-  boundary?: AccountMigrationOptions['onBoundary'],
-): Promise<void> {
-  const recorded = journal.ownedTemps ?? []
-  for (const temp of recorded) {
-    const path = join(paths.storeDir, temp.name)
-    const target = temp.name.startsWith('config.json.')
-      ? paths.configPath
-      : paths.statePath
-    if (await exists(path)) {
-      if (digest(await secureRead(path)) !== temp.sha256)
-        throw new AccountMigrationError('owned store staging bytes changed')
-      await lease.assertOwned()
-      await unlink(path)
-      await syncDirectory(paths.storeDir, boundary)
-    } else {
-      const present = await exists(target)
-      const hash = present ? digest(await secureRead(target)) : undefined
-      if (
-        !(present && hash === temp.sha256) &&
-        !(present === temp.targetPresent && hash === temp.priorSha256)
-      )
-        throw new AccountMigrationError(
-          'missing recorded stage matches neither its prior nor completed public write',
-        )
-    }
-  }
-  if (recorded.length) {
-    delete journal.ownedTemps
-    await saveJournal(modules, paths, lease, journal, false, boundary)
-  }
-}
-async function checkpointStoreStage(
-  modules: AccountMigrationModules,
-  paths: AccountStorePaths,
-  lease: MigrationLease,
-  step: MigrationPublicWriteStep,
-  boundary?: AccountMigrationOptions['onBoundary'],
-): Promise<void> {
-  const journal = await readJournal(paths)
-  if (!journal)
-    throw new AccountMigrationError(
-      'public write has no durable migration journal',
-    )
-  const file = step.includes('config') ? 'config.json' : 'state.json'
-  const pattern = new RegExp(
-    `^${file.replace('.', '\\.')}\\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.tmp$`,
-  )
-  if (step.startsWith('before-')) {
-    const names = (await readdir(paths.storeDir)).filter((name) =>
-      pattern.test(name),
-    )
-    if (names.length !== 1)
-      throw new AccountMigrationError(
-        'public staging interval has unrelated or missing files',
-      )
-    const name = names[0]
-    if (!name) throw new AccountMigrationError('public staging name absent')
-    const sha256 = digest(await secureRead(join(paths.storeDir, name)))
-    await syncFile(join(paths.storeDir, name))
-    const target = file === 'config.json' ? paths.configPath : paths.statePath
-    const targetPresent = await exists(target)
-    journal.ownedTemps = [
-      ...(journal.ownedTemps ?? []).filter((temp) => !pattern.test(temp.name)),
-      {
-        name,
-        sha256,
-        targetPresent,
-        ...(targetPresent
-          ? { priorSha256: digest(await secureRead(target)) }
-          : {}),
-      },
-    ]
-    await saveJournal(modules, paths, lease, journal, false, boundary)
-  } else {
-    const completed = (journal.ownedTemps ?? []).filter((temp) =>
-      pattern.test(temp.name),
-    )
-    const target = file === 'config.json' ? paths.configPath : paths.statePath
-    await syncFile(target)
-    await syncDirectory(paths.storeDir, boundary)
-    for (const temp of completed) {
-      if (
-        (await exists(join(paths.storeDir, temp.name))) ||
-        digest(await secureRead(target)) !== temp.sha256
-      )
-        throw new AccountMigrationError(
-          'public write does not match its recorded stage',
-        )
-    }
-    journal.ownedTemps = (journal.ownedTemps ?? []).filter(
-      (temp) => !pattern.test(temp.name),
-    )
-    if (!journal.ownedTemps.length) delete journal.ownedTemps
-    // The next pending phase/row acknowledgment persists the journal after a
-    // public operation, so keep its before-write stage reference until then.
-    // Final active/inactive settings cleanup has no later acknowledgment and
-    // must persist removal of that reference here.
-    if (completed.length && journal.status !== 'pending')
-      await saveJournal(modules, paths, lease, journal, false, boundary)
   }
 }
 
@@ -3884,7 +3666,6 @@ function withParentTopology<T>(
 }
 
 function writeObserver(
-  modules: AccountMigrationModules,
   paths: AccountStorePaths,
   lease: MigrationLease,
   boundary?: AccountMigrationOptions['onBoundary'],
@@ -3895,10 +3676,16 @@ function writeObserver(
   ) => {
     await lease.assertOwned()
     await assertPublishedAccountStoreGeneration(paths)
-    await checkpointStoreStage(modules, paths, lease, step, boundary)
+    if (step.startsWith('after-')) {
+      // The public observer runs under the native write locks. Persist the renamed
+      // target and its directory before the next write or migration acknowledgment.
+      // Random native staging files are private residue, not recovery evidence.
+      await syncFile(
+        step.includes('config') ? paths.configPath : paths.statePath,
+      )
+      await syncDirectory(paths.storeDir, boundary)
+    }
     await boundary?.(`public:${info.operation}:${step}`)
-    // checkpointStoreStage already synchronizes the completed real public file
-    // before the crash observation hook; repeating those barriers adds no proof.
     await lease.assertOwned()
     await assertPublishedAccountStoreGeneration(paths)
   }
