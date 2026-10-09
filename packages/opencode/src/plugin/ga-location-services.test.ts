@@ -449,6 +449,7 @@ describe('GA request pipeline pieces', () => {
           repository,
         })
         const credentials = createGaLocalCredentials(manager, {
+          repository,
           overrides: {},
         })
         const [first, second] = manager.getAccounts()

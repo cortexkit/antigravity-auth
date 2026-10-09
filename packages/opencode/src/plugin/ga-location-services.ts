@@ -1087,11 +1087,14 @@ export class GaStaleGrantError extends Error {
 export function createGaLocalCredentials(
   manager: AccountManager,
   options: {
+    /** Supplies the manager's account rows and current credential checks. */
+    readonly repository: Pick<AccountRepository, 'read'>
     readonly overrides: GaPluginOverrides
     readonly refreshQuotaAfterSuccess?: LocalRequestCredentials<ManagedAccount>['refreshQuotaAfterSuccess']
   },
 ): LocalRequestCredentials<ManagedAccount> {
   const local = createLocalAccountCredentials(manager, {
+    repository: options.repository,
     ...(options.overrides.ensureProjectContext
       ? { ensureProject: options.overrides.ensureProjectContext }
       : {}),
@@ -1104,18 +1107,17 @@ export function createGaLocalCredentials(
     saveToDisk: () => manager.saveToDisk(),
     saveToDiskReplace: () => manager.saveToDiskReplace(),
     refresh: (account) => local.refresh(account),
-    // A grant is sent only while its account is still in this manager's
-    // pool, enabled, attributed to a repository row and still holding the
-    // grant's access token; otherwise the engine reselects.
-    assertGrantCurrent: ({ account, accessToken }) => {
-      if (
-        account.ref === undefined ||
-        !manager.getAccounts().includes(account) ||
-        account.enabled === false ||
-        manager.toAuthDetails(account).access !== accessToken
-      ) {
-        throw new GaStaleGrantError()
+    // Capture the reference identifying the original row and credential epoch.
+    // The returned check delegates memory and store validation to
+    // local.assertGrantCurrent; a missing reference makes the check reject.
+    captureGrant: ({ account, accessToken }) => {
+      const ref = account.ref
+      if (ref === undefined) {
+        return () => {
+          throw new GaStaleGrantError()
+        }
       }
+      return () => local.assertGrantCurrent({ account, accessToken, ref })
     },
     ensureProject: (auth) => local.ensureProject(auth),
     isInvalidGrant: (error) => local.isInvalidGrant(error),
@@ -1443,6 +1445,7 @@ export async function createGaLocalRequestPipeline(
     }),
     accounts: manager,
     credentials: createGaLocalCredentials(manager, {
+      repository: input.repository,
       overrides: input.overrides,
       refreshQuotaAfterSuccess: createLocalQuotaRefresh(
         manager,

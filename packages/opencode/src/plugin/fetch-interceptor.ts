@@ -1,4 +1,5 @@
 import {
+  type AccountRepository,
   AccountSelector,
   fetchWithAgyCliTransport,
 } from '@cortexkit/antigravity-auth-core'
@@ -71,11 +72,17 @@ export interface FetchInterceptorContext {
   /**
    * Where `accountManager`'s accounts come from, as the auth loader opened
    * them. `pool-file`: the pre-store pool file, whose tokens are refreshed
-   * through the host's OAuth refresh. `store`: the account store, whose
+   * through the host's OAuth refresh. `store`: the account store, read
+   * through `repository`, the same opening the manager was loaded from;
    * tokens are refreshed only by the repository on the selected account's
-   * own row reference.
+   * own row reference, and every send is checked against that row.
    */
-  readonly accountSource: 'pool-file' | 'store'
+  readonly accountSource:
+    | { readonly kind: 'pool-file' }
+    | {
+        readonly kind: 'store'
+        readonly repository: Pick<AccountRepository, 'read'>
+      }
   readonly quotaManager: QuotaManager
   readonly getAuth: GetAuth
   readonly agySessionRegistry: AgySessionRegistry
@@ -113,7 +120,7 @@ export interface FetchInterceptor {
 /** The local credential operations that differ between account sources. */
 type SourceCredentials = Pick<
   LocalRequestCredentials<ManagedAccount>,
-  'refresh' | 'assertGrantCurrent' | 'ensureProject' | 'isInvalidGrant'
+  'refresh' | 'captureGrant' | 'ensureProject' | 'isInvalidGrant'
 >
 
 /**
@@ -133,15 +140,19 @@ function poolFileCredentials(
         client,
         providerId,
       ),
-    assertGrantCurrent: ({ account, accessToken }) => {
-      if (
-        !accountManager.getAccounts().includes(account) ||
-        account.enabled === false ||
-        accountManager.toAuthDetails(account).access !== accessToken
-      ) {
-        throw new StaleAccountGrantError()
-      }
-    },
+    // A pool-file row has no repository identity; its grant is checked
+    // against the pool itself, as before.
+    captureGrant:
+      ({ account, accessToken }) =>
+      () => {
+        if (
+          !accountManager.getAccounts().includes(account) ||
+          account.enabled === false ||
+          accountManager.toAuthDetails(account).access !== accessToken
+        ) {
+          throw new StaleAccountGrantError()
+        }
+      },
     ensureProject: (auth) => ensureProjectContext(auth),
     isInvalidGrant: (error) =>
       error instanceof AntigravityTokenRefreshError &&
@@ -151,15 +162,31 @@ function poolFileCredentials(
 
 /**
  * An account-store account: refresh, grant check and invalid-grant
- * recognition are the store adapter's own (`createLocalAccountCredentials`),
- * so a token is refreshed only through the repository on the selected
- * account's row reference and never through the host client.
+ * recognition are the store adapter's own (`createLocalAccountCredentials`
+ * over the manager's repository), so a token is refreshed only through the
+ * repository on the selected account's row reference and never through the
+ * host client. The row reference is captured when the grant is resolved;
+ * every send is checked against that exact row, never against whatever the
+ * account object holds later, and a grant without one is never sent.
  */
-function storeCredentials(accountManager: AccountManager): SourceCredentials {
-  const credentials = createLocalAccountCredentials(accountManager)
+function storeCredentials(
+  accountManager: AccountManager,
+  repository: Pick<AccountRepository, 'read'>,
+): SourceCredentials {
+  const credentials = createLocalAccountCredentials(accountManager, {
+    repository,
+  })
   return {
     refresh: (account) => credentials.refresh(account),
-    assertGrantCurrent: (request) => credentials.assertGrantCurrent(request),
+    captureGrant: ({ account, accessToken }) => {
+      const ref = account.ref
+      if (ref === undefined) {
+        return () => {
+          throw new StaleAccountGrantError()
+        }
+      }
+      return () => credentials.assertGrantCurrent({ account, accessToken, ref })
+    },
     ensureProject: (auth) => credentials.ensureProject(auth),
     isInvalidGrant: (error) => credentials.isInvalidGrant(error),
   }
@@ -260,8 +287,8 @@ export function createFetchInterceptor(
       removeAccount: (account) => accountManager.removeAccount(account),
       saveToDisk: () => accountManager.saveToDisk(),
       saveToDiskReplace: () => accountManager.saveToDiskReplace(),
-      ...(accountSource === 'store'
-        ? storeCredentials(accountManager)
+      ...(accountSource.kind === 'store'
+        ? storeCredentials(accountManager, accountSource.repository)
         : poolFileCredentials(accountManager, client, providerId)),
       clearStoredAuth: async () => {
         await client.auth.set({

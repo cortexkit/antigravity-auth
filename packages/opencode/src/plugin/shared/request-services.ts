@@ -259,18 +259,23 @@ export interface LocalRequestCredentials<A extends RequestAccountRow> {
   /** Clear host-stored OAuth credentials once the last account is removed. */
   clearStoredAuth(): Promise<void>
   /**
-   * Called immediately before every physical upstream send of a local grant
-   * (thinking warmup, cache probe and the request itself), after every wait
-   * that precedes it. Throw to stop that send when the grant is no longer
-   * the selected row's current credential: the row was removed, disabled or
-   * replaced, or the token expired. The error is handled like a failed send,
-   * so the engine tries the next endpoint or reselects and resolves a new
-   * grant; a stale grant is never sent.
+   * Synchronously captures the original row identity and credential epoch
+   * when its access token is resolved, whether stored or just refreshed.
+   * Capture happens before any save, project resolution or other await;
+   * later account changes must not replace the captured identity.
+   *
+   * The returned check runs after all preceding waits and immediately before
+   * every upstream request, including thinking warmup and cache probes.
+   * It throws or rejects to stop that attempt if the row was removed,
+   * disabled or replaced, or its current access token changed. Existing
+   * endpoint fallback and account rotation remain unchanged: the engine
+   * handles the error as a failed send and may resolve a new grant, but
+   * never sends the stale one.
    */
-  assertGrantCurrent(request: {
+  captureGrant(grant: {
     readonly account: A
     readonly accessToken: string
-  }): void | Promise<void>
+  }): () => void | Promise<void>
   /**
    * Started without awaiting after a successful send, with the selected row
    * and `quota_refresh_interval_minutes`. `createLocalQuotaRefresh` builds
@@ -1282,9 +1287,28 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       // domain skips this entirely: it has no stored token, no refresh and
       // no project cache, and takes a fresh admission for every physical
       // send below.
-      let localGrant: { accessToken: string; projectId: string } | null = null
+      let localGrant: {
+        accessToken: string
+        projectId: string
+        /** The captured grant's check, run before every physical send. */
+        check: () => void | Promise<void>
+      } | null = null
       if (credentials.domain === 'local') {
         let authRecord = credentials.toAuthDetails(account)
+        // The grant is captured synchronously the moment its token is fixed
+        // (the stored token, or the refresh's successor), before any later
+        // await such as the save or project resolution. Its check therefore
+        // judges every send against the row this token was resolved for,
+        // even if the account object changes during those waits.
+        const captureFor = (
+          auth: OAuthAuthDetails,
+        ): (() => void | Promise<void>) | undefined =>
+          auth.access
+            ? credentials.captureGrant({ account, accessToken: auth.access })
+            : undefined
+        let grantCheck = accessTokenExpired(authRecord)
+          ? undefined
+          : captureFor(authRecord)
 
         if (accessTokenExpired(authRecord)) {
           try {
@@ -1326,6 +1350,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             retryState.resetAccountFailureState(account.index)
             credentials.updateFromAuth(account, refreshed)
             authRecord = refreshed
+            grantCheck = captureFor(authRecord)
             try {
               await credentials.saveToDisk()
             } catch (error) {
@@ -1399,7 +1424,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         }
 
         const accessToken = authRecord.access
-        if (!accessToken) {
+        // Require the account-identity check captured with this access token
+        // before dispatch.
+        if (!accessToken || grantCheck === undefined) {
           lastError = new Error('Missing access token')
           if (accountCount <= 1) {
             return createNativeGoogleErrorResponse({
@@ -1439,12 +1466,29 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           continue
         }
 
-        if (
-          projectContext.auth.refresh !== authRecord.refresh ||
-          projectContext.auth.access !== authRecord.access
-        ) {
-          credentials.updateFromAuth(account, projectContext.auth)
-          authRecord = projectContext.auth
+        // Project resolution can answer from a cache filled under an
+        // earlier access token for the same refresh token. It contributes
+        // only the project ids packed in the refresh record; the account
+        // keeps the access token just resolved, which is the one sent and
+        // checked below.
+        const projectAuth: OAuthAuthDetails = {
+          ...projectContext.auth,
+          access: authRecord.access,
+          expires: authRecord.expires,
+        }
+        const projectAuthChanged = projectAuth.refresh !== authRecord.refresh
+        if (projectAuthChanged) {
+          credentials.updateFromAuth(account, projectAuth)
+          authRecord = projectAuth
+        }
+        // Combine the resolved project ID with the token and account check
+        // captured before the asynchronous waits.
+        localGrant = {
+          accessToken,
+          projectId: projectContext.effectiveProjectId,
+          check: grantCheck,
+        }
+        if (projectAuthChanged) {
           try {
             await credentials.saveToDisk()
           } catch (error) {
@@ -1452,10 +1496,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               error: String(error),
             })
           }
-        }
-        localGrant = {
-          accessToken,
-          projectId: projectContext.effectiveProjectId,
         }
       }
       const selected = account
@@ -1490,10 +1530,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             'Local credentials were not resolved for the selected account',
           )
         }
-        await credentials.assertGrantCurrent({
-          account: selected,
-          accessToken: grant.accessToken,
-        })
+        await grant.check()
         return { init: sendInit }
       }
 
@@ -1855,10 +1892,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             }
 
             if (credentials.domain === 'local') {
-              await credentials.assertGrantCurrent({
-                account,
-                accessToken: sendAccessToken,
-              })
+              if (!localGrant) {
+                throw new Error(
+                  'Local credentials were not resolved for the selected account',
+                )
+              }
+              await localGrant.check()
             }
 
             pushDebug(

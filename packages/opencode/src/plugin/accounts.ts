@@ -6,6 +6,8 @@ import {
   type ManagedAccount as CoreManagedAccount,
   type OAuthAuthDetails as CoreOAuthAuthDetails,
   type ProjectContextResult,
+  type RowRef,
+  sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
 
 import { debugLogToFile } from './debug'
@@ -140,16 +142,30 @@ export interface LocalAccountCredentials {
   /** True when a refresh failure is `invalid_grant`: the refresh token is invalid or revoked. */
   isInvalidGrant(error: unknown): boolean
   /**
-   * Throws `StaleAccountGrantError` unless `accessToken` is still the
-   * selected account's current credential: the account is still held by
-   * this manager (a reload replaces every account), is enabled, carries a
-   * repository ref, and its access token is the one refreshed for that ref.
-   * Called before every physical send.
+   * Rejects with `StaleAccountGrantError` unless the grant may be sent now.
+   * Called immediately before every physical send. `ref` is required: it is
+   * the selected account row reference the caller captured when it resolved
+   * the grant, never read back from the account object, which can change.
+   * It checks:
+   * - in memory: this manager still holds the account object (a reload
+   *   replaces every account), the account is enabled, still carries
+   *   exactly `ref`, and its access token is the grant's token;
+   * - in the store, through one repository read: a row still holds exactly
+   *   `ref` (row id, credential epoch and recorded identity), and it is
+   *   enabled and usable. This catches a row replaced, removed or disabled
+   *   by another process after the grant was resolved, even when the token
+   *   is unexpired and no refresh ran;
+   * - in memory again after that read, since the account can change while
+   *   the read is pending.
+   *
+   * This is a check made at dispatch, not a lease: the row can still change
+   * while the request is on the network, and nothing here holds it.
    */
   assertGrantCurrent(request: {
     account: CoreManagedAccount
     accessToken: string
-  }): void
+    ref: RowRef
+  }): Promise<void>
 }
 
 /** The selected account no longer holds the credential a grant was made for. */
@@ -163,10 +179,12 @@ export class StaleAccountGrantError extends Error {
 export function createLocalAccountCredentials(
   manager: CoreAccountManager,
   dependencies: {
+    /** The repository `manager` was loaded from. */
+    repository: Pick<AccountRepository, 'read'>
     ensureProject?: (
       auth: CoreOAuthAuthDetails,
     ) => Promise<ProjectContextResult>
-  } = {},
+  },
 ): LocalAccountCredentials {
   return {
     async refresh(account) {
@@ -176,15 +194,26 @@ export function createLocalAccountCredentials(
     },
     ensureProject: dependencies.ensureProject ?? ensureProjectContext,
     isInvalidGrant: isInvalidGrantFailure,
-    assertGrantCurrent({ account, accessToken }) {
-      if (
-        account.ref === undefined ||
-        account.enabled === false ||
-        account.access !== accessToken ||
-        !manager.getAccounts().includes(account)
-      ) {
+    async assertGrantCurrent({ account, accessToken, ref }) {
+      // The account as this manager holds it: still held, enabled, at the
+      // grant's exact ref and holding the grant's access token.
+      const heldLocally = (): boolean =>
+        account.ref !== undefined &&
+        sameRowRef(account.ref, ref) &&
+        account.enabled !== false &&
+        account.access === accessToken &&
+        manager.getAccounts().includes(account)
+      if (!heldLocally()) throw new StaleAccountGrantError()
+      const read = await dependencies.repository.read()
+      const row =
+        read.status === 'ready'
+          ? read.rows.find((candidate) => sameRowRef(candidate.ref, ref))
+          : undefined
+      if (row === undefined || !row.enabled || !row.usable) {
         throw new StaleAccountGrantError()
       }
+      // The account may have changed while the read was pending.
+      if (!heldLocally()) throw new StaleAccountGrantError()
     },
   }
 }

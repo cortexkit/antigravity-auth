@@ -530,13 +530,20 @@ function harness(
         }
         return { ...auth, access: 'access-fresh', expires: Date.now() + 3.6e6 }
       },
-      assertGrantCurrent: ({ account, accessToken }) => {
-        checkedGrants.push({ account, accessToken })
-        if (
-          !pool.getAccounts().includes(account) ||
-          pool.toAuthDetails(account).access !== accessToken
-        ) {
-          throw new Error('stale grant')
+      // Use the refresh value captured with the grant as this test's row
+      // identity. The later check compares the account's current refresh
+      // value with that original value, so account mutation cannot recapture it.
+      captureGrant: ({ account, accessToken }) => {
+        const identity = pool.toAuthDetails(account).refresh
+        return () => {
+          checkedGrants.push({ account, accessToken })
+          if (
+            !pool.getAccounts().includes(account) ||
+            pool.toAuthDetails(account).access !== accessToken ||
+            pool.toAuthDetails(account).refresh !== identity
+          ) {
+            throw new Error('stale grant')
+          }
         }
       },
       ensureProject: async (auth) => ({
@@ -676,7 +683,7 @@ describe('createRequestExecutor retry contract', () => {
     }
   })
 
-  it('never sends a local grant that assertGrantCurrent reports stale', async () => {
+  it('never sends a local grant whose captured check reports it stale', async () => {
     const stale = new Error('row now holds a newer credential')
     const checked: string[] = []
     const h = harness({
@@ -691,10 +698,12 @@ describe('createRequestExecutor retry contract', () => {
       ...h.deps,
       credentials: {
         ...(h.deps.credentials as LocalRequestCredentials<ManagedAccount>),
-        assertGrantCurrent: ({ accessToken }) => {
-          checked.push(accessToken)
-          throw stale
-        },
+        captureGrant:
+          ({ accessToken }) =>
+          () => {
+            checked.push(accessToken)
+            throw stale
+          },
       },
     })
     try {
@@ -706,6 +715,130 @@ describe('createRequestExecutor retry contract', () => {
       )
       expect(h.calls).toHaveLength(0)
     } finally {
+      executor.dispose()
+    }
+  })
+
+  it('refuses a send once the row identity captured with the grant changes, even with the same bearer', async () => {
+    const pool = makePool(1)
+    const h = harness({
+      pool,
+      refresh: async (auth) => ({
+        ...auth,
+        access: 'access-kept',
+        expires: Date.now() + 3.6e6,
+      }),
+      respond: async (_call, index) => {
+        if (index === 0) {
+          // After the grant was resolved and its first send went out, the
+          // row now holds another credential; the bearer string is the same.
+          const account = pool.getAccounts()[0] as ManagedAccount
+          account.parts = { ...account.parts, refreshToken: 'replaced-row' }
+          return new Response('missing', { status: 404 })
+        }
+        return okJson()
+      },
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      // The second endpoint attempt is refused before transport; the host
+      // gets the last upstream answer (the 404) and nothing else is sent.
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(404)
+      expect(h.calls).toHaveLength(1)
+      expect(h.checkedGrants.map((entry) => entry.accessToken)).toEqual([
+        'access-kept',
+        'access-kept',
+      ])
+    } finally {
+      executor.dispose()
+    }
+  })
+
+  it('keeps the freshly resolved token when project resolution answers from an older cache entry', async () => {
+    const h = harness({
+      refresh: async (auth) => ({
+        ...auth,
+        access: 'access-fresh-grant',
+        expires: Date.now() + 3.6e6,
+      }),
+      respond: async () => okJson(),
+    })
+    const executor = createRequestExecutor({
+      ...h.deps,
+      credentials: {
+        ...(h.deps.credentials as LocalRequestCredentials<ManagedAccount>),
+        // Deliberately return an older access token with the same refresh
+        // token value and the managed-cached project packed into the record.
+        // Project resolution must not replace the freshly resolved access token.
+        ensureProject: async (auth) => ({
+          auth: {
+            ...auth,
+            access: 'access-from-older-cache',
+            refresh: `${auth.refresh}|managed-cached`,
+          },
+          effectiveProjectId: 'managed-cached',
+        }),
+      },
+    })
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(new Headers(h.calls[0]?.init?.headers).get('authorization')).toBe(
+        'Bearer access-fresh-grant',
+      )
+      const account = h.pool.getAccounts()[0] as ManagedAccount
+      expect(h.pool.toAuthDetails(account).access).toBe('access-fresh-grant')
+      expect(h.checkedGrants.map((entry) => entry.accessToken)).toEqual([
+        'access-fresh-grant',
+      ])
+    } finally {
+      executor.dispose()
+    }
+  })
+
+  it('captures the grant before project resolution, so a row change during it is refused', async () => {
+    const pool = makePool(1)
+    let release: () => void = () => {}
+    let projectStarted: () => void = () => {}
+    const started = new Promise<void>((resolve) => {
+      projectStarted = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const h = harness({
+      pool,
+      refresh: async (auth) => ({
+        ...auth,
+        access: 'access-original',
+        expires: Date.now() + 3.6e6,
+      }),
+      respond: async () => okJson(),
+    })
+    const executor = createRequestExecutor({
+      ...h.deps,
+      credentials: {
+        ...(h.deps.credentials as LocalRequestCredentials<ManagedAccount>),
+        ensureProject: async (auth) => {
+          projectStarted()
+          await gate
+          return { auth, effectiveProjectId: 'project-effective' }
+        },
+      },
+    })
+    try {
+      const pending = executor.execute(NON_STREAM_URL, CHAT_INIT())
+      await started
+      // While project resolution is held, the row now holds another
+      // credential; the bearer string is unchanged.
+      const account = pool.getAccounts()[0] as ManagedAccount
+      account.parts = { ...account.parts, refreshToken: 'replaced-row' }
+      release()
+      await expect(pending).rejects.toThrow('stale grant')
+      expect(h.calls).toHaveLength(0)
+    } finally {
+      release()
       executor.dispose()
     }
   })

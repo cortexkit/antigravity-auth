@@ -198,7 +198,7 @@ async function makeContext(overrides: ContextOverrides = {}) {
       })),
     agySessionRegistry: new AgySessionRegistry(directory),
     // These tests run on the pool-file manager built above.
-    accountSource: 'pool-file' as const,
+    accountSource: { kind: 'pool-file' } as const,
     // Default to the shared `transport` mock so tests that exercise the
     // dispatch path do not need to opt in to transport mocking explicitly.
     agyTransport: overrides.agyTransport ?? transport,
@@ -997,6 +997,8 @@ describe('createFetchInterceptor', () => {
     // A repository over one store row that refreshes through `refresh`. It
     // implements the read and refresh paths the store-backed manager uses;
     // the queued usage and fingerprint writes are accepted and dropped.
+    // `row` is what the store holds now: a test changes it to stand for
+    // another process replacing or disabling the row.
     function storeRepository(
       refresh: (ref: RowRef) => ReturnType<AccountRepository['refresh']>,
     ) {
@@ -1005,13 +1007,14 @@ describe('createFetchInterceptor', () => {
         credentialEpoch: 3,
         identity: 'google-store',
       }
+      const row = { ref, enabled: true }
       const read = async (): Promise<AccountRepositoryRead> => ({
         status: 'ready',
         rows: [
           {
-            ref,
+            ref: row.ref,
             index: 0,
-            enabled: true,
+            enabled: row.enabled,
             credential: { refreshToken: 'store-refresh-token' },
             usable: true,
             stamp: 'bound',
@@ -1041,8 +1044,19 @@ describe('createFetchInterceptor', () => {
         ],
       })
       const settled = async () => ({ completed: 0, failures: [] })
+      // A test may hold `flush` (the manager's save) open: `flushEntered`
+      // fires when a save starts, and the save waits for `flushGate`.
+      const gates: {
+        flushEntered?: () => void
+        flushGate?: Promise<void>
+      } = {}
+      const flush = async () => {
+        gates.flushEntered?.()
+        await gates.flushGate
+        return settled()
+      }
       const repository = new Proxy(
-        { read, refresh, flush: settled, dispose: settled },
+        { read, refresh, flush, dispose: settled },
         {
           get: (target, property) =>
             property in target
@@ -1053,8 +1067,134 @@ describe('createFetchInterceptor', () => {
                 }),
         },
       ) as unknown as AccountRepository
-      return { repository, ref }
+      return { repository, ref, row, gates }
     }
+
+    const rotatedFor =
+      (accessToken: string) =>
+      async (target: RowRef): ReturnType<AccountRepository['refresh']> => ({
+        status: 'rotated',
+        ref: target,
+        accessToken,
+        expiresAt: Date.now() + 3_600_000,
+      })
+
+    async function storeInterceptor(repository: AccountRepository) {
+      const accountManager = await loadAccountManagerFromRepository(
+        repository,
+        { onDiagnostic: () => {} },
+      )
+      const context = await makeContext({
+        config: {
+          ...DEFAULT_CONFIG,
+          account_selection_strategy: 'sticky',
+          request_jitter_max_ms: 0,
+          quota_refresh_interval_minutes: 0,
+          proactive_rotation_threshold_percent: 0,
+        },
+      })
+      await context.accountManager.dispose()
+      const interceptor = createFetchInterceptor({
+        ...context,
+        accountManager,
+        accountSource: { kind: 'store', repository },
+      })
+      return { interceptor, accountManager }
+    }
+
+    const STORE_URL = GENERATIVE_URL.replace(
+      ':streamGenerateContent?alt=sse',
+      ':generateContent',
+    )
+
+    for (const change of ['disabled', 'replaced'] as const) {
+      it(`refuses the next physical send once the store row is ${change} after selection`, async () => {
+        const { repository, row } = storeRepository(rotatedFor('access-store'))
+        transportHandler = async () => {
+          // Another process changes the row while the first attempt is on
+          // the network; the bearer this process holds is unchanged.
+          if (change === 'disabled') row.enabled = false
+          else row.ref = { ...row.ref, credentialEpoch: 4 }
+          return new Response('missing', { status: 404 })
+        }
+        const { interceptor, accountManager } =
+          await storeInterceptor(repository)
+        try {
+          const response = await interceptor.fetch(STORE_URL, GENERATIVE_INIT)
+          expect(response.status).toBe(404)
+          expect(transportMock).toHaveBeenCalledTimes(1)
+        } finally {
+          interceptor.dispose()
+          await accountManager.dispose()
+        }
+      })
+    }
+
+    it("captures the grant's row before the save that follows its refresh", async () => {
+      const { repository, ref, row, gates } = storeRepository(
+        rotatedFor('access-store'),
+      )
+      let release: () => void = () => {}
+      const saveStarted = new Promise<void>((resolve) => {
+        gates.flushEntered = resolve
+      })
+      gates.flushGate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      transportHandler = async () => {
+        throw new Error(
+          'a grant resolved for the replaced row must not be sent',
+        )
+      }
+      const { interceptor, accountManager } = await storeInterceptor(repository)
+      try {
+        const pending = interceptor.fetch(STORE_URL, GENERATIVE_INIT)
+        await saveStarted
+        // While the refreshed grant's save is pending, the store row moves to
+        // a new credential epoch and the account object follows it, keeping
+        // the same bearer.
+        const successor = { ...ref, credentialEpoch: 9 }
+        row.ref = successor
+        const [account] = accountManager.getAccounts()
+        if (account) account.ref = successor
+        gates.flushEntered = undefined
+        release()
+        await expect(pending).rejects.toThrow(
+          'The selected account no longer holds this credential',
+        )
+        expect(transportMock).not.toHaveBeenCalled()
+      } finally {
+        release()
+        interceptor.dispose()
+        await accountManager.dispose()
+      }
+    })
+
+    it("checks the row captured with the grant, not the account object's later ref", async () => {
+      const { repository, ref, row } = storeRepository(
+        rotatedFor('access-store'),
+      )
+      const { interceptor, accountManager } = await storeInterceptor(repository)
+      transportHandler = async () => {
+        // After the grant was resolved, the store row moves to a new
+        // credential epoch and the account object is re-pointed at it, still
+        // holding the same bearer. Judged by its later ref the account looks
+        // current; judged by the ref captured with the grant it is not.
+        const successor = { ...ref, credentialEpoch: 9 }
+        row.ref = successor
+        const [account] = accountManager.getAccounts()
+        if (account) account.ref = successor
+        return new Response('missing', { status: 404 })
+      }
+      try {
+        const response = await interceptor.fetch(STORE_URL, GENERATIVE_INIT)
+        expect(response.status).toBe(404)
+        expect(transportMock).toHaveBeenCalledTimes(1)
+      } finally {
+        interceptor.dispose()
+        await accountManager.dispose()
+      }
+    })
 
     it('refreshes the selected store account through the repository on its own row', async () => {
       const refreshedRefs: RowRef[] = []
@@ -1100,7 +1240,7 @@ describe('createFetchInterceptor', () => {
       const interceptor = createFetchInterceptor({
         ...context,
         accountManager,
-        accountSource: 'store',
+        accountSource: { kind: 'store', repository },
       })
       try {
         const response = await interceptor.fetch(

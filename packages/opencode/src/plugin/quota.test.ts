@@ -19,6 +19,8 @@ import {
   type CommonAuthStoreModules,
   createAccountRepositoryFactory,
   loadCommonAuthStoreModules,
+  type VaultRouteRef,
+  type VaultSendAdmission,
 } from '@cortexkit/antigravity-auth-core'
 
 import {
@@ -45,7 +47,9 @@ import {
   createLocationQuotaManager,
   createOpenCodeQuotaManager,
   createStoreQuotaService,
+  fetchVaultAccountQuota,
   pushSidebarQuotaSnapshot,
+  type VaultQuotaSource,
 } from './quota.ts'
 import { initializeFreshAccountStoreFor, openAccountStore } from './storage.ts'
 import type { PluginClient } from './types.ts'
@@ -1274,6 +1278,7 @@ describe('account-store quota service', () => {
       repository,
       logger: silent,
       credentials: createLocalAccountCredentials(manager, {
+        repository: managerRepository,
         // A fixed project answer, so the check never makes the live project
         // lookup the local project cache would make.
         ensureProject: async (auth) => ({
@@ -1477,5 +1482,341 @@ describe('account-store quota service', () => {
     expect(outcome.status).toBe('failed')
     expect(store.exchanged).toEqual([])
     expect(store.bearers).toEqual([])
+  })
+})
+
+describe('vault quota check', () => {
+  type Admission = VaultSendAdmission
+  type QuotaFetch = NonNullable<
+    Parameters<typeof fetchVaultAccountQuota>[0]['transport']
+  >
+  const ref: VaultRouteRef = {
+    routeId: 'route-1',
+    credentialId: 'credential-1',
+    accountIdentity: 'account-1',
+    label: 'Vault account',
+  }
+  const silent = { debug: () => {} }
+
+  /**
+   * Models vault authorization for quota requests. Each authorization supplies
+   * one credential containing a token, project and record version. Each `send`
+   * call gets a new authorization. If its first response is 401, the helper
+   * records that credential's version and retries once with a new authorization
+   * and version. At `refuseFrom` and every later `send` call, it throws before
+   * authorizing or dispatching a request.
+   */
+  function vaultSource(options: { refuseFrom?: number } = {}) {
+    const issued: Admission[] = []
+    const reported401: number[] = []
+    let calls = 0
+    const admit = (): Admission => {
+      const version = issued.length + 1
+      const admission = {
+        routeId: ref.routeId,
+        credentialId: ref.credentialId,
+        accountIdentity: ref.accountIdentity,
+        recordVersion: version,
+        projectId: `vault-project-${version}`,
+        accessToken: `vault-token-${version}`,
+        expiresAtMs: null,
+      }
+      issued.push(admission)
+      return admission
+    }
+    const source: VaultQuotaSource = {
+      async send(_ref, dispatch, sendOptions) {
+        calls += 1
+        if (options.refuseFrom !== undefined && calls >= options.refuseFrom) {
+          throw new Error('the vault refused to admit this account')
+        }
+        let admission = admit()
+        let response = await dispatch(admission, sendOptions.signal)
+        if (response.status === 401) {
+          reported401.push(admission.recordVersion)
+          admission = admit()
+          response = await dispatch(admission, sendOptions.signal)
+        }
+        return response
+      },
+      attribution: (admission) => ({
+        routeId: admission.routeId,
+        credentialId: admission.credentialId,
+        accountIdentity: admission.accountIdentity,
+        recordVersion: admission.recordVersion,
+      }),
+    }
+    return { source, issued, reported401 }
+  }
+
+  interface Sent {
+    url: string
+    bearer: string | null
+    project: string | undefined
+  }
+
+  function recordingTransport(
+    sent: Sent[],
+    answer: (request: Sent, index: number) => Response,
+  ): QuotaFetch {
+    return async (url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as {
+        project?: string
+      }
+      const request: Sent = {
+        url,
+        bearer: new Headers(init.headers).get('authorization'),
+        project: body.project,
+      }
+      sent.push(request)
+      return answer(request, sent.length - 1)
+    }
+  }
+
+  const summaryOk = () =>
+    new Response(
+      JSON.stringify({
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              {
+                bucketId: 'gemini-weekly',
+                displayName: 'Weekly',
+                window: 'weekly',
+                remainingFraction: 0.5,
+              },
+            ],
+          },
+        ],
+      }),
+      { status: 200 },
+    )
+
+  /** Each HTTP request uses the token and project returned by its own vault authorization. */
+  function expectOneAdmissionPerRequest(sent: Sent[], issued: Admission[]) {
+    const byToken = new Map(
+      issued.map((admission) => [`Bearer ${admission.accessToken}`, admission]),
+    )
+    const bearers = sent.map((request) => request.bearer)
+    expect(new Set(bearers).size).toBe(bearers.length)
+    for (const request of sent) {
+      const admission = byToken.get(request.bearer ?? '')
+      expect(admission).toBeDefined()
+      if (request.project !== undefined) {
+        expect(String(request.project)).toBe(admission?.projectId ?? '')
+      }
+    }
+  }
+
+  it('builds every physical request from its own new admission, so a failed endpoint is retried with another', async () => {
+    const vault = vaultSource()
+    const sent: Sent[] = []
+    let summaryCalls = 0
+    const reading = await fetchVaultAccountQuota({
+      source: vault.source,
+      ref,
+      signal: new AbortController().signal,
+      logger: silent,
+      transport: recordingTransport(sent, (request) => {
+        if (request.url.includes('retrieveUserQuotaSummary')) {
+          summaryCalls += 1
+          return summaryCalls === 1
+            ? new Response('busy', { status: 503 })
+            : summaryOk()
+        }
+        return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      }),
+    })
+
+    const summaryRequests = sent.filter((request) =>
+      request.url.includes('retrieveUserQuotaSummary'),
+    )
+    expect(summaryRequests).toHaveLength(2)
+    // The second summary request does not reuse the first one's grant.
+    expect(summaryRequests[1]?.bearer).not.toBe(summaryRequests[0]?.bearer)
+    expect(summaryRequests[1]?.project).not.toBe(summaryRequests[0]?.project)
+    expectOneAdmissionPerRequest(sent, vault.issued)
+    expect(vault.issued).toHaveLength(sent.length)
+
+    expect(reading.fellBackToLegacy).toBe(false)
+    expect(reading.quota.groups).not.toEqual({})
+    // The quota result identifies the credential ID and record version used
+    // by the request that returned it.
+    const answering = vault.issued.find(
+      (admission) =>
+        `Bearer ${admission.accessToken}` === summaryRequests[1]?.bearer,
+    )
+    expect(reading.quotaAttribution?.recordVersion).toBe(
+      answering?.recordVersion,
+    )
+  })
+
+  it('stops at an admission refusal between attempts and sends nothing more', async () => {
+    const vault = vaultSource({ refuseFrom: 3 })
+    const sent: Sent[] = []
+    const reading = await fetchVaultAccountQuota({
+      source: vault.source,
+      ref,
+      signal: new AbortController().signal,
+      logger: silent,
+      transport: recordingTransport(
+        sent,
+        () => new Response('busy', { status: 503 }),
+      ),
+    })
+
+    // The first two authorizations succeed. The third is refused, so no later
+    // HTTP request is sent.
+    expect(vault.issued).toHaveLength(2)
+    expect(sent).toHaveLength(2)
+    expectOneAdmissionPerRequest(sent, vault.issued)
+    expect(reading.quota.error).toBe('Failed to fetch Antigravity quota')
+    expect(reading.quotaAttribution).toBeUndefined()
+    expect(reading.geminiCliQuota.error).toBeDefined()
+  })
+
+  it('hands a 401 to the source with its own admission and builds the retry from the retry admission', async () => {
+    const vault = vaultSource()
+    const sent: Sent[] = []
+    const reading = await fetchVaultAccountQuota({
+      source: vault.source,
+      ref,
+      signal: new AbortController().signal,
+      logger: silent,
+      transport: recordingTransport(sent, (request, index) => {
+        if (request.url.includes('retrieveUserQuotaSummary')) {
+          return index === 0 || request.bearer === 'Bearer vault-token-1'
+            ? new Response('unauthorized', { status: 401 })
+            : summaryOk()
+        }
+        return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      }),
+    })
+
+    expect(vault.reported401).toContain(1)
+    expectOneAdmissionPerRequest(sent, vault.issued)
+    expect(reading.fellBackToLegacy).toBe(false)
+    expect(reading.quotaAttribution?.recordVersion).not.toBe(1)
+  })
+
+  it('retries the model list without a project under a new admission after a 403', async () => {
+    const vault = vaultSource()
+    const sent: Sent[] = []
+    const reading = await fetchVaultAccountQuota({
+      source: vault.source,
+      ref,
+      signal: new AbortController().signal,
+      logger: silent,
+      transport: recordingTransport(sent, (request) => {
+        if (request.url.includes('retrieveUserQuotaSummary')) {
+          return new Response('no', { status: 403 })
+        }
+        if (request.url.includes('fetchAvailableModels')) {
+          return request.project === undefined
+            ? new Response(JSON.stringify({ models: {} }), { status: 200 })
+            : new Response('no', { status: 403 })
+        }
+        return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      }),
+    })
+
+    const models = sent.filter((request) =>
+      request.url.includes('fetchAvailableModels'),
+    )
+    expect(models.map((request) => request.project === undefined)).toEqual([
+      false,
+      true,
+    ])
+    expect(models[1]?.bearer).not.toBe(models[0]?.bearer)
+    expectOneAdmissionPerRequest(sent, vault.issued)
+    expect(reading.fellBackToLegacy).toBe(true)
+  })
+
+  it('sends nothing for a receipt served after the other half of the check was refused', async () => {
+    // Hold the quota-summary authorization and reject the Gemini CLI
+    // authorization before releasing it.
+    let releaseSummary: () => void = () => {}
+    const summaryHeld = new Promise<void>((resolve) => {
+      releaseSummary = resolve
+    })
+    let refusalSeen: () => void = () => {}
+    const refused = new Promise<void>((resolve) => {
+      refusalSeen = resolve
+    })
+    let calls = 0
+    const issued: Admission[] = []
+    const source: VaultQuotaSource = {
+      async send(_ref, dispatch, sendOptions) {
+        calls += 1
+        const call = calls
+        if (call === 1) await summaryHeld
+        else {
+          refusalSeen()
+          throw new Error('the vault refused to admit this account')
+        }
+        const admission = {
+          routeId: ref.routeId,
+          credentialId: ref.credentialId,
+          accountIdentity: ref.accountIdentity,
+          recordVersion: call,
+          projectId: `vault-project-${call}`,
+          accessToken: `vault-token-${call}`,
+          expiresAtMs: null,
+        }
+        issued.push(admission)
+        return dispatch(admission, sendOptions.signal)
+      },
+      attribution: (admission) => ({
+        routeId: admission.routeId,
+        credentialId: admission.credentialId,
+        accountIdentity: admission.accountIdentity,
+        recordVersion: admission.recordVersion,
+      }),
+    }
+    const sent: Sent[] = []
+    const checking = fetchVaultAccountQuota({
+      source,
+      ref,
+      signal: new AbortController().signal,
+      logger: silent,
+      transport: recordingTransport(sent, () => summaryOk()),
+    })
+
+    await refused
+    // Allow the Gemini CLI refusal to stop the quota check before
+    // authorizing the held summary request.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    releaseSummary()
+    const reading = await checking
+
+    expect(issued).toHaveLength(1)
+    expect(sent).toEqual([])
+    expect(reading.quotaAttribution).toBeUndefined()
+    expect(reading.quota.error).toBe('Failed to fetch Antigravity quota')
+  })
+
+  it('never exchanges a refresh token or sends outside the injected transport', async () => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
+      (async () => {
+        throw new Error('no global fetch is allowed in a vault quota check')
+      }) as unknown as typeof fetch,
+    )
+    try {
+      const vault = vaultSource()
+      const sent: Sent[] = []
+      await fetchVaultAccountQuota({
+        source: vault.source,
+        ref,
+        signal: new AbortController().signal,
+        logger: silent,
+        transport: recordingTransport(sent, () => summaryOk()),
+      })
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(sent.some((request) => request.url.includes('oauth2'))).toBe(false)
+      expect(sent.length).toBeGreaterThan(0)
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 })

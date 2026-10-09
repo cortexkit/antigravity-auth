@@ -1124,7 +1124,7 @@ describe('account store over the genuine published store', () => {
     const manager = await loadAccountManagerFromRepository(repository, {
       onDiagnostic: () => {},
     })
-    const credentials = createLocalAccountCredentials(manager)
+    const credentials = createLocalAccountCredentials(manager, { repository })
     const [accountA, accountB] = manager.getAccounts()
     const [authA, authB] = await Promise.all([
       credentials.refresh(accountA!),

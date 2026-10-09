@@ -22,6 +22,7 @@ import {
   type AccountQuotaTarget,
   type AccountRepository,
   type AntigravityQuotaCheckReport,
+  type AntigravityVaultAccountSource,
   aggregateGeminiCliQuota,
   aggregateQuota,
   aggregateQuotaSummary,
@@ -42,6 +43,8 @@ import {
   type RowRef,
   rowRefKey,
   sameRowRef,
+  type VaultRouteRef,
+  type VaultStateAttribution,
 } from '@cortexkit/antigravity-auth-core'
 
 import {
@@ -618,25 +621,365 @@ async function fetchQuotaPayloads(options: {
     fetchGeminiCliPayload,
   ])
 
-  const geminiCliQuotaResult = aggregateGeminiCliQuota(geminiCliResponse)
-  const annotated: GeminiCliQuotaSummary =
-    geminiCliResponse.buckets === undefined ||
-    geminiCliResponse.buckets.length === 0
-      ? {
-          ...geminiCliQuotaResult,
-          error:
-            // A real fetch exception is a transient failure, not a
-            // "no CLI configured" scenario — propagate the actual message.
-            geminiCliFetchError ??
-            (geminiCliQuotaResult.models.length === 0
-              ? 'No Gemini CLI quota available'
-              : undefined),
-        }
-      : geminiCliQuotaResult
   return {
     quota: summary.result,
-    geminiCliQuota: annotated,
+    geminiCliQuota: annotateGeminiCliQuota(
+      geminiCliResponse,
+      geminiCliFetchError,
+    ),
     fellBackToLegacy: summary.fellBackToLegacy,
+  }
+}
+
+/**
+ * The Gemini CLI quota summary for a `retrieveUserQuota` answer. An empty or
+ * missing answer carries an error: the fetch error when the request failed
+ * (a transient failure, not "no CLI quota configured"), else the generic
+ * "no quota" text.
+ */
+function annotateGeminiCliQuota(
+  response: Awaited<ReturnType<typeof fetchGeminiCliQuota>>,
+  fetchError: string | undefined,
+): GeminiCliQuotaSummary {
+  const result = aggregateGeminiCliQuota(response)
+  if (response.buckets !== undefined && response.buckets.length > 0) {
+    return result
+  }
+  return {
+    ...result,
+    error:
+      fetchError ??
+      (result.models.length === 0
+        ? 'No Gemini CLI quota available'
+        : undefined),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Vault quota checks
+//
+// A vault-held account has no stored token. For each physical request the
+// vault source serves a credential receipt (the source calls it an
+// admission): an access token, the project to send it under, and the record
+// version of the credential it came from. One served receipt authorizes one
+// physical request. A 401 is reported against the record version of the
+// receipt that received it.
+// ---------------------------------------------------------------------------
+
+/** The vault account source operations a quota check uses. */
+export type VaultQuotaSource = Pick<
+  AntigravityVaultAccountSource,
+  'send' | 'attribution'
+>
+
+/** Quota summaries and the credential versions that authorized their requests. */
+export interface VaultQuotaReading {
+  quota: QuotaSummary
+  geminiCliQuota: GeminiCliQuotaSummary
+  fellBackToLegacy: boolean
+  /**
+   * The credential and record version of the receipt that authorized the
+   * request whose answer produced `quota` (no token, no project), for
+   * recording it with the source's `commitState`. Absent when no quota
+   * answer was obtained.
+   */
+  quotaAttribution?: VaultStateAttribution
+  /** Likewise for `geminiCliQuota`. */
+  geminiCliAttribution?: VaultStateAttribution
+}
+
+export interface VaultQuotaCheckOptions {
+  source: VaultQuotaSource
+  /** The vault account, as selected from the source's routes. */
+  ref: VaultRouteRef
+  signal: AbortSignal
+  logger: Pick<Logger, 'debug'>
+  /** Physical request transport; defaults to `fetchWithActiveTimeout`. */
+  transport?: QuotaFetch
+}
+
+/** Stops an outbound quota request after cancellation or a vault authorization refusal. */
+class VaultQuotaCheckStoppedError extends Error {
+  override readonly name = 'VaultQuotaCheckStoppedError'
+  constructor() {
+    super('the quota check was stopped before this request was sent')
+  }
+}
+
+/** Refuses a second request using the same vault authorization. */
+class VaultAdmissionReusedError extends Error {
+  override readonly name = 'VaultAdmissionReusedError'
+  constructor() {
+    super('a vault admission authorizes exactly one physical request')
+  }
+}
+
+/** Response, error and attribution for one authorized quota request. */
+interface VaultQuotaAttempt<T> {
+  /** What the core builder returned for this request. */
+  value?: T
+  /** Why the request produced no value. */
+  error?: unknown
+  /** Status of the response the request received, if one arrived. */
+  status?: number
+  /** Credential ID and record version that authorized this quota request. */
+  attribution?: VaultStateAttribution
+  /** The source refused to admit the account: no request may follow. */
+  refused?: true
+}
+
+/**
+ * Makes exactly one physical quota request for `ref` under a new served
+ * receipt from `source.send`. Inside the dispatch, `build` runs one of the
+ * core quota builders with that receipt's access token and project, so the
+ * Authorization header and the request project both come from the same
+ * receipt and are built after it was served.
+ *
+ * The builder reads a clone of the response; the original Response goes back
+ * to `send`. `send` needs the original to read its status: it reports a 401
+ * against that receipt's record version and may retry once, under a new
+ * receipt of the same credential and account, when the vault now serves a
+ * different record version (not necessarily a higher one; a restore can
+ * serve an older one). The retried request is built from the retry's
+ * receipt. A builder that tries a second request under one receipt is
+ * stopped before that request is sent.
+ */
+async function vaultQuotaAttempt<T>(
+  options: VaultQuotaCheckOptions,
+  /**
+   * True once the whole check must send nothing more (a receipt was refused
+   * elsewhere in the check, or it was aborted). Checked again right before
+   * the physical request, because serving this receipt may have taken a
+   * while.
+   */
+  isStopped: () => boolean,
+  build: (
+    grant: { accessToken: string; projectId: string },
+    fetchVia: QuotaFetch,
+  ) => Promise<T>,
+): Promise<VaultQuotaAttempt<T>> {
+  const transport: QuotaFetch =
+    options.transport ??
+    ((url, init, extra) =>
+      fetchWithActiveTimeout(
+        url,
+        { ...init, signal: extra.signal ?? options.signal },
+        { timeoutMs: extra.timeoutMs },
+      ))
+  let attempt: VaultQuotaAttempt<T> = {}
+  let dispatched = false
+  try {
+    const response = await options.source.send(
+      options.ref,
+      async (admission, signal) => {
+        dispatched = true
+        let used = false
+        let served: Response | undefined
+        const fetchVia: QuotaFetch = async (url, init, extra) => {
+          // Marked before the request goes out, so a failed or still
+          // pending first request cannot let a second one use this receipt.
+          if (used) throw new VaultAdmissionReusedError()
+          used = true
+          if (isStopped()) throw new VaultQuotaCheckStoppedError()
+          served = await transport(url, init, {
+            ...extra,
+            signal: signal ?? options.signal,
+          })
+          // The builder reads a clone; `send` gets the original Response,
+          // whose status it needs for 401 reporting.
+          return served.clone()
+        }
+        attempt = {}
+        try {
+          attempt.value = await build(
+            {
+              accessToken: admission.accessToken,
+              projectId: admission.projectId,
+            },
+            fetchVia,
+          )
+        } catch (error) {
+          attempt.error = error
+        }
+        if (served === undefined) throw attempt.error ?? new Error('no request')
+        attempt.status = served.status
+        if (attempt.value !== undefined) {
+          attempt.attribution = options.source.attribution(admission)
+        }
+        return served
+      },
+      { site: 'quota', signal: options.signal },
+    )
+    await response.body?.cancel().catch(() => {})
+  } catch (error) {
+    if (!dispatched) return { error, refused: true }
+    attempt.error ??= error
+  }
+  return attempt
+}
+
+/**
+ * Fetches a vault account's quota: the windowed quota summary (with the
+ * legacy model-list fallback) and the Gemini CLI quota, from the same core
+ * builders and endpoint list the local check uses.
+ *
+ * Every physical request (each endpoint, each fallback, and the model
+ * list's retry without a project after a 403) is one `source.send` with a
+ * new served receipt, and that request's bearer and project come from that
+ * receipt alone. Nothing is authorized once and reused, and no local refresh
+ * token, token exchange, project cache or earlier grant is used. A refused
+ * receipt or an abort stops the check with no further request. Recording
+ * the reading (with the returned attributions and the source's
+ * `commitState`) is the caller's.
+ */
+export async function fetchVaultAccountQuota(
+  options: VaultQuotaCheckOptions,
+): Promise<VaultQuotaReading> {
+  // Shared by the summary and Gemini CLI halves, which run concurrently: a
+  // refusal in one stops requests in the other too, including one whose
+  // receipt was being served when the refusal happened.
+  const stopped = { value: false }
+  const isStopped = () => stopped.value || options.signal.aborted
+  const attempt = async <T>(
+    build: Parameters<typeof vaultQuotaAttempt<T>>[2],
+  ): Promise<VaultQuotaAttempt<T>> => {
+    if (isStopped()) {
+      return { error: new VaultQuotaCheckStoppedError(), refused: true }
+    }
+    const result = await vaultQuotaAttempt(options, isStopped, build)
+    if (result.refused || options.signal.aborted) stopped.value = true
+    return result
+  }
+
+  const fetchSummary = async (): Promise<{
+    result: QuotaSummary
+    fellBackToLegacy: boolean
+    attribution?: VaultStateAttribution
+  }> => {
+    for (const endpoint of ANTIGRAVITY_ENDPOINT_FALLBACKS) {
+      // An answer that cannot be aggregated counts as a failed request.
+      const result = await attempt(async (grant, fetchVia) =>
+        aggregateQuotaSummary(
+          (
+            await fetchQuotaSummary({
+              accessToken: grant.accessToken,
+              projectId: grant.projectId,
+              endpoints: [endpoint],
+              userAgent: buildAntigravityHarnessUserAgent(),
+              timeoutMs: 10_000,
+              fetchVia,
+            })
+          ).summary,
+        ),
+      )
+      if (result.value !== undefined) {
+        return {
+          result: result.value,
+          fellBackToLegacy: false,
+          ...(result.attribution ? { attribution: result.attribution } : {}),
+        }
+      }
+      if (result.refused) break
+    }
+    // Fetch the legacy model list. After a 403, retry once without a project
+    // as a separate request with a newly authorized vault credential, rather
+    // than reusing the authorization from the rejected request.
+    for (const endpoint of ANTIGRAVITY_ENDPOINT_FALLBACKS) {
+      for (const withProject of [true, false]) {
+        const result = await attempt((grant, fetchVia) =>
+          fetchAvailableModels({
+            accessToken: grant.accessToken,
+            projectId: withProject ? grant.projectId : '',
+            endpoints: [endpoint],
+            userAgent: buildAntigravityHarnessUserAgent(),
+            timeoutMs: 10_000,
+            fetchVia,
+          }),
+        )
+        if (result.value !== undefined) {
+          return result.value.models
+            ? {
+                result: aggregateQuota(result.value.models),
+                fellBackToLegacy: true,
+                ...(result.attribution
+                  ? { attribution: result.attribution }
+                  : {}),
+              }
+            : {
+                result: {
+                  groups: {},
+                  modelCount: 0,
+                  error: 'Failed to fetch Antigravity quota (legacy fallback)',
+                },
+                fellBackToLegacy: true,
+              }
+        }
+        if (result.refused) {
+          return {
+            result: {
+              groups: {},
+              modelCount: 0,
+              error: 'Failed to fetch Antigravity quota',
+            },
+            fellBackToLegacy: true,
+          }
+        }
+        // Only a 403 for the request with a project is retried, without one.
+        if (!withProject || result.status !== 403) break
+      }
+    }
+    return {
+      result: {
+        groups: {},
+        modelCount: 0,
+        error: 'Failed to fetch Antigravity quota',
+      },
+      fellBackToLegacy: true,
+    }
+  }
+
+  const fetchGeminiCli = async (): Promise<{
+    response: Awaited<ReturnType<typeof fetchGeminiCliQuota>>
+    error?: string
+    attribution?: VaultStateAttribution
+  }> => {
+    const errors: string[] = []
+    for (const endpoint of ANTIGRAVITY_ENDPOINT_FALLBACKS) {
+      const result = await attempt((grant, fetchVia) =>
+        fetchGeminiCliQuota({
+          accessToken: grant.accessToken,
+          projectId: grant.projectId,
+          endpoints: [endpoint],
+          userAgent: buildGeminiCliUserAgent(),
+          timeoutMs: 10_000,
+          fetchVia,
+        }),
+      )
+      if (result.value !== undefined) {
+        return {
+          response: result.value,
+          ...(result.attribution ? { attribution: result.attribution } : {}),
+        }
+      }
+      errors.push(
+        result.error instanceof Error
+          ? result.error.message
+          : String(result.error),
+      )
+      if (result.refused) break
+    }
+    const error = errors.join('; ') || 'fetchGeminiCliQuota failed'
+    options.logger.debug('vault fetchGeminiCliQuota failed', { error })
+    return { response: { buckets: undefined }, error }
+  }
+
+  const [summary, cli] = await Promise.all([fetchSummary(), fetchGeminiCli()])
+  return {
+    quota: summary.result,
+    geminiCliQuota: annotateGeminiCliQuota(cli.response, cli.error),
+    fellBackToLegacy: summary.fellBackToLegacy,
+    ...(summary.attribution ? { quotaAttribution: summary.attribution } : {}),
+    ...(cli.attribution ? { geminiCliAttribution: cli.attribution } : {}),
   }
 }
 
@@ -1229,7 +1572,8 @@ export function createStoreQuotaService(
 ): StoreQuotaService {
   const { manager, logger } = options
   const credentials =
-    options.credentials ?? createLocalAccountCredentials(manager)
+    options.credentials ??
+    createLocalAccountCredentials(manager, { repository: options.repository })
 
   const authorize = async (
     account: AccountQuotaTarget,
@@ -1279,7 +1623,11 @@ export function createStoreQuotaService(
           if (held.ref === undefined || !sameRowRef(held.ref, grantRef)) {
             return { status: 'stale', reason: 'the credential changed' }
           }
-          credentials.assertGrantCurrent({ account: held, accessToken })
+          await credentials.assertGrantCurrent({
+            account: held,
+            accessToken,
+            ref: grantRef,
+          })
           return { status: 'current' }
         } catch (error) {
           return {

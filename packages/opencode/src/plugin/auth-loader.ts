@@ -76,8 +76,20 @@ export type RuntimeAccountManager = AccountManager | CoreAccountManager
 export type CreateAuthFetch = (input: {
   accountManager: RuntimeAccountManager
   getAuth: GetAuth
-  /** Where `accountManager`'s accounts come from; see `installRuntime`. */
-  source: 'pool-file' | 'store'
+  /**
+   * Where `accountManager`'s accounts come from: the pool file, or the
+   * account store through the repository of the same opening the manager
+   * was loaded from.
+   */
+  source:
+    | { kind: 'pool-file' }
+    | {
+        kind: 'store'
+        repository: Extract<
+          AccountStoreOpening,
+          { status: 'ready' }
+        >['repository']
+      }
 }) => AuthFetchRuntime
 
 /**
@@ -290,7 +302,13 @@ export function createAuthLoader({
         refreshQueue = deps.createRefreshQueue(client, providerId, queueConfig)
         refreshQueue.setAccountManager(accountManager)
       } else if (source === 'store') {
-        const credentials = createLocalAccountCredentials(accountManager)
+        const opening = await openStore()
+        if (opening.status !== 'ready') {
+          throw new Error('the account store closed while it was in use')
+        }
+        const credentials = createLocalAccountCredentials(accountManager, {
+          repository: opening.repository,
+        })
         refreshQueue = deps.createStoreRefreshQueue(
           {
             logger: log,
@@ -311,7 +329,20 @@ export function createAuthLoader({
     // runtime's dispose. The swap-then-dispose order guarantees there
     // is no fetch gap between the old and new runtimes.
     const previousRuntime = fetchRuntime
-    fetchRuntime = createFetch({ accountManager, getAuth, source })
+    // A store-backed manager was loaded from this plugin's single store
+    // opening; its fetch checks every send against that same repository.
+    const opening = source === 'store' ? await openStore() : undefined
+    if (opening !== undefined && opening.status !== 'ready') {
+      throw new Error('the account store closed while it was in use')
+    }
+    fetchRuntime = createFetch({
+      accountManager,
+      getAuth,
+      source:
+        opening === undefined
+          ? { kind: 'pool-file' }
+          : { kind: 'store', repository: opening.repository },
+    })
     await previousRuntime?.dispose()
 
     // Push the freshly materialized account pool into the sidebar so the
