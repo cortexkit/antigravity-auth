@@ -383,6 +383,63 @@ describe('createStoreAccountLimits', () => {
     }
   })
 
+  it('holds the row lock across the settings write, so a concurrent replacement waits', async () => {
+    const { repository, settings, ref, cleanup } = await storeWithSettings()
+    try {
+      let markStarted: () => void = () => undefined
+      const writeStarted = new Promise<void>((resolve) => {
+        markStarted = resolve
+      })
+      let releaseWrite: () => void = () => undefined
+      const writeGate = new Promise<void>((resolve) => {
+        releaseWrite = resolve
+      })
+      const limits = createStoreAccountLimits({
+        repository,
+        settings: {
+          get: () => settings.get(),
+          update: async (mutator) => {
+            markStarted()
+            await writeGate
+            await settings.update(mutator)
+          },
+        },
+      })
+      const writing = limits.write(ref, 35)
+      await writeStarted
+      // The floor write is now inside the fenced update; replace the same
+      // row's credential from outside it and give the replacement time.
+      let replacementSettled = false
+      const replacing = repository.replaceCredential(ref, {
+        refreshToken: 'floor-refresh-concurrent',
+        disabled: 'keep',
+      })
+      void replacing.then(
+        () => {
+          replacementSettled = true
+        },
+        () => {
+          replacementSettled = true
+        },
+      )
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(replacementSettled).toBe(false)
+      releaseWrite()
+      expect(await writing).toBe('applied')
+      const replaced = await replacing
+      expect(replaced.ref.credentialEpoch).toBeGreaterThan(ref.credentialEpoch)
+      // The floor belongs to the credential it was written for; the
+      // replacement holds a different token and so a different key.
+      expect(settings.get().killswitch.accounts).toEqual({
+        [accountKeyForRefreshToken('floor-refresh-secret')]: 35,
+      })
+      expect(await limits.read(replaced.ref)).toBeNull()
+      expect(await limits.read(ref)).toBeNull()
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('refuses a replaced credential before any setting is written', async () => {
     const { repository, settings, ref, cleanup } = await storeWithSettings()
     try {

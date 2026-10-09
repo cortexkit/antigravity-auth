@@ -84,6 +84,7 @@ async function menu(
   settingsLog: AntigravityMenuSettings[] = [],
   refreshQuota?: AntigravityRepositoryMenuOptions['refreshQuota'],
   accountLimits?: AntigravityRepositoryMenuOptions['accountLimits'],
+  reauthorize?: AntigravityRepositoryMenuOptions['reauthorize'],
 ) {
   let settings: AntigravityMenuSettings = {
     routing: { cliFirst: false, quotaStyleFallback: false },
@@ -106,6 +107,7 @@ async function menu(
     },
     ...(refreshQuota ? { refreshQuota } : {}),
     ...(accountLimits ? { accountLimits } : {}),
+    ...(reauthorize ? { reauthorize } : {}),
   })
 }
 
@@ -335,6 +337,35 @@ describe('createAntigravityCommandMenu account quota floor', () => {
       invocation,
     )
     expect(result).toMatchObject({ ok: false, code: 'stale-account' })
+  })
+})
+
+describe('createAntigravityCommandMenu reauthorization', () => {
+  it('hands the host exactly the credential the item was opened for', async () => {
+    const asked: unknown[] = []
+    const built = await menu([], undefined, undefined, {
+      run: async (ref, run) => {
+        asked.push({ ref, sessionId: run.sessionId })
+        return 'Waiting for the browser sign-in'
+      },
+    })
+    const [, second] = await accountItemIds(built)
+    const [, secondRow] = await readyRows()
+    if (!second || !secondRow) throw new Error('missing account')
+    const result = await built.apply(
+      {
+        command: 'antigravity',
+        sectionId: 'accounts',
+        itemId: second,
+        actionId: 'reauthorize',
+      },
+      { sessionId: 'ses-1', notify: () => undefined },
+    )
+    expect(result).toMatchObject({
+      ok: true,
+      text: 'Waiting for the browser sign-in',
+    })
+    expect(asked).toEqual([{ ref: secondRow.ref, sessionId: 'ses-1' }])
   })
 })
 

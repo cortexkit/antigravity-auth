@@ -15,6 +15,7 @@ import {
   AccountRepositoryError,
   type AccountRepositoryRead,
   type AccountRow,
+  AccountSelector,
   createAccountRepositoryFactory,
   initializeFreshAccountStore,
   loadCommonAuthStoreModules,
@@ -29,15 +30,20 @@ import {
   authorizeGaQuotaCheck,
   createGaAccountStateSource,
   createGaFetchAccountQuota,
+  createGaHostSlotReader,
   createGaJobExecutor,
   createGaLocalCredentials,
   createGaLocationServices,
+  createGaLocationServicesFactory,
   createGaMenuCommandService,
   createGaRouteBook,
   createGaSelectorRegistry,
   createGaVaultCredentials,
   GA_ACCOUNTS_FILE,
   gaSettingsOf,
+  gaVaultRowKey,
+  gaVaultRows,
+  refreshGaVaultRow,
 } from './ga-location-services.ts'
 import {
   createOperatorSettingsRegistry,
@@ -321,6 +327,33 @@ describe('GA menu command service', () => {
       service.apply({ request, scope, signal: aborted.signal }),
     ).rejects.toThrow('disposed')
     expect(calls).toHaveLength(1)
+  })
+
+  it('opens the menu by queuing its payload in the invoking scope', async () => {
+    const payload = {
+      command: 'antigravity',
+      menu: { command: 'antigravity', title: 'Antigravity', sections: [] },
+    }
+    const queued: unknown[] = []
+    const service = createGaMenuCommandService({
+      menu: {
+        command: 'antigravity',
+        open: async (invocation) => {
+          expect(invocation.sessionId).toBe('ses-2')
+          return payload
+        },
+        apply: async () => {
+          throw new Error('not used')
+        },
+      },
+      notify: (scope, entry) => {
+        queued.push({ scope, entry })
+        return 1
+      },
+    })
+    const scope = { kind: 'session', sessionID: 'ses-2' } as const
+    await service.open({ scope, signal: new AbortController().signal })
+    expect(queued).toEqual([{ scope, entry: payload }])
   })
 })
 
@@ -663,7 +696,8 @@ describe('GA vault credentials', () => {
       },
     }
     const credentials = createGaVaultCredentials(source)
-    const account = { index: 0, rateLimitResetTimes: {}, route }
+    const [account] = gaVaultRows([route])
+    if (!account) throw new Error('missing row')
     const first = await credentials.admit({ account, signal: undefined })
     const second = await credentials.admit({ account, signal: undefined })
     expect([first.accessToken, second.accessToken]).toEqual([
@@ -677,6 +711,92 @@ describe('GA vault credentials', () => {
     expect(first.recordVersion).toBe(1)
     await first.report401(401)
     expect(reported).toEqual([{ admission: issued[0], status: 401 }])
+  })
+})
+
+describe('GA vault selection rows', () => {
+  const route = (credentialId: string, accountIdentity = 'identity-a') => ({
+    routeId: 'route-a',
+    credentialId,
+    accountIdentity,
+    label: 'Work',
+  })
+
+  it("keeps a route's selection state only while its credential and account stay the same", () => {
+    const selector = new AccountSelector({ now: () => 1_000 })
+    selector.resetAccounts(gaVaultRows([route('credential-1')]))
+    const [first] = selector.getAccounts()
+    if (!first) throw new Error('missing row')
+    selector.markAccountCoolingDown(first, 60_000, 'auth-failure')
+
+    selector.replaceAccounts(gaVaultRows([route('credential-1')]), {
+      keyOf: gaVaultRowKey,
+      refresh: refreshGaVaultRow,
+    })
+    expect(selector.getAccounts()[0]?.coolingDownUntil).toBe(61_000)
+
+    selector.replaceAccounts(gaVaultRows([route('credential-2')]), {
+      keyOf: gaVaultRowKey,
+      refresh: refreshGaVaultRow,
+    })
+    expect(selector.getAccounts()[0]?.coolingDownUntil).toBeUndefined()
+    // Rows carry the route and selection metadata only.
+    expect(Object.keys(selector.getAccounts()[0] ?? {}).sort()).toEqual([
+      'enabled',
+      'index',
+      'lastUsed',
+      'rateLimitResetTimes',
+      'route',
+      'touchedForQuota',
+    ])
+  })
+})
+
+describe('createGaHostSlotReader', () => {
+  const reader = (active: unknown, resolved: unknown) =>
+    createGaHostSlotReader(
+      {
+        active: async (id: string) => {
+          expect(id).toBe('google')
+          return active
+        },
+        resolve: async () => resolved,
+      },
+      'google',
+    )
+
+  it('reads the host sign-in in the shape the vault library classifies', async () => {
+    expect(await reader(undefined, undefined)()).toBeUndefined()
+    expect(
+      await reader(
+        { id: 'connection-1' },
+        {
+          type: 'oauth',
+          methodID: 'oauth',
+          refresh: 'host-refresh',
+          access: 'host-access',
+          expires: 5,
+          metadata: { email: 'x' },
+        },
+      )(),
+    ).toEqual({
+      type: 'oauth',
+      refresh: 'host-refresh',
+      access: 'host-access',
+      expires: 5,
+    })
+    expect(
+      await reader({ id: 'connection-2' }, { type: 'key', key: 'host-key' })(),
+    ).toEqual({ type: 'api', key: 'host-key' })
+  })
+
+  it('refuses an active connection it cannot resolve or understand', async () => {
+    await expect(reader({ id: 'c' }, undefined)()).rejects.toThrow(
+      'could not be resolved',
+    )
+    await expect(reader({ id: 'c' }, { type: 'other' })()).rejects.toThrow(
+      'unknown shape',
+    )
   })
 })
 
@@ -714,15 +834,67 @@ describe('createGaLocationServices (production factory)', () => {
         await seed.login({
           id: crypto.randomUUID(),
           refreshToken: `refresh-${name}`,
-          metadata: { email: `${name}@example.com`, addedAt: 1, lastUsed: 1 },
+          metadata: {
+            email: `${name}@example.com`,
+            addedAt: 1,
+            lastUsed: 1,
+            // A managed project needs no project discovery request.
+            managedProjectId: `managed-${name}`,
+          },
         })
       }
       await seed.dispose()
 
       const observed: HarnessAccountsObservation[] = []
+      const exchanged: string[] = []
+      const notices: unknown[] = []
+      const signIns: string[] = []
+      const quotaRequests: { url: string; authorization: string | null }[] = []
       const services = await createGaLocationServices({
         directory,
         overrides: {
+          refreshAccessToken: async (refreshToken) => {
+            exchanged.push(refreshToken)
+            return {
+              access: `access-for-${refreshToken}`,
+              refresh: refreshToken,
+              expires: Date.now() + 3_600_000,
+            }
+          },
+          quotaFetch: async (url, init) => {
+            quotaRequests.push({
+              url,
+              authorization: new Headers(init.headers).get('authorization'),
+            })
+            return new Response(
+              url.includes('retrieveUserQuotaSummary')
+                ? '{"groups":[]}'
+                : '{"buckets":[]}',
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            )
+          },
+          oauth: {
+            authorize: async () => ({
+              url: 'https://accounts.example/auth?state=state-1',
+              verifier: 'verifier-1',
+              projectId: '',
+            }),
+            waitForCode: async (state) => {
+              signIns.push(`wait:${state}`)
+              return 'code-1'
+            },
+            exchange: async (code, state) => {
+              signIns.push(`exchange:${code}:${state}`)
+              return {
+                type: 'success',
+                refresh: 'refresh-one-reauthorized|',
+                access: 'access-reauthorized',
+                expires: Date.now() + 3_600_000,
+                email: 'one@example.com',
+                projectId: '',
+              }
+            },
+          },
           observeAccountSnapshot: (observation) => {
             observed.push(observation)
             return undefined
@@ -740,7 +912,10 @@ describe('createGaLocationServices (production factory)', () => {
           runtime,
           generation: 'g-test',
           send: async () => new Response('not used'),
-          notify: () => null,
+          notify: (_scope, entry) => {
+            notices.push(entry)
+            return null
+          },
           isConnected: () => false,
         })
         const signal = new AbortController().signal
@@ -795,6 +970,71 @@ describe('createGaLocationServices (production factory)', () => {
           [true, false],
         )
         expect(typeof serving.execute).toBe('function')
+
+        // The menu's quota check goes through the store quota service: the
+        // enabled account's token is refreshed through the repository and
+        // its requests carry exactly that bearer; the disabled one is not
+        // checked.
+        const checked = await serving.commands.apply({
+          request: {
+            command: 'antigravity',
+            sectionId: 'quota',
+            actionId: 'refresh',
+          },
+          scope,
+          signal,
+        })
+        expect(exchanged).toEqual(['refresh-one'])
+        expect(quotaRequests.length).toBeGreaterThan(0)
+        expect(
+          quotaRequests.every(
+            (request) =>
+              request.authorization === 'Bearer access-for-refresh-one',
+          ),
+        ).toBe(true)
+        expect(checked.text).toMatch(/^Quota checked for 1 of 2 accounts/)
+
+        // Reauthorize the first account from its menu item: the action
+        // answers once the sign-in waits for the browser, and the new login
+        // then replaces exactly that row's credential and reaches routing.
+        const reauthorized = await serving.commands.apply({
+          request: {
+            command: 'antigravity',
+            sectionId: 'accounts',
+            itemId: items[0]?.id ?? '',
+            actionId: 'reauthorize',
+          },
+          scope,
+          signal,
+        })
+        expect(reauthorized.text).toContain('Waiting for the browser')
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          if (JSON.stringify(notices).includes('Account reauthorized.')) break
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        }
+        expect(JSON.stringify(notices)).toContain('Account reauthorized.')
+        expect(signIns).toEqual(['wait:state-1', 'exchange:code-1:state-1'])
+        const stored = await createAccountRepositoryFactory(modules)({
+          paths: admission.paths,
+          now: Date.now,
+          exchange: async () => {
+            throw new Error('not used')
+          },
+        })
+        try {
+          const rows = await stored.read()
+          if (rows.status !== 'ready') throw new Error(rows.status)
+          expect(rows.rows.map((row) => row.credential?.refreshToken)).toEqual([
+            'refresh-one-reauthorized',
+            'refresh-two',
+          ])
+        } finally {
+          await stored.dispose()
+        }
+        const routed = runtime.accounts()
+        expect(
+          routed?.getAccounts().map((account) => account.parts.refreshToken),
+        ).toEqual(['refresh-one-reauthorized', 'refresh-two'])
       } finally {
         await services.dispose()
         await runtime.dispose()
@@ -817,6 +1057,130 @@ describe('createGaLocationServices (production factory)', () => {
       const { readdirSync } = await import('node:fs')
       expect(readdirSync(root)).toEqual([])
     } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('GA vault custody location', () => {
+  it("serves the vault's accounts without a local store, with settings and the Vault section", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'ga-vault-')))
+    const previous = {
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
+    }
+    process.env.OPENCODE_CONFIG_DIR = join(root, 'config')
+    process.env.XDG_CONFIG_HOME = join(root, 'xdg')
+    try {
+      const routes = [
+        {
+          routeId: 'route-a',
+          credentialId: 'credential-a',
+          accountIdentity: 'identity-a',
+          label: 'vault-a@example.com',
+          email: 'vault-a@example.com',
+        },
+      ]
+      let refreshed = 0
+      let disposed = 0
+      const source = {
+        refresh: async () => {
+          refreshed += 1
+          return undefined
+        },
+        routes: () => routes,
+        admit: async () => {
+          throw new Error('no send in this test')
+        },
+        reportServedStatus: async () => false,
+      }
+      const factory = createGaLocationServicesFactory({
+        loadStoreModules: loadCommonAuthStoreModules,
+        now: Date.now,
+        runtime: () => {
+          throw new Error('a vault location opens no local store runtime')
+        },
+        createPipeline: async () => {
+          throw new Error('a vault location builds no local pipeline')
+        },
+        custody: () => ({
+          readMode: async () => ({
+            ok: true,
+            record: { version: 1, mode: 'custody' },
+          }),
+          custodySource: async () => source,
+          menuSection: () => ({
+            id: 'vault',
+            title: 'Vault',
+            build: () => ({ lines: ['Mode: vault'] }),
+          }),
+          dispose: async () => {
+            disposed += 1
+          },
+        }),
+      })
+      const directory = join(root, 'location')
+      const { mkdirSync } = await import('node:fs')
+      mkdirSync(directory)
+      const services = await factory({ directory, overrides: {} })
+      const runtime = await createLocationRuntime({
+        ...services.runtime,
+        directory,
+        operatorSettingsRegistry: createOperatorSettingsRegistry(),
+      })
+      try {
+        const notices: unknown[] = []
+        const serving = await services.start({
+          runtime,
+          generation: 'g-vault',
+          send: async () => new Response('not used'),
+          notify: (_scope, entry) => {
+            notices.push(entry)
+            return null
+          },
+          isConnected: () => false,
+        })
+        expect(refreshed).toBe(1)
+        const signal = new AbortController().signal
+        const scope = { kind: 'sessionless' } as const
+        const read = await serving.state.read({ scope, signal })
+        if (read.accounts.kind !== 'complete') throw new Error('over limit')
+        expect(read.accounts.rows).toHaveLength(1)
+        expect(JSON.stringify(read)).not.toContain('vault-a@example.com')
+
+        const answer = await serving.commands.apply({
+          request: {
+            command: 'antigravity',
+            sectionId: 'routing',
+            actionId: 'set',
+            values: { cliFirst: true },
+          },
+          scope,
+          signal,
+        })
+        expect(answer.ok).toBe(true)
+        expect(answer.menu.sections.map((section) => section.slot)).toEqual([
+          'accounts',
+          'quota',
+          'routing',
+          'limits',
+          'diagnostics',
+          'extra',
+        ])
+        expect(JSON.stringify(answer)).not.toContain('vault-a@example.com')
+        expect(runtime.operatorSettings.get().routing.cli_first).toBe(true)
+        // The apply re-read the vault roster for routing.
+        expect(refreshed).toBe(2)
+      } finally {
+        await services.dispose()
+        await runtime.dispose()
+      }
+      expect(disposed).toBe(1)
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
       rmSync(root, { recursive: true, force: true })
     }
   })

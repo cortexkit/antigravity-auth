@@ -27,21 +27,25 @@ import {
   type AccountRepository,
   type AccountRepositoryRead,
   type AccountRow,
+  AccountSelector,
   type AccountStoreBinding,
   type AccountStoreModules,
   type AccountTokenExchange,
   ANTIGRAVITY_MENU_COMMAND,
   type AntigravityMenuAccounts,
+  type AntigravityQuotaCheckReport,
   type AntigravityRepositoryMenuOptions,
   type AntigravityVaultAccountSource,
+  antigravitySettingsSections,
+  authorizeAntigravity,
   type CommonAuthCommandsModule,
   createAccountRepositoryFactory,
   createAntigravityCommandMenu,
   ensureProjectContext,
+  exchangeAntigravity,
   type FetchAccountQuota,
   fetchWithAgyCliTransport,
   formatRefreshParts,
-  HealthScoreTracker,
   loadCommonAuthCommands,
   loadCommonAuthStoreModules,
   type ManagedAccount,
@@ -52,8 +56,8 @@ import {
   readAccountStoreBinding,
   refreshAntigravityToken,
   rowRefKey,
+  type SelectableAccount,
   sameRowRef,
-  TokenBucketTracker,
   type VaultRouteRef,
 } from '@cortexkit/antigravity-auth-core'
 import type {
@@ -80,7 +84,10 @@ import type {
   SidebarAccountRedactionInput,
   SidebarRoutingEntry,
 } from '../sidebar-state.ts'
-import { extractAccountAccessErrorDetails } from './account-access.ts'
+import {
+  createRepositoryAccountAccessService,
+  extractAccountAccessErrorDetails,
+} from './account-access.ts'
 import {
   createLocalAccountCredentials,
   loadAccountManagerFromRepository,
@@ -93,7 +100,10 @@ import {
 import type { GeminiDumpState } from './gemini-dump.ts'
 import type { Logger } from './logger.ts'
 import type { OperatorSettings } from './operator-settings.ts'
-import { createAuthorizedFetchAccountQuota } from './quota.ts'
+import {
+  createAuthorizedFetchAccountQuota,
+  createStoreQuotaService,
+} from './quota.ts'
 import {
   buildThinkingWarmupBody,
   getImageModelLocalTitle,
@@ -101,13 +111,13 @@ import {
   prepareAntigravityRequest,
   transformAntigravityResponse,
 } from './request.ts'
+import { type OAuthListener, startOAuthListener } from './server.ts'
 import { AgySessionRegistry } from './session-context.ts'
 import {
   type AntigravityRequestExecutor,
   createLocalQuotaRefresh,
   createRequestExecutor,
   type LocalRequestCredentials,
-  type RequestAccountRow,
   type RequestRoutingEntry,
   type VaultRequestCredentials,
 } from './shared/request-services.ts'
@@ -115,6 +125,10 @@ import {
   createMemoryQuotaSnapshots,
   type LocationRuntime,
 } from './shared/runtime.ts'
+import {
+  createOpenCodeVaultCustody,
+  type OpenCodeVaultCustody,
+} from './vault-custody.ts'
 
 /** Accounts one `state` answer may carry (`ANTIGRAVITY_RPC_LIMITS.accounts`). */
 const ACCOUNT_LIMIT = 64
@@ -558,6 +572,12 @@ export function createGaAccountStateSource(
 // Menu
 // ---------------------------------------------------------------------------
 
+type GaMenuOptions = Parameters<
+  CommonAuthCommandsModule['createCommandMenu']
+>[0]
+type GaMenuSection = NonNullable<GaMenuOptions['cache']>
+type GaMenuExtraSection = NonNullable<GaMenuOptions['extras']>[number]
+
 /** The shared `/antigravity` menu, as the core factory builds it. */
 export type GaCommandMenu = ReturnType<
   CommonAuthCommandsModule['createCommandMenu']
@@ -580,6 +600,9 @@ export function createGaLocationMenu(input: {
     'operatorSettings' | 'dump' | 'applyOperatorSettings'
   >
   readonly refreshQuota?: AntigravityRepositoryMenuOptions['refreshQuota']
+  readonly reauthorize?: AntigravityRepositoryMenuOptions['reauthorize']
+  /** The Vault section, when the location has vault custody available. */
+  readonly vault?: GaMenuExtraSection
 }): GaCommandMenu {
   const runtime = input.runtime
   return createAntigravityCommandMenu({
@@ -597,32 +620,255 @@ export function createGaLocationMenu(input: {
       settings: runtime.operatorSettings,
     }),
     ...(input.refreshQuota ? { refreshQuota: input.refreshQuota } : {}),
+    ...(input.reauthorize ? { reauthorize: input.reauthorize } : {}),
+    ...(input.vault ? { extras: [input.vault] } : {}),
   })
 }
 
+/** The menu invocation for one RPC scope; its notices are queued there. */
+function scopeInvocation(
+  scope: AntigravityRpcScope,
+  notify: GaRpcActivation['notify'],
+): Parameters<GaCommandMenu['open']>[0] {
+  return {
+    ...(scope.kind === 'session' ? { sessionId: scope.sessionID } : {}),
+    notify(message, kind) {
+      notify(scope, {
+        command: ANTIGRAVITY_MENU_COMMAND,
+        notify: { message, kind: kind ?? 'info' },
+      })
+    },
+  }
+}
+
 /**
- * The RPC `apply` service over the location's menu. Each request (already
- * accepted by the library's own parser) runs through the menu with an
- * invocation for its scope, whose notices are queued for that scope; once
- * the activation's signal aborts, no new action starts.
+ * The location's menu service: `apply` for the RPC `apply` method, and
+ * `open` for the native `/antigravity` command, which queues the menu that
+ * opens the drawer in the invoking session's scope.
+ */
+export interface GaMenuCommandService extends GaCommandService {
+  open(input: {
+    readonly scope: AntigravityRpcScope
+    readonly signal: AbortSignal
+  }): Promise<void>
+}
+
+/**
+ * The menu service over the location's menu. Each request (already accepted
+ * by the library's own parser) runs through the menu with an invocation for
+ * its scope, whose notices are queued for that scope; once the activation's
+ * signal aborts, no new action starts. After every apply, `afterApply`
+ * brings the routing state up to date with what the action wrote; its
+ * failure is reported to the scope but does not change the menu's answer.
  */
 export function createGaMenuCommandService(input: {
   readonly menu: GaCommandMenu
   readonly notify: GaRpcActivation['notify']
-}): GaCommandService {
+  readonly afterApply?: () => Promise<void>
+}): GaMenuCommandService {
   return {
     async apply({ request, scope, signal }) {
       if (signal.aborted) throw abortError(signal)
-      return input.menu.apply(request, {
-        ...(scope.kind === 'session' ? { sessionId: scope.sessionID } : {}),
-        notify(message, kind) {
+      const result = await input.menu.apply(
+        request,
+        scopeInvocation(scope, input.notify),
+      )
+      if (input.afterApply) {
+        try {
+          await input.afterApply()
+        } catch {
           input.notify(scope, {
             command: ANTIGRAVITY_MENU_COMMAND,
-            notify: { message, kind: kind ?? 'info' },
+            notify: {
+              message:
+                'The change was saved, but routing has not picked it up yet.',
+              kind: 'warning',
+            },
           })
-        },
-      })
+        }
+      }
+      return result
     },
+    async open({ scope, signal }) {
+      if (signal.aborted) throw abortError(signal)
+      const payload = await input.menu.open(
+        scopeInvocation(scope, input.notify),
+      )
+      if (signal.aborted) throw abortError(signal)
+      input.notify(scope, payload)
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reauthorization
+// ---------------------------------------------------------------------------
+
+/** The menu's reauthorize option, as the shared core menu takes it. */
+type GaReauthorize = NonNullable<
+  AntigravityRepositoryMenuOptions['reauthorize']
+>
+
+/**
+ * The account items' Reauthorize action for a GA location: a browser
+ * sign-in whose result replaces exactly the credential the item was opened
+ * for (through the account adapters' repository access service, which also
+ * refuses a sign-in to a different Google account and clears the row's
+ * access blocks). The action answers once the sign-in has started and the
+ * callback listener is waiting; the rest finishes in the background and is
+ * reported to the invoking session. `afterChange` brings routing up to date
+ * with the new credential.
+ *
+ * Without an override, the redirect is received by this package's own
+ * callback listener on the registered redirect address, which accepts only
+ * the state of the sign-in it was started for.
+ */
+export function createGaReauthorize(input: {
+  readonly repository: AccountRepository
+  readonly overrides: GaPluginOverrides
+  readonly afterChange: () => Promise<void>
+}): GaReauthorize & { dispose(): Promise<void> } {
+  const authorize = input.overrides.oauth?.authorize ?? authorizeAntigravity
+  const exchange = input.overrides.oauth?.exchange ?? exchangeAntigravity
+  const waitForCode = input.overrides.oauth?.waitForCode
+  const access = createRepositoryAccountAccessService({
+    repository: input.repository,
+    // A GA location has no terminal: it opens no browser itself and asks
+    // no account question; the sign-in link is shown in the menu instead.
+    openBrowser: async () => false,
+    prompt: {
+      selectAccount: async () => undefined,
+      confirmOpenVerificationUrl: async () => false,
+    },
+  })
+  const listeners = new Set<OAuthListener>()
+  let disposed = false
+
+  /** Starts waiting for the redirect; resolves with the waiting promise. */
+  const startWaiting = async (
+    expectedState: string,
+  ): Promise<Promise<string>> => {
+    if (waitForCode) return waitForCode(expectedState)
+    const listener = await startOAuthListener()
+    listeners.add(listener)
+    return (async () => {
+      try {
+        const url = await listener.waitForCallback()
+        if (url.searchParams.get('state') !== expectedState)
+          throw new Error('The sign-in answered for a different request')
+        const code = url.searchParams.get('code')
+        if (!code) throw new Error('The sign-in returned no code')
+        return code
+      } finally {
+        listeners.delete(listener)
+        await listener.close()
+      }
+    })()
+  }
+
+  return {
+    async run(ref, invocation) {
+      if (disposed)
+        return {
+          ok: false,
+          text: 'The location is shutting down.',
+          code: 'refused',
+        }
+      const authorization = await authorize()
+      const state = new URL(authorization.url).searchParams.get('state')
+      if (!state)
+        return {
+          ok: false,
+          text: 'The sign-in could not be started.',
+          code: 'action-failed',
+        }
+      const waiting = await startWaiting(state)
+      void (async () => {
+        try {
+          const code = await waiting
+          const result = await exchange(code, state)
+          if (result.type !== 'success') {
+            invocation.notify('The sign-in was not completed.', 'error')
+            return
+          }
+          await access.reauthorizeAccount(ref, result)
+          await input.afterChange()
+          invocation.notify('Account reauthorized.', 'info')
+        } catch {
+          invocation.notify(
+            'The account could not be reauthorized; nothing was changed.',
+            'error',
+          )
+        }
+      })()
+      return `Sign in with the browser to reauthorize this account:\n${authorization.url}\nWaiting for the browser…`
+    },
+    async dispose() {
+      disposed = true
+      const open = [...listeners]
+      listeners.clear()
+      await Promise.all(open.map((listener) => listener.close()))
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Host auth slot (OpenCode 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The parts of the host's integration API (`context.integration.connection`
+ * in the OpenCode 2 plugin SDK) that read the active credential of one
+ * integration. Declared without the SDK so this module stays SDK-free.
+ */
+export interface GaIntegrationConnections<C> {
+  active(integrationID: string): Promise<C | undefined>
+  resolve(connection: C): Promise<unknown>
+}
+
+/**
+ * Reads the OpenCode 2 host's own sign-in for `integrationID` in the shape
+ * the vault library classifies: an OAuth credential as
+ * `{ type: 'oauth', refresh, access, expires }`, a key credential as
+ * `{ type: 'api', key }`, and no active connection as `undefined` (empty).
+ * An active connection whose credential cannot be resolved, or a credential
+ * of another shape, rejects: custody is then refused, never decided on a
+ * slot read as empty by mistake.
+ */
+export function createGaHostSlotReader<C>(
+  connections: GaIntegrationConnections<C>,
+  integrationID: string,
+): () => Promise<unknown> {
+  return async () => {
+    const connection = await connections.active(integrationID)
+    if (connection === undefined) return undefined
+    const credential = await connections.resolve(connection)
+    if (typeof credential !== 'object' || credential === null)
+      throw new Error('The host sign-in could not be resolved')
+    if (
+      'type' in credential &&
+      credential.type === 'oauth' &&
+      'refresh' in credential &&
+      typeof credential.refresh === 'string' &&
+      'access' in credential &&
+      typeof credential.access === 'string' &&
+      'expires' in credential &&
+      typeof credential.expires === 'number'
+    )
+      return {
+        type: 'oauth',
+        refresh: credential.refresh,
+        access: credential.access,
+        expires: credential.expires,
+      }
+    if (
+      'type' in credential &&
+      credential.type === 'key' &&
+      'key' in credential &&
+      typeof credential.key === 'string'
+    )
+      return { type: 'api', key: credential.key }
+    throw new Error('The host sign-in has an unknown shape')
   }
 }
 
@@ -647,6 +893,15 @@ export interface GaRequestPipelineInput {
 /** The request pipeline for one activation, as the shared engine builds it. */
 export interface GaRequestPipeline {
   readonly execute: GaJobExecutor
+  /**
+   * The menu's manual quota check over this pipeline's accounts; absent
+   * when the pipeline's custody has no such check.
+   */
+  readonly refreshQuota?: (
+    refs: readonly RowRef[],
+  ) => Promise<AntigravityQuotaCheckReport>
+  /** Brings the routing accounts up to date with the account store. */
+  refreshAccounts(): Promise<void>
   dispose(): Promise<void>
 }
 
@@ -667,6 +922,20 @@ export interface GaLocationServicesBindings {
   readonly createPipeline: (
     input: GaRequestPipelineInput,
   ) => Promise<GaRequestPipeline>
+  /**
+   * The location's vault custody, for the account file the location
+   * resolves. Without it the location serves its local account store only.
+   */
+  readonly custody?: (input: {
+    readonly accountFile: string
+    readonly overrides: GaPluginOverrides
+  }) => GaLocationCustody
+}
+
+/** The vault custody operations a GA location uses. */
+export interface GaLocationCustody
+  extends Pick<OpenCodeVaultCustody, 'readMode' | 'menuSection' | 'dispose'> {
+  custodySource(): Promise<GaVaultSource>
 }
 
 /**
@@ -941,8 +1210,50 @@ export async function authorizeGaQuotaCheck(
  * A vault-backed pool row: selection metadata plus the vault route it was
  * listed under. It carries no token, refresh token or project.
  */
-export interface GaVaultAccountRow extends RequestAccountRow {
-  readonly route: VaultRouteRef
+export type GaVaultAccountRow = SelectableAccount & {
+  route: VaultRouteRef
+}
+
+/**
+ * Keeps a vault row's in-memory selection state across a roster re-read and
+ * takes only the route's display fields from the fresh roster; the vault
+ * keeps no cooldown, rate-limit or usage state for the plugin to reload.
+ */
+export function refreshGaVaultRow(
+  prior: GaVaultAccountRow,
+  fresh: GaVaultAccountRow,
+): void {
+  prior.route = fresh.route
+  if (fresh.email === undefined) delete prior.email
+  else prior.email = fresh.email
+}
+
+/** A vault row's identity: its route, credential and asserted account. */
+export function gaVaultRowKey(row: GaVaultAccountRow): string {
+  return JSON.stringify([
+    row.route.routeId,
+    row.route.credentialId,
+    row.route.accountIdentity,
+  ])
+}
+
+/**
+ * Selection rows for the vault's selectable routes, in roster order. A row
+ * holds the route and selection bookkeeping only: no token, refresh token,
+ * project or local reference.
+ */
+export function gaVaultRows(
+  routes: readonly VaultRouteRef[],
+): GaVaultAccountRow[] {
+  return routes.map((route, index) => ({
+    index,
+    enabled: true,
+    lastUsed: 0,
+    rateLimitResetTimes: {},
+    touchedForQuota: {},
+    route,
+    ...(route.email !== undefined ? { email: route.email } : {}),
+  }))
 }
 
 /**
@@ -1106,6 +1417,60 @@ export function createGaJobExecutor(
 }
 
 /**
+ * The shared request engine's collaborators that do not depend on where the
+ * accounts' credentials live: this location's config, session registry,
+ * operator settings, wire, debug log, dump switch and route book, and the
+ * AGY transport with the GA raw sender's idle timeout and signal observer.
+ */
+function gaEngineCollaborators(input: {
+  readonly runtime: GaStartInput['runtime']
+  readonly overrides: GaPluginOverrides
+  readonly routes: GaRouteBook
+  readonly logger: Logger
+}) {
+  const runtime = input.runtime
+  const observe = input.overrides.observeRawSenderSignal
+  return {
+    config: runtime.config.config,
+    sessions: new AgySessionRegistry(runtime.directory),
+    operatorSettings: runtime.operatorSettings,
+    transport: (
+      url: string,
+      init?: RequestInit,
+      options?: Parameters<typeof fetchWithAgyCliTransport>[2],
+    ) => {
+      const transportOptions = {
+        ...options,
+        idleTimeoutMs: options?.idleTimeoutMs ?? GA_TRANSPORT_IDLE_TIMEOUT_MS,
+      }
+      if (observe && transportOptions.signal) {
+        try {
+          observe(transportOptions.signal)
+        } catch {
+          // A diagnostic failure must not change or delay the dispatch.
+        }
+      }
+      return fetchWithAgyCliTransport(url, init, transportOptions)
+    },
+    fetchImpl: (request: RequestInfo | URL, init?: RequestInit) =>
+      fetch(request, init),
+    wire: {
+      prepare: prepareAntigravityRequest,
+      transformResponse: transformAntigravityResponse,
+      buildThinkingWarmupBody,
+      getImageModelLocalTitle,
+      getLastCacheStats,
+    },
+    debug: runtime.debug,
+    dump: runtime.dump,
+    logger: input.logger,
+    classifyAccessError: extractAccountAccessErrorDetails,
+    onRouting: (sessionId: string, entry: RequestRoutingEntry) =>
+      input.routes.record(sessionId, entry),
+  }
+}
+
+/**
  * The shared request engine over a repository-backed account manager. The
  * engine is the same one OpenCode 1 uses; only its collaborators are this
  * location's.
@@ -1122,10 +1487,13 @@ export async function createGaLocalRequestPipeline(
   input.accounts.quotaLogger = runtime.logger.createLogger('quota')
   await runtime.replaceAccounts(manager)
   const logger = runtime.logger.createLogger('request')
-  const observe = input.overrides.observeRawSenderSignal
-  const config = runtime.config.config
   const executor = createRequestExecutor({
-    config,
+    ...gaEngineCollaborators({
+      runtime,
+      overrides: input.overrides,
+      routes: input.routes,
+      logger,
+    }),
     accounts: manager,
     credentials: createGaLocalCredentials(manager, {
       overrides: input.overrides,
@@ -1135,51 +1503,335 @@ export async function createGaLocalRequestPipeline(
         logger,
       ),
     }),
-    sessions: new AgySessionRegistry(runtime.directory),
-    operatorSettings: runtime.operatorSettings,
-    transport: (url, init, options) => {
-      const transportOptions = {
-        ...options,
-        idleTimeoutMs: options?.idleTimeoutMs ?? GA_TRANSPORT_IDLE_TIMEOUT_MS,
-      }
-      if (observe && transportOptions.signal) {
-        try {
-          observe(transportOptions.signal)
-        } catch {
-          // A diagnostic failure must not change or delay the dispatch.
-        }
-      }
-      return fetchWithAgyCliTransport(url, init, transportOptions)
-    },
-    fetchImpl: (request, init) => fetch(request, init),
-    wire: {
-      prepare: prepareAntigravityRequest,
-      transformResponse: transformAntigravityResponse,
-      buildThinkingWarmupBody,
-      getImageModelLocalTitle,
-      getLastCacheStats,
-    },
-    debug: runtime.debug,
-    dump: runtime.dump,
-    logger,
-    // Per-location trackers; never the process-wide ones.
+    // The trackers the manager selects with, so recorded outcomes steer
+    // the next selection.
     trackers: {
-      health: new HealthScoreTracker(),
-      token: new TokenBucketTracker(),
+      health: manager.healthTracker,
+      token: manager.tokenTracker,
     },
-    classifyAccessError: extractAccountAccessErrorDetails,
-    onRouting: (sessionId, entry) => input.routes.record(sessionId, entry),
+  })
+  // Local custody: the same store quota service the OpenCode 1 menu uses,
+  // over this activation's manager and repository.
+  const quotaFetch = input.overrides.quotaFetch
+  const storeQuota = createStoreQuotaService({
+    manager,
+    repository: input.repository,
+    logger: runtime.logger.createLogger('store-quota'),
+    ...(quotaFetch ? { transport: () => quotaFetch } : {}),
   })
   return {
     execute: createGaJobExecutor(executor),
+    refreshQuota: (refs) => storeQuota.checkStoreQuota(refs),
+    refreshAccounts: () => manager.refreshFromRepository(),
     async dispose() {
       executor.dispose()
+      await storeQuota.dispose()
       if (input.accounts.current === manager) {
         input.accounts.current = null
         input.accounts.quotaLogger = null
       }
       await runtime.replaceAccounts(null)
       await manager.flushSaveToDisk()
+    },
+  }
+}
+
+/** The vault account source operations a vault request pipeline uses. */
+export type GaVaultSource = Pick<
+  AntigravityVaultAccountSource,
+  'refresh' | 'routes' | 'admit' | 'reportServedStatus'
+>
+
+/**
+ * The shared request engine for a location whose accounts are held by the
+ * vault. Selection runs on the shared `AccountSelector` over the vault's
+ * selectable routes (metadata rows, no credential); every physical send
+ * takes a fresh receipt for the selected route through
+ * `createGaVaultCredentials`. Nothing is refreshed or cached locally.
+ * `refreshAccounts` re-reads the vault roster and keeps each route's
+ * selection state while its route, credential and asserted account stay
+ * the same. Selection state is in memory only.
+ */
+export async function createGaVaultRequestPipeline(input: {
+  readonly source: GaVaultSource
+  readonly runtime: GaStartInput['runtime']
+  readonly overrides: GaPluginOverrides
+  readonly routes: GaRouteBook
+  readonly now?: () => number
+}): Promise<GaRequestPipeline> {
+  const selector = new AccountSelector<GaVaultAccountRow>({
+    ...(input.now ? { now: input.now } : {}),
+  })
+  await input.source.refresh()
+  selector.resetAccounts(gaVaultRows(input.source.routes()))
+  const logger = input.runtime.logger.createLogger('request')
+  const executor = createRequestExecutor<GaVaultAccountRow>({
+    ...gaEngineCollaborators({
+      runtime: input.runtime,
+      overrides: input.overrides,
+      routes: input.routes,
+      logger,
+    }),
+    accounts: selector,
+    credentials: createGaVaultCredentials(input.source),
+    trackers: {
+      health: selector.healthTracker,
+      token: selector.tokenTracker,
+    },
+  })
+  return {
+    execute: createGaJobExecutor(executor),
+    async refreshAccounts() {
+      await input.source.refresh()
+      selector.replaceAccounts(gaVaultRows(input.source.routes()), {
+        keyOf: gaVaultRowKey,
+        refresh: refreshGaVaultRow,
+      })
+    },
+    async dispose() {
+      executor.dispose()
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Vault custody location
+// ---------------------------------------------------------------------------
+
+/**
+ * Opaque item and state selectors for vault routes, one per route,
+ * credential and asserted account for the life of the activation.
+ */
+function vaultSelectors(createSelector: () => string) {
+  const byKey = new Map<string, string>()
+  return (row: GaVaultAccountRow): string => {
+    const key = gaVaultRowKey(row)
+    let selector = byKey.get(key)
+    if (selector === undefined) {
+      selector = createSelector()
+      byKey.set(key, selector)
+    }
+    return selector
+  }
+}
+
+/**
+ * The Accounts and Quota sections of a vault custody location. Accounts
+ * lists the vault's selectable accounts by position; the vault, not this
+ * plugin, adds and removes them. Quota checks for vault accounts are not
+ * offered.
+ */
+function gaVaultAccountSections(
+  source: GaVaultSource,
+  selectorOf: (row: GaVaultAccountRow) => string,
+): { accounts: GaMenuSection; quota: GaMenuSection } {
+  return {
+    accounts: {
+      title: 'Accounts',
+      build: () => {
+        const rows = gaVaultRows(source.routes())
+        return {
+          lines: [
+            rows.length === 0
+              ? 'The vault serves no accounts to this computer yet.'
+              : `${rows.length} accounts served from the vault`,
+          ],
+          items: rows.map((row, position) => ({
+            id: selectorOf(row),
+            label: `Account ${position + 1}`,
+            detail: 'served from the vault',
+          })),
+        }
+      },
+    },
+    quota: {
+      title: 'Quota',
+      build: () => ({
+        lines: ['Quota checks are not available for vault accounts.'],
+      }),
+    },
+  }
+}
+
+/**
+ * The `state` source of a vault custody location: the vault's selectable
+ * accounts as redaction rows with opaque selectors, read one at a time.
+ * Vault rows carry no metadata or access blocks of this plugin's own.
+ */
+function createGaVaultStateSource(input: {
+  readonly source: GaVaultSource
+  readonly selectorOf: (row: GaVaultAccountRow) => string
+  readonly generation: string
+  readonly settings: () => AntigravitySettingsDto
+  readonly route: (scope: AntigravityRpcScope) => SidebarRoutingEntry | null
+  readonly observe?: ObserveAccountSnapshot
+}): GaStateSource {
+  let readSeq = 0
+  let queue: Promise<unknown> = Promise.resolve()
+  const readOnce = async (scope: AntigravityRpcScope, signal: AbortSignal) => {
+    if (signal.aborted) throw abortError(signal)
+    const rows = gaVaultRows(input.source.routes())
+    const settings = input.settings()
+    const route = input.route(scope)
+    if (signal.aborted) throw abortError(signal)
+    readSeq += 1
+    const overLimit = rows.length > ACCOUNT_LIMIT
+    const answer: GaStateRead = {
+      readSeq,
+      accounts: overLimit
+        ? { kind: 'over-limit', count: rows.length }
+        : {
+            kind: 'complete',
+            rows: rows.map((row, position) => ({
+              selector: input.selectorOf(row),
+              row: { index: position, enabled: row.enabled, current: false },
+            })),
+          },
+      route,
+      status: {
+        checkedAt: null,
+        quotaBackoffUntil: null,
+        routingAuthoritative: true,
+      },
+      settings,
+    }
+    if (input.observe) {
+      try {
+        input.observe({
+          generation: input.generation,
+          readSeq,
+          status: 'ready',
+          accountsStatus: overLimit ? 'over-limit' : 'complete',
+          accounts: overLimit
+            ? []
+            : rows.map((row, position) => ({
+                selector: input.selectorOf(row),
+                position,
+                enabled: row.enabled,
+                usable: row.enabled,
+                metadataStatus: 'absent',
+                accessBlock: { kind: 'unknown' },
+                currentFor: [],
+                cooldownUntil: null,
+              })),
+          retiredSelectors: [],
+        })
+      } catch {
+        // A diagnostic observer cannot change the answer.
+      }
+    }
+    return answer
+  }
+  return {
+    read({ scope, signal }) {
+      const next = queue.then(
+        () => readOnce(scope, signal),
+        () => readOnce(scope, signal),
+      )
+      queue = next.catch(() => undefined)
+      return next
+    },
+  }
+}
+
+/**
+ * A GA location whose accounts are held by the vault. No local account
+ * store is opened. The vault source is taken from custody (which refuses
+ * while OpenCode holds its own Google login), requests go through
+ * `createGaVaultRequestPipeline`, and the menu shows the vault's accounts,
+ * this location's settings and the Vault section. The runtime keeps quota
+ * snapshots in memory; it gets no account view, so its quota poller and
+ * token refresh queue do not run for vault accounts.
+ */
+async function createGaVaultLocationServices(input: {
+  readonly custody: GaLocationCustody
+  readonly overrides: GaPluginOverrides
+  readonly bindings: Pick<GaLocationServicesBindings, 'createSelector'>
+}): Promise<GaLocationServices> {
+  const { custody, overrides } = input
+  let source: GaVaultSource
+  try {
+    source = await custody.custodySource()
+  } catch (error) {
+    await custody.dispose()
+    throw error
+  }
+  const selectorOf = vaultSelectors(
+    input.bindings.createSelector ?? defaultSelector,
+  )
+  let pipeline: GaRequestPipeline | null = null
+  let disposed: Promise<void> | null = null
+  return {
+    runtime: {
+      quotaSnapshots: createMemoryQuotaSnapshots(),
+      // Never called: the runtime is given no account view for vault rows,
+      // so neither its quota poller nor its refresh queue runs.
+      fetchAccountQuota: async (account) => ({
+        index: 0,
+        email: account.email,
+        status: 'error',
+        disabled: false,
+        error: 'vault accounts are not checked by this location',
+      }),
+      refreshToken: async () => undefined,
+    },
+    async start(start) {
+      if (disposed) throw new Error('The location services are disposed')
+      const location = start.runtime
+      const routes = createGaRouteBook()
+      pipeline = await createGaVaultRequestPipeline({
+        source,
+        runtime: location,
+        overrides,
+        routes,
+      })
+      const started = pipeline
+      const settings = operatorMenuSettings(location.operatorSettings)
+      const menu = createAntigravityCommandMenu({
+        source: 'sections',
+        commands: await loadCommonAuthCommands(),
+        sections: {
+          ...gaVaultAccountSections(source, selectorOf),
+          ...antigravitySettingsSections(settings),
+        },
+        diagnostics: diagnosticsMenuSection({
+          settings: location.operatorSettings,
+          dump: location.dump,
+          applyLogLevel: () => location.applyOperatorSettings(),
+        }),
+        extras: [custody.menuSection()],
+      })
+      return {
+        execute: started.execute,
+        state: createGaVaultStateSource({
+          source,
+          selectorOf,
+          generation: start.generation,
+          settings: () =>
+            gaSettingsOf(location.operatorSettings.get(), location.dump),
+          route: (scope) => routes.route(scope),
+          ...(overrides.observeAccountSnapshot
+            ? { observe: overrides.observeAccountSnapshot }
+            : {}),
+        }),
+        commands: createGaMenuCommandService({
+          menu,
+          notify: start.notify,
+          afterApply: () => started.refreshAccounts(),
+        }),
+      }
+    },
+    dispose() {
+      disposed ??= (async () => {
+        const active = pipeline
+        pipeline = null
+        try {
+          if (active) await active.dispose()
+        } finally {
+          await custody.dispose()
+        }
+      })()
+      return disposed
     },
   }
 }
@@ -1193,7 +1845,28 @@ export function createGaLocationServicesFactory(
   bindings: GaLocationServicesBindings,
 ): GaLocationServicesFactory {
   return async ({ directory, overrides }): Promise<GaLocationServices> => {
-    const opened = await openLocationRepository(directory, bindings, overrides)
+    const custody = bindings.custody?.({
+      accountFile: join(directory, GA_ACCOUNTS_FILE),
+      overrides,
+    })
+    if (custody) {
+      const mode = await custody.readMode()
+      if (!mode.ok) {
+        await custody.dispose()
+        throw new Error(
+          `The Antigravity vault mode is unclear (${mode.reason}); choose a mode in the Vault section of the Antigravity menu.`,
+        )
+      }
+      if (mode.record.mode === 'custody')
+        return createGaVaultLocationServices({ custody, overrides, bindings })
+    }
+    let opened: LocationRepository
+    try {
+      opened = await openLocationRepository(directory, bindings, overrides)
+    } catch (error) {
+      await custody?.dispose()
+      throw error
+    }
     const repository = opened.repository
     let runtime: GaRuntimeCollaborators
     try {
@@ -1206,6 +1879,7 @@ export function createGaLocationServicesFactory(
     }
     const registry = createGaSelectorRegistry(bindings.createSelector)
     let pipeline: GaRequestPipeline | null = null
+    let reauthorize: ReturnType<typeof createGaReauthorize> | null = null
     let disposed: Promise<void> | null = null
 
     return {
@@ -1239,24 +1913,38 @@ export function createGaLocationServicesFactory(
             ? { observe: overrides.observeAccountSnapshot }
             : {}),
         })
+        const started = pipeline
+        const refreshAccounts = () => started.refreshAccounts()
+        reauthorize = createGaReauthorize({
+          repository,
+          overrides,
+          afterChange: refreshAccounts,
+        })
+        const checkQuota = started.refreshQuota
         const menu = createGaLocationMenu({
           commands: await loadCommonAuthCommands(),
           repository,
           runtime: location,
+          reauthorize,
+          ...(custody ? { vault: custody.menuSection() } : {}),
+          ...(checkQuota ? { refreshQuota: (refs) => checkQuota(refs) } : {}),
         })
         const commands = createGaMenuCommandService({
           menu,
           notify: input.notify,
+          afterApply: refreshAccounts,
         })
-        return { state, commands, execute: pipeline.execute }
+        return { state, commands, execute: started.execute }
       },
       dispose() {
         disposed ??= (async () => {
           const active = pipeline
           pipeline = null
           try {
+            await reauthorize?.dispose()
             if (active) await active.dispose()
           } finally {
+            await custody?.dispose()
             await repository.dispose()
           }
         })()
@@ -1316,25 +2004,57 @@ export function createGaRuntimeCollaborators(input: {
   }
 }
 
+/** What the OpenCode 2 host supplies for vault custody of its locations. */
+export interface GaVaultHost {
+  /**
+   * The host's own Google sign-in, read through its public integration API
+   * (see `createGaHostSlotReader`); rejects when it cannot be read.
+   */
+  readonly readHostSlot: () => Promise<unknown>
+  /** The vault client library's resolution of its connection file. */
+  readonly connectionFile: () => string | Promise<string>
+}
+
 /**
  * The production GA location services: the embedded common-auth store,
  * the system clock, the repository-backed request pipeline and the
  * collaborators above. Every activation gets its own repository, account
- * slot and pipeline.
+ * slot and pipeline. With `vault`, a location can also serve the vault's
+ * accounts: its mode file decides, and the menu's Vault section switches.
  */
-export const createGaLocationServices: GaLocationServicesFactory = (input) => {
-  const accounts: GaAccountSlot = { current: null, quotaLogger: null }
-  return createGaLocationServicesFactory({
-    loadStoreModules: loadCommonAuthStoreModules,
-    now: Date.now,
-    runtime: ({ repository, overrides }) =>
-      createGaRuntimeCollaborators({
-        repository,
-        overrides,
-        accounts,
-        now: Date.now,
-      }),
-    createPipeline: (pipeline) =>
-      createGaLocalRequestPipeline({ ...pipeline, accounts }),
-  })(input)
+export function createGaLocationServicesForHost(
+  vault?: GaVaultHost,
+): GaLocationServicesFactory {
+  return (input) => {
+    const accounts: GaAccountSlot = { current: null, quotaLogger: null }
+    return createGaLocationServicesFactory({
+      loadStoreModules: loadCommonAuthStoreModules,
+      now: Date.now,
+      runtime: ({ repository, overrides }) =>
+        createGaRuntimeCollaborators({
+          repository,
+          overrides,
+          accounts,
+          now: Date.now,
+        }),
+      createPipeline: (pipeline) =>
+        createGaLocalRequestPipeline({ ...pipeline, accounts }),
+      ...(vault
+        ? {
+            custody: ({ accountFile }) =>
+              createOpenCodeVaultCustody({
+                accountFile,
+                readHostSlot: vault.readHostSlot,
+                connectionFile: vault.connectionFile,
+                // The engine reads each send's HTTP status itself.
+                reporterSource: 'direct',
+              }),
+          }
+        : {}),
+    })(input)
+  }
 }
+
+/** The GA location services of a host that offers no vault custody. */
+export const createGaLocationServices: GaLocationServicesFactory =
+  createGaLocationServicesForHost()

@@ -136,6 +136,19 @@ export interface AntigravityRepositoryMenuOptions
    * offer no floor action.
    */
   readonly accountLimits?: AntigravityAccountLimitSource
+  /**
+   * The host's re-authentication of one account: a fresh sign-in that
+   * replaces exactly the credential named by the captured reference. It may
+   * finish later (a browser sign-in); it reports through the invocation.
+   * Without it the account items offer no Reauthorize action.
+   */
+  readonly reauthorize?: {
+    readonly label?: string
+    run(
+      ref: RowRef,
+      invocation: CommandInvocation,
+    ): Promise<string | ActionOutcome>
+  }
   /** Item id source; defaults to 128 random bits. */
   readonly createItemId?: () => string
 }
@@ -320,6 +333,19 @@ function isRoutingTarget(value: unknown): value is RoutingTarget {
   return ROUTING_TARGETS.some((target) => target.value === value)
 }
 
+/** The account item's re-authentication action, over the host's sign-in. */
+function reauthorizeAction(
+  reauthorize: NonNullable<AntigravityRepositoryMenuOptions['reauthorize']>,
+  ref: RowRef,
+): ActionDefinition {
+  return {
+    id: 'reauthorize',
+    label: reauthorize.label ?? 'Reauthorize',
+    description: "Sign in again to replace this account's saved login.",
+    run: ({ invocation }) => reauthorize.run(ref, invocation),
+  }
+}
+
 /** The account item's quota floor action, over the host's floor source. */
 function floorAction(
   source: AntigravityAccountLimitSource,
@@ -475,6 +501,9 @@ function accountsSection(
           ...(limitSource
             ? [floorAction(limitSource, ref, position, floor)]
             : []),
+          ...(options.reauthorize
+            ? [reauthorizeAction(options.reauthorize, ref)]
+            : []),
         ]
         return {
           id: ids.idFor(ref),
@@ -548,13 +577,27 @@ function quotaCheckOutcome(
   return `Quota checked for ${report.checked} of ${total} accounts; ${report.notChecked} could not be checked`
 }
 
+/**
+ * The Routing and Limits sections over a settings source, for a host that
+ * supplies its own account slots (sections mode) but keeps the same
+ * operator settings as the repository-mode menu.
+ */
+export function antigravitySettingsSections(
+  settings: AntigravityMenuSettingsSource,
+): Pick<AntigravityMenuSections, 'routing' | 'limits'> {
+  return {
+    routing: routingSection({ settings }),
+    limits: limitsSection({ settings }),
+  }
+}
+
 function onOff(value: boolean): string {
   return value ? 'on' : 'off'
 }
 
-function routingSection(
-  options: AntigravityRepositoryMenuOptions,
-): PluginSection {
+function routingSection(options: {
+  readonly settings: AntigravityMenuSettingsSource
+}): PluginSection {
   return {
     title: 'Routing',
     async build() {
@@ -603,9 +646,9 @@ function routingSection(
   }
 }
 
-function limitsSection(
-  options: AntigravityRepositoryMenuOptions,
-): PluginSection {
+function limitsSection(options: {
+  readonly settings: AntigravityMenuSettingsSource
+}): PluginSection {
   return {
     title: 'Limits',
     async build() {

@@ -145,7 +145,16 @@ const STALE_FAILURES = new Set(['attribution', 'unknown-row', 'id-removed'])
  * epoch and recorded identity before the callback runs: the key comes from
  * the locked row, and a replaced, re-identified or removed credential is
  * refused (`stale`) before any setting is written. The callback keeps the
- * row's metadata unchanged.
+ * row's metadata unchanged. A concurrent replacement of the row waits for
+ * the row lock, so it lands after the floor was written for the credential
+ * the floor belongs to.
+ *
+ * Limit: the store renews the row lease while the callback runs and asserts
+ * it when a lock is taken or a change is committed, but not after a callback
+ * that changes nothing. A lease lost during the settings write (its renewal
+ * stalled past the lease lifetime) is therefore not detected here, and the
+ * write is reported as applied. The floor still sits under the key of the
+ * credential it was written for.
  */
 export function createStoreAccountLimits(input: {
   readonly repository: Pick<AccountRepository, 'read' | 'updateMetadata'>

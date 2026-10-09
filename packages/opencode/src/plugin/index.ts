@@ -2,8 +2,10 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import {
   type AccountRepository,
+  type AntigravityQuotaCheckReport,
   type CommonAuthCommandsModule,
   loadCommonAuthCommands,
+  type RowRef,
 } from '@cortexkit/antigravity-auth-core'
 
 /** The `/antigravity` menu, as the shared core factory builds it. */
@@ -37,6 +39,7 @@ import {
 import { createStoreAccountLimits } from './command-apply'
 import { projectCommandAccountRows } from './command-data'
 import {
+  ANTIGRAVITY_MENU_COMMAND,
   createAntigravityCommandExecuteBefore,
   createOpenCodeAntigravityMenu,
   menuInvocation,
@@ -67,8 +70,10 @@ import {
 } from './persist-account-pool'
 import {
   createOpenCodeQuotaManager,
+  createStoreQuotaService,
   makeTierLoader,
   type QuotaManager,
+  type StoreQuotaService,
 } from './quota'
 import { createSessionRecoveryHook } from './recovery'
 import { initHealthTracker, initTokenTracker } from './rotation'
@@ -279,6 +284,45 @@ export const createAntigravityPlugin =
       updateChecker,
       logger,
     })
+    // The menu's manual quota check runs through the store quota service of
+    // the manager currently routing with the store; a new manager (after an
+    // account add reloads the runtime) gets its own service and the old one
+    // is disposed. A ref the current manager does not hold is reported as
+    // not checked by the service itself.
+    let storeQuota: {
+      readonly manager: unknown
+      readonly service: StoreQuotaService
+    } | null = null
+    const checkStoreQuota = async (
+      repository: AccountRepository,
+      refs: readonly RowRef[],
+    ): Promise<AntigravityQuotaCheckReport> => {
+      const manager = lifecycle.getAccountManager()
+      if (manager === null) return { checked: 0, notChecked: refs.length }
+      if (storeQuota?.manager !== manager) {
+        const previous = storeQuota
+        storeQuota = {
+          manager,
+          service: createStoreQuotaService({
+            manager,
+            repository,
+            logger: createLogger('store-quota'),
+          }),
+        }
+        await previous?.service.dispose()
+      }
+      return storeQuota.service.checkStoreQuota(refs)
+    }
+    lifecycle.register(
+      {
+        dispose: async () => {
+          const current = storeQuota
+          storeQuota = null
+          await current?.service.dispose()
+        },
+      },
+      'producer',
+    )
     // The `/antigravity` menu is built once per account-store repository,
     // on the same common-auth commands module whose request parser the RPC
     // server uses, so a request is parsed and applied by one module instance.
@@ -318,6 +362,7 @@ export const createAntigravityPlugin =
               repository: opening.repository,
               settings: operatorSettings,
             }),
+            refreshQuota: (refs) => checkStoreQuota(opening.repository, refs),
             signIn: accountOAuth,
           }),
         }
@@ -530,10 +575,29 @@ export const createAntigravityPlugin =
       apply: async (request) => {
         const current = await currentMenu()
         if (current.kind === 'unavailable') throw new Error(current.message)
-        return current.menu.apply(
+        const result = await current.menu.apply(
           request,
           menuInvocation(pushNotification, request.sessionId),
         )
+        // The menu wrote to the account store; bring the routing manager up
+        // to date with it so the next request sees the change.
+        try {
+          await lifecycle.getAccountManager()?.refreshFromRepository()
+        } catch (error) {
+          logger.warn('menu-routing-refresh-failed', { error: String(error) })
+          pushNotification(
+            {
+              command: ANTIGRAVITY_MENU_COMMAND,
+              notify: {
+                message:
+                  'The change was saved, but routing has not picked it up yet.',
+                kind: 'warning',
+              },
+            },
+            request.sessionId,
+          )
+        }
+        return result
       },
       drain: drainNotifications,
     })
