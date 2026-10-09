@@ -238,7 +238,14 @@ export function captureMenuItem(
     sectionId: section.id,
     itemId: item.id,
     selector: row.selector,
+    sectionTitle: section.title,
+    itemLabel: item.label,
     actions: Object.freeze(item.actions.map((action) => action.id)),
+    actionLabels: Object.freeze(
+      Object.fromEntries(
+        item.actions.map((action) => [action.id, action.label]),
+      ),
+    ),
   })
   return { target, item }
 }
@@ -394,7 +401,12 @@ async function seedOwnedCurrentStore(
         read.rows.every((row) => row.usable),
       'Actual current repository did not admit the complete fixture roster',
     )
-    if (scenario === 'pty-reauthorize-listener') {
+    // Both reauthorization cases need account A blocked the way a Google
+    // verification answer leaves it, so its own Reauthorize action is used.
+    if (
+      scenario === 'pty-reauthorize-listener' ||
+      scenario === 'pty-two-location-oauth-bearer'
+    ) {
       const target = read.rows[0]
       assertInput(
         target,
@@ -502,11 +514,11 @@ export async function createGaHostIntegrationInputs(): Promise<GaHostIntegration
     harness: GaHarness,
     session: GaSessionRef,
     publicId: string,
+    alreadyOpened?: GaOpenedMenu,
   ) => {
-    const opened = await client(harness).openMenu(
-      session,
-      nativeCommand(harness, session),
-    )
+    const opened =
+      alreadyOpened ??
+      (await client(harness).openMenu(session, nativeCommand(harness, session)))
     const { target, item } = captureMenuItem(opened, publicId)
     capturedActions.set(
       target,
@@ -536,8 +548,14 @@ export async function createGaHostIntegrationInputs(): Promise<GaHostIntegration
         pullMs,
       )
     },
-    async captureTarget(harness, session, publicId) {
-      return (await capture(harness, session, publicId)).target
+    async openMenu(harness, session, runCommand) {
+      return client(harness).openMenu(
+        session,
+        runCommand ?? nativeCommand(harness, session),
+      )
+    },
+    async captureTarget(harness, session, publicId, opened) {
+      return (await capture(harness, session, publicId, opened)).target
     },
     async captureKillswitchOverride(harness, session, publicId) {
       const { opened, target, item } = await capture(harness, session, publicId)

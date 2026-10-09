@@ -773,11 +773,12 @@ async function runChild(): Promise<void> {
             }),
           })
         }
-        if (boundary.startsWith('public:enable:'))
-          await store.disable(
-            journal.mapping[0]!.id,
-            'synthetic-restart-disable',
-          )
+        if (boundary.startsWith('public:enable:')) {
+          const firstMapping = journal.mapping[0]
+          if (!firstMapping)
+            throw new Error('seed journal first mapping absent')
+          await store.disable(firstMapping.id, 'synthetic-restart-disable')
+        }
       }
       if (point !== boundary) return
       await send({

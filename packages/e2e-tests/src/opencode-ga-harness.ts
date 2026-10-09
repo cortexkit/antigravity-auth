@@ -1143,7 +1143,9 @@ const overrides: GaPluginOverrides = {
     exchange: async (code, state) => {
       log('oauth.exchange', { codePresent: code === 'synthetic-ga-code', state })
       if (code !== 'synthetic-ga-code') return { type: 'failed', error: 'Unexpected fixture code' }
-      return { type: 'success', refresh: 'synthetic-ga-reauthorized|synthetic-ga-project', access: 'synthetic-ga-reauthorized-access', expires: Date.now() + 3600000, email: 'synthetic-fixture@example.invalid', projectId: 'synthetic-ga-project' }
+      // The same Google account as fixture account A, which the reauthorization
+      // cases block: reauthorization refuses a sign-in to a different account.
+      return { type: 'success', refresh: 'synthetic-ga-reauthorized|synthetic-ga-project', access: 'synthetic-ga-reauthorized-access', expires: Date.now() + 3600000, email: 'synthetic-A@example.invalid', projectId: 'synthetic-ga-project' }
     },
   },
   ${
@@ -3206,14 +3208,19 @@ export interface GaAccountObservation {
  * the same account's selector from the `state` RPC: an opaque value naming
  * its current credential, identical in the state answers read just before
  * and just after the menu was opened. `actions` lists the action ids the
- * item offered, so a later apply can only name one of them.
+ * item offered, so a later apply can only name one of them. The section
+ * title, item label and action labels are the texts the TUI drawer shows for
+ * them, used to choose the same entries by keystroke.
  */
 export interface GaCapturedMenuItem {
   readonly generation: string
   readonly sectionId: string
   readonly itemId: string
   readonly selector: string
+  readonly sectionTitle: string
+  readonly itemLabel: string
   readonly actions: readonly string[]
+  readonly actionLabels: Readonly<Record<string, string>>
 }
 
 /** The menu's answer to one apply: `code` is set when it refused. */
@@ -3225,14 +3232,26 @@ export interface GaMenuApplyOutcome {
 
 export interface GaAccountRpcJoin {
   /**
-   * Opens the real `/antigravity` menu and captures the emitted item for one
-   * account. `publicId` is the account's `acct-<n>` id from the state answer;
-   * it only chooses the row and is never sent back as a target.
+   * Runs the real `/antigravity` command (by default through the host's
+   * command route; a PTY case passes a keystroke runner) and returns the menu
+   * it queued in the session's notifications.
+   */
+  openMenu(
+    harness: GaHarness,
+    session: GaSessionRef,
+    runCommand?: () => Promise<void>,
+  ): Promise<GaOpenedMenu>
+  /**
+   * Captures the emitted item for one account from `opened`, or from a menu
+   * opened by the host's command route when `opened` is absent. `publicId`
+   * is the account's `acct-<n>` id from the state answer; it only chooses the
+   * row and is never sent back as a target.
    */
   captureTarget(
     harness: GaHarness,
     session: GaSessionRef,
     publicId: string,
+    opened?: GaOpenedMenu,
   ): Promise<GaCapturedMenuItem>
   /**
    * Captures the account item's own quota floor action (`limit`): a
@@ -4316,8 +4335,24 @@ export async function runGaPtyScenario(
         await gaSingleRegistrySwitch(harness, pty, sessionB)
       } else {
         const before = await accounts.snapshot(harness, sessionB)
-        await gaPtyCommand(pty, 'antigravity', /Accounts/)
-        pty.process.stdin.write('\r')
+        // The PTY is still on session A: disable the last enabled account
+        // through A's drawer and expect B, which shares the account store, to
+        // see it. The first account stays as it is for the stale-handle and
+        // reauthorization steps below.
+        const toggled = [...before.rows].reverse().find((row) => row.enabled)
+        requireCondition(toggled, 'Two-location case has no enabled account')
+        const openedA = await accounts.openMenu(harness, sessionA, () =>
+          gaPtyCommand(pty, 'antigravity', /Accounts/),
+        )
+        const toggledItem = await accounts.captureTarget(
+          harness,
+          sessionA,
+          toggled.publicId,
+          openedA,
+        )
+        await gaPtyRunMenuAction(pty, openedA, 'accounts', 'disable', {
+          itemLabel: toggledItem.itemLabel,
+        })
         await waitForGaObservation(
           async () =>
             JSON.stringify(await accounts.snapshot(harness, sessionB)) !==
@@ -4354,13 +4389,19 @@ export async function runGaPtyScenario(
           await gaPtyReauthorize(harness, pty, sessionB, accounts)
         if (id.includes('settings')) {
           const a = await accounts.snapshot(harness, sessionA)
-          await gaPtyCommand(pty, 'antigravity', /Routing/)
-          pty.process.stdin.write('\x1b[B\r')
-          const changed = await accounts.snapshot(harness, sessionB)
-          requireCondition(
-            changed.routing !== before.routing,
-            'B routing dialog had no next-request effect',
+          const openedB = await accounts.openMenu(harness, sessionB, () =>
+            gaPtyCommand(pty, 'antigravity', /Routing/),
           )
+          await gaPtyRunMenuAction(pty, openedB, 'routing', 'set', {
+            answer: gaChangeFirstInput(),
+          })
+          await waitForGaObservation(
+            async () =>
+              (await accounts.snapshot(harness, sessionB)).routing !==
+              before.routing,
+            'B routing change from the drawer',
+          )
+          const changed = await accounts.snapshot(harness, sessionB)
           const afterA = await accounts.snapshot(harness, sessionA)
           requireCondition(
             id.includes('shared')
@@ -4442,24 +4483,41 @@ export async function runGaPtyScenario(
         harness.nonce,
       )
     } else {
-      // The six former slash commands are sections of the one /antigravity
-      // menu now; each pty-command-* case waits for its section's title.
-      const sectionTitles: Record<string, RegExp> = {
-        account: /Accounts/,
-        quota: /Quota/,
-        routing: /Routing/,
-        killswitch: /Limits/,
-        logging: /Diagnostics/,
-        dump: /Diagnostics/,
-      }
-      const expected = id.startsWith('pty-command-')
-        ? sectionTitles[id.slice('pty-command-'.length)]
-        : /Quota/
-      requireCondition(expected, `No menu section is mapped for ${id}`)
+      // The six former slash commands are now sections of the one
+      // /antigravity menu. Each pty-command-* case runs one real action of
+      // its section through the drawer and expects a state change.
       const before = await accounts.snapshot(harness, sessionA)
-      await gaPtyCommand(pty, 'antigravity', expected)
+      const opened = await accounts.openMenu(harness, sessionA, () =>
+        gaPtyCommand(pty, 'antigravity', /Accounts/),
+      )
       if (id.startsWith('pty-command-')) {
-        pty.process.stdin.write('\x1b[B\r')
+        const command = id.slice('pty-command-'.length)
+        if (command === 'account') {
+          const toggled = [...before.rows].reverse().find((row) => row.enabled)
+          requireCondition(toggled, 'Account case has no enabled account')
+          const item = await accounts.captureTarget(
+            harness,
+            sessionA,
+            toggled.publicId,
+            opened,
+          )
+          await gaPtyRunMenuAction(pty, opened, 'accounts', 'disable', {
+            itemLabel: item.itemLabel,
+          })
+        } else {
+          const actions: Record<string, [GaMenuSlot, string]> = {
+            quota: ['quota', 'refresh'],
+            routing: ['routing', 'set'],
+            killswitch: ['limits', 'set'],
+            logging: ['diagnostics', 'logging'],
+            dump: ['diagnostics', 'dump'],
+          }
+          const chosen = actions[command]
+          requireCondition(chosen, `No menu action is mapped for ${id}`)
+          await gaPtyRunMenuAction(pty, opened, chosen[0], chosen[1], {
+            answer: gaChangeFirstInput(),
+          })
+        }
         await waitForGaObservation(
           async () =>
             JSON.stringify(await accounts.snapshot(harness, sessionA)) !==
@@ -4499,6 +4557,168 @@ export async function runGaPtyScenario(
   }
 }
 
+/**
+ * Every action createAntigravityCommandMenu (packages/core) can put on an
+ * account item: enable or disable, select for routing, remove, the
+ * per-account quota floor (`limit`) and `reauthorize`. A test in
+ * opencode-ga-inputs.test.ts fails if the real menu offers any other one, so
+ * a new account action cannot go unnoticed by these cases.
+ */
+export const GA_KNOWN_ACCOUNT_ITEM_ACTIONS = new Set([
+  'enable',
+  'disable',
+  'select',
+  'remove',
+  'limit',
+  'reauthorize',
+])
+
+/**
+ * The account-item action that signs the same Google account in again and
+ * replaces exactly that item's saved credential. The Accounts section's
+ * `add` signs in a new account instead and is never used for this.
+ */
+export const GA_REAUTHORIZE_ACTION = 'reauthorize'
+
+function gaLiteral(text: string): RegExp {
+  return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+}
+
+/**
+ * Chooses one entry in the TUI drawer's current list by typing its exact
+ * title into the list's filter and pressing Enter, then waits for `next` in
+ * the output written after the keystrokes.
+ */
+async function gaPtyChoose(
+  pty: GaChild,
+  title: string,
+  next: RegExp,
+): Promise<void> {
+  const before = pty.output().stdout.length
+  pty.process.stdin.write(`${title}\r`)
+  await waitForGaObservation(
+    () => {
+      requireCondition(
+        pty.process.exitCode === null && pty.process.signalCode === null,
+        'Real PTY exited inside the /antigravity drawer',
+      )
+      return next.test(
+        stripVTControlCharacters(pty.output().stdout.slice(before)),
+      )
+    },
+    `drawer entry "${title}"`,
+    5000,
+  )
+}
+
+type GaMenuKnob = GaMenuSection['actions'][number]['knobs'][number]
+
+/**
+ * Answers for a drawer action's choice and toggle inputs: the first one is
+ * changed (the other toggle position, or the first choice that differs from
+ * the current value), every later one keeps its current value. The answers
+ * are the option titles the drawer lists: `On`/`Off` for a toggle and the
+ * choice's label for a choice.
+ */
+export function gaChangeFirstInput(): (knob: GaMenuKnob) => string {
+  let changed = false
+  return (knob) => {
+    const change = !changed
+    changed = true
+    if (knob.kind === 'toggle')
+      return (change ? !knob.value : knob.value) ? 'On' : 'Off'
+    if (knob.kind === 'choice') {
+      const pick = knob.choices.find((choice) =>
+        change ? choice.value !== knob.value : choice.value === knob.value,
+      )
+      requireCondition(pick, `Choice input ${knob.label} has no usable option`)
+      return pick.label
+    }
+    requireCondition(false, `Input ${knob.label} is not a choice or toggle`)
+  }
+}
+
+/**
+ * Runs one action through the TUI drawer the real `/antigravity` command
+ * opened, choosing the section, the account item (when `itemLabel` is
+ * given) and the action by the titles the server put in `opened.menu`.
+ * Each choice or toggle input is answered by `answer`; number and text
+ * inputs keep the value the drawer pre-fills. Actions that ask for a
+ * confirmation are refused here: the drawer's confirm dialog is not driven.
+ */
+export async function gaPtyRunMenuAction(
+  pty: GaChild,
+  opened: GaOpenedMenu,
+  slot: GaMenuSlot,
+  actionId: string,
+  options: {
+    itemLabel?: string
+    answer?: (knob: GaMenuKnob) => string
+  } = {},
+): Promise<void> {
+  const sections = opened.menu.sections.filter((entry) => entry.slot === slot)
+  const section = sections[0]
+  requireCondition(
+    section && sections.length === 1,
+    `The /antigravity menu has no single ${slot} section`,
+  )
+  const item =
+    options.itemLabel === undefined
+      ? undefined
+      : section.items.find((entry) => entry.label === options.itemLabel)
+  requireCondition(
+    options.itemLabel === undefined || item,
+    `The ${slot} section has no item ${options.itemLabel}`,
+  )
+  const action = (item ? item.actions : section.actions).find(
+    (entry) => entry.id === actionId,
+  )
+  requireCondition(
+    action,
+    `Missing capability: the ${slot} section offers no ${actionId} action`,
+  )
+  requireCondition(
+    action.confirm === undefined,
+    `Action ${actionId} asks for a confirmation the PTY driver does not answer`,
+  )
+  await gaPtyChoose(
+    pty,
+    section.title,
+    gaLiteral(item ? item.label : action.label),
+  )
+  if (item) await gaPtyChoose(pty, item.label, gaLiteral(action.label))
+  const knobs = action.knobs
+  if (knobs.length === 0) {
+    pty.process.stdin.write(`${action.label}\r`)
+    return
+  }
+  await gaPtyChoose(pty, action.label, gaLiteral(knobs[0]?.label ?? ''))
+  for (const [index, knob] of knobs.entries()) {
+    const nextLabel = knobs[index + 1]?.label
+    const typed =
+      knob.kind === 'choice' || knob.kind === 'toggle'
+        ? options.answer?.(knob)
+        : ''
+    requireCondition(
+      typed !== undefined,
+      `No answer for the ${knob.label} input of ${actionId}`,
+    )
+    if (nextLabel === undefined) pty.process.stdin.write(`${typed}\r`)
+    else await gaPtyChoose(pty, typed, gaLiteral(nextLabel))
+  }
+}
+
+/**
+ * A blocked account is one disabled because Google asked for verification
+ * or reported it ineligible. The case opens the real `/antigravity` drawer
+ * in the PTY and chooses that same account's Reauthorize action. It answers
+ * the browser sign-in through the plugin's own callback listener, then
+ * checks that the account row was replaced in place (same position, new
+ * credential, block cleared, no account added) and that the next request
+ * uses the new access token. When the item offers no Reauthorize action the
+ * case fails as a missing capability; it never falls back to adding an
+ * account.
+ */
 async function gaPtyReauthorize(
   harness: GaHarness,
   pty: GaChild,
@@ -4506,29 +4726,55 @@ async function gaPtyReauthorize(
   accounts: GaAccountRpcJoin,
 ): Promise<void> {
   const before = await accounts.snapshot(harness, session)
-  const blocked = before.rows.find(
+  const blockedIndex = before.rows.findIndex(
     (row) =>
       !row.enabled && (row.verificationRequired || row.accountIneligible),
   )
+  const blocked = before.rows[blockedIndex]
   requireCondition(
     blocked,
-    'Reauthorization real dialog requires an actually blocked row',
+    'Reauthorization case requires an actually blocked account',
   )
-  await gaPtyCommand(pty, 'antigravity', /Accounts/)
-  // The actual dialog, not a direct RPC finish, must enter its listener wait step.
-  pty.process.stdin.write(`${blocked.label}\r`)
-  await waitForGaObservation(
-    () => /manage|reauthoriz/i.test(gaPtyScreen(pty)),
-    'actual blocked account row drill-in',
+  const opened = await accounts.openMenu(harness, session, () =>
+    gaPtyCommand(pty, 'antigravity', /Accounts/),
   )
-  pty.process.stdin.write('Reauthorize\r')
+  const target = await accounts.captureTarget(
+    harness,
+    session,
+    blocked.publicId,
+    opened,
+  )
+  const unrecognized = target.actions.filter(
+    (action) => !GA_KNOWN_ACCOUNT_ITEM_ACTIONS.has(action),
+  )
+  writeFileSync(
+    join(harness.paths.state, 'reauthorize-menu-actions.json'),
+    JSON.stringify({
+      sessionID: session.id,
+      selector: target.selector,
+      offered: target.actions,
+      unrecognized,
+    }),
+    { mode: 0o600 },
+  )
+  requireCondition(
+    target.actions.includes(GA_REAUTHORIZE_ACTION),
+    `Missing capability: the blocked account's menu item offers no ${GA_REAUTHORIZE_ACTION} action (offered: ${target.actions.join(', ')})`,
+  )
+  const authorizeOffset = harness
+    .readWrapperEvents()
+    .filter((event) => event.event === 'oauth.authorize').length
+  await gaPtyRunMenuAction(pty, opened, 'accounts', GA_REAUTHORIZE_ACTION, {
+    itemLabel: target.itemLabel,
+  })
   await waitForGaObservation(
     () =>
-      /wait|browser/i.test(gaPtyScreen(pty)) &&
+      /Waiting for the browser/.test(gaPtyScreen(pty)) &&
       harness
         .readWrapperEvents()
-        .some((event) => event.event === 'oauth.authorize'),
-    'real reauthorization dialog entered browser wait',
+        .filter((event) => event.event === 'oauth.authorize').length >
+        authorizeOffset,
+    'Reauthorize from the drawer started a browser sign-in',
   )
   const authorization = harness
     .readWrapperEvents()
@@ -4536,7 +4782,7 @@ async function gaPtyReauthorize(
     .at(-1)
   requireCondition(
     authorization && typeof authorization.state === 'string',
-    'Actual wrapper authorize did not record state',
+    'Wrapper authorize did not record the sign-in state',
   )
   const response = await fetch(
     `http://127.0.0.1:51121/oauth-callback?${new URLSearchParams({ code: 'synthetic-ga-code', state: authorization.state })}`,
@@ -4544,15 +4790,23 @@ async function gaPtyReauthorize(
   )
   requireCondition(
     response.ok,
-    'Owned GA callback listener did not accept matching state',
+    'The plugin callback listener did not accept the matching state',
   )
   await waitForGaObservation(
-    async () =>
-      (await accounts.snapshot(harness, session)).rows.some(
-        (row) =>
-          row.enabled && !row.verificationRequired && !row.accountIneligible,
-      ),
-    'dialog-driven reauthorization persisted cleared blocks',
+    async () => {
+      const after = await accounts.snapshot(harness, session)
+      const row = after.rows[blockedIndex]
+      return (
+        after.rows.length === before.rows.length &&
+        row !== undefined &&
+        row.selector !== blocked.selector &&
+        after.rows.every((entry) => entry.selector !== blocked.selector) &&
+        row.enabled &&
+        row.verificationRequired === false &&
+        row.accountIneligible === false
+      )
+    },
+    'reauthorization replaced the same account in place and cleared its block',
     5000,
   )
   const beforeCalls = gaPrimaryRequests(harness).length
@@ -4566,7 +4820,7 @@ async function gaPtyReauthorize(
       .some((request) =>
         request.authorization.includes('synthetic-ga-reauthorized-access'),
       ),
-    'Next request did not use reauthorized account bearer',
+    'Next request did not use the reauthorized account bearer',
   )
 }
 
@@ -5525,6 +5779,30 @@ export const GA_REQUIRED_EFFECT_JOINS = [
       'createGaAntigravityPlugin, GaPluginOverrides.observeRawSenderSignal',
     required:
       'The installed package exports the production factory, and its raw sender reports its own AbortSignal synchronously. A factory built from mock services does not count.',
+  },
+  {
+    path: 'packages/opencode/src/plugin/ga-location-services.ts',
+    sourceSymbols: 'createGaMenuCommandService.open, GA /antigravity command',
+    required:
+      'The host registers /antigravity, and running it queues the menu in that session\'s notifications. Without it every menu-driven case fails with "The /antigravity command queued no menu".',
+  },
+  {
+    path: 'packages/opencode/src/plugin/ga-location-services.ts',
+    sourceSymbols: 'createGaLocationMenu refreshQuota',
+    required:
+      'The Quota section offers its refresh action, which killswitch-all-fresh-below runs before checking the killswitch.',
+  },
+  {
+    path: 'packages/opencode/src/plugin/ga-location-services.ts',
+    sourceSymbols: 'createGaReauthorize, accountsSection reauthorize',
+    required:
+      "A blocked account's own item offers `reauthorize`, which signs that same account in again and replaces its credential in place. Adding a new account does not count.",
+  },
+  {
+    path: 'packages/opencode/src/tui/command-dialogs.tsx',
+    sourceSymbols: 'openAntigravityMenu',
+    required:
+      "The installed package's OpenCode 2 TUI renders the queued menu as the drawer: one select list per level, titled with the section, item and action titles the server sent. The PTY cases choose entries by typing those titles.",
   },
 ] as const
 

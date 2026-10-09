@@ -3511,8 +3511,7 @@ export async function initializeFreshAccountStore(
               )
             }
             if (
-              !journal ||
-              journal.sourceKind !== 'absent' ||
+              journal?.sourceKind !== 'absent' ||
               journal.operation !== 'migrate' ||
               journal.status === 'inactive'
             )
@@ -3842,7 +3841,7 @@ async function publishGenerationPointer(
   } else {
     const oldPaths = generationPaths(paths.legacyPath, prior.id)
     const oldJournal = await readJournal(oldPaths)
-    if (!oldJournal || oldJournal.status !== 'inactive')
+    if (oldJournal?.status !== 'inactive')
       throw new AccountMigrationError(
         'pointer transition requires an owned inactive prior generation',
       )
