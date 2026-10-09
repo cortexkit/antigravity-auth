@@ -1381,27 +1381,31 @@ export function createStoreQuotaService(
             : refreshAccount(target, { force: true })
         }),
       )
-      // Drain the manager's attributed writes. A write the repository
-      // reports as failed counts as not checked; any other drain failure
-      // leaves every reading unconfirmed.
+      // Wait for queued quota writes before counting an account as checked.
+      // If a failed write cannot be attributed to an account, no account's
+      // quota reading is confirmed.
       let failedRows: ReadonlySet<string> | 'all' = new Set()
       try {
         await manager.saveToDisk()
       } catch (error) {
-        // The manager's persist failure (core `AccountManagerPersistError`)
-        // carries the repository's flush report naming each failed row.
+        // AccountManagerPersistError includes a flush report, but the public
+        // core entry does not export its constructor. Identify it by name and
+        // require at least one failed row ID. Only accounts outside the
+        // reported failure list can still count as checked; missing or empty
+        // failure details confirm none.
         const report =
           error instanceof Error && error.name === 'AccountManagerPersistError'
             ? (error as Error & { report?: AccountFlushReport }).report
             : undefined
+        const failedIds = (report?.failures ?? []).map(
+          (failure) => failure.rowId,
+        )
         failedRows =
-          report === undefined
+          report === undefined ||
+          failedIds.length === 0 ||
+          failedIds.some((id) => id === undefined)
             ? 'all'
-            : new Set(
-                report.failures.flatMap((failure) =>
-                  failure.rowId === undefined ? [] : [failure.rowId],
-                ),
-              )
+            : new Set(failedIds.filter((id): id is string => id !== undefined))
         logger.debug('quota readings were not all persisted', {
           error: error instanceof Error ? error.message : String(error),
         })

@@ -1198,6 +1198,11 @@ describe('account-store quota service', () => {
       seed?: (repository: AccountRepository) => Promise<void>
       /** Makes every quota write the manager sends fail. */
       failQuotaWrites?: boolean
+      /**
+       * After real writes finish, the test fixture appends a flush failure
+       * without a row ID.
+       */
+      unscopedFlushFailure?: boolean
     } = {},
   ) {
     const modules = await genuineModules()
@@ -1227,19 +1232,38 @@ describe('account-store quota service', () => {
     await options.seed?.(repository)
     // The manager writes through this view; with `failQuotaWrites` its
     // quota writes fail while every other operation reaches the store.
-    const managerRepository: AccountRepository = options.failQuotaWrites
-      ? new Proxy(repository, {
-          get(target, key) {
-            if (key === 'recordQuota') {
-              return async () => {
-                throw new Error('quota write failed')
+    const managerRepository: AccountRepository =
+      options.failQuotaWrites || options.unscopedFlushFailure
+        ? new Proxy(repository, {
+            get(target, key) {
+              if (key === 'recordQuota' && options.failQuotaWrites) {
+                return async () => {
+                  throw new Error('quota write failed')
+                }
               }
-            }
-            const value = Reflect.get(target, key)
-            return typeof value === 'function' ? value.bind(target) : value
-          },
-        })
-      : repository
+              if (key === 'flush' && options.unscopedFlushFailure) {
+                return async () => {
+                  const report = await target.flush()
+                  return {
+                    completed: report.completed,
+                    failures: [
+                      ...report.failures,
+                      {
+                        operation: 'flush',
+                        kind: 'unexpected',
+                        retryable: false,
+                        ambiguous: true,
+                        message: 'a write failed for no named row',
+                      },
+                    ],
+                  }
+                }
+              }
+              const value = Reflect.get(target, key)
+              return typeof value === 'function' ? value.bind(target) : value
+            },
+          })
+        : repository
     const manager = await loadAccountManagerFromRepository(managerRepository, {
       onDiagnostic: () => {},
       ...(options.now !== undefined ? { now: options.now } : {}),
@@ -1398,6 +1422,46 @@ describe('account-store quota service', () => {
         ? after.quota.quota.cachedQuota?.gemini?.remainingFraction
         : undefined,
     ).toBe(0.9)
+  })
+
+  it('confirms no reading when the drain reports a failure that names no row, even if the stored reading matches', async () => {
+    const store = await storeService(undefined, {
+      now: () => 1_700_000_000_000,
+      unscopedFlushFailure: true,
+    })
+    const rowB = (await store.rows())[1]
+
+    const report = await store.service.checkStoreQuota([rowB!.ref])
+    await store.service.dispose()
+
+    // The new quota reading is stored, but a failure without a row ID
+    // prevents reporting the account as checked.
+    const after = (await store.rows())[1]
+    expect(after?.quota.status).toBe('present')
+    expect(report).toEqual({ checked: 0, notChecked: 1 })
+  })
+
+  it('confirms no reading when the drain fails with a persist error that lists no failure', async () => {
+    const store = await storeService(undefined, {
+      now: () => 1_700_000_000_000,
+    })
+    const rowB = (await store.rows())[1]
+    // Let real quota writes finish, then inject a persistence error with no
+    // identified failed rows.
+    const drain = store.manager.saveToDisk.bind(store.manager)
+    store.manager.saveToDisk = async () => {
+      await drain()
+      throw Object.assign(new Error('persist failed'), {
+        name: 'AccountManagerPersistError',
+        report: { completed: 0, failures: [] },
+      })
+    }
+
+    const report = await store.service.checkStoreQuota([rowB!.ref])
+    await store.service.dispose()
+
+    expect((await store.rows())[1]?.quota.status).toBe('present')
+    expect(report).toEqual({ checked: 0, notChecked: 1 })
   })
 
   it('refuses a target whose row the manager no longer holds, without refreshing or sending', async () => {
