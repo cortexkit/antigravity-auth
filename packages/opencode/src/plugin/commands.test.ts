@@ -22,6 +22,7 @@ import { createStoreAccountLimits } from './command-apply'
 import {
   createAccountTargets,
   createAntigravityCommandExecuteBefore,
+  createCustodyAwareRequestPath,
   createOpenCodeAntigravityMenu,
   menuInvocation,
 } from './commands'
@@ -551,5 +552,82 @@ describe('createAccountTargets', () => {
       'a migration is pending',
     )
     await expect(targets.accountSource()).rejects.toThrow('recovering')
+  })
+})
+
+describe('createCustodyAwareRequestPath', () => {
+  function harness() {
+    let mode:
+      | { ok: true; record: { mode: 'local' | 'custody' } }
+      | { ok: false; reason: string } = {
+      ok: true,
+      record: { mode: 'local' },
+    }
+    let source = { id: 'source-1' }
+    const events: string[] = []
+    const path = createCustodyAwareRequestPath({
+      readMode: async () => mode,
+      custodySource: async () => source,
+      local: {
+        fetch: async () => {
+          events.push('local')
+          return new Response('local')
+        },
+        dispose: () => events.push('local-disposed'),
+      },
+      vault: (served) => {
+        events.push(`vault-built:${served.id}`)
+        return {
+          fetch: async () => {
+            events.push(`vault:${served.id}`)
+            return new Response('vault')
+          },
+          dispose: () => events.push(`vault-disposed:${served.id}`),
+        }
+      },
+    })
+    return {
+      path,
+      events,
+      setMode(next: typeof mode) {
+        mode = next
+      },
+      setSource(next: { id: string }) {
+        source = next
+      },
+    }
+  }
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/x'
+
+  it('serves the path the mode file names, switching on the next request', async () => {
+    const h = harness()
+    await h.path.fetch(url)
+    h.setMode({ ok: true, record: { mode: 'custody' } })
+    await h.path.fetch(url)
+    await h.path.fetch(url)
+    h.setSource({ id: 'source-2' })
+    await h.path.fetch(url)
+    h.setMode({ ok: true, record: { mode: 'local' } })
+    await h.path.fetch(url)
+    h.path.dispose()
+    expect(h.events).toEqual([
+      'local',
+      'vault-built:source-1',
+      'vault:source-1',
+      'vault:source-1',
+      'vault-disposed:source-1',
+      'vault-built:source-2',
+      'vault:source-2',
+      'vault-disposed:source-2',
+      'local',
+      'local-disposed',
+    ])
+  })
+
+  it('refuses a request while the mode file is unclear', async () => {
+    const h = harness()
+    h.setMode({ ok: false, reason: 'the vault mode file is not valid JSON' })
+    await expect(h.path.fetch(url)).rejects.toThrow('vault mode is unclear')
+    expect(h.events).toEqual([])
   })
 })

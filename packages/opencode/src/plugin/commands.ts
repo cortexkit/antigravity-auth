@@ -358,3 +358,65 @@ export function createAccountTargets<
     },
   }
 }
+
+// ---------------------------------------------------------------------------
+// Which request path serves (OpenCode 1)
+// ---------------------------------------------------------------------------
+
+/** A request path the auth loader installs: the host-facing fetch and its release. */
+export interface RequestPath {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
+  dispose(): void
+}
+
+/**
+ * The OpenCode 1 request path that follows the vault mode file: each
+ * request re-reads the mode, so the Vault section's switches take effect on
+ * the next request. In custody the vault path serves, built for the vault
+ * source custody hands out (a new source after a switch rebuilds it); in
+ * local mode the local path serves and any vault path is released. An
+ * unreadable mode file refuses the request rather than picking a path.
+ */
+export function createCustodyAwareRequestPath<S>(options: {
+  readonly readMode: () => Promise<
+    | {
+        readonly ok: true
+        readonly record: { readonly mode: 'local' | 'custody' }
+      }
+    | { readonly ok: false; readonly reason: string }
+  >
+  readonly local: RequestPath
+  /** The vault source for a custody request; refuses when custody cannot serve. */
+  readonly custodySource: () => Promise<S>
+  readonly vault: (source: S) => RequestPath
+}): RequestPath {
+  let vault: { readonly source: S; readonly path: RequestPath } | null = null
+  const releaseVault = () => {
+    const current = vault
+    vault = null
+    current?.path.dispose()
+  }
+  return {
+    async fetch(input, init) {
+      const mode = await options.readMode()
+      if (!mode.ok)
+        throw new Error(
+          `The Antigravity vault mode is unclear (${mode.reason}); choose a mode in the Vault section of the Antigravity menu.`,
+        )
+      if (mode.record.mode === 'local') {
+        releaseVault()
+        return options.local.fetch(input, init)
+      }
+      const source = await options.custodySource()
+      if (vault?.source !== source) {
+        releaseVault()
+        vault = { source, path: options.vault(source) }
+      }
+      return vault.path.fetch(input, init)
+    },
+    dispose() {
+      releaseVault()
+      options.local.dispose()
+    },
+  }
+}

@@ -112,6 +112,12 @@ describe('openCodeVaultPaths and the mode file', () => {
         'antigravity-auth-vault',
         'opencode-roster.json',
       ),
+      stateFile: join(
+        root,
+        'config',
+        'antigravity-auth-vault',
+        'opencode-state.json',
+      ),
     })
   })
 

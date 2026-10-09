@@ -990,6 +990,7 @@ describe('GA vault custody location', () => {
       ]
       let refreshed = 0
       let disposed = 0
+      const committed: unknown[] = []
       const source = {
         refresh: async () => {
           refreshed += 1
@@ -1000,6 +1001,31 @@ describe('GA vault custody location', () => {
           throw new Error('no send in this test')
         },
         reportServedStatus: async () => false,
+        attribution: () => {
+          throw new Error('no admission in this test')
+        },
+        commitState: async (
+          by: { routeId: string; credentialId: string; recordVersion: number },
+          update: (
+            current: undefined,
+          ) => { quota?: unknown } | null | undefined,
+        ) => {
+          const next = update(undefined)
+          committed.push({ by, quota: next?.quota })
+          return {
+            status: 'written' as const,
+            state: {
+              observed: {
+                routeId: by.routeId,
+                credentialId: by.credentialId,
+                recordVersion: by.recordVersion,
+              },
+            },
+          }
+        },
+        send: async () => {
+          throw new Error('no send in this test')
+        },
       }
       const factory = createGaLocationServicesFactory({
         loadStoreModules: loadCommonAuthStoreModules,
@@ -1010,12 +1036,44 @@ describe('GA vault custody location', () => {
         createPipeline: async () => {
           throw new Error('a vault location builds no local pipeline')
         },
+        fetchVaultQuota: async ({ ref }) => ({
+          quota: {
+            groups: { gemini: { remainingFraction: 0.25, modelCount: 3 } },
+            modelCount: 3,
+          },
+          quotaAttribution: {
+            routeId: ref.routeId,
+            credentialId: ref.credentialId,
+            accountIdentity: ref.accountIdentity,
+            recordVersion: 4,
+          },
+        }),
         custody: () => ({
           readMode: async () => ({
             ok: true,
             record: { version: 1, mode: 'custody' },
           }),
           custodySource: async () => source,
+          // A route's stored state, written for its current credential: the
+          // cooldown comes back on restart.
+          readState: async () => ({
+            schemaVersion: 1,
+            accounts: {
+              'identity-a': {
+                observed: {
+                  routeId: 'route-a',
+                  credentialId: 'credential-a',
+                  recordVersion: 3,
+                },
+                metadata: {
+                  addedAt: 1,
+                  lastUsed: 2,
+                  coolingDownUntil: Date.now() + 600_000,
+                  cooldownReason: 'auth-failure',
+                },
+              },
+            },
+          }),
           menuSection: () => ({
             id: 'vault',
             title: 'Vault',
@@ -1053,6 +1111,10 @@ describe('GA vault custody location', () => {
         const read = await serving.state.read({ scope, signal })
         if (read.accounts.kind !== 'complete') throw new Error('over limit')
         expect(read.accounts.rows).toHaveLength(1)
+        // The stored cooldown came back for the route's current credential.
+        expect(read.accounts.rows[0]?.row.coolingDownUntil).toBeGreaterThan(
+          Date.now(),
+        )
         expect(JSON.stringify(read)).not.toContain('vault-a@example.com')
 
         const answer = await serving.commands.apply({
@@ -1078,6 +1140,25 @@ describe('GA vault custody location', () => {
         expect(runtime.operatorSettings.get().routing.cli_first).toBe(true)
         // The apply re-read the vault roster for routing.
         expect(refreshed).toBe(2)
+
+        // Check quota now: the reading is recorded through the source's
+        // provider-state commit under the answering admission, and shown.
+        const checked = await serving.commands.apply({
+          request: {
+            command: 'antigravity',
+            sectionId: 'quota',
+            actionId: 'refresh',
+          },
+          scope,
+          signal,
+        })
+        expect(checked.text).toBe('Quota checked for 1 of 1 accounts')
+        expect(committed).toHaveLength(1)
+        const after = await serving.state.read({ scope, signal })
+        if (after.accounts.kind !== 'complete') throw new Error('over limit')
+        expect(after.accounts.rows[0]?.row.cachedQuota?.gemini).toMatchObject({
+          remainingFraction: 0.25,
+        })
       } finally {
         await services.dispose()
         await runtime.dispose()

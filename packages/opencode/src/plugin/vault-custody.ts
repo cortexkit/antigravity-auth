@@ -29,8 +29,11 @@ import {
   createAntigravityVaultAccountSource,
   getAntigravityVaultEnrollmentName,
   loadCommonAuthClaustrum,
+  loadCommonAuthFs,
+  readVaultProviderState,
   resolveClaustrumConnectionPath,
   type VaultLogger,
+  type VaultProviderStateFile,
   type VaultReporterSource,
   type VaultScopedClient,
 } from '@cortexkit/antigravity-auth-core'
@@ -76,6 +79,8 @@ export interface OpenCodeVaultPaths {
   readonly dir: string
   readonly modeFile: string
   readonly rosterFile: string
+  /** The vault accounts' credential-free provider state. */
+  readonly stateFile: string
 }
 
 /** The vault paths for one resolved account file. */
@@ -85,6 +90,7 @@ export function openCodeVaultPaths(accountFile: string): OpenCodeVaultPaths {
     dir,
     modeFile: join(dir, 'opencode-mode.json'),
     rosterFile: join(dir, 'opencode-roster.json'),
+    stateFile: join(dir, 'opencode-state.json'),
   }
 }
 
@@ -229,6 +235,8 @@ export interface OpenCodeVaultCustody {
   useLocal(): Promise<void>
   /** The Vault section of the `/antigravity` menu. */
   menuSection(): MenuExtraSection
+  /** The vault accounts' stored provider state (missing file: none). */
+  readState(): Promise<VaultProviderStateFile>
   /** Closes the vault source, if one was created. */
   dispose(): Promise<void>
 }
@@ -341,6 +349,7 @@ export function createOpenCodeVaultCustody(
           },
           readHostSlot: () => options.readHostSlot(),
           reporterSource: options.reporterSource,
+          state: { path: paths.stateFile, fs: await loadCommonAuthFs() },
           ...(options.logger ? { logger: options.logger } : {}),
           ...(options.now ? { now: options.now } : {}),
         })
@@ -453,6 +462,8 @@ export function createOpenCodeVaultCustody(
         },
       }
     },
+
+    readState: () => readVaultProviderState(paths.stateFile),
 
     dispose: closeSource,
   }

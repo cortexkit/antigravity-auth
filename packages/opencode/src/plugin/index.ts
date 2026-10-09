@@ -42,6 +42,7 @@ import {
   ANTIGRAVITY_MENU_COMMAND,
   createAccountTargets,
   createAntigravityCommandExecuteBefore,
+  createCustodyAwareRequestPath,
   createOpenCodeAntigravityMenu,
   menuInvocation,
 } from './commands'
@@ -54,7 +55,10 @@ import {
   resolvePluginDependencies,
 } from './dependencies'
 import { createEventHandler } from './event-handler'
-import { createFetchInterceptor } from './fetch-interceptor'
+import {
+  createFetchInterceptor,
+  createVaultFetchInterceptor,
+} from './fetch-interceptor'
 import { isGeminiDumpEnabled, setGeminiDumpEnabled } from './gemini-dump'
 import { createGoogleSearchTool } from './google-search-tool'
 import { createPluginLifecycle, type PluginLifecycle } from './lifecycle'
@@ -487,20 +491,37 @@ export const createAntigravityPlugin =
       onGetAuth: (getAuth) => {
         cachedGetAuth = getAuth
       },
+      // The vault mode file decides, per request, whether the local accounts
+      // or the vault's serve; switching in the Vault section takes effect on
+      // the next request.
       createFetch: ({ accountManager, getAuth, source }) =>
-        createFetchInterceptor({
-          client,
-          directory,
-          providerId,
-          config,
-          accountManager,
-          accountSource: source,
-          quotaManager,
-          getAuth,
-          agySessionRegistry: sessionRegistry,
-          operatorSettings,
-          agyTransport: dependencies.agyTransport,
-          fetchImpl: dependencies.fetchImpl,
+        createCustodyAwareRequestPath({
+          readMode: () => vaultCustody.readMode(),
+          custodySource: () => vaultCustody.custodySource(),
+          local: createFetchInterceptor({
+            client,
+            directory,
+            providerId,
+            config,
+            accountManager,
+            accountSource: source,
+            quotaManager,
+            getAuth,
+            agySessionRegistry: sessionRegistry,
+            operatorSettings,
+            agyTransport: dependencies.agyTransport,
+            fetchImpl: dependencies.fetchImpl,
+          }),
+          vault: (custodySource) =>
+            createVaultFetchInterceptor({
+              client,
+              config,
+              agySessionRegistry: sessionRegistry,
+              operatorSettings,
+              agyTransport: dependencies.agyTransport,
+              fetchImpl: dependencies.fetchImpl,
+              source: custodySource,
+            }),
         }),
     })
     const accountOAuth = createAccountCommandOAuthService({

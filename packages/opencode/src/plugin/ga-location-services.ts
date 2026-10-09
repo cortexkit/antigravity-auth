@@ -27,7 +27,6 @@ import {
   type AccountRepository,
   type AccountRepositoryRead,
   type AccountRow,
-  AccountSelector,
   type AccountStoreBinding,
   type AccountStoreModules,
   type AccountTokenExchange,
@@ -35,6 +34,7 @@ import {
   type AntigravityMenuAccounts,
   type AntigravityQuotaCheckReport,
   type AntigravityRepositoryMenuOptions,
+  type AntigravityVaultAccountSource,
   antigravitySettingsSections,
   authorizeAntigravity,
   type CommonAuthCommandsModule,
@@ -50,12 +50,14 @@ import {
   type ManagedAccount,
   type OAuthAuthDetails,
   parseRefreshParts,
+  quotaCheckOutcome,
   type RowRef,
   readAccountStoreAdmission,
   readAccountStoreBinding,
   refreshAntigravityToken,
   rowRefKey,
   sameRowRef,
+  type VaultRouteRef,
 } from '@cortexkit/antigravity-auth-core'
 import type {
   AntigravityRpcScope,
@@ -122,12 +124,14 @@ import {
   type LocationRuntime,
 } from './shared/runtime.ts'
 import {
-  createVaultRequestCredentials,
-  refreshVaultAccountRow,
+  checkVaultQuota,
+  createVaultAccountPool,
+  type VaultAccountPool,
   type VaultAccountRow,
+  type VaultQuotaAnswer,
   type VaultRequestSource,
+  type VaultStateSource,
   vaultAccountRowKey,
-  vaultAccountRows,
 } from './shared/vault-request-credentials.ts'
 import {
   createOpenCodeVaultCustody,
@@ -934,12 +938,31 @@ export interface GaLocationServicesBindings {
     readonly accountFile: string
     readonly overrides: GaPluginOverrides
   }) => GaLocationCustody
+  /**
+   * One vault account's quota check through the vault (the shared vault
+   * quota helper). Without it a vault location offers no quota check.
+   */
+  readonly fetchVaultQuota?: (input: {
+    readonly source: Pick<AntigravityVaultAccountSource, 'send' | 'attribution'>
+    readonly ref: VaultRouteRef
+    readonly signal: AbortSignal
+    readonly logger: Pick<Logger, 'debug'>
+    readonly transport?: NonNullable<GaPluginOverrides['quotaFetch']>
+  }) => Promise<VaultQuotaAnswer>
 }
+
+/** The vault source operations a GA vault location uses. */
+export type GaVaultCustodySource = VaultRequestSource &
+  VaultStateSource &
+  Pick<AntigravityVaultAccountSource, 'send'>
 
 /** The vault custody operations a GA location uses. */
 export interface GaLocationCustody
-  extends Pick<OpenCodeVaultCustody, 'readMode' | 'menuSection' | 'dispose'> {
-  custodySource(): Promise<VaultRequestSource>
+  extends Pick<
+    OpenCodeVaultCustody,
+    'readMode' | 'menuSection' | 'dispose' | 'readState'
+  > {
+  custodySource(): Promise<GaVaultCustodySource>
 }
 
 /**
@@ -1468,20 +1491,18 @@ export async function createGaLocalRequestPipeline(
  * `createVaultRequestCredentials`. Nothing is refreshed or cached locally.
  * `refreshAccounts` re-reads the vault roster and keeps each route's
  * selection state while its route, credential and asserted account stay
- * the same. Selection state is in memory only.
+ * the same. With `state`, a route's selection state is restored from and
+ * saved to the vault's provider-state file, attributed to the receipt that
+ * last served it.
  */
 export async function createGaVaultRequestPipeline(input: {
-  readonly source: VaultRequestSource
+  readonly pool: VaultAccountPool
   readonly runtime: GaStartInput['runtime']
   readonly overrides: GaPluginOverrides
   readonly routes: GaRouteBook
-  readonly now?: () => number
-}): Promise<GaRequestPipeline> {
-  const selector = new AccountSelector<VaultAccountRow>({
-    ...(input.now ? { now: input.now } : {}),
-  })
-  await input.source.refresh()
-  selector.resetAccounts(vaultAccountRows(input.source.routes()))
+}): Promise<GaRequestPipeline & { rows(): readonly VaultAccountRow[] }> {
+  const { pool } = input
+  await pool.sync()
   const logger = input.runtime.logger.createLogger('request')
   const executor = createRequestExecutor<VaultAccountRow>({
     ...gaEngineCollaborators({
@@ -1490,24 +1511,23 @@ export async function createGaVaultRequestPipeline(input: {
       routes: input.routes,
       logger,
     }),
-    accounts: selector,
-    credentials: createVaultRequestCredentials(input.source),
+    accounts: pool.selector,
+    credentials: pool.credentials,
     trackers: {
-      health: selector.healthTracker,
-      token: selector.tokenTracker,
+      health: pool.selector.healthTracker,
+      token: pool.selector.tokenTracker,
     },
   })
   return {
-    execute: createGaJobExecutor(executor),
-    async refreshAccounts() {
-      await input.source.refresh()
-      selector.replaceAccounts(vaultAccountRows(input.source.routes()), {
-        keyOf: vaultAccountRowKey,
-        refresh: refreshVaultAccountRow,
-      })
+    execute: async (job, context) => {
+      await pool.sync()
+      return createGaJobExecutor(executor)(job, context)
     },
+    rows: () => pool.selector.rows,
+    refreshAccounts: () => pool.refresh(),
     async dispose() {
       executor.dispose()
+      await pool.flush()
     },
   }
 }
@@ -1536,18 +1556,19 @@ function vaultSelectors(createSelector: () => string) {
 /**
  * The Accounts and Quota sections of a vault custody location. Accounts
  * lists the vault's selectable accounts by position; the vault, not this
- * plugin, adds and removes them. Quota checks for vault accounts are not
- * offered.
+ * plugin, adds and removes them. Quota shows each account's last recorded
+ * reading and, with `checkQuota`, checks quota now through the vault.
  */
 function gaVaultAccountSections(
-  source: VaultRequestSource,
+  pool: Pick<VaultAccountPool, 'selector'>,
   selectorOf: (row: VaultAccountRow) => string,
+  checkQuota?: (signal: AbortSignal) => Promise<AntigravityQuotaCheckReport>,
 ): { accounts: GaMenuSection; quota: GaMenuSection } {
   return {
     accounts: {
       title: 'Accounts',
       build: () => {
-        const rows = vaultAccountRows(source.routes())
+        const rows = pool.selector.rows
         return {
           lines: [
             rows.length === 0
@@ -1564,9 +1585,43 @@ function gaVaultAccountSections(
     },
     quota: {
       title: 'Quota',
-      build: () => ({
-        lines: ['Quota checks are not available for vault accounts.'],
-      }),
+      build: () => {
+        const rows = pool.selector.rows
+        return {
+          lines:
+            rows.length === 0
+              ? ['The vault serves no accounts to this computer yet.']
+              : rows.map((row, position) => {
+                  const groups = Object.entries(row.cachedQuota ?? {})
+                  return groups.length === 0
+                    ? `Account ${position + 1}: no quota reading`
+                    : `Account ${position + 1}: ${groups
+                        .map(
+                          ([name, group]) =>
+                            `${name} ${
+                              typeof group?.remainingFraction === 'number'
+                                ? `${Math.round(group.remainingFraction * 100)}%`
+                                : '\u2013'
+                            }`,
+                        )
+                        .join(' \u00b7 ')}`
+                }),
+          actions: checkQuota
+            ? [
+                {
+                  id: 'refresh',
+                  label: 'Check quota now',
+                  run: async () => {
+                    const controller = new AbortController()
+                    return quotaCheckOutcome(
+                      await checkQuota(controller.signal),
+                    )
+                  },
+                },
+              ]
+            : [],
+        }
+      },
     },
   }
 }
@@ -1577,7 +1632,8 @@ function gaVaultAccountSections(
  * Vault rows carry no metadata or access blocks of this plugin's own.
  */
 function createGaVaultStateSource(input: {
-  readonly source: VaultRequestSource
+  /** The pipeline's current selection rows. */
+  readonly rows: () => readonly VaultAccountRow[]
   readonly selectorOf: (row: VaultAccountRow) => string
   readonly generation: string
   readonly settings: () => AntigravitySettingsDto
@@ -1588,7 +1644,7 @@ function createGaVaultStateSource(input: {
   let queue: Promise<unknown> = Promise.resolve()
   const readOnce = async (scope: AntigravityRpcScope, signal: AbortSignal) => {
     if (signal.aborted) throw abortError(signal)
-    const rows = vaultAccountRows(input.source.routes())
+    const rows = input.rows()
     const settings = input.settings()
     const route = input.route(scope)
     if (signal.aborted) throw abortError(signal)
@@ -1602,7 +1658,17 @@ function createGaVaultStateSource(input: {
             kind: 'complete',
             rows: rows.map((row, position) => ({
               selector: input.selectorOf(row),
-              row: { index: position, enabled: row.enabled, current: false },
+              row: {
+                index: position,
+                enabled: row.enabled,
+                current: false,
+                ...(row.coolingDownUntil !== undefined
+                  ? { coolingDownUntil: row.coolingDownUntil }
+                  : {}),
+                ...(row.cachedQuota !== undefined
+                  ? { cachedQuota: row.cachedQuota }
+                  : {}),
+              },
             })),
           },
       route,
@@ -1630,7 +1696,7 @@ function createGaVaultStateSource(input: {
                 metadataStatus: 'absent',
                 accessBlock: { kind: 'unknown' },
                 currentFor: [],
-                cooldownUntil: null,
+                cooldownUntil: row.coolingDownUntil ?? null,
               })),
           retiredSelectors: [],
         })
@@ -1664,10 +1730,13 @@ function createGaVaultStateSource(input: {
 async function createGaVaultLocationServices(input: {
   readonly custody: GaLocationCustody
   readonly overrides: GaPluginOverrides
-  readonly bindings: Pick<GaLocationServicesBindings, 'createSelector'>
+  readonly bindings: Pick<
+    GaLocationServicesBindings,
+    'createSelector' | 'fetchVaultQuota'
+  >
 }): Promise<GaLocationServices> {
   const { custody, overrides } = input
-  let source: VaultRequestSource
+  let source: GaVaultCustodySource
   try {
     source = await custody.custodySource()
   } catch (error) {
@@ -1677,7 +1746,9 @@ async function createGaVaultLocationServices(input: {
   const selectorOf = vaultSelectors(
     input.bindings.createSelector ?? defaultSelector,
   )
-  let pipeline: GaRequestPipeline | null = null
+  let pipeline: Awaited<
+    ReturnType<typeof createGaVaultRequestPipeline>
+  > | null = null
   let disposed: Promise<void> | null = null
   return {
     runtime: {
@@ -1697,19 +1768,54 @@ async function createGaVaultLocationServices(input: {
       if (disposed) throw new Error('The location services are disposed')
       const location = start.runtime
       const routes = createGaRouteBook()
-      pipeline = await createGaVaultRequestPipeline({
+      const vaultLogger = location.logger.createLogger('vault-state')
+      const pool = createVaultAccountPool({
         source,
+        durable: {
+          source,
+          readState: () => custody.readState(),
+          onError: (error) =>
+            vaultLogger.debug('vault-state-write-dropped', {
+              error: error instanceof Error ? error.name : 'unknown',
+            }),
+        },
+      })
+      pipeline = await createGaVaultRequestPipeline({
+        pool,
         runtime: location,
         overrides,
         routes,
       })
+      const fetchVaultQuota = input.bindings.fetchVaultQuota
+      const quotaLogger = location.logger.createLogger('vault-quota')
+      const checkQuota = fetchVaultQuota
+        ? (signal: AbortSignal) =>
+            checkVaultQuota({
+              pool,
+              fetchReading: (ref, check) =>
+                fetchVaultQuota({
+                  source,
+                  ref,
+                  signal: check,
+                  logger: quotaLogger,
+                  ...(overrides.quotaFetch
+                    ? { transport: overrides.quotaFetch }
+                    : {}),
+                }),
+              signal,
+              onError: (error) =>
+                quotaLogger.debug('vault-quota-not-recorded', {
+                  error: error instanceof Error ? error.name : 'unknown',
+                }),
+            })
+        : undefined
       const started = pipeline
       const settings = operatorMenuSettings(location.operatorSettings)
       const menu = createAntigravityCommandMenu({
         source: 'sections',
         commands: await loadCommonAuthCommands(),
         sections: {
-          ...gaVaultAccountSections(source, selectorOf),
+          ...gaVaultAccountSections(pool, selectorOf, checkQuota),
           ...antigravitySettingsSections(settings),
         },
         diagnostics: diagnosticsMenuSection({
@@ -1722,7 +1828,7 @@ async function createGaVaultLocationServices(input: {
       return {
         execute: started.execute,
         state: createGaVaultStateSource({
-          source,
+          rows: () => started.rows(),
           selectorOf,
           generation: start.generation,
           settings: () =>

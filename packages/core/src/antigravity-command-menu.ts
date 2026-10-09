@@ -562,7 +562,7 @@ function quotaSection(
 }
 
 /** What a quota check shows: never success when no reading was taken. */
-function quotaCheckOutcome(
+export function quotaCheckOutcome(
   report: AntigravityQuotaCheckReport,
 ): string | ActionOutcome {
   const total = report.checked + report.notChecked
