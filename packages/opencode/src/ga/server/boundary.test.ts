@@ -784,6 +784,7 @@ describe('setup context predicate', () => {
     expect((error as GaSetupContextError).missing).toEqual([
       'rpc.register',
       'provider.transform',
+      'command.transform',
     ])
   })
 
@@ -794,6 +795,7 @@ describe('setup context predicate', () => {
         location: { directory: '/tmp/x' },
         rpc: { register: () => undefined },
         provider: { transform: () => undefined },
+        command: { transform: () => undefined },
       }),
     ).toBe('ga')
   })

@@ -706,6 +706,7 @@ export const GA_REQUIRED_CONTEXT_CAPABILITIES = [
   'session.hook',
   'rpc.register',
   'provider.transform',
+  'command.transform',
 ] as const
 
 export class GaSetupContextError extends Error {
@@ -747,6 +748,10 @@ export function classifyGaSetupContext(context: object): 'legacy' | 'ga' {
     const provider = record.provider
     if (!isObject(provider) || typeof provider.transform !== 'function') {
       missing.push('provider.transform')
+    }
+    const command = record.command
+    if (!isObject(command) || typeof command.transform !== 'function') {
+      missing.push('command.transform')
     }
   }
   if (missing.length > 0) throw new GaSetupContextError(missing)
@@ -835,6 +840,19 @@ export interface GaApplyRequest {
  */
 export interface GaCommandService {
   apply(request: GaApplyRequest): Promise<CommandApplyResult>
+}
+
+/**
+ * Opens the Antigravity menu for the native `/antigravity` command: the
+ * location's menu is built for `scope` and queued there as a notification,
+ * which the client pulls with its next `state` request.
+ */
+export interface GaMenuOpener {
+  open(input: {
+    readonly scope: AntigravityRpcScope
+    /** Aborts when the activation is disposed. */
+    readonly signal: AbortSignal
+  }): Promise<void>
 }
 
 export interface GaRpcActivationOptions {
@@ -1245,8 +1263,11 @@ export interface GaServingServices {
   readonly execute: GaJobExecutor
   /** Accounts, routes and status for the RPC `state` method. */
   readonly state: GaStateSource
-  /** Applies Antigravity menu actions for the RPC `apply` method. */
-  readonly commands: GaCommandService
+  /**
+   * Applies Antigravity menu actions for the RPC `apply` method and opens
+   * the menu for the native `/antigravity` command.
+   */
+  readonly commands: GaCommandService & GaMenuOpener
 }
 
 /**
@@ -1388,6 +1409,7 @@ export interface GaHostContext {
   readonly session: Pick<Plugin.Context['session'], 'hook'>
   readonly rpc: Pick<Plugin.Context['rpc'], 'register'>
   readonly provider: Pick<Plugin.Context['provider'], 'transform' | 'reload'>
+  readonly command: Pick<Plugin.Context['command'], 'transform' | 'reload'>
 }
 
 // Model registration
@@ -1602,6 +1624,37 @@ export async function setupGaActivation(
     )
     runtime.scope.add(modelRegistration, 'producer')
     await context.provider.reload()
+
+    // The native `/antigravity` command opens the menu in the session that
+    // ran it. Its runs stop starting new work once the activation is torn
+    // down: the abort is registered before the command, so teardown (newest
+    // first) removes the command, then aborts what is still running.
+    const commandRuns = new AbortController()
+    runtime.scope.add(
+      {
+        dispose: async () => {
+          commandRuns.abort(
+            new Error('The Antigravity activation was disposed'),
+          )
+        },
+      },
+      'producer',
+    )
+    const commandRegistration: Registration = await context.command.transform(
+      (editor) =>
+        editor.add({
+          name: ANTIGRAVITY_MENU_COMMAND_NAME,
+          description:
+            'Open the Antigravity menu: accounts, quota, routing, limits and diagnostics.',
+          execute: ({ sessionID }) =>
+            started.commands.open({
+              scope: { kind: 'session', sessionID },
+              signal: commandRuns.signal,
+            }),
+        }),
+    )
+    runtime.scope.add(commandRegistration, 'producer')
+    await context.command.reload()
 
     const responseHook: Registration = await context.session.hook(
       'http.response',

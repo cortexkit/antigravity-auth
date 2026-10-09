@@ -74,6 +74,7 @@ type GaJobExecutor = import('./index.ts').GaJobExecutor
 type GaHostContext = import('./index.ts').GaHostContext
 type GaHttpRequestEvent = import('./index.ts').GaHttpRequestEvent
 type GaRetryEvent = import('./index.ts').GaRetryEvent
+type AntigravityRpcScope = import('../rpc/protocol.ts').AntigravityRpcScope
 type GaLocationServices = import('./index.ts').GaLocationServices
 type GaLocationServicesFactory = import('./index.ts').GaLocationServicesFactory
 
@@ -825,10 +826,16 @@ describe('setup against a host context', () => {
   }
 
   /** A host context that records registrations and their disposal. */
+  /** Commands the fake host received, by name. */
+  type RegisteredCommand = Parameters<
+    Parameters<Parameters<GaHostContext['command']['transform']>[0]>[0]['add']
+  >[0]
+
   function fakeHost(
     directory: string,
     log: string[],
     failures: { register?: Error; hook?: string } = {},
+    commands: RegisteredCommand[] = [],
   ): GaHostContext {
     const registration = (name: string) => ({
       dispose: async () => {
@@ -879,11 +886,26 @@ describe('setup against a host context', () => {
           }
         },
       },
+      command: {
+        transform: async (callback) => {
+          callback({
+            add: (definition) => {
+              commands.push(definition)
+              log.push(`add command ${definition.name}`)
+            },
+          })
+          return registration('command transform')
+        },
+        reload: async () => {
+          log.push('reload commands')
+        },
+      },
     }
   }
 
   function fakeServices(
     log: string[],
+    opened: Array<{ scope: AntigravityRpcScope; signal: AbortSignal }> = [],
   ): GaLocationServicesFactory & { calls: string[] } {
     const calls: string[] = []
     const factory: GaLocationServicesFactory = async ({ directory }) => {
@@ -925,6 +947,10 @@ describe('setup against a host context', () => {
                 sections: [],
               },
             }),
+            open: async (input) => {
+              opened.push(input)
+              log.push(`open menu ${JSON.stringify(input.scope)}`)
+            },
           },
         }),
         dispose: async () => {
@@ -965,6 +991,8 @@ describe('setup against a host context', () => {
       'register antigravity-auth',
       'transform provider',
       'reload provider',
+      'add command antigravity',
+      'reload commands',
       'hook http.response {"providerID":"google"}',
       'hook retry {"providerID":"google"}',
       'hook http.request {"providerID":"google"}',
@@ -976,10 +1004,64 @@ describe('setup against a host context', () => {
       'dispose hook http.request',
       'dispose hook retry',
       'dispose hook http.response',
+      'dispose command transform',
       'dispose provider transform',
       'dispose rpc antigravity-auth',
       'dispose services',
     ])
+  })
+
+  it('registers /antigravity, which opens the menu in the session that ran it, until Cleanup', async () => {
+    prepareRoot()
+    const log: string[] = []
+    const commands: RegisteredCommand[] = []
+    const opened: Array<{ scope: AntigravityRpcScope; signal: AbortSignal }> =
+      []
+    const cleanup = await server.setupGaActivation(
+      fakeHost(locationDirectory('a'), log, {}, commands),
+      fakeServices(log, opened),
+    )
+    expect(commands.map((command) => command.name)).toEqual(['antigravity'])
+    const command = commands[0]
+    if (!command) throw new Error('no command registered')
+    // The host's branded session id is a plain string at runtime.
+    const invocation: Parameters<RegisteredCommand['execute']>[0] = JSON.parse(
+      '{"sessionID":"ses_cmd","prompt":[],"delivery":"queue"}',
+    )
+    await command.execute(invocation)
+    expect(opened.map((entry) => entry.scope)).toEqual([
+      { kind: 'session', sessionID: 'ses_cmd' },
+    ])
+    expect(opened[0]?.signal.aborted).toBe(false)
+    log.length = 0
+    await cleanup?.()
+    // Cleanup removes the command before anything else it registered, and
+    // aborts the signal its runs were given.
+    expect(log[0]).toBe('dispose hook http.request')
+    expect(log).toContain('dispose command transform')
+    expect(opened[0]?.signal.aborted).toBe(true)
+  })
+
+  it('refuses a host without command registration before building anything', async () => {
+    const log: string[] = []
+    const services = fakeServices(log)
+    const { command: _missing, ...withoutCommands } = fakeHost(
+      locationDirectory('a'),
+      log,
+    )
+    const error = await server
+      .setupGaActivation(
+        // A host whose command domain has no `transform`. JSON.parse yields
+        // an untyped empty object for it, without a type assertion.
+        { ...withoutCommands, command: JSON.parse('{}') },
+        services,
+      )
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(server.GaSetupContextError)
+    expect(
+      error instanceof server.GaSetupContextError && error.missing,
+    ).toEqual(['command.transform'])
+    expect(services.calls).toEqual([])
   })
 
   it('rolls back everything when RPC registration fails', async () => {
@@ -1008,10 +1090,13 @@ describe('setup against a host context', () => {
       'register antigravity-auth',
       'transform provider',
       'reload provider',
+      'add command antigravity',
+      'reload commands',
       'hook http.response {"providerID":"google"}',
       'hook retry {"providerID":"google"}',
       'dispose hook retry',
       'dispose hook http.response',
+      'dispose command transform',
       'dispose provider transform',
       'dispose rpc antigravity-auth',
       'dispose services',
@@ -1071,7 +1156,7 @@ describe('setup against a host context', () => {
     if (cleanupB) cleanups.push(cleanupB)
     logB.length = 0
     await cleanupA?.()
-    expect(logA.filter((line) => line.startsWith('dispose'))).toHaveLength(6)
+    expect(logA.filter((line) => line.startsWith('dispose'))).toHaveLength(7)
     expect(logB).toEqual([])
   })
 })
