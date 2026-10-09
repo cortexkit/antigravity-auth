@@ -156,6 +156,7 @@ export interface StorePoolRow {
   torn?: true
   stamp?: AccountCredentialStamp
   unbound?: true
+  staged?: { reservation: string }
 }
 
 export type StorePoolLoad =
@@ -236,17 +237,69 @@ export type StoreSettingsMutator = (
  * Written as function-typed properties so the compiler checks parameters
  * strictly when the genuine store is assigned to it.
  */
+export interface StorePublicationPlan {
+  operationId: string
+  remove: { id: string; attribution: StoreAttribution; fingerprint?: string }[]
+  finalize: {
+    id: string
+    attribution: StoreAttribution
+    reservation: string
+    enabled: boolean
+    disabledReason?: string
+  }[]
+  order: string[]
+}
+
+export interface StorePublicationReceipt {
+  operationId: string
+  planDigest: string
+  phase: 'committed' | 'cleaned'
+  removed: { id: string; credentialEpoch: number }[]
+  finalized: {
+    id: string
+    credentialEpoch: number
+    reservation: string
+    enabled: boolean
+  }[]
+}
+
 export interface AccountPoolStore {
   read: () => Promise<StorePoolLoad>
-  add: (input: {
+  add: (
+    input: {
+      id: string
+      credential: { type: 'oauth'; refresh: string }
+      identity?: string
+      providerState?: unknown
+      disabled?: { reason: string }
+      stage?: { reservation: string }
+    },
+    options?: {
+      extraLocks?: readonly AccountLockSpec[]
+      onExisting?: 'stage-duplicate'
+      protect?: (view: {
+        config: Readonly<Record<string, unknown>>
+      }) => Promise<string | undefined>
+    },
+  ) => Promise<{
     id: string
-    credential: { type: 'oauth'; refresh: string }
-    identity?: string
-    providerState?: unknown
-  }) => Promise<{
-    id: string
-    outcome: 'added' | 'added-disabled' | 'completed' | 'rotated'
+    outcome: 'added' | 'added-disabled' | 'completed' | 'rotated' | 'exists'
+    credentialEpoch?: number
   }>
+  publishRoster?: (
+    plan: StorePublicationPlan,
+    options?: {
+      protect?: (view: {
+        config: Readonly<Record<string, unknown>>
+      }) => Promise<string | undefined>
+    },
+  ) => Promise<{
+    outcome: 'published' | 'cleaned' | 'already-cleaned'
+    receipt: StorePublicationReceipt
+  }>
+  publication?: (
+    operationId: string,
+  ) => Promise<StorePublicationReceipt | undefined>
   replace: (
     id: string,
     credential: { type: 'oauth'; refresh: string },
@@ -332,6 +385,7 @@ export interface AccountStoreOpenOptions {
   quota: QuotaCodecContract
   providerState: ConfiguredProviderStateCodec
   requireCredentialStamps: true
+  requireRemovedFingerprint?: boolean
   now: () => number
   onLockEvent?: (event: AccountLockEvent) => void
 }
@@ -364,6 +418,7 @@ export interface StoreOperationFailure extends Error {
  * decline, and the store's failure class.
  */
 export interface AccountStoreModule {
+  readonly fingerprintOf?: (credential: StoreCredential) => string
   readonly openPoolStore: (options: AccountStoreOpenOptions) => AccountPoolStore
   readonly DECLINE_TRANSITION: symbol
   readonly PoolOperationError: abstract new (
@@ -997,7 +1052,7 @@ const MANAGEMENT_ID =
  */
 const MANAGEMENT_STEPS: Record<ManagementKind, readonly string[]> = {
   clear: ['remove'],
-  'replace-pool': ['remove', 'add', 'verified'],
+  'replace-pool': ['remove', 'add', 'publish', 'verified'],
   migration: ACCOUNT_MIGRATION_MANAGEMENT_STEPS,
 }
 
@@ -1031,6 +1086,7 @@ const SHA256_HEX = /^[0-9a-f]{64}$/
  */
 export interface StoredManagementRecord extends ManagementRecord {
   inputDigest?: string
+  publication?: StorePublicationPlan
 }
 
 /**
@@ -1127,6 +1183,11 @@ export function decodeManagementRecord(raw: unknown): StoredManagementRecord {
     )
   }
   const inputDigest = record.inputDigest
+  if (record.publication !== undefined && record.kind !== 'replace-pool')
+    throw new AccountCodecError(
+      '$.publication',
+      'belongs only to a replace-pool record',
+    )
   if (record.kind === 'replace-pool') {
     if (typeof inputDigest !== 'string' || !SHA256_HEX.test(inputDigest)) {
       throw new AccountCodecError(
@@ -1146,6 +1207,118 @@ export function decodeManagementRecord(raw: unknown): StoredManagementRecord {
     targets,
     progress: { step, completedTargets },
     ...(typeof inputDigest === 'string' ? { inputDigest } : {}),
+    ...(record.publication !== undefined
+      ? { publication: decodePublicationPlan(record.publication, record.id) }
+      : {}),
+  }
+}
+
+function decodePublicationPlan(
+  raw: unknown,
+  operationId: string,
+): StorePublicationPlan {
+  if (
+    !isRecord(raw) ||
+    raw.operationId !== operationId ||
+    !Array.isArray(raw.remove) ||
+    !Array.isArray(raw.finalize)
+  ) {
+    throw new AccountCodecError(
+      '$.publication',
+      'must hold this operation’s native publication plan',
+    )
+  }
+  const order = uniqueIds(raw.order, '$.publication.order')
+  const attribution = (value: unknown): StoreAttribution => {
+    if (
+      !isRecord(value) ||
+      typeof value.credentialEpoch !== 'number' ||
+      !Number.isSafeInteger(value.credentialEpoch) ||
+      value.credentialEpoch < 1 ||
+      (value.identity !== undefined &&
+        (typeof value.identity !== 'string' || !value.identity))
+    ) {
+      throw new AccountCodecError(
+        '$.publication.attribution',
+        'must hold an exact credential fence',
+      )
+    }
+    return {
+      credentialEpoch: value.credentialEpoch,
+      ...(typeof value.identity === 'string'
+        ? { identity: value.identity }
+        : {}),
+    }
+  }
+  const remove = raw.remove.map(
+    (item): StorePublicationPlan['remove'][number] => {
+      if (
+        !isRecord(item) ||
+        typeof item.id !== 'string' ||
+        !item.id ||
+        typeof item.fingerprint !== 'string' ||
+        !SHA256_HEX.test(item.fingerprint)
+      )
+        throw new AccountCodecError(
+          '$.publication.remove',
+          'must hold a row and secret fingerprint',
+        )
+      return {
+        id: item.id,
+        attribution: attribution(item.attribution),
+        fingerprint: item.fingerprint,
+      }
+    },
+  )
+  const finalize = raw.finalize.map(
+    (item): StorePublicationPlan['finalize'][number] => {
+      if (
+        !isRecord(item) ||
+        typeof item.id !== 'string' ||
+        !order.includes(item.id) ||
+        item.reservation !== operationId ||
+        typeof item.enabled !== 'boolean' ||
+        (item.enabled
+          ? item.disabledReason !== undefined
+          : typeof item.disabledReason !== 'string')
+      )
+        throw new AccountCodecError(
+          '$.publication.finalize',
+          'must hold this operation’s reserved row',
+        )
+      return {
+        id: item.id,
+        attribution: attribution(item.attribution),
+        reservation: operationId,
+        enabled: item.enabled,
+        ...(typeof item.disabledReason === 'string'
+          ? { disabledReason: item.disabledReason }
+          : {}),
+      }
+    },
+  )
+  uniqueIds(
+    [...remove.map((row) => row.id), ...finalize.map((row) => row.id)],
+    '$.publication.rows',
+  )
+  return { operationId, remove, finalize, order }
+}
+
+function encodePublicationPlan(plan: StorePublicationPlan): JsonObject {
+  return {
+    operationId: plan.operationId,
+    remove: plan.remove.map((row) => ({
+      id: row.id,
+      attribution: { ...row.attribution },
+      ...(row.fingerprint !== undefined
+        ? { fingerprint: row.fingerprint }
+        : {}),
+    })),
+    finalize: plan.finalize.map((row) => ({
+      ...row,
+      attribution: { ...row.attribution },
+    })),
+    order: [...plan.order],
   }
 }
 
@@ -1160,6 +1333,9 @@ function encodeManagementRecord(record: StoredManagementRecord): JsonObject {
     },
     ...(record.inputDigest !== undefined
       ? { inputDigest: record.inputDigest }
+      : {}),
+    ...(record.publication !== undefined
+      ? { publication: encodePublicationPlan(record.publication) }
       : {}),
   }
 }
@@ -1806,6 +1982,13 @@ class StoreAccountRepository implements AccountRepository {
           rowId: added.id,
           retryable: true,
         },
+      )
+    }
+    if (added.outcome === 'exists') {
+      throw refusal(
+        'login',
+        'management-pending',
+        'a staged row cannot be used as a login',
       )
     }
     return { ref: rowRefOf(row), outcome: added.outcome }
@@ -2504,6 +2687,13 @@ class StoreAccountRepository implements AccountRepository {
     return this.run('replacePool', undefined, () =>
       this.withTopology('replacePool', async (lease) => {
         this.checkPoolInputs(inputs)
+        if (
+          this.store.publishRoster &&
+          this.store.publication &&
+          this.storeModule.fingerprintOf
+        ) {
+          return this.replacePublishedPool(inputs, lease)
+        }
         const inputDigest = replacementInputDigest(inputs)
         const inputIds = inputs.map((input) => input.id)
         await this.boundSettings('replacePool')
@@ -2668,11 +2858,281 @@ class StoreAccountRepository implements AccountRepository {
     )
   }
 
+  // Keep prepared accounts disabled and marked with this operation's identifier.
+  // Save their credential refs and the old accounts' refs before publishRoster
+  // replaces the account list in one write. A restart replays that saved plan;
+  // the store's permanent receipt prevents the operation from publishing twice.
+  private async replacePublishedPool(
+    inputs: readonly AccountLoginInput[],
+    lease: AccountLease,
+  ): Promise<ManagementReceipt> {
+    const publish = this.store.publishRoster
+    const publication = this.store.publication
+    const fingerprint = this.storeModule.fingerprintOf
+    if (!publish || !publication || !fingerprint)
+      throw refusal(
+        'replacePool',
+        'replacement-unavailable',
+        'Atomic roster publication is unavailable',
+      )
+    await this.boundSettings('replacePool')
+    const inputDigest = replacementInputDigest(inputs)
+    let record = await this.readManagement('replacePool')
+    if (record) {
+      if (
+        record.kind !== 'replace-pool' ||
+        record.inputDigest !== inputDigest ||
+        !record.publication
+      )
+        throw refusal(
+          'replacePool',
+          'management-pending',
+          'another management operation needs recovery',
+        )
+    } else {
+      const rows = (await this.readRows('replacePool')).filter(
+        (row) => row.invalid !== 'roster',
+      )
+      if (inputs.some((input) => rows.some((row) => row.id === input.id)))
+        throw refusal(
+          'replacePool',
+          'invalid-input',
+          'replacement inputs must name new rows',
+        )
+      const remove = rows.map((row) => {
+        if (
+          row.invalid ||
+          row.torn ||
+          row.stamp !== 'bound' ||
+          !row.credential ||
+          !row.credentialEpoch ||
+          row.staged
+        )
+          throw refusal(
+            'replacePool',
+            'invalid-input',
+            `complete row ${row.id} before replacing the pool`,
+          )
+        return {
+          id: row.id,
+          attribution: {
+            credentialEpoch: row.credentialEpoch,
+            ...(row.identity !== undefined ? { identity: row.identity } : {}),
+          },
+          fingerprint: fingerprint(row.credential),
+        }
+      })
+      const id = randomUUID()
+      await lease.assertOwned()
+      await this.writeTransfer(id, inputs)
+      record = await this.startManagement(
+        'replacePool',
+        {
+          id,
+          kind: 'replace-pool',
+          targets: remove.map((row) => row.id),
+          inputDigest,
+          progress: { step: 'add', completedTargets: [] },
+          publication: {
+            operationId: id,
+            remove,
+            finalize: [],
+            order: inputs.map((input) => input.id),
+          },
+        },
+        lease,
+      )
+    }
+    return this.continueManagement(
+      'replacePool',
+      record,
+      async (current) => {
+        let next = current
+        let plan = next.publication
+        if (
+          !plan ||
+          !isDeepStrictEqual(
+            plan.order,
+            inputs.map((input) => input.id),
+          )
+        )
+          throw new AccountCodecError(
+            '$.publication.order',
+            'must match the original replacement inputs',
+          )
+        const protect = async (view: {
+          config: Readonly<Record<string, unknown>>
+        }) => {
+          await lease.assertOwned()
+          const raw = view.config[MANAGEMENT_SETTINGS_KEY]
+          return raw !== undefined &&
+            canonicalJson(
+              encodeManagementRecord(decodeManagementRecord(raw)),
+            ) === canonicalJson(encodeManagementRecord(next))
+            ? undefined
+            : 'the replacement journal no longer holds this operation'
+        }
+        if (next.progress.step === 'add') {
+          const pending = await this.readTransfer(next.id)
+          if (replacementInputDigest(pending) !== inputDigest)
+            throw new AccountCodecError(
+              'transfer',
+              'does not hold the original replacement inputs',
+            )
+          for (const input of pending) {
+            if (plan.finalize.some((row) => row.id === input.id)) continue
+            await lease.assertOwned()
+            const added = await this.store.add(
+              {
+                id: input.id,
+                credential: { type: 'oauth', refresh: input.refreshToken },
+                ...(input.identity !== undefined
+                  ? { identity: input.identity }
+                  : {}),
+                providerState: encodeProviderState({
+                  schemaVersion: PROVIDER_STATE_SCHEMA_VERSION,
+                  metadata: input.metadata,
+                }),
+                disabled: { reason: 'replacement-pending' },
+                stage: { reservation: next.id },
+              },
+              { onExisting: 'stage-duplicate', protect },
+            )
+            if (added.id !== input.id || !added.credentialEpoch)
+              throw refusal(
+                'replacePool',
+                'unexpected',
+                'staging did not return the requested credential ref',
+              )
+            const enabled = input.metadata.enabled !== false
+            plan = {
+              ...plan,
+              finalize: [
+                ...plan.finalize,
+                {
+                  id: input.id,
+                  attribution: {
+                    credentialEpoch: added.credentialEpoch,
+                    ...(input.identity !== undefined
+                      ? { identity: input.identity }
+                      : {}),
+                  },
+                  reservation: next.id,
+                  enabled,
+                  ...(!enabled ? { disabledReason: 'disabled-by-user' } : {}),
+                },
+              ],
+            }
+            next = await this.saveProgress(
+              'replacePool',
+              next,
+              'add',
+              plan.finalize.map((row) => row.id),
+              lease,
+              plan,
+            )
+          }
+          next = await this.saveProgress(
+            'replacePool',
+            next,
+            'publish',
+            inputs.map((input) => input.id),
+            lease,
+          )
+        }
+        if (next.progress.step === 'publish') {
+          await lease.assertOwned()
+          await publish.call(this.store, plan, { protect })
+          const receipt = await publication.call(this.store, next.id)
+          this.assertPublicationReceipt(plan, receipt)
+          if (receipt?.phase !== 'cleaned')
+            throw refusal(
+              'replacePool',
+              'management-pending',
+              'publication cleanup is pending; replay the same inputs',
+              { retryable: true },
+            )
+          await this.verifyPool(inputs, true)
+          next = await this.saveProgress(
+            'replacePool',
+            next,
+            'verified',
+            inputs.map((input) => input.id),
+            lease,
+          )
+        } else if (next.progress.step === 'verified') {
+          const receipt = await publication.call(this.store, next.id)
+          this.assertPublicationReceipt(plan, receipt)
+          if (receipt?.phase !== 'cleaned')
+            throw refusal(
+              'replacePool',
+              'management-pending',
+              'the native publication receipt is missing',
+            )
+          await this.verifyPool(inputs, true)
+        } else {
+          throw new AccountCodecError(
+            '$.progress.step',
+            'is not a native publication phase',
+          )
+        }
+        await lease.assertOwned()
+        await this.discardTransfer(next.id)
+        return next
+      },
+      lease,
+    )
+  }
+
+  private assertPublicationReceipt(
+    plan: StorePublicationPlan,
+    receipt: StorePublicationReceipt | undefined,
+  ): void {
+    if (!receipt) return
+    const digest = createHash('sha256')
+      .update(canonicalJson(encodePublicationPlan(plan)))
+      .digest('hex')
+    const removed = plan.remove.map((row) => ({
+      id: row.id,
+      credentialEpoch: row.attribution.credentialEpoch,
+    }))
+    const finalized = plan.finalize.map((row) => ({
+      id: row.id,
+      credentialEpoch: row.attribution.credentialEpoch,
+      reservation: row.reservation,
+      enabled: row.enabled,
+    }))
+    if (
+      receipt.operationId !== plan.operationId ||
+      receipt.planDigest !== digest ||
+      !isDeepStrictEqual(receipt.removed, removed) ||
+      !isDeepStrictEqual(receipt.finalized, finalized)
+    ) {
+      throw refusal(
+        'replacePool',
+        'publication-mismatch',
+        'the native receipt does not prove this replacement plan',
+      )
+    }
+  }
+
   private checkPoolInputs(inputs: readonly AccountLoginInput[]): void {
     const ids = new Set<string>()
     const secrets = new Set<string>()
+    const emails = new Set<string>()
+    const identities = new Set<string>()
     for (const input of inputs) {
-      if (!input.refreshToken.trim() || ids.has(input.id)) {
+      encodeProviderState({
+        schemaVersion: PROVIDER_STATE_SCHEMA_VERSION,
+        metadata: input.metadata,
+      })
+      if (
+        !input.id ||
+        input.id.trim() !== input.id ||
+        ['__proto__', 'constructor', 'prototype'].includes(input.id) ||
+        !input.refreshToken.trim() ||
+        ids.has(input.id)
+      ) {
         throw refusal(
           'replacePool',
           'invalid-input',
@@ -2686,6 +3146,24 @@ class StoreAccountRepository implements AccountRepository {
           'two inputs hold the same credential',
         )
       }
+      if (input.identity !== undefined) {
+        if (!input.identity || identities.has(input.identity))
+          throw refusal(
+            'replacePool',
+            'duplicate-identity',
+            'every input needs its own non-empty recorded identity',
+          )
+        identities.add(input.identity)
+      }
+      const email = input.metadata.email
+      if (typeof email === 'string' && emails.has(email)) {
+        throw refusal(
+          'replacePool',
+          'duplicate-identity',
+          'two inputs name the same account',
+        )
+      }
+      if (typeof email === 'string') emails.add(email)
       ids.add(input.id)
       secrets.add(input.refreshToken)
     }
@@ -2728,7 +3206,12 @@ class StoreAccountRepository implements AccountRepository {
     const raw = settings[MANAGEMENT_SETTINGS_KEY]
     if (raw === undefined) return false
     try {
-      return decodeManagementRecord(raw).id === record.id
+      const current = decodeManagementRecord(raw)
+      return (
+        current.id === record.id &&
+        current.kind === record.kind &&
+        current.inputDigest === record.inputDigest
+      )
     } catch {
       return false
     }
@@ -2740,9 +3223,11 @@ class StoreAccountRepository implements AccountRepository {
     step: string,
     completedTargets: readonly string[],
     lease: AccountLease,
+    publication?: StorePublicationPlan,
   ): Promise<StoredManagementRecord> {
     const next: StoredManagementRecord = {
       ...record,
+      ...(publication !== undefined ? { publication } : {}),
       progress: { step, completedTargets },
     }
     await lease.assertOwned()
@@ -2862,8 +3347,12 @@ class StoreAccountRepository implements AccountRepository {
    */
   private async verifyPool(
     inputs: readonly AccountLoginInput[],
+    published = false,
   ): Promise<void> {
-    const rows = await this.readRows('replacePool')
+    const allRows = await this.readRows('replacePool')
+    const rows = published
+      ? allRows.filter((row) => row.invalid !== 'roster')
+      : allRows
     const mismatch = (input: AccountLoginInput, problem: string) =>
       refusal(
         'replacePool',
@@ -2883,6 +3372,14 @@ class StoreAccountRepository implements AccountRepository {
       ) {
         throw mismatch(input, 'is not in the pool')
       }
+      if (
+        published &&
+        (row.staged || row.enabled !== (input.metadata.enabled !== false))
+      )
+        throw mismatch(
+          input,
+          'has not been finalized with its requested enabled state',
+        )
       if (row.identity !== input.identity) {
         throw mismatch(input, 'is recorded for another identity')
       }

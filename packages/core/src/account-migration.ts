@@ -529,7 +529,7 @@ export interface MigrationPoolStore {
     options?: { extraLocks?: readonly AccountLockSpec[] },
   ): Promise<{
     id: string
-    outcome: 'added' | 'added-disabled' | 'completed' | 'rotated'
+    outcome: 'added' | 'added-disabled' | 'completed' | 'rotated' | 'exists'
   }>
   disable(
     id: string,

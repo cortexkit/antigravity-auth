@@ -824,6 +824,12 @@ export type AccountRepositoryFailureKind =
   | 'lock-ownership'
   | 'pending-migration'
   | 'load-error'
+  | 'snapshot-contended'
+  | 'publication-sync'
+  | 'publication-incomplete'
+  | 'publication-mismatch'
+  | 'row-staged'
+  | 'credential-exists'
   | 'unknown-row'
   | 'invalid-row'
   | 'invalid-input'
@@ -1060,8 +1066,11 @@ export interface AccountRepository {
   /** Removes every row as one journaled operation. */
   clear(): Promise<ManagementReceipt>
   /**
-   * Replaces the pool with new logins as one journaled operation; inputs
-   * stay in a private transfer file until verified.
+   * Replaces the account list through the store's single configuration write.
+   * Prepared accounts remain disabled until that write commits. Refresh tokens
+   * stay in an owner-only transfer file until verification; interrupted calls
+   * replay the recorded write plan. If the store cannot publish the entire list
+   * at once, replacement of a non-empty pool refuses without changing it.
    */
   replacePool(inputs: readonly AccountLoginInput[]): Promise<ManagementReceipt>
 
