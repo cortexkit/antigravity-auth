@@ -190,6 +190,7 @@ export async function prepareNativeGaConsumer(
   mkdirSync(join(prefix, 'preparation'), { mode: 0o700 })
   const paths = prepareGaRoot(join(prefix, 'preparation'))
   const env = gaChildEnvironment(paths, {})
+  env.PATH = `${dirname(realpathSync(process.execPath))}:${env.PATH}`
   const commands = async (name: string, args: string[], cwd: string) => {
     const result = await startOwnedCommand(
       realpathSync(process.execPath),

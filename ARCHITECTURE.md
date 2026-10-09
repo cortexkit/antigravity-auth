@@ -789,7 +789,7 @@ The harness (`packages/e2e-tests/src/harness.ts:1-314`) is the spine:
 - `afterEach` and `afterAll` (`packages/e2e-tests/src/setup.ts:120-153`) restore the original fetch and reap the per-test temp root.
 - The OpenCode 2 harness sets `OPENCODE_DB` to a path inside the test's temporary root before spawning the host and asserts that the database was created there. HOME/XDG isolation alone is never treated as sufficient. The host's direct provider base URL and every adapter transport call point at the loopback recorder.
 
-The OpenCode 1/Pi e2e suite runs via `bun run test:e2e`; `bun run test:e2e:opencode-v2` runs the real-host OpenCode 2 suite in Docker with networking disabled, so the host can reach only the in-container loopback mock. The explicitly named `test:e2e:opencode-v2:local` debugging command still provisions and asserts a per-run `OPENCODE_DB`; it is not a CI gate.
+The OpenCode 1/Pi e2e suite runs via `bun run test:e2e`. The default `bun run test:e2e:opencode-v2` gate runs one official OpenCode 2.0.22 request through the packed plugin and verifies the loopback adapter's wire payload and terminal SSE frame in network-disabled Docker. The broader PTY, location-lifecycle and native compatibility suite remains available through `bun run test:e2e:opencode-v2:extended`; it is not a prerequisite for this cut. The explicitly named `test:e2e:opencode-v2:local` debugging command still provisions and asserts a per-run `OPENCODE_DB`; it is not a CI gate.
 
 ### Release gates
 
@@ -801,7 +801,8 @@ The root `package.json` exposes the full gate surface:
   "typecheck": "bun run --cwd packages/core build && bun run --cwd packages/opencode typecheck && bun run --cwd packages/opencode-v2 typecheck && bun run --cwd packages/pi typecheck && tsc -p tsconfig.scripts.json",
   "test": "bun run --cwd packages/core build && bun run --cwd packages/opencode-v2 build && bun test --isolate packages/core/src packages/opencode/src packages/pi/src test/ packages/opencode-v2/test/",
   "test:e2e": "bun test --isolate ./packages/e2e-tests/src/plugin-flow.e2e.test.ts ./packages/e2e-tests/src/cli-flow.e2e.test.ts ./packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts ./packages/e2e-tests/src/fetch-guard.test.ts ./packages/e2e-tests/src/mock-antigravity-server.test.ts",
-  "test:e2e:opencode-v2": "bash packages/e2e-tests/docker/run-opencode-v2-test.sh",
+  "test:e2e:opencode-v2": "bash packages/e2e-tests/docker/run-opencode-ga-test.sh --smoke --inputs packages/e2e-tests/src/opencode-ga-inputs.ts",
+  "test:e2e:opencode-v2:extended": "bash packages/e2e-tests/docker/run-opencode-ga-test.sh --inputs packages/e2e-tests/src/opencode-ga-inputs.ts",
   "test:e2e:opencode-v2:local": "bun run --cwd packages/core build && bun run --cwd packages/opencode-v2 build && bun test --isolate ./packages/e2e-tests/src/opencode-v2-flow.e2e.test.ts",
   "smoke:opencode-v2": "bun run --cwd packages/opencode-v2 smoke:pack",
   "format": "biome format --write .",

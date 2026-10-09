@@ -34,7 +34,10 @@ let root: string
 let accountFile: string
 
 beforeEach(() => {
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'opencode-vault-')))
+  // Build/test runners can put TMPDIR below a shared dependency directory.
+  // Use the sticky system temporary directory for enrollment's ancestor checks.
+  const temporary = process.platform === 'win32' ? tmpdir() : '/tmp'
+  root = realpathSync(mkdtempSync(join(temporary, 'opencode-vault-')))
   // The vault library refuses enrollment under a directory others can write.
   mkdirSync(join(root, 'config'), { mode: 0o700 })
   accountFile = join(root, 'config', 'antigravity-accounts.json')

@@ -722,7 +722,7 @@ describe('createGaLocationServices (production factory)', () => {
       const directory = join(root, 'location')
       const { mkdirSync } = await import('node:fs')
       mkdirSync(directory)
-      const legacyPath = join(directory, GA_ACCOUNTS_FILE)
+      const legacyPath = join(root, 'config', GA_ACCOUNTS_FILE)
       const modules = await loadCommonAuthStoreModules()
       await initializeFreshAccountStore(modules, { legacyPath, now: Date.now })
       const admission = await readAccountStoreAdmission(
@@ -1030,6 +1030,8 @@ describe('GA vault custody location', () => {
       }
       const factory = createGaLocationServicesFactory({
         loadStoreModules: loadCommonAuthStoreModules,
+        resolveAccountFile: (directory) =>
+          join(directory, 'antigravity-accounts.json'),
         now: Date.now,
         runtime: () => {
           throw new Error('a vault location opens no local store runtime')

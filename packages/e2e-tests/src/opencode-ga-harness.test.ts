@@ -28,7 +28,10 @@ import {
   assertGaPinnedHostnameMappings,
   GA_CASE_IDS,
   gaChildEnvironment,
+  gaNativeRequest,
   prepareGaRoot,
+  refreshGaFixtureCredentials,
+  seedGaHost,
   verifiedArchiveFiles,
   verifiedArchiveMember,
 } from './opencode-ga-harness.ts'
@@ -244,6 +247,35 @@ describe('native-job source/parser controls, not official-host certification', (
     )
     expect(() => gaInstalledServer(prefix, 'types')).toThrow()
   })
+  it('accepts the actual Bun environment when the TLS override is absent', () => {
+    const key = 'NODE_TLS_REJECT_UNAUTHORIZED'
+    const present = Object.keys(process.env).includes(key)
+    const previous = process.env[key]
+    try {
+      delete process.env[key]
+      expect(Object.keys(process.env).includes(key)).toBe(false)
+      const env = gaChildEnvironment(prepareGaRoot(root()), process.env)
+      expect(Reflect.ownKeys(env).includes(key)).toBe(false)
+    } finally {
+      if (present && previous !== undefined) process.env[key] = previous
+      else delete process.env[key]
+    }
+  })
+  it('rejects every explicit TLS override, including empty and non-enumerable keys', () => {
+    const paths = prepareGaRoot(root())
+    for (const value of ['0', '1', '']) {
+      expect(() =>
+        gaChildEnvironment(paths, { NODE_TLS_REJECT_UNAUTHORIZED: value }),
+      ).toThrow('presence forbids host launch')
+    }
+    const inherited: NodeJS.ProcessEnv = {}
+    Object.defineProperty(inherited, 'NODE_TLS_REJECT_UNAUTHORIZED', {
+      value: undefined,
+    })
+    expect(() => gaChildEnvironment(paths, inherited)).toThrow(
+      'presence forbids host launch',
+    )
+  })
   it('constructs owned profiles including PI directories and every OpenCode database', () => {
     const paths = prepareGaRoot(root())
     const env = gaChildEnvironment(paths, {
@@ -254,6 +286,8 @@ describe('native-job source/parser controls, not official-host certification', (
     })
     expect(env.HOME).toBe(paths.home)
     expect(env.OPENCODE_DB).toBe(paths.database)
+    expect(env.OPENCODE_SERVER_PASSWORD).toBe('synthetic-ga-server-password')
+    expect(env.OPENCODE_PASSWORD).toBe(env.OPENCODE_SERVER_PASSWORD)
     expect(env.PI_AGENT_DIR).toBe(join(paths.config, 'pi-agent'))
     expect(env.PI_CODING_AGENT_DIR).toBe(join(paths.config, 'pi-coding-agent'))
     expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined()
@@ -402,4 +436,67 @@ describe('shared bounded archive and owned command controls', () => {
     expect(result.cleanupFailures).toEqual([])
     expect(() => assertOwnedCommandSucceeded(result)).toThrow()
   })
+})
+
+it('authenticates native controls only to their owned loopback origin', async () => {
+  const seen: { authorization: string | null; body: string }[] = []
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(request) {
+      const authorization = request.headers.get('authorization')
+      seen.push({ authorization, body: await request.text() })
+      if (
+        authorization !==
+        `Basic ${Buffer.from('opencode:synthetic-ga-server-password').toString('base64')}`
+      )
+        return new Response('Unauthorized', { status: 401 })
+      return Response.json({ accepted: true })
+    },
+  })
+  try {
+    const url = `http://127.0.0.1:${server.port}`
+    expect(
+      await gaNativeRequest(url, 'POST', '/api/control', { value: 1 }, 200),
+    ).toEqual({ accepted: true })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.body).toBe('{"value":1}')
+    await expect(
+      gaNativeRequest(
+        url,
+        'GET',
+        'http://example.invalid/api/control',
+        undefined,
+        200,
+      ),
+    ).rejects.toThrow('Native control path escaped its owned server')
+    expect(seen).toHaveLength(1)
+  } finally {
+    await server.stop(true)
+  }
+})
+
+it('refreshes the generated host fixture from the actual bare-token contract', async () => {
+  const token = 'synthetic-ga-refresh-A'
+  const before = Date.now()
+  const result = await refreshGaFixtureCredentials(token)
+  expect(result.refresh).toBe(token)
+  expect(result.access).toBe(`${token}-access`)
+  expect(result.expires).toBeGreaterThanOrEqual(before + 3_600_000)
+  expect(refreshGaFixtureCredentials.toString()).not.toContain('auth.refresh')
+})
+
+it('keeps the canonical Google request URL for production raw-TLS routing', () => {
+  const paths = prepareGaRoot(root())
+  const configPath = join(paths.opencodeConfig, 'opencode.json')
+  seedGaHost(paths, '/owned/wrapper', 'http://127.0.0.1:1234', 0, true)
+  expect(
+    JSON.parse(readFileSync(configPath, 'utf8')).providers.google.settings
+      .baseURL,
+  ).toBe('https://generativelanguage.googleapis.com/v1beta')
+  seedGaHost(paths, '/owned/wrapper', 'http://127.0.0.1:1234', 0, false)
+  expect(
+    JSON.parse(readFileSync(configPath, 'utf8')).providers.google.settings
+      .baseURL,
+  ).toBe('http://127.0.0.1:1234/direct/v1')
 })

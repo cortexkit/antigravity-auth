@@ -227,6 +227,11 @@ describe('shared request engine import graph', () => {
         'type AgySessionRegistry',
         'type OpenCodeSessionIdentity',
       ],
+      './local-grant': [
+        'LocalGrantSupersededError',
+        'isLocalGrantError',
+        'type CapturedLocalGrant',
+      ],
     })
   })
 

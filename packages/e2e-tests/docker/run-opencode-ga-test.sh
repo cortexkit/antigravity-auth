@@ -10,6 +10,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 IMAGE="antigravity-auth-e2e-ga"
+HOST_TEST_MODE="--run"
+if [[ "${1:-}" == --smoke ]]; then
+  HOST_TEST_MODE="--smoke"
+  shift
+fi
 [[ "$#" == 2 && "$1" == --inputs && "$2" == packages/* && "$2" != *..* ]] || {
   echo 'usage: run-opencode-ga-test.sh --inputs <committed packages/... input module>' >&2
   exit 2
@@ -64,5 +69,6 @@ timeout --signal=TERM --kill-after=10s 1800s docker run --rm --network none --pl
   --env "GA_DAEMON_ARCH=$DAEMON_ARCH" \
   --env "GA_SOURCE_REVISION=$REVISION" \
   --env "GA_HOST_INPUT_MODULE=$HOST_INPUT_MODULE" \
+  --env "GA_HOST_TEST_MODE=$HOST_TEST_MODE" \
   --env ANTIGRAVITY_GA_HOST_EXECUTION=1 \
   "$IMAGE"

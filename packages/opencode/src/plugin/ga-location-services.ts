@@ -20,7 +20,6 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { join } from 'node:path'
 import {
   type AccountManager,
   type AccountMetadataV3,
@@ -133,6 +132,7 @@ import {
   type VaultStateSource,
   vaultAccountRowKey,
 } from './shared/vault-request-credentials.ts'
+import { getStoragePath } from './storage'
 import {
   createOpenCodeVaultCustody,
   type OpenCodeVaultCustody,
@@ -918,6 +918,8 @@ type GaStartInput = Parameters<GaLocationServices['start']>[0]
 export interface GaLocationServicesBindings {
   /** The common-auth `./store` and `./fs` modules the repository is built on. */
   readonly loadStoreModules: () => Promise<AccountStoreModules>
+  /** Resolve the shared pool; a new workspace must not create a separate account store. */
+  readonly resolveAccountFile: (directory: string) => string
   readonly now: () => number
   readonly createSelector?: () => string
   /** The location runtime's collaborators (sidebar file, quota, refresh). */
@@ -1014,7 +1016,7 @@ async function openLocationRepository(
   bindings: GaLocationServicesBindings,
   overrides: GaPluginOverrides,
 ): Promise<LocationRepository> {
-  const legacyPath = join(directory, GA_ACCOUNTS_FILE)
+  const legacyPath = bindings.resolveAccountFile(directory)
   const modules = await bindings.loadStoreModules()
   const binding = await readAccountStoreBinding(
     legacyPath,
@@ -1877,7 +1879,7 @@ export function createGaLocationServicesFactory(
 ): GaLocationServicesFactory {
   return async ({ directory, overrides }): Promise<GaLocationServices> => {
     const custody = bindings.custody?.({
-      accountFile: join(directory, GA_ACCOUNTS_FILE),
+      accountFile: bindings.resolveAccountFile(directory),
       overrides,
     })
     if (custody) {
@@ -2063,6 +2065,7 @@ export function createGaLocationServicesForHost(
     const accounts: GaAccountSlot = { current: null, quotaLogger: null }
     return createGaLocationServicesFactory({
       loadStoreModules: loadCommonAuthStoreModules,
+      resolveAccountFile: getStoragePath,
       now: Date.now,
       runtime: ({ repository, overrides }) =>
         createGaRuntimeCollaborators({

@@ -742,7 +742,10 @@ export function classifyGaSetupContext(context: object): 'legacy' | 'ga' {
   }
   if (session !== undefined && location !== undefined && missing.length === 0) {
     const rpc = record.rpc
-    if (!isObject(rpc) || typeof rpc.register !== 'function') {
+    if (
+      (!isObject(rpc) && typeof rpc !== 'function') ||
+      typeof Reflect.get(rpc, 'register') !== 'function'
+    ) {
       missing.push('rpc.register')
     }
     const provider = record.provider

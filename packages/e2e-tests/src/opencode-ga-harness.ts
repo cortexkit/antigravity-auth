@@ -56,6 +56,7 @@ import type {
   AntigravityStateOutput,
   AntigravityStateSnapshot,
 } from '../../opencode/src/ga/rpc/protocol.ts'
+import type { GaPluginOverrides } from '../../opencode/src/ga/server/index.ts'
 import {
   assertMeasuredNativeJob,
   measureNativeJob,
@@ -181,10 +182,19 @@ export function prepareGaRoot(root: string): GaPaths {
 export function gaChildEnvironment(
   paths: GaPaths,
   inherited: NodeJS.ProcessEnv,
-  options: { proxy?: Record<string, string>; trust?: string } = {},
+  options: {
+    proxy?: Record<string, string>
+    trust?: string
+  } = {},
 ): NodeJS.ProcessEnv {
+  // Bun exposes phantom own properties for absent process.env variables.
+  // Enumerate real environment keys; ordinary records still reject any own key.
+  const hasTlsOverride =
+    inherited === process.env
+      ? Object.keys(inherited).includes('NODE_TLS_REJECT_UNAUTHORIZED')
+      : Object.hasOwn(inherited, 'NODE_TLS_REJECT_UNAUTHORIZED')
   requireCondition(
-    !Object.hasOwn(inherited, 'NODE_TLS_REJECT_UNAUTHORIZED'),
+    !hasTlsOverride,
     'NODE_TLS_REJECT_UNAUTHORIZED presence forbids host launch',
   )
   requireCondition(Boolean(paths.database), 'Missing isolated OPENCODE_DB')
@@ -192,6 +202,8 @@ export function gaChildEnvironment(
     if (path !== paths.root) ownedPath(paths.root, path)
   }
   const environment: NodeJS.ProcessEnv = {
+    OPENCODE_SERVER_PASSWORD: 'synthetic-ga-server-password',
+    OPENCODE_PASSWORD: 'synthetic-ga-server-password',
     PATH: '/usr/local/bin:/usr/bin:/bin',
     HOME: paths.home,
     USERPROFILE: paths.home,
@@ -675,6 +687,7 @@ export function launchGaHost(
     env,
     deadlineMs,
   })
+  if (!options.pty) owned.process.stdin?.end()
   return {
     ...owned,
     result: owned.result.then((result) => {
@@ -815,7 +828,7 @@ export async function startGaHost(
       const result = await child.result
       requireCondition(
         !result.timedOut && !result.outputCapExceeded,
-        'Real CLI run deadline expired',
+        `Real CLI run deadline expired: ${JSON.stringify(result)}`,
       )
       assertGaDatabase(paths)
       return result
@@ -1056,6 +1069,16 @@ export function loadGaOverflowFixture(
   return { status: 400, contentType: fixture.contentType, bytes }
 }
 
+// The generated host wrapper serializes this OAuth fixture function, so its
+// refresh-token argument and result are type-checked before source emission.
+export const refreshGaFixtureCredentials: NonNullable<
+  GaPluginOverrides['refreshAccessToken']
+> = async (refreshToken) => ({
+  refresh: refreshToken,
+  access: `${refreshToken.split('|')[0]}-access`,
+  expires: Date.now() + 3_600_000,
+})
+
 /**
  * Writes the wrapper plugin the host loads. `verifyConsumerBindings`
  * type-checks the same kind of consumer source against the installed
@@ -1123,7 +1146,7 @@ const overrides: GaPluginOverrides = {
     log('accounts.snapshot', { observation })
     return undefined
   },
-  refreshAccessToken: async (auth) => ({ ...auth, access: auth.refresh.split('|')[0] + '-access', expires: Date.now() + 3600000 }),
+  refreshAccessToken: ${refreshGaFixtureCredentials.toString()},
   ensureProjectContext: async (auth) => {
     const response = await fetch(transportMock + '/loadCodeAssist', { method: 'POST', body: JSON.stringify({ project: 'synthetic-ga-project' }) })
     if (!response.ok) throw new Error('Fixture project context failed')
@@ -1161,7 +1184,7 @@ const overrides: GaPluginOverrides = {
   }
 }
 const plugin = createGaAntigravityPlugin(overrides)
-  log('setup', { contextKeys: Object.keys(context) })
+  log('setup', { contextKeys: Object.keys(context), rpcKind: typeof context.rpc, rpcRegisterKind: typeof context.rpc?.register })
   const cleanup = await plugin.setup(context)
   if (typeof cleanup !== 'function') throw new Error('GA setup did not return initialized Cleanup')
   log('initialized', { runtime: { name: 'Bun', version: Bun.version, revision: Bun.revision } })
@@ -1862,6 +1885,7 @@ export function seedGaHost(
   wrapper: string,
   mockUrl: string,
   accountCount: 0 | 1 | 2 = 1,
+  rawSender = false,
 ): string {
   // Old-format account file used only as input to the account migration; the
   // host serves the migrated store. Runtime checks read accounts through the
@@ -1899,7 +1923,9 @@ export function seedGaHost(
         google: {
           settings: {
             apiKey: 'synthetic-ga-key',
-            baseURL: `${mockUrl}/direct/v1`,
+            baseURL: rawSender
+              ? 'https://generativelanguage.googleapis.com/v1beta'
+              : `${mockUrl}/direct/v1`,
           },
         },
       },
@@ -2201,10 +2227,11 @@ async function gaMain(): Promise<void> {
       'Native preparation/execution has not been admitted',
     )
     requireCondition(
-      mode === '--prepare-native' || mode === '--run',
+      mode === '--prepare-native' || mode === '--run' || mode === '--smoke',
       'Native job cannot use online image preparation',
     )
-    assertGaPinnedHostnameMappings(readFileSync('/etc/hosts', 'utf8'))
+    if (mode === '--run')
+      assertGaPinnedHostnameMappings(readFileSync('/etc/hosts', 'utf8'))
     const scratch = realpathSync(
       mkdtempSync(join(dirname(resolve(root)), 'ga-boundary-')),
     )
@@ -2237,7 +2264,10 @@ async function gaMain(): Promise<void> {
     await prepareGaImage(resolve('.'), root)
     return
   }
-  requireCondition(mode === '--run', 'Unknown GA harness command')
+  requireCondition(
+    mode === '--run' || mode === '--smoke',
+    'Unknown GA harness command',
+  )
   requireCondition(
     process.env.ANTIGRAVITY_GA_HOST_EXECUTION === '1',
     'Actual host execution has not been admitted',
@@ -2314,6 +2344,23 @@ async function gaMain(): Promise<void> {
   )
   // These checks only prove the functions exist. The protocol binding, menu
   // targeting and store seeding behind them live in opencode-ga-inputs.ts.
+  if (mode === '--smoke') {
+    const supplied = inputs as GaHostIntegrationInputs
+    const harness = await createOpenCodeGaHarness('terminal-frame', root, {
+      accounts: supplied.accounts,
+      rawSender: true,
+      rawTls: { identity: 'matching', phase: 'success' },
+    })
+    try {
+      const trace = await runGaRawTlsCase(harness, false)
+      for (const body of trace.primaryBodies)
+        assertGaWire({ body }, publicGaModel())
+      console.log('OpenCode 2.0.22 loopback request and terminal frame passed')
+    } finally {
+      await harness.dispose()
+    }
+    return
+  }
   await runGaFullDriver(root, inputs as GaHostIntegrationInputs)
 }
 
@@ -2592,14 +2639,18 @@ export async function gaNativeRequest(
     origin.protocol === 'http:' && origin.hostname === '127.0.0.1',
     'Native control must stay on owned IPv4 loopback',
   )
-  const response = await fetch(new URL(path, url), {
+  const target = new URL(path, url)
+  requireCondition(
+    target.origin === origin.origin,
+    'Native control path escaped its owned server',
+  )
+  const response = await fetch(target, {
     method,
-    ...(body === undefined
-      ? {}
-      : {
-          body: JSON.stringify(body),
-          headers: { 'content-type': 'application/json' },
-        }),
+    headers: {
+      authorization: `Basic ${Buffer.from('opencode:synthetic-ga-server-password').toString('base64')}`,
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(deadlineMs),
   })
   const bytes = await response.text()
@@ -2931,6 +2982,7 @@ export async function createOpenCodeGaHarness(
             )
           ? 2
           : 1,
+      options.rawSender === true,
     )
     if (options.accounts) {
       await options.accounts.seedCurrentStore(paths, caseId, nonce)
@@ -3003,7 +3055,7 @@ export async function createOpenCodeGaHarness(
         )
         requireCondition(
           initialized.length > 0,
-          'Actual packed factory did not initialize',
+          `Actual packed factory did not initialize: ${JSON.stringify(result)}; setup: ${JSON.stringify(readWrapperEvents())}`,
         )
         for (const event of initialized) {
           const runtime = record(event.runtime)
@@ -3400,7 +3452,7 @@ function assertGaSuccess(result: GaRunResult, nonce: string): void {
   )
 }
 function assertGaWire(
-  recorded: GaRecordedRequest,
+  recorded: Pick<GaRecordedRequest, 'body'>,
   model: string,
 ): Record<string, unknown> {
   const [id, variant] = model.replace(/^google\//, '').split('#')

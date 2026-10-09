@@ -21,4 +21,4 @@ LABEL org.opencontainers.image.revision="${SOURCE_REVISION}"
 
 # Network and pinned-name loopback mappings are supplied only by the runner.
 # No production trust store is modified; each child gets its owned startup CA.
-CMD ["bash", "-c", "test -n \"${GA_HOST_INPUT_MODULE:?approved integration input module is required}\" && exec bun packages/e2e-tests/src/opencode-ga-harness.ts --run /results --inputs \"$GA_HOST_INPUT_MODULE\""]
+CMD ["bash", "-c", "test -n \"${GA_HOST_INPUT_MODULE:?approved integration input module is required}\" && exec bun packages/e2e-tests/src/opencode-ga-harness.ts \"${GA_HOST_TEST_MODE:---run}\" /results --inputs \"$GA_HOST_INPUT_MODULE\""]

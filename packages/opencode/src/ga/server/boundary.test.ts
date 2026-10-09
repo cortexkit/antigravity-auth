@@ -788,6 +788,25 @@ describe('setup context predicate', () => {
     ])
   })
 
+  it('accepts the callable RPC namespace exposed by the real GA host', () => {
+    const rpc = Object.assign(() => undefined, { register: () => undefined })
+    const context = {
+      session: { hook: () => undefined },
+      location: { directory: '/tmp/x' },
+      rpc,
+      provider: { transform: () => undefined },
+      command: { transform: () => undefined },
+    }
+    expect(classifyGaSetupContext(context)).toBe('ga')
+    for (const invalid of [
+      () => undefined,
+      Object.assign(() => undefined, { register: 1 }),
+    ]) {
+      expect(() =>
+        classifyGaSetupContext({ ...context, rpc: invalid }),
+      ).toThrow(GaSetupContextError)
+    }
+  })
   it('accepts a complete GA context', () => {
     expect(
       classifyGaSetupContext({
