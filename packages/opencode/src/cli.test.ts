@@ -1,11 +1,24 @@
 import { describe, expect, it } from 'bun:test'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import type {
-  AccountQuotaResult,
-  AccountStorageV4,
+import {
+  type AccountMigrationOutcome,
+  type AccountQuotaResult,
+  type AccountStorageV4,
+  createAccountRepositoryFactory,
+  loadCommonAuthStoreModules,
+  readAccountStoreAdmission,
 } from '@cortexkit/antigravity-auth-core'
 
-import { type CliDependencies, performOAuthLogin, runCli } from './cli'
+import {
+  type CliAccountsRead,
+  type CliDependencies,
+  createDefaultAccountStoreOperations,
+  performOAuthLogin,
+  runCli,
+} from './cli'
 import type { OAuthLoginRequest } from './plugin/oauth-methods'
 
 function accountStorage(): AccountStorageV4 {
@@ -89,6 +102,22 @@ function createHarness(overrides: Partial<CliDependencies> = {}) {
     getQuota: async () => {
       touched += 1
       return []
+    },
+    accountStore: {
+      legacyPath: () => '/isolated/antigravity-accounts.json',
+      migrate: async () => {
+        touched += 1
+        throw new Error('migrate was not expected')
+      },
+      rollback: async () => {
+        touched += 1
+        throw new Error('rollback was not expected')
+      },
+      initialize: async () => {
+        touched += 1
+        throw new Error('initialize was not expected')
+      },
+      read: async () => ({ kind: 'legacy' }),
     },
     ...overrides,
   }
@@ -313,6 +342,212 @@ describe('runCli commands', () => {
         'alpha@example.com     ok      non-gemini  25%        -\n' +
         'disabled@example.com  error   -           -          quota unavailable\n',
     )
+  })
+})
+
+describe('runCli account store commands', () => {
+  const completed = (
+    status: 'active' | 'inactive',
+  ): AccountMigrationOutcome => ({
+    status: 'completed',
+    receipt: {
+      id: 'generation-1',
+      status,
+      legacyPath: '/isolated/antigravity-accounts.json',
+      storeDir: '/isolated/antigravity-accounts.json.store',
+      sourceKind: 'file',
+      durability: 'posix-directory-synced',
+      restartRequired: true,
+    },
+  })
+
+  function storeHarness(prompted: string) {
+    const calls: string[] = []
+    const harness = createHarness({
+      prompt: async () => prompted,
+      accountStore: {
+        legacyPath: () => '/isolated/antigravity-accounts.json',
+        migrate: async (path) => {
+          calls.push(`migrate:${path}`)
+          return completed('active')
+        },
+        rollback: async (path) => {
+          calls.push(`rollback:${path}`)
+          return completed('inactive')
+        },
+        initialize: async (path) => {
+          calls.push(`initialize:${path}`)
+          return completed('active')
+        },
+        read: async () => ({ kind: 'legacy' }),
+      },
+    })
+    return { harness, calls }
+  }
+
+  it('refuses migrate and rollback without --offline before any effect', async () => {
+    for (const command of ['migrate', 'rollback']) {
+      const { harness, calls } = storeHarness('yes')
+      expect(await runCli([command], harness.deps)).toBe(2)
+      expect(harness.stderr).toContain('--offline')
+      expect(calls).toEqual([])
+    }
+  })
+
+  it('migrates only after the operator types yes', async () => {
+    const declined = storeHarness('no')
+    expect(await runCli(['migrate', '--offline'], declined.harness.deps)).toBe(
+      1,
+    )
+    expect(declined.calls).toEqual([])
+
+    const accepted = storeHarness('yes')
+    expect(await runCli(['migrate', '--offline'], accepted.harness.deps)).toBe(
+      0,
+    )
+    expect(accepted.calls).toEqual([
+      'migrate:/isolated/antigravity-accounts.json',
+    ])
+    expect(accepted.harness.stdout).toContain('generation-1 is active')
+    expect(accepted.harness.stdout).toContain('Restart OpenCode')
+  })
+
+  it('rolls back with --yes and reports a pending lock without success', async () => {
+    const { harness, calls } = storeHarness('')
+    expect(await runCli(['rollback', '--offline', '--yes'], harness.deps)).toBe(
+      0,
+    )
+    expect(calls).toEqual(['rollback:/isolated/antigravity-accounts.json'])
+
+    const pending = createHarness({
+      accountStore: {
+        legacyPath: () => '/isolated/antigravity-accounts.json',
+        migrate: async () => ({
+          status: 'pending',
+          reason: 'lock-contention',
+        }),
+        rollback: async () => completed('inactive'),
+        initialize: async () => completed('active'),
+        read: async () => ({ kind: 'legacy' }),
+      },
+    })
+    expect(await runCli(['migrate', '--offline', '--yes'], pending.deps)).toBe(
+      1,
+    )
+    expect(pending.stderr).toContain('lock-contention')
+    expect(pending.stdout).toBe('')
+  })
+
+  it('initializes a fresh store only through the explicit init command', async () => {
+    const { harness, calls } = storeHarness('')
+    expect(await runCli(['init'], harness.deps)).toBe(0)
+    expect(calls).toEqual(['initialize:/isolated/antigravity-accounts.json'])
+    expect(await runCli(['init', '--force'], harness.deps)).toBe(2)
+  })
+})
+
+describe('runCli reads the active account store', () => {
+  const operations = (read: CliAccountsRead) => ({
+    legacyPath: () => '/isolated/antigravity-accounts.json',
+    migrate: async () => {
+      throw new Error('not expected')
+    },
+    rollback: async () => {
+      throw new Error('not expected')
+    },
+    initialize: async () => {
+      throw new Error('not expected')
+    },
+    read: async () => read,
+  })
+
+  it('lists store accounts without reading the retired account file', async () => {
+    let legacyReads = 0
+    const harness = createHarness({
+      loadAccounts: async () => {
+        legacyReads += 1
+        return accountStorage()
+      },
+      accountStore: operations({
+        kind: 'store',
+        accounts: [
+          {
+            email: 'store@example.com',
+            refreshToken: 'store-refresh-secret',
+            addedAt: 1,
+            lastUsed: 1,
+            enabled: false,
+          },
+        ],
+      }),
+    })
+    expect(await runCli(['list', '--json'], harness.deps)).toBe(0)
+    expect(JSON.parse(harness.stdout)).toEqual({
+      accounts: [{ index: 1, email: 'store@example.com', status: 'disabled' }],
+    })
+    expect(legacyReads).toBe(0)
+    expect(harness.stdout).not.toContain('secret')
+  })
+
+  it('refuses list and quota while a migration is unfinished', async () => {
+    const harness = createHarness({
+      accountStore: operations({
+        kind: 'unavailable',
+        reason: 'an account-store migrate is unfinished',
+      }),
+    })
+    expect(await runCli(['quota'], harness.deps)).toBe(1)
+    expect(harness.stderr).toContain('unfinished')
+    expect(harness.stdout).toBe('')
+  })
+
+  it('reads a genuine fresh store through the default operations', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'antigravity-cli-')))
+    try {
+      const legacyPath = join(root, 'antigravity-accounts.json')
+      const store = createDefaultAccountStoreOperations()
+      expect(await store.read(legacyPath)).toEqual({ kind: 'uninitialized' })
+      const initialized = await store.initialize(legacyPath)
+      expect(initialized.status).toBe('completed')
+
+      const modules = await loadCommonAuthStoreModules()
+      const admission = await readAccountStoreAdmission(
+        legacyPath,
+        modules,
+        Date.now,
+      )
+      if (admission.status !== 'active') throw new Error(admission.status)
+      const repository = createAccountRepositoryFactory(modules)({
+        paths: admission.paths,
+        now: Date.now,
+        exchange: async () => {
+          throw new Error('token exchange is not part of this test')
+        },
+      })
+      await repository.login({
+        id: crypto.randomUUID(),
+        refreshToken: 'store-refresh',
+        identity: 'store@example.com',
+        metadata: { email: 'store@example.com', addedAt: 5, lastUsed: 6 },
+      })
+      await repository.dispose()
+
+      const read = await store.read(legacyPath)
+      expect(read).toEqual({
+        kind: 'store',
+        accounts: [
+          {
+            email: 'store@example.com',
+            refreshToken: 'store-refresh',
+            addedAt: 5,
+            lastUsed: 6,
+            enabled: true,
+          },
+        ],
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

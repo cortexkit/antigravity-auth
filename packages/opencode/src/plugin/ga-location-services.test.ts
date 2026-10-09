@@ -28,11 +28,11 @@ import {
   accessBlockOf,
   authorizeGaQuotaCheck,
   createGaAccountStateSource,
-  createGaCommandService,
   createGaFetchAccountQuota,
   createGaJobExecutor,
   createGaLocalCredentials,
   createGaLocationServices,
+  createGaMenuCommandService,
   createGaRouteBook,
   createGaSelectorRegistry,
   createGaVaultCredentials,
@@ -190,6 +190,8 @@ describe('GA account state', () => {
     })
     if (read.accounts.kind !== 'complete') throw new Error('over limit')
     expect(read.accounts.rows.map((entry) => entry.selector)).toEqual([b1, a1])
+    // The RPC contract's selector shape.
+    for (const selector of [a1, b1]) expect(selector).toMatch(/^sel-[\w-]{32}$/)
     const text = JSON.stringify(read)
     expect(text).not.toContain('row-a')
     expect(text).not.toContain('a@example')
@@ -260,91 +262,65 @@ describe('GA account state', () => {
   })
 })
 
-describe('GA account commands', () => {
-  function service(repository: MemoryRepository) {
-    const registry = createGaSelectorRegistry()
-    let settings = emptyOperatorSettings()
-    const commands = createGaCommandService({
-      repository,
-      registry,
-      settings: {
-        get: () => settings,
-        update: async (mutator) => {
-          const draft = structuredClone(settings)
-          mutator(draft)
-          settings = draft
+describe('GA menu command service', () => {
+  it('runs each request through the menu with an invocation for its scope', async () => {
+    const calls: unknown[] = []
+    const notices: unknown[] = []
+    const service = createGaMenuCommandService({
+      menu: {
+        command: 'antigravity',
+        open: async () => {
+          throw new Error('not used')
+        },
+        apply: async (request, invocation) => {
+          calls.push({ request, sessionId: invocation.sessionId })
+          invocation.notify('Routing updated')
+          return {
+            command: 'antigravity',
+            ok: true,
+            text: 'done',
+            menu: {
+              command: 'antigravity',
+              title: 'Antigravity',
+              sections: [],
+            },
+          }
         },
       },
-      dump: { isEnabled: () => false, setEnabled: () => undefined },
-      applyLogLevel: () => undefined,
-      refreshQuota: async () => undefined,
+      notify: (scope, payload) => {
+        notices.push({ scope, payload })
+        return 1
+      },
     })
-    return { registry, commands, source: stateSource(repository, registry) }
-  }
+    const request = {
+      command: 'antigravity',
+      sectionId: 'routing',
+      actionId: 'set',
+    }
+    const scope = { kind: 'session', sessionID: 'ses-1' } as const
+    const result = await service.apply({
+      request,
+      scope,
+      signal: new AbortController().signal,
+    })
+    expect(result.ok).toBe(true)
+    expect(calls).toEqual([{ request, sessionId: 'ses-1' }])
+    expect(notices).toEqual([
+      {
+        scope,
+        payload: {
+          command: 'antigravity',
+          notify: { message: 'Routing updated', kind: 'info' },
+        },
+      },
+    ])
 
-  const signal = () => new AbortController().signal
-
-  it('applies an action to the exact credential its selector names', async () => {
-    const repository = new MemoryRepository([row(A), row(B)])
-    const { commands, source } = service(repository)
-    const [, b] = await selectorsOf(source)
-    const result = await commands.applyAccountAction({
-      action: { kind: 'disable', selector: b },
-      scope: sessionless,
-      signal: signal(),
-    })
-    expect(result.targetOutcome).toBe('applied')
-    expect(repository.writes).toEqual(['disable:row-b'])
-  })
-
-  it('refuses a selector whose credential was replaced, without writing', async () => {
-    const repository = new MemoryRepository([row(A)])
-    const { commands, source } = service(repository)
-    const [a] = await selectorsOf(source)
-    repository.rows = [row({ ...A, credentialEpoch: 2 })]
-    const result = await commands.applyAccountAction({
-      action: { kind: 'remove', selector: a },
-      scope: sessionless,
-      signal: signal(),
-    })
-    expect(result.targetOutcome).toBe('stale-target')
-    expect(repository.writes).toEqual([])
-  })
-
-  it('refuses a selector it never issued and index-based text actions', async () => {
-    const repository = new MemoryRepository([row(A)])
-    const { commands } = service(repository)
-    const unknown = await commands.applyAccountAction({
-      action: { kind: 'enable', selector: 's-never-issued' },
-      scope: sessionless,
-      signal: signal(),
-    })
-    expect(unknown.targetOutcome).toBe('unknown-target')
-    const indexed = await commands.apply({
-      command: 'antigravity-account',
-      arguments: 'remove 0',
-      scope: sessionless,
-      signal: signal(),
-    })
-    expect(indexed).toMatchObject({
-      status: 'rejected',
-      targetOutcome: 'unsupported-index-action',
-    })
-    expect(repository.writes).toEqual([])
-  })
-
-  it('updates routing through the shared argument parser', async () => {
-    const { commands } = service(new MemoryRepository([]))
-    const result = await commands.apply({
-      command: 'antigravity-routing',
-      arguments: 'cli_first=true',
-      scope: sessionless,
-      signal: signal(),
-    })
-    expect(result).toMatchObject({
-      status: 'applied',
-      routing: { cliFirst: true, quotaStyleFallback: false },
-    })
+    const aborted = new AbortController()
+    aborted.abort(new Error('disposed'))
+    await expect(
+      service.apply({ request, scope, signal: aborted.signal }),
+    ).rejects.toThrow('disposed')
+    expect(calls).toHaveLength(1)
   })
 })
 
@@ -705,7 +681,7 @@ describe('GA vault credentials', () => {
 })
 
 describe('createGaLocationServices (production factory)', () => {
-  it('serves same-read state and exact-credential actions over a real store, then disposes', async () => {
+  it('serves same-read state and exact-credential menu actions over a real store, then disposes', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'ga-factory-')))
     const previous = {
       XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
@@ -779,13 +755,34 @@ describe('createGaLocationServices (production factory)', () => {
         expect(text).not.toContain('@example.com')
         expect(text).not.toContain('refresh-')
 
-        const second = read.accounts.rows[1]?.selector ?? ''
-        const result = await serving.commands.applyAccountAction({
-          action: { kind: 'disable', selector: second },
-          scope: { kind: 'sessionless' },
+        // A client learns the menu's item ids from any apply answer; an
+        // action the menu does not offer answers with the current menu.
+        const scope = { kind: 'sessionless' } as const
+        const probe = await serving.commands.apply({
+          request: {
+            command: 'antigravity',
+            sectionId: 'accounts',
+            actionId: 'not-an-action',
+          },
+          scope,
           signal,
         })
-        expect(result.targetOutcome).toBe('applied')
+        expect(probe).toMatchObject({ ok: false, code: 'unavailable' })
+        const items =
+          probe.menu.sections.find((section) => section.id === 'accounts')
+            ?.items ?? []
+        expect(JSON.stringify(probe)).not.toContain('@example.com')
+        const result = await serving.commands.apply({
+          request: {
+            command: 'antigravity',
+            sectionId: 'accounts',
+            itemId: items[1]?.id ?? '',
+            actionId: 'disable',
+          },
+          scope,
+          signal,
+        })
+        expect(result.ok).toBe(true)
         expect(observed.at(-1)?.accounts.map((entry) => entry.enabled)).toEqual(
           [true, true],
         )

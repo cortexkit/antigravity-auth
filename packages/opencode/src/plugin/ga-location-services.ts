@@ -1,16 +1,17 @@
 /**
  * The OpenCode 2 (GA host) location services: account state for the
- * `antigravity-auth` RPC `state` method, the dialog commands behind `apply`,
- * and `createGaLocationServicesFactory`, which builds a location's services
- * from the admitted account repository and the shared request pipeline.
+ * `antigravity-auth` RPC `state` method, the shared `/antigravity` menu
+ * behind `apply`, and `createGaLocationServicesFactory`, which builds a
+ * location's services from the bound account repository and the shared
+ * request pipeline.
  *
  * Accounts come from the location's account repository, read once per
- * `state` call. Each account the client sees carries an opaque selector: a
- * random string issued for one exact credential (row id, credential epoch and
- * recorded identity). The client names accounts only by selector; a selector
- * whose credential has since been replaced, re-identified or removed is
- * refused as stale, and an account position is never accepted as a target.
- * Selectors are never reused for another credential.
+ * `state` call. Each account in a state answer carries an opaque selector: a
+ * random string issued for one exact credential (row id, credential epoch
+ * and recorded identity), kept across reads and reorders and retired when
+ * that credential is replaced, re-identified or removed. Account actions run
+ * through the shared menu, whose own opaque item ids are bound the same way;
+ * an account position is never accepted as a target.
  *
  * Everything a location needs (repository, settings controller, dump switch,
  * logger) arrives explicitly; nothing here reads a process-global binding.
@@ -24,19 +25,24 @@ import {
   type AccountManager,
   type AccountMetadataV3,
   type AccountRepository,
-  AccountRepositoryError,
   type AccountRepositoryRead,
   type AccountRow,
   type AccountStoreBinding,
   type AccountStoreModules,
   type AccountTokenExchange,
+  ANTIGRAVITY_MENU_COMMAND,
+  type AntigravityMenuAccounts,
+  type AntigravityRepositoryMenuOptions,
   type AntigravityVaultAccountSource,
+  type CommonAuthCommandsModule,
   createAccountRepositoryFactory,
+  createAntigravityCommandMenu,
   ensureProjectContext,
   type FetchAccountQuota,
   fetchWithAgyCliTransport,
   formatRefreshParts,
   HealthScoreTracker,
+  loadCommonAuthCommands,
   loadCommonAuthStoreModules,
   type ManagedAccount,
   type OAuthAuthDetails,
@@ -51,22 +57,17 @@ import {
   type VaultRouteRef,
 } from '@cortexkit/antigravity-auth-core'
 import type {
-  AntigravityAccountAction,
-  AntigravityAccountDto,
-  AntigravityAccountResult,
-  AntigravityCommandResult,
   AntigravityRpcScope,
   AntigravitySettingsDto,
   AntigravityStatusDto,
-  AntigravityTargetOutcome,
 } from '../ga/rpc/protocol.ts'
 import type {
-  GaApplyRequest,
   GaCommandService,
   GaJobExecutor,
   GaLocationServices,
   GaLocationServicesFactory,
   GaPluginOverrides,
+  GaRpcActivation,
   GaRuntimeCollaborators,
   GaStateRead,
   GaStateSource,
@@ -75,10 +76,9 @@ import type {
   HarnessMetadataStatus,
   ObserveAccountSnapshot,
 } from '../ga/server/index.ts'
-import {
-  redactAccountForSidebar,
-  type SidebarAccountRedactionInput,
-  type SidebarRoutingEntry,
+import type {
+  SidebarAccountRedactionInput,
+  SidebarRoutingEntry,
 } from '../sidebar-state.ts'
 import { extractAccountAccessErrorDetails } from './account-access.ts'
 import {
@@ -86,13 +86,10 @@ import {
   loadAccountManagerFromRepository,
 } from './accounts.ts'
 import {
-  parseAccountAction,
-  parseKillswitchArguments,
-  parseLoggingLevel,
-  parseToggleArguments,
+  diagnosticsMenuSection,
+  operatorMenuSettings,
 } from './command-apply.ts'
 import type { GeminiDumpState } from './gemini-dump.ts'
-import { parseGeminiDumpCommandAction } from './gemini-dump.ts'
 import type { Logger } from './logger.ts'
 import type { OperatorSettings } from './operator-settings.ts'
 import { createAuthorizedFetchAccountQuota } from './quota.ts'
@@ -113,7 +110,10 @@ import {
   type RequestRoutingEntry,
   type VaultRequestCredentials,
 } from './shared/request-services.ts'
-import { createMemoryQuotaSnapshots } from './shared/runtime.ts'
+import {
+  createMemoryQuotaSnapshots,
+  type LocationRuntime,
+} from './shared/runtime.ts'
 
 /** Accounts one `state` answer may carry (`ANTIGRAVITY_RPC_LIMITS.accounts`). */
 const ACCOUNT_LIMIT = 64
@@ -124,9 +124,6 @@ const ACCOUNT_LIMIT = 64
  * forgotten and then answered `unknown-target`; neither outcome writes.
  */
 const RETIRED_SELECTOR_MEMORY = 256
-
-/** `disabledReason` recorded when the user disables an account from a dialog. */
-const DIALOG_DISABLED_REASON = 'disabled from the account dialog'
 
 // ---------------------------------------------------------------------------
 // Selector registry
@@ -159,9 +156,12 @@ export interface GaSelectorPlan {
   commit(): readonly string[]
 }
 
-/** 128 random bits, URL-safe; carries no account data. */
+/**
+ * 192 random bits as `sel-` plus 32 URL-safe characters, the selector shape
+ * the RPC contract accepts; carries no account data.
+ */
 function defaultSelector(): string {
-  return `s-${randomBytes(16).toString('base64url')}`
+  return `sel-${randomBytes(24).toString('base64url')}`
 }
 
 export function createGaSelectorRegistry(
@@ -554,322 +554,69 @@ export function createGaAccountStateSource(
 }
 
 // ---------------------------------------------------------------------------
-// Commands
+// Menu
 // ---------------------------------------------------------------------------
 
-export interface GaCommandServiceOptions {
-  readonly repository: Pick<
-    AccountRepository,
-    'read' | 'setEnabled' | 'remove' | 'selectAccount'
+/** The shared `/antigravity` menu, as the core factory builds it. */
+export type GaCommandMenu = ReturnType<
+  CommonAuthCommandsModule['createCommandMenu']
+>
+
+/**
+ * The location's `/antigravity` menu: the shared core menu in repository
+ * mode over this activation's repository and runtime. Accounts are acted on
+ * by the menu's own opaque item ids, each bound to one exact credential;
+ * Routing, Limits and Diagnostics read and write this location's settings
+ * controller and dump switch. `commands` must be the module whose
+ * `parseApplyRequest` the RPC activation uses.
+ */
+export function createGaLocationMenu(input: {
+  readonly commands: CommonAuthCommandsModule
+  readonly repository: AntigravityMenuAccounts
+  readonly runtime: Pick<
+    LocationRuntime,
+    'operatorSettings' | 'dump' | 'applyOperatorSettings'
   >
-  readonly registry: GaSelectorRegistry
-  readonly settings: {
-    get(): OperatorSettings
-    update(mutator: (draft: OperatorSettings) => void): Promise<void>
-  }
-  readonly dump: Pick<GeminiDumpState, 'isEnabled' | 'setEnabled'>
-  /** Applies a changed log level to the location's logger. */
-  readonly applyLogLevel: () => void
-  /** Checks quota now for every account; resolves when the pulls settle. */
-  readonly refreshQuota: (signal: AbortSignal) => Promise<void>
-  readonly health?: (row: AccountRow) => number | undefined
-}
-
-/** Repository failures meaning the selector's credential is gone. */
-const STALE_FAILURES = new Set(['attribution', 'unknown-row', 'id-removed'])
-
-function staleKind(error: unknown): boolean {
-  return (
-    error instanceof AccountRepositoryError &&
-    STALE_FAILURES.has(error.failure.kind)
-  )
-}
-
-function textOf(error: unknown): string {
-  return error instanceof AccountRepositoryError
-    ? `The account store refused the change (${error.failure.kind}).`
-    : 'The change could not be completed.'
+  readonly refreshQuota?: AntigravityRepositoryMenuOptions['refreshQuota']
+}): GaCommandMenu {
+  const runtime = input.runtime
+  return createAntigravityCommandMenu({
+    source: 'repository',
+    commands: input.commands,
+    accounts: input.repository,
+    settings: operatorMenuSettings(runtime.operatorSettings),
+    diagnostics: diagnosticsMenuSection({
+      settings: runtime.operatorSettings,
+      dump: runtime.dump,
+      applyLogLevel: () => runtime.applyOperatorSettings(),
+    }),
+    ...(input.refreshQuota ? { refreshQuota: input.refreshQuota } : {}),
+  })
 }
 
 /**
- * Builds the dialog command service. Account actions resolve their selector
- * to the exact credential it was issued for, re-read the repository and
- * refuse a credential that has changed before anything is written.
+ * The RPC `apply` service over the location's menu. Each request (already
+ * accepted by the library's own parser) runs through the menu with an
+ * invocation for its scope, whose notices are queued for that scope; once
+ * the activation's signal aborts, no new action starts.
  */
-export function createGaCommandService(
-  options: GaCommandServiceOptions,
-): GaCommandService {
-  const health = options.health ?? (() => undefined)
-
-  const accountsAfter = async (): Promise<AntigravityAccountDto[] | null> => {
-    const projected = project(
-      await options.repository.read(),
-      options.registry,
-      health,
-    )
-    if (projected.read.status !== 'ready' || projected.overLimit !== null)
-      return null
-    projected.plan?.commit()
-    return projected.rows.map(({ selector, row }) => ({
-      ...redactAccountForSidebar(row),
-      selector,
-    }))
-  }
-
-  const accountResult = (
-    status: AntigravityAccountResult['status'],
-    text: string,
-    targetOutcome: AntigravityTargetOutcome | null,
-    accounts: AntigravityAccountDto[] | null = null,
-  ): AntigravityAccountResult => ({
-    command: 'antigravity-account',
-    status,
-    text,
-    accounts,
-    authorizationUrl: null,
-    targetOutcome,
-  })
-
-  const runAction = async (
-    action: AntigravityAccountAction,
-    signal: AbortSignal,
-  ): Promise<AntigravityAccountResult> => {
-    if (signal.aborted)
-      return accountResult('failed', 'The location is shutting down.', null)
-    const resolved = options.registry.resolve(action.selector)
-    if (resolved.kind === 'unknown')
-      return accountResult(
-        'rejected',
-        'That account is not known; reopen the dialog.',
-        'unknown-target',
-      )
-    if (resolved.kind === 'retired')
-      return accountResult(
-        'rejected',
-        'That account changed since the dialog opened; reopen it.',
-        'stale-target',
-      )
-    const ref = resolved.ref
-    const read = await options.repository.read()
-    if (read.status !== 'ready')
-      return accountResult(
-        'failed',
-        `The account store is not ready (${read.status}).`,
-        'failed',
-      )
-    const row = read.rows.find((candidate) => candidate.ref.id === ref.id)
-    if (row === undefined || !sameRowRef(row.ref, ref))
-      return accountResult(
-        'rejected',
-        'That account changed since the dialog opened; reopen it.',
-        'stale-target',
-      )
-    if (signal.aborted)
-      return accountResult('failed', 'The location is shutting down.', null)
-    try {
-      switch (action.kind) {
-        case 'enable':
-          await options.repository.setEnabled(ref, {
-            enabled: true,
-            actor: 'user',
-          })
-          break
-        case 'disable':
-          await options.repository.setEnabled(ref, {
-            enabled: false,
-            actor: 'user',
-            reason: DIALOG_DISABLED_REASON,
-          })
-          break
-        case 'remove':
-          await options.repository.remove(ref)
-          break
-        case 'select':
-          await options.repository.selectAccount(action.target, ref)
-          break
-      }
-    } catch (error) {
-      if (staleKind(error))
-        return accountResult(
-          'rejected',
-          'That account changed since the dialog opened; reopen it.',
-          'stale-target',
-        )
-      return accountResult('failed', textOf(error), 'failed')
-    }
-    return accountResult(
-      'applied',
-      `Account ${action.kind} applied.`,
-      'applied',
-      await accountsAfter(),
-    )
-  }
-
-  const settingsUpdate = async (
-    mutator: (draft: OperatorSettings) => void,
-  ): Promise<string | null> => {
-    try {
-      await options.settings.update(mutator)
-      return null
-    } catch {
-      return 'The settings file could not be updated.'
-    }
-  }
-
-  const apply = async (
-    request: GaApplyRequest,
-  ): Promise<AntigravityCommandResult> => {
-    if (request.signal.aborted && request.command !== 'antigravity-quota') {
-      return failedFor(request.command)
-    }
-    switch (request.command) {
-      case 'antigravity-quota': {
-        try {
-          await options.refreshQuota(request.signal)
-        } catch {
-          return {
-            command: 'antigravity-quota',
-            status: 'failed',
-            text: 'Quota could not be refreshed.',
-            accounts: null,
-          }
-        }
-        return {
-          command: 'antigravity-quota',
-          status: 'applied',
-          text: 'Quota refreshed',
-          accounts: await accountsAfter(),
-        }
-      }
-      case 'antigravity-account': {
-        const parsed = parseAccountAction(request.arguments)
-        if (parsed === undefined)
-          return accountResult('rejected', 'Unrecognised account action.', null)
-        if (
-          parsed.kind === 'current' ||
-          parsed.kind === 'toggle' ||
-          parsed.kind === 'remove'
-        )
-          return accountResult(
-            'rejected',
-            'Accounts are chosen from the dialog list, not by number.',
-            'unsupported-index-action',
-          )
-        if (parsed.kind === 'refresh')
-          return accountResult(
-            'applied',
-            'Accounts reloaded',
-            null,
-            await accountsAfter(),
-          )
-        return accountResult(
-          'rejected',
-          'Add accounts with the OpenCode login flow for this provider.',
-          null,
-        )
-      }
-      case 'antigravity-routing': {
-        const parsed = parseToggleArguments(request.arguments)
-        const failure = await settingsUpdate((draft) => {
-          if (parsed.cli_first !== undefined)
-            draft.routing.cli_first = parsed.cli_first
-          if (parsed.quota_style_fallback !== undefined)
-            draft.routing.quota_style_fallback = parsed.quota_style_fallback
-        })
-        const after = options.settings.get()
-        return {
-          command: 'antigravity-routing',
-          status: failure ? 'failed' : 'applied',
-          text: failure ?? 'Routing updated',
-          routing: failure
-            ? null
-            : {
-                cliFirst: after.routing.cli_first,
-                quotaStyleFallback: after.routing.quota_style_fallback,
-              },
-        }
-      }
-      case 'antigravity-killswitch': {
-        const parsed = parseKillswitchArguments(request.arguments)
-        const failure = await settingsUpdate((draft) => {
-          if (parsed.enabled !== undefined)
-            draft.killswitch.enabled = parsed.enabled
-          if (parsed.minimum_remaining_percent !== undefined)
-            draft.killswitch.minimum_remaining_percent =
-              parsed.minimum_remaining_percent
-        })
-        const after = options.settings.get()
-        return {
-          command: 'antigravity-killswitch',
-          status: failure ? 'failed' : 'applied',
-          text: failure ?? 'Killswitch updated',
-          killswitch: failure
-            ? null
-            : {
-                enabled: after.killswitch.enabled,
-                minimumRemainingPercent:
-                  after.killswitch.minimum_remaining_percent,
-              },
-        }
-      }
-      case 'antigravity-dump': {
-        const action = parseGeminiDumpCommandAction(request.arguments)
-        if (action.type === 'enable') options.dump.setEnabled(true)
-        else if (action.type === 'disable') options.dump.setEnabled(false)
-        const enabled = options.dump.isEnabled()
-        return {
-          command: 'antigravity-dump',
-          status: 'applied',
-          text: `Gemini dump is ${enabled ? 'on' : 'off'}`,
-          dump: { enabled },
-        }
-      }
-      case 'antigravity-logging': {
-        const level = parseLoggingLevel(request.arguments)
-        const failure = await settingsUpdate((draft) => {
-          draft.log_level = level
-        })
-        if (!failure) options.applyLogLevel()
-        return {
-          command: 'antigravity-logging',
-          status: failure ? 'failed' : 'applied',
-          text: failure ?? `Logging level set to ${level}`,
-          logLevel: failure ? null : level,
-        }
-      }
-    }
-  }
-
+export function createGaMenuCommandService(input: {
+  readonly menu: GaCommandMenu
+  readonly notify: GaRpcActivation['notify']
+}): GaCommandService {
   return {
-    apply,
-    applyAccountAction: (request) => runAction(request.action, request.signal),
-  }
-}
-
-function failedFor(
-  command: GaApplyRequest['command'],
-): AntigravityCommandResult {
-  const text = 'The location is shutting down.'
-  switch (command) {
-    case 'antigravity-quota':
-      return { command, status: 'failed', text, accounts: null }
-    case 'antigravity-account':
-      return {
-        command,
-        status: 'failed',
-        text,
-        accounts: null,
-        authorizationUrl: null,
-        targetOutcome: null,
-      }
-    case 'antigravity-routing':
-      return { command, status: 'failed', text, routing: null }
-    case 'antigravity-killswitch':
-      return { command, status: 'failed', text, killswitch: null }
-    case 'antigravity-dump':
-      return { command, status: 'failed', text, dump: null }
-    case 'antigravity-logging':
-      return { command, status: 'failed', text, logLevel: null }
+    async apply({ request, scope, signal }) {
+      if (signal.aborted) throw abortError(signal)
+      return input.menu.apply(request, {
+        ...(scope.kind === 'session' ? { sessionId: scope.sessionID } : {}),
+        notify(message, kind) {
+          input.notify(scope, {
+            command: ANTIGRAVITY_MENU_COMMAND,
+            notify: { message, kind: kind ?? 'info' },
+          })
+        },
+      })
+    },
   }
 }
 
@@ -1486,13 +1233,14 @@ export function createGaLocationServicesFactory(
             ? { observe: overrides.observeAccountSnapshot }
             : {}),
         })
-        const commands = createGaCommandService({
+        const menu = createGaLocationMenu({
+          commands: await loadCommonAuthCommands(),
           repository,
-          registry,
-          settings: location.operatorSettings,
-          dump: location.dump,
-          applyLogLevel: () => location.applyOperatorSettings(),
-          refreshQuota: () => repository.settled(),
+          runtime: location,
+        })
+        const commands = createGaMenuCommandService({
+          menu,
+          notify: input.notify,
         })
         return { state, commands, execute: pipeline.execute }
       },

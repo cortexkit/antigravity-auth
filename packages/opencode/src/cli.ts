@@ -1,11 +1,21 @@
 import { execFile } from 'node:child_process'
+import { resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { promisify } from 'node:util'
 
-import type {
-  AccountMetadataV3,
-  AccountQuotaResult,
-  AccountStorageV4,
+import {
+  type AccountMetadataV3,
+  type AccountMigrationOutcome,
+  type AccountQuotaResult,
+  type AccountRow,
+  type AccountStorageV4,
+  createAccountMigrationFactory,
+  createAccountRepositoryFactory,
+  createAccountRollbackFactory,
+  initializeFreshAccountStore,
+  loadCommonAuthStoreModules,
+  readAccountStoreBinding,
+  refreshAntigravityToken,
 } from '@cortexkit/antigravity-auth-core'
 import { authorizeAntigravity, exchangeAntigravity } from './antigravity/oauth'
 import {
@@ -16,7 +26,7 @@ import {
 import { persistAccountPool } from './plugin/persist-account-pool'
 import { checkAccountsQuotaStandalone } from './plugin/quota'
 import { startOAuthListener } from './plugin/server'
-import { loadAccounts } from './plugin/storage'
+import { getStoragePath, loadAccounts } from './plugin/storage'
 
 interface WritableOutput {
   write(value: string): unknown
@@ -37,7 +47,36 @@ export interface CliDependencies {
     accounts: AccountMetadataV3[],
     options: { refresh: boolean },
   ): Promise<AccountQuotaResult[]>
+  /** Offline operations on the account store; see `AccountStoreOperations`. */
+  accountStore: AccountStoreOperations
 }
+
+/**
+ * The offline account-store operations, each bound to the canonical
+ * migration module. `migrate` and `rollback` run only after the operator
+ * confirmed that every Antigravity process and timer has stopped; `init`
+ * creates an empty store only where no account file exists.
+ */
+export interface AccountStoreOperations {
+  /** The absolute path of the pre-store account file the store is derived from. */
+  legacyPath(): string
+  migrate(legacyPath: string): Promise<AccountMigrationOutcome>
+  rollback(legacyPath: string): Promise<AccountMigrationOutcome>
+  initialize(legacyPath: string): Promise<AccountMigrationOutcome>
+  /** Reads the accounts list and quota show, without writing. */
+  read(legacyPath: string): Promise<CliAccountsRead>
+}
+
+/**
+ * Where `list` and `quota` read accounts from. Once the account store is
+ * active the pre-store file is retired, so the store is the only source;
+ * before migration (or after a rollback) the pre-store file still is.
+ */
+export type CliAccountsRead =
+  | { kind: 'store'; accounts: AccountMetadataV3[] }
+  | { kind: 'legacy' }
+  | { kind: 'uninitialized' }
+  | { kind: 'unavailable'; reason: string }
 
 const HELP = `Usage: antigravity-auth <command> [options]
 
@@ -45,6 +84,13 @@ Commands:
   login [--project <id>] [--no-browser]
   list [--json]
   quota [--json] [--refresh]
+  init
+  migrate --offline [--yes]
+  rollback --offline [--yes]
+
+migrate moves the account file into the account store; rollback restores
+it. Both require --offline: stop every OpenCode and Antigravity process
+first. Without --yes you are asked to confirm.
 
 Options:
   --help  Show help
@@ -55,6 +101,9 @@ type ParsedCommand =
   | { command: 'login'; projectId?: string; noBrowser: boolean }
   | { command: 'list'; json: boolean }
   | { command: 'quota'; json: boolean; refresh: boolean }
+  | { command: 'init' }
+  | { command: 'migrate'; confirmed: boolean }
+  | { command: 'rollback'; confirmed: boolean }
 
 type ParseResult =
   | { ok: true; value: ParsedCommand }
@@ -112,7 +161,51 @@ function parseArgs(argv: string[]): ParseResult {
     return { ok: true, value: { command, json, refresh } }
   }
 
+  if (command === 'init') {
+    if (args.length > 0)
+      return { ok: false, error: `Unknown option for init: ${args[0]}` }
+    return { ok: true, value: { command } }
+  }
+
+  if (command === 'migrate' || command === 'rollback') {
+    let offline = false
+    let confirmed = false
+    for (const arg of args) {
+      if (arg === '--offline') offline = true
+      else if (arg === '--yes') confirmed = true
+      else return { ok: false, error: `Unknown option for ${command}: ${arg}` }
+    }
+    if (!offline) {
+      return {
+        ok: false,
+        error: `${command} runs only offline: stop every OpenCode and Antigravity process, then pass --offline`,
+      }
+    }
+    return { ok: true, value: { command, confirmed } }
+  }
+
   return { ok: false, error: `Unknown command: ${command}` }
+}
+
+function describeOutcome(
+  operation: string,
+  outcome: AccountMigrationOutcome,
+): { code: number; text: string } {
+  if (outcome.status === 'pending') {
+    return {
+      code: 1,
+      text: `${operation} did not finish (${outcome.reason}); another process holds the account store. Stop it and run the command again.\n`,
+    }
+  }
+  const receipt = outcome.receipt
+  const lines = [
+    `${operation} completed: generation ${receipt.id} is ${receipt.status}.`,
+    `Account store: ${receipt.storeDir}`,
+    ...(receipt.restartRequired
+      ? ['Restart OpenCode before using Antigravity accounts.']
+      : []),
+  ]
+  return { code: 0, text: `${lines.join('\n')}\n` }
 }
 
 function accountStatus(account: AccountMetadataV3): string {
@@ -205,6 +298,41 @@ export async function runCli(
   }
 
   try {
+    if (parsed.value.command === 'init') {
+      const legacyPath = deps.accountStore.legacyPath()
+      const outcome = await deps.accountStore.initialize(legacyPath)
+      const result = describeOutcome('Initialization', outcome)
+      ;(result.code === 0 ? deps.stdout : deps.stderr).write(result.text)
+      return result.code
+    }
+
+    if (
+      parsed.value.command === 'migrate' ||
+      parsed.value.command === 'rollback'
+    ) {
+      const operation = parsed.value.command
+      if (!parsed.value.confirmed) {
+        const answer = await deps.prompt(
+          `${operation === 'migrate' ? 'Migrate' : 'Roll back'} the Antigravity account store? Every OpenCode and Antigravity process must be stopped. Type "yes" to continue: `,
+        )
+        if (answer.trim().toLowerCase() !== 'yes') {
+          deps.stderr.write(`${operation} cancelled; nothing was changed.\n`)
+          return 1
+        }
+      }
+      const legacyPath = deps.accountStore.legacyPath()
+      const outcome =
+        operation === 'migrate'
+          ? await deps.accountStore.migrate(legacyPath)
+          : await deps.accountStore.rollback(legacyPath)
+      const result = describeOutcome(
+        operation === 'migrate' ? 'Migration' : 'Rollback',
+        outcome,
+      )
+      ;(result.code === 0 ? deps.stdout : deps.stderr).write(result.text)
+      return result.code
+    }
+
     if (parsed.value.command === 'login') {
       const result = await deps.performLogin(
         {
@@ -223,7 +351,17 @@ export async function runCli(
       return 0
     }
 
-    const storage = await deps.loadAccounts()
+    const source = await deps.accountStore.read(deps.accountStore.legacyPath())
+    if (source.kind === 'unavailable') {
+      deps.stderr.write(`Accounts are unavailable: ${source.reason}\n`)
+      return 1
+    }
+    const storage: AccountStorageV4 | null =
+      source.kind === 'legacy'
+        ? await deps.loadAccounts()
+        : source.kind === 'store'
+          ? { version: 4, accounts: source.accounts, activeIndex: 0 }
+          : null
     if (parsed.value.command === 'list') {
       const summary = accountSummary(storage)
       deps.stdout.write(
@@ -309,6 +447,135 @@ export function createDefaultCliDependencies(): CliDependencies {
     loadAccounts,
     getQuota: (accounts, options) =>
       checkAccountsQuotaStandalone(accounts, options),
+    accountStore: createDefaultAccountStoreOperations(),
+  }
+}
+
+function present<T>(value: T | null | undefined): T | undefined {
+  return value === null ? undefined : value
+}
+
+/**
+ * One store row in the account shape `list` and `quota` print. Only display
+ * fields and what a quota check needs; nothing is written back.
+ */
+export function cliAccountOf(row: AccountRow): AccountMetadataV3 {
+  const metadata =
+    row.metadata.status === 'present' ? row.metadata.metadata : undefined
+  const groups =
+    row.quota.status === 'present' ? row.quota.quota.cachedQuota : undefined
+  const cachedQuota: NonNullable<AccountMetadataV3['cachedQuota']> = {}
+  for (const [name, group] of Object.entries(groups ?? {})) {
+    cachedQuota[name] = {
+      modelCount: group.modelCount,
+      ...(typeof group.remainingFraction === 'number'
+        ? { remainingFraction: group.remainingFraction }
+        : {}),
+      ...(typeof group.resetTime === 'string'
+        ? { resetTime: group.resetTime }
+        : {}),
+    }
+  }
+  const email = present(metadata?.email)
+  const projectId = present(metadata?.projectId)
+  const managedProjectId = present(metadata?.managedProjectId)
+  return {
+    refreshToken: row.credential?.refreshToken ?? '',
+    addedAt: metadata?.addedAt ?? row.storeAddedAt ?? 0,
+    lastUsed: metadata?.lastUsed ?? 0,
+    enabled: row.enabled,
+    ...(email !== undefined ? { email } : {}),
+    ...(projectId !== undefined ? { projectId } : {}),
+    ...(managedProjectId !== undefined ? { managedProjectId } : {}),
+    ...(metadata?.verificationRequired === true
+      ? { verificationRequired: true }
+      : {}),
+    ...(metadata?.accountIneligible === true
+      ? { accountIneligible: true }
+      : {}),
+    ...(Object.keys(cachedQuota).length > 0 ? { cachedQuota } : {}),
+  }
+}
+
+/**
+ * Reads the bound account store's rows; the repository is closed after.
+ * Binding opens a completed generation; a store whose own clear or replace
+ * work is still pending reads as not ready, which is reported, not shown.
+ */
+async function readAccountStore(legacyPath: string): Promise<CliAccountsRead> {
+  const modules = await loadCommonAuthStoreModules()
+  const admission = await readAccountStoreBinding(legacyPath, modules, Date.now)
+  switch (admission.status) {
+    case 'initialization-required':
+      return { kind: 'uninitialized' }
+    case 'inactive':
+      return { kind: 'legacy' }
+    case 'pending':
+      return admission.operation === undefined
+        ? { kind: 'legacy' }
+        : {
+            kind: 'unavailable',
+            reason: `an account-store ${admission.operation} is unfinished; run \`antigravity-auth ${admission.operation} --offline\` again`,
+          }
+    case 'error':
+      return { kind: 'unavailable', reason: admission.reason }
+    case 'bound':
+      break
+  }
+  const repository = createAccountRepositoryFactory(modules)({
+    paths: admission.paths,
+    now: Date.now,
+    exchange: async ({ refreshToken }) => {
+      const result = await refreshAntigravityToken(refreshToken)
+      return {
+        accessToken: result.access,
+        refreshToken: result.refresh,
+        expiresAt: result.expires,
+      }
+    },
+  })
+  try {
+    const read = await repository.read()
+    if (read.status !== 'ready') {
+      return {
+        kind: 'unavailable',
+        reason: `the account store is ${read.status}`,
+      }
+    }
+    return { kind: 'store', accounts: read.rows.map(cliAccountOf) }
+  } finally {
+    await repository.dispose()
+  }
+}
+
+/**
+ * The account-store operations over the embedded common-auth `./store` and
+ * `./fs` modules. The operator's `--offline` flag and confirmation are what
+ * `processesStopped` records; the migration module itself verifies the
+ * pointer, journal and retired-writer state before it writes.
+ */
+export function createDefaultAccountStoreOperations(): AccountStoreOperations {
+  const offline = { processesStopped: true } as const
+  return {
+    legacyPath: () => resolve(getStoragePath()),
+    migrate: async (legacyPath) =>
+      createAccountMigrationFactory(await loadCommonAuthStoreModules())({
+        legacyPath,
+        offline,
+        now: Date.now,
+      }),
+    rollback: async (legacyPath) =>
+      createAccountRollbackFactory(await loadCommonAuthStoreModules())({
+        legacyPath,
+        offline,
+        now: Date.now,
+      }),
+    initialize: async (legacyPath) =>
+      initializeFreshAccountStore(await loadCommonAuthStoreModules(), {
+        legacyPath,
+        now: Date.now,
+      }),
+    read: readAccountStore,
   }
 }
 
