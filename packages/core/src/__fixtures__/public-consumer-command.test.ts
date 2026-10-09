@@ -357,3 +357,21 @@ it('permits fresh exact identity controls but not larger production deadlines', 
     }),
   ).rejects.toThrow('must not exceed production')
 })
+
+it('retains exact offender, captured identity and leader in a scope refusal', () => {
+  const current = { ...MEMBER, pgid: 102 }
+  let message = ''
+  try {
+    inspectPublicCommandScope(scope(), controlInspector(LEADER, current))
+  } catch (error) {
+    if (!(error instanceof Error)) throw error
+    message = error.message
+  }
+  const prefix = 'owned process left captured session/group scope: '
+  expect(message.startsWith(prefix)).toBe(true)
+  expect(JSON.parse(message.slice(prefix.length))).toEqual({
+    expected: { ...MEMBER, start: '110' },
+    current: { ...current, start: '110' },
+    leader: { ...LEADER, start: '100' },
+  })
+})

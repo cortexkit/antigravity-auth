@@ -306,7 +306,13 @@ export function assertPublicCommandIdentity(
     current.pgid !== leader.pgid ||
     current.start < leader.start
   )
-    throw new Error('owned process left captured session/group scope')
+    throw new Error(
+      `owned process left captured session/group scope: ${JSON.stringify(
+        { expected, current, leader },
+        (_key, value: unknown) =>
+          typeof value === 'bigint' ? value.toString() : value,
+      )}`,
+    )
 }
 
 export function inspectPublicCommandScope(
