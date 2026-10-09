@@ -236,9 +236,8 @@ export interface GaPluginOverrides {
 
 /**
  * How long a response body may stall with no bytes before the raw sender
- * destroys the socket: five minutes, the value the earlier OpenCode 2 beta
- * adapter (`packages/opencode-v2`) used, kept so both adapters time out
- * alike.
+ * destroys the socket: five minutes, unchanged from the retired OpenCode 2
+ * beta adapter this plugin replaces.
  */
 export const GA_RAW_IDLE_TIMEOUT_MS = 300_000
 
