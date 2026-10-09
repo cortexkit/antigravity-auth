@@ -17,6 +17,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   embedCommonAuth,
+  embeddingProfiles,
   inputPath,
   outputPath,
   readVerifiedArchive,
@@ -36,6 +37,17 @@ const protectedPaths = [
   ...publication.files.map(([path]) => `${outputPath}/${path}`),
   `${outputPath}/source-output.json`,
   `${outputPath}/NOTICE.txt`,
+]
+// Core's profile of the same emitter: every published file except the RPC
+// and TUI entries, which core does not embed.
+const coreOutputPath = embeddingProfiles.core.outputPath
+const coreProtectedPaths = [
+  ...publication.files
+    .map(([path]) => `${path}`)
+    .filter((path) => !/^(?:rpc|tui)\//.test(path))
+    .map((path) => `${coreOutputPath}/${path}`),
+  `${coreOutputPath}/source-output.json`,
+  `${coreOutputPath}/NOTICE.txt`,
 ]
 
 async function owned(): Promise<string> {
@@ -386,9 +398,13 @@ test('build.repo_hygiene', async () => {
     childManifest,
     'packages/opencode/scripts/build-tui.ts',
     'packages/opencode/scripts/embed-common-auth.ts',
+    // The root embed:check also checks core's embedded output, through
+    // core's call into the same emitter.
+    'packages/core/scripts/embed-common-auth.ts',
     `${privateRoot}/package.json`,
     privateLock,
     ...protectedPaths,
+    ...coreProtectedPaths,
   ])
   // Without the child manifest Bun falls back to the root script, recursively
   // delegating to itself. Refuse incomplete fixtures before running a wrapper.
@@ -457,10 +473,36 @@ test('build.repo_hygiene', async () => {
   ]
   for (const path of generated)
     await put(target, path, 'export const canary={byte: 1};\n')
-  const immutable = [...protectedPaths, ...generated]
+  const immutable = [...protectedPaths, ...coreProtectedPaths, ...generated]
   const before = await hashes(target, immutable)
   const handwritten = 'packages/opencode/src/handwritten.ts'
   await put(target, handwritten, 'export const handwritten = 1\n')
+  // An altered byte in core's embedded output must also stop the wrapper
+  // before Biome runs: core's check compares it with the pinned archive.
+  const corePayload = `${coreOutputPath}/quota/map.js`
+  const corePayloadBytes = await readFile(join(target, corePayload))
+  try {
+    await put(
+      target,
+      corePayload,
+      Buffer.concat([corePayloadBytes, Buffer.from('\n')]),
+    )
+    const alteredCore = spawnSync(process.execPath, ['run', 'format:check'], {
+      cwd: target,
+      encoding: 'utf8',
+      timeout: 120000,
+    })
+    expect(alteredCore.status).toBe(1)
+    expect(`${alteredCore.stdout}${alteredCore.stderr}`).toContain(
+      'output: bytes quota/map.js',
+    )
+    expect(`${alteredCore.stdout}${alteredCore.stderr}`).not.toMatch(
+      /(?:Formatted|Checked) [1-9]\d* files?/,
+    )
+  } finally {
+    await put(target, corePayload, corePayloadBytes)
+  }
+  expect(await hashes(target, immutable)).toEqual(before)
   // A success-only embedding command must not satisfy the hygiene fixture:
   // an invalid private lock must stop the real wrapper before Biome runs.
   try {
