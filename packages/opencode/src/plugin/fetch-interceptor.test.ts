@@ -1007,7 +1007,12 @@ describe('createFetchInterceptor', () => {
         credentialEpoch: 3,
         identity: 'google-store',
       }
-      const row = { ref, enabled: true }
+      const row: {
+        ref: RowRef
+        enabled: boolean
+        access?: string
+        expires?: number
+      } = { ref, enabled: true }
       const read = async (): Promise<AccountRepositoryRead> => ({
         status: 'ready',
         rows: [
@@ -1015,7 +1020,11 @@ describe('createFetchInterceptor', () => {
             ref: row.ref,
             index: 0,
             enabled: row.enabled,
-            credential: { refreshToken: 'store-refresh-token' },
+            credential: {
+              refreshToken: 'store-refresh-token',
+              accessToken: row.access,
+              expiresAt: row.expires,
+            },
             usable: true,
             stamp: 'bound',
             metadata: {
@@ -1056,7 +1065,20 @@ describe('createFetchInterceptor', () => {
         return settled()
       }
       const repository = new Proxy(
-        { read, refresh, flush, dispose: settled },
+        {
+          read,
+          refresh: async (target: RowRef) => {
+            const outcome = await refresh(target)
+            if (outcome.status === 'rotated') {
+              row.ref = outcome.ref
+              row.access = outcome.accessToken
+              row.expires = outcome.expiresAt
+            }
+            return outcome
+          },
+          flush,
+          dispose: settled,
+        },
         {
           get: (target, property) =>
             property in target
@@ -1121,7 +1143,8 @@ describe('createFetchInterceptor', () => {
           await storeInterceptor(repository)
         try {
           const response = await interceptor.fetch(STORE_URL, GENERATIVE_INIT)
-          expect(response.status).toBe(404)
+          await expectNativeFailure(response, 412, 'FAILED_PRECONDITION')
+          expect(response.headers.get('retry-after')).toBeNull()
           expect(transportMock).toHaveBeenCalledTimes(1)
         } finally {
           interceptor.dispose()
@@ -1159,9 +1182,9 @@ describe('createFetchInterceptor', () => {
         if (account) account.ref = successor
         gates.flushEntered = undefined
         release()
-        await expect(pending).rejects.toThrow(
-          'The selected account no longer holds this credential',
-        )
+        const response = await pending
+        await expectNativeFailure(response, 412, 'FAILED_PRECONDITION')
+        expect(response.headers.get('retry-after')).toBeNull()
         expect(transportMock).not.toHaveBeenCalled()
       } finally {
         release()
@@ -1188,7 +1211,8 @@ describe('createFetchInterceptor', () => {
       }
       try {
         const response = await interceptor.fetch(STORE_URL, GENERATIVE_INIT)
-        expect(response.status).toBe(404)
+        await expectNativeFailure(response, 412, 'FAILED_PRECONDITION')
+        expect(response.headers.get('retry-after')).toBeNull()
         expect(transportMock).toHaveBeenCalledTimes(1)
       } finally {
         interceptor.dispose()

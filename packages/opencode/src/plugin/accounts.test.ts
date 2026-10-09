@@ -22,6 +22,7 @@ import {
   loadCommonAuthStoreModules,
   type ManagedAccount,
   type RowRef,
+  sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
 import {
   AccountManager,
@@ -38,6 +39,7 @@ import {
 // Bun's `mock.module` doesn't support the `importOriginal` callback that
 // Vitest exposes, so we capture the real exports first and merge.
 import { commitLogins } from './persist-account-pool'
+import { LocalGrantSupersededError } from './shared/local-grant'
 import * as realStorage from './storage'
 import {
   type AccountStorageV4,
@@ -2750,10 +2752,12 @@ describe('loadAccountManagerFromRepository', () => {
     ref: RowRef
     token: string
     email: string
+    access?: string
+    expires?: number
   }
 
   function repositoryOver(rows: Row[], refresh: AccountRepository['refresh']) {
-    let order = [...rows]
+    let order = rows.map((row) => ({ ...row, ref: { ...row.ref } }))
     const reads: number[] = []
     const repository = {
       read: async (): Promise<AccountRepositoryRead> => {
@@ -2765,7 +2769,11 @@ describe('loadAccountManagerFromRepository', () => {
               ref: row.ref,
               index,
               enabled: true,
-              credential: { refreshToken: row.token },
+              credential: {
+                refreshToken: row.token,
+                accessToken: row.access,
+                expiresAt: row.expires,
+              },
               usable: true,
               stamp: 'bound',
               metadata: {
@@ -2796,7 +2804,18 @@ describe('loadAccountManagerFromRepository', () => {
           ),
         }
       },
-      refresh,
+      refresh: async (...args: Parameters<AccountRepository['refresh']>) => {
+        const outcome = await refresh(...args)
+        if (outcome.status === 'rotated') {
+          const row = order.find((entry) => sameRowRef(entry.ref, args[0]))
+          if (row) {
+            row.ref = outcome.ref
+            row.access = outcome.accessToken
+            row.expires = outcome.expiresAt
+          }
+        }
+        return outcome
+      },
       recordFingerprint: async (ref: RowRef) => ({ ref, outcome: 'unchanged' }),
       flush: async () => ({ completed: 0, failures: [] }),
       dispose: async () => ({ completed: 0, failures: [] }),
@@ -3059,7 +3078,7 @@ describe('loadAccountManagerFromRepository', () => {
         accessToken: first!.access!,
         ref: refA,
       }),
-    ).rejects.toBeInstanceOf(StaleAccountGrantError)
+    ).rejects.toBeInstanceOf(LocalGrantSupersededError)
 
     // A reloaded manager holds new account objects: the old selection's
     // grant is stale even with the same token.

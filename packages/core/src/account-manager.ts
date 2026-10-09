@@ -339,6 +339,7 @@ function unroutableReason(row: AccountRow): string | undefined {
   if (row.metadata.status === 'dropped') {
     return `metadata not shown (${row.metadata.reason})`
   }
+  if (row.metadata.status === 'absent') return 'metadata absent'
   return undefined
 }
 
@@ -672,11 +673,11 @@ export class AccountManager {
   }
 
   /**
-   * A manager over the rows of a ready repository read. Rows that cannot be
-   * routed to (no credential, torn, unbound, invalid, or metadata the store
-   * keeps but does not show) are left out and reported through
-   * `onDiagnostic`; selection follows the stored row refs, falling back to
-   * the stored indexes as the pool-file loader did.
+   * A manager over a ready repository read. Rows with missing or unsafe
+   * credentials, or absent/dropped provider metadata, are excluded from
+   * serving and reported through `onDiagnostic`. Stored row references
+   * choose the active account; legacy numeric positions in the account list
+   * are used only when no stored reference selects an admitted row.
    */
   static fromRepository(
     read: AccountRepositoryRead,
@@ -1026,6 +1027,34 @@ export class AccountManager {
       prior.dailyRequestCounts,
       fresh.dailyRequestCounts,
     )
+  }
+
+  /**
+   * Adopt one current row with the selected account's exact row ID,
+   * credential epoch and authenticated identity after its bearer changes.
+   * General reloads keep the token with the later expiry; here the stored
+   * token and expiry always win. Keep selection, request counts, and pending
+   * rate-limit/cooldown observations attributed to that unchanged row ref.
+   * This writes nothing and cannot restore missing provider metadata.
+   */
+  adoptCurrentRow(account: ManagedAccount, row: AccountRow): boolean {
+    if (
+      this.repository === undefined ||
+      !this.accounts.includes(account) ||
+      account.ref === undefined ||
+      !sameRowRef(account.ref, row.ref) ||
+      !account.enabled ||
+      !row.enabled ||
+      !row.usable ||
+      unroutableReason(row) !== undefined
+    )
+      return false
+    const fresh = this.accountFromRow(row, account.index, this.now())
+    if (fresh === undefined) return false
+    this.refreshFromRow(account, fresh.account, fresh.fingerprint)
+    account.access = fresh.account.access
+    account.expires = fresh.account.expires
+    return true
   }
 
   // ========== Repository writes ==========

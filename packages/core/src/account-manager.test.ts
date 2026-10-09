@@ -699,10 +699,13 @@ const refA: RowRef = { id: 'a', credentialEpoch: 2, identity: 'acct-a' }
 const refB: RowRef = { id: 'b', credentialEpoch: 1 }
 const refC: RowRef = { id: 'c', credentialEpoch: 1 }
 const refD: RowRef = { id: 'd', credentialEpoch: 3 }
+const refE: RowRef = { id: 'e', credentialEpoch: 1 }
 
 /**
- * One row per load path: routable (`a`), metadata not shown (`b`), torn (`c`)
- * and without metadata (`d`); the stored selection names `d` for gemini.
+ * Row `a` has a usable bound credential and provider metadata; `b` has
+ * provider metadata the store refuses to expose; `c` has an incomplete
+ * credential write; `e` has no provider metadata. Row `d` has initialized
+ * metadata but no device fingerprint, and is the stored Gemini selection.
  */
 function repositoryFixture() {
   const recording = recordingRepository(
@@ -712,7 +715,13 @@ function repositoryFixture() {
         metadata: { status: 'dropped', reason: 'uncovered' },
       }),
       repositoryRow(refC, 2, { torn: true }),
-      repositoryRow(refD, 3, { metadata: { status: 'absent' } }),
+      repositoryRow(refD, 3, {
+        metadata: {
+          status: 'present',
+          metadata: { addedAt: 10, lastUsed: 20 },
+        },
+      }),
+      repositoryRow(refE, 4, { metadata: { status: 'absent' } }),
     ],
     {
       schemaVersion: 1,
@@ -763,7 +772,7 @@ describe('repository-backed AccountManager', () => {
       fixture.diagnostics
         .filter((d) => d.message.startsWith('Skipped'))
         .map((d) => d.fields?.rowId),
-    ).toEqual(['b', 'c'])
+    ).toEqual(['b', 'c', 'e'])
     // A generated fingerprint (the row had none) and one brought to the
     // runtime user agent are recorded, as the pool-file loader saved them.
     const fingerprints = fixture.fingerprintWrites
@@ -787,6 +796,87 @@ describe('repository-backed AccountManager', () => {
       [refA, { family: 'claude', at: Date.UTC(2026, 9, 7, 12) }],
       [refD, { family: 'gemini', at: Date.UTC(2026, 9, 7, 12) }],
     ])
+    await manager.dispose()
+  })
+
+  it('adopts only one ready same-lineage row with authoritative token and context, preserving usage and pending evidence', async () => {
+    const now = Date.UTC(2026, 9, 7, 12)
+    const original = repositoryRow(refA, 0, {
+      credential: {
+        refreshToken: 'refresh-A',
+        accessToken: 'token-A',
+        expiresAt: now + 9_000,
+      },
+    })
+    const fixture = recordingRepository([original, repositoryRow(refB, 1)])
+    const manager = AccountManager.fromRepository(
+      await fixture.repository.read(),
+      {
+        repository: fixture.repository,
+        now: () => now,
+      },
+    )
+    const [account, other] = manager.getAccounts()
+    if (!account || !other) throw new Error('missing accounts')
+    manager.recordRequest(0, 'gemini')
+    manager.markRateLimited(account, 5_000, 'claude')
+    manager.markAccountCoolingDown(account, 4_000, 'network-error')
+    const fresh = repositoryRow(refA, 7, {
+      credential: {
+        refreshToken: 'refresh-B',
+        accessToken: 'token-B',
+        expiresAt: now + 8_000,
+      },
+      metadata: {
+        status: 'present',
+        metadata: {
+          addedAt: 10,
+          lastUsed: 20,
+          projectId: 'project-B',
+          fingerprint: testFingerprint,
+          dailyRequestCounts: { date: '2026-10-07', claude: 0, gemini: 0 },
+        },
+      },
+    })
+    const writes = fixture.metadataWrites.length
+    expect(manager.adoptCurrentRow(account, fresh)).toBe(true)
+    expect(manager.getAccounts()).toEqual([account, other])
+    expect(account).toMatchObject({
+      index: 0,
+      ref: refA,
+      access: 'token-B',
+      expires: now + 8_000,
+      parts: { refreshToken: 'refresh-B', projectId: 'project-B' },
+      coolingDownUntil: now + 4_000,
+      rateLimitResetTimes: { claude: now + 5_000 },
+      dailyRequestCounts: { gemini: 1 },
+    })
+    expect(fixture.metadataWrites).toHaveLength(writes)
+    expect(
+      manager.adoptCurrentRow(account, {
+        ...fresh,
+        ref: { ...refA, identity: 'other' },
+      }),
+    ).toBe(false)
+    expect(
+      manager.adoptCurrentRow(account, {
+        ...fresh,
+        metadata: { status: 'absent' },
+      }),
+    ).toBe(false)
+    expect(
+      manager.adoptCurrentRow(account, {
+        ...fresh,
+        metadata: { status: 'dropped', reason: 'invalid' },
+      }),
+    ).toBe(false)
+    expect(manager.adoptCurrentRow(account, { ...fresh, usable: false })).toBe(
+      false,
+    )
+    expect(manager.adoptCurrentRow(account, { ...fresh, enabled: false })).toBe(
+      false,
+    )
+    expect(account.access).toBe('token-B')
     await manager.dispose()
   })
 

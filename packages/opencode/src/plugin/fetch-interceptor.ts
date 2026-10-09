@@ -142,9 +142,9 @@ function poolFileCredentials(
       ),
     // A pool-file row has no repository identity; its grant is checked
     // against the pool itself, as before.
-    captureGrant:
-      ({ account, accessToken }) =>
-      () => {
+    captureGrant: ({ account, accessToken }) => ({
+      source: 'pool-file',
+      check() {
         if (
           !accountManager.getAccounts().includes(account) ||
           account.enabled === false ||
@@ -153,6 +153,7 @@ function poolFileCredentials(
           throw new StaleAccountGrantError()
         }
       },
+    }),
     ensureProject: (auth) => ensureProjectContext(auth),
     isInvalidGrant: (error) =>
       error instanceof AntigravityTokenRefreshError &&
@@ -178,15 +179,7 @@ function storeCredentials(
   })
   return {
     refresh: (account) => credentials.refresh(account),
-    captureGrant: ({ account, accessToken }) => {
-      const ref = account.ref
-      if (ref === undefined) {
-        return () => {
-          throw new StaleAccountGrantError()
-        }
-      }
-      return () => credentials.assertGrantCurrent({ account, accessToken, ref })
-    },
+    captureGrant: (grant) => credentials.captureGrant(grant),
     ensureProject: (auth) => credentials.ensureProject(auth),
     isInvalidGrant: (error) => credentials.isInvalidGrant(error),
   }

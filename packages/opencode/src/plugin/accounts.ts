@@ -13,6 +13,11 @@ import {
 import { debugLogToFile } from './debug'
 import { ensureProjectContext } from './project'
 import {
+  type CapturedLocalGrant,
+  LocalGrantSupersededError,
+  StaleLocalGrantError,
+} from './shared/local-grant'
+import {
   getStoragePath,
   loadAccounts,
   saveAccounts,
@@ -126,6 +131,11 @@ export async function loadAccountManagerFromRepository(
  * obtains a fresh token and project for every send.
  */
 export interface LocalAccountCredentials {
+  /** Capture the selected row; resolution may adopt only that row's current credential. */
+  captureGrant(request: {
+    account: CoreManagedAccount
+    accessToken: string
+  }): Extract<CapturedLocalGrant, { source: 'store' }>
   /**
    * Refreshes the locally stored refresh token of `account` through the
    * repository, fenced on the ref the account was loaded with, and returns
@@ -142,24 +152,20 @@ export interface LocalAccountCredentials {
   /** True when a refresh failure is `invalid_grant`: the refresh token is invalid or revoked. */
   isInvalidGrant(error: unknown): boolean
   /**
-   * Rejects with `StaleAccountGrantError` unless the grant may be sent now.
-   * Called immediately before every physical send. `ref` is required: it is
-   * the selected account row reference the caller captured when it resolved
-   * the grant, never read back from the account object, which can change.
-   * It checks:
-   * - in memory: this manager still holds the account object (a reload
-   *   replaces every account), the account is enabled, still carries
-   *   exactly `ref`, and its access token is the grant's token;
-   * - in the store, through one repository read: a row still holds exactly
-   *   `ref` (row id, credential epoch and recorded identity), and it is
-   *   enabled and usable. This catches a row replaced, removed or disabled
-   *   by another process after the grant was resolved, even when the token
-   *   is unexpired and no refresh ran;
-   * - in memory again after that read, since the account can change while
-   *   the read is pending.
+   * Check a captured bearer immediately before sending it. `ref` is the
+   * original row ID, credential epoch and authenticated identity captured
+   * with that token, not the account object's potentially changed ref.
    *
-   * This is a check made at dispatch, not a lease: the row can still change
-   * while the request is on the network, and nothing here holds it.
+   * The manager must still hold the enabled selected account at that ref.
+   * One fresh repository read must show the same enabled row, a credential
+   * the native store marks usable, and present Antigravity provider metadata.
+   * Recheck the held account after the read because it may change during it.
+   * A different stored token at the unchanged ref raises
+   * `LocalGrantSupersededError`; other refusals raise `StaleAccountGrantError`.
+   * The held account must also still carry the captured token.
+   *
+   * This is a dispatch snapshot, not a lease or network lock. It never changes
+   * the prepared bearer, and the row can still change after the check returns.
    */
   assertGrantCurrent(request: {
     account: CoreManagedAccount
@@ -169,9 +175,9 @@ export interface LocalAccountCredentials {
 }
 
 /** The selected account no longer holds the credential a grant was made for. */
-export class StaleAccountGrantError extends Error {
+export class StaleAccountGrantError extends StaleLocalGrantError {
   constructor() {
-    super('The selected account no longer holds this credential')
+    super()
     this.name = 'StaleAccountGrantError'
   }
 }
@@ -186,7 +192,51 @@ export function createLocalAccountCredentials(
     ) => Promise<ProjectContextResult>
   },
 ): LocalAccountCredentials {
-  return {
+  const heldLocally = (account: CoreManagedAccount, ref: RowRef): boolean =>
+    account.ref !== undefined &&
+    sameRowRef(account.ref, ref) &&
+    account.enabled !== false &&
+    manager.getAccounts().includes(account)
+  const readCurrentRow = async (ref: RowRef) => {
+    const read = await dependencies.repository.read()
+    const row =
+      read.status === 'ready'
+        ? read.rows.find((candidate) => sameRowRef(candidate.ref, ref))
+        : undefined
+    if (
+      row === undefined ||
+      !row.enabled ||
+      !row.usable ||
+      row.credential === undefined ||
+      row.metadata.status !== 'present'
+    )
+      throw new StaleAccountGrantError()
+    return row
+  }
+  const local: LocalAccountCredentials = {
+    captureGrant({ account, accessToken }) {
+      const ref =
+        account.ref === undefined
+          ? undefined
+          : Object.freeze({ ...account.ref })
+      return {
+        source: 'store',
+        check: () => {
+          if (ref === undefined) throw new StaleAccountGrantError()
+          return local.assertGrantCurrent({ account, accessToken, ref })
+        },
+        async resolveCurrent() {
+          if (ref === undefined || !heldLocally(account, ref))
+            throw new StaleAccountGrantError()
+          const row = await readCurrentRow(ref)
+          if (
+            !heldLocally(account, ref) ||
+            !manager.adoptCurrentRow(account, row)
+          )
+            throw new StaleAccountGrantError()
+        },
+      }
+    },
     async refresh(account) {
       const outcome = await manager.refreshAccount(account)
       if (outcome.status !== 'rotated') return undefined
@@ -195,27 +245,17 @@ export function createLocalAccountCredentials(
     ensureProject: dependencies.ensureProject ?? ensureProjectContext,
     isInvalidGrant: isInvalidGrantFailure,
     async assertGrantCurrent({ account, accessToken, ref }) {
-      // The account as this manager holds it: still held, enabled, at the
-      // grant's exact ref and holding the grant's access token.
-      const heldLocally = (): boolean =>
-        account.ref !== undefined &&
-        sameRowRef(account.ref, ref) &&
-        account.enabled !== false &&
-        account.access === accessToken &&
-        manager.getAccounts().includes(account)
-      if (!heldLocally()) throw new StaleAccountGrantError()
-      const read = await dependencies.repository.read()
-      const row =
-        read.status === 'ready'
-          ? read.rows.find((candidate) => sameRowRef(candidate.ref, ref))
-          : undefined
-      if (row === undefined || !row.enabled || !row.usable) {
-        throw new StaleAccountGrantError()
-      }
-      // The account may have changed while the read was pending.
-      if (!heldLocally()) throw new StaleAccountGrantError()
+      if (!heldLocally(account, ref)) throw new StaleAccountGrantError()
+      const row = await readCurrentRow(ref)
+      // Recheck the selected account and its original row ref after the read.
+      // Checking cannot adopt a newer stored token or change a prepared bearer.
+      if (!heldLocally(account, ref)) throw new StaleAccountGrantError()
+      if (row.credential?.accessToken !== accessToken)
+        throw new LocalGrantSupersededError()
+      if (account.access !== accessToken) throw new StaleAccountGrantError()
     },
   }
+  return local
 }
 
 export class AccountManager extends CoreAccountManager {

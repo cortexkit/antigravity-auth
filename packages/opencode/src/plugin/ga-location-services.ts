@@ -1068,14 +1068,6 @@ async function assertServingAdmission(
  */
 const GA_TRANSPORT_IDLE_TIMEOUT_MS = 300_000
 
-/** A local grant whose account no longer holds it; the engine reselects. */
-export class GaStaleGrantError extends Error {
-  constructor() {
-    super('The selected account no longer holds this grant')
-    this.name = 'GaStaleGrantError'
-  }
-}
-
 /**
  * Local credentials for a repository-backed GA location, in the shared
  * engine's `local` domain. A refresh is of the selected account itself:
@@ -1107,18 +1099,9 @@ export function createGaLocalCredentials(
     saveToDisk: () => manager.saveToDisk(),
     saveToDiskReplace: () => manager.saveToDiskReplace(),
     refresh: (account) => local.refresh(account),
-    // Capture the reference identifying the original row and credential epoch.
-    // The returned check delegates memory and store validation to
-    // local.assertGrantCurrent; a missing reference makes the check reject.
-    captureGrant: ({ account, accessToken }) => {
-      const ref = account.ref
-      if (ref === undefined) {
-        return () => {
-          throw new GaStaleGrantError()
-        }
-      }
-      return () => local.assertGrantCurrent({ account, accessToken, ref })
-    },
+    // Checking and resolution use the captured row ID, epoch and identity,
+    // never whichever replacement the account object might later refer to.
+    captureGrant: (grant) => local.captureGrant(grant),
     ensureProject: (auth) => local.ensureProject(auth),
     isInvalidGrant: (error) => local.isInvalidGrant(error),
     // The GA host keeps no OAuth credential of its own for this provider;
@@ -1176,7 +1159,13 @@ export async function authorizeGaQuotaCheck(
   const read = await repository.read()
   if (read.status !== 'ready') return { status: 'refused', reason: 'not-ready' }
   const row = read.rows.find((candidate) => sameRowRef(candidate.ref, ref))
-  if (row === undefined || row.credential === undefined || !row.usable)
+  if (
+    row === undefined ||
+    row.credential === undefined ||
+    !row.enabled ||
+    !row.usable ||
+    row.metadata.status !== 'present'
+  )
     return { status: 'refused', reason: 'stale' }
   const metadata =
     row.metadata.status === 'present' ? row.metadata.metadata : undefined
@@ -1214,7 +1203,12 @@ export async function authorizeGaQuotaCheck(
     after.status === 'ready'
       ? after.rows.find((candidate) => sameRowRef(candidate.ref, outcome.ref))
       : undefined
-  if (successor?.credential === undefined)
+  if (
+    successor?.credential === undefined ||
+    !successor.enabled ||
+    !successor.usable ||
+    successor.metadata.status !== 'present'
+  )
     return { status: 'refused', reason: 'stale' }
   return {
     status: 'authorized',
@@ -1223,7 +1217,12 @@ export async function authorizeGaQuotaCheck(
       type: 'oauth',
       refresh: formatRefreshParts({
         refreshToken: successor.credential.refreshToken,
-        ...projects,
+        ...(successor.metadata.metadata.projectId
+          ? { projectId: successor.metadata.metadata.projectId }
+          : {}),
+        ...(successor.metadata.metadata.managedProjectId
+          ? { managedProjectId: successor.metadata.metadata.managedProjectId }
+          : {}),
       }),
       access: outcome.accessToken,
       expires: outcome.expiresAt,
@@ -1300,7 +1299,12 @@ export function createGaFetchAccountQuota(options: {
             read.status === 'ready'
               ? read.rows.find((candidate) => sameRowRef(candidate.ref, ref))
               : undefined
-          if (row === undefined || !row.usable)
+          if (
+            row === undefined ||
+            !row.enabled ||
+            !row.usable ||
+            row.metadata.status !== 'present'
+          )
             return { status: 'stale', reason: 'credential changed' }
           if (row.credential?.accessToken !== accessToken)
             return { status: 'stale', reason: 'access token changed' }

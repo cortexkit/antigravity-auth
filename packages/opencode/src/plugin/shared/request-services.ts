@@ -82,6 +82,11 @@ import {
   extractOpenCodeSessionIdentity,
   type OpenCodeSessionIdentity,
 } from '../session-context'
+import {
+  type CapturedLocalGrant,
+  isLocalGrantError,
+  LocalGrantSupersededError,
+} from './local-grant'
 
 /**
  * Wait before retrying the same selection after its first 429.
@@ -259,23 +264,22 @@ export interface LocalRequestCredentials<A extends RequestAccountRow> {
   /** Clear host-stored OAuth credentials once the last account is removed. */
   clearStoredAuth(): Promise<void>
   /**
-   * Synchronously captures the original row identity and credential epoch
-   * when its access token is resolved, whether stored or just refreshed.
-   * Capture happens before any save, project resolution or other await;
-   * later account changes must not replace the captured identity.
+   * Capture the bearer and original row reference before any save, project
+   * lookup or other await. For store accounts the ref includes row ID, the
+   * credential replacement epoch, and authenticated identity; a refresh does
+   * not advance that epoch. Later account changes cannot replace this ref.
    *
-   * The returned check runs after all preceding waits and immediately before
-   * every upstream request, including thinking warmup and cache probes.
-   * It throws or rejects to stop that attempt if the row was removed,
-   * disabled or replaced, or its current access token changed. Existing
-   * endpoint fallback and account rotation remain unchanged: the engine
-   * handles the error as a failed send and may resolve a new grant, but
-   * never sends the stale one.
+   * check() runs immediately before main sends, thinking warmups and cache
+   * probes. It rejects unavailable metadata or a removed, disabled, replaced
+   * or token-superseded credential. A store resolver can separately adopt the
+   * current token at the original ref. This request executor may then capture
+   * a new grant and rebuild once per request, without modifying the captured
+   * check or penalizing the account for an ordinary token change.
    */
   captureGrant(grant: {
     readonly account: A
     readonly accessToken: string
-  }): () => void | Promise<void>
+  }): CapturedLocalGrant
   /**
    * Started without awaiting after a successful send, with the selected row
    * and `quota_refresh_interval_minutes`. `createLocalQuotaRefresh` builds
@@ -966,6 +970,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     const maxAccountSwitches = config.max_account_switches ?? 2
     let previousAccountIndex = -1
     let needsCacheWarmup = false
+    let localRecaptureUsed = false
 
     while (true) {
       checkAborted()
@@ -1291,8 +1296,39 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         accessToken: string
         projectId: string
         /** The captured grant's check, run before every physical send. */
-        check: () => void | Promise<void>
+        captured: CapturedLocalGrant
       } | null = null
+      const prepareLocalGrant = async (
+        auth: OAuthAuthDetails,
+        captured: CapturedLocalGrant,
+        persistProject = true,
+      ): Promise<NonNullable<typeof localGrant>> => {
+        if (credentials.domain !== 'local' || !auth.access)
+          throw new Error('Local credentials were not resolved')
+        const context = await credentials.ensureProject(auth)
+        // A project cache may carry an older bearer. Only the token fixed
+        // before this await belongs to the newly prepared request.
+        const projectAuth: OAuthAuthDetails = {
+          ...context.auth,
+          access: auth.access,
+          expires: auth.expires,
+        }
+        if (persistProject && projectAuth.refresh !== auth.refresh) {
+          credentials.updateFromAuth(account, projectAuth)
+          try {
+            await credentials.saveToDisk()
+          } catch (error) {
+            log.error('Failed to persist project context', {
+              error: String(error),
+            })
+          }
+        }
+        return {
+          accessToken: auth.access,
+          projectId: context.effectiveProjectId,
+          captured,
+        }
+      }
       if (credentials.domain === 'local') {
         let authRecord = credentials.toAuthDetails(account)
         // The grant is captured synchronously the moment its token is fixed
@@ -1302,7 +1338,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         // even if the account object changes during those waits.
         const captureFor = (
           auth: OAuthAuthDetails,
-        ): (() => void | Promise<void>) | undefined =>
+        ): CapturedLocalGrant | undefined =>
           auth.access
             ? credentials.captureGrant({ account, accessToken: auth.access })
             : undefined
@@ -1437,9 +1473,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           continue
         }
 
-        let projectContext: ProjectContextResult
         try {
-          projectContext = await credentials.ensureProject(authRecord)
+          localGrant = await prepareLocalGrant(authRecord, grantCheck)
           retryState.resetAccountFailureState(account.index)
         } catch (error) {
           const { failures, shouldCooldown, cooldownMs } =
@@ -1465,41 +1500,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           }
           continue
         }
-
-        // Project resolution can answer from a cache filled under an
-        // earlier access token for the same refresh token. It contributes
-        // only the project ids packed in the refresh record; the account
-        // keeps the access token just resolved, which is the one sent and
-        // checked below.
-        const projectAuth: OAuthAuthDetails = {
-          ...projectContext.auth,
-          access: authRecord.access,
-          expires: authRecord.expires,
-        }
-        const projectAuthChanged = projectAuth.refresh !== authRecord.refresh
-        if (projectAuthChanged) {
-          credentials.updateFromAuth(account, projectAuth)
-          authRecord = projectAuth
-        }
-        // Combine the resolved project ID with the token and account check
-        // captured before the asynchronous waits.
-        localGrant = {
-          accessToken,
-          projectId: projectContext.effectiveProjectId,
-          check: grantCheck,
-        }
-        if (projectAuthChanged) {
-          try {
-            await credentials.saveToDisk()
-          } catch (error) {
-            log.error('Failed to persist project context', {
-              error: String(error),
-            })
-          }
-        }
       }
       const selected = account
-      const grant = localGrant
 
       // Credentials for one auxiliary physical send (thinking warmup or cache
       // probe) built from a prepared request. Local: the selection's grant
@@ -1525,12 +1527,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           headers.set('Authorization', `Bearer ${admission.accessToken}`)
           return { init: { ...sendInit, headers }, admission }
         }
-        if (!grant) {
+        if (!localGrant) {
           throw new Error(
             'Local credentials were not resolved for the selected account',
           )
         }
-        await grant.check()
+        await localGrant.captured.check()
         return { init: sendInit }
       }
 
@@ -1603,6 +1605,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           pushDebug('thinking-warmup: done')
         } catch (error) {
           warmupState.clearWarmupAttempt(prepared.sessionId)
+          if (isLocalGrantError(error)) throw error
           pushDebug(
             `thinking-warmup: failed ${error instanceof Error ? error.message : String(error)}`,
           )
@@ -1664,6 +1667,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             )
           }
         } catch (error) {
+          if (isLocalGrantError(error)) {
+            needsCacheWarmup = true
+            throw error
+          }
           pushDebug(
             `cache-warmup-probe: failed ${error instanceof Error ? error.message : String(error)}`,
           )
@@ -1762,7 +1769,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
       while (!shouldSwitchAccount) {
         let forceThinkingRecovery = false
-        let tokenConsumed = false
         let capacityRetryCount = 0
         let lastEndpointIndex = -1
 
@@ -1787,6 +1793,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             continue
           }
 
+          let tokenConsumed = false
+          let physicalAttemptStarted = false
           try {
             // One credential grant per physical send, chosen by domain. Vault:
             // a fresh admission for this send only; its token and project come
@@ -1897,12 +1905,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   'Local credentials were not resolved for the selected account',
                 )
               }
-              await localGrant.check()
+              await localGrant.captured.check()
             }
 
             pushDebug(
               `dispatching request via ${prepared.headerStyle} transport`,
             )
+            physicalAttemptStarted = true
             const response =
               prepared.headerStyle === 'antigravity'
                 ? await transport(
@@ -2584,9 +2593,50 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
             return transformedResponse
           } catch (error) {
-            if (tokenConsumed) {
+            if (
+              tokenConsumed &&
+              (!isLocalGrantError(error) || !physicalAttemptStarted)
+            ) {
               trackers.token.refund(account.index)
               tokenConsumed = false
+            }
+
+            if (
+              credentials.domain === 'local' &&
+              localGrant?.captured.source === 'store' &&
+              isLocalGrantError(error)
+            ) {
+              // The one-recapture limit covers main requests, warmups and probes. A
+              // superseded unsent preparation is rebuilt on the same selection
+              // and request scope, without failure penalties or endpoint retry.
+              if (
+                error instanceof LocalGrantSupersededError &&
+                !localRecaptureUsed
+              ) {
+                localRecaptureUsed = true
+                try {
+                  await localGrant.captured.resolveCurrent()
+                  const auth = credentials.toAuthDetails(account)
+                  if (!auth.access || accessTokenExpired(auth))
+                    return createNativeGoogleErrorResponse({
+                      status: 412,
+                      reason: 'pool_unavailable',
+                    })
+                  const captured = credentials.captureGrant({
+                    account,
+                    accessToken: auth.access,
+                  })
+                  localGrant = await prepareLocalGrant(auth, captured, false)
+                  i = -1
+                  continue
+                } catch {
+                  checkAborted()
+                }
+              }
+              return createNativeGoogleErrorResponse({
+                status: 412,
+                reason: 'pool_unavailable',
+              })
             }
 
             if (

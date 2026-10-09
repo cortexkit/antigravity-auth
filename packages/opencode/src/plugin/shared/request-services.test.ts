@@ -535,15 +535,18 @@ function harness(
       // value with that original value, so account mutation cannot recapture it.
       captureGrant: ({ account, accessToken }) => {
         const identity = pool.toAuthDetails(account).refresh
-        return () => {
-          checkedGrants.push({ account, accessToken })
-          if (
-            !pool.getAccounts().includes(account) ||
-            pool.toAuthDetails(account).access !== accessToken ||
-            pool.toAuthDetails(account).refresh !== identity
-          ) {
-            throw new Error('stale grant')
-          }
+        return {
+          source: 'pool-file',
+          check() {
+            checkedGrants.push({ account, accessToken })
+            if (
+              !pool.getAccounts().includes(account) ||
+              pool.toAuthDetails(account).access !== accessToken ||
+              pool.toAuthDetails(account).refresh !== identity
+            ) {
+              throw new Error('stale grant')
+            }
+          },
         }
       },
       ensureProject: async (auth) => ({
@@ -698,12 +701,13 @@ describe('createRequestExecutor retry contract', () => {
       ...h.deps,
       credentials: {
         ...(h.deps.credentials as LocalRequestCredentials<ManagedAccount>),
-        captureGrant:
-          ({ accessToken }) =>
-          () => {
+        captureGrant: ({ accessToken }) => ({
+          source: 'pool-file',
+          check() {
             checked.push(accessToken)
             throw stale
           },
+        }),
       },
     })
     try {
