@@ -10,7 +10,10 @@
  *     account.
  *   - Redirect `stdout` / `stderr` to in-memory buffers so we can
  *     assert the output without polluting test logs.
- *   - Point `loadAccounts` / `getQuota` at the harness temp root.
+ *   - Read accounts through the genuine account-file reader and the
+ *     genuine account-store operations (the embedded common-auth store and
+ *     the migration module) in the harness temp root; only the quota
+ *     fetcher is injected, since it would reach the network.
  *
  * The live `script/test-models.ts` and `script/test-regression.ts`
  * remain manual-only diagnostics (see `test:e2e:models` /
@@ -21,11 +24,18 @@
 import './setup'
 
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
-import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, realpathSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 
-import { type CliDependencies, runCli } from '../../opencode/src/cli'
-import { saveAccountsReplace } from '../../opencode/src/plugin/storage'
+import {
+  type CliDependencies,
+  createDefaultAccountStoreOperations,
+  runCli,
+} from '../../opencode/src/cli'
+import {
+  loadAccounts,
+  saveAccountsReplace,
+} from '../../opencode/src/plugin/storage'
 import { cleanupE2eRootsForCurrentFile } from './setup'
 
 afterAll(cleanupE2eRootsForCurrentFile)
@@ -51,6 +61,23 @@ async function seedAccounts(): Promise<void> {
     activeIndex: 0,
     activeIndexByFamily: { claude: 0, gemini: 0 },
   })
+}
+
+/**
+ * The genuine account-store operations, given the account file's canonical
+ * path. The store refuses an account file whose parent directories pass
+ * through a symbolic link, and the temporary root can (macOS's /var is
+ * one), so the canonical spelling of the same file is used.
+ */
+function storeOperations(): CliDependencies['accountStore'] {
+  const operations = createDefaultAccountStoreOperations()
+  return {
+    ...operations,
+    legacyPath: () => {
+      const file = operations.legacyPath()
+      return join(realpathSync(dirname(file)), basename(file))
+    },
+  }
 }
 
 class StringBuffer {
@@ -88,21 +115,7 @@ function buildCliDeps(overrides: Partial<CliDependencies> = {}): CliTestHandle {
       projectId: 'project-injected',
       managedProjectId: 'managed-injected',
     }),
-    loadAccounts: async () => ({
-      version: 4 as const,
-      accounts: [
-        {
-          email: 'cli@example.test',
-          refreshToken: 'refresh-cli',
-          projectId: 'project-cli',
-          managedProjectId: 'managed-cli',
-          addedAt: FIXED_NOW - 10_000,
-          lastUsed: FIXED_NOW - 5_000,
-        },
-      ],
-      activeIndex: 0,
-      activeIndexByFamily: { claude: 0, gemini: 0 },
-    }),
+    loadAccounts,
     getQuota: async () => [
       {
         index: 0,
@@ -121,6 +134,7 @@ function buildCliDeps(overrides: Partial<CliDependencies> = {}): CliTestHandle {
         },
       },
     ],
+    accountStore: storeOperations(),
     ...overrides,
   }
   return { deps, stdout, stderr }
@@ -218,6 +232,59 @@ describe('cli flow (e2e)', () => {
     const exit = await runCli(['quota'], handle.deps)
     expect(exit).toBe(1)
     expect(handle.stderr.text()).toContain('quota-fetch-failed')
+  })
+
+  it('migrates the seeded account file offline, then lists and quotas from the store', async () => {
+    await seedAccounts()
+    const migrate = buildCliDeps()
+    expect(await runCli(['migrate', '--offline', '--yes'], migrate.deps)).toBe(
+      0,
+    )
+    expect(migrate.stderr.text()).toBe('')
+    // After migration the account file is retired: list and quota must come
+    // from the store, never from the file reader.
+    let fileReads = 0
+    const list = buildCliDeps({
+      loadAccounts: async () => {
+        fileReads += 1
+        return loadAccounts()
+      },
+    })
+    expect(await runCli(['list', '--json'], list.deps)).toBe(0)
+    const listed = JSON.parse(list.stdout.text()) as {
+      accounts: Array<{ email: string }>
+    }
+    expect(listed.accounts.map((account) => account.email)).toEqual([
+      'cli@example.test',
+    ])
+    expect(list.stdout.text()).not.toContain('refresh-cli')
+    let quotaEmails: Array<string | undefined> = []
+    const quota = buildCliDeps({
+      loadAccounts: async () => {
+        fileReads += 1
+        return loadAccounts()
+      },
+      getQuota: async (accounts) => {
+        quotaEmails = accounts.map((account) => account.email)
+        return []
+      },
+    })
+    expect(await runCli(['quota', '--json'], quota.deps)).toBe(0)
+    expect(quotaEmails).toEqual(['cli@example.test'])
+    expect(fileReads).toBe(0)
+  })
+
+  it('refuses migrate without --offline and without the typed confirmation', async () => {
+    await seedAccounts()
+    const missingFlag = buildCliDeps()
+    expect(await runCli(['migrate'], missingFlag.deps)).toBe(2)
+    const declined = buildCliDeps({ prompt: async () => 'no' })
+    expect(await runCli(['migrate', '--offline'], declined.deps)).toBe(1)
+    expect(declined.stderr.text()).toContain('nothing was changed')
+    // Nothing moved: the account file is still the source.
+    const list = buildCliDeps()
+    expect(await runCli(['list', '--json'], list.deps)).toBe(0)
+    expect(list.stdout.text()).toContain('cli@example.test')
   })
 
   it('returns exit 1 when login performLogin throws', async () => {
