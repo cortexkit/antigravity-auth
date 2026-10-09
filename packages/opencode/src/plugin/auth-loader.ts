@@ -1,12 +1,21 @@
 import { createHash } from 'node:crypto'
-import { getHealthTracker } from '@cortexkit/antigravity-auth-core'
+import {
+  type AccountManager as CoreAccountManager,
+  createAccountRepositoryFactory,
+  getHealthTracker,
+  loadCommonAuthStoreModules,
+} from '@cortexkit/antigravity-auth-core'
 import {
   buildSidebarMachineStateFromAccounts,
   isAccountCurrent,
   setSidebarMachineState,
   toCapturedTier,
 } from '../sidebar-state'
-import { AccountManager } from './accounts'
+import {
+  AccountManager,
+  createLocalAccountCredentials,
+  loadAccountManagerFromRepository,
+} from './accounts'
 import { isOAuthAuth } from './auth'
 import {
   buildAuthFromStoredAccount,
@@ -17,14 +26,19 @@ import { getLogFilePath, isDebugEnabled } from './debug'
 import type { PluginLifecycle } from './lifecycle'
 import { createLogger } from './logger'
 import {
+  createLocationProactiveRefreshQueue,
   createProactiveRefreshQueue,
   type ProactiveRefreshQueue,
 } from './refresh-queue'
 import {
   AccountStorageUnreadableError,
+  type AccountStoreOpening,
   clearAccounts,
+  initializeFreshAccountStoreFor,
   loadAccounts,
+  openAccountStore,
 } from './storage'
+import { createAntigravityTokenExchange } from './token'
 import type {
   GetAuth,
   LoaderResult,
@@ -52,8 +66,15 @@ export interface AuthFetchRuntime {
   dispose(): Promise<void> | void
 }
 
+/**
+ * The account manager request routing uses for this plugin's account pool:
+ * the pool-file manager until that pool is migrated to the account store,
+ * then the core manager whose accounts come from the store's repository.
+ */
+export type RuntimeAccountManager = AccountManager | CoreAccountManager
+
 export type CreateAuthFetch = (input: {
-  accountManager: AccountManager
+  accountManager: RuntimeAccountManager
   getAuth: GetAuth
 }) => AuthFetchRuntime
 
@@ -76,6 +97,23 @@ export type ReloadAccountRuntime = (getAuth: GetAuth) => Promise<void>
 export interface AuthLoaderHandle {
   load: LoadAndInstallRuntime
   reload: ReloadAccountRuntime
+  /**
+   * This plugin's single opening of its account pool's store. OAuth
+   * additions and account commands must use this same opening, so they
+   * write through the very repository request routing reads.
+   */
+  accountStore(): Promise<AccountStoreOpening>
+  /** Whether that opening leaves the pool file as the source of accounts. */
+  usesPoolFile(opening: AccountStoreOpening): boolean
+  /**
+   * The explicit first-account step of a genuinely fresh installation: when
+   * the plugin's account pool has neither a pool file nor a store
+   * (`initialization-required`), creates an empty account store and opens
+   * it, so the first login is admitted by the store rather than written to
+   * a new pool file. Any other opening is returned unchanged; nothing is
+   * initialized over an existing pool file or store.
+   */
+  initializeFreshStore(): Promise<AccountStoreOpening>
 }
 
 interface AuthLoaderDependencies {
@@ -85,8 +123,48 @@ interface AuthLoaderDependencies {
     auth: Parameters<typeof AccountManager.loadFromDisk>[0],
   ): Promise<AccountManager>
   createRefreshQueue: typeof createProactiveRefreshQueue
+  /** The proactive queue of a store-backed manager; see `installRuntime`. */
+  createStoreRefreshQueue: typeof createLocationProactiveRefreshQueue
+  /** Creates the empty store of a fresh installation. */
+  initializeFreshStore(): Promise<{ status: string }>
   isDebugEnabled: typeof isDebugEnabled
   getLogFilePath: typeof getLogFilePath
+  /**
+   * Opens the account store (`openAccountStore`). The pool file is loaded
+   * only while the migration has published no store pointer: nothing exists
+   * yet (`initialization-required`) or only the pool file does
+   * (`migration-required`). Once a pointer names a store generation, every
+   * other answer (pending work, rollback, invalid journal or files) stops
+   * the loader; it never falls back to the retired pool file.
+   */
+  openAccountStore(): Promise<AccountStoreOpening>
+}
+
+async function initializeDefaultFreshStore(): Promise<{ status: string }> {
+  return initializeFreshAccountStoreFor(await loadCommonAuthStoreModules())
+}
+
+async function openDefaultAccountStore(): Promise<AccountStoreOpening> {
+  const modules = await loadCommonAuthStoreModules()
+  return openAccountStore({
+    modules,
+    createRepository: createAccountRepositoryFactory(modules),
+    exchange: createAntigravityTokenExchange(),
+  })
+}
+
+/**
+ * Whether the pool file is still the source of the plugin's accounts: the
+ * migration has published no store pointer (nothing exists yet, or only the
+ * pool file does, awaiting the offline migration). Once a pointer names a
+ * store generation, the pool file is never used again, whatever state that
+ * store is in.
+ */
+function usesPoolFile(opening: AccountStoreOpening): boolean {
+  return (
+    opening.status === 'initialization-required' ||
+    opening.status === 'migration-required'
+  )
 }
 
 interface CreateAuthLoaderOptions {
@@ -116,8 +194,42 @@ export function createAuthLoader({
       ((auth) => AccountManager.loadFromDisk(auth)),
     createRefreshQueue:
       dependencies?.createRefreshQueue ?? createProactiveRefreshQueue,
+    createStoreRefreshQueue:
+      dependencies?.createStoreRefreshQueue ??
+      createLocationProactiveRefreshQueue,
+    initializeFreshStore:
+      dependencies?.initializeFreshStore ?? initializeDefaultFreshStore,
     isDebugEnabled: dependencies?.isDebugEnabled ?? isDebugEnabled,
     getLogFilePath: dependencies?.getLogFilePath ?? getLogFilePath,
+    openAccountStore: dependencies?.openAccountStore ?? openDefaultAccountStore,
+  }
+  // The account store is opened once per plugin; reloads read the same
+  // repository again, and it is closed with the plugin.
+  let storeOpening: Promise<AccountStoreOpening> | null = null
+  const openStore = (): Promise<AccountStoreOpening> => {
+    storeOpening ??= deps.openAccountStore().then((opening) => {
+      if (opening.status === 'ready') {
+        lifecycle.register({
+          async dispose() {
+            await opening.repository.dispose()
+          },
+        })
+      }
+      return opening
+    })
+    return storeOpening
+  }
+  const initializeFreshStore = async (): Promise<AccountStoreOpening> => {
+    const opening = await openStore()
+    if (opening.status !== 'initialization-required') return opening
+    const initialized = await deps.initializeFreshStore()
+    if (initialized.status !== 'completed') {
+      throw new Error(
+        'The new account store could not be created yet; try again',
+      )
+    }
+    storeOpening = null
+    return openStore()
   }
   let fetchRuntime: AuthFetchRuntime | null = null
   // Reload chain — `installRuntime` swaps the fetch runtime and
@@ -146,24 +258,46 @@ export function createAuthLoader({
   let reloadRuntime: ReloadAccountRuntime = async () => {}
 
   const installRuntime = async (
-    accountManager: AccountManager,
+    accountManager: RuntimeAccountManager,
     getAuth: GetAuth,
+    source: 'pool-file' | 'store',
   ): Promise<void> => {
     if (accountManager.getAccountCount() > 0) {
       accountManager.requestSaveToDisk()
     }
 
+    // Proactive refresh. The pool-file queue refreshes through the host
+    // client and writes the new token back into the pool-file record; for a
+    // store-backed manager that would bypass the store, which accepts a new
+    // token only from the repository's own refresh fenced on the row's
+    // credential. So a store-backed manager gets its own queue whose
+    // refresher is `createLocalAccountCredentials(manager).refresh`: each
+    // due account is refreshed through the repository on that account's
+    // RowRef, and the host client is never used.
     let refreshQueue: ProactiveRefreshQueue | null = null
+    const queueConfig = {
+      enabled: config.proactive_token_refresh,
+      bufferSeconds: config.proactive_refresh_buffer_seconds,
+      checkIntervalSeconds: config.proactive_refresh_check_interval_seconds,
+    }
     if (
       config.proactive_token_refresh &&
       accountManager.getAccountCount() > 0
     ) {
-      refreshQueue = deps.createRefreshQueue(client, providerId, {
-        enabled: config.proactive_token_refresh,
-        bufferSeconds: config.proactive_refresh_buffer_seconds,
-        checkIntervalSeconds: config.proactive_refresh_check_interval_seconds,
-      })
-      refreshQueue.setAccountManager(accountManager)
+      if (source === 'pool-file' && accountManager instanceof AccountManager) {
+        refreshQueue = deps.createRefreshQueue(client, providerId, queueConfig)
+        refreshQueue.setAccountManager(accountManager)
+      } else if (source === 'store') {
+        const credentials = createLocalAccountCredentials(accountManager)
+        refreshQueue = deps.createStoreRefreshQueue(
+          {
+            logger: log,
+            refreshToken: (_auth, account) => credentials.refresh(account),
+          },
+          queueConfig,
+        )
+        refreshQueue.setAccountManager(accountManager)
+      }
     }
 
     await lifecycle.replaceAccountRuntime(accountManager, refreshQueue)
@@ -215,6 +349,38 @@ export function createAuthLoader({
   ): Promise<LoaderResult | Record<string, unknown>> {
     onGetAuth?.(getAuth)
     let auth = await getAuth()
+
+    const opening = await openStore()
+    if (opening.status === 'ready') {
+      // This plugin's account pool now comes only from the store's
+      // repository; the retired pool file is never read or cleared here.
+      if (!isOAuthAuth(auth)) {
+        log.warn(
+          'The host holds no Antigravity sign-in; the account store is left untouched',
+        )
+        return {}
+      }
+      const accountManager = await loadAccountManagerFromRepository(
+        opening.repository,
+      )
+      await installRuntime(accountManager, getAuth, 'store')
+      return finishLoad(provider)
+    }
+    if (!usesPoolFile(opening)) {
+      const message =
+        opening.status === 'refused' || opening.status === 'recovery-required'
+          ? opening.message
+          : 'The Antigravity account store cannot be opened'
+      log.error('Refusing to start: the account store cannot serve', {
+        message,
+      })
+      try {
+        await client.tui.showToast({
+          body: { message, variant: 'error', duration: 30_000 },
+        })
+      } catch {}
+      throw new Error(message)
+    }
 
     if (!isOAuthAuth(auth)) {
       let storedAccounts: Awaited<ReturnType<typeof loadAccounts>>
@@ -278,8 +444,13 @@ export function createAuthLoader({
     }
 
     const accountManager = await deps.loadAccountManager(auth)
-    await installRuntime(accountManager, getAuth)
+    await installRuntime(accountManager, getAuth, 'pool-file')
+    return finishLoad(provider)
+  }
 
+  async function finishLoad(
+    provider: Provider,
+  ): Promise<LoaderResult | Record<string, unknown>> {
     if (deps.isDebugEnabled()) {
       const logPath = deps.getLogFilePath()
       if (logPath) {
@@ -313,8 +484,17 @@ export function createAuthLoader({
   reloadRuntime = async (getAuth: GetAuth): Promise<void> => {
     const auth = await getAuth()
     if (!isOAuthAuth(auth)) return
+    const opening = await openStore()
+    if (opening.status === 'ready') {
+      const nextManager = await loadAccountManagerFromRepository(
+        opening.repository,
+      )
+      await installRuntime(nextManager, getAuth, 'store')
+      return
+    }
+    if (!usesPoolFile(opening)) return
     const nextManager = await deps.loadAccountManager(auth)
-    await installRuntime(nextManager, getAuth)
+    await installRuntime(nextManager, getAuth, 'pool-file')
   }
 
   // Return a callable object: `plugin.auth.loader` is invoked with
@@ -340,6 +520,9 @@ export function createAuthLoader({
   const authLoader = Object.assign(authLoaderCallable, {
     reload,
     load: authLoaderCallable,
+    accountStore: openStore,
+    usesPoolFile,
+    initializeFreshStore,
   })
   return authLoader as LoadAndInstallRuntime & AuthLoaderHandle
 }

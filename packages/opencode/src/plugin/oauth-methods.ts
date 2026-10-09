@@ -1,16 +1,24 @@
 import { exec } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { type RowRef, sameRowRef } from '@cortexkit/antigravity-auth-core'
 import type { AuthOAuthResult as V1AuthOAuthResult } from '@opencode-ai/plugin'
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
 import {
   authorizeAntigravity as defaultAuthorizeAntigravity,
   exchangeAntigravity as defaultExchangeAntigravity,
 } from '../antigravity/oauth'
-import type { AccountAccessService } from './account-access'
+import type {
+  AccountAccessService,
+  RepositoryAccountAccessService,
+  VerificationOutcome,
+  VerificationProbeResult,
+} from './account-access'
 import {
+  AccountChangedDuringReauthorizationError,
   clearStoredAccountAccessBlocks,
   markStoredAccountIneligible,
   markStoredAccountVerificationRequired,
+  storageViewOfRows,
 } from './account-access'
 import { formatRefreshParts, parseRefreshParts } from './auth'
 import { createAuthDoctorReport, formatAuthDoctorReport } from './auth-doctor'
@@ -449,7 +457,104 @@ export function createOAuthMethods({
           // Check for existing accounts and prompt user for login mode
           let startFresh = true
           let refreshAccountIndex: number | undefined
-          const existingStorage = await loadAccounts()
+          // Store mode: the row refs read together with the listing, by
+          // position, so every action names the exact row the user picked.
+          let refreshAccountRef: RowRef | undefined
+          const source = await accountAccess.source()
+          const storeAccess =
+            source === 'pool-file'
+              ? undefined
+              : accountAccess.repositoryAccess(source)
+          let storeRefs: readonly RowRef[] | undefined
+          let existingStorage: Awaited<ReturnType<typeof loadAccounts>>
+          if (source === 'pool-file') {
+            existingStorage = await loadAccounts()
+          } else {
+            const read = await source.read()
+            if (read.status !== 'ready') {
+              throw new Error(
+                `The account store cannot list accounts (${read.status})`,
+              )
+            }
+            existingStorage = storageViewOfRows(read.rows)
+            storeRefs = read.rows.map((row) => row.ref)
+          }
+          /**
+           * Probes the listed account at `index`. In store mode the probe's
+           * bearer comes from the repository's attributed refresh of that
+           * row's ref; the pool-file path refreshes the listed record.
+           */
+          const checkListedAccount = async (
+            index: number,
+            account: AccountMetadataV3,
+          ): Promise<{
+            verification: VerificationProbeResult
+            outcome?: VerificationOutcome
+          }> => {
+            if (storeAccess === undefined) {
+              return { verification: await verifyAccountAccess(account) }
+            }
+            const ref = storeRefs?.[index]
+            if (ref === undefined) {
+              return {
+                verification: {
+                  status: 'error',
+                  message: 'This account is no longer listed.',
+                },
+              }
+            }
+            const outcome = await storeAccess.verifyAccount({ ref })
+            return { verification: outcome.result, outcome }
+          }
+          /**
+           * Store mode: records a probe's verdict on the probed credential.
+           * The live manager records it when it holds exactly that ref (one
+           * attributed write that also updates routing); otherwise the
+           * repository does. A row replaced or removed meanwhile is left
+           * untouched. Returns false when nothing could be recorded.
+           */
+          const recordStoreVerdict = async (
+            access: RepositoryAccountAccessService,
+            outcome: VerificationOutcome,
+            wasAccessBlocked: boolean,
+          ): Promise<boolean> => {
+            if (outcome.status !== 'probed') return false
+            const manager = lifecycle.getAccountManager()
+            const managed = manager
+              ?.getAccounts()
+              .find(
+                (candidate) =>
+                  candidate.ref !== undefined &&
+                  sameRowRef(candidate.ref, outcome.ref),
+              )
+            if (manager && managed) {
+              const result = outcome.result
+              if (result.status === 'ok') {
+                manager.clearAccountAccessBlocks(
+                  managed.index,
+                  wasAccessBlocked,
+                )
+              } else if (result.status === 'verification-required') {
+                manager.markAccountVerificationRequired(
+                  managed.index,
+                  result.message,
+                  result.verifyUrl,
+                )
+              } else if (result.status === 'ineligible') {
+                manager.markAccountIneligible(managed.index, result.message)
+              }
+              return result.status !== 'error'
+            }
+            const applied = await access.applyVerificationResult(outcome, {
+              enableIfBlocked: true,
+            })
+            if (applied.status === 'stale') {
+              console.log(
+                'This account changed while it was checked; the result was not recorded.',
+              )
+            }
+            return applied.status === 'applied'
+          }
           if (existingStorage && existingStorage.accounts.length > 0) {
             let menuResult: Awaited<ReturnType<typeof promptLoginMode>>
             while (true) {
@@ -848,11 +953,27 @@ export function createOAuthMethods({
                       `- [${i + 1}/${existingStorage.accounts.length}] ${label} ... `,
                     )
 
-                    const verification = await verifyAccountAccess(account)
+                    const { verification, outcome } = await checkListedAccount(
+                      i,
+                      account,
+                    )
+                    if (storeAccess !== undefined && outcome !== undefined) {
+                      await recordStoreVerdict(
+                        storeAccess,
+                        outcome,
+                        account.verificationRequired === true ||
+                          account.accountIneligible === true,
+                      )
+                    }
                     if (verification.status === 'ok') {
                       const wasAccessBlocked =
                         account.verificationRequired === true ||
                         account.accountIneligible === true
+                      if (storeAccess !== undefined) {
+                        okCount += 1
+                        console.log('ok')
+                        continue
+                      }
                       if (account.refreshToken) {
                         await mutateAccountByRefreshToken(
                           account.refreshToken,
@@ -869,24 +990,26 @@ export function createOAuthMethods({
                     }
 
                     if (verification.status === 'verification-required') {
-                      if (account.refreshToken) {
-                        await mutateAccountByRefreshToken(
-                          account.refreshToken,
-                          (acc) =>
-                            markStoredAccountVerificationRequired(
-                              acc,
-                              verification.message,
-                              verification.verifyUrl,
-                            ),
-                        )
+                      if (storeAccess === undefined) {
+                        if (account.refreshToken) {
+                          await mutateAccountByRefreshToken(
+                            account.refreshToken,
+                            (acc) =>
+                              markStoredAccountVerificationRequired(
+                                acc,
+                                verification.message,
+                                verification.verifyUrl,
+                              ),
+                          )
+                        }
+                        lifecycle
+                          .getAccountManager()
+                          ?.markAccountVerificationRequired(
+                            i,
+                            verification.message,
+                            verification.verifyUrl,
+                          )
                       }
-                      lifecycle
-                        .getAccountManager()
-                        ?.markAccountVerificationRequired(
-                          i,
-                          verification.message,
-                          verification.verifyUrl,
-                        )
 
                       blockedCount += 1
                       console.log('needs verification')
@@ -901,19 +1024,21 @@ export function createOAuthMethods({
                     }
 
                     if (verification.status === 'ineligible') {
-                      if (account.refreshToken) {
-                        await mutateAccountByRefreshToken(
-                          account.refreshToken,
-                          (acc) =>
-                            markStoredAccountIneligible(
-                              acc,
-                              verification.message,
-                            ),
-                        )
+                      if (storeAccess === undefined) {
+                        if (account.refreshToken) {
+                          await mutateAccountByRefreshToken(
+                            account.refreshToken,
+                            (acc) =>
+                              markStoredAccountIneligible(
+                                acc,
+                                verification.message,
+                              ),
+                          )
+                        }
+                        lifecycle
+                          .getAccountManager()
+                          ?.markAccountIneligible(i, verification.message)
                       }
-                      lifecycle
-                        .getAccountManager()
-                        ?.markAccountIneligible(i, verification.message)
                       ineligibleCount += 1
                       console.log('ineligible')
                       continue
@@ -970,27 +1095,44 @@ export function createOAuthMethods({
                   account.email || `Account ${verifyAccountIndex + 1}`
                 console.log(`\nChecking verification status for ${label}...\n`)
 
-                const verification = await verifyAccountAccess(account)
+                const { verification, outcome } = await checkListedAccount(
+                  verifyAccountIndex,
+                  account,
+                )
+                const storeRecorded =
+                  storeAccess !== undefined && outcome !== undefined
+                    ? await recordStoreVerdict(
+                        storeAccess,
+                        outcome,
+                        account.verificationRequired === true ||
+                          account.accountIneligible === true,
+                      )
+                    : false
 
                 if (verification.status === 'ok') {
                   const wasAccessBlocked =
                     account.verificationRequired === true ||
                     account.accountIneligible === true
-                  if (account.refreshToken) {
-                    await mutateAccountByRefreshToken(
-                      account.refreshToken,
-                      (acc) =>
-                        clearStoredAccountAccessBlocks(acc, true).changed,
-                    )
+                  if (storeAccess === undefined) {
+                    if (account.refreshToken) {
+                      await mutateAccountByRefreshToken(
+                        account.refreshToken,
+                        (acc) =>
+                          clearStoredAccountAccessBlocks(acc, true).changed,
+                      )
+                    }
+                    lifecycle
+                      .getAccountManager()
+                      ?.clearAccountAccessBlocks(
+                        verifyAccountIndex,
+                        wasAccessBlocked,
+                      )
                   }
-                  lifecycle
-                    .getAccountManager()
-                    ?.clearAccountAccessBlocks(
-                      verifyAccountIndex,
-                      wasAccessBlocked,
-                    )
 
-                  if (wasAccessBlocked) {
+                  if (
+                    wasAccessBlocked &&
+                    (storeAccess === undefined || storeRecorded)
+                  ) {
                     console.log(
                       `✓ ${label} is ready for requests and has been re-enabled.\n`,
                     )
@@ -1001,24 +1143,26 @@ export function createOAuthMethods({
                 }
 
                 if (verification.status === 'verification-required') {
-                  if (account.refreshToken) {
-                    await mutateAccountByRefreshToken(
-                      account.refreshToken,
-                      (acc) =>
-                        markStoredAccountVerificationRequired(
-                          acc,
-                          verification.message,
-                          verification.verifyUrl,
-                        ),
-                    )
+                  if (storeAccess === undefined) {
+                    if (account.refreshToken) {
+                      await mutateAccountByRefreshToken(
+                        account.refreshToken,
+                        (acc) =>
+                          markStoredAccountVerificationRequired(
+                            acc,
+                            verification.message,
+                            verification.verifyUrl,
+                          ),
+                      )
+                    }
+                    lifecycle
+                      .getAccountManager()
+                      ?.markAccountVerificationRequired(
+                        verifyAccountIndex,
+                        verification.message,
+                        verification.verifyUrl,
+                      )
                   }
-                  lifecycle
-                    .getAccountManager()
-                    ?.markAccountVerificationRequired(
-                      verifyAccountIndex,
-                      verification.message,
-                      verification.verifyUrl,
-                    )
 
                   const verifyUrl =
                     verification.verifyUrl ?? account.verificationUrl
@@ -1054,19 +1198,24 @@ export function createOAuthMethods({
                 }
 
                 if (verification.status === 'ineligible') {
-                  if (account.refreshToken) {
-                    await mutateAccountByRefreshToken(
-                      account.refreshToken,
-                      (acc) =>
-                        markStoredAccountIneligible(acc, verification.message),
-                    )
+                  if (storeAccess === undefined) {
+                    if (account.refreshToken) {
+                      await mutateAccountByRefreshToken(
+                        account.refreshToken,
+                        (acc) =>
+                          markStoredAccountIneligible(
+                            acc,
+                            verification.message,
+                          ),
+                      )
+                    }
+                    lifecycle
+                      .getAccountManager()
+                      ?.markAccountIneligible(
+                        verifyAccountIndex,
+                        verification.message,
+                      )
                   }
-                  lifecycle
-                    .getAccountManager()
-                    ?.markAccountIneligible(
-                      verifyAccountIndex,
-                      verification.message,
-                    )
                   console.log(
                     `⚠ ${label} is not eligible for Antigravity and has been disabled.`,
                   )
@@ -1188,6 +1337,7 @@ export function createOAuthMethods({
 
             if (menuResult.refreshAccountIndex !== undefined) {
               refreshAccountIndex = menuResult.refreshAccountIndex
+              refreshAccountRef = storeRefs?.[refreshAccountIndex]
               const refreshEmail =
                 existingStorage.accounts[refreshAccountIndex]?.email
               console.log(
@@ -1413,6 +1563,21 @@ export function createOAuthMethods({
             try {
               if (
                 !persistedBySharedService &&
+                refreshAccountIndex !== undefined &&
+                storeAccess !== undefined
+              ) {
+                // The new credential replaces exactly the row picked from
+                // the listing, at the epoch it was listed with; a row
+                // changed meanwhile, or a sign-in to another account,
+                // refuses with nothing written.
+                if (refreshAccountRef === undefined) {
+                  throw new AccountChangedDuringReauthorizationError(
+                    `listed-${refreshAccountIndex}`,
+                  )
+                }
+                await storeAccess.reauthorizeAccount(refreshAccountRef, result)
+              } else if (
+                !persistedBySharedService &&
                 refreshAccountIndex !== undefined
               ) {
                 const currentStorage = await loadAccounts()
@@ -1457,7 +1622,10 @@ export function createOAuthMethods({
               // Fail loud on unreadable storage: re-throw so the
               // outer OAuth flow can surface a toast and abort the
               // login instead of silently dropping the new account.
-              if (error instanceof AccountStorageUnreadableError) {
+              if (
+                error instanceof AccountStorageUnreadableError ||
+                error instanceof AccountChangedDuringReauthorizationError
+              ) {
                 throw error
               }
               // Transient (lock contention, I/O hiccup) → continue.

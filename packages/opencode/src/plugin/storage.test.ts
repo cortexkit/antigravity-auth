@@ -11,15 +11,14 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { dirname, join } from 'node:path'
 import {
-  type AccountMigrationModules,
   type AccountRepository,
-  type AccountStoreModules,
   type AccountTokenExchange,
+  type CommonAuthStoreModules,
   createAccountMigrationFactory,
   createAccountRepositoryFactory,
+  loadCommonAuthStoreModules,
 } from '@cortexkit/antigravity-auth-core'
 import { createRepositoryAccountAccessService } from './account-access'
 import {
@@ -46,6 +45,7 @@ import {
   mutateAccountStorage,
   type OpenAccountStoreOptions,
   openAccountStore,
+  openAccountStoreForRecovery,
   saveAccounts,
   saveAccountsReplace,
 } from './storage'
@@ -783,18 +783,15 @@ describe('openAccountStore', () => {
     expect(await readdir(configDir)).toEqual([])
   })
 
-  it('refuses an existing pool file without a store as pending migration, naming the offline command', async () => {
+  it('answers migration-required for an existing pool file without a store, naming the offline command', async () => {
     await saveAccountsReplace({ version: 4, accounts: [], activeIndex: 0 })
     const before = await readdir(configDir)
     const { built, options: open } = options()
     const opening = await openAccountStore(open)
-    expect(opening).toMatchObject({
-      status: 'refused',
-      admission: { status: 'pending' },
-    })
-    expect(opening.status === 'refused' ? opening.message : '').toContain(
-      'antigravity-auth account-store migrate --offline',
-    )
+    expect(opening.status).toBe('migration-required')
+    expect(
+      opening.status === 'migration-required' ? opening.message : '',
+    ).toContain('`antigravity-auth migrate --offline`')
     expect(built).toEqual([])
     expect(await readdir(configDir)).toEqual(before)
   })
@@ -814,93 +811,89 @@ describe('openAccountStore', () => {
 // Genuine published store
 //
 // These run the adapters against common-auth's genuine public `./store` and
-// `./fs` entries and the migration's real admission, publication and
-// retirement, in disposable directories. The modules are loaded the way a
-// package consumer loads them: AGY_COMMON_AUTH_STORE_CONSUMER names a
-// directory holding `node_modules/@cortexkit/common-auth` (the admitted
-// release) and two bridges that re-export exactly `@cortexkit/common-auth/store`
-// and `@cortexkit/common-auth/fs`. The consumer is checked before anything is
-// imported, so a missing or different input fails these tests instead of
-// skipping them or substituting a stand-in.
+// `./fs` entries and the migration's real binding, admission, publication
+// and retirement, in disposable directories. The entries are the released
+// common-auth copy embedded in the core package, loaded through its typed
+// `loadCommonAuthStoreModules`. Before loading, the embedding receipt
+// (`source-output.json`) must name the released 0.11.6 archive, and every
+// store and fs file must match the size and SHA-256 it records, with no
+// unrecorded file; anything else fails these tests instead of skipping them.
 // ---------------------------------------------------------------------------
 
-const CONSUMER_ENV = 'AGY_COMMON_AUTH_STORE_CONSUMER'
-const ADMITTED_VERSION = '0.11.4'
-/**
- * SHA-256 over the sorted lines `<path>\0<sha256>\n` of `package.json` and
- * every file under `dist/store/` and `dist/fs/` of the admitted package (the
- * digest the repository's own real-store tests admit).
- */
-const ADMITTED_CLOSURE_SHA256 =
-  '1457c1741246d51c5aa311b60d7f2e17a760b861e4fdb880033d92b60869bc6a'
-const BRIDGES = {
-  store: ['store-bridge.mjs', "export * from '@cortexkit/common-auth/store'\n"],
-  fs: ['fs-bridge.mjs', "export * from '@cortexkit/common-auth/fs'\n"],
+const RELEASED_COMMON_AUTH = {
+  package: '@cortexkit/common-auth',
+  version: '0.11.6',
+  tarballSha256:
+    '2e1cbbdd2c5e75bbeecada6a64b93c29b64c5d3b41d3742312e1390cfaa6d9df',
 } as const
 
-async function filesBelow(root: string, dir: string): Promise<string[]> {
+async function embeddedFilesBelow(
+  root: string,
+  dir: string,
+): Promise<string[]> {
   const out: string[] = []
   for (const entry of await readdir(join(root, dir), { withFileTypes: true })) {
     const path = `${dir}/${entry.name}`
-    if (entry.isDirectory()) out.push(...(await filesBelow(root, path)))
+    if (entry.isDirectory()) out.push(...(await embeddedFilesBelow(root, path)))
     else out.push(path)
   }
   return out
 }
 
-interface GenuineModules {
-  migration: AccountMigrationModules
-  repository: AccountStoreModules
-}
+let genuine: Promise<CommonAuthStoreModules> | undefined
 
-let genuine: Promise<GenuineModules> | undefined
-
-function genuineModules(): Promise<GenuineModules> {
+/** The released store and fs entries, after their embedding receipt checks out. */
+function genuineModules(): Promise<CommonAuthStoreModules> {
   genuine ??= (async () => {
-    const consumer = process.env[CONSUMER_ENV]
-    if (!consumer) {
-      throw new Error(
-        `${CONSUMER_ENV} is not set: these tests need a consumer of @cortexkit/common-auth ${ADMITTED_VERSION}`,
-      )
+    const root = dirname(
+      dirname(
+        Bun.resolveSync(
+          '@cortexkit/antigravity-auth-core/common-auth/store',
+          import.meta.dir,
+        ),
+      ),
+    )
+    const receipt = JSON.parse(
+      await readFile(join(root, 'source-output.json'), 'utf8'),
+    ) as {
+      package?: unknown
+      version?: unknown
+      artifactStatus?: unknown
+      tarballSha256?: unknown
+      files?: Array<{ output: string; bytes: number; outputSha256: string }>
     }
-    const root = join(consumer, 'node_modules', '@cortexkit', 'common-auth')
-    const manifest = JSON.parse(
-      await readFile(join(root, 'package.json'), 'utf8'),
-    ) as { name?: unknown; version?: unknown }
     if (
-      manifest.name !== '@cortexkit/common-auth' ||
-      manifest.version !== ADMITTED_VERSION
+      receipt.package !== RELEASED_COMMON_AUTH.package ||
+      receipt.version !== RELEASED_COMMON_AUTH.version ||
+      receipt.artifactStatus !== 'released' ||
+      receipt.tarballSha256 !== RELEASED_COMMON_AUTH.tarballSha256 ||
+      !Array.isArray(receipt.files)
     ) {
       throw new Error(
-        `${root} is not @cortexkit/common-auth ${ADMITTED_VERSION}`,
+        `the embedded common-auth receipt is not the released ${RELEASED_COMMON_AUTH.version}`,
       )
     }
-    const files = [
-      'package.json',
-      ...(await filesBelow(root, 'dist/store')),
-      ...(await filesBelow(root, 'dist/fs')),
+    const recorded = receipt.files.filter((file) =>
+      /^(store|fs)\//.test(file.output),
+    )
+    const present = [
+      ...(await embeddedFilesBelow(root, 'store')),
+      ...(await embeddedFilesBelow(root, 'fs')),
     ].sort()
-    let lines = ''
-    for (const file of files) {
-      const bytes = await readFile(join(root, file))
-      lines += `${file}\0${createHash('sha256').update(bytes).digest('hex')}\n`
+    if (
+      JSON.stringify(present) !==
+      JSON.stringify(recorded.map((file) => file.output).sort())
+    ) {
+      throw new Error('embedded store/fs files differ from the receipt')
     }
-    const digest = createHash('sha256').update(lines).digest('hex')
-    if (digest !== ADMITTED_CLOSURE_SHA256) {
-      throw new Error(`store closure digest ${digest} is not the admitted one`)
-    }
-    const loaded: Record<string, unknown> = {}
-    for (const [key, [file, source]] of Object.entries(BRIDGES)) {
-      const bridge = join(consumer, file)
-      if ((await readFile(bridge, 'utf8')) !== source) {
-        throw new Error(`${bridge} must contain exactly: ${source}`)
+    for (const file of recorded) {
+      const bytes = await readFile(join(root, file.output))
+      const sha256 = createHash('sha256').update(bytes).digest('hex')
+      if (bytes.length !== file.bytes || sha256 !== file.outputSha256) {
+        throw new Error(`embedded ${file.output} differs from the receipt`)
       }
-      loaded[key] = await import(pathToFileURL(bridge).href)
     }
-    // The genuine module namespaces; the repository and migration declare
-    // the public capabilities they call as structural types.
-    const modules = { store: loaded.store, fs: loaded.fs } as never
-    return { migration: modules, repository: modules }
+    return loadCommonAuthStoreModules()
   })()
   return genuine
 }
@@ -930,8 +923,8 @@ describe('account store over the genuine published store', () => {
   ) {
     const modules = await genuineModules()
     const opening = await openAccountStore({
-      modules: modules.migration,
-      createRepository: createAccountRepositoryFactory(modules.repository),
+      modules: modules,
+      createRepository: createAccountRepositoryFactory(modules),
       exchange,
     })
     if (opening.status === 'ready') opened.push(opening.repository)
@@ -953,7 +946,7 @@ describe('account store over the genuine published store', () => {
       status: 'initialization-required',
     })
 
-    const initialized = await initializeFreshAccountStoreFor(modules.migration)
+    const initialized = await initializeFreshAccountStoreFor(modules)
     expect(initialized.status).toBe('completed')
 
     const opening = await open()
@@ -990,6 +983,31 @@ describe('account store over the genuine published store', () => {
     })
   })
 
+  it('binds a published generation for recovery without serving it, and binds nothing before one exists', async () => {
+    const modules = await genuineModules()
+    const options = {
+      modules,
+      createRepository: createAccountRepositoryFactory(modules),
+      exchange: async (): Promise<never> => {
+        throw new Error('this test performs no token exchange')
+      },
+    }
+    await expect(openAccountStoreForRecovery(options)).resolves.toEqual({
+      status: 'initialization-required',
+    })
+    expect((await initializeFreshAccountStoreFor(modules)).status).toBe(
+      'completed',
+    )
+    const recovery = await openAccountStoreForRecovery(options)
+    expect(recovery.status).toBe('bound')
+    if (recovery.status !== 'bound') return
+    opened.push(recovery.repository)
+    const serving = await open()
+    expect(serving.status).toBe('ready')
+    if (serving.status !== 'ready') return
+    expect(recovery.binding.paths).toEqual(serving.admission.paths)
+  })
+
   it('serves a migrated pool, refuses its retired file, and refuses again when the file is recreated', async () => {
     const modules = await genuineModules()
     await saveAccountsReplace({
@@ -1013,11 +1031,10 @@ describe('account store over the genuine published store', () => {
       ],
     })
     await expect(open()).resolves.toMatchObject({
-      status: 'refused',
-      admission: { status: 'pending' },
+      status: 'migration-required',
     })
 
-    const migrated = await createAccountMigrationFactory(modules.migration)({
+    const migrated = await createAccountMigrationFactory(modules)({
       legacyPath: getStoragePath(),
       offline: { processesStopped: true },
       now: () => Date.now(),
@@ -1074,9 +1091,9 @@ describe('account store over the genuine published store', () => {
 
   it('refreshes accounts concurrently and drops a verdict for a credential replaced meanwhile', async () => {
     const modules = await genuineModules()
-    expect(
-      (await initializeFreshAccountStoreFor(modules.migration)).status,
-    ).toBe('completed')
+    expect((await initializeFreshAccountStoreFor(modules)).status).toBe(
+      'completed',
+    )
     // Each exchange finishes only once both have started: refreshes that
     // were serialized across accounts would never both get there.
     let started = 0

@@ -46,6 +46,7 @@ import {
   AccountStorageUnreadableError,
   type AccountStoreAdmission,
   type AccountStoreAdmissionModules,
+  type AccountStoreBinding,
   type AccountTokenExchange,
   assertLegacyAccountStorageWritable,
   type CreateAccountRepository,
@@ -59,6 +60,7 @@ import {
   saveAccountStorageReplace as coreSaveAccountStorageReplace,
   initializeFreshAccountStore,
   readAccountStoreAdmission,
+  readAccountStoreBinding,
 } from '@cortexkit/antigravity-auth-core'
 import { createLogger } from './logger'
 
@@ -373,7 +375,7 @@ export class LegacyAccountPoolRetiredError extends Error {
 
   constructor(legacyPath: string, options?: { cause?: unknown }) {
     super(
-      `Account pool file ${legacyPath} is owned by the account store and is no longer read or written. Use the account store, or roll it back with \`antigravity-auth account-store rollback --offline\` before using an older build.`,
+      `Account pool file ${legacyPath} is owned by the account store and is no longer read or written. Use the account store, or roll it back with \`antigravity-auth rollback --offline\` before using an older build.`,
       options,
     )
     this.name = 'LegacyAccountPoolRetiredError'
@@ -394,7 +396,16 @@ export async function assertLegacyPoolInUse(legacyPath: string): Promise<void> {
   }
 }
 
-/** What opening the account store found: ready, initialization-required or refused. */
+/** Offline commands the messages below name. */
+const MIGRATE_COMMAND = 'antigravity-auth migrate --offline'
+const ROLLBACK_COMMAND = 'antigravity-auth rollback --offline'
+
+type NotServing = Exclude<
+  AccountStoreAdmission,
+  { status: 'active' } | { status: 'initialization-required' }
+>
+
+/** What opening the account store for serving found. */
 export type AccountStoreOpening =
   | {
       status: 'ready'
@@ -407,26 +418,31 @@ export type AccountStoreOpening =
    * then opens again.
    */
   | { status: 'initialization-required' }
+  /** A pool file exists and no store generation is published. */
+  | { status: 'migration-required'; message: string }
   /**
-   * The store cannot serve: a migration or rollback is pending (a pool file
-   * without a store is pending migration too), the store was rolled back
-   * (inactive), or its journal, backups or files failed validation.
-   * Nothing falls back to the pool file or to an empty pool.
+   * A published generation is bound but cannot serve: repository work (a
+   * clear or a pool replacement) is pending. Its owner resumes it through
+   * `openAccountStoreForRecovery`; nothing is served meanwhile.
    */
   | {
-      status: 'refused'
-      admission: Exclude<
-        AccountStoreAdmission,
-        { status: 'active' } | { status: 'initialization-required' }
-      >
+      status: 'recovery-required'
+      binding: Extract<AccountStoreBinding, { status: 'bound' }>
       message: string
     }
+  /**
+   * The store cannot serve: a migration or rollback is pending, the store
+   * was rolled back (inactive), or its pointer, journal, backups or files
+   * failed validation. Nothing falls back to the pool file or to an empty
+   * pool.
+   */
+  | { status: 'refused'; admission: NotServing; message: string }
 
 export interface OpenAccountStoreOptions {
   /** The genuine public common-auth `./store` module; admission uses only its read methods. */
   modules: AccountStoreAdmissionModules
   /**
-   * Builds the repository for the verified active generation's paths;
+   * Builds the repository for the verified generation's paths;
    * `createAccountRepositoryFactory(modules)`.
    */
   createRepository: CreateAccountRepository
@@ -436,14 +452,12 @@ export interface OpenAccountStoreOptions {
   legacyPath?: string
 }
 
-function refusalMessage(
-  admission: Extract<AccountStoreOpening, { status: 'refused' }>['admission'],
-): string {
+function refusalMessage(admission: NotServing): string {
   switch (admission.status) {
     case 'pending':
       return admission.operation === 'rollback'
-        ? 'An account-store rollback is pending; rerun `antigravity-auth account-store rollback --offline`.'
-        : 'Accounts must be migrated to the account store; stop every Antigravity process and run `antigravity-auth account-store migrate --offline`.'
+        ? `An account-store rollback is pending; rerun \`${ROLLBACK_COMMAND}\`.`
+        : `An account-store migration is pending; stop every Antigravity process and rerun \`${MIGRATE_COMMAND}\`.`
     case 'inactive':
       return 'The account store was rolled back; use the build that matches the restored pool file, or migrate again offline.'
     case 'error':
@@ -452,21 +466,68 @@ function refusalMessage(
 }
 
 /**
- * Opens the account store through the migration's canonical admission: the
- * repository is built only on the paths of an active, verified store
- * generation. Every other admission result is returned, never repaired: no
- * implicit fresh store, no reset after a corrupt or unavailable store and no
- * fall-through to the pool file.
+ * The published generation bound to the pool file, from the migration's
+ * canonical binding read (no second pointer or journal decoder here).
+ */
+async function bindingOf(options: OpenAccountStoreOptions): Promise<{
+  legacyPath: string
+  now: () => number
+  binding: AccountStoreBinding
+}> {
+  const now = options.now ?? (() => Date.now())
+  const legacyPath = resolve(options.legacyPath ?? getStoragePath())
+  return {
+    legacyPath,
+    now,
+    binding: await readAccountStoreBinding(legacyPath, options.modules, now),
+  }
+}
+
+/** The opening for a binding that is not `bound`. */
+function unboundOpening(
+  binding: Exclude<AccountStoreBinding, { status: 'bound' }>,
+): Exclude<AccountStoreOpening, { status: 'ready' | 'recovery-required' }> {
+  if (binding.status === 'initialization-required') {
+    return { status: 'initialization-required' }
+  }
+  // Without a published generation, `pending` means the pool file exists
+  // and has not been migrated.
+  if (
+    binding.status === 'pending' &&
+    binding.phase === undefined &&
+    binding.operation === undefined
+  ) {
+    return {
+      status: 'migration-required',
+      message: `Accounts must be moved to the account store; stop every Antigravity process and run \`${MIGRATE_COMMAND}\`.`,
+    }
+  }
+  return {
+    status: 'refused',
+    admission: binding,
+    message: refusalMessage(binding),
+  }
+}
+
+/**
+ * Opens the account store for serving. The generation is first bound
+ * through the migration's canonical binding, then admitted for serving
+ * (healthy current rows, no pending repository work) on that same
+ * generation. The repository is built only for an admitted generation;
+ * every other result is returned, never repaired: no implicit fresh store,
+ * no reset after a corrupt or unavailable store and no fall-through to the
+ * pool file.
  */
 export async function openAccountStore(
   options: OpenAccountStoreOptions,
 ): Promise<AccountStoreOpening> {
-  const now = options.now ?? (() => Date.now())
-  const legacyPath = resolve(options.legacyPath ?? getStoragePath())
+  const { legacyPath, now, binding } = await bindingOf(options)
+  if (binding.status !== 'bound') return unboundOpening(binding)
   const admission = await readAccountStoreAdmission(
     legacyPath,
     options.modules,
     now,
+    binding.receipt.id,
   )
   switch (admission.status) {
     case 'active':
@@ -479,14 +540,60 @@ export async function openAccountStore(
           exchange: options.exchange,
         }),
       }
+    case 'pending':
+      return {
+        status: 'recovery-required',
+        binding,
+        message:
+          'An account clear or pool replacement was interrupted; it must be finished before the accounts are used.',
+      }
     case 'initialization-required':
-      return { status: 'initialization-required' }
+      // The generation was bound a moment ago; its disappearance is not a
+      // fresh installation.
+      return {
+        status: 'refused',
+        admission: {
+          status: 'error',
+          reason: 'the bound generation disappeared',
+        },
+        message: 'The account store changed while it was opened; try again.',
+      }
     default:
       return {
         status: 'refused',
         admission,
         message: refusalMessage(admission),
       }
+  }
+}
+
+/**
+ * Opens the bound generation's repository to resume interrupted repository
+ * work (`clear`, `replacePool`), which the repository finishes from its own
+ * journal. The repository refuses every ordinary operation while that work
+ * is pending, so this never serves accounts; use `openAccountStore` for
+ * serving.
+ */
+export async function openAccountStoreForRecovery(
+  options: OpenAccountStoreOptions,
+): Promise<
+  | {
+      status: 'bound'
+      repository: AccountRepository
+      binding: Extract<AccountStoreBinding, { status: 'bound' }>
+    }
+  | Exclude<AccountStoreOpening, { status: 'ready' | 'recovery-required' }>
+> {
+  const { now, binding } = await bindingOf(options)
+  if (binding.status !== 'bound') return unboundOpening(binding)
+  return {
+    status: 'bound',
+    binding,
+    repository: options.createRepository({
+      paths: binding.paths,
+      now,
+      exchange: options.exchange,
+    }),
   }
 }
 

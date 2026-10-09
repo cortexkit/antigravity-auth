@@ -82,7 +82,7 @@ export class AccountStoreNotReadyError extends Error {
         ? `The account store's ${read.file} file cannot be read: ${read.reason}`
         : read.status === 'management-pending'
           ? `An account ${read.management.kind} operation is pending; resume it before using the accounts`
-          : 'The account store is waiting for its migration to finish; run `antigravity-auth account-store migrate --offline`',
+          : 'The account store is waiting for its migration to finish; run `antigravity-auth migrate --offline`',
     )
     this.name = 'AccountStoreNotReadyError'
     this.read = read
@@ -139,6 +139,25 @@ export interface LocalAccountCredentials {
   ensureProject(auth: CoreOAuthAuthDetails): Promise<ProjectContextResult>
   /** True when a refresh failure is `invalid_grant`: the refresh token is invalid or revoked. */
   isInvalidGrant(error: unknown): boolean
+  /**
+   * Throws `StaleAccountGrantError` unless `accessToken` is still the
+   * selected account's current credential: the account is still held by
+   * this manager (a reload replaces every account), is enabled, carries a
+   * repository ref, and its access token is the one refreshed for that ref.
+   * Called before every physical send.
+   */
+  assertGrantCurrent(request: {
+    account: CoreManagedAccount
+    accessToken: string
+  }): void
+}
+
+/** The selected account no longer holds the credential a grant was made for. */
+export class StaleAccountGrantError extends Error {
+  constructor() {
+    super('The selected account no longer holds this credential')
+    this.name = 'StaleAccountGrantError'
+  }
 }
 
 export function createLocalAccountCredentials(
@@ -157,6 +176,16 @@ export function createLocalAccountCredentials(
     },
     ensureProject: dependencies.ensureProject ?? ensureProjectContext,
     isInvalidGrant: isInvalidGrantFailure,
+    assertGrantCurrent({ account, accessToken }) {
+      if (
+        account.ref === undefined ||
+        account.enabled === false ||
+        account.access !== accessToken ||
+        !manager.getAccounts().includes(account)
+      ) {
+        throw new StaleAccountGrantError()
+      }
+    },
   }
 }
 

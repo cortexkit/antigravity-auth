@@ -16,11 +16,17 @@
  */
 
 import {
+  type AccountFlushReport,
   type AccountMetadataV3,
   type AccountQuotaResult,
+  type AccountQuotaTarget,
+  type AccountRepository,
+  type AntigravityQuotaCheckReport,
   aggregateGeminiCliQuota,
   aggregateQuota,
   aggregateQuotaSummary,
+  type AccountManager as CoreAccountManager,
+  type ManagedAccount as CoreManagedAccount,
   createQuotaManager,
   defaultKeyOf,
   type FetchAccountQuota,
@@ -33,6 +39,9 @@ import {
   getHealthTracker,
   type QuotaManager,
   type QuotaSummary,
+  type RowRef,
+  rowRefKey,
+  sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
 
 import {
@@ -46,6 +55,10 @@ import {
   type SidebarMachineState,
   setSidebarMachineState,
 } from '../sidebar-state'
+import {
+  createLocalAccountCredentials,
+  type LocalAccountCredentials,
+} from './accounts'
 import {
   accessTokenExpired,
   formatRefreshParts,
@@ -757,7 +770,9 @@ export function createAuthorizedFetchAccountQuota(
           staleReason = check.reason
           throw new LocalQuotaGrantStaleError(check.reason)
         }
-        // Sent right after the check, with the check's own signal.
+        // `confirmSend` (the check that the account still holds this exact
+        // credential and access token) has just finished; the request goes
+        // out at once, with this quota check's abort signal.
         return send(url, init, { ...extra, signal })
       }
       const payloads = await fetchQuotaPayloads({
@@ -978,16 +993,19 @@ async function persistRotatedRefresh(
 /**
  * Build a per-account tier-loader callback for the background poller.
  *
- * Calls `loadManagedProject` (loadCodeAssist) directly, bypassing the
- * `ensureProjectContext` cache that fast-paths on `managedProjectId` and
- * never returns a tier for existing accounts. One call per account per 24 h.
+ * Calls `loadManagedProject` (loadCodeAssist) directly. The
+ * `ensureProjectContext` cache answers from a known `managedProjectId`
+ * without asking Google, so for an account that already has a project it
+ * never returns a tier; the tier is only in loadCodeAssist's answer. One
+ * call per account per 24 h.
  *
- * Uses the same token-refresh infrastructure as `makeFetchAccountQuota` so
- * an expired access token does not silently fail the tier lookup.
+ * An expired access token is refreshed the same way `makeFetchAccountQuota`
+ * refreshes it, so the lookup does not fail just because the token aged.
  *
- * `loadManagedProject` uses the production TLS transport (`fetchWithAgyCliTransport`)
- * and is not interceptable via `fetchVia` -- the same design constraint applies to
- * `ensureProjectContext`. Tier lookup is best-effort; any failure resolves `null`.
+ * `loadManagedProject` sends through the native TLS transport
+ * (`fetchWithAgyCliTransport`), not through a generic `fetch`, so a
+ * `fetchVia` override cannot intercept it; `ensureProjectContext` has the
+ * same limit. Tier lookup is best-effort; any failure resolves `null`.
  */
 export function makeTierLoader(
   client: PluginClient | undefined,
@@ -1026,5 +1044,409 @@ export function makeTierLoader(
     } catch {
       return null
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Account-store quota checks
+// ---------------------------------------------------------------------------
+
+/** What one account-store quota check did with its reading. */
+export type StoreQuotaOutcome =
+  | {
+      /**
+       * The reading was handed to the manager for exactly the checked row
+       * and credential. This does not prove the store kept it:
+       * `checkStoreQuota` reads the store back and compares the whole
+       * reading.
+       */
+      readonly status: 'recorded'
+      readonly result: AccountQuotaResult
+      /** The reading this check produced, as the manager recorded it. */
+      readonly reading: RecordedQuotaReading
+    }
+  | {
+      /**
+       * The check ran, but the row no longer holds the checked credential
+       * (replaced, re-added or removed); the reading is discarded, never
+       * attached to whatever holds the row now.
+       */
+      readonly status: 'discarded'
+      readonly result: AccountQuotaResult
+    }
+  /** The check failed or was refused; nothing was recorded. */
+  | { readonly status: 'failed'; readonly result: AccountQuotaResult }
+
+export type { AntigravityQuotaCheckReport }
+
+/**
+ * One check's reading, captured at the moment it was handed to the manager,
+ * so a later reading for the same row cannot be mistaken for it.
+ */
+export interface RecordedQuotaReading {
+  readonly cachedQuotaAccountId: string | undefined
+  readonly cachedQuotaUpdatedAt: number | undefined
+  /** Canonical form of the quota groups (`canonicalQuotaGroups`). */
+  readonly groups: string
+}
+
+interface QuotaGroupFields {
+  modelCount: number
+  remainingFraction?: number | null
+  resetTime?: string | null
+  windows?: ReadonlyArray<{
+    window: string
+    remainingFraction?: number | null
+    resetTime?: string | null
+  }> | null
+}
+
+/**
+ * The quota groups a reading carries, in one canonical text: groups by
+ * name, each with its model count, remaining fraction, reset time and
+ * windows in order; absent and null are the same. The in-memory groups a
+ * check records and the groups the store keeps for them give the same text,
+ * so the two can be compared exactly.
+ */
+function canonicalQuotaGroups(
+  groups:
+    | Readonly<Record<string, QuotaGroupFields | undefined>>
+    | null
+    | undefined,
+): string {
+  const entries = Object.entries(groups ?? {})
+    .filter(
+      (entry): entry is [string, QuotaGroupFields] => entry[1] !== undefined,
+    )
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([name, group]) => [
+      name,
+      group.modelCount,
+      group.remainingFraction ?? null,
+      group.resetTime ?? null,
+      group.windows?.map((window) => [
+        window.window,
+        window.remainingFraction ?? null,
+        window.resetTime ?? null,
+      ]) ?? null,
+    ])
+  return JSON.stringify(entries)
+}
+
+/**
+ * Quota checks for one plugin account pool served by the account store.
+ * The service owns that pool's quota cache, in-flight deduplication and
+ * backoff.
+ */
+export interface StoreQuotaService {
+  /** The pool's quota manager (cache, in-flight dedupe and backoff). */
+  readonly quotaManager: QuotaManager
+  /**
+   * Checks one account, named by the quota target the caller took from
+   * `getAccountsForQuotaCheck()` (its `rowRef` is the identity). `force`
+   * is the manual check: it bypasses backoff.
+   */
+  refreshAccount(
+    target: AccountQuotaTarget,
+    options?: { force?: boolean },
+  ): Promise<StoreQuotaOutcome>
+  /** Checks every account in the pool, not only the selected one. */
+  refreshAll(options?: { force?: boolean }): Promise<StoreQuotaOutcome[]>
+  /**
+   * The menu's manual quota action: checks exactly the accounts named by
+   * `refs` (the refs the menu read before the action), bypassing backoff.
+   * A ref the manager does not hold at that exact credential is not
+   * checked. After the checks, the store is read back: a ref counts as
+   * checked only when the store's row at that exact ref holds this check's
+   * whole reading (identity stamp, time and every group). A matching time
+   * alone is not proof the reading was written.
+   */
+  checkStoreQuota(refs: readonly RowRef[]): Promise<AntigravityQuotaCheckReport>
+  dispose(): Promise<void>
+}
+
+export interface StoreQuotaServiceOptions {
+  /** The pool's account manager, whose accounts come from the repository. */
+  manager: CoreAccountManager
+  /** That manager's repository; read back to confirm recorded readings. */
+  repository: Pick<AccountRepository, 'read'>
+  logger: Logger
+  /** Defaults to `createLocalAccountCredentials(manager)`. */
+  credentials?: Pick<
+    LocalAccountCredentials,
+    'refresh' | 'ensureProject' | 'assertGrantCurrent'
+  >
+  /** Quota request transport; see `createAuthorizedFetchAccountQuota`. */
+  transport?: (signal: AbortSignal) => QuotaFetch
+  sidebar?: LocationQuotaSidebarOptions
+  baseBackoffMs?: number
+  maxBackoffMs?: number
+  fetchTimeoutMs?: number
+}
+
+/**
+ * The manager's account holding exactly `ref`. A RowRef names one
+ * credential version of one row (row id, credential epoch and recorded
+ * identity), so the lookup succeeds only while that row still holds that
+ * very credential.
+ */
+function heldAccount(
+  manager: CoreAccountManager,
+  ref: RowRef,
+): CoreManagedAccount | undefined {
+  return manager
+    .getAccounts()
+    .find(
+      (candidate) =>
+        candidate.ref !== undefined && sameRowRef(candidate.ref, ref),
+    )
+}
+
+/**
+ * Quota checks for one plugin account pool whose accounts come from the
+ * account store. One check, in order:
+ * 1. Capture the target's RowRef before any await, and take the manager's
+ *    account holding exactly that ref; if none does, the check is refused.
+ * 2. If that account's access token has expired, refresh it through the
+ *    repository, which commits the new token only to the row still holding
+ *    that ref. Neither a token copied from an earlier read nor the host
+ *    client is used.
+ * 3. Resolve the account's project from the local project cache; a newly
+ *    resolved project is recorded through the manager on the account's ref.
+ * 4. Before every physical quota request, check that the manager still
+ *    holds the same account object, at the same ref, enabled, with the same
+ *    access token; otherwise no further request of the check is sent.
+ * 5. Hand the reading to the manager only while it still holds that exact
+ *    ref; otherwise discard it. The manager's write can still be refused by
+ *    the store, so `checkStoreQuota` reads the store back and counts a
+ *    check only when the store holds this check's whole reading.
+ *
+ * Only accounts whose refresh token is stored locally use this service;
+ * vault-held accounts never do.
+ */
+export function createStoreQuotaService(
+  options: StoreQuotaServiceOptions,
+): StoreQuotaService {
+  const { manager, logger } = options
+  const credentials =
+    options.credentials ?? createLocalAccountCredentials(manager)
+
+  const authorize = async (
+    account: AccountQuotaTarget,
+  ): Promise<LocalQuotaCheckAuthorization> => {
+    const ref = account.rowRef
+    if (ref === undefined) {
+      return { status: 'refused', reason: 'the account has no store ref' }
+    }
+    const held = heldAccount(manager, ref)
+    if (held === undefined) {
+      return { status: 'refused', reason: 'the account changed or was removed' }
+    }
+    let auth = manager.toAuthDetails(held)
+    if (accessTokenExpired(auth)) {
+      const refreshed = await credentials.refresh(held)
+      if (refreshed === undefined) {
+        return { status: 'refused', reason: 'token refresh failed' }
+      }
+      auth = refreshed
+    }
+    // A refresh keeps the credential epoch but can record the provider's
+    // account identity on the ref and always brings a new access token, so
+    // the grant is the account's ref and token as they are now, after it.
+    const grantRef = held.ref
+    const accessToken = auth.access
+    if (grantRef === undefined || !accessToken) {
+      return { status: 'refused', reason: 'no access token' }
+    }
+    const project = await credentials.ensureProject(auth)
+    if (project.auth.refresh !== auth.refresh) {
+      // The resolved project belongs to this credential: the manager records
+      // only the project fields, fenced on this account's ref, so they can
+      // never land on another row or a replaced credential.
+      manager.updateFromAuth(held, { ...project.auth, access: accessToken })
+    }
+    const managedProjectId =
+      parseRefreshParts(project.auth.refresh).managedProjectId ??
+      held.managedProjectId
+    return {
+      status: 'authorized',
+      domain: 'local',
+      accessToken,
+      projectId: project.effectiveProjectId,
+      ...(managedProjectId !== undefined ? { managedProjectId } : {}),
+      async confirmSend() {
+        try {
+          if (held.ref === undefined || !sameRowRef(held.ref, grantRef)) {
+            return { status: 'stale', reason: 'the credential changed' }
+          }
+          credentials.assertGrantCurrent({ account: held, accessToken })
+          return { status: 'current' }
+        } catch (error) {
+          return {
+            status: 'stale',
+            reason: error instanceof Error ? error.message : String(error),
+          }
+        }
+      },
+    }
+  }
+
+  const quotaManager = createLocationQuotaManager({
+    logger,
+    fetchAccountQuota: createAuthorizedFetchAccountQuota({
+      authorize: (account) => authorize(account as AccountQuotaTarget),
+      logger,
+      transport: options.transport,
+    }),
+    // Backoff and cache are per credential: a re-authenticated row starts
+    // fresh instead of inheriting its predecessor's state.
+    keyOf: (account) => {
+      const ref = (account as AccountQuotaTarget).rowRef
+      return ref === undefined ? defaultKeyOf(account) : rowRefKey(ref)
+    },
+    baseBackoffMs: options.baseBackoffMs,
+    maxBackoffMs: options.maxBackoffMs,
+    fetchTimeoutMs: options.fetchTimeoutMs,
+    sidebar: options.sidebar,
+  })
+
+  const record = (
+    target: AccountQuotaTarget,
+    result: AccountQuotaResult,
+  ): StoreQuotaOutcome => {
+    if (result.status !== 'ok' || result.quota === undefined) {
+      return { status: 'failed', result }
+    }
+    const held =
+      target.rowRef === undefined
+        ? undefined
+        : heldAccount(manager, target.rowRef)
+    if (held === undefined) return { status: 'discarded', result }
+    manager.updateQuotaCache(
+      held.index,
+      result.quota.groups,
+      held.parts.refreshToken,
+    )
+    // Captured now: the account's fields may change before the store is
+    // read back, and a later reading must not stand in for this one.
+    return {
+      status: 'recorded',
+      result,
+      reading: {
+        cachedQuotaAccountId: held.cachedQuotaAccountId,
+        cachedQuotaUpdatedAt: held.cachedQuotaUpdatedAt,
+        groups: canonicalQuotaGroups(result.quota.groups),
+      },
+    }
+  }
+
+  const refreshAccount: StoreQuotaService['refreshAccount'] = async (
+    target,
+    refreshOptions = {},
+  ) => {
+    const index = Math.max(
+      0,
+      manager
+        .getAccountsForQuotaCheck()
+        .findIndex(
+          (candidate) =>
+            candidate.rowRef !== undefined &&
+            target.rowRef !== undefined &&
+            sameRowRef(candidate.rowRef, target.rowRef),
+        ),
+    )
+    const result = await quotaManager.refreshAccount(target, {
+      index,
+      force: refreshOptions.force === true,
+    })
+    return record(target, result)
+  }
+
+  return {
+    quotaManager,
+    refreshAccount,
+    async checkStoreQuota(refs) {
+      // Targets are taken before any await, so each names the credential
+      // the manager held when the action started.
+      const targets = manager.getAccountsForQuotaCheck()
+      const outcomes = await Promise.all(
+        refs.map((ref) => {
+          const target = targets.find(
+            (candidate) =>
+              candidate.rowRef !== undefined &&
+              sameRowRef(candidate.rowRef, ref),
+          )
+          return target === undefined
+            ? undefined
+            : refreshAccount(target, { force: true })
+        }),
+      )
+      // Drain the manager's attributed writes. A write the repository
+      // reports as failed counts as not checked; any other drain failure
+      // leaves every reading unconfirmed.
+      let failedRows: ReadonlySet<string> | 'all' = new Set()
+      try {
+        await manager.saveToDisk()
+      } catch (error) {
+        // The manager's persist failure (core `AccountManagerPersistError`)
+        // carries the repository's flush report naming each failed row.
+        const report =
+          error instanceof Error && error.name === 'AccountManagerPersistError'
+            ? (error as Error & { report?: AccountFlushReport }).report
+            : undefined
+        failedRows =
+          report === undefined
+            ? 'all'
+            : new Set(
+                report.failures.flatMap((failure) =>
+                  failure.rowId === undefined ? [] : [failure.rowId],
+                ),
+              )
+        logger.debug('quota readings were not all persisted', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+      const read = await options.repository.read()
+      let checked = 0
+      refs.forEach((ref, position) => {
+        const outcome = outcomes[position]
+        if (outcome?.status !== 'recorded') return
+        if (failedRows === 'all' || failedRows.has(ref.id)) return
+        const row =
+          read.status === 'ready'
+            ? read.rows.find((candidate) => sameRowRef(candidate.ref, ref))
+            : undefined
+        if (row?.quota.status !== 'present') return
+        const stored = row.quota.quota
+        // The store must hold exactly this check's reading: same identity
+        // stamp, same time and the same groups. An older reading stored with
+        // the same time, or another check's reading of the same row, does
+        // not count.
+        if (
+          stored.cachedQuotaAccountId ===
+            outcome.reading.cachedQuotaAccountId &&
+          stored.cachedQuotaUpdatedAt ===
+            outcome.reading.cachedQuotaUpdatedAt &&
+          canonicalQuotaGroups(stored.cachedQuota) === outcome.reading.groups
+        ) {
+          checked += 1
+        }
+      })
+      return { checked, notChecked: refs.length - checked }
+    },
+    async refreshAll(refreshOptions = {}) {
+      const targets = manager.getAccountsForQuotaCheck()
+      const results = await quotaManager.refreshAccounts(targets, {
+        indexFor: (account) => targets.indexOf(account as AccountQuotaTarget),
+        force: refreshOptions.force === true,
+      })
+      return results.map((result, position) => {
+        const target = targets[position]
+        return target === undefined
+          ? { status: 'failed' as const, result }
+          : record(target, result)
+      })
+    },
+    dispose: () => quotaManager.dispose(),
   }
 }

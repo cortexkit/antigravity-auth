@@ -1,13 +1,32 @@
-import { describe, expect, it, mock } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { createHash } from 'node:crypto'
+import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import {
+  type AccountRepository,
+  type CommonAuthStoreModules,
+  createAccountRepositoryFactory,
+  loadCommonAuthStoreModules,
+} from '@cortexkit/antigravity-auth-core'
 import type { AuthOAuthResult } from '@opencode-ai/plugin'
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
-import type { AccountAccessService } from './account-access'
+import {
+  type AccountAccessService,
+  AccountChangedDuringReauthorizationError,
+  createAccountAccessService,
+} from './account-access'
 import { DEFAULT_CONFIG } from './config'
 import type { PluginLifecycle } from './lifecycle'
 import { createOAuthMethods, parseOAuthCallbackInput } from './oauth-methods'
+import { commitLogins } from './persist-account-pool'
 import type { OAuthListener } from './server'
 import type { AccountStorageV4 } from './storage'
-import { AccountStorageUnreadableError } from './storage'
+import {
+  AccountStorageUnreadableError,
+  initializeFreshAccountStoreFor,
+  openAccountStore,
+} from './storage'
 
 const EXPECTED_STATE = 'expected-state'
 const AUTHORIZATION_URL = `https://accounts.google.com/o/oauth2/v2/auth?state=${EXPECTED_STATE}`
@@ -97,6 +116,7 @@ function createAccountAccess(initial: AccountStorageV4 | null = null): {
     })),
     selectAccount: mock(async () => undefined),
     openVerificationUrl: mock(async () => false),
+    source: mock(async () => 'pool-file' as const),
   } as unknown as AccountAccessService
 
   return { service, persistCalls }
@@ -403,5 +423,334 @@ describe('createOAuthMethods persistence failure handling', () => {
     expect(result?.type).toBe('failed')
     const errorToast = findToastBody(showToast, 'error')
     expect(errorToast?.message).toContain('lock contention')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Account-store mode over the genuine published store
+//
+// The login menu's verification and re-authentication run against the
+// released common-auth store and fs entries embedded in the core package
+// (typed `loadCommonAuthStoreModules`), after their embedding receipt is
+// checked against the released 0.11.6 archive, with the migration's real
+// admission, in a private config directory.
+// ---------------------------------------------------------------------------
+
+const RELEASED_COMMON_AUTH = {
+  package: '@cortexkit/common-auth',
+  version: '0.11.6',
+  tarballSha256:
+    '2e1cbbdd2c5e75bbeecada6a64b93c29b64c5d3b41d3742312e1390cfaa6d9df',
+} as const
+
+async function embeddedFilesBelow(
+  root: string,
+  dir: string,
+): Promise<string[]> {
+  const out: string[] = []
+  for (const entry of await readdir(join(root, dir), { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`
+    if (entry.isDirectory()) out.push(...(await embeddedFilesBelow(root, path)))
+    else out.push(path)
+  }
+  return out
+}
+
+let genuine: Promise<CommonAuthStoreModules> | undefined
+
+/** The released store and fs entries, after their embedding receipt checks out. */
+function genuineModules(): Promise<CommonAuthStoreModules> {
+  genuine ??= (async () => {
+    const root = dirname(
+      dirname(
+        Bun.resolveSync(
+          '@cortexkit/antigravity-auth-core/common-auth/store',
+          import.meta.dir,
+        ),
+      ),
+    )
+    const receipt = JSON.parse(
+      await readFile(join(root, 'source-output.json'), 'utf8'),
+    ) as {
+      package?: unknown
+      version?: unknown
+      artifactStatus?: unknown
+      tarballSha256?: unknown
+      files?: Array<{ output: string; bytes: number; outputSha256: string }>
+    }
+    if (
+      receipt.package !== RELEASED_COMMON_AUTH.package ||
+      receipt.version !== RELEASED_COMMON_AUTH.version ||
+      receipt.artifactStatus !== 'released' ||
+      receipt.tarballSha256 !== RELEASED_COMMON_AUTH.tarballSha256 ||
+      !Array.isArray(receipt.files)
+    ) {
+      throw new Error(
+        `the embedded common-auth receipt is not the released ${RELEASED_COMMON_AUTH.version}`,
+      )
+    }
+    const recorded = receipt.files.filter((file) =>
+      /^(store|fs)\//.test(file.output),
+    )
+    const present = [
+      ...(await embeddedFilesBelow(root, 'store')),
+      ...(await embeddedFilesBelow(root, 'fs')),
+    ].sort()
+    if (
+      JSON.stringify(present) !==
+      JSON.stringify(recorded.map((file) => file.output).sort())
+    ) {
+      throw new Error('embedded store/fs files differ from the receipt')
+    }
+    for (const file of recorded) {
+      const bytes = await readFile(join(root, file.output))
+      const sha256 = createHash('sha256').update(bytes).digest('hex')
+      if (bytes.length !== file.bytes || sha256 !== file.outputSha256) {
+        throw new Error(`embedded ${file.output} differs from the receipt`)
+      }
+    }
+    return loadCommonAuthStoreModules()
+  })()
+  return genuine
+}
+
+describe('createOAuthMethods in account-store mode', () => {
+  let configDir = ''
+  let previousConfigDir: string | undefined
+  const repositories: AccountRepository[] = []
+
+  beforeEach(async () => {
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    configDir = await realpath(
+      await mkdtemp(join(tmpdir(), 'agy-oauth-store-')),
+    )
+    process.env.OPENCODE_CONFIG_DIR = configDir
+  })
+
+  afterEach(async () => {
+    for (const repository of repositories.splice(0)) await repository.dispose()
+    if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+    await rm(configDir, { recursive: true, force: true })
+  })
+
+  /** A served store holding rows A and B, and the menu's collaborators. */
+  async function storeWithTwoAccounts(probe?: {
+    onProbe?: (bearer: string) => Promise<void> | void
+    status: number
+    body: string
+  }) {
+    const modules = await genuineModules()
+    expect((await initializeFreshAccountStoreFor(modules)).status).toBe(
+      'completed',
+    )
+    const opening = await openAccountStore({
+      modules,
+      createRepository: createAccountRepositoryFactory(modules),
+      exchange: async ({ refreshToken }) => ({
+        accessToken: `access-for-${refreshToken}`,
+        refreshToken,
+        expiresAt: Date.now() + 3_600_000,
+      }),
+    })
+    if (opening.status !== 'ready') throw new Error('store is not ready')
+    const repository = opening.repository
+    repositories.push(repository)
+    await commitLogins(repository, [
+      success('token-a', 'a@example.test'),
+      success('token-b', 'b@example.test'),
+    ])
+    const bearers: string[] = []
+    const transport = mock(async (_url: string, init?: RequestInit) => {
+      const bearer =
+        ((init?.headers ?? {}) as Record<string, string>).Authorization ?? ''
+      bearers.push(bearer)
+      await probe?.onProbe?.(bearer)
+      return new Response(probe?.body ?? '', { status: probe?.status ?? 200 })
+    })
+    const refusePoolFile = async (): Promise<never> => {
+      throw new Error('the pool file is not used in store mode')
+    }
+    const accountAccess = createAccountAccessService({
+      client: {} as never,
+      providerId: 'google',
+      store: {
+        load: refusePoolFile,
+        mutate: refusePoolFile,
+        clear: refusePoolFile,
+        persistAccountPool: refusePoolFile,
+        source: async () => repository,
+      },
+      openBrowser: async () => false,
+      prompt: {
+        selectAccount: async () => undefined,
+        confirmOpenVerificationUrl: async () => false,
+      },
+      dependencies: { transport: transport as never },
+    })
+    const rows = async () => {
+      const read = await repository.read()
+      if (read.status !== 'ready') throw new Error('store is not ready')
+      return read.rows
+    }
+    return { repository, accountAccess, bearers, rows }
+  }
+
+  function menuMethods(
+    accountAccess: AccountAccessService,
+    menu: Array<Record<string, unknown>>,
+    exchange?: () => Promise<
+      Extract<AntigravityTokenExchangeResult, { type: 'success' }>
+    >,
+  ) {
+    return createOAuthMethods({
+      client: { tui: { showToast: mock(async () => {}) } } as never,
+      providerId: 'google',
+      config: DEFAULT_CONFIG,
+      lifecycle: createLifecycle(),
+      accountAccess,
+      dependencies: {
+        promptLoginMode: mock(async () => menu.shift() ?? { mode: 'cancel' }),
+        authorize: mock(async () => ({
+          url: AUTHORIZATION_URL,
+          verifier: 'verifier',
+          projectId: '',
+        })),
+        exchange: mock(
+          exchange ?? (async () => success('unused', 'unused@example.test')),
+        ),
+        promptProjectId: mock(async () => ''),
+        promptCallback: mock(async () => 'code'),
+        promptAddAnotherAccount: mock(async () => false),
+        openBrowser: mock(async () => false),
+        shouldSkipLocalServer: () => true,
+        isHeadless: () => false,
+      } as never,
+    })
+  }
+
+  it('verifies the listed row through its own attributed refresh and records the verdict on that row only', async () => {
+    const store = await storeWithTwoAccounts({
+      status: 403,
+      body: JSON.stringify({ error: { message: 'validation_required' } }),
+    })
+    const methods = menuMethods(store.accountAccess, [
+      { mode: 'verify', verifyAccountIndex: 1 },
+      { mode: 'cancel' },
+    ])
+    await methods[0]?.authorize?.({ noBrowser: 'true' })
+
+    expect(store.bearers).toEqual(['Bearer access-for-token-b'])
+    const [rowA, rowB] = await store.rows()
+    expect(rowB?.enabled).toBe(false)
+    expect(
+      rowB?.metadata.status === 'present'
+        ? rowB.metadata.metadata.verificationRequired
+        : undefined,
+    ).toBe(true)
+    expect(rowA?.enabled).toBe(true)
+    expect(
+      rowA?.metadata.status === 'present'
+        ? rowA.metadata.metadata.verificationRequired
+        : undefined,
+    ).not.toBe(true)
+  })
+
+  it('drops a verdict whose row was re-authenticated while the probe ran', async () => {
+    let replaced = false
+    const holder: { repository?: AccountRepository } = {}
+    const store = await storeWithTwoAccounts({
+      status: 403,
+      body: JSON.stringify({ error: { message: 'ACCOUNT_INELIGIBLE' } }),
+      onProbe: async () => {
+        if (replaced || holder.repository === undefined) return
+        replaced = true
+        const read = await holder.repository.read()
+        const rowB = read.status === 'ready' ? read.rows[1] : undefined
+        if (rowB === undefined) throw new Error('row B is missing')
+        await holder.repository.replaceCredential(rowB.ref, {
+          refreshToken: 'token-b2',
+          disabled: 'keep',
+        })
+      },
+    })
+    holder.repository = store.repository
+    const listed = (await store.rows())[1]?.ref
+    const methods = menuMethods(store.accountAccess, [
+      { mode: 'verify', verifyAccountIndex: 1 },
+      { mode: 'cancel' },
+    ])
+    await methods[0]?.authorize?.({ noBrowser: 'true' })
+
+    const rowB = (await store.rows())[1]
+    expect(rowB?.ref.id).toBe(listed?.id)
+    expect(rowB?.ref.credentialEpoch).toBe((listed?.credentialEpoch ?? 0) + 1)
+    expect(rowB?.credential?.refreshToken).toBe('token-b2')
+    expect(rowB?.enabled).toBe(true)
+    expect(
+      rowB?.metadata.status === 'present'
+        ? rowB.metadata.metadata.accountIneligible
+        : undefined,
+    ).not.toBe(true)
+  })
+
+  it('re-authenticates exactly the listed row with a new credential epoch', async () => {
+    const store = await storeWithTwoAccounts()
+    const [listedA, listedB] = await store.rows()
+    const methods = menuMethods(
+      store.accountAccess,
+      [{ mode: 'add', refreshAccountIndex: 0 }],
+      async () => success('token-a2', 'a@example.test'),
+    )
+    await methods[0]?.authorize?.({ noBrowser: 'true' })
+
+    const [rowA, rowB] = await store.rows()
+    expect(rowA?.ref).toEqual({
+      id: listedA!.ref.id,
+      credentialEpoch: listedA!.ref.credentialEpoch + 1,
+    })
+    expect(rowA?.credential?.refreshToken).toBe('token-a2')
+    expect(rowB?.ref).toEqual(listedB!.ref)
+    expect(rowB?.credential?.refreshToken).toBe('token-b')
+  })
+
+  it('refuses a sign-in to another account, or to a row changed since the listing, with nothing written', async () => {
+    const store = await storeWithTwoAccounts()
+    const before = await store.rows()
+
+    const wrongAccount = await menuMethods(
+      store.accountAccess,
+      [{ mode: 'add', refreshAccountIndex: 0 }],
+      async () => success('token-x', 'x@example.test'),
+    )[0]
+      ?.authorize?.({ noBrowser: 'true' })
+      .catch((error: unknown) => error)
+    expect(wrongAccount).toBeInstanceOf(
+      AccountChangedDuringReauthorizationError,
+    )
+    expect((wrongAccount as Error).message).toBe(
+      'Account changed during reauthorization. Reopen the account dialog.',
+    )
+    expect(await store.rows()).toEqual(before)
+
+    // The row is re-authenticated elsewhere after the menu listed it.
+    const stale = await menuMethods(
+      store.accountAccess,
+      [{ mode: 'add', refreshAccountIndex: 1 }],
+      async () => {
+        const rowB = (await store.rows())[1]
+        if (rowB === undefined) throw new Error('row B is missing')
+        await store.repository.replaceCredential(rowB.ref, {
+          refreshToken: 'token-b-elsewhere',
+          disabled: 'keep',
+        })
+        return success('token-b-late', 'b@example.test')
+      },
+    )[0]
+      ?.authorize?.({ noBrowser: 'true' })
+      .catch((error: unknown) => error)
+    expect(stale).toBeInstanceOf(AccountChangedDuringReauthorizationError)
+    const rowB = (await store.rows())[1]
+    expect(rowB?.credential?.refreshToken).toBe('token-b-elsewhere')
   })
 })

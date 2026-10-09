@@ -7,11 +7,19 @@ import {
   mock,
   spyOn,
 } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
-import type { AccountMetadataV3 } from '@cortexkit/antigravity-auth-core'
+import {
+  type AccountMetadataV3,
+  type AccountRepository,
+  type CommonAuthStoreModules,
+  createAccountRepositoryFactory,
+  loadCommonAuthStoreModules,
+} from '@cortexkit/antigravity-auth-core'
 
 import {
   DEFAULT_SIDEBAR_STATE,
@@ -23,16 +31,23 @@ import {
   setSidebarMachineState,
   setSidebarMergeHooks,
 } from '../sidebar-state'
+import {
+  createLocalAccountCredentials,
+  loadAccountManagerFromRepository,
+} from './accounts.ts'
 import { registerQuotaManagerProducer } from './index.ts'
 import { createPluginLifecycle } from './lifecycle.ts'
 import type { Logger } from './logger.ts'
+import { commitLogins } from './persist-account-pool.ts'
 import {
   classifyQuotaGroup,
   createAuthorizedFetchAccountQuota,
   createLocationQuotaManager,
   createOpenCodeQuotaManager,
+  createStoreQuotaService,
   pushSidebarQuotaSnapshot,
 } from './quota.ts'
+import { initializeFreshAccountStoreFor, openAccountStore } from './storage.ts'
 import type { PluginClient } from './types.ts'
 
 interface QuotaSnapshotAccount {
@@ -242,8 +257,9 @@ describe('pushSidebarQuotaSnapshot', () => {
         cliSeq.seq += 1
         return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
       }
-      // Token refresh + anything else: return a pliable JSON
-      // response so the rest of the quota pipeline can carry on.
+      // Token refresh and every other request: a successful answer carrying
+      // an access token, so token refresh and project lookup succeed and
+      // the quota pipeline carries on.
       return new Response(
         JSON.stringify({
           access_token: 'access-token',
@@ -450,8 +466,8 @@ describe('pushSidebarQuotaSnapshot', () => {
         'fetch:start',
         'fetch:start',
         'fetch:start',
-        // fetchGeminiCliQuota now also uses fetchVia (2 endpoints via the
-        // FetchGeminiCliQuotaOptions.fetchVia seam added for N2 testability).
+        // The Gemini CLI quota's two endpoint requests go through the same
+        // injected transport (FetchGeminiCliQuotaOptions.fetchVia).
         'fetch:start',
         'fetch:start',
         'sidebar:write-start',
@@ -466,16 +482,12 @@ describe('pushSidebarQuotaSnapshot', () => {
     }
   })
 
-  it('N2: CLI rejection carries the real error message instead of the generic no-CLI-configured string', async () => {
-    // fetchGeminiCliQuota now propagates transport-level errors (network abort,
-    // DNS, socket hang, timeout) by collecting them per-endpoint and throwing
-    // when all endpoints fail. That throw reaches the outer .catch() in
-    // quota.ts, which sets geminiCliFetchError. Before N2 the catch was
-    // present but never fired — fetchGeminiCliQuota silently swallowed errors
-    // and returned { buckets: [] }, landing on the generic message.
-    //
-    // The new FetchGeminiCliQuotaOptions.fetchVia seam lets the test inject
-    // a transport that throws, driving the outer .catch() directly.
+  it('CLI rejection carries the real error message instead of the generic no-CLI-configured string', async () => {
+    // The injected transport (FetchGeminiCliQuotaOptions.fetchVia) carries
+    // both Gemini CLI endpoint requests and throws on each. fetchGeminiCliQuota
+    // collects those errors and throws when every endpoint fails, and the
+    // .catch() in quota.ts records the original transport error on the CLI
+    // quota summary instead of the generic "no Gemini CLI quota" text.
     const CLI_THROW_MSG = 'socket hang up'
 
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
@@ -559,10 +571,10 @@ describe('pushSidebarQuotaSnapshot', () => {
     )
   })
 
-  it('N2: HTTP-500 on CLI endpoint does NOT kill the summary (parallel-fetch isolation)', async () => {
-    // Complement: an HTTP 500 is treated as a transport error by the updated
-    // fetchGeminiCliQuota (errors[] + re-throw), so the same .catch() path
-    // fires and the summary still flows through.
+  it('HTTP-500 on CLI endpoint does NOT kill the summary (parallel-fetch isolation)', async () => {
+    // fetchGeminiCliQuota treats an HTTP 500 from a CLI endpoint as a failed
+    // endpoint, so the CLI quota carries an error while the quota summary,
+    // fetched in parallel, is still returned.
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
       input: unknown,
     ) => {
@@ -643,8 +655,8 @@ describe('location-scoped quota', () => {
     dir = mkdtempSync(join(tmpdir(), 'agy-quota-location-'))
     processFile = join(dir, 'process-sidebar.json')
     locationFile = join(dir, 'location-sidebar.json')
-    // The process-wide sidebar file (named by the environment), which
-    // location-specific snapshots must never write.
+    // SIDEBAR_STATE_ENV names the process-wide sidebar file; snapshots for
+    // one location must write their own file, never that one.
     process.env[SIDEBAR_STATE_ENV] = processFile
   })
 
@@ -691,7 +703,7 @@ describe('location-scoped quota', () => {
       stateFile: locationFile,
       healthScore: null,
     })
-    // The redactor's documented default for a missing score.
+    // A missing health score is shown as the redactor's default, 100.
     expect(readSidebarState(locationFile).accounts[0]?.health).toBe(100)
   })
 
@@ -1044,5 +1056,362 @@ describe('authorized local quota fetcher', () => {
       error: 'aborted',
     })
     expect(requests).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Account-store quota checks over the genuine published store
+//
+// Runs against the common-auth store and fs code embedded in the core
+// package, loaded with `loadCommonAuthStoreModules`, in a private config
+// directory. Before anything runs, every embedded store/fs file is hashed
+// and compared with the record (`source-output.json`) of the released 0.11.6
+// archive it was copied from; any difference fails the tests.
+// ---------------------------------------------------------------------------
+
+const RELEASED_COMMON_AUTH = {
+  package: '@cortexkit/common-auth',
+  version: '0.11.6',
+  tarballSha256:
+    '2e1cbbdd2c5e75bbeecada6a64b93c29b64c5d3b41d3742312e1390cfaa6d9df',
+} as const
+
+async function embeddedFilesBelow(
+  root: string,
+  dir: string,
+): Promise<string[]> {
+  const out: string[] = []
+  for (const entry of await readdir(join(root, dir), { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`
+    if (entry.isDirectory()) out.push(...(await embeddedFilesBelow(root, path)))
+    else out.push(path)
+  }
+  return out
+}
+
+let genuine: Promise<CommonAuthStoreModules> | undefined
+
+/**
+ * The embedded store and fs modules, after each of their files matches the
+ * size and SHA-256 recorded for the released 0.11.6 archive.
+ */
+function genuineModules(): Promise<CommonAuthStoreModules> {
+  genuine ??= (async () => {
+    const root = dirname(
+      dirname(
+        Bun.resolveSync(
+          '@cortexkit/antigravity-auth-core/common-auth/store',
+          import.meta.dir,
+        ),
+      ),
+    )
+    const receipt = JSON.parse(
+      await readFile(join(root, 'source-output.json'), 'utf8'),
+    ) as {
+      package?: unknown
+      version?: unknown
+      artifactStatus?: unknown
+      tarballSha256?: unknown
+      files?: Array<{ output: string; bytes: number; outputSha256: string }>
+    }
+    if (
+      receipt.package !== RELEASED_COMMON_AUTH.package ||
+      receipt.version !== RELEASED_COMMON_AUTH.version ||
+      receipt.artifactStatus !== 'released' ||
+      receipt.tarballSha256 !== RELEASED_COMMON_AUTH.tarballSha256 ||
+      !Array.isArray(receipt.files)
+    ) {
+      throw new Error(
+        `source-output.json does not record the released common-auth ${RELEASED_COMMON_AUTH.version} archive`,
+      )
+    }
+    const recorded = receipt.files.filter((file) =>
+      /^(store|fs)\//.test(file.output),
+    )
+    const present = [
+      ...(await embeddedFilesBelow(root, 'store')),
+      ...(await embeddedFilesBelow(root, 'fs')),
+    ].sort()
+    if (
+      JSON.stringify(present) !==
+      JSON.stringify(recorded.map((file) => file.output).sort())
+    ) {
+      throw new Error(
+        'the embedded store/fs files are not exactly the recorded ones',
+      )
+    }
+    for (const file of recorded) {
+      const bytes = await readFile(join(root, file.output))
+      const sha256 = createHash('sha256').update(bytes).digest('hex')
+      if (bytes.length !== file.bytes || sha256 !== file.outputSha256) {
+        throw new Error(
+          `embedded ${file.output} differs from its recorded size or SHA-256`,
+        )
+      }
+    }
+    return loadCommonAuthStoreModules()
+  })()
+  return genuine
+}
+
+describe('account-store quota service', () => {
+  let configDir = ''
+  let previousConfigDir: string | undefined
+  const repositories: AccountRepository[] = []
+  const silent: Logger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  } as unknown as Logger
+
+  beforeEach(async () => {
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    configDir = await realpath(
+      await mkdtemp(join(tmpdir(), 'agy-quota-store-')),
+    )
+    process.env.OPENCODE_CONFIG_DIR = configDir
+  })
+
+  afterEach(async () => {
+    for (const repository of repositories.splice(0)) await repository.dispose()
+    if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+    await rm(configDir, { recursive: true, force: true })
+  })
+
+  const login = (refresh: string, email: string) => ({
+    type: 'success' as const,
+    refresh,
+    access: 'never-stored',
+    expires: 1,
+    email,
+    projectId: '',
+  })
+
+  async function storeService(
+    onRequest?: (bearer: string | null) => Promise<void> | void,
+    options: {
+      /** The manager's clock. */
+      now?: () => number
+      /** Runs before the manager is loaded, with the store's rows. */
+      seed?: (repository: AccountRepository) => Promise<void>
+      /** Makes every quota write the manager sends fail. */
+      failQuotaWrites?: boolean
+    } = {},
+  ) {
+    const modules = await genuineModules()
+    expect((await initializeFreshAccountStoreFor(modules)).status).toBe(
+      'completed',
+    )
+    const exchanged: string[] = []
+    const opening = await openAccountStore({
+      modules,
+      createRepository: createAccountRepositoryFactory(modules),
+      exchange: async ({ refreshToken }) => {
+        exchanged.push(refreshToken)
+        return {
+          accessToken: `access-for-${refreshToken}`,
+          refreshToken,
+          expiresAt: Date.now() + 3_600_000,
+        }
+      },
+    })
+    if (opening.status !== 'ready') throw new Error('store is not ready')
+    const repository = opening.repository
+    repositories.push(repository)
+    await commitLogins(repository, [
+      login('token-a|project-a', 'a@example.test'),
+      login('token-b|project-b', 'b@example.test'),
+    ])
+    await options.seed?.(repository)
+    // The manager writes through this view; with `failQuotaWrites` its
+    // quota writes fail while every other operation reaches the store.
+    const managerRepository: AccountRepository = options.failQuotaWrites
+      ? new Proxy(repository, {
+          get(target, key) {
+            if (key === 'recordQuota') {
+              return async () => {
+                throw new Error('quota write failed')
+              }
+            }
+            const value = Reflect.get(target, key)
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        })
+      : repository
+    const manager = await loadAccountManagerFromRepository(managerRepository, {
+      onDiagnostic: () => {},
+      ...(options.now !== undefined ? { now: options.now } : {}),
+    })
+    const bearers: Array<string | null> = []
+    const service = createStoreQuotaService({
+      manager,
+      repository,
+      logger: silent,
+      credentials: createLocalAccountCredentials(manager, {
+        // A fixed project answer, so the check never makes the live project
+        // lookup the local project cache would make.
+        ensureProject: async (auth) => ({
+          auth,
+          effectiveProjectId: 'project-from-cache',
+        }),
+      }),
+      transport: () => async (url, init) => {
+        const bearer = new Headers(init.headers).get('authorization')
+        bearers.push(bearer)
+        await onRequest?.(bearer)
+        if (url.includes('retrieveUserQuotaSummary')) {
+          return new Response(
+            JSON.stringify({
+              groups: [
+                {
+                  displayName: 'Gemini',
+                  buckets: [{ remainingFraction: 0.25, window: 'WEEKLY' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          )
+        }
+        return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      },
+    })
+    const rows = async () => {
+      await repository.flush()
+      const read = await repository.read()
+      if (read.status !== 'ready') throw new Error('store is not ready')
+      return read.rows
+    }
+    return { repository, manager, service, bearers, exchanged, rows }
+  }
+
+  it('checks the selected row with its own repository-refreshed bearer and records the reading on that row only', async () => {
+    const store = await storeService()
+    const targets = store.manager.getAccountsForQuotaCheck()
+    const outcome = await store.service.refreshAccount(targets[1]!, {
+      force: true,
+    })
+    await store.service.dispose()
+
+    expect(outcome.status).toBe('recorded')
+    expect(store.exchanged).toEqual(['token-b'])
+    expect(new Set(store.bearers)).toEqual(
+      new Set(['Bearer access-for-token-b']),
+    )
+    const [rowA, rowB] = await store.rows()
+    expect(rowB?.quota.status).toBe('present')
+    expect(rowA?.quota.status).toBe('absent')
+  })
+
+  it('never attaches a reading to the credential that replaced the checked one', async () => {
+    let replaced = false
+    const holder: { repository?: AccountRepository } = {}
+    const store = await storeService(async () => {
+      if (replaced || holder.repository === undefined) return
+      replaced = true
+      const read = await holder.repository.read()
+      const rowB = read.status === 'ready' ? read.rows[1] : undefined
+      if (rowB === undefined) throw new Error('row B is missing')
+      await holder.repository.replaceCredential(rowB.ref, {
+        refreshToken: 'token-b2',
+        disabled: 'keep',
+      })
+    })
+    holder.repository = store.repository
+    const targets = store.manager.getAccountsForQuotaCheck()
+    await store.service.refreshAccount(targets[1]!, { force: true })
+    await store.service.dispose()
+
+    const rowB = (await store.rows())[1]
+    expect(rowB?.credential?.refreshToken).toBe('token-b2')
+    expect(rowB?.quota.status).toBe('absent')
+  })
+
+  it('reports as checked only readings the store holds for exactly the requested credentials', async () => {
+    let replaced = false
+    const holder: { repository?: AccountRepository } = {}
+    const store = await storeService(async (bearer) => {
+      // Row A's credential is replaced while its check runs.
+      if (replaced || bearer !== 'Bearer access-for-token-a') return
+      if (holder.repository === undefined) return
+      replaced = true
+      const read = await holder.repository.read()
+      const rowA = read.status === 'ready' ? read.rows[0] : undefined
+      if (rowA === undefined) throw new Error('row A is missing')
+      await holder.repository.replaceCredential(rowA.ref, {
+        refreshToken: 'token-a2',
+        disabled: 'keep',
+      })
+    })
+    holder.repository = store.repository
+    const [rowA, rowB] = await store.rows()
+    const unknown = { id: 'not-a-row', credentialEpoch: 1 }
+
+    const report = await store.service.checkStoreQuota([
+      rowA!.ref,
+      rowB!.ref,
+      unknown,
+    ])
+    await store.service.dispose()
+
+    expect(report).toEqual({ checked: 1, notChecked: 2 })
+    const [afterA, afterB] = await store.rows()
+    expect(afterA?.credential?.refreshToken).toBe('token-a2')
+    expect(afterA?.quota.status).toBe('absent')
+    expect(afterB?.quota.status).toBe('present')
+  })
+
+  it("does not count an older stored reading that shares the new reading's time when the new one was not written", async () => {
+    const clock = 1_700_000_000_000
+    const store = await storeService(undefined, {
+      now: () => clock,
+      failQuotaWrites: true,
+      seed: async (repository) => {
+        const read = await repository.read()
+        const rowB = read.status === 'ready' ? read.rows[1] : undefined
+        if (rowB === undefined) throw new Error('row B is missing')
+        // A reading already stored for row B at the very same time, with
+        // a different remaining fraction than the check will fetch.
+        await repository.recordQuota(rowB.ref, {
+          schemaVersion: 1,
+          cachedQuotaAccountId: createHash('sha256')
+            .update('token-b')
+            .digest('hex')
+            .slice(0, 16),
+          cachedQuota: {
+            gemini: { modelCount: 1, remainingFraction: 0.9 },
+          },
+          cachedQuotaUpdatedAt: clock,
+        })
+      },
+    })
+    const rowB = (await store.rows())[1]
+
+    const report = await store.service.checkStoreQuota([rowB!.ref])
+    await store.service.dispose()
+
+    expect(report).toEqual({ checked: 0, notChecked: 1 })
+    const after = (await store.rows())[1]
+    expect(
+      after?.quota.status === 'present'
+        ? after.quota.quota.cachedQuota?.gemini?.remainingFraction
+        : undefined,
+    ).toBe(0.9)
+  })
+
+  it('refuses a target whose row the manager no longer holds, without refreshing or sending', async () => {
+    const store = await storeService()
+    const targets = store.manager.getAccountsForQuotaCheck()
+    const accountA = store.manager.getAccounts()[0]
+    expect(store.manager.removeAccount(accountA!)).toBe(true)
+
+    const outcome = await store.service.refreshAccount(targets[0]!, {
+      force: true,
+    })
+    await store.service.dispose()
+    expect(outcome.status).toBe('failed')
+    expect(store.exchanged).toEqual([])
+    expect(store.bearers).toEqual([])
   })
 })

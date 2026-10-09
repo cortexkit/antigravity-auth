@@ -115,7 +115,8 @@ export function isInvalidGrantFailure(error: unknown): boolean {
 
 /** The provider's answer to one refresh-token grant. */
 interface RefreshGrant {
-  accessToken: string
+  /** Absent when Google answered without one. */
+  accessToken: string | undefined
   /** The refresh token to keep: Google's rotated one, else the one sent. */
   refreshToken: string
   expiresAt: number
@@ -188,11 +189,11 @@ async function exchangeRefreshToken(
     expires_in?: unknown
     refresh_token?: unknown
   }
-  if (typeof payload.access_token !== 'string' || !payload.access_token) {
-    throw new Error('Antigravity token refresh returned no access token')
-  }
   return {
-    accessToken: payload.access_token,
+    accessToken:
+      typeof payload.access_token === 'string' && payload.access_token
+        ? payload.access_token
+        : undefined,
     refreshToken:
       typeof payload.refresh_token === 'string' && payload.refresh_token
         ? payload.refresh_token
@@ -214,6 +215,10 @@ export function createAntigravityTokenExchange(
   const now = options.now ?? (() => Date.now())
   return async ({ refreshToken }) => {
     const grant = await exchangeRefreshToken(refreshToken, now)
+    // The repository would commit the token; no bearer, no commit.
+    if (grant.accessToken === undefined) {
+      throw new Error('Antigravity token refresh returned no access token')
+    }
     return {
       accessToken: grant.accessToken,
       refreshToken: grant.refreshToken,
@@ -251,9 +256,11 @@ export async function refreshAccessToken(
     // refresh: managedProjectId survives access-token rotation. Invalid grants
     // still invalidate (in the exchange) because the refresh key is no longer
     // usable.
+    // An answer without an access token is passed on as one: the request
+    // path reports it as the native authorization failure.
     return {
       ...auth,
-      access: grant.accessToken,
+      access: grant.accessToken as string,
       expires: grant.expiresAt,
       refresh: formatRefreshParts(refreshedParts),
     }

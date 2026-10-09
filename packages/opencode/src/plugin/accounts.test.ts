@@ -24,6 +24,7 @@ import {
   type ModelFamily,
   parseRateLimitReason,
   resolveQuotaGroup,
+  StaleAccountGrantError,
 } from './accounts'
 // Mock storage to prevent test data from leaking to real config files.
 // Bun's `mock.module` doesn't support the `importOriginal` callback that
@@ -3001,6 +3002,57 @@ describe('loadAccountManagerFromRepository', () => {
     expect(authB?.access).toBe('b2')
     expect(accountA?.ref).toEqual(learnt)
     expect(accountB?.ref).toEqual(rowB.ref)
+  })
+
+  it("accepts a grant only while it is the selected account's current refreshed credential", async () => {
+    let next = 1
+    const { repository } = repositoryOver([rowA, rowB], async (ref) => ({
+      status: 'rotated',
+      ref,
+      accessToken: `access-${ref.id}-${next++}`,
+      expiresAt: 99,
+    }))
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager)
+    const [accountA, accountB] = manager.getAccounts()
+
+    const first = await credentials.refresh(accountA!)
+    expect(() =>
+      credentials.assertGrantCurrent({
+        account: accountA!,
+        accessToken: first!.access!,
+      }),
+    ).not.toThrow()
+    // B's grant is not A's, whatever the position.
+    expect(() =>
+      credentials.assertGrantCurrent({
+        account: accountB!,
+        accessToken: first!.access!,
+      }),
+    ).toThrow(StaleAccountGrantError)
+
+    // A later refresh supersedes the earlier grant.
+    const second = await credentials.refresh(accountA!)
+    expect(() =>
+      credentials.assertGrantCurrent({
+        account: accountA!,
+        accessToken: first!.access!,
+      }),
+    ).toThrow(StaleAccountGrantError)
+
+    // A reloaded manager holds new account objects: the old selection's
+    // grant is stale even with the same token.
+    const reloaded = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    expect(() =>
+      createLocalAccountCredentials(reloaded).assertGrantCurrent({
+        account: accountA!,
+        accessToken: second!.access!,
+      }),
+    ).toThrow(StaleAccountGrantError)
   })
 
   it('recognizes a revoked refresh token through the repository failure that wraps it', async () => {

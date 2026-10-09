@@ -52,6 +52,11 @@ export interface AccountAccessStore {
     >,
     replaceAll: boolean,
   ): Promise<void>
+  /**
+   * Which source serves the location's accounts: the pool file before
+   * migration, else the account store's repository. Absent: the pool file.
+   */
+  source?(): Promise<'pool-file' | AccountRepository>
 }
 
 export interface AccountAccessPrompt {
@@ -93,6 +98,16 @@ export interface AccountAccessService {
     accounts: Array<{ email?: string; index: number }>,
   ): Promise<number | undefined>
   openVerificationUrl(url: string): Promise<boolean>
+  /** The store's `source`: the pool file, or the account store's repository. */
+  source(): Promise<'pool-file' | AccountRepository>
+  /**
+   * The ref-addressed access operations over the account store's
+   * repository, with this service's prompt, browser and transport. Store-mode
+   * callers use these instead of the pool-file operations above.
+   */
+  repositoryAccess(
+    repository: AccountRepository,
+  ): RepositoryAccountAccessService
 }
 
 interface AccountAccessDependencies {
@@ -444,6 +459,16 @@ export function createAccountAccessService({
   const verifyAccount: AccountAccessService['verifyAccount'] = async (
     account,
   ) => {
+    // Once the account store serves the location, a refresh with a token
+    // copied out of a listing would bypass the repository's attributed
+    // refresh; store-mode verification goes through `repositoryAccess`.
+    if (store.source && (await store.source()) !== 'pool-file') {
+      return {
+        status: 'error',
+        message:
+          'Accounts live in the account store; verify them through the account store.',
+      }
+    }
     const parsed = parseRefreshParts(account.refreshToken)
     if (!parsed.refreshToken) {
       return {
@@ -493,6 +518,15 @@ export function createAccountAccessService({
   }
 
   return {
+    source: () =>
+      store.source ? store.source() : Promise.resolve('pool-file'),
+    repositoryAccess: (repository) =>
+      createRepositoryAccountAccessService({
+        repository,
+        openBrowser,
+        prompt,
+        transport,
+      }),
     loadAccounts: () => store.load(),
     mutateAccounts: (mutate) => store.mutate(mutate),
     clearAccounts: () => store.clear(),
@@ -671,6 +705,64 @@ function accessViewOf(row: AccountRow): AccountAccessView {
   }
 }
 
+/**
+ * A pool-file shaped view of account-store rows, for menus and listings that
+ * still render the pool-file record. Each view's position equals the row's
+ * index in `rows`, so a caller that keeps `rows[i].ref` beside it acts on
+ * the exact row the user picked. The view is for display; it is never
+ * written back.
+ */
+export function storageViewOfRows(
+  rows: readonly AccountRow[],
+): AccountStorageV4 {
+  return {
+    version: 4,
+    activeIndex: 0,
+    accounts: rows.map((row): AccountMetadataV3 => {
+      const meta =
+        row.metadata.status === 'present' ? row.metadata.metadata : undefined
+      const quota = row.quota.status === 'present' ? row.quota.quota : undefined
+      const view: AccountMetadataV3 = {
+        refreshToken: row.credential?.refreshToken ?? '',
+        addedAt: meta?.addedAt ?? row.storeAddedAt ?? 0,
+        lastUsed: meta?.lastUsed ?? 0,
+        enabled: row.enabled,
+      }
+      const email = textOf(meta?.email)
+      if (email !== undefined) view.email = email
+      const label = textOf(meta?.label)
+      if (label !== undefined) view.label = label
+      for (const key of [
+        'verificationRequired',
+        'accountIneligible',
+      ] as const) {
+        if (meta?.[key] != null) view[key] = meta[key]
+      }
+      for (const key of [
+        'verificationRequiredAt',
+        'accountIneligibleAt',
+        'coolingDownUntil',
+      ] as const) {
+        if (meta?.[key] != null) view[key] = meta[key]
+      }
+      for (const key of [
+        'verificationRequiredReason',
+        'verificationUrl',
+        'accountIneligibleReason',
+      ] as const) {
+        const value = textOf(meta?.[key])
+        if (value !== undefined) view[key] = value
+      }
+      if (meta?.cooldownReason != null)
+        view.cooldownReason = meta.cooldownReason
+      if (quota?.cachedQuotaUpdatedAt != null) {
+        view.cachedQuotaUpdatedAt = quota.cachedQuotaUpdatedAt
+      }
+      return view
+    }),
+  }
+}
+
 /** A repository refusal meaning the ref no longer names the row's credential. */
 function isStaleRefFailure(error: unknown): error is AccountRepositoryError {
   return (
@@ -708,7 +800,7 @@ export function createRepositoryAccountAccessService({
       case 'pending-migration':
         throw new AccountStoreUnavailableError(
           read.status,
-          'run `antigravity-auth account-store migrate --offline`',
+          'run `antigravity-auth migrate --offline`',
         )
       case 'management-pending':
         throw new AccountStoreUnavailableError(
