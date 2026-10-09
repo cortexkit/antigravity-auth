@@ -25,6 +25,7 @@ import {
   startOwnedCommand,
 } from './fixtures/opencode-ga-host/owned-command.ts'
 import {
+  assertGaImagePreparationPlatform,
   assertGaPinnedHostnameMappings,
   GA_CASE_IDS,
   gaChildEnvironment,
@@ -499,4 +500,17 @@ it('keeps the canonical Google request URL for production raw-TLS routing', () =
     JSON.parse(readFileSync(configPath, 'utf8')).providers.google.settings
       .baseURL,
   ).toBe('http://127.0.0.1:1234/direct/v1')
+})
+
+it('admits Linux x64 artifact preparation without asserting runtime container membership', () => {
+  expect(() => assertGaImagePreparationPlatform('linux', 'x64')).not.toThrow()
+  for (const [platform, arch] of [
+    ['darwin', 'x64'],
+    ['linux', 'arm64'],
+    ['win32', 'x64'],
+  ] as const) {
+    expect(() => assertGaImagePreparationPlatform(platform, arch)).toThrow(
+      'Image preparation requires Linux amd64',
+    )
+  }
 })

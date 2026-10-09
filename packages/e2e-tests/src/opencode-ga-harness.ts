@@ -2093,13 +2093,20 @@ export function readGaPin(repoRoot: string): GaBinaryPin {
   return parseGaPin(JSON.parse(readFileSync(path, 'utf8')))
 }
 
-async function prepareGaImage(repoRoot: string, prefix: string): Promise<void> {
+export function assertGaImagePreparationPlatform(
+  platform: string,
+  arch: string,
+): void {
   requireCondition(
-    process.platform === 'linux' &&
-      process.arch === 'x64' &&
-      existsSync('/.dockerenv'),
-    'Image preparation requires Linux amd64 Docker',
+    platform === 'linux' && arch === 'x64',
+    'Image preparation requires Linux amd64',
   )
+}
+
+async function prepareGaImage(repoRoot: string, prefix: string): Promise<void> {
+  // Image builds acquire and verify artifacts but do not launch OpenCode.
+  // The host-launch path checks container provenance and network isolation.
+  assertGaImagePreparationPlatform(process.platform, process.arch)
   requireCondition(
     !existsSync(prefix) &&
       isAbsolute(prefix) &&
