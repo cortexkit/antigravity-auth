@@ -83,6 +83,7 @@ async function readyRows(): Promise<
 async function menu(
   settingsLog: AntigravityMenuSettings[] = [],
   refreshQuota?: AntigravityRepositoryMenuOptions['refreshQuota'],
+  accountLimits?: AntigravityRepositoryMenuOptions['accountLimits'],
 ) {
   let settings: AntigravityMenuSettings = {
     routing: { cliFirst: false, quotaStyleFallback: false },
@@ -104,6 +105,7 @@ async function menu(
       },
     },
     ...(refreshQuota ? { refreshQuota } : {}),
+    ...(accountLimits ? { accountLimits } : {}),
   })
 }
 
@@ -263,6 +265,76 @@ describe('createAntigravityCommandMenu quota check', () => {
     const built = await menu([], async () => ({ checked: 0, notChecked: 2 }))
     const result = await built.apply(request, invocation)
     expect(result).toMatchObject({ ok: false, code: 'quota-unavailable' })
+  })
+})
+
+describe('createAntigravityCommandMenu account quota floor', () => {
+  it('offers no floor action without a host floor source', async () => {
+    const payload = await (await menu()).open(invocation)
+    const accounts = payload.menu.sections.find(
+      (entry) => entry.id === 'accounts',
+    )
+    expect(
+      accounts?.items.flatMap((item) =>
+        item.actions.map((action) => action.id),
+      ),
+    ).not.toContain('limit')
+  })
+
+  it('writes the floor for exactly the credential the item was opened for', async () => {
+    const floors = new Map<string, number>()
+    const written: unknown[] = []
+    const built = await menu([], undefined, {
+      read: (ref) => floors.get(ref.id) ?? null,
+      write: async (ref, value) => {
+        written.push({ ref, value })
+        if (value === null) floors.delete(ref.id)
+        else floors.set(ref.id, value)
+        return 'applied'
+      },
+    })
+    const [, second] = await accountItemIds(built)
+    const [, secondRow] = await readyRows()
+    if (!second || !secondRow) throw new Error('missing account')
+    const result = await built.apply(
+      {
+        command: 'antigravity',
+        sectionId: 'accounts',
+        itemId: second,
+        actionId: 'limit',
+        values: { minimumRemainingPercent: 25 },
+      },
+      invocation,
+    )
+    expect(result).toMatchObject({
+      ok: true,
+      text: 'Account 2 quota floor set to 25%',
+    })
+    expect(written).toEqual([{ ref: secondRow.ref, value: 25 }])
+    const item = result.menu.sections
+      .find((entry) => entry.id === 'accounts')
+      ?.items.find((entry) => entry.id === second)
+    expect(item?.detail).toContain('floor 25%')
+    expect(JSON.stringify(result)).not.toContain(secondRow.ref.id)
+  })
+
+  it('reports a stale credential from the host and claims nothing', async () => {
+    const built = await menu([], undefined, {
+      read: () => null,
+      write: async () => 'stale',
+    })
+    const [first] = await accountItemIds(built)
+    const result = await built.apply(
+      {
+        command: 'antigravity',
+        sectionId: 'accounts',
+        itemId: first,
+        actionId: 'limit',
+        values: { minimumRemainingPercent: 10 },
+      },
+      invocation,
+    )
+    expect(result).toMatchObject({ ok: false, code: 'stale-account' })
   })
 })
 

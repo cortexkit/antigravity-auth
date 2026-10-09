@@ -34,6 +34,7 @@ import {
   applyAntigravityProviderCatalog,
   registerAntigravityCommands,
 } from './catalog'
+import { createStoreAccountLimits } from './command-apply'
 import { projectCommandAccountRows } from './command-data'
 import {
   createAntigravityCommandExecuteBefore,
@@ -313,6 +314,10 @@ export const createAntigravityPlugin =
               setEnabled: setGeminiDumpEnabled,
             },
             applyLogLevel: setRuntimeLogLevel,
+            accountLimits: createStoreAccountLimits({
+              repository: opening.repository,
+              settings: operatorSettings,
+            }),
             signIn: accountOAuth,
           }),
         }

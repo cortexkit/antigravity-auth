@@ -6,14 +6,19 @@
  * SDK and no process-wide state; every collaborator is passed in.
  */
 
-import type {
-  AntigravityMenuSettingsSource,
-  CommonAuthCommandsModule,
+import {
+  type AccountRepository,
+  AccountRepositoryError,
+  type AntigravityAccountLimitSource,
+  type AntigravityMenuSettingsSource,
+  type CommonAuthCommandsModule,
+  sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
 
-import type {
-  OperatorSettings,
-  OperatorSettingsController,
+import {
+  accountKeyForRefreshToken,
+  type OperatorSettings,
+  type OperatorSettingsController,
 } from './operator-settings.ts'
 
 type CommonAuthMenuOptions = Parameters<
@@ -121,6 +126,70 @@ export function diagnosticsMenuSection(options: {
           },
         ],
       }
+    },
+  }
+}
+
+/** Repository failures meaning the captured credential is no longer current. */
+const STALE_FAILURES = new Set(['attribution', 'unknown-row', 'id-removed'])
+
+/**
+ * Per-account quota floors for a location whose accounts are in its local
+ * account store, kept where the killswitch already reads them: the operator
+ * settings' `killswitch.accounts` map, keyed by `accountKeyForRefreshToken`
+ * of the account's stored refresh token. The key is computed here, in
+ * process, and never leaves this adapter.
+ *
+ * A write runs inside the repository's fenced metadata update for the exact
+ * captured reference, which holds the row's lock and checks its credential
+ * epoch and recorded identity before the callback runs: the key comes from
+ * the locked row, and a replaced, re-identified or removed credential is
+ * refused (`stale`) before any setting is written. The callback keeps the
+ * row's metadata unchanged.
+ */
+export function createStoreAccountLimits(input: {
+  readonly repository: Pick<AccountRepository, 'read' | 'updateMetadata'>
+  readonly settings: Pick<OperatorSettingsController, 'get' | 'update'>
+}): AntigravityAccountLimitSource {
+  return {
+    async read(ref) {
+      const read = await input.repository.read()
+      if (read.status !== 'ready') return null
+      const row = read.rows.find((candidate) => sameRowRef(candidate.ref, ref))
+      const token = row?.credential?.refreshToken
+      if (token === undefined) return null
+      return (
+        input.settings.get().killswitch.accounts?.[
+          accountKeyForRefreshToken(token)
+        ] ?? null
+      )
+    },
+    async write(ref, minimumRemainingPercent) {
+      try {
+        await input.repository.updateMetadata(ref, async (_current, row) => {
+          const token = row.credential?.refreshToken
+          // A row without a stored credential has no floor key; nothing is
+          // written and the menu reports the action as failed.
+          if (token === undefined)
+            throw new Error('The account holds no stored credential')
+          const key = accountKeyForRefreshToken(token)
+          await input.settings.update((draft) => {
+            const accounts = { ...(draft.killswitch.accounts ?? {}) }
+            if (minimumRemainingPercent === null) delete accounts[key]
+            else accounts[key] = minimumRemainingPercent
+            draft.killswitch.accounts = accounts
+          })
+          return { kind: 'keep' }
+        })
+      } catch (error) {
+        if (
+          error instanceof AccountRepositoryError &&
+          STALE_FAILURES.has(error.failure.kind)
+        )
+          return 'stale'
+        throw error
+      }
+      return 'applied'
     },
   }
 }

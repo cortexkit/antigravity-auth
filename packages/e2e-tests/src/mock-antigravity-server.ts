@@ -87,7 +87,10 @@ export interface GeminiCliQuotaFixture extends BaseFixture {
   buckets: Array<{ model: string; remainingFraction: number }>
 }
 
-/** Windowed quota summary envelope — fed to `retrieveUserQuotaSummary`. */
+/**
+ * Quota summary response with per-window remaining fractions and reset
+ * times, as `retrieveUserQuotaSummary` parses it.
+ */
 export interface QuotaSummaryWindowFixture extends BaseFixture {
   kind: 'quotaSummaryWindow'
   /**
@@ -122,7 +125,10 @@ export interface StreamChunkedFixture extends BaseFixture {
 
 export interface TokenExpiryFixture extends BaseFixture {
   kind: 'tokenExpiry401'
-  /** Refresh hint returned in the body so the loader can simulate a rotate. */
+  /**
+   * Synthetic refresh token returned in the 401 body, so a test can check that
+   * the loader replaces the stored refresh token with it.
+   */
   rotatedRefresh?: string
 }
 
@@ -149,7 +155,28 @@ export interface OpenTerminalStreamFixture extends BaseFixture {
   /** Caller pushes chunks via `stream.write(chunk)` until `stream.close()`. */
 }
 
+/** Exact bytes for canned upstream errors; no JSON reserialization. */
+export interface RawResponseFixture extends BaseFixture {
+  kind: 'rawResponse'
+  contentType: string
+  body: Uint8Array
+}
+
+/**
+ * A response the test holds open. `observe` reports `peer-close` when the
+ * client closed the socket itself, and `forced-close` when the mock's own
+ * shutdown ended it, so the two are never confused.
+ */
+export interface HeldResponseFixture extends BaseFixture {
+  kind: 'heldResponse'
+  phase: 'pre-header' | 'post-header'
+  content?: string
+  observe: (event: 'parsed' | 'content' | 'peer-close' | 'forced-close') => void
+}
+
 export type Fixture =
+  | RawResponseFixture
+  | HeldResponseFixture
   | JsonBodyFixture
   | GenerateContentFixture
   | ProjectDiscoveryFixture
@@ -240,6 +267,7 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
   const requests: RecordedRequest[] = []
   const openSockets = new Set<ServerResponse>()
   let closing = false
+  const held = new Map<ServerResponse, HeldResponseFixture>()
 
   const server: Server = createServer(async (request, response) => {
     try {
@@ -309,6 +337,36 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
     reqBody: string,
   ): Promise<void> {
     switch (fixture.kind) {
+      case 'rawResponse': {
+        applyHeaders(
+          response,
+          { 'content-type': fixture.contentType },
+          fixture.headers,
+        )
+        response.writeHead(fixture.status ?? 400)
+        response.end(fixture.body)
+        return
+      }
+      case 'heldResponse': {
+        held.set(response, fixture)
+        fixture.observe('parsed')
+        // Only the request socket closing counts as the client cancelling:
+        // a response `close` event or the mock's own shutdown does not, and
+        // shutdown reports `forced-close` instead.
+        _request.socket.once('close', () => {
+          if (held.delete(response)) fixture.observe('peer-close')
+        })
+        if (fixture.phase === 'post-header') {
+          applyHeaders(response, SSE_HEADERS, fixture.headers)
+          response.writeHead(fixture.status ?? 200)
+          response.flushHeaders()
+          if (!fixture.content)
+            throw new Error('Post-header hold requires genuine content')
+          response.write(fixture.content)
+          fixture.observe('content')
+        }
+        return
+      }
       case 'json': {
         const status = fixture.status ?? 200
         response.writeHead(status, { 'content-type': 'application/json' })
@@ -339,9 +397,10 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
         return
       }
       case 'quotaSummaryWindow': {
-        // Honor the real API's 403 behavior: if managedProjectId is set
-        // on the fixture and the posted project does not match, return
-        // PERMISSION_DENIED so the test exercises the fallback path.
+        // When the fixture sets managedProjectId and the request posts a
+        // different project, answer 403 PERMISSION_DENIED so the test covers
+        // the caller's retry with the managed project. This mirrors the
+        // behaviour the client code expects; it is not a live API capture.
         if (fixture.managedProjectId) {
           let postedProject: string | undefined
           try {
@@ -371,9 +430,9 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
             return
           }
         }
-        // Apply the fixture's custom headers (e.g. for cache-bust
-        // trace assertions) before writing the JSON body — mirrors
-        // every other fixture's header-merge convention.
+        // Set the content type plus the fixture's own headers (for example
+        // cache-bust trace headers) before the JSON body is sent, as the
+        // other fixtures do.
         applyHeaders(
           response,
           { 'content-type': 'application/json' },
@@ -523,6 +582,10 @@ export async function startMockAntigravityServer(): Promise<MockServerHandle> {
   async function close(): Promise<void> {
     if (closing) return
     closing = true
+    for (const [response, fixture] of held) {
+      fixture.observe('forced-close')
+      held.delete(response)
+    }
     for (const response of openSockets) {
       try {
         response.end()

@@ -55,6 +55,7 @@ let originalFetch: typeof globalThis.fetch | null = null
 // `--isolate` gives each test file its own preload module state. Keep roots
 // local to that file so its afterAll cannot remove a sibling's active root.
 const rootsOwnedByThisFile = new Set<string>()
+const nativePiEnvironment = new Map<'PI_CODING_AGENT_DIR', string | undefined>()
 
 /**
  * Opt-in orphan sweep threshold. When `AGY_E2E_SWEEP_ORPHANS=1` is
@@ -103,6 +104,10 @@ function restoreFetchGuard(): void {
 }
 
 beforeEach(() => {
+  nativePiEnvironment.set(
+    'PI_CODING_AGENT_DIR',
+    process.env.PI_CODING_AGENT_DIR,
+  )
   installFetchGuard()
   // Per-test temp root + env reset. Tests must not touch the host HOME.
   const root = fs.mkdtempSync(join(tmpdir(), 'agy-e2e-'))
@@ -127,6 +132,10 @@ beforeEach(() => {
   process.env.LOCALAPPDATA = cache
   process.env.OPENCODE_CONFIG_DIR = join(config, 'opencode')
   process.env.PI_AGENT_DIR = pi
+  // The Pi SDK reads PI_CODING_AGENT_DIR first and falls back to a path under
+  // HOME only when it is unset; PI_AGENT_DIR covers just the extension's own
+  // paths. Setting both keeps an inherited PI_CODING_AGENT_DIR out of tests.
+  process.env.PI_CODING_AGENT_DIR = pi
   process.env.PI_ANTIGRAVITY_AUTH_FILE = join(pi, 'antigravity-accounts.json')
   process.env.OPENCODE_ANTIGRAVITY_GEMINI_DUMP_DIR = join(root, 'gemini-dumps')
   process.env.ANTIGRAVITY_AUTH_RPC_DIR = join(state, 'cortexkit', 'rpc')
@@ -139,6 +148,10 @@ beforeEach(() => {
 
 afterEach(() => {
   restoreFetchGuard()
+  const originalPiRoot = nativePiEnvironment.get('PI_CODING_AGENT_DIR')
+  if (originalPiRoot === undefined) delete process.env.PI_CODING_AGENT_DIR
+  else process.env.PI_CODING_AGENT_DIR = originalPiRoot
+  nativePiEnvironment.clear()
   delete process.env.ANTIGRAVITY_TEST_ROOT
 })
 
@@ -167,7 +180,8 @@ export function sweepOrphanE2eRoots(): void {
       if (stat.mtimeMs > cutoff) continue
       fs.rmSync(candidate, { recursive: true, force: true })
     } catch {
-      /* swallow */
+      // A root that vanished or cannot be removed is skipped so the sweep
+      // can go on to the remaining orphans.
     }
   }
 }

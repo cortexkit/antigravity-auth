@@ -86,6 +86,7 @@ import {
   loadAccountManagerFromRepository,
 } from './accounts.ts'
 import {
+  createStoreAccountLimits,
   diagnosticsMenuSection,
   operatorMenuSettings,
 } from './command-apply.ts'
@@ -572,7 +573,8 @@ export type GaCommandMenu = ReturnType<
  */
 export function createGaLocationMenu(input: {
   readonly commands: CommonAuthCommandsModule
-  readonly repository: AntigravityMenuAccounts
+  readonly repository: AntigravityMenuAccounts &
+    Pick<AccountRepository, 'updateMetadata'>
   readonly runtime: Pick<
     LocationRuntime,
     'operatorSettings' | 'dump' | 'applyOperatorSettings'
@@ -589,6 +591,10 @@ export function createGaLocationMenu(input: {
       settings: runtime.operatorSettings,
       dump: runtime.dump,
       applyLogLevel: () => runtime.applyOperatorSettings(),
+    }),
+    accountLimits: createStoreAccountLimits({
+      repository: input.repository,
+      settings: runtime.operatorSettings,
     }),
     ...(input.refreshQuota ? { refreshQuota: input.refreshQuota } : {}),
   })

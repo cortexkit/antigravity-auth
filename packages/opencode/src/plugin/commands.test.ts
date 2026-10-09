@@ -18,12 +18,16 @@ import {
 
 import type { RpcNotificationPayload } from '../rpc/protocol'
 import { registerAntigravityCommands } from './catalog'
+import { createStoreAccountLimits } from './command-apply'
 import {
   createAntigravityCommandExecuteBefore,
   createOpenCodeAntigravityMenu,
   menuInvocation,
 } from './commands'
-import { createOperatorSettingsController } from './operator-settings'
+import {
+  accountKeyForRefreshToken,
+  createOperatorSettingsController,
+} from './operator-settings'
 
 describe('registerAntigravityCommands', () => {
   it('registers only /antigravity and keeps the host commands', () => {
@@ -275,6 +279,123 @@ describe('createOpenCodeAntigravityMenu', () => {
     } finally {
       await settings.dispose()
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('createStoreAccountLimits', () => {
+  async function storeWithSettings() {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'v1-floor-')))
+    const settings = createOperatorSettingsController({
+      projectConfigPath: join(root, 'project', 'antigravity.json'),
+      userConfigPath: join(root, 'user', 'antigravity.json'),
+    })
+    const legacyPath = join(root, 'antigravity-accounts.json')
+    const modules = await loadCommonAuthStoreModules()
+    await initializeFreshAccountStore(modules, { legacyPath, now: Date.now })
+    const admission = await readAccountStoreAdmission(
+      legacyPath,
+      modules,
+      Date.now,
+    )
+    if (admission.status !== 'active') throw new Error(admission.status)
+    const repository = createAccountRepositoryFactory(modules)({
+      paths: admission.paths,
+      now: Date.now,
+      exchange: async () => {
+        throw new Error('token exchange is not part of this test')
+      },
+    })
+    const { ref } = await repository.login({
+      id: crypto.randomUUID(),
+      refreshToken: 'floor-refresh-secret',
+      metadata: { email: 'floor@example.com', addedAt: 1, lastUsed: 1 },
+    })
+    return {
+      repository,
+      settings,
+      ref,
+      cleanup: async () => {
+        await repository.dispose()
+        await settings.dispose()
+        rmSync(root, { recursive: true, force: true })
+      },
+    }
+  }
+
+  it('keeps the floor under the existing private key and drives it from the menu item', async () => {
+    const { repository, settings, cleanup } = await storeWithSettings()
+    try {
+      const key = accountKeyForRefreshToken('floor-refresh-secret')
+      const menu = await createOpenCodeAntigravityMenu({
+        accounts: repository,
+        settings,
+        dump: { isEnabled: () => false, setEnabled: () => undefined },
+        applyLogLevel: () => undefined,
+        accountLimits: createStoreAccountLimits({ repository, settings }),
+      })
+      const invocation = { notify: () => undefined }
+      const opened = await menu.open(invocation)
+      const item = opened.menu.sections.find(
+        (section) => section.id === 'accounts',
+      )?.items[0]
+      expect(item?.actions.map((action) => action.id)).toContain('limit')
+      const before = await repository.read()
+      const result = await menu.apply(
+        {
+          command: 'antigravity',
+          sectionId: 'accounts',
+          itemId: item?.id ?? '',
+          actionId: 'limit',
+          values: { minimumRemainingPercent: 30 },
+        },
+        invocation,
+      )
+      expect(result).toMatchObject({
+        ok: true,
+        text: 'Account 1 quota floor set to 30%',
+      })
+      expect(settings.get().killswitch.accounts).toEqual({ [key]: 30 })
+      // The private key and the token never reach the menu payload.
+      const text = JSON.stringify(result)
+      expect(text).not.toContain(key)
+      expect(text).not.toContain('secret')
+      // The row's metadata is left as it was.
+      const after = await repository.read()
+      expect(after.status === 'ready' && after.rows[0]?.metadata).toEqual(
+        before.status === 'ready' && before.rows[0]?.metadata,
+      )
+
+      const cleared = await menu.apply(
+        {
+          command: 'antigravity',
+          sectionId: 'accounts',
+          itemId: item?.id ?? '',
+          actionId: 'limit',
+          values: { minimumRemainingPercent: null },
+        },
+        invocation,
+      )
+      expect(cleared.ok).toBe(true)
+      expect(settings.get().killswitch.accounts ?? {}).toEqual({})
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('refuses a replaced credential before any setting is written', async () => {
+    const { repository, settings, ref, cleanup } = await storeWithSettings()
+    try {
+      await repository.replaceCredential(ref, {
+        refreshToken: 'floor-refresh-replacement',
+        disabled: 'keep',
+      })
+      const limits = createStoreAccountLimits({ repository, settings })
+      expect(await limits.write(ref, 40)).toBe('stale')
+      expect(settings.get().killswitch.accounts ?? {}).toEqual({})
+      expect(await limits.read(ref)).toBeNull()
+    } finally {
+      await cleanup()
     }
   })
 })

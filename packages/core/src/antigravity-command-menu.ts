@@ -131,8 +131,31 @@ export interface AntigravityRepositoryMenuOptions
     readonly label?: string
     run(invocation: CommandInvocation): Promise<string | ActionOutcome>
   }
+  /**
+   * Per-account quota floors the host keeps. Without it the account items
+   * offer no floor action.
+   */
+  readonly accountLimits?: AntigravityAccountLimitSource
   /** Item id source; defaults to 128 random bits. */
   readonly createItemId?: () => string
+}
+
+/**
+ * A per-account minimum remaining quota, kept by the host. The menu hands it
+ * the exact credential reference captured for the item, never a position,
+ * an id shown to the user or a value derived from a token; how the floor is
+ * stored stays private to the host. `write` answers `stale` (or throws the
+ * repository's attribution failure) when that credential is no longer the
+ * row's current one, and then writes nothing.
+ */
+export interface AntigravityAccountLimitSource {
+  /** The account's own floor, or null when it follows the global floor. */
+  read(ref: RowRef): number | null | Promise<number | null>
+  /** Sets the floor; null returns the account to the global floor. */
+  write(
+    ref: RowRef,
+    minimumRemainingPercent: number | null,
+  ): Promise<'applied' | 'stale'>
 }
 
 /** The four account slots, each supplied by the host. */
@@ -297,6 +320,49 @@ function isRoutingTarget(value: unknown): value is RoutingTarget {
   return ROUTING_TARGETS.some((target) => target.value === value)
 }
 
+/** The account item's quota floor action, over the host's floor source. */
+function floorAction(
+  source: AntigravityAccountLimitSource,
+  ref: RowRef,
+  position: number,
+  floor: number | null,
+): ActionDefinition {
+  return {
+    id: 'limit',
+    label: 'Set quota floor',
+    description:
+      'Stop using this account below this remaining quota; leave empty to follow the global floor.',
+    knobs: [
+      {
+        kind: 'number',
+        id: 'minimumRemainingPercent',
+        label: 'Minimum remaining percent',
+        ...(floor !== null ? { value: floor } : {}),
+        min: 0,
+        max: 100,
+      },
+    ],
+    run: async ({ values }) => {
+      const value = values.minimumRemainingPercent
+      const next = typeof value === 'number' ? value : null
+      let outcome: 'applied' | 'stale'
+      try {
+        outcome = await source.write(ref, next)
+      } catch (error) {
+        return staleOrRethrow(error)
+      }
+      if (outcome === 'stale')
+        return failure(
+          'That account changed since the menu was opened; nothing was changed.',
+          'stale-account',
+        )
+      return next === null
+        ? `Account ${position + 1} follows the global quota floor`
+        : `Account ${position + 1} quota floor set to ${next}%`
+    },
+  }
+}
+
 function accountsSection(
   options: AntigravityRepositoryMenuOptions,
   ids: ItemIds,
@@ -324,7 +390,12 @@ function accountsSection(
       if (read.status !== 'ready')
         return { lines: notReadyLines(read), actions: sectionActions }
       const at = now()
+      const limitSource = options.accountLimits
+      const floors = limitSource
+        ? await Promise.all(read.rows.map((row) => limitSource.read(row.ref)))
+        : []
       const items: ItemDefinition[] = read.rows.map((row, position) => {
+        const floor = floors[position] ?? null
         const ref = row.ref
         const active = isActive(read, ref)
         const actions: ActionDefinition[] = [
@@ -401,12 +472,19 @@ function accountsSection(
               return `Account ${position + 1} removed`
             },
           },
+          ...(limitSource
+            ? [floorAction(limitSource, ref, position, floor)]
+            : []),
         ]
         return {
           id: ids.idFor(ref),
           label: `Account ${position + 1}`,
-          detail: `${statusOf(row, at)}${active ? ' · active' : ''}`,
-          facts: { status: statusOf(row, at), active },
+          detail: `${statusOf(row, at)}${active ? ' · active' : ''}${floor !== null ? ` · floor ${floor}%` : ''}`,
+          facts: {
+            status: statusOf(row, at),
+            active,
+            ...(floor !== null ? { quotaFloorPercent: floor } : {}),
+          },
           actions,
         }
       })
