@@ -98,6 +98,8 @@ function addedText(name, result) {
             return `Finished adding ${name}.`;
         case 'rotated':
             return `${name} was already in the pool; its credential was updated.`;
+        case 'exists':
+            return `${name} was already in the pool; its credential is unchanged.`;
     }
 }
 /**

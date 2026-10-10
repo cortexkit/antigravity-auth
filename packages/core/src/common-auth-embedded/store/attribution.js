@@ -16,6 +16,7 @@ export async function recordQuota(rt, id, attribution, observation) {
         if (!isCredentialEpoch(attribution?.credentialEpoch))
             throw refusal('pull', id, 'invalid-input', 'the credential epoch the reading was issued for must be a positive safe integer');
         await withTransaction(ctx, locks, progress, { operation: 'pull', rowId: id }, async (tx) => {
+            tx.assertNotStaged(id);
             const row = tx.row(id);
             if (!row)
                 throw unknownRow('pull', id);

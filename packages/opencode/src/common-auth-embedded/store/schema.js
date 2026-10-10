@@ -27,6 +27,48 @@ export const REFRESH_STAMP_TOLERANCE_MS = 5 * 60_000;
  * credential beside it belongs to. Older readers ignore it.
  */
 export const CREDENTIAL_STAMP_KEY = POOL_KEY;
+/** Canonical JSON: recursively sorted object keys, preserved array order. */
+export function canonicalJson(value) {
+    const normalized = JSON.parse(JSON.stringify(value));
+    const encode = (item) => {
+        if (Array.isArray(item))
+            return `[${item.map(encode).join(',')}]`;
+        if (isRecord(item))
+            return `{${Object.keys(item)
+                .sort()
+                .map((key) => `${JSON.stringify(key)}:${encode(item[key])}`)
+                .join(',')}}`;
+        return JSON.stringify(item);
+    };
+    return encode(normalized);
+}
+export function canonicalDigest(value) {
+    return createHash('sha256').update(canonicalJson(value)).digest('hex');
+}
+export function parseReservation(raw) {
+    if (!isRecord(raw) ||
+        Object.keys(raw).length !== 1 ||
+        typeof raw.reservation !== 'string' ||
+        !raw.reservation)
+        return undefined;
+    return { reservation: raw.reservation };
+}
+function parseStagedStamp(raw) {
+    if (!isRecord(raw) ||
+        typeof raw.reservation !== 'string' ||
+        !raw.reservation ||
+        typeof raw.disabledReason !== 'string')
+        return undefined;
+    if (Object.keys(raw).some((key) => !['reservation', 'label', 'disabledReason', 'providerState'].includes(key)))
+        return undefined;
+    if ('label' in raw && typeof raw.label !== 'string')
+        return undefined;
+    if ('providerState' in raw &&
+        (typeof raw.providerState !== 'string' ||
+            !/^[a-f0-9]{64}$/.test(raw.providerState)))
+        return undefined;
+    return raw;
+}
 /**
  * Key, inside a state-file account entry, of the provider state kept beside
  * the credential. Older readers ignore it.
@@ -192,7 +234,11 @@ export function parseStamp(raw) {
         return undefined;
     if ('providerState' in raw && typeof raw.providerState !== 'string')
         return undefined;
+    const staged = 'staged' in raw ? parseStagedStamp(raw.staged) : undefined;
+    if ('staged' in raw && !staged)
+        return undefined;
     const marks = {
+        ...(staged ? { staged } : {}),
         ...(typeof raw.dispatch === 'string' ? { dispatch: raw.dispatch } : {}),
         ...(raw.replace === true ? { replace: true } : {}),
         ...(typeof raw.providerState === 'string'
@@ -203,7 +249,10 @@ export function parseStamp(raw) {
     // written with a binding; one without is not a stamp this store writes,
     // and it would leave the row's identity unchecked.
     if (!('binding' in raw))
-        return 'dispatch' in raw || 'replace' in raw || 'providerState' in raw
+        return 'dispatch' in raw ||
+            'replace' in raw ||
+            'providerState' in raw ||
+            'staged' in raw
             ? undefined
             : { credentialEpoch: epoch, digest: raw.digest };
     const binding = raw.binding;
@@ -373,6 +422,8 @@ function parseEntry(raw, codec) {
         return undefined;
     if ('quota' in raw && !codec.validate(raw.quota))
         return undefined;
+    if ('staged' in raw && !parseReservation(raw.staged))
+        return undefined;
     return {
         credentialEpoch: epoch,
         needsFirstReading: raw.needsFirstReading === true,
@@ -532,6 +583,9 @@ export function buildRawRows(config, state, codec, providerCodec) {
     for (const raw of rosterOf(config)) {
         const problem = rosterRowProblem(raw);
         const id = isRecord(raw) && typeof raw.id === 'string' ? raw.id : undefined;
+        const rawEntry = id === undefined ? undefined : entries[id];
+        const reserved = isRecord(rawEntry) && Object.hasOwn(rawEntry, 'staged');
+        const staged = reserved ? parseReservation(rawEntry.staged) : undefined;
         if (problem || !isRecord(raw) || id === undefined || seen.has(id)) {
             if (id !== undefined && !seen.has(id))
                 seen.add(id);
@@ -545,6 +599,7 @@ export function buildRawRows(config, state, codec, providerCodec) {
                     candidate: false,
                     invalid: 'roster',
                     stamp: 'none',
+                    ...(staged ? { staged } : {}),
                 });
             continue;
         }
@@ -574,6 +629,7 @@ export function buildRawRows(config, state, codec, providerCodec) {
                 ? { credential, fingerprint: fingerprintOf(credential) }
                 : {}),
             ...(entry ? { credentialEpoch: entry.credentialEpoch } : {}),
+            ...(staged ? { staged } : {}),
             ...(entry?.disabledReason !== undefined
                 ? { disabledReason: entry.disabledReason }
                 : {}),
@@ -585,7 +641,7 @@ export function buildRawRows(config, state, codec, providerCodec) {
             row.invalid = 'entry';
         }
         else {
-            row.candidate = enabled && credential !== undefined;
+            row.candidate = enabled && credential !== undefined && !reserved;
         }
         rows.push(row);
     }

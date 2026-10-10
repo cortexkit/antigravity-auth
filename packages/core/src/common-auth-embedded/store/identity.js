@@ -8,6 +8,7 @@ export const DUPLICATE_IDENTITY_REASON = 'duplicate-identity';
  */
 export function countUnknownIdentityRows(rows) {
     return rows.filter((row) => row.invalid === undefined &&
+        !row.staged &&
         row.type === 'oauth' &&
         row.enabled &&
         row.credential !== undefined &&
@@ -57,6 +58,7 @@ export function disableIdentityDuplicates(tx, identity) {
     const holders = tx
         .rows()
         .filter((row) => row.invalid === undefined &&
+        !row.staged &&
         row.type === 'oauth' &&
         row.enabled &&
         row.identity === identity);

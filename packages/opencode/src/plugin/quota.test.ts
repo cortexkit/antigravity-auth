@@ -1,12 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  mock,
-  spyOn,
-} from 'bun:test'
+import { beforeEach, describe, expect, mock, spyOn } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
@@ -23,6 +15,7 @@ import {
   type VaultSendAdmission,
 } from '@cortexkit/antigravity-auth-core'
 
+import { lifetimeHooks } from '../../../../test/fixtures/lifetime-hooks.ts'
 import {
   DEFAULT_SIDEBAR_STATE,
   drainSidebarWrites,
@@ -33,6 +26,7 @@ import {
   setSidebarMachineState,
   setSidebarMergeHooks,
 } from '../sidebar-state'
+import { managedStoreModules } from './__fixtures__/managed-store.test.ts'
 import {
   createLocalAccountCredentials,
   loadAccountManagerFromRepository,
@@ -61,6 +55,9 @@ interface QuotaSnapshotAccount {
   coolingDownUntil?: number
   cachedQuota?: AccountMetadataV3['cachedQuota']
 }
+
+const hooks = lifetimeHooks()
+const { it, afterEach } = hooks
 
 describe('classifyQuotaGroup', () => {
   it('uses live Antigravity model ids for quota groups', () => {
@@ -221,6 +218,9 @@ describe('pushSidebarQuotaSnapshot', () => {
     const cliGate = new Promise<void>((resolve) => {
       releaseCli = resolve
     })
+    const owner = hooks.lifetime
+    owner.unpark(releaseSummary)
+    owner.unpark(releaseCli)
 
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
       input: unknown,
@@ -234,6 +234,7 @@ describe('pushSidebarQuotaSnapshot', () => {
       if (url.includes('retrieveUserQuotaSummary')) {
         summarySeq.seq += 1
         await summaryGate
+        owner.signal.throwIfAborted()
         summarySeq.seq += 1
         return new Response(
           JSON.stringify({
@@ -258,6 +259,7 @@ describe('pushSidebarQuotaSnapshot', () => {
       if (url.includes('retrieveUserQuota')) {
         cliSeq.seq += 1
         await cliGate
+        owner.signal.throwIfAborted()
         cliSeq.seq += 1
         return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
       }
@@ -396,6 +398,8 @@ describe('pushSidebarQuotaSnapshot', () => {
     const fetchStarted = new Promise<void>((resolve) => {
       fetchStartedResolve = resolve
     })
+    hooks.lifetime.unpark(releaseFetch)
+    hooks.lifetime.unpark(fetchStartedResolve)
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
       (async () =>
         new Response(
@@ -450,15 +454,18 @@ describe('pushSidebarQuotaSnapshot', () => {
       },
     })
 
-    const refresh = manager.refreshAccounts([account], {
-      indexFor: () => 0,
-      force: true,
-    })
-    await fetchStarted
-    const dispose = lifecycle.dispose()
-    releaseFetch()
-
+    const owner = hooks.lifetime
+    const refresh = owner.operation(
+      manager.refreshAccounts([account], {
+        indexFor: () => 0,
+        force: true,
+      }),
+    )
     try {
+      await fetchStarted
+      owner.signal.throwIfAborted()
+      const dispose = owner.operation(Promise.resolve(lifecycle.dispose()))
+      releaseFetch()
       await dispose
       await manager.refreshAccounts([account], {
         indexFor: () => 0,
@@ -479,7 +486,9 @@ describe('pushSidebarQuotaSnapshot', () => {
         'drain:sees-sidebar-write',
       ])
     } finally {
+      releaseFetch()
       await refresh
+      await lifecycle.dispose()
       await drainSidebarWrites()
       setSidebarMergeHooks(null)
       fetchSpy.mockRestore()
@@ -1066,18 +1075,18 @@ describe('authorized local quota fetcher', () => {
 // ---------------------------------------------------------------------------
 // Account-store quota checks over the genuine published store
 //
-// Runs against the common-auth store and fs code embedded in the core
-// package, loaded with `loadCommonAuthStoreModules`, in a private config
-// directory. Before anything runs, every embedded store/fs file is hashed
-// and compared with the record (`source-output.json`) of the released 0.11.6
-// archive it was copied from; any difference fails the tests.
+// Use the published store and filesystem code copied into the core package.
+// Its common-auth-embedded/source-output.json records each file's size and
+// SHA-256 from the pinned 0.12.0 npm archive. Verify every file against that
+// record before loading it with loadCommonAuthStoreModules; any difference
+// fails the test. Account files live in a separate disposable directory.
 // ---------------------------------------------------------------------------
 
 const RELEASED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.11.6',
+  version: '0.12.0',
   tarballSha256:
-    '2e1cbbdd2c5e75bbeecada6a64b93c29b64c5d3b41d3742312e1390cfaa6d9df',
+    '35ce4c601c94e8aba94762fade7895047b3038b70c0d93753aa4d955bb04e951',
 } as const
 
 async function embeddedFilesBelow(
@@ -1097,7 +1106,7 @@ let genuine: Promise<CommonAuthStoreModules> | undefined
 
 /**
  * The embedded store and fs modules, after each of their files matches the
- * size and SHA-256 recorded for the released 0.11.6 archive.
+ * size and SHA-256 recorded for the released 0.12.0 archive.
  */
 function genuineModules(): Promise<CommonAuthStoreModules> {
   genuine ??= (async () => {
@@ -1155,7 +1164,10 @@ function genuineModules(): Promise<CommonAuthStoreModules> {
     }
     return loadCommonAuthStoreModules()
   })()
-  return genuine
+  const owner = hooks.lifetime
+  return owner
+    .operation(genuine)
+    .then((modules) => managedStoreModules(owner, modules))
 }
 
 describe('account-store quota service', () => {
@@ -1744,14 +1756,19 @@ describe('vault quota check', () => {
     const refused = new Promise<void>((resolve) => {
       refusalSeen = resolve
     })
+    const owner = hooks.lifetime
+    owner.unpark(releaseSummary)
+    owner.unpark(refusalSeen)
     let calls = 0
     const issued: Admission[] = []
     const source: VaultQuotaSource = {
       async send(_ref, dispatch, sendOptions) {
         calls += 1
         const call = calls
-        if (call === 1) await summaryHeld
-        else {
+        if (call === 1) {
+          await summaryHeld
+          owner.signal.throwIfAborted()
+        } else {
           refusalSeen()
           throw new Error('the vault refused to admit this account')
         }
@@ -1775,13 +1792,15 @@ describe('vault quota check', () => {
       }),
     }
     const sent: Sent[] = []
-    const checking = fetchVaultAccountQuota({
-      source,
-      ref,
-      signal: new AbortController().signal,
-      logger: silent,
-      transport: recordingTransport(sent, () => summaryOk()),
-    })
+    const checking = owner.operation(
+      fetchVaultAccountQuota({
+        source,
+        ref,
+        signal: owner.signal,
+        logger: silent,
+        transport: recordingTransport(sent, () => summaryOk()),
+      }),
+    )
 
     await refused
     // Allow the Gemini CLI refusal to stop the quota check before

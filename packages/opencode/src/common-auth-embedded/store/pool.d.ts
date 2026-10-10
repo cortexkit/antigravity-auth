@@ -3,10 +3,11 @@ import type { PoolOperationError } from './errors.js';
 import type { PoolLogger } from './hooks.js';
 import { type HoldPoint, type InitializeOutcome, type StoreContext } from './mutate.js';
 import { type ProviderStateMutator, type UpdateProviderStateResult } from './provider-state.js';
+import { type PublicationReceipt, type PublishOptions, type PublishPlan, type PublishResult } from './publication.js';
 import { type PullHook } from './pull.js';
 import { type ProviderRefresh, type RefreshOptions, type RefreshOutcome } from './refresh.js';
 import { type LockEnvironment, type PoolLockOptions, type PoolLockSpec } from './refresh-lock.js';
-import { type AddInput, type AddResult, type CredentialWriteInput, type RemoveOptions, type RemoveResult, type ReorderOptions, type ReorderResult, type RowOperationOptions, type RowToggleOptions, type RowTransitionOptions, type RowTransitionResult, type RowWriteOptions } from './rows.js';
+import { type AddInput, type AddOptions, type AddResult, type CredentialWriteInput, type RemoveOptions, type RemoveResult, type ReorderOptions, type ReorderResult, type RowOperationOptions, type RowToggleOptions, type RowTransitionOptions, type RowTransitionResult, type RowWriteOptions } from './rows.js';
 import { type PoolCredential, type PoolRow, type ProviderStateCodec, type QuotaCodec, type RotateCredential, type StoredCredential } from './schema.js';
 import { type SettingsMutator, type SettingsRead, type UpdateSettingsOptions, type UpdateSettingsResult } from './settings.js';
 export interface OpenPoolStoreOptions {
@@ -39,6 +40,8 @@ export interface OpenPoolStoreOptions {
      * without writing; `remove(id)` explicitly discards the orphan.
      */
     requireCredentialStamps?: boolean;
+    /** Require an exact secret fingerprint for every roster-publication removal. */
+    requireRemovedFingerprint?: boolean;
     /** Injected clock for leases, refresh stamps and `addedAt`. */
     now?: () => number;
     /**
@@ -75,6 +78,8 @@ export type PoolLoad = {
     status: 'error';
     file: 'config' | 'state';
     reason: string;
+    kind?: 'snapshot-contended';
+    retryable?: true;
 };
 export interface PoolStore {
     /** Reads the pool and fires first-reading pulls; never writes a file itself. */
@@ -99,7 +104,9 @@ export interface PoolStore {
      * held (see `Attribution`), and an id that held `Number.MAX_SAFE_INTEGER`
      * refuses (`id-removed`) before writing.
      */
-    add(input: AddInput, options?: RowOperationOptions): Promise<AddResult>;
+    add(input: AddInput, options?: AddOptions): Promise<AddResult>;
+    publishRoster(plan: PublishPlan, options?: PublishOptions): Promise<PublishResult>;
+    publication(operationId: string): Promise<PublicationReceipt | undefined>;
     /**
      * Gives a row a new credential and a new credential epoch. Since 0.6.0 the
      * row's provider state is whatever `ProviderStateCodec.onReplace` returns;

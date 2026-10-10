@@ -1,6 +1,6 @@
 import type { StoredCredential } from './schema.js';
 /** Every library operation that can fail, as named in the failure value. */
-export type PoolOperation = 'initialize' | 'add' | 'replace' | 'rotate' | 'disable' | 'enable' | 'remove' | 'reorder' | 'updateSettings' | 'recordIdentity' | 'updateProviderState' | 'refresh' | 'pull';
+export type PoolOperation = 'initialize' | 'add' | 'replace' | 'rotate' | 'disable' | 'enable' | 'remove' | 'reorder' | 'updateSettings' | 'recordIdentity' | 'updateProviderState' | 'refresh' | 'pull' | 'publishRoster';
 /**
  * How far an operation got before it failed.
  *
@@ -19,7 +19,7 @@ export type PoolFailurePhase = 'before-first-write' | 'after-first-write' | 'pul
  * lock outcomes (a wait that ran out, and a lease found lost); the rest are
  * refusals and failures of the operation itself.
  */
-export type PoolFailureKind = 'lock-contention' | 'lock-ownership' | 'pending-migration' | 'load-error' | 'unknown-row' | 'invalid-row' | 'invalid-input' | 'id-exists' | 'id-removed' | 'type-mismatch' | 'no-credential' | 'row-disabled' | 'row-protected' | 'duplicate-identity' | 'identity-mismatch' | 'identity-contradicted' | 'endpoint-mismatch' | 'row-key-changed' | 'invalid-order' | 'refresh-stamp-ahead' | 'unbound-credential' | 'attribution' | 'provider' | 'pull' | 'invalid-quota' | 'invalid-provider-state' | 'after-persist-hook' | 'unexpected';
+export type PoolFailureKind = 'lock-contention' | 'lock-ownership' | 'pending-migration' | 'load-error' | 'snapshot-contended' | 'publication-sync' | 'publication-incomplete' | 'unknown-row' | 'invalid-row' | 'invalid-input' | 'id-exists' | 'id-removed' | 'type-mismatch' | 'no-credential' | 'row-disabled' | 'row-protected' | 'row-staged' | 'credential-exists' | 'publication-mismatch' | 'duplicate-identity' | 'identity-mismatch' | 'identity-contradicted' | 'endpoint-mismatch' | 'row-key-changed' | 'invalid-order' | 'refresh-stamp-ahead' | 'unbound-credential' | 'attribution' | 'provider' | 'pull' | 'invalid-quota' | 'invalid-provider-state' | 'after-persist-hook' | 'unexpected';
 /**
  * The single failure value of every store operation. `committed` is present
  * only when the operation had already written a credential to the state file

@@ -140,7 +140,7 @@ export function tornStamps(config, state, codec, options = {}) {
     const accounts = isRecord(state.accounts) ? state.accounts : {};
     const torn = new Map();
     for (const row of buildRawRows(config, state, codec)) {
-        if (row.invalid || !row.credential)
+        if (row.invalid || row.staged || !row.credential)
             continue;
         const account = Object.hasOwn(accounts, row.id)
             ? accounts[row.id]

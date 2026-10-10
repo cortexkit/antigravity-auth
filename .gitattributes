@@ -1,6 +1,6 @@
 # Preserve archive and embedded payload bytes through Git checkout and filters.
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.9.4.tgz -text -eol -filter -working-tree-encoding
-/tools/common-auth-build/inputs/cortexkit-common-auth-0.11.6.tgz -text -eol -filter -working-tree-encoding
+/tools/common-auth-build/inputs/cortexkit-common-auth-0.12.0.tgz -text -eol -filter -working-tree-encoding
 /packages/opencode/src/common-auth-embedded/*/*.js -text -eol -filter -working-tree-encoding
 /packages/opencode/src/common-auth-embedded/*/*.d.ts -text -eol -filter -working-tree-encoding
 /packages/opencode/src/common-auth-embedded/logger/capture-sink.d.ts -text -eol -filter -working-tree-encoding

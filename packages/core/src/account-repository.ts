@@ -2687,10 +2687,12 @@ class StoreAccountRepository implements AccountRepository {
     return this.run('replacePool', undefined, () =>
       this.withTopology('replacePool', async (lease) => {
         this.checkPoolInputs(inputs)
+        const pending = await this.readManagement('replacePool')
         if (
           this.store.publishRoster &&
           this.store.publication &&
-          this.storeModule.fingerprintOf
+          this.storeModule.fingerprintOf &&
+          (pending === undefined || pending.publication !== undefined)
         ) {
           return this.replacePublishedPool(inputs, lease)
         }
@@ -2893,11 +2895,15 @@ class StoreAccountRepository implements AccountRepository {
       const rows = (await this.readRows('replacePool')).filter(
         (row) => row.invalid !== 'roster',
       )
-      if (inputs.some((input) => rows.some((row) => row.id === input.id)))
+      const reused = inputs.find((input) =>
+        rows.some((row) => row.id === input.id),
+      )
+      if (reused)
         throw refusal(
           'replacePool',
           'invalid-input',
-          'replacement inputs must name new rows',
+          `input ${reused.id} names a row the pool already holds; a replacement adds new rows`,
+          { rowId: reused.id },
         )
       const remove = rows.map((row) => {
         if (
@@ -3003,6 +3009,7 @@ class StoreAccountRepository implements AccountRepository {
                 'replacePool',
                 'unexpected',
                 'staging did not return the requested credential ref',
+                { rowId: input.id },
               )
             const enabled = input.metadata.enabled !== false
             plan = {
@@ -3042,6 +3049,13 @@ class StoreAccountRepository implements AccountRepository {
         }
         if (next.progress.step === 'publish') {
           await lease.assertOwned()
+          const existing = await publication.call(this.store, next.id)
+          this.assertPublicationReceipt(plan, existing)
+          if (!existing)
+            await this.verifyPool(inputs, false, {
+              reservation: next.id,
+              finalize: plan.finalize,
+            })
           await publish.call(this.store, plan, { protect })
           const receipt = await publication.call(this.store, next.id)
           this.assertPublicationReceipt(plan, receipt)
@@ -3348,16 +3362,24 @@ class StoreAccountRepository implements AccountRepository {
   private async verifyPool(
     inputs: readonly AccountLoginInput[],
     published = false,
+    preparation?: {
+      reservation: string
+      finalize: StorePublicationPlan['finalize']
+    },
   ): Promise<void> {
     const allRows = await this.readRows('replacePool')
-    const rows = published
-      ? allRows.filter((row) => row.invalid !== 'roster')
-      : allRows
+    const rows = preparation
+      ? allRows.filter(
+          (row) => row.staged?.reservation === preparation.reservation,
+        )
+      : published
+        ? allRows.filter((row) => row.invalid !== 'roster')
+        : allRows
     const mismatch = (input: AccountLoginInput, problem: string) =>
       refusal(
         'replacePool',
         'unexpected',
-        `input ${input.id} ${problem} after the replacement`,
+        `input ${input.id} ${problem} ${preparation ? 'during preparation' : 'after the replacement'}`,
         { rowId: input.id },
       )
     for (const input of inputs) {
@@ -3372,6 +3394,14 @@ class StoreAccountRepository implements AccountRepository {
       ) {
         throw mismatch(input, 'is not in the pool')
       }
+      if (
+        preparation &&
+        (row.enabled ||
+          row.credentialEpoch !==
+            preparation.finalize.find((ref) => ref.id === input.id)?.attribution
+              .credentialEpoch)
+      )
+        throw mismatch(input, 'does not hold its disabled prepared credential')
       if (
         published &&
         (row.staged || row.enabled !== (input.metadata.enabled !== false))

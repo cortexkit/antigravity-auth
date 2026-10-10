@@ -226,7 +226,7 @@ export async function loadOldMigrationWriter(
   >
 }
 
-/** Verifies every member of published common-auth 0.11.6 before copying unchanged files into a consumer dedicated to this test case. */
+/** Verifies every member of published common-auth 0.12.0 before copying unchanged files into a consumer dedicated to this test case. */
 export async function preparePublicMigrationConsumer(
   fixture: MigrationFixture,
   inputs: MigrationFixtureInputs,
@@ -260,7 +260,7 @@ export async function preparePublicMigrationConsumer(
   }
   if (
     packageManifest?.name !== '@cortexkit/common-auth' ||
-    packageManifest.version !== '0.11.6'
+    packageManifest.version !== '0.12.0'
   )
     throw new Error('public package inventory differs')
   const exports = record(packageManifest.exports)

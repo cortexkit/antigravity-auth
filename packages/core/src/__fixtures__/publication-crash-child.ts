@@ -1,10 +1,12 @@
-import * as fs from '@cortexkit/common-auth/fs'
-import * as store from '@cortexkit/common-auth/store'
-import { readAccountStoreBinding } from '../../packages/core/src/account-migration.ts'
+import { publicationPublicModules } from './publication-public-modules.ts'
+
+const { store, fs } = await publicationPublicModules(process.argv[4])
+
+import { readAccountStoreBinding } from '../account-migration.ts'
 import {
   type AccountStoreModules,
   createAccountRepositoryFactory,
-} from '../../packages/core/src/account-repository.ts'
+} from '../account-repository.ts'
 
 const [legacyPath, step] = process.argv.slice(2)
 if (

@@ -1,15 +1,15 @@
-# Released 0.11.6 canonical producer
+# Released 0.12.0 canonical producer
 
 The preparation was retargeted in place; directory names retain the original
 source fence. Earlier receipts and failed setup records remain historical.
 
-These acceptance sources cover the byte-verified released 0.11.6 producer.
+These acceptance sources cover the byte-verified released 0.12.0 producer.
 They do not authorize vault access, enrollment or network acquisition. Historical
 source-only and failed startup records remain in research; current executable
 results are recorded separately rather than relabeling those records as passes.
 
-`publication.json` freezes the selected genuine publication's eleven roots and 134
-payload identities (648,487 bytes). `closure.json` records every static import
+`publication.json` freezes the selected genuine publication's eleven roots and 137
+payload identities (698,557 bytes). `closure.json` records every static import
 and re-export specifier of those payloads, including nonlocal imports. Omitted
 files in its `imports` object have no such edges. Relative references from
 declarations resolve to `.d.ts`, not to runtime `.js` counterparts. Routing and
@@ -25,8 +25,8 @@ source, not a subprocess trace; it cannot certify absence of OS-level host or
 network access. That check and the slim-runtime guard need named mutation
 controls after execution is admitted. Nothing here claims a mutation pass.
 
-The build-only multi-output contract also emits the same archive's exact 118-file
-core subset (598,800 bytes). See `research/common-auth-0113-producer-preparation/EMITTER-CONTRACT.md`.
+The build-only multi-output contract also emits the same archive's exact 121-file
+core subset (648,870 bytes). See `research/common-auth-0113-producer-preparation/EMITTER-CONTRACT.md`.
 Public commands runtime eagerly reaches credential/store modules and logger fs;
 TUI uses erased public menu types and a nonsecret serialized model only. Pi may
 call the genuine `runPiCommandMenu(menu, ui)` from server-side composition.

@@ -3,32 +3,35 @@ import { spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import * as fs from '@cortexkit/common-auth/fs'
-import * as store from '@cortexkit/common-auth/store'
+import { PUBLIC_CONSUMER_ENV } from './__fixtures__/common-auth-public-consumer.test.ts'
+import { publicationPublicModules } from './__fixtures__/publication-public-modules.ts'
+
+const { store, fs, consumer } = await publicationPublicModules(
+  process.env[PUBLIC_CONSUMER_ENV],
+)
+
 import {
   initializeFreshAccountStore,
   readAccountStoreBinding,
-} from '../../packages/core/src/account-migration.ts'
+} from './account-migration.ts'
 import {
   ACCOUNT_STATE_POLICY,
   type AccountStoreModule,
-  type AccountStoreModules,
   createAccountRepositoryFactory,
   type StorePublicationReceipt,
-} from '../../packages/core/src/account-repository.ts'
+} from './account-repository.ts'
 import {
   createProviderStateCodec,
   QUOTA_CODEC,
-} from '../../packages/core/src/account-repository-codecs.ts'
+} from './account-repository-codecs.ts'
 import {
   ACCOUNT_STORE_PROVIDER,
   type AccountLoginInput,
   type AccountRepository,
   type AccountStorePaths,
   MANAGEMENT_SETTINGS_KEY,
-} from '../../packages/core/src/account-repository-types.ts'
+} from './account-repository-types.ts'
 
-const modules: AccountStoreModules = { store, fs }
 const input = (id: string, enabled = true): AccountLoginInput => ({
   id,
   refreshToken: `synthetic-${id}-refresh`,
@@ -93,7 +96,9 @@ async function disk(paths: AccountStorePaths) {
 }
 const journal = async (paths: AccountStorePaths) =>
   JSON.parse(await readFile(paths.configPath, 'utf8'))[MANAGEMENT_SETTINGS_KEY]
-function faultModule(step: store.WriteStep): AccountStoreModule {
+function faultModule(
+  step: 'before-config-write' | 'after-config-write',
+): AccountStoreModule {
   let armed = true
   return {
     ...store,
@@ -111,7 +116,7 @@ function faultModule(step: store.WriteStep): AccountStoreModule {
   }
 }
 
-describe('final 0.12 candidate through AccountRepository.replacePool', () => {
+describe('published account store through AccountRepository.replacePool', () => {
   it('stages disabled rows, publishes once, removes old credentials and preserves metadata/settings/order', async () => {
     const p = await pool()
     await p.native.updateSettings((settings) => ({
@@ -240,7 +245,12 @@ for (const step of [
     const p = await pool()
     const child = spawnSync(
       process.execPath,
-      [join(import.meta.dir, 'crash-child.ts'), p.paths.legacyPath, step],
+      [
+        join(import.meta.dir, '__fixtures__/publication-crash-child.ts'),
+        p.paths.legacyPath,
+        step,
+        consumer,
+      ],
       {
         cwd: p.root,
         env: {
@@ -329,7 +339,7 @@ it('replaces an account with overlapping secret and identity without rotating th
 
 it('refuses native publication after a captured old secret changes, without any publication writes', async () => {
   const p = await pool()
-  let captured: string[] | undefined
+  let captured: Awaited<ReturnType<typeof disk>> | undefined
   const module: AccountStoreModule = {
     ...store,
     openPoolStore(options) {
@@ -351,6 +361,8 @@ it('refuses native publication after a captured old secret changes, without any 
     p.open(module).replacePool([input('new')]),
   ).rejects.toMatchObject({ failure: { kind: 'attribution' } })
   expect(captured).toBeDefined()
+  if (!captured)
+    throw new Error('the pre-publication snapshot was not captured')
   expect(await disk(p.paths)).toEqual(captured)
   const result = await p.native.read()
   if (result.status !== 'ready') throw new Error('native unavailable')

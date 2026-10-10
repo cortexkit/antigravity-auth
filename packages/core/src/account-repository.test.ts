@@ -405,7 +405,7 @@ describe('observations', () => {
 // The consumer directory is the shared public-consumer fixture
 // (`__fixtures__/common-auth-public-consumer.test.ts`), which
 // `scripts/prepare-common-auth-public-consumer.ts` provisions offline from
-// the repository's verified 0.11.6 archive and names in
+// the repository's verified 0.12.0 archive and names in
 // AGY_COMMON_AUTH_STORE_CONSUMER. Before anything is imported, the fixture's
 // own `admitPublicConsumer` checks it: an owned, worktree-local directory,
 // every package member byte-identical to the archive (name and version
@@ -2090,10 +2090,27 @@ describe('repository on the genuine public store', () => {
   )
 
   it(
-    'refuses replacement of a non-empty pool without changing its files or credentials',
+    'refuses replacement without publication capability without changing its files or credentials',
     async () => {
       await withPool(async (pool) => {
-        const repository = pool.open()
+        const repository = pool.open(
+          unusedExchange,
+          {},
+          {
+            store: {
+              ...pool.module,
+              openPoolStore(options) {
+                const {
+                  publishRoster: _publish,
+                  publication: _receipt,
+                  ...withoutPublication
+                } = pool.module.openPoolStore(options)
+                return withoutPublication
+              },
+            },
+            fs: pool.fs,
+          },
+        )
         const original = await repository.login(login('old', 'tok-old'))
         const beforeConfig = await readFile(pool.paths.configPath)
         const beforeState = await readFile(pool.paths.statePath)
@@ -2993,17 +3010,18 @@ describe('replacement diagnostics on the genuine public store', () => {
         const store = pool.module.openPoolStore(options)
         return {
           ...store,
-          add: (input) => {
-            if (seen.written !== undefined) return store.add(input)
+          add: (input, options) => {
+            if (seen.written !== undefined) return store.add(input, options)
             const written = alter(input)
             seen.written = written
-            return store.add(written)
+            return store.add(written, options)
           },
         }
       },
     }
     const tokens = knownToken(['tok-old-1', 'tok-new-1', 'tok-new-2'])
     const setup = pool.open()
+    await setup.login(login('old-1', 'tok-old-1'))
     const inputs = [
       login('new-1', 'tok-new-1', { email: 'n1@example.test' }, 'acct-new-1'),
       login('new-2', 'tok-new-2', { email: 'n2@example.test' }, 'acct-new-2'),
@@ -3032,8 +3050,8 @@ describe('replacement diagnostics on the genuine public store', () => {
 
   /**
    * The refusal every corruption variant requires, with what was seen: the
-   * replacement's own verification of its inputs (`verifyPool`) refusing
-   * `new-1` with the variant's exact message, with no store failure beneath
+   * replacement's own staging and input verification refusing `new-1`
+   * with the variant's exact message, with no store failure beneath
    * it, and the journal and transfer file kept. A completed receipt, or a
    * refusal from anywhere else, does not pass.
    */
@@ -3041,6 +3059,10 @@ describe('replacement diagnostics on the genuine public store', () => {
     observed: Awaited<ReturnType<typeof replaceWithAlteredAdd>>,
     message: string,
   ) {
+    expect(observed.rows.find((row) => row.id === 'old-1')).toMatchObject({
+      token: 'tok-old-1',
+      enabled: true,
+    })
     expect({
       outcome: observed.outcome,
       pending: observed.journal !== undefined,
@@ -3081,7 +3103,7 @@ describe('replacement diagnostics on the genuine public store', () => {
         })
         expectRefusedAndKept(
           observed,
-          'input new-1 is not in the pool after the replacement',
+          'staging did not return the requested credential ref',
         )
       })
     },
@@ -3104,7 +3126,7 @@ describe('replacement diagnostics on the genuine public store', () => {
         })
         expectRefusedAndKept(
           observed,
-          'input new-1 is recorded for another identity after the replacement',
+          'input new-1 is recorded for another identity during preparation',
         )
       })
     },
@@ -3133,7 +3155,7 @@ describe('replacement diagnostics on the genuine public store', () => {
         })
         expectRefusedAndKept(
           observed,
-          'input new-1 does not hold its requested metadata after the replacement',
+          'input new-1 does not hold its requested metadata during preparation',
         )
       })
     },
@@ -3437,6 +3459,50 @@ describe('account-store generation binding on the genuine public store', () => {
         expect(manager.getAccounts().map((account) => account.ref)).toEqual([
           healthy.ref,
         ])
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+})
+
+describe('native account roster publication', () => {
+  it(
+    'publishes new accounts together, removes old credentials and preserves settings',
+    async () => {
+      await withPool(async (pool) => {
+        const repo = pool.open()
+        await repo.login(login('old', 'old-secret'))
+        const native = openStoreDirectly(pool)
+        await native.updateSettings(
+          (settings) => ({ ...settings, replacementSentinel: 'keep' }),
+          {},
+        )
+        const inputs = [
+          login('first', 'first-secret', { email: 'first@example.test' }),
+          login('second', 'second-secret', {
+            email: 'second@example.test',
+            enabled: false,
+          }),
+        ]
+        expect((await repo.replacePool(inputs)).outcome).toBe('completed')
+        const read = ready(await repo.read())
+        expect(
+          read.rows.map((row) => [row.ref.id, row.enabled, row.usable]),
+        ).toEqual([
+          ['first', true, true],
+          ['second', false, false],
+        ])
+        expect(read.rows.map((row) => row.credential?.refreshToken)).toEqual([
+          'first-secret',
+          'second-secret',
+        ])
+        expect(await readFile(pool.paths.statePath, 'utf8')).not.toContain(
+          'old-secret',
+        )
+        const settings = await native.readSettings()
+        if (settings.status === 'error') throw new Error(settings.reason)
+        expect(settings.settings.replacementSentinel).toBe('keep')
+        expect(settings.settings[MANAGEMENT_SETTINGS_KEY]).toBeUndefined()
       })
     },
     STORE_TEST_TIMEOUT_MS,

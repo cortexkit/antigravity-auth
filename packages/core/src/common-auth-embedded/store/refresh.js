@@ -4,11 +4,13 @@ import { assertNotInsideHook, runInsideHook } from './hooks.js';
 import { IDENTITY_CONTRADICTED_REASON_PREFIX, recordIdentityIn, } from './identity.js';
 import { runOperation, withTransaction } from './mutate.js';
 import { acceptProviderState, mergedProviderState } from './provider-state.js';
+import { assertNotReserved } from './reserved.js';
 import { rotateIn } from './rows.js';
 import { readRow, refusal, requireBound, rowLockSpec, } from './runtime.js';
 import { rotationStamp, rotationStampUntrusted, rowLockKey, } from './schema.js';
 import { applyTransition } from './torn.js';
 function requireRefreshable(id, row) {
+    assertNotReserved('refresh', id, row?.staged);
     if (!row)
         throw refusal('refresh', id, 'unknown-row', `no row ${id} in the pool`);
     if (row.invalid)

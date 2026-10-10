@@ -50,6 +50,11 @@ export class PullScheduler {
         const progress = { writes: 0 };
         try {
             const request = await withTransaction(ctx, locks, progress, { operation: 'pull', rowId: id }, async (tx) => {
+                // Even a skipped capture must not repair another row on a reserved
+                // row's behalf. Decide reservation before pool-wide torn repair.
+                if (tx.reservation(id) !== undefined)
+                    return undefined;
+                await tx.completeTorn();
                 const row = tx.row(id);
                 // A row that would pull but for its unbound credential refuses, so
                 // the failure hook hears of it instead of the pull vanishing.
@@ -78,7 +83,7 @@ export class PullScheduler {
                         : {}),
                     reason,
                 };
-            });
+            }, { completeTorn: false });
             await locks.releaseAll();
             if (!request) {
                 this.firedAtLoad.delete(id);

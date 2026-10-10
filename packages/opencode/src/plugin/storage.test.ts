@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { beforeEach, describe, expect } from 'bun:test'
 import { createHash } from 'node:crypto'
 import {
   mkdir,
@@ -20,6 +20,8 @@ import {
   createAccountRepositoryFactory,
   loadCommonAuthStoreModules,
 } from '@cortexkit/antigravity-auth-core'
+import { lifetimeHooks } from '../../../../test/fixtures/lifetime-hooks.ts'
+import { managedStoreModules } from './__fixtures__/managed-store.test.ts'
 import { createRepositoryAccountAccessService } from './account-access'
 import {
   createLocalAccountCredentials,
@@ -49,6 +51,9 @@ import {
   saveAccounts,
   saveAccountsReplace,
 } from './storage'
+
+const hooks = lifetimeHooks()
+const { it, afterEach } = hooks
 
 describe('deduplicateAccountsByEmail', () => {
   it('returns empty array for empty input', () => {
@@ -811,20 +816,21 @@ describe('openAccountStore', () => {
 // Genuine published store
 //
 // These run the adapters against common-auth's genuine public `./store` and
-// `./fs` entries and the migration's real binding, admission, publication
-// and retirement, in disposable directories. The entries are the released
+// `./fs` entries in disposable directories. They migrate real account files,
+// check that the completed migration owns those paths, and retire that
+// migration during rollback. The entries are the released
 // common-auth copy embedded in the core package, loaded through its typed
 // `loadCommonAuthStoreModules`. Before loading, the embedding receipt
-// (`source-output.json`) must name the released 0.11.6 archive, and every
+// (`source-output.json`) must name the released 0.12.0 archive, and every
 // store and fs file must match the size and SHA-256 it records, with no
 // unrecorded file; anything else fails these tests instead of skipping them.
 // ---------------------------------------------------------------------------
 
 const RELEASED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.11.6',
+  version: '0.12.0',
   tarballSha256:
-    '2e1cbbdd2c5e75bbeecada6a64b93c29b64c5d3b41d3742312e1390cfaa6d9df',
+    '35ce4c601c94e8aba94762fade7895047b3038b70c0d93753aa4d955bb04e951',
 } as const
 
 async function embeddedFilesBelow(
@@ -895,7 +901,10 @@ function genuineModules(): Promise<CommonAuthStoreModules> {
     }
     return loadCommonAuthStoreModules()
   })()
-  return genuine
+  const owner = hooks.lifetime
+  return owner
+    .operation(genuine)
+    .then((modules) => managedStoreModules(owner, modules))
 }
 
 describe('account store over the genuine published store', () => {
@@ -1101,12 +1110,15 @@ describe('account store over the genuine published store', () => {
     const bothHaveStarted = new Promise<void>((resolve) => {
       bothStarted = resolve
     })
+    const owner = hooks.lifetime
+    owner.unpark(bothStarted)
     const exchanged: string[] = []
     const opening = await open(async ({ refreshToken }) => {
       exchanged.push(`start ${refreshToken}`)
       started += 1
       if (started === 2) bothStarted()
       await bothHaveStarted
+      owner.signal.throwIfAborted()
       exchanged.push(`end ${refreshToken}`)
       return {
         accessToken: `access-for-${refreshToken}`,

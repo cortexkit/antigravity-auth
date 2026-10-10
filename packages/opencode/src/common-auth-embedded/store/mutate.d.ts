@@ -31,6 +31,7 @@ export interface StoreContext {
      * `OpenPoolStoreOptions.requireCredentialStamps`).
      */
     requireCredentialStamps?: boolean;
+    requireRemovedFingerprint?: boolean;
 }
 export interface Snapshot {
     configExists: boolean;
@@ -48,8 +49,14 @@ export type ReadResult = ({
     status: 'error';
     file: 'config' | 'state';
     reason: string;
+    kind?: 'snapshot-contended';
+    retryable?: true;
 };
-/** Reads and classifies both files. Never writes. */
+/**
+ * Validate config/state/config bytes without locks. Roster replacement writes
+ * config before deleting old state credentials. Re-read a changed config so an
+ * old roster cannot be paired with state from which its accounts were removed.
+ */
 export declare function readPool(ctx: StoreContext): Promise<ReadResult>;
 /** The refusal for a pool that is not ready, as a failure value. */
 export declare function notReadyError(result: Exclude<ReadResult, {
@@ -58,6 +65,8 @@ export declare function notReadyError(result: Exclude<ReadResult, {
 /** What an operation has written so far; decides the failure phase. */
 export interface Progress {
     writes: number;
+    /** The roster config was renamed into place, or its committed receipt was found. */
+    publicationDecided?: true;
     /** The credential the operation's state write put on disk, once it has. */
     committed?: StoredCredential;
 }
@@ -89,6 +98,9 @@ export declare class Transaction {
      */
     rows(): PoolRow[];
     row(id: string): PoolRow | undefined;
+    /** Read the config marker, or an orphan's stamp; never use a caller's reservation. */
+    reservation(id: string): unknown;
+    assertNotStaged(id: string): void;
     roster(): unknown[];
     /** The first roster row with this id (the one the pool loads). */
     rosterRow(id: string): Record<string, unknown> | undefined;
@@ -126,9 +138,17 @@ export declare class Transaction {
      */
     commitConfig(options?: {
         counted?: boolean;
+        durable?: boolean;
+        publicationDecision?: boolean;
     }): Promise<void>;
     /** Writes the state: every unrecognised top-level and per-row key kept. */
-    commitState(committed?: StoredCredential): Promise<void>;
+    commitState(committed?: StoredCredential, options?: {
+        durable?: boolean;
+    }): Promise<void>;
+    assertAll(): Promise<void>;
+    syncState(): Promise<void>;
+    markPublicationDecision(): void;
+    syncConfig(): Promise<void>;
     private write;
 }
 /** What `initializePool` did. */

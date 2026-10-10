@@ -418,7 +418,7 @@ test('build.map_admission_valid_generated', async () => {
   const runtime = await hashes(root, 'src/tui-compiled')
   const generated = await readFile(map)
   expect(JSON.parse(generated.toString()).compiler).toBe(
-    '@cortexkit/common-auth/tui-build@0.11.6',
+    '@cortexkit/common-auth/tui-build@0.12.0',
   )
   for (const compiler of [
     '@cortexkit/common-auth/tui-build@0.9.4',
@@ -504,7 +504,7 @@ test('graph.ga_roots', async () => {
   ])
   checkGaGraph(source, 'source')
   const map = JSON.parse(await readFile(join(product, GA_TUI_ROOT.map), 'utf8'))
-  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.11.6')
+  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.12.0')
   for (const [variant, tree, entry, kind] of [
     [map.raw, GA_TUI_ROOT.raw, GA_TUI_ROOT.rawEntry, 'raw'],
     [map.runtime, GA_TUI_ROOT.runtime, GA_TUI_ROOT.runtimeEntry, 'runtime'],

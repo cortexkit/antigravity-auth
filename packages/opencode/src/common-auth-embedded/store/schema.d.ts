@@ -154,6 +154,10 @@ export interface PoolRow {
     credentialEpoch?: number;
     needsFirstReading: boolean;
     disabledReason?: string;
+    /** Store-owned reservation; only `publishRoster` releases it for ordinary use. */
+    staged?: {
+        reservation: string;
+    };
     /** The opaque quota map, as validated by the codec. */
     quota?: unknown;
     /**
@@ -249,7 +253,21 @@ export interface CredentialStamp {
     binding?: CredentialBinding;
     replace?: true;
     providerState?: string;
+    staged?: StagedStamp;
 }
+/** Original staged-add metadata, persisted with the credential before config exists. */
+export interface StagedStamp {
+    reservation: string;
+    label?: string;
+    disabledReason: string;
+    providerState?: string;
+}
+/** Canonical JSON: recursively sorted object keys, preserved array order. */
+export declare function canonicalJson(value: unknown): string;
+export declare function canonicalDigest(value: unknown): string;
+export declare function parseReservation(raw: unknown): {
+    reservation: string;
+} | undefined;
 /**
  * Key, inside a state-file account entry, of the provider state kept beside
  * the credential. Older readers ignore it.

@@ -112,13 +112,12 @@ async function inspectDestination(packageRoot, path, kind) {
       }
       if (
         map?.schema !== 1 ||
-        // A configured common-auth-map.json (or another build-map path) is owned only
-        // when its schema-1 producer is @cortexkit/common-auth/tui-build at 0.9.4,
-        // 0.11.4 or current 0.11.6. Verified owned maps may be replaced on upgrade;
-        // unrelated maps are refused rather than treated as compiler outputs.
+        // Recognize this repository's earlier compiler outputs so an upgrade
+        // can replace its own build map without overwriting an unrelated file.
         ![
           '@cortexkit/common-auth/tui-build@0.9.4',
           '@cortexkit/common-auth/tui-build@0.11.4',
+          '@cortexkit/common-auth/tui-build@0.11.6',
           `@cortexkit/common-auth/tui-build@${producerVersion}`,
         ].includes(map.compiler)
       )

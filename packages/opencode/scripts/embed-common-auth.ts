@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.11.6.tgz'
-export const producerVersion = '0.11.6'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.12.0.tgz'
+export const producerVersion = '0.12.0'
 export const artifactStatus = 'released'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '2e1cbbdd2c5e75bbeecada6a64b93c29b64c5d3b41d3742312e1390cfaa6d9df',
-  sri: 'sha512-WAgd5JyiGK++frdMWkOzSWzziWvjspp2sq4NZJwFJycBiBET3juAlEiyeZpl462dyO22U/ECDKCHOMg+xu5ZMA==',
+  sha256: '35ce4c601c94e8aba94762fade7895047b3038b70c0d93753aa4d955bb04e951',
+  sri: 'sha512-iQBupjakoHW1J3r1I+WUARSNf5D/32pxKaldmSn/KfikdnDUN4f6Z9aEEg+8A4wvt10zaMWSuKQc60roQc6bIA==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -265,8 +265,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'commands/builtins.js',
-    20188,
-    'd373de792dd0022d1cad8eee862f133c30a189554bfa34a2c2dc07147d29a0ec',
+    20295,
+    'ba076cc0bcee17c2422df7e5dd8eddc529f91e61dc0fee83cfa1ef4d532d0c01',
   ],
   [
     'commands/index.d.ts',
@@ -320,13 +320,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/atomic-write.d.ts',
-    352,
-    'b0f665f17e8e03bcb4a14c627990039686395ca259aabe2f8b26fca988c165a4',
+    1093,
+    'fd51dfeca6176e931d9b297dd4d4077f67e3cbb019fffd80928cde27952d09f6',
   ],
   [
     'fs/atomic-write.js',
-    1060,
-    '1b8939573dad2eb2ed9562e5880fc8f8ff9b19e7f5f17df026210600ff0ee7e4',
+    2610,
+    '2afb3e4c275fcb5d53baa9cca43d72264583225f465e1380a68f73e06424b17a',
   ],
   [
     'fs/index.d.ts',
@@ -585,13 +585,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/attribution.js',
-    2844,
-    'ca31b567881d9a062bd4b2d92c765a02f8b3e5581e0fc6bfd49d98068e8c17f2',
+    2880,
+    '4bda762db5756c0d498d987aa3bc97eeee94be1c1ad2f005ed0ed46785e242d9',
   ],
   [
     'store/errors.d.ts',
-    3040,
-    'ebdcf0c35a455c639a592c33b92b0ec6b1f784523259b8789372103e7bad495f',
+    3191,
+    '3f056ce51fd8bfa503604421df8b562a49154dc77dbe69b497e972787bc2e34f',
   ],
   [
     'store/errors.js',
@@ -615,13 +615,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/identity.js',
-    2877,
-    '859ac5db4ba66c224564ea3f1f5af3e52ef0911e174a436493b6e788c740b03a',
+    2923,
+    '5f675917bbca5485a2f502ba14a8d31ab7d3d1e7077300ffb547a80e9a999a47',
   ],
   [
     'store/index.d.ts',
-    1905,
-    '60d1751bdeb2bb0b651c907eafb13f751df1e7cba14d9123bad8c6863f1c9f23',
+    2061,
+    'ea8c2f617489679e3360840a892523601a32c4f448f5ee930145a4f00ce3ba3b',
   ],
   [
     'store/index.js',
@@ -630,23 +630,23 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/mutate.d.ts',
-    8183,
-    '3c05cfb1120d3348cdb1cd2c8e4d0a29aabd9827cb12748d980f921618237622',
+    9006,
+    '009fea657c03a49b37555aa3c445c8930132234f0a1f3e8808ded5c065293ead',
   ],
   [
     'store/mutate.js',
-    15588,
-    '16cd1d3f50d137067822364a10339a042f2bc2dc9d87996c77dce05ab1be2a03',
+    19927,
+    '27ef7aba48dca42081d0d78218b59c8b8b8b84714ca8e4c14846468d22b4ce59',
   ],
   [
     'store/pool.d.ts',
-    10223,
-    '23b1f74d5e0e6359ff19e441796c4c61d9bd0102fbd8a0531d1399651cce2d24',
+    10698,
+    'bc7952bff586abb98f426bfb34518686159819160b0210ead63b6b68f691ef55',
   ],
   [
     'store/pool.js',
-    5295,
-    'b251c0bd476d2ccee2e9c098b3c237e029da9fdffe595dd513c3c45b0d7a3dc3',
+    5590,
+    'f2a1ce55a2be5ca090e333700ae46ca7d14d1657153e6a5819a3bc348552fd0e',
   ],
   [
     'store/provider-state.d.ts',
@@ -659,14 +659,24 @@ const canonical: readonly (readonly [string, number, string])[] = [
     '755ba874f216cb91e3df39a084b991034f529596d2e75cd1ccc1884623ed7b40',
   ],
   [
+    'store/publication.d.ts',
+    1454,
+    '2166d6a8d11dbc7c2a4e3edbae5a8ef86b01672f28e27a687ffe322ba4025eae',
+  ],
+  [
+    'store/publication.js',
+    15814,
+    'fbb1376afb0f770529a8ea0a64c6db68272d3937cf13ee8a5063181667fd0a35',
+  ],
+  [
     'store/pull.d.ts',
     1626,
     'd37421210e6e339d3a4166933257588431ce2f83a0d23bc6d5da4deeca7dabb4',
   ],
   [
     'store/pull.js',
-    5146,
-    '9e647b6a1fbe2e2d0a59bd5e015c0d4f5bf51ccd4074c61503166689ec40381c',
+    5470,
+    '4db913a0d196ed634277e4f3569c275579038f948e4adf6eb4dbbae257a41c92',
   ],
   [
     'store/refresh-lock.d.ts',
@@ -685,18 +695,23 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/refresh.js',
-    10543,
-    '49bbeedcbade841264bb5c523348f54353a84838bca38c11eca29bd4182fbeb9',
+    10645,
+    '698ad72c223ba36eda5005078e4303e726d9d9b8f3407c07b72ffa777466252c',
+  ],
+  [
+    'store/reserved.js',
+    536,
+    '0d7f5f728cda7347c8dc6511f22ecd0bf5eb3553ce4426f97531c9ce2e636aae',
   ],
   [
     'store/rows.d.ts',
-    12442,
-    '9d7a4cc67b985347395a0c28b63452dfccaf9cdbafef24916685229db9d99c45',
+    15754,
+    '4b3e06eeedfb46700409f6e1e6293e1f1b8c5574d2f18bd5006c404fd6d48c51',
   ],
   [
     'store/rows.js',
-    45272,
-    '3bfad3785ba60a2d132aec0e53f3593e5036f11dde6cc6b9ca98f6249cbf8461',
+    61491,
+    '6daf7b972b423d7c73283efebbba9af9473c566dd54a050699561e8e14d0ea96',
   ],
   [
     'store/runtime.d.ts',
@@ -705,18 +720,18 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/runtime.js',
-    2180,
-    '499e00d2a46e46f3daf0619e4b06668fc2e4e604e1d74fcba7c14ac03e301be6',
+    2847,
+    'ffe3647d4a6f8cb6644b4cf4a00298d9ad89e2483b4dd6efa7f70baa2038461a',
   ],
   [
     'store/schema.d.ts',
-    21477,
-    '2cee4ecb1c3974aae8a72018ada22f9c985e589c5ece6ed73d2e781cce10794b',
+    22168,
+    '2099f309023c62e6ed8b82906a8b5c7eaa8d42e1a134908dc65bece83711de9f',
   ],
   [
     'store/schema.js',
-    29242,
-    'f2f3d8e1be28e3dd038c15b4093a794fa890b752963f3e524883544b969849f0',
+    31460,
+    '349c1bac2b8417dd941a16148f49521ea8a9c1fefb5e3a6ee82bb461bd050312',
   ],
   [
     'store/settings.d.ts',
@@ -735,8 +750,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/torn.js',
-    14694,
-    '27aca7f7e1994dc238fd696a84ea88b28ee6fdedc10affd87c0a5f3a7a74466e',
+    14708,
+    'd5a4338ef9795e4d638e221d40a25334909db74db6456e2823f5870f7c963854',
   ],
   [
     'tui/index.d.ts',
@@ -845,7 +860,7 @@ export function validatePublication(
     throw new Error('publication: license')
   if (
     sha256(`${[...entries.keys()].sort().join('\n')}\n`) !==
-    'cf6914e4de5bb2628779090c554c73747e8a19ddbd7ccec073b39a8d6723ac73'
+    '7a2448e9dcd03043c5e661262dfac463ea0c01e5f0bbb6fd002aed174d88e7b5'
   )
     throw new Error('publication: inventory')
   for (const [path, bytes, hash] of canonical) {
@@ -855,7 +870,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '6dd4828f04f3643c1b73079ba25dcbf196ad5f1981ae208116303461ad9adf38'
+    '82039ba171517252dca0347a93e2acea4d3d362b14e4df8d0f2a53d7b85da09f'
   )
     throw new Error('publication: manifest bytes')
 }
@@ -1006,6 +1021,6 @@ if (import.meta.main) {
     throw new Error('Usage: bun embed-common-auth.ts [--check]')
   await embedCommonAuth(undefined, process.argv.includes('--check'))
   console.log(
-    `common-auth ${producerVersion} (${artifactStatus}): verified 134 canonical files (648487 bytes) and MIT notice`,
+    `common-auth ${producerVersion} (${artifactStatus}): verified ${canonical.length} canonical files (${canonical.reduce((total, [, bytes]) => total + bytes, 0)} bytes) and MIT notice`,
   )
 }

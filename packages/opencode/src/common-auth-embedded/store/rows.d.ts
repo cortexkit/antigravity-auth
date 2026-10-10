@@ -4,7 +4,7 @@ import { type Transaction } from './mutate.js';
 import { type ProviderStateWrite, type RowTransitionMutator, type UpdateProviderStateResult } from './provider-state.js';
 import type { PoolLockSpec } from './refresh-lock.js';
 import { type StoreRuntime } from './runtime.js';
-import { type CredentialBinding, type PoolCredential, type PoolRow, type RotateCredential, type StoredCredential } from './schema.js';
+import { type CredentialBinding, type PoolCredential, type PoolRow, type RotateCredential, type StagedStamp, type StoredCredential } from './schema.js';
 import { type StampedTransition } from './torn.js';
 export type FailureHook = (rowId: string, error: PoolOperationError) => void | Promise<void>;
 export interface RowOperationOptions {
@@ -20,6 +20,33 @@ export interface RowOperationOptions {
      */
     extraLocks?: readonly PoolLockSpec[];
 }
+export interface RowProjection {
+    id: string;
+    type: 'oauth' | 'api';
+    label?: string;
+    enabled: boolean;
+    disabledReason?: string;
+    identity?: string;
+    credentialEpoch?: number;
+    stamp?: PoolRow['stamp'];
+    staged?: {
+        reservation: string;
+    };
+    torn?: true;
+    invalid?: 'roster' | 'entry';
+}
+export interface ProtectView {
+    id: string;
+    row?: RowProjection;
+    rows: RowProjection[];
+    config: Readonly<Record<string, unknown>>;
+}
+export type ProtectFn = (view: ProtectView) => string | undefined | Promise<string | undefined>;
+export interface AddOptions extends RowOperationOptions {
+    onExisting?: 'rotate' | 'refuse' | 'stage-duplicate';
+    protect?: ProtectFn;
+}
+export declare function protectIn(tx: Transaction, id: string, protect?: ProtectFn): Promise<void>;
 /** Options of `replace` and `rotate`. Without `attribution` a call behaves as before. */
 export interface RowWriteOptions extends RowOperationOptions {
     /**
@@ -55,6 +82,32 @@ export interface RemoveView {
     state: Readonly<Record<string, unknown>>;
 }
 export interface RemoveOptions extends RowToggleOptions {
+    /** Exact reservation required to remove a row that is still staged. */
+    staged?: {
+        reservation: string;
+    };
+    /**
+     * The credential the removal was decided for (since 0.11.7). Checked under
+     * every lock, before `protect` and before anything is written or repaired:
+     * - a roster row must be bound to its credential stamp, not torn, and hold
+     *   exactly this epoch and recorded identity (absence included);
+     * - an orphan (only a state-file entry left, by a removal or add
+     *   interrupted between its writes) must carry a stamp this store can bind
+     *   to the credential beside it, and that stamp must name exactly this
+     *   epoch and identity.
+     * Epochs only grow per id (a removal records the dropped epoch, and a later
+     * add of the id starts past it), so an orphan an interrupted later add
+     * left under the same id never matches the epoch of the row the caller
+     * meant to remove. A mismatch refuses with kind `attribution`, an orphan
+     * or row with no bindable stamp with kind `unbound-credential`; both leave
+     * the files byte for byte unchanged. Without it, `remove` drops whatever
+     * the id holds, as before.
+     *
+     * The epoch survives a refresh or `rotate`, so it names a credential
+     * lineage, not one token: a caller that must remove only an exact token
+     * still checks the loaded credential in `protect`.
+     */
+    attribution?: Attribution;
     /**
      * Awaited under every lock before anything is written; a reason refuses
      * the removal (kind `row-protected`) with both files unchanged. The store
@@ -97,6 +150,12 @@ export interface AddInput {
     credential: PoolCredential;
     identity?: string;
     label?: string;
+    disabled?: {
+        reason: string;
+    };
+    stage?: {
+        reservation: string;
+    };
     /**
      * Provider state for the credential, written in the same state write as
      * the credential (needs the store's provider-state codec). On an `add`
@@ -119,20 +178,19 @@ export interface CredentialWriteInput {
 export type AddResult = {
     /** The row holding the credential; an existing row's id on a re-add. */
     id: string;
-    outcome: 'added' | 'added-disabled' | 'completed' | 'rotated';
+    outcome: 'added' | 'added-disabled' | 'completed' | 'rotated' | 'exists';
     credential: StoredCredential;
+    credentialEpoch: number;
 };
 /**
- * Writes a credential into the state file (one write), stamped with the
- * credential epoch the row's entry holds in `tx` (1 without an entry) and a
- * binding: for a replace, the one the config is about to get (and the stamp
- * is marked as a replace's); for every other write, the row's config as it
- * stands in `tx` with the identity the operation is about to record
- * (`identity`, see `bindingInTx`). A rotation is the same lineage: no epoch
- * bump, no identity or quota change. An API key must belong to the endpoint
- * the row holds in `tx` (see `onRowEndpoint`).
+ * Build the credential and its state entry without writing. The stamp records
+ * the credential's epoch, identity and API endpoint so readers can verify that
+ * they belong together. A replacement records the new epoch and account; a
+ * rotation keeps the current epoch, account and quota. Pending writes are read
+ * as completed when choosing those fields, even while disk config is behind.
+ * Endpoint checks and provider-state encoding finish here, before any repair.
  */
-export declare function rotateIn(rt: StoreRuntime, tx: Transaction, id: string, given: RotateCredential, extra?: {
+declare function planRotationIn(rt: StoreRuntime, tx: Transaction, id: string, given: RotateCredential, extra?: {
     stamp?: number;
     clearErrors?: boolean;
     binding?: CredentialBinding;
@@ -140,8 +198,17 @@ export declare function rotateIn(rt: StoreRuntime, tx: Transaction, id: string, 
     providerState?: ProviderStateWrite;
     /** Config transition persisted with the successor credential for crash recovery. */
     transition?: StampedTransition;
-}): Promise<StoredCredential>;
-export declare function addRow(rt: StoreRuntime, input: AddInput, options?: RowOperationOptions): Promise<AddResult>;
+    staged?: StagedStamp;
+}): {
+    stored: StoredCredential;
+    account: Record<string, unknown>;
+};
+/** Validate the endpoint and encode provider state and its stamp before committing state. */
+export declare function rotateIn(rt: StoreRuntime, tx: Transaction, id: string, given: RotateCredential, extra?: Parameters<typeof planRotationIn>[4]): Promise<StoredCredential>;
+export declare function validateAttribution(operation: PoolOperationError['operation'], id: string, fence: Attribution | undefined): void;
+/** Exact recorded identity, including absence, is part of a credential fence. */
+export declare function assertRowAttribution(operation: PoolOperationError['operation'], id: string, row: PoolRow | undefined, fence: Attribution): void;
+export declare function addRow(rt: StoreRuntime, input: AddInput, options?: AddOptions): Promise<AddResult>;
 export declare function replaceRow(rt: StoreRuntime, id: string, credential: PoolCredential, input?: CredentialWriteInput, options?: RowWriteOptions): Promise<{
     id: string;
     credential: StoredCredential;
@@ -156,6 +223,7 @@ export declare function rotateRow(rt: StoreRuntime, id: string, credential: Rota
  * `attribution` nor `providerState` behaves exactly as it did before 0.7.0.
  */
 export interface RowTransitionOptions extends RowToggleOptions {
+    protect?: ProtectFn;
     /**
      * The credential epoch and recorded identity the caller's evidence for the
      * transition was obtained under (as `recordQuota`'s attribution: an
@@ -217,6 +285,8 @@ export declare function enableRow(rt: StoreRuntime, id: string, options?: RowTra
  * past it (see `nextAddEpochIn`).
  */
 export declare function removeRow(rt: StoreRuntime, id: string, options?: RemoveOptions): Promise<RemoveResult>;
+/** An attributed removal of a roster row: bound, not torn, same epoch and identity. */
+export declare function assertBoundRowAttribution(id: string, row: PoolRow, fence: Attribution, operation?: PoolOperationError['operation']): void;
 /**
  * Sets the roster order in one config write. `ids` must name every roster id
  * exactly once; anything else refuses (`invalid-order`) before writing. The
@@ -240,3 +310,4 @@ export declare function recordRowIdentity(rt: StoreRuntime, id: string, identity
     id: string;
     disabled: string[];
 }>;
+export {};

@@ -5,7 +5,7 @@
     "": {
       "name": "common-auth-build-private",
       "dependencies": {
-        "@cortexkit/common-auth": "file:inputs/cortexkit-common-auth-0.11.6.tgz",
+        "@cortexkit/common-auth": "file:inputs/cortexkit-common-auth-0.12.0.tgz",
         "@opentui/core": "0.5.14",
         "@opentui/solid": "0.5.14",
         "solid-js": "1.9.12",
@@ -72,7 +72,7 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
-    "@cortexkit/common-auth": ["@cortexkit/common-auth@inputs/cortexkit-common-auth-0.11.6.tgz", { "dependencies": { "jsonc-parser": "^3.3.1" }, "peerDependencies": { "@cortexkit/claustrum-client": ">=0.6.2", "@opencode/plugin": ">=2.0.21", "@opentui/core": ">=0.5.11", "@opentui/solid": ">=0.5.11", "solid-js": "1.9.12" }, "optionalPeers": ["@cortexkit/claustrum-client", "@opencode/plugin", "@opentui/core", "@opentui/solid", "solid-js"] }, "sha512-WAgd5JyiGK++frdMWkOzSWzziWvjspp2sq4NZJwFJycBiBET3juAlEiyeZpl462dyO22U/ECDKCHOMg+xu5ZMA=="],
+    "@cortexkit/common-auth": ["@cortexkit/common-auth@inputs/cortexkit-common-auth-0.12.0.tgz", { "dependencies": { "jsonc-parser": "^3.3.1" }, "peerDependencies": { "@cortexkit/claustrum-client": ">=0.6.2", "@opencode/plugin": ">=2.0.21", "@opentui/core": ">=0.5.11", "@opentui/solid": ">=0.5.11", "solid-js": "1.9.12" }, "optionalPeers": ["@cortexkit/claustrum-client", "@opencode/plugin", "@opentui/core", "@opentui/solid", "solid-js"] }, "sha512-iQBupjakoHW1J3r1I+WUARSNf5D/32pxKaldmSn/KfikdnDUN4f6Z9aEEg+8A4wvt10zaMWSuKQc60roQc6bIA=="],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 

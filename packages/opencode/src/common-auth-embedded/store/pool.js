@@ -1,6 +1,7 @@
 import { recordQuota } from './attribution.js';
 import { initializePool, readPool, } from './mutate.js';
 import { updateProviderStateRow, } from './provider-state.js';
+import { publication, publishRoster, } from './publication.js';
 import { PullScheduler } from './pull.js';
 import { refreshRow, } from './refresh.js';
 import { POOL_LOCK_DEFAULTS, } from './refresh-lock.js';
@@ -62,6 +63,7 @@ export function openPoolStore(options) {
         },
         removedIds: memory.removedIds,
         requireCredentialStamps: options.requireCredentialStamps === true,
+        requireRemovedFingerprint: options.requireRemovedFingerprint === true,
         ...(options.logger ? { logger: options.logger } : {}),
         ...(options.onStep ? { onStep: options.onStep } : {}),
         ...(options.hold ? { hold: options.hold } : {}),
@@ -98,6 +100,8 @@ export function openPoolStore(options) {
             return { status: await initializePool(ctx, input.dropKeys ?? []) };
         },
         add: (input, callOptions) => addRow(rt, input, callOptions),
+        publishRoster: (plan, callOptions) => publishRoster(rt, plan, callOptions),
+        publication: (operationId) => publication(rt, operationId),
         replace: (id, credential, input, callOptions) => replaceRow(rt, id, credential, input, callOptions),
         rotate: (id, credential, input, callOptions) => rotateRow(rt, id, credential, input, callOptions),
         updateProviderState: (id, fence, mutator, callOptions) => updateProviderStateRow(rt, id, fence, mutator, callOptions),

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { beforeEach, describe, expect, mock } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -10,7 +10,9 @@ import {
   loadCommonAuthStoreModules,
 } from '@cortexkit/antigravity-auth-core'
 import type { AuthOAuthResult } from '@opencode-ai/plugin'
+import { lifetimeHooks } from '../../../../test/fixtures/lifetime-hooks.ts'
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
+import { managedStoreModules } from './__fixtures__/managed-store.test.ts'
 import {
   type AccountAccessService,
   AccountChangedDuringReauthorizationError,
@@ -121,6 +123,9 @@ function createAccountAccess(initial: AccountStorageV4 | null = null): {
 
   return { service, persistCalls }
 }
+
+const hooks = lifetimeHooks()
+const { it, afterEach } = hooks
 
 describe('parseOAuthCallbackInput', () => {
   it('rejects a callback URL whose state does not match the authorization', () => {
@@ -431,16 +436,17 @@ describe('createOAuthMethods persistence failure handling', () => {
 //
 // The login menu's verification and re-authentication run against the
 // released common-auth store and fs entries embedded in the core package
-// (typed `loadCommonAuthStoreModules`), after their embedding receipt is
-// checked against the released 0.11.6 archive, with the migration's real
-// admission, in a private config directory.
+// through `loadCommonAuthStoreModules`. Check source-output.json and every
+// payload against the released 0.12.0 archive first. Each private config
+// directory has a genuinely initialized store, so login checks the completed
+// initialization record rather than substituting an admission result.
 // ---------------------------------------------------------------------------
 
 const RELEASED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.11.6',
+  version: '0.12.0',
   tarballSha256:
-    '2e1cbbdd2c5e75bbeecada6a64b93c29b64c5d3b41d3742312e1390cfaa6d9df',
+    '35ce4c601c94e8aba94762fade7895047b3038b70c0d93753aa4d955bb04e951',
 } as const
 
 async function embeddedFilesBelow(
@@ -511,7 +517,10 @@ function genuineModules(): Promise<CommonAuthStoreModules> {
     }
     return loadCommonAuthStoreModules()
   })()
-  return genuine
+  const owner = hooks.lifetime
+  return owner
+    .operation(genuine)
+    .then((modules) => managedStoreModules(owner, modules))
 }
 
 describe('createOAuthMethods in account-store mode', () => {

@@ -1,21 +1,26 @@
 import { readFile } from 'node:fs/promises';
-import { writeJsonAtomic } from '../fs/atomic-write.js';
+import { setTimeout as snapshotDelay } from 'node:timers/promises';
+import { AtomicSyncError, syncJsonFile, writeJsonAtomic, writeJsonAtomicTracked, } from '../fs/atomic-write.js';
 import { LockContentionError, LockOwnershipError } from '../fs/with-lock.js';
 import { PoolOperationError, } from './errors.js';
 import { callFailureHook } from './hooks.js';
 import { LockStack, } from './refresh-lock.js';
-import { classifyConfig, classifyState, ensureEntries, entryIn, isRecord, LEGACY_STORE_VERSION, POOL_KEY, POOL_ROWS_KEY, POOL_SCHEMA_VERSION, retireEpochsIn, rosterOf, rosterRowIn, setEntryIn, } from './schema.js';
+import { assertNotReserved } from './reserved.js';
+import { CREDENTIAL_STAMP_KEY, classifyConfig, classifyState, ensureEntries, entryIn, isRecord, LEGACY_STORE_VERSION, POOL_KEY, POOL_ROWS_KEY, POOL_SCHEMA_VERSION, retireEpochsIn, rosterOf, rosterRowIn, setEntryIn, } from './schema.js';
 import { completeTornRows, loadRows } from './torn.js';
-async function readJson(path) {
-    let text;
+async function readText(path) {
     try {
-        text = await readFile(path, 'utf8');
+        return await readFile(path, 'utf8');
     }
     catch (error) {
         if (error.code === 'ENOENT')
-            return { exists: false };
+            return undefined;
         throw error;
     }
+}
+function parseFile(text) {
+    if (text === undefined)
+        return { exists: false };
     try {
         return { exists: true, value: JSON.parse(text) };
     }
@@ -23,30 +28,60 @@ async function readJson(path) {
         return { exists: true, parseError };
     }
 }
-/** Reads and classifies both files. Never writes. */
+/**
+ * Validate config/state/config bytes without locks. Roster replacement writes
+ * config before deleting old state credentials. Re-read a changed config so an
+ * old roster cannot be paired with state from which its accounts were removed.
+ */
 export async function readPool(ctx) {
-    const config = classifyConfig(await readJson(ctx.configPath));
-    if (config.status === 'error')
-        return { status: 'error', file: 'config', reason: config.reason };
-    const state = classifyState(await readJson(ctx.statePath));
-    if (state.status === 'error')
-        return { status: 'error', file: 'state', reason: state.reason };
-    if (config.status === 'pending-migration')
-        return { status: 'pending-migration', config: config.config };
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const configText = await readText(ctx.configPath);
+        const stateText = await readText(ctx.statePath);
+        const checkedConfigText = await readText(ctx.configPath);
+        if (configText !== checkedConfigText) {
+            if (attempt < 2)
+                await snapshotDelay(2 + Math.floor(Math.random() * 4));
+            continue;
+        }
+        const config = classifyConfig(parseFile(configText));
+        if (config.status === 'error')
+            return { status: 'error', file: 'config', reason: config.reason };
+        const state = classifyState(parseFile(stateText));
+        if (state.status === 'error')
+            return { status: 'error', file: 'state', reason: state.reason };
+        if (config.status === 'pending-migration')
+            return { status: 'pending-migration', config: config.config };
+        return {
+            status: 'ready',
+            configExists: config.exists,
+            stateExists: state.exists,
+            config: config.config,
+            state: state.state,
+            rows: loadRows(config.config, state.state, ctx.codec, {
+                requireCredentialStamps: ctx.requireCredentialStamps === true,
+                ...(ctx.providerState ? { providerState: ctx.providerState } : {}),
+            }),
+        };
+    }
     return {
-        status: 'ready',
-        configExists: config.exists,
-        stateExists: state.exists,
-        config: config.config,
-        state: state.state,
-        rows: loadRows(config.config, state.state, ctx.codec, {
-            requireCredentialStamps: ctx.requireCredentialStamps === true,
-            ...(ctx.providerState ? { providerState: ctx.providerState } : {}),
-        }),
+        status: 'error',
+        file: 'config',
+        kind: 'snapshot-contended',
+        retryable: true,
+        reason: 'The store was changing; retry the operation once writes settle.',
     };
 }
 /** The refusal for a pool that is not ready, as a failure value. */
 export function notReadyError(result, operation, rowId, phase = 'before-first-write') {
+    if (result.status === 'error' && result.kind === 'snapshot-contended')
+        return new PoolOperationError({
+            operation,
+            ...(rowId !== undefined ? { rowId } : {}),
+            phase,
+            kind: 'snapshot-contended',
+            retryable: true,
+            message: result.reason,
+        });
     return new PoolOperationError({
         operation,
         ...(rowId !== undefined ? { rowId } : {}),
@@ -98,6 +133,20 @@ export class Transaction {
     }
     row(id) {
         return this.rows().find((row) => row.id === id);
+    }
+    /** Read the config marker, or an orphan's stamp; never use a caller's reservation. */
+    reservation(id) {
+        if (this.rosterRow(id)) {
+            const entry = this.entry(id);
+            return entry && Object.hasOwn(entry, 'staged') ? entry.staged : undefined;
+        }
+        const stamp = this.stateAccount(id)?.[CREDENTIAL_STAMP_KEY];
+        return isRecord(stamp) && Object.hasOwn(stamp, 'staged')
+            ? stamp.staged
+            : undefined;
+    }
+    assertNotStaged(id) {
+        assertNotReserved(this.info.operation, id, this.reservation(id));
     }
     roster() {
         if (!Array.isArray(this.config.accounts))
@@ -200,9 +249,6 @@ export class Transaction {
                     configurable: true,
                 });
             }
-            else {
-                this.ctx.removedIds.add(id);
-            }
         }
         const pool = this.config[POOL_KEY];
         const next = {
@@ -215,31 +261,68 @@ export class Transaction {
                 [POOL_ROWS_KEY]: kept,
             },
         };
-        await this.write(this.ctx.configPath, next, 'config', options.counted ?? true);
+        await this.write(this.ctx.configPath, next, 'config', options.counted ?? true, options.durable ?? false, () => {
+            if (options.publicationDecision)
+                this.markPublicationDecision();
+            for (const id of dropped)
+                this.ctx.removedIds.add(id);
+            this.config = next;
+        });
         this.config = next;
     }
     /** Writes the state: every unrecognised top-level and per-row key kept. */
-    async commitState(committed) {
+    async commitState(committed, options = {}) {
         const next = {
             ...this.state,
             version: LEGACY_STORE_VERSION,
             accounts: isRecord(this.state.accounts) ? this.state.accounts : {},
         };
-        await this.write(this.ctx.statePath, next, 'state');
+        await this.write(this.ctx.statePath, next, 'state', true, options.durable ?? false);
         this.state = next;
         if (committed)
             this.progress.committed = committed;
     }
-    async write(path, value, file, counted = true) {
-        await writeJsonAtomic(path, value, {
+    async assertAll() {
+        await this.locks.assertAll();
+    }
+    async syncState() {
+        await this.assertAll();
+        try {
+            if (this.snapshot.stateExists)
+                await syncJsonFile(this.ctx.statePath);
+        }
+        catch (cause) {
+            throw new PoolOperationError({
+                operation: this.info.operation,
+                rowId: this.info.rowId,
+                phase: 'before-first-write',
+                kind: 'publication-sync',
+                retryable: true,
+                message: 'Publication sync failed before the decision; nothing was written. Retry the same plan.',
+                cause,
+            });
+        }
+    }
+    markPublicationDecision() {
+        this.progress.publicationDecided = true;
+    }
+    async syncConfig() {
+        await this.assertAll();
+        await syncJsonFile(this.ctx.configPath);
+    }
+    async write(path, value, file, counted = true, durable = false, onRenamed) {
+        await writeJsonAtomicTracked(path, value, {
+            durable,
             beforeRename: async () => {
                 await this.ctx.onStep?.(`before-${file}-write`, this.info);
                 // Ownership is proved immediately before the rename, on every lease.
                 await this.locks.assertAll();
             },
+        }, () => {
+            if (counted)
+                this.progress.writes++;
+            onRenamed?.();
         });
-        if (counted)
-            this.progress.writes++;
         await this.ctx.onStep?.(`after-${file}-write`, this.info);
     }
 }
@@ -304,6 +387,9 @@ export async function withTransaction(ctx, locks, progress, info, fn, options = 
         if (result.status !== 'ready')
             throw notReadyError(result, info.operation, info.rowId, progress.writes > 0 ? 'after-first-write' : 'before-first-write');
         const tx = new Transaction(ctx, result, locks, progress, info);
+        if (info.rowId !== undefined &&
+            !['add', 'remove', 'pull', 'publishRoster', 'enable', 'disable'].includes(info.operation))
+            tx.assertNotStaged(info.rowId);
         if (options.completeTorn ?? true)
             await tx.completeTorn();
         return await fn(tx);
@@ -320,6 +406,26 @@ export function toFailure(error, operation, rowId, progress) {
             ? 'after-first-write'
             : 'before-first-write';
     const committed = phase === 'after-first-write' ? progress.committed : undefined;
+    if (operation === 'publishRoster' && progress.publicationDecided)
+        return new PoolOperationError({
+            operation,
+            ...(rowId !== undefined ? { rowId } : {}),
+            phase,
+            kind: 'publication-incomplete',
+            retryable: true,
+            message: 'The publication may already be decided. Replay the same plan or check publication(operationId).',
+            cause: error,
+        });
+    if (operation === 'publishRoster' && error instanceof AtomicSyncError)
+        return new PoolOperationError({
+            operation,
+            ...(rowId !== undefined ? { rowId } : {}),
+            phase,
+            kind: 'publication-sync',
+            retryable: true,
+            message: 'Publication sync failed before the decision; nothing was written. Retry the same plan.',
+            cause: error,
+        });
     if (error instanceof PoolOperationError) {
         if (error.phase === phase &&
             error.rowId === rowId &&

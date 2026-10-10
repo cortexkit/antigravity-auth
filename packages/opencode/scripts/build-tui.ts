@@ -28,7 +28,7 @@ export const PACKAGE_ROOT = resolve(
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..')
 const TOOL_ROOT = join(REPO_ROOT, 'tools/common-auth-build')
 const LOCK_HASH =
-  'c2f8b23860f7438cf825295bf68b4693d5ea117f6bb7c2877783dca6ea50b3f7'
+  '60c2c98c5e5c68a038a487b282f87f06dba1529e30b08ef7f5ca25694a73cb13'
 export interface Graph {
   files: string[]
   externals: string[]
@@ -363,7 +363,7 @@ export async function verifyPrerequisites(): Promise<void> {
     const pkg = JSON.parse(await readFile(actual, 'utf8'))
     const expected =
       name === '@cortexkit/common-auth'
-        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.11.6.tgz'
+        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.12.0.tgz'
         : `${pkg.name}@${pkg.version}`
     if (entry[0] !== expected)
       throw new Error(
@@ -633,6 +633,7 @@ async function admitExistingMap(mapFile: string) {
       !('compiler' in metadata) ||
       (metadata.compiler !== '@cortexkit/common-auth/tui-build@0.9.4' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.4' &&
+        metadata.compiler !== '@cortexkit/common-auth/tui-build@0.12.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.6')
     )
       throw new Error('build: existing TUI map is not owned generated metadata')
