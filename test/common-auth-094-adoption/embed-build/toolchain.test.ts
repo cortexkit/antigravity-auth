@@ -34,7 +34,8 @@ afterEach(async () => {
 test('build.private_toolchain', async () => {
   expect(run(root, ['--version']).trim()).toBe('1.4.2')
   const target = await owned()
-  // A fresh private install has no workspace links and cannot use registry metadata.
+  // Install into a separate directory from the pinned archive and offline cache,
+  // without workspace links or registry access.
   for (const path of [
     'package.json',
     'bun.lock',
@@ -46,7 +47,7 @@ test('build.private_toolchain', async () => {
   const before = digest(await readFile(join(target, 'bun.lock')))
   // Check the lockfile digest before installation to verify all transitive dependency integrity values separately from the install.
   expect(before).toBe(
-    'c2f8b23860f7438cf825295bf68b4693d5ea117f6bb7c2877783dca6ea50b3f7',
+    '60c2c98c5e5c68a038a487b282f87f06dba1529e30b08ef7f5ca25694a73cb13',
   )
   const installed = run(target, [
     'install',

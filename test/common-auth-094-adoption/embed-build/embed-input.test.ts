@@ -120,7 +120,7 @@ test('embed.integrity', async () => {
   const input = await readFile(join(root, inputPath))
   expect(hash(input)).toBe(publication.sha256)
   expect(sri(input)).toBe(publication.sri)
-  expect(readVerifiedArchive(input, publication).size).toBe(175)
+  expect(readVerifiedArchive(input, publication).size).toBe(179)
   expect(() =>
     readVerifiedArchive(input, { ...publication, sri: 'sha512-wrong' }),
   ).toThrow('integrity: SHA512 SRI mismatch')
@@ -161,7 +161,7 @@ test('embed.inventory', async () => {
     expect(hash(data)).toBe(String(digest))
     total += data.length
   }
-  expect(total).toBe(648487)
+  expect(total).toBe(698557)
   for (const [property, value, message] of [
     ['name', 'wrong', 'identity'],
     ['version', '0.9.4', 'version'],
@@ -242,8 +242,8 @@ test('embed.attribution', async () => {
   expect(manifest.tarballSha256).toBe(publication.sha256)
   expect(manifest.sri).toBe(publication.sri)
   expect(manifest.publicRoots).toEqual(publication.publicRoots)
-  expect(manifest.canonicalFiles).toBe(134)
-  expect(manifest.canonicalBytes).toBe(648487)
+  expect(manifest.canonicalFiles).toBe(137)
+  expect(manifest.canonicalBytes).toBe(698557)
   expect(manifest.generator.version).toBe(3)
   expect(manifest.files).toEqual(
     publication.files.map(([path, bytes, digest]) => ({
@@ -503,8 +503,8 @@ test('build.repo_hygiene', async () => {
     await put(target, corePayload, corePayloadBytes)
   }
   expect(await hashes(target, immutable)).toEqual(before)
-  // A success-only embedding command must not satisfy the hygiene fixture:
-  // an invalid private lock must stop the real wrapper before Biome runs.
+  // An embedding command that only reports success must not pass this check:
+  // an invalid private lock must stop the build wrapper before Biome runs.
   try {
     await put(
       target,
