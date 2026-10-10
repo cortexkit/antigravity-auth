@@ -283,7 +283,7 @@ The notification queue is `packages/opencode/src/rpc/notifications.ts:1-59`. `pu
 
 `packages/pi/src/index.ts:1-111` is the package's only entry. Pi's contract is `function (pi: ExtensionAPI): void` — the extension exports a default function that registers a custom OAuth provider:
 
-- `providerId = 'google-antigravity'` (line 16).
+- Core's shared `ANTIGRAVITY_PROVIDER_ID` constant sets the provider ID to `google`. Pi's built-in Google model catalog is replaced by the Antigravity catalog while the extension is loaded.
 - `pi.registerProvider(ANTIGRAVITY_PROVIDER_ID, { name, baseUrl, api, models, oauth, streamSimple })` (line 93-110).
 - `models` is `getPublicModelDefinitions()` filtered to drop image-output (Pi's `AssistantMessage` protocol has no image output type) and re-mapped onto Pi's `Model` shape (`packages/pi/src/index.ts:78-91`).
 - `oauth.login` invokes `authorizeAntigravity` from core, asks the host for the callback URL/code via `callbacks.onPrompt`, and calls `exchangeAntigravity` (line 22-58).

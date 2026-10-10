@@ -218,7 +218,7 @@ function source(h: Harness): AntigravityVaultAccountSource {
   return createAntigravityVaultAccountSource({
     claustrum: h.module,
     host: 'pi',
-    hostProvider: 'google-antigravity',
+    hostProvider: 'google',
     rosterPath: join(dir, 'roster.json'),
     tokenPath: join(dir, 'token.json'),
     connect: () =>
@@ -489,7 +489,7 @@ describe('custody, host slot and decline fencing', () => {
     expect(h.hostSlotChecks.at(-1)).toEqual({
       mode: 'custody',
       auth: 'real-login',
-      provider: 'google-antigravity',
+      provider: 'google',
     })
   })
 
@@ -817,12 +817,12 @@ async function realSource(vault: LocalVault) {
       vault.closed++
     },
   }
-  hostSlot = claustrum.custodyPlaceholder('google-antigravity')
+  hostSlot = claustrum.custodyPlaceholder('google')
   const rosterPath = join(dir, 'roster.json')
   const src = createAntigravityVaultAccountSource({
     claustrum,
     host: 'pi',
-    hostProvider: 'google-antigravity',
+    hostProvider: 'google',
     rosterPath,
     tokenPath,
     connect: async () => client,

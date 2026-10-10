@@ -17,16 +17,21 @@ pi install npm:@cortexkit/pi-antigravity-auth
 ## Login
 
 ```
-/login google-antigravity
+/login google
 ```
 
 A browser URL is shown. Complete the Google OAuth flow and paste the resulting
 callback URL (or authorization code) back into the prompt.
 
+The extension replaces Pi's built-in `google` catalog with Antigravity models.
+Use Antigravity OAuth for this provider, not a Google AI Studio API key. If upgrading
+from the old provider ID, change model selections to `google/antigravity-…` and
+run `/login google`. Existing credentials are not moved or overwritten automatically.
+
 ## Models
 
 The extension registers the Antigravity model catalog under the
-`google-antigravity` provider, including:
+`google` provider, including:
 
 - `antigravity-gemini-3.8-flash`
 - `antigravity-gemini-3.7-flash`
@@ -40,7 +45,7 @@ The extension registers the Antigravity model catalog under the
 The image-generation model is currently OpenCode-only because Pi's provider event
 protocol does not expose image-output stream events.
 
-Select a model with `/model` or `pi -m google-antigravity/antigravity-gemini-3.8-flash`.
+Select a model with `/model` or `pi -m google/antigravity-gemini-3.8-flash`.
 
 ## Configuration
 

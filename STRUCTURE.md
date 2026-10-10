@@ -284,7 +284,7 @@ The TUI is a thin Solid sidebar that polls a redacted snapshot file and a loopba
 
 ### Source (`packages/pi/src/`)
 
-- **`packages/pi/src/index.ts`** — package entry. `providerId = 'google-antigravity'`; registers the provider with `pi.registerProvider`; defines the OAuth login + refresh flows against `core/antigravity/oauth.ts`.
+- **`packages/pi/src/index.ts`** — package entry. Uses core's shared `ANTIGRAVITY_PROVIDER_ID` (`google`) and replaces Pi's built-in Google catalog with `pi.registerProvider`. OAuth login authenticates the Google account, and token refresh renews its access token; both use `core/antigravity/oauth.ts`.
 - `packages/pi/src/stream.ts` — `streamCortexKitAntigravity`: streams through `core/agy-transport.ts`, preserves signed thinking/tool events, and maintains session-scoped native AGY execution metadata.
 - `packages/pi/src/convert.ts` — Pi Context-to-Gemini conversion with native AGY tool-call IDs, signature replay, cross-model sanitization, and same-target function-response roles.
 - `packages/pi/src/credential-cache.ts` — stashes the packed `refreshToken|projectId|managedProjectId` triple so the stream can rejoin project context after the access token is stripped.

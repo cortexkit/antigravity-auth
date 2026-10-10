@@ -25,7 +25,7 @@ The shipped headers, project IDs, and OAuth client identifiers match the publicl
 | --- | --- | --- | --- |
 | OpenCode 1.x (server + TUI) | `latest` | `@opencode-ai/plugin >=1.17.13 <2` · `@opentui/core`, `@opentui/keymap`, `@opentui/solid` all `^0.4.5` | `opencode plugin @cortexkit/opencode-antigravity-auth@latest` (writes the server entry to `opencode.json` and the TUI entry to `tui.json`) |
 | OpenCode 2.x | `latest` | OpenCode `>=2 <3` | `npm install @cortexkit/opencode-v2-antigravity-auth`, then register the package and models in `opencode.json` |
-| Pi coding agent | `latest` | `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui` (peer) | `pi install npm:@cortexkit/pi-antigravity-auth` then `/login google-antigravity` |
+| Pi coding agent | `latest` | `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui` (peer) | `pi install npm:@cortexkit/pi-antigravity-auth` then `/login google` |
 | Standalone CLI | shipped inside the OpenCode 1.x package as the `antigravity-auth` bin | Node 20+ | `npx @cortexkit/opencode-antigravity-auth` |
 | Node libraries (harness builders) | `latest` core | Node 20+ | `npm install @cortexkit/antigravity-auth-core` |
 
@@ -117,7 +117,7 @@ Then point `OPENCODE_CONFIG_DIR` at a project that has the development plugin en
 ```bash
 pi install npm:@cortexkit/pi-antigravity-auth
 pi                                                # interactive
-/login google-antigravity                         # OAuth
+/login google                         # OAuth
 ```
 
 Pi's extension loader discovers the package's `pi.extensions` field and registers the provider automatically; no manual wiring required.
@@ -263,10 +263,10 @@ All commands write to the same `antigravity-accounts.json` the plugin reads; a l
 ```bash
 pi install npm:@cortexkit/pi-antigravity-auth
 pi
-/login google-antigravity                    # OAuth flow
+/login google                    # OAuth flow
 ```
 
-The Pi extension registers the `google-antigravity` provider automatically through the package's `pi.extensions` field; no further wiring is needed. Both packages delegate to `@cortexkit/antigravity-auth-core`, so the request transport and model transforms are shared. The account-pool layer is not: Pi holds a single credential locally (no `antigravity-accounts.json`, no rotation, no killswitch, no operator settings). Multi-account rotation, quota routing, and the killswitch are OpenCode-only.
+The Pi extension registers the `google` provider automatically through the package's `pi.extensions` field; no further wiring is needed. Both packages delegate to `@cortexkit/antigravity-auth-core`, so the request transport and model transforms are shared. The account-pool layer is not: Pi holds a single credential locally (no `antigravity-accounts.json`, no rotation, no killswitch, no operator settings). Multi-account rotation, quota routing, and the killswitch are OpenCode-only.
 
 ## Configuration reference
 

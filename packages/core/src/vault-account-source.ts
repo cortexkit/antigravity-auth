@@ -171,7 +171,7 @@ export interface AntigravityVaultSourceOptions {
   host: AntigravityVaultHost
   /**
    * Provider id the host stores its credential record under: `google`
-   * (OpenCode), `google-antigravity` (Pi).
+   * in both OpenCode and Pi.
    */
   hostProvider: string
   rosterPath: string

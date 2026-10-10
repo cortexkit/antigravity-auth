@@ -40,7 +40,7 @@ function fakeModel(id = 'antigravity-gemini-3.5-flash'): Model<Api> {
   return {
     id,
     api: 'google-generative-ai',
-    provider: 'google-antigravity',
+    provider: 'google',
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   } as unknown as Model<Api>
 }
@@ -50,7 +50,7 @@ function emptyOutput(): AssistantMessage {
     role: 'assistant',
     content: [],
     api: 'google-generative-ai',
-    provider: 'google-antigravity',
+    provider: 'google',
     model: 'antigravity-gemini-3.5-flash',
     usage: {
       input: 0,

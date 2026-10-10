@@ -1,4 +1,5 @@
 import {
+  ANTIGRAVITY_PROVIDER_ID,
   authorizeAntigravity,
   exchangeAntigravity,
   getPublicModelDefinitions,
@@ -12,8 +13,6 @@ import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 
 import { rememberPackedRefresh } from './credential-cache.ts'
 import { streamCortexKitAntigravity } from './stream.ts'
-
-const ANTIGRAVITY_PROVIDER_ID = 'google-antigravity'
 
 function textImageInput(): Array<'text' | 'image'> {
   return ['text', 'image']

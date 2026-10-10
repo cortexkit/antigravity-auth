@@ -46,7 +46,7 @@ describe('buildGeminiRequest', () => {
               },
             ],
             api: 'google-generative-ai',
-            provider: 'google-antigravity',
+            provider: 'google',
             model: 'antigravity-gemini-3.5-flash',
             usage: {
               input: 0,
@@ -95,7 +95,7 @@ describe('buildGeminiRequest', () => {
               },
             ],
             api: 'google-generative-ai',
-            provider: 'google-antigravity',
+            provider: 'google',
             model: 'antigravity-gemini-3.5-flash',
             usage: {
               input: 0,
@@ -134,7 +134,7 @@ describe('buildGeminiRequest', () => {
               { type: 'text', text: 'answer', textSignature: 'SIG123' },
             ],
             api: 'google-generative-ai',
-            provider: 'google-antigravity',
+            provider: 'google',
             model: 'antigravity-claude-opus-4-6-thinking',
             usage: {
               input: 0,
@@ -156,7 +156,7 @@ describe('buildGeminiRequest', () => {
         ],
       }),
       {
-        provider: 'google-antigravity',
+        provider: 'google',
         model: 'antigravity-claude-opus-4-6-thinking',
       },
     )
@@ -190,7 +190,7 @@ describe('buildGeminiRequest', () => {
               },
             ],
             api: 'google-generative-ai',
-            provider: 'google-antigravity',
+            provider: 'google',
             model: 'antigravity-claude-opus-4-6-thinking',
             usage: {
               input: 0,
@@ -220,7 +220,7 @@ describe('buildGeminiRequest', () => {
         ],
       }),
       {
-        provider: 'google-antigravity',
+        provider: 'google',
         model: 'antigravity-gemini-3.6-flash',
       },
     )
@@ -315,7 +315,7 @@ describe('buildGeminiRequest', () => {
               },
             ],
             api: 'google-generative-ai',
-            provider: 'google-antigravity',
+            provider: 'google',
             model: 'antigravity-claude-opus-4-6-thinking',
             usage: {
               input: 0,
