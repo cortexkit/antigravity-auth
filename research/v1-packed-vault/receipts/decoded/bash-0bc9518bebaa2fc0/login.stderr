@@ -1,0 +1,16 @@
+timestamp=2026-10-11T17:26:03.868Z level=INFO run=14587e78 message="creating instance" directory=/tmp/packed-v1-vault-EQxqWk/host/project
+timestamp=2026-10-11T17:26:03.869Z level=INFO run=14587e78 message=fromDirectory directory=/tmp/packed-v1-vault-EQxqWk/host/project
+timestamp=2026-10-11T17:26:03.883Z level=INFO run=14587e78 message=bootstrapping directory=/tmp/packed-v1-vault-EQxqWk/host/project
+timestamp=2026-10-11T17:26:03.888Z level=INFO run=14587e78 message=loading path=/tmp/packed-v1-vault-EQxqWk/host/config/opencode/config.json
+timestamp=2026-10-11T17:26:03.892Z level=INFO run=14587e78 message=loading path=/tmp/packed-v1-vault-EQxqWk/host/config/opencode/opencode.json
+timestamp=2026-10-11T17:26:03.897Z level=INFO run=14587e78 message=loading path=/tmp/packed-v1-vault-EQxqWk/host/config/opencode/opencode.jsonc
+timestamp=2026-10-11T17:26:03.900Z level=INFO run=14587e78 message=loading path=/tmp/packed-v1-vault-EQxqWk/host/config/opencode/opencode.json
+timestamp=2026-10-11T17:26:03.903Z level=INFO run=14587e78 message=loading path=/tmp/packed-v1-vault-EQxqWk/host/config/opencode/opencode.jsonc
+timestamp=2026-10-11T17:26:03.914Z level=INFO run=14587e78 message=loading path=/tmp/packed-v1-vault-EQxqWk/host/project/.opencode/opencode.json
+timestamp=2026-10-11T17:26:03.914Z level=INFO run=14587e78 message=loading path=/tmp/packed-v1-vault-EQxqWk/host/project/.opencode/opencode.jsonc
+timestamp=2026-10-11T17:26:04.088Z level=ERROR run=14587e78 message="failed to load plugin" path=file:///tmp/packed-v1-vault-EQxqWk/consumer/node_modules/@cortexkit/opencode-antigravity-auth error="NON-VACUITY BREAK: installed hybrid.server called"
+timestamp=2026-10-11T17:26:04.090Z level=INFO run=14587e78 message="all LSPs are disabled"
+timestamp=2026-10-11T17:26:04.090Z level=INFO run=14587e78 message="all formatters are disabled"
+timestamp=2026-10-11T17:26:04.090Z level=INFO run=14587e78 message=init
+[0m
+timestamp=2026-10-11T17:26:04.673Z level=ERROR run=14587e78 message="Failed to fetch models.dev" cause="Cause([Fail(HttpClientError: Transport error (GET https://models.dev/api.json) (cause: Error: Unable to connect. Is the computer able to access the url?))])"

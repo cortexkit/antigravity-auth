@@ -1,0 +1,38 @@
+# staged product as reviewed (lifecycle.ts unchanged from the index) + live-queue shutdown witness; bun 1.4.2; Darwin arm64
+bun test v1.4.2 (744846f84)
+
+src/plugin/lifecycle.test.ts:
+553 |     await new Promise((resolve) => setTimeout(resolve, 0))
+554 |     const whileRefreshing = [...events]
+555 |     finishRefresh()
+556 |     await disposal
+557 | 
+558 |     expect({ whileDraining, whileRefreshing }).toEqual({
+                                                     ^
+error: expect(received).toEqual(expected)
+
+  {
+    "whileDraining": [
+      "live-requests:abort",
+-     "live-queue:stop",
+    ],
+    "whileRefreshing": [
+      "live-requests:abort",
++     "live-requests:drained",
+      "live-queue:stop",
+-     "live-requests:drained",
+    ],
+  }
+
+- Expected  - 2
++ Received  + 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/lifecycle.test.ts:558:48)
+(fail) PluginLifecycle request runtime retirement > stops the live refresh queue as shutdown begins, while its request runtime is still draining, and disposes the manager after both [3.19ms]
+
+ 0 pass
+ 15 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [486.00ms]
+exit=1

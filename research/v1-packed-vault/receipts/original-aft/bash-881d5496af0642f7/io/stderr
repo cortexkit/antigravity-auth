@@ -1,0 +1,28 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:
+(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.36ms]
+(pass) loading assertion rejects a source, factory or direct-entry route [0.21ms]
+(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.07ms]
+246 |     'bytes changed',
+247 |   )
+248 |   for (const secret of ['dormant-access', 'dormant-refresh']) {
+249 |     const leaked = wire()
+250 |     leaked[0]!.rawHeaders.push('X-Dormant-Leak', secret)
+251 |     expect(() => assertPackedDormancy(auth, auth, leaked)).toThrow(
+                                                                 ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "physical wire"
+
+Received function did not throw
+Received value: undefined
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:251:60)
+(fail) dormancy assertion requires byte-identical slots and no slot secret on wire [0.19ms]
+
+ 3 pass
+ 1 filtered out
+ 1 fail
+ 13 expect() calls
+Ran 4 tests across 1 file. [379.00ms]

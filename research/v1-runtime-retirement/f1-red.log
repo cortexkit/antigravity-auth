@@ -1,0 +1,92 @@
+# base d2d0e5e699be195f08caf137b2f472ebc150bb78 + witness tests only; bun 1.4.2; Darwin arm64
+bun test v1.4.2 (744846f84)
+
+src/plugin/shared/request-services.test.ts:
+1961 |       expect(runtimes).toHaveLength(2)
+1962 |       const fresh = await fetch(STREAM_URL, chatInit('after reload'))
+1963 |       expect(await fresh.text()).toContain('after-reload')
+1964 |       expect(sends).toBe(2)
+1965 | 
+1966 |       expect(pendingRead).toBeUndefined()
+                                 ^
+error: expect(received).toBeUndefined()
+
+Received: {
+  kind: "error",
+  error: 2812 |     }
+2813 |   }
+2814 | 
+2815 |   function dispose(): Promise<void> {
+2816 |     disposePromise ??= (async () => {
+2817 |       shutdown.abort(new Error('The Antigravity request executor is disposed'))
+                                ^
+error: The Antigravity request executor is disposed
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/shared/request-services.ts:2817:26)
+      at dispose (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/shared/request-services.ts:2821:27)
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/auth-loader.ts:374:28)
+      at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/auth-loader.ts:607:11)
+,
+}
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/shared/request-services.test.ts:1966:27)
+(fail) OpenCode 1 runtime replacement with admitted streams > a reload keeps a stream admitted by the replaced runtime alive [32.74ms]
+2028 |       const observed = {
+2029 |         loads: loadAccountManager.mock.calls.length,
+2030 |         runtimes: runtimes.length,
+2031 |         firstStream: pendingRead,
+2032 |       }
+2033 |       expect(observed).toEqual({
+                              ^
+error: expect(received).toEqual(expected)
+
+  {
+-   "firstStream": undefined,
+-   "loads": 1,
+-   "runtimes": 1,
++   "firstStream": {
++     "error": [Error: The Antigravity request executor is disposed],
++     "kind": "error",
++   },
++   "loads": 2,
++   "runtimes": 2,
+  }
+
+- Expected  - 3
++ Received  + 6
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/shared/request-services.test.ts:2033:24)
+(fail) OpenCode 1 runtime replacement with admitted streams > two concurrent first local requests after vault custody reload the local runtime once [3.92ms]
+2064 |       const nextRead = observeRead(reader)
+2065 |       void nextRead.then((outcome) => {
+2066 |         pendingRead = outcome
+2067 |       })
+2068 |       await loader.reload(getAuth)
+2069 |       expect(pendingRead).toBeUndefined()
+                                 ^
+error: expect(received).toBeUndefined()
+
+Received: {
+  kind: "error",
+  error: 2812 |     }
+2813 |   }
+2814 | 
+2815 |   function dispose(): Promise<void> {
+2816 |     disposePromise ??= (async () => {
+2817 |       shutdown.abort(new Error('The Antigravity request executor is disposed'))
+                                ^
+error: The Antigravity request executor is disposed
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/shared/request-services.ts:2817:26)
+      at dispose (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/shared/request-services.ts:2821:27)
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/auth-loader.ts:374:28)
+      at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/auth-loader.ts:607:11)
+,
+}
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/shared/request-services.test.ts:2069:27)
+(fail) OpenCode 1 runtime replacement with admitted streams > final shutdown aborts a stream still held by a replaced runtime and waits for it [0.85ms]
+
+ 0 pass
+ 41 filtered out
+ 3 fail
+ 11 expect() calls
+Ran 3 tests across 1 file. [456.00ms]

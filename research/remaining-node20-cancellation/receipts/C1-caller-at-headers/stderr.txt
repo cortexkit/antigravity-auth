@@ -1,0 +1,23 @@
+
+packages/core/src/fetch-timeout.test.ts:
+246 |         signal: caller.signal,
+247 |       },
+248 |       { fetchImpl: source.fetchImpl },
+249 |     )
+250 |     expect(deadlines.size).toBe(0)
+251 |     expect(callers.size).toBe(1)
+                               ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/core/src/fetch-timeout.test.ts:251:26)
+(fail) caller/body lifetime without AbortSignal.any > detaches only the deadline at headers and forwards caller abort during a body read [0.55ms]
+(pass) caller/body lifetime without AbortSignal.any > preserves metadata, clone metadata, and unbuffered body bytes [0.29ms]
+
+ 1 pass
+ 18 filtered out
+ 1 fail
+ 20 expect() calls
+Ran 2 tests across 1 file. [127.00ms]

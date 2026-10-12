@@ -1,0 +1,47 @@
+# OpenCode 1 final-shutdown admission
+
+## Change and scope
+
+The closing boolean is admission state: `PluginLifecycle.isClosing()` reports whether final shutdown has begun. The completion promise is the result that `dispose()` callers await. Both are published synchronously before any final disposal hook runs. A hook that synchronously reenters `dispose()` receives the original pending promise rather than starting another shutdown. Account replacement and disposable registration use the closing boolean to refuse new ownership. The auth loader combines `isClosing()` with its own `closed` flag at loader, reload, fetch, installation, and post-await admission checks.
+
+Resource order is unchanged: replaced requests retire without aborting admitted streams; final shutdown aborts live/retiring requests and stops the current refresh queue immediately. Request cleanup waits for admitted fetches and their response bodies; queue cleanup waits for an already-admitted refresh. Managers are disposed after both owned cleanups finish. The loader still selects local or vault credentials by the existing authority reader. The OpenCode plugin entry point, original caller AbortSignal forwarding, and shared common-auth library code are untouched.
+
+## Continuation provenance
+
+The retry checkout initially contained only the clean base `d89c151945b95461a05f22d63aae71abf27852a2`. The engineering owner, Alfonso, supplied the prior execution's frozen files in `.cortexkit/parent-inputs/fence-continuation-r1`: `auth-loader.ts`, `auth-loader.test.ts`, `lifecycle.ts`, `lifecycle.test.ts`, `oauth-methods.test.ts` (all in `packages/opencode/src/plugin/`), and `research/v1-shutdown-admission/source-red.aft.raw.log`. All six were checked against the supplied SHA-256 and byte counts, then copied into those fenced paths. The `oauth-methods.test.ts` fixture was verified to contain a real closing boolean, `isClosing()`, and synchronous assignment inside mock disposal. No operator-owned main checkout was read.
+
+The original red observation is retained byte-for-byte as `source-red.aft.raw.log` (SHA-256 `a1e887fb5f08ec6c7dbb302daea831707a168ced54f8fc686028858cc722aaaf`). Its two assertions are `refuses new vault admission while final shutdown holds the request drain` and `refuses new vault admission while final shutdown holds the queue drain`: a new vault fetch must refuse while request cleanup or queue cleanup remains pending. Both failed because that new fetch resolved rather than refusing. Its last captured JSON row was already truncated in the supplied original execution record. The original-source held-drain tests were not replayed in this retry; that retained log remains the earlier observation.
+
+The held-await fixture installs an ordinary rejection handler before releasing its promise and invokes `expect(pending).rejects.toThrow` afterward. Under Bun 1.4.2 that matcher synchronously waits for settlement; releasing the held promise first is necessary to let the fixture proceed. The initial matcher deadlock was a test-harness failure, not a product failure. Imports were sorted, with no assertion or expected behavior relaxed. A separate synchronous-disposal reentry test exposed distinct completion promises when a hook called `dispose()` before the first call assigned its promise. Publishing the shared completion promise before invoking hooks fixes that gap. The reentry test's red-first output is retained separately from the original held-drain execution log.
+
+## Verification and receipts
+
+All build/type/test commands ran in this private checkout on offline Linux via AFT (the Linux command runner). No command ran in the operator-owned main checkout or used live native credentials; no command wrote to shared fleet outputs, published a release, or pushed a branch. Tool versions: Bun 1.4.2, TypeScript 6.0.3, Biome 2.5.3. `capture.py` emits JSON rows containing exact stdout/stderr and the exit status of each build/type/test command. The `.aft.raw.log` files retain the original uncompressed AFT replies, including those rows, rather than just tool summaries.
+
+- `positive-build.aft.raw.log`: core build passed (128 embedded files); OpenCode strict typecheck passed (77 declaration roots, 7-file client type closure); OpenCode package build passed (25/12 TUI raw/runtime files, two audited bundles, 146 finalized declarations). The subsequent test phase hung and did not produce a test-command exit status; it is not claimed as a pass.
+- `focused-diagnose.aft.raw.log`: the bounded diagnostic rerun reached the two held-drain witnesses, then timed out at the prematurely invoked matcher. The timed-out command did not produce an exit status before the 180-second timeout (`inner_exit: null` in the record).
+- `positive-tests.aft.raw.log`: after the matcher ordering fix, 50 tests passed, 0 failed, 265 assertions, three files. This first test command accidentally named `plugin/request-services.test.ts`; Bun silently skipped that nonexistent path. It is not the request-services verification.
+- `final-positive.aft.raw.log`: pinned Biome checked all five fenced TS files; core build and OpenCode strict typecheck passed; the corrected command ran lifecycle, auth-loader, **shared/request-services**, and oauth-methods tests: 98 passed, 0 failed, 452 assertions across four files.
+- `control-loader.aft.raw.log`: removing only the loader's lifecycle predicate made each of six independently selected admission witnesses fail, with the unchanged handle-exposure control passing each time. Each invocation ran two tests and recorded exit status 1.
+- `control-publication.aft.raw.log`: moving closing publication after the first disposal work made only the synchronous-hook admission witness fail; the once-only-disposal control passed. Two tests, exit status 1.
+- `reentry-fixture-diagnose.aft.raw.log`: the first new fixture attempt referenced a nonexistent helper; it failed before reaching product code and is not red-first product evidence. The fixture was corrected to hold a locally constructed, strictly typed promise.
+- `reentry-source-red.aft.raw.log`: before the completion-promise correction, only `joins synchronous reentrant final disposal before any owned drain finishes` failed because the two calls returned distinct pending promises; the once-only-disposal control passed. Two tests, exit status 1.
+- `reentry-positive.aft.raw.log`: after that correction, strict typecheck, package build and Biome passed; the same four focused files ran 99 tests, 0 failed, 471 assertions.
+- `control-reentry.aft.raw.log`: removing only early shared completion-promise publication made only the synchronous reentry witness fail, while the once-only-disposal control passed. Two tests, exit status 1.
+- `control-publication-final.aft.raw.log`: delaying only the closing boolean with the shared completion promise retained made only the synchronous admission witness fail, while the once-only-disposal control passed. Two tests, exit status 1.
+- `mutation-controls.json`: exact mutations, red/green test names, and non-empty/empty git diff-stat pairs from safe stage/mutate/check/restore sequences. Both source files were restored byte-for-byte to the approved staged versions, and their modification times were advanced with `touch` so the Linux runner's snapshots saw the restored bytes; no mutant remains.
+
+TypeScript language-server diagnostics were unavailable during AFT's inspection of the edited files. The genuine command executions are authoritative: `bun run --cwd packages/opencode typecheck` (including `tsc --noEmit` and `tsc -p tsconfig.ga.json`) and the five-file Biome check passed, with their exact outputs and command exit statuses retained in `final-positive.aft.raw.log` and `reentry-positive.aft.raw.log`.
+
+## Remaining limitations
+
+The held request and queue witnesses use strictly typed real manager/queue instances with deterministic mock drains, not live network services. Post-await witnesses cover authority reads for fetch/load/reload and vault construction; they are not an exhaustive schedule enumeration of every local store or manager await. Already-started work is not redesigned or forcibly rolled back by these predicates. Lifecycle registration's immediate disposal and existing disposal error propagation remain unchanged except for the admission predicate; final disposal now joins synchronous reentry on its published completion promise. No new ownership/join API was introduced. Pre-existing broad-cast helpers in older lifecycle tests were not expanded or added to; all new fixtures are concretely typed and the entire package typechecked. No workspace-wide suite or live-host test was run.
+
+## Delivery checklist
+
+- Completed: restore and hash-verify `packages/opencode/src/plugin/auth-loader.ts`, `packages/opencode/src/plugin/auth-loader.test.ts`, `packages/opencode/src/plugin/lifecycle.ts`, `packages/opencode/src/plugin/lifecycle.test.ts`, `packages/opencode/src/plugin/oauth-methods.test.ts`, and `research/v1-shutdown-admission/source-red.aft.raw.log`.
+- Completed: repair held-await fixture without relaxing its contract.
+- Completed: strict package types/build and focused four-file tests.
+- Completed: narrow removal controls, safe restoration, retained raw receipts.
+- Completed: synchronous reentry witness, red-first product observation, and shared pending completion promise.
+- In progress: awaiting engineering review of source, comments and original execution records before commit.

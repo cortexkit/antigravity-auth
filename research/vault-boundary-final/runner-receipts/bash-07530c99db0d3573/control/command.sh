@@ -1,0 +1,6 @@
+bunx biome check --write --no-errors-on-unmatched packages/pi/src/stream.test.ts; git add packages/core/src/credential-redaction.ts packages/core/src/credential-redaction.test.ts packages/core/src/index.ts packages/opencode/src/plugin/shared/request-services.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/quota.ts packages/opencode/src/plugin/quota.test.ts packages/pi/src/stream.ts packages/pi/src/stream.test.ts packages/pi/src/commands.ts packages/pi/src/commands.test.ts research/vault-boundary-final; git diff --stat; python3 - <<'PY'
+from pathlib import Path
+p=Path('packages/pi/src/stream.ts');s=p.read_text();assert s.count('selectedCredentials.add(credential.accessToken)')==1;p.write_text(s.replace('selectedCredentials.add(credential.accessToken)','// NON-VACUITY BREAK: forget the actual opaque served token'))
+p=Path('packages/core/src/credential-redaction.ts');s=p.read_text();assert s.count('if (!frame.includes(\'"error"\')) return frame')==1;p.write_text(s.replace('if (!frame.includes(\'"error"\')) return frame','// NON-VACUITY BREAK: redact successful frames too\n  return redactCredentialText(frame, credentials)'))
+PY
+ git diff --stat

@@ -147,6 +147,7 @@ export interface CommandAccountRow {
   coolingDownUntil?: number
   /** Health score in [0, 100], forwarded from the live tracker. */
   healthScore?: number
+  cachedQuotaUpdatedAt?: number
   quota: Array<{
     key: 'gemini' | 'non-gemini'
     label: string
@@ -268,6 +269,7 @@ function toCommandAccountRow(entry: LiveAccountSnapshot): CommandAccountRow {
     current: entry.active,
     coolingDownUntil: entry.coolingDownUntil,
     healthScore: entry.healthScore,
+    cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
     quota,
     tier: toCapturedTier(entry),
   }
@@ -534,6 +536,7 @@ export function createCommandDataService(
       // Tier passes the redaction boundary unchanged (plan metadata, not PII).
       // The stamp check was already done by toCommandAccountRow.
       tier: row.tier,
+      cachedQuotaUpdatedAt: row.cachedQuotaUpdatedAt,
       cachedQuota: {
         gemini: toPool(gemini),
         'non-gemini': toPool(nonGemini),

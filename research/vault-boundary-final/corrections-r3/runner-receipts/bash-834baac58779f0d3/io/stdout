@@ -1,0 +1,12 @@
+1.4.2
+v24.21.0
+Version 6.0.3
+Version: 2.5.3
+
+Copied 129 embedded common-auth files
+Embedding and private Bun-lock roots verified (Bun 1.4.2)
+Embedded declarations: 77 strict roots in NodeNext/Bundler; client TYPE closure 7 files
+Checked 2 files in 6ms. No fixes applied.
+bun test v1.4.2 (744846f84)
+
+INNER_EXIT=0

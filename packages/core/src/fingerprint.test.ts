@@ -6,6 +6,7 @@ import {
   buildAntigravityHarnessPlatformArch,
   buildAntigravityHarnessUserAgent,
   buildAntigravityLoadCodeAssistMetadata,
+  buildFingerprintHeaders,
   clearSessionFingerprint,
   generateFingerprint,
   getSessionFingerprint,
@@ -28,13 +29,11 @@ describe('Antigravity fingerprint', () => {
     })
 
     it('builds the captured agy CLI User-Agent with auth_method=consumer', () => {
-      expect(
-        buildAntigravityHarnessUserAgent('1.1.24', 'darwin', 'arm64'),
-      ).toBe(
-        'antigravity/cli/1.1.24 (aidev_client; os_type=darwin; arch=arm64; cl=974782877; auth_method=consumer)',
+      expect(buildAntigravityHarnessUserAgent('1.3.3', 'darwin', 'arm64')).toBe(
+        'antigravity/cli/1.3.3 (aidev_client; os_type=darwin; arch=arm64; cl=996823801; auth_method=consumer)',
       )
-      expect(buildAntigravityHarnessUserAgent('1.1.24', 'win32', 'x64')).toBe(
-        'antigravity/cli/1.1.24 (aidev_client; os_type=windows; arch=amd64; cl=974782877; auth_method=consumer)',
+      expect(buildAntigravityHarnessUserAgent('1.3.3', 'win32', 'x64')).toBe(
+        'antigravity/cli/1.3.3 (aidev_client; os_type=windows; arch=amd64; cl=996823801; auth_method=consumer)',
       )
     })
 
@@ -51,7 +50,7 @@ describe('Antigravity fingerprint', () => {
 
       expect(headers).toEqual({
         'User-Agent': expect.stringMatching(
-          /^antigravity\/cli\/1\.1\.24 \(aidev_client; os_type=.+; arch=.+; cl=974782877; auth_method=consumer\)$/,
+          /^antigravity\/cli\/1\.3\.3 \(aidev_client; os_type=.+; arch=.+; cl=996823801; auth_method=consumer\)$/,
         ),
         Authorization: 'Bearer token',
         'Content-Type': 'application/json',
@@ -86,6 +85,15 @@ describe('Antigravity fingerprint', () => {
   })
 
   describe('old-fingerprint migration', () => {
+    it('uses current content headers for persisted fingerprints without changing device history', () => {
+      const fingerprint = generateFingerprint()
+      fingerprint.userAgent = 'antigravity/cli/1.1.24 (historical)'
+      const previous = structuredClone(fingerprint)
+      expect(buildFingerprintHeaders(fingerprint)['User-Agent']).toMatch(
+        /^antigravity\/cli\/1\.3\.3 .*cl=996823801;/,
+      )
+      expect(fingerprint).toEqual(previous)
+    })
     it('rewrites legacy randomized / pre-1.1.3 fingerprints to the captured UA', () => {
       const fingerprint = {
         deviceId: 'device',

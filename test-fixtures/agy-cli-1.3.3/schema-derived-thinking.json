@@ -1,0 +1,5 @@
+{
+  "provenance": "Public Google ThinkingConfig JSON schema; not a native capture",
+  "medium": { "includeThoughts": true, "thinkingBudget": 0, "thinkingLevel": "MEDIUM" },
+  "high": { "includeThoughts": true, "thinkingBudget": 0, "thinkingLevel": "HIGH" }
+}

@@ -1,0 +1,15 @@
+Task bash-eacc7ccf75645e3c: timed_out (exit 124) 905s
+Waited 0ms (limit 1000ms); task exited (timed_out, exit 124).
+ran remotely on ck-motor (4 vCPUs requested)
+AFT stripped env names: ["AFT_AGENT_DISCLAIM_PRIVACY","AFT_GH_SHIMS_DIR","AFT_GH_SHIM_BINARY","AFT_GH_SHIM_TICKET","AFT_GIT_CO_AUTHOR","NEXTEST_TEST_THREADS","RUST_TEST_THREADS","SSH_AUTH_SOCK","SUBC_MODULE_ID"]
+the remote job does not receive: GIT_CONFIG_COUNT, GIT_CONFIG_KEY_0, GIT_CONFIG_VALUE_0, HOME, LOGNAME, ORT_DYLIB_PATH, OSLogRateLimit, PATH, SHELL, TMPDIR; +5 more
+remote deadline kill
+{"command": ["bun", "--version"], "stdout": "1.4.2\n", "stderr": "", "inner_exit": 0}
+{"command": ["node_modules/.bin/tsc", "--version"], "stdout": "Version 6.0.3\n", "stderr": "", "inner_exit": 0}
+{"command": ["bun", "run", "--cwd", "packages/core", "build"], "stdout": "Copied 128 embedded common-auth files\n", "stderr": "$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs\n", "inner_exit": 0}
+{"command": ["bun", "run", "--cwd", "packages/opencode", "typecheck"], "stdout": "Embedding and private Bun-lock roots verified (Bun 1.4.2)\nEmbedded declarations: 77 strict roots in NodeNext/Bundler; client TYPE closure 7 files\n", "stderr": "$ bun run embed:check && bun scripts/build-tui.ts --types && tsc --noEmit && tsc -p tsconfig.ga.json\n$ bun scripts/build-tui.ts --check\n", "inner_exit": 0}
+{"command": ["bun", "run", "--cwd", "packages/opencode", "build"], "stdout": "Embedding and private Bun-lock roots verified (Bun 1.4.2)\nEmbedded declarations: 77 strict roots in NodeNext/Bundler; client TYPE closure 7 files\nPublic TUI build: 25 raw, 25 runtime files\nPublic TUI build: 12 raw, 12 runtime files\nProduct build: tsc, canonical copy, 2 audited bundles, raw/runtime TUI for OpenCode 1 and GA\nFinalized relative specifiers in 146 declaration files\n", "stderr": "$ bun run embed:check && bun scripts/build-tui.ts --library && esbuild src/server.ts --bundle --platform=node --format=esm --external:zod --outfile=dist/server.js --sourcemap --metafile=dist/server.meta.json --log-level=warning && tsc -p tsconfig.ga.emit.json && bun ../../scripts/finalize-declaration-specifiers.ts dist/types .\n$ bun scripts/build-tui.ts --check\n", "inner_exit": 0}
+git state: not reported by the runner
+untracked files: not reported by the runner
+ignored writes: not reported by the runner
+The task was remote deadline kill.

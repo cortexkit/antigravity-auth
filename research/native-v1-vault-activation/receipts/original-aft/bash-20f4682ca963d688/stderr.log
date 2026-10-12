@@ -1,0 +1,19 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:
+26 |   expect(login.exitCode).toBe(0)
+27 |   expect(run.exitCode).toBe(0)
+28 |   const events = run.stdout
+29 |     .trim()
+30 |     .split('\n')
+31 |     .map(
+               ^
+SyntaxError: JSON Parse error: Unexpected EOF
+      at map (1:11)
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:31:6)
+(fail) official 1.17.13 absent-auth first request activates and serves the approved vault [6130.68ms]
+
+ 0 pass
+ 1 fail
+ 7 expect() calls
+Ran 1 test across 1 file. [6.29s]

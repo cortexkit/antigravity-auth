@@ -1,0 +1,7 @@
+# packages/opencode: TMPDIR=$(realpath $TMPDIR)/ bun test --isolate ./src (bun 1.4.2, Darwin arm64)
+# Summary lines only; with the symlinked default macOS TMPDIR, src/plugin/shared/local-grant.test.ts fails 17 tests with 'legacy parent traverses a symbolic link' (environment, unrelated).
+# Run 1 of this state: 2002 pass / 1 fail; the failure was ga-location-services.test.ts 'serves same-read state and exact-credential menu actions over a real store, then disposes' (quota refresh exchanged an extra 'refresh-two'). That file passed 6 of 6 runs alone. Run 2, below:
+ 2003 pass
+ 0 fail
+Ran 2003 tests across 102 files. [44.92s]
+suite exit=0

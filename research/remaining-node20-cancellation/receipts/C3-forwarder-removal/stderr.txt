@@ -1,0 +1,23 @@
+
+packages/core/src/abort-forwarding.test.ts:
+(pass) forwardAbort > forwards a pre-abort without registering a listener [0.12ms]
+40 |     const detach = forwardAbort(caller.signal, target)
+41 |     expect(add).toHaveBeenCalledTimes(1)
+42 |     const listener = add.mock.calls[0]![1]
+43 |     detach()
+44 |     detach()
+45 |     expect(remove).toHaveBeenCalledTimes(1)
+                        ^
+error: expect(received).toHaveBeenCalledTimes(expected)
+
+Expected number of calls: 1
+Received number of calls: 0
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/core/src/abort-forwarding.test.ts:45:20)
+(fail) forwardAbort > detaches the exact listener once and prevents later forwarding [0.11ms]
+
+ 1 pass
+ 1 filtered out
+ 1 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [138.00ms]

@@ -1,0 +1,82 @@
+[
+  {
+    "command": [
+      "bun",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "1.4.2\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "node",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "v24.21.0\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "node_modules/.bin/tsc",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "Version 6.0.3\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bun",
+      "run",
+      "embed:check"
+    ],
+    "exitStatus": 0,
+    "stdout": "Embedding and private Bun-lock roots verified (Bun 1.4.2)\nCore common-auth embedding verified against the pinned archive\n",
+    "stderr": "$ bun run --cwd packages/opencode embed:check && bun packages/core/scripts/embed-common-auth.ts --check\n$ bun scripts/build-tui.ts --check\n"
+  },
+  {
+    "command": [
+      "node_modules/.bin/tsc",
+      "-p",
+      "test/common-auth-0113-producer/tsconfig.source.json"
+    ],
+    "exitStatus": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "node_modules/.bin/tsc",
+      "-p",
+      "test/common-auth-094-adoption/embed-build/tsconfig.declarations.json"
+    ],
+    "exitStatus": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bun",
+      "packages/opencode/scripts/build-tui.ts",
+      "--types"
+    ],
+    "exitStatus": 0,
+    "stdout": "Embedded declarations: 77 strict roots in NodeNext/Bundler; client TYPE closure 7 files\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bun",
+      "test",
+      "--config=test/common-auth-0113-producer/bunfig.toml",
+      "--isolate",
+      "test/common-auth-0113-producer/closure.test.ts",
+      "packages/core/src/__fixtures__/common-auth-public-consumer-admission.test.ts"
+    ],
+    "exitStatus": 0,
+    "stdout": "bun test v1.4.2 (744846f84)\n",
+    "stderr": "\ntest/common-auth-0113-producer/closure.test.ts:\n(pass) producer.public_roots_and_exact_closure [10.68ms]\n(pass) producer.slim_runtime_reachability [3.98ms]\n(pass) producer.legacy_bytes_and_stop_order [3.80ms]\n(pass) producer.verbatim_map [25.47ms]\n(pass) producer.symlink_refusal_preserves_bytes [7.90ms]\n(pass) producer.shared_core_profile_exact_closure [35.72ms]\n(pass) producer.multi_target_preflight_preserves_first_target [5.51ms]\n(pass) producer.generator_is_data_only [3.65ms]\n\npackages/core/src/__fixtures__/common-auth-public-consumer-admission.test.ts:\n(pass) reconstructs the exact historical writer and refuses missing or changed runtime closure bytes [332.86ms]\n(pass) requires an explicit worktree-local consumer instead of a default or parent fixture [0.12ms]\n(pass) refuses a missing owned public consumer [0.09ms]\n(pass) admits the complete genuine publication and records every member payload [45.69ms]\n(pass) refuses corrupted public store payload bytes [26.68ms]\n(pass) refuses altered consumer entrypoints and publication receipts [33.19ms]\n(pass) refuses wrong package identity, version and export metadata [38.15ms]\n(pass) refuses missing, extra and symlinked public package members [32.90ms]\n(pass) refuses missing, truncated and corrupt archives before provisioning [0.54ms]\n\n 17 pass\n 0 fail\n 1343 expect() calls\nRan 17 tests across 2 files. [711.00ms]\n"
+  }
+]

@@ -1,0 +1,15 @@
+{
+  "task_id": "bash-30b8f79de736723e",
+  "command": "./node_modules/.bin/biome --version && ./node_modules/.bin/biome check --error-on-warnings packages/core/src/quota-manager.ts packages/core/src/quota-manager.test.ts; echo \"biome exit $?\"; cd packages/core && ../../node_modules/.bin/tsc --version; bun run typecheck; echo \"typecheck exit $?\"; bun --version; bun test --isolate src/quota-manager.test.ts; echo \"test exit $?\"",
+  "workdir": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd",
+  "status": "completed",
+  "status_reason": null,
+  "started_at": 1791726807064,
+  "finished_at": 1791726814274,
+  "duration_ms": 7210,
+  "timeout_ms": 1800021,
+  "exit_code": 0,
+  "execution_note": "ran remotely on ck-motor (4 vCPUs requested)\nAFT stripped env names: [\"AFT_AGENT_DISCLAIM_PRIVACY\",\"AFT_GH_SHIMS_DIR\",\"AFT_GH_SHIM_BINARY\",\"AFT_GH_SHIM_TICKET\",\"AFT_GIT_CO_AUTHOR\",\"NEXTEST_TEST_THREADS\",\"RUST_TEST_THREADS\",\"SSH_AUTH_SOCK\",\"SUBC_MODULE_ID\"]\nthe remote job does not receive: GIT_CONFIG_COUNT, GIT_CONFIG_KEY_0, GIT_CONFIG_VALUE_0, HOME, LOGNAME, ORT_DYLIB_PATH, OSLogRateLimit, PATH, SHELL, TMPDIR; +5 more",
+  "requested_vcpus": 4,
+  "recorder_dir": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/5ab87a01b115da3d/bash-30b8f79de736723e"
+}

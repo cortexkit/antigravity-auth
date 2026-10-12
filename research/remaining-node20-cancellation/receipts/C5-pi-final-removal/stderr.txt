@@ -1,0 +1,24 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/pi/src/stream.test.ts:
+(pass) streamCortexKitAntigravity > works without AbortSignal.any with a caller signal [2.35ms]
+953 |     expect(listeners.size).toBe(1)
+954 |     finishCancel()
+955 |     const { result } = await pending
+956 |     expect(result.stopReason).toBe('stop')
+957 |     expect(response.body!.locked).toBe(false)
+958 |     expect(listeners.size).toBe(0)
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/pi/src/stream.test.ts:958:28)
+(fail) Pi caller cancellation without AbortSignal.any > retains forwarding through successful body cleanup and then detaches [0.44ms]
+
+ 1 pass
+ 47 filtered out
+ 1 fail
+ 8 expect() calls
+Ran 2 tests across 1 file. [213.00ms]

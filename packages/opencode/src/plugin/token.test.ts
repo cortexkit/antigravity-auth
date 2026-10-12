@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test'
 
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
-import { refreshAccessToken } from './token'
+import {
+  AntigravityTokenRefreshError,
+  createAntigravityTokenExchange,
+  isInvalidGrantFailure,
+  refreshAccessToken,
+} from './token'
 import type { OAuthAuthDetails, PluginClient } from './types'
 
 const baseAuth: OAuthAuthDetails = {
@@ -93,5 +98,103 @@ describe('refreshAccessToken', () => {
       name: 'AntigravityTokenRefreshError',
       code: 'invalid_grant',
     })
+  })
+})
+
+describe('createAntigravityTokenExchange', () => {
+  beforeEach(() => {
+    mock.restore()
+  })
+
+  it('sends the bare refresh token and keeps it when Google does not rotate it', async () => {
+    const bodies: string[] = []
+    global.fetch = mock(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(String(init?.body))
+      return new Response(
+        JSON.stringify({ access_token: 'fresh-access', expires_in: 3600 }),
+        { status: 200 },
+      )
+    }) as unknown as typeof fetch
+
+    const exchange = createAntigravityTokenExchange({ now: () => 1_000 })
+    const result = await exchange({
+      refreshToken: 'bare-token',
+      row: {} as never,
+    })
+
+    expect(new URLSearchParams(bodies[0]).get('refresh_token')).toBe(
+      'bare-token',
+    )
+    expect(result).toEqual({
+      accessToken: 'fresh-access',
+      refreshToken: 'bare-token',
+      expiresAt: 1_000 + 3_600_000,
+    })
+  })
+
+  it('returns the rotated refresh token Google issues', async () => {
+    global.fetch = mock(
+      async () =>
+        new Response(
+          JSON.stringify({
+            access_token: 'fresh-access',
+            expires_in: 3600,
+            refresh_token: 'rotated',
+          }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch
+
+    const result = await createAntigravityTokenExchange()({
+      refreshToken: 'bare-token',
+      row: {} as never,
+    })
+    expect(result.refreshToken).toBe('rotated')
+  })
+
+  it('throws instead of answering with a bearer when Google returns none', async () => {
+    global.fetch = mock(
+      async () =>
+        new Response(JSON.stringify({ expires_in: 3600 }), { status: 200 }),
+    ) as unknown as typeof fetch
+
+    await expect(
+      createAntigravityTokenExchange()({
+        refreshToken: 'bare-token',
+        row: {} as never,
+      }),
+    ).rejects.toThrow('returned no access token')
+  })
+
+  it('throws invalid_grant so a wrapping repository failure still names it', async () => {
+    global.fetch = mock(
+      async () =>
+        new Response(JSON.stringify({ error: 'invalid_grant' }), {
+          status: 400,
+          statusText: 'Bad Request',
+        }),
+    ) as unknown as typeof fetch
+
+    const failure = await createAntigravityTokenExchange()({
+      refreshToken: 'bare-token',
+      row: {} as never,
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(AntigravityTokenRefreshError)
+    const wrapped = new Error('store refresh failed', {
+      cause: new Error('provider', { cause: failure }),
+    })
+    expect(isInvalidGrantFailure(wrapped)).toBe(true)
+    expect(
+      isInvalidGrantFailure(
+        new AntigravityTokenRefreshError({
+          message: 'x',
+          code: 'invalid_request',
+          status: 400,
+          statusText: 'Bad Request',
+        }),
+      ),
+    ).toBe(false)
+    expect(isInvalidGrantFailure('invalid_grant')).toBe(false)
   })
 })

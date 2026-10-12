@@ -1,0 +1,10 @@
+{
+  "gitHead": "9019b9c16b103cc4007886c9b52da4156735f160",
+  "archiveBytes": 251088,
+  "archiveSha256": "bf0f0828d155183dec1c29e5277ededd6cbd46e6b839ca696434e477f081216b",
+  "tarSha256": "8e7844ad61e2161a3110c9146e4da5e1f508261ce897603457f8056cf7274661",
+  "publisherSRI": "sha512-cGG0Ye6MsLL7K5cTddI4UShOoVR6Zas2G1aSspJZURDyHwiMY1qzCVav7p1DF49uBp5qTK3t3cahZ3cvjxVyHQ==",
+  "sha1": "f9775eeeb27b33bf3597caca287c793d0f6df60d",
+  "qualifiedCandidateTarByteParity": true,
+  "url": "https://registry.npmjs.org/@cortexkit/common-auth/-/common-auth-0.14.2.tgz"
+}

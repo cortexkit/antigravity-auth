@@ -18,9 +18,11 @@ type SearchTool = {
 
 function toolWith(
   getAuth: () => Promise<AuthDetails | null | undefined>,
+  mayStartLocalWork?: () => Promise<boolean>,
 ): SearchTool {
   return createGoogleSearchTool({
     getAuth,
+    mayStartLocalWork,
     client: { auth: { set: mock(async () => {}) } } as never,
     providerId: 'google',
   }) as unknown as SearchTool
@@ -94,4 +96,26 @@ describe('createGoogleSearchTool', () => {
       abort,
     )
   })
+})
+
+it('refuses vault or unreadable authority before resolving or refreshing a native login', async () => {
+  let nativeReads = 0
+  const searchTool = toolWith(
+    async () => {
+      nativeReads += 1
+      throw new Error('native credentials must stay dormant')
+    },
+    async () => false,
+  )
+  expect(
+    await searchTool.execute(
+      { query: 'synthetic query' },
+      { abort: new AbortController().signal },
+    ),
+  ).toBe(
+    'Google Search is not available through local credentials while vault custody is active or unreadable.',
+  )
+  expect(nativeReads).toBe(0)
+  expect(refreshAccessToken).not.toHaveBeenCalled()
+  expect(executeSearch).not.toHaveBeenCalled()
 })

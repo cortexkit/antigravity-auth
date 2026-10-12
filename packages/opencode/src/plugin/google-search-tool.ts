@@ -15,7 +15,9 @@ export function createGoogleSearchTool({
   getAuth,
   client,
   providerId,
+  mayStartLocalWork,
 }: {
+  mayStartLocalWork?: () => Promise<boolean>
   getAuth: GoogleSearchAuthLoader
   client: PluginClient
   providerId: string
@@ -42,6 +44,9 @@ export function createGoogleSearchTool({
         ),
     },
     async execute(args, ctx) {
+      if (mayStartLocalWork && !(await mayStartLocalWork())) {
+        return 'Google Search is not available through local credentials while vault custody is active or unreadable.'
+      }
       log.debug('Google Search tool called', {
         query: args.query,
         urlCount: args.urls?.length ?? 0,

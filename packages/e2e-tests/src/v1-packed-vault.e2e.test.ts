@@ -1,0 +1,255 @@
+import { expect, test } from 'bun:test'
+import { record } from './opencode-ga-harness.ts'
+import {
+  assertNoGoogleSideCalls,
+  assertPackedDormancy,
+  assertPackedLoading,
+  assertPackedWire,
+  emitPackedReceipt,
+  runPackedVault,
+  VAULT_MARKER,
+} from './v1-packed-vault-harness.ts'
+import {
+  SYNTHETIC_PROJECT,
+  SYNTHETIC_TOKEN,
+} from './v1-vault-activation-harness.ts'
+
+test('official V1 loads the packed server and completes a vault raw-TLS first request', async () => {
+  const receipt = await runPackedVault()
+  emitPackedReceipt(receipt)
+  expect(receipt.error).toBeUndefined()
+  expect(receipt.authAbsentBefore).toBe(true)
+  expect(receipt.marker).toEqual(VAULT_MARKER)
+  expect(receipt.binary.version).toBe('1.17.13')
+  expect(receipt.loading).toBeDefined()
+  assertPackedLoading(receipt.loading!)
+  assertPackedWire(receipt.requests, receipt.nonce)
+  const result = receipt.processes.find(
+    (child) => child.name === 'first-request',
+  )!
+  expect(result.exitCode).toBe(0)
+  const events = result.stdout
+    .trim()
+    .split('\n')
+    .map((line) => record(JSON.parse(line)))
+  expect(
+    events.some(
+      (event) =>
+        event.type === 'text' &&
+        record(event.part).text === `GA_OK_${receipt.nonce}`,
+    ),
+  ).toBe(true)
+  expect(
+    events.some(
+      (event) =>
+        event.type === 'step_finish' && record(event.part).reason === 'stop',
+    ),
+  ).toBe(true)
+  const gets = receipt.vaultCalls.filter(
+    (call) => call.method === 'credential.get_scoped',
+  )
+  expect(gets.length).toBeGreaterThan(0)
+  for (const call of gets)
+    expect(call.params).toEqual({
+      enrollment_token: 'ab'.repeat(32),
+      credential_id: 'synthetic-credential',
+      min_ttl_ms: 300000,
+    })
+  expect(receipt.controls.map((control) => control.name)).toEqual([
+    'missing-placeholder',
+    'foreign-tombstone',
+    'dormant-login',
+  ])
+  for (const control of receipt.controls) {
+    if (control.name === 'missing-placeholder') {
+      expect(control.requests).toBe(0)
+      expect(control.exitCode).toBe(1)
+      expect(control.stdout).toContain('ProviderAuthError')
+      expect(control.authBefore).toBeNull()
+      expect(control.authAfter).toBeNull()
+      expect(
+        control.vaultCalls.filter(
+          (call) => call.method === 'credential.get_scoped',
+        ),
+      ).toEqual([])
+      continue
+    }
+    expect(control.marker).toEqual({
+      google:
+        control.name === 'foreign-tombstone'
+          ? {
+              ...VAULT_MARKER.google,
+              refresh: 'claustrum-tombstone:v1:other-provider',
+            }
+          : {
+              type: 'oauth',
+              access: 'dormant-google-access',
+              refresh: 'dormant-google-refresh',
+              expires: 0,
+            },
+    })
+    expect(control.requests).toBe(1)
+    expect(control.exitCode).toBe(0)
+    assertPackedWire(control.wire, control.nonce)
+    assertPackedDormancy(control.authBefore, control.authAfter, control.wire)
+    const events = control.stdout
+      .trim()
+      .split('\n')
+      .map((line) => record(JSON.parse(line)))
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'text' &&
+          record(event.part).text === `GA_OK_${control.nonce}`,
+      ),
+    ).toBe(true)
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'step_finish' && record(event.part).reason === 'stop',
+      ),
+    ).toBe(true)
+  }
+  assertNoGoogleSideCalls(receipt.networkSyscalls)
+  expect(receipt.localFileSyscalls).toEqual([])
+  expect(
+    receipt.processes.every(
+      (child) =>
+        child.reaped && !child.timedOut && child.signalFailures.length === 0,
+    ),
+  ).toBe(true)
+  expect(
+    receipt.tlsEvents.some((event) => event.event === 'primary.parsed'),
+  ).toBe(true)
+  expect(
+    receipt.tlsEvents.filter((event) => event.event.includes('error')),
+  ).toEqual([])
+}, 180000)
+
+const nonce = 'fixture-primary-nonce'
+function wire() {
+  return [
+    {
+      method: 'POST',
+      url: '/v1internal:streamGenerateContent?alt=sse',
+      body: JSON.stringify({
+        requestType: 'agent',
+        userAgent: 'antigravity',
+        requestId:
+          'agent/00000000-0000-0000-0000-000000000001/1/00000000-0000-0000-0000-000000000002/2',
+        project: SYNTHETIC_PROJECT,
+        model: 'gemini-3.8-flash-high',
+        request: { contents: [{ role: 'user', parts: [{ text: nonce }] }] },
+      }),
+      rawHeaders: [
+        'Host',
+        'daily-cloudcode-pa.googleapis.com',
+        'Authorization',
+        `Bearer ${SYNTHETIC_TOKEN}`,
+      ],
+      receivedAt: 1,
+      peer: 7,
+    },
+  ]
+}
+
+test('wire assertion rejects unrelated identity, bearer, project and nonce', () => {
+  assertPackedWire(wire(), nonce)
+  const wrongBearer = wire()
+  wrongBearer[0]!.rawHeaders[3] = 'Bearer wrong-token'
+  expect(() => assertPackedWire(wrongBearer, nonce)).toThrow('Wire bearer')
+  const wrongProject = wire()
+  wrongProject[0]!.body = wrongProject[0]!.body.replace(
+    SYNTHETIC_PROJECT,
+    'wrong-project',
+  )
+  expect(() => assertPackedWire(wrongProject, nonce)).toThrow('Wire project')
+  const wrongModel = wire()
+  wrongModel[0]!.body = wrongModel[0]!.body.replace(
+    'gemini-3.8-flash-high',
+    'wrong-model',
+  )
+  expect(() => assertPackedWire(wrongModel, nonce)).toThrow('Wire model')
+  const wrongIdentity = wire()
+  wrongIdentity[0]!.body = wrongIdentity[0]!.body.replace(
+    'agent/',
+    'unrelated/',
+  )
+  expect(() => assertPackedWire(wrongIdentity, nonce)).toThrow(
+    'Wire agent request identity',
+  )
+  const wrongEndpoint = wire()
+  wrongEndpoint[0]!.url = '/v1internal:loadCodeAssist'
+  expect(() => assertPackedWire(wrongEndpoint, nonce)).toThrow(
+    'Wire method or endpoint',
+  )
+  expect(() => assertPackedWire(wire(), 'absent-nonce')).toThrow(
+    'Primary wire nonce',
+  )
+})
+
+test('loading assertion rejects a source, factory or direct-entry route', () => {
+  const entry =
+    '/tmp/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js'
+  const loading = {
+    packageDirectory:
+      '/tmp/consumer/node_modules/@cortexkit/opencode-antigravity-auth',
+    configuredPlugin:
+      'file:///tmp/consumer/node_modules/@cortexkit/opencode-antigravity-auth',
+    manifestEntry: entry,
+    resolvedEntry: entry,
+    entrySha256: 'packed-hash',
+    packedEntrySha256: 'packed-hash',
+    trace: `openat(AT_FDCWD, "${entry}", O_RDONLY) = 7`,
+    sourceRoot: '/checkout',
+  }
+  assertPackedLoading(loading)
+  expect(() =>
+    assertPackedLoading({ ...loading, configuredPlugin: `file://${entry}` }),
+  ).toThrow('installed package directory')
+  expect(() =>
+    assertPackedLoading({
+      ...loading,
+      trace:
+        'openat(AT_FDCWD, "/checkout/packages/opencode/src/plugin/index.ts", O_RDONLY) = 7',
+    }),
+  ).toThrow('was not read')
+  expect(() =>
+    assertPackedLoading({
+      ...loading,
+      trace: `${loading.trace}\nopenat(AT_FDCWD, "/checkout/packages/opencode/src/plugin/index.ts", O_RDONLY) = 8`,
+    }),
+  ).toThrow('Checkout source loading')
+})
+
+test('network assertion rejects a Google OAuth/project lookup before TLS', () => {
+  assertNoGoogleSideCalls([
+    '227 connect(21, {sa_family=AF_INET, sin_port=htons(443), sin_addr=inet_addr("127.0.0.1")}, 16) = -1 EINPROGRESS',
+  ])
+  expect(() =>
+    assertNoGoogleSideCalls([
+      '227 sendmmsg(20, [{iov_base="\\5oauth2\\ngoogleapis\\3com\\0"}], 2, MSG_NOSIGNAL) = 1',
+    ]),
+  ).toThrow('Google OAuth/project/quota')
+  expect(() =>
+    assertNoGoogleSideCalls([
+      '227 sendto(20, "\\24cloudresourcemanager\\ngoogleapis\\3com\\0", 60, 0, NULL, 0) = 60',
+    ]),
+  ).toThrow('Google OAuth/project/quota')
+})
+
+test('dormancy assertion requires byte-identical slots and no slot secret on wire', () => {
+  const auth =
+    '{"google":{"type":"oauth","access":"dormant-access","refresh":"dormant-refresh","expires":0}}\n'
+  assertPackedDormancy(auth, auth, wire())
+  expect(() => assertPackedDormancy(auth, auth.trim(), wire())).toThrow(
+    'bytes changed',
+  )
+  for (const secret of ['dormant-access', 'dormant-refresh']) {
+    const leaked = wire()
+    leaked[0]!.rawHeaders.push('X-Dormant-Leak', secret)
+    expect(() => assertPackedDormancy(auth, auth, leaked)).toThrow(
+      'physical wire',
+    )
+  }
+})

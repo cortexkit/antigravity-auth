@@ -1,0 +1,7 @@
+1.4.2
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+src/credential-redaction.ts(38,24): error TS2339: Property 'cause' does not exist on type '{}'.
+src/credential-redaction.ts(44,66): error TS18046: 'descriptor' is of type 'unknown'.
+src/credential-redaction.ts(56,62): error TS18046: 'descriptor' is of type 'unknown'.
+
+INNER_EXIT=2

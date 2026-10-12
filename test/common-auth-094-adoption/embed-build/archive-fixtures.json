@@ -1,0 +1,37 @@
+[
+  {
+    "name": "unsafe",
+    "sha256": "a12f8cbb310d3edce3e80758e9156861b0f52f83b838d8e16794da9bf69b930f",
+    "sri": "sha512-A88DaQviefppcrSLrQwbfdVuBf0hzma7oZ228fvNzGDs55nwo+XnBAqVHTq8JYEa7LVAcMIco1Q672KDJuNPCg==",
+    "gzip": "H4sIAAAAAAAC/+3NOwqEMABF0SzFFWgcgq4nSLCYRvzs32DptIMgnNPc170lT988l65tu7JNeSnh/2I1pHS1uvd393H8pNDE8IBj2/Na7wMAAAAAAAAAAAC8xwnKBKYyACgAAA==",
+    "error": "archive: unsafe path"
+  },
+  {
+    "name": "duplicate",
+    "sha256": "6b5a3e4ae8c76acef92e3ea96cda82b581191d53fe57ca3ae0e70e35b3374d07",
+    "sri": "sha512-QiuuZOQnGwe8oov1shEVRIi7wMDyYSwbSnosjtPNqi0ArQquGqjtr6S4CYy2NIKh8IRVFbHd9yTR3EJHjQ6UFQ==",
+    "gzip": "H4sIAAAAAAAC/+3RuwmAMAAE0IziBioEM08QsbARP/sbLMVWQXyvueuuuDn3Ux6HOofnNEUX45nFNW96iqkNVRNesK9bXspk+KfZ/7/+HwAAAAAAAAAA+K4D1lAo9AAoAAA=",
+    "error": "archive: duplicate path"
+  },
+  {
+    "name": "symlink",
+    "sha256": "0af26999632522bdd692b712c9cf33492924d64f3c97f907af0cf35f58316bc6",
+    "sri": "sha512-mUiwqqdpt4Yhavij/ca0n72k+aDkeJMV77aAVdkqOroBYS1ijP4lCtykISFNahWwFDD1hEYLZcC+tHiw/I1WcA==",
+    "gzip": "H4sIAAAAAAAC/+3OOQqAQBAEwH2KP1AXj/csIgYm4vF/FzHS2ECoSnqinl7SMKdpLFP4TpV1TXNl9sz3XcfYt6GIyz1uT+s07t+MO7bcnt8HAAAAAAAAAAAA+I8TpYUA8gAoAAA=",
+    "error": "archive: symlink"
+  },
+  {
+    "name": "hardlink",
+    "sha256": "9db18c9357dc996019103cb084e88d3b8dfacd36b845bea919c73cd104ab9387",
+    "sri": "sha512-k6Pu2sgrHEPY6xWpMo3THOjTFmpia5IX1qB0ur/atLE5vc6nLyNLvhLZ7uhLKcjPriEU9fugZkB7V7yJcq5ndw==",
+    "gzip": "H4sIAAAAAAAC/+3OOwqAMBAE0BzFG/gh6HmCiIWNaLy/Qay0thDea2ar2VnTuKR5qlP4TlP0MV5ZPPN9t103xFC16z0up22e8jfjjr20l/cBAAAAAAAAAAAA/uMELzbHNgAoAAA=",
+    "error": "archive: hardlink"
+  },
+  {
+    "name": "nonregular",
+    "sha256": "c0d65807a57054a5426ee189e9d269c80ac346dc55d7aed303b5fd55b911ae6c",
+    "sri": "sha512-uVq3Suq9weRWz3Fc+aqJ39Lt9Ds1uTpsdpcgtfSUlngt0/I+2micgraEhRngup2C/HNcUEybCAxFD0Isr/vrfw==",
+    "gzip": "H4sIAAAAAAAC/+3NuwmAQBRE0S3FDjRY3HoeIgYm4qd/F0MxVRDOSe5ks8QwxzS2kd7TVX3OV6t7H3bJpaSmTx84tj3WepkAAAAAAAAAAADgP05VgKOxACgAAA==",
+    "error": "archive: nonregular entry"
+  }
+]

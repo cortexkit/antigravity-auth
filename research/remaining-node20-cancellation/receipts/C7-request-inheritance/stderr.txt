@@ -1,0 +1,23 @@
+
+packages/core/src/fetch-timeout.test.ts:
+148 |     const response = await fetchWithActiveTimeout(
+149 |       input,
+150 |       {},
+151 |       { fetchImpl: source.fetchImpl },
+152 |     )
+153 |     expect(listeners.size).toBe(1)
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/core/src/fetch-timeout.test.ts:153:28)
+(fail) caller/body lifetime without AbortSignal.any > inherits a Request signal and forwards its cancellation after headers [0.54ms]
+(pass) caller/body lifetime without AbortSignal.any > preserves metadata, clone metadata, and unbuffered body bytes [0.41ms]
+
+ 1 pass
+ 18 filtered out
+ 1 fail
+ 18 expect() calls
+Ran 2 tests across 1 file. [136.00ms]

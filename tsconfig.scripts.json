@@ -7,7 +7,15 @@
   },
   "include": [
     "scripts/**/*.ts",
+    "packages/core/scripts/**/*.ts",
     "test/**/*.ts",
     "packages/e2e-tests/src/**/*.ts"
+  ],
+  "exclude": [
+    "packages/opencode/src/tui-raw",
+    "packages/opencode/src/tui-compiled",
+    "packages/opencode/src/tui-ga-raw",
+    "packages/opencode/src/tui-ga-compiled",
+    "packages/opencode/src/common-auth-embedded/**/*.js"
   ]
 }

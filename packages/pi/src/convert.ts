@@ -8,6 +8,10 @@ import type {
   Tool,
   ToolResultMessage,
 } from '@earendil-works/pi-ai'
+// Namespace import so the transcript helpers can be feature-detected: a named
+// import of an export that an older installed pi-ai lacks fails at module link
+// time and would stop the extension from loading at all.
+import * as piAi from '@earendil-works/pi-ai'
 
 /** Gemini `contents` part shapes. */
 type GeminiPart =
@@ -149,6 +153,10 @@ function convertMessages(
   for (const message of messages) {
     if (!message) continue
 
+    // System messages carry the prompt and tool state, which
+    // resolveInstructionState replays into systemInstruction and tools.
+    if (message.role === 'system') continue
+
     if (message.role === 'user') {
       const parts =
         typeof message.content === 'string'
@@ -214,9 +222,52 @@ function convertTools(tools: Tool[] | undefined): GeminiTool[] | undefined {
   ]
 }
 
+interface InstructionState {
+  systemPrompt: string
+  tools: Tool[]
+}
+
 /**
- * Convert a pi `Context` into a Gemini `generateContent` request body
- * (the inner `request` object of the Antigravity envelope).
+ * Resolve the system prompt and tool set the request must carry.
+ *
+ * Pi 0.86+ hands providers a transcript whose system messages hold the prompt
+ * and tools: the leading one declares them and later ones append text, patch
+ * named sections, and add or remove tools. When the transcript has any system
+ * message it is the only authority, replayed with pi-ai's own helpers, so a
+ * prompt or tool set emptied by later system messages stays empty even if
+ * flat `systemPrompt`/`tools` fields are also present. Older Pi runtimes pass
+ * a flat `Context` with no system messages, which is read as-is.
+ */
+function resolveInstructionState(context: Context): InstructionState {
+  if (!context.messages.some((message) => message?.role === 'system')) {
+    return {
+      systemPrompt: context.systemPrompt ?? '',
+      tools: context.tools ?? [],
+    }
+  }
+
+  if (
+    typeof piAi.getCurrentSystemPrompt !== 'function' ||
+    typeof piAi.getCurrentTools !== 'function'
+  ) {
+    // Dropping the system messages would silently send a request with no
+    // prompt and no tools, so refuse instead.
+    throw new Error(
+      'Pi transcript contains system messages but the installed @earendil-works/pi-ai does not export getCurrentSystemPrompt/getCurrentTools (requires >= 0.86)',
+    )
+  }
+
+  return {
+    systemPrompt: piAi.getCurrentSystemPrompt(context.messages),
+    tools: piAi.getCurrentTools(context.messages),
+  }
+}
+
+/**
+ * Convert a pi request context into a Gemini `generateContent` request body
+ * (the inner `request` object of the Antigravity envelope). Accepts both the
+ * transcript form Pi 0.86+ passes to providers and the flat `Context` of
+ * older runtimes.
  */
 export function buildGeminiRequest(
   context: Context,
@@ -226,12 +277,14 @@ export function buildGeminiRequest(
     contents: convertMessages(context.messages, options),
   }
 
-  const tools = convertTools(context.tools)
-  if (tools) request.tools = tools
+  const { systemPrompt, tools } = resolveInstructionState(context)
 
-  if (context.systemPrompt?.trim()) {
+  const geminiTools = convertTools(tools)
+  if (geminiTools) request.tools = geminiTools
+
+  if (systemPrompt.trim()) {
     request.systemInstruction = {
-      parts: [{ text: sanitize(context.systemPrompt) }],
+      parts: [{ text: sanitize(systemPrompt) }],
     }
   }
 

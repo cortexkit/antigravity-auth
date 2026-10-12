@@ -1,7 +1,7 @@
+import type { AccountModelFamily as ModelFamily } from '@cortexkit/antigravity-auth-core'
 import type { HeaderStyle } from '../constants'
-import type { ModelFamily } from './accounts'
 import type { AntigravityConfig } from './config'
-import { isDebugEnabled, logModelFamily } from './debug'
+import type { LocationDebug } from './debug'
 import { resolveModelWithTier } from './transform/model-resolver'
 
 export const MAX_TOTAL_CAPACITY_RETRIES = 4
@@ -59,14 +59,21 @@ function extractModelFromUrlWithSuffix(urlString: string): string | null {
   return match?.[1] ?? null
 }
 
-export function getModelFamilyFromUrl(urlString: string): ModelFamily {
+/**
+ * Model family for a request URL. The caller's location debug log, when
+ * given, records the decision; this module keeps no debug state of its own.
+ */
+export function getModelFamilyFromUrl(
+  urlString: string,
+  debug?: Pick<LocationDebug, 'isDebugEnabled' | 'logModelFamily'>,
+): ModelFamily {
   const model = extractModelFromUrl(urlString)
   let family: ModelFamily = 'gemini'
   if (model?.includes('claude')) {
     family = 'claude'
   }
-  if (isDebugEnabled()) {
-    logModelFamily(urlString, model, family)
+  if (debug?.isDebugEnabled()) {
+    debug.logModelFamily(urlString, model, family)
   }
   return family
 }

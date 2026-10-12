@@ -1,0 +1,36 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/core/src/fetch-timeout.test.ts:
+41 |   } else {
+42 |     timeoutSignal.addEventListener('abort', onTimeoutAbort, { once: true })
+43 |   }
+44 | 
+45 |   const composedSignal = init.signal
+46 |     ? AbortSignal.any([activeController.signal, init.signal])
+                       ^
+TypeError: AbortSignal.any is not a function. (In 'AbortSignal.any([activeController.signal, init.signal])', 'AbortSignal.any' is undefined)
+      at fetchWithActiveTimeout (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/core/src/fetch-timeout.ts:46:19)
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/core/src/fetch-timeout.test.ts:58:30)
+(fail) fetchWithActiveTimeout > works without AbortSignal.any with a caller signal [0.41ms]
+
+packages/pi/src/stream.test.ts:
+448 |           apiKey: 'test-token',
+449 |           sessionId: 'no-any',
+450 |           signal: caller.signal,
+451 |         }),
+452 |       )
+453 |       expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
+                                                 ^
+error: expect(received).toHaveBeenCalledTimes(expected)
+
+Expected number of calls: 1
+Received number of calls: 0
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/pi/src/stream.test.ts:453:44)
+(fail) streamCortexKitAntigravity > works without AbortSignal.any with a caller signal [1.24ms]
+
+ 0 pass
+ 48 filtered out
+ 2 fail
+ 3 expect() calls
+Ran 2 tests across 2 files. [260.00ms]

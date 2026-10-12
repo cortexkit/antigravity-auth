@@ -1,0 +1,63 @@
+# Control 4 on the final staged snapshot: synchronizations no longer ordered
+# (`const run = synchronizeSlotOnce()` instead of chaining on the previous run).
+# Fresh remote Linux job (ck-motor, 4 vCPUs). Output copied verbatim from the tool result.
+# Local mutation evidence:
+#   before: `git diff --stat -- packages` empty (index.ts staged at blob 9fb02c58c452ef444ea83ee1e270baa788b8109a)
+#   during: ` packages/pi/src/index.ts | 2 +-` / ` 1 file changed, 1 insertion(+), 1 deletion(-)`
+#   after:  `git checkout -- packages/pi/src/index.ts && touch packages/pi/src/index.ts`; `git diff --stat -- packages` empty;
+#           index.ts sha256 back to bd04a01ef5c99edd2ac64de41e136bc797991ea38bb3312b0c5a5791a2340e12
+# Command:
+#   sha256sum <3 files>; grep -n "NON-VACUITY BREAK" packages/pi/src/index.ts; bun run --cwd packages/core build 2>&1 | tail -1; cd packages/pi;
+#   bun test --isolate src/index.test.ts -t 'finishes an older slot synchronization before a mode change registers its provider' 2>&1
+#   bun test --isolate src/index.test.ts src/startup-order.test.ts 2>&1 | grep -E '^\(pass\)|^\(fail\)|^ *[0-9]+ (pass|fail)|^Ran'
+
+e4ddbbf9b1df831b59329f04e0e5f0040fd49ffb8d91d9a78375184cb5d85b13  packages/pi/src/index.ts
+95478510ad9a68545d718fe6e49740f2a49be56e03cab5fe7ba095fcbac1afb2  packages/pi/src/index.test.ts
+27297ec66fe86b00e1a0308bd1c88e6d9cfe9cf3b84bffc30ad3d84839411b49  packages/pi/src/startup-order.test.ts
+312:    const run = synchronizeSlotOnce() // NON-VACUITY BREAK: no ordering
+Copied 128 embedded common-auth files
+== named only (raw)
+bun test v1.4.2 (744846f84)
+
+src/index.test.ts:
+628 |       string,
+629 |       ProviderConfig,
+630 |     ]
+631 |     // The mode file now says local and the native login is back: the last
+632 |     // registration must be the local provider, not the overtaken vault one.
+633 |     expect(last.oauth).toBeDefined()
+                             ^
+error: expect(received).toBeDefined()
+
+Received: undefined
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_8c631e5c03db8a98/packages/pi/src/index.test.ts:633:24)
+(fail) finishes an older slot synchronization before a mode change registers its provider [27.07ms]
+
+ 0 pass
+ 9 filtered out
+ 1 fail
+ 5 expect() calls
+Ran 1 test across 1 file. [211.00ms]
+== collateral (filtered: grep -E '^\(pass\)|^\(fail\)|^ *[0-9]+ (pass|fail)|^Ran')
+(pass) Pi Antigravity model catalog > exposes the live GPT-OSS route but not unsupported image-output chat models [8.95ms]
+(pass) replaces the native Google catalog and reads only the google OAuth credential in the real Pi registry [9.26ms]
+(pass) the production default entry selects the vault stream and registers the shared menu [37.44ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable enrollment state [3.45ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable mode file [0.83ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for custody mode with no enrollment [1.37ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for a native Google login that conflicts with the saved one [2.66ms]
+(pass) Pi startup when the credential slot cannot be synchronized > names the slot failure in the refusal [2.66ms]
+(pass) Pi startup when the credential slot cannot be synchronized > serves local again once the Vault section chooses the local login [1.05ms]
+(fail) finishes an older slot synchronization before a mode change registers its provider [6.78ms]
+(pass) awaits the native slot swap before the real Pi loader resolves its first google model request [69.27ms]
+(pass) the real Pi loader keeps /antigravity and refuses google requests for an unreadable enrollment state beside a native login [9.59ms]
+(pass) the real Pi loader keeps /antigravity and refuses google requests for custody mode with no enrollment and no native login [7.65ms]
+(pass) the real Pi loader keeps /antigravity and refuses google requests for a native Google login that conflicts with the saved one [20.79ms]
+ 13 pass
+ 1 fail
+Ran 14 tests across 2 files. [398.00ms]
+
+# The source comment above line 631 still says "overtaken vault one". With the fresh
+# authority read, the held run now registers the refusing provider (no oauth either).
+# The assertion is the same: the last registration must be the local provider.

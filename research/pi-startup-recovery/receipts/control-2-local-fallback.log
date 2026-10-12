@@ -1,0 +1,98 @@
+# Control 2 on the final staged snapshot: a failed synchronization registers the
+# LOCAL provider instead of the refusing one (a local fallback).
+# Fresh remote Linux job (ck-motor, 4 vCPUs). Output copied verbatim from the tool result.
+# Local mutation evidence:
+#   before: `git diff --stat` empty (index.ts staged at blob 9fb02c58c452ef444ea83ee1e270baa788b8109a)
+#   during: ` packages/pi/src/index.ts | 6 ++----` / ` 1 file changed, 2 insertions(+), 4 deletions(-)`
+#   after:  `git checkout -- packages/pi/src/index.ts && touch packages/pi/src/index.ts`; `git diff --stat` empty
+# Command:
+#   sha256sum <3 files>; grep -n -A4 "NON-VACUITY BREAK" packages/pi/src/index.ts; bun run --cwd packages/core build 2>&1 | tail -1; cd packages/pi;
+#   bun test --isolate src/index.test.ts -t '<named>' 2>&1
+#   bun test --isolate src/startup-order.test.ts -t '<real Pi loader conflict case>' 2>&1
+#   bun test --isolate src/index.test.ts src/startup-order.test.ts 2>&1 | grep -E '^\(pass\)|^\(fail\)|^ *[0-9]+ (pass|fail)|^Ran'
+
+5b182240030e2f9fd6340771493c7d4159ec3b3aafecfaab792805eb5fa550db  packages/pi/src/index.ts
+95478510ad9a68545d718fe6e49740f2a49be56e03cab5fe7ba095fcbac1afb2  packages/pi/src/index.test.ts
+27297ec66fe86b00e1a0308bd1c88e6d9cfe9cf3b84bffc30ad3d84839411b49  packages/pi/src/startup-order.test.ts
+297:      // NON-VACUITY BREAK: fall back to the local provider
+298-      pi.registerProvider(
+299-        ANTIGRAVITY_PROVIDER_ID,
+300-        localProviderConfig(models, assertLocalAdmission),
+301-      )
+Copied 128 embedded common-auth files
+== named only (raw)
+bun test v1.4.2 (744846f84)
+
+src/index.test.ts:
+415 |         // Same provider id and the same models local and vault serving list.
+416 |         expect(config.models?.map((model) => model.id).sort()).toEqual(
+417 |           await localModelIds(),
+418 |         )
+419 |         // No OAuth: Pi can never refresh or replace the native login here.
+420 |         expect(config.oauth).toBeUndefined()
+                                   ^
+error: expect(received).toBeUndefined()
+
+Received: {
+  name: "Google Antigravity (CortexKit)",
+  login: [AsyncFunction: login],
+  refreshToken: [AsyncFunction: refreshToken],
+  getApiKey: [Function: getApiKey],
+}
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_8c631e5c03db8a98/packages/pi/src/index.test.ts:420:30)
+(fail) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable mode file [392.58ms]
+
+ 0 pass
+ 9 filtered out
+ 1 fail
+ 4 expect() calls
+Ran 1 test across 1 file. [610.00ms]
+== real Pi loader conflict case (raw)
+bun test v1.4.2 (744846f84)
+
+src/startup-order.test.ts:
+516 |             { role: 'user', content: 'recovery-owned-nonce', timestamp: 0 },
+517 |           ],
+518 |         })
+519 |         .result()
+520 |       expect(response.stopReason).toBe('error')
+521 |       expect(response.errorMessage).toContain(lockout.refusal)
+                                          ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Provider is not configured: google"
+Received: "OAuth refresh failed for google: The owned Pi recovery fixture refuses network fetches"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_8c631e5c03db8a98/packages/pi/src/startup-order.test.ts:521:37)
+(fail) the real Pi loader keeps /antigravity and refuses google requests for a native Google login that conflicts with the saved one [223.83ms]
+
+ 0 pass
+ 3 filtered out
+ 1 fail
+ 6 expect() calls
+Ran 1 test across 1 file. [384.00ms]
+== collateral (filtered: grep -E '^\(pass\)|^\(fail\)|^ *[0-9]+ (pass|fail)|^Ran')
+(pass) Pi Antigravity model catalog > exposes the live GPT-OSS route but not unsupported image-output chat models [8.04ms]
+(pass) replaces the native Google catalog and reads only the google OAuth credential in the real Pi registry [281.59ms]
+(pass) the production default entry selects the vault stream and registers the shared menu [98.31ms]
+(fail) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable enrollment state [1.96ms]
+(fail) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable mode file [0.88ms]
+(fail) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for custody mode with no enrollment [0.76ms]
+(fail) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for a native Google login that conflicts with the saved one [2.79ms]
+(fail) Pi startup when the credential slot cannot be synchronized > names the slot failure in the refusal [14.81ms]
+(pass) Pi startup when the credential slot cannot be synchronized > serves local again once the Vault section chooses the local login [3.48ms]
+(pass) finishes an older slot synchronization before a mode change registers its provider [426.12ms]
+(pass) awaits the native slot swap before the real Pi loader resolves its first google model request [55.89ms]
+(fail) the real Pi loader keeps /antigravity and refuses google requests for an unreadable enrollment state beside a native login [12.16ms]
+(fail) the real Pi loader keeps /antigravity and refuses google requests for custody mode with no enrollment and no native login [8.57ms]
+(fail) the real Pi loader keeps /antigravity and refuses google requests for a native Google login that conflicts with the saved one [24.64ms]
+ 6 pass
+ 8 fail
+Ran 14 tests across 2 files. [1184.00ms]
+
+# Inspected assertion (real Pi loader, conflict case): with the local provider as a
+# fallback in local mode, Pi tried to refresh the conflicting native OAuth login. The
+# refresh got as far as the network and was stopped only by the fixture's refusing
+# fetch ("OAuth refresh failed for google: ..."). Not run here: without that guard
+# the refresh request would have been sent.

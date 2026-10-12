@@ -1,0 +1,16 @@
+1.4.2
+v24.21.0
+Version 6.0.3
+Copied 128 embedded common-auth files
+src/fetch-timeout.test.ts(59,5): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(type: "abort", listener: (this: AbortSignal, ev: Event) => any, options?: boolean | AddEventListenerOptions | undefined): void', gave the following error.
+    Argument of type 'string' is not assignable to parameter of type '"abort"'.
+  Overload 2 of 2, '(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions | undefined): void', gave the following error.
+    Argument of type 'EventListenerOrEventListenerObject | null' is not assignable to parameter of type 'EventListenerOrEventListenerObject'.
+      Type 'null' is not assignable to type 'EventListenerOrEventListenerObject'.
+src/fetch-timeout.test.ts(63,5): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(type: "abort", listener: (this: AbortSignal, ev: Event) => any, options?: boolean | EventListenerOptions | undefined): void', gave the following error.
+    Argument of type 'string' is not assignable to parameter of type '"abort"'.
+  Overload 2 of 2, '(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions | undefined): void', gave the following error.
+    Argument of type 'EventListenerOrEventListenerObject | null' is not assignable to parameter of type 'EventListenerOrEventListenerObject'.
+      Type 'null' is not assignable to type 'EventListenerOrEventListenerObject'.

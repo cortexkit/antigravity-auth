@@ -1,0 +1,30 @@
+[
+  {
+    "control": "Remove tracking of the distinct fresh auxiliary vault bearer, retaining the diagnostic sink redactor and primary credential tracking.",
+    "expected_red": "createRequestExecutor vault admissions > scrubs distinct auxiliary vault bearers before cache-warmup diagnostics reach the sink",
+    "captured_output": "(fail) createRequestExecutor vault admissions > scrubs distinct auxiliary vault bearers before cache-warmup diagnostics reach the sink. Diagnostic sink contains opaque_auxiliary_vault_95b, not [credential]. This invocation: 0 pass, 60 filtered out, 1 fail. AUXILIARY_INNER_EXIT=1; outer exit 1.",
+    "applied_evidence": "packages/opencode/src/plugin/shared/request-services.ts: stage live state; git diff --stat empty before; 4 changed lines during (2 files changed, 5 insertions(+), 5 deletions(-)); empty after checkout/touch. Apply bash-3707255297e6b597, red bash-fdd580e9823bd09b, restore bash-6c0a1f59f78acb4a. Namespace 782486840065a51d.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Remove capture of auth.access at the local project-resolution use boundary, retaining the error redactor and main-send capture.",
+    "expected_red": "createRequestExecutor retry contract > redacts the actual local project-lookup bearer before cancellation returns its terminal failure",
+    "captured_output": "(fail) createRequestExecutor retry contract > redacts the actual local project-lookup bearer before cancellation returns its terminal failure. Expected project lookup echo [credential]; received opaque_project_lookup_748a. This invocation: 0 pass, 60 filtered out, 1 fail. PROJECT_USE_INNER_EXIT=1; outer exit 1.",
+    "applied_evidence": "packages/opencode/src/plugin/shared/request-services.ts: stage live state; git diff --stat empty before; 4 changed lines during (2 files changed, 5 insertions(+), 5 deletions(-)); empty after checkout/touch. Apply bash-3707255297e6b597, red bash-fdd580e9823bd09b, restore bash-6c0a1f59f78acb4a. Namespace 782486840065a51d.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Neutralize owned SSE reader releaseLock calls at terminal paths, leaving original body failure propagation intact.",
+    "expected_red": "credential redaction > releases the owned SSE reader after an unchanged safe body failure",
+    "captured_output": "(fail) credential redaction > releases the owned SSE reader after an unchanged safe body failure. Original failure identity assertion passes; expected locked false, received true. This invocation: 0 pass, 15 filtered out, 1 fail. READER_ERROR_INNER_EXIT=1; outer exit 1.",
+    "applied_evidence": "packages/core/src/credential-redaction.ts: stage live state; git diff --stat empty before; 6 changed lines during (2 files changed, 5 insertions(+), 5 deletions(-)); empty after checkout/touch. Apply bash-3707255297e6b597, red bash-fdd580e9823bd09b, restore bash-6c0a1f59f78acb4a. Namespace 782486840065a51d.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Neutralize owned SSE reader releaseLock calls at terminal paths, leaving cancellation reason forwarding intact.",
+    "expected_red": "credential redaction > releases the owned SSE reader on cancellation without changing its reason",
+    "captured_output": "(fail) credential redaction > releases the owned SSE reader on cancellation without changing its reason. Original cancellation reason assertion passes; expected locked false, received true. This invocation: 0 pass, 15 filtered out, 1 fail. READER_CANCEL_INNER_EXIT=1; outer exit 1.",
+    "applied_evidence": "packages/core/src/credential-redaction.ts: stage live state; git diff --stat empty before; 6 changed lines during (2 files changed, 5 insertions(+), 5 deletions(-)); empty after checkout/touch. Apply bash-3707255297e6b597, red bash-fdd580e9823bd09b, restore bash-6c0a1f59f78acb4a. Namespace 782486840065a51d.",
+    "outcome": "reddened"
+  }
+]

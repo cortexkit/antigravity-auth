@@ -1,0 +1,16 @@
+[
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-818e0f936fa65ffe",
+    "command": "bun --version; node --version; bunx tsc --version; bunx biome --version; bun run --cwd packages/core build && bun run --cwd packages/core typecheck && bunx biome check --no-errors-on-unmatched packages/core/src/credential-redaction.test.ts && bun test --isolate packages/core/src/credential-redaction.test.ts; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outer_exit": 0,
+    "inner_exits": [
+      [
+        "INNER_EXIT",
+        "0"
+      ]
+    ],
+    "remote_job": "01a12c87-1f40-71b5-9ead-6c983ff68ef4",
+    "remote_tree_hash": "471525bfea7eaac0967efa7a784d8ed37f860977"
+  }
+]

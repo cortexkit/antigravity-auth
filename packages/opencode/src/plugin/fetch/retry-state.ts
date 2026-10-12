@@ -1,4 +1,7 @@
-import type { HeaderStyle, ModelFamily } from '../accounts'
+import type {
+  HeaderStyle,
+  AccountModelFamily as ModelFamily,
+} from '@cortexkit/antigravity-auth-core'
 
 /**
  * Per-interceptor state that was previously module-global.

@@ -244,17 +244,32 @@ export function createQuotaManager(options: QuotaManagerOptions): QuotaManager {
     state.set(key, stored)
 
     const promise = (async (): Promise<AccountQuotaResult> => {
+      // The callback receives the manager-owned controller's signal, which
+      // dispose() aborts. The per-fetch deadline is forwarded onto that same
+      // controller (keeping the deadline's TimeoutError as the abort reason)
+      // instead of combining the two signals with AbortSignal.any, which
+      // Node 20.0.0 does not provide. Because the controller can now abort
+      // for either reason, only the `disposed` flag means shutdown below.
+      // The deadline is created inside the try so an invalid fetchTimeoutMs
+      // becomes an ordinary error result; if creating it throws, `deadline`
+      // stays undefined and the finally block has no listener to remove.
+      let deadline: AbortSignal | undefined
+      const forwardDeadline = (): void => controller.abort(deadline?.reason)
       try {
-        const signal = AbortSignal.timeout(fetchTimeoutMs)
-        const composite = controller.signal.aborted
-          ? controller.signal
-          : AbortSignal.any([controller.signal, signal])
-
-        const result = await options.fetchAccountQuota(account, composite)
-        if (controller.signal.aborted) {
+        deadline = AbortSignal.timeout(fetchTimeoutMs)
+        deadline.addEventListener('abort', forwardDeadline, { once: true })
+        const result = await options.fetchAccountQuota(
+          account,
+          controller.signal,
+        )
+        if (disposed) {
           throw new Error('quota manager disposed mid-fetch')
         }
-        const attributed: AccountQuotaResult = { ...result, index }
+        const attributed: AccountQuotaResult = {
+          ...result,
+          index,
+          ...(result.status === 'ok' ? { checkedAt: now() } : {}),
+        }
         cacheResult(key, attributed)
 
         // Adapter contract: `fetchAccountQuota` resolves with an
@@ -276,7 +291,10 @@ export function createQuotaManager(options: QuotaManagerOptions): QuotaManager {
         return attributed
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        if (disposed || controller.signal.aborted) {
+        // Shutdown is not an account failure, so it records no backoff. A
+        // deadline abort is an ordinary failure and falls through to the
+        // backoff below.
+        if (disposed) {
           const failureResult: AccountQuotaResult = {
             index,
             email: account.email,
@@ -301,6 +319,8 @@ export function createQuotaManager(options: QuotaManagerOptions): QuotaManager {
         cacheResult(key, failureResult)
         return failureResult
       } finally {
+        // The callback has settled, so a later deadline must not abort it.
+        deadline?.removeEventListener('abort', forwardDeadline)
         const finished = state.get(key)
         if (finished) {
           finished.inflight = undefined
@@ -310,8 +330,15 @@ export function createQuotaManager(options: QuotaManagerOptions): QuotaManager {
       }
     })()
 
-    stored.inflight = promise
-    state.set(key, stored)
+    // A refresh that fails before its first await (for example when the
+    // deadline cannot be created) has already run its finally block and
+    // cleared the controller. Recording that settled promise as in flight
+    // would make every later refresh of this account, forced or not, reuse
+    // the old error instead of trying again.
+    if (stored.controller === controller) {
+      stored.inflight = promise
+      state.set(key, stored)
+    }
 
     return promise
   }

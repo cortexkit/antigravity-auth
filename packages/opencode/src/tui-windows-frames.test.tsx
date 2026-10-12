@@ -19,11 +19,7 @@ import {
   SIDEBAR_STATE_VERSION,
   type SidebarStateV1,
 } from './sidebar-state'
-import {
-  createSidebarController,
-  QuotaDialogContent,
-  SidebarPanel,
-} from './tui'
+import { createSidebarController, SidebarPanel } from './tui'
 import type { TuiLogger } from './tui/file-logger'
 import {
   type AntigravityAuthTuiPrefs,
@@ -103,10 +99,6 @@ function writePrefs(
   return merged
 }
 
-async function settle(): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, 20))
-}
-
 function dumpFrame(label: string, frame: string): string {
   const banner = `=== ${label} ===`
   const bar = '='.repeat(banner.length)
@@ -142,16 +134,36 @@ describe('windows rework — reviewer frames', () => {
               remainingPercent: 92,
               resetAt: future2,
               windows: [
-                { window: '5h', remainingPercent: 99, resetAt: future },
-                { window: 'weekly', remainingPercent: 92, resetAt: future2 },
+                {
+                  window: '5h',
+                  remainingPercent: 99,
+                  resetAt: future,
+                  checkedAt: Date.now(),
+                },
+                {
+                  window: 'weekly',
+                  remainingPercent: 92,
+                  resetAt: future2,
+                  checkedAt: Date.now(),
+                },
               ],
             },
             'non-gemini': {
               remainingPercent: 96,
               resetAt: future2,
               windows: [
-                { window: '5h', remainingPercent: 96, resetAt: future },
-                { window: 'weekly', remainingPercent: 99, resetAt: future2 },
+                {
+                  window: '5h',
+                  remainingPercent: 96,
+                  resetAt: future,
+                  checkedAt: Date.now(),
+                },
+                {
+                  window: 'weekly',
+                  remainingPercent: 99,
+                  resetAt: future2,
+                  checkedAt: Date.now(),
+                },
               ],
             },
           },
@@ -203,13 +215,23 @@ describe('windows rework — reviewer frames', () => {
               remainingPercent: 89,
               resetAt: future,
               windows: [
-                { window: 'weekly', remainingPercent: 89, resetAt: future },
+                {
+                  window: 'weekly',
+                  remainingPercent: 89,
+                  resetAt: future,
+                  checkedAt: Date.now(),
+                },
               ],
             },
             'non-gemini': {
               remainingPercent: 100,
               windows: [
-                { window: 'weekly', remainingPercent: 100, resetAt: future },
+                {
+                  window: 'weekly',
+                  remainingPercent: 100,
+                  resetAt: future,
+                  checkedAt: Date.now(),
+                },
               ],
             },
           },
@@ -237,7 +259,7 @@ describe('windows rework — reviewer frames', () => {
     testSetup.renderer.destroy()
   })
 
-  it('(c) Collapsed row — pool + binding-window label + used%', async () => {
+  it('(c) Collapsed row — pool + binding-window label + percent left', async () => {
     const future = Date.now() + 5 * 60 * 1000
     const future2 = Date.now() + 7 * 24 * 60 * 60 * 1000
     const payload = writeState({
@@ -255,16 +277,36 @@ describe('windows rework — reviewer frames', () => {
               remainingPercent: 92,
               resetAt: future2,
               windows: [
-                { window: 'weekly', remainingPercent: 92, resetAt: future2 },
-                { window: '5h', remainingPercent: 99, resetAt: future },
+                {
+                  window: 'weekly',
+                  remainingPercent: 92,
+                  resetAt: future2,
+                  checkedAt: Date.now(),
+                },
+                {
+                  window: '5h',
+                  remainingPercent: 99,
+                  resetAt: future,
+                  checkedAt: Date.now(),
+                },
               ],
             },
             'non-gemini': {
               remainingPercent: 96,
               resetAt: future2,
               windows: [
-                { window: 'weekly', remainingPercent: 99, resetAt: future2 },
-                { window: '5h', remainingPercent: 96, resetAt: future },
+                {
+                  window: 'weekly',
+                  remainingPercent: 99,
+                  resetAt: future2,
+                  checkedAt: Date.now(),
+                },
+                {
+                  window: '5h',
+                  remainingPercent: 96,
+                  resetAt: future,
+                  checkedAt: Date.now(),
+                },
               ],
             },
           },
@@ -293,79 +335,12 @@ describe('windows rework — reviewer frames', () => {
     await testSetup.flush()
     const frame = testSetup.captureCharFrame()
     console.log(`\n${dumpFrame('(c) Collapsed row frame', frame)}`)
-    // Collapsed row should show binding-window label + used% per pool.
-    expect(frame).toContain('Gm 7d:')
+    // Each pool shows its binding window and the reported percentage left.
+    expect(frame).toContain('Gm 7d 92% left')
     expect(frame).toContain('NG')
     expect(frame).toContain('●')
-    expect(frame).toContain('8%')
-    expect(frame).toContain('4%')
-    testSetup.renderer.destroy()
-  })
-
-  it('(d) QuotaDialogContent — modal scope, same per-window rows', async () => {
-    const future = Date.now() + 5 * 60 * 1000
-    const future2 = Date.now() + 7 * 24 * 60 * 60 * 1000
-    const payload = writeState({
-      checkedAt: Date.now(),
-      routingAuthoritative: true,
-      accounts: [
-        {
-          id: 'acc-1',
-          label: 'Pro Account',
-          enabled: true,
-          health: 80,
-          current: true,
-          quota: {
-            gemini: {
-              remainingPercent: 92,
-              resetAt: future2,
-              windows: [
-                { window: '5h', remainingPercent: 99, resetAt: future },
-                { window: 'weekly', remainingPercent: 92, resetAt: future2 },
-              ],
-            },
-            'non-gemini': {
-              remainingPercent: 96,
-              resetAt: future2,
-              windows: [
-                { window: '5h', remainingPercent: 96, resetAt: future },
-                { window: 'weekly', remainingPercent: 99, resetAt: future2 },
-              ],
-            },
-          },
-        },
-      ],
-    })
-    mkdirSync(join(fixture.statePath, '..'), { recursive: true })
-    writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
-
-    const controller = createSidebarController(DEFAULT_PREFS)
-    const testSetup = await testRender(
-      () => (
-        <QuotaDialogContent
-          api={
-            {
-              theme: { current: { text: '#e5e7eb', textMuted: '#6b7280' } },
-            } as never
-          }
-          controller={controller}
-          sessionId='session-abc'
-        />
-      ),
-      { width: 80, height: 20 },
-    )
-    await settle()
-    const frame = testSetup.captureCharFrame()
-    console.log(`\n${dumpFrame('(d) QuotaDialogContent frame', frame)}`)
-    expect(frame).toContain('Antigravity Quota')
-    expect(frame).toContain('Pro Account')
-    expect(frame).toContain('Gm 7d')
-    expect(frame).toContain('Gm 5h')
-    expect(frame).toContain('NG 7d')
-    expect(frame).toContain('NG 5h')
-    // Same order assertion as (a): shortest window first.
-    expect(frame.indexOf('Gm 5h')).toBeLessThan(frame.indexOf('Gm 7d'))
-    expect(frame.indexOf('NG 5h')).toBeLessThan(frame.indexOf('NG 7d'))
+    expect(frame).toContain('92% left')
+    expect(frame).toContain('96% left')
     testSetup.renderer.destroy()
   })
 })

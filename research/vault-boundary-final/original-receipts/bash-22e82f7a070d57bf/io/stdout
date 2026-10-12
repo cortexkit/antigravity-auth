@@ -1,0 +1,39 @@
+ M packages/core/src/index.ts
+ M packages/opencode/src/plugin/auth-loader.test.ts
+ M packages/opencode/src/plugin/shared/request-services.test.ts
+ M packages/opencode/src/plugin/shared/request-services.ts
+ M packages/pi/src/commands.test.ts
+ M packages/pi/src/commands.ts
+ M packages/pi/src/stream.test.ts
+ M packages/pi/src/stream.ts
+?? packages/core/src/credential-redaction.test.ts
+?? packages/core/src/credential-redaction.ts
+ packages/core/src/index.ts                         |  1 +
+ packages/opencode/src/plugin/auth-loader.test.ts   | 31 ++++++++
+ .../src/plugin/shared/request-services.test.ts     | 87 ++++++++++++++++++++++
+ .../opencode/src/plugin/shared/request-services.ts | 25 +++++--
+ packages/pi/src/commands.test.ts                   | 19 ++++-
+ packages/pi/src/commands.ts                        |  1 +
+ packages/pi/src/stream.test.ts                     | 41 ++++++++++
+ packages/pi/src/stream.ts                          | 22 ++++--
+ 8 files changed, 214 insertions(+), 13 deletions(-)
+1	0	packages/core/src/index.ts
+31	0	packages/opencode/src/plugin/auth-loader.test.ts
+87	0	packages/opencode/src/plugin/shared/request-services.test.ts
+19	6	packages/opencode/src/plugin/shared/request-services.ts
+18	1	packages/pi/src/commands.test.ts
+1	0	packages/pi/src/commands.ts
+41	0	packages/pi/src/stream.test.ts
+16	6	packages/pi/src/stream.ts
+packages/core/src/credential-redaction.test.ts
+packages/core/src/credential-redaction.ts
+7dabe928bc0bba5a42f190cec1f176ec1d659e8c
+ce102aa46074c5a883af632d433bf2a413f32bab
+f11f104347394bc8b3f972793744500d5d8ebcc2
+8e5a232330334597cce54d0a614127296833195f
+0e3c279da5d6b36d92ab63673ce7847745b97c9b
+554f317638d9ae425c5a65b33de149ced43f8575
+38166e2812c25914190f68fde4b170a6e527ab75
+2633944dd96dff3d85b35d11ba4327fba027ee9a
+4fdac7e48c1921c3699d91e1ef3d1ca552595d19
+f8ea3bfd96a7b56df825d544fbc7e16ed59bf5e1

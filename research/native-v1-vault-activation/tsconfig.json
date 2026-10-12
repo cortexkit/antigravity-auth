@@ -1,0 +1,7 @@
+{
+  "extends": "../../packages/e2e-tests/tsconfig.json",
+  "include": [
+    "../../packages/e2e-tests/src/v1-vault-activation-harness.ts",
+    "../../packages/e2e-tests/src/v1-vault-activation.e2e.test.ts"
+  ]
+}

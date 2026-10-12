@@ -1,0 +1,30 @@
+[
+  {
+    "command": [
+      "bun",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "1.4.2\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "node_modules/.bin/tsc",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "Version 6.0.3\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bun",
+      "run",
+      "build"
+    ],
+    "exitStatus": 1,
+    "stdout": "Embedding and private Bun-lock roots verified (Bun 1.4.2)\nCore common-auth embedding verified against the pinned archive\nCopied 129 embedded common-auth files\nEmbedding and private Bun-lock roots verified (Bun 1.4.2)\nEmbedded declarations: 77 strict roots in NodeNext/Bundler; client TYPE closure 7 files\nPublic TUI build: 25 raw, 25 runtime files\n",
+    "stderr": "$ bun run embed:check && bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/pi build\n$ bun run --cwd packages/opencode embed:check && bun packages/core/scripts/embed-common-auth.ts --check\n$ bun scripts/build-tui.ts --check\n$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs\n$ bun run embed:check && bun scripts/build-tui.ts --library && esbuild src/server.ts --bundle --platform=node --format=esm --external:zod --outfile=dist/server.js --sourcemap --metafile=dist/server.meta.json --log-level=warning && tsc -p tsconfig.ga.emit.json && bun ../../scripts/finalize-declaration-specifiers.ts dist/types .\n$ bun scripts/build-tui.ts --check\n635 |         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.4' &&\n636 |         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.13.0' &&\n637 |         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.14.1' &&\n638 |         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.6')\n639 |     )\n640 |       throw new Error('build: existing TUI map is not owned generated metadata')\n                      ^\nerror: build: existing TUI map is not owned generated metadata\n      at admitExistingMap (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_44e9d5824aa25f48/packages/opencode/scripts/build-tui.ts:640:17)\n      at async admitProductPaths (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_44e9d5824aa25f48/packages/opencode/scripts/build-tui.ts:602:11)\n      at async buildTui (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_44e9d5824aa25f48/packages/opencode/scripts/build-tui.ts:474:23)\n      at async buildTuiRoots (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_44e9d5824aa25f48/packages/opencode/scripts/build-tui.ts:555:31)\n      at async buildLibrary (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_44e9d5824aa25f48/packages/opencode/scripts/build-tui.ts:689:11)\n\nBun v1.4.2 (Linux x64)\nerror: script \"build\" exited with code 1\nerror: script \"build\" exited with code 1\n"
+  }
+]

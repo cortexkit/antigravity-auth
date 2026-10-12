@@ -5,7 +5,7 @@ import {
 } from './core/streaming/transformer'
 import {
   cleanJSONSchemaForAntigravity,
-  createSyntheticErrorResponse,
+  createNativeGoogleErrorResponse,
   createSyntheticTextResponse,
   DEFAULT_THINKING_BUDGET,
   deepFilterThinkingBlocks,
@@ -1781,51 +1781,269 @@ describe('createSyntheticTextResponse', () => {
   })
 })
 
-describe('createSyntheticErrorResponse', () => {
-  it('returns a Response with 200 OK status', async () => {
-    const response = createSyntheticErrorResponse(
-      'Test error',
-      'antigravity-gemini-3.5-flash',
-    )
-    expect(response.status).toBe(200)
-    expect(response.headers.get('content-type')).toBe('text/event-stream')
+describe('createNativeGoogleErrorResponse', () => {
+  it('returns exact non-success Google JSON for a local policy block', async () => {
+    const response = createNativeGoogleErrorResponse({
+      status: 412,
+      reason: 'pool_unavailable',
+      resetAfterMs: 5_700_000,
+    })
+    expect(response.status).toBe(412)
+    expect(response.ok).toBe(false)
+    expect([...response.headers]).toEqual([
+      ['content-type', 'application/json'],
+      ['retry-after', '5700'],
+    ])
+    const text = await response.text()
+    const body: unknown = JSON.parse(text)
+    expect(body).toEqual({
+      error: {
+        code: 412,
+        status: 'FAILED_PRECONDITION',
+        message:
+          'Antigravity account pool has no account available within the configured wait limit. Add accounts with `opencode auth login` or wait for quota reset. Quota resets in 1h 35m.',
+      },
+    })
+    expect(text).not.toMatch(/candidates|finishReason|usageMetadata|data:/)
+    expect(text).not.toMatch(/5700000|resetAfterMs|requestId|synthetic/)
   })
 
-  it('includes error message in Gemini SSE stream content', async () => {
-    const response = createSyntheticErrorResponse(
-      'Context too long',
-      'antigravity-gemini-3.5-flash',
-    )
-    const text = await response.text()
+  for (const resetAfterMs of [
+    undefined,
+    null,
+    Number.NaN,
+    Infinity,
+    -Infinity,
+    -1,
+  ]) {
+    it(`omits unknown or invalid reset metadata for ${String(resetAfterMs)}`, async () => {
+      const response = createNativeGoogleErrorResponse({
+        status: 412,
+        reason: 'soft_quota',
+        resetAfterMs,
+      })
+      expect(response.status).toBe(412)
+      expect([...response.headers]).toEqual([
+        ['content-type', 'application/json'],
+      ])
+      const text = await response.text()
+      expect(text).not.toMatch(
+        /429|500|502|503|504|524|rate limited|rate_limit|resource_exhausted|try again later/i,
+      )
+      expect(JSON.parse(text)).toEqual({
+        error: {
+          code: 412,
+          status: 'FAILED_PRECONDITION',
+          message:
+            'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or disable soft quota protection.',
+        },
+      })
+    })
+  }
 
-    expect(text).toContain('Context too long')
-    expect(text).toContain('data:')
-    expect(text).toContain('finishReason')
-    expect(text).toContain('STOP')
-    expect(text.endsWith('\n\n')).toBe(true)
+  for (const { inputDescription, resetAfterMs, seconds, resetClause } of [
+    {
+      inputDescription: 'zero milliseconds',
+      resetAfterMs: 0,
+      seconds: '0',
+      resetClause: 'Quota resets in 0s.',
+    },
+    {
+      inputDescription: 'the minimum positive wait',
+      resetAfterMs: Number.MIN_VALUE,
+      seconds: '1',
+      resetClause: 'Quota resets in 1s.',
+    },
+    {
+      inputDescription: '0.1ms',
+      resetAfterMs: 0.1,
+      seconds: '1',
+      resetClause: 'Quota resets in 1s.',
+    },
+    {
+      inputDescription: '1001ms',
+      resetAfterMs: 1_001,
+      seconds: '2',
+      resetClause: 'Quota resets in 2s.',
+    },
+    {
+      inputDescription: '2 ** 66 milliseconds',
+      resetAfterMs: 2 ** 66,
+      seconds: '73786976294838207',
+      resetClause: 'Quota resets in 20496382304121h 43m 27s.',
+    },
+    {
+      inputDescription: '5e24ms',
+      resetAfterMs: 5e24,
+      seconds: '5000000000000000452985',
+      resetClause: 'Quota resets in 1388888888888889014h 43m 5s.',
+    },
+    {
+      inputDescription: '1.8e24ms',
+      resetAfterMs: 1.8e24,
+      seconds: '1799999999999999916114',
+      resetClause: 'Quota resets in 499999999999999976h 41m 54s.',
+    },
+  ]) {
+    it(`retains full actual Retry-After seconds for ${inputDescription}`, async () => {
+      const response = createNativeGoogleErrorResponse({
+        status: 412,
+        reason: 'pool_unavailable',
+        resetAfterMs,
+      })
+      expect(response.headers.get('retry-after')).toBe(seconds)
+      expect(response.headers.get('retry-after')).toMatch(/^\d+$/)
+      expect(response.status).toBe(412)
+      const text = await response.text()
+      // OpenCode 1.x's native retry classifier searches serialized error text
+      // for retryable HTTP-status substrings. A numeric duration can therefore
+      // cause a retry even when the response has a nonretryable 412 status.
+      expect(text).not.toMatch(
+        /429|500|502|503|504|524|rate limited|rate_limit|resource_exhausted|try again later/i,
+      )
+      expect(text).toContain(resetClause)
+    })
+  }
+
+  it('treats negative zero as a known zero-duration reset', async () => {
+    const response = createNativeGoogleErrorResponse({
+      status: 412,
+      reason: 'pool_unavailable',
+      resetAfterMs: -0,
+    })
+    expect(response.headers.get('retry-after')).toBe('0')
+    expect(await response.text()).toContain('Quota resets in 0s.')
   })
 
-  it('generates a Gemini candidate text chunk', async () => {
-    const response = createSyntheticErrorResponse('Something failed', 'model')
+  it('retains the independently verified exact Retry-After for the maximum finite wait', async () => {
+    const response = createNativeGoogleErrorResponse({
+      status: 412,
+      reason: 'pool_unavailable',
+      resetAfterMs: Number.MAX_VALUE,
+    })
+    // Expected seconds use Number.MAX_VALUE's exact binary ratio and integer
+    // arithmetic, independently of the helper's rounding under test.
+    const exactSeconds =
+      '179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124859'
+    expect(response.status).toBe(412)
+    expect(response.ok).toBe(false)
+    expect([...response.headers]).toEqual([
+      ['content-type', 'application/json'],
+      ['retry-after', exactSeconds],
+    ])
+    expect(response.headers.get('retry-after')).toMatch(/^[0-9]+$/)
     const text = await response.text()
-    const line = text.split('\n').find((item) => item.startsWith('data: '))
-    const event = JSON.parse(line?.replace('data: ', '') ?? '{}')
-
-    expect(event.candidates?.[0]?.content?.role).toBe('model')
-    expect(event.candidates?.[0]?.content?.parts?.[0]?.text).toBe(
-      'Something failed',
+    expect(JSON.parse(text)).toEqual({
+      error: {
+        code: 412,
+        status: 'FAILED_PRECONDITION',
+        message: expect.any(String),
+      },
+    })
+    expect(text).not.toMatch(/candidates|finishReason|usageMetadata|data:/)
+    expect(text).not.toMatch(
+      /429|500|502|503|504|524|rate limited|rate_limit|resource_exhausted|try again later/i,
     )
   })
 
-  it('sets Gemini STOP finish reason', async () => {
-    const response = createSyntheticErrorResponse('Error', 'model')
-    const text = await response.text()
-    const line = text.split('\n').find((item) => item.startsWith('data: '))
-    const event = JSON.parse(line?.replace('data: ', '') ?? '{}')
+  for (const { resetAfterMs, seconds, hours } of [
+    { resetAfterMs: 1_544_400_000, seconds: '1544400', hours: '429' },
+    { resetAfterMs: 1_800_000_000, seconds: '1800000', hours: '500' },
+    { resetAfterMs: 1_807_200_000, seconds: '1807200', hours: '502' },
+    { resetAfterMs: 1_810_800_000, seconds: '1810800', hours: '503' },
+    { resetAfterMs: 1_814_400_000, seconds: '1814400', hours: '504' },
+    { resetAfterMs: 1_886_400_000, seconds: '1886400', hours: '524' },
+    { resetAfterMs: 5_400_000_000, seconds: '5400000', hours: '1500' },
+  ]) {
+    it(`omits only the hazardous ${hours}h reset clause without changing Retry-After`, async () => {
+      const response = createNativeGoogleErrorResponse({
+        status: 412,
+        reason: 'pool_unavailable',
+        resetAfterMs,
+      })
+      expect(response.status).toBe(412)
+      expect(response.ok).toBe(false)
+      expect([...response.headers]).toEqual([
+        ['content-type', 'application/json'],
+        ['retry-after', seconds],
+      ])
+      expect(response.headers.get('retry-after')).toMatch(/^[0-9]+$/)
+      const text = await response.text()
+      expect(JSON.parse(text)).toEqual({
+        error: {
+          code: 412,
+          status: 'FAILED_PRECONDITION',
+          message:
+            'Antigravity account pool has no account available within the configured wait limit. Add accounts with `opencode auth login` or wait for quota reset.',
+        },
+      })
+      expect(text).not.toContain('Quota resets in')
+      expect(text).not.toMatch(
+        /429|500|502|503|504|524|rate limited|rate_limit|resource_exhausted|try again later/i,
+      )
+    })
+  }
 
-    expect(event.candidates?.[0]?.finishReason).toBe('STOP')
-    expect(event.usageMetadata?.promptTokenCount).toBe(0)
-    expect(event.usageMetadata?.candidatesTokenCount).toBeGreaterThan(0)
+  it('returns a bounded policy message without dynamic account identifiers or thresholds', async () => {
+    const response = createNativeGoogleErrorResponse({
+      status: 412,
+      reason: 'operator_policy',
+    })
+    expect([...response.headers]).toEqual([
+      ['content-type', 'application/json'],
+    ])
+    const text = await response.text()
+    expect(text).not.toMatch(
+      /429|500|502|503|504|524|rate limited|rate_limit|resource_exhausted|try again later/i,
+    )
+    expect(JSON.parse(text)).toEqual({
+      error: {
+        code: 412,
+        status: 'FAILED_PRECONDITION',
+        message:
+          'Antigravity account pool is unavailable under the operator quota policy. Adjust /antigravity-killswitch or refresh quota.',
+      },
+    })
+  })
+
+  it('returns native UNAUTHENTICATED for a missing access token', async () => {
+    const response = createNativeGoogleErrorResponse({
+      status: 401,
+      reason: 'missing_access_token',
+    })
+    expect(response.status).toBe(401)
+    expect(response.ok).toBe(false)
+    expect([...response.headers]).toEqual([
+      ['content-type', 'application/json'],
+    ])
+    expect(await response.json()).toEqual({
+      error: {
+        code: 401,
+        status: 'UNAUTHENTICATED',
+        message:
+          'Missing access token. Run `opencode auth login` to reauthenticate.',
+      },
+    })
+  })
+
+  it('returns native UNAVAILABLE for exhausted empty-response attempts', async () => {
+    const response = createNativeGoogleErrorResponse({
+      status: 502,
+      reason: 'empty_response',
+    })
+    expect(response.status).toBe(502)
+    expect(response.ok).toBe(false)
+    expect([...response.headers]).toEqual([
+      ['content-type', 'application/json'],
+    ])
+    expect(await response.json()).toEqual({
+      error: {
+        code: 502,
+        status: 'UNAVAILABLE',
+        message:
+          'Antigravity returned an empty response after the internal retry attempts.',
+      },
+    })
   })
 })
 

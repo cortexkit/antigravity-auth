@@ -1,0 +1,1 @@
+bun --version; node --version; bun run --cwd packages/core build && bun test --isolate -t 'distinct auxiliary vault bearers|actual local project-lookup bearer' packages/opencode/src/plugin/shared/request-services.test.ts; inner=$?; printf '\nINNER_EXIT=%s\n' "$inner"; exit "$inner"

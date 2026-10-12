@@ -1,0 +1,65 @@
+
+packages/core/src/public-command-scope.test.ts:
+(pass) admits a separately grouped child only through fresh parent/birth ancestry [0.25ms]
+(pass) refuses an unseen same-session orphan rather than retrospectively adopting it [0.10ms]
+(pass) refuses a parent born after the candidate child [0.03ms]
+(pass) refuses a reused captured ancestor before admitting its candidate child [0.03ms]
+(pass) retains captured descendants after parent and leader exit [0.07ms]
+(pass) refuses changed recorded PGID or SID before dispatching a signal [0.14ms]
+(pass) requires capture before signaling and treats an owned ESRCH as benign [0.08ms]
+
+packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:
+18 | it('official 1.17.13 absent-auth first request activates and serves the approved vault', async () => {
+19 |   const receipt = await runNativeActivation()
+20 |   console.log(
+21 |     `NATIVE_V1_RECEIPT_GZIP_BASE64 ${gzipSync(JSON.stringify(receipt)).toString('base64')}`,
+22 |   )
+23 |   expect(receipt.error).toBeUndefined()
+                             ^
+error: expect(received).toBeUndefined()
+
+Received: "Error: Enrollment preparation failed: error: Cannot find module '@cortexkit/antigravity-auth-core' from '/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/opencode/src/plugin/vault-custody.ts'\n\nBun v1.4.2 (Linux x64)\n\n    at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/e2e-tests/src/v1-vault-activation-harness.ts:525:19)\n    at async withSyntheticVault (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/e2e-tests/src/v1-vault-activation-harness.ts:859:11)\n    at async runNativeActivation (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/e2e-tests/src/v1-vault-activation-harness.ts:507:11)\n    at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:19:25)\n    at processTicksAndRejections (native:7:39)"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:23:25)
+(fail) official 1.17.13 absent-auth first request activates and serves the approved vault [1581.42ms]
+(pass) owned signaling rejects reused birth identities and tolerates a signal-exit ESRCH race [21.44ms]
+305 |     current.sid !== leader.sid ||
+306 |     current.sid !== expected.sid ||
+307 |     current.pgid !== expected.pgid ||
+308 |     current.start < leader.start
+309 |   )
+310 |     throw new Error(
+                    ^
+error: owned process left captured session/group scope: {"expected":{"pid":1,"ppid":0,"pgid":0,"sid":0,"start":"61091558","zombie":false},"current":{"pid":1,"ppid":0,"pgid":0,"sid":0,"start":"61091558","zombie":false},"leader":{"pid":129,"ppid":56,"pgid":129,"sid":129,"start":"61091851","zombie":false}}
+      at assertPublicCommandIdentity (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:310:15)
+      at capturePublicCommandAncestry (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:339:5)
+      at inspectPublicCommandScope (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:378:7)
+      at reapPublicCommandScope (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:425:21)
+      at stop (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/e2e-tests/src/v1-vault-activation-harness.ts:202:13)
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:202:17)
+(fail) owned cleanup kills a surviving descendant after its session leader exits [7.98ms]
+
+packages/core/src/__fixtures__/public-consumer-command.test.ts:
+(pass) reaps controlled live descendants that outlive the leader with retained pipes [1169.05ms]
+(pass) reaps controlled live descendants that outlive the leader with closed pipes [1335.84ms]
+(pass) retains the fixture and primary failure when controlled live descendant cleanup cannot be confirmed [163.38ms]
+(pass) reaps a captured same-session descendant in a separate process group after leader exit [1090.15ms]
+(pass) rejects PID birth-identity mismatch before dispatching any signal [0.20ms]
+(pass) rejects a reused leader or group identity before dispatching any signal [0.04ms]
+(pass) reports observed descendants outside the captured group or session as unresolved [0.09ms]
+(pass) permits fresh exact identity controls but not larger production deadlines [0.11ms]
+(pass) retains exact offender, captured identity and leader in a scope refusal [0.08ms]
+
+packages/opencode/src/plugin/shared/local-grant.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '@cortexkit/antigravity-auth-core' from '/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/opencode/src/plugin/shared/local-grant.test.ts'
+-------------------------------
+
+
+ 17 pass
+ 3 fail
+ 1 error
+ 60 expect() calls
+Ran 20 tests across 4 files. [5.78s]

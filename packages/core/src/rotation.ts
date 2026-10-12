@@ -258,6 +258,15 @@ export class HealthScoreTracker {
   }
 
   /**
+   * Moves each tracked account to its new index after the accounts were
+   * reloaded or reordered (`mapping`: old index to new index). An account
+   * missing from `mapping` is no longer present, and its state is dropped.
+   */
+  reindex(mapping: ReadonlyMap<number, number>): void {
+    reindexMap(this.scores, mapping)
+  }
+
+  /**
    * Get all scores for debugging/logging.
    */
   getSnapshot(): Map<number, { score: number; consecutiveFailures: number }> {
@@ -546,6 +555,25 @@ export class TokenBucketTracker {
   getMaxTokens(): number {
     return this.config.maxTokens
   }
+
+  /** As `HealthScoreTracker.reindex`, for token balances. */
+  reindex(mapping: ReadonlyMap<number, number>): void {
+    reindexMap(this.buckets, mapping)
+  }
+}
+
+/** Rekeys `map` by `mapping` in place, dropping keys `mapping` lacks. */
+function reindexMap<V>(
+  map: Map<number, V>,
+  mapping: ReadonlyMap<number, number>,
+): void {
+  const moved: Array<[number, V]> = []
+  for (const [index, value] of map) {
+    const next = mapping.get(index)
+    if (next !== undefined) moved.push([next, value])
+  }
+  map.clear()
+  for (const [index, value] of moved) map.set(index, value)
 }
 
 // ============================================================================

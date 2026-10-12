@@ -25,6 +25,7 @@
 
 import { chmod, copyFile, mkdir, readFile, unlink } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { assertLegacyAccountStorageWritable } from './account-migration.ts'
 import type {
   AccountMetadataV3,
   AccountStorageV3,
@@ -580,6 +581,7 @@ export async function loadAccountStorage(
 ): Promise<AccountStorageV4 | null> {
   const buildBackupPath = DEFAULT_BUILD_BACKUP_PATH
   const now = () => new Date()
+  await assertLegacyAccountStorageWritable(path)
   await ensureSecurePermissions(path)
 
   const outcome = await readAndNormalizeV4(path)
@@ -707,6 +709,7 @@ export async function mutateAccountStorage(
   const lock = await acquireWithRetry(path, sleep)
 
   try {
+    await assertLegacyAccountStorageWritable(path)
     const outcome = await readAndNormalizeV4(path)
 
     if (outcome.state === 'unreadable') {
@@ -787,6 +790,8 @@ export async function clearAccountStorage(path: string): Promise<void> {
   const lock = await acquireWithRetry(path, sleep)
 
   try {
+    await assertLegacyAccountStorageWritable(path)
+    await lock.assertOwned()
     await unlink(path)
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code

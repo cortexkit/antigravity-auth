@@ -8,9 +8,15 @@ import {
   mock,
 } from 'bun:test'
 import { AccountManager } from './accounts'
-import { ProactiveRefreshQueue } from './refresh-queue'
+import type { Logger } from './logger'
+import {
+  createLocationProactiveRefreshQueue,
+  ProactiveRefreshQueue,
+} from './refresh-queue'
 import type { AccountStorageV4 } from './storage'
 import type { OAuthAuthDetails, PluginClient } from './types'
+
+const nextRealTurn = setImmediate
 
 // Mock PluginClient
 const mockClient: PluginClient = {
@@ -269,4 +275,178 @@ describe('ProactiveRefreshQueue disposal', () => {
     ])
     expect(jest.getTimerCount()).toBe(0)
   })
+})
+
+describe('location refresh queue', () => {
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('refreshes and logs only through the location’s own collaborators', async () => {
+    jest.useFakeTimers()
+    const now = Date.now()
+    const manager = new AccountManager(undefined, {
+      version: 4,
+      accounts: [
+        {
+          refreshToken: 'fake-refresh',
+          projectId: 'fake-project',
+          addedAt: now,
+          lastUsed: 0,
+          enabled: true,
+        },
+      ],
+      activeIndex: 0,
+    })
+    manager.getAccounts()[0]!.expires = now + 60_000
+    manager.saveToDisk = mock(async () => {})
+    const refreshed: string[] = []
+    const messages: string[] = []
+    const logger: Logger = {
+      debug: (message) => void messages.push(message),
+      info: (message) => void messages.push(message),
+      warn: (message) => void messages.push(message),
+      error: (message) => void messages.push(message),
+    }
+    const queue = createLocationProactiveRefreshQueue(
+      {
+        logger,
+        refreshToken: async (auth) => {
+          refreshed.push(auth.refresh)
+          return {
+            type: 'oauth',
+            refresh: auth.refresh,
+            access: 'fake-access',
+            expires: now + 3_600_000,
+          }
+        },
+      },
+      { enabled: true, bufferSeconds: 1800, checkIntervalSeconds: 300 },
+    )
+    queue.setAccountManager(manager)
+    queue.start()
+    jest.advanceTimersByTime(5000)
+    await queue.dispose()
+
+    expect(refreshed).toEqual(['fake-refresh|fake-project'])
+    expect(messages).toContain('Proactively refreshing token')
+    expect(mockClient.auth.set).not.toHaveBeenCalled()
+    expect(queue.getStats().refreshCount).toBe(1)
+  })
+
+  it('refuses to build without a logger and token refresher', () => {
+    expect(() =>
+      createLocationProactiveRefreshQueue({
+        logger: undefined as unknown as Logger,
+        refreshToken: async () => undefined,
+      }),
+    ).toThrow('requires a logger and refreshToken')
+    expect(
+      () => new ProactiveRefreshQueue(null, 'test-provider', { enabled: true }),
+    ).toThrow('host client or explicit dependencies')
+  })
+})
+
+it('finishes an admitted refresh and saves its successor but admits no second account after enrollment', async () => {
+  jest.useFakeTimers()
+  const now = Date.now()
+  const manager = new AccountManager(undefined, {
+    version: 4,
+    accounts: [0, 1].map((index) => ({
+      refreshToken: `synthetic-refresh-${index}`,
+      projectId: `synthetic-project-${index}`,
+      addedAt: now,
+      lastUsed: 0,
+      enabled: true,
+    })),
+    activeIndex: 0,
+  })
+  const accounts = manager.getAccounts()
+  accounts.forEach((account) => {
+    account.expires = now + 10000
+  })
+  let mayRun = true
+  let signalStarted: () => void = () => {}
+  const started = new Promise<void>((resolve) => {
+    signalStarted = resolve
+  })
+  let finishRefresh: (auth: OAuthAuthDetails) => void = () => {}
+  const answer = new Promise<OAuthAuthDetails>((resolve) => {
+    finishRefresh = resolve
+  })
+  const calls: number[] = []
+  const updates: OAuthAuthDetails[] = []
+  let saves = 0
+  const quiet: Logger = { debug() {}, info() {}, warn() {}, error() {} }
+  const successor: OAuthAuthDetails = {
+    type: 'oauth',
+    refresh: 'synthetic-successor|synthetic-project-0',
+    access: 'synthetic-access',
+    expires: now + 3600000,
+  }
+  const queue = createLocationProactiveRefreshQueue(
+    {
+      logger: quiet,
+      refreshToken: async (_auth, account) => {
+        calls.push(account.index)
+        signalStarted()
+        return answer
+      },
+    },
+    {
+      enabled: true,
+      bufferSeconds: 30,
+      checkIntervalSeconds: 300,
+      mayRun: async () => mayRun,
+    },
+  )
+  queue.setAccountManager({
+    getAccounts: () => accounts,
+    toAuthDetails: (account) => manager.toAuthDetails(account),
+    updateFromAuth: (_account, auth) => {
+      updates.push(auth)
+    },
+    saveToDisk: async () => {
+      saves += 1
+    },
+  })
+  try {
+    queue.start()
+    jest.advanceTimersByTime(5000)
+    await started
+    mayRun = false
+    finishRefresh(successor)
+    await new Promise<void>((resolve) => nextRealTurn(resolve))
+    expect(queue.getStats().isRefreshing).toBe(false)
+    expect(calls).toEqual([0])
+    expect(updates).toEqual([successor])
+    expect(saves).toBe(1)
+  } finally {
+    finishRefresh(successor)
+    await queue.dispose()
+    jest.useRealTimers()
+  }
+})
+
+it('does not restart a disposed queue', async () => {
+  jest.useFakeTimers()
+  let admissions = 0
+  const queue = new ProactiveRefreshQueue(mockClient, 'google', {
+    enabled: true,
+    mayRun: async () => {
+      admissions += 1
+      return true
+    },
+  })
+  try {
+    await queue.dispose()
+    queue.start()
+    jest.advanceTimersByTime(600000)
+    await Promise.resolve()
+    expect(queue.getStats().isRunning).toBe(false)
+    expect(admissions).toBe(0)
+  } finally {
+    await queue.dispose()
+    jest.useRealTimers()
+  }
 })

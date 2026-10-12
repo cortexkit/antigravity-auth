@@ -24,12 +24,14 @@
  *
  *   1. Serialize through `sidebarWriteChain` so concurrent in-process calls
  *      never interleave merges against the same file.
- *   2. Acquire Task 7's `acquireFencedFileLock` with bounded retry+jitter
+ *   2. Acquire `acquireFencedFileLock` with bounded retry+jitter
  *      (≤2s). A live cross-process holder that does not release in time
  *      surfaces as `SidebarStateLockContentionError`.
  *   3. Re-read and normalize the on-disk state while holding the lock.
  *   4. Merge the new machine or routing payload against the re-read state.
- *   5. `assertOwned()` + `writeJsonAtomic` with mode 0o600, then release.
+ *   5. `assertOwned()` + `writeJsonAtomic` with mode 0o600, re-checking
+ *      `assertOwned()` after the temp file is staged and just before the
+ *      rename, then release.
  *
  * The merge step is deterministic: machine fields adopt only when the new
  * `checkedAt` is ≥ the on-disk one, `routingAuthoritative` is sticky-true,
@@ -57,12 +59,14 @@ export type SidebarQuotaKey = 'gemini' | 'non-gemini'
 export interface SidebarQuotaWindowEntry {
   window: 'weekly' | '5h'
   remainingPercent: number
+  checkedAt?: number
   resetAt?: number
 }
 
 export interface SidebarQuotaEntry {
   /** Most-constrained window's remaining % (derived, for back-compat). */
   remainingPercent: number
+  checkedAt?: number
   resetAt?: number
   /** Per-window breakdown. Omitted in pre-windows snapshots. */
   windows?: SidebarQuotaWindowEntry[]
@@ -345,6 +349,7 @@ function normalizeQuota(input: unknown): SidebarQuotaEntry | null {
   const remaining = toFiniteNumber(record.remainingPercent)
   if (remaining === null) return null
   const resetAt = toFiniteNumber(record.resetAt) ?? undefined
+  const checkedAt = toFiniteNumber(record.checkedAt) ?? undefined
 
   // Tolerant: deserialize windows array if present; drop malformed entries.
   const windowsRaw = record.windows
@@ -358,11 +363,13 @@ function normalizeQuota(input: unknown): SidebarQuotaEntry | null {
           (w as Record<string, unknown>).remainingPercent,
         )
         const ra = toFiniteNumber((w as Record<string, unknown>).resetAt)
+        const ca = toFiniteNumber(w.checkedAt)
         if ((win !== 'weekly' && win !== '5h') || rp === null) return null
         return {
           window: win as 'weekly' | '5h',
           remainingPercent: clampNumber(rp, 0, 100),
           resetAt: ra ?? undefined,
+          ...(ca !== null && ca >= 0 ? { checkedAt: ca } : {}),
         }
       })
       .filter((v): v is NonNullable<typeof v> => v !== null)
@@ -372,6 +379,7 @@ function normalizeQuota(input: unknown): SidebarQuotaEntry | null {
   return {
     remainingPercent: clampNumber(remaining, 0, 100),
     resetAt,
+    ...(checkedAt !== undefined ? { checkedAt } : {}),
     windows,
   }
 }
@@ -488,6 +496,8 @@ export interface SidebarAccountRedactionInput {
   coolingDownUntil?: number
   /** Health score in `[0, 100]`. Defaults to 100 when missing. */
   healthScore?: number
+  /** Timestamp when the successful quota response was cached, never the sidebar write timestamp. */
+  cachedQuotaUpdatedAt?: number
   cachedQuota?: {
     gemini?: {
       remainingFraction?: number
@@ -549,8 +559,7 @@ export interface SidebarAccountRedactionInput {
  * Build a `{ id, capturedAt }` tier object from account fields, or `undefined`
  * when either field is absent. Centralised so every producer (index.ts,
  * background-quota-refresh.ts, command-data.ts) uses the same guard and the
- * same shape -- the same pattern shipped as inline literals across three files
- * and produced six missed-field bugs; one helper ends that.
+ * same shape.
  */
 export function toCapturedTier(account: {
   capturedTierId?: string
@@ -603,9 +612,8 @@ export function normalizeLegacyCachedQuota(
   >['gemini']
 
   // Pick the earlier of two ISO reset timestamps, preferring a defined
-  // value over undefined. Extracted so both branches of minFraction use
-  // the same merge rather than the previous asymmetry where the a-wins
-  // branch dropped b's possibly-earlier resetTime.
+  // value over undefined. Both branches of minFraction must preserve the
+  // earlier reset, regardless of which fraction wins.
   const earlierResetTime = (
     a: string | undefined,
     b: string | undefined,
@@ -665,15 +673,24 @@ export function normalizeLegacyCachedQuota(
  * `windows` produce `{ remainingPercent, resetAt }` only — the TUI's
  * legacy path then renders a single bar.
  */
-export function projectQuotaPoolForSidebar(source: {
-  remainingFraction?: number
-  resetTime?: string
-  windows?: ReadonlyArray<{
-    window: 'weekly' | '5h'
-    remainingFraction: number
-    resetTime: string
-  }>
-}): SidebarQuotaEntry | undefined {
+export function projectQuotaPoolForSidebar(
+  source: {
+    remainingFraction?: number
+    resetTime?: string
+    windows?: ReadonlyArray<{
+      window: 'weekly' | '5h'
+      remainingFraction: number
+      resetTime: string
+    }>
+  },
+  checkedAt?: number,
+): SidebarQuotaEntry | undefined {
+  const readingAt =
+    typeof checkedAt === 'number' &&
+    Number.isFinite(checkedAt) &&
+    checkedAt >= 0
+      ? checkedAt
+      : undefined
   const fraction = source.remainingFraction
   if (typeof fraction !== 'number' || !Number.isFinite(fraction))
     return undefined
@@ -687,6 +704,7 @@ export function projectQuotaPoolForSidebar(source: {
   const windows: SidebarQuotaEntry['windows'] = source.windows?.length
     ? source.windows.map((w) => ({
         window: w.window,
+        ...(readingAt !== undefined ? { checkedAt: readingAt } : {}),
         remainingPercent: clampNumber(
           Math.round(w.remainingFraction * 100),
           0,
@@ -702,7 +720,12 @@ export function projectQuotaPoolForSidebar(source: {
       }))
     : undefined
 
-  return { remainingPercent, resetAt, windows }
+  return {
+    remainingPercent,
+    resetAt,
+    windows,
+    ...(readingAt !== undefined ? { checkedAt: readingAt } : {}),
+  }
 }
 
 /**
@@ -762,7 +785,10 @@ export function redactAccountForSidebar(
     for (const key of ['gemini', 'non-gemini'] as const) {
       const entry = cached[key]
       if (!entry) continue
-      const projected = projectQuotaPoolForSidebar(entry)
+      const projected = projectQuotaPoolForSidebar(
+        entry,
+        source.cachedQuotaUpdatedAt,
+      )
       if (projected) quota[key] = projected
     }
   }
@@ -805,6 +831,8 @@ export function buildSidebarMachineStateFromAccounts(
 
 interface SidebarStateWriteOptions {
   stateFile?: string
+  /** Drop routing entries for accounts outside this projection in the same locked write. */
+  retainRoutingForAccountIds?: readonly string[]
 }
 
 let sidebarWriteChain: Promise<void> = Promise.resolve()
@@ -880,7 +908,15 @@ async function performSidebarWrite(
       await emitMergeStep('read-state')
       const merged = merge(existing)
       await emitMergeStep('merged-state')
-      await writeJsonAtomic(stateFile, merged)
+      // Re-check ownership once the temp file is staged, right before the
+      // rename: the first check runs before several awaits (step hooks,
+      // temp-file write), and the lease can expire or be taken over by
+      // another writer in between. This shrinks the lost-lease window to the
+      // gap between this check and the rename; it is not an atomic
+      // compare-and-swap.
+      await writeJsonAtomic(stateFile, merged, {
+        beforeRename: () => lock.assertOwned(),
+      })
       // `writeJsonAtomic` stages a tmp file with mode 0o600 and renames onto
       // the target; POSIX rename replaces the inode so the new file inherits
       // the staged mode bits. Windows ignores POSIX modes so the assertion
@@ -898,12 +934,13 @@ async function performSidebarWrite(
  * Stale writes (new `checkedAt` < existing) are dropped — only newer/equal
  * `checkedAt` may replace machine fields. The merge preserves
  * `routingAuthoritative: true` once it is true (sticky-true), keeps the
- * existing `activeRouting` intact (routing is merged via its own writer),
- * and prunes any expired routing entries as a side effect.
+ * existing `activeRouting` (unless the caller excludes account IDs),
+ * and prunes expired routing entries as a side effect.
  */
 function mergeMachineState(
   existing: SidebarStateV1,
   next: SidebarMachineState,
+  retainedAccountIds?: readonly string[],
 ): SidebarStateV1 {
   if (next.checkedAt < existing.checkedAt) {
     return {
@@ -911,6 +948,17 @@ function mergeMachineState(
       activeRouting: pruneActiveRouting(existing.activeRouting, Date.now()),
     }
   }
+  const routes = pruneActiveRouting(existing.activeRouting, Date.now())
+  const retained =
+    retainedAccountIds === undefined ? undefined : new Set(retainedAccountIds)
+  const activeRouting =
+    retained === undefined
+      ? routes
+      : Object.fromEntries(
+          Object.entries(routes).filter(([, entry]) =>
+            retained.has(entry.accountId),
+          ),
+        )
   return {
     version: SIDEBAR_STATE_VERSION,
     checkedAt: next.checkedAt,
@@ -924,7 +972,9 @@ function mergeMachineState(
     // re-prunes activeRouting so a long-running TUI session eventually
     // drops dead routes even when no fresh routing upsert lands. Cheap
     // (a single Object.entries + sort over ≤100 entries) and bounded.
-    activeRouting: pruneActiveRouting(existing.activeRouting, Date.now()),
+    // A changed account source can also exclude the old source's routing
+    // in this same write, without publishing new rows beside old routes.
+    activeRouting,
   }
 }
 
@@ -937,10 +987,18 @@ function mergeMachineState(
 export async function upsertSidebarActiveRouting(
   sessionId: string,
   entry: SidebarRoutingEntry,
-  options: SidebarStateWriteOptions & { authoritative?: boolean } = {},
+  options: SidebarStateWriteOptions & {
+    authoritative?: boolean
+    onlyForProjectedAccounts?: boolean
+  } = {},
 ): Promise<void> {
   const stateFile = options.stateFile ?? getSidebarStateFile()
   await performSidebarWrite(stateFile, (existing) => {
+    if (
+      options.onlyForProjectedAccounts &&
+      !existing.accounts.some((account) => account.id === entry.accountId)
+    )
+      return existing
     const activeRouting = { ...existing.activeRouting, [sessionId]: entry }
     return {
       ...existing,
@@ -984,7 +1042,7 @@ export async function setSidebarMachineState(
 ): Promise<void> {
   const stateFile = options.stateFile ?? getSidebarStateFile()
   await performSidebarWrite(stateFile, (existing) =>
-    mergeMachineState(existing, next),
+    mergeMachineState(existing, next, options.retainRoutingForAccountIds),
   )
 }
 

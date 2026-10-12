@@ -1,0 +1,187 @@
+## C3-no-check-after-authority-read
+mutated: packages/opencode/src/plugin/auth-loader.ts
+diff --stat during mutation:
+ packages/opencode/src/plugin/auth-loader.ts | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+diff --git a/packages/opencode/src/plugin/auth-loader.ts b/packages/opencode/src/plugin/auth-loader.ts
+index e88935ad..79cbc7c7 100644
+--- a/packages/opencode/src/plugin/auth-loader.ts
++++ b/packages/opencode/src/plugin/auth-loader.ts
+@@ -601,9 +601,7 @@ export function createAuthLoader({
+       fetch: async (input, init) => {
+         if (closed) throw new Error('The account loader is disposed')
+         const authority = (await readAuthority?.()) ?? 'local'
+-        // Disposal may have finished while the authority was read; nothing
+-        // is built or sent after it.
+-        if (closed) throw new Error('The account loader is disposed')
++        // NON-VACUITY BREAK
+         if (authority === 'unreadable') throw new Error(VAULT_ACCOUNT_REMEDY)
+         if (authority === 'vault') {
+           currentRequestSource = 'vault'
+bun test v1.4.2 (744846f84)
+
+src/plugin/fetch-interceptor.test.ts:
+(pass) createFetchInterceptor > non-generative passthrough > delegates requests to upstream fetch when the URL is not generativelanguage [6.19ms]
+(pass) createFetchInterceptor > non-generative passthrough > preserves the caller-supplied abort signal on passthrough [1.80ms]
+(pass) createFetchInterceptor > non-OAuth auth > returns the upstream response when getAuth returns a non-OAuth auth [1.39ms]
+(pass) createFetchInterceptor > local image titles > retains successful synthetic text for local image-model title requests [7.39ms]
+(pass) createFetchInterceptor > Request normalization > normalizes a Request input into a URL+init so the transform pipeline sees headers/body [11.63ms]
+(pass) createFetchInterceptor > caller abort > rejects when the caller aborts before the no-account check [3.39ms]
+(pass) createFetchInterceptor > lifecycle disposal > joins an admitted unit through repeated disposal calls before releasing its resources [2.19ms]
+(pass) createFetchInterceptor > lifecycle disposal > clears per-instance retry/warmup state on dispose() [1.75ms]
+(pass) createFetchInterceptor > lifecycle disposal > stops intercepting after dispose() [2.38ms]
+(pass) createFetchInterceptor > lifecycle disposal > retirement refuses later requests without passing them upstream, and finishes a request already admitted [4.99ms]
+(pass) createFetchInterceptor > no-account 401 response > returns HTTP 401 with Google error envelope when no accounts are configured [2.74ms]
+(pass) createFetchInterceptor > no-account 401 response > includes the requested model in the no-account envelope [1.86ms]
+(pass) createFetchInterceptor > no-account 401 response > returns the same 401 envelope when accounts are removed mid-loop [2.04ms]
+(pass) createFetchInterceptor > killswitch wiring > routes around a killed current account to the next eligible account without waiting [3.03ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast 412 when the killswitch excludes the entire pool [5.09ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast soft-quota 412 with 2026-07-22T13:35:00.000Z reset [2.49ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast soft-quota 412 with unknown reset [2.55ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast soft-quota 412 with invalid-reset reset [1.83ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 5700000ms at clock 1784721600000 [2.00ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1544400000ms at clock 1784721600000 [1.73ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1800000000ms at clock 1784721600000 [2.62ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1807200000ms at clock 1784721600000 [1.98ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1810800000ms at clock 1784721600000 [1.61ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1814400000ms at clock 1784721600000 [1.60ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1886400000ms at clock 1784721600000 [2.16ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 5400000000ms at clock 1784721600000 [2.69ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1800000000ms at clock -1000000000000 [1.87ms]
+(pass) createFetchInterceptor > native error responses > does not invent a quota reset from the fallback sleep duration [1.90ms]
+(pass) createFetchInterceptor > native error responses > does not emit an invalid reset header for a nonfinite pool wait [2.57ms]
+(pass) createFetchInterceptor > native error responses > still waits below the configured maximum for soft_quota [1.78ms]
+(pass) createFetchInterceptor > native error responses > still waits below the configured maximum for pool_unavailable [1.59ms]
+(pass) createFetchInterceptor > native error responses > returns a native 401 when token refresh supplies no access token [5.37ms]
+(pass) createFetchInterceptor > native error responses > preserves original context 400 bytes and headers for Prompt is too long [3.29ms]
+(pass) createFetchInterceptor > native error responses > preserves original context 400 bytes and headers for prompt_too_long [3.61ms]
+(pass) createFetchInterceptor > native error responses > returns a native 502 only after the bounded empty-response attempts [5.38ms]
+(pass) createFetchInterceptor > account-store source > refuses the next physical send once the store row is disabled after selection [3.62ms]
+(pass) createFetchInterceptor > account-store source > refuses the next physical send once the store row is replaced after selection [2.12ms]
+(pass) createFetchInterceptor > account-store source > captures the grant's row before the save that follows its refresh [1.77ms]
+(pass) createFetchInterceptor > account-store source > checks the row captured with the grant, not the account object's later ref [2.90ms]
+(pass) createFetchInterceptor > account-store source > refreshes the selected store account through the repository on its own row [3.84ms]
+(pass) createFetchInterceptor > vault custody source > uses the same vault selector that supplies the menu and sidebar rows [2.98ms]
+(pass) createFetchInterceptor > vault custody source > admits every physical attempt and sends with that receipt's token and project [4.41ms]
+(pass) createFetchInterceptor > vault custody source > reports a served 401 against the receipt that served it [2.15ms]
+(pass) createFetchInterceptor > transport failures > propagates connection resets instead of emitting them as assistant text [1.79ms]
+(pass) createFetchInterceptor > per-instance isolation > two interceptors do not share rate-limit state [4.86ms]
+(pass) admits no further local physical attempt when enrollment changes during a failed send [7.20ms]
+
+src/plugin/auth-loader.test.ts:
+(pass) createAuthLoader > serves a fresh vault activation without reading native auth, then refuses its marker after disconnect without touching local files [10.61ms]
+(pass) createAuthLoader > restores auth drift from storage before creating the account runtime [3.16ms]
+(pass) createAuthLoader > clears stale storage only when auth cannot be restored [0.28ms]
+(pass) createAuthLoader > zeros provider costs and replaces fetch and account runtimes on reload [3.87ms]
+(pass) createAuthLoader > returned fetch delegates to the live runtime after reload() [5.56ms]
+(pass) createAuthLoader > exposes load on the handle so contract consumers can read it [0.08ms]
+(pass) createAuthLoader > returns from reload() without waiting for the replaced runtime to finish its admitted requests [3.19ms]
+(pass) createAuthLoader on the account store > routes with the core manager over the store and never reads the pool file [178.88ms]
+(pass) createAuthLoader on the account store > refreshes proactively through the repository on the due account's own ref, never the host client [228.40ms]
+(pass) createAuthLoader on the account store > creates the store only for a genuinely fresh location, and never over a pool file [213.80ms]
+(pass) createAuthLoader on the account store > leaves the store untouched when the host holds no sign-in [146.86ms]
+(pass) createAuthLoader on the account store > refuses to serve a bound generation with interrupted repository work, without the pool file [0.56ms]
+(pass) createAuthLoader on the account store > refuses to start while a migration is pending, without falling back to the pool file [0.21ms]
+(pass) enrollment authority at loader and request start > does not open local accounts or read the native login while vault authority is active [0.29ms]
+1167 |           }),
+1168 |         )
+1169 |       await lifecycle.dispose()
+1170 |       events.push('lifecycle disposed')
+1171 |       releaseAuthority('vault')
+1172 |       expect({ outcome: await outcome, events }).toEqual({
+                                                        ^
+error: expect(received).toEqual(expected)
+
+  {
+    "events": [
+      "lifecycle disposed",
++     "vault runtime built",
+    ],
+    "outcome": {
+      "kind": "error",
+      "message": "The account loader is disposed",
+    },
+  }
+
+- Expected  - 0
++ Received  + 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/auth-loader.test.ts:1172:50)
+(fail) enrollment authority at loader and request start > builds and sends no vault runtime when the loader is disposed during the request authority read [1.53ms]
+(pass) enrollment authority at loader and request start > sends nothing on a vault runtime whose construction finishes after loader disposal began, and disposes it [0.31ms]
+
+src/plugin/lifecycle.test.ts:
+(pass) PluginLifecycle > disposes runtime and shared state in dependency order [0.14ms]
+(pass) PluginLifecycle > disposes producers BEFORE the sidebar drain and consumers AFTER [0.06ms]
+(pass) PluginLifecycle > a producer that enqueues a sidebar write during dispose lands before drain [0.06ms]
+(pass) PluginLifecycle > awaits a producer whose async dispose enqueues a write only after an in-flight refresh settles [0.07ms]
+(pass) PluginLifecycle > performs disposal only once [0.05ms]
+(pass) PluginLifecycle > disposes the previous runtime before publishing its replacement [0.06ms]
+(pass) PluginLifecycle > drains sidebar writes before tearing down the RPC server (file logger / RPC) [0.05ms]
+(pass) PluginLifecycle > treats drainSidebarWrites as a no-op when omitted (back-compat) [0.03ms]
+(pass) PluginLifecycle request runtime retirement > retires a replaced request runtime and disposes its manager only after the retirement finishes [0.16ms]
+(pass) PluginLifecycle request runtime retirement > aborts live and retired request runtimes before any manager is disposed, and before producers and the sidebar drain [0.07ms]
+(pass) PluginLifecycle request runtime retirement > disposes an offered request runtime, queue and manager once disposal has begun [0.05ms]
+(pass) PluginLifecycle RPC ownership > stops a registered RPC server during disposal [0.04ms]
+(pass) PluginLifecycle debug log disposal > calls closeDebugLog as a consumer-phase disposable during lifecycle disposal [0.36ms]
+(pass) PluginLifecycle debug log disposal > flushes buffered debug lines to disk when closeDebugLog runs during dispose [2.62ms]
+
+src/plugin/shared/request-services.test.ts:
+(pass) prepareAgyWireRequest envelope parity > appends a real user turn when the host payload ends with a model turn [0.53ms]
+(pass) prepareAgyWireRequest envelope parity > applies the shared Claude thinking and schema transform [5.80ms]
+(pass) prepareAgyWireRequest envelope parity > normalizes replay signatures across parallel function calls [1.04ms]
+(pass) prepareAgyWireRequest envelope parity > injects the supported sentinel when Claude replay has no valid signature [0.75ms]
+(pass) prepareAgyWireRequest envelope parity > uses the native model role for same-target function responses [0.21ms]
+(pass) prepareAgyWireRequest envelope parity > keeps responses to an unsigned (foreign) call in a user turn [0.16ms]
+(pass) prepareAgyWireRequest envelope parity > removes unsupported tools and thinking from image requests [0.18ms]
+(pass) prepareAgyWireRequest envelope parity > sets VALIDATED on tool requests and removes host provider options [0.51ms]
+(pass) prepareAgyWireRequest against the frozen agy CLI 1.1.24 capture > emits the captured envelope and request field order [0.18ms]
+(pass) createRequestExecutor retry contract > tries the Antigravity endpoints in fallback order after a 404 [1.05ms]
+(pass) createRequestExecutor retry contract > retries the same endpoint once after a capacity 503 [930.02ms]
+(pass) createRequestExecutor retry contract > retries selection after a failed refresh and sends with the next grant [1.07ms]
+(pass) createRequestExecutor retry contract > never sends a local grant whose captured check reports it stale [0.42ms]
+(pass) createRequestExecutor retry contract > refuses a send once the row identity captured with the grant changes, even with the same bearer [0.43ms]
+(pass) createRequestExecutor retry contract > keeps the freshly resolved token when project resolution answers from an older cache entry [0.74ms]
+(pass) createRequestExecutor retry contract > captures the grant before project resolution, so a row change during it is refused [0.64ms]
+(pass) createRequestExecutor retry contract > returns the native 401 when the only account's refresh yields no credential [0.30ms]
+(pass) createRequestExecutor retry contract > removes an invalid_grant account and continues on the next one [0.55ms]
+(pass) createRequestExecutor retry contract > clears stored auth and returns the no-account 401 when the last grant is revoked [0.26ms]
+(pass) createRequestExecutor retry contract > rejects with the original transport error object after every endpoint fails [0.56ms]
+(pass) createRequestExecutor retry contract > returns the last upstream response when the only account is ineligible [1.12ms]
+(pass) createRequestExecutor vault admissions > admits every physical send and sends with that admission only [0.85ms]
+(pass) createRequestExecutor vault admissions > reports a 401 against its admission and keeps it when the vault serves no newer version [0.43ms]
+(pass) createRequestExecutor vault 401 rotation > retries the same endpoint once with a newer version of the same credential [0.48ms]
+(pass) createRequestExecutor vault 401 rotation > does not retry a 401 on a rotated admission for another account [0.30ms]
+(pass) createRequestExecutor local refresh attribution > refreshes exactly the selected row when two rows share a refresh token, and sends its successor [0.38ms]
+(pass) createRequestExecutor request kinds > sends a title on an unregistered model to the title fallback model [0.49ms]
+(pass) createRequestExecutor request kinds > keeps a registered text model for a title request [0.03ms]
+(pass) createRequestExecutor request kinds > answers an image-model title locally only for the title kind [0.41ms]
+(pass) createRequestExecutor request kinds > keeps title metadata out of the primary conversation step sequence [0.99ms]
+(pass) createRequestWire location state > records prompt-cache statistics only in the location that saw them [0.46ms]
+(pass) Antigravity-owned selection policy > dispatches on an account with no quota reading while the killswitch is on [0.39ms]
+(pass) Antigravity-owned selection policy > refuses with a native 412 once a fresh reading is below the floor [0.38ms]
+(pass) Antigravity-owned selection policy > keeps a Claude rate-limit mark from blocking a Gemini request on the same account [0.41ms]
+(pass) createRequestExecutor per-request sender > sends through the request's own raw sender with request-specific cancellation [0.46ms]
+(pass) createRequestExecutor cancellation and overflow > propagates the caller exact abort reason to an admitted physical send [0.42ms]
+(pass) createRequestExecutor cancellation and overflow > final shutdown aborts physical I/O and waits for its cleanup [0.42ms]
+(pass) createRequestExecutor cancellation and overflow > retirement keeps an admitted send and its body, refuses new requests, and resolves after both finish [0.78ms]
+(pass) createRequestExecutor cancellation and overflow > disposal after retirement aborts the retired body and ends the retirement [0.62ms]
+(pass) createRequestExecutor cancellation and overflow > an authority transition preserves admitted physical work and refuses the next local request [0.51ms]
+(pass) createRequestExecutor cancellation and overflow > rejects with the abort reason when cancelled during a retry wait [11.79ms]
+(pass) createRequestExecutor cancellation and overflow > returns the original context-overflow response unread, without rotating [0.58ms]
+(pass) createRequestExecutor cancellation and overflow > serves local image-model titles without selecting an account [0.33ms]
+(pass) OpenCode 1 runtime replacement with admitted streams > a reload keeps a stream admitted by the replaced runtime alive [1.77ms]
+(pass) OpenCode 1 runtime replacement with admitted streams > a reload keeps a request admitted during its token refresh, then saves and sends the successor token [0.92ms]
+(pass) OpenCode 1 runtime replacement with admitted streams > two concurrent first local requests after vault custody reload the local runtime once [1.00ms]
+(pass) OpenCode 1 runtime replacement with admitted streams > final shutdown aborts a stream still held by a replaced runtime and waits for it [1.30ms]
+
+1 tests failed:
+(fail) enrollment authority at loader and request start > builds and sends no vault runtime when the loader is disposed during the request authority read [1.53ms]
+
+ 122 pass
+ 1 fail
+ 628 expect() calls
+Ran 123 tests across 4 files. [2.11s]
+exit=1
+diff --stat after restore (expect empty):
+[end]

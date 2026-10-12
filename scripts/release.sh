@@ -60,6 +60,11 @@ fi
 echo "→ Running pre-release checks..."
 echo ""
 
+[[ "$(bun --version)" == "1.4.2" ]] || { echo "Error: private TUI compiler requires Bun 1.4.2"; exit 1; }
+bun packages/opencode/scripts/embed-common-auth.ts --check
+bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
+bun run embed:check
+
 echo "  bun run typecheck..."
 bun run typecheck 2>&1 || { echo "Error: Typecheck failed"; exit 1; }
 

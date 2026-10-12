@@ -8,23 +8,47 @@ import {
   mock,
   spyOn,
 } from 'bun:test'
+import { createHash } from 'node:crypto'
+import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 
 import {
+  type AccountRepository,
+  type AccountRepositoryRead,
+  type AccountRow,
+  type CommonAuthStoreModules,
+  createAccountRepositoryFactory,
+  loadCommonAuthStoreModules,
+  type ManagedAccount,
+  type RowRef,
+  sameRowRef,
+} from '@cortexkit/antigravity-auth-core'
+import {
   AccountManager,
+  AccountStoreNotReadyError,
   calculateBackoffMs,
+  createLocalAccountCredentials,
+  loadAccountManagerFromRepository,
   type ModelFamily,
   parseRateLimitReason,
   resolveQuotaGroup,
+  StaleAccountGrantError,
 } from './accounts'
 // Mock storage to prevent test data from leaking to real config files.
 // Bun's `mock.module` doesn't support the `importOriginal` callback that
 // Vitest exposes, so we capture the real exports first and merge.
+import { commitLogins } from './persist-account-pool'
+import { LocalGrantSupersededError } from './shared/local-grant'
 import * as realStorage from './storage'
 import {
   type AccountStorageV4,
+  initializeFreshAccountStoreFor,
+  openAccountStore,
   saveAccounts,
   saveAccountsReplace,
 } from './storage'
+import { AntigravityTokenRefreshError } from './token'
 import type { OAuthAuthDetails } from './types'
 
 mock.module('./storage', () => ({
@@ -2721,4 +2745,678 @@ describe('AccountManager disposal', () => {
     expect(save).not.toHaveBeenCalled()
     expect(jest.getTimerCount()).toBe(0)
   })
+})
+
+describe('loadAccountManagerFromRepository', () => {
+  interface Row {
+    ref: RowRef
+    token: string
+    email: string
+    access?: string
+    expires?: number
+  }
+
+  function repositoryOver(rows: Row[], refresh: AccountRepository['refresh']) {
+    let order = rows.map((row) => ({ ...row, ref: { ...row.ref } }))
+    const reads: number[] = []
+    const repository = {
+      read: async (): Promise<AccountRepositoryRead> => {
+        reads.push(reads.length)
+        return {
+          status: 'ready',
+          rows: order.map(
+            (row, index): AccountRow => ({
+              ref: row.ref,
+              index,
+              enabled: true,
+              credential: {
+                refreshToken: row.token,
+                accessToken: row.access,
+                expiresAt: row.expires,
+              },
+              usable: true,
+              stamp: 'bound',
+              metadata: {
+                status: 'present',
+                metadata: {
+                  email: row.email,
+                  addedAt: 1,
+                  lastUsed: 1,
+                  // A stored fingerprint keeps the load from recording a
+                  // generated one, so the only repository writes are the
+                  // ones each test makes.
+                  fingerprint: {
+                    deviceId: `device-${row.ref.id}`,
+                    sessionToken: 'session',
+                    userAgent: 'antigravity-cli/test',
+                    apiClient: 'antigravity-cli',
+                    clientMetadata: {
+                      ideType: 'IDE_UNSPECIFIED',
+                      platform: 'darwin',
+                      pluginType: 'GEMINI',
+                    },
+                    createdAt: 1,
+                  },
+                },
+              },
+              quota: { status: 'absent' },
+            }),
+          ),
+        }
+      },
+      refresh: async (...args: Parameters<AccountRepository['refresh']>) => {
+        const outcome = await refresh(...args)
+        if (outcome.status === 'rotated') {
+          const row = order.find((entry) => sameRowRef(entry.ref, args[0]))
+          if (row) {
+            row.ref = outcome.ref
+            row.access = outcome.accessToken
+            row.expires = outcome.expiresAt
+          }
+        }
+        return outcome
+      },
+      recordFingerprint: async (ref: RowRef) => ({ ref, outcome: 'unchanged' }),
+      flush: async () => ({ completed: 0, failures: [] }),
+      dispose: async () => ({ completed: 0, failures: [] }),
+    } as unknown as AccountRepository
+    return {
+      repository,
+      reverse: () => {
+        order = [...order].reverse()
+      },
+    }
+  }
+
+  const rowA: Row = {
+    ref: { id: 'row-a', credentialEpoch: 1 },
+    token: 'token-a',
+    email: 'a@example.test',
+  }
+  const rowB: Row = {
+    ref: { id: 'row-b', credentialEpoch: 4, identity: 'google-b' },
+    token: 'token-b',
+    email: 'b@example.test',
+  }
+
+  it('refuses a store that is not ready instead of building an empty or pool-file manager', async () => {
+    const notReady: Exclude<AccountRepositoryRead, { status: 'ready' }>[] = [
+      { status: 'pending-migration' },
+      {
+        status: 'management-pending',
+        management: {
+          id: 'op',
+          kind: 'clear',
+          targets: [],
+          progress: { step: 'started', completedTargets: [] },
+        },
+      },
+      { status: 'error', file: 'state', reason: 'malformed' },
+    ]
+    for (const read of notReady) {
+      const repository = {
+        read: async () => read,
+      } as unknown as AccountRepository
+      const failure = await loadAccountManagerFromRepository(repository, {
+        onDiagnostic: () => {},
+      }).catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(AccountStoreNotReadyError)
+      expect((failure as AccountStoreNotReadyError).read).toBe(read)
+    }
+    expect(saveAccounts).not.toHaveBeenCalled()
+    expect(saveAccountsReplace).not.toHaveBeenCalled()
+  })
+
+  it('gives every account the exact ref it was read under, identity absence included', async () => {
+    const { repository } = repositoryOver([rowA, rowB], async () => {
+      throw new Error('no refresh in this test')
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const refs = manager.getAccounts().map((account) => account.ref)
+    expect(refs).toEqual([rowA.ref, rowB.ref])
+    expect(refs[0] && 'identity' in refs[0]).toBe(false)
+  })
+
+  it('refreshes different accounts concurrently', async () => {
+    const events: string[] = []
+    let bStarted: () => void = () => {}
+    const bHasStarted = new Promise<void>((resolve) => {
+      bStarted = resolve
+    })
+    const { repository } = repositoryOver([rowA, rowB], async (ref) => {
+      events.push(`start ${ref.id}`)
+      if (ref.id === 'row-a') {
+        // Finishes only once row-b's refresh is running: a manager that
+        // serialized refreshes across accounts would never get there.
+        await bHasStarted
+      } else {
+        bStarted()
+      }
+      events.push(`end ${ref.id}`)
+      return {
+        status: 'rotated',
+        ref,
+        accessToken: `access-${ref.id}`,
+        expiresAt: 99,
+      }
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const [accountA, accountB] = manager.getAccounts()
+
+    const outcomes = await Promise.all([
+      manager.refreshAccount(accountA!),
+      manager.refreshAccount(accountB!),
+    ])
+
+    expect(outcomes.map((outcome) => outcome.status)).toEqual([
+      'rotated',
+      'rotated',
+    ])
+    expect(events).toEqual([
+      'start row-a',
+      'start row-b',
+      'end row-b',
+      'end row-a',
+    ])
+    expect(accountA?.access).toBe('access-row-a')
+    expect(accountB?.access).toBe('access-row-b')
+  })
+
+  it('hands the request engine a bearer only for a committed rotation of the captured ref', async () => {
+    const outcomes: Array<Awaited<ReturnType<AccountRepository['refresh']>>> = [
+      {
+        status: 'identity-contradicted',
+        ref: rowB.ref,
+        expectedIdentity: 'google-b',
+        returnedIdentity: 'google-x',
+      },
+      { status: 'refused', ref: rowB.ref, reason: 'torn row' },
+      { status: 'rotated', ref: rowB.ref, accessToken: 'new', expiresAt: 7 },
+    ]
+    const { repository } = repositoryOver([rowB], async () => {
+      const next = outcomes.shift()
+      if (next === undefined) throw new Error('unexpected refresh')
+      return next
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager, {
+      repository,
+      ensureProject: async () => {
+        throw new Error('not used')
+      },
+    })
+    const [account] = manager.getAccounts()
+
+    await expect(credentials.refresh(account!)).resolves.toBeUndefined()
+    await expect(credentials.refresh(account!)).resolves.toBeUndefined()
+    await expect(credentials.refresh(account!)).resolves.toMatchObject({
+      type: 'oauth',
+      access: 'new',
+      expires: 7,
+      refresh: 'token-b|',
+    })
+  })
+
+  it('refreshes the selected row when two distinct rows hold the same token, leaving the other untouched', async () => {
+    const twinA: Row = {
+      ref: { id: 'twin-a', credentialEpoch: 2 },
+      token: 'shared-token',
+      email: 'a@example.test',
+    }
+    const twinB: Row = {
+      ref: { id: 'twin-b', credentialEpoch: 5, identity: 'google-b' },
+      token: 'shared-token',
+      email: 'b@example.test',
+    }
+    const refreshed: RowRef[] = []
+    const { repository } = repositoryOver([twinA, twinB], async (ref) => {
+      refreshed.push(ref)
+      return {
+        status: 'rotated',
+        ref,
+        accessToken: `access-${ref.id}`,
+        expiresAt: 50,
+      }
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager, { repository })
+    const [accountA, accountB] = manager.getAccounts()
+
+    // Matching the token would find twin-a first; the selected account is twin-b.
+    await expect(credentials.refresh(accountB!)).resolves.toMatchObject({
+      access: 'access-twin-b',
+    })
+    expect(refreshed).toEqual([twinB.ref])
+    expect(accountA?.access).toBeUndefined()
+    expect(accountA?.ref).toEqual(twinA.ref)
+  })
+
+  it('keeps each concurrent rotation on its own account and binds the ref the repository returned', async () => {
+    const learnt = { id: 'row-a', credentialEpoch: 1, identity: 'google-a' }
+    let releaseA: () => void = () => {}
+    const aMayFinish = new Promise<void>((resolve) => {
+      releaseA = resolve
+    })
+    const { repository } = repositoryOver([rowA, rowB], async (ref) => {
+      if (ref.id === 'row-a') {
+        await aMayFinish
+        // The refresh learnt row-a's identity; same epoch.
+        return {
+          status: 'rotated',
+          ref: learnt,
+          accessToken: 'a2',
+          expiresAt: 1,
+        }
+      }
+      releaseA()
+      return { status: 'rotated', ref, accessToken: 'b2', expiresAt: 2 }
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager, { repository })
+    const [accountA, accountB] = manager.getAccounts()
+
+    const [authA, authB] = await Promise.all([
+      credentials.refresh(accountA!),
+      credentials.refresh(accountB!),
+    ])
+    expect(authA?.access).toBe('a2')
+    expect(authB?.access).toBe('b2')
+    expect(accountA?.ref).toEqual(learnt)
+    expect(accountB?.ref).toEqual(rowB.ref)
+  })
+
+  it("accepts a grant only while it is the selected account's current refreshed credential", async () => {
+    let next = 1
+    const { repository } = repositoryOver([rowA, rowB], async (ref) => ({
+      status: 'rotated',
+      ref,
+      accessToken: `access-${ref.id}-${next++}`,
+      expiresAt: 99,
+    }))
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager, { repository })
+    const [accountA, accountB] = manager.getAccounts()
+
+    const first = await credentials.refresh(accountA!)
+    // Capture the row reference after this refresh; the grant check below
+    // uses it to identify the row that supplied the refreshed token.
+    const refA = accountA?.ref
+    if (refA === undefined) throw new Error('account A has no ref')
+    await expect(
+      credentials.assertGrantCurrent({
+        account: accountA!,
+        accessToken: first!.access!,
+        ref: refA,
+      }),
+    ).resolves.toBeUndefined()
+    // B's grant is not A's, whatever the position.
+    await expect(
+      credentials.assertGrantCurrent({
+        account: accountB!,
+        accessToken: first!.access!,
+        ref: refA,
+      }),
+    ).rejects.toBeInstanceOf(StaleAccountGrantError)
+
+    // A later refresh supersedes the earlier grant.
+    const second = await credentials.refresh(accountA!)
+    await expect(
+      credentials.assertGrantCurrent({
+        account: accountA!,
+        accessToken: first!.access!,
+        ref: refA,
+      }),
+    ).rejects.toBeInstanceOf(LocalGrantSupersededError)
+
+    // A reloaded manager holds new account objects: the old selection's
+    // grant is stale even with the same token.
+    const reloaded = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    await expect(
+      createLocalAccountCredentials(reloaded, {
+        repository,
+      }).assertGrantCurrent({
+        account: accountA!,
+        accessToken: second!.access!,
+        ref: refA,
+      }),
+    ).rejects.toBeInstanceOf(StaleAccountGrantError)
+  })
+
+  it('recognizes a revoked refresh token through the repository failure that wraps it', async () => {
+    const { repository } = repositoryOver([rowA], async () => {
+      throw new Error('refresh failed', {
+        cause: new AntigravityTokenRefreshError({
+          message: 'revoked',
+          code: 'invalid_grant',
+          status: 400,
+          statusText: 'Bad Request',
+        }),
+      })
+    })
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager, { repository })
+    const failure = await credentials
+      .refresh(manager.getAccounts()[0]!)
+      .catch((error: unknown) => error)
+    expect(credentials.isInvalidGrant(failure)).toBe(true)
+    expect(credentials.isInvalidGrant(new Error('network'))).toBe(false)
+  })
+
+  it('refreshes the account it was asked about after the roster is reordered', async () => {
+    const refreshed: RowRef[] = []
+    const { repository, reverse } = repositoryOver(
+      [rowA, rowB],
+      async (ref) => {
+        refreshed.push(ref)
+        return { status: 'rotated', ref, accessToken: 'x', expiresAt: 1 }
+      },
+    )
+    const manager = await loadAccountManagerFromRepository(repository, {
+      onDiagnostic: () => {},
+    })
+    const [accountA] = manager.getAccounts()
+    reverse()
+
+    await manager.refreshAccount(accountA!)
+    expect(refreshed).toEqual([rowA.ref])
+  })
+})
+
+// These per-send checks use the common-auth store and fs modules embedded
+// in the core package, loaded with `loadCommonAuthStoreModules`, in a private
+// config directory. Before loading them, the tests compare each module file's
+// size and SHA-256 with the release record in `source-output.json` for the
+// published 0.14.2 archive. A mismatch fails the tests.
+
+const RELEASED_COMMON_AUTH = {
+  package: '@cortexkit/common-auth',
+  version: '0.14.2',
+  tarballSha256:
+    'bf0f0828d155183dec1c29e5277ededd6cbd46e6b839ca696434e477f081216b',
+} as const
+
+async function embeddedFilesBelow(
+  root: string,
+  dir: string,
+): Promise<string[]> {
+  const out: string[] = []
+  for (const entry of await readdir(join(root, dir), { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`
+    if (entry.isDirectory()) out.push(...(await embeddedFilesBelow(root, path)))
+    else out.push(path)
+  }
+  return out
+}
+
+let genuine: Promise<CommonAuthStoreModules> | undefined
+
+/**
+ * Loads the embedded store and fs modules only after each file's size and
+ * SHA-256 match the expected values in `source-output.json`, the release
+ * record for the published 0.14.2 archive.
+ */
+function genuineModules(): Promise<CommonAuthStoreModules> {
+  genuine ??= (async () => {
+    const root = dirname(
+      dirname(
+        Bun.resolveSync(
+          '@cortexkit/antigravity-auth-core/common-auth/store',
+          import.meta.dir,
+        ),
+      ),
+    )
+    const receipt = JSON.parse(
+      await readFile(join(root, 'source-output.json'), 'utf8'),
+    ) as {
+      package?: unknown
+      version?: unknown
+      artifactStatus?: unknown
+      tarballSha256?: unknown
+      files?: Array<{ output: string; bytes: number; outputSha256: string }>
+    }
+    if (
+      receipt.package !== RELEASED_COMMON_AUTH.package ||
+      receipt.version !== RELEASED_COMMON_AUTH.version ||
+      receipt.artifactStatus !== 'released' ||
+      receipt.tarballSha256 !== RELEASED_COMMON_AUTH.tarballSha256 ||
+      !Array.isArray(receipt.files)
+    ) {
+      throw new Error(
+        `source-output.json does not record the released common-auth ${RELEASED_COMMON_AUTH.version} archive`,
+      )
+    }
+    const recorded = receipt.files.filter((file) =>
+      /^(store|fs)\//.test(file.output),
+    )
+    const present = [
+      ...(await embeddedFilesBelow(root, 'store')),
+      ...(await embeddedFilesBelow(root, 'fs')),
+    ].sort()
+    if (
+      JSON.stringify(present) !==
+      JSON.stringify(recorded.map((file) => file.output).sort())
+    ) {
+      throw new Error(
+        'the embedded store/fs files are not exactly the recorded ones',
+      )
+    }
+    for (const file of recorded) {
+      const bytes = await readFile(join(root, file.output))
+      const sha256 = createHash('sha256').update(bytes).digest('hex')
+      if (bytes.length !== file.bytes || sha256 !== file.outputSha256) {
+        throw new Error(
+          `embedded ${file.output} differs from its recorded size or SHA-256`,
+        )
+      }
+    }
+    return loadCommonAuthStoreModules()
+  })()
+  return genuine
+}
+
+describe('local grant check before a physical send', () => {
+  let configDir = ''
+  let previousConfigDir: string | undefined
+  const repositories: AccountRepository[] = []
+
+  beforeEach(async () => {
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    configDir = await realpath(await mkdtemp(join(tmpdir(), 'agy-grant-')))
+    process.env.OPENCODE_CONFIG_DIR = configDir
+  })
+
+  afterEach(async () => {
+    for (const repository of repositories.splice(0)) await repository.dispose()
+    if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+    await rm(configDir, { recursive: true, force: true })
+  })
+
+  /**
+   * Opens two repository instances with the same modules and config directory,
+   * modeling separate processes sharing a store without spawning processes.
+   */
+  async function twoProcessesOverOneStore() {
+    const modules = await genuineModules()
+    expect((await initializeFreshAccountStoreFor(modules)).status).toBe(
+      'completed',
+    )
+    const open = async () => {
+      const opening = await openAccountStore({
+        modules,
+        createRepository: createAccountRepositoryFactory(modules),
+        exchange: async ({ refreshToken }) => ({
+          accessToken: `access-for-${refreshToken}`,
+          refreshToken,
+          expiresAt: Date.now() + 3_600_000,
+        }),
+      })
+      if (opening.status !== 'ready') throw new Error('store is not ready')
+      repositories.push(opening.repository)
+      return opening.repository
+    }
+    const first = await open()
+    await commitLogins(first, [
+      {
+        type: 'success',
+        refresh: 'token-a',
+        access: 'never-stored',
+        expires: 1,
+        email: 'a@example.test',
+        projectId: '',
+      },
+    ])
+    // Give the row an unexpired access token, so a send needs no refresh.
+    const read = await first.read()
+    const row = read.status === 'ready' ? read.rows[0] : undefined
+    if (row === undefined) throw new Error('row A is missing')
+    await first.refresh(row.ref)
+    const second = await open()
+    return { first, second }
+  }
+
+  /**
+   * Checks the captured grant before recording a send. If the check rejects,
+   * the helper records nothing. Tests can change the row after capture and
+   * before calling this helper to verify that stale grants are not sent.
+   */
+  async function sendOnce(
+    credentials: ReturnType<typeof createLocalAccountCredentials>,
+    grant: { account: ManagedAccount; accessToken: string; ref: RowRef },
+    sent: string[],
+  ) {
+    await credentials.assertGrantCurrent(grant)
+    sent.push(grant.accessToken)
+  }
+
+  /**
+   * Captures the first account object, its access token and its row reference
+   * once, so later checks use the original values even if the account changes.
+   */
+  function captureGrant(manager: { getAccounts(): ManagedAccount[] }) {
+    const [account] = manager.getAccounts()
+    const accessToken = account?.access
+    const ref = account?.ref
+    if (
+      account === undefined ||
+      accessToken === undefined ||
+      ref === undefined
+    ) {
+      throw new Error('the selected account has no grant')
+    }
+    return { account, accessToken, ref }
+  }
+
+  for (const change of ['replaced', 'disabled'] as const) {
+    it(`refuses an unexpired grant whose row another process ${change} after selection, with no transport call`, async () => {
+      const { first, second } = await twoProcessesOverOneStore()
+      const manager = await loadAccountManagerFromRepository(first, {
+        onDiagnostic: () => {},
+      })
+      const credentials = createLocalAccountCredentials(manager, {
+        repository: first,
+      })
+      const grant = captureGrant(manager)
+
+      // Another process changes the row. This manager is deliberately not
+      // reloaded, so it still holds the old snapshot of the row.
+      const read = await second.read()
+      const row = read.status === 'ready' ? read.rows[0] : undefined
+      if (row === undefined) throw new Error('row A is missing')
+      if (change === 'replaced') {
+        await second.replaceCredential(row.ref, {
+          refreshToken: 'token-a2',
+          disabled: 'keep',
+        })
+      } else {
+        await second.setEnabled(row.ref, {
+          enabled: false,
+          reason: 'disabled by another process',
+          actor: 'user',
+        })
+      }
+      expect(grant.account.access).toBe(grant.accessToken)
+
+      const sent: string[] = []
+      const failure = await sendOnce(credentials, grant, sent).catch(
+        (error: unknown) => error,
+      )
+      expect(failure).toBeInstanceOf(StaleAccountGrantError)
+      expect(sent).toEqual([])
+    })
+  }
+
+  it('lets the grant through while the row still holds it', async () => {
+    const { first } = await twoProcessesOverOneStore()
+    const manager = await loadAccountManagerFromRepository(first, {
+      onDiagnostic: () => {},
+    })
+    const credentials = createLocalAccountCredentials(manager, {
+      repository: first,
+    })
+    const grant = captureGrant(manager)
+    const sent: string[] = []
+    await sendOnce(credentials, grant, sent)
+    expect(sent).toEqual([grant.accessToken])
+  })
+
+  for (const change of ['access token', 'enabled flag'] as const) {
+    it(`refuses a grant whose account changes its ${change} in memory while the store read is pending, with no transport call`, async () => {
+      const { first } = await twoProcessesOverOneStore()
+      const manager = await loadAccountManagerFromRepository(first, {
+        onDiagnostic: () => {},
+      })
+      // The check's store read waits until the test releases it.
+      let readStarted: () => void = () => {}
+      const started = new Promise<void>((resolve) => {
+        readStarted = resolve
+      })
+      let releaseRead: () => void = () => {}
+      const released = new Promise<void>((resolve) => {
+        releaseRead = resolve
+      })
+      const pausedRepository: Pick<AccountRepository, 'read'> = {
+        read: async () => {
+          readStarted()
+          await released
+          return first.read()
+        },
+      }
+      const credentials = createLocalAccountCredentials(manager, {
+        repository: pausedRepository,
+      })
+      const grant = captureGrant(manager)
+      const before = await first.read()
+
+      const sent: string[] = []
+      const sending = sendOnce(credentials, grant, sent).catch(
+        (error: unknown) => error,
+      )
+      await started
+      // Only the account object changes; the store row stays as it was.
+      if (change === 'access token') grant.account.access = 'another-token'
+      else grant.account.enabled = false
+      releaseRead()
+
+      expect(await sending).toBeInstanceOf(StaleAccountGrantError)
+      expect(sent).toEqual([])
+      expect(await first.read()).toEqual(before)
+    })
+  }
 })

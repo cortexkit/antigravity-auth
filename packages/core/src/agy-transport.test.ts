@@ -170,6 +170,8 @@ describe('agy transport', () => {
           'User-Agent':
             'antigravity/cli/1.1.24 (aidev_client; os_type=darwin; arch=arm64; cl=974782877; auth_method=consumer)',
           'Accept-Encoding': 'gzip',
+          'x-opencode-session-id': 'synthetic-child',
+          'x-opencode-parent-session-id': 'synthetic-parent',
         },
         body: JSON.stringify({ request: { contents: [] } }),
       },

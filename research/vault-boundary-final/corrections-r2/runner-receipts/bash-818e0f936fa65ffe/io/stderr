@@ -1,0 +1,25 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+$ tsc --noEmit
+
+packages/core/src/credential-redaction.test.ts:
+(pass) credential redaction > imports the same-job built core root through native Node ESM without a resolution shim [49.21ms]
+(pass) credential redaction > preserves safe object and symbol classification metadata on writable errors [0.76ms]
+(pass) credential redaction > preserves safe object and symbol classification metadata on frozen errors [0.12ms]
+(pass) credential redaction > redacts opaque selected-token failed diagnostic metadata with no body [1.47ms]
+(pass) credential redaction > redacts opaque selected-token failed diagnostic metadata with a body [1.49ms]
+(pass) credential redaction > leaves successful diagnostic-looking status and headers unchanged, including bodyless responses [0.12ms]
+(pass) credential redaction > releases the owned SSE reader after an unchanged safe body failure [1.20ms]
+(pass) credential redaction > releases the owned SSE reader on cancellation without changing its reason [0.32ms]
+(pass) credential redaction > removes stale SSE length while redacting fragmented error frames and preserving other metadata [0.71ms]
+(pass) credential redaction > scrubs exact selected credentials and JWT/Bearer shapes with the plain marker [0.02ms]
+(pass) credential redaction > preserves writable Error identity and classification while scrubbing non-enumerable strings and secret cause [0.12ms]
+(pass) credential redaction > retains frozen error cancellation and retry/overflow metadata in the immutable fallback [0.06ms]
+(pass) credential redaction > keeps safe causes and handles DOMException cancellation [0.03ms]
+(pass) credential redaction > only rewrites genuine error frames, not error-looking model text or tool arguments [0.08ms]
+(pass) credential redaction > preserves transformed success bytes, response metadata and cancellation reason [0.25ms]
+(pass) credential redaction > redacts fragmented SSE errors and body failures without changing status or retry headers [0.45ms]
+
+ 16 pass
+ 0 fail
+ 72 expect() calls
+Ran 16 tests across 1 file. [207.00ms]

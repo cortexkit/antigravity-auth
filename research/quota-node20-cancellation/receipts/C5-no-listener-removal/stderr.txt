@@ -1,0 +1,106 @@
+
+src/quota-manager.test.ts:
+(pass) classifyQuotaGroup > classifies Claude models into the non-Gemini pool [0.12ms]
+(pass) classifyQuotaGroup > classifies every representative Gemini model into the Gemini pool [0.03ms]
+(pass) classifyQuotaGroup > classifies tab autocomplete models into the Gemini pool [0.01ms]
+(pass) classifyQuotaGroup > classifies GPT-OSS variants into the non-Gemini pool
+(pass) classifyQuotaGroup > classifies gemini-claude-* aliases into the non-Gemini pool (Claude route wins over the gemini- prefix) [0.01ms]
+(pass) classifyQuotaGroup > returns null for unrecognized models [0.01ms]
+(pass) aggregateQuota > aggregates per-model entries into groups by minimum remaining [0.45ms]
+(pass) aggregateQuota > clamps out-of-range remaining fractions [0.03ms]
+(pass) refreshAccount > records successful fetch completion time and does not restamp a cached reading [0.59ms]
+(pass) refreshAccount > attempts the fetch and stores the result indexed by stable key [0.08ms]
+(pass) refreshAccount > treats disabled accounts as a disabled result without fetching [0.07ms]
+(pass) refreshAccount > captures fetch errors as status="error" [0.28ms]
+(pass) refreshAccount > treats resolved error results (status="error") as failures for backoff [0.12ms]
+(pass) refreshAccount > does not apply backoff for disabled results returned by the adapter [0.06ms]
+(pass) refreshAccount > dedupes concurrent fetches for the same account [20.26ms]
+(pass) refreshAccount > lets independent accounts fetch in parallel [40.42ms]
+(pass) backoff > skips fetch while inside the backoff window unless forced [0.29ms]
+(pass) backoff > grows backoff exponentially and caps at maxBackoffMs [0.19ms]
+(pass) backoff > force option bypasses backoff and triggers a fresh fetch [0.13ms]
+(pass) backoff > keeps backoffs independent per account key [0.25ms]
+(pass) getCached > returns undefined for unknown accounts [0.02ms]
+(pass) getCached > preserves result.index even when accounts reorder [0.08ms]
+(pass) dispose > aborts in-flight fetches and rejects subsequent refreshes [10.28ms]
+(pass) dispose > awaits the in-flight refresh before resolving so a post-refresh side effect is fenced [0.20ms]
+888 |         expect(ok.status).toBe('ok')
+889 |         expect(ok.error).toBeUndefined()
+890 |         expect(manager.getBackoffUntil(healthy)).toBe(0)
+891 |         expect(probe.requestedMs).toEqual([60_000])
+892 |         expect(probe.addedAbortListeners()).toBe(1)
+893 |         expect(probe.activeAbortListeners()).toBe(0)
+                                                   ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:893:46)
+      at async withoutAbortSignalAny (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:792:11)
+      at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:861:11)
+(fail) fetch cancellation without AbortSignal.any > refreshes and detaches from the deadline after success and after an error [0.54ms]
+937 |         // A deadline is an ordinary failure, not shutdown: it backs off.
+938 |         expect(manager.getBackoffUntil(account)).toBe(1_000_000 + 1_000)
+939 |         const skipped = await manager.refreshAccount(account, { index: 0 })
+940 |         expect(skipped.status).toBe('error')
+941 |         expect(harness.received).toHaveLength(1)
+942 |         expect(probe.activeAbortListeners()).toBe(0)
+                                                   ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:942:46)
+      at async withoutAbortSignalAny (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:792:11)
+      at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:912:11)
+(fail) fetch cancellation without AbortSignal.any > aborts the callback signal at the fetch deadline and records normal backoff [20.61ms]
+975 |         const signal = harness.received[0]
+976 |         expect(signal?.aborted).toBe(true)
+977 |         expect((signal?.reason as Error | undefined)?.name).toBe('AbortError')
+978 |         // Shutdown is not an account failure: no backoff is recorded.
+979 |         expect(manager.getBackoffUntil(account)).toBe(0)
+980 |         expect(probe.activeAbortListeners()).toBe(0)
+                                                   ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:980:46)
+      at async withoutAbortSignalAny (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:792:11)
+      at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:951:11)
+(fail) fetch cancellation without AbortSignal.any > aborts the callback signal on dispose without recording backoff [0.45ms]
+(pass) fetch cancellation without AbortSignal.any > does not report success for a callback that resolves after dispose [0.21ms]
+(pass) fetch cancellation without AbortSignal.any > returns an error result with backoff when the fetch deadline cannot be created [0.24ms]
+(pass) refreshAccounts > runs sequentially (preserving order) and returns attributed results [0.27ms]
+(pass) refreshAccounts > respects force to bypass backoff for every account [0.15ms]
+(pass) hashed log labels > produces a short hash label for log emissions [0.17ms]
+(pass) aggregateQuotaSummary > maps Pro (weekly+5h) groups to pools by bucketId prefix [0.41ms]
+(pass) aggregateQuotaSummary > maps Free (weekly-only) groups to pools [0.08ms]
+(pass) aggregateQuotaSummary > derives most-constrained remainingFraction and resetTime per pool [0.04ms]
+(pass) aggregateQuotaSummary > preserves window order: shortest first [0.08ms]
+(pass) aggregateQuotaSummary > sorts unknown window kinds last, deterministically [0.47ms]
+(pass) aggregateQuotaSummary > counts models from the description minus the prefix label [0.03ms]
+(pass) aggregateQuotaSummary > back-compat: treats a windows-less QuotaGroupSummary gracefully [0.02ms]
+(pass) aggregateQuotaSummary > keeps a pool when the first bucket is unrecognized [0.02ms]
+(pass) fetchQuotaSummary > returns the summary when the server responds 200 [0.07ms]
+(pass) fetchQuotaSummary > falls back to projectId when managedProjectId returns 403 [0.06ms]
+(pass) fetchQuotaSummary > throws when all project IDs fail (caller handles fallback) [0.04ms]
+(pass) fetchQuotaSummary > uses managedProjectId as primary when both IDs are present [0.04ms]
+(pass) fetchQuotaSummary > falls back to projectId when managedProjectId is missing [0.04ms]
+(pass) fetchQuotaSummary > uses managedProjectId when only managedProjectId is provided (managed-only path) [0.03ms]
+(pass) fetchQuotaSummary > fails over to the next endpoint when the first returns 500 [0.06ms]
+(pass) fetchQuotaSummary > N1: a transient 500 on the managed attempt does NOT fall through to the projectId fallback [0.06ms]
+(pass) fetchQuotaSummary > N1: a 500 on the managed attempt does not clobber the 403-fallback path [0.06ms]
+
+3 tests failed:
+(fail) fetch cancellation without AbortSignal.any > refreshes and detaches from the deadline after success and after an error [0.54ms]
+(fail) fetch cancellation without AbortSignal.any > aborts the callback signal at the fetch deadline and records normal backoff [20.61ms]
+(fail) fetch cancellation without AbortSignal.any > aborts the callback signal on dispose without recording backoff [0.45ms]
+
+ 46 pass
+ 3 fail
+ 175 expect() calls
+Ran 49 tests across 1 file. [109.00ms]

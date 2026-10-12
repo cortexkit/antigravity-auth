@@ -1,0 +1,1 @@
+./node_modules/.bin/biome --version && ./node_modules/.bin/biome check --error-on-warnings packages/core/src/quota-manager.ts packages/core/src/quota-manager.test.ts; echo "biome exit $?"; cd packages/core && ../../node_modules/.bin/tsc --version; bun run typecheck; echo "typecheck exit $?"; bun --version; bun test --isolate src/quota-manager.test.ts; echo "test exit $?"

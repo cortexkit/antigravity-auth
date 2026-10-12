@@ -1,0 +1,20 @@
+[
+  {
+    "url": "https://raw.githubusercontent.com/anomalyco/opencode/v1.17.13/packages/opencode/src/session/retry.ts",
+    "filename": "retry.ts.txt",
+    "bytes": 7152,
+    "sha256": "beb5c16324effc7c0987d7aea4a091f12282be940a4f49c704c813e810ffb837"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/anomalyco/opencode/v1.17.13/packages/opencode/src/provider/error.ts",
+    "filename": "error.ts.txt",
+    "bytes": 5738,
+    "sha256": "e2c87611d8cb331a509580dc0cea5d37a5d0677df1c9646d99cba03595eaf27b"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/anomalyco/opencode/v1.17.13/packages/opencode/package.json",
+    "filename": "package.json.txt",
+    "bytes": 5285,
+    "sha256": "efbe2660413e288c7d6fcf57b38205b5fe8976e77ff14b8097ca4672f83d439e"
+  }
+]

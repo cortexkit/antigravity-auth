@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createOpencodeClient } from '@opencode-ai/sdk'
 
-import type { AccountManager } from './accounts'
+import { AccountManager } from './accounts'
 import { DEFAULT_CONFIG } from './config'
 import { initializeDebug } from './debug'
 import { createPluginLifecycle } from './lifecycle'
-import type { ProactiveRefreshQueue } from './refresh-queue'
+import { ProactiveRefreshQueue } from './refresh-queue'
 
 function createAccountManager(
   events: string[],
@@ -330,6 +331,418 @@ describe('PluginLifecycle', () => {
       'fetch:clear',
       'registered:dispose',
     ])
+  })
+})
+
+/** A request runtime whose retirement the test finishes explicitly. */
+function createRequests(events: string[], name: string) {
+  let finishRetirement: () => void = () => {}
+  const retired = new Promise<void>((resolve) => {
+    finishRetirement = resolve
+  })
+  const requests = {
+    retire: mock(async () => {
+      events.push(`${name}:retire`)
+      await retired
+      events.push(`${name}:retired`)
+    }),
+    // Aborting admitted requests ends a retirement that is still waiting.
+    dispose: mock(async () => {
+      events.push(`${name}:abort`)
+      finishRetirement()
+    }),
+  }
+  return { requests, finishRetirement }
+}
+
+describe('PluginLifecycle request runtime retirement', () => {
+  const options = (events: string[]) => ({
+    sessionRegistry: { clear: () => {} },
+    shutdownDiskSignatureCache: async () => {},
+    clearFetchState: () => {},
+    drainSidebarWrites: async () => {
+      events.push('sidebar:drain')
+    },
+  })
+
+  it('publishes closing before synchronous disposal-hook admissions', async () => {
+    const events: string[] = []
+    const lifecycle = createPluginLifecycle(options(events))
+    const manager = new AccountManager()
+    manager.dispose = mock(async () => {
+      events.push('live-manager:dispose')
+    })
+    const offeredManager = new AccountManager()
+    offeredManager.dispose = mock(async () => {
+      events.push('offered-manager:dispose')
+    })
+    const client = createOpencodeClient()
+    const offeredQueue = new ProactiveRefreshQueue(client, 'google')
+    offeredQueue.dispose = mock(async () => {
+      events.push('offered-queue:dispose')
+    })
+    const offeredRequests = {
+      retire: mock(async () => {}),
+      dispose: mock(async () => {
+        events.push('offered-requests:abort')
+      }),
+    }
+    let closingInHook = false
+    let offered = Promise.resolve(true)
+    const registeredDispose = mock(() => {
+      events.push('reentrant-registration:dispose')
+    })
+    await lifecycle.replaceAccountRuntime(manager, null, {
+      retire: async () => {},
+      dispose() {
+        events.push('live-requests:abort')
+        closingInHook = lifecycle.isClosing()
+        offered = lifecycle.replaceAccountRuntime(
+          offeredManager,
+          offeredQueue,
+          offeredRequests,
+        )
+        lifecycle.register({ dispose: registeredDispose }, 'producer')
+      },
+    })
+
+    expect(lifecycle.isClosing()).toBe(false)
+    const disposal = lifecycle.dispose()
+    // Both admissions run inside the first dispose call, before its async
+    // body returns a promise. A promise assigned afterward cannot fence them.
+    expect(closingInHook).toBe(true)
+    expect(registeredDispose).toHaveBeenCalledTimes(1)
+    expect(events).toEqual([
+      'live-requests:abort',
+      'offered-requests:abort',
+      'reentrant-registration:dispose',
+    ])
+    expect(await offered).toBe(false)
+    await disposal
+    expect(lifecycle.isClosing()).toBe(true)
+    expect(lifecycle.getAccountManager()).toBeNull()
+    expect(offeredRequests.retire).not.toHaveBeenCalled()
+    expect(offeredRequests.dispose).toHaveBeenCalledTimes(1)
+    expect(offeredQueue.dispose).toHaveBeenCalledTimes(1)
+    expect(offeredManager.dispose).toHaveBeenCalledTimes(1)
+    expect(manager.dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('joins synchronous reentrant final disposal before any owned drain finishes', async () => {
+    let finishRequests: () => void = () => {}
+    const heldDrain = new Promise<void>((resolve) => {
+      finishRequests = resolve
+    })
+    const events: string[] = []
+    const cacheShutdown = mock(async () => {
+      events.push('cache:shutdown')
+    })
+    const sidebarDrain = mock(async () => {
+      events.push('sidebar:drain')
+    })
+    const producerDispose = mock(async () => {
+      events.push('producer:dispose')
+    })
+    const consumerDispose = mock(async () => {
+      events.push('consumer:dispose')
+    })
+    const lifecycle = createPluginLifecycle({
+      ...options(events),
+      shutdownDiskSignatureCache: cacheShutdown,
+      drainSidebarWrites: sidebarDrain,
+    })
+    lifecycle.register({ dispose: producerDispose }, 'producer')
+    lifecycle.register({ dispose: consumerDispose }, 'consumer')
+    const manager = new AccountManager()
+    manager.dispose = mock(async () => {
+      events.push('manager:dispose')
+    })
+    const queue = new ProactiveRefreshQueue(createOpencodeClient(), 'google')
+    queue.dispose = mock(async () => {
+      events.push('queue:stop')
+    })
+    const reentry: { promise?: Promise<void> | void } = {}
+    const requestDispose = mock(() => {
+      events.push('requests:abort')
+      reentry.promise = lifecycle.dispose()
+      return heldDrain
+    })
+    await lifecycle.replaceAccountRuntime(manager, queue, {
+      retire: async () => {},
+      dispose: requestDispose,
+    })
+
+    const first = lifecycle.dispose()
+    try {
+      expect(events).toEqual(['requests:abort', 'queue:stop'])
+      const reentered = reentry.promise
+      expect(reentered).toBe(first)
+      if (!first || !reentered) throw new Error('No shutdown promise returned')
+      let firstFinished = false
+      let reentryFinished = false
+      void first.then(() => {
+        firstFinished = true
+      })
+      void reentered.then(() => {
+        reentryFinished = true
+      })
+      // Give a mistakenly independent shutdown body time to reach consumers
+      // while the original request still owns the held drain.
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(firstFinished).toBe(false)
+      expect(reentryFinished).toBe(false)
+      expect(lifecycle.isClosing()).toBe(true)
+      expect(events).toEqual(['requests:abort', 'queue:stop'])
+      expect(requestDispose).toHaveBeenCalledTimes(1)
+      expect(queue.dispose).toHaveBeenCalledTimes(1)
+      expect(manager.dispose).not.toHaveBeenCalled()
+      expect(cacheShutdown).not.toHaveBeenCalled()
+      expect(sidebarDrain).not.toHaveBeenCalled()
+      expect(producerDispose).not.toHaveBeenCalled()
+      expect(consumerDispose).not.toHaveBeenCalled()
+    } finally {
+      finishRequests()
+      await Promise.all([first, reentry.promise])
+    }
+    expect(manager.dispose).toHaveBeenCalledTimes(1)
+    expect(cacheShutdown).toHaveBeenCalledTimes(1)
+    expect(sidebarDrain).toHaveBeenCalledTimes(1)
+    expect(producerDispose).toHaveBeenCalledTimes(1)
+    expect(consumerDispose).toHaveBeenCalledTimes(1)
+    expect(events.indexOf('consumer:dispose')).toBeGreaterThan(
+      events.indexOf('manager:dispose'),
+    )
+  })
+
+  it('retires a replaced request runtime and disposes its manager only after the retirement finishes', async () => {
+    const events: string[] = []
+    const lifecycle = createPluginLifecycle(options(events))
+    let markOldManagerDisposed: () => void = () => {}
+    const oldManagerDisposed = new Promise<void>((resolve) => {
+      markOldManagerDisposed = resolve
+    })
+    const oldManager = {
+      dispose: mock(async () => {
+        events.push('old-manager:flush')
+        events.push('old-manager:dispose')
+        markOldManagerDisposed()
+      }),
+    } as unknown as AccountManager
+    const newManager = createAccountManager(events, 'new-manager')
+    const old = createRequests(events, 'old-requests')
+    const fresh = createRequests(events, 'new-requests')
+    try {
+      await lifecycle.replaceAccountRuntime(
+        oldManager,
+        createRefreshQueue(events, 'old-queue'),
+        old.requests,
+      )
+      expect(
+        await lifecycle.replaceAccountRuntime(
+          newManager,
+          createRefreshQueue(events, 'new-queue'),
+          fresh.requests,
+        ),
+      ).toBe(true)
+      expect(lifecycle.getAccountManager()).toBe(newManager)
+      // The old queue's timers stop at once; the old manager stays open.
+      expect(events).toEqual(['old-queue:dispose', 'old-requests:retire'])
+
+      old.finishRetirement()
+      await oldManagerDisposed
+      expect(events).toEqual([
+        'old-queue:dispose',
+        'old-requests:retire',
+        'old-requests:retired',
+        'old-manager:flush',
+        'old-manager:dispose',
+      ])
+      expect(old.requests.dispose).not.toHaveBeenCalled()
+      expect(newManager.dispose).not.toHaveBeenCalled()
+    } finally {
+      await lifecycle.dispose()
+    }
+  })
+
+  it('keeps a replaced manager open until its queue finishes a refresh under way, and final disposal still owns it meanwhile', async () => {
+    const events: string[] = []
+    const lifecycle = createPluginLifecycle(options(events))
+    let finishRefresh: () => void = () => {}
+    const refreshing = new Promise<void>((resolve) => {
+      finishRefresh = resolve
+    })
+    const oldQueue = {
+      dispose: mock(async () => {
+        events.push('old-queue:stop')
+        await refreshing
+        events.push('old-queue:drained')
+      }),
+    } as unknown as ProactiveRefreshQueue
+    // The request runtime has no admitted request: its retirement ends at
+    // once, so only the queue keeps the old manager open.
+    const oldRequests = {
+      retire: mock(async () => {
+        events.push('old-requests:retired')
+      }),
+      dispose: mock(async () => {
+        events.push('old-requests:abort')
+      }),
+    }
+    await lifecycle.replaceAccountRuntime(
+      createAccountManager(events, 'old-manager'),
+      oldQueue,
+      oldRequests,
+    )
+    const replaced = lifecycle.replaceAccountRuntime(
+      createAccountManager(events, 'new-manager'),
+      null,
+      createRequests(events, 'new-requests').requests,
+    )
+    await oldRequests.retire.mock.results[0]?.value
+    // Final disposal begins while the old queue is still refreshing.
+    const disposal = lifecycle.dispose()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(events).toEqual([
+      'old-queue:stop',
+      'old-requests:retired',
+      'old-requests:abort',
+    ])
+
+    finishRefresh()
+    expect(await replaced).toBe(false)
+    await disposal
+    // The replaced manager is disposed only after its queue drained, and
+    // before the sidebar drain; the refused replacement is disposed too.
+    const at = (event: string) => events.indexOf(event)
+    expect(at('old-queue:drained')).toBeGreaterThan(-1)
+    expect(at('old-manager:dispose')).toBeGreaterThan(at('old-queue:drained'))
+    expect(at('sidebar:drain')).toBeGreaterThan(at('old-manager:dispose'))
+    expect(events).toContain('new-requests:abort')
+    expect(events).toContain('new-manager:dispose')
+    expect(events.at(-1)).toBe('sidebar:drain')
+  })
+
+  it('aborts live and retired request runtimes before any manager is disposed, and before producers and the sidebar drain', async () => {
+    const events: string[] = []
+    const lifecycle = createPluginLifecycle(options(events))
+    lifecycle.register(
+      {
+        dispose: () => {
+          events.push('producer:dispose')
+        },
+      },
+      'producer',
+    )
+    const old = createRequests(events, 'old-requests')
+    const live = createRequests(events, 'live-requests')
+    await lifecycle.replaceAccountRuntime(
+      createAccountManager(events, 'old-manager'),
+      null,
+      old.requests,
+    )
+    await lifecycle.replaceAccountRuntime(
+      createAccountManager(events, 'live-manager'),
+      createRefreshQueue(events, 'live-queue'),
+      live.requests,
+    )
+
+    await lifecycle.dispose()
+
+    // The live queue stops together with the aborts, before any manager is
+    // disposed.
+    expect(events).toEqual([
+      'old-requests:retire',
+      'live-requests:abort',
+      'old-requests:abort',
+      'live-queue:dispose',
+      'old-requests:retired',
+      'old-manager:flush',
+      'old-manager:dispose',
+      'live-manager:flush',
+      'live-manager:dispose',
+      'producer:dispose',
+      'sidebar:drain',
+    ])
+    expect(live.requests.retire).not.toHaveBeenCalled()
+    expect(lifecycle.getAccountManager()).toBeNull()
+  })
+
+  it('stops the live refresh queue as shutdown begins, while its request runtime is still draining, and disposes the manager after both', async () => {
+    const events: string[] = []
+    const lifecycle = createPluginLifecycle(options(events))
+    let finishAbort: () => void = () => {}
+    const abortHeld = new Promise<void>((resolve) => {
+      finishAbort = resolve
+    })
+    let finishRefresh: () => void = () => {}
+    const refreshHeld = new Promise<void>((resolve) => {
+      finishRefresh = resolve
+    })
+    await lifecycle.replaceAccountRuntime(
+      createAccountManager(events, 'live-manager'),
+      {
+        dispose: mock(async () => {
+          events.push('live-queue:stop')
+          await refreshHeld
+          events.push('live-queue:drained')
+        }),
+      } as unknown as ProactiveRefreshQueue,
+      {
+        retire: mock(async () => {}),
+        // An admitted stream still draining after its abort.
+        dispose: mock(async () => {
+          events.push('live-requests:abort')
+          await abortHeld
+          events.push('live-requests:drained')
+        }),
+      },
+    )
+
+    const disposal = lifecycle.dispose()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const whileDraining = [...events]
+    finishAbort()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const whileRefreshing = [...events]
+    finishRefresh()
+    await disposal
+
+    expect({ whileDraining, whileRefreshing }).toEqual({
+      whileDraining: ['live-requests:abort', 'live-queue:stop'],
+      whileRefreshing: [
+        'live-requests:abort',
+        'live-queue:stop',
+        'live-requests:drained',
+      ],
+    })
+    expect(events.slice(3)).toEqual([
+      'live-queue:drained',
+      'live-manager:flush',
+      'live-manager:dispose',
+      'sidebar:drain',
+    ])
+  })
+
+  it('disposes an offered request runtime, queue and manager once disposal has begun', async () => {
+    const events: string[] = []
+    const lifecycle = createPluginLifecycle(options(events))
+    const disposal = lifecycle.dispose()
+    const late = createRequests(events, 'late-requests')
+
+    expect(
+      await lifecycle.replaceAccountRuntime(
+        createAccountManager(events, 'late-manager'),
+        createRefreshQueue(events, 'late-queue'),
+        late.requests,
+      ),
+    ).toBe(false)
+    await disposal
+
+    expect(events).toContain('late-requests:abort')
+    expect(events).toContain('late-queue:dispose')
+    expect(events).toContain('late-manager:dispose')
+    expect(late.requests.retire).not.toHaveBeenCalled()
+    expect(lifecycle.getAccountManager()).toBeNull()
   })
 })
 

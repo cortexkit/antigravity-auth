@@ -1,0 +1,11 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/opencode/src/plugin/shared/request-services.test.ts:
+(pass) createRequestExecutor retry contract > redacts the actual local project-lookup bearer before cancellation returns its terminal failure [8.32ms]
+(pass) createRequestExecutor vault admissions > scrubs distinct auxiliary vault bearers before cache-warmup diagnostics reach the sink [1006.95ms]
+
+ 2 pass
+ 59 filtered out
+ 0 fail
+ 15 expect() calls
+Ran 2 tests across 1 file. [1286.00ms]

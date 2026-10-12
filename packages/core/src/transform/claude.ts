@@ -12,7 +12,7 @@ import {
   EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION,
   EMPTY_SCHEMA_PLACEHOLDER_NAME,
 } from '../constants.ts'
-import type { RequestPayload, ThinkingConfig } from './types.ts'
+import type { RequestPayload } from './types.ts'
 
 /** Claude thinking models need a sufficiently large max output token limit when thinking is enabled */
 export const CLAUDE_THINKING_MAX_OUTPUT_TOKENS = 64_000
@@ -52,11 +52,13 @@ export function isClaudeModel(model: string): boolean {
  */
 export function isClaudeThinkingModel(model: string): boolean {
   const lower = model.toLowerCase()
-  // Native AGY names Sonnet 4.6 without a `-thinking` suffix even though the
-  // route always uses signed thinking with a fixed 1024-token budget.
+  // Opus/Sonnet 5.5 and historical Sonnet 4.6 IDs omit `-thinking`.
+  // Recognizing their thinking blocks does not authorize retired model requests.
   return (
     lower.includes('claude') &&
-    (lower.includes('thinking') || lower.endsWith('claude-sonnet-4-6'))
+    (lower.includes('thinking') ||
+      lower.endsWith('claude-sonnet-4-6') ||
+      /claude-(opus|sonnet)-5-5(?:-(low|medium|high))?$/.test(lower))
   )
 }
 
@@ -85,18 +87,19 @@ export function configureClaudeToolConfig(payload: RequestPayload): void {
 }
 
 /**
- * Build Claude thinking config with snake_case keys.
+ * Build the legacy intermediate config. Request adapters normalize its
+ * snake_case keys before sending an Antigravity request.
  */
 export function buildClaudeThinkingConfig(
   includeThoughts: boolean,
   thinkingBudget?: number,
-): ThinkingConfig {
+): { include_thoughts: boolean; thinking_budget?: number } {
   return {
     include_thoughts: includeThoughts,
     ...(typeof thinkingBudget === 'number' && thinkingBudget > 0
       ? { thinking_budget: thinkingBudget }
       : {}),
-  } as unknown as ThinkingConfig
+  }
 }
 
 /**

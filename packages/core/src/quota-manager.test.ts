@@ -7,7 +7,6 @@ import {
   createQuotaManager,
   type FetchAccountQuota,
   fetchQuotaSummary,
-  type RetrieveUserQuotaSummaryBucket,
   type RetrieveUserQuotaSummaryResponse,
 } from './quota-manager.ts'
 import type { AccountQuotaResult } from './quota-types.ts'
@@ -75,7 +74,9 @@ afterEach(() => {
   managers = []
 })
 
-function track(disposable: { dispose: () => void }) {
+// Generic so callers keep the full manager type (refreshAccount, getCached,
+// ...) while the afterEach hook only needs dispose().
+function track<T extends { dispose: () => void }>(disposable: T): T {
   managers.push(disposable)
   return disposable
 }
@@ -212,6 +213,27 @@ describe('aggregateQuota', () => {
 })
 
 describe('refreshAccount', () => {
+  it('records successful fetch completion time and does not restamp a cached reading', async () => {
+    const harness = makeHarness()
+    let now = 1_000
+    const manager = track(
+      createQuotaManager({
+        keyOf: keyOfAccount,
+        now: () => now,
+        fetchAccountQuota: async (...args) => {
+          const result = await harness.fetch(...args)
+          now = 2_000
+          return result
+        },
+      }),
+    )
+    const account = makeAccount({ email: 'dated@example.com' })
+    const result = await manager.refreshAccount(account, { index: 0 })
+    expect(result.checkedAt).toBe(2_000)
+    now = 10_000
+    expect(manager.getCached(account)?.checkedAt).toBe(2_000)
+  })
+
   it('attempts the fetch and stores the result indexed by stable key', async () => {
     const harness = makeHarness()
     const manager = track(
@@ -643,11 +665,13 @@ describe('dispose', () => {
     // side-effect attached to the refresh promise stands in for that
     // continuation here.
     const order: string[] = []
-    let resolveFetch: ((result: AccountQuotaResult) => void) | null = null
+    // Held in an object so TypeScript does not narrow the closure-assigned
+    // release callback to `null` (and then `never`) at the call site below.
+    const fetchGate: { release: (() => void) | null } = { release: null }
     const fetch: FetchAccountQuota = (account) => {
       order.push('fetch:start')
       return new Promise<AccountQuotaResult>((resolve) => {
-        resolveFetch = () =>
+        fetchGate.release = () =>
           resolve({
             index: 0,
             status: 'ok',
@@ -673,7 +697,7 @@ describe('dispose', () => {
         return result
       })
 
-    // The fetch is now mid-flight (awaiting resolveFetch). Kick off
+    // The fetch is now mid-flight (awaiting fetchGate.release). Kick off
     // dispose, then release the fetch — dispose must await the in-flight
     // refresh and its continuation before resolving.
     const disposed = manager.dispose().then(() => {
@@ -681,12 +705,374 @@ describe('dispose', () => {
       // The producer's side-effect was scheduled before dispose resolved.
       expect(sideEffectRan).toBe(true)
     })
-    resolveFetch?.()
+    fetchGate.release?.()
 
     await Promise.all([disposed, pending])
 
     // fetch:start → (in-flight refresh settles + side-effect) → dispose.
     expect(order).toEqual(['fetch:start', 'side-effect', 'dispose:resolved'])
+  })
+})
+
+// Node 20.0.0 is the oldest runtime the published packages support. It has
+// AbortSignal.timeout but not AbortSignal.any (added in Node 20.3.0), so
+// these tests remove `any` for the duration of one test. They also wrap
+// AbortSignal.timeout to record each deadline signal the manager creates and
+// the 'abort' listeners attached to it, so a test can prove the manager
+// detaches from the deadline once the fetch callback settles.
+interface DeadlineProbe {
+  requestedMs: number[]
+  signals: AbortSignal[]
+  addedAbortListeners: () => number
+  activeAbortListeners: () => number
+}
+
+async function withoutAbortSignalAny(
+  run: (probe: DeadlineProbe) => Promise<void>,
+): Promise<void> {
+  const anyDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'any')
+  const timeoutDescriptor = Object.getOwnPropertyDescriptor(
+    AbortSignal,
+    'timeout',
+  )
+  if (typeof timeoutDescriptor?.value !== 'function') {
+    throw new Error('AbortSignal.timeout is required by these tests')
+  }
+  const realTimeout = timeoutDescriptor.value as (ms: number) => AbortSignal
+
+  const requestedMs: number[] = []
+  const signals: AbortSignal[] = []
+  const active = new Set<unknown>()
+  let added = 0
+
+  const probe: DeadlineProbe = {
+    requestedMs,
+    signals,
+    addedAbortListeners: () => added,
+    activeAbortListeners: () => active.size,
+  }
+
+  const trackedTimeout = (ms: number): AbortSignal => {
+    const signal = Reflect.apply(realTimeout, AbortSignal, [ms]) as AbortSignal
+    requestedMs.push(ms)
+    signals.push(signal)
+    const addListener = EventTarget.prototype.addEventListener
+    const removeListener = EventTarget.prototype.removeEventListener
+    Object.defineProperty(signal, 'addEventListener', {
+      configurable: true,
+      value(type: string, listener: unknown, options?: unknown) {
+        if (type === 'abort' && listener != null) {
+          added += 1
+          active.add(listener)
+        }
+        return Reflect.apply(addListener, signal, [type, listener, options])
+      },
+    })
+    Object.defineProperty(signal, 'removeEventListener', {
+      configurable: true,
+      value(type: string, listener: unknown, options?: unknown) {
+        if (type === 'abort') active.delete(listener)
+        return Reflect.apply(removeListener, signal, [type, listener, options])
+      },
+    })
+    return signal
+  }
+
+  try {
+    if (!Reflect.deleteProperty(AbortSignal, 'any')) {
+      throw new Error('could not remove AbortSignal.any')
+    }
+    Object.defineProperty(AbortSignal, 'timeout', {
+      ...timeoutDescriptor,
+      value: trackedTimeout,
+    })
+    // Guard against a runtime that keeps `any` reachable some other way:
+    // the tests below only mean something when the API is truly absent.
+    expect('any' in AbortSignal).toBe(false)
+    await run(probe)
+  } finally {
+    if (anyDescriptor) {
+      Object.defineProperty(AbortSignal, 'any', anyDescriptor)
+    } else {
+      Reflect.deleteProperty(AbortSignal, 'any')
+    }
+    Object.defineProperty(AbortSignal, 'timeout', timeoutDescriptor)
+  }
+}
+
+const STILL_PENDING = Symbol('still pending')
+
+// Races `promise` against a bounded timer so a test can record that a promise
+// is still pending, release whatever it waits on, and only then assert. A
+// failed assertion before the release would leave the fetch callback (and
+// therefore dispose()) waiting forever.
+async function settleWithin<T>(
+  promise: Promise<T>,
+  ms: number,
+): Promise<T | typeof STILL_PENDING> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const bound = new Promise<typeof STILL_PENDING>((resolve) => {
+    timer = setTimeout(() => resolve(STILL_PENDING), ms)
+  })
+  try {
+    return await Promise.race([promise, bound])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// A fetch callback that waits until either its signal aborts (rejecting with
+// the signal's reason, as fetch() does) or the test calls release() (then
+// resolving with an ok result). release() is idempotent so tests can call it
+// unconditionally during teardown.
+function makeSignalWaitingFetch() {
+  const received: AbortSignal[] = []
+  let release: () => void = () => {}
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const fetch: FetchAccountQuota = async (account, signal) => {
+    received.push(signal)
+    await new Promise<void>((resolve, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason)
+        return
+      }
+      const onAbort = () => reject(signal.reason)
+      signal.addEventListener('abort', onAbort, { once: true })
+      void released.then(() => {
+        signal.removeEventListener('abort', onAbort)
+        resolve()
+      })
+    })
+    return {
+      index: 0,
+      status: 'ok',
+      email: account.email,
+      quota: { groups: {}, modelCount: 0 },
+    }
+  }
+  return { fetch, received, release: () => release() }
+}
+
+describe('fetch cancellation without AbortSignal.any', () => {
+  it('refreshes and detaches from the deadline after success and after an error', async () => {
+    const originalAny = AbortSignal.any
+    await withoutAbortSignalAny(async (probe) => {
+      let calls = 0
+      const fetch: FetchAccountQuota = async (account) => {
+        calls += 1
+        if (account.email === 'broken@example.com') {
+          throw new Error('synthetic adapter failure')
+        }
+        return {
+          index: 0,
+          status: 'ok',
+          email: account.email,
+          quota: { groups: {}, modelCount: 0 },
+        }
+      }
+      const manager = track(
+        createQuotaManager({
+          fetchAccountQuota: fetch,
+          keyOf: keyOfAccount,
+          now: () => 1_000_000,
+          baseBackoffMs: 1_000,
+          maxBackoffMs: 8_000,
+          fetchTimeoutMs: 60_000,
+        }),
+      )
+      try {
+        const healthy = makeAccount({ email: 'healthy@example.com' })
+        const ok = await manager.refreshAccount(healthy, { index: 0 })
+        expect(ok.status).toBe('ok')
+        expect(ok.error).toBeUndefined()
+        expect(manager.getBackoffUntil(healthy)).toBe(0)
+        expect(probe.requestedMs).toEqual([60_000])
+        expect(probe.addedAbortListeners()).toBe(1)
+        expect(probe.activeAbortListeners()).toBe(0)
+
+        const broken = makeAccount({ email: 'broken@example.com' })
+        const failed = await manager.refreshAccount(broken, { index: 1 })
+        expect(failed.status).toBe('error')
+        expect(failed.error).toBe('synthetic adapter failure')
+        expect(manager.getBackoffUntil(broken)).toBe(1_000_000 + 1_000)
+        expect(probe.requestedMs).toEqual([60_000, 60_000])
+        expect(probe.addedAbortListeners()).toBe(2)
+        expect(probe.activeAbortListeners()).toBe(0)
+        expect(calls).toBe(2)
+      } finally {
+        await manager.dispose()
+      }
+    })
+    expect(AbortSignal.any).toBe(originalAny)
+  })
+
+  it('aborts the callback signal at the fetch deadline and records normal backoff', async () => {
+    await withoutAbortSignalAny(async (probe) => {
+      const harness = makeSignalWaitingFetch()
+      const manager = track(
+        createQuotaManager({
+          fetchAccountQuota: harness.fetch,
+          keyOf: keyOfAccount,
+          now: () => 1_000_000,
+          baseBackoffMs: 1_000,
+          maxBackoffMs: 8_000,
+          fetchTimeoutMs: 20,
+        }),
+      )
+      const account = makeAccount({ email: 'slow@example.com' })
+      try {
+        const pending = manager.refreshAccount(account, { index: 0 })
+        const observed = await settleWithin(pending, 1_000)
+        harness.release()
+        await pending
+
+        expect(observed).not.toBe(STILL_PENDING)
+        if (observed === STILL_PENDING) return
+        expect(observed.status).toBe('error')
+        const signal = harness.received[0]
+        expect(signal?.aborted).toBe(true)
+        expect((signal?.reason as Error | undefined)?.name).toBe('TimeoutError')
+        // A deadline is an ordinary failure, not shutdown: it backs off.
+        expect(manager.getBackoffUntil(account)).toBe(1_000_000 + 1_000)
+        const skipped = await manager.refreshAccount(account, { index: 0 })
+        expect(skipped.status).toBe('error')
+        expect(harness.received).toHaveLength(1)
+        expect(probe.activeAbortListeners()).toBe(0)
+      } finally {
+        harness.release()
+        await manager.dispose()
+      }
+    })
+  })
+
+  it('aborts the callback signal on dispose without recording backoff', async () => {
+    await withoutAbortSignalAny(async (probe) => {
+      const harness = makeSignalWaitingFetch()
+      const manager = track(
+        createQuotaManager({
+          fetchAccountQuota: harness.fetch,
+          keyOf: keyOfAccount,
+          now: () => 1_000_000,
+          baseBackoffMs: 1_000,
+          maxBackoffMs: 8_000,
+          fetchTimeoutMs: 60_000,
+        }),
+      )
+      const account = makeAccount({ email: 'shutdown@example.com' })
+      let disposing: Promise<void> | undefined
+      try {
+        const pending = manager.refreshAccount(account, { index: 0 })
+        disposing = manager.dispose()
+        const observed = await settleWithin(pending, 1_000)
+        harness.release()
+        await Promise.all([pending, disposing])
+
+        expect(observed).not.toBe(STILL_PENDING)
+        if (observed === STILL_PENDING) return
+        expect(observed.status).toBe('error')
+        const signal = harness.received[0]
+        expect(signal?.aborted).toBe(true)
+        expect((signal?.reason as Error | undefined)?.name).toBe('AbortError')
+        // Shutdown is not an account failure: no backoff is recorded.
+        expect(manager.getBackoffUntil(account)).toBe(0)
+        expect(probe.activeAbortListeners()).toBe(0)
+        const after = await manager.refreshAccount(account, { index: 0 })
+        expect(after.error).toBe('quota manager disposed')
+      } finally {
+        harness.release()
+        await (disposing ?? manager.dispose())
+      }
+    })
+  })
+
+  it('does not report success for a callback that resolves after dispose', async () => {
+    await withoutAbortSignalAny(async () => {
+      // Held in an object so TypeScript keeps the closure-assigned release
+      // callback's type at the call site below.
+      const gate: { release: (() => void) | null } = { release: null }
+      const fetch: FetchAccountQuota = (account) =>
+        new Promise<AccountQuotaResult>((resolve) => {
+          // Ignores its signal on purpose, like a callback that finishes
+          // parsing a body after cancellation was requested.
+          gate.release = () =>
+            resolve({
+              index: 0,
+              status: 'ok',
+              email: account.email,
+              quota: { groups: {}, modelCount: 0 },
+            })
+        })
+      const manager = track(
+        createQuotaManager({
+          fetchAccountQuota: fetch,
+          keyOf: keyOfAccount,
+          fetchTimeoutMs: 60_000,
+        }),
+      )
+      const account = makeAccount({ email: 'late@example.com' })
+      const pending = manager.refreshAccount(account, { index: 0 })
+      const disposing = manager.dispose()
+      gate.release?.()
+      const [result] = await Promise.all([pending, disposing])
+      expect(result.status).toBe('error')
+      expect(manager.getCached(account)?.status).toBe('error')
+      expect(manager.getBackoffUntil(account)).toBe(0)
+    })
+  })
+
+  it('returns an error result with backoff when the fetch deadline cannot be created', async () => {
+    // fetchTimeoutMs is passed to AbortSignal.timeout unvalidated; a value
+    // the runtime rejects must surface as the refresh's error result, not as
+    // a rejected refresh promise.
+    let expectedError = ''
+    try {
+      AbortSignal.timeout(-1)
+    } catch (error) {
+      expectedError = error instanceof Error ? error.message : String(error)
+    }
+    expect(expectedError).not.toBe('')
+
+    let calls = 0
+    const fetch: FetchAccountQuota = async (account) => {
+      calls += 1
+      return {
+        index: 0,
+        status: 'ok',
+        email: account.email,
+        quota: { groups: {}, modelCount: 0 },
+      }
+    }
+    const manager = track(
+      createQuotaManager({
+        fetchAccountQuota: fetch,
+        keyOf: keyOfAccount,
+        now: () => 1_000_000,
+        baseBackoffMs: 1_000,
+        maxBackoffMs: 8_000,
+        fetchTimeoutMs: -1,
+      }),
+    )
+    const account = makeAccount({ email: 'invalid-deadline@example.com' })
+    try {
+      const result = await manager.refreshAccount(account, { index: 3 })
+      expect(result.status).toBe('error')
+      expect(result.index).toBe(3)
+      expect(result.error).toBe(expectedError)
+      expect(calls).toBe(0)
+      expect(manager.getBackoffUntil(account)).toBe(1_000_000 + 1_000)
+      // The refresh finished, so a forced retry starts a new attempt rather
+      // than waiting on a leftover in-flight entry.
+      const retry = await manager.refreshAccount(account, {
+        index: 3,
+        force: true,
+      })
+      expect(retry.error).toBe(expectedError)
+      expect(manager.getBackoffUntil(account)).toBe(1_000_000 + 2_000)
+    } finally {
+      await manager.dispose()
+    }
   })
 })
 
@@ -864,8 +1250,13 @@ describe('aggregateQuotaSummary', () => {
     }
   })
 
-  it('sorts unknown window kinds last, deterministically', () => {
-    const buckets: RetrieveUserQuotaSummaryBucket[] = [
+  it('sorts unknown window kinds last, deterministically', async () => {
+    // The server can send window kinds this client does not model yet
+    // ('daily' here); RetrieveUserQuotaSummaryBucket only types the known
+    // ones. fetchQuotaSummary passes the parsed JSON body through
+    // unvalidated, so feed this raw wire payload through it instead of
+    // building a typed response that cannot express an unknown window.
+    const buckets = [
       {
         bucketId: 'gemini-weekly',
         displayName: 'Weekly',
@@ -888,18 +1279,28 @@ describe('aggregateQuotaSummary', () => {
         remainingFraction: 0.8,
       },
     ]
-    const summary = aggregateQuotaSummary({
+    const wirePayload = {
       groups: [
         { displayName: 'Gemini', buckets, description: 'Models: A, B, C' },
       ],
+    }
+    const { summary: response } = await fetchQuotaSummary({
+      accessToken: 'tok',
+      managedProjectId: 'mp',
+      endpoints: ['http://127.0.0.1:1'],
+      fetchVia: async () =>
+        new Response(JSON.stringify(wirePayload), { status: 200 }),
     })
+    const summary = aggregateQuotaSummary(response)
     const windows = summary.groups.gemini!.windows!
     expect(windows).toHaveLength(3)
     // Known windows sorted shortest-first: 5h → weekly
     expect(windows[0]!.window).toBe('5h')
     expect(windows[1]!.window).toBe('weekly')
-    // Unknown window ('daily') sorts last
-    expect(windows[2]!.window).toBe('daily')
+    // Unknown window ('daily') sorts last. QuotaWindow does not include it,
+    // so read the value as a plain string to assert the raw kind survived.
+    const unknownWindow: string = windows[2]!.window
+    expect(unknownWindow).toBe('daily')
   })
 
   it('counts models from the description minus the prefix label', () => {

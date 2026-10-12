@@ -1,18 +1,21 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  mock,
-  spyOn,
-} from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { beforeEach, describe, expect, mock, spyOn } from 'bun:test'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
-import type { AccountMetadataV3 } from '@cortexkit/antigravity-auth-core'
+import {
+  type AccountMetadataV3,
+  type AccountRepository,
+  type CommonAuthStoreModules,
+  createAccountRepositoryFactory,
+  loadCommonAuthStoreModules,
+  type VaultRouteRef,
+  type VaultSendAdmission,
+} from '@cortexkit/antigravity-auth-core'
 
+import { lifetimeHooks } from '../../../../test/fixtures/lifetime-hooks.ts'
 import {
   DEFAULT_SIDEBAR_STATE,
   drainSidebarWrites,
@@ -20,15 +23,29 @@ import {
   SIDEBAR_STATE_ENV,
   SIDEBAR_STATE_VERSION,
   type SidebarStateV1,
+  setSidebarMachineState,
   setSidebarMergeHooks,
 } from '../sidebar-state'
+import { managedStoreModules } from './__fixtures__/managed-store.test.ts'
+import {
+  createLocalAccountCredentials,
+  loadAccountManagerFromRepository,
+} from './accounts.ts'
 import { registerQuotaManagerProducer } from './index.ts'
 import { createPluginLifecycle } from './lifecycle.ts'
+import type { Logger } from './logger.ts'
+import { commitLogins } from './persist-account-pool.ts'
 import {
   classifyQuotaGroup,
+  createAuthorizedFetchAccountQuota,
+  createLocationQuotaManager,
   createOpenCodeQuotaManager,
+  createStoreQuotaService,
+  fetchVaultAccountQuota,
   pushSidebarQuotaSnapshot,
+  type VaultQuotaSource,
 } from './quota.ts'
+import { initializeFreshAccountStoreFor, openAccountStore } from './storage.ts'
 import type { PluginClient } from './types.ts'
 
 interface QuotaSnapshotAccount {
@@ -38,6 +55,9 @@ interface QuotaSnapshotAccount {
   coolingDownUntil?: number
   cachedQuota?: AccountMetadataV3['cachedQuota']
 }
+
+const hooks = lifetimeHooks()
+const { it, afterEach } = hooks
 
 describe('classifyQuotaGroup', () => {
   it('uses live Antigravity model ids for quota groups', () => {
@@ -198,6 +218,9 @@ describe('pushSidebarQuotaSnapshot', () => {
     const cliGate = new Promise<void>((resolve) => {
       releaseCli = resolve
     })
+    const owner = hooks.lifetime
+    owner.unpark(releaseSummary)
+    owner.unpark(releaseCli)
 
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
       input: unknown,
@@ -211,6 +234,7 @@ describe('pushSidebarQuotaSnapshot', () => {
       if (url.includes('retrieveUserQuotaSummary')) {
         summarySeq.seq += 1
         await summaryGate
+        owner.signal.throwIfAborted()
         summarySeq.seq += 1
         return new Response(
           JSON.stringify({
@@ -235,11 +259,13 @@ describe('pushSidebarQuotaSnapshot', () => {
       if (url.includes('retrieveUserQuota')) {
         cliSeq.seq += 1
         await cliGate
+        owner.signal.throwIfAborted()
         cliSeq.seq += 1
         return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
       }
-      // Token refresh + anything else: return a pliable JSON
-      // response so the rest of the quota pipeline can carry on.
+      // Token refresh and every other request: a successful answer carrying
+      // an access token, so token refresh and project lookup succeed and
+      // the quota pipeline carries on.
       return new Response(
         JSON.stringify({
           access_token: 'access-token',
@@ -372,6 +398,8 @@ describe('pushSidebarQuotaSnapshot', () => {
     const fetchStarted = new Promise<void>((resolve) => {
       fetchStartedResolve = resolve
     })
+    hooks.lifetime.unpark(releaseFetch)
+    hooks.lifetime.unpark(fetchStartedResolve)
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
       (async () =>
         new Response(
@@ -426,15 +454,18 @@ describe('pushSidebarQuotaSnapshot', () => {
       },
     })
 
-    const refresh = manager.refreshAccounts([account], {
-      indexFor: () => 0,
-      force: true,
-    })
-    await fetchStarted
-    const dispose = lifecycle.dispose()
-    releaseFetch()
-
+    const owner = hooks.lifetime
+    const refresh = owner.operation(
+      manager.refreshAccounts([account], {
+        indexFor: () => 0,
+        force: true,
+      }),
+    )
     try {
+      await fetchStarted
+      owner.signal.throwIfAborted()
+      const dispose = owner.operation(Promise.resolve(lifecycle.dispose()))
+      releaseFetch()
       await dispose
       await manager.refreshAccounts([account], {
         indexFor: () => 0,
@@ -446,8 +477,8 @@ describe('pushSidebarQuotaSnapshot', () => {
         'fetch:start',
         'fetch:start',
         'fetch:start',
-        // fetchGeminiCliQuota now also uses fetchVia (2 endpoints via the
-        // FetchGeminiCliQuotaOptions.fetchVia seam added for N2 testability).
+        // The Gemini CLI quota's two endpoint requests go through the same
+        // injected transport (FetchGeminiCliQuotaOptions.fetchVia).
         'fetch:start',
         'fetch:start',
         'sidebar:write-start',
@@ -455,23 +486,21 @@ describe('pushSidebarQuotaSnapshot', () => {
         'drain:sees-sidebar-write',
       ])
     } finally {
+      releaseFetch()
       await refresh
+      await lifecycle.dispose()
       await drainSidebarWrites()
       setSidebarMergeHooks(null)
       fetchSpy.mockRestore()
     }
   })
 
-  it('N2: CLI rejection carries the real error message instead of the generic no-CLI-configured string', async () => {
-    // fetchGeminiCliQuota now propagates transport-level errors (network abort,
-    // DNS, socket hang, timeout) by collecting them per-endpoint and throwing
-    // when all endpoints fail. That throw reaches the outer .catch() in
-    // quota.ts, which sets geminiCliFetchError. Before N2 the catch was
-    // present but never fired — fetchGeminiCliQuota silently swallowed errors
-    // and returned { buckets: [] }, landing on the generic message.
-    //
-    // The new FetchGeminiCliQuotaOptions.fetchVia seam lets the test inject
-    // a transport that throws, driving the outer .catch() directly.
+  it('CLI rejection carries the real error message instead of the generic no-CLI-configured string', async () => {
+    // The injected transport (FetchGeminiCliQuotaOptions.fetchVia) carries
+    // both Gemini CLI endpoint requests and throws on each. fetchGeminiCliQuota
+    // collects those errors and throws when every endpoint fails, and the
+    // .catch() in quota.ts records the original transport error on the CLI
+    // quota summary instead of the generic "no Gemini CLI quota" text.
     const CLI_THROW_MSG = 'socket hang up'
 
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
@@ -555,10 +584,10 @@ describe('pushSidebarQuotaSnapshot', () => {
     )
   })
 
-  it('N2: HTTP-500 on CLI endpoint does NOT kill the summary (parallel-fetch isolation)', async () => {
-    // Complement: an HTTP 500 is treated as a transport error by the updated
-    // fetchGeminiCliQuota (errors[] + re-throw), so the same .catch() path
-    // fires and the summary still flows through.
+  it('HTTP-500 on CLI endpoint does NOT kill the summary (parallel-fetch isolation)', async () => {
+    // fetchGeminiCliQuota treats an HTTP 500 from a CLI endpoint as a failed
+    // endpoint, so the CLI quota carries an error while the quota summary,
+    // fetched in parallel, is still returned.
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
       input: unknown,
     ) => {
@@ -625,5 +654,1315 @@ describe('pushSidebarQuotaSnapshot', () => {
     if (result?.status !== 'ok') return
     expect(result.quota?.groups).toBeDefined()
     expect(result.geminiCliQuota?.error).toBeTruthy()
+  })
+})
+
+describe('location-scoped quota', () => {
+  let dir: string
+  let processFile: string
+  let locationFile: string
+  let savedSidebarEnv: string | undefined
+
+  beforeEach(() => {
+    savedSidebarEnv = process.env[SIDEBAR_STATE_ENV]
+    dir = mkdtempSync(join(tmpdir(), 'agy-quota-location-'))
+    processFile = join(dir, 'process-sidebar.json')
+    locationFile = join(dir, 'location-sidebar.json')
+    // SIDEBAR_STATE_ENV names the process-wide sidebar file; snapshots for
+    // one location must write their own file, never that one.
+    process.env[SIDEBAR_STATE_ENV] = processFile
+  })
+
+  afterEach(() => {
+    if (savedSidebarEnv !== undefined)
+      process.env[SIDEBAR_STATE_ENV] = savedSidebarEnv
+    else delete process.env[SIDEBAR_STATE_ENV]
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  function recordingLogger(): Logger & { debugMessages: string[] } {
+    const debugMessages: string[] = []
+    return {
+      debugMessages,
+      debug: (message) => void debugMessages.push(message),
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    }
+  }
+
+  const ACCOUNTS = (): QuotaSnapshotAccount[] => [
+    {
+      index: 0,
+      enabled: true,
+      cachedQuota: { gemini: { remainingFraction: 0.5, modelCount: 1 } },
+    },
+  ]
+
+  it('writes the snapshot to the given file with the given health source and clock', async () => {
+    await pushSidebarQuotaSnapshot(ACCOUNTS, 0, undefined, {
+      stateFile: locationFile,
+      healthScore: (index) => (index === 0 ? 37 : 0),
+      now: () => 1_700_000_000_000,
+    })
+    const state = readSidebarState(locationFile)
+    expect(state.checkedAt).toBe(1_700_000_000_000)
+    expect(state.accounts[0]?.health).toBe(37)
+    expect(readSidebarState(processFile).checkedAt).toBe(0)
+  })
+
+  it('writes no health score when the location has no health source', async () => {
+    await pushSidebarQuotaSnapshot(ACCOUNTS, 0, undefined, {
+      stateFile: locationFile,
+      healthScore: null,
+    })
+    // A missing health score is shown as the redactor's default, 100.
+    expect(readSidebarState(locationFile).accounts[0]?.health).toBe(100)
+  })
+
+  it('reports a failed write to the location logger', async () => {
+    const blocker = join(dir, 'not-a-directory')
+    writeFileSync(blocker, 'file')
+    const logger = recordingLogger()
+    await pushSidebarQuotaSnapshot(ACCOUNTS, 0, undefined, {
+      stateFile: join(blocker, 'sidebar.json'),
+      logger,
+      healthScore: null,
+    })
+    expect(logger.debugMessages).toEqual(['sidebar-quota-write-failed'])
+  })
+
+  it('requires a location logger and a quota fetch function', () => {
+    expect(() =>
+      createLocationQuotaManager({
+        logger: undefined as unknown as Logger,
+        fetchAccountQuota: async () => ({ index: 0, status: 'disabled' }),
+      }),
+    ).toThrow('location logger')
+    expect(() =>
+      createLocationQuotaManager({
+        logger: recordingLogger(),
+        fetchAccountQuota: undefined as unknown as Parameters<
+          typeof createLocationQuotaManager
+        >[0]['fetchAccountQuota'],
+      }),
+    ).toThrow('fetchAccountQuota')
+  })
+
+  it('pushes a snapshot after each refresh to its own file only', async () => {
+    const manager = createLocationQuotaManager({
+      logger: recordingLogger(),
+      fetchAccountQuota: async (account) => ({
+        index: 0,
+        email: account.email,
+        status: 'ok',
+        disabled: false,
+        quota: { groups: {}, modelCount: 0 },
+      }),
+      sidebar: {
+        write: (state) =>
+          setSidebarMachineState(state, { stateFile: locationFile }),
+        getAccounts: ACCOUNTS,
+        healthScore: () => 64,
+        now: () => 1_700_000_000_000,
+      },
+    })
+    try {
+      await manager.refreshAccounts(
+        [{ refreshToken: 'fake-refresh', addedAt: 0, lastUsed: 0 }],
+        { indexFor: () => 0, force: true },
+      )
+    } finally {
+      await manager.dispose()
+    }
+    await drainSidebarWrites()
+    expect(readSidebarState(locationFile).accounts[0]?.health).toBe(64)
+    expect(readSidebarState(processFile).checkedAt).toBe(0)
+  })
+
+  it('keeps backoff per manager, as the OpenCode 1 manager does', async () => {
+    const failing = createLocationQuotaManager({
+      logger: recordingLogger(),
+      fetchAccountQuota: async () => ({
+        index: 0,
+        status: 'error',
+        error: 'fake failure',
+        disabled: false,
+      }),
+    })
+    const healthy = createLocationQuotaManager({
+      logger: recordingLogger(),
+      fetchAccountQuota: async () => ({ index: 0, status: 'disabled' }),
+    })
+    const account = { refreshToken: 'fake-refresh', addedAt: 0, lastUsed: 0 }
+    try {
+      await failing.refreshAccount(account, { index: 0 })
+      expect(failing.getBackoffUntil(account)).toBeGreaterThan(0)
+      expect(healthy.getBackoffUntil(account)).toBe(0)
+    } finally {
+      await failing.dispose()
+      await healthy.dispose()
+    }
+  })
+})
+
+describe('authorized local quota fetcher', () => {
+  type Options = Parameters<typeof createAuthorizedFetchAccountQuota>[0]
+  type Transport = NonNullable<Options['transport']>
+  type Authorization = Awaited<ReturnType<Options['authorize']>>
+  type SentRequest = {
+    url: string
+    authorization: string | null
+    body: string
+    signal: AbortSignal | null | undefined
+  }
+
+  const silent = { debug: () => undefined }
+  const ACCOUNT: AccountMetadataV3 = {
+    refreshToken: 'fake-refresh-never-sent',
+    addedAt: 0,
+    lastUsed: 0,
+  }
+
+  /** A transport that records every physical request and answers it. */
+  function recordingTransport(
+    requests: SentRequest[],
+    cli: 'ok' | 'fail' = 'ok',
+  ): Transport {
+    return () => async (url, init, extra) => {
+      const headers = new Headers(init.headers)
+      requests.push({
+        url,
+        authorization: headers.get('authorization'),
+        body: String(init.body ?? ''),
+        signal: extra.signal,
+      })
+      if (url.includes('retrieveUserQuotaSummary')) {
+        return new Response(
+          JSON.stringify({
+            groups: [
+              {
+                displayName: 'Gemini',
+                buckets: [{ remainingFraction: 0.25, window: 'WEEKLY' }],
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }
+      if (cli === 'fail') throw new Error('fake cli transport failure')
+      return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+    }
+  }
+
+  function authorized(
+    confirmSend: () => Promise<
+      { status: 'current' } | { status: 'stale'; reason: string }
+    > = async () => ({ status: 'current' }),
+  ): Authorization {
+    return {
+      status: 'authorized',
+      domain: 'local',
+      accessToken: 'fake-authorized-access',
+      projectId: 'fake-authorized-project',
+      confirmSend,
+    }
+  }
+
+  it('authorizes once, synchronously, with the exact account object before any await', async () => {
+    const seen: AccountMetadataV3[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async (account) => {
+        seen.push(account)
+        return { status: 'refused', reason: 'stale' }
+      },
+      logger: silent,
+    })
+    const pending = fetchQuota(ACCOUNT, new AbortController().signal)
+    // Called during the synchronous part of the check.
+    expect(seen).toEqual([ACCOUNT])
+    expect(seen[0]).toBe(ACCOUNT)
+    await pending
+    expect(seen).toHaveLength(1)
+  })
+
+  it('answers a synchronous throw from authorize with an error and sends no request', async () => {
+    const requests: SentRequest[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: () => {
+        throw new Error('fake authorize failure')
+      },
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(result).toEqual({
+      index: 0,
+      email: undefined,
+      status: 'error',
+      disabled: false,
+      error: 'fake authorize failure',
+    })
+    expect(requests).toEqual([])
+  })
+
+  it('answers a refused authorization with an error and sends no request', async () => {
+    const requests: SentRequest[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => ({ status: 'refused', reason: 'unattributed' }),
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(result).toEqual({
+      index: 0,
+      email: undefined,
+      status: 'error',
+      disabled: false,
+      error: 'quota check refused (unattributed)',
+    })
+    expect(requests).toEqual([])
+  })
+
+  it('answers a disabled account without authorizing it or sending a request', async () => {
+    let calls = 0
+    const requests: SentRequest[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => {
+        calls += 1
+        return { status: 'refused', reason: 'unexpected' }
+      },
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(
+      { ...ACCOUNT, enabled: false },
+      new AbortController().signal,
+    )
+    expect(result.status).toBe('disabled')
+    expect(calls).toBe(0)
+    expect(requests).toEqual([])
+  })
+
+  it('refuses a vault authorization at compile time and at run time, without a request', async () => {
+    // Compile time: an authorization naming the vault domain is not a
+    // LocalQuotaCheckAuthorization.
+    type Assignable<A, B> = [A] extends [B] ? true : false
+    const vaultRejected: Assignable<
+      {
+        status: 'authorized'
+        domain: 'vault'
+        accessToken: string
+        projectId: string
+        confirmSend: (signal: AbortSignal) => Promise<{ status: 'current' }>
+      },
+      Authorization
+    > = false
+    expect(vaultRejected).toBe(false)
+
+    // Run time: a caller that bypasses the type still gets no request.
+    const requests: SentRequest[] = []
+    const vault: unknown = { ...authorized(), domain: 'vault' }
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => vault as Authorization,
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(result).toEqual({
+      index: 0,
+      email: undefined,
+      status: 'error',
+      disabled: false,
+      error: 'quota check refused (unsupported credential domain)',
+    })
+    expect(requests).toEqual([])
+  })
+
+  it('checks the grant before every physical request and sends with the check’s own signal', async () => {
+    const requests: SentRequest[] = []
+    let checks = 0
+    const controller = new AbortController()
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () =>
+        authorized(async () => {
+          checks += 1
+          return { status: 'current' }
+        }),
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, controller.signal)
+    expect(result.status).toBe('ok')
+    expect('updatedAccount' in result).toBe(false)
+    expect(requests.length).toBeGreaterThan(0)
+    expect(checks).toBe(requests.length)
+    for (const request of requests) {
+      expect(request.signal).toBe(controller.signal)
+      expect(request.authorization).toBe('Bearer fake-authorized-access')
+      expect(request.body).not.toContain('fake-refresh-never-sent')
+    }
+    expect(
+      requests.some((request) =>
+        request.body.includes('fake-authorized-project'),
+      ),
+    ).toBe(true)
+  })
+
+  it('stops sending once the grant goes stale and does not apply the reading', async () => {
+    const requests: SentRequest[] = []
+    let checks = 0
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () =>
+        authorized(async () => {
+          checks += 1
+          // Current for the first request only; replaced afterwards.
+          return checks === 1
+            ? { status: 'current' }
+            : { status: 'stale', reason: 'credential replaced' }
+        }),
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(requests).toHaveLength(1)
+    expect(result).toEqual({
+      index: 0,
+      email: undefined,
+      status: 'error',
+      disabled: false,
+      error: 'quota check refused (stale grant: credential replaced)',
+    })
+  })
+
+  it('keeps the summary when the Gemini CLI request fails, carrying the real error', async () => {
+    const requests: SentRequest[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => authorized(),
+      logger: silent,
+      transport: recordingTransport(requests, 'fail'),
+    })
+    const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(result.status).toBe('ok')
+    if (result.status !== 'ok') return
+    expect(result.quota).toBeDefined()
+    expect(result.geminiCliQuota?.error).toContain('fake cli transport failure')
+  })
+
+  it('stops after authorization when the check was aborted meanwhile', async () => {
+    const requests: SentRequest[] = []
+    const controller = new AbortController()
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => {
+        controller.abort()
+        return authorized()
+      },
+      logger: silent,
+      transport: recordingTransport(requests),
+    })
+    const result = await fetchQuota(ACCOUNT, controller.signal)
+    expect(result).toEqual({
+      index: 0,
+      email: undefined,
+      status: 'error',
+      disabled: false,
+      error: 'aborted',
+    })
+    expect(requests).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Account-store quota checks over the genuine published store
+//
+// Use the published store and filesystem code copied into the core package.
+// Its common-auth-embedded/source-output.json records each file's size and
+// SHA-256 from the pinned 0.14.2 npm archive. Verify every file against that
+// record before loading it with loadCommonAuthStoreModules; any difference
+// fails the test. Account files live in a separate disposable directory.
+// ---------------------------------------------------------------------------
+
+const RELEASED_COMMON_AUTH = {
+  package: '@cortexkit/common-auth',
+  version: '0.14.2',
+  tarballSha256:
+    'bf0f0828d155183dec1c29e5277ededd6cbd46e6b839ca696434e477f081216b',
+} as const
+
+async function embeddedFilesBelow(
+  root: string,
+  dir: string,
+): Promise<string[]> {
+  const out: string[] = []
+  for (const entry of await readdir(join(root, dir), { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`
+    if (entry.isDirectory()) out.push(...(await embeddedFilesBelow(root, path)))
+    else out.push(path)
+  }
+  return out
+}
+
+let genuine: Promise<CommonAuthStoreModules> | undefined
+
+/**
+ * Loads the embedded store and fs modules after each file matches the
+ * size and SHA-256 recorded for the released 0.14.2 archive.
+ */
+function genuineModules(): Promise<CommonAuthStoreModules> {
+  genuine ??= (async () => {
+    const root = dirname(
+      dirname(
+        Bun.resolveSync(
+          '@cortexkit/antigravity-auth-core/common-auth/store',
+          import.meta.dir,
+        ),
+      ),
+    )
+    const receipt = JSON.parse(
+      await readFile(join(root, 'source-output.json'), 'utf8'),
+    ) as {
+      package?: unknown
+      version?: unknown
+      artifactStatus?: unknown
+      tarballSha256?: unknown
+      files?: Array<{ output: string; bytes: number; outputSha256: string }>
+    }
+    if (
+      receipt.package !== RELEASED_COMMON_AUTH.package ||
+      receipt.version !== RELEASED_COMMON_AUTH.version ||
+      receipt.artifactStatus !== 'released' ||
+      receipt.tarballSha256 !== RELEASED_COMMON_AUTH.tarballSha256 ||
+      !Array.isArray(receipt.files)
+    ) {
+      throw new Error(
+        `source-output.json does not record the released common-auth ${RELEASED_COMMON_AUTH.version} archive`,
+      )
+    }
+    const recorded = receipt.files.filter((file) =>
+      /^(store|fs)\//.test(file.output),
+    )
+    const present = [
+      ...(await embeddedFilesBelow(root, 'store')),
+      ...(await embeddedFilesBelow(root, 'fs')),
+    ].sort()
+    if (
+      JSON.stringify(present) !==
+      JSON.stringify(recorded.map((file) => file.output).sort())
+    ) {
+      throw new Error(
+        'the embedded store/fs files are not exactly the recorded ones',
+      )
+    }
+    for (const file of recorded) {
+      const bytes = await readFile(join(root, file.output))
+      const sha256 = createHash('sha256').update(bytes).digest('hex')
+      if (bytes.length !== file.bytes || sha256 !== file.outputSha256) {
+        throw new Error(
+          `embedded ${file.output} differs from its recorded size or SHA-256`,
+        )
+      }
+    }
+    return loadCommonAuthStoreModules()
+  })()
+  const owner = hooks.lifetime
+  return owner
+    .operation(genuine)
+    .then((modules) => managedStoreModules(owner, modules))
+}
+
+describe('account-store quota service', () => {
+  let configDir = ''
+  let previousConfigDir: string | undefined
+  const repositories: AccountRepository[] = []
+  const silent: Logger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  } as unknown as Logger
+
+  beforeEach(async () => {
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    configDir = await realpath(
+      await mkdtemp(join(tmpdir(), 'agy-quota-store-')),
+    )
+    process.env.OPENCODE_CONFIG_DIR = configDir
+  })
+
+  afterEach(async () => {
+    for (const repository of repositories.splice(0)) await repository.dispose()
+    if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+    await rm(configDir, { recursive: true, force: true })
+  })
+
+  const login = (refresh: string, email: string) => ({
+    type: 'success' as const,
+    refresh,
+    access: 'never-stored',
+    expires: 1,
+    email,
+    projectId: '',
+  })
+
+  async function storeService(
+    onRequest?: (bearer: string | null) => Promise<void> | void,
+    options: {
+      /** The manager's clock. */
+      now?: () => number
+      /** Runs before the manager is loaded, with the store's rows. */
+      seed?: (repository: AccountRepository) => Promise<void>
+      /** Makes every quota write the manager sends fail. */
+      failQuotaWrites?: boolean
+      /**
+       * After real writes finish, the test fixture appends a flush failure
+       * without a row ID.
+       */
+      unscopedFlushFailure?: boolean
+      mayRun?: () => Promise<boolean>
+      /**
+       * Reports progress while loading modules, initializing and opening the store,
+       * writing logins, and loading the manager to locate a stalled setup operation.
+       */
+      trace?: (phase: string) => void
+      ensureProject?: ReturnType<
+        typeof createLocalAccountCredentials
+      >['ensureProject']
+      assertGrantCurrent?: ReturnType<
+        typeof createLocalAccountCredentials
+      >['assertGrantCurrent']
+    } = {},
+  ) {
+    options.trace?.('modules-start')
+    const modules = await genuineModules()
+    options.trace?.('initialization-start')
+    expect((await initializeFreshAccountStoreFor(modules)).status).toBe(
+      'completed',
+    )
+    options.trace?.('open-start')
+    const exchanged: string[] = []
+    const opening = await openAccountStore({
+      modules,
+      createRepository: createAccountRepositoryFactory(modules),
+      exchange: async ({ refreshToken }) => {
+        exchanged.push(refreshToken)
+        return {
+          accessToken: `access-for-${refreshToken}`,
+          refreshToken,
+          expiresAt: Date.now() + 3_600_000,
+        }
+      },
+    })
+    if (opening.status !== 'ready') throw new Error('store is not ready')
+    const repository = opening.repository
+    repositories.push(repository)
+    options.trace?.('login-commit-start')
+    await commitLogins(repository, [
+      login('token-a|project-a', 'a@example.test'),
+      login('token-b|project-b', 'b@example.test'),
+    ])
+    options.trace?.('login-commit-done')
+    await options.seed?.(repository)
+    // The manager writes through this view; with `failQuotaWrites` its
+    // quota writes fail while every other operation reaches the store.
+    const managerRepository: AccountRepository =
+      options.failQuotaWrites || options.unscopedFlushFailure
+        ? new Proxy(repository, {
+            get(target, key) {
+              if (key === 'recordQuota' && options.failQuotaWrites) {
+                return async () => {
+                  throw new Error('quota write failed')
+                }
+              }
+              if (key === 'flush' && options.unscopedFlushFailure) {
+                return async () => {
+                  const report = await target.flush()
+                  return {
+                    completed: report.completed,
+                    failures: [
+                      ...report.failures,
+                      {
+                        operation: 'flush',
+                        kind: 'unexpected',
+                        retryable: false,
+                        ambiguous: true,
+                        message: 'a write failed for no named row',
+                      },
+                    ],
+                  }
+                }
+              }
+              const value = Reflect.get(target, key)
+              return typeof value === 'function' ? value.bind(target) : value
+            },
+          })
+        : repository
+    options.trace?.('manager-load-start')
+    const manager = await loadAccountManagerFromRepository(managerRepository, {
+      onDiagnostic: () => {},
+      ...(options.now !== undefined ? { now: options.now } : {}),
+    })
+    options.trace?.('manager-load-done')
+    const bearers: Array<string | null> = []
+    const service = createStoreQuotaService({
+      manager,
+      repository,
+      logger: silent,
+      mayRun: options.mayRun,
+      credentials: {
+        ...createLocalAccountCredentials(manager, {
+          repository: managerRepository,
+          // A fixed project answer, so the check never makes the live project
+          // lookup the local project cache would make.
+          ensureProject: async (auth) => ({
+            auth,
+            effectiveProjectId: 'project-from-cache',
+          }),
+        }),
+        ...(options.ensureProject
+          ? { ensureProject: options.ensureProject }
+          : {}),
+        ...(options.assertGrantCurrent
+          ? { assertGrantCurrent: options.assertGrantCurrent }
+          : {}),
+      },
+      transport: () => async (url, init) => {
+        const bearer = new Headers(init.headers).get('authorization')
+        bearers.push(bearer)
+        await onRequest?.(bearer)
+        if (url.includes('retrieveUserQuotaSummary')) {
+          return new Response(
+            JSON.stringify({
+              groups: [
+                {
+                  displayName: 'Gemini',
+                  buckets: [
+                    {
+                      bucketId: 'gemini-weekly',
+                      remainingFraction: 0.25,
+                      window: 'weekly',
+                      resetTime: '2030-01-01T00:00:00Z',
+                    },
+                  ],
+                },
+              ],
+            }),
+            { status: 200 },
+          )
+        }
+        return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      },
+    })
+    const rows = async () => {
+      await repository.flush()
+      const read = await repository.read()
+      if (read.status !== 'ready') throw new Error('store is not ready')
+      return read.rows
+    }
+    return { repository, manager, service, bearers, exchanged, rows }
+  }
+
+  it('checks the selected row with its own repository-refreshed bearer and records the reading on that row only', async () => {
+    const store = await storeService()
+    const targets = store.manager.getAccountsForQuotaCheck()
+    const outcome = await store.service.refreshAccount(targets[1]!, {
+      force: true,
+    })
+    await store.service.dispose()
+
+    expect(outcome.status).toBe('recorded')
+    expect(store.exchanged).toEqual(['token-b'])
+    expect(new Set(store.bearers)).toEqual(
+      new Set(['Bearer access-for-token-b']),
+    )
+    const [rowA, rowB] = await store.rows()
+    expect(rowB?.quota.status).toBe('present')
+    expect(rowA?.quota.status).toBe('absent')
+  })
+
+  it('discards deferred quota metadata after local authority changes without vetoing an admitted successor save', async () => {
+    let local = true
+    let sends = 0
+    const store = await storeService(
+      () => {
+        if (++sends === 2) local = false
+      },
+      { mayRun: async () => local },
+    )
+    const update = spyOn(store.manager, 'updateQuotaCache')
+    try {
+      const target = store.manager.getAccountsForQuotaCheck()[0]!
+      const outcome = await store.service.refreshAccount(target, {
+        force: true,
+      })
+      expect(sends).toBe(2)
+      expect(outcome.status).toBe('discarded')
+      expect(update).not.toHaveBeenCalled()
+      const row = (await store.rows())[0]
+      expect(row?.quota.status).toBe('absent')
+      expect(store.exchanged).toEqual(['token-a'])
+      expect(row?.credential?.refreshToken).toBe('token-a')
+    } finally {
+      await store.service.dispose()
+    }
+  })
+
+  it('refuses deferred quota project metadata when authority changes during resolution', async () => {
+    const started = performance.now()
+    const trace =
+      process.env.ANTIGRAVITY_QUOTA_PHASE_TRACE === '1'
+        ? (phase: string) =>
+            console.error(
+              JSON.stringify({
+                quotaProjectPhase: phase,
+                elapsedMs: performance.now() - started,
+              }),
+            )
+        : undefined
+    let local = true
+    const store = await storeService(undefined, {
+      trace,
+      mayRun: async () => local,
+      ensureProject: async (auth) => {
+        trace?.('project-authority-change')
+        local = false
+        return {
+          auth: { ...auth, refresh: `${auth.refresh}|late-managed-project` },
+          effectiveProjectId: 'late-project',
+        }
+      },
+    })
+    const update = spyOn(store.manager, 'updateFromAuth')
+    try {
+      const target = store.manager.getAccountsForQuotaCheck()[0]!
+      trace?.('refresh-start')
+      const outcome = await store.service.refreshAccount(target, {
+        force: true,
+      })
+      trace?.('refresh-done')
+      expect(outcome.status).toBe('failed')
+      expect(update).not.toHaveBeenCalled()
+      expect(store.bearers).toHaveLength(0)
+      trace?.('rows-start')
+      expect((await store.rows())[0]?.quota.status).toBe('absent')
+      trace?.('rows-done')
+    } finally {
+      trace?.('dispose-start')
+      await store.service.dispose()
+      trace?.('dispose-done')
+    }
+  })
+
+  it('refuses a local quota physical send after authority changes during the final grant await', async () => {
+    let local = true
+    const store = await storeService(undefined, {
+      mayRun: async () => local,
+      assertGrantCurrent: async () => {
+        local = false
+      },
+    })
+    try {
+      const target = store.manager.getAccountsForQuotaCheck()[0]!
+      expect(
+        (await store.service.refreshAccount(target, { force: true })).status,
+      ).toBe('failed')
+      expect(store.bearers).toHaveLength(0)
+    } finally {
+      await store.service.dispose()
+    }
+  })
+
+  it('never attaches a reading to the credential that replaced the checked one', async () => {
+    let replaced = false
+    const holder: { repository?: AccountRepository } = {}
+    const store = await storeService(async () => {
+      if (replaced || holder.repository === undefined) return
+      replaced = true
+      const read = await holder.repository.read()
+      const rowB = read.status === 'ready' ? read.rows[1] : undefined
+      if (rowB === undefined) throw new Error('row B is missing')
+      await holder.repository.replaceCredential(rowB.ref, {
+        refreshToken: 'token-b2',
+        disabled: 'keep',
+      })
+    })
+    holder.repository = store.repository
+    const targets = store.manager.getAccountsForQuotaCheck()
+    await store.service.refreshAccount(targets[1]!, { force: true })
+    await store.service.dispose()
+
+    const rowB = (await store.rows())[1]
+    expect(rowB?.credential?.refreshToken).toBe('token-b2')
+    expect(rowB?.quota.status).toBe('absent')
+  })
+
+  it('reports as checked only readings the store holds for exactly the requested credentials', async () => {
+    let replaced = false
+    const holder: { repository?: AccountRepository } = {}
+    const store = await storeService(async (bearer) => {
+      // Row A's credential is replaced while its check runs.
+      if (replaced || bearer !== 'Bearer access-for-token-a') return
+      if (holder.repository === undefined) return
+      replaced = true
+      const read = await holder.repository.read()
+      const rowA = read.status === 'ready' ? read.rows[0] : undefined
+      if (rowA === undefined) throw new Error('row A is missing')
+      await holder.repository.replaceCredential(rowA.ref, {
+        refreshToken: 'token-a2',
+        disabled: 'keep',
+      })
+    })
+    holder.repository = store.repository
+    const [rowA, rowB] = await store.rows()
+    const unknown = { id: 'not-a-row', credentialEpoch: 1 }
+
+    const report = await store.service.checkStoreQuota([
+      rowA!.ref,
+      rowB!.ref,
+      unknown,
+    ])
+    await store.service.dispose()
+
+    expect(report).toEqual({ checked: 1, notChecked: 2 })
+    const [afterA, afterB] = await store.rows()
+    expect(afterA?.credential?.refreshToken).toBe('token-a2')
+    expect(afterA?.quota.status).toBe('absent')
+    expect(afterB?.quota.status).toBe('present')
+  })
+
+  it("does not count an older stored reading that shares the new reading's time when the new one was not written", async () => {
+    const clock = 1_700_000_000_000
+    const store = await storeService(undefined, {
+      now: () => clock,
+      failQuotaWrites: true,
+      seed: async (repository) => {
+        const read = await repository.read()
+        const rowB = read.status === 'ready' ? read.rows[1] : undefined
+        if (rowB === undefined) throw new Error('row B is missing')
+        // A reading already stored for row B at the very same time, with
+        // a different remaining fraction than the check will fetch.
+        await repository.recordQuota(rowB.ref, {
+          schemaVersion: 1,
+          cachedQuotaAccountId: createHash('sha256')
+            .update('token-b')
+            .digest('hex')
+            .slice(0, 16),
+          cachedQuota: {
+            gemini: { modelCount: 1, remainingFraction: 0.9 },
+          },
+          cachedQuotaUpdatedAt: clock,
+        })
+      },
+    })
+    const rowB = (await store.rows())[1]
+
+    const report = await store.service.checkStoreQuota([rowB!.ref])
+    await store.service.dispose()
+
+    expect(report).toEqual({ checked: 0, notChecked: 1 })
+    const after = (await store.rows())[1]
+    expect(
+      after?.quota.status === 'present'
+        ? after.quota.quota.cachedQuota?.gemini?.remainingFraction
+        : undefined,
+    ).toBe(0.9)
+  })
+
+  it('confirms no reading when the drain reports a failure that names no row, even if the stored reading matches', async () => {
+    const store = await storeService(undefined, {
+      now: () => 1_700_000_000_000,
+      unscopedFlushFailure: true,
+    })
+    const rowB = (await store.rows())[1]
+
+    const report = await store.service.checkStoreQuota([rowB!.ref])
+    await store.service.dispose()
+
+    // The new quota reading is stored, but a failure without a row ID
+    // prevents reporting the account as checked.
+    const after = (await store.rows())[1]
+    expect(after?.quota.status).toBe('present')
+    expect(report).toEqual({ checked: 0, notChecked: 1 })
+  })
+
+  it('confirms no reading when the drain fails with a persist error that lists no failure', async () => {
+    const store = await storeService(undefined, {
+      now: () => 1_700_000_000_000,
+    })
+    const rowB = (await store.rows())[1]
+    // Let real quota writes finish, then inject a persistence error with no
+    // identified failed rows.
+    const drain = store.manager.saveToDisk.bind(store.manager)
+    store.manager.saveToDisk = async () => {
+      await drain()
+      throw Object.assign(new Error('persist failed'), {
+        name: 'AccountManagerPersistError',
+        report: { completed: 0, failures: [] },
+      })
+    }
+
+    const report = await store.service.checkStoreQuota([rowB!.ref])
+    await store.service.dispose()
+
+    expect((await store.rows())[1]?.quota.status).toBe('present')
+    expect(report).toEqual({ checked: 0, notChecked: 1 })
+  })
+
+  it('refuses a target whose row the manager no longer holds, without refreshing or sending', async () => {
+    const store = await storeService()
+    const targets = store.manager.getAccountsForQuotaCheck()
+    const accountA = store.manager.getAccounts()[0]
+    expect(store.manager.removeAccount(accountA!)).toBe(true)
+
+    const outcome = await store.service.refreshAccount(targets[0]!, {
+      force: true,
+    })
+    await store.service.dispose()
+    expect(outcome.status).toBe('failed')
+    expect(store.exchanged).toEqual([])
+    expect(store.bearers).toEqual([])
+  })
+})
+
+describe('vault quota check', () => {
+  type Admission = VaultSendAdmission
+  type QuotaFetch = NonNullable<
+    Parameters<typeof fetchVaultAccountQuota>[0]['transport']
+  >
+  const ref: VaultRouteRef = {
+    routeId: 'route-1',
+    credentialId: 'credential-1',
+    accountIdentity: 'account-1',
+    label: 'Vault account',
+  }
+  const silent = { debug: () => {} }
+
+  /**
+   * Models vault authorization for quota requests. Each authorization supplies
+   * one credential containing a token, project and record version. Each `send`
+   * call gets a new authorization. If its first response is 401, the helper
+   * records that credential's version and retries once with a new authorization
+   * and version. At `refuseFrom` and every later `send` call, it throws before
+   * authorizing or dispatching a request.
+   */
+  function vaultSource(options: { refuseFrom?: number } = {}) {
+    const issued: Admission[] = []
+    const reported401: number[] = []
+    let calls = 0
+    const admit = (): Admission => {
+      const version = issued.length + 1
+      const admission = {
+        routeId: ref.routeId,
+        credentialId: ref.credentialId,
+        accountIdentity: ref.accountIdentity,
+        recordVersion: version,
+        projectId: `vault-project-${version}`,
+        accessToken: `vault-token-${version}`,
+        expiresAtMs: null,
+      }
+      issued.push(admission)
+      return admission
+    }
+    const source: VaultQuotaSource = {
+      async send(_ref, dispatch, sendOptions) {
+        calls += 1
+        if (options.refuseFrom !== undefined && calls >= options.refuseFrom) {
+          throw new Error('the vault refused to admit this account')
+        }
+        let admission = admit()
+        let response = await dispatch(admission, sendOptions.signal)
+        if (response.status === 401) {
+          reported401.push(admission.recordVersion)
+          admission = admit()
+          response = await dispatch(admission, sendOptions.signal)
+        }
+        return response
+      },
+      attribution: (admission) => ({
+        routeId: admission.routeId,
+        credentialId: admission.credentialId,
+        accountIdentity: admission.accountIdentity,
+        recordVersion: admission.recordVersion,
+      }),
+    }
+    return { source, issued, reported401 }
+  }
+
+  interface Sent {
+    url: string
+    bearer: string | null
+    project: string | undefined
+  }
+
+  function recordingTransport(
+    sent: Sent[],
+    answer: (request: Sent, index: number) => Response,
+  ): QuotaFetch {
+    return async (url, init) => {
+      const body = JSON.parse(String(init.body ?? '{}')) as {
+        project?: string
+      }
+      const request: Sent = {
+        url,
+        bearer: new Headers(init.headers).get('authorization'),
+        project: body.project,
+      }
+      sent.push(request)
+      return answer(request, sent.length - 1)
+    }
+  }
+
+  const summaryOk = () =>
+    new Response(
+      JSON.stringify({
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              {
+                bucketId: 'gemini-weekly',
+                displayName: 'Weekly',
+                window: 'weekly',
+                remainingFraction: 0.5,
+              },
+            ],
+          },
+        ],
+      }),
+      { status: 200 },
+    )
+
+  /** Each HTTP request uses the token and project returned by its own vault authorization. */
+  function expectOneAdmissionPerRequest(sent: Sent[], issued: Admission[]) {
+    const byToken = new Map(
+      issued.map((admission) => [`Bearer ${admission.accessToken}`, admission]),
+    )
+    const bearers = sent.map((request) => request.bearer)
+    expect(new Set(bearers).size).toBe(bearers.length)
+    for (const request of sent) {
+      const admission = byToken.get(request.bearer ?? '')
+      expect(admission).toBeDefined()
+      if (request.project !== undefined) {
+        expect(String(request.project)).toBe(admission?.projectId ?? '')
+      }
+    }
+  }
+
+  it('builds every physical request from its own new admission, so a failed endpoint is retried with another', async () => {
+    const vault = vaultSource()
+    const sent: Sent[] = []
+    let summaryCalls = 0
+    const reading = await fetchVaultAccountQuota({
+      source: vault.source,
+      ref,
+      signal: new AbortController().signal,
+      logger: silent,
+      transport: recordingTransport(sent, (request) => {
+        if (request.url.includes('retrieveUserQuotaSummary')) {
+          summaryCalls += 1
+          return summaryCalls === 1
+            ? new Response('busy', { status: 503 })
+            : summaryOk()
+        }
+        return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      }),
+    })
+
+    const summaryRequests = sent.filter((request) =>
+      request.url.includes('retrieveUserQuotaSummary'),
+    )
+    expect(summaryRequests).toHaveLength(2)
+    // The second summary request does not reuse the first one's grant.
+    expect(summaryRequests[1]?.bearer).not.toBe(summaryRequests[0]?.bearer)
+    expect(summaryRequests[1]?.project).not.toBe(summaryRequests[0]?.project)
+    expectOneAdmissionPerRequest(sent, vault.issued)
+    expect(vault.issued).toHaveLength(sent.length)
+
+    expect(reading.fellBackToLegacy).toBe(false)
+    expect(reading.quota.groups).not.toEqual({})
+    // The quota result identifies the credential ID and record version used
+    // by the request that returned it.
+    const answering = vault.issued.find(
+      (admission) =>
+        `Bearer ${admission.accessToken}` === summaryRequests[1]?.bearer,
+    )
+    expect(reading.quotaAttribution?.recordVersion).toBe(
+      answering?.recordVersion,
+    )
+  })
+
+  it('stops at an admission refusal between attempts and sends nothing more', async () => {
+    const vault = vaultSource({ refuseFrom: 3 })
+    const sent: Sent[] = []
+    const reading = await fetchVaultAccountQuota({
+      source: vault.source,
+      ref,
+      signal: new AbortController().signal,
+      logger: silent,
+      transport: recordingTransport(
+        sent,
+        () => new Response('busy', { status: 503 }),
+      ),
+    })
+
+    // The first two authorizations succeed. The third is refused, so no later
+    // HTTP request is sent.
+    expect(vault.issued).toHaveLength(2)
+    expect(sent).toHaveLength(2)
+    expectOneAdmissionPerRequest(sent, vault.issued)
+    expect(reading.quota.error).toBe('Failed to fetch Antigravity quota')
+    expect(reading.quotaAttribution).toBeUndefined()
+    expect(reading.geminiCliQuota.error).toBeDefined()
+  })
+
+  it('hands a 401 to the source with its own admission and builds the retry from the retry admission', async () => {
+    const vault = vaultSource()
+    const sent: Sent[] = []
+    const reading = await fetchVaultAccountQuota({
+      source: vault.source,
+      ref,
+      signal: new AbortController().signal,
+      logger: silent,
+      transport: recordingTransport(sent, (request, index) => {
+        if (request.url.includes('retrieveUserQuotaSummary')) {
+          return index === 0 || request.bearer === 'Bearer vault-token-1'
+            ? new Response('unauthorized', { status: 401 })
+            : summaryOk()
+        }
+        return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      }),
+    })
+
+    expect(vault.reported401).toContain(1)
+    expectOneAdmissionPerRequest(sent, vault.issued)
+    expect(reading.fellBackToLegacy).toBe(false)
+    expect(reading.quotaAttribution?.recordVersion).not.toBe(1)
+  })
+
+  it('retries the model list without a project under a new admission after a 403', async () => {
+    const vault = vaultSource()
+    const sent: Sent[] = []
+    const reading = await fetchVaultAccountQuota({
+      source: vault.source,
+      ref,
+      signal: new AbortController().signal,
+      logger: silent,
+      transport: recordingTransport(sent, (request) => {
+        if (request.url.includes('retrieveUserQuotaSummary')) {
+          return new Response('no', { status: 403 })
+        }
+        if (request.url.includes('fetchAvailableModels')) {
+          return request.project === undefined
+            ? new Response(JSON.stringify({ models: {} }), { status: 200 })
+            : new Response('no', { status: 403 })
+        }
+        return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      }),
+    })
+
+    const models = sent.filter((request) =>
+      request.url.includes('fetchAvailableModels'),
+    )
+    expect(models.map((request) => request.project === undefined)).toEqual([
+      false,
+      true,
+    ])
+    expect(models[1]?.bearer).not.toBe(models[0]?.bearer)
+    expectOneAdmissionPerRequest(sent, vault.issued)
+    expect(reading.fellBackToLegacy).toBe(true)
+  })
+
+  it('sends nothing for a receipt served after the other half of the check was refused', async () => {
+    // Hold the quota-summary authorization and reject the Gemini CLI
+    // authorization before releasing it.
+    let releaseSummary: () => void = () => {}
+    const summaryHeld = new Promise<void>((resolve) => {
+      releaseSummary = resolve
+    })
+    let refusalSeen: () => void = () => {}
+    const refused = new Promise<void>((resolve) => {
+      refusalSeen = resolve
+    })
+    const owner = hooks.lifetime
+    owner.unpark(releaseSummary)
+    owner.unpark(refusalSeen)
+    let calls = 0
+    const issued: Admission[] = []
+    const source: VaultQuotaSource = {
+      async send(_ref, dispatch, sendOptions) {
+        calls += 1
+        const call = calls
+        if (call === 1) {
+          await summaryHeld
+          owner.signal.throwIfAborted()
+        } else {
+          refusalSeen()
+          throw new Error('the vault refused to admit this account')
+        }
+        const admission = {
+          routeId: ref.routeId,
+          credentialId: ref.credentialId,
+          accountIdentity: ref.accountIdentity,
+          recordVersion: call,
+          projectId: `vault-project-${call}`,
+          accessToken: `vault-token-${call}`,
+          expiresAtMs: null,
+        }
+        issued.push(admission)
+        return dispatch(admission, sendOptions.signal)
+      },
+      attribution: (admission) => ({
+        routeId: admission.routeId,
+        credentialId: admission.credentialId,
+        accountIdentity: admission.accountIdentity,
+        recordVersion: admission.recordVersion,
+      }),
+    }
+    const sent: Sent[] = []
+    const checking = owner.operation(
+      fetchVaultAccountQuota({
+        source,
+        ref,
+        signal: owner.signal,
+        logger: silent,
+        transport: recordingTransport(sent, () => summaryOk()),
+      }),
+    )
+
+    await refused
+    // Allow the Gemini CLI refusal to stop the quota check before
+    // authorizing the held summary request.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    releaseSummary()
+    const reading = await checking
+
+    expect(issued).toHaveLength(1)
+    expect(sent).toEqual([])
+    expect(reading.quotaAttribution).toBeUndefined()
+    expect(reading.quota.error).toBe('Failed to fetch Antigravity quota')
+  })
+
+  it('never exchanges a refresh token or sends outside the injected transport', async () => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
+      (async () => {
+        throw new Error('no global fetch is allowed in a vault quota check')
+      }) as unknown as typeof fetch,
+    )
+    try {
+      const vault = vaultSource()
+      const sent: Sent[] = []
+      await fetchVaultAccountQuota({
+        source: vault.source,
+        ref,
+        signal: new AbortController().signal,
+        logger: silent,
+        transport: recordingTransport(sent, () => summaryOk()),
+      })
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(sent.some((request) => request.url.includes('oauth2'))).toBe(false)
+      expect(sent.length).toBeGreaterThan(0)
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 })

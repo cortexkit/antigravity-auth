@@ -1,0 +1,244 @@
+{
+  "config/opencode/antigravity-accounts.json": {
+    "before": {
+      "bytes": 921,
+      "sha256": "7b5aae0f2755414dd1278c3d5f047580c1d8403537fcc7a2dbcefc7980ecf82a",
+      "mode": 33152,
+      "inode": 941627351,
+      "mtime": 1791757259194.502
+    },
+    "after": {
+      "bytes": 1064,
+      "sha256": "fd5f48b58a589cfa7db52f9dbbfe1a13d44f87386a6fa46dd994207174f0698a",
+      "mode": 33152,
+      "inode": 941627348,
+      "mtime": 1791757263848.5176
+    }
+  },
+  "state/cortexkit/antigravity-auth/sidebar-state.json": {
+    "before": null,
+    "after": {
+      "bytes": 272,
+      "sha256": "6c56887ddbdf218e1b8aa35210d4da2b3d8c8cdccfaaee88e561d6fa8208ff97",
+      "mode": 33152,
+      "inode": 3095398027,
+      "mtime": 1791757263804.5173
+    }
+  },
+  "cache/bun/@t@/7a87559fbb4087c4.pile": {
+    "before": null,
+    "after": {
+      "bytes": 59902,
+      "sha256": "43ad90878ada5ec2e513032ffc103e8791fca6ab52729ac9830b7e7435623842",
+      "mode": 33188,
+      "inode": 808045421,
+      "mtime": 1791757262128.5117
+    }
+  },
+  "tmp/tls-matching/leaf.csr": {
+    "before": null,
+    "after": {
+      "bytes": 907,
+      "sha256": "d2f908080a28c1002737e44508d8d9d1c4ba7ee061b7d404ec0cc5bb54b9e4b7",
+      "mode": 33188,
+      "inode": 17366934,
+      "mtime": 1791757259306.8213
+    }
+  },
+  "tmp/tls-matching/ca.srl": {
+    "before": null,
+    "after": {
+      "bytes": 41,
+      "sha256": "34e572cf6a0a87bf58f2c52f2b3b8159a231b7ee7302644c7f72adba88a378f6",
+      "mode": 33188,
+      "inode": 17366937,
+      "mtime": 1791757259317.49
+    }
+  },
+  "tmp/tls-matching/leaf.pem": {
+    "before": null,
+    "after": {
+      "bytes": 1289,
+      "sha256": "d2288cf35e2aa8fa05a27c5ead6bce731a1aea97be8d4639e580cd8257df0a18",
+      "mode": 33188,
+      "inode": 17366936,
+      "mtime": 1791757259317.5022
+    }
+  },
+  "project/.opencode/.gitignore": {
+    "before": null,
+    "after": {
+      "bytes": 63,
+      "sha256": "663a068e76d264d0bc6740f5450b6c4193c7b41ecf5e0dc222485b8a17404d95",
+      "mode": 33188,
+      "inode": 404404725,
+      "mtime": 1791757262033.5115
+    }
+  },
+  "data/opencode.db-wal": {
+    "before": null,
+    "after": {
+      "bytes": 1083592,
+      "sha256": "f99ae3889a7fc152dc17202512f0d57b5577086f3abd7d50e2318e15f4245a58",
+      "mode": 33188,
+      "inode": 268530849,
+      "mtime": 1791757263889.5176
+    }
+  },
+  "cache/bun/@t@/cf86f20c120ce818.pile": {
+    "before": null,
+    "after": {
+      "bytes": 88408,
+      "sha256": "6ed922209f60e274d8217f07ef3c8a71c59bcc54ca96ca8d28691db9784ef60e",
+      "mode": 33188,
+      "inode": 808045422,
+      "mtime": 1791757262138.5117
+    }
+  },
+  "tmp/.bcddddbefff7f7ed-00000003.so": {
+    "before": null,
+    "after": {
+      "bytes": 5576816,
+      "sha256": "977a96fc9911edd8cabacb098e90229c6a2dde7384f3291e5beccaf1ee93fef5",
+      "mode": 33188,
+      "inode": 677935018,
+      "mtime": 1791757262909.5144
+    }
+  },
+  "tmp/tls-matching/ca.pem": {
+    "before": null,
+    "after": {
+      "bytes": 1143,
+      "sha256": "e267c4dd69d1e3f473422a67a91ef42de0e8a1457945d15f03b179fdc1b39cf3",
+      "mode": 33188,
+      "inode": 17366932,
+      "mtime": 1791757259279.404
+    }
+  },
+  "state/rpc/port-209.json": {
+    "before": null,
+    "after": {
+      "bytes": 125,
+      "sha256": "ff6eb85bbef90cbf6819046217462648a51be920444df86dfe0136b119eef93b",
+      "mode": 33152,
+      "inode": 1079439526,
+      "mtime": 1791757262347.5125
+    }
+  },
+  "tmp/tls-matching/leaf.key": {
+    "before": null,
+    "after": {
+      "bytes": 1704,
+      "sha256": "035ffa215674b162702a5f52125f82558e05f5c8bbc72309d71df75f1fa73932",
+      "mode": 33152,
+      "inode": 17366933,
+      "mtime": 1791757259305.5022
+    }
+  },
+  "data/opencode.db-shm": {
+    "before": null,
+    "after": {
+      "bytes": 32768,
+      "sha256": "9b22f65fe10881786959a04fd1f8d6e65ae54f5523770d5160c83007388a5ff3",
+      "mode": 33188,
+      "inode": 268530850,
+      "mtime": 1791757260831.5073
+    }
+  },
+  "config/opencode/.gitignore": {
+    "before": null,
+    "after": {
+      "bytes": 206,
+      "sha256": "83f75af1715b2126b14b0ffe0864e6072b37efc5b691a5773d1a2d50d597b5c2",
+      "mode": 33188,
+      "inode": 941627349,
+      "mtime": 1791757262514.513
+    }
+  },
+  "tmp/tls-matching/leaf.ext": {
+    "before": null,
+    "after": {
+      "bytes": 181,
+      "sha256": "7ac2a1795f107a43c61c8b6bd3d3fbb28d37a355211911f08bc2f0c7482be30b",
+      "mode": 33188,
+      "inode": 17366935,
+      "mtime": 1791757259307.5022
+    }
+  },
+  "cache/bun/@t@/d94551f7b76daa89.pile": {
+    "before": null,
+    "after": {
+      "bytes": 2075701,
+      "sha256": "50729591ad353aff9d0955fdcd1f3fbfdcd8c5d9c12beae03772e9fa86978e1c",
+      "mode": 33188,
+      "inode": 808045417,
+      "mtime": 1791757263224.5154
+    }
+  },
+  "config/opencode/opencode.json": {
+    "before": {
+      "bytes": 309,
+      "sha256": "06c3802ac418019307bb09d14d6275a082d90489ac93acfec9051d71bda297d9",
+      "mode": 33152,
+      "inode": 941627347,
+      "mtime": 1791757259150.3167
+    },
+    "after": {
+      "bytes": 357,
+      "sha256": "2194a13a7d84ee75407a68e65bbe4c03f222ec717a14557b587e8f41df88d6fc",
+      "mode": 33152,
+      "inode": 941627347,
+      "mtime": 1791757261302.509
+    }
+  },
+  "data/opencode.db": {
+    "before": null,
+    "after": {
+      "bytes": 249856,
+      "sha256": "18b28087cf27ffdb2c92181160ffcd3195600df7e0d1d08b6f589e0f06a43428",
+      "mode": 33188,
+      "inode": 268530873,
+      "mtime": 1791757261561.5098
+    }
+  },
+  "data/opencode/log/opencode.log": {
+    "before": null,
+    "after": {
+      "bytes": 6461,
+      "sha256": "f3527a03a890153bbaf061a4dc56068038b21ac12a631b113e1058001d3229a4",
+      "mode": 33188,
+      "inode": 17366938,
+      "mtime": 1791757263886.5176
+    }
+  },
+  "tmp/tls-matching/ca.key": {
+    "before": null,
+    "after": {
+      "bytes": 1704,
+      "sha256": "b79ce18f26e5fb8c9837786fa4d4bb2057b9e27e914bdd96e60f4266830c55ef",
+      "mode": 33152,
+      "inode": 17366931,
+      "mtime": 1791757259277.5022
+    }
+  },
+  "state/cortexkit/antigravity-auth/sidebar-state.json.sidebar.lock": {
+    "before": null,
+    "after": {
+      "bytes": 76,
+      "sha256": "8a276bd6a706beba21aa1e10a6bcc298b09e2374ff46674282e17242ff34931a",
+      "mode": 33152,
+      "inode": 3095398026,
+      "mtime": 1791757263856.5176
+    }
+  },
+  "cache/bun/@t@/8bd272d9db7f93c7.pile": {
+    "before": null,
+    "after": {
+      "bytes": 2245838,
+      "sha256": "7a484def43094e6b9dc8f0f25856a7e7d0178244e7d0fa398784c097fd657a05",
+      "mode": 33188,
+      "inode": 808045420,
+      "mtime": 1791757262108.5117
+    }
+  }
+}

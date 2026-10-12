@@ -89,13 +89,14 @@ describe('Antigravity OAuth', () => {
 
       const state = url.searchParams.get('state')
       expect(state).toBeTruthy()
+      if (!state) throw new Error('authorize URL is missing the state param')
 
       // State round-trips: state encodes the verifier + projectId so
       // exchangeAntigravity can recover them without a side channel.
       const padded = state
-        ?.replace(/-/g, '+')
+        .replace(/-/g, '+')
         .replace(/_/g, '/')
-        .padEnd(state?.length + ((4 - (state?.length % 4)) % 4), '=')
+        .padEnd(state.length + ((4 - (state.length % 4)) % 4), '=')
       const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
       expect(decoded.verifier).toBe(result.verifier)
       expect(decoded.projectId).toBe('project-1')
@@ -110,10 +111,11 @@ describe('Antigravity OAuth', () => {
       const result = await authorizeAntigravity()
       const url = new URL(result.url)
       const state = url.searchParams.get('state')
+      if (!state) throw new Error('authorize URL is missing the state param')
       const padded = state
-        ?.replace(/-/g, '+')
+        .replace(/-/g, '+')
         .replace(/_/g, '/')
-        .padEnd(state?.length + ((4 - (state?.length % 4)) % 4), '=')
+        .padEnd(state.length + ((4 - (state.length % 4)) % 4), '=')
       const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
       expect(decoded.projectId).toBe('')
       expect(decoded.verifier).toBe(result.verifier)

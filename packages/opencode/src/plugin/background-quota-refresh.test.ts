@@ -15,6 +15,7 @@ import {
   readSidebarState,
   SIDEBAR_STATE_ENV,
   setSidebarMachineState,
+  setSidebarMergeHooks,
 } from '../sidebar-state'
 import {
   BackgroundQuotaRefresh,
@@ -215,6 +216,30 @@ describe('BackgroundQuotaRefresh', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('writes its snapshot to its own sidebar file with the location health source', async () => {
+    const locationFile = join(dir, 'location-sidebar.json')
+    const debugMessages: string[] = []
+    const poller = new BackgroundQuotaRefresh({
+      intervalMs: 5 * 60_000,
+      sidebarStateFile: locationFile,
+      getAccountManager: () => makeAccountManager(),
+      quotaManager:
+        makeQuotaManager() as unknown as import('./quota').QuotaManager,
+      random: () => 0,
+      now: () => Date.now(),
+      healthScore: () => 55,
+      logger: { debug: (message) => void debugMessages.push(message) },
+    })
+    await (poller as unknown as TickablePoller).runTick()
+    await poller.dispose()
+    const written = readSidebarState(locationFile)
+    expect(written.accounts).toHaveLength(1)
+    expect(written.accounts[0]?.health).toBe(55)
+    // The process-wide file named by the environment is never written.
+    expect(readSidebarState(stateFile).checkedAt).toBe(0)
+    expect(debugMessages).toEqual([])
+  })
+
   // ── Timer: idempotent start/stop ──────────────────────────────────────────
 
   it('start is idempotent — a second call before the first tick does not double-schedule', async () => {
@@ -363,11 +388,15 @@ describe('BackgroundQuotaRefresh', () => {
     expect(callCount).toBeGreaterThanOrEqual(2)
   })
 
-  // ── In-flight tick not double-entered ────────────────────────────────────
+  // ── Held refresh and disposal ────────────────────────────────────────────
 
-  it('a slow tick prevents re-entry while it is in flight', async () => {
+  it('a held quota refresh enters once before release and disposal', async () => {
     let active = 0
     let maxActive = 0
+    let tickStartedResolve!: () => void
+    const tickStartedP = new Promise<void>((r) => {
+      tickStartedResolve = r
+    })
     let tickDone!: () => void
     const tickBlocked = new Promise<void>((r) => {
       tickDone = r
@@ -379,6 +408,7 @@ describe('BackgroundQuotaRefresh', () => {
       refreshAccounts: mock(async () => {
         active++
         maxActive = Math.max(maxActive, active)
+        tickStartedResolve()
         await tickBlocked
         active--
         return []
@@ -394,12 +424,18 @@ describe('BackgroundQuotaRefresh', () => {
       random: () => 0,
       now: () => Date.now(),
     })
-    poller.start()
-    // Give the first tick a moment to start.
-    await new Promise((r) => setTimeout(r, 20))
-    tickDone()
-    await poller.dispose()
-    expect(maxActive).toBe(1)
+    try {
+      poller.start()
+      // A startup timer can fire before async lock acquisition admits the refresh.
+      // Wait for the quota mock itself to enter before releasing it or disposing.
+      await tickStartedP
+      tickDone()
+      await poller.dispose()
+      expect(maxActive).toBe(1)
+    } finally {
+      tickDone()
+      await poller.dispose()
+    }
   })
 
   // ── Async dispose awaits in-flight tick ───────────────────────────────────
@@ -1057,7 +1093,24 @@ describe('BackgroundQuotaRefresh', () => {
     //   → pushSidebarQuotaSnapshot (reads the live view)
     //   → sidebar state file (verified via readSidebarState)
 
-    await setSidebarMachineState({ checkedAt: 0, accounts: [] }, { stateFile })
+    const traceSeed = process.env.AGY_TRACE_SIDEBAR_WINDOWS === '1'
+    if (traceSeed) {
+      console.error('quota-windows seed:begin')
+      setSidebarMergeHooks({
+        onStep: (step) => {
+          console.error(`quota-windows seed:${step}`)
+        },
+      })
+    }
+    try {
+      await setSidebarMachineState(
+        { checkedAt: 0, accounts: [] },
+        { stateFile },
+      )
+      if (traceSeed) console.error('quota-windows seed:done')
+    } finally {
+      if (traceSeed) setSidebarMergeHooks(null)
+    }
 
     const windowData = {
       'non-gemini': {
@@ -1424,6 +1477,14 @@ describe('BackgroundQuotaRefresh', () => {
   })
 
   it('keeps a successful quota refresh when the updated account token differs', async () => {
+    const startedAt = performance.now()
+    const phase = (message: string) =>
+      console.log(
+        JSON.stringify({
+          quotaPollerPhase: message,
+          elapsedMs: performance.now() - startedAt,
+        }),
+      )
     const accounts: StubAccount[] = [makeStubAccount('bare-token')]
     const quotaGroups = {
       gemini: { remainingFraction: 0.5, modelCount: 1 },
@@ -1431,6 +1492,7 @@ describe('BackgroundQuotaRefresh', () => {
     const updateQuotaCache = mock(() => {})
     const quotaManager = {
       refreshAccounts: mock(async () => {
+        phase('refresh-start')
         accounts[0]!.parts.refreshToken = 'updated-token'
         return [
           {
@@ -1468,12 +1530,16 @@ describe('BackgroundQuotaRefresh', () => {
       quotaManager: quotaManager as unknown as import('./quota').QuotaManager,
       random: () => 0,
       now: () => Date.now(),
+      logger: { debug: (message) => phase(message) },
     })
+    phase('poller-start')
     poller.start()
 
     await new Promise((resolve) => setTimeout(resolve, 300))
     await poller.dispose()
+    phase('poller-stopped')
 
+    expect(quotaManager.refreshAccounts).toHaveBeenCalledTimes(1)
     expect(updateQuotaCache).toHaveBeenCalledWith(
       0,
       quotaGroups,

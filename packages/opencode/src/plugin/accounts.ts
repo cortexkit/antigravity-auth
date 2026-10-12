@@ -1,15 +1,29 @@
 import {
   type AccountManagerOptions,
+  type AccountRepository,
+  type AccountRepositoryRead,
   AccountManager as CoreAccountManager,
+  type ManagedAccount as CoreManagedAccount,
+  type OAuthAuthDetails as CoreOAuthAuthDetails,
+  type ProjectContextResult,
+  type RowRef,
+  sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
 
 import { debugLogToFile } from './debug'
+import { ensureProjectContext } from './project'
+import {
+  type CapturedLocalGrant,
+  LocalGrantSupersededError,
+  StaleLocalGrantError,
+} from './shared/local-grant'
 import {
   getStoragePath,
   loadAccounts,
   saveAccounts,
   saveAccountsReplace,
 } from './storage'
+import { isInvalidGrantFailure } from './token'
 import type { OAuthAuthDetails } from './types'
 
 export type {
@@ -27,7 +41,15 @@ export {
   resolveQuotaGroup,
 } from '@cortexkit/antigravity-auth-core'
 
-const openCodeStore: AccountManagerOptions['store'] = {
+/**
+ * The pre-store pool-file binding. Every function it calls first runs the
+ * migration's `assertLegacyAccountStorageWritable`, which refuses
+ * (`LegacyAccountPoolRetiredError`) once a canonical store pointer is
+ * published and its journal is not an inactive rollback, or when store
+ * files exist without a journal. A manager built on it never writes a
+ * retired pool file.
+ */
+const openCodeStore: NonNullable<AccountManagerOptions['store']> = {
   load: async () => loadAccounts(),
   saveMerged: async (_path, next) => {
     await saveAccounts(next)
@@ -46,6 +68,196 @@ const openCodeStore: AccountManagerOptions['store'] = {
   clear: async () => {},
 }
 
+function defaultDiagnostic(
+  message: string,
+  fields?: Record<string, unknown>,
+): void {
+  debugLogToFile(fields ? `${message} ${JSON.stringify(fields)}` : message)
+}
+
+/**
+ * Thrown when the account store cannot serve accounts: a migration or a
+ * multi-row operation is pending, or a store file is unreadable. Routing
+ * must stop here; nothing falls back to the pool file or to an empty pool.
+ */
+export class AccountStoreNotReadyError extends Error {
+  readonly read: Exclude<AccountRepositoryRead, { status: 'ready' }>
+
+  constructor(read: Exclude<AccountRepositoryRead, { status: 'ready' }>) {
+    super(
+      read.status === 'error'
+        ? `The account store's ${read.file} file cannot be read: ${read.reason}`
+        : read.status === 'management-pending'
+          ? `An account ${read.management.kind} operation is pending; resume it before using the accounts`
+          : 'The account store is waiting for its migration to finish; run `antigravity-auth migrate --offline`',
+    )
+    this.name = 'AccountStoreNotReadyError'
+    this.read = read
+  }
+}
+
+/**
+ * Builds a manager over the account repository from one read. Every account
+ * the manager holds carries the `RowRef` of the row it was read from: the
+ * row id, the credential epoch and the exact recorded identity (an absent
+ * identity matches only an absent one). Every write the manager makes about
+ * the account is fenced on that ref, so a write for a credential the row
+ * has since replaced is refused; positions are never used.
+ * Refreshes go through `refreshAccount`, the repository's per-account
+ * refresh, so different accounts refresh concurrently while one account's
+ * refreshes are serialized.
+ */
+export async function loadAccountManagerFromRepository(
+  repository: AccountRepository,
+  options: Partial<
+    Omit<AccountManagerOptions, 'store' | 'storagePath' | 'repository'>
+  > = {},
+): Promise<CoreAccountManager> {
+  const read = await repository.read()
+  if (read.status !== 'ready') throw new AccountStoreNotReadyError(read)
+  return CoreAccountManager.fromRepository(read, {
+    repository,
+    now: options.now,
+    random: options.random,
+    pid: options.pid ?? process.pid,
+    onDiagnostic: options.onDiagnostic ?? defaultDiagnostic,
+  })
+}
+
+/**
+ * Token and project operations for accounts of a repository-backed manager,
+ * for the shared request engine's local source: the refresh token is stored
+ * locally and refreshed here. A vault-backed location never uses these; it
+ * obtains a fresh token and project for every send.
+ */
+export interface LocalAccountCredentials {
+  /** Capture the selected row; resolution may adopt only that row's current credential. */
+  captureGrant(request: {
+    account: CoreManagedAccount
+    accessToken: string
+  }): Extract<CapturedLocalGrant, { source: 'store' }>
+  /**
+   * Refreshes the locally stored refresh token of `account` through the
+   * repository, fenced on the ref the account was loaded with, and returns
+   * its updated credential. A refresh
+   * the store refused, or one where Google answered for another account,
+   * returns `undefined`: no bearer is handed out for it. Failures (Google's
+   * error answers included, see `isInvalidGrant`) are thrown.
+   */
+  refresh(
+    account: CoreManagedAccount,
+  ): Promise<CoreOAuthAuthDetails | undefined>
+  /** Resolves the Antigravity project a request is sent under, using the cached project context. */
+  ensureProject(auth: CoreOAuthAuthDetails): Promise<ProjectContextResult>
+  /** True when a refresh failure is `invalid_grant`: the refresh token is invalid or revoked. */
+  isInvalidGrant(error: unknown): boolean
+  /**
+   * Check a captured bearer immediately before sending it. `ref` is the
+   * original row ID, credential epoch and authenticated identity captured
+   * with that token, not the account object's potentially changed ref.
+   *
+   * The manager must still hold the enabled selected account at that ref.
+   * One fresh repository read must show the same enabled row, a credential
+   * the native store marks usable, and present Antigravity provider metadata.
+   * Recheck the held account after the read because it may change during it.
+   * A different stored token at the unchanged ref raises
+   * `LocalGrantSupersededError`; other refusals raise `StaleAccountGrantError`.
+   * The held account must also still carry the captured token.
+   *
+   * This is a dispatch snapshot, not a lease or network lock. It never changes
+   * the prepared bearer, and the row can still change after the check returns.
+   */
+  assertGrantCurrent(request: {
+    account: CoreManagedAccount
+    accessToken: string
+    ref: RowRef
+  }): Promise<void>
+}
+
+/** The selected account no longer holds the credential a grant was made for. */
+export class StaleAccountGrantError extends StaleLocalGrantError {
+  constructor() {
+    super()
+    this.name = 'StaleAccountGrantError'
+  }
+}
+
+export function createLocalAccountCredentials(
+  manager: CoreAccountManager,
+  dependencies: {
+    /** The repository `manager` was loaded from. */
+    repository: Pick<AccountRepository, 'read'>
+    ensureProject?: (
+      auth: CoreOAuthAuthDetails,
+    ) => Promise<ProjectContextResult>
+  },
+): LocalAccountCredentials {
+  const heldLocally = (account: CoreManagedAccount, ref: RowRef): boolean =>
+    account.ref !== undefined &&
+    sameRowRef(account.ref, ref) &&
+    account.enabled !== false &&
+    manager.getAccounts().includes(account)
+  const readCurrentRow = async (ref: RowRef) => {
+    const read = await dependencies.repository.read()
+    const row =
+      read.status === 'ready'
+        ? read.rows.find((candidate) => sameRowRef(candidate.ref, ref))
+        : undefined
+    if (
+      row === undefined ||
+      !row.enabled ||
+      !row.usable ||
+      row.credential === undefined ||
+      row.metadata.status !== 'present'
+    )
+      throw new StaleAccountGrantError()
+    return row
+  }
+  const local: LocalAccountCredentials = {
+    captureGrant({ account, accessToken }) {
+      const ref =
+        account.ref === undefined
+          ? undefined
+          : Object.freeze({ ...account.ref })
+      return {
+        source: 'store',
+        check: () => {
+          if (ref === undefined) throw new StaleAccountGrantError()
+          return local.assertGrantCurrent({ account, accessToken, ref })
+        },
+        async resolveCurrent() {
+          if (ref === undefined || !heldLocally(account, ref))
+            throw new StaleAccountGrantError()
+          const row = await readCurrentRow(ref)
+          if (
+            !heldLocally(account, ref) ||
+            !manager.adoptCurrentRow(account, row)
+          )
+            throw new StaleAccountGrantError()
+        },
+      }
+    },
+    async refresh(account) {
+      const outcome = await manager.refreshAccount(account)
+      if (outcome.status !== 'rotated') return undefined
+      return manager.toAuthDetails(account)
+    },
+    ensureProject: dependencies.ensureProject ?? ensureProjectContext,
+    isInvalidGrant: isInvalidGrantFailure,
+    async assertGrantCurrent({ account, accessToken, ref }) {
+      if (!heldLocally(account, ref)) throw new StaleAccountGrantError()
+      const row = await readCurrentRow(ref)
+      // Recheck the selected account and its original row ref after the read.
+      // Checking cannot adopt a newer stored token or change a prepared bearer.
+      if (!heldLocally(account, ref)) throw new StaleAccountGrantError()
+      if (row.credential?.accessToken !== accessToken)
+        throw new LocalGrantSupersededError()
+      if (account.access !== accessToken) throw new StaleAccountGrantError()
+    },
+  }
+  return local
+}
+
 export class AccountManager extends CoreAccountManager {
   constructor(
     authFallback?: OAuthAuthDetails,
@@ -58,12 +270,7 @@ export class AccountManager extends CoreAccountManager {
       now: options.now,
       random: options.random,
       pid: options.pid ?? process.pid,
-      onDiagnostic:
-        options.onDiagnostic ??
-        ((message, fields) =>
-          debugLogToFile(
-            fields ? `${message} ${JSON.stringify(fields)}` : message,
-          )),
+      onDiagnostic: options.onDiagnostic ?? defaultDiagnostic,
     })
   }
 

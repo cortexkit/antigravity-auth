@@ -1,0 +1,1 @@
+git status --short; git branch --show-current; git rev-parse HEAD

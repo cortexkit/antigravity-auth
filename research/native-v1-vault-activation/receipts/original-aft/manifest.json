@@ -1,0 +1,158 @@
+[
+  {
+    "task_id": "bash-129b57d568a8ae0d",
+    "role": "normal root type/dependency join and native plus ownership controls",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-129b57d568a8ae0d",
+    "outer_exit_code": 0,
+    "tree_hash": "c5176b283d6ac6bce0ee0aa4f49578d5c343a279",
+    "sha256": {
+      "command.sh": "10a55e004c6cd358cc43c7b43b3de9b23470bf49b82716b04ca540efc97986b4",
+      "metadata.json": "4dd945661156b4a4f165579d9ad1e24ec184388910ca96f010d61dc664190e1a",
+      "stdout.log": "e8ede42a3d6d3f0550a61899a4afc5adb5735b473209e0db551dac571be788ff",
+      "stderr.log": "bfa633ebefb6ccdcc15bac7dc1ffb73c8a64ab7c0c5baceac787e870abd452f8"
+    }
+  },
+  {
+    "task_id": "bash-5e0cabecd6112309",
+    "role": "ownership-corrected native pass and changed-birth/ESRCH/descendant controls before dependency join",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-5e0cabecd6112309",
+    "outer_exit_code": 0,
+    "tree_hash": "9e759782bb63211905c21fd9d0a680277703058f",
+    "sha256": {
+      "command.sh": "4ba25eb5d08f73e18504596b8415e761bb1f20dcc662376f2ac33bd4f152cd6a",
+      "metadata.json": "aaddc7720c672ff02e803cf3c367009ea1000d00fb3d39b5bbb109cbd58ba982",
+      "stdout.log": "5153fe49a442ad73bdee2c462a1358dafd528177508d31816291dc975569df91",
+      "stderr.log": "bfa633ebefb6ccdcc15bac7dc1ffb73c8a64ab7c0c5baceac787e870abd452f8"
+    }
+  },
+  {
+    "task_id": "bash-20f4682ca963d688",
+    "role": "first attached native failure",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-20f4682ca963d688",
+    "outer_exit_code": 1,
+    "tree_hash": "710a3df83bd18a146e5b02777572786a8dd0a892",
+    "sha256": {
+      "command.sh": "fd102a93e728bc79ab8ee92133c6ff00782566a3f786121a554f35e5384440fa",
+      "metadata.json": "d35d0e3b1ce06cf64a8b288c0a3f82c222d92ca1531025bf6b083ea1732c2849",
+      "stdout.log": "34a187bbde75366489e84638217eda1712f7213ff3ca6787852b4d73214cb446",
+      "stderr.log": "58e9ac05ae07af9d7c5092741d52d993a7184803168500331b946eae173becaa"
+    }
+  },
+  {
+    "task_id": "bash-ddd98434f078b42c",
+    "role": "real account-file syscall mutation control (inner test exit 1)",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-ddd98434f078b42c",
+    "outer_exit_code": 0,
+    "tree_hash": "1961316ba418bdd32f6efccb6728c27de9f78267",
+    "sha256": {
+      "command.sh": "efdf1d254fd5ff1383f148ab4384df75889517bb08b30f2901194d188a22b5b4",
+      "metadata.json": "807eba5b56e87ad48b12e18248d5b2b376160d11ec1282bcb2d29f7e4a9c05e3",
+      "stdout.log": "83511b0426bfe6d40460d15d5da77bff145aa0fa8761eb5f399df347516ec697",
+      "stderr.log": "bfa633ebefb6ccdcc15bac7dc1ffb73c8a64ab7c0c5baceac787e870abd452f8"
+    }
+  },
+  {
+    "task_id": "bash-b184f9e8f1ce7a88",
+    "role": "real Google token URL mutation control (inner test exit 1)",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-b184f9e8f1ce7a88",
+    "outer_exit_code": 0,
+    "tree_hash": "e8df2aaff8a445a3516544e87e7b18c658673836",
+    "sha256": {
+      "command.sh": "c53182911bdc1a2db6ec9fd0942f6f3e7c5fc0308dcff2209702b6d1eda621d0",
+      "metadata.json": "f92f316590201911b9839393d2c6b1cf9c760822e10d014b8b83be12e6f612de",
+      "stdout.log": "023c7a430caf2fb02d2d85a1689869c542d2361041072c6ed738cfa2eda34540",
+      "stderr.log": "bfa633ebefb6ccdcc15bac7dc1ffb73c8a64ab7c0c5baceac787e870abd452f8"
+    }
+  },
+  {
+    "task_id": "bash-d3fa06674a3eacef",
+    "role": "additional original native/type/diagnostic experiment; exact command and inner results in raw files",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-d3fa06674a3eacef",
+    "outer_exit_code": 1,
+    "tree_hash": "e00d7f8b6a8e1af6ddbfcafcfa2999a716377ab2",
+    "sha256": {
+      "command.sh": "fd102a93e728bc79ab8ee92133c6ff00782566a3f786121a554f35e5384440fa",
+      "metadata.json": "aa9784a75a0e5a6180504e8be871f32646474de77a417b8ffc1e6ecf6e471fb6",
+      "stdout.log": "9e1e9afd6031aa9384779246ee2e8fa1f84baf998f53feb48948b08155b4aea7",
+      "stderr.log": "c02043aa5c650f55937588744f4f7966502911a6397c092ba44c5e482c1ca03c"
+    }
+  },
+  {
+    "task_id": "bash-d9f8cd85dd47cf8d",
+    "role": "additional original native/type/diagnostic experiment; exact command and inner results in raw files",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-d9f8cd85dd47cf8d",
+    "outer_exit_code": 2,
+    "tree_hash": "e70d3b6703799872e51480a2849e935d08a49deb",
+    "sha256": {
+      "command.sh": "4ba25eb5d08f73e18504596b8415e761bb1f20dcc662376f2ac33bd4f152cd6a",
+      "metadata.json": "97ce18602f5c6de453342a8a5a07379f59b04d0b8ba17869bad53c9e6ddbcefa",
+      "stdout.log": "ba0606e1655b907f41b922f0b49cf5ceaaf2779881d4b4373058d4cfb9d87c1b",
+      "stderr.log": "bfa633ebefb6ccdcc15bac7dc1ffb73c8a64ab7c0c5baceac787e870abd452f8"
+    }
+  },
+  {
+    "task_id": "bash-5d05a25c491d1f83",
+    "role": "additional original native/type/diagnostic experiment; exact command and inner results in raw files",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-5d05a25c491d1f83",
+    "outer_exit_code": 0,
+    "tree_hash": "2eb8debfdaa62e8d2d9ed0b02cfa5e3333866f46",
+    "sha256": {
+      "command.sh": "114f3ff5f641b5c94d183eee39a86681195420e226e965e30167eb61b7687b44",
+      "metadata.json": "c1b56127712d965e2b9843a81c3c8daf609f37eaff5a54f264d228efde964885",
+      "stdout.log": "ff7554a67d8b7c434f12cf6f0d26f1162d656465273709ab16f4ef47143e9de8",
+      "stderr.log": "bfa633ebefb6ccdcc15bac7dc1ffb73c8a64ab7c0c5baceac787e870abd452f8"
+    }
+  },
+  {
+    "task_id": "bash-5736844c1def4157",
+    "role": "additional original native/type/diagnostic experiment; exact command and inner results in raw files",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-5736844c1def4157",
+    "outer_exit_code": 0,
+    "tree_hash": "0ee968f6d281136d521c0f9e10382e806f8766ac",
+    "sha256": {
+      "command.sh": "72cfdf152b7d779526dd14a2d729a5971802d0f30ac30d586474f65492f1cff9",
+      "metadata.json": "14b227622c4509895ccd6e91ea8d63aef725aaa7119fe99c6bad683be0a06583",
+      "stdout.log": "3b513861ca58c74562c4566a0e603c4fb7b62c9d80593f4f442bc6b8ee73388f",
+      "stderr.log": "bfa633ebefb6ccdcc15bac7dc1ffb73c8a64ab7c0c5baceac787e870abd452f8"
+    }
+  },
+  {
+    "task_id": "bash-350951f4c55a1912",
+    "role": "additional original native/type/diagnostic experiment; exact command and inner results in raw files",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-350951f4c55a1912",
+    "outer_exit_code": 0,
+    "tree_hash": "710a3df83bd18a146e5b02777572786a8dd0a892",
+    "sha256": {
+      "command.sh": "b5fcc73fa40fbd84ba8d35f3f635ac7db975cf24523078a4688f7fd51f2e7d2d",
+      "metadata.json": "290098967e314173184bd7b3dca6b7982b21108b5480965789bc61f0bbc4a915",
+      "stdout.log": "8ec551696c6f37210592ed4e15ac01a2fad520826c65bd16a07ba57bb8267e24",
+      "stderr.log": "bfa633ebefb6ccdcc15bac7dc1ffb73c8a64ab7c0c5baceac787e870abd452f8"
+    }
+  },
+  {
+    "task_id": "bash-7cbbc4f17836a5eb",
+    "role": "additional original native/type/diagnostic experiment; exact command and inner results in raw files",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-7cbbc4f17836a5eb",
+    "outer_exit_code": 0,
+    "tree_hash": "63c01cc555027d1ed6ee3664a7c5134d37e3a291",
+    "sha256": {
+      "command.sh": "7d5d7ac84fb2bf8af8ceac0909ff3ad115249476c2d79c1b30c1e897b14d8f31",
+      "metadata.json": "07b0e9777881e035bd5059303ec591a889cd8e4079a46bdaa1efbac341b8b466",
+      "stdout.log": "ffe9ebb0a6c8c6412f222f4a28fef49397f5ca700225815d9b679c794664b4ef",
+      "stderr.log": "bfa633ebefb6ccdcc15bac7dc1ffb73c8a64ab7c0c5baceac787e870abd452f8"
+    }
+  },
+  {
+    "task_id": "bash-01628ddc04efa4fc",
+    "role": "additional original native/type/diagnostic experiment; exact command and inner results in raw files",
+    "recorder_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/54e5d9234977dbb1/bash-01628ddc04efa4fc",
+    "outer_exit_code": 0,
+    "tree_hash": "9c39decb053b8dbeb55127750ca583357059d11f",
+    "sha256": {
+      "command.sh": "3eb7c86f1cfbde7ecdf1a04296deabd2b6c9f05a0d35367c216e2d7aa3d4a6eb",
+      "metadata.json": "207ed217519571b74b6a905221f497f914e92f992214b8b550881a7ab607e087",
+      "stdout.log": "e02c5f1a17bd6b0fb02d1a66f5197ce899e2750c48a64512d735f164aceaeee5",
+      "stderr.log": "5f0364505fef8c9c2a3e6e4cbf259fc47a6067da46a7759940ac9537339df642"
+    }
+  }
+]

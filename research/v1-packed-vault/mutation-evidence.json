@@ -1,0 +1,30 @@
+[
+  {
+    "control": "Neutralize only the installed packed hybrid default object's server arm; trigger staged helper's owned installed-file control",
+    "expected_red": "official V1 loads the packed server and completes a vault raw-TLS first request",
+    "captured_output": "(fail) official V1 loads the packed server and completes a vault raw-TLS first request; 4 pass, 1 fail, 15 expect() calls. Native login stderr: failed to load plugin ... NON-VACUITY BREAK: installed hybrid.server called. No TLS request; bounded login SIGTERM/reaped.",
+    "applied_evidence": "packages/e2e-tests/src/v1-packed-vault-harness.ts: during 1 file changed, 1 insertion(+), 1 deletion(-); after git checkout -- <path> && touch <path>: empty git diff --stat. /tmp/packed-v1-vault-EQxqWk/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js: before/restored 8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33; mutant 7ffcb305ed61bcc7f07d80e8e5460dc14ad484638ffdb771bec5b1f011fb3546; exact installed diff in receipts/bash-0bc9518bebaa2fc0.json. Restored final native task bash-296fd7d9c5af0f17 passes with the same installed entry hash.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Replace the physical bearer comparison with true (NON-VACUITY BREAK)",
+    "expected_red": "wire assertion rejects unrelated identity, bearer, project and nonce",
+    "captured_output": "(fail) wire assertion rejects unrelated identity, bearer, project and nonce: Expected substring Wire bearer; Received function did not throw. 3 pass, 1 filtered out, 1 fail, 9 expect() calls. Loading/network/dormancy assertion tests passed.",
+    "applied_evidence": "packages/e2e-tests/src/v1-packed-vault-harness.ts: during 1 file changed, 1 insertion(+), 1 deletion(-); after git checkout -- <path> && touch <path>: empty git diff --stat. Original task bash-a4ac75fb770e697a under receipts/original-aft/.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Replace the whole-wire dormant access/refresh exclusion with true (NON-VACUITY BREAK)",
+    "expected_red": "dormancy assertion requires byte-identical slots and no slot secret on wire",
+    "captured_output": "(fail) dormancy assertion requires byte-identical slots and no slot secret on wire: Expected substring physical wire; Received function did not throw. 3 pass, 1 filtered out, 1 fail, 13 expect() calls. Wire/loading/network assertion tests passed.",
+    "applied_evidence": "packages/e2e-tests/src/v1-packed-vault-harness.ts: during 1 file changed, 1 insertion(+), 1 deletion(-); after git checkout -- <path> && touch <path>: empty git diff --stat. Original task bash-881d5496af0642f7 under receipts/original-aft/.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Replace the Google DNS/request-side-call exclusion with true (NON-VACUITY BREAK)",
+    "expected_red": "network assertion rejects a Google OAuth/project lookup before TLS",
+    "captured_output": "(fail) network assertion rejects a Google OAuth/project lookup before TLS: Expected substring Google OAuth/project/quota; Received function did not throw. 3 pass, 1 filtered out, 1 fail, 13 expect() calls. Wire/loading/dormancy assertion tests passed.",
+    "applied_evidence": "packages/e2e-tests/src/v1-packed-vault-harness.ts: during 1 file changed, 1 insertion(+), 7 deletions(-); after git checkout -- <path> && touch <path>: empty git diff --stat. Original task bash-00f0e7cb9719e0cd under receipts/original-aft/.",
+    "outcome": "reddened"
+  }
+]

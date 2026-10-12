@@ -1,0 +1,145 @@
+{
+  "task_id": "bash-7717476eb6763ff7",
+  "remote_job": "01a12c1b-b30e-7506-b962-60e1d08b56e3",
+  "remote_input_tree": "1d08ff3baf5a8da399091574b50db0579237b871",
+  "staged_index_hint": "d3e8884ee8728ea9797d82053910181b11b5fe00",
+  "source_hashes": {
+    "packages/e2e-tests/src/v1-packed-vault-harness.ts": "dc572efd886231d32aa795760554205ce15a4b48b6eb743348fdc99f4671cc92",
+    "packages/e2e-tests/src/v1-packed-vault.e2e.test.ts": "94dcc0b7575c8421d981750f547d5fdc2322b5c651672fa40e9428962ab5c63e",
+    "packages/e2e-tests/src/opencode-ga-harness.ts": "ced78984aac543224c469aaf0043f89dd805efe06430ac6ee0d57f93d948168c",
+    "packages/e2e-tests/src/opencode-ga-host-inputs.ts": "5ae7ea09ded64b879b7423e70cf4286e4088356fc1d20be3e174cf7a61c20067",
+    "packages/e2e-tests/src/v1-vault-activation-harness.ts": "11a034d39f118372694963bec8756ca7a25caadb210b99ad5c34b8c4ae1a4252",
+    "packages/opencode/src/server.ts": "1c1023cd7cb3344e9f27009b74a53c6046302ee491ebc9568f1b2f2a392dca9e",
+    "packages/opencode/src/plugin/index.ts": "0f72360b679768da6ff5931251930d1232a815316c6be897522d4b21b5c9f46d",
+    "packages/core/src/common-auth-embedded/source-output.json": "2817c41f24ba652b31d70a23473171e05109462e57ab3246088816821589a3b4"
+  },
+  "official_archive": {
+    "path": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/.cortexkit/parent-inputs/v1-packed-floor-r1/opencode-linux-x64-1.17.13.tgz",
+    "bytes": 54631676,
+    "sha256": "04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331",
+    "sri": "sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=="
+  },
+  "binary": {
+    "path": "/tmp/packed-v1-vault-QNn1Tl/opencode",
+    "sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+    "version": "1.17.13"
+  },
+  "packs": {
+    "core.tgz": "ad870ca68860f0b09221775437c7429d3286015c400c9449dbbcdc720474036e",
+    "plugin.tgz": "faa7a5e0ef78468b18a4fb4e6df0db223e07eb21abc272b2383435b0e1fb004c"
+  },
+  "installed_entries": {
+    "/tmp/packed-v1-vault-QNn1Tl/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33",
+    "/tmp/packed-v1-vault-QNn1Tl/consumer/node_modules/@cortexkit/antigravity-auth-core/dist/index.js": "2ebc1980a244e363d5ea41e55f72932dc5693161384f7d3c8711bb6e351b801f"
+  },
+  "primary_wire_sha256": [
+    "f574738066b442632b4ea2ff7642fc99efdc73d2a79579b3ddd510c42b7fca3b"
+  ],
+  "slot_controls": [
+    {
+      "name": "missing-placeholder",
+      "requests": 0,
+      "exitCode": 1,
+      "nonce": "7f1da8a5df22ef65bb6d46fd66c86f78",
+      "marker": null,
+      "wireHashes": []
+    },
+    {
+      "name": "foreign-tombstone",
+      "requests": 1,
+      "exitCode": 0,
+      "nonce": "2ff9abd44b7a945d113e3b4eccebbfde",
+      "marker": {
+        "google": {
+          "type": "oauth",
+          "access": "",
+          "refresh": "claustrum-tombstone:v1:other-provider",
+          "expires": 0
+        }
+      },
+      "wireHashes": [
+        "e9f19b68564dcdccd9493cd7757bad6b4333e74ebd1f7c3004808bb682ffe143"
+      ],
+      "authBeforeSha256": "fe1467ea894b21ac078895d2911e0fc8fc76b928001e398b4c0e4816920c0f95",
+      "authAfterSha256": "fe1467ea894b21ac078895d2911e0fc8fc76b928001e398b4c0e4816920c0f95"
+    },
+    {
+      "name": "dormant-login",
+      "requests": 1,
+      "exitCode": 0,
+      "nonce": "b612cb887773873b3651bbab21b52342",
+      "marker": {
+        "google": {
+          "type": "oauth",
+          "access": "dormant-google-access",
+          "refresh": "dormant-google-refresh",
+          "expires": 0
+        }
+      },
+      "wireHashes": [
+        "f6da6af749c5b91fcb89dcdf163cfe100e0c41e89a2f6309a3269d6947f781cb"
+      ],
+      "authBeforeSha256": "a544d42be43b5ad7f401dd1c680e19ead63bf5d2913f8cd4da05294f2f97c6bb",
+      "authAfterSha256": "a544d42be43b5ad7f401dd1c680e19ead63bf5d2913f8cd4da05294f2f97c6bb"
+    }
+  ],
+  "native_exits": [
+    {
+      "name": "version",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true
+    },
+    {
+      "name": "enrollment",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true
+    },
+    {
+      "name": "catalog",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true
+    },
+    {
+      "name": "login",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true
+    },
+    {
+      "name": "first-request",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true
+    },
+    {
+      "name": "missing-placeholder",
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true
+    },
+    {
+      "name": "foreign-tombstone",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true
+    },
+    {
+      "name": "dormant-login",
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true
+    }
+  ],
+  "local_account_syscalls": []
+}

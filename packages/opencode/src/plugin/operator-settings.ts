@@ -20,15 +20,16 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { z } from 'zod'
 
+import { canonicalizeOwnedPath } from './config/loader'
 import {
   emptyOperatorSettings,
   type OperatorSettings,
   OperatorSettingsSchema,
 } from './config/operator-settings-schema'
-import { writeOperatorConfig } from './config/writer'
+import { writeOperatorConfig, writeOperatorConfigAt } from './config/writer'
 
 // Loaded operator slices may be incomplete (older config files, partial
 // user edits); the merge-with-defaults step below fills any gaps.
@@ -123,6 +124,172 @@ export function createOperatorSettingsController(
       }
     },
   }
+}
+
+// =============================================================================
+// Location-scoped settings over process-shared per-file controllers
+// =============================================================================
+
+/**
+ * The one in-process owner of a config file's operator block. Every location
+ * reading or writing that file goes through it, so a write by one location
+ * is what the next read by another returns, and writes to one file never
+ * interleave.
+ */
+interface SharedOperatorFile {
+  readonly path: string
+  /** The file's operator block, or null when it has none that parses. */
+  read(): OperatorSettings | null
+  /**
+   * Serialized read-modify-write. The mutator receives the current block, or
+   * `seed()` when the file has none, evaluated when the update runs.
+   */
+  update(
+    seed: () => OperatorSettings,
+    mutator: (draft: OperatorSettings) => void,
+  ): Promise<void>
+}
+
+interface SharedOperatorFileEntry extends SharedOperatorFile {
+  refs: number
+}
+
+/**
+ * Process-wide table of shared operator-file controllers keyed by canonical
+ * path. An entry lives while any location holds it and is dropped at the
+ * last release, so a later acquisition reads the file afresh.
+ */
+export interface OperatorSettingsRegistry {
+  /** Canonical paths with a live controller (diagnostics and tests). */
+  livePaths(): string[]
+}
+
+interface OperatorSettingsRegistryInternal extends OperatorSettingsRegistry {
+  acquire(path: string): SharedOperatorFileEntry
+  release(entry: SharedOperatorFileEntry): void
+}
+
+export function createOperatorSettingsRegistry(): OperatorSettingsRegistry {
+  const entries = new Map<string, SharedOperatorFileEntry>()
+
+  const createEntry = (path: string): SharedOperatorFileEntry => {
+    // undefined = not yet read from disk; null = file has no usable block.
+    let state: OperatorSettings | null | undefined
+    let chain: Promise<void> = Promise.resolve()
+    const read = (): OperatorSettings | null => {
+      if (state === undefined) state = readOperatorFile(path)
+      return state
+    }
+    return {
+      path,
+      refs: 0,
+      read,
+      update(seed, mutator) {
+        const run = chain.then(async () => {
+          const draft = cloneSettings(read() ?? seed())
+          mutator(draft)
+          const validated = OperatorSettingsSchema.parse(draft)
+          // In-memory state is authoritative for this process even when the
+          // write below fails, matching the single-location controller.
+          state = validated
+          await writeOperatorConfigAt(path, validated)
+        })
+        chain = run.catch(() => {})
+        return run
+      },
+    }
+  }
+
+  const registry: OperatorSettingsRegistryInternal = {
+    livePaths: () => [...entries.keys()],
+    acquire(path) {
+      const key = canonicalizeOwnedPath(path)
+      let entry = entries.get(key)
+      if (!entry) {
+        entry = createEntry(key)
+        entries.set(key, entry)
+      }
+      entry.refs++
+      return entry
+    },
+    release(entry) {
+      entry.refs--
+      if (entry.refs <= 0 && entries.get(entry.path) === entry) {
+        entries.delete(entry.path)
+      }
+    },
+  }
+  return registry
+}
+
+/** The registry every location in this process shares. */
+export const processOperatorSettingsRegistry: OperatorSettingsRegistry =
+  createOperatorSettingsRegistry()
+
+export interface LocationOperatorSettingsOptions
+  extends OperatorSettingsControllerOptions {
+  /** Defaults to the process registry; tests pass an isolated one. */
+  registry?: OperatorSettingsRegistry
+}
+
+export interface LocationOperatorSettings extends OperatorSettingsController {
+  /** Canonical path of the file this location currently reads. */
+  sourcePath(): string
+}
+
+/**
+ * Acquire one location's operator settings.
+ *
+ * Reads come from the project file's operator block when it parses, else
+ * the user file's block, else defaults. Writes go to the project file
+ * whenever it exists (block or not), else the user file, keeping every other
+ * field. Each file has one shared controller per process, so locations on
+ * the same file see each other's updates and updates to one file serialize.
+ * A location whose project file exists without a block reads through the
+ * user file; its first mutation seeds a project block from its effective
+ * values and rebinds it to the project file. Applying the values (log level,
+ * routing, killswitch) is the caller's per-location concern.
+ */
+export function acquireLocationOperatorSettings(
+  options: LocationOperatorSettingsOptions,
+): LocationOperatorSettings {
+  const registry = (options.registry ??
+    processOperatorSettingsRegistry) as OperatorSettingsRegistryInternal
+  const project = registry.acquire(options.projectConfigPath)
+  const user = registry.acquire(options.userConfigPath)
+  let disposed = false
+  let pending: Promise<void> = Promise.resolve()
+
+  const projectBound = (): boolean => project.read() !== null
+  const effective = (): OperatorSettings =>
+    project.read() ?? user.read() ?? emptyOperatorSettings()
+
+  return {
+    get: () => effective(),
+    sourcePath: () => (projectBound() ? project.path : user.path),
+    async update(mutator) {
+      if (disposed) throw new Error('OperatorSettingsController is disposed')
+      const target = existsSync(project.path) ? project : user
+      const seed =
+        target === project
+          ? () => user.read() ?? emptyOperatorSettings()
+          : emptyOperatorSettings
+      const run = target.update(seed, mutator)
+      pending = run.catch(() => {})
+      await run
+    },
+    async dispose() {
+      if (disposed) return
+      disposed = true
+      await pending
+      registry.release(project)
+      registry.release(user)
+    },
+  }
+}
+
+function cloneSettings(settings: OperatorSettings): OperatorSettings {
+  return JSON.parse(JSON.stringify(settings)) as OperatorSettings
 }
 
 function readOperatorFile(path: string): OperatorSettings | null {

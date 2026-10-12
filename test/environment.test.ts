@@ -50,6 +50,10 @@ describe('test environment isolation', () => {
     )
   })
 
+  it('pins Pi native credentials separately from the extension directory', () => {
+    expect(process.env.PI_CODING_AGENT_DIR).toBe(`${root}/pi-agent`)
+  })
+
   it('pi path helpers return paths under the test root', () => {
     expect(getPiConfigDir().startsWith(root)).toBe(true)
     expect(getPiAntigravityAuthFile().startsWith(root)).toBe(true)

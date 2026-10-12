@@ -1,0 +1,1 @@
+git checkout -- packages/pi/src/stream.ts packages/pi/src/commands.ts packages/opencode/src/plugin/shared/request-services.ts && touch packages/pi/src/stream.ts packages/pi/src/commands.ts packages/opencode/src/plugin/shared/request-services.ts; git diff --stat

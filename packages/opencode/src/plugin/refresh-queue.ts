@@ -17,14 +17,40 @@
  */
 
 import type { AccountManager, ManagedAccount } from './accounts'
-import { createLogger } from './logger'
+import { createLogger, type Logger } from './logger'
 import { refreshAccessToken } from './token'
 import type { OAuthAuthDetails, PluginClient } from './types'
 
 const log = createLogger('refresh-queue')
 
+/**
+ * The account-manager methods the queue uses. Narrower than the concrete
+ * class so a location can hand in its own account view.
+ */
+export type RefreshQueueAccountView = Pick<
+  AccountManager,
+  'getAccounts' | 'toAuthDetails' | 'updateFromAuth' | 'saveToDisk'
+>
+
+/** Refreshes one account's OAuth token; resolves `undefined` when it cannot. */
+export type RefreshQueueTokenRefresher = (
+  auth: OAuthAuthDetails,
+  account: ManagedAccount,
+) => Promise<OAuthAuthDetails | undefined>
+
+/**
+ * Per-location collaborators. A location passes its own logger and token
+ * refresher, so the queue never logs through the module logger or refreshes
+ * through the OpenCode 1 host client (`PluginClient`).
+ */
+export interface ProactiveRefreshDependencies {
+  logger: Logger
+  refreshToken: RefreshQueueTokenRefresher
+}
+
 /** Configuration for the proactive refresh queue */
 export interface ProactiveRefreshConfig {
+  mayRun?: () => Promise<boolean>
   /** Enable proactive token refresh (default: true) */
   enabled: boolean
   /** Seconds before expiry to trigger proactive refresh (default: 1800 = 30 minutes) */
@@ -61,10 +87,11 @@ interface RefreshQueueState {
  */
 export class ProactiveRefreshQueue {
   private readonly config: ProactiveRefreshConfig
-  private readonly client: PluginClient
-  private readonly providerId: string
-  private accountManager: AccountManager | null = null
+  private readonly log: Logger
+  private readonly refresh: RefreshQueueTokenRefresher
+  private accountManager: RefreshQueueAccountView | null = null
   private inflightRefresh: Promise<void> | null = null
+  private disposed = false
 
   private state: RefreshQueueState = {
     isRunning: false,
@@ -77,13 +104,29 @@ export class ProactiveRefreshQueue {
     errorCount: 0,
   }
 
+  /**
+   * `client` and `providerId` bind the OpenCode 1 token refresh. When
+   * `dependencies` is given, its logger and refresher are used instead and
+   * the client is never called.
+   */
   constructor(
-    client: PluginClient,
+    client: PluginClient | null,
     providerId: string,
     config?: Partial<ProactiveRefreshConfig>,
+    dependencies?: ProactiveRefreshDependencies,
   ) {
-    this.client = client
-    this.providerId = providerId
+    if (dependencies) {
+      this.log = dependencies.logger
+      this.refresh = dependencies.refreshToken
+    } else {
+      if (!client) {
+        throw new TypeError(
+          'ProactiveRefreshQueue needs a host client or explicit dependencies',
+        )
+      }
+      this.log = log
+      this.refresh = (auth) => refreshAccessToken(auth, client, providerId)
+    }
     this.config = {
       ...DEFAULT_PROACTIVE_REFRESH_CONFIG,
       ...config,
@@ -94,7 +137,7 @@ export class ProactiveRefreshQueue {
    * Set the account manager to use for refresh operations.
    * Must be called before start().
    */
-  setAccountManager(manager: AccountManager): void {
+  setAccountManager(manager: RefreshQueueAccountView): void {
     this.accountManager = manager
   }
 
@@ -162,6 +205,7 @@ export class ProactiveRefreshQueue {
   }
 
   private async performRefreshCheck(): Promise<void> {
+    if (this.config.mayRun && !(await this.config.mayRun())) return
     if (this.state.isRefreshing) {
       // Already refreshing - skip this iteration
       return
@@ -181,14 +225,15 @@ export class ProactiveRefreshQueue {
         return
       }
 
-      log.debug('Found accounts needing refresh', {
+      this.log.debug('Found accounts needing refresh', {
         count: accountsToRefresh.length,
       })
 
       // Refresh accounts serially to avoid concurrent refresh storms
       for (const account of accountsToRefresh) {
+        if (this.config.mayRun && !(await this.config.mayRun())) break
         if (!this.state.isRunning) {
-          // Queue was stopped - abort
+          // Recheck shutdown after the asynchronous authority read.
           break
         }
 
@@ -211,7 +256,7 @@ export class ProactiveRefreshQueue {
         } catch (error) {
           this.state.errorCount++
           // Log but don't throw - continue with other accounts
-          log.warn('Failed to refresh account', {
+          this.log.warn('Failed to refresh account', {
             accountIndex: account.index,
             error: error instanceof Error ? error.message : String(error),
           })
@@ -233,32 +278,32 @@ export class ProactiveRefreshQueue {
       ? Math.round((account.expires - Date.now()) / 60000)
       : 'unknown'
 
-    log.debug('Proactively refreshing token', {
+    this.log.debug('Proactively refreshing token', {
       accountIndex: account.index,
       email: account.email ?? 'unknown',
       minutesUntilExpiry,
     })
 
-    return refreshAccessToken(auth, this.client, this.providerId)
+    return this.refresh(auth, account)
   }
 
   /**
    * Start the background refresh queue.
    */
   start(): void {
-    if (this.state.isRunning) {
+    if (this.disposed || this.state.isRunning) {
       return
     }
 
     if (!this.config.enabled) {
-      log.debug('Proactive refresh disabled by config')
+      this.log.debug('Proactive refresh disabled by config')
       return
     }
 
     this.state.isRunning = true
     const intervalMs = this.config.checkIntervalSeconds * 1000
 
-    log.debug('Started proactive refresh queue', {
+    this.log.debug('Started proactive refresh queue', {
       checkIntervalSeconds: this.config.checkIntervalSeconds,
       bufferSeconds: this.config.bufferSeconds,
     })
@@ -268,7 +313,7 @@ export class ProactiveRefreshQueue {
       this.state.initialTimeoutHandle = null
       if (this.state.isRunning) {
         this.runRefreshCheck().catch((error) => {
-          log.error('Initial check failed', {
+          this.log.error('Initial check failed', {
             error: error instanceof Error ? error.message : String(error),
           })
         })
@@ -278,7 +323,7 @@ export class ProactiveRefreshQueue {
     // Set up periodic checks
     this.state.intervalHandle = setInterval(() => {
       this.runRefreshCheck().catch((error) => {
-        log.error('Check failed', {
+        this.log.error('Check failed', {
           error: error instanceof Error ? error.message : String(error),
         })
       })
@@ -304,13 +349,14 @@ export class ProactiveRefreshQueue {
       this.state.initialTimeoutHandle = null
     }
 
-    log.debug('Stopped proactive refresh queue', {
+    this.log.debug('Stopped proactive refresh queue', {
       refreshCount: this.state.refreshCount,
       errorCount: this.state.errorCount,
     })
   }
 
   async dispose(): Promise<void> {
+    this.disposed = true
     this.stop()
     await this.inflightRefresh
   }
@@ -346,4 +392,26 @@ export function createProactiveRefreshQueue(
   config?: Partial<ProactiveRefreshConfig>,
 ): ProactiveRefreshQueue {
   return new ProactiveRefreshQueue(client, providerId, config)
+}
+
+/**
+ * Create one location's refresh queue. The location supplies its logger and
+ * token refresher; nothing is read from the OpenCode 1 host client or the
+ * module logger.
+ */
+export function createLocationProactiveRefreshQueue(
+  dependencies: ProactiveRefreshDependencies,
+  config?: Partial<ProactiveRefreshConfig>,
+): ProactiveRefreshQueue {
+  if (
+    typeof dependencies?.logger?.debug !== 'function' ||
+    typeof dependencies.refreshToken !== 'function'
+  ) {
+    throw new TypeError(
+      'createLocationProactiveRefreshQueue requires a logger and refreshToken',
+    )
+  }
+  // The provider id is only used by the host-client refresh path, which a
+  // queue built with explicit dependencies never takes.
+  return new ProactiveRefreshQueue(null, '', config, dependencies)
 }

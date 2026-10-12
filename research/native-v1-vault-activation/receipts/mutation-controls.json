@@ -1,0 +1,20 @@
+[
+  {
+    "control":"NON-VACUITY BREAK: statSync of the private absent account file inside the actual native-loaded plugin",
+    "expected_red":"official 1.17.13 absent-auth first request activates and serves the approved vault",
+    "captured_output":"(fail) official 1.17.13 absent-auth first request activates and serves the approved vault; expect(receipt.localFileSyscalls).toEqual([]), received 3 real statx ENOENT calls. 0 pass, 1 fail, 22 expect() calls. No other test failed.",
+    "applied_evidence":"packages/e2e-tests/src/v1-vault-activation-harness.ts; staged live implementation and git diff --stat empty before mutation; mutant: 1 file changed, 3 insertions(+), 1 deletion(-); git checkout -- path && touch path; git diff --stat empty after restore",
+    "outcome":"reddened",
+    "other_properties":{"error":null,"authAbsentBefore":true,"requestCount":1,"allReaped":true,"terminalTextAndStepFinish":true},
+    "raw_syscalls":["76    statx(AT_FDCWD, \"/tmp/native-v1-vault-nkycT3/config/opencode/antigravity-accounts.json\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc815bd7d0) = -1 ENOENT (No such file or directory)","85    statx(AT_FDCWD, \"/tmp/native-v1-vault-nkycT3/config/opencode/antigravity-accounts.json\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc92e37cd0) = -1 ENOENT (No such file or directory)","85    statx(AT_FDCWD, \"/tmp/native-v1-vault-nkycT3/config/opencode/antigravity-accounts.json\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc92e37c80) = -1 ENOENT (No such file or directory)"]
+  },
+  {
+    "control":"NON-VACUITY BREAK: fetch of the real Google token URL through the native-loaded plugin's installed network guard",
+    "expected_red":"official 1.17.13 absent-auth first request activates and serves the approved vault",
+    "captured_output":"(fail) official 1.17.13 absent-auth first request activates and serves the approved vault; empty forbidden-network/OAuth assertion received 3 https://oauth2.googleapis.com/token observations. 0 pass, 1 fail, 21 expect() calls. No other test failed.",
+    "applied_evidence":"packages/e2e-tests/src/v1-vault-activation-harness.ts; staged live implementation and git diff --stat empty before mutation; mutant: 1 file changed, 2 insertions(+); git checkout -- path && touch path; git diff --stat empty after restore",
+    "outcome":"reddened",
+    "other_properties":{"error":null,"requestCount":1,"allReaped":true,"localFileSyscalls":[]},
+    "raw_observations":[{"pid":75,"kind":"forbidden-network","url":"https://oauth2.googleapis.com/token"},{"pid":84,"kind":"forbidden-network","url":"https://oauth2.googleapis.com/token"},{"pid":84,"kind":"forbidden-network","url":"https://oauth2.googleapis.com/token"}]
+  }
+]

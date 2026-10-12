@@ -1,0 +1,1151 @@
+[
+  {
+    "task_id": "bash-3f60ed8d2f1c8971",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-3f60ed8d2f1c8971",
+    "copied_path": "receipts/original-aft/bash-3f60ed8d2f1c8971",
+    "command": "bun --version && bun node_modules/typescript/bin/tsc --version && bun node_modules/typescript/bin/tsc -p tsconfig.scripts.json && bun node_modules/typescript/bin/tsc -p research/v1-packed-vault/tsconfig.json && ./node_modules/.bin/biome --version && ./node_modules/.bin/biome check packages/e2e-tests/src/v1-packed-vault-harness.ts packages/e2e-tests/src/v1-packed-vault.e2e.test.ts packages/e2e-tests/src/opencode-ga-host-inputs.ts packages/e2e-tests/src/v1-vault-activation-harness.ts --error-on-warnings",
+    "outer_exit": 2,
+    "remote_terminal": {
+      "job_id": "01a12be9-1d1a-7694-831d-c56c79a37cb0",
+      "outcome": {
+        "type": "exit",
+        "code": 2
+      },
+      "wall_ms": 6118,
+      "queue_wait_ms": 11,
+      "bundle_bytes": 54376844,
+      "ran": "remote",
+      "tree_hash": "8e8ad078588e4c8d72abed41a22218739be43c42",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "523480f1b2edf81a99d3fcdf0a27c4dcd35886e1044759f414fbec12073a9579",
+      "control/metadata.json": "e77ab26702e2ab4bf22d6463e8137393ba7b7aa55fdfca826421fdffc534b5be",
+      "io/stdout": "84facbbb80bdda8ee63e0657dae815976524c42e01f8a0b5098d5a3fc29f6ff6",
+      "io/stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "test_summary": []
+  },
+  {
+    "task_id": "bash-fd8700493cb5dd86",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-fd8700493cb5dd86",
+    "copied_path": "receipts/original-aft/bash-fd8700493cb5dd86",
+    "command": "bun --version && bun run --cwd packages/core build && bun node_modules/typescript/bin/tsc --version && bun node_modules/typescript/bin/tsc -p tsconfig.scripts.json && bun node_modules/typescript/bin/tsc -p research/v1-packed-vault/tsconfig.json && ./node_modules/.bin/biome --version && ./node_modules/.bin/biome check packages/e2e-tests/src/v1-packed-vault-harness.ts packages/e2e-tests/src/v1-packed-vault.e2e.test.ts packages/e2e-tests/src/opencode-ga-host-inputs.ts packages/e2e-tests/src/v1-vault-activation-harness.ts --error-on-warnings",
+    "outer_exit": 1,
+    "remote_terminal": {
+      "job_id": "01a12be9-8b6e-752b-aecd-1d4e13969847",
+      "outcome": {
+        "type": "exit",
+        "code": 1
+      },
+      "wall_ms": 11683,
+      "queue_wait_ms": 23,
+      "bundle_bytes": 0,
+      "ran": "remote",
+      "tree_hash": "8e8ad078588e4c8d72abed41a22218739be43c42",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "f9a79e14eda7749ac2e177a83213196fe4ed803160ea1ea6075ae0ac8a7d310e",
+      "control/metadata.json": "fc4e94c20c4fe88832165907cd39a7d1a65af41ee75dab697d7e641d02a667a6",
+      "io/stdout": "66eb52dd59d4f37d41ba683ff42bd45b62260370054a326f42cafdf7f910188d",
+      "io/stderr": "3fa83f6cc18e108a3929e0d35cd3c0b59125766db0d6bdb353ee112022f943e3"
+    },
+    "test_summary": []
+  },
+  {
+    "task_id": "bash-8e51e6e7a14c55de",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-8e51e6e7a14c55de",
+    "copied_path": "receipts/original-aft/bash-8e51e6e7a14c55de",
+    "command": "GA_SOURCE_TREE=a69b3b99f4a4f3c9be3ab65f27ad509c031d4dd9 bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts",
+    "outer_exit": 1,
+    "remote_terminal": {
+      "job_id": "01a12bea-3a78-7686-8283-9a9da946bd68",
+      "outcome": {
+        "type": "exit",
+        "code": 1
+      },
+      "wall_ms": 1538,
+      "queue_wait_ms": 20,
+      "bundle_bytes": 5881,
+      "ran": "remote",
+      "tree_hash": "a69b3b99f4a4f3c9be3ab65f27ad509c031d4dd9",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "17f6e67bb12a214757f07750dde165997ea2e971aec1ba6dbb7c9d71f77fb034",
+      "control/metadata.json": "e410a318f8eeae078a2351784256b2833630758bc35b18a3d9ac0e2011061ffa",
+      "io/stdout": "8d6e5ec00d2f4fe20e425c7676714a783a2d7bbe8050cac9788be4f9aeb4df7a",
+      "io/stderr": "f151a617e1aa3c7dd3b73a01e79600ba23140451731119836b0ca35c95b43df6"
+    },
+    "test_summary": [
+      "(fail) official V1 loads the packed server and completes a vault raw-TLS first request [1046.70ms]",
+      "(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.33ms]",
+      "(pass) loading assertion rejects a source, factory or direct-entry route [0.24ms]",
+      " 2 pass",
+      " 1 fail",
+      " 8 expect() calls",
+      "Ran 3 tests across 1 file. [1388.00ms]"
+    ],
+    "decoded_sha256": "521a3f7f3243707548919f5586cd3a22eba5f7c02a1eae48888ac40a08a2b477",
+    "decoded_path": "receipts/bash-8e51e6e7a14c55de.json",
+    "native_exits": [
+      {
+        "name": "version",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      }
+    ],
+    "archive": {
+      "path": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/.cortexkit/parent-inputs/v1-packed-floor-r1/opencode-linux-x64-1.17.13.tgz",
+      "bytes": 54631676,
+      "sha256": "04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331",
+      "sri": "sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=="
+    },
+    "binary": {
+      "path": "/tmp/packed-v1-vault-yx8Tnc/opencode",
+      "sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+      "version": "1.17.13"
+    },
+    "packs": {},
+    "installed": {},
+    "source_hashes": {},
+    "wire_hashes": [],
+    "error": "Error: ENOENT: no such file or directory, lstat '/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/node_modules/@opencode-ai/sdk'\n    at realpathSync (unknown)\n    at runPackedVault (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:357:20)\n    at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:16:25)\n    at processTicksAndRejections (native:7:39)",
+    "server_arm_control": null,
+    "slot_controls": [],
+    "primary_requests": 0
+  },
+  {
+    "task_id": "bash-4ce6196c4ed526d3",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-4ce6196c4ed526d3",
+    "copied_path": "receipts/original-aft/bash-4ce6196c4ed526d3",
+    "command": "GA_SOURCE_TREE=74811907f948f06c6c23c2709db43dd3bece7b80 bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts",
+    "outer_exit": 1,
+    "remote_terminal": {
+      "job_id": "01a12bea-d4d6-771a-aa3f-e7893d188fe7",
+      "outcome": {
+        "type": "exit",
+        "code": 1
+      },
+      "wall_ms": 45288,
+      "queue_wait_ms": 21,
+      "bundle_bytes": 3144,
+      "ran": "remote",
+      "tree_hash": "74811907f948f06c6c23c2709db43dd3bece7b80",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "3cbab09e38ce24fd677ec1990e7e13d710f217bc53d64566d8612abf47cd9208",
+      "control/metadata.json": "9da1051f1424a2c338f250602e830a8bc6cb2b9969af01979adf419480e49d45",
+      "io/stdout": "c260e9131bc931d250e31fdff39e076c60fd2bb147291b8782366094d68d1960",
+      "io/stderr": "433141ef440f2635e15dd2c70d2f38a9fe6351160518306c0cb5705c2f402dd4"
+    },
+    "test_summary": [
+      "(fail) official V1 loads the packed server and completes a vault raw-TLS first request [44696.88ms]",
+      "(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.27ms]",
+      "(pass) loading assertion rejects a source, factory or direct-entry route [0.11ms]",
+      " 2 pass",
+      " 1 fail",
+      " 12 expect() calls",
+      "Ran 3 tests across 1 file. [45.07s]"
+    ],
+    "decoded_sha256": "ca6889d04946d316137fea242bd386498dbea7795a09362c02935ebed6164cf9",
+    "decoded_path": "receipts/bash-4ce6196c4ed526d3.json",
+    "native_exits": [
+      {
+        "name": "version",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "enrollment",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "login",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "catalog",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "first-request",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      }
+    ],
+    "archive": {
+      "path": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/.cortexkit/parent-inputs/v1-packed-floor-r1/opencode-linux-x64-1.17.13.tgz",
+      "bytes": 54631676,
+      "sha256": "04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331",
+      "sri": "sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=="
+    },
+    "binary": {
+      "path": "/tmp/packed-v1-vault-87JkB4/opencode",
+      "sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+      "version": "1.17.13"
+    },
+    "packs": {
+      "core.tgz": "ad870ca68860f0b09221775437c7429d3286015c400c9449dbbcdc720474036e",
+      "plugin.tgz": "faa7a5e0ef78468b18a4fb4e6df0db223e07eb21abc272b2383435b0e1fb004c"
+    },
+    "installed": {
+      "/tmp/packed-v1-vault-87JkB4/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33",
+      "/tmp/packed-v1-vault-87JkB4/consumer/node_modules/@cortexkit/antigravity-auth-core/dist/index.js": "2ebc1980a244e363d5ea41e55f72932dc5693161384f7d3c8711bb6e351b801f"
+    },
+    "source_hashes": {
+      "packages/e2e-tests/src/v1-packed-vault-harness.ts": "3e9b8d7dbe95f860fa950c38786fa0ac99924fd96d769214131b231ccee78b86",
+      "packages/e2e-tests/src/v1-packed-vault.e2e.test.ts": "428e4d1162a1d14b6cf48a9baba182fbfecb169051c2c3886a0e95e6f818eabe",
+      "packages/e2e-tests/src/opencode-ga-host-inputs.ts": "5ae7ea09ded64b879b7423e70cf4286e4088356fc1d20be3e174cf7a61c20067",
+      "packages/e2e-tests/src/v1-vault-activation-harness.ts": "11a034d39f118372694963bec8756ca7a25caadb210b99ad5c34b8c4ae1a4252",
+      "packages/opencode/src/server.ts": "1c1023cd7cb3344e9f27009b74a53c6046302ee491ebc9568f1b2f2a392dca9e",
+      "packages/opencode/src/plugin/index.ts": "0f72360b679768da6ff5931251930d1232a815316c6be897522d4b21b5c9f46d",
+      "packages/core/src/common-auth-embedded/source-output.json": "2817c41f24ba652b31d70a23473171e05109462e57ab3246088816821589a3b4"
+    },
+    "wire_hashes": [],
+    "error": null,
+    "server_arm_control": null,
+    "slot_controls": [],
+    "primary_requests": 1
+  },
+  {
+    "task_id": "bash-4fd59b2cb736ce3b",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-4fd59b2cb736ce3b",
+    "copied_path": "receipts/original-aft/bash-4fd59b2cb736ce3b",
+    "command": "GA_SOURCE_TREE=46b09e1b10c21662a1ac63e4fd57a5d829b19d9d bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts",
+    "outer_exit": 1,
+    "remote_terminal": {
+      "job_id": "01a12bf2-b459-7599-aca2-c61d881abf8a",
+      "outcome": {
+        "type": "exit",
+        "code": 1
+      },
+      "wall_ms": 47682,
+      "queue_wait_ms": 25,
+      "bundle_bytes": 420767,
+      "ran": "remote",
+      "tree_hash": "adb9c0ac157035cee4e5ccbe27c4a46033ac7767",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "86930f472e0792859580e4a8b9f3aa699d764257c5d40093697c2a0c287bcbda",
+      "control/metadata.json": "5a38abb9db6b39412040bcab42d7c44926e778d24f72fefc762d6f94f94f5245",
+      "io/stdout": "0100dd71124a986d682ea087205d71d2c1a0f45e30c2dc8274adb92ce8089cb2",
+      "io/stderr": "74cb1426c8a3525e376492aa101b598a753eab5bac978a4da5b3ff366a2acc2d"
+    },
+    "test_summary": [
+      "(fail) official V1 loads the packed server and completes a vault raw-TLS first request [46815.72ms]",
+      "(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.17ms]",
+      "(pass) loading assertion rejects a source, factory or direct-entry route [0.08ms]",
+      "(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.13ms]",
+      " 3 pass",
+      " 1 fail",
+      " 29 expect() calls",
+      "Ran 4 tests across 1 file. [47.17s]"
+    ],
+    "decoded_sha256": "f38d950b20385e03a99bd1e8bea71ad43f5ddbe33966a0e84997cf907c3671b6",
+    "decoded_path": "receipts/bash-4fd59b2cb736ce3b.json",
+    "native_exits": [
+      {
+        "name": "version",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "enrollment",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "login",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "catalog",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "first-request",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "missing-placeholder",
+        "exitCode": 1,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "wrong-placeholder",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      }
+    ],
+    "archive": {
+      "path": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/.cortexkit/parent-inputs/v1-packed-floor-r1/opencode-linux-x64-1.17.13.tgz",
+      "bytes": 54631676,
+      "sha256": "04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331",
+      "sri": "sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=="
+    },
+    "binary": {
+      "path": "/tmp/packed-v1-vault-XCcOLp/opencode",
+      "sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+      "version": "1.17.13"
+    },
+    "packs": {
+      "core.tgz": "ad870ca68860f0b09221775437c7429d3286015c400c9449dbbcdc720474036e",
+      "plugin.tgz": "faa7a5e0ef78468b18a4fb4e6df0db223e07eb21abc272b2383435b0e1fb004c"
+    },
+    "installed": {
+      "/tmp/packed-v1-vault-XCcOLp/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33",
+      "/tmp/packed-v1-vault-XCcOLp/consumer/node_modules/@cortexkit/antigravity-auth-core/dist/index.js": "2ebc1980a244e363d5ea41e55f72932dc5693161384f7d3c8711bb6e351b801f"
+    },
+    "source_hashes": {
+      "packages/e2e-tests/src/v1-packed-vault-harness.ts": "96f7cff5ac2eae5dc1bdf67d03eba2bc9f0689e262dea065761eb0f268c4426a",
+      "packages/e2e-tests/src/v1-packed-vault.e2e.test.ts": "9c838bba7e4e46326c23e80f6d2470673501bab9aef3f376ad50d1e409e3354e",
+      "packages/e2e-tests/src/opencode-ga-harness.ts": "0abfbf96dc0b4dadff32d9dede049d8a1a7f08b8bc680a8ba8e9c5d9646d5746",
+      "packages/e2e-tests/src/opencode-ga-host-inputs.ts": "5ae7ea09ded64b879b7423e70cf4286e4088356fc1d20be3e174cf7a61c20067",
+      "packages/e2e-tests/src/v1-vault-activation-harness.ts": "11a034d39f118372694963bec8756ca7a25caadb210b99ad5c34b8c4ae1a4252",
+      "packages/opencode/src/server.ts": "1c1023cd7cb3344e9f27009b74a53c6046302ee491ebc9568f1b2f2a392dca9e",
+      "packages/opencode/src/plugin/index.ts": "0f72360b679768da6ff5931251930d1232a815316c6be897522d4b21b5c9f46d",
+      "packages/core/src/common-auth-embedded/source-output.json": "2817c41f24ba652b31d70a23473171e05109462e57ab3246088816821589a3b4"
+    },
+    "wire_hashes": [
+      "a4f280381e96dff9c0bec493099dfcc41596563aae0d4a4fdfea0b1a50db597f"
+    ],
+    "error": null,
+    "server_arm_control": null,
+    "slot_controls": [
+      {
+        "name": "missing-placeholder",
+        "requests": 0,
+        "exitCode": 1,
+        "marker": null
+      },
+      {
+        "name": "wrong-placeholder",
+        "requests": 1,
+        "exitCode": 0,
+        "marker": {
+          "google": {
+            "type": "oauth",
+            "access": "",
+            "refresh": "claustrum-tombstone:v1:other-provider",
+            "expires": 0
+          }
+        }
+      }
+    ],
+    "primary_requests": 1
+  },
+  {
+    "task_id": "bash-b84880fe8cdd49bf",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-b84880fe8cdd49bf",
+    "copied_path": "receipts/original-aft/bash-b84880fe8cdd49bf",
+    "command": "bun --version && bun run --cwd packages/core build && bun node_modules/typescript/bin/tsc --version && bun node_modules/typescript/bin/tsc -p tsconfig.scripts.json && bun node_modules/typescript/bin/tsc -p research/v1-packed-vault/tsconfig.json && ./node_modules/.bin/biome --version && ./node_modules/.bin/biome check packages/e2e-tests/src/v1-packed-vault-harness.ts packages/e2e-tests/src/v1-packed-vault.e2e.test.ts packages/e2e-tests/src/opencode-ga-host-inputs.ts packages/e2e-tests/src/opencode-ga-harness.ts packages/e2e-tests/src/v1-vault-activation-harness.ts --error-on-warnings && bun test --isolate ./packages/e2e-tests/src/opencode-ga-harness.test.ts",
+    "outer_exit": 2,
+    "remote_terminal": {
+      "job_id": "01a12bf4-e346-7497-b138-222289fc022c",
+      "outcome": {
+        "type": "exit",
+        "code": 2
+      },
+      "wall_ms": 8624,
+      "queue_wait_ms": 22,
+      "bundle_bytes": 508489,
+      "ran": "remote",
+      "tree_hash": "ee580f793dd64618269055e7e58de71bc1dfa4b8",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "e7417e397ceb1f18c9771c73c31b618d0a033391071c45f12a6161e46a1b1b91",
+      "control/metadata.json": "70071cac8ca25037f170c20c8f82a19c1b869a2f0466846feeffeb2dd41901fc",
+      "io/stdout": "b22a0d022fcd60f61e6ff7dc1bd21de4eb6253bf6368e4dd466431b9aa2a4a22",
+      "io/stderr": "bfa633ebefb6ccdcc15bac7dc1ffb73c8a64ab7c0c5baceac787e870abd452f8"
+    },
+    "test_summary": []
+  },
+  {
+    "task_id": "bash-87af5051d8dcb2c8",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-87af5051d8dcb2c8",
+    "copied_path": "receipts/original-aft/bash-87af5051d8dcb2c8",
+    "command": "GA_SOURCE_TREE=0651152401e648d5dd6f3d80a86704125d268922 bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts",
+    "outer_exit": 1,
+    "remote_terminal": {
+      "job_id": "01a12bf7-a7cf-7338-a0d4-38218af656d4",
+      "outcome": {
+        "type": "exit",
+        "code": 1
+      },
+      "wall_ms": 73142,
+      "queue_wait_ms": 9,
+      "bundle_bytes": 3051,
+      "ran": "remote",
+      "tree_hash": "9efa4fe94f72e03d4c3db57835e7902edc9dd3f5",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "06e9e2289b799d2f80d23cf18badd025b167fd7ae78d0424fa8c1d23e8e79da0",
+      "control/metadata.json": "67c2ed5193e5627403ec334b95c0701524aae8bc1b338d4d85945cbc2ee060a2",
+      "io/stdout": "05d85ca0757187fd6a1cb9bf74c8f7d08a2efdb3c0282d500700065816178314",
+      "io/stderr": "428b446e03dc3336f34fee00433a37a929ec92e77744e85717796a2e29432a4a"
+    },
+    "test_summary": [
+      "(fail) official V1 loads the packed server and completes a vault raw-TLS first request [72435.71ms]",
+      "(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.47ms]",
+      "(pass) loading assertion rejects a source, factory or direct-entry route [0.21ms]",
+      "(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.09ms]",
+      " 3 pass",
+      " 1 fail",
+      " 12 expect() calls",
+      "Ran 4 tests across 1 file. [72.79s]"
+    ],
+    "decoded_sha256": "ec849a31164825eb09dbea71fe9473adb839973f08660d4b65a5160720cbaf20",
+    "decoded_path": "receipts/bash-87af5051d8dcb2c8.json",
+    "native_exits": [
+      {
+        "name": "version",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "enrollment",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "login",
+        "exitCode": null,
+        "signal": "SIGTERM",
+        "timedOut": true,
+        "reaped": true
+      }
+    ],
+    "archive": {
+      "path": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/.cortexkit/parent-inputs/v1-packed-floor-r1/opencode-linux-x64-1.17.13.tgz",
+      "bytes": 54631676,
+      "sha256": "04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331",
+      "sri": "sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=="
+    },
+    "binary": {
+      "path": "/tmp/packed-v1-vault-Yf9xP1/opencode",
+      "sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+      "version": "1.17.13"
+    },
+    "packs": {
+      "core.tgz": "ad870ca68860f0b09221775437c7429d3286015c400c9449dbbcdc720474036e",
+      "plugin.tgz": "faa7a5e0ef78468b18a4fb4e6df0db223e07eb21abc272b2383435b0e1fb004c"
+    },
+    "installed": {
+      "/tmp/packed-v1-vault-Yf9xP1/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33",
+      "/tmp/packed-v1-vault-Yf9xP1/consumer/node_modules/@cortexkit/antigravity-auth-core/dist/index.js": "2ebc1980a244e363d5ea41e55f72932dc5693161384f7d3c8711bb6e351b801f"
+    },
+    "source_hashes": {
+      "packages/e2e-tests/src/v1-packed-vault-harness.ts": "bbd824cd93f1e60d1d17a256ad096beba7cd15bfcf05cb1a17b2ac57009127c6",
+      "packages/e2e-tests/src/v1-packed-vault.e2e.test.ts": "9c838bba7e4e46326c23e80f6d2470673501bab9aef3f376ad50d1e409e3354e",
+      "packages/e2e-tests/src/opencode-ga-harness.ts": "0abfbf96dc0b4dadff32d9dede049d8a1a7f08b8bc680a8ba8e9c5d9646d5746",
+      "packages/e2e-tests/src/opencode-ga-host-inputs.ts": "5ae7ea09ded64b879b7423e70cf4286e4088356fc1d20be3e174cf7a61c20067",
+      "packages/e2e-tests/src/v1-vault-activation-harness.ts": "11a034d39f118372694963bec8756ca7a25caadb210b99ad5c34b8c4ae1a4252",
+      "packages/opencode/src/server.ts": "1c1023cd7cb3344e9f27009b74a53c6046302ee491ebc9568f1b2f2a392dca9e",
+      "packages/opencode/src/plugin/index.ts": "0f72360b679768da6ff5931251930d1232a815316c6be897522d4b21b5c9f46d",
+      "packages/core/src/common-auth-embedded/source-output.json": "2817c41f24ba652b31d70a23473171e05109462e57ab3246088816821589a3b4"
+    },
+    "wire_hashes": [],
+    "error": "Error: login exceeded its finite deadline\n    at check (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:66:29)\n    at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:337:5)\n    at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:341:26)\n    at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:567:15)\n    at async withSyntheticVault (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-vault-activation-harness.ts:857:11)\n    at async runPackedVault (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:540:11)\n    at unknown\n    at processTicksAndRejections (native:7:39)",
+    "server_arm_control": {
+      "path": "/tmp/packed-v1-vault-Yf9xP1/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js",
+      "originalSha256": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33",
+      "mutatedSha256": "7ffcb305ed61bcc7f07d80e8e5460dc14ad484638ffdb771bec5b1f011fb3546",
+      "diff": "-server: AntigravityCLIOAuthPlugin\n+server: () => { throw new Error(\"NON-VACUITY BREAK: installed hybrid.server called\") }",
+      "restoredSha256": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33"
+    },
+    "slot_controls": [],
+    "primary_requests": 0
+  },
+  {
+    "task_id": "bash-820b81044935d564",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-820b81044935d564",
+    "copied_path": "receipts/original-aft/bash-820b81044935d564",
+    "command": "bun --version && bun run --cwd packages/core build && bun node_modules/typescript/bin/tsc --version && bun node_modules/typescript/bin/tsc -p tsconfig.scripts.json && bun node_modules/typescript/bin/tsc -p research/v1-packed-vault/tsconfig.json && ./node_modules/.bin/biome --version && ./node_modules/.bin/biome check packages/e2e-tests/src/v1-packed-vault-harness.ts packages/e2e-tests/src/v1-packed-vault.e2e.test.ts packages/e2e-tests/src/opencode-ga-host-inputs.ts packages/e2e-tests/src/opencode-ga-harness.ts packages/e2e-tests/src/v1-vault-activation-harness.ts --error-on-warnings && bun test --isolate ./packages/e2e-tests/src/opencode-ga-harness.test.ts",
+    "outer_exit": 1,
+    "remote_terminal": {
+      "job_id": "01a12bf9-9838-740d-8a09-38a49a7979ae",
+      "outcome": {
+        "type": "exit",
+        "code": 1
+      },
+      "wall_ms": 14034,
+      "queue_wait_ms": 12,
+      "bundle_bytes": 185648,
+      "ran": "remote",
+      "tree_hash": "dd2afecf1a088366a7766e422d87be759a14c313",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "e7417e397ceb1f18c9771c73c31b618d0a033391071c45f12a6161e46a1b1b91",
+      "control/metadata.json": "cd10c13a653b6ab905bd27dae14f0029178e1a52b6fcbd1b374ab9d64da12326",
+      "io/stdout": "e5eb0541694a66a5d04b890025f6c1d8c85efad6bfd650683f8372aa09273094",
+      "io/stderr": "f872248c861308d055aacef6510d7d5fd380c6f355f81b6e1c9a7a1dbbde90d1"
+    },
+    "test_summary": []
+  },
+  {
+    "task_id": "bash-105c01fc99d3aa8c",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-105c01fc99d3aa8c",
+    "copied_path": "receipts/original-aft/bash-105c01fc99d3aa8c",
+    "command": "bun --version && bun run --cwd packages/core build && bun node_modules/typescript/bin/tsc --version && bun node_modules/typescript/bin/tsc -p tsconfig.scripts.json && bun node_modules/typescript/bin/tsc -p research/v1-packed-vault/tsconfig.json && ./node_modules/.bin/biome --version && ./node_modules/.bin/biome check packages/e2e-tests/src/v1-packed-vault-harness.ts packages/e2e-tests/src/v1-packed-vault.e2e.test.ts packages/e2e-tests/src/opencode-ga-host-inputs.ts packages/e2e-tests/src/opencode-ga-harness.ts packages/e2e-tests/src/v1-vault-activation-harness.ts --error-on-warnings && bun test --isolate ./packages/e2e-tests/src/opencode-ga-harness.test.ts",
+    "outer_exit": 0,
+    "remote_terminal": {
+      "job_id": "01a12bfd-4724-77e0-b064-f64e64dea75c",
+      "outcome": {
+        "type": "exit",
+        "code": 0
+      },
+      "wall_ms": 13358,
+      "queue_wait_ms": 19,
+      "bundle_bytes": 4861,
+      "ran": "remote",
+      "tree_hash": "97bd7ec4c587b7a96a1c633905c7ff4b60fb06ec",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "e7417e397ceb1f18c9771c73c31b618d0a033391071c45f12a6161e46a1b1b91",
+      "control/metadata.json": "7e661e4e7e13464b158a51dcdb3a12ef9460145043e467b716fd1ba7490b728d",
+      "io/stdout": "19792a0b8ebeadfb9988aa94b70f5c2f1f352aa1c7730935e80b5c84c100ca1c",
+      "io/stderr": "f75b4d2c853fe4a4b7e2e18fc7de8d94688ca8b67b26fb7b79f002518bc902a5"
+    },
+    "test_summary": [
+      "(pass) native-job source/parser controls, not official-host certification > requires all ten measured controls including DNS and UNIX evidence [0.59ms]",
+      "(pass) native-job source/parser controls, not official-host certification > rejects any external socket success or failed local round trip [0.18ms]",
+      "(pass) native-job source/parser controls, not official-host certification > rejects a child in another namespace or allowed outbound connection [0.10ms]",
+      "(pass) native-job source/parser controls, not official-host certification > rejects namespace creation success or unrelated unshare failures [0.07ms]",
+      "(pass) native-job source/parser controls, not official-host certification > rejects jobs with privileges, missing syscall filtering, extra interfaces or emulation [0.12ms]",
+      "(pass) native-job source/parser controls, not official-host certification > cannot manufacture measured admission from a native-job environment flag [0.06ms]",
+      "(pass) native-job source/parser controls, not official-host certification > parses actual Linux status field spelling without assuming values [0.05ms]",
+      "(pass) native-job source/parser controls, not official-host certification > requires both real loopback host aliases; missing aliases never skip TLS cases [0.17ms]",
+      "(pass) native-job source/parser controls, not official-host certification > pins the actual 2.0.22 platform package to the tracked SRI without .bin stubs [22.44ms]",
+      "(pass) native-job source/parser controls, not official-host certification > uses genuine SDK declaration exports from its isolated dependency layout [0.46ms]",
+      "(pass) native-job source/parser controls, not official-host certification > keeps the complete 102-case inventory and the Docker network-none path [0.05ms]",
+      "(pass) native-job source/parser controls, not official-host certification > resolves packed public server entries rather than assuming a dist filename [1.05ms]",
+      "(pass) native-job source/parser controls, not official-host certification > accepts the actual Bun environment when the TLS override is absent [0.72ms]",
+      "(pass) native-job source/parser controls, not official-host certification > rejects every explicit TLS override, including empty and non-enumerable keys [0.42ms]",
+      "(pass) native-job source/parser controls, not official-host certification > constructs owned profiles including PI directories and every OpenCode database [0.62ms]",
+      "(pass) shared bounded archive and owned command controls > installs multiple verified ordinary pack members and preserves single-member extraction [1.59ms]",
+      "(pass) shared bounded archive and owned command controls > rejects pack traversal, symlinks and duplicate files before materialization [0.36ms]",
+      "(pass) shared bounded archive and owned command controls > checks parent, process group and start time before sending any signal [0.26ms]",
+      "(pass) shared bounded archive and owned command controls > retains primary and cleanup failures instead of treating bounded termination as success [0.07ms]",
+      "(pass) shared bounded archive and owned command controls > runs only an owned inert child, retaining both output streams [6.24ms]",
+      "(pass) shared bounded archive and owned command controls > caps an inert child output and refuses to report synthetic success [2.80ms]",
+      "(pass) shared bounded archive and owned command controls > bounds an inert child deadline and reaps the owned process [101.81ms]",
+      "(pass) authenticates native controls only to their owned loopback origin [2.29ms]",
+      "(pass) refreshes the generated host fixture from the actual bare-token contract [0.12ms]",
+      "(pass) keeps the canonical Google request URL for production raw-TLS routing [2.58ms]",
+      "(pass) admits Linux x64 artifact preparation without asserting runtime container membership [0.10ms]",
+      " 26 pass",
+      " 0 fail",
+      " 124 expect() calls",
+      "Ran 26 tests across 1 file. [494.00ms]"
+    ]
+  },
+  {
+    "task_id": "bash-be7672be14f712d6",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-be7672be14f712d6",
+    "copied_path": "receipts/original-aft/bash-be7672be14f712d6",
+    "command": "GA_SOURCE_TREE=56fc6c3b4e389179b1f1e796ab96862b9b8e19af bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts",
+    "outer_exit": 0,
+    "remote_terminal": {
+      "job_id": "01a12bfd-aa4a-7026-830d-0826fa6ba782",
+      "outcome": {
+        "type": "exit",
+        "code": 0
+      },
+      "wall_ms": 52899,
+      "queue_wait_ms": 392,
+      "bundle_bytes": 0,
+      "ran": "remote",
+      "tree_hash": "97bd7ec4c587b7a96a1c633905c7ff4b60fb06ec",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "2a4bcd409ec04eedd4527388cc7c0280b8e2b38ca7bd59eb331a0680b5b36fb6",
+      "control/metadata.json": "b69b777c37856110d69605034bc58e7abe0db8af0d26c267836f505fd6b0e742",
+      "io/stdout": "16839835697d7fddacfffbdf5ad567cfe451e44f9b24490d9465f5288b2a03b2",
+      "io/stderr": "7153da5ade334e7ea294b6d128e723a61c435d41f5bc8141cebbfc2d4d6b8eee"
+    },
+    "test_summary": [
+      "(pass) official V1 loads the packed server and completes a vault raw-TLS first request [52201.52ms]",
+      "(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.26ms]",
+      "(pass) loading assertion rejects a source, factory or direct-entry route [0.18ms]",
+      "(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.07ms]",
+      "(pass) dormancy assertion requires byte-identical slots and no slot secret on wire [0.13ms]",
+      " 5 pass",
+      " 0 fail",
+      " 50 expect() calls",
+      "Ran 5 tests across 1 file. [52.56s]"
+    ],
+    "decoded_sha256": "5aea0391a70d7d1f3371bc6f3ce4db74d9de77e1cc9e7885265ca2b307a6789f",
+    "decoded_path": "receipts/bash-be7672be14f712d6.json",
+    "native_exits": [
+      {
+        "name": "version",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "enrollment",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "login",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "catalog",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "first-request",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "missing-placeholder",
+        "exitCode": 1,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "foreign-tombstone",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "dormant-login",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      }
+    ],
+    "archive": {
+      "path": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/.cortexkit/parent-inputs/v1-packed-floor-r1/opencode-linux-x64-1.17.13.tgz",
+      "bytes": 54631676,
+      "sha256": "04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331",
+      "sri": "sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=="
+    },
+    "binary": {
+      "path": "/tmp/packed-v1-vault-WqUMuW/opencode",
+      "sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+      "version": "1.17.13"
+    },
+    "packs": {
+      "core.tgz": "ad870ca68860f0b09221775437c7429d3286015c400c9449dbbcdc720474036e",
+      "plugin.tgz": "faa7a5e0ef78468b18a4fb4e6df0db223e07eb21abc272b2383435b0e1fb004c"
+    },
+    "installed": {
+      "/tmp/packed-v1-vault-WqUMuW/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33",
+      "/tmp/packed-v1-vault-WqUMuW/consumer/node_modules/@cortexkit/antigravity-auth-core/dist/index.js": "2ebc1980a244e363d5ea41e55f72932dc5693161384f7d3c8711bb6e351b801f"
+    },
+    "source_hashes": {
+      "packages/e2e-tests/src/v1-packed-vault-harness.ts": "129c22a26ed44c360a5aa86fcb507ad7e758ad2a6e061ab07d3efab521ebf345",
+      "packages/e2e-tests/src/v1-packed-vault.e2e.test.ts": "94dcc0b7575c8421d981750f547d5fdc2322b5c651672fa40e9428962ab5c63e",
+      "packages/e2e-tests/src/opencode-ga-harness.ts": "ced78984aac543224c469aaf0043f89dd805efe06430ac6ee0d57f93d948168c",
+      "packages/e2e-tests/src/opencode-ga-host-inputs.ts": "5ae7ea09ded64b879b7423e70cf4286e4088356fc1d20be3e174cf7a61c20067",
+      "packages/e2e-tests/src/v1-vault-activation-harness.ts": "11a034d39f118372694963bec8756ca7a25caadb210b99ad5c34b8c4ae1a4252",
+      "packages/opencode/src/server.ts": "1c1023cd7cb3344e9f27009b74a53c6046302ee491ebc9568f1b2f2a392dca9e",
+      "packages/opencode/src/plugin/index.ts": "0f72360b679768da6ff5931251930d1232a815316c6be897522d4b21b5c9f46d",
+      "packages/core/src/common-auth-embedded/source-output.json": "2817c41f24ba652b31d70a23473171e05109462e57ab3246088816821589a3b4"
+    },
+    "wire_hashes": [
+      "268f25f8e01ec8d26e02d9c754fc9dcb7e19b3a8cb813784aceba7267e48815a"
+    ],
+    "error": null,
+    "server_arm_control": null,
+    "slot_controls": [
+      {
+        "name": "missing-placeholder",
+        "requests": 0,
+        "exitCode": 1,
+        "marker": null,
+        "nonce": "13a597fd735c599746205d22c601cc13",
+        "wireHashes": []
+      },
+      {
+        "name": "foreign-tombstone",
+        "requests": 1,
+        "exitCode": 0,
+        "marker": {
+          "google": {
+            "type": "oauth",
+            "access": "",
+            "refresh": "claustrum-tombstone:v1:other-provider",
+            "expires": 0
+          }
+        },
+        "nonce": "374d3a69a205d0ed36654ef9e745ab69",
+        "wireHashes": [
+          "5ebf59511d4177e8bedd3c6cfc30aab0b37fb8bb8411e7b1f5bfbf6b1a40e95c"
+        ]
+      },
+      {
+        "name": "dormant-login",
+        "requests": 1,
+        "exitCode": 0,
+        "marker": {
+          "google": {
+            "type": "oauth",
+            "access": "dormant-google-access",
+            "refresh": "dormant-google-refresh",
+            "expires": 0
+          }
+        },
+        "nonce": "35963e5a371df92ad04f03d743b0d393",
+        "wireHashes": [
+          "b0beef95a429997ffb72a0ecdbec33a5487b8795539569fa3e282cd75f5d8feb"
+        ]
+      }
+    ],
+    "primary_requests": 1
+  },
+  {
+    "task_id": "bash-0bc9518bebaa2fc0",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-0bc9518bebaa2fc0",
+    "copied_path": "receipts/original-aft/bash-0bc9518bebaa2fc0",
+    "command": "GA_SOURCE_TREE=56fc6c3b4e389179b1f1e796ab96862b9b8e19af bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts",
+    "outer_exit": 1,
+    "remote_terminal": {
+      "job_id": "01a12bff-676e-71c0-aa1a-fe633bc2a0aa",
+      "outcome": {
+        "type": "exit",
+        "code": 1
+      },
+      "wall_ms": 68560,
+      "queue_wait_ms": 25,
+      "bundle_bytes": 3369,
+      "ran": "remote",
+      "tree_hash": "fbe04185565522f748c54e7234ebd4bd09e8d67f",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "2a4bcd409ec04eedd4527388cc7c0280b8e2b38ca7bd59eb331a0680b5b36fb6",
+      "control/metadata.json": "9ea1961325c63395b65307117fb5c7b6a9cc6468df9feaa958a99acf99ff00a5",
+      "io/stdout": "5663cb344dfb60c559a28a06815bf950afa277c2a54c0c73c7021981d237f49d",
+      "io/stderr": "7d1fec2c91c05690de178180dc9cdd3cf005d4c7e18020615903be154816c054"
+    },
+    "test_summary": [
+      "(fail) official V1 loads the packed server and completes a vault raw-TLS first request [67969.35ms]",
+      "(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.45ms]",
+      "(pass) loading assertion rejects a source, factory or direct-entry route [0.21ms]",
+      "(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.10ms]",
+      "(pass) dormancy assertion requires byte-identical slots and no slot secret on wire [0.18ms]",
+      " 4 pass",
+      " 1 fail",
+      " 15 expect() calls",
+      "Ran 5 tests across 1 file. [68.31s]"
+    ],
+    "decoded_sha256": "df1e5bd089ba63e83a231dd3b75e53067ed1a7561cbec7a098a999ddec9c1f4f",
+    "decoded_path": "receipts/bash-0bc9518bebaa2fc0.json",
+    "native_exits": [
+      {
+        "name": "version",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "enrollment",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "login",
+        "exitCode": null,
+        "signal": "SIGTERM",
+        "timedOut": true,
+        "reaped": true
+      }
+    ],
+    "archive": {
+      "path": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/.cortexkit/parent-inputs/v1-packed-floor-r1/opencode-linux-x64-1.17.13.tgz",
+      "bytes": 54631676,
+      "sha256": "04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331",
+      "sri": "sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=="
+    },
+    "binary": {
+      "path": "/tmp/packed-v1-vault-EQxqWk/opencode",
+      "sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+      "version": "1.17.13"
+    },
+    "packs": {
+      "core.tgz": "ad870ca68860f0b09221775437c7429d3286015c400c9449dbbcdc720474036e",
+      "plugin.tgz": "faa7a5e0ef78468b18a4fb4e6df0db223e07eb21abc272b2383435b0e1fb004c"
+    },
+    "installed": {
+      "/tmp/packed-v1-vault-EQxqWk/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33",
+      "/tmp/packed-v1-vault-EQxqWk/consumer/node_modules/@cortexkit/antigravity-auth-core/dist/index.js": "2ebc1980a244e363d5ea41e55f72932dc5693161384f7d3c8711bb6e351b801f"
+    },
+    "source_hashes": {
+      "packages/e2e-tests/src/v1-packed-vault-harness.ts": "4def8de67e3c1085e369d3f7056fe157eec9ac42c1f9be064a9024293f134288",
+      "packages/e2e-tests/src/v1-packed-vault.e2e.test.ts": "94dcc0b7575c8421d981750f547d5fdc2322b5c651672fa40e9428962ab5c63e",
+      "packages/e2e-tests/src/opencode-ga-harness.ts": "ced78984aac543224c469aaf0043f89dd805efe06430ac6ee0d57f93d948168c",
+      "packages/e2e-tests/src/opencode-ga-host-inputs.ts": "5ae7ea09ded64b879b7423e70cf4286e4088356fc1d20be3e174cf7a61c20067",
+      "packages/e2e-tests/src/v1-vault-activation-harness.ts": "11a034d39f118372694963bec8756ca7a25caadb210b99ad5c34b8c4ae1a4252",
+      "packages/opencode/src/server.ts": "1c1023cd7cb3344e9f27009b74a53c6046302ee491ebc9568f1b2f2a392dca9e",
+      "packages/opencode/src/plugin/index.ts": "0f72360b679768da6ff5931251930d1232a815316c6be897522d4b21b5c9f46d",
+      "packages/core/src/common-auth-embedded/source-output.json": "2817c41f24ba652b31d70a23473171e05109462e57ab3246088816821589a3b4"
+    },
+    "wire_hashes": [],
+    "error": "Error: login exceeded its finite deadline\n    at check (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:66:29)\n    at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:361:5)\n    at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:365:26)\n    at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:592:15)\n    at async withSyntheticVault (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-vault-activation-harness.ts:857:11)\n    at async runPackedVault (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:565:11)\n    at unknown\n    at processTicksAndRejections (native:7:39)",
+    "server_arm_control": {
+      "path": "/tmp/packed-v1-vault-EQxqWk/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js",
+      "originalSha256": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33",
+      "mutatedSha256": "7ffcb305ed61bcc7f07d80e8e5460dc14ad484638ffdb771bec5b1f011fb3546",
+      "diff": "-server: AntigravityCLIOAuthPlugin\n+server: () => { throw new Error(\"NON-VACUITY BREAK: installed hybrid.server called\") }",
+      "restoredSha256": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33"
+    },
+    "slot_controls": [],
+    "primary_requests": 0
+  },
+  {
+    "task_id": "bash-a4ac75fb770e697a",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-a4ac75fb770e697a",
+    "copied_path": "receipts/original-aft/bash-a4ac75fb770e697a",
+    "command": "bun --version && bun run --cwd packages/core build && bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts -t assertion",
+    "outer_exit": 1,
+    "remote_terminal": {
+      "job_id": "01a12c01-9f18-72de-9cd2-d269e1bb7727",
+      "outcome": {
+        "type": "exit",
+        "code": 1
+      },
+      "wall_ms": 2548,
+      "queue_wait_ms": 9,
+      "bundle_bytes": 3154,
+      "ran": "remote",
+      "tree_hash": "625079e8ed798d4d382c7821726287e75b48bb39",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "d0591f9fe9b9937ca20b9dd2610c4708520ca94a79ebdefa3ad323d778bd58fb",
+      "control/metadata.json": "d6212045797e207ee735f27cfc04a5fc0dbc76b1d149422520ac7fec5fc9d4fb",
+      "io/stdout": "f04a00e0eb49dc3c9b0bb4ac728771a23208a349e208c68ff8ae557fd6d01b53",
+      "io/stderr": "dc0b5a04e49e40f6519a62761165ffdc1417d5da9cada31d017620f4ebe6ca5e"
+    },
+    "test_summary": [
+      "(fail) wire assertion rejects unrelated identity, bearer, project and nonce [0.37ms]",
+      "(pass) loading assertion rejects a source, factory or direct-entry route [0.18ms]",
+      "(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.07ms]",
+      "(pass) dormancy assertion requires byte-identical slots and no slot secret on wire [0.09ms]",
+      " 3 pass",
+      " 1 filtered out",
+      " 1 fail",
+      " 9 expect() calls",
+      "Ran 4 tests across 1 file. [330.00ms]"
+    ]
+  },
+  {
+    "task_id": "bash-881d5496af0642f7",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-881d5496af0642f7",
+    "copied_path": "receipts/original-aft/bash-881d5496af0642f7",
+    "command": "bun --version && bun run --cwd packages/core build && bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts -t assertion",
+    "outer_exit": 1,
+    "remote_terminal": {
+      "job_id": "01a12c02-07d2-74e0-9669-fb265da95937",
+      "outcome": {
+        "type": "exit",
+        "code": 1
+      },
+      "wall_ms": 2563,
+      "queue_wait_ms": 10,
+      "bundle_bytes": 3146,
+      "ran": "remote",
+      "tree_hash": "22637e311c52322d890bd2450e41ff5871bf465e",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "d0591f9fe9b9937ca20b9dd2610c4708520ca94a79ebdefa3ad323d778bd58fb",
+      "control/metadata.json": "d5c9b3d9354c347b67240d493874a9a2f02f210fd8b90343562bf072060556a3",
+      "io/stdout": "f04a00e0eb49dc3c9b0bb4ac728771a23208a349e208c68ff8ae557fd6d01b53",
+      "io/stderr": "ec3966b3d0aedc5fe52289904d3f7746b347ce4544f9be138706908b9e9c25ab"
+    },
+    "test_summary": [
+      "(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.36ms]",
+      "(pass) loading assertion rejects a source, factory or direct-entry route [0.21ms]",
+      "(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.07ms]",
+      "(fail) dormancy assertion requires byte-identical slots and no slot secret on wire [0.19ms]",
+      " 3 pass",
+      " 1 filtered out",
+      " 1 fail",
+      " 13 expect() calls",
+      "Ran 4 tests across 1 file. [379.00ms]"
+    ]
+  },
+  {
+    "task_id": "bash-00f0e7cb9719e0cd",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-00f0e7cb9719e0cd",
+    "copied_path": "receipts/original-aft/bash-00f0e7cb9719e0cd",
+    "command": "bun --version && bun run --cwd packages/core build && bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts -t assertion",
+    "outer_exit": 1,
+    "remote_terminal": {
+      "job_id": "01a12c02-9a5f-7016-9203-4ace4ba961f1",
+      "outcome": {
+        "type": "exit",
+        "code": 1
+      },
+      "wall_ms": 2554,
+      "queue_wait_ms": 228,
+      "bundle_bytes": 3114,
+      "ran": "remote",
+      "tree_hash": "21809c11763ac8e114fd299b13e80e1a3b52a71d",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "d0591f9fe9b9937ca20b9dd2610c4708520ca94a79ebdefa3ad323d778bd58fb",
+      "control/metadata.json": "9900dd94a254fb3286cb626390715e5aa8be29bce74510b7d41ba61db5d236ea",
+      "io/stdout": "f04a00e0eb49dc3c9b0bb4ac728771a23208a349e208c68ff8ae557fd6d01b53",
+      "io/stderr": "668117e50d1213e95ad40c5a5d73d85367e64c043ab151ae813ff6cd850574cc"
+    },
+    "test_summary": [
+      "(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.31ms]",
+      "(pass) loading assertion rejects a source, factory or direct-entry route [0.18ms]",
+      "(fail) network assertion rejects a Google OAuth/project lookup before TLS [0.12ms]",
+      "(pass) dormancy assertion requires byte-identical slots and no slot secret on wire [0.10ms]",
+      " 3 pass",
+      " 1 filtered out",
+      " 1 fail",
+      " 13 expect() calls",
+      "Ran 4 tests across 1 file. [334.00ms]"
+    ]
+  },
+  {
+    "task_id": "bash-296fd7d9c5af0f17",
+    "original_path": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/d62734d532298ea0/bash-296fd7d9c5af0f17",
+    "copied_path": "receipts/original-aft/bash-296fd7d9c5af0f17",
+    "command": "bun --version && GA_SOURCE_TREE=56fc6c3b4e389179b1f1e796ab96862b9b8e19af bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts && bun node_modules/typescript/bin/tsc --version && bun node_modules/typescript/bin/tsc -p tsconfig.scripts.json && bun node_modules/typescript/bin/tsc -p research/v1-packed-vault/tsconfig.json && ./node_modules/.bin/biome --version && ./node_modules/.bin/biome check packages/e2e-tests/src/v1-packed-vault-harness.ts packages/e2e-tests/src/v1-packed-vault.e2e.test.ts packages/e2e-tests/src/opencode-ga-host-inputs.ts packages/e2e-tests/src/opencode-ga-harness.ts packages/e2e-tests/src/v1-vault-activation-harness.ts --error-on-warnings",
+    "outer_exit": 0,
+    "remote_terminal": {
+      "job_id": "01a12c04-0328-763e-98a3-892830e6ecc9",
+      "outcome": {
+        "type": "exit",
+        "code": 0
+      },
+      "wall_ms": 57943,
+      "queue_wait_ms": 9,
+      "bundle_bytes": 5050,
+      "ran": "remote",
+      "tree_hash": "23354c04e8025dda8d599484dfdfea7426d4d7f9",
+      "workspace_changes": []
+    },
+    "sha256": {
+      "control/command.sh": "1df25caea754a8a87c761932bd1077fcf65ed2cf2b6852b9f58288d5da168a2a",
+      "control/metadata.json": "5a75be936bd6a1583c85439f77e722b777bc376ef9d0456f35eb72463ef82040",
+      "io/stdout": "9da6dd1dc46e719bfc424213e3d34e96f4fb4dd06ffd1c5771a8d3079fc1d98d",
+      "io/stderr": "45affe2b8de7acd4ebd28b093464f55a2d171c424521947079021a1bb652ae3b"
+    },
+    "test_summary": [
+      "(pass) official V1 loads the packed server and completes a vault raw-TLS first request [46990.70ms]",
+      "(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.19ms]",
+      "(pass) loading assertion rejects a source, factory or direct-entry route [0.11ms]",
+      "(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.04ms]",
+      "(pass) dormancy assertion requires byte-identical slots and no slot secret on wire [0.09ms]",
+      " 5 pass",
+      " 0 fail",
+      " 50 expect() calls",
+      "Ran 5 tests across 1 file. [47.33s]"
+    ],
+    "decoded_sha256": "4168d35f82c53be2d5e104d984d4aa64bd343fdbe05b0ffcbf3c7d664d4f4ef6",
+    "decoded_path": "receipts/bash-296fd7d9c5af0f17.json",
+    "native_exits": [
+      {
+        "name": "version",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "enrollment",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "login",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "catalog",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "first-request",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "missing-placeholder",
+        "exitCode": 1,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "foreign-tombstone",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      },
+      {
+        "name": "dormant-login",
+        "exitCode": 0,
+        "signal": null,
+        "timedOut": false,
+        "reaped": true
+      }
+    ],
+    "archive": {
+      "path": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/.cortexkit/parent-inputs/v1-packed-floor-r1/opencode-linux-x64-1.17.13.tgz",
+      "bytes": 54631676,
+      "sha256": "04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331",
+      "sri": "sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=="
+    },
+    "binary": {
+      "path": "/tmp/packed-v1-vault-IreNpP/opencode",
+      "sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+      "version": "1.17.13"
+    },
+    "packs": {
+      "core.tgz": "ad870ca68860f0b09221775437c7429d3286015c400c9449dbbcdc720474036e",
+      "plugin.tgz": "faa7a5e0ef78468b18a4fb4e6df0db223e07eb21abc272b2383435b0e1fb004c"
+    },
+    "installed": {
+      "/tmp/packed-v1-vault-IreNpP/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js": "8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33",
+      "/tmp/packed-v1-vault-IreNpP/consumer/node_modules/@cortexkit/antigravity-auth-core/dist/index.js": "2ebc1980a244e363d5ea41e55f72932dc5693161384f7d3c8711bb6e351b801f"
+    },
+    "source_hashes": {
+      "packages/e2e-tests/src/v1-packed-vault-harness.ts": "129c22a26ed44c360a5aa86fcb507ad7e758ad2a6e061ab07d3efab521ebf345",
+      "packages/e2e-tests/src/v1-packed-vault.e2e.test.ts": "94dcc0b7575c8421d981750f547d5fdc2322b5c651672fa40e9428962ab5c63e",
+      "packages/e2e-tests/src/opencode-ga-harness.ts": "ced78984aac543224c469aaf0043f89dd805efe06430ac6ee0d57f93d948168c",
+      "packages/e2e-tests/src/opencode-ga-host-inputs.ts": "5ae7ea09ded64b879b7423e70cf4286e4088356fc1d20be3e174cf7a61c20067",
+      "packages/e2e-tests/src/v1-vault-activation-harness.ts": "11a034d39f118372694963bec8756ca7a25caadb210b99ad5c34b8c4ae1a4252",
+      "packages/opencode/src/server.ts": "1c1023cd7cb3344e9f27009b74a53c6046302ee491ebc9568f1b2f2a392dca9e",
+      "packages/opencode/src/plugin/index.ts": "0f72360b679768da6ff5931251930d1232a815316c6be897522d4b21b5c9f46d",
+      "packages/core/src/common-auth-embedded/source-output.json": "2817c41f24ba652b31d70a23473171e05109462e57ab3246088816821589a3b4"
+    },
+    "wire_hashes": [
+      "e682e5e0a0a94d74838945901c9bba935c824b28a232372365e16f7011650f99"
+    ],
+    "error": null,
+    "server_arm_control": null,
+    "slot_controls": [
+      {
+        "name": "missing-placeholder",
+        "requests": 0,
+        "exitCode": 1,
+        "marker": null,
+        "nonce": "3b02f8d9d34c2276dbe655911b95cc10",
+        "wireHashes": []
+      },
+      {
+        "name": "foreign-tombstone",
+        "requests": 1,
+        "exitCode": 0,
+        "marker": {
+          "google": {
+            "type": "oauth",
+            "access": "",
+            "refresh": "claustrum-tombstone:v1:other-provider",
+            "expires": 0
+          }
+        },
+        "nonce": "50da07b6f00f77201e8712608c632ea5",
+        "wireHashes": [
+          "77b8cb16fe7f0e3f00e6c4104a14dac1f66a638d87ef689233b537d30db87017"
+        ]
+      },
+      {
+        "name": "dormant-login",
+        "requests": 1,
+        "exitCode": 0,
+        "marker": {
+          "google": {
+            "type": "oauth",
+            "access": "dormant-google-access",
+            "refresh": "dormant-google-refresh",
+            "expires": 0
+          }
+        },
+        "nonce": "326bc3e05bb74a56a8680b6484e6d179",
+        "wireHashes": [
+          "f95125f9502eda569facc6a303afafcb7bb5d6694ba856eda4eb96b88662a62d"
+        ]
+      }
+    ],
+    "primary_requests": 1
+  }
+]

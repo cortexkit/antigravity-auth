@@ -1,0 +1,45 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/pi/src/stream.test.ts:
+462 |         if (source === 'success') {
+463 |           expect(result.stopReason).toBe('stop')
+464 |           expect(result.content).toEqual([{ type: 'text', text: opaque }])
+465 |         } else {
+466 |           expect(result.stopReason).toBe('error')
+467 |           expect(result.errorMessage).not.toContain(opaque)
+                                                ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "opaque_selected_vault_734a1"
+Received: "Antigravity request failed: HTTP 403 echo opaque_selected_vault_734a1"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/pi/src/stream.test.ts:467:43)
+(fail) selected credential boundary > uses the genuinely served opaque vault token at the Pi http boundary [887.24ms]
+
+ 0 pass
+ 61 filtered out
+ 1 fail
+ 5 expect() calls
+Ran 1 test across 1 file. [1415.00ms]
+
+packages/core/src/credential-redaction.test.ts:
+90 |           },
+91 |         ],
+92 |       }),
+93 |       'not JSON "error" ' + detail,
+94 |     ]) {
+95 |       expect(redactCredentialFrame(frame, selected)).toBe(frame)
+                                                          ^
+error: expect(received).toBe(expected)
+
+Expected: "{"candidates":[{"content":{"parts":[{"text":"opaque-selected-token Bearer other-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature"},{"functionCall":{"args":{"error":"opaque-selected-token Bearer other-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature"}}}]}}]}"
+Received: "{"candidates":[{"content":{"parts":[{"text":"[credential] [credential] [credential]"},{"functionCall":{"args":{"error":"[credential] [credential] [credential]"}}}]}}]}"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:95:54)
+(fail) credential redaction > only rewrites genuine error frames, not error-looking model text or tool arguments [2.66ms]
+
+ 0 pass
+ 6 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [168.00ms]

@@ -1,0 +1,2 @@
+ packages/opencode/src/plugin/quota.ts | 17 ++++++-----------
+ 1 file changed, 6 insertions(+), 11 deletions(-)

@@ -1,0 +1,375 @@
+{
+  "cli_version": "1.3.3",
+  "source_record_sha256": "795352c85b3a719a3fddf1182ac274d0c74b6ee81ca53168b78ec9a58b7e65ec",
+  "http_status": 200,
+  "models": {
+    "gemini-3.7-flash-medium": {
+      "displayName": "Gemini 3.7 Flash (Medium)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M299",
+      "thinkingBudget": 4000,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "chat_23310": {
+      "maxTokens": 32768,
+      "model": "MODEL_CHAT_23310"
+    },
+    "claude-opus-5-5-medium": {
+      "displayName": "Claude Opus 5.5 (Medium)",
+      "maxTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "model": "MODEL_PLACEHOLDER_M401",
+      "thinkingLevel": 2,
+      "supportsAdaptiveThinking": true,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true,
+      "vertexModelId": "claude-opus-5-5@default"
+    },
+    "claude-opus-5-5-low": {
+      "displayName": "Claude Opus 5.5 (Low)",
+      "maxTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "model": "MODEL_PLACEHOLDER_M400",
+      "thinkingLevel": 1,
+      "supportsAdaptiveThinking": true,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true,
+      "vertexModelId": "claude-opus-5-5@default"
+    },
+    "gemini-3.8-flash-low": {
+      "displayName": "Gemini 3.8 Flash (Low)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M320",
+      "thinkingBudget": 1000,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3-flash-agent": {
+      "displayName": "Gemini 3.5 Flash (High)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M84",
+      "thinkingBudget": -1,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3.6-flash-low": {
+      "displayName": "Gemini 3.6 Flash (Low)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M73",
+      "thinkingBudget": 1000,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "claude-opus-5-5-high": {
+      "displayName": "Claude Opus 5.5 (High)",
+      "maxTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "model": "MODEL_PLACEHOLDER_M402",
+      "thinkingLevel": 3,
+      "supportsAdaptiveThinking": true,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true,
+      "vertexModelId": "claude-opus-5-5@default"
+    },
+    "gemini-2.5-pro": {
+      "displayName": "Gemini 2.5 Pro",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65535,
+      "model": "MODEL_GOOGLE_GEMINI_2_5_PRO",
+      "thinkingBudget": 1024,
+      "minThinkingBudget": 128,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3.1-pro-low": {
+      "displayName": "Gemini 3.1 Pro (Low)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65535,
+      "model": "MODEL_PLACEHOLDER_M36",
+      "thinkingBudget": 1001,
+      "minThinkingBudget": 128,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-2.5-flash": {
+      "displayName": "Gemini 3.5 Flash Lite",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65535,
+      "model": "MODEL_GOOGLE_GEMINI_2_5_FLASH",
+      "thinkingBudget": -1,
+      "minThinkingBudget": 128,
+      "thinkingLevel": 1,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3.1-pro-high": {
+      "displayName": "Gemini 3.1 Pro (High)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65535,
+      "model": "MODEL_PLACEHOLDER_M37",
+      "thinkingBudget": 10001,
+      "minThinkingBudget": 128,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "tab_jump_flash_lite_preview": {
+      "maxTokens": 16384,
+      "maxOutputTokens": 4096,
+      "model": "MODEL_PLACEHOLDER_M28"
+    },
+    "gemini-2.5-flash-thinking": {
+      "displayName": "Gemini 3.5 Flash Lite",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65535,
+      "model": "MODEL_GOOGLE_GEMINI_2_5_FLASH_THINKING",
+      "thinkingBudget": -1,
+      "minThinkingBudget": 128,
+      "thinkingLevel": 1,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "claude-sonnet-5-5-medium": {
+      "displayName": "Claude Sonnet 5.5 (Medium)",
+      "maxTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "model": "MODEL_PLACEHOLDER_M404",
+      "thinkingLevel": 2,
+      "supportsAdaptiveThinking": true,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true,
+      "vertexModelId": "claude-sonnet-5-5@default"
+    },
+    "gemini-pro-agent": {
+      "displayName": "Gemini 3.1 Pro (High)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65535,
+      "model": "MODEL_PLACEHOLDER_M16",
+      "thinkingBudget": 10001,
+      "minThinkingBudget": 128,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3.5-flash-extra-low": {
+      "displayName": "Gemini 3.5 Flash (Low)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M187",
+      "thinkingBudget": 1000,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3.6-flash-medium": {
+      "displayName": "Gemini 3.6 Flash (Medium)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M72",
+      "thinkingBudget": 4000,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3-flash": {
+      "displayName": "Gemini 3 Flash",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M18",
+      "thinkingBudget": -1,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3.7-flash-low": {
+      "displayName": "Gemini 3.7 Flash (Low)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M300",
+      "thinkingBudget": 1000,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gpt-oss-120b-medium": {
+      "displayName": "GPT-OSS 120B (Medium)",
+      "maxTokens": 131072,
+      "maxOutputTokens": 32768,
+      "model": "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
+      "thinkingBudget": 8192,
+      "supportsThinking": true,
+      "recommended": true,
+      "vertexModelId": "openai/gpt-oss-120b-maas"
+    },
+    "gemini-3.8-flash-high": {
+      "displayName": "Gemini 3.8 Flash (High)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M318",
+      "thinkingBudget": -1,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "claude-sonnet-5-5-low": {
+      "displayName": "Claude Sonnet 5.5 (Low)",
+      "maxTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "model": "MODEL_PLACEHOLDER_M403",
+      "thinkingLevel": 1,
+      "supportsAdaptiveThinking": true,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true,
+      "vertexModelId": "claude-sonnet-5-5@default"
+    },
+    "gemini-3.5-flash-lite": {
+      "displayName": "Gemini 3.5 Flash Lite",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65535,
+      "model": "MODEL_PLACEHOLDER_M198",
+      "thinkingBudget": -1,
+      "minThinkingBudget": 128,
+      "thinkingLevel": 1,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3.8-flash-tiered": {
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M322",
+      "thinkingBudget": -1,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "tab_flash_lite_preview": {
+      "maxTokens": 16384,
+      "maxOutputTokens": 4096,
+      "model": "MODEL_PLACEHOLDER_M19"
+    },
+    "claude-sonnet-5-5-high": {
+      "displayName": "Claude Sonnet 5.5 (High)",
+      "maxTokens": 1000000,
+      "maxOutputTokens": 128000,
+      "model": "MODEL_PLACEHOLDER_M405",
+      "thinkingLevel": 3,
+      "supportsAdaptiveThinking": true,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true,
+      "vertexModelId": "claude-sonnet-5-5@default"
+    },
+    "gemini-3.5-flash-low": {
+      "displayName": "Gemini 3.5 Flash (Medium)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M20",
+      "thinkingBudget": 4000,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3.7-flash-high": {
+      "displayName": "Gemini 3.7 Flash (High)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M298",
+      "thinkingBudget": -1,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3.1-flash-lite": {
+      "displayName": "Gemini 3.1 Flash Lite",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65535,
+      "model": "MODEL_PLACEHOLDER_M50"
+    },
+    "gemini-3.8-flash-medium": {
+      "displayName": "Gemini 3.8 Flash (Medium)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M319",
+      "thinkingBudget": 4000,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-2.5-flash-lite": {
+      "displayName": "Gemini 3.5 Flash Lite",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65535,
+      "model": "MODEL_GOOGLE_GEMINI_2_5_FLASH_LITE",
+      "thinkingBudget": -1,
+      "minThinkingBudget": 128,
+      "thinkingLevel": 1,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    },
+    "gemini-3.1-flash-image": {
+      "displayName": "Gemini 3.1 Flash Image",
+      "model": "MODEL_PLACEHOLDER_M21"
+    },
+    "chat_20706": {
+      "maxTokens": 16384,
+      "model": "MODEL_CHAT_20706"
+    },
+    "gemini-3.6-flash-high": {
+      "displayName": "Gemini 3.6 Flash (High)",
+      "maxTokens": 1048576,
+      "maxOutputTokens": 65536,
+      "model": "MODEL_PLACEHOLDER_M71",
+      "thinkingBudget": -1,
+      "minThinkingBudget": 32,
+      "supportsThinking": true,
+      "supportsImages": true,
+      "recommended": true
+    }
+  },
+  "lists": {
+    "imageGenerationModelIds": [
+      "gemini-3.1-flash-image"
+    ],
+    "deprecatedModelIds": {
+      "gemini-3.1-pro-high": {
+        "newModelId": "gemini-pro-agent",
+        "oldModelEnum": "MODEL_PLACEHOLDER_M37",
+        "newModelEnum": "MODEL_PLACEHOLDER_M16"
+      }
+    }
+  },
+  "scope": "Actual server catalog projection. CLI picker list is a distinct surface; no account/quota/experiment/identity fields are retained."
+}

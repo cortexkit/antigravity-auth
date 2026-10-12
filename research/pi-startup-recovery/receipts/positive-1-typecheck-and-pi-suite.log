@@ -1,0 +1,196 @@
+# Positive receipt 1/2: pi typecheck + full pi suite on the final staged snapshot.
+# Fresh remote Linux job (ck-motor, 4 vCPUs, its own empty /motor-home).
+# Command:
+#   sha256sum packages/pi/src/index.ts packages/pi/src/index.test.ts packages/pi/src/startup-order.test.ts; bun --version;
+#   bun run --cwd packages/core build 2>&1 | tail -1; cd packages/pi && bun run typecheck 2>&1; echo "typecheck exit=$?";
+#   bun run test 2>&1; echo "suite exit=$?"
+# Output copied verbatim from the tool result (remote jobs leave no files locally).
+# Git blobs of the same files in the staged index:
+#   9fb02c58c452ef444ea83ee1e270baa788b8109a packages/pi/src/index.ts
+#   8499fbdeb84fd89f3f08cc732060ff4fad15244a packages/pi/src/index.test.ts
+#   02c4ed24d7343f180bc158ef8dd1d461f54c29db packages/pi/src/startup-order.test.ts
+
+bd04a01ef5c99edd2ac64de41e136bc797991ea38bb3312b0c5a5791a2340e12  packages/pi/src/index.ts
+95478510ad9a68545d718fe6e49740f2a49be56e03cab5fe7ba095fcbac1afb2  packages/pi/src/index.test.ts
+27297ec66fe86b00e1a0308bd1c88e6d9cfe9cf3b84bffc30ad3d84839411b49  packages/pi/src/startup-order.test.ts
+1.4.2
+Copied 128 embedded common-auth files
+$ tsc --noEmit
+typecheck exit=0
+$ bun test --isolate ./src
+bun test v1.4.2 (744846f84)
+
+src/commands.test.ts:
+(pass) Pi /antigravity menu > shows the four account slots then the Vault extra, for the local login [20.38ms]
+{"piMenuPhase":"commands-load-start","elapsedMs":0.01822400000000357}
+{"piMenuPhase":"commands-load-finish","elapsedMs":0.03075699999999415}
+{"piMenuPhase":"claustrum-load-start","elapsedMs":0.09521799999998848}
+{"piMenuPhase":"claustrum-load-finish","elapsedMs":0.09976600000001667}
+{"piMenuPhase":"provider-registered","elapsedMs":0.5606290000000058}
+{"piMenuPhase":"request-access-start","elapsedMs":0.6242479999999944}
+{"piMenuPhase":"enrollment-connect","elapsedMs":1.2254939999999976}
+{"piMenuPhase":"propose","elapsedMs":4.889163999999994}
+{"piMenuPhase":"approval-poll","elapsedMs":5.224232000000001}
+{"piMenuPhase":"provider-registered","elapsedMs":8.85072199999999}
+{"piMenuPhase":"enrollment-close","elapsedMs":8.86537899999999}
+{"piMenuPhase":"claustrum-load-start","elapsedMs":9.399990000000003}
+{"piMenuPhase":"claustrum-load-finish","elapsedMs":9.406673000000012}
+{"piMenuPhase":"vault-connect","elapsedMs":9.726241000000016}
+{"piMenuPhase":"roster-list-start","elapsedMs":10.656702999999993}
+{"piMenuPhase":"roster-list-finish","elapsedMs":10.70861099999999}
+{"piMenuPhase":"roster-list-start","elapsedMs":12.408463000000012}
+{"piMenuPhase":"roster-list-finish","elapsedMs":12.422338999999994}
+{"piMenuPhase":"roster-list-start","elapsedMs":13.536484999999999}
+{"piMenuPhase":"roster-list-finish","elapsedMs":13.550871999999998}
+{"piMenuPhase":"request-access-finish","elapsedMs":14.517021}
+{"piMenuPhase":"stale-use-vault-start","elapsedMs":14.535246}
+{"piMenuPhase":"roster-list-start","elapsedMs":14.917080999999996}
+{"piMenuPhase":"roster-list-finish","elapsedMs":14.925957000000011}
+{"piMenuPhase":"roster-list-start","elapsedMs":15.747254999999996}
+{"piMenuPhase":"roster-list-finish","elapsedMs":15.75661199999999}
+{"piMenuPhase":"roster-list-start","elapsedMs":16.56846200000001}
+{"piMenuPhase":"roster-list-finish","elapsedMs":16.57951299999999}
+{"piMenuPhase":"roster-list-start","elapsedMs":18.134074}
+{"piMenuPhase":"roster-list-finish","elapsedMs":18.15570500000001}
+{"piMenuPhase":"roster-list-start","elapsedMs":19.06640999999999}
+{"piMenuPhase":"roster-list-finish","elapsedMs":19.08252999999999}
+{"piMenuPhase":"roster-list-start","elapsedMs":20.18355199999999}
+{"piMenuPhase":"roster-list-finish","elapsedMs":20.196456000000012}
+{"piMenuPhase":"stale-use-vault-finish","elapsedMs":20.935269000000005}
+{"piMenuPhase":"menu-open-start","elapsedMs":20.959845}
+{"piMenuPhase":"roster-list-start","elapsedMs":21.416199000000006}
+{"piMenuPhase":"roster-list-finish","elapsedMs":21.42559700000001}
+{"piMenuPhase":"roster-list-start","elapsedMs":22.360337000000015}
+{"piMenuPhase":"roster-list-finish","elapsedMs":22.37498500000001}
+{"piMenuPhase":"roster-list-start","elapsedMs":23.28357600000001}
+{"piMenuPhase":"roster-list-finish","elapsedMs":23.292502999999982}
+{"piMenuPhase":"menu-open-finish","elapsedMs":24.06594099999998}
+(pass) Pi /antigravity menu > enrolls and switches to the vault through the shared dispatcher, then names the serving account [24.70ms]
+(pass) Pi /antigravity menu > selects vault custody while leaving Pi’s native login unchanged [13.14ms]
+
+src/convert.legacy-runtime.test.ts:
+(pass) buildGeminiRequest on a pi-ai runtime without transcript helpers > converts a flat Context [0.36ms]
+(pass) buildGeminiRequest on a pi-ai runtime without transcript helpers > rejects a transcript with system messages [0.03ms]
+
+src/convert.test.ts:
+(pass) buildGeminiRequest > converts a string user message into a Gemini user content [0.07ms]
+(pass) buildGeminiRequest > drops empty user messages [0.02ms]
+(pass) buildGeminiRequest > converts assistant text and tool calls into a model content [0.08ms]
+(pass) buildGeminiRequest > echoes the thoughtSignature on a replayed tool call [0.03ms]
+(pass) buildGeminiRequest > replays same-model thinking and signed text [0.03ms]
+(pass) buildGeminiRequest > strips foreign thinking and signatures and uses user-role tool results [0.06ms]
+(pass) buildGeminiRequest > groups consecutive tool results into a single user turn [0.03ms]
+(pass) buildGeminiRequest > preserves matching IDs across parallel tool calls and results [0.03ms]
+(pass) buildGeminiRequest > maps error tool results to an error response [0.01ms]
+(pass) buildGeminiRequest > emits systemInstruction and tool declarations [0.07ms]
+(pass) buildGeminiRequest > converts image content into inlineData [0.03ms]
+(pass) buildGeminiRequest with Pi transcript system messages > joins the leading prompt with later system content and keeps system messages out of contents [0.17ms]
+(pass) buildGeminiRequest with Pi transcript system messages > replaces and removes named prompt sections [0.04ms]
+(pass) buildGeminiRequest with Pi transcript system messages > applies tool additions, removals, and redefinitions in order [0.13ms]
+(pass) buildGeminiRequest with Pi transcript system messages > does not revive flat systemPrompt/tools once the transcript removed them [0.07ms]
+(pass) buildGeminiRequest with Pi transcript system messages > reads a flat pre-0.86 Context the same as its normalized transcript [0.08ms]
+
+src/credential-cache.test.ts:
+(pass) credential cache > recovers the packed refresh by access token [0.04ms]
+(pass) credential cache > returns undefined for an unknown access token
+(pass) credential cache > ignores empty access tokens
+(pass) credential cache > evicts the oldest entry beyond the cap [0.03ms]
+
+src/stream.test.ts:
+(pass) resolvePiAntigravityModel > maps Pi low thinking to the captured AGY route [0.40ms]
+(pass) resolvePiAntigravityModel > maps Pi medium thinking to the captured AGY route [0.02ms]
+(pass) resolvePiAntigravityModel > maps Pi high thinking to the captured AGY route
+(pass) resolvePiAntigravityModel > maps Pi 3.7 low thinking to the captured AGY route [0.02ms]
+(pass) resolvePiAntigravityModel > maps Pi 3.7 medium thinking to the captured AGY route
+(pass) resolvePiAntigravityModel > maps Pi 3.7 high thinking to the captured AGY route
+(pass) resolvePiAntigravityModel > maps Pi 3.8 low thinking to the captured AGY route [0.01ms]
+(pass) resolvePiAntigravityModel > maps Pi 3.8 medium thinking to the captured AGY route
+(pass) resolvePiAntigravityModel > maps Pi 3.8 high thinking to the captured AGY route [0.02ms]
+(pass) resolvePiAntigravityModel > clamps unsupported edge levels to live AGY tiers [0.02ms]
+(pass) finalizePiAntigravityRequest > adds AGY session metadata and VALIDATED tool configuration [0.26ms]
+(pass) finalizePiAntigravityRequest > matches native first-execution tool continuation step metadata [0.06ms]
+(pass) convertGeminiToolCallPart > preserves the backend function-call ID [0.04ms]
+(pass) convertGeminiToolCallPart > generates an ID when the backend omits one [0.04ms]
+(pass) convertGeminiToolCallPart > carries a preceding thought signature onto the next function call [0.03ms]
+(pass) convertGeminiToolCallPart > attaches a parallel batch signature only to the first function call [0.02ms]
+(pass) streamCortexKitAntigravity > surfaces an embedded SSE error instead of returning an empty success [2.63ms]
+(pass) streamCortexKitAntigravity > surfaces prompt feedback instead of returning an empty success [0.24ms]
+(pass) streamCortexKitAntigravity > rejects clean EOF without a terminal candidate [0.15ms]
+(pass) streamCortexKitAntigravity > rejects a candidate-less terminal response instead of returning an empty success [0.28ms]
+(pass) streamCortexKitAntigravity > streams thinking and transfers a pending signature to visible text [0.26ms]
+(pass) streamCortexKitAntigravity > sends the captured Gemini 3.7 high budget and model enum on the wire [0.25ms]
+(pass) streamCortexKitAntigravity > sends the captured Gemini 3.8 high budget and model enum on the wire [0.25ms]
+(pass) streamCortexKitAntigravity > sends the transcript system prompt and sanitized tools on the wire [0.71ms]
+(pass) streamCortexKitAntigravity > keys sessions without a sessionId on the first non-system message [0.47ms]
+(pass) streamCortexKitAntigravity > adds execution metadata after a completed turn [0.31ms]
+(pass) streamCortexKitAntigravity > does not rotate execution metadata on a tool-call turn [0.26ms]
+(pass) streamCortexKitAntigravity > releases and cancels an open response body after STOP [0.25ms]
+(pass) streamCortexKitAntigravity > consumes GPT usage metadata sent after STOP [0.26ms]
+(pass) streamCortexKitAntigravity > finishes a GPT turn when trailing usage never arrives [1000.75ms]
+(pass) parseGeminiSse > parses and unwraps the Antigravity response envelope into chunks [0.33ms]
+(pass) parseGeminiSse > handles frames split across read boundaries [0.12ms]
+(pass) parseGeminiSse > ignores [DONE] sentinels and malformed frames [0.08ms]
+(pass) parseGeminiSse > parses CRLF-separated frames (Antigravity wire format) [0.09ms]
+(pass) parseGeminiSse > flushes a trailing frame without a blank-line separator [0.07ms]
+(pass) parseGeminiSse > returns nothing for an empty body [0.04ms]
+(pass) updateUsage > counts thinking tokens as output and splits cached prompt tokens [0.05ms]
+(pass) updateUsage > treats promptTokenCount as the full prompt when no cache is reported [0.01ms]
+(pass) vault native-slot admission > rejects a missing or foreign resolved credential before vault dispatch (%s) [0.22ms]
+(pass) vault native-slot admission > rejects a missing or foreign resolved credential before vault dispatch (synthetic-local-oauth-access) [0.02ms]
+(pass) vault native-slot admission > rejects a missing or foreign resolved credential before vault dispatch (antigravity-vault-custody-extra) [0.01ms]
+(pass) vault native-slot admission > uses only the served vault credential when Pi resolves the exact placeholder [0.36ms]
+
+src/vault-setup.test.ts:
+(pass) Pi vault mode file > reads a missing file as local mode [1.89ms]
+(pass) Pi vault mode file > round-trips custody mode with a selected route [0.44ms]
+(pass) Pi vault mode file > reports malformed or unknown files instead of guessing a mode [0.39ms]
+(pass) Pi vault setup > enrolls under the antigravity-auth-pi host name with the library host paths [0.17ms]
+(pass) Pi vault setup > reports non-secret status without showing the token [3.38ms]
+(pass) Pi vault setup > runs the enrollment ceremony only from an explicit step and closes each connection [2.78ms]
+(pass) Pi vault setup > clears a denied request before proposing again [2.90ms]
+(pass) Pi vault setup > refuses custody before approval and leaves an existing Pi login dormant after approval [1.94ms]
+(pass) Pi vault setup > switches to custody with an empty or placeholder slot and back to local [3.74ms]
+(pass) Pi vault setup > forgets the enrollment token and state and returns to local mode [4.48ms]
+(pass) Pi vault menu section > offers only request access before enrollment and reports the approval later [3.36ms]
+(pass) Pi vault menu section > lists vault accounts and declines or accepts them through the vault port [1.73ms]
+(pass) Pi vault menu section > serves Pi from a chosen account and records only its route id [1.72ms]
+(pass) Pi vault menu section > selects the vault without removing the dormant Pi login [1.68ms]
+(pass) Pi vault menu section > confirms forgetting the enrollment as an irreversible action [1.79ms]
+(pass) Pi vault menu section > keeps the token, raw route ids and emails out of the menu with stable opaque item ids [2.21ms]
+(pass) waits for the native credential-slot transition before enrollment activation returns [1.71ms]
+
+src/vault-source.test.ts:
+(pass) Pi vault request path > checks mode before reaching the source, then sends on the captured route [0.27ms]
+(pass) Pi vault request path > gets a new admission for every physical send, never reusing a token or project [0.11ms]
+(pass) Pi vault request path > refuses to send outside custody or with an unreadable mode file [0.12ms]
+(pass) Pi vault request path > the production request binding leaves a saved Google login unread during vault sends and account operations [5.43ms]
+(pass) Pi vault request path > discovers once when no roster is committed yet [0.15ms]
+(pass) Pi vault request path > serves the chosen route and refuses a declined or removed choice [0.21ms]
+(pass) Pi vault request path > surfaces an admission refusal (for example a missing or contradicted assertion) without dispatching [0.10ms]
+(pass) Pi vault request path > does not retry on its own: the source decides the one 401 retry [0.08ms]
+(pass) Pi vault request path > refuses to send once the caller has aborted [0.06ms]
+(pass) Pi vault accounts for setup > lists roster rows with declined ones marked and acts on the listed ref [0.13ms]
+
+src/index.test.ts:
+(pass) Pi Antigravity model catalog > exposes the live GPT-OSS route but not unsupported image-output chat models [3.24ms]
+(pass) replaces the native Google catalog and reads only the google OAuth credential in the real Pi registry [9.44ms]
+(pass) the production default entry selects the vault stream and registers the shared menu [5.34ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable enrollment state [3.29ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable mode file [1.22ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for custody mode with no enrollment [1.01ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for a native Google login that conflicts with the saved one [2.22ms]
+(pass) Pi startup when the credential slot cannot be synchronized > names the slot failure in the refusal [2.61ms]
+(pass) Pi startup when the credential slot cannot be synchronized > serves local again once the Vault section chooses the local login [1.10ms]
+(pass) finishes an older slot synchronization before a mode change registers its provider [108.90ms]
+
+src/startup-order.test.ts:
+(pass) awaits the native slot swap before the real Pi loader resolves its first google model request [57.83ms]
+(pass) the real Pi loader keeps /antigravity and refuses google requests for an unreadable enrollment state beside a native login [14.47ms]
+(pass) the real Pi loader keeps /antigravity and refuses google requests for custody mode with no enrollment and no native login [14.71ms]
+(pass) the real Pi loader keeps /antigravity and refuses google requests for a native Google login that conflicts with the saved one [17.17ms]
+
+ 108 pass
+ 0 fail
+ 427 expect() calls
+Ran 108 tests across 9 files. [1.89s]
+suite exit=0

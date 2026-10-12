@@ -1,0 +1,154 @@
+[
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/opencode-v1-host/Dockerfile",
+    "bytes": 1142,
+    "sha256": "761df25f9145f70ed14bad37da34d1f46565c5c76b4fefb5fe8201f767a38edb",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/opencode-v1-host/README.md",
+    "bytes": 12295,
+    "sha256": "78d34239cdf755341fd3f1e53fdd1efa44a4a5f5994d11ac238cb22354e89d4b",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/opencode-v1-host/fixture/linux-arm64/bun.lock",
+    "bytes": 436,
+    "sha256": "18c6a66876bd404242fd40008ff2abc04318765f1d21ca16c965e6fe96a815b7",
+    "commit": "c9814552",
+    "status": "not attached: Linux-x64 experiment"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/opencode-v1-host/fixture/linux-arm64/package.json",
+    "bytes": 136,
+    "sha256": "90ae60f0df2422a8a97f184f7ca7650c764500dbc2cc79e199392f4aa45d60be",
+    "commit": "c9814552",
+    "status": "not attached: Linux-x64 experiment"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/opencode-v1-host/fixture/linux-x64/bun.lock",
+    "bytes": 428,
+    "sha256": "76103cd2a1bff84a8f49e0914d66cce1b3d18f92d96e051321f54676eb3a97ce",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/opencode-v1-host/fixture/linux-x64/package.json",
+    "bytes": 132,
+    "sha256": "40b163023fe550d9888a379a19201ed0be520e377f9153121ea0b49b2fabd686",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/opencode-v1-host/seed.ts",
+    "bytes": 1801,
+    "sha256": "7d7494ea9daae91a857b75e6079f61dc1f81d495e360e39f1d4c5c3f13403bd2",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/opencode-v1-host/source/excerpts.md",
+    "bytes": 27517,
+    "sha256": "ae06db7709a42c8bbce67594494e5c0c9d696ff86f656c1c93af12e6191d178b",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/opencode-v1-host/source/manifest.json",
+    "bytes": 4948,
+    "sha256": "fb759ad1bf4a089efa25f5aae5824e39a83f16f65b06cd5e4038da92a0997039",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/opencode-v1-host/source/tag.json",
+    "bytes": 383,
+    "sha256": "c7bce987c76b8db73251aab3de69f1b25eafb2dba5cb2993ca947d5637a4a411",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/docker/run-opencode-v1-host-test.sh",
+    "bytes": 2920,
+    "sha256": "ddd7ec35277857dd20513f237b5cedaf1feceb9b69a4044071208efcb03df72b",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "floor",
+    "path": "packages/e2e-tests/src/opencode-v1-host-harness.ts",
+    "bytes": 38897,
+    "sha256": "627bcae5fdd02941b6b89f8f733481e3a0b511c4ae4ee64ebd95d3feb68fd7b3",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "floor",
+    "path": "test/opencode-v1-host-gate.test.ts",
+    "bytes": 11149,
+    "sha256": "bd1bd293acb7273afd1d105a0b808237bb94ffd723649fc17ed6e25b853730c8",
+    "commit": "c9814552",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "peer",
+    "path": "packages/opencode/src/tests/opencode1-e2e.test.ts",
+    "bytes": 18121,
+    "sha256": "1f98f90d4aa7b6e766465a8207097ab7b37b5a653387ae5d525f252a4996e380",
+    "commit": "ea9e6f8",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "peer",
+    "path": "packages/opencode/src/tests/fixtures/opencode-host.ts",
+    "bytes": 880,
+    "sha256": "994b864535fd92c739574cbf8dd187d00ecb868466ff2df8c492a7461a7884f8",
+    "commit": "ea9e6f8",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "peer",
+    "path": "packages/opencode/src/tests/vault-login.test.ts",
+    "bytes": 6652,
+    "sha256": "79c73a558f78081d5e351a50af626339da5af3b0566abd121297ae19eec0034a",
+    "commit": "ea9e6f8",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "peer",
+    "path": "packages/core/src/tests/fixtures/mock-claustrum.ts",
+    "bytes": 14555,
+    "sha256": "75b1b6f07ec165bc684df57361fbb6d2e221f8b782af8de9e8ed8d24fcc489cf",
+    "commit": "ea9e6f8",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "peer",
+    "path": "packages/opencode/src/tests/fixtures/opencode1-host/package.json",
+    "bytes": 146,
+    "sha256": "5867320eb7721b44007144d717216314cce06975d9283792cb135e8638955c4b",
+    "commit": "ea9e6f8",
+    "status": "hash and byte count match"
+  },
+  {
+    "group": "peer",
+    "path": "packages/opencode/src/tests/fixtures/opencode1-host/package-lock.json",
+    "bytes": 6360,
+    "sha256": "26ba26ef59c1b15c8b56583264a25752c958ad92af3be4b5145a6801db60f885",
+    "commit": "ea9e6f8",
+    "status": "hash and byte count match"
+  }
+]

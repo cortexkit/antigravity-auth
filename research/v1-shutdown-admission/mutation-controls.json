@@ -1,0 +1,44 @@
+{
+  "safe_sequence": {
+    "staging": "git add packages/opencode/src/plugin/lifecycle.ts packages/opencode/src/plugin/lifecycle.test.ts packages/opencode/src/plugin/auth-loader.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/oauth-methods.test.ts; git diff --stat (empty)",
+    "loader_applied": "packages/opencode/src/plugin/auth-loader.ts | 3 ++-; 1 file changed, 2 insertions(+), 1 deletion(-)",
+    "loader_restore": "git checkout -- packages/opencode/src/plugin/auth-loader.ts && touch packages/opencode/src/plugin/auth-loader.ts; git diff --stat (empty)",
+    "publication_applied": "packages/opencode/src/plugin/lifecycle.ts | 3 ++-; 1 file changed, 2 insertions(+), 1 deletion(-)",
+    "publication_restore": "git checkout -- packages/opencode/src/plugin/lifecycle.ts && touch packages/opencode/src/plugin/lifecycle.ts; git diff --stat (empty)",
+    "reentry_applied": "packages/opencode/src/plugin/lifecycle.ts | 11 +++--------; 1 file changed, 3 insertions(+), 8 deletions(-)",
+    "reentry_restore": "git checkout -- packages/opencode/src/plugin/lifecycle.ts && touch packages/opencode/src/plugin/lifecycle.ts; git diff --stat (empty)",
+    "final_publication_applied": "packages/opencode/src/plugin/lifecycle.ts | 3 ++-; 1 file changed, 2 insertions(+), 1 deletion(-)",
+    "final_publication_restore": "git checkout -- packages/opencode/src/plugin/lifecycle.ts && touch packages/opencode/src/plugin/lifecycle.ts; git diff --stat (empty)"
+  },
+  "loader_control": {
+    "mutation": "NON-VACUITY BREAK: change closed || lifecycle.isClosing() to closed",
+    "receipt": "control-loader.aft.raw.log",
+    "runs": [
+      "createAuthLoader > refuses new vault admission while final shutdown holds the request drain",
+      "createAuthLoader > refuses new vault admission while final shutdown holds the queue drain",
+      "createAuthLoader > refuses admission after awaiting fetch authority while final shutdown still drains",
+      "createAuthLoader > refuses admission after awaiting load authority while final shutdown still drains",
+      "createAuthLoader > refuses admission after awaiting reload authority while final shutdown still drains",
+      "createAuthLoader > refuses admission after awaiting vault construction while final shutdown still drains"
+    ],
+    "per_run": "Exactly the named witness failed, with inner_exit=1. The included unchanged control createAuthLoader > exposes load on the handle so contract consumers can read it passed. No other test failed; 20 filtered out each run."
+  },
+  "publication_control": {
+    "mutation": "NON-VACUITY BREAK: move closing=true from before the async disposal body to after await disposeAccountRuntime()",
+    "receipt": "control-publication.aft.raw.log",
+    "expected_red": "PluginLifecycle request runtime retirement > publishes closing before synchronous disposal-hook admissions",
+    "result": "Exactly the named witness failed: closingInHook was false, expected true; inner_exit=1. PluginLifecycle > performs disposal only once passed. No other test failed; 15 filtered out."
+  },
+  "reentry_control": {
+    "mutation": "NON-VACUITY BREAK: remove early completion publication, assigning the async-body promise only after synchronous hook effects",
+    "receipt": "control-reentry.aft.raw.log",
+    "expected_red": "PluginLifecycle request runtime retirement > joins synchronous reentrant final disposal before any owned drain finishes",
+    "result": "Exactly the named witness failed: two distinct pending promises, expected reference equality; inner_exit=1. PluginLifecycle > performs disposal only once passed. No other test failed; 16 filtered out."
+  },
+  "final_publication_control": {
+    "mutation": "NON-VACUITY BREAK: move closing=true after await disposeAccountRuntime() while retaining early shared completion publication",
+    "receipt": "control-publication-final.aft.raw.log",
+    "expected_red": "PluginLifecycle request runtime retirement > publishes closing before synchronous disposal-hook admissions",
+    "result": "Exactly the named witness failed: closingInHook was false, expected true; inner_exit=1. PluginLifecycle > performs disposal only once passed. No other test failed; 16 filtered out."
+  }
+}

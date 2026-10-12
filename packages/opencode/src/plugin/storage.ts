@@ -24,7 +24,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import type {
   AccountMetadataV2,
@@ -40,7 +40,16 @@ import type {
   RateLimitStateV3,
 } from '@cortexkit/antigravity-auth-core'
 import {
+  type AccountMigrationModules,
+  type AccountMigrationOutcome,
+  type AccountRepository,
   AccountStorageUnreadableError,
+  type AccountStoreAdmission,
+  type AccountStoreAdmissionModules,
+  type AccountStoreBinding,
+  type AccountTokenExchange,
+  assertLegacyAccountStorageWritable,
+  type CreateAccountRepository,
   clearAccountStorage as coreClearAccountStorage,
   deduplicateAccountsByEmail as coreDeduplicateAccountsByEmail,
   loadAccountStorage as coreLoadAccountStorage,
@@ -49,6 +58,9 @@ import {
   mutateAccountStorage as coreMutateAccountStorage,
   saveAccountStorage as coreSaveAccountStorage,
   saveAccountStorageReplace as coreSaveAccountStorageReplace,
+  initializeFreshAccountStore,
+  readAccountStoreAdmission,
+  readAccountStoreBinding,
 } from '@cortexkit/antigravity-auth-core'
 import { createLogger } from './logger'
 
@@ -98,7 +110,19 @@ export { AccountStorageUnreadableError }
 export const deduplicateAccountsByEmail = coreDeduplicateAccountsByEmail
 export const mergeAccountStorage = coreMergeAccountStorage
 export const migrateV2ToV3 = coreMigrateV2ToV3
-export const mutateAccountStorage = coreMutateAccountStorage
+
+/**
+ * The pre-store engine's mutation of the legacy pool file at `path`, run
+ * while holding that file's lock; refused once the account store owns the
+ * accounts (see `assertLegacyPoolInUse`).
+ */
+export const mutateAccountStorage: typeof coreMutateAccountStorage = async (
+  path,
+  mutate,
+) => {
+  await assertLegacyPoolInUse(path)
+  return coreMutateAccountStorage(path, mutate)
+}
 
 /**
  * Files/directories that should be gitignored in the config directory.
@@ -110,6 +134,9 @@ export const mutateAccountStorage = coreMutateAccountStorage
 export const GITIGNORE_ENTRIES = [
   'antigravity-accounts.json',
   'antigravity-accounts.json.*.tmp',
+  // The account store's generation directories hold credential files; its
+  // pointer file names the current generation only.
+  'antigravity-accounts.json.store*',
   'antigravity-signature-cache.json',
   'antigravity-logs/',
 ]
@@ -331,6 +358,265 @@ export function getStoragePath(): string {
 export { getConfigDir }
 
 // ============================================================================
+// The account store that replaces the legacy pool file
+// ============================================================================
+
+/**
+ * Thrown by every pre-store reader and writer of the pool file once the
+ * account store owns the accounts: a published store generation whose
+ * journal is not an inactive rollback, or successor files without a
+ * journal. A write then would land in a file the migration captured or
+ * retired, and a read would serve accounts the store no longer agrees with.
+ * The decision is the migration's own (`assertLegacyAccountStorageWritable`);
+ * `cause` carries its reason, which never contains a credential.
+ */
+export class LegacyAccountPoolRetiredError extends Error {
+  readonly legacyPath: string
+
+  constructor(legacyPath: string, options?: { cause?: unknown }) {
+    super(
+      `Account pool file ${legacyPath} is owned by the account store and is no longer read or written. Use the account store, or roll it back with \`antigravity-auth rollback --offline\` before using an older build.`,
+      options,
+    )
+    this.name = 'LegacyAccountPoolRetiredError'
+    this.legacyPath = legacyPath
+  }
+}
+
+/**
+ * Refuses pool-file access once the account store owns the accounts. Any
+ * failure of the check (an unreadable pointer or journal included) refuses
+ * too: it is not proof that the store is absent.
+ */
+export async function assertLegacyPoolInUse(legacyPath: string): Promise<void> {
+  try {
+    await assertLegacyAccountStorageWritable(resolve(legacyPath))
+  } catch (error) {
+    throw new LegacyAccountPoolRetiredError(legacyPath, { cause: error })
+  }
+}
+
+/** Offline commands the messages below name. */
+const MIGRATE_COMMAND = 'antigravity-auth migrate --offline'
+export const UNMIGRATED_ACCOUNT_MESSAGE =
+  'Antigravity accounts require offline migration. Stop OpenCode, then run `npx @cortexkit/opencode-antigravity-auth@3.0.0 migrate --offline`.'
+const ROLLBACK_COMMAND = 'antigravity-auth rollback --offline'
+
+type NotServing = Exclude<
+  AccountStoreAdmission,
+  { status: 'active' } | { status: 'initialization-required' }
+>
+
+/** What opening the account store for serving found. */
+export type AccountStoreOpening =
+  | {
+      status: 'ready'
+      repository: AccountRepository
+      admission: Extract<AccountStoreAdmission, { status: 'active' }>
+    }
+  /**
+   * Neither a pool file nor a store exists. Nothing is created: a genuinely
+   * fresh installation calls `initializeFreshAccountStoreFor` explicitly,
+   * then opens again.
+   */
+  | { status: 'initialization-required' }
+  /** A pool file exists and no store generation is published. */
+  | { status: 'migration-required'; message: string }
+  /**
+   * A published generation is bound but cannot serve: repository work (a
+   * clear or a pool replacement) is pending. Its owner resumes it through
+   * `openAccountStoreForRecovery`; nothing is served meanwhile.
+   */
+  | {
+      status: 'recovery-required'
+      binding: Extract<AccountStoreBinding, { status: 'bound' }>
+      message: string
+    }
+  /**
+   * The store cannot serve: a migration or rollback is pending, the store
+   * was rolled back (inactive), or its pointer, journal, backups or files
+   * failed validation. Nothing falls back to the pool file or to an empty
+   * pool.
+   */
+  | { status: 'refused'; admission: NotServing; message: string }
+
+export interface OpenAccountStoreOptions {
+  /** The genuine public common-auth `./store` module; admission uses only its read methods. */
+  modules: AccountStoreAdmissionModules
+  /**
+   * Builds the repository for the verified generation's paths;
+   * `createAccountRepositoryFactory(modules)`.
+   */
+  createRepository: CreateAccountRepository
+  exchange: AccountTokenExchange
+  now?: () => number
+  /** Defaults to the resolved pool-file path (`getStoragePath`). */
+  legacyPath?: string
+}
+
+function refusalMessage(admission: NotServing): string {
+  switch (admission.status) {
+    case 'pending':
+      return admission.operation === 'rollback'
+        ? `An account-store rollback is pending; rerun \`${ROLLBACK_COMMAND}\`.`
+        : `An account-store migration is pending; stop every Antigravity process and rerun \`${MIGRATE_COMMAND}\`.`
+    case 'inactive':
+      return 'The account store was rolled back; use the build that matches the restored pool file, or migrate again offline.'
+    case 'error':
+      return `The account store cannot be admitted: ${admission.reason}`
+  }
+}
+
+/**
+ * The published generation bound to the pool file, from the migration's
+ * canonical binding read (no second pointer or journal decoder here).
+ */
+async function bindingOf(options: OpenAccountStoreOptions): Promise<{
+  legacyPath: string
+  now: () => number
+  binding: AccountStoreBinding
+}> {
+  const now = options.now ?? (() => Date.now())
+  const legacyPath = resolve(options.legacyPath ?? getStoragePath())
+  return {
+    legacyPath,
+    now,
+    binding: await readAccountStoreBinding(legacyPath, options.modules, now),
+  }
+}
+
+/** The opening for a binding that is not `bound`. */
+function unboundOpening(
+  binding: Exclude<AccountStoreBinding, { status: 'bound' }>,
+): Exclude<AccountStoreOpening, { status: 'ready' | 'recovery-required' }> {
+  if (binding.status === 'initialization-required') {
+    return { status: 'initialization-required' }
+  }
+  // Without a published generation, `pending` means the pool file exists
+  // and has not been migrated.
+  if (
+    binding.status === 'pending' &&
+    binding.phase === undefined &&
+    binding.operation === undefined
+  ) {
+    return {
+      status: 'migration-required',
+      message: UNMIGRATED_ACCOUNT_MESSAGE,
+    }
+  }
+  return {
+    status: 'refused',
+    admission: binding,
+    message: refusalMessage(binding),
+  }
+}
+
+/**
+ * Opens the account store for serving. The generation is first bound
+ * through the migration's canonical binding, then admitted for serving
+ * (healthy current rows, no pending repository work) on that same
+ * generation. The repository is built only for an admitted generation;
+ * every other result is returned, never repaired: no implicit fresh store,
+ * no reset after a corrupt or unavailable store and no fall-through to the
+ * pool file.
+ */
+export async function openAccountStore(
+  options: OpenAccountStoreOptions,
+): Promise<AccountStoreOpening> {
+  const { legacyPath, now, binding } = await bindingOf(options)
+  if (binding.status !== 'bound') return unboundOpening(binding)
+  const admission = await readAccountStoreAdmission(
+    legacyPath,
+    options.modules,
+    now,
+    binding.receipt.id,
+  )
+  switch (admission.status) {
+    case 'active':
+      return {
+        status: 'ready',
+        admission,
+        repository: options.createRepository({
+          paths: admission.paths,
+          now,
+          exchange: options.exchange,
+        }),
+      }
+    case 'pending':
+      return {
+        status: 'recovery-required',
+        binding,
+        message:
+          'An account clear or pool replacement was interrupted; it must be finished before the accounts are used.',
+      }
+    case 'initialization-required':
+      // The generation was bound a moment ago; its disappearance is not a
+      // fresh installation.
+      return {
+        status: 'refused',
+        admission: {
+          status: 'error',
+          reason: 'the bound generation disappeared',
+        },
+        message: 'The account store changed while it was opened; try again.',
+      }
+    default:
+      return {
+        status: 'refused',
+        admission,
+        message: refusalMessage(admission),
+      }
+  }
+}
+
+/**
+ * Opens the bound generation's repository to resume interrupted repository
+ * work (`clear`, `replacePool`), which the repository finishes from its own
+ * journal. The repository refuses every ordinary operation while that work
+ * is pending, so this never serves accounts; use `openAccountStore` for
+ * serving.
+ */
+export async function openAccountStoreForRecovery(
+  options: OpenAccountStoreOptions,
+): Promise<
+  | {
+      status: 'bound'
+      repository: AccountRepository
+      binding: Extract<AccountStoreBinding, { status: 'bound' }>
+    }
+  | Exclude<AccountStoreOpening, { status: 'ready' | 'recovery-required' }>
+> {
+  const { now, binding } = await bindingOf(options)
+  if (binding.status !== 'bound') return unboundOpening(binding)
+  return {
+    status: 'bound',
+    binding,
+    repository: options.createRepository({
+      paths: binding.paths,
+      now,
+      exchange: options.exchange,
+    }),
+  }
+}
+
+/**
+ * Creates an empty account store for a genuinely fresh installation (no
+ * pool file), as an explicit step the caller takes after `openAccountStore`
+ * answered `initialization-required`. The migration's
+ * `initializeFreshAccountStore` refuses
+ * when a pool file exists or appears, or when unrelated store files exist.
+ */
+export function initializeFreshAccountStoreFor(
+  modules: AccountMigrationModules,
+  options: { legacyPath?: string; now?: () => number } = {},
+): Promise<AccountMigrationOutcome> {
+  return initializeFreshAccountStore(modules, {
+    legacyPath: resolve(options.legacyPath ?? getStoragePath()),
+    now: options.now ?? (() => Date.now()),
+  })
+}
+
+// ============================================================================
 // Host path delegation. Each of these resolves the on-disk path via the
 // adapter above and hands it to the core lock-held engine. Callers that
 // want to run their own mutator (e.g. persist-account-pool) should
@@ -340,6 +626,7 @@ export { getConfigDir }
 
 export async function loadAccounts(): Promise<AccountStorageV4 | null> {
   const path = getStoragePath()
+  await assertLegacyPoolInUse(path)
   await ensureGitignore(dirname(path))
   return coreLoadAccountStorage(path)
 }
@@ -351,6 +638,7 @@ export async function loadAccounts(): Promise<AccountStorageV4 | null> {
  */
 export async function saveAccounts(storage: AccountStorageV4): Promise<void> {
   const path = getStoragePath()
+  await assertLegacyPoolInUse(path)
   const configDir = dirname(path)
   await fs.mkdir(configDir, { recursive: true })
   await ensureGitignore(configDir)
@@ -366,6 +654,7 @@ export async function saveAccountsReplace(
   storage: AccountStorageV4,
 ): Promise<void> {
   const path = getStoragePath()
+  await assertLegacyPoolInUse(path)
   const configDir = dirname(path)
   await fs.mkdir(configDir, { recursive: true })
   await ensureGitignore(configDir)
@@ -374,6 +663,9 @@ export async function saveAccountsReplace(
 
 export async function clearAccounts(): Promise<void> {
   const path = getStoragePath()
+  // Outside the try below: a refusal must reach the caller, not be logged
+  // as a failed unlink.
+  await assertLegacyPoolInUse(path)
   try {
     await coreClearAccountStorage(path)
   } catch (error) {
@@ -400,6 +692,7 @@ export async function mutateAccountByRefreshToken(
   mutate: (account: AccountMetadataV3) => boolean,
 ): Promise<AccountMetadataV3 | undefined> {
   const path = getStoragePath()
+  await assertLegacyPoolInUse(path)
   const configDir = dirname(path)
   await fs.mkdir(configDir, { recursive: true })
   await ensureGitignore(configDir)

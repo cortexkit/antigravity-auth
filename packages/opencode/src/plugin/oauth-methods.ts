@@ -1,16 +1,30 @@
 import { exec } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import {
+  formatAntigravityQuota,
+  type RowRef,
+  sameRowRef,
+  VAULT_ACCOUNT_REMEDY,
+} from '@cortexkit/antigravity-auth-core'
 import type { AuthOAuthResult as V1AuthOAuthResult } from '@opencode-ai/plugin'
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
 import {
   authorizeAntigravity as defaultAuthorizeAntigravity,
   exchangeAntigravity as defaultExchangeAntigravity,
 } from '../antigravity/oauth'
-import type { AccountAccessService } from './account-access'
+import { formatQuotaReading } from '../quota-presentation'
+import type {
+  AccountAccessService,
+  RepositoryAccountAccessService,
+  VerificationOutcome,
+  VerificationProbeResult,
+} from './account-access'
 import {
+  AccountChangedDuringReauthorizationError,
   clearStoredAccountAccessBlocks,
   markStoredAccountIneligible,
   markStoredAccountVerificationRequired,
+  storageViewOfRows,
 } from './account-access'
 import { formatRefreshParts, parseRefreshParts } from './auth'
 import { createAuthDoctorReport, formatAuthDoctorReport } from './auth-doctor'
@@ -82,6 +96,7 @@ export interface OAuthMethodDependencies {
 }
 
 interface CreateOAuthMethodsOptions {
+  mayStartLocalWork?: () => Promise<boolean>
   client: PluginClient
   providerId: string
   config: AntigravityConfig
@@ -288,30 +303,18 @@ function buildAuthSuccessFromStoredAccount(account: {
 }
 
 function formatCachedQuotaSummary(account: {
+  cachedQuotaUpdatedAt?: number
   cachedQuota?: Record<
     string,
     { remainingFraction?: number; resetTime?: string }
   >
 }): string | undefined {
   return account.cachedQuota
-    ? formatCachedQuotaWithStatus(account.cachedQuota)
+    ? formatCachedQuotaWithStatus(
+        account.cachedQuota,
+        account.cachedQuotaUpdatedAt,
+      )
     : undefined
-}
-
-function formatWaitTime(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  const seconds = Math.ceil(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = seconds % 60
-  if (minutes < 60) {
-    return remainingSeconds > 0
-      ? `${minutes}m ${remainingSeconds}s`
-      : `${minutes}m`
-  }
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
 }
 
 export function createOAuthMethods({
@@ -323,6 +326,7 @@ export function createOAuthMethods({
   quotaManager: injectedQuotaManager,
   getAuth = null,
   dependencies,
+  mayStartLocalWork,
 }: CreateOAuthMethodsOptions): AuthMethod[] {
   const deps: OAuthMethodDependencies = {
     authorize: dependencies?.authorize ?? defaultAuthorizeAntigravity,
@@ -435,6 +439,8 @@ export function createOAuthMethods({
       label: 'OAuth with Google (Antigravity)',
       type: 'oauth',
       authorize: async (inputs?: Record<string, string>) => {
+        if (mayStartLocalWork && !(await mayStartLocalWork()))
+          throw new Error(VAULT_ACCOUNT_REMEDY)
         const isHeadless = deps.isHeadless()
 
         // CLI flow (`opencode auth login`) passes an inputs object.
@@ -449,7 +455,104 @@ export function createOAuthMethods({
           // Check for existing accounts and prompt user for login mode
           let startFresh = true
           let refreshAccountIndex: number | undefined
-          const existingStorage = await loadAccounts()
+          // Store mode: the row refs read together with the listing, by
+          // position, so every action names the exact row the user picked.
+          let refreshAccountRef: RowRef | undefined
+          const source = await accountAccess.source()
+          const storeAccess =
+            source === 'pool-file'
+              ? undefined
+              : accountAccess.repositoryAccess(source)
+          let storeRefs: readonly RowRef[] | undefined
+          let existingStorage: Awaited<ReturnType<typeof loadAccounts>>
+          if (source === 'pool-file') {
+            existingStorage = await loadAccounts()
+          } else {
+            const read = await source.read()
+            if (read.status !== 'ready') {
+              throw new Error(
+                `The account store cannot list accounts (${read.status})`,
+              )
+            }
+            existingStorage = storageViewOfRows(read.rows)
+            storeRefs = read.rows.map((row) => row.ref)
+          }
+          /**
+           * Probes the listed account at `index`. In store mode the probe's
+           * bearer comes from the repository's attributed refresh of that
+           * row's ref; the pool-file path refreshes the listed record.
+           */
+          const checkListedAccount = async (
+            index: number,
+            account: AccountMetadataV3,
+          ): Promise<{
+            verification: VerificationProbeResult
+            outcome?: VerificationOutcome
+          }> => {
+            if (storeAccess === undefined) {
+              return { verification: await verifyAccountAccess(account) }
+            }
+            const ref = storeRefs?.[index]
+            if (ref === undefined) {
+              return {
+                verification: {
+                  status: 'error',
+                  message: 'This account is no longer listed.',
+                },
+              }
+            }
+            const outcome = await storeAccess.verifyAccount({ ref })
+            return { verification: outcome.result, outcome }
+          }
+          /**
+           * Store mode: records a probe's verdict on the probed credential.
+           * The live manager records it when it holds exactly that ref (one
+           * attributed write that also updates routing); otherwise the
+           * repository does. A row replaced or removed meanwhile is left
+           * untouched. Returns false when nothing could be recorded.
+           */
+          const recordStoreVerdict = async (
+            access: RepositoryAccountAccessService,
+            outcome: VerificationOutcome,
+            wasAccessBlocked: boolean,
+          ): Promise<boolean> => {
+            if (outcome.status !== 'probed') return false
+            const manager = lifecycle.getAccountManager()
+            const managed = manager
+              ?.getAccounts()
+              .find(
+                (candidate) =>
+                  candidate.ref !== undefined &&
+                  sameRowRef(candidate.ref, outcome.ref),
+              )
+            if (manager && managed) {
+              const result = outcome.result
+              if (result.status === 'ok') {
+                manager.clearAccountAccessBlocks(
+                  managed.index,
+                  wasAccessBlocked,
+                )
+              } else if (result.status === 'verification-required') {
+                manager.markAccountVerificationRequired(
+                  managed.index,
+                  result.message,
+                  result.verifyUrl,
+                )
+              } else if (result.status === 'ineligible') {
+                manager.markAccountIneligible(managed.index, result.message)
+              }
+              return result.status !== 'error'
+            }
+            const applied = await access.applyVerificationResult(outcome, {
+              enableIfBlocked: true,
+            })
+            if (applied.status === 'stale') {
+              console.log(
+                'This account changed while it was checked; the result was not recorded.',
+              )
+            }
+            return applied.status === 'applied'
+          }
           if (existingStorage && existingStorage.accounts.length > 0) {
             let menuResult: Awaited<ReturnType<typeof promptLoginMode>>
             while (true) {
@@ -531,9 +634,7 @@ export function createOAuthMethods({
                     isCurrentAccount:
                       idx === (existingStorage.activeIndex ?? 0),
                     enabled: acc.enabled !== false,
-                    quotaSummary: quotaIsStale
-                      ? undefined
-                      : formatCachedQuotaSummary(acc),
+                    quotaSummary: formatCachedQuotaSummary(acc),
                     cooldownMs,
                     cooldownReason: cooldownMs ? acc.cooldownReason : undefined,
                     cachedQuota: displayQuota,
@@ -615,38 +716,7 @@ export function createOAuthMethods({
                     const empty = width - filled
                     const color = getColor(remaining)
                     const bar = `${color}${'█'.repeat(filled)}${colors.reset}${'░'.repeat(empty)}`
-                    const pct =
-                      `${color}${Math.round(remaining * 100)}%${colors.reset}`.padStart(
-                        4 + color.length + colors.reset.length,
-                      )
-                    return `${bar} ${pct}`
-                  }
-
-                  // Helper to format reset time with days support
-                  const formatReset = (
-                    resetTime?: string,
-                    remainingFraction?: number,
-                  ): string => {
-                    if (!resetTime) return ''
-                    const ms = Date.parse(resetTime) - Date.now()
-                    if (ms <= 0) {
-                      // If quota is 0% and reset time is in the past, the model is
-                      // likely paywalled / permanently unavailable on this quota pool
-                      return remainingFraction !== undefined &&
-                        remainingFraction <= 0
-                        ? ' (paid only)'
-                        : ' (resetting...)'
-                    }
-                    const hours = ms / (1000 * 60 * 60)
-                    if (hours >= 24) {
-                      const days = Math.floor(hours / 24)
-                      const remainingHours = Math.floor(hours % 24)
-                      if (remainingHours > 0) {
-                        return ` (resets in ${days}d ${remainingHours}h)`
-                      }
-                      return ` (resets in ${days}d)`
-                    }
-                    return ` (resets in ${formatWaitTime(ms)})`
+                    return bar
                   }
 
                   // Display Gemini CLI Quota first (as requested - swap order)
@@ -664,9 +734,19 @@ export function createOAuthMethods({
                       const isLast = idx === models.length - 1
                       const connector = isLast ? '└─' : '├─'
                       const bar = createProgressBar(model.remainingFraction)
-                      const reset = formatReset(
-                        model.resetTime,
-                        model.remainingFraction,
+                      const text = formatQuotaReading(
+                        model.modelId,
+                        {
+                          remainingPercent:
+                            typeof model.remainingFraction === 'number'
+                              ? model.remainingFraction * 100
+                              : Number.NaN,
+                          checkedAt: res.checkedAt,
+                          ...(model.resetTime
+                            ? { resetAt: Date.parse(model.resetTime) }
+                            : {}),
+                        },
+                        Date.now(),
                       )
                       const status = classifyGroupStatus({
                         remainingFraction: model.remainingFraction,
@@ -674,10 +754,7 @@ export function createOAuthMethods({
                         modelCount: 1,
                       })
                       const badge = formatQuotaStatusBadge(status)
-                      const modelName = model.modelId.padEnd(29)
-                      console.log(
-                        `  │  ${connector} ${modelName} ${bar} ${badge}${reset}`,
-                      )
+                      console.log(`  │  ${connector} ${text} ${bar} ${badge}`)
                     })
                   }
 
@@ -693,24 +770,24 @@ export function createOAuthMethods({
                   } else {
                     const groups = res.quota!.groups
                     const groupEntries = [
-                      { name: 'Non-Gemini', data: groups['non-gemini'] },
-                      { name: 'Gemini', data: groups.gemini },
+                      { key: 'non-gemini', data: groups['non-gemini'] },
+                      { key: 'gemini', data: groups.gemini },
                     ].filter((g) => g.data)
 
                     groupEntries.forEach((g, idx) => {
                       const isLast = idx === groupEntries.length - 1
                       const connector = isLast ? '└─' : '├─'
                       const bar = createProgressBar(g.data!.remainingFraction)
-                      const reset = formatReset(
-                        g.data!.resetTime,
-                        g.data!.remainingFraction,
+                      const text = formatAntigravityQuota(
+                        {
+                          cachedQuota: { [g.key]: g.data! },
+                          cachedQuotaUpdatedAt: res.checkedAt,
+                        },
+                        { now: Date.now() },
                       )
                       const status = classifyGroupStatus(g.data!)
                       const badge = formatQuotaStatusBadge(status)
-                      const modelName = g.name.padEnd(29)
-                      console.log(
-                        `     ${connector} ${modelName} ${bar} ${badge}${reset}`,
-                      )
+                      console.log(`     ${connector} ${text} ${bar} ${badge}`)
                     })
                   }
                   console.log('')
@@ -719,7 +796,8 @@ export function createOAuthMethods({
                   const targetRefreshToken =
                     existingStorage.accounts[res.index]?.refreshToken
                   if (!targetRefreshToken) continue
-                  const updatedAt = Date.now()
+                  const updatedAt = res.checkedAt
+                  if (updatedAt === undefined) continue
                   const existing = quotaUpdates.get(targetRefreshToken)
                   quotaUpdates.set(targetRefreshToken, {
                     quota: res.quota?.groups,
@@ -848,11 +926,27 @@ export function createOAuthMethods({
                       `- [${i + 1}/${existingStorage.accounts.length}] ${label} ... `,
                     )
 
-                    const verification = await verifyAccountAccess(account)
+                    const { verification, outcome } = await checkListedAccount(
+                      i,
+                      account,
+                    )
+                    if (storeAccess !== undefined && outcome !== undefined) {
+                      await recordStoreVerdict(
+                        storeAccess,
+                        outcome,
+                        account.verificationRequired === true ||
+                          account.accountIneligible === true,
+                      )
+                    }
                     if (verification.status === 'ok') {
                       const wasAccessBlocked =
                         account.verificationRequired === true ||
                         account.accountIneligible === true
+                      if (storeAccess !== undefined) {
+                        okCount += 1
+                        console.log('ok')
+                        continue
+                      }
                       if (account.refreshToken) {
                         await mutateAccountByRefreshToken(
                           account.refreshToken,
@@ -869,24 +963,26 @@ export function createOAuthMethods({
                     }
 
                     if (verification.status === 'verification-required') {
-                      if (account.refreshToken) {
-                        await mutateAccountByRefreshToken(
-                          account.refreshToken,
-                          (acc) =>
-                            markStoredAccountVerificationRequired(
-                              acc,
-                              verification.message,
-                              verification.verifyUrl,
-                            ),
-                        )
+                      if (storeAccess === undefined) {
+                        if (account.refreshToken) {
+                          await mutateAccountByRefreshToken(
+                            account.refreshToken,
+                            (acc) =>
+                              markStoredAccountVerificationRequired(
+                                acc,
+                                verification.message,
+                                verification.verifyUrl,
+                              ),
+                          )
+                        }
+                        lifecycle
+                          .getAccountManager()
+                          ?.markAccountVerificationRequired(
+                            i,
+                            verification.message,
+                            verification.verifyUrl,
+                          )
                       }
-                      lifecycle
-                        .getAccountManager()
-                        ?.markAccountVerificationRequired(
-                          i,
-                          verification.message,
-                          verification.verifyUrl,
-                        )
 
                       blockedCount += 1
                       console.log('needs verification')
@@ -901,19 +997,21 @@ export function createOAuthMethods({
                     }
 
                     if (verification.status === 'ineligible') {
-                      if (account.refreshToken) {
-                        await mutateAccountByRefreshToken(
-                          account.refreshToken,
-                          (acc) =>
-                            markStoredAccountIneligible(
-                              acc,
-                              verification.message,
-                            ),
-                        )
+                      if (storeAccess === undefined) {
+                        if (account.refreshToken) {
+                          await mutateAccountByRefreshToken(
+                            account.refreshToken,
+                            (acc) =>
+                              markStoredAccountIneligible(
+                                acc,
+                                verification.message,
+                              ),
+                          )
+                        }
+                        lifecycle
+                          .getAccountManager()
+                          ?.markAccountIneligible(i, verification.message)
                       }
-                      lifecycle
-                        .getAccountManager()
-                        ?.markAccountIneligible(i, verification.message)
                       ineligibleCount += 1
                       console.log('ineligible')
                       continue
@@ -970,27 +1068,44 @@ export function createOAuthMethods({
                   account.email || `Account ${verifyAccountIndex + 1}`
                 console.log(`\nChecking verification status for ${label}...\n`)
 
-                const verification = await verifyAccountAccess(account)
+                const { verification, outcome } = await checkListedAccount(
+                  verifyAccountIndex,
+                  account,
+                )
+                const storeRecorded =
+                  storeAccess !== undefined && outcome !== undefined
+                    ? await recordStoreVerdict(
+                        storeAccess,
+                        outcome,
+                        account.verificationRequired === true ||
+                          account.accountIneligible === true,
+                      )
+                    : false
 
                 if (verification.status === 'ok') {
                   const wasAccessBlocked =
                     account.verificationRequired === true ||
                     account.accountIneligible === true
-                  if (account.refreshToken) {
-                    await mutateAccountByRefreshToken(
-                      account.refreshToken,
-                      (acc) =>
-                        clearStoredAccountAccessBlocks(acc, true).changed,
-                    )
+                  if (storeAccess === undefined) {
+                    if (account.refreshToken) {
+                      await mutateAccountByRefreshToken(
+                        account.refreshToken,
+                        (acc) =>
+                          clearStoredAccountAccessBlocks(acc, true).changed,
+                      )
+                    }
+                    lifecycle
+                      .getAccountManager()
+                      ?.clearAccountAccessBlocks(
+                        verifyAccountIndex,
+                        wasAccessBlocked,
+                      )
                   }
-                  lifecycle
-                    .getAccountManager()
-                    ?.clearAccountAccessBlocks(
-                      verifyAccountIndex,
-                      wasAccessBlocked,
-                    )
 
-                  if (wasAccessBlocked) {
+                  if (
+                    wasAccessBlocked &&
+                    (storeAccess === undefined || storeRecorded)
+                  ) {
                     console.log(
                       `✓ ${label} is ready for requests and has been re-enabled.\n`,
                     )
@@ -1001,24 +1116,26 @@ export function createOAuthMethods({
                 }
 
                 if (verification.status === 'verification-required') {
-                  if (account.refreshToken) {
-                    await mutateAccountByRefreshToken(
-                      account.refreshToken,
-                      (acc) =>
-                        markStoredAccountVerificationRequired(
-                          acc,
-                          verification.message,
-                          verification.verifyUrl,
-                        ),
-                    )
+                  if (storeAccess === undefined) {
+                    if (account.refreshToken) {
+                      await mutateAccountByRefreshToken(
+                        account.refreshToken,
+                        (acc) =>
+                          markStoredAccountVerificationRequired(
+                            acc,
+                            verification.message,
+                            verification.verifyUrl,
+                          ),
+                      )
+                    }
+                    lifecycle
+                      .getAccountManager()
+                      ?.markAccountVerificationRequired(
+                        verifyAccountIndex,
+                        verification.message,
+                        verification.verifyUrl,
+                      )
                   }
-                  lifecycle
-                    .getAccountManager()
-                    ?.markAccountVerificationRequired(
-                      verifyAccountIndex,
-                      verification.message,
-                      verification.verifyUrl,
-                    )
 
                   const verifyUrl =
                     verification.verifyUrl ?? account.verificationUrl
@@ -1054,19 +1171,24 @@ export function createOAuthMethods({
                 }
 
                 if (verification.status === 'ineligible') {
-                  if (account.refreshToken) {
-                    await mutateAccountByRefreshToken(
-                      account.refreshToken,
-                      (acc) =>
-                        markStoredAccountIneligible(acc, verification.message),
-                    )
+                  if (storeAccess === undefined) {
+                    if (account.refreshToken) {
+                      await mutateAccountByRefreshToken(
+                        account.refreshToken,
+                        (acc) =>
+                          markStoredAccountIneligible(
+                            acc,
+                            verification.message,
+                          ),
+                      )
+                    }
+                    lifecycle
+                      .getAccountManager()
+                      ?.markAccountIneligible(
+                        verifyAccountIndex,
+                        verification.message,
+                      )
                   }
-                  lifecycle
-                    .getAccountManager()
-                    ?.markAccountIneligible(
-                      verifyAccountIndex,
-                      verification.message,
-                    )
                   console.log(
                     `⚠ ${label} is not eligible for Antigravity and has been disabled.`,
                   )
@@ -1188,6 +1310,7 @@ export function createOAuthMethods({
 
             if (menuResult.refreshAccountIndex !== undefined) {
               refreshAccountIndex = menuResult.refreshAccountIndex
+              refreshAccountRef = storeRefs?.[refreshAccountIndex]
               const refreshEmail =
                 existingStorage.accounts[refreshAccountIndex]?.email
               console.log(
@@ -1413,6 +1536,21 @@ export function createOAuthMethods({
             try {
               if (
                 !persistedBySharedService &&
+                refreshAccountIndex !== undefined &&
+                storeAccess !== undefined
+              ) {
+                // The new credential replaces exactly the row picked from
+                // the listing, at the epoch it was listed with; a row
+                // changed meanwhile, or a sign-in to another account,
+                // refuses with nothing written.
+                if (refreshAccountRef === undefined) {
+                  throw new AccountChangedDuringReauthorizationError(
+                    `listed-${refreshAccountIndex}`,
+                  )
+                }
+                await storeAccess.reauthorizeAccount(refreshAccountRef, result)
+              } else if (
+                !persistedBySharedService &&
                 refreshAccountIndex !== undefined
               ) {
                 const currentStorage = await loadAccounts()
@@ -1457,7 +1595,10 @@ export function createOAuthMethods({
               // Fail loud on unreadable storage: re-throw so the
               // outer OAuth flow can surface a toast and abort the
               // login instead of silently dropping the new account.
-              if (error instanceof AccountStorageUnreadableError) {
+              if (
+                error instanceof AccountStorageUnreadableError ||
+                error instanceof AccountChangedDuringReauthorizationError
+              ) {
                 throw error
               }
               // Transient (lock contention, I/O hiccup) → continue.

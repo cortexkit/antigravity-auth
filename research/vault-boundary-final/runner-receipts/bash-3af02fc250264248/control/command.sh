@@ -1,0 +1,1 @@
+bun --version; node --version; bun run --cwd packages/core build && bun test --isolate -t 'discards deferred quota metadata' packages/opencode/src/plugin/quota.test.ts; inner=$?; printf '\nINNER_EXIT=%s\n' "$inner"; exit "$inner"

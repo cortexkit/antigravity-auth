@@ -15,8 +15,21 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { AccountStorageUnreadableError } from '@cortexkit/antigravity-auth-core'
-import { persistAccountPool } from './persist-account-pool'
+import {
+  type AccountLoginInput,
+  type AccountLoginResult,
+  type AccountRepository,
+  AccountRepositoryError,
+  AccountStorageUnreadableError,
+  type ManagementReceipt,
+} from '@cortexkit/antigravity-auth-core'
+import {
+  commitLogins,
+  LoginBatchError,
+  persistAccountPool,
+  replacePoolLogins,
+  type TokenSuccess,
+} from './persist-account-pool'
 import type { AccountMetadataV3, AccountStorageV4 } from './storage'
 import * as storageModule from './storage'
 
@@ -1121,5 +1134,232 @@ describe('proposed fix validation', () => {
         expect(await readFile(storagePath, 'utf8')).toBe(originalRaw)
       }
     })
+  })
+})
+
+describe('persistAccountPool after the account store replaced the pool file', () => {
+  let configDir: string
+  let previousConfigDir: string | undefined
+
+  beforeEach(async () => {
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    configDir = await mkdtemp(join(tmpdir(), 'agy-persist-retired-'))
+    process.env.OPENCODE_CONFIG_DIR = configDir
+  })
+
+  afterEach(async () => {
+    if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+    await rm(configDir, { recursive: true, force: true })
+  })
+
+  it('refuses both the merge and the replace-all write and leaves the file as it was', async () => {
+    const storagePath = join(configDir, 'antigravity-accounts.json')
+    await storageModule.saveAccountsReplace(
+      createMockStorage([createMockAccount()]),
+    )
+    const before = await readFile(storagePath, 'utf8')
+    await mkdir(`${storagePath}.store`)
+
+    for (const replaceAll of [false, true]) {
+      await expect(
+        persistAccountPool(
+          [
+            {
+              type: 'success',
+              refresh: 'late-token|late-project',
+              access: 'a',
+              expires: 1,
+              email: 'late@example.com',
+              projectId: 'late-project',
+            },
+          ],
+          replaceAll,
+        ),
+      ).rejects.toBeInstanceOf(storageModule.LegacyAccountPoolRetiredError)
+    }
+    expect(await readFile(storagePath, 'utf8')).toBe(before)
+  })
+})
+
+describe('account-store logins', () => {
+  const success = (
+    refresh: string,
+    extra: Partial<TokenSuccess> = {},
+  ): TokenSuccess => ({
+    type: 'success',
+    refresh,
+    access: 'access-is-never-stored',
+    expires: 1,
+    projectId: '',
+    ...extra,
+  })
+
+  function loginRepository(
+    login: (input: AccountLoginInput) => Promise<AccountLoginResult>,
+  ) {
+    const logins: AccountLoginInput[] = []
+    const pools: Array<readonly AccountLoginInput[]> = []
+    const repository = {
+      login: async (input: AccountLoginInput) => {
+        logins.push(input)
+        return login(input)
+      },
+      replacePool: async (inputs: readonly AccountLoginInput[]) => {
+        pools.push(inputs)
+        return {
+          management: {
+            id: 'op',
+            kind: 'replace-pool',
+            targets: [],
+            progress: { step: 'done', completedTargets: [] },
+          },
+          outcome: 'completed',
+        } satisfies ManagementReceipt
+      },
+    } as unknown as AccountRepository
+    return { repository, logins, pools }
+  }
+
+  it('admits each login with a fresh id, the bare token and its projects as metadata', async () => {
+    const ids = ['id-1', 'id-2']
+    const { repository, logins } = loginRepository(async (input) => ({
+      ref: { id: input.id, credentialEpoch: 1 },
+      outcome: 'added',
+    }))
+
+    const committed = await commitLogins(
+      repository,
+      [
+        success('token-1|project-1|managed-1', {
+          email: 'one@example.test',
+          label: 'Work',
+        }),
+        success('token-2'),
+        success(''),
+      ],
+      { now: () => 77, newId: () => ids.shift() ?? 'extra' },
+    )
+
+    expect(logins).toEqual([
+      {
+        id: 'id-1',
+        refreshToken: 'token-1',
+        metadata: {
+          addedAt: 77,
+          lastUsed: 77,
+          enabled: true,
+          email: 'one@example.test',
+          label: 'Work',
+          projectId: 'project-1',
+          managedProjectId: 'managed-1',
+        },
+      },
+      {
+        id: 'id-2',
+        refreshToken: 'token-2',
+        metadata: { addedAt: 77, lastUsed: 77, enabled: true },
+      },
+    ])
+    expect(committed).toEqual([
+      {
+        status: 'committed',
+        ref: { id: 'id-1', credentialEpoch: 1 },
+        outcome: 'added',
+      },
+      {
+        status: 'committed',
+        ref: { id: 'id-2', credentialEpoch: 1 },
+        outcome: 'added',
+      },
+      { status: 'skipped', reason: 'no-refresh-token' },
+    ])
+  })
+
+  it('reports an email already held under another credential instead of overwriting that row', async () => {
+    const { repository } = loginRepository(async (input) => {
+      if (input.refreshToken === 'token-dup') {
+        throw new AccountRepositoryError({
+          operation: 'login',
+          kind: 'duplicate-identity',
+          retryable: false,
+          ambiguous: false,
+          rowId: 'existing-row',
+          message: 'row existing-row already holds this account',
+        })
+      }
+      return { ref: { id: input.id, credentialEpoch: 1 }, outcome: 'added' }
+    })
+
+    const committed = await commitLogins(repository, [
+      success('token-dup', { email: 'dup@example.test' }),
+      success('token-new'),
+    ])
+    expect(committed[0]).toEqual({
+      status: 'refused',
+      kind: 'duplicate-identity',
+      rowId: 'existing-row',
+      message: 'row existing-row already holds this account',
+    })
+    expect(committed[1]).toMatchObject({ status: 'committed' })
+  })
+
+  it('stops at a store failure and names the logins that already landed', async () => {
+    let calls = 0
+    const { repository } = loginRepository(async (input) => {
+      calls += 1
+      if (calls === 2) {
+        throw new AccountRepositoryError({
+          operation: 'login',
+          kind: 'pending-migration',
+          retryable: false,
+          ambiguous: false,
+          message: 'migration pending',
+        })
+      }
+      return { ref: { id: input.id, credentialEpoch: 1 }, outcome: 'added' }
+    })
+
+    const failure = await commitLogins(repository, [
+      success('token-1'),
+      success('token-2'),
+      success('token-3'),
+    ]).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(LoginBatchError)
+    expect((failure as LoginBatchError).committed).toHaveLength(1)
+    expect(calls).toBe(2)
+  })
+
+  it('replaces the pool in one journaled call and refuses a batch with no usable login', async () => {
+    const { repository, pools } = loginRepository(async () => {
+      throw new Error('login is not used by a pool replacement')
+    })
+
+    await expect(
+      replacePoolLogins(repository, [success('token-1|p-1')], {
+        now: () => 5,
+        newId: () => 'fresh-id',
+      }),
+    ).resolves.toMatchObject({ outcome: 'completed' })
+    expect(pools).toEqual([
+      [
+        {
+          id: 'fresh-id',
+          refreshToken: 'token-1',
+          metadata: {
+            addedAt: 5,
+            lastUsed: 5,
+            enabled: true,
+            projectId: 'p-1',
+          },
+        },
+      ],
+    ])
+
+    await expect(replacePoolLogins(repository, [success('')])).rejects.toThrow(
+      'no usable logins',
+    )
+    expect(pools).toHaveLength(1)
   })
 })

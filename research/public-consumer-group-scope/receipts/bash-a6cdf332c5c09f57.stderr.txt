@@ -1,0 +1,24 @@
+304 |   if (
+305 |     current.sid !== leader.sid ||
+306 |     current.pgid !== leader.pgid ||
+307 |     current.start < leader.start
+308 |   )
+309 |     throw new Error(
+                    ^
+error: owned process left captured session/group scope: {"expected":{"pid":13,"ppid":12,"pgid":13,"sid":12,"start":"61023141","zombie":false},"current":{"pid":13,"ppid":12,"pgid":13,"sid":12,"start":"61023141","zombie":false},"leader":{"pid":12,"ppid":4,"pgid":12,"sid":12,"start":"61023139","zombie":false}}
+      at assertPublicCommandIdentity (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:309:15)
+      at inspectPublicCommandScope (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:334:5)
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/scripts/prepare-common-auth-public-consumer.ts:239:29)
+304 |   if (
+305 |     current.sid !== leader.sid ||
+306 |     current.pgid !== leader.pgid ||
+307 |     current.start < leader.start
+308 |   )
+309 |     throw new Error(
+                    ^
+error: owned process left captured session/group scope: {"expected":{"pid":13,"ppid":12,"pgid":13,"sid":12,"start":"61023141","zombie":false},"current":{"pid":13,"ppid":12,"pgid":13,"sid":12,"start":"61023141","zombie":false},"leader":{"pid":12,"ppid":4,"pgid":12,"sid":12,"start":"61023139","zombie":false}}
+      at assertPublicCommandIdentity (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:309:15)
+      at inspectPublicCommandScope (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:334:5)
+      at reapPublicCommandScope (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:383:21)
+      at runPublicConsumerCommand (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/scripts/prepare-common-auth-public-consumer.ts:297:15)
+

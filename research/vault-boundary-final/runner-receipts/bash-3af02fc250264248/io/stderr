@@ -1,0 +1,23 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/opencode/src/plugin/quota.test.ts:
+1362 |     const update = spyOn(store.manager, 'updateQuotaCache')
+1363 |     try {
+1364 |       const target = store.manager.getAccountsForQuotaCheck()[0]!
+1365 |       const outcome = await store.service.refreshAccount(target, { force: true })
+1366 |       expect(sends).toBe(2)
+1367 |       expect(outcome.status).toBe('discarded')
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "discarded"
+Received: "recorded"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/quota.test.ts:1367:30)
+(fail) account-store quota service > discards deferred quota metadata after local authority changes without vetoing an admitted successor save [1693.65ms]
+
+ 0 pass
+ 45 filtered out
+ 1 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [1.97s]

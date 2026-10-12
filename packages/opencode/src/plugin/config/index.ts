@@ -13,12 +13,16 @@
  */
 
 export {
+  type ConfigLoadLogger,
+  canonicalizeOwnedPath,
   configExists,
+  createLocationConfig,
   getDefaultLogsDir,
   getKeepThinking,
   getProjectConfigPath,
   getUserConfigPath,
   initRuntimeConfig,
+  type LocationConfig,
   loadConfig,
 } from './loader'
 export {

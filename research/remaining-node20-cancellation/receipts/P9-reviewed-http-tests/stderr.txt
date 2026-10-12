@@ -1,0 +1,90 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+$ tsc --noEmit
+
+packages/pi/src/stream.test.ts:
+(pass) resolvePiAntigravityModel > maps Pi low thinking to the captured AGY route [0.37ms]
+(pass) resolvePiAntigravityModel > maps Pi medium thinking to the captured AGY route [0.02ms]
+(pass) resolvePiAntigravityModel > maps Pi high thinking to the captured AGY route
+(pass) resolvePiAntigravityModel > maps Pi 3.7 low thinking to the captured AGY route [0.02ms]
+(pass) resolvePiAntigravityModel > maps Pi 3.7 medium thinking to the captured AGY route
+(pass) resolvePiAntigravityModel > maps Pi 3.7 high thinking to the captured AGY route
+(pass) resolvePiAntigravityModel > maps Pi 3.8 low thinking to the captured AGY route [0.01ms]
+(pass) resolvePiAntigravityModel > maps Pi 3.8 medium thinking to the captured AGY route
+(pass) resolvePiAntigravityModel > maps Pi 3.8 high thinking to the captured AGY route
+(pass) resolvePiAntigravityModel > clamps unsupported edge levels to live AGY tiers [0.01ms]
+(pass) finalizePiAntigravityRequest > adds AGY session metadata and VALIDATED tool configuration [0.18ms]
+(pass) finalizePiAntigravityRequest > matches native first-execution tool continuation step metadata [0.03ms]
+(pass) convertGeminiToolCallPart > preserves the backend function-call ID [0.03ms]
+(pass) convertGeminiToolCallPart > generates an ID when the backend omits one [0.05ms]
+(pass) convertGeminiToolCallPart > carries a preceding thought signature onto the next function call [0.04ms]
+(pass) convertGeminiToolCallPart > attaches a parallel batch signature only to the first function call [0.02ms]
+(pass) streamCortexKitAntigravity > works without AbortSignal.any with a caller signal [2.01ms]
+(pass) streamCortexKitAntigravity > surfaces an embedded SSE error instead of returning an empty success [0.43ms]
+(pass) streamCortexKitAntigravity > surfaces prompt feedback instead of returning an empty success [0.13ms]
+(pass) streamCortexKitAntigravity > rejects clean EOF without a terminal candidate [0.09ms]
+(pass) streamCortexKitAntigravity > rejects a candidate-less terminal response instead of returning an empty success [0.09ms]
+(pass) streamCortexKitAntigravity > streams thinking and transfers a pending signature to visible text [0.16ms]
+(pass) streamCortexKitAntigravity > sends the captured Gemini 3.7 high budget and model enum on the wire [0.24ms]
+(pass) streamCortexKitAntigravity > sends the captured Gemini 3.8 high budget and model enum on the wire [0.18ms]
+(pass) streamCortexKitAntigravity > sends the transcript system prompt and sanitized tools on the wire [0.78ms]
+(pass) streamCortexKitAntigravity > keys sessions without a sessionId on the first non-system message [0.29ms]
+(pass) streamCortexKitAntigravity > adds execution metadata after a completed turn [0.19ms]
+(pass) streamCortexKitAntigravity > does not rotate execution metadata on a tool-call turn [0.22ms]
+(pass) streamCortexKitAntigravity > releases and cancels an open response body after STOP [0.17ms]
+(pass) streamCortexKitAntigravity > consumes GPT usage metadata sent after STOP [0.20ms]
+(pass) streamCortexKitAntigravity > finishes a GPT turn when trailing usage never arrives [1002.49ms]
+(pass) Pi caller cancellation without AbortSignal.any > forwards a pre-abort through opening without attaching a caller listener [0.46ms]
+(pass) Pi caller cancellation without AbortSignal.any > forwards abort while opening and detaches after rejection [0.23ms]
+(pass) Pi caller cancellation without AbortSignal.any > forwards abort during chunk parsing and releases and detaches on cancel [0.34ms]
+(pass) Pi caller cancellation without AbortSignal.any > retains forwarding through successful body cleanup and then detaches [0.28ms]
+(pass) Pi caller cancellation without AbortSignal.any > detaches on opening, HTTP, embedded, and body-read errors [0.40ms]
+1037 |       const source = httpErrorResponse(failure)
+1038 |       if (failure) await expect(source.response.text()).rejects.toBe(failure)
+1039 |       else expect(await source.response.text()).toBe('upstream failure')
+1040 |       expect(source.response.bodyUsed).toBe(true)
+1041 |       // Stock consumption can retain a lock after EOF/error with no pending reads.
+1042 |       expect(source.response.body!.locked).toBe(true)
+                                                  ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/pi/src/stream.test.ts:1042:44)
+(fail) Pi caller cancellation without AbortSignal.any > documents the stock text consumer retaining a completed body lock [0.36ms]
+1069 |         failure
+1070 |           ? 'HTTP body read failure'
+1071 |           : 'Antigravity request failed: HTTP 503 upstream failure',
+1072 |       )
+1073 |       expect(source.response.bodyUsed).toBe(true)
+1074 |       expect(source.response.body!.locked).toBe(true)
+                                                  ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/pi/src/stream.test.ts:1074:44)
+(fail) Pi caller cancellation without AbortSignal.any > consumes the HTTP error body and preserves its error without a live parser or caller listener [0.35ms]
+(pass) Pi caller cancellation without AbortSignal.any > forwards caller cancellation into the vault opening path and detaches [0.20ms]
+(pass) parseGeminiSse > parses and unwraps the Antigravity response envelope into chunks [0.13ms]
+(pass) parseGeminiSse > handles frames split across read boundaries [0.07ms]
+(pass) parseGeminiSse > ignores [DONE] sentinels and malformed frames [0.06ms]
+(pass) parseGeminiSse > parses CRLF-separated frames (Antigravity wire format) [0.06ms]
+(pass) parseGeminiSse > flushes a trailing frame without a blank-line separator [0.05ms]
+(pass) parseGeminiSse > returns nothing for an empty body [0.03ms]
+(pass) updateUsage > counts thinking tokens as output and splits cached prompt tokens [0.04ms]
+(pass) updateUsage > treats promptTokenCount as the full prompt when no cache is reported [0.01ms]
+(pass) vault native-slot admission > rejects a missing or foreign resolved credential before vault dispatch (%s) [0.08ms]
+(pass) vault native-slot admission > rejects a missing or foreign resolved credential before vault dispatch (synthetic-local-oauth-access) [0.02ms]
+(pass) vault native-slot admission > rejects a missing or foreign resolved credential before vault dispatch (antigravity-vault-custody-extra)
+(pass) vault native-slot admission > uses only the served vault credential when Pi resolves the exact placeholder [0.17ms]
+
+2 tests failed:
+(fail) Pi caller cancellation without AbortSignal.any > documents the stock text consumer retaining a completed body lock [0.36ms]
+(fail) Pi caller cancellation without AbortSignal.any > consumes the HTTP error body and preserves its error without a live parser or caller listener [0.35ms]
+
+ 49 pass
+ 2 fail
+ 172 expect() calls
+Ran 51 tests across 1 file. [1224.00ms]

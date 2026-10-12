@@ -1,0 +1,38 @@
+# base d2d0e5e699be195f08caf137b2f472ebc150bb78 + witness tests only; bun 1.4.2; Darwin arm64
+bun test v1.4.2 (744846f84)
+
+src/plugin/auth-loader.test.ts:
+1099 |           }),
+1100 |         )
+1101 |       await lifecycle.dispose()
+1102 |       events.push('lifecycle disposed')
+1103 |       releaseAuthority('vault')
+1104 |       expect({ outcome: await outcome, events }).toEqual({
+                                                        ^
+error: expect(received).toEqual(expected)
+
+  {
+    "events": [
+      "lifecycle disposed",
++     "vault runtime built",
++     "vault send",
+    ],
+    "outcome": {
+-     "kind": "error",
+-     "message": "The account loader is disposed",
++     "kind": "response",
++     "text": "vault-after-dispose",
+    },
+  }
+
+- Expected  - 2
++ Received  + 4
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_082699cae0bddb64/packages/opencode/src/plugin/auth-loader.test.ts:1104:50)
+(fail) enrollment authority at loader and request start > builds and sends no vault runtime when the loader is disposed during the request authority read [1.24ms]
+
+ 0 pass
+ 14 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [161.00ms]

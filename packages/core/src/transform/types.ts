@@ -75,7 +75,7 @@ export interface ThinkingConfig {
   thinkingLevel?: string
   /** Whether to include thinking in the response */
   includeThoughts?: boolean
-  /** Snake_case variant for Antigravity backend */
+  /** Legacy intermediate spelling, normalized by request adapters */
   include_thoughts?: boolean
 }
 

@@ -1,0 +1,309 @@
+304 |   if (
+305 |     current.sid !== leader.sid ||
+306 |     current.pgid !== leader.pgid ||
+307 |     current.start < leader.start
+308 |   )
+309 |     throw new Error(
+                    ^
+error: owned process left captured session/group scope: {"expected":{"pid":23,"ppid":22,"pgid":22,"sid":22,"start":"61027076","zombie":false},"current":{"pid":23,"ppid":1,"pgid":23,"sid":22,"start":"61027076","zombie":false},"leader":{"pid":22,"ppid":14,"pgid":22,"sid":22,"start":"61027074","zombie":false}}
+      at assertPublicCommandIdentity (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:309:15)
+      at inspectPublicCommandScope (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:329:18)
+      at reapPublicCommandScope (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:383:21)
+      at runPublicConsumerCommand (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/scripts/prepare-common-auth-public-consumer.ts:297:15)
+
+304 |   if (
+305 |     current.sid !== leader.sid ||
+306 |     current.pgid !== leader.pgid ||
+307 |     current.start < leader.start
+308 |   )
+309 |     throw new Error(
+                    ^
+error: owned process left captured session/group scope: {"expected":{"pid":33,"ppid":32,"pgid":32,"sid":32,"start":"61027274","zombie":false},"current":{"pid":33,"ppid":1,"pgid":33,"sid":33,"start":"61027274","zombie":false},"leader":{"pid":32,"ppid":24,"pgid":32,"sid":32,"start":"61027273","zombie":false}}
+      at assertPublicCommandIdentity (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:309:15)
+      at inspectPublicCommandScope (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:329:18)
+      at reapPublicCommandScope (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/__fixtures__/public-command-processes.test.ts:383:21)
+      at runPublicConsumerCommand (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/scripts/prepare-common-auth-public-consumer.ts:297:15)
+
+
+test/common-auth-094-adoption/embed-build/embed-input.test.ts:
+(pass) embed.integrity [5.80ms]
+(pass) embed.inventory [9.69ms]
+(pass) embed.regeneration [60.55ms]
+(pass) embed.attribution [6.82ms]
+(pass) embed.archive_refusals [1.86ms]
+357 |   const exported = await owned()
+358 |   const tag = `common-auth-input-${target.split('/').at(-1)!.replaceAll('.', '').toLowerCase()}`
+359 |   let container = ''
+360 |   let built = false
+361 |   try {
+362 |     command(target, 'docker', [
+          ^
+error: Executable not found in $PATH: "docker"
+      path: "docker",
+     errno: -2,
+   syscall: "spawnSync docker",
+ spawnargs: [ "build", "--network=none", "--pull=false", "-t", "common-auth-input-owned-fa30ku",
+  "."
+],
+    signal: null,
+    status: undefined,
+    output: [ null, null, null ],
+       pid: undefined,
+    stdout: null,
+    stderr: null,
+      code: "ENOENT"
+
+      at spawnSync (node:child_process:252:22)
+      at execFileSync (node:child_process:295:54)
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/test/common-auth-094-adoption/embed-build/embed-input.test.ts:362:5)
+(fail) embed.clean_input [58.85ms]
+441 |   expect(await readFile(join(target, childManifest))).toEqual(childBytes)
+442 |   await admitChild()
+443 |   // The real embedding check resolves scripts relative to their own files and
+444 |   // requires a private installation contained in this fixture, not vendor links.
+445 |   const lockBytes = await readFile(join(target, privateLock))
+446 |   const installed = command(join(target, privateRoot), 'bun', [
+                          ^
+error: Command failed: bun install --frozen-lockfile --offline --ignore-scripts --cache-dir /home/ubuntu/.bun/install/cache
+error: --offline: "@opentui/core" is not in the cache
+
+error: --offline: "@opentui/solid" is not in the cache
+
+error: --offline: "solid-js" is not in the cache
+
+error: --offline: "typescript" is not in the cache
+
+error: --offline: "jsonc-parser" is not in the cache
+
+error: --offline: "bun-ffi-structs" is not in the cache
+
+error: --offline: "diff" is not in the cache
+
+error: --offline: "marked" is not in the cache
+
+error: --offline: "string-width" is not in the cache
+
+error: --offline: "strip-ansi" is not in the cache
+
+error: --offline: "web-tree-sitter" is not in the cache
+
+error: --offline: "@babel/core" is not in the cache
+
+error: --offline: "@babel/preset-typescript" is not in the cache
+
+error: --offline: "babel-plugin-module-resolver" is not in the cache
+
+error: --offline: "babel-preset-solid" is not in the cache
+
+error: --offline: "entities" is not in the cache
+
+error: --offline: "s-js" is not in the cache
+
+error: --offline: "csstype" is not in the cache
+
+error: --offline: "seroval" is not in the cache
+
+error: --offline: "seroval-plugins" is not in the cache
+
+error: --offline: "emoji-regex" is not in the cache
+
+error: --offline: "get-east-asian-width" is not in the cache
+
+error: --offline: "ansi-regex" is not in the cache
+
+error: --offline: "@ampproject/remapping" is not in the cache
+
+error: --offline: "@babel/code-frame" is not in the cache
+
+error: --offline: "@babel/generator" is not in the cache
+
+error: --offline: "@babel/helper-compilation-targets" is not in the cache
+
+error: --offline: "@babel/helper-module-transforms" is not in the cache
+
+error: --offline: "@babel/helpers" is not in the cache
+
+error: --offline: "@babel/parser" is not in the cache
+
+error: --offline: "@babel/template" is not in the cache
+
+error: --offline: "@babel/traverse" is not in the cache
+
+error: --offline: "@babel/types" is not in the cache
+
+error: --offline: "convert-source-map" is not in the cache
+
+error: --offline: "debug" is not in the cache
+
+error: --offline: "gensync" is not in the cache
+
+error: --offline: "json5" is not in the cache
+
+error: --offline: "semver" is not in the cache
+
+error: --offline: "@babel/helper-plugin-utils" is not in the cache
+
+error: --offline: "@babel/helper-validator-option" is not in the cache
+
+error: --offline: "@babel/plugin-syntax-jsx" is not in the cache
+
+error: --offline: "@babel/plugin-transform-modules-commonjs" is not in the cache
+
+error: --offline: "@babel/plugin-transform-typescript" is not in the cache
+
+error: --offline: "find-babel-config" is not in the cache
+
+error: --offline: "glob" is not in the cache
+
+error: --offline: "pkg-up" is not in the cache
+
+error: --offline: "reselect" is not in the cache
+
+error: --offline: "resolve" is not in the cache
+
+error: --offline: "babel-plugin-jsx-dom-expressions" is not in the cache
+
+error: --offline: "@jridgewell/gen-mapping" is not in the cache
+
+error: --offline: "@jridgewell/trace-mapping" is not in the cache
+
+error: --offline: "@babel/helper-validator-identifier" is not in the cache
+
+error: --offline: "js-tokens" is not in the cache
+
+error: --offline: "picocolors" is not in the cache
+
+error: --offline: "jsesc" is not in the cache
+
+error: --offline: "@babel/compat-data" is not in the cache
+
+error: --offline: "browserslist" is not in the cache
+
+error: --offline: "lru-cache" is not in the cache
+
+error: --offline: "@babel/helper-module-imports" is not in the cache
+
+error: --offline: "@babel/helper-globals" is not in the cache
+
+error: --offline: "@babel/helper-string-parser" is not in the cache
+
+error: --offline: "ms" is not in the cache
+
+error: --offline: "@babel/helper-annotate-as-pure" is not in the cache
+
+error: --offline: "@babel/helper-create-class-features-plugin" is not in the cache
+
+error: --offline: "@babel/helper-skip-transparent-expression-wrappers" is not in the cache
+
+error: --offline: "@babel/plugin-syntax-typescript" is not in the cache
+
+error: --offline: "fs.realpath" is not in the cache
+
+error: --offline: "minimatch" is not in the cache
+
+error: --offline: "minipass" is not in the cache
+
+error: --offline: "path-scurry" is not in the cache
+
+error: --offline: "find-up" is not in the cache
+
+error: --offline: "es-errors" is not in the cache
+
+error: --offline: "is-core-module" is not in the cache
+
+error: --offline: "path-parse" is not in the cache
+
+error: --offline: "supports-preserve-symlinks-flag" is not in the cache
+
+error: --offline: "html-entities" is not in the cache
+
+error: --offline: "parse5" is not in the cache
+
+error: --offline: "@jridgewell/sourcemap-codec" is not in the cache
+
+error: --offline: "@jridgewell/resolve-uri" is not in the cache
+
+error: --offline: "baseline-browser-mapping" is not in the cache
+
+error: --offline: "caniuse-lite" is not in the cache
+
+error: --offline: "electron-to-chromium" is not in the cache
+
+error: --offline: "node-releases" is not in the cache
+
+error: --offline: "update-browserslist-db" is not in the cache
+
+error: --offline: "yallist" is not in the cache
+
+error: --offline: "@babel/helper-member-expression-to-functions" is not in the cache
+
+error: --offline: "@babel/helper-optimise-call-expression" is not in the cache
+
+error: --offline: "@babel/helper-replace-supers" is not in the cache
+
+error: --offline: "brace-expansion" is not in the cache
+
+error: --offline: "locate-path" is not in the cache
+
+error: --offline: "hasown" is not in the cache
+
+error: --offline: "escalade" is not in the cache
+
+error: --offline: "balanced-match" is not in the cache
+
+error: --offline: "p-locate" is not in the cache
+
+error: --offline: "path-exists" is not in the cache
+
+error: --offline: "function-bind" is not in the cache
+
+error: --offline: "p-limit" is not in the cache
+
+error: --offline: "p-try" is not in the cache
+
+error: --offline: "@babel/helper-module-imports" is not in the cache
+
+error: --offline: "lru-cache" is not in the cache
+
+error: --offline: "minipass" is not in the cache
+
+error: --offline: "entities" is not in the cache
+
+ signal: null,
+ status: 1,
+ output: [ null, "bun install v1.4.2 (744846f84)\n", "error: --offline: \"@opentui/core\" is not in the cache\n\nerror: --offline: \"@opentui/solid\" is not in the cache\n\nerror: --offline: \"solid-js\" is not in the cache\n\nerror: --offline: \"typescript\" is not in the cache\n\nerror: --offline: \"jsonc-parser\" is not in the cache\n\nerror: --offline: \"bun-ffi-structs\" is not in the cache\n\nerror: --offline: \"diff\" is not in the cache\n\nerror: --offline: \"marked\" is not in the cache\n\nerror: --offline: \"string-width\" is not in the cache\n\nerror: --offline: \"strip-ansi\" is not in the cache\n\nerror: --offline: \"web-tree-sitter\" is not in the cache\n\nerror: --offline: \"@babel/core\" is not in the cache\n\nerror: --offline: \"@babel/preset-typescript\" is not in the cache\n\nerror: --offline: \"babel-plugin-module-resolver\" is not in the cache\n\nerror: --offline: \"babel-preset-solid\" is not in the cache\n\nerror: --offline: \"entities\" is not in the cache\n\nerror: --offline: \"s-js\" is not in the cache\n\nerror: --offline: \"csstype\" is not in the cache\n\nerror: --offline: \"seroval\" is not in the cache\n\nerror: --offline: \"seroval-plugins\" is not in the cache\n\nerror: --offline: \"emoji-regex\" is not in the cache\n\nerror: --offline: \"get-east-asian-width\" is not in the cache\n\nerror: --offline: \"ansi-regex\" is not in the cache\n\nerror: --offline: \"@ampproject/remapping\" is not in the cache\n\nerror: --offline: \"@babel/code-frame\" is not in the cache\n\nerror: --offline: \"@babel/generator\" is not in the cache\n\nerror: --offline: \"@babel/helper-compilation-targets\" is not in the cache\n\nerror: --offline: \"@babel/helper-module-transforms\" is not in the cache\n\nerror: --offline: \"@babel/helpers\" is not in the cache\n\nerror: --offline: \"@babel/parser\" is not in the cache\n\nerror: --offline: \"@babel/template\" is not in the cache\n\nerror: --offline: \"@babel/traverse\" is not in the cache\n\nerror: --offline: \"@babel/types\" is not in the cache\n\nerror: --offline: \"convert-source-map\" is not in the cache\n\nerror: --offline: \"debug\" is not in the cache\n\nerror: --offline: \"gensync\" is not in the cache\n\nerror: --offline: \"json5\" is not in the cache\n\nerror: --offline: \"semver\" is not in the cache\n\nerror: --offline: \"@babel/helper-plugin-utils\" is not in the cache\n\nerror: --offline: \"@babel/helper-validator-option\" is not in the cache\n\nerror: --offline: \"@babel/plugin-syntax-jsx\" is not in the cache\n\nerror: --offline: \"@babel/plugin-transform-modules-commonjs\" is not in the cache\n\nerror: --offline: \"@babel/plugin-transform-typescript\" is not in the cache\n\nerror: --offline: \"find-babel-config\" is not in the cache\n\nerror: --offline: \"glob\" is not in the cache\n\nerror: --offline: \"pkg-up\" is not in the cache\n\nerror: --offline: \"reselect\" is not in the cache\n\nerror: --offline: \"resolve\" is not in the cache\n\nerror: --offline: \"babel-plugin-jsx-dom-expressions\" is not in the cache\n\nerror: --offline: \"@jridgewell/gen-mapping\" is not in the cache\n\nerror: --offline: \"@jridgewell/trace-mapping\" is not in the cache\n\nerror: --offline: \"@babel/helper-validator-identifier\" is not in the cache\n\nerror: --offline: \"js-tokens\" is not in the cache\n\nerror: --offline: \"picocolors\" is not in the cache\n\nerror: --offline: \"jsesc\" is not in the cache\n\nerror: --offline: \"@babel/compat-data\" is not in the cache\n\nerror: --offline: \"browserslist\" is not in the cache\n\nerror: --offline: \"lru-cache\" is not in the cache\n\nerror: --offline: \"@babel/helper-module-imports\" is not in the cache\n\nerror: --offline: \"@babel/helper-globals\" is not in the cache\n\nerror: --offline: \"@babel/helper-string-parser\" is not in the cache\n\nerror: --offline: \"ms\" is not in the cache\n\nerror: --offline: \"@babel/helper-annotate-as-pure\" is not in the cache\n\nerror: --offline: \"@babel/helper-create-class-features-plugin\" is not in the cache\n\nerror: --offline: \"@babel/helper-skip-transparent-expression-wrappers\" is not in the cache\n\nerror: --offline: \"@babel/plugin-syntax-typescript\" is not in the cache\n\nerror: --offline: \"fs.realpath\" is not in the cache\n\nerror: --offline: \"minimatch\" is not in the cache\n\nerror: --offline: \"minipass\" is not in the cache\n\nerror: --offline: \"path-scurry\" is not in the cache\n\nerror: --offline: \"find-up\" is not in the cache\n\nerror: --offline: \"es-errors\" is not in the cache\n\nerror: --offline: \"is-core-module\" is not in the cache\n\nerror: --offline: \"path-parse\" is not in the cache\n\nerror: --offline: \"supports-preserve-symlinks-flag\" is not in the cache\n\nerror: --offline: \"html-entities\" is not in the cache\n\nerror: --offline: \"parse5\" is not in the cache\n\nerror: --offline: \"@jridgewell/sourcemap-codec\" is not in the cache\n\nerror: --offline: \"@jridgewell/resolve-uri\" is not in the cache\n\nerror: --offline: \"baseline-browser-mapping\" is not in the cache\n\nerror: --offline: \"caniuse-lite\" is not in the cache\n\nerror: --offline: \"electron-to-chromium\" is not in the cache\n\nerror: --offline: \"node-releases\" is not in the cache\n\nerror: --offline: \"update-browserslist-db\" is not in the cache\n\nerror: --offline: \"yallist\" is not in the cache\n\nerror: --offline: \"@babel/helper-member-expression-to-functions\" is not in the cache\n\nerror: --offline: \"@babel/helper-optimise-call-expression\" is not in the cache\n\nerror: --offline: \"@babel/helper-replace-supers\" is not in the cache\n\nerror: --offline: \"brace-expansion\" is not in the cache\n\nerror: --offline: \"locate-path\" is not in the cache\n\nerror: --offline: \"hasown\" is not in the cache\n\nerror: --offline: \"escalade\" is not in the cache\n\nerror: --offline: \"balanced-match\" is not in the cache\n\nerror: --offline: \"p-locate\" is not in the cache\n\nerror: --offline: \"path-exists\" is not in the cache\n\nerror: --offline: \"function-bind\" is not in the cache\n\nerror: --offline: \"p-limit\" is not in the cache\n\nerror: --offline: \"p-try\" is not in the cache\n\nerror: --offline: \"@babel/helper-module-imports\" is not in the cache\n\nerror: --offline: \"lru-cache\" is not in the cache\n\nerror: --offline: \"minipass\" is not in the cache\n\nerror: --offline: \"entities\" is not in the cache\n" ],
+    pid: 67,
+ stdout: "bun install v1.4.2 (744846f84)\n",
+ stderr: "error: --offline: \"@opentui/core\" is not in the cache\n\nerror: --offline: \"@opentui/solid\" is not in the cache\n\nerror: --offline: \"solid-js\" is not in the cache\n\nerror: --offline: \"typescript\" is not in the cache\n\nerror: --offline: \"jsonc-parser\" is not in the cache\n\nerror: --offline: \"bun-ffi-structs\" is not in the cache\n\nerror: --offline: \"diff\" is not in the cache\n\nerror: --offline: \"marked\" is not in the cache\n\nerror: --offline: \"string-width\" is not in the cache\n\nerror: --offline: \"strip-ansi\" is not in the cache\n\nerror: --offline: \"web-tree-sitter\" is not in the cache\n\nerror: --offline: \"@babel/core\" is not in the cache\n\nerror: --offline: \"@babel/preset-typescript\" is not in the cache\n\nerror: --offline: \"babel-plugin-module-resolver\" is not in the cache\n\nerror: --offline: \"babel-preset-solid\" is not in the cache\n\nerror: --offline: \"entities\" is not in the cache\n\nerror: --offline: \"s-js\" is not in the cache\n\nerror: --offline: \"csstype\" is not in the cache\n\nerror: --offline: \"seroval\" is not in the cache\n\nerror: --offline: \"seroval-plugins\" is not in the cache\n\nerror: --offline: \"emoji-regex\" is not in the cache\n\nerror: --offline: \"get-east-asian-width\" is not in the cache\n\nerror: --offline: \"ansi-regex\" is not in the cache\n\nerror: --offline: \"@ampproject/remapping\" is not in the cache\n\nerror: --offline: \"@babel/code-frame\" is not in the cache\n\nerror: --offline: \"@babel/generator\" is not in the cache\n\nerror: --offline: \"@babel/helper-compilation-targets\" is not in the cache\n\nerror: --offline: \"@babel/helper-module-transforms\" is not in the cache\n\nerror: --offline: \"@babel/helpers\" is not in the cache\n\nerror: --offline: \"@babel/parser\" is not in the cache\n\nerror: --offline: \"@babel/template\" is not in the cache\n\nerror: --offline: \"@babel/traverse\" is not in the cache\n\nerror: --offline: \"@babel/types\" is not in the cache\n\nerror: --offline: \"convert-source-map\" is not in the cache\n\nerror: --offline: \"debug\" is not in the cache\n\nerror: --offline: \"gensync\" is not in the cache\n\nerror: --offline: \"json5\" is not in the cache\n\nerror: --offline: \"semver\" is not in the cache\n\nerror: --offline: \"@babel/helper-plugin-utils\" is not in the cache\n\nerror: --offline: \"@babel/helper-validator-option\" is not in the cache\n\nerror: --offline: \"@babel/plugin-syntax-jsx\" is not in the cache\n\nerror: --offline: \"@babel/plugin-transform-modules-commonjs\" is not in the cache\n\nerror: --offline: \"@babel/plugin-transform-typescript\" is not in the cache\n\nerror: --offline: \"find-babel-config\" is not in the cache\n\nerror: --offline: \"glob\" is not in the cache\n\nerror: --offline: \"pkg-up\" is not in the cache\n\nerror: --offline: \"reselect\" is not in the cache\n\nerror: --offline: \"resolve\" is not in the cache\n\nerror: --offline: \"babel-plugin-jsx-dom-expressions\" is not in the cache\n\nerror: --offline: \"@jridgewell/gen-mapping\" is not in the cache\n\nerror: --offline: \"@jridgewell/trace-mapping\" is not in the cache\n\nerror: --offline: \"@babel/helper-validator-identifier\" is not in the cache\n\nerror: --offline: \"js-tokens\" is not in the cache\n\nerror: --offline: \"picocolors\" is not in the cache\n\nerror: --offline: \"jsesc\" is not in the cache\n\nerror: --offline: \"@babel/compat-data\" is not in the cache\n\nerror: --offline: \"browserslist\" is not in the cache\n\nerror: --offline: \"lru-cache\" is not in the cache\n\nerror: --offline: \"@babel/helper-module-imports\" is not in the cache\n\nerror: --offline: \"@babel/helper-globals\" is not in the cache\n\nerror: --offline: \"@babel/helper-string-parser\" is not in the cache\n\nerror: --offline: \"ms\" is not in the cache\n\nerror: --offline: \"@babel/helper-annotate-as-pure\" is not in the cache\n\nerror: --offline: \"@babel/helper-create-class-features-plugin\" is not in the cache\n\nerror: --offline: \"@babel/helper-skip-transparent-expression-wrappers\" is not in the cache\n\nerror: --offline: \"@babel/plugin-syntax-typescript\" is not in the cache\n\nerror: --offline: \"fs.realpath\" is not in the cache\n\nerror: --offline: \"minimatch\" is not in the cache\n\nerror: --offline: \"minipass\" is not in the cache\n\nerror: --offline: \"path-scurry\" is not in the cache\n\nerror: --offline: \"find-up\" is not in the cache\n\nerror: --offline: \"es-errors\" is not in the cache\n\nerror: --offline: \"is-core-module\" is not in the cache\n\nerror: --offline: \"path-parse\" is not in the cache\n\nerror: --offline: \"supports-preserve-symlinks-flag\" is not in the cache\n\nerror: --offline: \"html-entities\" is not in the cache\n\nerror: --offline: \"parse5\" is not in the cache\n\nerror: --offline: \"@jridgewell/sourcemap-codec\" is not in the cache\n\nerror: --offline: \"@jridgewell/resolve-uri\" is not in the cache\n\nerror: --offline: \"baseline-browser-mapping\" is not in the cache\n\nerror: --offline: \"caniuse-lite\" is not in the cache\n\nerror: --offline: \"electron-to-chromium\" is not in the cache\n\nerror: --offline: \"node-releases\" is not in the cache\n\nerror: --offline: \"update-browserslist-db\" is not in the cache\n\nerror: --offline: \"yallist\" is not in the cache\n\nerror: --offline: \"@babel/helper-member-expression-to-functions\" is not in the cache\n\nerror: --offline: \"@babel/helper-optimise-call-expression\" is not in the cache\n\nerror: --offline: \"@babel/helper-replace-supers\" is not in the cache\n\nerror: --offline: \"brace-expansion\" is not in the cache\n\nerror: --offline: \"locate-path\" is not in the cache\n\nerror: --offline: \"hasown\" is not in the cache\n\nerror: --offline: \"escalade\" is not in the cache\n\nerror: --offline: \"balanced-match\" is not in the cache\n\nerror: --offline: \"p-locate\" is not in the cache\n\nerror: --offline: \"path-exists\" is not in the cache\n\nerror: --offline: \"function-bind\" is not in the cache\n\nerror: --offline: \"p-limit\" is not in the cache\n\nerror: --offline: \"p-try\" is not in the cache\n\nerror: --offline: \"@babel/helper-module-imports\" is not in the cache\n\nerror: --offline: \"lru-cache\" is not in the cache\n\nerror: --offline: \"minipass\" is not in the cache\n\nerror: --offline: \"entities\" is not in the cache\n",
+
+      at genericNodeError (node:child_process:1081:13)
+      at checkExecSyncError (node:child_process:503:27)
+      at execFileSync (node:child_process:300:31)
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/test/common-auth-094-adoption/embed-build/embed-input.test.ts:446:21)
+(fail) build.repo_hygiene [28.70ms]
+
+test/common-auth-094-adoption/embed-build/mutation-records.test.ts:
+(pass) mutation.records.exact_inventory [0.34ms]
+(pass) mutation.records.diagnostic_prefixes [0.10ms]
+(pass) mutation.records.missing_pass [0.03ms]
+(pass) mutation.records.duplicate_pass [0.05ms]
+(pass) mutation.records.foreign_pass [0.05ms]
+(pass) mutation.records.wrong_failure [0.06ms]
+(pass) mutation.records.process_failures [0.17ms]
+(pass) mutation.records.complete_green_control [0.08ms]
+
+test/common-auth-094-adoption/embed-build/path-admission.test.ts:
+(pass) build.map_source_alias [59.96ms]
+(pass) build.output_ancestor_alias [28.04ms]
+(pass) build.output_source_alias [27.82ms]
+(pass) build.lexical_path_refusals [186.96ms]
+283 |         bounds: { ...bounds },
+284 |         startedMs: executionStartedMs,
+285 |         parentDeadlineMs,
+286 |       }
+287 |     executionTimer = setTimeout(
+288 |       () => stop(new Error('test command execution deadline exceeded')),
+                           ^
+error: test command execution deadline exceeded
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/scripts/prepare-common-auth-public-consumer.ts:288:22)
+

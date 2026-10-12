@@ -89,7 +89,260 @@ function defineModel(
   }
 }
 
+export interface AgyNativeModelDefinition {
+  displayName: string
+  maxTokens?: number
+  maxOutputTokens?: number
+  model: string
+  thinkingBudget?: number
+  thinkingLevel?: number
+  supportsThinking?: boolean
+  supportsAdaptiveThinking?: boolean
+  vertexModelId?: string
+}
+
+// Keep server wire IDs exact; grouped picker names and Gemini CLI fallback names resolve separately.
+export const AGY_NATIVE_MODEL_DEFINITIONS: Readonly<
+  Record<string, AgyNativeModelDefinition>
+> = {
+  'gemini-3.8-flash-high': {
+    displayName: 'Gemini 3.8 Flash (High)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M318',
+    thinkingBudget: -1,
+    supportsThinking: true,
+  },
+  'gemini-3.8-flash-medium': {
+    displayName: 'Gemini 3.8 Flash (Medium)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M319',
+    thinkingBudget: 4000,
+    supportsThinking: true,
+  },
+  'gemini-3.8-flash-low': {
+    displayName: 'Gemini 3.8 Flash (Low)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M320',
+    thinkingBudget: 1000,
+    supportsThinking: true,
+  },
+  'gemini-3.7-flash-high': {
+    displayName: 'Gemini 3.7 Flash (High)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M298',
+    thinkingBudget: -1,
+    supportsThinking: true,
+  },
+  'gemini-3.7-flash-medium': {
+    displayName: 'Gemini 3.7 Flash (Medium)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M299',
+    thinkingBudget: 4000,
+    supportsThinking: true,
+  },
+  'gemini-3.7-flash-low': {
+    displayName: 'Gemini 3.7 Flash (Low)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M300',
+    thinkingBudget: 1000,
+    supportsThinking: true,
+  },
+  'gemini-3.6-flash-high': {
+    displayName: 'Gemini 3.6 Flash (High)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M71',
+    thinkingBudget: -1,
+    supportsThinking: true,
+  },
+  'gemini-3.6-flash-medium': {
+    displayName: 'Gemini 3.6 Flash (Medium)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M72',
+    thinkingBudget: 4000,
+    supportsThinking: true,
+  },
+  'gemini-3.6-flash-low': {
+    displayName: 'Gemini 3.6 Flash (Low)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M73',
+    thinkingBudget: 1000,
+    supportsThinking: true,
+  },
+  'gemini-3.1-pro-high': {
+    displayName: 'Gemini 3.1 Pro (High)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65535,
+    model: 'MODEL_PLACEHOLDER_M37',
+    thinkingBudget: 10001,
+    supportsThinking: true,
+  },
+  'gemini-3.1-pro-low': {
+    displayName: 'Gemini 3.1 Pro (Low)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65535,
+    model: 'MODEL_PLACEHOLDER_M36',
+    thinkingBudget: 1001,
+    supportsThinking: true,
+  },
+  'claude-opus-5-5-low': {
+    displayName: 'Claude Opus 5.5 (Low)',
+    maxTokens: 1000000,
+    maxOutputTokens: 128000,
+    model: 'MODEL_PLACEHOLDER_M400',
+    thinkingLevel: 1,
+    supportsThinking: true,
+    supportsAdaptiveThinking: true,
+    vertexModelId: 'claude-opus-5-5@default',
+  },
+  'claude-opus-5-5-medium': {
+    displayName: 'Claude Opus 5.5 (Medium)',
+    maxTokens: 1000000,
+    maxOutputTokens: 128000,
+    model: 'MODEL_PLACEHOLDER_M401',
+    thinkingLevel: 2,
+    supportsThinking: true,
+    supportsAdaptiveThinking: true,
+    vertexModelId: 'claude-opus-5-5@default',
+  },
+  'claude-opus-5-5-high': {
+    displayName: 'Claude Opus 5.5 (High)',
+    maxTokens: 1000000,
+    maxOutputTokens: 128000,
+    model: 'MODEL_PLACEHOLDER_M402',
+    thinkingLevel: 3,
+    supportsThinking: true,
+    supportsAdaptiveThinking: true,
+    vertexModelId: 'claude-opus-5-5@default',
+  },
+  'claude-sonnet-5-5-low': {
+    displayName: 'Claude Sonnet 5.5 (Low)',
+    maxTokens: 1000000,
+    maxOutputTokens: 128000,
+    model: 'MODEL_PLACEHOLDER_M403',
+    thinkingLevel: 1,
+    supportsThinking: true,
+    supportsAdaptiveThinking: true,
+    vertexModelId: 'claude-sonnet-5-5@default',
+  },
+  'claude-sonnet-5-5-medium': {
+    displayName: 'Claude Sonnet 5.5 (Medium)',
+    maxTokens: 1000000,
+    maxOutputTokens: 128000,
+    model: 'MODEL_PLACEHOLDER_M404',
+    thinkingLevel: 2,
+    supportsThinking: true,
+    supportsAdaptiveThinking: true,
+    vertexModelId: 'claude-sonnet-5-5@default',
+  },
+  'claude-sonnet-5-5-high': {
+    displayName: 'Claude Sonnet 5.5 (High)',
+    maxTokens: 1000000,
+    maxOutputTokens: 128000,
+    model: 'MODEL_PLACEHOLDER_M405',
+    thinkingLevel: 3,
+    supportsThinking: true,
+    supportsAdaptiveThinking: true,
+    vertexModelId: 'claude-sonnet-5-5@default',
+  },
+  'gpt-oss-120b-medium': {
+    displayName: 'GPT-OSS 120B (Medium)',
+    maxTokens: 131072,
+    maxOutputTokens: 32768,
+    model: 'MODEL_OPENAI_GPT_OSS_120B_MEDIUM',
+    thinkingBudget: 8192,
+    supportsThinking: true,
+    vertexModelId: 'openai/gpt-oss-120b-maas',
+  },
+  'gemini-3.5-flash-extra-low': {
+    displayName: 'Gemini 3.5 Flash (Low)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M187',
+    thinkingBudget: 1000,
+    supportsThinking: true,
+  },
+  'gemini-3.5-flash-low': {
+    displayName: 'Gemini 3.5 Flash (Medium)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M20',
+    thinkingBudget: 4000,
+    supportsThinking: true,
+  },
+  'gemini-3-flash-agent': {
+    displayName: 'Gemini 3.5 Flash (High)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65536,
+    model: 'MODEL_PLACEHOLDER_M84',
+    thinkingBudget: -1,
+    supportsThinking: true,
+  },
+  'gemini-3.1-flash-image': {
+    displayName: 'Gemini 3.1 Flash Image',
+    model: 'MODEL_PLACEHOLDER_M21',
+  },
+  'gemini-pro-agent': {
+    displayName: 'Gemini 3.1 Pro (High)',
+    maxTokens: 1048576,
+    maxOutputTokens: 65535,
+    model: 'MODEL_PLACEHOLDER_M16',
+    thinkingBudget: 10001,
+    supportsThinking: true,
+  },
+}
+
+export function getAgyNativeModel(
+  model: string,
+): AgyNativeModelDefinition | undefined {
+  return AGY_NATIVE_MODEL_DEFINITIONS[model.toLowerCase()]
+}
+
+export const RETIRED_AGY_MODEL_MESSAGE =
+  'This Antigravity model is no longer offered. Choose another model.'
+
+/** Claude 4.6 names remain readable in history, but routes absent from the server map cannot serve. */
+export function isRetiredAgyModel(model: string): boolean {
+  const route = model
+    .toLowerCase()
+    .replace(/^antigravity-/, '')
+    .replace(/^gemini-(?=claude-)/, '')
+  return (
+    /^claude-(opus|sonnet)-4-6(?:-thinking)?(?:-(?:minimal|low|medium|high))?$/.test(
+      route,
+    ) && getAgyNativeModel(route) === undefined
+  )
+}
+
 const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
+  'antigravity-gemini-3.5-flash': defineModel('antigravity-gemini-3.5-flash', {
+    name: 'Gemini 3.5 Flash (Antigravity)',
+    reasoning: true,
+    limit: { context: 1048576, output: 65536 },
+    modalities: DEFAULT_MODALITIES,
+    variants: {
+      low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
+      high: { thinkingLevel: 'high' },
+    },
+  }),
+  'antigravity-gemini-3.1-flash-image': defineModel(
+    'antigravity-gemini-3.1-flash-image',
+    {
+      name: 'Gemini 3.1 Flash Image (Antigravity)',
+      reasoning: false,
+      limit: { context: 66000, output: 33000 },
+      modalities: { input: ['text', 'image'], output: ['text', 'image'] },
+    },
+  ),
   'antigravity-gemini-3.1-pro': defineModel('antigravity-gemini-3.1-pro', {
     name: 'Gemini 3.1 Pro (Antigravity)',
     reasoning: true,
@@ -107,6 +360,7 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
     modalities: DEFAULT_MODALITIES,
     variants: {
       low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
       high: { thinkingLevel: 'high' },
     },
   }),
@@ -117,6 +371,7 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
     modalities: DEFAULT_MODALITIES,
     variants: {
       low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
       high: { thinkingLevel: 'high' },
     },
   }),
@@ -127,57 +382,35 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
     modalities: DEFAULT_MODALITIES,
     variants: {
       low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
       high: { thinkingLevel: 'high' },
     },
   }),
-  'antigravity-gemini-3.5-flash': defineModel('antigravity-gemini-3.5-flash', {
-    name: 'Gemini 3.5 Flash (Antigravity)',
+  'antigravity-claude-sonnet-5-5': defineModel(
+    'antigravity-claude-sonnet-5-5',
+    {
+      name: 'Claude Sonnet 5.5 (Antigravity)',
+      reasoning: true,
+      limit: { context: 1000000, output: 128000 },
+      modalities: DEFAULT_MODALITIES,
+      variants: {
+        low: { thinkingLevel: 'low' },
+        medium: { thinkingLevel: 'medium' },
+        high: { thinkingLevel: 'high' },
+      },
+    },
+  ),
+  'antigravity-claude-opus-5-5': defineModel('antigravity-claude-opus-5-5', {
+    name: 'Claude Opus 5.5 (Antigravity)',
     reasoning: true,
-    limit: { context: 1048576, output: 65536 },
+    limit: { context: 1000000, output: 128000 },
     modalities: DEFAULT_MODALITIES,
     variants: {
       low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
       high: { thinkingLevel: 'high' },
     },
   }),
-  'antigravity-claude-sonnet-4-6-thinking': defineModel(
-    'antigravity-claude-sonnet-4-6-thinking',
-    {
-      name: 'Claude Sonnet 4.6 Thinking (Antigravity)',
-      reasoning: true,
-      limit: { context: 250000, output: 64000 },
-      modalities: DEFAULT_MODALITIES,
-      variants: {
-        low: { disabled: true },
-        high: { disabled: true },
-      },
-    },
-  ),
-  'antigravity-claude-opus-4-6-thinking': defineModel(
-    'antigravity-claude-opus-4-6-thinking',
-    {
-      name: 'Claude Opus 4.6 Thinking (Antigravity)',
-      reasoning: true,
-      limit: { context: 250000, output: 64000 },
-      modalities: DEFAULT_MODALITIES,
-      variants: {
-        low: { disabled: true },
-        high: { disabled: true },
-      },
-    },
-  ),
-  'antigravity-gemini-3.1-flash-image': defineModel(
-    'antigravity-gemini-3.1-flash-image',
-    {
-      name: 'Gemini 3.1 Flash Image (Antigravity)',
-      reasoning: false,
-      limit: { context: 66000, output: 33000 },
-      modalities: {
-        input: ['text', 'image'],
-        output: ['text', 'image'],
-      },
-    },
-  ),
   'antigravity-gpt-oss-120b-medium': defineModel(
     'antigravity-gpt-oss-120b-medium',
     {
@@ -267,6 +500,7 @@ const RESOLVER_ALIASES: Record<string, string> = {
   'gemini-3.8-flash-low': 'gemini-3.8-flash',
   'gemini-3.8-flash-medium': 'gemini-3.8-flash',
   'gemini-3.8-flash-high': 'gemini-3.8-flash',
+  // Historical parsing does not authorize serving: admission rejects retired routes.
   'gemini-claude-opus-4-6-thinking-low': 'claude-opus-4-6-thinking',
   'gemini-claude-opus-4-6-thinking-medium': 'claude-opus-4-6-thinking',
   'gemini-claude-opus-4-6-thinking-high': 'claude-opus-4-6-thinking',
@@ -355,10 +589,10 @@ const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
   'antigravity-gemini-3.7-flash',
   'antigravity-gemini-3.6-flash',
   'antigravity-gemini-3.5-flash',
-  'antigravity-gemini-3.1-pro',
-  'antigravity-claude-sonnet-4-6-thinking',
-  'antigravity-claude-opus-4-6-thinking',
   'antigravity-gemini-3.1-flash-image',
+  'antigravity-gemini-3.1-pro',
+  'antigravity-claude-sonnet-5-5',
+  'antigravity-claude-opus-5-5',
   'antigravity-gpt-oss-120b-medium',
 ] as const
 

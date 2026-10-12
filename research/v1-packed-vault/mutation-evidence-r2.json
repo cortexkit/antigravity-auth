@@ -1,0 +1,9 @@
+[
+  {
+    "control": "Neutralize only the owned installed packed hybrid default object's server arm, then run the genuine native catalog probe before auth login",
+    "expected_red": "official V1 loads the packed server and completes a vault raw-TLS first request",
+    "captured_output": "(fail) official V1 loads the packed server and completes a vault raw-TLS first request: Error: Packed plugin did not register its catalog. 4 pass, 1 fail, 15 expect() calls. Native models google exits naturally with code 1 / Provider not found: google; zero TLS requests; no timeout or signal; all children reaped.",
+    "applied_evidence": "packages/e2e-tests/src/v1-packed-vault-harness.ts: live staged, empty git diff --stat; during 1 file changed, 1 insertion(+), 1 deletion(-); after git checkout -- <path> && touch <path>: empty git diff --stat. Installed /tmp/packed-v1-vault-txZ44t/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js before/restored SHA256 8a7749ab3ac499bb9b91553fb76664fe4fc82830f682741904e209ca29dafd33; mutant 7ffcb305ed61bcc7f07d80e8e5460dc14ad484638ffdb771bec5b1f011fb3546; exact installed diff in receipts-r2/bash-8ae6099bff85bace.json. Restored positive bash-7717476eb6763ff7 passes using identical pack/server/core hashes.",
+    "outcome": "reddened"
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "control": "Restore baseline quota.ts, removing deferred metadata authority checks; corrected successful quota fixture has a genuine recognized bucket.",
+    "expected_red": "account-store quota service > discards deferred quota metadata after local authority changes without vetoing an admitted successor save",
+    "captured_output": "(fail) account-store quota service > discards deferred quota metadata after local authority changes without vetoing an admitted successor save. Expected discarded; received recorded. 0 pass, 45 filtered out, 1 fail. INNER_EXIT=1; outer exit 1.",
+    "applied_evidence": "packages/opencode/src/plugin/quota.ts: staged live state; git diff --stat empty before mutation; 1 file changed, 6 insertions(+), 11 deletions(-) during; empty after checkout/touch. Apply bash-dc2d67f250ae03b4, red bash-3af02fc250264248, restore bash-bad5583484cd8ba0 (first diff empty). Namespace 782486840065a51d.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Restore baseline Pi stream.ts late project admission, invoking the actual registered provider while genuine public enrollment changes to approved during project resolution.",
+    "expected_red": "selected credential boundary > production Pi provider refuses enrollment approved during its project await",
+    "captured_output": "(fail) selected credential boundary > production Pi provider refuses enrollment approved during its project await. Expected error; received stop. This isolated invocation: 0 pass, 57 filtered out, 1 fail. PI_PUBLIC_INNER_EXIT=1; outer exit 1.",
+    "applied_evidence": "packages/pi/src/stream.ts: staged live state; git diff --stat empty before mutation; 23 changed lines during (with commands.ts/request-services.ts: 3 files changed, 18 insertions(+), 35 deletions(-)); empty after checkout/touch. Apply bash-bad5583484cd8ba0, red bash-d59fe543de95fdd2, restore bash-a511f81e6c7d4a45. Namespace 782486840065a51d.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Restore baseline shared request executor, removing the post-project-await metadata authority check.",
+    "expected_red": "createRequestExecutor retry contract > vetoes project metadata persistence after public source authority changes during resolution",
+    "captured_output": "(fail) createRequestExecutor retry contract > vetoes project metadata persistence after public source authority changes during resolution. Expected 0 writes; received 1. This isolated invocation: 0 pass, 58 filtered out, 1 fail. PROJECT_INNER_EXIT=1; outer exit 1.",
+    "applied_evidence": "packages/opencode/src/plugin/shared/request-services.ts: staged live state; git diff --stat empty before mutation; 27 changed lines during (3 files changed, 18 insertions(+), 35 deletions(-)); empty after checkout/touch. Apply bash-bad5583484cd8ba0, red bash-d59fe543de95fdd2, restore bash-a511f81e6c7d4a45. Namespace 782486840065a51d.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Restore baseline Pi Routing menu predicate which labels unreadable genuine public enrollment as locally serving.",
+    "expected_red": "public unreadable enrollment makes Accounts and Routing refuse local serving and keeps Disconnect reachable",
+    "captured_output": "(fail) public unreadable enrollment makes Accounts and Routing refuse local serving and keeps Disconnect reachable. Expected refused; received Every request uses Pi's own login. This isolated invocation: 0 pass, 3 filtered out, 1 fail. MENU_INNER_EXIT=1; outer exit 1.",
+    "applied_evidence": "packages/pi/src/commands.ts: staged live state; git diff --stat empty before mutation; 3 changed lines during (3 files changed, 18 insertions(+), 35 deletions(-)); empty after checkout/touch. Apply bash-bad5583484cd8ba0, red bash-d59fe543de95fdd2, restore bash-a511f81e6c7d4a45. Namespace 782486840065a51d.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Remove capture of the genuine opaque vault admission accessToken from Pi's dispatch callback; the host API key remains the non-secret placeholder.",
+    "expected_red": "selected credential boundary > uses the genuinely served opaque vault token at the Pi http boundary",
+    "captured_output": "(fail) selected credential boundary > uses the genuinely served opaque vault token at the Pi http boundary. Received HTTP 403 echo opaque_selected_vault_734a1. This isolated invocation: 0 pass, 61 filtered out, 1 fail. OPAQUE_VAULT_INNER_EXIT=1; outer exit 1.",
+    "applied_evidence": "packages/pi/src/stream.ts: staged live state; git diff --stat empty before mutation; 2 changed lines during (with core redactor: 2 files changed, 3 insertions(+), 2 deletions(-)); empty after checkout/touch. Apply bash-07530c99db0d3573, red bash-44c481dd5ab0924a, restore bash-27aaeb469fd76908. Namespace 782486840065a51d.",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Make credential frame redaction unconditional, removing success-content exclusion.",
+    "expected_red": "credential redaction > only rewrites genuine error frames, not error-looking model text or tool arguments",
+    "captured_output": "(fail) credential redaction > only rewrites genuine error frames, not error-looking model text or tool arguments. Successful candidate text and function-call args became [credential]. This isolated invocation: 0 pass, 6 filtered out, 1 fail. SUCCESS_GUARD_INNER_EXIT=1; outer exit 1.",
+    "applied_evidence": "packages/core/src/credential-redaction.ts: staged live state; git diff --stat empty before mutation; 3 changed lines during (2 files changed, 3 insertions(+), 2 deletions(-)); empty after checkout/touch. Apply bash-07530c99db0d3573, red bash-44c481dd5ab0924a, restore bash-27aaeb469fd76908. Namespace 782486840065a51d.",
+    "outcome": "reddened"
+  }
+]

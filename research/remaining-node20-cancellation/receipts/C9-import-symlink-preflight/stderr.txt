@@ -1,0 +1,27 @@
+test_rejects_symlink_ancestors_and_targets_before_any_writes (__main__.ReceiptImportControls.test_rejects_symlink_ancestors_and_targets_before_any_writes) ... 
+  test_rejects_symlink_ancestors_and_targets_before_any_writes (__main__.ReceiptImportControls.test_rejects_symlink_ancestors_and_targets_before_any_writes) (path='directory/target.txt') ... FAIL
+test_valid_import_preserves_all_raw_bytes (__main__.ReceiptImportControls.test_valid_import_preserves_all_raw_bytes) ... ok
+
+======================================================================
+FAIL: test_rejects_symlink_ancestors_and_targets_before_any_writes (__main__.ReceiptImportControls.test_rejects_symlink_ancestors_and_targets_before_any_writes) (path='directory/target.txt')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/research/remaining-node20-cancellation/import-receipt.test.py", line 89, in test_rejects_symlink_ancestors_and_targets_before_any_writes
+    self.assert_no_write(payload({
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+        f'{PREFIX}/valid/stdout.txt': 'must not be written',
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        f'{PREFIX}/links/{path}': 'must not follow symlink',
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    }))
+    ^^^
+  File "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/research/remaining-node20-cancellation/import-receipt.test.py", line 46, in assert_no_write
+    self.assertEqual(snapshot(self.root), before)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'out[338 chars]ipts/valid': ('directory',), 'research/remaini[460 chars]en')} != {'out[338 chars]ipts/links/directory': ('symlink', '/motor-hom[285 chars]xt')}
+Diff is 1843 characters long. Set self.maxDiff to None to see it.
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.049s
+
+FAILED (failures=1)

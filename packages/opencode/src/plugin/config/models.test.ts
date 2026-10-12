@@ -15,8 +15,8 @@ describe('OPENCODE_MODEL_DEFINITIONS', () => {
     const modelNames = Object.keys(OPENCODE_MODEL_DEFINITIONS).sort()
 
     expect(modelNames).toEqual([
-      'antigravity-claude-opus-4-6-thinking',
-      'antigravity-claude-sonnet-4-6-thinking',
+      'antigravity-claude-opus-5-5',
+      'antigravity-claude-sonnet-5-5',
       'antigravity-gemini-3.1-flash-image',
       'antigravity-gemini-3.1-pro',
       'antigravity-gemini-3.5-flash',
@@ -35,21 +35,25 @@ describe('OPENCODE_MODEL_DEFINITIONS', () => {
 
     expect(getModel('antigravity-gemini-3.5-flash').variants).toEqual({
       low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
       high: { thinkingLevel: 'high' },
     })
 
     expect(getModel('antigravity-gemini-3.6-flash').variants).toEqual({
       low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
       high: { thinkingLevel: 'high' },
     })
 
     expect(getModel('antigravity-gemini-3.7-flash').variants).toEqual({
       low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
       high: { thinkingLevel: 'high' },
     })
 
     expect(getModel('antigravity-gemini-3.8-flash').variants).toEqual({
       low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
       high: { thinkingLevel: 'high' },
     })
   })
@@ -70,16 +74,16 @@ describe('OPENCODE_MODEL_DEFINITIONS', () => {
     })
   })
 
-  it('disables unsupported automatic Claude budget variants', () => {
-    expect(getModel('antigravity-claude-opus-4-6-thinking').variants).toEqual({
-      low: { disabled: true },
-      high: { disabled: true },
+  it('offers native adaptive Claude efforts without automatic budget variants', () => {
+    expect(getModel('antigravity-claude-opus-5-5').variants).toEqual({
+      low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
+      high: { thinkingLevel: 'high' },
     })
-    expect(getModel('antigravity-claude-sonnet-4-6-thinking').variants).toEqual(
-      {
-        low: { disabled: true },
-        high: { disabled: true },
-      },
-    )
+    expect(getModel('antigravity-claude-sonnet-5-5').variants).toEqual({
+      low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
+      high: { thinkingLevel: 'high' },
+    })
   })
 })

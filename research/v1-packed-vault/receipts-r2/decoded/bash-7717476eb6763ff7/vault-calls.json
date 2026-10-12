@@ -1,0 +1,86 @@
+[
+  {
+    "method": "credential.list_scoped",
+    "params": {
+      "enrollment_token": "abababababababababababababababababababababababababababababababab"
+    }
+  },
+  {
+    "method": "credential.list_scoped",
+    "params": {
+      "enrollment_token": "abababababababababababababababababababababababababababababababab"
+    }
+  },
+  {
+    "method": "credential.list_scoped",
+    "params": {
+      "enrollment_token": "abababababababababababababababababababababababababababababababab"
+    }
+  },
+  {
+    "method": "credential.get_scoped",
+    "params": {
+      "credential_id": "synthetic-credential",
+      "enrollment_token": "abababababababababababababababababababababababababababababababab",
+      "min_ttl_ms": 300000
+    }
+  },
+  {
+    "method": "credential.get_scoped",
+    "params": {
+      "credential_id": "synthetic-credential",
+      "enrollment_token": "abababababababababababababababababababababababababababababababab",
+      "min_ttl_ms": 300000
+    }
+  },
+  {
+    "method": "credential.list_scoped",
+    "params": {
+      "enrollment_token": "abababababababababababababababababababababababababababababababab"
+    }
+  },
+  {
+    "method": "credential.list_scoped",
+    "params": {
+      "enrollment_token": "abababababababababababababababababababababababababababababababab"
+    }
+  },
+  {
+    "method": "credential.get_scoped",
+    "params": {
+      "credential_id": "synthetic-credential",
+      "enrollment_token": "abababababababababababababababababababababababababababababababab",
+      "min_ttl_ms": 300000
+    }
+  },
+  {
+    "method": "credential.get_scoped",
+    "params": {
+      "credential_id": "synthetic-credential",
+      "enrollment_token": "abababababababababababababababababababababababababababababababab",
+      "min_ttl_ms": 300000
+    }
+  },
+  {
+    "method": "credential.list_scoped",
+    "params": {
+      "enrollment_token": "abababababababababababababababababababababababababababababababab"
+    }
+  },
+  {
+    "method": "credential.get_scoped",
+    "params": {
+      "credential_id": "synthetic-credential",
+      "enrollment_token": "abababababababababababababababababababababababababababababababab",
+      "min_ttl_ms": 300000
+    }
+  },
+  {
+    "method": "credential.get_scoped",
+    "params": {
+      "credential_id": "synthetic-credential",
+      "enrollment_token": "abababababababababababababababababababababababababababababababab",
+      "min_ttl_ms": 300000
+    }
+  }
+]

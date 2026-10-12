@@ -1,0 +1,150 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/core/src/credential-redaction.test.ts:
+17 |     const result = spawnSync('node', ['--input-type=module', '--eval', `
+18 |       const core = await import('./packages/core/dist/index.js')
+19 |       if (core.redactCredentialText('echo opaque-runtime-token', 'opaque-runtime-token') !== 'echo [credential]') throw new Error('core redaction export did not execute')
+20 |       console.log('native-node-core-root-import: 1 check passed')
+21 |     `], { cwd: fileURLToPath(new URL('../../../', import.meta.url)), encoding: 'utf8' })
+22 |     expect(result.stderr).toBe('')
+                               ^
+error: expect(received).toBe(expected)
+
+- ""
++ "node:internal/modules/esm/resolve:272
++     throw new ERR_MODULE_NOT_FOUND(
++           ^
++ 
++ Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/dist/credential-redaction' imported from /Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/dist/index.js
++     at finalizeResolution (node:internal/modules/esm/resolve:272:11)
++     at moduleResolve (node:internal/modules/esm/resolve:879:10)
++     at defaultResolve (node:internal/modules/esm/resolve:1006:11)
++     at #cachedDefaultResolve (node:internal/modules/esm/loader:705:20)
++     at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:725:38)
++     at ModuleLoader.resolveSync (node:internal/modules/esm/loader:763:56)
++     at #resolve (node:internal/modules/esm/loader:687:17)
++     at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)
++     at ModuleJob.syncLink (node:internal/modules/esm/module_job:276:33)
++     at ModuleJob.link (node:internal/modules/esm/module_job:381:17) {
++   code: 'ERR_MODULE_NOT_FOUND',
++   url: 'file:///Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/dist/credential-redaction'
++ }
++ 
++ Node.js v24.21.0
++ "
+
+- Expected  - 1
++ Received  + 21
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:22:27)
+(fail) credential redaction > imports the same-job built core root through native Node ESM without a resolution shim [37.16ms]
+31 |       const diagnosticKey = Symbol('diagnostic')
+32 |       const original = Object.assign(new Error(detail), { classification, [marker]: classification, [diagnosticKey]: detail })
+33 |       if (frozen) Object.freeze(original)
+34 |       const safe = redactCredentialError(original, selected)
+35 |       expect(safe === original).toBe(!frozen)
+36 |       expect(Reflect.get(safe, 'classification')).toBe(classification)
+                                                       ^
+error: expect(received).toBe(expected)
+
+Expected: {
+  retry: "same-endpoint",
+  overflow: true,
+}
+Received: serializes to the same string
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:36:51)
+(fail) credential redaction > preserves safe object and symbol classification metadata on writable errors [0.64ms]
+31 |       const diagnosticKey = Symbol('diagnostic')
+32 |       const original = Object.assign(new Error(detail), { classification, [marker]: classification, [diagnosticKey]: detail })
+33 |       if (frozen) Object.freeze(original)
+34 |       const safe = redactCredentialError(original, selected)
+35 |       expect(safe === original).toBe(!frozen)
+36 |       expect(Reflect.get(safe, 'classification')).toBe(classification)
+                                                       ^
+error: expect(received).toBe(expected)
+
+Expected: {
+  retry: "same-endpoint",
+  overflow: true,
+}
+Received: serializes to the same string
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:36:51)
+(fail) credential redaction > preserves safe object and symbol classification metadata on frozen errors [0.14ms]
+43 |   for (const body of [null, 'failed body']) {
+44 |     it(`redacts opaque selected-token failed diagnostic metadata with ${body === null ? 'no body' : 'a body'}`, async () => {
+45 |       const original = new Response(body, { status: 429, statusText: `echo ${selected}`, headers: { 'x-error': `echo ${selected}`, 'retry-after': '12', 'x-safe': 'unchanged' } })
+46 |       const safe = await redactCredentialResponse(original, selected)
+47 |       expect(safe.status).toBe(429)
+48 |       expect(safe.statusText).toBe('echo [credential]')
+                                   ^
+error: expect(received).toBe(expected)
+
+Expected: "echo [credential]"
+Received: "echo opaque-selected-token"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:48:31)
+(fail) credential redaction > redacts opaque selected-token failed diagnostic metadata with no body [0.60ms]
+43 |   for (const body of [null, 'failed body']) {
+44 |     it(`redacts opaque selected-token failed diagnostic metadata with ${body === null ? 'no body' : 'a body'}`, async () => {
+45 |       const original = new Response(body, { status: 429, statusText: `echo ${selected}`, headers: { 'x-error': `echo ${selected}`, 'retry-after': '12', 'x-safe': 'unchanged' } })
+46 |       const safe = await redactCredentialResponse(original, selected)
+47 |       expect(safe.status).toBe(429)
+48 |       expect(safe.statusText).toBe('echo [credential]')
+                                   ^
+error: expect(received).toBe(expected)
+
+Expected: "echo [credential]"
+Received: "echo opaque-selected-token"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:48:31)
+(fail) credential redaction > redacts opaque selected-token failed diagnostic metadata with a body [0.11ms]
+(pass) credential redaction > leaves successful diagnostic-looking status and headers unchanged, including bodyless responses [0.10ms]
+68 |   it('releases the owned SSE reader after an unchanged safe body failure', async () => {
+69 |     const failure = new Error('safe body failure')
+70 |     const original = new Response(new ReadableStream({ start(controller) { controller.error(failure) } }), { headers: { 'content-type': 'text/event-stream' } })
+71 |     const safe = await redactCredentialResponse(original, selected)
+72 |     await expect(safe.text()).rejects.toBe(failure)
+73 |     expect(original.body!.locked).toBe(false)
+                                       ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:73:35)
+(fail) credential redaction > releases the owned SSE reader after an unchanged safe body failure [0.29ms]
+78 |     const original = new Response(new ReadableStream({ cancel(reason) { cancelled = reason } }), { headers: { 'content-type': 'text/event-stream' } })
+79 |     const safe = await redactCredentialResponse(original, selected)
+80 |     const reason = new DOMException('user escape', 'AbortError')
+81 |     await safe.body!.cancel(reason)
+82 |     expect(cancelled).toBe(reason)
+83 |     expect(original.body!.locked).toBe(false)
+                                       ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:83:35)
+(fail) credential redaction > releases the owned SSE reader on cancellation without changing its reason [0.15ms]
+85 | 
+86 |   it('removes stale SSE length while redacting fragmented error frames and preserving other metadata', async () => {
+87 |     const event = `data: ${JSON.stringify({ error: { message: selected } })}\r\n\r\n`
+88 |     const original = new Response(new ReadableStream<Uint8Array>({ start(controller) { for (const char of event) controller.enqueue(new TextEncoder().encode(char)); controller.close() } }), { statusText: `echo ${selected}`, headers: { 'content-type': 'text/event-stream', 'content-length': String(new TextEncoder().encode(event).length), 'retry-after': '12', 'x-kept': selected } })
+89 |     const safe = await redactCredentialResponse(original, selected)
+90 |     expect(safe.headers.get('content-length')).toBeNull()
+                                                    ^
+error: expect(received).toBeNull()
+
+Received: "55"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:90:48)
+(fail) credential redaction > removes stale SSE length while redacting fragmented error frames and preserving other metadata [0.31ms]
+
+ 1 pass
+ 7 filtered out
+ 8 fail
+ 22 expect() calls
+Ran 9 tests across 1 file. [179.00ms]

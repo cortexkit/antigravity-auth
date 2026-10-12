@@ -117,3 +117,30 @@ describe('AgySessionRegistry', () => {
     ).toBeDefined()
   })
 })
+
+it('captures canonical OpenCode session and parent headers without legacy aliases', () => {
+  expect(
+    extractOpenCodeSessionIdentity({
+      'X-OpenCode-Session-Id': 'canonical-child',
+      'X-OpenCode-Parent-Session-Id': 'canonical-parent',
+    }),
+  ).toEqual({
+    sessionId: 'canonical-child',
+    parentSessionId: 'canonical-parent',
+  })
+})
+
+it('retains affinity priority and uses canonical parent metadata over a legacy fallback', () => {
+  expect(
+    extractOpenCodeSessionIdentity({
+      'x-session-affinity': 'affinity-child',
+      'x-opencode-session-id': 'canonical-child',
+      'x-session-id': 'legacy-child',
+      'x-opencode-parent-session-id': 'canonical-parent',
+      'x-parent-session-id': 'legacy-parent',
+    }),
+  ).toEqual({
+    sessionId: 'affinity-child',
+    parentSessionId: 'canonical-parent',
+  })
+})

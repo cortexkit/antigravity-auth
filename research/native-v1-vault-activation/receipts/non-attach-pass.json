@@ -1,0 +1,368 @@
+{
+  "snapshot": {
+    "packages/e2e-tests/src/v1-vault-activation-harness.ts": "10697f90e8e330432cf50d8c46d687095732494d2a15325a01c364b4e888f924",
+    "packages/e2e-tests/src/v1-vault-activation.e2e.test.ts": "877814622dae7eb2f6d42c56b5bc5e56bc009482c53f6b45b3ab3fdaa7544efc",
+    "packages/opencode/src/plugin/index.ts": "0f72360b679768da6ff5931251930d1232a815316c6be897522d4b21b5c9f46d",
+    "packages/core/src/common-auth-embedded/source-output.json": "20280ed9fe35760b4cd9d55c230a7bc7be09d789d8549ed31235694ce9eff240"
+  },
+  "runtime": {
+    "bun": "1.4.2",
+    "platform": "linux",
+    "arch": "x64",
+    "interfaces": [
+      "lo"
+    ],
+    "topology": "run (native internal server)",
+    "sdkVersion": "1.17.13"
+  },
+  "binary": {
+    "sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+    "version": "1.17.13",
+    "path": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/research/native-v1-vault-activation/oc-fixture/node_modules/opencode-linux-x64/bin/opencode"
+  },
+  "profile": "/tmp/native-v1-vault-YhHEj9",
+  "authAbsentBefore": true,
+  "localArtifactsAbsentBefore": true,
+  "processes": [
+    {
+      "name": "version",
+      "argv": [
+        "/usr/bin/strace",
+        "-f",
+        "-e",
+        "trace=%file",
+        "-o",
+        "/tmp/native-v1-vault-YhHEj9/version.syscalls",
+        "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/research/native-v1-vault-activation/oc-fixture/node_modules/opencode-linux-x64/bin/opencode",
+        "--version"
+      ],
+      "pid": 79,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "1.17.13\n",
+      "stderr": ""
+    },
+    {
+      "name": "auth-help",
+      "argv": [
+        "/usr/bin/strace",
+        "-f",
+        "-e",
+        "trace=%file",
+        "-o",
+        "/tmp/native-v1-vault-YhHEj9/auth-help.syscalls",
+        "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/research/native-v1-vault-activation/oc-fixture/node_modules/opencode-linux-x64/bin/opencode",
+        "auth",
+        "login",
+        "--help"
+      ],
+      "pid": 92,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "",
+      "stderr": "opencode auth login [url]\n\nlog in to a provider\n\nPositionals:\n  url  opencode auth provider                                                               [string]\n\nOptions:\n  -h, --help        show help                                                              [boolean]\n  -v, --version     show version number                                                    [boolean]\n      --print-logs  print logs to stderr                                                   [boolean]\n      --log-level   log level                   [string] [choices: \"DEBUG\", \"INFO\", \"WARN\", \"ERROR\"]\n      --pure        run without external plugins                                           [boolean]\n  -p, --provider    provider id or name to log in to (skips provider selection)             [string]\n  -m, --method      login method label (skips method selection)                             [string]"
+    },
+    {
+      "name": "serve-help",
+      "argv": [
+        "/usr/bin/strace",
+        "-f",
+        "-e",
+        "trace=%file",
+        "-o",
+        "/tmp/native-v1-vault-YhHEj9/serve-help.syscalls",
+        "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/research/native-v1-vault-activation/oc-fixture/node_modules/opencode-linux-x64/bin/opencode",
+        "serve",
+        "--help"
+      ],
+      "pid": 105,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "",
+      "stderr": "opencode serve\n\nstarts a headless opencode server\n\nOptions:\n  -h, --help         show help                                                             [boolean]\n  -v, --version      show version number                                                   [boolean]\n      --print-logs   print logs to stderr                                                  [boolean]\n      --log-level    log level                  [string] [choices: \"DEBUG\", \"INFO\", \"WARN\", \"ERROR\"]\n      --pure         run without external plugins                                          [boolean]\n      --port         port to listen on                                         [number] [default: 0]\n      --hostname     hostname to listen on                           [string] [default: \"127.0.0.1\"]\n      --mdns         enable mDNS service discovery (defaults hostname to 0.0.0.0)\n                                                                          [boolean] [default: false]\n      --mdns-domain  custom domain name for mDNS service (default: opencode.local)\n                                                                [string] [default: \"opencode.local\"]\n      --cors         additional domains to allow for CORS                      [array] [default: []]"
+    },
+    {
+      "name": "run-help",
+      "argv": [
+        "/usr/bin/strace",
+        "-f",
+        "-e",
+        "trace=%file",
+        "-o",
+        "/tmp/native-v1-vault-YhHEj9/run-help.syscalls",
+        "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/research/native-v1-vault-activation/oc-fixture/node_modules/opencode-linux-x64/bin/opencode",
+        "run",
+        "--help"
+      ],
+      "pid": 118,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "",
+      "stderr": "opencode run [message..]\n\nrun opencode with a message\n\nPositionals:\n  message  message to send                                                     [array] [default: []]\n\nOptions:\n  -h, --help         show help                                                             [boolean]\n  -v, --version      show version number                                                   [boolean]\n      --print-logs   print logs to stderr                                                  [boolean]\n      --log-level    log level                  [string] [choices: \"DEBUG\", \"INFO\", \"WARN\", \"ERROR\"]\n      --pure         run without external plugins                                          [boolean]\n      --command      the command to run, use message for args                               [string]\n  -c, --continue     continue the last session                                             [boolean]\n  -s, --session      session id to continue                                                 [string]\n      --fork         fork the session before continuing (requires --continue or --session) [boolean]\n      --share        share the session                                                     [boolean]\n  -m, --model        model to use in the format of provider/model                           [string]\n      --agent        agent to use                                                           [string]\n      --format       format: default (formatted) or json (raw JSON events)\n                                          [string] [choices: \"default\", \"json\"] [default: \"default\"]\n  -f, --file         file(s) to attach to message                                            [array]\n      --title        title for the session (uses truncated prompt if no value provided)     [string]\n      --attach       attach to a running opencode server (e.g., http://localhost:4096)      [string]\n  -p, --password     basic auth password (defaults to OPENCODE_SERVER_PASSWORD)             [string]\n  -u, --username     basic auth username (defaults to OPENCODE_SERVER_USERNAME or 'opencode')\n                                                                                            [string]\n      --dir          directory to run in, path on remote server if attaching                [string]\n      --port         port for the local server (defaults to random port if no value provided)\n                                                                                            [number]\n      --variant      model variant (provider-specific reasoning effort, e.g., high, max, minimal)\n                                                                                            [string]\n      --thinking     show thinking blocks                                                  [boolean]\n  -i, --interactive  run in direct interactive split-footer mode          [boolean] [default: false]\n      --auto         auto-approve permissions that are not explicitly denied (dangerous!)\n                                                                          [boolean] [default: false]"
+    },
+    {
+      "name": "enrollment",
+      "argv": [
+        "/home/ubuntu/.bun/bin/bun",
+        "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/packages/e2e-tests/src/v1-vault-activation-harness.ts",
+        "--seed"
+      ],
+      "pid": 131,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "{\"proposed\":{\"state\":\"approved\",\"proposedName\":\"antigravity-auth-opencode\",\"approvedName\":\"antigravity-auth-opencode\",\"tokenGeneration\":1},\"approved\":{\"state\":\"approved\",\"proposedName\":\"antigravity-auth-opencode\",\"approvedName\":\"antigravity-auth-opencode\",\"tokenGeneration\":1},\"mode\":{\"ok\":true,\"record\":{\"version\":1,\"mode\":\"custody\"}}}\n",
+      "stderr": ""
+    },
+    {
+      "name": "login",
+      "argv": [
+        "/usr/bin/strace",
+        "-f",
+        "-e",
+        "trace=%file",
+        "-o",
+        "/tmp/native-v1-vault-YhHEj9/login.syscalls",
+        "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/research/native-v1-vault-activation/oc-fixture/node_modules/opencode-linux-x64/bin/opencode",
+        "auth",
+        "login",
+        "--provider",
+        "google",
+        "--method",
+        "Activate approved Antigravity vault",
+        "--print-logs",
+        "--log-level",
+        "INFO"
+      ],
+      "pid": 140,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "\u250c  Add credential\n\u2502\n\u25cf  Vault access is approved. Activate it without signing in to Google.\n\u001b[?25l\u2502\n\u25d2  Waiting for authorization\u001b[999D\u001b[J\u25d0  Waiting for authorization\u001b[999D\u001b[J\u25c7  Login successful\n\u001b[?25h\u2502\n\u2514  Done\n\n",
+      "stderr": "timestamp=2026-10-11T15:27:42.055Z level=INFO run=fd636a60 message=\"creating instance\" directory=/tmp/native-v1-vault-YhHEj9/project\ntimestamp=2026-10-11T15:27:42.061Z level=INFO run=fd636a60 message=fromDirectory directory=/tmp/native-v1-vault-YhHEj9/project\ntimestamp=2026-10-11T15:27:42.068Z level=INFO run=fd636a60 message=bootstrapping directory=/tmp/native-v1-vault-YhHEj9/project\ntimestamp=2026-10-11T15:27:42.071Z level=INFO run=fd636a60 message=loading path=/tmp/native-v1-vault-YhHEj9/config/opencode/config.json\ntimestamp=2026-10-11T15:27:42.072Z level=INFO run=fd636a60 message=loading path=/tmp/native-v1-vault-YhHEj9/config/opencode/opencode.json\ntimestamp=2026-10-11T15:27:42.075Z level=INFO run=fd636a60 message=loading path=/tmp/native-v1-vault-YhHEj9/config/opencode/opencode.jsonc\ntimestamp=2026-10-11T15:27:42.077Z level=INFO run=fd636a60 message=loading path=/tmp/native-v1-vault-YhHEj9/config/opencode/opencode.json\ntimestamp=2026-10-11T15:27:42.079Z level=INFO run=fd636a60 message=loading path=/tmp/native-v1-vault-YhHEj9/config/opencode/opencode.jsonc\ntimestamp=2026-10-11T15:27:42.090Z level=INFO run=fd636a60 message=loading path=/tmp/native-v1-vault-YhHEj9/project/.opencode/opencode.json\ntimestamp=2026-10-11T15:27:42.091Z level=INFO run=fd636a60 message=loading path=/tmp/native-v1-vault-YhHEj9/project/.opencode/opencode.jsonc\ntimestamp=2026-10-11T15:27:42.291Z level=INFO run=fd636a60 message=\"all LSPs are disabled\"\ntimestamp=2026-10-11T15:27:42.292Z level=INFO run=fd636a60 message=\"all formatters are disabled\"\ntimestamp=2026-10-11T15:27:42.292Z level=INFO run=fd636a60 message=init\n\u001b[0m\ntimestamp=2026-10-11T15:27:42.857Z level=ERROR run=fd636a60 message=\"Failed to fetch models.dev\" cause=\"Cause([Fail(HttpClientError: Transport error (GET https://models.dev/api.json) (cause: Error: Only owned loopback is admitted))])\"\ntimestamp=2026-10-11T15:27:43.110Z level=INFO run=fd636a60 message=\"disposing instance\" directory=/tmp/native-v1-vault-YhHEj9/project\n"
+    },
+    {
+      "name": "first-request",
+      "argv": [
+        "/usr/bin/strace",
+        "-f",
+        "-e",
+        "trace=%file",
+        "-o",
+        "/tmp/native-v1-vault-YhHEj9/first-request.syscalls",
+        "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/research/native-v1-vault-activation/oc-fixture/node_modules/opencode-linux-x64/bin/opencode",
+        "run",
+        "--dir",
+        "/tmp/native-v1-vault-YhHEj9/project",
+        "--format",
+        "json",
+        "--model",
+        "google/antigravity-gemini-3.8-flash",
+        "Reply with the fixture completion text."
+      ],
+      "pid": 153,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "{\"type\":\"step_start\",\"timestamp\":1791732464977,\"sessionID\":\"ses_ed46c450fffeo7jmMwl8x9YIGC\",\"part\":{\"id\":\"prt_12b93bd3f001N9yvypQjsGPwuN\",\"messageID\":\"msg_12b93bbae001lnjaG6ZcGkylsA\",\"sessionID\":\"ses_ed46c450fffeo7jmMwl8x9YIGC\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1791732464977,\"sessionID\":\"ses_ed46c450fffeo7jmMwl8x9YIGC\",\"part\":{\"id\":\"prt_12b93bd42001vQQ3FiZUPRsxpV\",\"messageID\":\"msg_12b93bbae001lnjaG6ZcGkylsA\",\"sessionID\":\"ses_ed46c450fffeo7jmMwl8x9YIGC\",\"type\":\"text\",\"text\":\"Native V1 vault first request completed.\",\"time\":{\"start\":1791732464962,\"end\":1791732464965}}}\n{\"type\":\"step_finish\",\"timestamp\":1791732464978,\"sessionID\":\"ses_ed46c450fffeo7jmMwl8x9YIGC\",\"part\":{\"id\":\"prt_12b93bd47001GjmxhciffeRbQX\",\"reason\":\"stop\",\"messageID\":\"msg_12b93bbae001lnjaG6ZcGkylsA\",\"sessionID\":\"ses_ed46c450fffeo7jmMwl8x9YIGC\",\"type\":\"step-finish\",\"tokens\":{\"total\":8,\"input\":1,\"output\":7,\"reasoning\":0,\"cache\":{\"write\":0,\"read\":0}},\"cost\":0}}\n",
+      "stderr": ""
+    }
+  ],
+  "requests": [
+    {
+      "path": "/v1internal:streamGenerateContent",
+      "authorization": "Bearer synthetic-native-v1-vault-access",
+      "body": {
+        "project": "synthetic-native-v1-project",
+        "requestId": "agent/c7a0b48d-7b73-4539-81ad-1cfdf9f50c06/1791732464918/532bc7cd-c352-47e1-a07d-9cc97f51c79f/2",
+        "request": {
+          "sha256": "541127d0ee03676434474dfeca0995a72f86f0d3e375de2bd22bbc17b9b8235d",
+          "bytes": 16472
+        },
+        "model": "gemini-3.8-flash-high",
+        "userAgent": "antigravity",
+        "requestType": "agent"
+      }
+    }
+  ],
+  "observations": [
+    {
+      "pid": 142,
+      "kind": "composition",
+      "directory": "/tmp/native-v1-vault-YhHEj9/project"
+    },
+    {
+      "pid": 142,
+      "kind": "metadata-network-denied",
+      "url": "https://antigravity-auto-updater-974169037036.us-central1.run.app"
+    },
+    {
+      "pid": 142,
+      "kind": "metadata-network-denied",
+      "url": "https://antigravity.google/changelog"
+    },
+    {
+      "pid": 142,
+      "kind": "methods",
+      "labels": [
+        "Activate approved Antigravity vault"
+      ]
+    },
+    {
+      "pid": 142,
+      "kind": "metadata-network-denied",
+      "url": "https://models.dev/api.json"
+    },
+    {
+      "pid": 142,
+      "kind": "metadata-network-denied",
+      "url": "https://models.dev/api.json"
+    },
+    {
+      "pid": 142,
+      "kind": "metadata-network-denied",
+      "url": "https://models.dev/api.json"
+    },
+    {
+      "pid": 155,
+      "kind": "composition",
+      "directory": "/tmp/native-v1-vault-YhHEj9/project"
+    },
+    {
+      "pid": 155,
+      "kind": "metadata-network-denied",
+      "url": "https://antigravity-auto-updater-974169037036.us-central1.run.app"
+    },
+    {
+      "pid": 155,
+      "kind": "metadata-network-denied",
+      "url": "https://antigravity.google/changelog"
+    },
+    {
+      "pid": 155,
+      "kind": "methods",
+      "labels": [
+        "Activate approved Antigravity vault"
+      ]
+    },
+    {
+      "pid": 155,
+      "kind": "native-loader"
+    },
+    {
+      "pid": 155,
+      "kind": "native-loader-result",
+      "hasFetch": true
+    },
+    {
+      "pid": 155,
+      "kind": "agy-transport",
+      "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse"
+    },
+    {
+      "pid": 155,
+      "kind": "composition",
+      "directory": "/tmp/native-v1-vault-YhHEj9/project"
+    },
+    {
+      "pid": 155,
+      "kind": "metadata-network-denied",
+      "url": "https://antigravity-auto-updater-974169037036.us-central1.run.app"
+    },
+    {
+      "pid": 155,
+      "kind": "metadata-network-denied",
+      "url": "https://antigravity.google/changelog"
+    },
+    {
+      "pid": 155,
+      "kind": "methods",
+      "labels": [
+        "Activate approved Antigravity vault"
+      ]
+    }
+  ],
+  "vaultCalls": [
+    {
+      "method": "credential.list_scoped",
+      "params": {
+        "enrollment_token": "abababababababababababababababababababababababababababababababab"
+      }
+    },
+    {
+      "method": "credential.list_scoped",
+      "params": {
+        "enrollment_token": "abababababababababababababababababababababababababababababababab"
+      }
+    },
+    {
+      "method": "credential.get_scoped",
+      "params": {
+        "credential_id": "synthetic-credential",
+        "enrollment_token": "abababababababababababababababababababababababababababababababab",
+        "min_ttl_ms": 300000
+      }
+    },
+    {
+      "method": "credential.get_scoped",
+      "params": {
+        "credential_id": "synthetic-credential",
+        "enrollment_token": "abababababababababababababababababababababababababababababababab",
+        "min_ttl_ms": 300000
+      }
+    }
+  ],
+  "localFileSyscalls": [],
+  "syscallRecords": [
+    {
+      "child": "version",
+      "sha256": "ee05031f930ad45ada389ad4c4e8fc324d81fbc7c3f7c0053f321b11a4529a1c",
+      "lines": 4605
+    },
+    {
+      "child": "auth-help",
+      "sha256": "2067e08e805947ab1656be8a5922874faf4d26247ae32174a8040cee47428e67",
+      "lines": 4607
+    },
+    {
+      "child": "serve-help",
+      "sha256": "4cdc48b087401c8230699cabe3323ae905776db29fee7aba06b67f094f4c976d",
+      "lines": 4609
+    },
+    {
+      "child": "run-help",
+      "sha256": "a953e7dec06f7b9a440669f0a9f4ae5f13c860e88ffbc7062c07d1241a7af2d3",
+      "lines": 4608
+    },
+    {
+      "child": "login",
+      "sha256": "a2d79790aaf59c7f59df4c70043ed0128527d61ab21fbc9c7dfbe7bcd8b6695e",
+      "lines": 5499
+    },
+    {
+      "child": "first-request",
+      "sha256": "48da96c793b2b75ee94d0f519b49d2725238dedb5716999854eb84948a45253e",
+      "lines": 6013
+    }
+  ],
+  "marker": {
+    "google": {
+      "type": "oauth",
+      "refresh": "claustrum-tombstone:v1:google",
+      "access": "",
+      "expires": 0
+    }
+  },
+  "streamBytes": "data: {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"Native V1 vault first request completed.\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":7,\"totalTokenCount\":8},\"modelVersion\":\"gemini-3.8-flash\"}}\n\n"
+}

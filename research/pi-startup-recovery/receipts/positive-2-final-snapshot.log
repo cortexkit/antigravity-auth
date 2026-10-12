@@ -1,0 +1,53 @@
+# Positive receipt 2/2: pi typecheck + full pi suite on the FINAL staged snapshot.
+# It differs from receipt 1 only by a comment in index.test.ts, near line 631; see README.
+# Fresh remote Linux job (ck-motor, 4 vCPUs, its own empty /motor-home).
+# Command:
+#   sha256sum <3 files>; bun --version; bun run --cwd packages/core build 2>&1 | tail -1; cd packages/pi && bun run typecheck 2>&1; echo "typecheck exit=$?";
+#   bun run test > /tmp/suite.out 2>&1; echo "suite exit=$?"; grep -E '^\(fail\)|^ *[0-9]+ (pass|fail)|expect\(\) calls|^Ran' /tmp/suite.out;
+#   echo "== index/startup-order lines"; grep -E '^\((pass|fail)\)' /tmp/suite.out | grep -E 'startup|slot|refus|Vault section|real Pi|catalog|default entry'
+# Filtered as shown. The full unfiltered suite output for the previous snapshot is in
+# positive-1-typecheck-and-pi-suite.log. Output copied verbatim from the tool result.
+# Git blobs in the staged index:
+#   9fb02c58c452ef444ea83ee1e270baa788b8109a packages/pi/src/index.ts
+#   4de1e31cff025a436ad43bb94339dc4262e82dd9 packages/pi/src/index.test.ts
+#   02c4ed24d7343f180bc158ef8dd1d461f54c29db packages/pi/src/startup-order.test.ts
+
+bd04a01ef5c99edd2ac64de41e136bc797991ea38bb3312b0c5a5791a2340e12  packages/pi/src/index.ts
+08fc3f29dfa92c3a9233eb4e1b4ad2ae082ac340432e8f60ad5e18a75b7316fc  packages/pi/src/index.test.ts
+27297ec66fe86b00e1a0308bd1c88e6d9cfe9cf3b84bffc30ad3d84839411b49  packages/pi/src/startup-order.test.ts
+1.4.2
+Copied 128 embedded common-auth files
+$ tsc --noEmit
+typecheck exit=0
+suite exit=0
+ 108 pass
+ 0 fail
+ 427 expect() calls
+Ran 108 tests across 9 files. [2.60s]
+== index/startup-order lines
+(pass) Pi /antigravity menu > shows the four account slots then the Vault extra, for the local login [22.63ms]
+(pass) vault native-slot admission > rejects a missing or foreign resolved credential before vault dispatch (%s) [0.20ms]
+(pass) vault native-slot admission > rejects a missing or foreign resolved credential before vault dispatch (synthetic-local-oauth-access) [0.02ms]
+(pass) vault native-slot admission > rejects a missing or foreign resolved credential before vault dispatch (antigravity-vault-custody-extra) [0.01ms]
+(pass) vault native-slot admission > uses only the served vault credential when Pi resolves the exact placeholder [0.30ms]
+(pass) Pi vault setup > refuses custody before approval and leaves an existing Pi login dormant after approval [1.75ms]
+(pass) Pi vault setup > switches to custody with an empty or placeholder slot and back to local [3.07ms]
+(pass) waits for the native credential-slot transition before enrollment activation returns [2.52ms]
+(pass) Pi vault request path > refuses to send outside custody or with an unreadable mode file [0.16ms]
+(pass) Pi vault request path > serves the chosen route and refuses a declined or removed choice [0.26ms]
+(pass) Pi vault request path > surfaces an admission refusal (for example a missing or contradicted assertion) without dispatching [0.10ms]
+(pass) Pi vault request path > refuses to send once the caller has aborted [0.07ms]
+(pass) awaits the native slot swap before the real Pi loader resolves its first google model request [75.43ms]
+(pass) the real Pi loader keeps /antigravity and refuses google requests for an unreadable enrollment state beside a native login [12.48ms]
+(pass) the real Pi loader keeps /antigravity and refuses google requests for custody mode with no enrollment and no native login [10.46ms]
+(pass) the real Pi loader keeps /antigravity and refuses google requests for a native Google login that conflicts with the saved one [11.94ms]
+(pass) Pi Antigravity model catalog > exposes the live GPT-OSS route but not unsupported image-output chat models [3.81ms]
+(pass) replaces the native Google catalog and reads only the google OAuth credential in the real Pi registry [9.87ms]
+(pass) the production default entry selects the vault stream and registers the shared menu [5.55ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable enrollment state [2.42ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable mode file [1.22ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for custody mode with no enrollment [1.18ms]
+(pass) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for a native Google login that conflicts with the saved one [2.42ms]
+(pass) Pi startup when the credential slot cannot be synchronized > names the slot failure in the refusal [3.10ms]
+(pass) Pi startup when the credential slot cannot be synchronized > serves local again once the Vault section chooses the local login [1.27ms]
+(pass) finishes an older slot synchronization before a mode change registers its provider [114.31ms]

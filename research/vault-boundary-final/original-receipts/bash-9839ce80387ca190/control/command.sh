@@ -1,0 +1,1 @@
+date -u '+%Y-%m-%dT%H:%M:%SZ'; git status --short

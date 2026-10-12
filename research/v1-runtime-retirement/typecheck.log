@@ -1,0 +1,5 @@
+$ bun run embed:check && bun scripts/build-tui.ts --types && tsc --noEmit && tsc -p tsconfig.ga.json
+$ bun scripts/build-tui.ts --check
+Embedding and private Bun-lock roots verified (Bun 1.4.2)
+Embedded declarations: 77 strict roots in NodeNext/Bundler; client TYPE closure 7 files
+typecheck exit=0

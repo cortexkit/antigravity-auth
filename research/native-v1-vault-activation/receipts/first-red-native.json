@@ -1,0 +1,87 @@
+{
+  "result": "0 pass, 1 fail, 7 expect() calls; JSON Parse error Unexpected EOF at v1-vault-activation.e2e.test.ts:31",
+  "command": "bun --version && bun run --cwd packages/core build && bun test --isolate ./packages/e2e-tests/src/v1-vault-activation.e2e.test.ts",
+  "runner": "ck-motor Linux x64, loopback-only, 2 vCPUs, Bun 1.4.2 (744846f84)",
+  "command_exit_code": 1,
+  "base_commit": "d89c151945b95461a05f22d63aae71abf27852a2",
+  "staged_test_and_helper_diff_sha256": "cef1083f00884dd71bec53fbbf6d236e73745e0354fbfc2e0f91d58bb55c3922",
+  "profile": "/tmp/native-v1-vault-w6OTHH",
+  "binary_sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+  "authAbsentBefore": true,
+  "localArtifactsAbsentBefore": true,
+  "marker": {
+    "google": {
+      "type": "oauth",
+      "refresh": "claustrum-tombstone:v1:google",
+      "access": "",
+      "expires": 0
+    }
+  },
+  "requests": [
+    {
+      "path": "/v1internal:streamGenerateContent",
+      "authorization": "Bearer synthetic-native-v1-vault-access",
+      "project": "synthetic-native-v1-project",
+      "model": "gemini-3.8-flash-high"
+    }
+  ],
+  "vault_get": {
+    "credential_id": "synthetic-credential",
+    "enrollment_token": "abababababababababababababababababababababababababababababababab",
+    "min_ttl_ms": 300000
+  },
+  "localFileSyscalls": [],
+  "processes": [
+    {
+      "name": "version",
+      "pid": 28,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "1.17.13\n",
+      "stderr": ""
+    },
+    {
+      "name": "enrollment",
+      "pid": 64,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "{\"proposed\":{\"state\":\"approved\",\"proposedName\":\"antigravity-auth-opencode\",\"approvedName\":\"antigravity-auth-opencode\",\"tokenGeneration\":1},\"approved\":{\"state\":\"approved\",\"proposedName\":\"antigravity-auth-opencode\",\"approvedName\":\"antigravity-auth-opencode\",\"tokenGeneration\":1},\"mode\":{\"ok\":true,\"record\":{\"version\":1,\"mode\":\"custody\"}}}\n",
+      "stderr": ""
+    },
+    {
+      "name": "login",
+      "pid": 71,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "┌  Add credential\n│\n●  Vault access is approved. Activate it without signing in to Google.\n\u001b[?25l│\n◇  Login successful\n\u001b[?25h│\n└  Done\n\n",
+      "stderr": "timestamp=2026-10-11T15:10:24.101Z level=INFO run=7fa02fa6 message=\"creating instance\" directory=/tmp/native-v1-vault-w6OTHH/project\ntimestamp=2026-10-11T15:10:24.105Z level=INFO run=7fa02fa6 message=fromDirectory directory=/tmp/native-v1-vault-w6OTHH/project\ntimestamp=2026-10-11T15:10:24.120Z level=INFO run=7fa02fa6 message=bootstrapping directory=/tmp/native-v1-vault-w6OTHH/project\ntimestamp=2026-10-11T15:10:24.125Z level=INFO run=7fa02fa6 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/config.json\ntimestamp=2026-10-11T15:10:24.126Z level=INFO run=7fa02fa6 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/opencode.json\ntimestamp=2026-10-11T15:10:24.137Z level=INFO run=7fa02fa6 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/opencode.jsonc\ntimestamp=2026-10-11T15:10:24.140Z level=INFO run=7fa02fa6 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/opencode.json\ntimestamp=2026-10-11T15:10:24.145Z level=INFO run=7fa02fa6 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/opencode.jsonc\ntimestamp=2026-10-11T15:10:24.156Z level=INFO run=7fa02fa6 message=loading path=/tmp/native-v1-vault-w6OTHH/project/.opencode/opencode.json\ntimestamp=2026-10-11T15:10:24.156Z level=INFO run=7fa02fa6 message=loading path=/tmp/native-v1-vault-w6OTHH/project/.opencode/opencode.jsonc\ntimestamp=2026-10-11T15:10:24.375Z level=INFO run=7fa02fa6 message=\"all LSPs are disabled\"\ntimestamp=2026-10-11T15:10:24.376Z level=INFO run=7fa02fa6 message=\"all formatters are disabled\"\ntimestamp=2026-10-11T15:10:24.376Z level=INFO run=7fa02fa6 message=init\n\u001b[0m\ntimestamp=2026-10-11T15:10:24.986Z level=ERROR run=7fa02fa6 message=\"Failed to fetch models.dev\" cause=\"Cause([Fail(HttpClientError: Transport error (GET https://models.dev/api.json) (cause: Error: Only owned loopback is admitted))])\"\ntimestamp=2026-10-11T15:10:25.058Z level=INFO run=7fa02fa6 message=\"disposing instance\" directory=/tmp/native-v1-vault-w6OTHH/project\n"
+    },
+    {
+      "name": "serve",
+      "pid": 80,
+      "exitCode": null,
+      "signal": "SIGTERM",
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "Warning: OPENCODE_SERVER_PASSWORD is not set; server is unsecured.\nopencode server listening on http://127.0.0.1:4096\n",
+      "stderr": "timestamp=2026-10-11T15:10:25.743Z level=INFO run=c4161170 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/config.json\ntimestamp=2026-10-11T15:10:25.758Z level=INFO run=c4161170 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/opencode.json\ntimestamp=2026-10-11T15:10:25.768Z level=INFO run=c4161170 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/opencode.jsonc\ntimestamp=2026-10-11T15:10:26.626Z level=INFO run=c4161170 message=\"creating instance\" directory=/tmp/native-v1-vault-w6OTHH/project\ntimestamp=2026-10-11T15:10:26.627Z level=INFO run=c4161170 message=fromDirectory directory=/tmp/native-v1-vault-w6OTHH/project\ntimestamp=2026-10-11T15:10:26.635Z level=INFO run=c4161170 message=bootstrapping directory=/tmp/native-v1-vault-w6OTHH/project\ntimestamp=2026-10-11T15:10:26.639Z level=INFO run=c4161170 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/config.json\ntimestamp=2026-10-11T15:10:26.640Z level=INFO run=c4161170 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/opencode.json\ntimestamp=2026-10-11T15:10:26.641Z level=INFO run=c4161170 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/opencode.jsonc\ntimestamp=2026-10-11T15:10:26.652Z level=INFO run=c4161170 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/opencode.json\ntimestamp=2026-10-11T15:10:26.654Z level=INFO run=c4161170 message=loading path=/tmp/native-v1-vault-w6OTHH/config/opencode/opencode.jsonc\ntimestamp=2026-10-11T15:10:26.668Z level=INFO run=c4161170 message=loading path=/tmp/native-v1-vault-w6OTHH/project/.opencode/opencode.json\ntimestamp=2026-10-11T15:10:26.669Z level=INFO run=c4161170 message=loading path=/tmp/native-v1-vault-w6OTHH/project/.opencode/opencode.jsonc\ntimestamp=2026-10-11T15:10:26.823Z level=INFO run=c4161170 message=\"all LSPs are disabled\"\ntimestamp=2026-10-11T15:10:26.824Z level=INFO run=c4161170 message=\"all formatters are disabled\"\ntimestamp=2026-10-11T15:10:26.824Z level=INFO run=c4161170 message=init\ntimestamp=2026-10-11T15:10:26.828Z level=INFO run=c4161170 message=created id=ses_ed47c19f3ffeIQKmJl2wil5WDM slug=nimble-orchid version=1.17.13 projectID=global directory=/tmp/native-v1-vault-w6OTHH/project path=tmp/native-v1-vault-w6OTHH/project workspaceID=undefined parentID=undefined title=\"New session - 2026-10-11T15:10:26.828Z\" agent=undefined model=undefined metadata=undefined permission=\"[{\\\"permission\\\":\\\"question\\\",\\\"pattern\\\":\\\"*\\\",\\\"action\\\":\\\"deny\\\"},{\\\"permission\\\":\\\"plan_enter\\\",\\\"pattern\\\":\\\"*\\\",\\\"action\\\":\\\"deny\\\"},{\\\"permission\\\":\\\"plan_exit\\\",\\\"pattern\\\":\\\"*\\\",\\\"action\\\":\\\"deny\\\"}]\" cost=0 tokens.input=0 tokens.output=0 tokens.reasoning=0 tokens.cache.read=0 tokens.cache.write=0 time.created=1791731426828 time.updated=1791731426828\ntimestamp=2026-10-11T15:10:26.853Z level=INFO run=c4161170 message=\"event connected\"\ntimestamp=2026-10-11T15:10:27.064Z level=INFO run=c4161170 message=loop session.id=ses_ed47c19f3ffeIQKmJl2wil5WDM step=0\ntimestamp=2026-10-11T15:10:27.080Z level=INFO run=c4161170 message=\"shell tool using shell\" shell=/usr/bin/bash\ntimestamp=2026-10-11T15:10:27.152Z level=INFO run=c4161170 message=\"watcher backend\" directory=/tmp/native-v1-vault-w6OTHH/project platform=linux backend=inotify\ntimestamp=2026-10-11T15:10:27.154Z level=INFO run=c4161170 message=\"project copy refresh started\" projectID=global\ntimestamp=2026-10-11T15:10:27.156Z level=INFO run=c4161170 message=\"project copy refresh done\" projectID=global updated=[] removed=[]\ntimestamp=2026-10-11T15:10:27.196Z level=INFO run=c4161170 message=\"booting location services\" directory=/tmp/native-v1-vault-w6OTHH/project workspaceID=undefined\ntimestamp=2026-10-11T15:10:27.364Z level=INFO run=c4161170 message=process session.id=ses_ed47c19f3ffeIQKmJl2wil5WDM messageID=msg_12b83e6fb001ho4bQJoW2p4WZn\ntimestamp=2026-10-11T15:10:27.366Z level=INFO run=c4161170 message=stream providerID=google modelID=antigravity-gemini-3.8-flash session.id=ses_ed47c19f3ffeIQKmJl2wil5WDM small=false agent=build mode=primary\ntimestamp=2026-10-11T15:10:27.374Z level=INFO run=c4161170 message=\"llm runtime selected\" llm.runtime=ai-sdk llm.provider=google llm.model=antigravity-gemini-3.8-flash\ntimestamp=2026-10-11T15:10:27.554Z level=INFO run=c4161170 message=loop session.id=ses_ed47c19f3ffeIQKmJl2wil5WDM step=1\ntimestamp=2026-10-11T15:10:27.554Z level=INFO run=c4161170 message=\"exiting loop\" session.id=ses_ed47c19f3ffeIQKmJl2wil5WDM\n"
+    },
+    {
+      "name": "first-request",
+      "pid": 89,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "reaped": true,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "limits": "Native stdout/stderr restored from original AFT task bash-20f4682ca963d688; prior serve.stderr timestamp transcription differences are retained in first-red-transcription-corrections.json. Request observations remain projected; original-aft preserves the complete original stdout/stderr and command/exit metadata, including help probes and trace hashes. The attached measurement remains a terminal-completion failure."
+}

@@ -23,8 +23,12 @@ export function extractOpenCodeSessionIdentity(
   const normalized = new Headers(headers)
   return {
     sessionId:
-      normalized.get('x-session-affinity') ?? normalized.get('x-session-id'),
-    parentSessionId: normalized.get('x-parent-session-id'),
+      normalized.get('x-session-affinity') ??
+      normalized.get('x-opencode-session-id') ??
+      normalized.get('x-session-id'),
+    parentSessionId:
+      normalized.get('x-opencode-parent-session-id') ??
+      normalized.get('x-parent-session-id'),
   }
 }
 

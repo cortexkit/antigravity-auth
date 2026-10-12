@@ -1,0 +1,1 @@
+bash -c bun\ --version\ \&\&\ node\ --version\ \&\&\ ./node_modules/.bin/tsc\ --version\ \&\&\ bun\ run\ --cwd\ packages/core\ build\ \&\&\ bun\ test\ --isolate\ packages/core/src/fetch-timeout.test.ts\ packages/pi/src/stream.test.ts\ -t\ \"works\ without\ AbortSignal.any\ with\ a\ caller\ signal\" 

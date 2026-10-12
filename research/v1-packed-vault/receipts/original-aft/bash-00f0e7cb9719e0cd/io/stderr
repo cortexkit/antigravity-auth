@@ -1,0 +1,28 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:
+(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.31ms]
+(pass) loading assertion rejects a source, factory or direct-entry route [0.18ms]
+228 |   ])
+229 |   expect(() =>
+230 |     assertNoGoogleSideCalls([
+231 |       '227 sendmmsg(20, [{iov_base="\\5oauth2\\ngoogleapis\\3com\\0"}], 2, MSG_NOSIGNAL) = 1',
+232 |     ]),
+233 |   ).toThrow('Google OAuth/project/quota')
+          ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "Google OAuth/project/quota"
+
+Received function did not throw
+Received value: undefined
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:233:5)
+(fail) network assertion rejects a Google OAuth/project lookup before TLS [0.12ms]
+(pass) dormancy assertion requires byte-identical slots and no slot secret on wire [0.10ms]
+
+ 3 pass
+ 1 filtered out
+ 1 fail
+ 13 expect() calls
+Ran 4 tests across 1 file. [334.00ms]

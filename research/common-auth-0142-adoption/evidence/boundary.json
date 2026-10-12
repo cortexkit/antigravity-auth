@@ -1,0 +1,53 @@
+[
+  {
+    "command": [
+      "bun",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "1.4.2\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "node_modules/.bin/tsc",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "Version 6.0.3\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "node_modules/.bin/tsc",
+      "-p",
+      "test/common-auth-0113-producer/tsconfig.source.json"
+    ],
+    "exitStatus": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bun",
+      "run",
+      "--cwd",
+      "packages/core",
+      "build"
+    ],
+    "exitStatus": 0,
+    "stdout": "Copied 129 embedded common-auth files\n",
+    "stderr": "$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs\n"
+  },
+  {
+    "command": [
+      "bun",
+      "test",
+      "--isolate",
+      "packages/opencode/scripts/build-tui.test.ts"
+    ],
+    "exitStatus": 0,
+    "stdout": "bun test v1.4.2 (744846f84)\nPublic TUI build: 25 raw, 25 runtime files\nPublic TUI build: 12 raw, 12 runtime files\nPublic TUI build: 25 raw, 25 runtime files\nPublic TUI build: 2 raw, 2 runtime files\nPublic TUI build: 2 raw, 2 runtime files\nPublic TUI build: 2 raw, 2 runtime files\nPublic TUI build: 2 raw, 2 runtime files\nPublic TUI build: 2 raw, 2 runtime files\nPublic TUI build: 2 raw, 2 runtime files\nPublic TUI build: 2 raw, 2 runtime files\nPublic TUI build: 25 raw, 25 runtime files\nPublic TUI build: 12 raw, 12 runtime files\nPublic TUI build: 25 raw, 25 runtime files\nPublic TUI build: 4 raw, 4 runtime files\nEmbedded declarations: 77 strict roots in NodeNext/Bundler; client TYPE closure 7 files\nPublic TUI build: 25 raw, 25 runtime files\nPublic TUI build: 12 raw, 12 runtime files\nProduct build: tsc, canonical copy, 2 audited bundles, raw/runtime TUI for OpenCode 1 and GA\n",
+    "stderr": "\npackages/opencode/scripts/build-tui.test.ts:\n(pass) graph.source [23.70ms]\n(pass) graph.raw [179.37ms]\n(pass) graph.runtime [96.46ms]\n(pass) graph.tui_client_narrow [18.70ms]\n(pass) graph.server_cli [287.07ms]\n(pass) build.product_two_roots [2413.35ms]\n(pass) build.public_faults [1450.57ms]\n(pass) build.stale_removal [1007.13ms]\n(pass) build.map_admission_preserves_unowned [7.29ms]\n(pass) build.map_admission_valid_generated [2639.95ms]\n(pass) build.selector_inert [219.46ms]\n(pass) graph.ga_roots [22.94ms]\n(pass) graph.ga_policy_refusals [0.29ms]\n(pass) build.roots_failure_removes_every_root [3446.56ms]\n(pass) build.ga_map_admission_preserves_unowned [412.20ms]\n(pass) build.prerequisite_order [13.96ms]\n(pass) identity.distinct_sources [1309.24ms]\n(pass) pack.paths [22689.70ms]\n(pass) pack.copy_order [1160.65ms]\n(pass) pack.regeneration_paths [1152.52ms]\n(pass) pack.repository_input_excluded [350.29ms]\n\n 21 pass\n 0 fail\n 344 expect() calls\nRan 21 tests across 1 file. [44.53s]\n"
+  }
+]

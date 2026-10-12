@@ -1,0 +1,4 @@
+1.4.2
+1
+bun test v1.4.2 (744846f84)
+test exit 1

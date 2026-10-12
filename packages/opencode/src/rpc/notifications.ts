@@ -1,4 +1,4 @@
-import type { OpenDialogPayload, RpcNotification } from './protocol'
+import type { RpcNotification, RpcNotificationPayload } from './protocol'
 
 const QUEUE_CAP = 100
 const CONNECTION_TTL_MS = 3_000
@@ -9,10 +9,10 @@ let lastDrainAtAny = 0
 const lastDrainAtBySession = new Map<string, number>()
 
 export function pushNotification(
-  payload: OpenDialogPayload,
+  payload: RpcNotificationPayload,
   sessionId?: string,
 ): void {
-  queue.push({ id: nextId++, type: 'open-dialog', payload, sessionId })
+  queue.push({ id: nextId++, payload, sessionId })
   if (queue.length > QUEUE_CAP) queue = queue.slice(queue.length - QUEUE_CAP)
 }
 

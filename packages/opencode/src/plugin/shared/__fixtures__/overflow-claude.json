@@ -1,0 +1,20 @@
+{
+  "status": 400,
+  "contentType": "application/json",
+  "body": "{\"error\":{\"code\":400,\"message\":\"prompt is too long: 123456 tokens > 100000 maximum\",\"status\":\"INVALID_ARGUMENT\"}}",
+  "bodyBase64": "eyJlcnJvciI6eyJjb2RlIjo0MDAsIm1lc3NhZ2UiOiJwcm9tcHQgaXMgdG9vIGxvbmc6IDEyMzQ1NiB0b2tlbnMgPiAxMDAwMDAgbWF4aW11bSIsInN0YXR1cyI6IklOVkFMSURfQVJHVU1FTlQifX0=",
+  "bodyByteLength": 113,
+  "bodySha256": "773dfc1934b7d6b429f728b5842f5338ef69451b5513f4bf6b1ac48edbbec01f",
+  "provenance": {
+    "kind": "retained canned mock response, not a live backend capture",
+    "observedHttpHook": true,
+    "observedHostVersion": "opencode v2.0.20",
+    "observedMagicContextRevision": "cda6851df61b3d53b900174e285cedcfecedb213",
+    "sourceSummary": ".cortexkit/alfonso/evidence/mc-fixed-cda6851/evidence/claude-wording-overflow/summary.json",
+    "sourceSummarySha256": "cfa315a7267cd9f85220c88b72278a630f479e14aae6de421e32d9331af1273d",
+    "mockSource": ".cortexkit/alfonso/evidence/mc-overflow-probe-08c4835/research/opencode2-mc-overflow-probe/upstream-mock.mjs:38-49",
+    "scope": "Google INVALID_ARGUMENT envelope; Claude fixture uses Claude overflow wording, not Anthropic-native envelope",
+    "runChecks": 75,
+    "runRedChecks": 0
+  }
+}

@@ -1,0 +1,40 @@
+timestamp=2026-10-11T22:21:01.230Z level=INFO run=85e2c171 message=loading path=/tmp/unmigrated-v1-yra7vY/host/config/opencode/config.json
+timestamp=2026-10-11T22:21:01.244Z level=INFO run=85e2c171 message=loading path=/tmp/unmigrated-v1-yra7vY/host/config/opencode/opencode.json
+timestamp=2026-10-11T22:21:01.303Z level=INFO run=85e2c171 message=loading path=/tmp/unmigrated-v1-yra7vY/host/config/opencode/opencode.jsonc
+timestamp=2026-10-11T22:21:01.855Z level=INFO run=85e2c171 message="creating instance" directory=/tmp/unmigrated-v1-yra7vY/host/project
+timestamp=2026-10-11T22:21:01.857Z level=INFO run=85e2c171 message=fromDirectory directory=/tmp/unmigrated-v1-yra7vY/host/project
+timestamp=2026-10-11T22:21:01.924Z level=INFO run=85e2c171 message=bootstrapping directory=/tmp/unmigrated-v1-yra7vY/host/project
+timestamp=2026-10-11T22:21:01.933Z level=INFO run=85e2c171 message=loading path=/tmp/unmigrated-v1-yra7vY/host/config/opencode/config.json
+timestamp=2026-10-11T22:21:01.934Z level=INFO run=85e2c171 message=loading path=/tmp/unmigrated-v1-yra7vY/host/config/opencode/opencode.json
+timestamp=2026-10-11T22:21:01.935Z level=INFO run=85e2c171 message=loading path=/tmp/unmigrated-v1-yra7vY/host/config/opencode/opencode.jsonc
+timestamp=2026-10-11T22:21:01.939Z level=DEBUG run=85e2c171 message="loading config from OPENCODE_CONFIG_DIR" path=/tmp/unmigrated-v1-yra7vY/host/config/opencode
+timestamp=2026-10-11T22:21:01.939Z level=DEBUG run=85e2c171 message="loading config from /tmp/unmigrated-v1-yra7vY/host/config/opencode/opencode.json"
+timestamp=2026-10-11T22:21:01.939Z level=INFO run=85e2c171 message=loading path=/tmp/unmigrated-v1-yra7vY/host/config/opencode/opencode.json
+timestamp=2026-10-11T22:21:01.941Z level=DEBUG run=85e2c171 message="loading config from /tmp/unmigrated-v1-yra7vY/host/config/opencode/opencode.jsonc"
+timestamp=2026-10-11T22:21:01.941Z level=INFO run=85e2c171 message=loading path=/tmp/unmigrated-v1-yra7vY/host/config/opencode/opencode.jsonc
+timestamp=2026-10-11T22:21:01.992Z level=DEBUG run=85e2c171 message="loading config from /tmp/unmigrated-v1-yra7vY/host/project/.opencode/opencode.json"
+timestamp=2026-10-11T22:21:01.992Z level=INFO run=85e2c171 message=loading path=/tmp/unmigrated-v1-yra7vY/host/project/.opencode/opencode.json
+timestamp=2026-10-11T22:21:01.992Z level=DEBUG run=85e2c171 message="loading config from /tmp/unmigrated-v1-yra7vY/host/project/.opencode/opencode.jsonc"
+timestamp=2026-10-11T22:21:01.993Z level=INFO run=85e2c171 message=loading path=/tmp/unmigrated-v1-yra7vY/host/project/.opencode/opencode.jsonc
+timestamp=2026-10-11T22:21:02.351Z level=INFO run=85e2c171 message="all LSPs are disabled"
+timestamp=2026-10-11T22:21:02.352Z level=INFO run=85e2c171 message="all formatters are disabled"
+timestamp=2026-10-11T22:21:02.352Z level=INFO run=85e2c171 message=init
+timestamp=2026-10-11T22:21:02.762Z level=INFO run=85e2c171 message=created id=ses_ed2f1e055ffev0VX2yNeE3P0wi slug=kind-river version=1.17.13 projectID=global directory=/tmp/unmigrated-v1-yra7vY/host/project path=tmp/unmigrated-v1-yra7vY/host/project workspaceID=undefined parentID=undefined title="New session - 2026-10-11T22:21:02.762Z" agent=undefined model=undefined metadata=undefined permission=undefined cost=0 tokens.input=0 tokens.output=0 tokens.reasoning=0 tokens.cache.read=0 tokens.cache.write=0 time.created=1791757262762 time.updated=1791757262762
+timestamp=2026-10-11T22:21:02.826Z level=INFO run=85e2c171 message=loop session.id=ses_ed2f1e055ffev0VX2yNeE3P0wi step=0
+timestamp=2026-10-11T22:21:02.844Z level=INFO run=85e2c171 message="shell tool using shell" shell=/usr/bin/bash
+timestamp=2026-10-11T22:21:02.945Z level=INFO run=85e2c171 message="watcher backend" directory=/tmp/unmigrated-v1-yra7vY/host/project platform=linux backend=inotify
+timestamp=2026-10-11T22:21:02.956Z level=INFO run=85e2c171 message="project copy refresh started" projectID=global
+timestamp=2026-10-11T22:21:02.959Z level=INFO run=85e2c171 message="project copy refresh done" projectID=global updated=[] removed=[]
+timestamp=2026-10-11T22:21:02.994Z level=INFO run=85e2c171 message="booting location services" directory=/tmp/unmigrated-v1-yra7vY/host/project workspaceID=undefined
+timestamp=2026-10-11T22:21:03.362Z level=INFO run=85e2c171 message=process session.id=ses_ed2f1e055ffev0VX2yNeE3P0wi messageID=msg_12d0e1ff0001X3qqMh3Rm6cOBt
+timestamp=2026-10-11T22:21:03.364Z level=INFO run=85e2c171 message=stream providerID=google modelID=antigravity-gemini-3.8-flash session.id=ses_ed2f1e055ffev0VX2yNeE3P0wi small=false agent=build mode=primary
+timestamp=2026-10-11T22:21:03.371Z level=INFO run=85e2c171 message="llm runtime selected" llm.runtime=ai-sdk llm.provider=google llm.model=antigravity-gemini-3.8-flash
+timestamp=2026-10-11T22:21:03.457Z level=INFO run=85e2c171 message=loop session.id=ses_ed2f1e055ffev0VX2yNeE3P0wi step=1
+timestamp=2026-10-11T22:21:03.458Z level=INFO run=85e2c171 message="exiting loop" session.id=ses_ed2f1e055ffev0VX2yNeE3P0wi
+timestamp=2026-10-11T22:21:03.475Z level=INFO run=85e2c171 message=created id=ses_ed2f1dd8cffe26yDJ1NZasVKma slug=playful-squid version=1.17.13 projectID=global directory=/tmp/unmigrated-v1-yra7vY/host/project path=tmp/unmigrated-v1-yra7vY/host/project workspaceID=undefined parentID=undefined title="New session - 2026-10-11T22:21:03.475Z" agent=undefined model=undefined metadata=undefined permission=undefined cost=0 tokens.input=0 tokens.output=0 tokens.reasoning=0 tokens.cache.read=0 tokens.cache.write=0 time.created=1791757263475 time.updated=1791757263475
+timestamp=2026-10-11T22:21:03.503Z level=INFO run=85e2c171 message=loop session.id=ses_ed2f1dd8cffe26yDJ1NZasVKma step=0
+timestamp=2026-10-11T22:21:03.806Z level=INFO run=85e2c171 message=process session.id=ses_ed2f1dd8cffe26yDJ1NZasVKma messageID=msg_12d0e22900015Po0uNbQNE0jYr
+timestamp=2026-10-11T22:21:03.807Z level=INFO run=85e2c171 message=stream providerID=google modelID=antigravity-gemini-3.8-flash session.id=ses_ed2f1dd8cffe26yDJ1NZasVKma small=false agent=build mode=primary
+timestamp=2026-10-11T22:21:03.809Z level=INFO run=85e2c171 message="llm runtime selected" llm.runtime=ai-sdk llm.provider=google llm.model=antigravity-gemini-3.8-flash
+timestamp=2026-10-11T22:21:03.883Z level=INFO run=85e2c171 message=loop session.id=ses_ed2f1dd8cffe26yDJ1NZasVKma step=1
+timestamp=2026-10-11T22:21:03.885Z level=INFO run=85e2c171 message="exiting loop" session.id=ses_ed2f1dd8cffe26yDJ1NZasVKma

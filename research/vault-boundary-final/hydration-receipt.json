@@ -1,0 +1,65 @@
+{
+  "base": "3b3d4e6743314297db130104bd51b63b8b428146",
+  "files": [
+    {
+      "path": "packages/core/src/index.ts",
+      "before_sha256": "f706b224d4f66f44e1f66c44c4d6c6cc9f7c2da96a39629bd44ea5a51329257d",
+      "bytes": 1839,
+      "after_sha256": "f706b224d4f66f44e1f66c44c4d6c6cc9f7c2da96a39629bd44ea5a51329257d"
+    },
+    {
+      "path": "packages/opencode/src/plugin/auth-loader.test.ts",
+      "before_sha256": "595dbb350324fea3e547acf85a4c3493f8041a381252daf41801a82151d71cca",
+      "bytes": 53459,
+      "after_sha256": "595dbb350324fea3e547acf85a4c3493f8041a381252daf41801a82151d71cca"
+    },
+    {
+      "path": "packages/opencode/src/plugin/shared/request-services.test.ts",
+      "before_sha256": "b4629b9701bbc6fd94dac584a0288b762d57823ff620da31130020e0d369fbe7",
+      "bytes": 86267,
+      "after_sha256": "b4629b9701bbc6fd94dac584a0288b762d57823ff620da31130020e0d369fbe7"
+    },
+    {
+      "path": "packages/opencode/src/plugin/shared/request-services.ts",
+      "before_sha256": "c5072451888a2369c361edd3b1f0592a02dc04063630a867cb8b3a7d80cd6727",
+      "bytes": 110600,
+      "after_sha256": "c5072451888a2369c361edd3b1f0592a02dc04063630a867cb8b3a7d80cd6727"
+    },
+    {
+      "path": "packages/pi/src/commands.test.ts",
+      "before_sha256": "7a829441959a94a557d1d07e4b5e6b67b32560a86036bc2df7e8be54abb28659",
+      "bytes": 10500,
+      "after_sha256": "7a829441959a94a557d1d07e4b5e6b67b32560a86036bc2df7e8be54abb28659"
+    },
+    {
+      "path": "packages/pi/src/commands.ts",
+      "before_sha256": "33b82fbb3d64429c945edce78dde8867dd212a5f5122bc87a0dfb7a1db1eba3c",
+      "bytes": 7283,
+      "after_sha256": "33b82fbb3d64429c945edce78dde8867dd212a5f5122bc87a0dfb7a1db1eba3c"
+    },
+    {
+      "path": "packages/pi/src/stream.test.ts",
+      "before_sha256": "3e05a8a442a3141fae31a4564aa35a97dbd891cc65f164ebe77199879b4321aa",
+      "bytes": 45214,
+      "after_sha256": "3e05a8a442a3141fae31a4564aa35a97dbd891cc65f164ebe77199879b4321aa"
+    },
+    {
+      "path": "packages/pi/src/stream.ts",
+      "before_sha256": "a62272fdefa46cca45442d57f7b46de5d1296457e2c2beb6f1500c0f4c954647",
+      "bytes": 25036,
+      "after_sha256": "a62272fdefa46cca45442d57f7b46de5d1296457e2c2beb6f1500c0f4c954647"
+    },
+    {
+      "path": "packages/core/src/credential-redaction.test.ts",
+      "before_sha256": "01cfc092026f70f61d16f38c9d58c31ece7d24d0006740a5693f25bb6e7ca6a8",
+      "bytes": 5300,
+      "after_sha256": "01cfc092026f70f61d16f38c9d58c31ece7d24d0006740a5693f25bb6e7ca6a8"
+    },
+    {
+      "path": "packages/core/src/credential-redaction.ts",
+      "before_sha256": "414abfbc007fc21d2192219314e475f8037ee85a809589278585ce3bc05bccd8",
+      "bytes": 6419,
+      "after_sha256": "414abfbc007fc21d2192219314e475f8037ee85a809589278585ce3bc05bccd8"
+    }
+  ]
+}

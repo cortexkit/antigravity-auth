@@ -1,0 +1,7 @@
+{
+  "path": "original-aft.tar.gz",
+  "bytes": 2548019,
+  "sha256": "91b79c4575c5dda27dcf3abdf49816485131394cce582b186ddc290c5cd90e04",
+  "files": 324,
+  "contents": "Byte-identical original-aft/c1cd4f2098959f91 TerminalRecord tree; unpack within this evidence directory"
+}

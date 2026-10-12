@@ -1,0 +1,23 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/core/src/credential-redaction.test.ts:
+136 |     let received: unknown
+137 |     const original = new Response(new ReadableStream({ cancel(callerReason) { received = callerReason; throw failure } }), { headers: { 'content-type': 'text/event-stream' } })
+138 |     const safe = await redactCredentialResponse(original, selected)
+139 |     await expect(safe.body!.cancel(reason)).rejects.toBe(failure)
+140 |     expect(received).toBe(reason)
+141 |     expect(failure.message).toBe('echo [credential]')
+                                  ^
+error: expect(received).toBe(expected)
+
+Expected: "echo [credential]"
+Received: "echo opaque-selected-token"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:141:29)
+(fail) credential redaction > redacts upstream SSE cancellation failure while forwarding the exact caller reason and releasing its reader [5.52ms]
+
+ 0 pass
+ 16 filtered out
+ 1 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [152.00ms]

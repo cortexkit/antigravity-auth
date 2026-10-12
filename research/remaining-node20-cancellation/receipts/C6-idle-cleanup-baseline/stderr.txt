@@ -1,0 +1,22 @@
+
+packages/core/src/fetch-timeout.test.ts:
+348 |       }, { fetchImpl: source.fetchImpl })
+349 |       expect(listeners.size).toBe(1)
+350 |       if (error) source.controller().error(error)
+351 |       else source.controller().close()
+352 |       await Promise.resolve()
+353 |       expect(listeners.size).toBe(0)
+                                   ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/core/src/fetch-timeout.test.ts:353:30)
+(fail) caller/body lifetime without AbortSignal.any > detaches and releases an idle body when the source errors or reaches empty EOF [0.62ms]
+
+ 0 pass
+ 18 filtered out
+ 1 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [131.00ms]

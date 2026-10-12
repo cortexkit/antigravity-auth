@@ -1,0 +1,21 @@
+{
+  "name": "missing-placeholder",
+  "marker": null,
+  "nonce": "3b02f8d9d34c2276dbe655911b95cc10",
+  "authBefore": null,
+  "authAfter": null,
+  "wireHashes": [],
+  "vaultCalls": [
+    {
+      "method": "credential.list_scoped",
+      "params": {
+        "enrollment_token": "abababababababababababababababababababababababababababababababab"
+      }
+    }
+  ],
+  "requests": 0,
+  "wire": [],
+  "stdout": "{\"type\":\"error\",\"timestamp\":1791739872555,\"sessionID\":\"ses_ed3fb3d42ffehOlak4QXLQEbJN\",\"error\":{\"name\":\"ProviderAuthError\",\"data\":{\"providerID\":\"google\",\"message\":\"Google Generative AI API key is missing. Pass it using the 'apiKey' parameter or the GOOGLE_GENERATIVE_AI_API_KEY environment variable.\"}}}\n",
+  "stderr": "",
+  "exitCode": 1
+}

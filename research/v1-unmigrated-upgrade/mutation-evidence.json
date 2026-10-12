@@ -1,0 +1,51 @@
+[
+  {
+    "control": "Removed index.ts's migration-required predicate; the initial source witness disposed before async admission completed (bash-74e1ef3834544fd9)",
+    "expected_red": "a real default background quota tick leaves an unmigrated pool and account-state sidecars untouched",
+    "captured_output": "2 pass, 0 fail; default background tick and package root exports both stayed green. This observer did not defend transient lock writes.",
+    "applied_evidence": "packages/opencode/src/plugin/index.ts: during 1 file changed, 1 insertion(+), 1 deletion(-); after staged checkout + touch, git diff --stat empty",
+    "outcome": "undefended"
+  },
+  {
+    "control": "Removed index.ts's predicate again after waiting for next schedule; promise-module open spy still missed imported lock I/O (bash-3ebe88cb25bdbdea)",
+    "expected_red": "a real default background quota tick leaves an unmigrated pool and account-state sidecars untouched",
+    "captured_output": "2 pass, 0 fail; default background tick and package root exports both stayed green. Replaced proxy I/O observation with kernel directory notifications.",
+    "applied_evidence": "packages/opencode/src/plugin/index.ts: during 1 file changed, 1 insertion(+), 1 deletion(-); after staged checkout + touch, git diff --stat empty",
+    "outcome": "undefended"
+  },
+  {
+    "control": "Removed index.ts's predicate with the real tick's natural completion and kernel notifications observed (bash-02faa389392cd1dd)",
+    "expected_red": "a real default background quota tick leaves an unmigrated pool and account-state sidecars untouched",
+    "captured_output": "(fail) a real default background quota tick leaves an unmigrated pool and account-state sidecars untouched: expected [], observed sidebar-state.json.bg-quota-poll.lock notifications. (pass) package root exports > exports only the two plugin factory aliases. 1 pass, 1 fail.",
+    "applied_evidence": "packages/opencode/src/plugin/index.ts: during 1 file changed, 1 insertion(+), 1 deletion(-); after staged checkout + touch, git diff --stat empty",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Neutralized accountWriteLines to return [] while reading the preserved real native lock/rename trace (bash-74678032ed5f2593)",
+    "expected_red": "upgrade evidence controls > upgrade write fence detects the preserved native pool lock and replacement",
+    "captured_output": "(fail) upgrade evidence controls > upgrade write fence detects the preserved native pool lock and replacement: expected true, received false. (pass) upgrade evidence controls > upgrade send and native error controls distinguish the preserved serving baseline. 1 pass, 1 fail.",
+    "applied_evidence": "packages/e2e-tests/src/v1-unmigrated-upgrade-harness.ts: during 1 file changed, 3 insertions(+), 13 deletions(-); after staged checkout + touch, git diff --stat empty",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Replaced storage.ts's fixed pinned instruction with NON-VACUITY BREAK text (bash-3bdf7030481ff99b)",
+    "expected_red": "createAuthLoader > keeps an unmigrated local target unavailable with default producers, preserves passthrough and cancellation, and delegates fresh vault authority",
+    "captured_output": "(fail) createAuthLoader > keeps an unmigrated local target unavailable with default producers, preserves passthrough and cancellation, and delegates fresh vault authority: fixed message differs. (pass) createAuthLoader > exposes load on the handle so contract consumers can read it. 1 pass, 1 fail.",
+    "applied_evidence": "packages/opencode/src/plugin/storage.ts: during 1 file changed, 1 insertion(+), 1 deletion(-); after staged checkout + touch, git diff --stat empty",
+    "outcome": "reddened"
+  },
+  {
+    "control": "Omitted only OAuth recorder entries, but successor failed on an undrained vault sidebar lock before any refresh (bash-7142d07ffdd4777d)",
+    "expected_red": "running native unmigrated upgrade > upgrade genuine packed offline CLI migration and stopped-host restart serve through real refreshed TLS",
+    "captured_output": "(fail) running native unmigrated upgrade > upgrade genuine packed offline CLI migration and stopped-host restart serve through real refreshed TLS: expected HTTP200, received500 (SidebarStateLockContentionError). Negative OAuth-zero test passed. Counter code not reached; not credited as a counter proof.",
+    "applied_evidence": "packages/e2e-tests/src/v1-unmigrated-upgrade-harness.ts: during 1 file changed, 2 insertions(+), 1 deletion(-); after staged checkout + touch, git diff --stat empty",
+    "outcome": "not_reached"
+  },
+  {
+    "control": "Omitted OAuth recorder entries without changing real production refresh/response, after official native instance disposal drained producers (bash-c1a6094794c1f4a5)",
+    "expected_red": "running native unmigrated upgrade > upgrade genuine packed offline CLI migration and stopped-host restart serve through real refreshed TLS",
+    "captured_output": "(fail) running native unmigrated upgrade > upgrade genuine packed offline CLI migration and stopped-host restart serve through real refreshed TLS: expected refresh length1, received0 after native HTTP200/GA_OK. (pass) running native unmigrated upgrade > upgrade physical oauth boundary counter stays zero before migration. 1 pass, 1 fail.",
+    "applied_evidence": "packages/e2e-tests/src/v1-unmigrated-upgrade-harness.ts: during 1 file changed, 2 insertions(+), 1 deletion(-); after staged checkout + touch, git diff --stat empty",
+    "outcome": "reddened"
+  }
+]

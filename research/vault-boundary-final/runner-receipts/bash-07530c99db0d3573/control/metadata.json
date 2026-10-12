@@ -1,0 +1,32 @@
+{
+  "schema_version": 7,
+  "harness": "runner",
+  "task_id": "bash-07530c99db0d3573",
+  "session_id": "alfonso:bg_3052fdcfd59c0a84",
+  "command": "bunx biome check --write --no-errors-on-unmatched packages/pi/src/stream.test.ts; git add packages/core/src/credential-redaction.ts packages/core/src/credential-redaction.test.ts packages/core/src/index.ts packages/opencode/src/plugin/shared/request-services.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/quota.ts packages/opencode/src/plugin/quota.test.ts packages/pi/src/stream.ts packages/pi/src/stream.test.ts packages/pi/src/commands.ts packages/pi/src/commands.test.ts research/vault-boundary-final; git diff --stat; python3 - <<'PY'\nfrom pathlib import Path\np=Path('packages/pi/src/stream.ts');s=p.read_text();assert s.count('selectedCredentials.add(credential.accessToken)')==1;p.write_text(s.replace('selectedCredentials.add(credential.accessToken)','// NON-VACUITY BREAK: forget the actual opaque served token'))\np=Path('packages/core/src/credential-redaction.ts');s=p.read_text();assert s.count('if (!frame.includes(\\'\"error\"\\')) return frame')==1;p.write_text(s.replace('if (!frame.includes(\\'\"error\"\\')) return frame','// NON-VACUITY BREAK: redact successful frames too\\n  return redactCredentialText(frame, credentials)'))\nPY\n git diff --stat",
+  "mode": "pipes",
+  "workdir": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84",
+  "project_root": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84",
+  "status": "completed",
+  "started_at": 1791745939821,
+  "finished_at": 1791745940823,
+  "duration_ms": 1002,
+  "timeout_ms": 1800000,
+  "default_hard_kill": true,
+  "exit_code": 0,
+  "child_pid": null,
+  "pgid": 6142,
+  "live_descendants": [],
+  "completion_delivered": true,
+  "notify_on_completion": false,
+  "compressed": true,
+  "pty_rows": null,
+  "pty_cols": null,
+  "sandbox_native": false,
+  "status_reason": null,
+  "call_key": {
+    "requester": "reserved:broca",
+    "key": "bash-07530c99db0d3573",
+    "minted": true
+  }
+}

@@ -1,0 +1,209 @@
+{
+  "base_commit": "3642153f7f59421626725dac9bd4eedab9efbbe8",
+  "task_id": "bash-129b57d568a8ae0d",
+  "outer_exit_code": 0,
+  "tree_hash": "c5176b283d6ac6bce0ee0aa4f49578d5c343a279",
+  "root_typecheck": "bun node_modules/typescript/bin/tsc -p tsconfig.scripts.json",
+  "tests": {
+    "passed": 3,
+    "failed": 0,
+    "assertions": 35
+  },
+  "native_inner_exit_code": 0,
+  "alias_override_removed": true,
+  "original_record": "original-aft/bash-129b57d568a8ae0d/",
+  "snapshot": {
+    "packages/e2e-tests/src/v1-vault-activation-harness.ts": "5af34919cb67e1e05b59ba1902335f5be23f6e044227bfeceec66d42aa4f398c",
+    "packages/e2e-tests/src/v1-vault-activation.e2e.test.ts": "4f37434dc09d1daee212bda803cffe9da9fbd963e5f4e7c1af13b0228c4a3d2d",
+    "packages/opencode/src/plugin/index.ts": "0f72360b679768da6ff5931251930d1232a815316c6be897522d4b21b5c9f46d",
+    "packages/core/src/common-auth-embedded/source-output.json": "20280ed9fe35760b4cd9d55c230a7bc7be09d789d8549ed31235694ce9eff240"
+  },
+  "observations": {
+    "error": null,
+    "runtime": {
+      "bun": "1.4.2",
+      "platform": "linux",
+      "arch": "x64",
+      "interfaces": [
+        "lo"
+      ],
+      "topology": "run (native internal server)",
+      "sdkVersion": "1.17.13"
+    },
+    "binary": {
+      "sha256": "ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+      "version": "1.17.13",
+      "path": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/research/native-v1-vault-activation/oc-fixture/node_modules/opencode-linux-x64/bin/opencode"
+    },
+    "authAbsentBefore": true,
+    "marker": {
+      "google": {
+        "type": "oauth",
+        "refresh": "claustrum-tombstone:v1:google",
+        "access": "",
+        "expires": 0
+      }
+    },
+    "requests": [
+      {
+        "path": "/v1internal:streamGenerateContent",
+        "authorization": "Bearer synthetic-native-v1-vault-access",
+        "body": {
+          "project": "synthetic-native-v1-project",
+          "requestId": "agent/ad7677e4-f5dc-4953-89a5-4cf4b3a1cbe6/1791735902833/a5f750c7-ff8a-46b7-8387-4e1ee297870f/2",
+          "request": {
+            "sha256": "fe7d91ee40df05ffb474666a5bb1dd3726560d8f8e8acf0c674e771e24ce0a28",
+            "bytes": 16471
+          },
+          "model": "gemini-3.8-flash-high",
+          "userAgent": "antigravity",
+          "requestType": "agent"
+        }
+      }
+    ],
+    "localFileSyscalls": []
+  },
+  "processes": [
+    {
+      "name": "version",
+      "exitCode": 0,
+      "signal": null,
+      "reaped": true,
+      "ownership": {
+        "pid": 91,
+        "ppid": 77,
+        "pgid": 91,
+        "sid": 91,
+        "start": "60549802"
+      },
+      "signals": [],
+      "signalFailures": []
+    },
+    {
+      "name": "auth-help",
+      "exitCode": 0,
+      "signal": null,
+      "reaped": true,
+      "ownership": {
+        "pid": 104,
+        "ppid": 77,
+        "pgid": 104,
+        "sid": 104,
+        "start": "60549836"
+      },
+      "signals": [],
+      "signalFailures": []
+    },
+    {
+      "name": "serve-help",
+      "exitCode": 0,
+      "signal": null,
+      "reaped": true,
+      "ownership": {
+        "pid": 117,
+        "ppid": 77,
+        "pgid": 117,
+        "sid": 117,
+        "start": "60549870"
+      },
+      "signals": [],
+      "signalFailures": []
+    },
+    {
+      "name": "run-help",
+      "exitCode": 0,
+      "signal": null,
+      "reaped": true,
+      "ownership": {
+        "pid": 130,
+        "ppid": 77,
+        "pgid": 130,
+        "sid": 130,
+        "start": "60549904"
+      },
+      "signals": [],
+      "signalFailures": []
+    },
+    {
+      "name": "enrollment",
+      "exitCode": 0,
+      "signal": null,
+      "reaped": true,
+      "ownership": {
+        "pid": 143,
+        "ppid": 77,
+        "pgid": 143,
+        "sid": 143,
+        "start": "60549940"
+      },
+      "signals": [],
+      "signalFailures": []
+    },
+    {
+      "name": "login",
+      "exitCode": 0,
+      "signal": null,
+      "reaped": true,
+      "ownership": {
+        "pid": 152,
+        "ppid": 77,
+        "pgid": 152,
+        "sid": 152,
+        "start": "60549943"
+      },
+      "signals": [],
+      "signalFailures": []
+    },
+    {
+      "name": "first-request",
+      "exitCode": 0,
+      "signal": null,
+      "reaped": true,
+      "ownership": {
+        "pid": 166,
+        "ppid": 77,
+        "pgid": 166,
+        "sid": 166,
+        "start": "60550083"
+      },
+      "signals": [],
+      "signalFailures": []
+    }
+  ],
+  "first_request": {
+    "name": "first-request",
+    "argv": [
+      "/usr/bin/strace",
+      "-f",
+      "-e",
+      "trace=%file",
+      "-o",
+      "/tmp/native-v1-vault-roGmA7/first-request.syscalls",
+      "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/research/native-v1-vault-activation/oc-fixture/node_modules/opencode-linux-x64/bin/opencode",
+      "run",
+      "--dir",
+      "/tmp/native-v1-vault-roGmA7/project",
+      "--format",
+      "json",
+      "--model",
+      "google/antigravity-gemini-3.8-flash",
+      "Reply with the fixture completion text."
+    ],
+    "pid": 166,
+    "exitCode": 0,
+    "signal": null,
+    "timedOut": false,
+    "reaped": true,
+    "ownership": {
+      "pid": 166,
+      "ppid": 77,
+      "pgid": 166,
+      "sid": 166,
+      "start": "60550083"
+    },
+    "signals": [],
+    "signalFailures": [],
+    "stdout": "{\"type\":\"step_start\",\"timestamp\":1791735902881,\"sessionID\":\"ses_ed437cf7bffeS2gv0R1OVtLi2O\",\"part\":{\"id\":\"prt_12bc832920010mHi7yrYyKpFeD\",\"messageID\":\"msg_12bc83133001dAZj0vgCcYZk29\",\"sessionID\":\"ses_ed437cf7bffeS2gv0R1OVtLi2O\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1791735902881,\"sessionID\":\"ses_ed437cf7bffeS2gv0R1OVtLi2O\",\"part\":{\"id\":\"prt_12bc83294001RqhCtH4CUT6gB1\",\"messageID\":\"msg_12bc83133001dAZj0vgCcYZk29\",\"sessionID\":\"ses_ed437cf7bffeS2gv0R1OVtLi2O\",\"type\":\"text\",\"text\":\"Native V1 vault first request completed.\",\"time\":{\"start\":1791735902868,\"end\":1791735902870}}}\n{\"type\":\"step_finish\",\"timestamp\":1791735902881,\"sessionID\":\"ses_ed437cf7bffeS2gv0R1OVtLi2O\",\"part\":{\"id\":\"prt_12bc832990016tdgR5yr10x64X\",\"reason\":\"stop\",\"messageID\":\"msg_12bc83133001dAZj0vgCcYZk29\",\"sessionID\":\"ses_ed437cf7bffeS2gv0R1OVtLi2O\",\"type\":\"step-finish\",\"tokens\":{\"total\":8,\"input\":1,\"output\":7,\"reasoning\":0,\"cache\":{\"write\":0,\"read\":0}},\"cost\":0}}\n",
+    "stderr": ""
+  }
+}

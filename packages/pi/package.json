@@ -1,7 +1,7 @@
 {
   "name": "@cortexkit/pi-antigravity-auth",
-  "version": "2.2.1",
-  "description": "Google Antigravity OAuth extension for pi - access Gemini 3 and Claude 4.6 using Google credentials",
+  "version": "3.0.1",
+  "description": "Google Antigravity OAuth extension for pi - access Gemini and Claude models using Google credentials",
   "type": "module",
   "license": "MIT",
   "author": "CortexKit",
@@ -37,13 +37,14 @@
     ]
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=esm --external:@earendil-works/* --external:@cortexkit/antigravity-auth-core --outfile=dist/index.js --sourcemap",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=esm --external:@earendil-works/* --external:@cortexkit/antigravity-auth-core --external:@cortexkit/claustrum-client --outfile=dist/index.js --sourcemap",
     "typecheck": "tsc --noEmit",
     "test": "bun test --isolate ./src",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@cortexkit/antigravity-auth-core": "2.2.1"
+    "@cortexkit/antigravity-auth-core": "3.0.1",
+    "@cortexkit/claustrum-client": "0.6.2"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
@@ -51,9 +52,9 @@
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.79.1",
-    "@earendil-works/pi-coding-agent": "^0.79.1",
-    "@earendil-works/pi-tui": "^0.79.1",
+    "@earendil-works/pi-ai": "^0.87.1",
+    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@earendil-works/pi-tui": "^0.87.1",
     "esbuild": "^0.27.7"
   }
 }

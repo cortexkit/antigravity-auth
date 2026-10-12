@@ -1,0 +1,458 @@
+1.4.2
+Version 6.0.3
+packages/e2e-tests/src/opencode-ga-harness.ts(1076,12): error TS7006: Parameter 'refreshToken' implicitly has an 'any' type.
+packages/e2e-tests/src/plugin-flow.e2e.test.ts(448,38): error TS7006: Parameter 'a' implicitly has an 'any' type.
+packages/opencode/src/antigravity/oauth.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/cli.ts(19,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/cli.ts(20,10): error TS2305: Module '"./antigravity/oauth"' has no exported member 'authorizeAntigravity'.
+packages/opencode/src/cli.ts(20,32): error TS2305: Module '"./antigravity/oauth"' has no exported member 'exchangeAntigravity'.
+packages/opencode/src/cli.ts(220,46): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/cli.ts(220,55): error TS7006: Parameter 'index' implicitly has an 'any' type.
+packages/opencode/src/cli.ts(253,22): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/cli.ts(254,35): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/cli.ts(256,15): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/cli.ts(256,46): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/cli.ts(372,37): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/cli.ts(470,19): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/cli.ts(471,18): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/cli.ts(472,32): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/cli.ts(474,18): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/cli.ts(475,24): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/cli.ts(528,24): error TS7031: Binding element 'refreshToken' implicitly has an 'any' type.
+packages/opencode/src/constants.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/ga/rpc/protocol.ts(76,47): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/ga/server/auth.ts(6,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/ga/server/index.ts(32,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/ga/server/index.ts(1444,30): error TS18046: 'variant' is of type 'unknown'.
+packages/opencode/src/hooks/auto-update-checker/checker.ts(4,40): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/account-access.ts(7,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/account-access.ts(8,15): error TS2305: Module '"../antigravity/oauth"' has no exported member 'AntigravityTokenExchangeResult'.
+packages/opencode/src/plugin/account-access.ts(10,3): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_DEFAULT_PROJECT_ID'.
+packages/opencode/src/plugin/account-access.ts(11,3): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_ENDPOINT_PROD'.
+packages/opencode/src/plugin/account-access.ts(23,3): error TS2305: Module '"./agy-request-metadata"' has no exported member 'buildAgyAgentRequestMetadata'.
+packages/opencode/src/plugin/account-access.ts(24,3): error TS2305: Module '"./agy-request-metadata"' has no exported member 'createAgyRequestSessionContext'.
+packages/opencode/src/plugin/account-access.ts(25,3): error TS2305: Module '"./agy-request-metadata"' has no exported member 'orderAgyRequestPayloadInPlace'.
+packages/opencode/src/plugin/account-access.ts(27,10): error TS2305: Module '"./agy-transport"' has no exported member 'fetchWithAgyCliTransport'.
+packages/opencode/src/plugin/account-access.ts(28,10): error TS2305: Module '"./auth"' has no exported member 'formatRefreshParts'.
+packages/opencode/src/plugin/account-access.ts(28,30): error TS2305: Module '"./auth"' has no exported member 'parseRefreshParts'.
+packages/opencode/src/plugin/account-access.ts(29,10): error TS2305: Module '"./fingerprint"' has no exported member 'buildFingerprintHeaders'.
+packages/opencode/src/plugin/account-access.ts(29,35): error TS2305: Module '"./fingerprint"' has no exported member 'getSessionFingerprint'.
+packages/opencode/src/plugin/account-access.ts(391,8): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/account-access.ts(397,8): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/account-access.ts(770,6): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/account-access.ts(771,7): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/account-access.ts(795,30): error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
+packages/opencode/src/plugin/account-access.ts(844,13): error TS2358: The left-hand side of an 'instanceof' expression must be of type 'any', an object type or a type parameter.
+packages/opencode/src/plugin/account-access.ts(845,21): error TS2339: Property 'message' does not exist on type 'never'.
+packages/opencode/src/plugin/account-access.ts(846,40): error TS2358: The left-hand side of an 'instanceof' expression must be of type 'any', an object type or a type parameter.
+packages/opencode/src/plugin/account-access.ts(846,71): error TS2339: Property 'message' does not exist on type 'never'.
+packages/opencode/src/plugin/account-blocks.ts(18,36): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/account-command-oauth.ts(2,3): error TS2305: Module '"../antigravity/oauth"' has no exported member 'AntigravityAuthorization'.
+packages/opencode/src/plugin/account-command-oauth.ts(3,3): error TS2305: Module '"../antigravity/oauth"' has no exported member 'AntigravityTokenExchangeResult'.
+packages/opencode/src/plugin/accounts.ts(11,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/accounts.ts(14,10): error TS2305: Module '"./project"' has no exported member 'ensureProjectContext'.
+packages/opencode/src/plugin/accounts.ts(36,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/accounts.ts(42,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/accounts.ts(54,22): error TS7006: Parameter '_path' implicitly has an 'any' type.
+packages/opencode/src/plugin/accounts.ts(54,29): error TS7006: Parameter 'next' implicitly has an 'any' type.
+packages/opencode/src/plugin/accounts.ts(58,18): error TS7006: Parameter '_path' implicitly has an 'any' type.
+packages/opencode/src/plugin/accounts.ts(58,25): error TS7006: Parameter 'fn' implicitly has an 'any' type.
+packages/opencode/src/plugin/accounts.ts(204,27): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/agy-request-metadata.ts(1,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/agy-transport.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/auth-drift.ts(1,10): error TS2305: Module '"./auth"' has no exported member 'formatRefreshParts'.
+packages/opencode/src/plugin/auth-drift.ts(1,30): error TS2305: Module '"./auth"' has no exported member 'isOAuthAuth'.
+packages/opencode/src/plugin/auth-drift.ts(1,43): error TS2305: Module '"./auth"' has no exported member 'parseRefreshParts'.
+packages/opencode/src/plugin/auth-drift.ts(96,6): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/auth-loader.ts(10,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/auth-loader.ts(22,10): error TS2305: Module '"./auth"' has no exported member 'isOAuthAuth'.
+packages/opencode/src/plugin/auth-loader.ts(346,40): error TS2345: Argument of type 'AccountManager' is not assignable to parameter of type 'RefreshQueueAccountView'.
+  Type 'AccountManager' is missing the following properties from type 'RefreshQueueAccountView': getAccounts, toAuthDetails, updateFromAuth, saveToDisk
+packages/opencode/src/plugin/auth-loader.ts(432,45): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+packages/opencode/src/plugin/auth-loader.ts(532,19): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/auth-loader.ts(533,21): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/auth-loader.ts(534,25): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/auth-loader.ts(539,48): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/auth-loader.ts(539,85): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/auth-loader.ts(539,175): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/auth-loader.ts(539,230): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/auth.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/background-quota-refresh.ts(34,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/background-quota-refresh.ts(38,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core/file-lock' or its corresponding type declarations.
+packages/opencode/src/plugin/background-quota-refresh.ts(413,20): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/catalog.ts(3,3): error TS2305: Module '"./model-registry"' has no exported member 'getAntigravityOpencodeModelIds'.
+packages/opencode/src/plugin/catalog.ts(4,3): error TS2305: Module '"./model-registry"' has no exported member 'OPENCODE_MODEL_DEFINITIONS'.
+packages/opencode/src/plugin/cli.ts(5,15): error TS2305: Module '"./fingerprint"' has no exported member 'FingerprintVersion'.
+packages/opencode/src/plugin/command-apply.ts(16,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/command-apply.ts(27,60): error TS2339: Property 'cache' does not exist on type 'unknown'.
+packages/opencode/src/plugin/command-apply.ts(51,21): error TS7006: Parameter 'next' implicitly has an 'any' type.
+packages/opencode/src/plugin/command-apply.ts(56,24): error TS7006: Parameter 'next' implicitly has an 'any' type.
+packages/opencode/src/plugin/command-apply.ts(110,27): error TS7031: Binding element 'values' implicitly has an 'any' type.
+packages/opencode/src/plugin/command-apply.ts(164,16): error TS7006: Parameter 'ref' implicitly has an 'any' type.
+packages/opencode/src/plugin/command-apply.ts(167,35): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/command-apply.ts(176,17): error TS7006: Parameter 'ref' implicitly has an 'any' type.
+packages/opencode/src/plugin/command-apply.ts(176,22): error TS7006: Parameter 'minimumRemainingPercent' implicitly has an 'any' type.
+packages/opencode/src/plugin/command-apply.ts(178,59): error TS7006: Parameter '_current' implicitly has an 'any' type.
+packages/opencode/src/plugin/command-apply.ts(178,69): error TS7006: Parameter 'row' implicitly has an 'any' type.
+packages/opencode/src/plugin/command-apply.ts(196,30): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/commands.ts(23,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/commands.ts(174,25): error TS2339: Property 'extras' does not exist on type 'unknown'.
+packages/opencode/src/plugin/commands.ts(198,27): error TS7031: Binding element 'invocation' implicitly has an 'any' type.
+packages/opencode/src/plugin/commands.ts(223,27): error TS7031: Binding element 'values' implicitly has an 'any' type.
+packages/opencode/src/plugin/commands.ts(223,35): error TS7031: Binding element 'invocation' implicitly has an 'any' type.
+packages/opencode/src/plugin/config/models.ts(2,3): error TS2305: Module '"../model-registry"' has no exported member 'ModelLimit'.
+packages/opencode/src/plugin/config/models.ts(3,3): error TS2305: Module '"../model-registry"' has no exported member 'ModelModalities'.
+packages/opencode/src/plugin/config/models.ts(4,3): error TS2305: Module '"../model-registry"' has no exported member 'ModelModality'.
+packages/opencode/src/plugin/config/models.ts(5,3): error TS2305: Module '"../model-registry"' has no exported member 'ModelThinkingConfig'.
+packages/opencode/src/plugin/config/models.ts(6,3): error TS2305: Module '"../model-registry"' has no exported member 'ModelThinkingLevel'.
+packages/opencode/src/plugin/config/models.ts(7,3): error TS2305: Module '"../model-registry"' has no exported member 'ModelVariant'.
+packages/opencode/src/plugin/config/models.ts(8,3): error TS2305: Module '"../model-registry"' has no exported member 'OpencodeModelDefinition'.
+packages/opencode/src/plugin/config/models.ts(9,3): error TS2305: Module '"../model-registry"' has no exported member 'OpencodeModelDefinitions'.
+packages/opencode/src/plugin/config/models.ts(12,3): error TS2305: Module '"../model-registry"' has no exported member 'getAntigravityOpencodeModelIds'.
+packages/opencode/src/plugin/config/models.ts(13,3): error TS2305: Module '"../model-registry"' has no exported member 'getPublicModelDefinitions'.
+packages/opencode/src/plugin/config/models.ts(14,3): error TS2305: Module '"../model-registry"' has no exported member 'OPENCODE_MODEL_DEFINITIONS'.
+packages/opencode/src/plugin/config/schema.ts(12,47): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/config/writer.ts(33,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/dependencies.ts(36,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/dependencies.ts(38,10): error TS2305: Module '"../antigravity/oauth"' has no exported member 'authorizeAntigravity'.
+packages/opencode/src/plugin/dependencies.ts(38,32): error TS2305: Module '"../antigravity/oauth"' has no exported member 'exchangeAntigravity'.
+packages/opencode/src/plugin/fetch-interceptor.ts(4,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/fetch-interceptor.ts(13,15): error TS2305: Module '"./auth"' has no exported member 'GetAuth'.
+packages/opencode/src/plugin/fetch-interceptor.ts(14,10): error TS2305: Module '"./auth"' has no exported member 'isOAuthAuth'.
+packages/opencode/src/plugin/fetch-interceptor.ts(21,10): error TS2305: Module '"./project"' has no exported member 'ensureProjectContext'.
+packages/opencode/src/plugin/fetch-interceptor.ts(152,24): error TS2339: Property 'toAuthDetails' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/fetch-interceptor.ts(162,27): error TS2339: Property 'getAccounts' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/fetch-interceptor.ts(164,26): error TS2339: Property 'toAuthDetails' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/fetch-interceptor.ts(288,5): error TS2345: Argument of type 'AccountManager' is not assignable to parameter of type 'Pick<CoreAccountManager, "getAccounts" | "getAccountsForQuotaCheck" | "updateQuotaCache" | "requestSaveToDisk">'.
+  Type 'AccountManager' is missing the following properties from type 'Pick<CoreAccountManager, "getAccounts" | "getAccountsForQuotaCheck" | "updateQuotaCache" | "requestSaveToDisk">': getAccounts, getAccountsForQuotaCheck, updateQuotaCache, requestSaveToDisk
+packages/opencode/src/plugin/fetch-interceptor.ts(299,5): error TS2740: Type 'AccountManager' is missing the following properties from type 'RequestAccountPool<ManagedAccount>': areAllAccountsOverSoftQuota, getAccountCount, getAccounts, getAccountsSnapshot, and 25 more.
+packages/opencode/src/plugin/fetch-interceptor.ts(302,50): error TS2339: Property 'toAuthDetails' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/fetch-interceptor.ts(304,24): error TS2339: Property 'updateFromAuth' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/fetch-interceptor.ts(305,50): error TS2339: Property 'removeAccount' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/fetch-interceptor.ts(306,40): error TS2339: Property 'saveToDisk' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/fetch-interceptor.ts(307,47): error TS2339: Property 'saveToDiskReplace' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/fetch-interceptor.ts(327,31): error TS2339: Property 'healthTracker' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/fetch-interceptor.ts(330,31): error TS2339: Property 'tokenTracker' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/fetch-routing.ts(1,56): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/fetch-routing.ts(2,15): error TS2305: Module '"../constants"' has no exported member 'HeaderStyle'.
+packages/opencode/src/plugin/fetch-routing.ts(5,10): error TS2305: Module '"./transform/model-resolver"' has no exported member 'resolveModelWithTier'.
+packages/opencode/src/plugin/fetch/retry-state.ts(4,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/fingerprint.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/ga-location-services.ts(60,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/ga-location-services.ts(343,18): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/plugin/ga-location-services.ts(344,32): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/plugin/ga-location-services.ts(346,18): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/plugin/ga-location-services.ts(347,24): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/plugin/ga-location-services.ts(349,19): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/plugin/ga-location-services.ts(350,11): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/plugin/ga-location-services.ts(352,22): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/plugin/ga-location-services.ts(352,41): error TS7006: Parameter 'window' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(480,45): error TS7006: Parameter 'row' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(481,31): error TS7006: Parameter 'row' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(481,36): error TS7006: Parameter 'position' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(592,53): error TS2339: Property 'extras' does not exist on type 'unknown'.
+packages/opencode/src/plugin/ga-location-services.ts(648,12): error TS7006: Parameter 'message' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(648,21): error TS7006: Parameter 'kind' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(812,15): error TS7006: Parameter 'ref' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(812,20): error TS7006: Parameter 'invocation' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(1026,19): error TS7031: Binding element 'refreshToken' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(1213,31): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(1256,26): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(1357,33): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(1771,33): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(2143,44): error TS7006: Parameter 'refs' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(2352,31): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/ga-location-services.ts(2352,40): error TS7006: Parameter 'signal' implicitly has an 'any' type.
+packages/opencode/src/plugin/google-search-tool.ts(2,10): error TS2305: Module '"./auth"' has no exported member 'accessTokenExpired'.
+packages/opencode/src/plugin/google-search-tool.ts(2,30): error TS2305: Module '"./auth"' has no exported member 'isOAuthAuth'.
+packages/opencode/src/plugin/google-search-tool.ts(2,43): error TS2305: Module '"./auth"' has no exported member 'parseRefreshParts'.
+packages/opencode/src/plugin/index.ts(10,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/index.ts(16,10): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_PROVIDER_ID'.
+packages/opencode/src/plugin/index.ts(90,3): error TS2305: Module '"./rotation"' has no exported member 'getHealthTracker'.
+packages/opencode/src/plugin/index.ts(91,3): error TS2305: Module '"./rotation"' has no exported member 'initHealthTracker'.
+packages/opencode/src/plugin/index.ts(92,3): error TS2305: Module '"./rotation"' has no exported member 'initTokenTracker'.
+packages/opencode/src/plugin/index.ts(116,10): error TS2305: Module '"./version"' has no exported member 'initAntigravityVersion'.
+packages/opencode/src/plugin/index.ts(264,38): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/index.ts(264,47): error TS7006: Parameter 'request' implicitly has an 'any' type.
+packages/opencode/src/plugin/index.ts(277,40): error TS2339: Property 'getActiveIndexByFamily' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/index.ts(278,24): error TS2339: Property 'getAccounts' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/index.ts(278,43): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+packages/opencode/src/plugin/index.ts(297,24): error TS2339: Property 'getActiveIndexByFamily' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/index.ts(304,33): error TS2339: Property 'getActiveIndexByFamily' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/index.ts(306,20): error TS2339: Property 'getAccounts' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/index.ts(306,39): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+packages/opencode/src/plugin/index.ts(326,35): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+packages/opencode/src/plugin/index.ts(412,34): error TS2322: Type 'AccountManager | null' is not assignable to type 'PollerAccountView | null'.
+  Type 'AccountManager' is missing the following properties from type 'PollerAccountView': getAccounts, getAccountsForQuotaCheck, updateQuotaCache, applyUpdatedAccount, and 2 more.
+packages/opencode/src/plugin/index.ts(466,7): error TS2322: Type 'PluginLifecycle' is not assignable to type 'EventLifecycle'.
+  The types returned by 'getAccountManager()' are incompatible between these types.
+    Type 'AccountManager | null' is not assignable to type 'EventAccountManager | null'.
+      Type 'AccountManager' is missing the following properties from type 'EventAccountManager': getSessionSummary, deleteSessionState
+packages/opencode/src/plugin/index.ts(646,28): error TS7006: Parameter 'refs' implicitly has an 'any' type.
+packages/opencode/src/plugin/index.ts(652,42): error TS18047: 'builtMenu' is possibly 'null'.
+packages/opencode/src/plugin/index.ts(699,18): error TS7006: Parameter 'row' implicitly has an 'any' type.
+packages/opencode/src/plugin/index.ts(823,14): error TS7006: Parameter 'row' implicitly has an 'any' type.
+packages/opencode/src/plugin/index.ts(828,38): error TS7006: Parameter 'row' implicitly has an 'any' type.
+packages/opencode/src/plugin/index.ts(892,50): error TS2339: Property 'refreshFromRepository' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/killswitch.ts(22,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/killswitch.ts(179,23): error TS18048: 'groups' is possibly 'undefined'.
+packages/opencode/src/plugin/lifecycle.ts(111,23): error TS2339: Property 'dispose' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/lifecycle.ts(158,23): error TS2339: Property 'dispose' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/lifecycle.ts(204,23): error TS2339: Property 'dispose' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/logger.ts(22,28): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/model-registry.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/neutral-types.ts(21,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/oauth-login.ts(5,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/oauth-methods.ts(8,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/oauth-methods.ts(10,15): error TS2305: Module '"../antigravity/oauth"' has no exported member 'AntigravityTokenExchangeResult'.
+packages/opencode/src/plugin/oauth-methods.ts(12,3): error TS2305: Module '"../antigravity/oauth"' has no exported member 'authorizeAntigravity'.
+packages/opencode/src/plugin/oauth-methods.ts(13,3): error TS2305: Module '"../antigravity/oauth"' has no exported member 'exchangeAntigravity'.
+packages/opencode/src/plugin/oauth-methods.ts(29,10): error TS2305: Module '"./auth"' has no exported member 'formatRefreshParts'.
+packages/opencode/src/plugin/oauth-methods.ts(29,30): error TS2305: Module '"./auth"' has no exported member 'parseRefreshParts'.
+packages/opencode/src/plugin/oauth-methods.ts(40,10): error TS2305: Module '"./project"' has no exported member 'clearProvisionFailedKeys'.
+packages/opencode/src/plugin/oauth-methods.ts(54,10): error TS2305: Module '"./version"' has no exported member 'getAntigravityVersionResolution'.
+packages/opencode/src/plugin/oauth-methods.ts(136,31): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/oauth-methods.ts(136,68): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/oauth-methods.ts(136,93): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/oauth-methods.ts(137,11): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/oauth-methods.ts(138,43): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/oauth-methods.ts(375,24): error TS2339: Property 'getAccounts' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(375,43): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(399,10): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(478,40): error TS7006: Parameter 'row' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(522,17): error TS2339: Property 'getAccounts' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(524,18): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(531,25): error TS2339: Property 'clearAccountAccessBlocks' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(536,25): error TS2339: Property 'markAccountVerificationRequired' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(542,25): error TS2339: Property 'markAccountIneligible' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(561,18): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(561,23): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(620,34): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/plugin/oauth-methods.ts(621,27): error TS18046: 'group' is of type 'unknown'.
+packages/opencode/src/plugin/oauth-methods.ts(658,32): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(733,37): error TS7006: Parameter 'model' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(733,44): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(817,26): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(879,25): error TS2339: Property 'setAccountEnabled' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(959,27): error TS2339: Property 'clearAccountAccessBlocks' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(980,29): error TS2339: Property 'markAccountVerificationRequired' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(1013,29): error TS2339: Property 'markAccountIneligible' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(1099,25): error TS2339: Property 'clearAccountAccessBlocks' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(1133,25): error TS2339: Property 'markAccountVerificationRequired' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(1187,25): error TS2339: Property 'markAccountIneligible' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(1231,26): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(1235,26): error TS7006: Parameter '_' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(1235,29): error TS7006: Parameter 'index' implicitly has an 'any' type.
+packages/opencode/src/plugin/oauth-methods.ts(1245,19): error TS2339: Property 'removeAccountByIndex' does not exist on type 'AccountManager'.
+packages/opencode/src/plugin/oauth-methods.ts(1570,26): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+packages/opencode/src/plugin/persist-account-pool.ts(34,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/persist-account-pool.ts(36,15): error TS2305: Module '"../antigravity/oauth"' has no exported member 'AntigravityTokenExchangeResult'.
+packages/opencode/src/plugin/persist-account-pool.ts(37,10): error TS2305: Module '"./auth"' has no exported member 'parseRefreshParts'.
+packages/opencode/src/plugin/persist-account-pool.ts(187,37): error TS7006: Parameter 'current' implicitly has an 'any' type.
+packages/opencode/src/plugin/persist-account-pool.ts(286,32): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/persist-account-pool.ts(290,17): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/persist-account-pool.ts(291,15): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/persist-account-pool.ts(292,24): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/persist-account-pool.ts(294,20): error TS18046: 'error' is of type 'unknown'.
+packages/opencode/src/plugin/project.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/quota.ts(49,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/quota.ts(52,3): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_ENDPOINT_FALLBACKS'.
+packages/opencode/src/plugin/quota.ts(53,3): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_PROVIDER_ID'.
+packages/opencode/src/plugin/quota.ts(54,3): error TS2305: Module '"../constants"' has no exported member 'buildGeminiCliUserAgent'.
+packages/opencode/src/plugin/quota.ts(67,3): error TS2305: Module '"./auth"' has no exported member 'accessTokenExpired'.
+packages/opencode/src/plugin/quota.ts(68,3): error TS2305: Module '"./auth"' has no exported member 'formatRefreshParts'.
+packages/opencode/src/plugin/quota.ts(69,3): error TS2305: Module '"./auth"' has no exported member 'parseRefreshParts'.
+packages/opencode/src/plugin/quota.ts(72,10): error TS2305: Module '"./fingerprint"' has no exported member 'buildAntigravityHarnessUserAgent'.
+packages/opencode/src/plugin/quota.ts(74,10): error TS2305: Module '"./project"' has no exported member 'ensureProjectContext'.
+packages/opencode/src/plugin/quota.ts(74,32): error TS2305: Module '"./project"' has no exported member 'loadManagedProject'.
+packages/opencode/src/plugin/quota.ts(94,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/quota.ts(99,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/quota.ts(162,55): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(162,64): error TS7006: Parameter 'request' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(324,26): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(324,35): error TS7006: Parameter 'refreshOptions' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(334,27): error TS7006: Parameter 'accounts' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(334,37): error TS7006: Parameter 'refreshOptions' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(373,18): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(784,7): error TS7006: Parameter 'url' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(784,12): error TS7006: Parameter 'init' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(784,18): error TS7006: Parameter 'extra' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(795,14): error TS7006: Parameter 'admission' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(795,25): error TS7006: Parameter 'signal' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(799,45): error TS7006: Parameter 'url' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(799,50): error TS7006: Parameter 'init' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(799,56): error TS7006: Parameter 'extra' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(811,18): error TS18048: 'served' is possibly 'undefined'.
+packages/opencode/src/plugin/quota.ts(921,18): error TS18047: 'result.value' is possibly 'null'.
+packages/opencode/src/plugin/quota.ts(921,31): error TS2339: Property 'models' does not exist on type '{}'.
+packages/opencode/src/plugin/quota.ts(923,40): error TS18047: 'result.value' is possibly 'null'.
+packages/opencode/src/plugin/quota.ts(923,53): error TS2339: Property 'models' does not exist on type '{}'.
+packages/opencode/src/plugin/quota.ts(1088,17): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1088,26): error TS7006: Parameter 'signal' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1123,11): error TS7006: Parameter 'url' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1123,16): error TS7006: Parameter 'init' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1123,22): error TS7006: Parameter 'extra' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1129,42): error TS7006: Parameter 'url' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1129,47): error TS7006: Parameter 'init' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1129,53): error TS7006: Parameter 'extra' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1177,17): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1177,26): error TS7006: Parameter 'signal' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1252,35): error TS18046: 'groupQuota' is of type 'unknown'.
+packages/opencode/src/plugin/quota.ts(1596,8): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1760,12): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1785,14): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1811,12): error TS7006: Parameter 'failure' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1816,27): error TS7006: Parameter 'id' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1818,41): error TS7006: Parameter 'id' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1831,31): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1854,20): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1857,27): error TS7006: Parameter 'result' implicitly has an 'any' type.
+packages/opencode/src/plugin/quota.ts(1857,35): error TS7006: Parameter 'position' implicitly has an 'any' type.
+packages/opencode/src/plugin/refresh-queue.ts(32,3): error TS2344: Type '"getAccounts" | "toAuthDetails" | "updateFromAuth" | "saveToDisk"' does not satisfy the constraint 'never'.
+  Type '"getAccounts"' is not assignable to type 'never'.
+packages/opencode/src/plugin/refresh-queue.ts(179,12): error TS2571: Object is of type 'unknown'.
+packages/opencode/src/plugin/refresh-queue.ts(179,54): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/refresh-queue.ts(241,24): error TS2571: Object is of type 'unknown'.
+packages/opencode/src/plugin/refresh-queue.ts(245,13): error TS2571: Object is of type 'unknown'.
+packages/opencode/src/plugin/refresh-queue.ts(251,21): error TS2571: Object is of type 'unknown'.
+packages/opencode/src/plugin/request-helpers.ts(2,3): error TS2305: Module '"../constants"' has no exported member 'EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION'.
+packages/opencode/src/plugin/request-helpers.ts(3,3): error TS2305: Module '"../constants"' has no exported member 'EMPTY_SCHEMA_PLACEHOLDER_NAME'.
+packages/opencode/src/plugin/request-helpers.ts(8,15): error TS2305: Module '"./transform/types"' has no exported member 'GoogleSearchConfig'.
+packages/opencode/src/plugin/request.ts(3,3): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_DEFAULT_PROJECT_ID'.
+packages/opencode/src/plugin/request.ts(4,3): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_ENDPOINT'.
+packages/opencode/src/plugin/request.ts(5,3): error TS2305: Module '"../constants"' has no exported member 'CLAUDE_DESCRIPTION_PROMPT'.
+packages/opencode/src/plugin/request.ts(6,3): error TS2305: Module '"../constants"' has no exported member 'CLAUDE_TOOL_SYSTEM_INSTRUCTION'.
+packages/opencode/src/plugin/request.ts(7,3): error TS2305: Module '"../constants"' has no exported member 'EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION'.
+packages/opencode/src/plugin/request.ts(8,3): error TS2305: Module '"../constants"' has no exported member 'EMPTY_SCHEMA_PLACEHOLDER_NAME'.
+packages/opencode/src/plugin/request.ts(9,3): error TS2305: Module '"../constants"' has no exported member 'GEMINI_CLI_ENDPOINT'.
+packages/opencode/src/plugin/request.ts(10,3): error TS2305: Module '"../constants"' has no exported member 'getRandomizedHeaders'.
+packages/opencode/src/plugin/request.ts(11,8): error TS2305: Module '"../constants"' has no exported member 'HeaderStyle'.
+packages/opencode/src/plugin/request.ts(12,3): error TS2305: Module '"../constants"' has no exported member 'SKIP_THOUGHT_SIGNATURE'.
+packages/opencode/src/plugin/request.ts(15,8): error TS2305: Module '"./agy-request-metadata"' has no exported member 'AgyRequestSessionContext'.
+packages/opencode/src/plugin/request.ts(16,3): error TS2305: Module '"./agy-request-metadata"' has no exported member 'buildAgyAgentRequestMetadata'.
+packages/opencode/src/plugin/request.ts(17,3): error TS2305: Module '"./agy-request-metadata"' has no exported member 'createAgyRequestSessionContext'.
+packages/opencode/src/plugin/request.ts(18,3): error TS2305: Module '"./agy-request-metadata"' has no exported member 'orderAgyRequestPayloadInPlace'.
+packages/opencode/src/plugin/request.ts(40,3): error TS2305: Module '"./fingerprint"' has no exported member 'buildFingerprintHeaders'.
+packages/opencode/src/plugin/request.ts(41,8): error TS2305: Module '"./fingerprint"' has no exported member 'Fingerprint'.
+packages/opencode/src/plugin/request.ts(42,3): error TS2305: Module '"./fingerprint"' has no exported member 'generateFingerprint'.
+packages/opencode/src/plugin/request.ts(43,3): error TS2305: Module '"./fingerprint"' has no exported member 'getSessionFingerprint'.
+packages/opencode/src/plugin/request.ts(80,3): error TS2305: Module '"./transform"' has no exported member 'appendClaudeThinkingHint'.
+packages/opencode/src/plugin/request.ts(81,3): error TS2305: Module '"./transform"' has no exported member 'applyGeminiTransforms'.
+packages/opencode/src/plugin/request.ts(82,3): error TS2305: Module '"./transform"' has no exported member 'buildImageGenerationConfig'.
+packages/opencode/src/plugin/request.ts(83,3): error TS2305: Module '"./transform"' has no exported member 'computeClaudeMaxOutputTokens'.
+packages/opencode/src/plugin/request.ts(84,3): error TS2305: Module '"./transform"' has no exported member 'isClaudeModel'.
+packages/opencode/src/plugin/request.ts(85,3): error TS2305: Module '"./transform"' has no exported member 'isClaudeThinkingModel'.
+packages/opencode/src/plugin/request.ts(86,3): error TS2305: Module '"./transform"' has no exported member 'isGemini3Model'.
+packages/opencode/src/plugin/request.ts(87,3): error TS2305: Module '"./transform"' has no exported member 'isImageGenerationModel'.
+packages/opencode/src/plugin/request.ts(88,3): error TS2305: Module '"./transform"' has no exported member 'resolveModelForHeaderStyle'.
+packages/opencode/src/plugin/request.ts(89,8): error TS2305: Module '"./transform"' has no exported member 'ThinkingTier'.
+packages/opencode/src/plugin/request.ts(91,10): error TS2305: Module '"./transform/cross-model-sanitizer"' has no exported member 'sanitizeCrossModelPayloadInPlace'.
+packages/opencode/src/plugin/request.ts(92,15): error TS2305: Module '"./transform/types"' has no exported member 'GoogleSearchConfig'.
+packages/opencode/src/plugin/rotation.ts(1,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/search.ts(12,3): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_ENDPOINT'.
+packages/opencode/src/plugin/search.ts(13,3): error TS2305: Module '"../constants"' has no exported member 'SEARCH_MODEL'.
+packages/opencode/src/plugin/search.ts(14,3): error TS2305: Module '"../constants"' has no exported member 'SEARCH_SYSTEM_INSTRUCTION'.
+packages/opencode/src/plugin/search.ts(15,3): error TS2305: Module '"../constants"' has no exported member 'SEARCH_TIMEOUT_MS'.
+packages/opencode/src/plugin/search.ts(17,10): error TS2305: Module '"./agy-transport"' has no exported member 'fetchWithAgyCliTransport'.
+packages/opencode/src/plugin/search.ts(18,10): error TS2305: Module '"./fingerprint"' has no exported member 'buildFingerprintHeaders'.
+packages/opencode/src/plugin/search.ts(18,35): error TS2305: Module '"./fingerprint"' has no exported member 'getSessionFingerprint'.
+packages/opencode/src/plugin/server.ts(4,10): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_REDIRECT_URI'.
+packages/opencode/src/plugin/session-context.ts(5,8): error TS2305: Module '"./agy-request-metadata"' has no exported member 'AgyRequestScope'.
+packages/opencode/src/plugin/session-context.ts(6,8): error TS2305: Module '"./agy-request-metadata"' has no exported member 'AgyRequestSessionContext'.
+packages/opencode/src/plugin/session-context.ts(7,3): error TS2305: Module '"./agy-request-metadata"' has no exported member 'AgyRequestSessionStore'.
+packages/opencode/src/plugin/session-context.ts(8,8): error TS2305: Module '"./agy-request-metadata"' has no exported member 'AgyRequestSessionStoreOptions'.
+packages/opencode/src/plugin/shared/request-services.ts(40,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/shared/request-services.ts(42,3): error TS2305: Module '"../../constants"' has no exported member 'ANTIGRAVITY_ENDPOINT_FALLBACKS'.
+packages/opencode/src/plugin/shared/request-services.ts(43,8): error TS2305: Module '"../../constants"' has no exported member 'HeaderStyle'.
+packages/opencode/src/plugin/shared/request-services.ts(1405,19): error TS2345: Argument of type '[number, string]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(1410,19): error TS2345: Argument of type '[number, ModelFamily, string, string | null]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(1479,17): error TS2345: Argument of type '[number, string]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(1484,17): error TS2345: Argument of type '[number, ModelFamily, string, string | null]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(1522,15): error TS2345: Argument of type '[number, string]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(1527,15): error TS2345: Argument of type '[number, ModelFamily, string, string | null]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(1729,11): error TS2345: Argument of type '[ModelFamily, HeaderStyle, string | null]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(1753,15): error TS2345: Argument of type '[ModelFamily, string | null]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(1777,13): error TS2345: Argument of type '[ModelFamily, string | null]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(1968,69): error TS7053: Element implicitly has an 'any' type because expression of type 'ModelFamily' can't be used to index type '{}'.
+packages/opencode/src/plugin/shared/request-services.ts(2184,23): error TS2345: Argument of type '[ModelFamily, HeaderStyle, string | null, any, number]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(2202,21): error TS2345: Argument of type '[ModelFamily, HeaderStyle, string | null, any, number, number]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(2219,17): error TS2345: Argument of type '[ModelFamily, HeaderStyle, string | null, any, number, number]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(2249,25): error TS2345: Argument of type '[ModelFamily, string | null]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(2273,25): error TS2345: Argument of type '[ModelFamily, string | null]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(2381,19): error TS2345: Argument of type '[number, string]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(2386,19): error TS2345: Argument of type '[number, ModelFamily, HeaderStyle, string | null]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(2599,111): error TS2339: Property 'claude' does not exist on type '{}'.
+packages/opencode/src/plugin/shared/request-services.ts(2599,140): error TS2339: Property 'gemini' does not exist on type '{}'.
+packages/opencode/src/plugin/shared/request-services.ts(2620,17): error TS18046: 'sessionSummary' is of type 'unknown'.
+packages/opencode/src/plugin/shared/request-services.ts(2623,21): error TS18046: 'sessionSummary' is of type 'unknown'.
+packages/opencode/src/plugin/shared/request-services.ts(2624,21): error TS18046: 'sessionSummary' is of type 'unknown'.
+packages/opencode/src/plugin/shared/request-services.ts(2626,37): error TS18046: 'sessionSummary' is of type 'unknown'.
+packages/opencode/src/plugin/shared/request-services.ts(2628,39): error TS18046: 'sessionSummary' is of type 'unknown'.
+packages/opencode/src/plugin/shared/request-services.ts(2628,133): error TS18046: 'sessionSummary' is of type 'unknown'.
+packages/opencode/src/plugin/shared/request-services.ts(2729,17): error TS2345: Argument of type '[number, string]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/request-services.ts(2734,17): error TS2345: Argument of type '[number, ModelFamily, HeaderStyle, string | null]' is not assignable to parameter of type 'never'.
+packages/opencode/src/plugin/shared/runtime.ts(47,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/shared/runtime.ts(48,38): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/shared/runtime.ts(49,44): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core/file-lock' or its corresponding type declarations.
+packages/opencode/src/plugin/shared/runtime.ts(445,16): error TS7006: Parameter 'account' implicitly has an 'any' type.
+packages/opencode/src/plugin/shared/runtime.ts(445,25): error TS7006: Parameter 'signal' implicitly has an 'any' type.
+packages/opencode/src/plugin/shared/source-sidebar.ts(4,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/shared/vault-menu.ts(7,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/shared/vault-menu.ts(30,28): error TS7006: Parameter 'row' implicitly has an 'any' type.
+packages/opencode/src/plugin/shared/vault-menu.ts(30,33): error TS7006: Parameter 'position' implicitly has an 'any' type.
+packages/opencode/src/plugin/shared/vault-menu.ts(47,20): error TS7006: Parameter 'row' implicitly has an 'any' type.
+packages/opencode/src/plugin/shared/vault-menu.ts(47,25): error TS7006: Parameter 'position' implicitly has an 'any' type.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(33,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(219,41): error TS7006: Parameter 'window' implicitly has an 'any' type.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(233,3): error TS2322: Type '{ dailyRequestCounts?: any; eligibilityStateUpdatedAt?: any; accountIneligibleReason?: any; accountIneligibleAt?: any; accountIneligible?: any; verificationUrl?: any; verificationRequiredReason?: any; ... 8 more ...; lastUsed: any; }' is not assignable to type 'DurableSelection'.
+  Property 'lastSwitchReason' is optional in type '{ dailyRequestCounts?: any; eligibilityStateUpdatedAt?: any; accountIneligibleReason?: any; accountIneligibleAt?: any; accountIneligible?: any; verificationUrl?: any; verificationRequiredReason?: any; ... 8 more ...; lastUsed: any; }' but required in type 'DurableSelection'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(406,54): error TS7006: Parameter 'current' implicitly has an 'any' type.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(463,55): error TS7006: Parameter 'current' implicitly has an 'any' type.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(618,19): error TS18047: 'group' is possibly 'null'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(618,25): error TS2339: Property 'modelCount' does not exist on type '{}'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(619,11): error TS18047: 'group' is possibly 'null'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(619,17): error TS2339: Property 'remainingFraction' does not exist on type '{}'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(620,32): error TS18047: 'group' is possibly 'null'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(620,38): error TS2339: Property 'remainingFraction' does not exist on type '{}'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(622,11): error TS18047: 'group' is possibly 'null'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(622,17): error TS2339: Property 'resetTime' does not exist on type '{}'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(622,56): error TS18047: 'group' is possibly 'null'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(622,62): error TS2339: Property 'resetTime' does not exist on type '{}'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(623,11): error TS18047: 'group' is possibly 'null'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(623,17): error TS2339: Property 'windows' does not exist on type '{}'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(624,22): error TS18047: 'group' is possibly 'null'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(624,28): error TS2339: Property 'windows' does not exist on type '{}'.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(624,41): error TS7006: Parameter 'window' implicitly has an 'any' type.
+packages/opencode/src/plugin/shared/vault-request-credentials.ts(668,10): error TS7006: Parameter 'candidate' implicitly has an 'any' type.
+packages/opencode/src/plugin/storage.ts(41,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/storage.ts(64,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/storage.ts(120,3): error TS7006: Parameter 'path' implicitly has an 'any' type.
+packages/opencode/src/plugin/storage.ts(121,3): error TS7006: Parameter 'mutate' implicitly has an 'any' type.
+packages/opencode/src/plugin/storage.ts(455,49): error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
+packages/opencode/src/plugin/storage.ts(699,41): error TS7006: Parameter 'current' implicitly has an 'any' type.
+packages/opencode/src/plugin/storage.ts(701,8): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+packages/opencode/src/plugin/token.ts(4,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/token.ts(5,10): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_CLIENT_ID'.
+packages/opencode/src/plugin/token.ts(5,33): error TS2305: Module '"../constants"' has no exported member 'ANTIGRAVITY_CLIENT_SECRET'.
+packages/opencode/src/plugin/token.ts(7,3): error TS2305: Module '"./auth"' has no exported member 'calculateTokenExpiry'.
+packages/opencode/src/plugin/token.ts(8,3): error TS2305: Module '"./auth"' has no exported member 'formatRefreshParts'.
+packages/opencode/src/plugin/token.ts(9,3): error TS2305: Module '"./auth"' has no exported member 'parseRefreshParts'.
+packages/opencode/src/plugin/token.ts(12,10): error TS2305: Module '"./project"' has no exported member 'invalidateProjectContextCache'.
+packages/opencode/src/plugin/token.ts(216,19): error TS7031: Binding element 'refreshToken' implicitly has an 'any' type.
+packages/opencode/src/plugin/transform/cross-model-sanitizer.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/transform/index.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/transform/model-resolver.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/transform/types.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/types.ts(19,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/ui/auth-menu.ts(2,15): error TS2305: Module '"../fingerprint"' has no exported member 'FingerprintVersion'.
+packages/opencode/src/plugin/ui/auth-menu.ts(410,73): error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
+packages/opencode/src/plugin/ui/quota-status.ts(1,40): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/vault-activation.ts(7,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/vault-custody.ts(42,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/plugin/vault-custody.ts(43,33): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core/atomic-write' or its corresponding type declarations.
+packages/opencode/src/plugin/vault-custody.ts(65,49): error TS2339: Property 'extras' does not exist on type 'unknown'.
+packages/opencode/src/plugin/vault-custody.ts(514,56): error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
+packages/opencode/src/plugin/vault-custody.ts(535,67): error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
+packages/opencode/src/plugin/version.ts(2,15): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core' or its corresponding type declarations.
+packages/opencode/src/sidebar-state.ts(48,33): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core/atomic-write' or its corresponding type declarations.
+packages/opencode/src/sidebar-state.ts(52,8): error TS2307: Cannot find module '@cortexkit/antigravity-auth-core/file-lock' or its corresponding type declarations.

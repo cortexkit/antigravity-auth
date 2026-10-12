@@ -1,0 +1,5 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/opencode/src/plugin/quota.test.ts:
+
+error: regex "^account-store quota service > discards deferred quota metadata" matched 0 tests. Searched 1 file (skipping 46 tests) [271.00ms]

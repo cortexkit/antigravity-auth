@@ -28,8 +28,20 @@
  * the ecosystem to cross it is what turned this one into a field report.
  */
 
-import { describe, expect, it } from 'bun:test'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { afterEach, describe, expect, it } from 'bun:test'
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -93,8 +105,17 @@ const findHostManifest = (): Manifest | null => {
  * Depth is bounded at one nested level. A duplicate buried deeper is not
  * detected — that is a real limit, accepted because the failure this guards
  * puts the second copy directly under the dependent that forced it.
+ *
+ * `.bun` is Bun's internal store and its node_modules directory is a
+ * fallback namespace, not an installed dependent package. Scanning it as
+ * <dep>/node_modules misclassifies links used by development tooling as
+ * nested consumer installs. The ancestor and ordinary one-level dependent
+ * scans remain unchanged.
  */
-const findInstalledCopies = (name: string): string[] => {
+const findInstalledCopies = (
+  name: string,
+  packageRoot: string = PACKAGE_ROOT,
+): string[] => {
   const byInode = new Map<string, string>()
 
   const record = (packageJson: string): void => {
@@ -110,7 +131,7 @@ const findInstalledCopies = (name: string): string[] => {
   const scanNested = (modulesDir: string): void => {
     if (!existsSync(modulesDir)) return
     for (const entry of readdirSync(modulesDir)) {
-      if (entry === '.bin' || entry === '.cache') continue
+      if (entry === '.bin' || entry === '.cache' || entry === '.bun') continue
       const owners = entry.startsWith('@')
         ? readdirSync(join(modulesDir, entry)).map((child) =>
             join(entry, child),
@@ -122,7 +143,7 @@ const findInstalledCopies = (name: string): string[] => {
     }
   }
 
-  let dir = PACKAGE_ROOT
+  let dir = packageRoot
   for (let depth = 0; depth < 6; depth += 1) {
     const modulesDir = join(dir, 'node_modules')
     record(join(modulesDir, name, 'package.json'))
@@ -219,5 +240,74 @@ describe('published dependency ranges', () => {
         expect(Bun.semver.satisfies(version, range ?? '')).toBe(true)
       }
     }
+  })
+})
+
+describe('installed-copy scanner', () => {
+  let root: string | undefined
+
+  afterEach(() => {
+    if (root) rmSync(root, { recursive: true, force: true })
+    root = undefined
+  })
+
+  /** Writes a package manifest for `name` at `version` under `modulesDir`. */
+  const install = (modulesDir: string, name: string, version: string) => {
+    const dir = join(modulesDir, name)
+    mkdirSync(dir, { recursive: true })
+    const manifest = join(dir, 'package.json')
+    writeFileSync(manifest, `${JSON.stringify({ name, version })}\n`)
+    return manifest
+  }
+
+  /** A workspace with the plugin package at `<root>/packages/plugin`. */
+  const workspace = () => {
+    root = mkdtempSync(join(tmpdir(), 'installed-copy-scanner-'))
+    const pkg = join(root, 'packages', 'plugin')
+    mkdirSync(pkg, { recursive: true })
+    return { root, pkg }
+  }
+
+  it("counts a consumer's copy and not a version in Bun's fallback store", () => {
+    const { root, pkg } = workspace()
+    install(join(pkg, 'node_modules'), '@opentui/core', '0.4.5')
+    install(
+      join(root, 'node_modules', '.bun', 'node_modules'),
+      '@opentui/core',
+      '0.5.14',
+    )
+    expect(findInstalledCopies('@opentui/core', pkg)).toEqual(['0.4.5'])
+  })
+
+  it('counts a distinct copy nested under a real dependent, even at the same version', () => {
+    const { root, pkg } = workspace()
+    install(join(pkg, 'node_modules'), '@opentui/core', '0.4.5')
+    install(
+      join(root, 'node_modules', '@opentui', 'solid', 'node_modules'),
+      '@opentui/core',
+      '0.4.5',
+    )
+    expect(findInstalledCopies('@opentui/core', pkg)).toEqual([
+      '0.4.5',
+      '0.4.5',
+    ])
+  })
+
+  it('counts one physical copy once, however it is linked', () => {
+    const { root, pkg } = workspace()
+    const physical = install(
+      join(pkg, 'node_modules'),
+      '@opentui/core',
+      '0.4.5',
+    )
+    // A hardlinked manifest in the root and a symlinked package under a
+    // dependent are the same file on disk.
+    const hoisted = join(root, 'node_modules', '@opentui', 'core')
+    mkdirSync(hoisted, { recursive: true })
+    linkSync(physical, join(hoisted, 'package.json'))
+    const nested = join(root, 'node_modules', 'dep', 'node_modules', '@opentui')
+    mkdirSync(nested, { recursive: true })
+    symlinkSync(dirname(physical), join(nested, 'core'), 'dir')
+    expect(findInstalledCopies('@opentui/core', pkg)).toEqual(['0.4.5'])
   })
 })

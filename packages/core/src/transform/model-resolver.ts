@@ -6,6 +6,7 @@
  */
 
 import {
+  getAgyNativeModel,
   getGemini35FlashAntigravityModel,
   getGemini35FlashGeminiCliFallbackModel,
   getGemini36FlashAntigravityModel,
@@ -80,7 +81,8 @@ function supportsThinkingTiers(model: string): boolean {
   return (
     lower.includes('gemini-3') ||
     lower.includes('gemini-2.5') ||
-    (lower.includes('claude') && lower.includes('thinking'))
+    (lower.includes('claude') &&
+      (lower.includes('thinking') || /^claude-(opus|sonnet)-5-5/.test(lower)))
   )
 }
 
@@ -143,7 +145,7 @@ function resolveGemini35FlashAntigravityModel(tier?: ThinkingTier): string {
 
 function getAgyGeminiFlashThinkingBudget(
   tier?: ThinkingTier,
-  highBudget = 10000,
+  highBudget = -1,
 ): number {
   switch (tier) {
     case 'low':
@@ -156,7 +158,7 @@ function getAgyGeminiFlashThinkingBudget(
 }
 
 function getAgyGemini31ProModel(tier?: ThinkingTier): string {
-  return tier === 'high' ? 'gemini-pro-agent' : 'gemini-3.1-pro-low'
+  return tier === 'high' ? 'gemini-3.1-pro-high' : 'gemini-3.1-pro-low'
 }
 
 function getAgyGemini31ProThinkingBudget(tier?: ThinkingTier): number {
@@ -208,6 +210,38 @@ export function resolveModelWithTier(
     : ('antigravity' as const)
   const explicitQuota = isAntigravity || isImageModel
 
+  // Match server IDs before interpreting a suffix as a host variant option;
+  // the suffix can belong to the wire ID itself, as with GPT-OSS medium.
+  const native = getAgyNativeModel(modelWithoutQuota)
+  // The public Gemini 3.5 tier suffix names an effort, not the server's
+  // differently named wire route (public low maps to wire extra-low).
+  const groupedGemini35Tier =
+    isAntigravity &&
+    /^gemini-3\.5-flash-(low|medium|high)$/i.test(modelWithoutQuota)
+  if (native && quotaPreference === 'antigravity' && !groupedGemini35Tier) {
+    return {
+      actualModel: modelWithoutQuota,
+      thinkingBudget: native.supportsAdaptiveThinking
+        ? 0
+        : native.thinkingBudget,
+      isThinkingModel: native.supportsThinking ?? false,
+      ...(isImageModel ? { isImageModel: true } : {}),
+      tier,
+      quotaPreference,
+      explicitQuota,
+    }
+  }
+  if (/^claude-(opus|sonnet)-5-5$/i.test(modelWithoutQuota)) {
+    return {
+      actualModel: `${modelWithoutQuota}-low`,
+      thinkingBudget: 0,
+      isThinkingModel: true,
+      tier: 'low',
+      quotaPreference,
+      explicitQuota,
+    }
+  }
+
   const isGemini3 = modelWithoutQuota.toLowerCase().startsWith('gemini-3')
   const skipAlias = isAntigravity && isGemini3
 
@@ -248,7 +282,7 @@ export function resolveModelWithTier(
   if (isGemini36Flash && quotaPreference === 'antigravity') {
     return {
       actualModel: getGemini36FlashAntigravityModel(tier ?? 'medium'),
-      thinkingBudget: getAgyGeminiFlashThinkingBudget(tier),
+      thinkingBudget: getAgyGeminiFlashThinkingBudget(tier, -1),
       tier: tier ?? 'medium',
       isThinkingModel: true,
       quotaPreference,
@@ -413,6 +447,7 @@ export function getModelFamily(
  */
 export interface VariantConfig {
   thinkingBudget?: number
+  thinkingLevel?: ThinkingTier
   googleSearch?: GoogleSearchConfig
 }
 
@@ -515,6 +550,16 @@ export function resolveModelWithVariant(
 
   if (!variantConfig) {
     return base
+  }
+
+  if (getAgyNativeModel(base.actualModel)?.supportsAdaptiveThinking) {
+    if (!variantConfig.thinkingLevel) return base
+    const family = base.actualModel.replace(TIER_REGEX, '')
+    return {
+      ...resolveModelWithTier(`${family}-${variantConfig.thinkingLevel}`),
+      googleSearch: variantConfig.googleSearch,
+      configSource: 'variant',
+    }
   }
 
   // Apply Google Search config if present

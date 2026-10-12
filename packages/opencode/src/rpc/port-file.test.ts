@@ -12,8 +12,14 @@ import {
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 
-import { discoverPortFile, writePortFile } from './port-file'
+import { writePortFile as writePublicPortFile } from '../common-auth-embedded/rpc/index.js'
+import { discoverPortFile } from './port-file'
 import { getRpcDir } from './rpc-dir'
+
+const writePortFile = (
+  dir: string,
+  entry: { pid: number; port: number; token: string },
+) => writePublicPortFile(dir, entry, { secureDir: true })
 
 const RPC_DIR_ENV = 'ANTIGRAVITY_AUTH_RPC_DIR'
 
@@ -162,7 +168,7 @@ describe('port-file discovery', () => {
     expect(discovered?.token).toBe('parent')
   })
 
-  it('uses the newest live startedAt only when no exact PID is requested', async () => {
+  it('fails closed without a PID rather than selecting the newest live entry', async () => {
     await writePortFile(dir, {
       pid: process.ppid,
       port: 43_001,
@@ -172,15 +178,12 @@ describe('port-file discovery', () => {
     await writePortFile(dir, { pid: process.pid, port: 43_002, token: 'newer' })
 
     const discovered = await discoverPortFile(dir)
-    expect(discovered).not.toBeNull()
-    expect(discovered?.pid).toBe(process.pid)
-    expect(discovered?.port).toBe(43_002)
-    expect(discovered?.token).toBe('newer')
+    expect(discovered).toBeNull()
 
     expect(await discoverPortFile(dir, 99_999_999)).toBeNull()
   })
 
-  it('removes malformed and stale-process entries during discovery', async () => {
+  it('retains malformed files but removes valid stale-process entries during discovery', async () => {
     const malformed = join(dir, 'port-11111111.json')
     const stale = join(dir, 'port-99999999.json')
     await writePortFile(dir, { pid: process.pid, port: 44_001, token: 'live' })
@@ -192,17 +195,20 @@ describe('port-file discovery', () => {
       JSON.stringify({ pid: 99_999_999, port: 44_002, token: 'stale' }),
       { mode: 0o600 },
     )
-    // `port-11111111.json` is malformed JSON — must be evicted.
+    // Malformed discovery files remain untouched; only valid dead-PID entries
+    // are removed by discovery. The server does not sweep these malformed files.
     await writeFile(malformed, '{nope', { mode: 0o600 })
 
-    const discovered = await discoverPortFile(dir)
+    const discovered = await discoverPortFile(dir, process.pid)
     expect(discovered).not.toBeNull()
     expect(discovered?.pid).toBe(process.pid)
     expect(discovered?.port).toBe(44_001)
     expect(discovered?.token).toBe('live')
 
     const remaining = (await readdir(dir)).sort()
-    expect(remaining).toEqual([`port-${process.pid}.json`])
+    expect(remaining).toEqual(
+      [`port-${process.pid}.json`, 'port-11111111.json'].sort(),
+    )
   })
 
   it('never treats the ephemeral port as the server PID', async () => {

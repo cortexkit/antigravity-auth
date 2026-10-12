@@ -1,0 +1,74 @@
+[
+  {
+    "path": "packages/core/src/credential-redaction.ts",
+    "sha256": "f6610502e7b88bd84f2abb8fb315a530f0fdc99acc063147fe260ae3ff3c2e35",
+    "git_blob": "b3943d822b29dd509050967abc21e8f272858304",
+    "previous_corrected_sha256": "f6610502e7b88bd84f2abb8fb315a530f0fdc99acc063147fe260ae3ff3c2e35"
+  },
+  {
+    "path": "packages/core/src/credential-redaction.test.ts",
+    "sha256": "e4bc4fdc7f56b6b5fdaeaa2cc96f9177ec4581bc7386eef5ba4d56a6f6c648f6",
+    "git_blob": "e52c0203dcefe8271464fa72d3101a8866017049",
+    "previous_corrected_sha256": "32553132f6fd75f29833c361567896a23662edff4e7d74961c28baa79c0381d4"
+  },
+  {
+    "path": "packages/core/src/index.ts",
+    "sha256": "f3467f1c30c78802a094545e5e86ee1f981b06a40a73c41d4a8397cd85b90ef0",
+    "git_blob": "682d39b9c4f9d40eb38cfbdae66f8f6abb1ccf31",
+    "previous_corrected_sha256": "f3467f1c30c78802a094545e5e86ee1f981b06a40a73c41d4a8397cd85b90ef0"
+  },
+  {
+    "path": "packages/opencode/src/plugin/auth-loader.test.ts",
+    "sha256": "6c9e3115d991fbb2aca7724bc90bb5968669625f5b6f3f0e25c5d741165960b6",
+    "git_blob": "77e9272e66ee392ad57225819e6cdfd0b3dcb7c4",
+    "previous_corrected_sha256": "6c9e3115d991fbb2aca7724bc90bb5968669625f5b6f3f0e25c5d741165960b6"
+  },
+  {
+    "path": "packages/opencode/src/plugin/shared/request-services.ts",
+    "sha256": "de12906e9ca1e5b851b79c442cb8afc7bd2ee2e52252a1e50319a94b8395234b",
+    "git_blob": "5ba681e7736f521050a020cd09fbd924d7a75edd",
+    "previous_corrected_sha256": "de12906e9ca1e5b851b79c442cb8afc7bd2ee2e52252a1e50319a94b8395234b"
+  },
+  {
+    "path": "packages/opencode/src/plugin/shared/request-services.test.ts",
+    "sha256": "bb712427badc34d2996f6ee7f6d54925dd54b2b9dbd614a09c243de86d276f72",
+    "git_blob": "bf83072f966229fdb53b5146219bec7d359e40d7",
+    "previous_corrected_sha256": "bb712427badc34d2996f6ee7f6d54925dd54b2b9dbd614a09c243de86d276f72"
+  },
+  {
+    "path": "packages/opencode/src/plugin/quota.ts",
+    "sha256": "6a27312d07ca9eada1c64da433944ce24c96db5c39a82e50b325d76c500a0a18",
+    "git_blob": "47ead272ac259531739a67fe88e66dd3da3302a0",
+    "previous_corrected_sha256": "6a27312d07ca9eada1c64da433944ce24c96db5c39a82e50b325d76c500a0a18"
+  },
+  {
+    "path": "packages/opencode/src/plugin/quota.test.ts",
+    "sha256": "6d7417ad21365d8e9030a7aa23fc11c68027486cf4eb1266315feef2b56fb60b",
+    "git_blob": "661c0ff1c215766deb641ee1ec5e138e5364a621",
+    "previous_corrected_sha256": "6d7417ad21365d8e9030a7aa23fc11c68027486cf4eb1266315feef2b56fb60b"
+  },
+  {
+    "path": "packages/pi/src/stream.ts",
+    "sha256": "f7fcf1e257b86231f45075e2742c303cefa46b01c2162822ee28638b675b24d5",
+    "git_blob": "3c4926d7fedf776f17439714187d48dfa6b10ed1",
+    "previous_corrected_sha256": "f7fcf1e257b86231f45075e2742c303cefa46b01c2162822ee28638b675b24d5"
+  },
+  {
+    "path": "packages/pi/src/stream.test.ts",
+    "sha256": "58636dc84542d6e697b47b69a6ff3ab4fdf853cc817d72b95fc884b06e038714",
+    "git_blob": "9108e93bcc0c6e441de4d594c631ba58ab86c99e",
+    "previous_corrected_sha256": "58636dc84542d6e697b47b69a6ff3ab4fdf853cc817d72b95fc884b06e038714"
+  },
+  {
+    "path": "packages/pi/src/commands.ts",
+    "sha256": "a4dbce7313e70ddfcd40b12683f1d053c46f9003d1351fa8612de90ec6e7a8e0",
+    "git_blob": "23363a4e212f72a23143377425b639c5be477ddc",
+    "previous_corrected_sha256": "a4dbce7313e70ddfcd40b12683f1d053c46f9003d1351fa8612de90ec6e7a8e0"
+  },
+  {
+    "path": "packages/pi/src/commands.test.ts",
+    "sha256": "bd8d07a69209ae4988d2103d92d3526a0bf7f13af88747aba4c11503dbac5929",
+    "git_blob": "3519dd06bbf809cafbe8c26d93e45d18e056ae75",
+    "previous_corrected_sha256": "bd8d07a69209ae4988d2103d92d3526a0bf7f13af88747aba4c11503dbac5929"
+  }
+]

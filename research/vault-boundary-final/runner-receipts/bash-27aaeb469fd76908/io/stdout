@@ -1,0 +1,49 @@
+2026-10-11T19:13:00Z
+ packages/core/src/credential-redaction.test.ts     | 176 ++++++++++
+ packages/core/src/credential-redaction.ts          | 210 ++++++++++++
+ packages/core/src/index.ts                         |   7 +
+ packages/opencode/src/plugin/auth-loader.test.ts   |  88 +++++
+ packages/opencode/src/plugin/quota.test.ts         | 114 ++++++-
+ packages/opencode/src/plugin/quota.ts              |  25 +-
+ .../src/plugin/shared/request-services.test.ts     | 301 +++++++++++++++++
+ .../opencode/src/plugin/shared/request-services.ts |  61 ++--
+ packages/pi/src/commands.test.ts                   |  29 +-
+ packages/pi/src/commands.ts                        |   6 +
+ packages/pi/src/stream.test.ts                     | 273 ++++++++++++++++
+ packages/pi/src/stream.ts                          |  71 ++--
+ .../vault-boundary-final/hydrated-positive.stderr  | 179 ++++++++++
+ .../vault-boundary-final/hydrated-positive.stdout  |  47 +++
+ .../vault-boundary-final/hydration-receipt.json    |  65 ++++
+ .../original-receipts/MANIFEST.json                | 359 +++++++++++++++++++++
+ .../bash-1e6587884330c5fa/control/command.sh       |   1 +
+ .../bash-1e6587884330c5fa/control/metadata.json    |  32 ++
+ .../bash-1e6587884330c5fa/io/stderr                |   0
+ .../bash-1e6587884330c5fa/io/stdout                |   2 +
+ .../bash-22e82f7a070d57bf/control/command.sh       |   1 +
+ .../bash-22e82f7a070d57bf/control/metadata.json    |  32 ++
+ .../bash-22e82f7a070d57bf/io/stderr                |   0
+ .../bash-22e82f7a070d57bf/io/stdout                |  39 +++
+ .../bash-63a6f9fd388d8e78/control/command.sh       |   1 +
+ .../bash-63a6f9fd388d8e78/control/metadata.json    | 105 ++++++
+ .../bash-63a6f9fd388d8e78/io/stderr                |   0
+ .../bash-63a6f9fd388d8e78/io/stdout                |   7 +
+ .../bash-925826db97925a46/control/command.sh       |   1 +
+ .../bash-925826db97925a46/control/metadata.json    | 105 ++++++
+ .../bash-925826db97925a46/io/stderr                |   0
+ .../bash-925826db97925a46/io/stdout                | 119 +++++++
+ .../bash-9839ce80387ca190/control/command.sh       |   1 +
+ .../bash-9839ce80387ca190/control/metadata.json    |  32 ++
+ .../bash-9839ce80387ca190/io/stderr                |   0
+ .../bash-9839ce80387ca190/io/stdout                |   3 +
+ .../bash-aec3d26f18a194f4/control/command.sh       |   1 +
+ .../bash-aec3d26f18a194f4/control/metadata.json    | 105 ++++++
+ .../bash-aec3d26f18a194f4/io/stderr                |   0
+ .../bash-aec3d26f18a194f4/io/stdout                |  58 ++++
+ research/vault-boundary-final/plan.md              |  11 +
+ .../runner-receipts/bash-3f46448bebc49116/stderr   |  67 ++++
+ .../runner-receipts/bash-3f46448bebc49116/stdout   |   6 +
+ .../runner-receipts/bash-bfb30f66c87e5ec8/stderr   | 200 ++++++++++++
+ .../runner-receipts/bash-bfb30f66c87e5ec8/stdout   |   4 +
+ .../runner-receipts/bash-dc2fc5c8fb4dbe8f/stderr   | 179 ++++++++++
+ .../runner-receipts/bash-dc2fc5c8fb4dbe8f/stdout   |  47 +++
+ 47 files changed, 3110 insertions(+), 60 deletions(-)

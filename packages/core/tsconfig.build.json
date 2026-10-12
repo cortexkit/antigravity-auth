@@ -11,5 +11,5 @@
     "rewriteRelativeImportExtensions": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/__fixtures__/**"]
 }

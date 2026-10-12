@@ -1,0 +1,73 @@
+
+src/quota-manager.test.ts:
+(pass) classifyQuotaGroup > classifies Claude models into the non-Gemini pool [0.11ms]
+(pass) classifyQuotaGroup > classifies every representative Gemini model into the Gemini pool [0.03ms]
+(pass) classifyQuotaGroup > classifies tab autocomplete models into the Gemini pool [0.01ms]
+(pass) classifyQuotaGroup > classifies GPT-OSS variants into the non-Gemini pool
+(pass) classifyQuotaGroup > classifies gemini-claude-* aliases into the non-Gemini pool (Claude route wins over the gemini- prefix)
+(pass) classifyQuotaGroup > returns null for unrecognized models [0.01ms]
+(pass) aggregateQuota > aggregates per-model entries into groups by minimum remaining [0.43ms]
+(pass) aggregateQuota > clamps out-of-range remaining fractions [0.03ms]
+(pass) refreshAccount > records successful fetch completion time and does not restamp a cached reading [0.55ms]
+(pass) refreshAccount > attempts the fetch and stores the result indexed by stable key [0.09ms]
+(pass) refreshAccount > treats disabled accounts as a disabled result without fetching [0.06ms]
+(pass) refreshAccount > captures fetch errors as status="error" [0.23ms]
+(pass) refreshAccount > treats resolved error results (status="error") as failures for backoff [0.10ms]
+(pass) refreshAccount > does not apply backoff for disabled results returned by the adapter [0.05ms]
+(pass) refreshAccount > dedupes concurrent fetches for the same account [20.23ms]
+(pass) refreshAccount > lets independent accounts fetch in parallel [40.44ms]
+(pass) backoff > skips fetch while inside the backoff window unless forced [0.24ms]
+(pass) backoff > grows backoff exponentially and caps at maxBackoffMs [0.21ms]
+(pass) backoff > force option bypasses backoff and triggers a fresh fetch [0.11ms]
+(pass) backoff > keeps backoffs independent per account key [0.25ms]
+(pass) getCached > returns undefined for unknown accounts [0.02ms]
+(pass) getCached > preserves result.index even when accounts reorder [0.08ms]
+(pass) dispose > aborts in-flight fetches and rejects subsequent refreshes [10.28ms]
+(pass) dispose > awaits the in-flight refresh before resolving so a post-refresh side effect is fenced [0.25ms]
+(pass) fetch cancellation without AbortSignal.any > refreshes and detaches from the deadline after success and after an error [0.41ms]
+926 |         const pending = manager.refreshAccount(account, { index: 0 })
+927 |         const observed = await settleWithin(pending, 1_000)
+928 |         harness.release()
+929 |         await pending
+930 | 
+931 |         expect(observed).not.toBe(STILL_PENDING)
+                                   ^
+error: expect(received).not.toBe(expected)
+
+Expected: not Symbol(still pending)
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:931:30)
+      at async withoutAbortSignalAny (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:792:11)
+      at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd/packages/core/src/quota-manager.test.ts:912:11)
+(fail) fetch cancellation without AbortSignal.any > aborts the callback signal at the fetch deadline and records normal backoff [1001.79ms]
+(pass) fetch cancellation without AbortSignal.any > aborts the callback signal on dispose without recording backoff [0.43ms]
+(pass) fetch cancellation without AbortSignal.any > does not report success for a callback that resolves after dispose [0.19ms]
+(pass) fetch cancellation without AbortSignal.any > returns an error result with backoff when the fetch deadline cannot be created [0.24ms]
+(pass) refreshAccounts > runs sequentially (preserving order) and returns attributed results [0.18ms]
+(pass) refreshAccounts > respects force to bypass backoff for every account [0.14ms]
+(pass) hashed log labels > produces a short hash label for log emissions [0.12ms]
+(pass) aggregateQuotaSummary > maps Pro (weekly+5h) groups to pools by bucketId prefix [0.31ms]
+(pass) aggregateQuotaSummary > maps Free (weekly-only) groups to pools [0.04ms]
+(pass) aggregateQuotaSummary > derives most-constrained remainingFraction and resetTime per pool [0.04ms]
+(pass) aggregateQuotaSummary > preserves window order: shortest first [0.07ms]
+(pass) aggregateQuotaSummary > sorts unknown window kinds last, deterministically [0.44ms]
+(pass) aggregateQuotaSummary > counts models from the description minus the prefix label [0.03ms]
+(pass) aggregateQuotaSummary > back-compat: treats a windows-less QuotaGroupSummary gracefully [0.02ms]
+(pass) aggregateQuotaSummary > keeps a pool when the first bucket is unrecognized [0.02ms]
+(pass) fetchQuotaSummary > returns the summary when the server responds 200 [0.06ms]
+(pass) fetchQuotaSummary > falls back to projectId when managedProjectId returns 403 [0.06ms]
+(pass) fetchQuotaSummary > throws when all project IDs fail (caller handles fallback) [0.04ms]
+(pass) fetchQuotaSummary > uses managedProjectId as primary when both IDs are present [0.04ms]
+(pass) fetchQuotaSummary > falls back to projectId when managedProjectId is missing [0.03ms]
+(pass) fetchQuotaSummary > uses managedProjectId when only managedProjectId is provided (managed-only path) [0.03ms]
+(pass) fetchQuotaSummary > fails over to the next endpoint when the first returns 500 [0.06ms]
+(pass) fetchQuotaSummary > N1: a transient 500 on the managed attempt does NOT fall through to the projectId fallback [0.04ms]
+(pass) fetchQuotaSummary > N1: a 500 on the managed attempt does not clobber the 403-fallback path [0.06ms]
+
+1 tests failed:
+(fail) fetch cancellation without AbortSignal.any > aborts the callback signal at the fetch deadline and records normal backoff [1001.79ms]
+
+ 48 pass
+ 1 fail
+ 177 expect() calls
+Ran 49 tests across 1 file. [1088.00ms]

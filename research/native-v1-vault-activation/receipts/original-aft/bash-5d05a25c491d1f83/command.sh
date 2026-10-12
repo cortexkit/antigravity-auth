@@ -1,0 +1,1 @@
+bun --version && bun run --cwd packages/core build && bun packages/e2e-tests/src/v1-vault-activation-harness.ts --run

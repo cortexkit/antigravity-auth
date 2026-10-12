@@ -1,7 +1,7 @@
 {
   "name": "@cortexkit/opencode-antigravity-auth",
-  "version": "2.2.1",
-  "description": "Google Antigravity OAuth auth plugin for OpenCode - access Gemini 3 and Claude 4.6 using Google credentials",
+  "version": "3.0.1",
+  "description": "Google Antigravity OAuth auth plugin for OpenCode - access Gemini and Claude models using Google credentials",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",
@@ -28,22 +28,29 @@
   ],
   "engines": {
     "node": ">=20.0.0",
-    "opencode": ">=1.17.13 <2"
+    "opencode": ">=1.17.13 <2 || >=2.0.22"
   },
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/types/src/server.d.ts",
+      "import": "./dist/server.js"
     },
     "./tui": {
-      "import": "./src/tui/entry.mjs",
-      "types": "./dist/src/tui.d.ts"
+      "types": "./src/tui/entry.d.mts",
+      "import": "./src/tui/entry.mjs"
     }
   },
   "files": [
     "dist/",
+    "tui.js",
+    "server.js",
     "src/tui.tsx",
     "src/tui/entry.mjs",
+    "src/tui/entry.d.mts",
     "src/tui/command-dialogs.tsx",
     "src/tui/file-logger.ts",
     "src/tui-preferences.ts",
@@ -53,23 +60,33 @@
     "src/rpc/port-file.ts",
     "src/rpc/protocol.ts",
     "src/plugin/command-data.ts",
+    "src/common-auth-embedded/",
+    "src/tui-raw/",
     "src/tui-compiled/",
+    "src/tui-ga-raw/",
+    "src/tui-ga-compiled/",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && esbuild index.ts --bundle --platform=node --format=esm --external:zod --outfile=dist/index.js --sourcemap && esbuild src/cli.ts --bundle --platform=node --format=esm --external:zod --banner:js=\"#!/usr/bin/env node\" --outfile=dist/cli.js --sourcemap && chmod 0755 dist/cli.js && bun run build:tui",
-    "build:tui": "bunx tsx scripts/build-tui.ts",
-    "build:schema": "bunx tsx script/build-schema.ts",
-    "smoke:tui": "bun scripts/smoke-tui-pack-install.ts",
-    "typecheck": "tsc --noEmit",
-    "test": "bun test --isolate ./src",
-    "prepublishOnly": "bun run build && bun run build:tui",
-    "test:e2e:models": "bunx tsx script/test-models.ts",
-    "test:e2e:regression": "bunx tsx script/test-regression.ts"
+    "embed:check": "bun scripts/build-tui.ts --check",
+    "build": "bun run embed:check && bun scripts/build-tui.ts --library && esbuild src/server.ts --bundle --platform=node --format=esm --external:zod --outfile=dist/server.js --sourcemap --metafile=dist/server.meta.json --log-level=warning && tsc -p tsconfig.ga.emit.json && bun ../../scripts/finalize-declaration-specifiers.ts dist/types .",
+    "build:tui": "bun run embed:check && bun scripts/build-tui.ts",
+    "build:schema": "bun script/build-schema.ts",
+    "smoke:tui": "bun run embed:check && bun scripts/smoke-tui-pack-install.ts",
+    "typecheck": "bun run embed:check && bun scripts/build-tui.ts --types && tsc --noEmit && tsc -p tsconfig.ga.json",
+    "test": "bun run embed:check && bun test --isolate ./src ./scripts/build-tui.test.ts",
+    "lint": "bun run embed:check && biome lint . --error-on-warnings",
+    "format": "bun run embed:check && biome format --write .",
+    "format:check": "bun run embed:check && biome format .",
+    "prepack": "bun run embed:check && bun run build",
+    "prepublishOnly": "bun run embed:check && bun run build",
+    "test:e2e:models": "bun script/test-models.ts",
+    "test:e2e:regression": "bun script/test-regression.ts"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "*",
+    "@opencode/plugin": ">=2.0.22",
     "@opentui/core": ">=0.4.5",
     "@opentui/keymap": ">=0.4.5",
     "@opentui/solid": ">=0.4.5",
@@ -78,6 +95,9 @@
   },
   "peerDependenciesMeta": {
     "@opencode-ai/plugin": {
+      "optional": true
+    },
+    "@opencode/plugin": {
       "optional": true
     },
     "@opentui/core": {
@@ -97,12 +117,19 @@
     }
   },
   "devDependencies": {
+    "@cortexkit/claustrum-client": "0.6.2",
+    "@opencode-ai/sdk": "1.17.13",
+    "@opencode/plugin": "2.0.22",
+    "@opentui/core-ga": "npm:@opentui/core@0.5.14",
+    "@opentui/solid-ga": "npm:@opentui/solid@0.5.14",
+    "@types/json-schema": "7.0.15",
+    "@types/node": "25.0.0",
     "esbuild": "^0.27.7",
-    "zod-to-json-schema": "^3.25.1",
-    "@opencode-ai/sdk": "1.17.13"
+    "solid-js-ga": "npm:solid-js@1.9.15",
+    "zod-to-json-schema": "^3.25.1"
   },
   "dependencies": {
-    "@cortexkit/antigravity-auth-core": "2.2.1",
+    "@cortexkit/antigravity-auth-core": "3.0.1",
     "jsonc-parser": "^3.3.1",
     "xdg-basedir": "^5.1.0",
     "zod": "^4.0.0"

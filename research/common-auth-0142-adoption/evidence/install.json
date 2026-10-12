@@ -1,0 +1,14 @@
+{
+  "command": [
+    "bun",
+    "install",
+    "--cwd",
+    "tools/common-auth-build",
+    "--frozen-lockfile",
+    "--offline",
+    "--ignore-scripts",
+    "--cache-dir",
+    "/Users/ufukaltinok/Work/Projects/CortexKit/antigravity-auth/.cortexkit/alfonso/evidence/offline-cache-reconstruction-owned-r1/cache"
+  ],
+  "exitStatus": 0
+}

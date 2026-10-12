@@ -1,0 +1,253 @@
+[
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-07530c99db0d3573",
+    "command": "bunx biome check --write --no-errors-on-unmatched packages/pi/src/stream.test.ts; git add packages/core/src/credential-redaction.ts packages/core/src/credential-redaction.test.ts packages/core/src/index.ts packages/opencode/src/plugin/shared/request-services.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/quota.ts packages/opencode/src/plugin/quota.test.ts packages/pi/src/stream.ts packages/pi/src/stream.test.ts packages/pi/src/commands.ts packages/pi/src/commands.test.ts research/vault-boundary-final; git diff --stat; python3 - <<'PY'\nfrom pathlib import Path\np=Path('packages/pi/src/stream.ts');s=p.read_text();assert s.count('selectedCredentials.add(credential.accessToken)')==1;p.write_text(s.replace('selectedCredentials.add(credential.accessToken)','// NON-VACUITY BREAK: forget the actual opaque served token'))\np=Path('packages/core/src/credential-redaction.ts');s=p.read_text();assert s.count('if (!frame.includes(\\'\"error\"\\')) return frame')==1;p.write_text(s.replace('if (!frame.includes(\\'\"error\"\\')) return frame','// NON-VACUITY BREAK: redact successful frames too\\n  return redactCredentialText(frame, credentials)'))\nPY\n git diff --stat",
+    "outer_exit": 0,
+    "inner_exits": [],
+    "remote_job": null,
+    "remote_tree_hash": null
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-27aaeb469fd76908",
+    "command": "git checkout -- packages/pi/src/stream.ts packages/core/src/credential-redaction.ts && touch packages/pi/src/stream.ts packages/core/src/credential-redaction.ts; git diff --stat; date -u '+%Y-%m-%dT%H:%M:%SZ'; git diff --cached --stat",
+    "outer_exit": 0,
+    "inner_exits": [],
+    "remote_job": null,
+    "remote_tree_hash": null
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-3af02fc250264248",
+    "command": "bun --version; node --version; bun run --cwd packages/core build && bun test --isolate -t 'discards deferred quota metadata' packages/opencode/src/plugin/quota.test.ts; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outer_exit": 1,
+    "inner_exits": [
+      [
+        "INNER_EXIT",
+        "1"
+      ]
+    ],
+    "remote_job": "01a12c5c-e1a1-7543-9251-8c8fb2b34653",
+    "remote_tree_hash": "feb79efaad22baa41308516941a841a902ae54ae"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-3f46448bebc49116",
+    "command": "bun --version; node --version; bun run --cwd packages/core build && bun test --isolate -t 'production Pi provider refuses enrollment|discards deferred quota metadata|refuses deferred quota project metadata|refuses a local quota physical send after authority changes' packages/pi/src/stream.test.ts packages/opencode/src/plugin/quota.test.ts; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outer_exit": 1,
+    "inner_exits": [
+      [
+        "INNER_EXIT",
+        "1"
+      ]
+    ],
+    "remote_job": "01a12c59-0cb5-759c-b054-ba5c508026d3",
+    "remote_tree_hash": "8ac5d350624ad27256ee31c5f4e168e4ed12ea5b"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-44c481dd5ab0924a",
+    "command": "bun --version; node --version; bun run --cwd packages/core build || exit $?; result=0; bun test --isolate -t 'genuinely served opaque vault token at the Pi http boundary' packages/pi/src/stream.test.ts; code=$?; printf '\\nOPAQUE_VAULT_INNER_EXIT=%s\\n' \"$code\"; test \"$code\" -eq 0 || result=1; bun test --isolate -t 'only rewrites genuine error frames' packages/core/src/credential-redaction.test.ts; code=$?; printf '\\nSUCCESS_GUARD_INNER_EXIT=%s\\n' \"$code\"; test \"$code\" -eq 0 || result=1; exit \"$result\"",
+    "outer_exit": 1,
+    "inner_exits": [
+      [
+        "OPAQUE_VAULT_INNER_EXIT",
+        "1"
+      ],
+      [
+        "SUCCESS_GUARD_INNER_EXIT",
+        "1"
+      ]
+    ],
+    "remote_job": "01a12c61-7587-702b-bc17-41bc4af6c3d8",
+    "remote_tree_hash": "a4f86e6d0f43841497e66d47d1bfac6a0af670be"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-47e18a8a9f4f06f6",
+    "command": "bun --version; node --version; bunx tsc --version; bun run --cwd packages/core build && bun run --cwd packages/core typecheck && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outer_exit": 2,
+    "inner_exits": [
+      [
+        "INNER_EXIT",
+        "2"
+      ]
+    ],
+    "remote_job": "01a12c5f-0325-7534-b514-a31144725d02",
+    "remote_tree_hash": "c6e7b7dc4e2c00b927dd45754c729195498448b4"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-5ad6837f89d2ca6e",
+    "command": "bun --version; node --version; bunx tsc --version; bun run --cwd packages/core build && bun run --cwd packages/pi typecheck && bun test --isolate packages/pi/src/stream.test.ts; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outer_exit": 0,
+    "inner_exits": [
+      [
+        "INNER_EXIT",
+        "0"
+      ]
+    ],
+    "remote_job": "01a12c62-6876-7181-96b2-066d0b8fc550",
+    "remote_tree_hash": "7c5d9faba41c8891cc401b75a7992491ce5cd332"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-810ee93a6ba5eae4",
+    "command": "git checkout -- packages/pi/src/stream.ts packages/pi/src/commands.ts packages/opencode/src/plugin/shared/request-services.ts && touch packages/pi/src/stream.ts packages/pi/src/commands.ts packages/opencode/src/plugin/shared/request-services.ts; git diff --stat; python3 - <<'PY'\nimport pathlib,shutil,json\nnamespace='782486840065a51d';src=pathlib.Path('/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks')/namespace;dst=pathlib.Path('research/vault-boundary-final/runner-receipts');dst.mkdir(parents=True,exist_ok=True)\nfor task in src.iterdir():\n if not task.is_dir():continue\n stdout=task/'io/stdout';stderr=task/'io/stderr'\n if not stdout.exists() or not stderr.exists():continue\n out=stdout.read_text(errors='replace');err=stderr.read_text(errors='replace')\n if 'bun test v1.4.2' not in out or 'credential' not in err:continue\n target=dst/task.name;target.mkdir(exist_ok=True)\n for f in [stdout,stderr]:shutil.copyfile(f,target/f.name)\n for f in task.iterdir():\n  if f.is_file() and f.stat().st_size<100000:shutil.copyfile(f,target/f.name)\n print(json.dumps({'namespace':namespace,'task_id':task.name,'files':[p.name for p in target.iterdir()]}))\nPY",
+    "outer_exit": 0,
+    "inner_exits": [],
+    "remote_job": null,
+    "remote_tree_hash": null
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-8165f77350263b09",
+    "command": "bun --version; node --version; bun run --cwd packages/core build && bun test --isolate -t '^account-store quota service > discards deferred quota metadata' packages/opencode/src/plugin/quota.test.ts; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outer_exit": 1,
+    "inner_exits": [
+      [
+        "INNER_EXIT",
+        "1"
+      ]
+    ],
+    "remote_job": "01a12c5c-a7b8-765a-ad68-520b7c841590",
+    "remote_tree_hash": "feb79efaad22baa41308516941a841a902ae54ae"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-a511f81e6c7d4a45",
+    "command": "git checkout -- packages/pi/src/stream.ts packages/pi/src/commands.ts packages/opencode/src/plugin/shared/request-services.ts && touch packages/pi/src/stream.ts packages/pi/src/commands.ts packages/opencode/src/plugin/shared/request-services.ts; git diff --stat",
+    "outer_exit": 0,
+    "inner_exits": [],
+    "remote_job": null,
+    "remote_tree_hash": null
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-afa1a3330c5539af",
+    "command": "bun --version; node --version; bun run --cwd packages/core build && bun run --cwd packages/core typecheck && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outer_exit": 2,
+    "inner_exits": [
+      [
+        "INNER_EXIT",
+        "2"
+      ]
+    ],
+    "remote_job": "01a12c5b-6810-76cf-9014-6e674e4da2ff",
+    "remote_tree_hash": "1d966737dc28514e4613d25f09112ca8f57ee0f7"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-bad5583484cd8ba0",
+    "command": "git checkout -- packages/opencode/src/plugin/quota.ts && touch packages/opencode/src/plugin/quota.ts; git diff --stat; git show HEAD:packages/pi/src/stream.ts > packages/pi/src/stream.ts; git show HEAD:packages/pi/src/commands.ts > packages/pi/src/commands.ts; git show HEAD:packages/opencode/src/plugin/shared/request-services.ts > packages/opencode/src/plugin/shared/request-services.ts; printf '\\n// NON-VACUITY BREAK: remove late admission\\n' >> packages/pi/src/stream.ts; printf '\\n// NON-VACUITY BREAK: remove unreadable menu predicate\\n' >> packages/pi/src/commands.ts; printf '\\n// NON-VACUITY BREAK: remove metadata and return boundary\\n' >> packages/opencode/src/plugin/shared/request-services.ts; git diff --stat",
+    "outer_exit": 0,
+    "inner_exits": [],
+    "remote_job": null,
+    "remote_tree_hash": null
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-bfb30f66c87e5ec8",
+    "command": "bun --version; node --version; bun run --cwd packages/core build && bun test --isolate -t 'selected credential boundary|redacts selected credential|vetoes project metadata persistence|final captured grant await|public unreadable enrollment' packages/opencode/src/plugin/shared/request-services.test.ts packages/pi/src/stream.test.ts packages/pi/src/commands.test.ts",
+    "outer_exit": 1,
+    "inner_exits": [],
+    "remote_job": "01a12c56-d272-73c8-ba1d-54315c06deaa",
+    "remote_tree_hash": "8290862a453ea3ed846fd90fd76de3d850a11467"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-d59fe543de95fdd2",
+    "command": "bun --version; node --version; bun run --cwd packages/core build || exit $?; result=0; bun test --isolate -t 'production Pi provider refuses enrollment' packages/pi/src/stream.test.ts; code=$?; printf '\\nPI_PUBLIC_INNER_EXIT=%s\\n' \"$code\"; test \"$code\" -eq 0 || result=1; bun test --isolate -t 'vetoes project metadata persistence' packages/opencode/src/plugin/shared/request-services.test.ts; code=$?; printf '\\nPROJECT_INNER_EXIT=%s\\n' \"$code\"; test \"$code\" -eq 0 || result=1; bun test --isolate -t 'public unreadable enrollment' packages/pi/src/commands.test.ts; code=$?; printf '\\nMENU_INNER_EXIT=%s\\n' \"$code\"; test \"$code\" -eq 0 || result=1; exit \"$result\"",
+    "outer_exit": 1,
+    "inner_exits": [
+      [
+        "PI_PUBLIC_INNER_EXIT",
+        "1"
+      ],
+      [
+        "PROJECT_INNER_EXIT",
+        "1"
+      ],
+      [
+        "MENU_INNER_EXIT",
+        "1"
+      ]
+    ],
+    "remote_job": "01a12c5d-8578-72d3-8043-ce7a2751652b",
+    "remote_tree_hash": "3fe57428742e82a4f248e42f9c9ced518704c33e"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-dc2d67f250ae03b4",
+    "command": "git add packages/pi/src/stream.ts packages/pi/src/stream.test.ts packages/opencode/src/plugin/quota.ts packages/opencode/src/plugin/quota.test.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/shared/request-services.test.ts research/vault-boundary-final; git diff --stat; git show HEAD:packages/opencode/src/plugin/quota.ts > packages/opencode/src/plugin/quota.ts; printf '\\n// NON-VACUITY BREAK: baseline deferred local quota metadata\\n' >> packages/opencode/src/plugin/quota.ts; git diff --stat",
+    "outer_exit": 0,
+    "inner_exits": [],
+    "remote_job": null,
+    "remote_tree_hash": null
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-dc2fc5c8fb4dbe8f",
+    "command": "bun --version; node --version; bun run --cwd packages/core build && bun test --isolate packages/core/src/credential-redaction.test.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/opencode/src/plugin/auth-loader.test.ts packages/pi/src/stream.test.ts packages/pi/src/commands.test.ts",
+    "outer_exit": 1,
+    "inner_exits": [],
+    "remote_job": "01a12c55-a7f0-7651-b8e4-abac2417ed12",
+    "remote_tree_hash": "c05b3c8dffbf249072bb644a7af89b2835879eea"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-dcfe96b4218c46a3",
+    "command": "bun --version; node --version; bunx tsc --version; bunx biome --version; bun run --cwd packages/core build && bun run --cwd packages/core typecheck && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck && bunx biome check --no-errors-on-unmatched packages/core/src/credential-redaction.ts packages/core/src/credential-redaction.test.ts packages/core/src/index.ts packages/opencode/src/plugin/shared/request-services.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/quota.ts packages/opencode/src/plugin/quota.test.ts packages/pi/src/stream.ts packages/pi/src/stream.test.ts packages/pi/src/commands.ts packages/pi/src/commands.test.ts && bun test --isolate packages/core/src/credential-redaction.test.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/quota.test.ts packages/pi/src/stream.test.ts packages/pi/src/commands.test.ts; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outer_exit": 0,
+    "inner_exits": [
+      [
+        "INNER_EXIT",
+        "0"
+      ]
+    ],
+    "remote_job": "01a12c64-67ce-72d6-84a7-d0200e1a5eb2",
+    "remote_tree_hash": "f36c15b7d32994f2f8229ad69949babb3fe07a10"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-dd167dbd4ec1d2d4",
+    "command": "git add packages/pi/src/stream.test.ts packages/opencode/src/plugin/quota.test.ts research/vault-boundary-final; git diff --stat; git show HEAD:packages/pi/src/stream.ts > packages/pi/src/stream.ts; printf '\\n// NON-VACUITY BREAK: baseline project-await admission\\n' >> packages/pi/src/stream.ts; git diff --stat",
+    "outer_exit": 0,
+    "inner_exits": [],
+    "remote_job": null,
+    "remote_tree_hash": null
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-ef33017ac9c97321",
+    "command": "git checkout -- packages/pi/src/stream.ts && touch packages/pi/src/stream.ts; git diff --stat; python3 - <<'PY'\nimport hashlib,json,pathlib,shutil\nsource=pathlib.Path('.cortexkit/parent-inputs/vault-boundary-original-r1');m=json.loads((source/'MANIFEST.json').read_text());dst=pathlib.Path('research/vault-boundary-final/original-receipts');dst.mkdir(parents=True,exist_ok=True)\nfor t in m['tasks']:\n for f in t['files']:\n  p=source/t['task']/f['path'];b=p.read_bytes();assert len(b)==f['bytes'] and hashlib.sha256(b).hexdigest()==f['sha256'];q=dst/t['task']/f['path'];q.parent.mkdir(parents=True,exist_ok=True);q.write_bytes(b)\nshutil.copyfile(source/'MANIFEST.json',dst/'MANIFEST.json')\nprint('Verified and copied 6 original task groups unchanged')\nns='782486840065a51d';rt=pathlib.Path('/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks')/ns;rd=pathlib.Path('research/vault-boundary-final/runner-receipts')\nfor task in rt.iterdir():\n if not task.is_dir():continue\n stdout=task/'io/stdout';stderr=task/'io/stderr'\n if not stdout.exists() or not stderr.exists():continue\n if 'bun test v1.4.2' not in stdout.read_text(errors='replace'):continue\n target=rd/task.name;target.mkdir(parents=True,exist_ok=True)\n for f in [stdout,stderr]:shutil.copyfile(f,target/f.name)\n print(ns+'/'+task.name)\nPY",
+    "outer_exit": 0,
+    "inner_exits": [],
+    "remote_job": null,
+    "remote_tree_hash": null
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-f0f433c4c94285a6",
+    "command": "bun --version; node --version; bun run --cwd packages/core build && bun test --isolate packages/core/src/credential-redaction.test.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/quota.test.ts packages/pi/src/stream.test.ts packages/pi/src/commands.test.ts; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outer_exit": 0,
+    "inner_exits": [
+      [
+        "INNER_EXIT",
+        "0"
+      ]
+    ],
+    "remote_job": "01a12c5e-85aa-70c7-af2d-0dc84d8a642b",
+    "remote_tree_hash": "c6e7b7dc4e2c00b927dd45754c729195498448b4"
+  },
+  {
+    "namespace": "782486840065a51d",
+    "task_id": "bash-f45006eee75c529c",
+    "command": "git add packages/core/src/credential-redaction.ts packages/core/src/credential-redaction.test.ts packages/core/src/index.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/shared/request-services.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/pi/src/commands.ts packages/pi/src/commands.test.ts packages/pi/src/stream.ts packages/pi/src/stream.test.ts research/vault-boundary-final; git diff --stat; git show HEAD:packages/pi/src/stream.ts > packages/pi/src/stream.ts; git show HEAD:packages/pi/src/commands.ts > packages/pi/src/commands.ts; git show HEAD:packages/opencode/src/plugin/shared/request-services.ts > packages/opencode/src/plugin/shared/request-services.ts; printf '\\n// NON-VACUITY BREAK: production baseline removal control\\n' >> packages/pi/src/stream.ts; printf '\\n// NON-VACUITY BREAK: production baseline removal control\\n' >> packages/pi/src/commands.ts; printf '\\n// NON-VACUITY BREAK: production baseline removal control\\n' >> packages/opencode/src/plugin/shared/request-services.ts; git diff --stat",
+    "outer_exit": 0,
+    "inner_exits": [],
+    "remote_job": null,
+    "remote_tree_hash": null
+  }
+]

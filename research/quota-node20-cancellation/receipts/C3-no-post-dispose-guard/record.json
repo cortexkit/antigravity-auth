@@ -1,0 +1,15 @@
+{
+  "task_id": "bash-edab5c5bcb05186f",
+  "command": "cd packages/core && grep -n \"NON-VACUITY\" src/quota-manager.ts; bun test --isolate src/quota-manager.test.ts; echo \"test exit $?\"",
+  "workdir": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_6316e9435011bfdd",
+  "status": "completed",
+  "status_reason": null,
+  "started_at": 1791726866832,
+  "finished_at": 1791726874019,
+  "duration_ms": 7187,
+  "timeout_ms": 1800013,
+  "exit_code": 0,
+  "execution_note": "ran remotely on ck-motor (2 vCPUs requested)\nAFT stripped env names: [\"AFT_AGENT_DISCLAIM_PRIVACY\",\"AFT_GH_SHIMS_DIR\",\"AFT_GH_SHIM_BINARY\",\"AFT_GH_SHIM_TICKET\",\"AFT_GIT_CO_AUTHOR\",\"NEXTEST_TEST_THREADS\",\"RUST_TEST_THREADS\",\"SSH_AUTH_SOCK\",\"SUBC_MODULE_ID\"]\nthe remote job does not receive: GIT_CONFIG_COUNT, GIT_CONFIG_KEY_0, GIT_CONFIG_VALUE_0, HOME, LOGNAME, ORT_DYLIB_PATH, OSLogRateLimit, PATH, SHELL, TMPDIR; +5 more",
+  "requested_vcpus": 2,
+  "recorder_dir": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/5ab87a01b115da3d/bash-edab5c5bcb05186f"
+}

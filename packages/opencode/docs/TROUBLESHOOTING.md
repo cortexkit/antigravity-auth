@@ -399,42 +399,27 @@ You don't need them. This plugin handles all Google OAuth.
 
 ## Migration Guides
 
-### v1.2.8+ (Variants)
+### Claude 5.5 (3.0.1)
 
-v1.2.8+ introduces **model variants** for dynamic thinking configuration.
+Replace saved Claude 4.6 selections with `antigravity-claude-opus-5-5` or
+`antigravity-claude-sonnet-5-5`. Retired 4.6 requests refuse locally rather than
+redirecting to another model. Use low, medium or high adaptive effort:
 
-**Before (v1.2.7):**
 ```json
 {
-  "antigravity-claude-opus-4-6-thinking-low": { ... },
-  "antigravity-claude-opus-4-6-thinking-max": { ... }
-}
-```
-
-**After (v1.2.8+):**
-```json
-{
-  "antigravity-claude-opus-4-6-thinking": {
+  "antigravity-claude-opus-5-5": {
     "variants": {
-      "low": { "thinkingConfig": { "thinkingBudget": 8192 } },
-      "max": { "thinkingConfig": { "thinkingBudget": 32768 } }
+      "low": { "thinkingLevel": "low" },
+      "medium": { "thinkingLevel": "medium" },
+      "high": { "thinkingLevel": "high" }
     }
   }
 }
 ```
 
-Use canonical model names from current docs. Deprecated model names are sent as requested and may fail if the upstream API has removed them.
-
-### v1.2.7 (Prefix)
-
-v1.2.7+ uses explicit `antigravity-` prefix:
-
-| Old Name | New Name |
-|----------|----------|
-| `gemini-3-pro-low` | `antigravity-gemini-3-pro` |
-| `claude-sonnet-4-6` | `antigravity-claude-sonnet-4-6` |
-
-Use the `antigravity-` prefixed model names shown above.
+Older `max` and custom Claude thinking-budget examples do not define supported
+5.5 efforts. See [Model Variants](MODEL-VARIANTS.md) for current selectors and
+[the package README](../README.md) for offline account migration.
 
 ---
 

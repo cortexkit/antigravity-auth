@@ -10,18 +10,29 @@
  *
  * Race tests use the `merged-state` step to pause the writer long enough for
  * a second call to enqueue, then resume so the second call runs against the
- * post-first-write disk state. The lock contention test uses Task 7's lock
+ * post-first-write disk state. The lock contention test uses the file lock
  * directly to simulate a live cross-process holder and proves the writer's
  * retry+jitter path eventually throws `SidebarStateLockContentionError` after
  * the 2s budget.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync, statSync } from 'node:fs'
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { acquireFencedFileLock } from '@cortexkit/antigravity-auth-core'
+import {
+  acquireFencedFileLock,
+  type FencedFileLock,
+  FileLockOwnershipError,
+} from '@cortexkit/antigravity-auth-core'
 
 import {
   buildSidebarMachineStateFromAccounts,
@@ -445,6 +456,83 @@ describe('lock contention retry', () => {
   }, 5_000)
 })
 
+describe('lease lost between merge and rename', () => {
+  let fixture: Fixture
+
+  beforeEach(() => {
+    fixture = makeFixture()
+  })
+
+  afterEach(async () => {
+    setSidebarMergeHooks(null)
+    fixture.cleanup()
+  })
+
+  it('refuses to replace the state file when a successor takes the lock after the merge, and leaves the successor lock in place', async () => {
+    await setSidebarMachineState(
+      { checkedAt: 100, accounts: [makeAccount({ id: 'acct-before' })] },
+      { stateFile: fixture.stateFile },
+    )
+    const before = readFileSync(fixture.stateFile)
+    const lockPath = `${fixture.stateFile}.sidebar.lock`
+
+    // At the merged-state pause, simulate the original writer's lease being
+    // lost and a successor winning it through the real lock API: the lease
+    // file is removed (as stale eviction would) and a new owner acquires it.
+    let successor: FencedFileLock | null = null
+    setSidebarMergeHooks({
+      onStep: async (step) => {
+        if (step !== 'merged-state' || successor) return
+        await rm(lockPath, { force: true })
+        successor = await acquireFencedFileLock({
+          path: fixture.stateFile,
+          name: 'sidebar',
+          ttlMs: 60_000,
+          renew: false,
+        })
+      },
+    })
+
+    try {
+      await expect(
+        upsertSidebarActiveRouting('sess-late', makeRouting(), {
+          stateFile: fixture.stateFile,
+        }),
+      ).rejects.toBeInstanceOf(FileLockOwnershipError)
+
+      // The takeover really happened, so the rejection above is the fence.
+      const taken = successor as FencedFileLock | null
+      expect(taken).not.toBeNull()
+      // The original writer never committed its merge.
+      expect(Buffer.compare(readFileSync(fixture.stateFile), before)).toBe(0)
+      expect(
+        readdirSync(join(fixture.stateFile, '..')).filter((name) =>
+          name.endsWith('.tmp'),
+        ),
+      ).toEqual([])
+      // The original writer has already run its release; the successor's
+      // lease must still be on disk and still owned by the successor.
+      const onDisk = JSON.parse(readFileSync(lockPath, 'utf8')) as {
+        ownerId: string
+      }
+      expect(onDisk.ownerId).toBe(taken?.ownerId ?? '')
+      await expect(taken?.assertOwned()).resolves.toBeUndefined()
+    } finally {
+      setSidebarMergeHooks(null)
+      await (successor as FencedFileLock | null)?.release()
+    }
+
+    // With the successor gone, ordinary writes still land.
+    await upsertSidebarActiveRouting('sess-after', makeRouting(), {
+      stateFile: fixture.stateFile,
+    })
+    const after = readSidebarState(fixture.stateFile)
+    expect(after.accounts.map((entry) => entry.id)).toEqual(['acct-before'])
+    expect(after.activeRouting['sess-after']?.accountId).toBe('acct-0')
+    expect(after.activeRouting['sess-late']).toBeUndefined()
+  }, 5_000)
+})
+
 describe('redaction', () => {
   let fixture: Fixture
 
@@ -751,8 +839,8 @@ describe('windows rework — producer seam tests', () => {
   })
 
   it('normalizeLegacyCachedQuota: gemini-pro + gemini-flash collapse to gemini with MIN fraction', () => {
-    // M5: verify the two legacy gemini keys collapse with the most-constrained
-    // (lowest remainingFraction) winning. Also verifies the M4 resetTime fix:
+    // Verify the two legacy gemini keys collapse with the most-constrained
+    // (lowest remainingFraction) winning. Also verifies the earlier resetTime merge:
     // the winner (gemini-flash, 0.3) carries resetTime=Aug-01; gemini-pro (0.5)
     // has an earlier resetTime=Jul-26 — the merged result must use Jul-26.
     const result = normalizeLegacyCachedQuota({
@@ -766,7 +854,7 @@ describe('windows rework — producer seam tests', () => {
       },
     })
     expect(result?.gemini?.remainingFraction).toBe(0.3) // gemini-flash wins fraction
-    // M4 regression: the winner\'s resetTime (Aug-01) is LATER than the loser\'s
+    // Reset-time regression: the winner\'s resetTime (Aug-01) is LATER than the loser\'s
     // (Jul-26). The merged result must carry the earlier one (Jul-26).
     expect(result?.gemini?.resetTime).toBe('2026-07-26T00:00:00Z')
     // No windows must be invented for migrated entries.
@@ -792,7 +880,7 @@ describe('windows rework — producer seam tests', () => {
   })
 
   it('normalizeLegacyCachedQuota: a-wins branch with loser having earlier resetTime (M4 bug scenario)', () => {
-    // This is the exact M4 bug: a wins the fraction comparison but b has the
+    // This is the reset-time case: a wins the fraction comparison but b has the
     // earlier resetTime. Before the fix, b\'s resetTime was silently dropped.
     const result = normalizeLegacyCachedQuota({
       'gemini-pro': {
@@ -805,7 +893,7 @@ describe('windows rework — producer seam tests', () => {
       },
     })
     expect(result?.gemini?.remainingFraction).toBe(0.3)
-    // M4 fix: loser\'s earlier resetTime must win over the winner\'s later one.
+    // Earlier reset-time selection: loser\'s earlier resetTime must win over the winner\'s later one.
     expect(result?.gemini?.resetTime).toBe('2026-07-26T00:00:00Z')
   })
 
@@ -916,7 +1004,7 @@ describe('render boundary — current flag', () => {
     expect(visible[0]?.id).toBe('acct-0')
   })
 
-  // ── Fix 2: tier round-trip ──────────────────────────────────────────────────
+  // ── Tier round-trip ──────────────────────────────────────────────────
 
   it('Fix2-tier-roundtrip: tier writes to disk and reads back with capturedAt', async () => {
     // An account with a captured tier must survive a full write→read cycle.
@@ -947,5 +1035,137 @@ describe('render boundary — current flag', () => {
       tier: { id: 'paid-tier', capturedAt },
     })
     expect(result.tier).toEqual({ id: 'paid-tier', capturedAt })
+  })
+})
+
+it('replaces local rows and excludes their routing in the same locked projection write', async () => {
+  const fixture = makeFixture()
+  const now = Date.now()
+  try {
+    const local = buildSidebarMachineStateFromAccounts(
+      [{ index: 0, enabled: true, current: true }],
+      { checkedAt: now },
+    )
+    const account = local.accounts[0]
+    if (!account) throw new Error('the local fixture has no account')
+    await setSidebarMachineState(local, { stateFile: fixture.stateFile })
+    await upsertSidebarActiveRouting(
+      'local-session',
+      {
+        accountId: account.id,
+        modelFamily: 'gemini',
+        headerStyle: 'antigravity',
+        updatedAt: now,
+      },
+      { stateFile: fixture.stateFile, authoritative: true },
+    )
+    expect(
+      Object.keys(readSidebarState(fixture.stateFile).activeRouting),
+    ).toEqual(['local-session'])
+    let mergedWrites = 0
+    setSidebarMergeHooks({
+      onStep: (step) => {
+        if (step === 'merged-state') {
+          mergedWrites += 1
+          expect(readSidebarState(fixture.stateFile).accounts[0]?.id).toBe(
+            account.id,
+          )
+          expect(
+            Object.keys(readSidebarState(fixture.stateFile).activeRouting),
+          ).toEqual(['local-session'])
+        }
+      },
+    })
+    const vaultAccount = { ...account, id: 'vault-account-opaque' }
+    await setSidebarMachineState(
+      { checkedAt: now + 1, accounts: [vaultAccount] },
+      {
+        stateFile: fixture.stateFile,
+        retainRoutingForAccountIds: [vaultAccount.id],
+      },
+    )
+    const final = readSidebarState(fixture.stateFile)
+    expect(mergedWrites).toBe(1)
+    expect(final.accounts).toEqual([vaultAccount])
+    expect(final.activeRouting).toEqual({})
+  } finally {
+    setSidebarMergeHooks(null)
+    fixture.cleanup()
+  }
+})
+
+it('does not let a late local route reappear in a vault projection', async () => {
+  const fixture = makeFixture()
+  const now = Date.now()
+  const vault = buildSidebarMachineStateFromAccounts(
+    [{ index: 0, enabled: true }],
+    { checkedAt: now },
+  )
+  vault.accounts = vault.accounts.map((account) => ({
+    ...account,
+    id: `vault-${account.id}`,
+  }))
+  try {
+    await setSidebarMachineState(vault, {
+      stateFile: fixture.stateFile,
+      retainRoutingForAccountIds: ['vault-acct-0'],
+    })
+    const entry = {
+      accountId: 'acct-0',
+      modelFamily: 'gemini' as const,
+      headerStyle: 'antigravity' as const,
+      updatedAt: now,
+    }
+    await upsertSidebarActiveRouting('late-local', entry, {
+      stateFile: fixture.stateFile,
+      onlyForProjectedAccounts: true,
+    })
+    expect(readSidebarState(fixture.stateFile).activeRouting).toEqual({})
+    await upsertSidebarActiveRouting(
+      'vault-session',
+      { ...entry, accountId: 'vault-acct-0' },
+      { stateFile: fixture.stateFile, onlyForProjectedAccounts: true },
+    )
+    expect(
+      Object.keys(readSidebarState(fixture.stateFile).activeRouting),
+    ).toEqual(['vault-session'])
+  } finally {
+    fixture.cleanup()
+  }
+})
+
+describe('quota reading timestamp redaction', () => {
+  it('carries a quota fetch timestamp to each reported window without using the sidebar publication time', () => {
+    const cachedQuota = {
+      gemini: {
+        remainingFraction: 0.58,
+        windows: [
+          {
+            window: '5h' as const,
+            remainingFraction: 0.58,
+            resetTime: '2030-01-01T00:00:00Z',
+          },
+        ],
+      },
+    }
+    const publishedAt = 1_800_000_000_000
+    const readAt = publishedAt - 20 * 60_000
+    const dated = buildSidebarMachineStateFromAccounts(
+      [{ index: 0, cachedQuota, cachedQuotaUpdatedAt: readAt }],
+      { checkedAt: publishedAt },
+    )
+    expect(dated.checkedAt).toBe(publishedAt)
+    expect(dated.accounts[0]?.quota.gemini?.checkedAt).toBe(readAt)
+    expect(dated.accounts[0]?.quota.gemini?.windows?.[0]?.checkedAt).toBe(
+      readAt,
+    )
+    const undated = buildSidebarMachineStateFromAccounts(
+      [{ index: 0, cachedQuota }],
+      { checkedAt: publishedAt },
+    )
+    expect(undated.accounts[0]?.quota.gemini?.checkedAt).toBeUndefined()
+    expect(
+      undated.accounts[0]?.quota.gemini?.windows?.[0]?.checkedAt,
+    ).toBeUndefined()
   })
 })

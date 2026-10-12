@@ -1,0 +1,1 @@
+git checkout -- packages/core/src/credential-redaction.ts packages/opencode/src/plugin/shared/request-services.ts && touch packages/core/src/credential-redaction.ts packages/opencode/src/plugin/shared/request-services.ts; git diff --stat

@@ -1,0 +1,7 @@
+{
+  "name": "v1-official-floor-linux-x64-fixture",
+  "private": true,
+  "dependencies": {
+    "opencode-linux-x64": "1.17.13"
+  }
+}

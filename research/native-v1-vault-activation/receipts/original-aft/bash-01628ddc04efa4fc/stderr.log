@@ -1,0 +1,9 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:
+(pass) official 1.17.13 absent-auth first request activates and serves the approved vault [5237.91ms]
+
+ 1 pass
+ 0 fail
+ 23 expect() calls
+Ran 1 test across 1 file. [5.38s]

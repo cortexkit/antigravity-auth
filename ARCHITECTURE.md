@@ -1,31 +1,34 @@
 # Architecture
 
-This document is the system-of-record for the `@cortexkit/antigravity-auth*` stack. It covers the shared core, the OpenCode 1.x server/TUI package, the OpenCode 2.x server adapter, and the Pi extension.
+This document maps the current `@cortexkit/antigravity-auth*` source tree: shared core, the unified OpenCode 1.x / OpenCode 2 server and TUI package, and the Pi extension. Manifests and source are authoritative.
+
+**Terminology:** V1 means OpenCode 1.x; GA means OpenCode 2's generally available plugin API. A local source uses the account repository/pool on disk; a vault source uses an approved enrollment and fresh remote credentials. Enrollment authority is the freshly read choice between local, vault and unreadable state. A native `google` slot is the host's saved auth record; custody uses a non-secret placeholder while retaining the prior login for safe restoration where that host supports it.
+
+The verification commands below distinguish source tests from **packed** checks (tarballs installed into a consumer) and **native** checks (an actual host executable, not a mock). Listing a command is not a claim that CI, release, vault activation or installed OpenCode 1.x execution has passed.
 
 ## System goals and boundaries
 
 The stack solves three problems at the harness boundary:
 
-1. **Let non-Google harnesses talk to Antigravity.** OpenCode and Pi both issue Gemini-shaped requests; the Antigravity API only accepts requests shaped like the proprietary `agy` CLI. OpenCode 1 intercepts the host fetch, OpenCode 2 rewrites the host request to an adapter-owned loopback server, and Pi registers a custom provider. Each adapter rebuilds the AGY envelope and SSE response per credential.
-2. **Manage a pool of Google OAuth accounts.** Each account has a refresh token, an Antigravity `projectId`, an optional `managedProjectId`, a per-account fingerprint, and a quota cache. The runtime rotates, cooldowns, refreshes, and persists them — the host never sees this layer.
-3. **Render a live sidebar without writing to the host's terminal.** The OpenTUI tree is byte-perfect — any stray write corrupts the framebuffer. The plugin publishes a redacted snapshot to a file the TUI polls; slash commands flow over a loopback HTTP RPC with a bearer token the host's TUI process discovers through a port file.
+1. **Let non-Google harnesses talk to Antigravity.** OpenCode 1 binds a custom fetch, OpenCode 2 GA rewrites host requests to an adapter-owned loopback server, and Pi registers a custom provider. The adapters build the AGY request envelope and transform the SSE response for the host.
+2. **Manage account selection and credentials.** Local accounts retain refresh/project identity, fingerprints and dated quota state; vault selection state remains credential-free and acquires credentials per send. Rotation, cooldown and persistence sit behind the host provider boundary.
+3. **Render account status without competing for the host's terminal.** V1 publishes a redacted file snapshot and uses loopback RPC for its menu; GA has location-scoped RPC and a native TUI setup arm. Both renderers leave terminal ownership to the host.
 
-Boundaries that the refactor enforces explicitly:
+Explicit boundaries:
 
-- **Core is harness-agnostic.** It only knows `fetch`, `node:fs`, `node:net`, and a `fetchAccountQuota` callback. It must not import `@opencode-ai/plugin` or `@earendil-works/pi-ai`. The corollary: every host runtime call is injected through `PluginDependencyOverrides` (`packages/opencode/src/plugin/dependencies.ts:1-212`).
-- **The TUI is read-only.** `packages/opencode/src/tui.tsx:1-1171` and the `tui-compiled/` twin only import from `sidebar-state.ts`, `rpc/rpc-client.ts`, `rpc/rpc-dir.ts`, `tui-preferences.ts`, and the local `tui/` folder. OAuth tokens, account storage, the fetch interceptor — none of those run inside the render path.
-- **The plugin is one process, two render domains.** The server-side plugin (host-supplied `client`) and the OpenTUI sidebar live in separate process contexts. Communication is the loopback HTTP RPC plus the on-disk sidebar snapshot; the plugin never imports `@opentui/solid`.
+- **Core is harness-agnostic.** It owns account, transport, OAuth, repository and vault primitives, not host SDK calls. OpenCode's `PluginDependencyOverrides` supplies the V1 host/network seam; GA and Pi have their own composition seams.
+- **Renderers do not execute credential pipelines.** `packages/opencode/src/tui.tsx` and `src/ga/tui/host-ga.tsx` consume redacted state and menu/RPC contracts. Account storage, OAuth and request execution stay server-side. UI actions request server operations rather than handling tokens in the renderer.
+- **Host contexts are not an in-memory sharing contract.** V1's file snapshot and loopback RPC, and GA's location-scoped RPC, are the communication boundaries. Do not infer one shared process from the fact that both arms ship in one package.
 
 ## Package and process topology
 
-Four published packages plus a private e2e workspace:
+Three publishable packages plus a private e2e workspace:
 
 ```
 antigravity-auth/
 ├── packages/
 │   ├── core/                 # @cortexkit/antigravity-auth-core — harness-agnostic
-│   ├── opencode/             # @cortexkit/opencode-antigravity-auth — OpenCode 1 server + tui
-│   ├── opencode-v2/          # @cortexkit/opencode-v2-antigravity-auth — OpenCode 2 server
+│   ├── opencode/             # @cortexkit/opencode-antigravity-auth — V1 + GA server/TUI
 │   ├── pi/                   # @cortexkit/pi-antigravity-auth — pi extension
 │   └── e2e-tests/            # private: black-box flows against a mock loopback server
 ├── scripts/                  # build, dev, schema, smoke
@@ -37,31 +40,28 @@ The dependency direction is strictly one-way:
 ```mermaid
 graph LR
   OA[opencode] --> Core[core]
-  OAV2[opencode-v2] --> Core
   PI[pi] --> Core
-  OA -. uses .-> SRP[otui sidecar via src/tui/entry.mjs]
+  OA -. renderer entry .-> TUI[src/tui/entry.mjs<br/>V1 tui / GA setup]
   E2E[e2e-tests] --> OA
-  E2E --> OAV2
   E2E --> Core
 ```
 
-`packages/opencode/package.json` exposes the OpenCode 1 server and TUI subpaths. `packages/opencode-v2/package.json` publishes compiled `dist/plugin.js`, declares `oc-plugin: ['server']`, and exposes the `./server` subpath required by OpenCode 2's real `Host.resolve()` path alongside inert `./tui` and `./rpc` subpaths that satisfy cross-platform resolver probing. The Pi package's `pi.extensions` field is the analogous host entry. Both OpenCode adapters and Pi depend one-way on core.
+`packages/opencode/package.json` exports `.`, `./server`, and `./tui`; there is no public `./rpc` export. The root remains the V1 plugin barrel. `src/server.ts` supplies a hybrid default with GA `id`/`setup` and V1 `server`. `src/tui/entry.mjs` supplies a real hybrid default with V1 `tui` and GA `setup`, loading only the selected renderer on first call. The Pi manifest declares `pi.extensions: ['./dist/index.js']`. Both host packages depend on core, never the reverse.
 
-### Process topology at runtime
+### V1 process/context topology
 
 ```mermaid
 flowchart LR
-  subgraph OCHost[OpenCode host process]
+  subgraph OCHost[OpenCode server context]
     direction TB
     ServerPlugin[server plugin<br/>createAntigravityPlugin]
-    TuiPlugin[TUI plugin<br/>src/tui.tsx default export]
-    ServerPlugin ~~~ TuiPlugin
   end
-  subgraph Sidecar[Sidebar sidecar process]
+  subgraph Sidecar[OpenCode TUI context]
     direction TB
     FileLogger[tui file logger]
+    TuiPlugin[TUI plugin<br/>src/tui.tsx]
   end
-  subgraph Child[plugin runtime]
+  subgraph Child[server-owned runtime]
     direction LR
     Interceptor[createFetchInterceptor]
     QuotaMgr[createOpenCodeQuotaManager]
@@ -77,88 +77,48 @@ flowchart LR
   RPC -. 127.0.0.1:port + Bearer .-> TuiPlugin
   Interceptor --> AGY[Antigravity HTTPS]
   QuotaMgr --> AGY
-  AccMgr --> Storage[(antigravity-accounts.json)]
+  AccMgr --> Storage[(local repository / pool file)]
   RPC --> Notif[notification queue]
 ```
 
-The TUI loads the compiled bundle (`packages/opencode/src/tui/entry.mjs:30-38`) and discovers the live server through a per-pid port file (`packages/opencode/src/rpc/port-file.ts:27-52`). The inter-process boundary is the deliberate design choice — it lets the TUI be a `solid-js` renderer with zero credential exposure.
+The V1 TUI discovers the server through a per-pid port file. The hybrid loader delegates runtime-module probing to embedded common-auth's `loadTui`: a host runtime selects the compiled tree; the raw tree is the development fallback. Unrelated import failures propagate rather than silently selecting another renderer.
 
 ## Core library layers
 
-`packages/core/src/index.ts:1-30` is the public surface. Each top-level export is a self-contained module groups by concern:
+`packages/core/src/index.ts` is the public barrel. The manifest also exports embedded common-auth subpaths. Modules are grouped by concern:
 
-| Layer | Module | Lines | Responsibility |
-| --- | --- | --- | --- |
-| OAuth | `antigravity/oauth.ts` | core | `authorizeAntigravity`, `exchangeAntigravity`, PKCE pack/unpack |
-| Token state | `auth.ts` | `packages/core/src/auth.ts:1-62` | `parseRefreshParts`, `formatRefreshParts`, expiry buffer |
-| Transport | `agy-transport.ts` | `packages/core/src/agy-transport.ts:1-628` | TLS socket pool, chunked/gzip decode, header/idle timeouts |
-| Active timeout | `fetch-timeout.ts` | `packages/core/src/fetch-timeout.ts:1-54` | 15s header-only abort for `globalThis.fetch` callers |
-| Quota + planning | `quota-manager.ts` | `packages/core/src/quota-manager.ts:1-1085` | Attributed fetch, exponential backoff, in-flight dedupe |
-| Account pool | `account-manager.ts` | `packages/core/src/account-manager.ts:1-2249` | Selection, rate-limit state, fingerprint, soft-quota |
-| Rotation | `rotation.ts` | `packages/core/src/rotation.ts:1-593` | Health score, token bucket, hybrid LRU classifier |
-| Locking | `file-lock.ts` | `packages/core/src/file-lock.ts:1-552` | Renewable fenced file lock with eviction marker |
-| Atomic file | `atomic-write.ts` | `packages/core/src/atomic-write.ts:1-52` | Temp + rename, 0o600, no copy fallback |
-| Fingerprint | `fingerprint.ts` | core | Per-account device fingerprint + history |
-| Project ctx | `project.ts` | core | `loadCodeAssist`, `ensureProjectContext` |
-| Session metadata | `agy-request-metadata.ts` | `packages/core/src/agy-request-metadata.ts:1-296` | ConversationId, trajectoryId, payload ordering |
-| Constants | `constants.ts` | `packages/core/src/constants.ts:1-269` | Endpoints, scopes, headers, sentinel values |
-| Logger | `logger.ts` | core | `createLogger('module-name')` |
+| Layer | Module under `packages/core/src/` | Responsibility |
+| --- | --- | --- |
+| OAuth | `antigravity/oauth.ts`, `auth.ts` | PKCE, token exchange/refresh, packed project fields, expiry buffer |
+| Transport | `agy-transport.ts`, `fetch-timeout.ts` | Raw TLS, chunked/gzip decode, header/idle timeouts; stream-safe standard fetch timeout |
+| Quota | `quota-manager.ts`, `quota-presentation.ts` | Attributed fetch, bounded backoff, in-flight dedupe, dated quota presentation |
+| Accounts | `account-manager.ts`, `account-selector.ts` | Selection, rate-limit state, fingerprints, soft-quota, persistence transitions |
+| Repository | `account-repository.ts`, `account-repository-codecs.ts`, `account-repository-types.ts`, `account-migration.ts` | Lease-backed records, account/credential separation, legacy migration |
+| Pool file | `account-storage.ts`, `account-types.ts` | V4 JSON compatibility/storage path |
+| Rotation | `rotation.ts` | Health score, token bucket, hybrid selection |
+| File primitives | `file-lock.ts`, `atomic-write.ts` | Renewable fenced lock, temp + rename, ownership-loss signals |
+| Vault | `vault-enrollment-authority.ts`, `vault-account-source.ts`, `vault-provider-state.ts` | Fresh enrollment authority, credential-free selection, per-send vault credentials |
+| Common-auth | `common-auth-runtime.ts`, `common-auth-embedded/` | Lazy embedded public modules, store/lease, commands, routing, quota and Pi slot helpers |
+| Request context | `fingerprint.ts`, `project.ts`, `agy-request-metadata.ts` | Device identity, project resolution, conversation/trajectory IDs and payload order |
+| Catalog / logging | `model-registry.ts`, `constants.ts`, `logger.ts` | Models, endpoints, scopes, headers, structured logging |
 
-The account storage round-trip is owned by `packages/core/src/account-storage.ts`, which the opencode adapter wraps in `packages/opencode/src/plugin/storage.ts:1-422` (callers from the opencode side land there because the core exports a `store` interface that the host fills in).
+OpenCode's `src/plugin/storage.ts` resolves host paths and opens the local repository; the pool-file adapter remains available. The repository uses attributed row operations rather than treating every update as a whole JSON-pool rewrite.
 
 ### Layer dependency rules
 
-```mermaid
-graph TB
-  subgraph Harness agnostic
-    Auth[auth / oauth]
-    Transport[agy-transport]
-    Quota[quota-manager]
-    Rotation[rotation]
-    Account[account-manager]
-    Metadata[agy-request-metadata]
-    Lock[file-lock + atomic-write]
-    Fingerprint[fingerprint]
-    Project[project]
-  end
-  Auth --> Transport
-  Quota --> Rotation
-  Account --> Rotation
-  Account --> Lock
-  Account --> Fingerprint
-  Project --> Auth
-  Metadata --> Project
-```
+Core exposes harness-agnostic primitives and lazy public common-auth capabilities. Host-specific request execution, SDK calls, UI rendering and side effects are composed by OpenCode or Pi, above that boundary. Token parsing is reusable across hosts; neither core storage nor selection depends on an OpenCode renderer.
 
-The dependency graph is acyclic. No layer reaches into `account-manager` from `auth` — the auth module intentionally treats the refresh token as opaque so it can be reused by the Pi extension which has no concept of an account pool.
-
-## OpenCode server plugin
+## OpenCode V1 server plugin
 
 ### Composition root
 
-`packages/opencode/src/plugin/index.ts:122-503` is the single factory `createAntigravityPlugin(providerId, options)`. It is the only host-facing surface; the package barrel at `packages/opencode/index.ts:1-4` re-exports the two stable aliases `{AntigravityCLIOAuthPlugin, GoogleOAuthPlugin}` produced by binding the factory to `ANTIGRAVITY_PROVIDER_ID = 'google'` (`packages/core/src/constants.ts:178`).
+`packages/opencode/src/plugin/index.ts` defines `createAntigravityPlugin(providerId, options)`. The package barrel `packages/opencode/index.ts` re-exports `AntigravityCLIOAuthPlugin` and `GoogleOAuthPlugin`, bound to provider `google`. This is the V1 composition root, not the only host entry in the unified package.
 
-The factory wires one of every collaborator the host will ever need:
+The factory composes a dependency bag (`fetchImpl`, `agyTransport`, filesystem roots, OAuth and clock), configuration, health/token trackers, disk signature cache, session registry, lifecycle, quota manager, operator settings, event/recovery/update hooks, account/OAuth services, auth loader, shared command menu and RPC. Local quota polling and proactive refresh are authorized local producers, not vault-mode background work. The returned `PluginResult` includes `dispose`, config/command/event/tool hooks and `auth`. The host chooses when to invoke the loader; it is not a claim that the loader runs once per model request.
 
-1. `resolvePluginDependencies(options.dependencies)` (line 125) — replaces the legacy shared mutable globals with a per-instance dependency bag covering `fetchImpl`, `agyTransport`, `filesystemRoots`, `oauth`, and `clock`.
-2. `loadConfig(directory)` then `initRuntimeConfig(config)` (lines 129-130) — the latter pushes the resolved config onto the `core` config singleton.
-3. `initHealthTracker` / `initTokenTracker` / `initDiskSignatureCache` (lines 135-158) — populate the global rotation trackers with the user-configured weights.
-4. `AgySessionRegistry` (line 160) — owns the per-workspace `AgyRequestSessionStore` from `packages/core/src/agy-request-metadata.ts:107-203`.
-5. `createPluginLifecycle({...})` (line 162) — the disposal root.
-6. `createOpenCodeQuotaManager` (line 173) — wraps the core `QuotaManager` with a `getAccountsForSidebar` closure so any quota refresh pushes the redacted sidebar snapshot. Registered as a producer in lifecycle via `registerQuotaManagerProducer`.
-7. `BackgroundQuotaRefresh` (line 221) — when `config.background_quota_refresh` is true, runs a background poller timer for idle account quotas and captured tiers. Registered as a producer in lifecycle.
-8. `createOperatorSettingsController` (line 245) — backs the `/antigravity-*` slash commands. Config writes go through the fenced-lock writer so a crash mid-write cannot corrupt the file.
-9. `createEventHandler`, `createSessionRecoveryHook`, `createAutoUpdateCheckerHook` (lines 256-273) — host lifecycle hooks.
-10. `createCommandDataService` (line 276) — privacy-safe account data projection and quota refresh service backing slash-command dialogs.
-11. `createAccountAccessService` (line 361) and `createAccountCommandOAuthService` (line 399) — handle account verification and multi-account OAuth additions from slash commands.
-12. `createAuthLoader` (line 376) and `createFetchInterceptor` (line 384) — the auth loader that reloads the account manager and provisions a fresh interceptor on demand.
-13. `startRpcServer` (line 434) — the loopback HTTP server; the same factory call exposes `apply` (operator → plugin) and `drain` (plugin → TUI notifications) callbacks.
+### Auth loader and source-aware fetch
 
-The factory returns a `PluginResult` with `dispose`, `config`, `command.execute.before`, `event`, `tool`, and `auth` hooks (`packages/opencode/src/plugin/index.ts:481-502`). The host's `auth.loader` is the one piece of business logic that runs every model call.
-
-### Auth loader and the one active interceptor
-
-`packages/opencode/src/plugin/auth-loader.ts:102-345` is the function the host invokes on every `auth` call. Its job is to materialize the `AccountManager` from the current session's auth + the on-disk pool, then hand the host a `fetch` closure bound to a fresh interceptor.
+`packages/opencode/src/plugin/auth-loader.ts` selects the source using fresh enrollment state and binds a fetch runtime. It caches repository opening and a separate lazy vault fetch runtime; the first authorized local request after vault use can reload local account state. Local auth drift repair and refresh belong only to the authorized local branch.
 
 ```mermaid
 sequenceDiagram
@@ -168,134 +128,121 @@ sequenceDiagram
   participant AM as AccountManager
   participant FI as FetchInterceptor
   Host->>Loader: loader(getAuth, provider)
-  Loader->>Loader: onGetAuth(getAuth)
-  Loader->>Loader: auth = await getAuth()
-  alt auth is missing/stale
-    Loader->>Loader: detectAuthStorageDrift
-    Loader->>FS: loadAccounts
-    Loader->>Host: client.auth.set(restore)
+  Loader->>Loader: check lifecycle + fresh enrollment
+  alt vault enrollment active
+    Loader->>Loader: bind/reuse vault runtime (no getAuth)
+    Loader-->>Host: vault fetch closure
+  else authorized local source
+    Loader->>Loader: getAuth + local drift handling
+    Loader->>AM: open repository / load pool
+    Loader->>FI: bind local request executor
+    Loader->>Loader: publish new delegating fetch target
+    Loader->>FSM: replaceAccountRuntime (track old drain)
+    Loader-->>Host: local fetch closure
   end
-  Loader->>AM: AccountManager.loadFromDisk(auth)
-  Loader->>FSM: replaceAccountRuntime(am, refreshQueue)
-  alt config.proactive_token_refresh
-    Loader->>Loader: createProactiveRefreshQueue
-    Loader->>FSM: refreshQueue.start()
-  end
-  Loader->>FS: setSidebarMachineState(redacted accounts)
-  Loader->>FI: createFetch({ am, getAuth })
-  Loader->>FSI: previousRuntime.dispose()
-  Loader-->>Host: { apiKey: '', fetch: fetcher }
 ```
 
-The redaction in `setSidebarMachineState` (`packages/opencode/src/plugin/auth-loader.ts`) uses `buildSidebarMachineStateFromAccounts` from `packages/opencode/src/sidebar-state.ts:783-804` so the TUI's snapshot is the only authoritative signal that the account pool exists.
+**V1 dormant-slot rule:** the native `google` auth record is only the host's pre-loader prerequisite. Once the loader is reached, vault admission depends on enrollment, not native connection ownership. A foreign tombstone (a vault placeholder associated with another enrollment) or ordinary local OAuth record remains unread, unvalidated and unrefreshed by the plugin while vault credentials serve. V1 does not apply GA's exact connection-marker ownership rule. Local work remains blocked while vault authority is active or unreadable.
 
 ### Fetch interceptor
 
-`packages/opencode/src/plugin/fetch-interceptor.ts:1-2283` is the largest file in the tree. It owns the per-request retry/quota/routing pipeline. The outer loop at lines 546-... picks an account via `accountManager.getCurrentOrNextForFamily(...)` (line 661), then the inner loop at lines 1257-... walks the endpoint fallback list (`packages/core/src/constants.ts:46-49`) with per-endpoint capacity retry.
+`packages/opencode/src/plugin/fetch-interceptor.ts` binds V1 credentials and host effects to `src/plugin/shared/request-services.ts`. The shared `createRequestExecutor` owns selection, retry/quota/routing, endpoint fallback, warmups, transport and response handling; GA uses that engine too.
 
 Key gates in the request lifecycle:
 
-- `isGenerativeLanguageRequest(input)` (line 360) — any non-`generativelanguage.googleapis.com` URL passes through to the host fetch unchanged.
-- `accessTokenExpired(authRecord)` (`packages/core/src/auth.ts:40-45`) — refresh via `refreshAccessToken` (line 867) before the request goes out; on `invalid_grant` the account is removed and the pool is rewritten.
-- `ensureProjectContext(authRecord)` (line 991) — the most likely pre-flight failure; on rejection the account is cooled down via `markAccountCoolingDown` + `markRateLimited`.
-- `prepareAntigravityRequest` (line 1276) — full sanitization pass: `sanitizeCrossModelPayload`, Claude thinking-block stripping, prefix-stabilized tool caching, fingerprint header injection, request-metadata labels.
-- `transport(...)` (line 1357) — the primary path that uses the bounded `agyTransport` socket; non-Antigravity URL variants fall back to `upstreamFetch`.
-- `transformAntigravityResponse` (line 1082, 1910) — runs the streaming reverse transform. The streaming transformer at `packages/opencode/src/plugin/core/streaming/transformer.ts` captures SSE tokens, caches thinking signatures, and emits `usageMetadata` to the caller.
-- `terminalFetchError` (line 116) — throws terminal transport/exhaustion errors when all retries, endpoint fallbacks, or account switches are exhausted, ensuring errors propagate through OpenCode's native retry and error pipeline rather than returning synthetic HTTP 200 assistant text.
+- Non-generative-language requests pass through to the captured host fetch.
+- Local credentials refresh before expiry and resolve project context; vault sends acquire fresh credentials from the vault rather than refreshing the host slot.
+- Request preparation sanitizes cross-model history, strips incompatible thinking blocks, stabilizes payload order, and injects fingerprints and metadata.
+- The raw AGY transport supplies bounded socket/header/body behavior; the reverse transformer restores host SSE shape and usage/signature metadata.
+- Terminal outcomes are native error responses or thrown exhaustion errors, never synthetic HTTP 200 assistant success text (see **Error handling**).
 
-The `RetryState` at `packages/opencode/src/plugin/fetch/retry-state.ts` and `WarmupState` at `packages/opencode/src/plugin/fetch/warmup.ts` are per-interceptor singletons; `createFetchInterceptor` constructs them at lines 271-272 so disposing the plugin releases every counter.
+`RetryState` and `WarmupState` are per-runtime bookkeeping. Retirement stops new generative admission and drains admitted requests and response bodies; disposal aborts and awaits cleanup. Replacement must not cancel a response already handed to the host.
 
 ### Dependency seam
 
-`packages/opencode/src/plugin/dependencies.ts:1-212` defines the override surface. Production callers omit it; test/e2e callers pass `fetchImpl`, `agyTransport`, and `filesystemRoots` to redirect all outbound calls onto the mock server. The seam is the only reason the e2e workspace can run without touching the live Antigravity infrastructure (see **End-to-end data flows** below).
+`packages/opencode/src/plugin/dependencies.ts` defines the V1 override surface. Tests inject fetch, AGY transport, filesystem roots, OAuth and clock; the e2e harness combines these seams with a loopback fetch guard. These source-level seams do not prove a packed host load path.
 
-## OpenCode 2 server adapter
+## OpenCode 2 GA server and location services
 
-`packages/opencode-v2/src/plugin.ts` is a separate host adapter for OpenCode 2.x. OpenCode 2's `session.hook('http.request')` contract can rewrite a web-standard `Request`, but it cannot return a custom `Response`. The adapter therefore binds an ephemeral server to `127.0.0.1`, stores the transformed request under an unguessable job UUID, rewrites the host request URL to that loopback job, and lets the host dispatch normally. The loopback handler then runs the shared core account manager, OAuth refresh, project resolution, AGY metadata builder, model resolver, schema sanitizer, and raw AGY transport.
+`packages/opencode/src/ga/server/index.ts` defines `createGaAntigravityPlugin`. GA's `session.hook('http.request')` contract rewrites a web-standard request rather than returning the plugin's response. The server binds an ephemeral loopback bridge, identifies pending jobs with unguessable IDs, and rewrites the host URL so normal host dispatch reaches the shared request executor. `src/ga/proxy-guard.ts` guards the loopback request boundary; `src/plugin/ga-location-services.ts` supplies location-owned account, menu and serving services.
 
-The OpenCode 2 adapter preserves the same wire invariants as OpenCode 1: final requests use `toolConfig.functionCallingConfig.mode: 'VALIDATED'`, remove `providerOptions`, strip image-model tools/thinking, append `[Continue]` after a model-ending history, and preserve complete terminal SSE frames. Unsupported OpenCode title requests are explicitly routed to the supported Gemini 3.5 Flash low tier instead of bypassing the adapter to Google's public endpoint.
+The shared engine preserves the same wire invariants for both OpenCode arms: final requests use `toolConfig.functionCallingConfig.mode: 'VALIDATED'`, remove `providerOptions`, strip image-model tools/thinking, append `[Continue]` after model-ending history, and preserve terminal SSE frames. `routeTitleModel` routes title work to a supported model rather than bypassing the adapter to Google's public endpoint.
 
-The adapter uses the shared v4 `antigravity-accounts.json` pool. `ACCOUNT_INELIGIBLE` and `VALIDATION_REQUIRED` responses persist the corresponding disabled account state before rotation. Generic HTTP 403 responses do not masquerade as rate limits. Stream EOF without a terminal candidate, embedded SSE errors, and exhausted transport fallbacks surface through OpenCode's native error path rather than becoming successful assistant text.
+Local GA service uses the lease-backed repository; vault service uses enrollment authority and fresh per-send grants. `ACCOUNT_INELIGIBLE` and `VALIDATION_REQUIRED` persist access state before rotation. Generic 403 responses are not rate limits. Stream EOF without a terminal candidate, embedded SSE errors and exhausted fallbacks surface as native failures, not successful assistant text.
 
-`createOpenCodeV2AntigravityPlugin(overrides)` is the test seam. Production uses core defaults; deterministic tests inject OAuth/project/transport functions while retaining the production loopback and host-hook pipeline. Disposal unregisters host hooks, clears pending jobs and timers, aborts active requests, closes all loopback connections, clears session metadata, and disposes the account manager.
+`createGaAntigravityPlugin(overrides)` is the GA composition/test seam, exported from `./server`. Server disposal unregisters hooks and retires location-owned resources, pending jobs, streams, timers and loopback connections. GA integration code in `src/ga/server/auth.ts` adds the plugin-owned vault activation method to `google`; serving admission checks the owned connection boundary as well as enrollment. That native-marker ownership requirement is GA-specific, not the V1 dormant-slot rule.
 
-The `oc-plugin` manifest enables only the server entry (`packages/opencode-v2/src/plugin.ts`). OpenCode 2's cross-platform host resolver also probes `./tui` and `./rpc` subpaths even for server-only packages; the package exports inert placeholders (`packages/opencode-v2/src/tui.ts`, `packages/opencode-v2/src/rpc.ts`) to satisfy resolver discovery while leaving UI rendering to OpenCode 2's native provider UI.
+**Server-only SDK profile:** the GA consumer fixture selects the installed `./server` API, checks its emitted declarations against the genuine `@opencode/plugin` SDK, and excludes installed host TUI frameworks. This is a test/type profile, not the package export topology. The public default is hybrid, `./tui` is a real renderer entry, and SDK imports in the server source are type-only.
+
+`createGaLocationServicesFactory` retains separate lazy local and vault promises across enrollment changes, without rotating the RPC generation. Each operation checks current source authority. Local repository and executor construction are deferred until authorized local work needs them; failed construction may be retried. Menu source changes refresh the newly selected account view. Vault mode leaves local quota polling and token refresh dormant. V1 has its own custody-aware path retention/replacement and must not be described as this GA generation model.
 
 ## OpenTUI process and trust boundary
 
 ### Two halves of the contract
 
-The OpenTUI plugin is wired through the package's `exports["./tui"]` subpath (`packages/opencode/package.json`). The host's `opencode plugin` installer reads that subpath and writes the registration into `tui.json`; the host loads the TUI entry point separately from the server entry, and the entry dispatches to either the precompiled Solid bundle or the raw `tui.tsx` based on the host runtime module's availability (`packages/opencode/src/tui/entry.mjs:30-66`).
+The `./tui` export is `packages/opencode/src/tui/entry.mjs`, a lazy `{ id, tui, setup }` default. V1 calls `tui`; GA calls `setup`. Each arm loads only its own root. Embedded common-auth's `loadTui` chooses runtime-compiled or raw output; a missing installed root or unrelated import failure is not hidden by a broad fallback.
 
-The two halves share a small amount of code through `packages/opencode/src/tui-compiled/` (the precompiled mirror) and the slim contract modules:
+The build emits separate raw/compiled trees for V1 and GA. Slim contracts include:
 
-- `packages/opencode/src/sidebar-state.ts` — the read seam in the TUI's compiled tree, the read+write seam in the server plugin (lines 1-39 document the split).
+- `packages/opencode/src/sidebar-state.ts` — V1 snapshot reader/writer and redaction.
 - `packages/opencode/src/tui-preferences.ts` — shared preferences reader and file watcher for TUI settings (`tui-preferences.jsonc`).
-- `packages/opencode/src/rpc/protocol.ts` — wire types (`CommandModalName`, `ApplyRequest`, `ApplyResult`, `RpcNotification`).
+- `packages/opencode/src/rpc/protocol.ts` — type-only common-auth menu requests/results and notification envelopes.
+- `packages/opencode/src/ga/rpc/protocol.ts` — GA location/menu RPC contract.
 - `packages/opencode/src/rpc/rpc-client.ts` — the TUI's HTTP client.
 - `packages/opencode/src/rpc/rpc-dir.ts` — resolves the per-project directory the port file lives in.
-- `packages/opencode/src/plugin/command-data.ts` — local structural types (`CommandAccountRow`) for privacy-safe modal dialogs.
+- `packages/opencode/src/quota-presentation.ts` — shared formatter projection without credential imports.
 
-The TUI imports **none** of the OAuth, account, or fetch interceptor modules. The compiler would let it (TypeScript has no runtime privilege check), but the import graph review at `packages/opencode/src/tui.tsx:1-22` documents the rule.
+The render roots do not import the credential pipeline. `packages/opencode/scripts/build-tui.test.ts` checks the render import graph and build output; this is stronger evidence than a TypeScript type-only boundary alone.
 
 ### TUI render path
 
 `packages/opencode/src/tui.tsx` is a `TuiPlugin` that registers a `slots.sidebar_content` slot. The slot renders a `SidebarPanel` Solid component that:
 
-1. Polls `readSidebarState(props.stateFile)` every 2 seconds (`POLL_INTERVAL_MS = 2000`, line 84).
-2. Polls the RPC server's `/rpc/pending-notifications` endpoint every 500ms for any new slash-command dialog.
-3. Renders the per-account blocks: enabled badge, health bar, cooldown countdown, per-model quota bar (`<SidebarQuotaKey>` = `gemini | non-gemini`, lines 130-137).
-4. Renders the active session route — one entry per session that has issued a request through the fetch interceptor.
+1. Polls `readSidebarState` every 2 seconds.
+2. Polls RPC for shared menu and toast notifications.
+3. Renders enabled/health/cooldown state, `gemini` and `non-gemini` quota pools, optional quota windows and captured tier.
+4. Selects the sidebar session's route, or the newest route when no session ID is supplied.
 5. Surfaces a stale-routing indicator when `routingAuthoritative` is false.
 
-When a notification arrives, `openCommandDialog` (line 1138) rebuilds the dialog flow and reuses the host's `DialogSelect` / `confirm` / `prompt` primitives from `tui/command-dialogs.tsx`. The result is a host-branded modal that the user can navigate with the keyboard.
+`tui/command-dialogs.tsx` renders the shared `/antigravity` menu with host dialog primitives. Common-auth commands own action dispatch, confirmation and invocation isolation; the renderer returns selected actions over RPC. GA's native TUI root is `src/ga/tui/host-ga.tsx`.
 
 ### File logger
 
-`packages/opencode/src/tui/file-logger.ts:1-145` writes logs to `<xdg-state>/cortexkit/antigravity-auth/tui.log` (mode 0o600, 1 MB tail-truncated). The file logger is the only place the TUI emits diagnostics; it never writes to stdout/stderr because the host owns the framebuffer.
+`packages/opencode/src/tui/file-logger.ts` writes diagnostics to `<xdg-state>/cortexkit/antigravity-auth/tui.log` (mode 0o600, 1 MB tail-truncated), not stdout/stderr.
 
 ### RPC protocol
 
-`packages/opencode/src/rpc/protocol.ts:1-31` defines the wire shape:
+`packages/opencode/src/rpc/protocol.ts` re-exports common-auth's `CommandApplyRequest`, `CommandApplyResult` and `CommandDialogPayload` as types. Notifications are `{ id, payload, sessionId? }`, carrying a menu or toast; pending replies contain `{ messages: [...] }`.
 
-- `OpenDialogPayload` — `{ command, text, knobs }` — the message from plugin to TUI.
-- `RpcNotification` — `OpenDialogPayload & { id, sessionId? }` — the queued push.
-- `ApplyRequest` / `ApplyResult` — `{ command, arguments, sessionId? }` / `{ text, knobs }`.
+`src/rpc/rpc-server.ts` wraps embedded common-auth's public RPC server and requires the parser from the same commands module that built the menu. Invalid apply bodies return 400 before action dispatch. It sets a 2-second receipt timeout and a 120-second apply deadline. Common-auth owns loopback binding, bearer checking, port-file publication and shutdown. `src/rpc/rpc-client.ts` discovers that port file and sends bearer-authenticated requests.
 
-The server side is `packages/opencode/src/rpc/rpc-server.ts:1-309`:
-
-- `startRpcServer({ dir, apply, drain })` binds to `127.0.0.1:0` (line 88) so the OS picks a free port, generates a 32-byte hex bearer token (line 63), writes the port file via `writePortFile` (line 102), and returns `{ port, token, stop }`.
-- `handleRequest` (line 132-175) accepts `POST /rpc/apply` (server timeout 120s, `APPLY_TIMEOUT_MS`) and `POST /rpc/pending-notifications` (request timeout 2s, `REQUEST_TIMEOUT_MS`).
-- `isAuthorized` (line 177-186) uses `timingSafeEqual` after padding to a fixed length so callers with the wrong-length token cannot observe a timing side-channel.
-- `closeServer` resolves the in-flight keep-alive sockets via `closeAllConnections`.
-
-The client side is `packages/opencode/src/rpc/rpc-client.ts:1-102`. `createRpcClient(dir, expectedPid)` reads the port file via `discoverPortFile` (which skips dead pids) and posts JSON with `Authorization: Bearer <token>`. The default 2s timeout is enforced via `fetchWithActiveTimeout` from `packages/core/src/fetch-timeout.ts:28-54`.
-
-The notification queue is `packages/opencode/src/rpc/notifications.ts:1-59`. `pushNotification` enqueues with a monotonic id; `drainNotifications` returns anything newer than the caller's `lastReceivedId` for the requested session. `isTuiConnected` reflects whether the TUI polled within the last 5 seconds (`CONNECTION_TTL_MS`, line 4).
+`src/rpc/notifications.ts` owns the bounded monotonic queue. Session-specific messages go only to their session; messages without a session ID are broadcasts. `isTuiConnected` uses a 5-second polling TTL.
 
 ### Port file discovery
 
-`packages/opencode/src/rpc/port-file.ts:27-143` writes `<dir>/port-<pid>.json` with `{ pid, port, token }` (mode 0o600, atomically via `renameSync` from a `.tmp` sibling). `discoverPortFile` walks every `port-*.json` in the directory, validates the JSON, deletes dead-pid entries, and returns the most recent live entry. The pid-scoped naming means a crashed OpenCode process never blocks a new one from binding.
+`packages/opencode/src/rpc/port-file.ts` re-exports embedded common-auth discovery. Owner-only `port-<pid>.json` files carry `{ pid, port, token }`. Discovery validates entries and excludes dead owners; pid-scoped files avoid a single fixed port registration.
 
-`packages/opencode/src/rpc/rpc-dir.ts:1-24` resolves the directory: `ANTIGRAVITY_AUTH_RPC_DIR` env var wins, otherwise `<XDG_STATE_HOME>/cortexkit/antigravity-auth/rpc/<sha256(directory)[:16]>` so multiple workspaces can coexist.
+`packages/opencode/src/rpc/rpc-dir.ts` resolves the V1 directory: `ANTIGRAVITY_AUTH_RPC_DIR` wins, otherwise `<XDG_STATE_HOME>/cortexkit/antigravity-auth/rpc/<sha256(directory)[:16]>`.
 
 ## Pi extension
 
-`packages/pi/src/index.ts:1-111` is the package's only entry. Pi's contract is `function (pi: ExtensionAPI): void` — the extension exports a default function that registers a custom OAuth provider:
+`packages/pi/src/index.ts` is the async extension entry. It registers the `google` provider and the shared `/antigravity` recovery/menu command:
 
-- `providerId = 'google-antigravity'` (line 16).
-- `pi.registerProvider(ANTIGRAVITY_PROVIDER_ID, { name, baseUrl, api, models, oauth, streamSimple })` (line 93-110).
-- `models` is `getPublicModelDefinitions()` filtered to drop image-output (Pi's `AssistantMessage` protocol has no image output type) and re-mapped onto Pi's `Model` shape (`packages/pi/src/index.ts:78-91`).
-- `oauth.login` invokes `authorizeAntigravity` from core, asks the host for the callback URL/code via `callbacks.onPrompt`, and calls `exchangeAntigravity` (line 22-58).
-- `oauth.refreshToken` reads the packed `refreshToken|projectId|managedProjectId` triple, calls `refreshAntigravityToken` for the bare refresh, and re-packs the project segments (line 60-75).
-- `oauth.getApiKey` bridges the packed refresh into the stream by stashing it in `credential-cache.ts` so the stream can rejoin project context after the access token is stripped (line 102-107).
+- Core's shared `ANTIGRAVITY_PROVIDER_ID` constant sets the provider ID to `google`. Pi's built-in Google model catalog is replaced by the Antigravity catalog while the extension is loaded.
+- `models` comes from `getPublicModelDefinitions()`, omitting image-output models and adapting to Pi's shape.
+- The local provider's OAuth login uses core PKCE/exchange; refresh unpacks and repacks `refreshToken|projectId|managedProjectId`.
+- Local `oauth.getApiKey` uses `credential-cache.ts` to preserve project context for the stream.
 - `streamSimple` is `streamCortexKitAntigravity` from `packages/pi/src/stream.ts`. It preserves same-model thinking/text/tool signatures, keeps native function-call IDs, emits same-target function responses with the AGY CLI model role, and tracks `last_execution_id` plus CLI-compatible step indexes per Pi session.
 
-The package's `package.json` (`packages/pi/package.json:34-58`) declares `pi.extensions: ['./dist/index.js']` and pulls Pi's three peer dependencies from `@earendil-works/`.
+`packages/pi/package.json` declares `pi.extensions: ['./dist/index.js']` and Pi peer dependencies under `@earendil-works/`.
+
+Local and vault modes use the same `google/` model IDs. Startup awaits a serialized slot synchronization: read mode, enter/exit custody through common-auth's locked Pi-slot helper, recheck mode, then register the matching provider. Session start and mode changes use the same ordering. Vault mode saves the prior login and installs a non-secret marker; disconnect restores it only if the slot still belongs to that enrollment. Conflicting credentials are not overwritten. Vault streams require the marker and fresh vault credentials, with no local fallback. Vault setup and account-source objects are constructed only when an operation needs them.
+
+If startup synchronization fails (unreadable authority, unapproved native-slot custody or conflicting credentials), Pi registers a **refusing `google` provider** with the model catalog but no OAuth refresh path. Requests report the cause and “No request was sent.” `/antigravity` remains available for recovery; failure does not leave an ordinary Google provider silently serving instead.
 
 ### Pi's package-name dependency on the host
 
-The Pi extension depends on the Pi runtime through `peerDependencies` (`packages/pi/package.json:48-52`) — `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui` — and the package's `keywords` field includes `pi-package` (line 27) so the Pi package manager discovers it. The extension is resolved by name in the user's Pi config:
+The Pi extension declares peers `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui`, and keyword `pi-package`. A config can refer to the extension by package name:
 
 ```jsonc
 {
@@ -303,23 +250,23 @@ The Pi extension depends on the Pi runtime through `peerDependencies` (`packages
 }
 ```
 
-There is **no direct dependency on any specific version** — Pi handles the extension loading and the peer-dependency resolution at runtime. This keeps the extension portable across Pi versions.
+Peer declarations describe the integration boundary, not a certification of every Pi version. Source tests and packed/native host gates have different scopes.
 
 ## End-to-end data flows
 
-### 1. OpenCode request / response
+### 1. OpenCode V1 local request / response
 
 ```mermaid
 sequenceDiagram
   participant Host as OpenCode host
   participant Loader as Auth loader
-  participant FI as Fetch interceptor
+   participant FI as Interceptor / shared executor
   participant AM as AccountManager
   participant Stats as Quota/Sidebar
   participant TX as agy-transport
   participant AGY as antigravity.googleapis.com
   Host->>Loader: loader(getAuth, provider)
-  Loader->>AM: getOrCreate from pool
+   Loader->>AM: open authorized local runtime
   AM-->>Loader: am ready
   Loader->>FI: createFetch({ am, getAuth })
   Host->>FI: fetch(generativelanguage URL)
@@ -327,7 +274,7 @@ sequenceDiagram
   AM-->>FI: account + headerStyle
   FI->>FI: prepareAntigravityRequest
   FI->>TX: transport(url, init, { timeoutMs: 180s })
-  TX-->>TX: TLS connect (~15s header timeout)
+   TX-->>TX: TLS connect + raw header deadline
   TX->>AGY: HTTPS request
   AGY-->>TX: headers + chunked SSE
   TX-->>FI: Response with body stream
@@ -337,7 +284,7 @@ sequenceDiagram
   FI->>Stats: maybe bump quota cache
 ```
 
-The header timeout is **15s** via `fetchWithActiveTimeout` (`packages/core/src/fetch-timeout.ts:13-54`) for any fetch through the standard primitive — but the Antigravity path uses the raw socket transport which has its own timeouts (see **Timeouts** below).
+The standard `fetchWithActiveTimeout` default is **15s**; the raw AGY transport has separate header and idle deadlines (see **Timeouts**). Vault execution shares request transforms but not the local credential-refresh path.
 
 ### 2. OpenTUI sidebar render path
 
@@ -359,17 +306,17 @@ sequenceDiagram
     TUI->>RP: pendingNotifications(lastId, sessionId)
     RP-->>TUI: RpcNotification[]
   end
-  User->>TUI: invokes /antigravity-quota
-  TUI->>RP: apply({ command, arguments, sessionId })
-  RP->>Plugin: applyCommand()
+   User->>TUI: invokes /antigravity, selects quota action
+   TUI->>RP: CommandApplyRequest
+   RP->>Plugin: shared menu.apply()
   Plugin->>State: refresh snapshot
-  RP-->>TUI: ApplyResult
+   RP-->>TUI: CommandApplyResult
   TUI->>TUI: render DialogSelect
 ```
 
-### 3. Account lock-held read-modify-write
+### 3. Sidebar lock-held read-modify-write
 
-The `setSidebarMachineState` writer is the canonical plate-spinner. Two writers racing (e.g. a quota refresh and a routing upsert) must not interleave merges against the same file.
+Two sidebar writers racing (for example, quota refresh and routing upsert) serialize their read/merge/write operations against the same file.
 
 ```mermaid
 sequenceDiagram
@@ -395,9 +342,9 @@ sequenceDiagram
   W2->>Lock: release
 ```
 
-The lock is `acquireFencedFileLock` from `packages/core/src/file-lock.ts:191-342` — see **Account persistence and concurrency** for the eviction marker protocol.
+The sidebar uses `acquireFencedFileLock` from `packages/core/src/file-lock.ts`. This is distinct from the local repository's common-auth leases.
 
-### 4. OAuth login
+### 4. Authorized local OAuth login
 
 ```mermaid
 sequenceDiagram
@@ -406,8 +353,8 @@ sequenceDiagram
   participant Plugin as Server plugin
   participant OAuth as oauth-methods
   participant Google as accounts.google.com
-  participant Storage as account-storage
-  User->>Host: /antigravity-account → login
+   participant Storage as repository / pool adapter
+   User->>Host: local sign-in / menu account action
   Host->>Plugin: oauth-methods.authorize(inputs)
   Plugin->>OAuth: promptLoginMode(existing)
   OAuth->>User: Add another / login fresh / refresh
@@ -416,93 +363,104 @@ sequenceDiagram
   OAuth->>Google: local callback listener
   Google-->>OAuth: code + state
   OAuth->>OAuth: exchangeAntigravity(code, state)
-  OAuth->>Storage: persistAccountPool([result])
+   OAuth->>Storage: persist login via selected local store
   Storage-->>OAuth: storage written
   OAuth-->>Host: oauth callback result
   Host->>Plugin: auth.loader(getAuth)
-  Plugin->>Plugin: AccountManager.loadFromDisk
+   Plugin->>Plugin: bind local account runtime
 ```
 
-The local callback listener is `packages/opencode/src/plugin/server.ts:startOAuthListener`, which times out and falls back to manual paste for headless / WSL2 environments. The listener's port is `http://localhost:51121/oauth-callback` (`packages/core/src/constants.ts:29`).
+`startOAuthListener` in `packages/opencode/src/plugin/server.ts` uses `http://localhost:51121/oauth-callback`. Headless/WSL detection and callback failure can select manual paste. Vault activation is not local OAuth: V1's activation callback first requires vault enrollment and refuses any existing own `google` slot or an unreadable native auth file; it does not overwrite dormant credentials.
 
-### 5. TUI dispose / route migration
+### 5. V1 final disposal
 
 ```mermaid
 sequenceDiagram
   participant Plugin as Server plugin
   participant Lifecycle
   participant SB as Sidebar writes
-  participant Log as TUI file logger
   participant RPC as RPC server
   participant Disk as port file
-  Plugin->>Lifecycle: dispose()
-  Lifecycle->>Lifecycle: disposeAccountRuntime()
+   Plugin->>Lifecycle: dispose()
+   Lifecycle->>Lifecycle: set closing + publish shared completion
+   Lifecycle->>Lifecycle: stop active and retiring account/request work
   Lifecycle->>Lifecycle: shutdownDiskSignatureCache()
   Lifecycle->>Lifecycle: sessionRegistry.clear()
   Lifecycle->>SB: drainSidebarWrites()
   SB-->>Lifecycle: drained
-  Lifecycle->>Log: writer closed
+   Lifecycle->>Lifecycle: dispose consumers
   Lifecycle->>RPC: stop()
   RPC->>Disk: unlink(port-<pid>.json)
-  Note right of Lifecycle: only after the snapshot landed<br/>so the TUI's last frame is consistent
+   Note right of Lifecycle: producer shutdown precedes drain;<br/>consumer teardown follows it
 ```
 
-The order is enforced by `createPluginLifecycle` — `drainSidebarWrites` runs before any registered disposable (`packages/opencode/src/plugin/lifecycle.ts:95-123`). The plugin's `dispose` therefore guarantees that the last sidebar write from `upsertSidebarActiveRouting` has hit disk before the host moves on.
+`createPluginLifecycle` stops producers (request/refresh work that can enqueue writes) before draining sidebar writes and tears down consumers (sinks such as RPC) afterward. Completion is a cleanup boundary, not a guarantee that the host rendered a final frame or that every attempted disk write succeeded.
 
 ## Account persistence and concurrency
 
-### Storage shape
+### Lease-backed repository and migration
 
-`packages/core/src/account-storage.ts` defines the on-disk shape: `AccountStorageV4` with a `version: 4`, `accounts[]`, `activeIndex`, `activeIndexByFamily: { claude, gemini }`. Each account carries `refreshToken`, `email`, `projectId`, `managedProjectId`, `addedAt`, `lastUsed`, `enabled`, `rateLimitResetTimes`, `coolingDownUntil`, `cooldownReason`, `fingerprint`, `fingerprintHistory`, `verificationRequired`, `accountIneligible`, `cachedQuota`, `cachedQuotaUpdatedAt`, `dailyRequestCounts`. The OpenCode adapter wraps this in `packages/opencode/src/plugin/storage.ts:1-422` which adds the on-disk path resolver and the `mutateAccountStorage` helper.
+`packages/core/src/account-repository.ts` supplies attributed Antigravity operations over common-auth's public pool store. Provider metadata, credential stamps and `RowRef` attribution keep an observation tied to the credential that produced it. Credential-changing writes are fenced under store/row locks; per-account refresh locks and a renewable topology lease order refresh and row-set changes. The topology lease is a file lease, not a kernel lock. Flush/dispose drain and report writes; codecs and types live alongside the repository.
 
-### Why a custom lock instead of a third-party dependency
+`packages/core/src/account-migration.ts` derives store paths beside an explicitly supplied normalized absolute legacy path. Migration requires confirmation that processes/timers have stopped, then runs **capture → build → verify → retire → activate** with journaled recovery. Contention or lost ownership can leave migration pending; it is not an unconditional startup conversion. OpenCode's `src/plugin/storage.ts` composes the public store/filesystem capabilities and host paths.
 
-The original lock implementation pulled in a third-party `flock`-style cross-process mutex. The refactor replaced it with a **`renovating fenced file lock`** (`packages/core/src/file-lock.ts:1-552`) because:
+### Pool-file storage shape
+
+`packages/core/src/account-storage.ts` retains `AccountStorageV4`: `version: 4`, `accounts[]`, `activeIndex` and `activeIndexByFamily`. Selected account fields include refresh/project identity, enabled/access verdicts, rate limits/cooldown, fingerprint history, cached/model-specific quota and its observation timestamp, quota windows, captured tier metadata and daily counts. `account-types.ts` is the full schema. Reads migrate v1–v3 and validate; an existing unreadable file raises a typed error rather than becoming an empty pool. Merge preserves omitted project IDs, later usage timestamps and newer eligibility state. Mutation holds the lock across read/mutate/write and asserts ownership before writing.
+
+### Renewable fenced lock for pool files and sidebar writes
+
+`packages/core/src/file-lock.ts` implements a renewable fenced file lock:
 
 1. **No external dependency.** `node:fs/promises` is enough; the entire mechanism is a `wx`-exclusive placement of a JSON blob and a `mkdir`+`writeFile` for the eviction marker.
-2. **Renewable.** The lock file at `${path}.${name}.lock` carries `{ ownerId, expiresAt }`. A `setInterval` (unref-ed) rewrites the expiration every `max(1000, floor(ttlMs / 3))` ms (line 373-480). A contender that loses its renewal just lets the lock expire.
-3. **Eviction marker prevents revive races.** A stale lock is only claimable if the contender first stamps `${lockPath}.evicting/owner.json` with its own `ownerId`, `pid`, and `createdAt` (line 257-275). The marker carries `pid` so `isProcessAlive(pid)` reclaims abandoned markers whose contender process died; `MARKER_TTL_MS = 30_000` (line 123) is the floor for that check. The contender re-verifies the marker owner at every destructive seam (unlink, re-acquire) — a contender whose marker was hijacked between the claim and the unlink backs off without touching the winner's lock file.
-4. **Stop renewal on ownership loss.** The renewal loop re-reads the lock file on every tick. If the file is gone or carries a different `ownerId`, the lock calls `markLost()` (line 360) which clears the interval and resolves `whenLost()` so callers awaiting it can abort the in-flight merge. The renewal also stages a `${lockPath}.${ownerId}.tmp` then re-reads the lock file before issuing a `rename(2)` so an eviction that slips in between the read and the write can never overwrite a fresh owner's content (line 398-447).
-5. **Idempotent terminal release.** `release()` is safe to call twice — the second call returns early without re-clearing the timer or attempting to unlink the lock file. The pre-`unlink` re-read checks the owner; if the lock is no longer ours, the function refuses to delete and cleans up the eviction marker instead (line 499-518).
-6. **`assertOwned()` detects footguns.** The lock interceptor calls `assertOwned()` after acquisition and before the merge; if the lockfile was reclaimed by another writer, the merged write is rejected with `FileLockOwnershipError` (`packages/core/src/file-lock.ts:95-108`) instead of corrupting state. The `FencedFileLock` interface also exposes `whenLost(): Promise<void>` and `hasLost(): boolean` (line 87-88) so callers can observe ownership loss without polling.
+2. **Renewable.** `${path}.${name}.lock` carries `{ ownerId, expiresAt }`; an unref-ed interval renews it every `max(1000, floor(ttlMs / 3))` ms. Well-formed expiry and malformed-file mtime have separate freshness rules.
+3. **Eviction is fenced.** A contender stamps `${lockPath}.evicting/owner.json` with owner, pid and creation time, then re-verifies that marker at destructive seams. A dead pid or marker age over 30 seconds permits reclamation; that is not the lock's general freshness threshold.
+4. **Loss is observable, not impossible.** Renewal stages a temp file and rechecks before/after rename. Rename is not compare-and-swap: ownership can still change in the seam. `markLost`, `whenLost` and `hasLost` let callers stop work on detected loss.
+5. **Release is idempotent.** It rechecks owner identity before unlink and does not delete a different owner's lock.
+6. **Writes assert ownership.** `assertOwned` rejects missing, expired or foreign ownership with `FileLockOwnershipError`. Callers also use pre-rename guards; these checks narrow races but do not turn filesystem rename into atomic ownership fencing.
 
 ### Atomic write
 
-`packages/core/src/atomic-write.ts:1-52` does the rename-on-POSIX dance: stage `${path}.${randomUUID()}.tmp` at mode 0o600, rename onto the target, clean up on failure. There is **no copy fallback** — a copy-then-unlink after a failed rename can mask partial writes and is explicitly forbidden in the header comment. Callers decide whether to retry, surface, or back off.
+`packages/core/src/atomic-write.ts` stages a same-directory temp file at mode 0o600, renames it onto the target and cleans up on failure. There is **no copy fallback**. Its optional `beforeRename` guard is not compare-and-swap; callers decide whether to retry or surface failure.
 
 ### Sidebar state merge
 
-`packages/opencode/src/sidebar-state.ts` is the most stateful writer. The merge seam (`mergeMachineState`, lines 895-929) is deterministic:
+`packages/opencode/src/sidebar-state.ts` implements `mergeMachineState`:
 
 - **Stale writes are dropped.** If `next.checkedAt < existing.checkedAt`, the existing state is returned untouched (only `activeRouting` is pruned to evict expired entries).
 - **`routingAuthoritative` is sticky-true.** Once true, any later non-authoritative write preserves the `true` flag.
-- **`activeRouting` is merged independently and pruned** to the freshest 100 entries within 24h (`ACTIVE_ROUTING_MAX_AGE_MS`, `ACTIVE_ROUTING_MAX_ENTRIES`, lines 136-138).
+- **`activeRouting` is merged independently and pruned** to the freshest 100 entries within 24h.
 
-The `sidebarWriteChain` (lines 810-821) is the in-process serialization: every writer appends to a single Promise chain so two concurrent `setSidebarMachineState` calls do not race through the lock acquisition. Failures never poison the chain (lines 815-820).
+`sidebarWriteChain` serializes in-process writers; a bounded cross-process lock protects the re-read/merge/write. Failures never poison the promise chain.
 
 ### `drainSidebarWrites` semantics
 
-`packages/opencode/src/sidebar-state.ts:828-830` returns the chain's tail. The plugin lifecycle (`packages/opencode/src/plugin/lifecycle.ts:67-123`) drains it AFTER registered producers stop and BEFORE registered consumers are torn down, so a fetch-interceptor routing upsert that resolves during shutdown lands before the host closes the terminal framebuffer (see **Lifecycle and disposal** for the two-phase producer/consumer ordering).
+`drainSidebarWrites` awaits the chain's tail. V1 lifecycle stops producers first and tears down consumers afterward (see **Lifecycle and disposal**).
 
 ## Quota, routing, and killswitch semantics
 
 ### Quota manager
 
-`packages/core/src/quota-manager.ts:1-1085` is the harness-agnostic core. It exposes a `fetchAccountQuota` callback the host plugs in; the manager tracks per-account state (consecutive failures, backoffUntil, inflight promise, cached result) keyed by stable identity (`keyOf`, line 111-115) — email preferred, hash of refresh token as fallback.
+`packages/core/src/quota-manager.ts` tracks per-account failures, backoff, in-flight work and cached results around an injected `fetchAccountQuota` callback. Its pool-file key prefers email and falls back to a refresh-token hash; repository attribution additionally binds observations to credential identity.
 
 | Behavior | Where |
 | --- | --- |
-| Exponential backoff | `recordFailure` (line 138-155) — `max(10min, base * 2^fails)` |
-| In-flight dedupe | `refreshAccount` (line 224-230) — second caller awaits the first one's promise |
-| Manual bypass | `RefreshAccountOptions.force` (line 65-71) — manual quota dialog always uses `force: true` |
-| Disposed mid-fetch | `controller.signal.aborted` (line 248-250) — `dispose()` cancels all controllers |
-| Concurrency cap | Per-key, not pool-wide — backoff ends the storm |
+| Exponential backoff | `min(maxBackoff, baseBackoff * 2^(failures - 1))`; defaults 30s base, 10min maximum |
+| In-flight dedupe | Concurrent `refreshAccount` calls for the same key share the promise |
+| Manual bypass | `force` bypasses backoff, not identity/admission checks |
+| Disposal | Aborts controllers and awaits in-flight refreshes |
 
-The aggregated result is split into `quota` (Antigravity-headers) and `geminiCliQuota` (Gemini CLI headers) — they share the same account object but the UI exposes both because the user can pick header style.
+Results can include Antigravity and Gemini CLI header-style readings. Presentation groups those into quota pools; it must not confuse header-style routing with observation freshness.
+
+### Observation timestamps and formatter
+
+Quota age comes from a finite, nonnegative quota-cache observation timestamp, not sidebar publication time or a routing update. Undated readings stay undated. Projected pools/windows carry that observation time; tier `capturedAt`, route `updatedAt` and top-level machine `checkedAt` are separate clocks. A fallback sleep duration is not a quota reset time.
+
+`packages/core/src/quota-presentation.ts` and OpenCode's `src/quota-presentation.ts` adapt readings to common-auth's shared quota formatter. It clamps/rounds “% left”, orders known windows shortest first, shows only valid future reset countdowns and marks stale dated readings (default 15 minutes). “No limits reported” is distinct from “no quota reading yet”; labels do not invent windows, resets or age.
 
 ### Background quota refresh
 
-`packages/opencode/src/plugin/background-quota-refresh.ts:1-476` provides `BackgroundQuotaRefresh`, a background poller timer for idle accounts. It runs a jittered, `unref()`'d timer that periodically refreshes quota for all accounts and pushes ONE sidebar snapshot per tick.
+`packages/opencode/src/plugin/background-quota-refresh.ts` provides the jittered, unref-ed local quota/tier poller. Enrollment authority gates local work; it stays dormant in vault mode.
 
 Three-layer cross-process deduplication:
 
@@ -514,67 +472,67 @@ The poller also resolves captured plan tier metadata for accounts with stale `ca
 
 ### Selection algorithm
 
-`packages/core/src/account-manager.ts:getCurrentOrNextForFamily` (lines 759-962) is the central dispatcher. Strategies:
+`AccountManager` delegates selection to `AccountSelector`. The OpenCode config default is **hybrid**; the core method's omitted-argument default is sticky. Strategies:
 
-- **`sticky`** (default) — keep the current account until it goes unavailable; on unavailability, advance the cursor to the next account that is enabled, not rate-limited, not over the soft-quota threshold, and not cooling down.
+- **`sticky`** — keep the current account until unavailable, then advance to an eligible account.
 - **`round-robin`** — same as sticky but advances the cursor on every selection so a session rotates across accounts.
-- **`hybrid`** — uses `selectHybridAccount` from `packages/core/src/rotation.ts:376-433`, which scores each candidate on `2*health + 5*tokenFraction + 0.1*freshness`, applies a stickiness bonus to the current account, and only switches when the new account beats the current by `SWITCH_THRESHOLD = 100` (line 361).
+- **`hybrid`** — `selectHybridAccount` in `rotation.ts` scores health, token balance and freshness, adds stickiness, and requires a base-score advantage of 100 to switch away from an eligible current account.
 
-The `pidOffsetEnabled` flag (line 805-825) lets multi-session hosts distribute load: each session's pid hashes to a starting offset so two simultaneous sessions do not pick the same account.
+`pidOffsetEnabled` offsets the starting selection for multi-process load distribution; it is not a guarantee that sessions never select the same account.
 
 ### Soft-quota protection
 
-`packages/core/src/account-manager.ts:isOverSoftQuotaThreshold` (lines 279-307) reads the cached quota remaining-fraction. If the account's cached quota is older than `softQuotaCacheTtlMs` (computed via `computeSoftQuotaCacheTtlMs`, `packages/core/src/rotation.ts:90-101`), the soft-quota check is **skipped** — fresh quota data is a precondition.
+The selector's soft-quota check reads cached remaining fraction only while the cache is fresh under `softQuotaCacheTtlMs` (`computeSoftQuotaCacheTtlMs` in `rotation.ts`). Stale quota is not an exclusion signal.
 
-The protection is wedged to the single-account case: `getEffectiveSoftQuotaThreshold` (lines 553-558) forces the threshold to 100 if there is only one enabled account. A user with no alternative rotation partner must not be blocked.
+`getEffectiveSoftQuotaThreshold` uses 100 for a single enabled account so the configured soft threshold does not block a user with no rotation partner.
 
 ### Routing
 
 Two header styles: `antigravity` (Electron-style UA + `X-Goog-Api-Client` + `Client-Metadata`) and `gemini-cli` (`GeminiCLI/{}/{}/({}; {})` UA). Claude has only `antigravity`; Gemini has both. The resolver is `resolveHeaderRoutingDecision` (`packages/opencode/src/plugin/fetch-routing.ts`) and the fallback is `resolveQuotaFallbackHeaderStyle`. When the preferred style is rate-limited for the chosen account, the interceptor either switches account (if another account has the preferred style available) or flips to the alternate style.
 
-The per-call routing decision is read live from `operatorSettings?.get().routing` (`packages/opencode/src/plugin/fetch-interceptor.ts:488`) so a `/antigravity-routing` slash command takes effect on the next dispatched call without a plugin restart.
+Routing settings are read at dispatch, so changes through the `/antigravity` settings menu affect subsequent work without rebooting the plugin.
 
 ### Killswitch
 
-`packages/opencode/src/plugin/killswitch.ts:1-289` exposes `evaluateKillswitchForAccount` and `throwIfAllKilled`. The operator sets a `minimum_remaining_percent` per family/model; any account whose freshest quota falls below the threshold is excluded from selection. The killswitch **fails open on missing/stale quota** so a cold start cannot deadlock the pipeline.
+`packages/opencode/src/plugin/killswitch.ts` exposes `evaluateKillswitchForAccount` and `throwIfAllKilled`. The operator sets minimum remaining quota; accounts below a fresh threshold are excluded. Missing/stale quota fails open so a cold start is not blocked solely for lack of readings.
 
-The evaluation is **model-aware**: when a `model` is passed in `KillswitchEvaluateOptions` (or `quotaModel` on `throwIfAllKilled`), `quotaGroupForModel` (`packages/opencode/src/plugin/killswitch.ts:69-86`) maps the model string to the single quota group it draws on — a `gemini-pro` request checks ONLY `gemini-pro`, not the max of pro+flash. Callers that omit `model` keep the family-max behavior. The fetch interceptor precomputes an `eligibleIndexes` Set once per request (`packages/opencode/src/plugin/fetch-interceptor.ts:579-605`) and re-uses it after core selection and after the quota-fallback re-selection so a long-running request cannot see a different answer than the pre-filter.
+Evaluation is **model-aware**: `gemini-pro` checks its own quota group, not the maximum of pro and flash. Callers omitting a model keep family-level behavior. The shared executor computes an eligibility mask for the selection pass and reuses it after quota-fallback selection; all-excluded policy produces a native error response.
 
 ## OAuth and token lifecycle
 
 ### Login
 
-1. `oauth-methods.authorize(inputs)` (`packages/opencode/src/plugin/oauth-methods.ts:437-...`) — handles the CLI menu (`Add another`, `Refresh`, `Check quotas`, `Verify accounts`, `Doctor`, `Manage`, `Cancel`).
+1. `oauth-methods.authorize(inputs)` in `packages/opencode/src/plugin/oauth-methods.ts` handles authorized local account login/management.
 2. `authorizeAntigravity` from core — generates a PKCE verifier, calls the authorize endpoint, returns the URL.
 3. `startOAuthListener` from `packages/opencode/src/plugin/server.ts` — opens a localhost listener on `51121`; the redirect URL is `http://localhost:51121/oauth-callback`. For WSL2 / headless / no-X environments the plugin skips the listener and prompts the user to paste the redirect URL.
 4. `exchangeAntigravity(code, state)` — verifies the state, exchanges the code, returns `{ refresh, access, expires, email, projectId }`.
-5. `persistAccountPool([result], startFresh)` — re-reads the locked storage, appends the new account, writes atomically.
+5. Persist through the selected repository or locked pool-file adapter. These are local credential-writing actions, not vault-mode fallback paths.
 
 ### Refresh
 
 `packages/opencode/src/plugin/token.ts:refreshAccessToken` is the in-flight refresh path. The interceptor calls it when `accessTokenExpired(authRecord)` (a 60s buffer before `expires`). On `invalid_grant` the account is removed and the pool is rewritten; on transient failures the account is cooled down via `markAccountCoolingDown` + `markRateLimited`.
 
-`packages/opencode/src/plugin/refresh-queue.ts:1-349` adds the proactive refresh: `createProactiveRefreshQueue` runs every `proactive_refresh_check_interval_seconds` (default 5min) and refreshes any account whose access token expires within `proactive_refresh_buffer_seconds` (default 10min). The queue re-uses the global `fetcher` and pushes the refreshed quotas into the sidebar.
+`packages/opencode/src/plugin/refresh-queue.ts` provides authorized local proactive refresh on the configured check interval and expiry buffer (defaults 5 minutes and 10 minutes). Retirement stops timers and drains refresh already underway before disposing the manager. Vault credentials are acquired per send; the local queue stays dormant.
 
 ### Disposal
 
-`shutdownDiskSignatureCache` (`packages/opencode/src/plugin/cache.ts`) flushes the in-memory signature cache to disk before the plugin tears down so the next session can resume without re-priming the cache.
+`shutdownDiskSignatureCache` in `packages/opencode/src/plugin/cache.ts` releases the location's disk-persistence ownership during cleanup. Other enabled owners of the same canonical cache path retain their share; disposing one location does not clear another's hot signature entries or store.
 
 ### Sentinel values
 
-`SKIP_THOUGHT_SIGNATURE = 'skip_thought_signature_validator'` (`packages/core/src/constants.ts:227`) is the sentinel for thinking-block signature bypass. The plugin injects it whenever a cache-miss or session-mismatch would otherwise cause a server-side validation failure. It is an officially supported Google API feature used by `gemini-cli` and the Google .NET SDK.
+`SKIP_THOUGHT_SIGNATURE = 'skip_thought_signature_validator'` in `packages/core/src/constants.ts` is the thinking-signature bypass sentinel used by request recovery when a reusable signature is unavailable.
 
 ## Request transformation and streaming response flow
 
 ### Outbound transform
 
-`packages/opencode/src/plugin/request.ts:1-2859` is the upstream of `prepareAntigravityRequest`. The pipeline:
+`packages/opencode/src/plugin/request.ts` implements `prepareAntigravityRequest`. The pipeline:
 
 1. **Sanitize** — strip Claude thinking blocks (`packages/core/src/transform/claude.ts`), normalize cross-model payloads (`packages/core/src/transform/cross-model-sanitizer.ts`), apply `applyGeminiTransforms` / `applyClaudeTransforms` (`packages/core/src/transform/`) depending on the resolved model family.
 2. **Resolve** — `resolveModelWithTier` from `packages/core/src/transform/model-resolver.ts` maps the user-facing tag (`claude-sonnet-4-6`, `antigravity-gemini-3.7-flash`, `antigravity-gemini-3.8-flash`, etc.) to the Antigravity wire model and the header style.
-3. **Inject** — `buildAgyAgentRequestMetadata` from `packages/core/src/agy-request-metadata.ts:262-296` produces the `labels` block (`last_step_index`, `model_enum`, `trajectory_id`, `used_claude`, `used_claude_conservative`, `used_non_gemini_model`) and the `requestId` (`agent/<conversationId>/<timestamp>/<trajectoryId>/<step>`). Model enums include Gemini 3.7 Flash variants (`gemini-3.7-flash-low` → `MODEL_PLACEHOLDER_M300`, `gemini-3.7-flash-medium` → `MODEL_PLACEHOLDER_M299`, `gemini-3.7-flash-high` → `MODEL_PLACEHOLDER_M298`) and Gemini 3.8 Flash variants (`gemini-3.8-flash-low` → `MODEL_PLACEHOLDER_M320`, `gemini-3.8-flash-medium` → `MODEL_PLACEHOLDER_M319`, `gemini-3.8-flash-high` → `MODEL_PLACEHOLDER_M318`).
-4. **Stabilize prefix** — `orderAgyRequestPayloadInPlace` (`packages/core/src/agy-request-metadata.ts:209-229`) reorders the payload so the field order is `contents → systemInstruction → tools → toolConfig → labels → generationConfig → sessionId`. This is the prefix the prompt cache keys on; a stable prefix is what gives Antigravity its cache hit rate.
-5. **Harden** — `CLAUDE_TOOL_SYSTEM_INSTRUCTION` (`packages/core/src/constants.ts:191-202`) is injected when tools are present to reduce hallucinated parameter names.
+3. **Inject** — `buildAgyAgentRequestMetadata` in `packages/core/src/agy-request-metadata.ts` builds step/model/trajectory labels and `agent/<conversationId>/<timestamp>/<trajectoryId>/<step>` request IDs. The source owns the model-enum mapping.
+4. **Stabilize prefix** — `orderAgyRequestPayloadInPlace` orders `contents → systemInstruction → tools → toolConfig → labels → generationConfig → sessionId`, avoiding needless prefix changes. This is a wire-order rule, not a measured cache-hit guarantee.
+5. **Harden** — `CLAUDE_TOOL_SYSTEM_INSTRUCTION` in `packages/core/src/constants.ts` is injected when tools require it.
 
 ### Inbound transform
 
@@ -583,9 +541,9 @@ The evaluation is **model-aware**: when a `model` is passed in `KillswitchEvalua
 - Strips Antigravity's `response.envelope` metadata before the caller sees the body.
 - Splices `thoughtSignature` values back into thinking blocks so the caller can carry them on the next request.
 - Aggregates `usageMetadata` events into a single final emission.
-- Caches signatures to the disk-backed signature store (`packages/opencode/src/plugin/cache/signature-cache.ts`) keyed by `(model, sessionId, lastStepIndex)`.
+- Persists reusable signatures through `packages/opencode/src/plugin/cache.ts` and its disk-cache adapter, with session/thinking-text identity.
 
-The transformer produces a `ReadableStream<Uint8Array>` so the host's `await response.text()` works without buffering.
+The transformer returns `ReadableStream<Uint8Array>` for incremental consumption. Calling `response.text()` still buffers the body, as it does for any Fetch response.
 
 ### Timeouts
 
@@ -593,11 +551,11 @@ The stack has three distinct timeout systems, **deliberately separated**:
 
 | Timeout | Default | Scope | Where |
 | --- | --- | --- | --- |
-| Response header timeout | **15s** | `fetchWithActiveTimeout` for any caller using `globalThis.fetch` | `packages/core/src/fetch-timeout.ts:13-54` |
-| AGY response header timeout | **180s** | TLS connect + response headers via raw socket | `packages/core/src/agy-transport.ts:12` |
-| AGY idle timeout | **180s** | Stalled response body — kills the socket if no bytes for 180s | `packages/core/src/agy-transport.ts:16` |
+| Response header timeout | **15s** | Callers of `fetchWithActiveTimeout` (overridable) | `packages/core/src/fetch-timeout.ts` |
+| AGY response header timeout | **180s** | Raw transport connect/response-header deadline | `packages/core/src/agy-transport.ts` |
+| AGY idle timeout | **180s** | Raw body watchdog, reset by incoming bytes | `packages/core/src/agy-transport.ts` |
 
-The 15s `ACTIVE_FETCH_TIMEOUT_MS` is stream-safe: it only aborts the request signal until the underlying `fetchImpl` resolves, then removes the timeout listener so the returned body can be streamed past the deadline (`packages/core/src/fetch-timeout.ts:28-54`). The 180s `DEFAULT_AGY_RESPONSE_HEADER_TIMEOUT_MS` covers the Antigravity `agy` CLI's own connect behavior, and the 180s `DEFAULT_AGY_IDLE_TIMEOUT_MS` is a watchdog against a hung body — it resets on every received chunk (lines 518-531 in `agy-transport.ts`). The response-head waiter rejects immediately when a connected peer emits `end` or `close` before sending complete HTTP headers; otherwise each endpoint/account fallback would consume the full 180-second header timeout after the socket was already gone. The two timeout systems are independent: a slow but streaming response triggers neither.
+The standard active timeout stops applying once headers resolve so it does not impose a fixed body deadline. The raw transport has independent header and idle watchdogs; idle resets on received chunks. The response-head waiter rejects immediately on peer end/close before complete headers instead of consuming a full deadline per fallback. Slow but continuously streaming bodies do not trigger a header timeout or an idle watchdog merely because total duration is long.
 
 ```mermaid
 gantt
@@ -615,11 +573,11 @@ gantt
 
 ### Endpoint fallback
 
-`ANTIGRAVITY_ENDPOINT_FALLBACKS = [DAILY, PROD]` (`packages/core/src/constants.ts:46-49`). The interceptor walks them in order under the `MAX_TOTAL_CAPACITY_RETRIES` cap (`packages/opencode/src/plugin/fetch-routing.ts`); for `gemini-cli` header style only `PROD` is used (line 1199-1207 of `fetch-interceptor.ts`).
+`ANTIGRAVITY_ENDPOINT_FALLBACKS = [DAILY, PROD]` in `packages/core/src/constants.ts`. The shared executor walks them under bounded capacity retries; Gemini CLI header style uses PROD only.
 
 ### Retry-after and rate-limit bookkeeping
 
-`retryAfterMsFromResponse` (`packages/opencode/src/plugin/fetch-interceptor.ts:127-148`) reads `retry-after-ms` first, then `retry-after` (seconds), then a 60s default. The result feeds `markRateLimitedWithReason` which combines the header with `calculateBackoffMs` from `packages/core/src/rotation.ts:59-88`:
+`retryAfterMsFromResponse` in `packages/opencode/src/plugin/shared/request-services.ts` reads retry headers. Reason-aware account marking uses `calculateBackoffMs` in `packages/core/src/rotation.ts`; explicit positive retry values take precedence over its reason defaults:
 
 - `QUOTA_EXHAUSTED` — 1m → 5m → 30m → 2h scale-up.
 - `RATE_LIMIT_EXCEEDED` — 30s.
@@ -627,13 +585,13 @@ gantt
 - `SERVER_ERROR` — 20s.
 - `UNKNOWN` — 60s.
 
-The failure tally is per-account and resets after a 1h TTL (`markRateLimitedWithReason`, `packages/core/src/account-manager.ts:1151-1185`).
+The selector tracks rate limits by account/family/model/header style; repository observations retain credential attribution.
 
 ## Sidebar snapshot and RPC protocols
 
 ### Snapshot file
 
-`packages/opencode/src/sidebar-state.ts` documents the contract in its module header (line 1-38). The on-disk shape is `SidebarStateV1`:
+`packages/opencode/src/sidebar-state.ts` defines `SidebarStateV1`. Its principal fields are:
 
 ```ts
 {
@@ -647,170 +605,158 @@ The failure tally is per-account and resets after a 1h TTL (`markRateLimitedWith
 }
 ```
 
-The path is `getSidebarStateFile()` (lines 211-216): `ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE` wins, otherwise `<xdg-state>/cortexkit/antigravity-auth/sidebar-state.json`. The file is mode 0o600 with a 0o700 parent dir.
+`getSidebarStateFile` uses `ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE`, otherwise `<xdg-state>/cortexkit/antigravity-auth/sidebar-state.json`. Writes use mode 0o600 and a 0o700 parent. Account quota entries may contain windows and captured tier, each with their own observation clock.
 
 ### RPC bearer/discovery
 
-`packages/opencode/src/rpc/rpc-server.ts:63, 88` generates a 32-byte hex token and binds to `127.0.0.1:0`. The (pid, port, token) tuple is written to `<rpc-dir>/port-<pid>.json` via `packages/opencode/src/rpc/port-file.ts:27-52`. The TUI discovers the server with `discoverPortFile(dir, process.pid)` — file paths are pid-scoped so a crashed OpenCode cannot block a new one. The token is regenerated every plugin boot; the host process owns the only handle.
+The embedded common-auth RPC implementation binds loopback and publishes a fresh bearer in an owner-only pid-scoped port file. Port discovery is not authentication: the bearer and file permissions are the access boundary, not port-number obscurity.
 
 ### Notification queue
 
-`packages/opencode/src/rpc/notifications.ts:1-59` is a bounded queue (max 100 entries). The host-side push is `pushNotification(payload, sessionId?)` and the TUI-side drain is `drainNotifications(lastReceivedId, sessionId?)`. The 5-second `CONNECTION_TTL_MS` is the signal `isTuiConnected(sessionId?)` uses to suppress commands when the TUI is not running.
+`packages/opencode/src/rpc/notifications.ts` bounds the queue at 100 entries and filters by monotonic cursor/session. Its 5-second connection TTL distinguishes a recently polling TUI from an absent one.
 
-The host's `apply` callback (lines 436-470 of `plugin/index.ts`) calls `applyCommand(request, { sessionID, settings, onApplied: createSidebarRefresher(...) })` so every `/antigravity-*` mutation bumps the sidebar's `checkedAt` for the next TUI poll.
+The host's apply callback dispatches the shared menu action and returns refreshed menu data. Republishing account state does not make old quota readings newly observed.
 
 ## Lifecycle and disposal
 
-`createPluginLifecycle` (`packages/opencode/src/plugin/lifecycle.ts:1-125`) is the disposal root. Every registered disposable declares a **`LifecyclePhase`** of `'producer'` or `'consumer'` (line 13-19). The phase determines when the lifecycle tears it down relative to the sidebar drain:
+`createPluginLifecycle` in `packages/opencode/src/plugin/lifecycle.ts` owns V1 cleanup. Replacement and final disposal are different operations:
 
-- **Producer** — runs on the same side of the sidebar drain as the fetch interceptor. The lifecycle disposes producers BEFORE the drain so a producer racing with shutdown cannot enqueue a write that lands after the drain asserts the queue is empty. The auth loader's fetch-interceptor runtime is registered as a producer (`packages/opencode/src/plugin/auth-loader.ts:83-93`).
-- **Consumer** — runs AFTER the sidebar drain. Consumers are the sinks (RPC server, file logger, auto-update checker) that the TUI / host talk to and that must stay alive until every queued write has landed.
+- **Replacement retirement** stops old refresh timers and request admission, tracks the retiring runtime, and keeps its manager alive until admitted refresh/request/body work drains. The loader publishes the new delegating target before retirement; it does not await every old body before making the new runtime usable.
+- **Final disposal** sets `closing` and publishes one completion promise synchronously, before any hook can reenter admission/disposal. Reentrant disposal joins that same promise; late replacement is refused and its offered resources are disposed. Final shutdown can abort live and retiring request I/O and awaits their cleanup.
 
-The order is significant and the code documents it (line 99-118):
+The final shutdown order is:
 
-1. `disposeAccountRuntime()` — tear down the refresh queue, then the account manager.
+1. `disposeAccountRuntime()` — abort live/retiring request work, drain queues and retirements, then dispose managers.
 2. `shutdownDiskSignatureCache()` — flush the in-memory signature cache to disk.
 3. `sessionRegistry.clear()` — drop the per-session `AgyRequestSessionStore`.
-4. `clearFetchState()` — null the cached `getAuth` binding so a late-arriving `loader` call sees a clean slate.
-5. **Producers** — dispose every registered producer in registration order. After this step no new sidebar writes can be enqueued.
-6. `drainSidebarWrites()` — wait for every queued sidebar write to land. The file logger + RPC server are still alive so the TUI's last frame can observe a fully landed snapshot.
-7. **Consumers** — dispose every registered consumer in registration order (RPC server, file logger, auto-update checker, etc.).
+4. `clearFetchState()` — clear cached host-auth binding.
+5. **Producers** — stop and await registered producers.
+6. `drainSidebarWrites()` — await queued writes while consumers remain available.
+7. **Consumers** — dispose registered sinks such as RPC and update hooks.
 
-The default registration order is established by `packages/opencode/src/plugin/index.ts:122-480`; each registered disposable is free to register its own in `dispose()` using either `register(disposable, 'producer')` or the default consumer phase.
-
-The server emits a stop on the RPC server that closes `closeAllConnections()` (`packages/opencode/src/rpc/rpc-server.ts:299`) and unlinks the port file (line 121). The TUI detects the server has gone away when `discoverPortFile` returns `null` and surfaces the "Awaiting Antigravity state" empty state.
-
-`createAntigravityPlugin` returns the `dispose` of the lifecycle as the plugin's `dispose` so the host's plugin teardown drives ours.
+Registration after closing disposes the offered resource instead of adding it to a live phase. The V1 factory returns lifecycle disposal to the host. GA location disposal is a separate owner in `src/ga/server/index.ts` and `src/plugin/ga-location-services.ts`; do not infer V1's lifecycle API from a GA location generation.
 
 ## Error handling and recovery strategy
 
-The plugin follows the **fail-open / heal-loud** doctrine. Errors are always converted to one of:
-
-- A toast on the host TUI (with debouncing via `RetryState.shouldShowRateLimitToast`).
-- A cooldown on the offending account (so the next request rotates).
-- A redacted `lastError` field in the sidebar snapshot.
+Failure behavior is scoped: missing/stale quota policy can fail open, but unreadable vault authority, foreign GA native connection markers, closing runtimes and terminal transport failures do not silently fall back to local credentials. Toasts, cooldowns and redacted status supplement the host's native error path; they do not replace every error.
 
 Specific recovery paths:
 
-- **Storage corruption** — `loadConfigFile` in `packages/opencode/src/plugin/config/loader.ts:64-95` swallows a bad JSON or schema mismatch and falls back to the default config. The plugin never crashes on a malformed user config.
-- **Auth drift** — `detectAuthStorageDrift` (`packages/opencode/src/plugin/auth-drift.ts`) compares the host's auth against the stored account pool and offers a `restorable` path that re-issues the host's auth from the stored account.
-- **Refresh token revoked** — `AntigravityTokenRefreshError` with `code: 'invalid_grant'` removes the account from the pool and persists the removal with `saveToDiskReplace` (`packages/opencode/src/plugin/fetch-interceptor.ts:908-925`).
-- **Project context failure** — `ensureProjectContext` failures mark the account as cooling down with reason `project-error` (lines 983-1005).
+- **Malformed config** — `src/plugin/config/loader.ts` falls back to defaults for invalid config. Account-store corruption is different and is not treated as an empty pool.
+- **Local auth drift** — `detectAuthStorageDrift` can restore host auth from authorized local accounts. It is not invoked against a dormant V1 slot while vault credentials serve.
+- **Local refresh revoked / project failure** — the shared executor records removal or cooldown through its credential/account collaborators before retry/rotation.
 - **Capacity exhaustion (529/503)** — the inner-account retry loop probes the next endpoint in the fallback list, capped at `MAX_TOTAL_CAPACITY_RETRIES`. Beyond the cap, the request rotates to the next account.
-- **All accounts over soft-quota** — `getMinWaitTimeForSoftQuota` returns the soonest reset; if the wait exceeds `max_rate_limit_wait_seconds` (default 300s) the interceptor returns a synthetic 200 envelope describing the wait instead of blocking the host.
-- **All accounts rate-limited, no quota fallback** — synthetic 200 with the same pattern as the soft-quota case.
-- **Killswitch trips** — `throwIfAllKilled` raises `AntigravityKillswitchError` (`packages/opencode/src/plugin/errors.ts`), intercepted at `packages/opencode/src/plugin/fetch-interceptor.ts:612-640` and returned as a synthetic error response.
-- **Cross-process lock contention** — `SidebarStateLockContentionError` after 2s of retries (`packages/opencode/src/sidebar-state.ts:154-164, 855-861`); the writer swallows it and the next attempt re-tries the merge.
-- **Process cancellation** — every long-running call honors `AbortSignal`; the raw transport passes it directly into direct, proxy, and tunneled TLS sockets so cancellation destroys an in-flight connection immediately.
+- **No accounts** — native Google-style 401 error response.
+- **Soft-quota, all-rate-limited or killswitch exclusion** — wait only within configured bounds, otherwise native 412 error response. No fabricated assistant text or reset time.
+- **Empty response retries exhausted** — native 502 error response.
+- **Transport/account/endpoint exhaustion** — return a saved upstream failure response when available; otherwise `terminalFetchError` throws the last error or a fallback `Error`.
+- **Sidebar lock contention** — bounded retries yield `SidebarStateLockContentionError`; a failed write does not poison later writes.
+- **Cancellation** — disposal/abort signals cancel physical request I/O; retirement alone drains rather than aborts admitted bodies.
 
-The fundamental rule: **the user never sees a silent failure**. Either they see a toast, a synthetic error response, or the next account's attempt. The host's error reporting layer is never directly exposed to auth/quota failures.
+These are native failure outcomes for the host to report/retry. Successful source tests of those outcomes do not certify a packed/native host's UI or retry policy.
 
 ## Security model
 
 ### Trust boundaries
 
-1. **Host → plugin.** The host passes an opaque auth record (`getAuth: () => Promise<AuthDetails | undefined>`). The plugin never sees the host's API key store, only the refresh token it has itself persisted.
-2. **Plugin → Antigravity.** Every request carries `Authorization: Bearer <accessToken>` and the per-account fingerprint `User-Agent`. The token is short-lived; refresh is the proactive queue's job.
-3. **Plugin → TUI.** The TUI receives a **redacted snapshot**. `redactAccountForSidebar` (`packages/opencode/src/sidebar-state.ts:728-786`) zeroes the refresh token, access token, project ID, fingerprint, and every other credential-shaped field. The TUI only sees `id`, `label`, `enabled`, `health`, `current`, `cooldownUntil`, and the redacted `quota` block.
-4. **TUI → RPC server.** The TUI talks to the server over `127.0.0.1` only (the server refuses to bind elsewhere per `LOOPBACK_HOST = '127.0.0.1'`, `packages/opencode/src/rpc/rpc-server.ts:19`). The bearer token is a 32-byte hex (`randomBytes(32)` line 62) and is regenerated every plugin boot. Discoverability is through a per-pid port file rather than a fixed port, so a wild guess on the port side is needed as well.
+1. **Host → plugin.** Authorized local V1 work may read `getAuth`; vault-mode V1 work does not. Activation, GA connection ownership and Pi slot custody have host-specific rules, not one interchangeable native-auth policy.
+2. **Plugin → Antigravity.** Sends carry a short-lived bearer and account request identity. Local refresh and vault per-send grants are distinct credential paths.
+3. **Plugin → TUI.** Redaction omits credentials, project IDs and fingerprints, generates ordinal account labels, and drops quota with mismatched identity stamps. The UI receives status, quota windows, tier and routing—not a credential object with zeroed fields.
+4. **TUI → RPC server.** Loopback, fresh bearer and owner-only discovery files protect RPC. Guessing a port is not the security model.
 5. **Plugin → file system.** Sensitive files (account storage, signature cache, sidebar state, port file, TUI log) are written mode 0o600 with the parent directory at 0o700. POSIX rename replaces the inode so the new file inherits the staged mode bits. Windows is best-effort — the policy is enforced at the application layer because Windows does not honor POSIX mode bits.
 
 ### Redaction rules
 
-The snapshot is the only place the TUI meets the live pool. The redaction is a structural contract, not an afterthought:
+The snapshot is a redacted projection of the live pool. Redaction is a structural contract, not an afterthought:
 
-- `SidebarQuotaKey` is a fixed 4-tuple (`claude | gemini-pro | gemini-flash | gpt-oss`); any other key on the input is dropped.
+- `SidebarQuotaKey` is `gemini | non-gemini`; model quota groups and display pools are different concepts.
 - `SidebarRoutingEntry` carries `accountId`, `modelFamily`, `headerStyle`, `updatedAt` — no token, no project ID, no fingerprint.
 - `normalizeAccount` rejects any account missing `id` or `label` so a malformed disk snapshot cannot surface an empty box in the UI. Snapshot labels are generated ordinal names (`Account 1`, `Account 2`, …); OAuth profile names and email addresses never cross this boundary.
-- The TUI's compiled tree imports only `sidebar-state.ts`, the `rpc/` slim client, and the local `tui/` helpers. The TypeScript compiler would let it import the entire opencode package; the module-graph review is the only enforcement.
+- The render import-graph tests reject credential-pipeline imports while allowing snapshot, formatter, RPC and host UI helpers.
 
 ### Token timing
 
-`accessTokenExpired` carries a 60s buffer (`ACCESS_TOKEN_EXPIRY_BUFFER_MS`, `packages/core/src/auth.ts:3`). The proactive refresh queue refreshes inside `proactive_refresh_buffer_seconds` (default 10min) so the user request never carries an expired token.
+`accessTokenExpired` uses a 60-second buffer. The local proactive queue defaults to a 10-minute buffer; dispatch still checks credentials. Buffers reduce expiry races, not eliminate revocation, clock changes or expiry during transport.
 
 ## Cross-cutting concerns
 
 ### Logging
 
-`createLogger('module-name')` (`packages/core/src/logger.ts`) produces a structured logger that maps to the OpenCode TUI's `app.log` channel or a file sink. Every module consumes it (`createLogger('plugin')`, `createLogger('auth-loader')`, …). The TUI's `tui/file-logger.ts` is the analogue for the sidecar — it writes to a rotating file (1 MB, 200 lines tail) and never touches stdout/stderr.
+`createLogger('module-name')` in `packages/core/src/logger.ts` supplies structured logging; OpenCode composes host/file sinks through `src/plugin/logger.ts`. The renderer's `tui/file-logger.ts` writes a bounded file and never touches stdout/stderr.
 
 ### Caching
 
 | Cache | Location | Eviction |
 | --- | --- | --- |
-| Quota cache | `account.cachedQuota` (in-memory) + `account-storage.ts` (disk) | Per-account TTL via `softQuotaCacheTtlMs` |
-| Signature cache | `packages/opencode/src/plugin/cache/signature-cache.ts` (disk) + `initDiskSignatureCache` (memory) | TTL keyed by `(model, sessionId, lastStepIndex)` |
+| Quota cache | Account state / attributed repository observations; pool-file cache | Freshness gates, including `softQuotaCacheTtlMs` |
+| Signature cache | `packages/opencode/src/plugin/cache.ts`, `cache/signature-cache.ts` | Hot entries have a fixed one-hour lifetime; disk lookup uses original timestamps and each owner's configured retention |
 | AgyRequestSessionStore | `packages/core/src/agy-request-metadata.ts` | 24h TTL or 256 entries, whichever lands first |
 | Managed project context | `packages/core/src/project.ts` | 30-minute TTL keyed by the stable bare refresh token, independent of packed project fields |
-| Sidebar routing map | `packages/opencode/src/sidebar-state.ts:136-138` | 24h max age, max 100 entries |
-| Account manager session state | `packages/core/src/account-manager.ts:567-620` | 24h TTL or 256 entries |
+| Sidebar routing map | `packages/opencode/src/sidebar-state.ts` | 24h max age, max 100 entries |
+| Account selection session state | `packages/core/src/account-selector.ts` | Bounded session state |
 
 ### Randomness
 
-The two delays that carry jitter (`addJitter`, `randomDelay`) are at `packages/core/src/rotation.ts:290-313`. The interval retry backoff in `acquireFencedFileLock` (line 217-220) and the `firstRetryDelayMs` in the fetch interceptor (`packages/opencode/src/plugin/fetch-interceptor.ts:78`) are also jittered to break predictable patterns.
+Rotation, lock contention, polling and retry delays use bounded jitter to reduce synchronized work. `rotation.ts`, `file-lock.ts` and the shared request executor own their respective policies.
 
 ### Configuration knobs
 
-`packages/opencode/src/plugin/config/schema.ts` (Zod 4 schema) defines every user-configurable knob. The plugin reads `config.health_score`, `config.token_bucket`, `config.signature_cache`, `config.proactive_token_refresh`, `config.account_selection_strategy`, `config.max_account_switches`, `config.quota_refresh_interval_minutes`, `config.soft_quota_threshold_percent`, `config.auto_update`, `config.quiet_mode`, `config.toast_scope`, `config.pid_offset_enabled`, `config.cli_first`, `config.quota_style_fallback`, `config.cache_warmup_on_switch`, `config.thinking_warmup`, `config.request_jitter_max_ms`, `config.verify_signature_cache`, `config.max_rate_limit_wait_seconds`, `config.session_recovery`, `config.keep_thinking`, `config.proactive_refresh_*`, `config.switch_on_first_rate_limit`, `config.switch_account_delay_ms`, `config.proactive_rotation_threshold_percent`, `config.claude_tool_hardening`, `config.claude_prompt_auto_caching`, and `config.killswitch_*`. The operator settings controller layers runtime overrides on top of the file config so `/antigravity-*` slash commands mutate the live values without rebooting the plugin.
+`packages/opencode/src/plugin/config/schema.ts` is the Zod config/default authority: selection, refresh, retries, signatures, warmups, routing, logging, recovery and killswitch policy. `operator-settings.ts` layers live settings on file config through the shared `/antigravity` menu. Core's `packages/core/src/vault-enrollment-authority.ts` supplies fresh local/vault source authority; the host custody services own enrollment and native-slot operations. Those credential decisions are not routing toggles.
 
 ### OpenCode auto-update
 
-`packages/opencode/src/hooks/auto-update-checker/index.ts:1-196` lights up on the host's `session.created` event (skipped for child sessions — `props.info.parentID` check). It uses the XDG cache to memoize the resolved version; on a sessionless first run it does a network probe against the package's npm registry. In local dev mode it surfaces the local version as a toast and skips the network probe.
+`packages/opencode/src/hooks/auto-update-checker/` owns the V1 session-triggered registry/cache checks and local-dev notification behavior. It is wired only by the V1 factory; this does not describe OpenCode 2 event handling.
 
 ### Diagnostics
 
 `packages/opencode/src/plugin/debug.ts` provides `startAntigravityDebugRequest`, `logAntigravityDebugResponse`, `logRateLimitEvent`, `logRateLimitSnapshot`, `logResponseBody`, `logAccountContext`. The OpenCode adapter wires them into the fetch interceptor so a debug-enabled user can trace every request, every retry, every quota update.
 
-## Testing and release gates
+## Testing and gate scope
 
-### Unit tests
+### Source tests
 
-`bun test` runs the colocated `*.test.ts` files. The plugin and core packages have `bun test --isolate ./src` (the `--isolate` flag prevents Bun's test runner from sharing module state across files). The tests cover:
+The root `test` script first verifies embeddings and builds core, then prepares a public common-auth consumer before isolated source tests. Package scripts select colocated tests; OpenCode also selects build-TUI tests. Representative coverage:
 
 - `core/`: `account-manager.test.ts`, `agy-transport.test.ts`, `agy-request-metadata.test.ts`, `atomic-write.test.ts`, `file-lock.test.ts`, `fetch-timeout.test.ts`, `fingerprint.test.ts`, `model-registry.test.ts`, `project.test.ts`, `quota-manager.test.ts`, `rotation.test.ts`, `account-storage.test.ts`, `transform/cross-model-integration.test.ts`, `transform/claude.test.ts`, `transform/cross-model-sanitizer.test.ts`, `transform/gemini.test.ts`, `transform/model-resolver.test.ts`, `antigravity/oauth.test.ts`.
-- `opencode/`: `plugin.entry.test.ts`, `cli.test.ts`, `constants.test.ts`, plus per-module tests (`account-access`, `account-ineligibility`, `accounts`, `auth-drift`, `auth-loader`, `auth`, `auth-doctor`, `behavior-snapshot`, `cache`, `catalog`, `commands`, `config/{schema,updater,models,writer}`, `core/streaming/transformer`, `debug`, `event-handler`, `errors`, `fetch-interceptor`, `fetch/{retry-state,warmup}`, `fetch-routing`, `fingerprint`, `gemini-dump`, `google-search-tool`, `host-api-compatibility`, `image-saver`, `killswitch`, `lifecycle`, `logger`, `logging-utils`, `model-registry`, `model-specific-quota`, `oauth-methods`, `operator-settings`, `persist-account-pool`, `quota`, `quota-fallback`, `recovery`, `refresh-queue`, `request`, `request-helpers`, `rotation`, `search`, `session-context`, `storage`, `stores/signature-store`, `thinking-recovery`, `token`, `ui/{ansi,auth-menu,auth-menu.actions,model-status,quota-status}`, `version`, `hooks/auto-update-checker/{checker,index}`, `src/rpc/{notifications,port-file,rpc-server,rpc-client}`, `sidebar-state`, `tui.test.tsx`, `tui/command-dialogs.test.tsx`, `tui/file-logger.test.ts`.
-- `pi/`: `convert.test.ts`, `credential-cache.test.ts`, `index.test.ts`, `stream.test.ts`.
+- `opencode/`: `plugin-entry.test.ts`, `plugin/auth-loader.test.ts`, `plugin/vault-activation.test.ts`, `plugin/lifecycle.test.ts`, `plugin/fetch-interceptor.test.ts`, `plugin/shared/request-services.test.ts`, `plugin/ga-location-services.test.ts`, `ga/server/auth.test.ts`, sidebar/RPC/menu/TUI and build/pack-contract tests.
+- `pi/`: provider startup/slot synchronization and refusing recovery in `index.test.ts`, plus conversion, credential cache, stream and vault tests.
+- Repository/migration and quota timestamp/formatter tests sit beside their core and OpenCode modules.
 
-### E2E
+These tests exercise source composition and deterministic seams. In particular, the V1 loader test models host auth persistence but does not execute OpenCode's native sign-in UI.
 
-`packages/e2e-tests/src/` is a private workspace with five flow tests:
+### Dependency-injected E2E
 
-- `cli-flow.e2e.test.ts` — exercises the `antigravity-auth` CLI (login, list, quota).
-- `plugin-flow.e2e.test.ts` — drives the full fetch interceptor (quota refresh, generateContent, streaming SSE, `tokenExpiry401`, `rateLimit429`, `capacity503`, `delayedHeaders`).
-- `rpc-tui-flow.e2e.test.ts` — drives the TUI ↔ RPC bridge.
-- `fetch-guard.test.ts` — pins the loopback-only `globalThis.fetch` guard installed by the preload so a stray non-loopback URL throws `LiveNetworkDeniedError` instead of leaking to the live network.
-- `opencode-v2-flow.e2e.test.ts` — launches the pinned real OpenCode 2 host against the compiled adapter and loopback AGY mock. It verifies host loading, model/title routing, AGY envelope invariants, image permissions, ineligible-account persistence/rotation, endpoint exhaustion, embedded SSE failures, and clean EOF handling.
+`bun run test:e2e` selects V1 plugin, CLI, RPC/menu, fetch-guard and mock-server tests under `packages/e2e-tests/src/`. `harness.ts` supplies loopback fetch/transport and owned filesystem roots; `setup.ts` installs a loopback-only `globalThis.fetch` guard and restores/cleans test state. This guard is an in-process fetch fence, not evidence that a spawned native host is network-contained.
 
-The harness (`packages/e2e-tests/src/harness.ts:1-314`) is the spine:
+### Packed and native host gates
 
-- `beforeEach` in `packages/e2e-tests/src/setup.ts:86-118` allocates a `mkdtemp` root with HOME/XDG overrides and installs a loopback-only `globalThis.fetch` guard (`packages/e2e-tests/src/setup.ts:51-77`) — every test runs in its own filesystem sandbox with a hard network boundary.
-- `createE2eHarness` (line 59-163) starts a mock server on `127.0.0.1:0` (`packages/e2e-tests/src/mock-antigravity-server.ts:209-273`), installs a fetch router that rewrites every outbound URL to the mock, and writes a `quick_mode` config file disabling background quota refresh + auto-update.
-- **No live network.** The preload wraps `globalThis.fetch` with a `LOOPBACK_HOSTS = { '127.0.0.1', '::1', '[::1]', 'localhost' }` allowlist (line 43); any other hostname throws `LiveNetworkDeniedError` (line 34-41). The remaining loopback rewrite is enforced by `dependencies.agyTransport` and `dependencies.fetchImpl` overrides plus the `REWRITE_HOSTS` allow-list in `packages/e2e-tests/src/harness.ts:221-230`. A regression that re-introduces a live URL is caught by the fetch guard's deny record.
-- `afterEach` and `afterAll` (`packages/e2e-tests/src/setup.ts:120-153`) restore the original fetch and reap the per-test temp root.
-- The OpenCode 2 harness sets `OPENCODE_DB` to a path inside the test's temporary root before spawning the host and asserts that the database was created there. HOME/XDG isolation alone is never treated as sufficient. The host's direct provider base URL and every adapter transport call point at the loopback recorder.
+- `packages/opencode/scripts/smoke-tui-pack-install.ts` checks packed entry resolution and TUI/library packaging in a consumer, distinct from source imports.
+- `packages/e2e-tests/src/opencode-ga-host-inputs.ts` and `opencode-ga-inputs.ts` validate installed `/server` targets/declarations and the server-only SDK consumer profile. `opencode-ga-harness.ts` drives the pinned host and records wire, lifecycle and terminal/error behavior.
+- Root `test:e2e:opencode-v2` is the **GA Docker smoke** command, despite its script name. It selects the terminal-frame case. `:extended` selects the broader case inventory; `:local` is an explicitly admitted debugging path. None implies a separate workspace.
+- `packages/e2e-tests/docker/run-opencode-ga-test.sh` archives clean committed HEAD, pins Linux/amd64, checks both host and daemon architecture to exclude emulation, and runs with `--network none`. Its GNU timeout/Docker/native-x64 requirements are constraints of this gate, not universal product requirements.
+- `packages/e2e-tests/docker/run-opencode-ga-native-test.sh` requires explicit native admission, a clean composed tree and per-job containment/hosts checks before host execution. `src/v1-vault-activation-harness.ts` is a separate native V1 activation harness. Its presence and source tests do not certify packed V1 activation readiness.
 
-The OpenCode 1/Pi e2e suite runs via `bun run test:e2e`; `bun run test:e2e:opencode-v2` runs the real-host OpenCode 2 suite in Docker with networking disabled, so the host can reach only the in-container loopback mock. The explicitly named `test:e2e:opencode-v2:local` debugging command still provisions and asserts a per-run `OPENCODE_DB`; it is not a CI gate.
+Host children require test-created HOME/XDG/Pi directories and an explicit isolated `OPENCODE_DB`, not operator paths; changing HOME alone is insufficient. A result applies only to the recorded host, architecture, package, source revision and containment profile. No host measurement or gate completion is asserted by this document; CI, release, activation and packed/native readiness gates are evaluated independently.
 
-### Release gates
+### Script surface
 
-The root `package.json` exposes the full gate surface:
+Use `package.json` for exact selectors rather than copying commands into a second manifest:
 
-```jsonc
-{
-  "build": "bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/opencode-v2 build && bun run --cwd packages/pi build",
-  "typecheck": "bun run --cwd packages/core build && bun run --cwd packages/opencode typecheck && bun run --cwd packages/opencode-v2 typecheck && bun run --cwd packages/pi typecheck && tsc -p tsconfig.scripts.json",
-  "test": "bun run --cwd packages/core build && bun run --cwd packages/opencode-v2 build && bun test --isolate packages/core/src packages/opencode/src packages/pi/src test/ packages/opencode-v2/test/",
-  "test:e2e": "bun test --isolate ./packages/e2e-tests/src/plugin-flow.e2e.test.ts ./packages/e2e-tests/src/cli-flow.e2e.test.ts ./packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts ./packages/e2e-tests/src/fetch-guard.test.ts ./packages/e2e-tests/src/mock-antigravity-server.test.ts",
-  "test:e2e:opencode-v2": "bash packages/e2e-tests/docker/run-opencode-v2-test.sh",
-  "test:e2e:opencode-v2:local": "bun run --cwd packages/core build && bun run --cwd packages/opencode-v2 build && bun test --isolate ./packages/e2e-tests/src/opencode-v2-flow.e2e.test.ts",
-  "smoke:opencode-v2": "bun run --cwd packages/opencode-v2 smoke:pack",
-  "format": "biome format --write .",
-  "format:check": "biome format .",
-  "lint": "biome lint . --error-on-warnings"
-}
-```
+| Root command | Current scope |
+| --- | --- |
+| `embed:check` | Verify fixed OpenCode/core common-auth embeddings |
+| `build` | Embedding check, core, unified OpenCode, Pi |
+| `typecheck` | Embedding check/core build, core/OpenCode/Pi checks, e2e GA types, script tsconfig |
+| `test` | Public-consumer preparation and isolated source/build-contract tests |
+| `test:e2e` | Dependency-injected V1/CLI/RPC/mock flows |
+| `test:e2e:opencode-v2`, `test:e2e:opencode-v2:extended`, `test:e2e:opencode-v2:local` | GA smoke, broader Docker driver, admitted local debugging |
+| `smoke:tui` | Packed unified OpenCode/TUI consumer |
+| `pack:core:dry`, `pack:opencode-dry`, `pack:pi-dry` | Three package dry-run packs |
+| `format:check`, `lint` | Embedding check followed by Biome 2.5.3 |
 
-The `format:check` and `lint` paths run Biome 2.5.3 (`package.json:26`) with the config at `biome.jsonc`. The build pipeline emits `dist/` for each package; the opencode build also runs the TUI compiler (`packages/opencode/package.json:64-65`).
+### Embedded producer boundary
+
+`packages/opencode/scripts/embed-common-auth.ts` pins `tools/common-auth-build/inputs/cortexkit-common-auth-0.14.2.tgz` and fixed public-module entry sets selected for OpenCode and core. Tracked `src/common-auth-embedded/` trees include public modules and provenance manifests; they are not a floating registry dependency. `packages/core/src/common-auth-runtime.ts` loads public capabilities lazily. In the coordinated CI/release preflight, `bun packages/opencode/scripts/embed-common-auth.ts --check` runs immediately before each private compiler dependency install, validating the publication-qualified archive, inventory and source embeddings without those dependencies. The existing root `bun run embed:check` runs afterward and checks installed compiler prerequisites. This describes the intended check sequence, not a completed independent verification result. Embedding outputs are generated by their owner, not hand-edited as a side effect of a documentation change.
 
 ## Extension points and invariants
 
@@ -818,41 +764,37 @@ The `format:check` and `lint` paths run Biome 2.5.3 (`package.json:26`) with the
 
 1. Add the model identity to the registry in `packages/core/src/model-registry.ts`.
 2. Add a `getQuotaGroupForModel` mapping so the quota manager classifies it correctly.
-3. If the model needs a non-default header style, add a `getAgyModelEnum` mapping in `packages/core/src/agy-request-metadata.ts:19-32`.
+3. Check header style and `getAgyModelEnum` mapping in `packages/core/src/agy-request-metadata.ts`.
 4. Add the model to `applyClaudeTransforms` / `applyGeminiTransforms` if the transform needs to know about it.
 5. If the model is exposed via the Pi provider, add it to `getPublicModelDefinitions()`.
 
 The plugin auto-discovers the model from the registry on every `applyAntigravityProviderCatalog` call.
 
-### Adding a new slash command
+### Extending the shared menu
 
-1. Add the command to `CommandModalName` in `packages/opencode/src/rpc/protocol.ts:1-8`.
-2. Add the command to `COMMANDS` in `packages/opencode/src/rpc/rpc-server.ts:27-34` so the server rejects unknown commands.
-3. Add the dialog flow collector branch in `packages/opencode/src/tui/command-dialogs.tsx`.
-4. Add the apply handler in `packages/opencode/src/plugin/commands.ts:applyCommand`.
-
-The TUI's notification poll will surface the new command from the next push onward.
+`packages/core/src/antigravity-command-menu.ts` builds `/antigravity` through common-auth commands. Add shared account actions there; host-specific settings/diagnostics live in OpenCode's `plugin/commands.ts` and `plugin/command-apply.ts`, GA location services, or Pi's `commands.ts`. Keep the same command parser/menu instance at the RPC boundary and test confirmation, source authorization and redaction. All menu actions use that shared contract rather than a separate wire schema for each dialog.
 
 ### Adding a new host
 
-Use core directly when a host owns its provider/transport lifecycle. OpenCode 1 composes through `PluginDependencyOverrides`; OpenCode 2 composes through `createOpenCodeV2AntigravityPlugin(overrides)` and a loopback request rewrite because its request hook cannot return a response. The corresponding e2e harnesses are the production-grade blueprints.
+Use core for harness-agnostic primitives. V1 composes through `PluginDependencyOverrides`; GA through `createGaAntigravityPlugin` and location services; Pi through provider/slot synchronization. Injected source tests illustrate adapter composition; installed-package tests must separately execute the target host.
 
 ### Hard invariants
 
-These invariants are enforced by tests and should not be relaxed:
+Current source contracts and their relevant checks:
 
-1. **The TUI never imports `accounts.ts`, `storage.ts`, or any OAuth module.** The compile-time check is the diff review at `packages/opencode/src/tui.tsx:1-22`.
-2. **No live network during e2e.** The mock-server's request recorder and the `REWRITE_HOSTS` allow-list are the enforcement points.
-3. **Origin/refresh tokens never appear in the sidebar snapshot.** `redactAccountForSidebar` is the single pipeline; the snapshot's `lastError` is bounded to short strings.
+1. **Renderer credential isolation.** Build-TUI import-graph tests reject credential-pipeline imports.
+2. **Owned test environment and network boundary.** Injected fetch guards and native/Docker containment are different fences; neither substitutes for the other.
+3. **Snapshot redaction and truthful age.** No credentials/project identity or invented quota observation/reset times cross the presentation boundary.
 4. **The 15s and 180s timeouts are distinct.** A 15s header timeout is a hard fail; a 180s idle timeout is a stalled-body watchdog that resets on every chunk.
-5. **Fenced file locks are acquired before any state read-modify-write.** The lock is `path + name` scoped; the eviction marker protocol prevents revive races.
-6. **Fetch interceptor disposal activates the passthrough guard.** The `disposed` flag at `packages/opencode/src/plugin/fetch-interceptor.ts:273` short-circuits any post-dispose call to `upstreamFetch` so a torn-down plugin never silently swallows a request.
-7. **Final snapshot writes land before disposal.** `drainSidebarWrites` is the seam; the lifecycle awaits it before tearing down the RPC server and file logger.
-8. **The plugin never reboots a host fetch.** The interceptor captures the host's `fetchImpl` at factory time (`packages/opencode/src/plugin/fetch-interceptor.ts:265-280`) so the plugin's own fetch call never recurses through itself.
-9. **The RPC server binds to loopback only.** `LOOPBACK_HOST = '127.0.0.1'` (`packages/opencode/src/rpc/rpc-server.ts:19`) is the literal — no env override, no relative binding.
+5. **Attributed persistence.** Repository writes fence credential observations; pool/sidebar pre-rename ownership checks are not an atomic compare-and-swap with the file replacement.
+6. **Retirement is not abort.** Admitted V1 requests/bodies drain on replacement; final disposal aborts live and retiring work and refuses reentrant admission synchronously.
+7. **Producer/drain/consumer order.** V1 lifecycle awaits queued sidebar work before consumer teardown.
+8. **Captured upstream fetch.** The interceptor does not recursively call itself as host fetch.
+9. **Loopback authenticated RPC.** Embedded common-auth owns the bearer/discovery implementation.
 10. **Every outbound request must end in a user turn.** After sanitization and recovery, request preparation appends `[Continue]` when the final `contents` role is model or assistant because Antigravity rejects model-ending requests.
-11. **The Pi extension's package-name contract is `pi.extensions`.** `packages/pi/package.json:34-38` is the source-of-truth; the extension's name (`@cortexkit/pi-antigravity-auth`) is what the user's Pi config references.
+11. **Pi startup custody before registration.** `pi.extensions` loads the extension; slot synchronization selects the serving or refusing `google` provider.
 12. **OpenCode 2 host tests always set an isolated `OPENCODE_DB`.** No OpenCode 2 process may run against the developer's default database during tests.
-13. **The OpenCode 2 package must resolve after packing.** `packages/opencode-v2/scripts/smoke-pack-install.ts` installs the tarballs into a clean consumer and verifies the real `Host.resolve()` server entry alongside inert TUI and RPC compatibility exports; direct source imports are not sufficient release evidence.
+13. **Unified exports must resolve after packing.** Source-import success does not prove installed `./server` declarations or either `./tui` arm.
+14. **V1 vault admission is enrollment-only after the host loader prerequisite.** Dormant native Google records are not read, validated or refreshed; GA ownership checks must not be transplanted into V1.
 
 The architecture is intentionally layered so the next harness (a CLI, a VS Code plugin, a Web extension) can plug in at the `core` boundary or the `opencode` boundary depending on whether it has its own fetch primitive.

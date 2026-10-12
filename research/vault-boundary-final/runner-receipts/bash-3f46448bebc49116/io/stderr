@@ -1,0 +1,67 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/pi/src/stream.test.ts:
+269 |         expect(await actualCore.enrollmentAuthority(setup.paths, PI_ANTIGRAVITY_ENROLLMENT_NAME, claustrum)).toBe('vault')
+270 |         return { auth: { type: 'oauth', refresh: '', access: 'test-token', expires: 0 }, effectiveProjectId: 'test-project' }
+271 |       })
+272 |       fetchWithAgyCliTransportMock.mockImplementationOnce(async () => terminalTextResponse())
+273 |       const { result } = await collectStream(localStream(fakeModel(), userContext(), { apiKey: 'test-token' }))
+274 |       expect(result.stopReason).toBe('error')
+                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "error"
+Received: "stop"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/pi/src/stream.test.ts:274:33)
+(fail) selected credential boundary > production Pi provider refuses enrollment approved during its project await [204.18ms]
+
+packages/opencode/src/plugin/quota.test.ts:
+1362 |     const update = spyOn(store.manager, 'updateQuotaCache')
+1363 |     try {
+1364 |       const target = store.manager.getAccountsForQuotaCheck()[0]!
+1365 |       const outcome = await store.service.refreshAccount(target, { force: true })
+1366 |       expect(sends).toBe(2)
+1367 |       expect(outcome.status).toBe('discarded')
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "discarded"
+Received: "failed"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/quota.test.ts:1367:30)
+(fail) account-store quota service > discards deferred quota metadata after local authority changes without vetoing an admitted successor save [156.03ms]
+1385 |     const update = spyOn(store.manager, 'updateFromAuth')
+1386 |     try {
+1387 |       const target = store.manager.getAccountsForQuotaCheck()[0]!
+1388 |       const outcome = await store.service.refreshAccount(target, { force: true })
+1389 |       expect(outcome.status).toBe('failed')
+1390 |       expect(update).not.toHaveBeenCalled()
+                                ^
+error: expect(received).not.toHaveBeenCalled()
+
+Expected number of calls: 0
+Received number of calls: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/quota.test.ts:1390:26)
+(fail) account-store quota service > refuses deferred quota project metadata when authority changes during resolution [186.42ms]
+1400 |       assertGrantCurrent: async () => { local = false },
+1401 |     })
+1402 |     try {
+1403 |       const target = store.manager.getAccountsForQuotaCheck()[0]!
+1404 |       expect((await store.service.refreshAccount(target, { force: true })).status).toBe('failed')
+1405 |       expect(store.bearers).toHaveLength(0)
+                                   ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 0
+Received length: 2
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/quota.test.ts:1405:29)
+(fail) account-store quota service > refuses a local quota physical send after authority changes during the final grant await [137.10ms]
+
+ 0 pass
+ 100 filtered out
+ 4 fail
+ 12 expect() calls
+Ran 4 tests across 2 files. [1018.00ms]

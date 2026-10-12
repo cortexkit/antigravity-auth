@@ -1,0 +1,23 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/opencode/src/plugin/shared/request-services.test.ts:
+1333 |       const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+1334 |       expect(response.status).toBe(200)
+1335 |       expect(await response.text()).toBe(JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] } }] }))
+1336 |       expect(admissions).toBe(3)
+1337 |       expect(h.calls).toHaveLength(3)
+1338 |       expect(diagnostics.join('\n')).toContain('cache-warmup-probe: failed echo [credential]')
+                                            ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "cache-warmup-probe: failed echo [credential]"
+Received: "request=https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent\nselected idx=0 email=account-0@example.test family=gemini accounts=2 strategy=sticky\nheaderStyle=antigravity explicit=false\nfingerprint: deviceId=cb1a0a26...\nendpoint=https://daily-cloudcode-pa.googleapis.com\nresolved=https://daily-cloudcode-pa.googleapis.com/v1internal:generateContent\ndispatching request via antigravity transport\n[Quota] account=0 gemini_today=1 total_gemini_today=1\nstatus=429  (api_request #1)\n429 idx=0 email=account-0@example.test family=gemini delayMs=3600000 attempt=1 reason=RATE_LIMIT_EXCEEDED\n429 message=rate limit exceeded\nselected idx=1 email=account-1@example.test family=gemini accounts=2 strategy=sticky\naccount-switch: 0 → 1, warmup=true\nheaderStyle=antigravity explicit=false\nfingerprint: deviceId=1d05c80e...\nendpoint=https://daily-cloudcode-pa.googleapis.com\nresolved=https://daily-cloudcode-pa.googleapis.com/v1internal:generateContent\ncache-warmup-probe: start\nauxiliary-trace echo opaque_auxiliary_vault_95b\ncache-warmup-probe: failed echo opaque_auxiliary_vault_95b\ndispatching request via antigravity transport\n[Quota] account=1 gemini_today=1 total_gemini_today=2\nstatus=200  (api_request #1)"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/shared/request-services.test.ts:1338:38)
+(fail) createRequestExecutor vault admissions > scrubs distinct auxiliary vault bearers before cache-warmup diagnostics reach the sink [1009.92ms]
+
+ 0 pass
+ 60 filtered out
+ 1 fail
+ 7 expect() calls
+Ran 1 test across 1 file. [1219.00ms]

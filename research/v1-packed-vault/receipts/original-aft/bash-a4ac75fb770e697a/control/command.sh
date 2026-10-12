@@ -1,0 +1,1 @@
+bun --version && bun run --cwd packages/core build && bun test --isolate ./packages/e2e-tests/src/v1-packed-vault.e2e.test.ts -t assertion

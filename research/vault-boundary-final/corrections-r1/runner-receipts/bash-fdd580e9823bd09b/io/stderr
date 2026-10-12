@@ -1,0 +1,89 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/opencode/src/plugin/shared/request-services.test.ts:
+1397 |           candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] } }],
+1398 |         }),
+1399 |       )
+1400 |       expect(admissions).toBe(3)
+1401 |       expect(h.calls).toHaveLength(3)
+1402 |       expect(diagnostics.join('\n')).toContain(
+                                            ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "cache-warmup-probe: failed echo [credential]"
+Received: "request=https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent\nselected idx=0 email=account-0@example.test family=gemini accounts=2 strategy=sticky\nheaderStyle=antigravity explicit=false\nfingerprint: deviceId=5ada179c...\nendpoint=https://daily-cloudcode-pa.googleapis.com\nresolved=https://daily-cloudcode-pa.googleapis.com/v1internal:generateContent\ndispatching request via antigravity transport\n[Quota] account=0 gemini_today=1 total_gemini_today=1\nstatus=429  (api_request #1)\n429 idx=0 email=account-0@example.test family=gemini delayMs=3600000 attempt=1 reason=RATE_LIMIT_EXCEEDED\n429 message=rate limit exceeded\nselected idx=1 email=account-1@example.test family=gemini accounts=2 strategy=sticky\naccount-switch: 0 → 1, warmup=true\nheaderStyle=antigravity explicit=false\nfingerprint: deviceId=83d27e1c...\nendpoint=https://daily-cloudcode-pa.googleapis.com\nresolved=https://daily-cloudcode-pa.googleapis.com/v1internal:generateContent\ncache-warmup-probe: start\nauxiliary-trace echo opaque_auxiliary_vault_95b\ncache-warmup-probe: failed echo opaque_auxiliary_vault_95b\ndispatching request via antigravity transport\n[Quota] account=1 gemini_today=1 total_gemini_today=2\nstatus=200  (api_request #1)"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/shared/request-services.test.ts:1402:38)
+(fail) createRequestExecutor vault admissions > scrubs distinct auxiliary vault bearers before cache-warmup diagnostics reach the sink [1011.94ms]
+
+ 0 pass
+ 60 filtered out
+ 1 fail
+ 7 expect() calls
+Ran 1 test across 1 file. [1250.00ms]
+
+packages/opencode/src/plugin/shared/request-services.test.ts:
+980 |         .catch((error: unknown) => error)
+981 |       expect(used).toEqual([opaque])
+982 |       expect(h.calls).toHaveLength(0)
+983 |       expect(error).toBe(failure)
+984 |       expect(failure.code).toBe('PROJECT_LOOKUP_FAILED')
+985 |       expect(failure.message).toBe('project lookup echo [credential]')
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "project lookup echo [credential]"
+Received: "project lookup echo opaque_project_lookup_748a"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/shared/request-services.test.ts:985:31)
+(fail) createRequestExecutor retry contract > redacts the actual local project-lookup bearer before cancellation returns its terminal failure [8.42ms]
+
+ 0 pass
+ 60 filtered out
+ 1 fail
+ 5 expect() calls
+Ran 1 test across 1 file. [131.00ms]
+
+packages/core/src/credential-redaction.test.ts:
+107 |       }),
+108 |       { headers: { 'content-type': 'text/event-stream' } },
+109 |     )
+110 |     const safe = await redactCredentialResponse(original, selected)
+111 |     await expect(safe.text()).rejects.toBe(failure)
+112 |     expect(original.body!.locked).toBe(false)
+                                        ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:112:35)
+(fail) credential redaction > releases the owned SSE reader after an unchanged safe body failure [3.05ms]
+
+ 0 pass
+ 15 filtered out
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [90.00ms]
+
+packages/core/src/credential-redaction.test.ts:
+124 |     )
+125 |     const safe = await redactCredentialResponse(original, selected)
+126 |     const reason = new DOMException('user escape', 'AbortError')
+127 |     await safe.body!.cancel(reason)
+128 |     expect(cancelled).toBe(reason)
+129 |     expect(original.body!.locked).toBe(false)
+                                        ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:129:35)
+(fail) credential redaction > releases the owned SSE reader on cancellation without changing its reason [0.79ms]
+
+ 0 pass
+ 15 filtered out
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [86.00ms]

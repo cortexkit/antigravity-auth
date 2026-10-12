@@ -1,0 +1,23 @@
+
+packages/core/src/fetch-timeout.test.ts:
+278 |     const reader = response.body!.getReader()
+279 |     const first = reader.read()
+280 |     source.controller().enqueue(new Uint8Array([0, 255, 128]))
+281 |     expect((await first).value).toEqual(new Uint8Array([0, 255, 128]))
+282 |     deadline.abort(new DOMException('late deadline', 'TimeoutError'))
+283 |     expect(deadlines.size).toBe(0)
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/core/src/fetch-timeout.test.ts:283:28)
+(fail) caller/body lifetime without AbortSignal.any > does not let the expired header deadline kill a streaming body [0.78ms]
+(pass) caller/body lifetime without AbortSignal.any > preserves metadata, clone metadata, and unbuffered body bytes [0.28ms]
+
+ 1 pass
+ 18 filtered out
+ 1 fail
+ 19 expect() calls
+Ran 2 tests across 1 file. [341.00ms]

@@ -1,21 +1,38 @@
 // @cortexkit/antigravity-auth-core
 // Harness-agnostic core surface. Modules are migrated here in stages.
 
+export * from './abort-forwarding.ts'
+export * from './account-identity.ts'
 export type {
   AccountManagerOptions,
+  AccountQuotaTarget,
   AccountSessionIdentity,
   ManagedAccount,
 } from './account-manager.ts'
 export { AccountManager, resolveQuotaGroup } from './account-manager.ts'
+export * from './account-migration.ts'
+export * from './account-repository.ts'
+export * from './account-repository-codecs.ts'
+export * from './account-repository-types.ts'
+export * from './account-selector.ts'
 export * from './account-storage.ts'
 export * from './account-types.ts'
 export * from './agy-request-metadata.ts'
 export * from './agy-transport.ts'
 export * from './antigravity/oauth.ts'
+export * from './antigravity-command-menu.ts'
 export * from './atomic-write.ts'
 export * from './auth.ts'
 export * from './auth-types.ts'
+export * from './common-auth-runtime.ts'
 export * from './constants.ts'
+export {
+  preserveResponseMetadata,
+  redactCredentialError,
+  redactCredentialFrame,
+  redactCredentialResponse,
+  redactCredentialText,
+} from './credential-redaction.ts'
 export * from './fetch-timeout.ts'
 export * from './file-lock.ts'
 export * from './fingerprint.ts'
@@ -24,7 +41,16 @@ export * from './model-registry.ts'
 export * from './model-types.ts'
 export * from './project.ts'
 export * from './quota-manager.ts'
+export {
+  antigravityQuotaTextParts,
+  formatAntigravityQuota,
+  projectAntigravityQuota,
+} from './quota-presentation.ts'
 export * from './quota-types.ts'
 export * from './rotation.ts'
 export * from './transform/index.ts'
+export * from './vault-account-source.ts'
+export * from './vault-enrollment-authority.ts'
+export * from './vault-family.ts'
+export * from './vault-provider-state.ts'
 export * from './version.ts'

@@ -4,6 +4,7 @@
  * Re-exports transform functions and types for request transformation.
  */
 
+export * from './agy-generation.ts'
 export type { ClaudeTransformOptions, ClaudeTransformResult } from './claude.ts'
 // Claude transforms
 export {
@@ -33,7 +34,6 @@ export type {
   GeminiTransformResult,
   ImageConfig,
 } from './gemini.ts'
-
 // Gemini transforms
 export {
   applyGeminiTransforms,

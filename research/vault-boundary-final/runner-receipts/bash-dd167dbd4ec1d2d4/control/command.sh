@@ -1,0 +1,1 @@
+git add packages/pi/src/stream.test.ts packages/opencode/src/plugin/quota.test.ts research/vault-boundary-final; git diff --stat; git show HEAD:packages/pi/src/stream.ts > packages/pi/src/stream.ts; printf '\n// NON-VACUITY BREAK: baseline project-await admission\n' >> packages/pi/src/stream.ts; git diff --stat

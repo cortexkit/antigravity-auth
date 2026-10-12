@@ -1,0 +1,17 @@
+{
+  // Declaration emit for the `./server` entry under the OpenCode 2 program's
+  // strict settings, so the published server declarations are produced by
+  // the same compiler configuration that checks them against
+  // @opencode/plugin 2.0.22. Relative `.ts` specifiers are rewritten to `.js`.
+  "extends": "./tsconfig.ga.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "declarationMap": true,
+    "rewriteRelativeImportExtensions": true,
+    "outDir": "dist/types",
+    "rootDir": "."
+  },
+  "include": ["src/server.ts"]
+}

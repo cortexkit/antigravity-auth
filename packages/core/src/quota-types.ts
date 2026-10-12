@@ -130,6 +130,8 @@ export interface AccountQuotaResult {
   error?: string
   disabled?: boolean
   quota?: QuotaSummary
+  /** Timestamp when this account's successful fetch completed. */
+  checkedAt?: number
   geminiCliQuota?: GeminiCliQuotaSummary
   updatedAccount?: AccountMetadataV3
 }

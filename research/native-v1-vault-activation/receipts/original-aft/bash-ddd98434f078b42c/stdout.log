@@ -1,0 +1,35 @@
+1.4.2
+Copied 128 embedded common-auth files
+MUTATION TEST EXIT 1
+
+packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:
+86 |     receipt.observations.filter(
+87 |       (event) =>
+88 |         event.kind === 'forbidden-network' || event.kind === 'forbidden-oauth',
+89 |     ),
+90 |   ).toEqual([])
+91 |   expect(receipt.localFileSyscalls).toEqual([])
+                                         ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "76    statx(AT_FDCWD, "/tmp/native-v1-vault-nkycT3/config/opencode/antigravity-accounts.json", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc815bd7d0) = -1 ENOENT (No such file or directory)",
++   "85    statx(AT_FDCWD, "/tmp/native-v1-vault-nkycT3/config/opencode/antigravity-accounts.json", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc92e37cd0) = -1 ENOENT (No such file or directory)",
++   "85    statx(AT_FDCWD, "/tmp/native-v1-vault-nkycT3/config/opencode/antigravity-accounts.json", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc92e37c80) = -1 ENOENT (No such file or directory)",
++ ]
+
+- Expected  - 1
++ Received  + 5
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:91:37)
+(fail) official 1.17.13 absent-auth first request activates and serves the approved vault [9043.39ms]
+
+ 0 pass
+ 1 fail
+ 22 expect() calls
+Ran 1 test across 1 file. [9.19s]
+
+bun test v1.4.2 (744846f84)
+MUTATION LOCAL FILE SYSCALLS ["76    statx(AT_FDCWD, \"/tmp/native-v1-vault-nkycT3/config/opencode/antigravity-accounts.json\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc815bd7d0) = -1 ENOENT (No such file or directory)", "85    statx(AT_FDCWD, \"/tmp/native-v1-vault-nkycT3/config/opencode/antigravity-accounts.json\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc92e37cd0) = -1 ENOENT (No such file or directory)", "85    statx(AT_FDCWD, \"/tmp/native-v1-vault-nkycT3/config/opencode/antigravity-accounts.json\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7ffc92e37c80) = -1 ENOENT (No such file or directory)"]
+MUTATION OTHER PROPERTIES {"error": null, "authAbsentBefore": true, "requestCount": 1, "allReaped": true, "stdout": "{\"type\":\"step_start\",\"timestamp\":1791732638061,\"sessionID\":\"ses_ed469a2a7ffeRylFEtIq7oyp1e\",\"part\":{\"id\":\"prt_12b966153001O4kSPBRhT9hGue\",\"messageID\":\"msg_12b965e68001BxJDmgMyscS24l\",\"sessionID\":\"ses_ed469a2a7ffeRylFEtIq7oyp1e\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1791732638061,\"sessionID\":\"ses_ed469a2a7ffeRylFEtIq7oyp1e\",\"part\":{\"id\":\"prt_12b966157001xS8MI60Giyl49q\",\"messageID\":\"msg_12b965e68001BxJDmgMyscS24l\",\"sessionID\":\"ses_ed469a2a7ffeRylFEtIq7oyp1e\",\"type\":\"text\",\"text\":\"Native V1 vault first request completed.\",\"time\":{\"start\":1791732638039,\"end\":1791732638042}}}\n{\"type\":\"step_finish\",\"timestamp\":1791732638061,\"sessionID\":\"ses_ed469a2a7ffeRylFEtIq7oyp1e\",\"part\":{\"id\":\"prt_12b96615e001GRSGBy1cuY69gE\",\"reason\":\"stop\",\"messageID\":\"msg_12b965e68001BxJDmgMyscS24l\",\"sessionID\":\"ses_ed469a2a7ffeRylFEtIq7oyp1e\",\"type\":\"step-finish\",\"tokens\":{\"total\":8,\"input\":1,\"output\":7,\"reasoning\":0,\"cache\":{\"write\":0,\"read\":0}},\"cost\":0}}\n"}

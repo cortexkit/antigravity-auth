@@ -1,5 +1,10 @@
 import crypto from 'node:crypto'
 import {
+  applyAgyNativeGenerationConfig,
+  getAgyNativeModel,
+  isRetiredAgyModel,
+} from '@cortexkit/antigravity-auth-core'
+import {
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
   ANTIGRAVITY_ENDPOINT,
   CLAUDE_DESCRIPTION_PROMPT,
@@ -17,7 +22,11 @@ import {
   createAgyRequestSessionContext,
   orderAgyRequestPayloadInPlace,
 } from './agy-request-metadata'
-import { cacheSignature, getCachedSignature } from './cache'
+import {
+  cacheSignature,
+  getCachedSignature,
+  type LocationSignatureCache,
+} from './cache'
 import { getKeepThinking } from './config'
 import {
   createStreamingTransformer,
@@ -28,12 +37,14 @@ import {
   type AntigravityDebugContext,
   DEBUG_MESSAGE_PREFIX,
   isDebugTuiEnabled,
+  type LocationDebug,
   logAntigravityDebugResponse,
   logCacheStats,
 } from './debug'
 import {
   buildFingerprintHeaders,
   type Fingerprint,
+  generateFingerprint,
   getSessionFingerprint,
 } from './fingerprint'
 import {
@@ -42,7 +53,7 @@ import {
   type GeminiDumpContext,
   noteGeminiDumpResponse,
 } from './gemini-dump'
-import { createLogger } from './logger'
+import { createLogger, type Logger } from './logger'
 import { detectErrorType } from './recovery'
 import {
   type AntigravityApiBody,
@@ -191,6 +202,8 @@ export function getImageModelLocalTitle(
 }
 
 function getAgyMaxOutputTokens(model: string): number | undefined {
+  const native = getAgyNativeModel(model)
+  if (native) return native.maxOutputTokens
   const lower = model.toLowerCase()
   if (
     lower === 'gemini-3.5-flash-low' ||
@@ -226,6 +239,10 @@ function applyAgyGenerationDefaults(
   headerStyle: HeaderStyle,
 ): void {
   if (headerStyle !== 'antigravity') {
+    return
+  }
+  if (getAgyNativeModel(model)) {
+    applyAgyNativeGenerationConfig(model, generationConfig)
     return
   }
   const maxOutputTokens = getAgyMaxOutputTokens(model)
@@ -720,6 +737,58 @@ function configureAntigravityToolCalling(
   payload.toolConfig = toolConfig
 }
 
+/**
+ * The native CLI sends a function response to a same-target call in a model
+ * turn (a request then ends with a model turn and gets the trailing user
+ * `[Continue]` turn). A call is same-target when it carries its own replay
+ * signature; a call whose signature was missing or stripped carries the
+ * validator sentinel and keeps its responses in a user turn.
+ */
+function normalizeNativeFunctionResponseRoles(
+  payload: Record<string, unknown>,
+): void {
+  const contents = (payload as { contents?: unknown }).contents
+  if (!Array.isArray(contents)) return
+  const signedCalls = new Set<string>()
+  for (const content of contents) {
+    const parts = (content as { parts?: unknown } | null)?.parts
+    if (!Array.isArray(parts)) continue
+    let signedTurn = false
+    for (const part of parts) {
+      const call = (part as { functionCall?: { name?: unknown; id?: unknown } })
+        ?.functionCall
+      if (!call) continue
+      const signature = (part as { thoughtSignature?: unknown })
+        .thoughtSignature
+      // Only the first call of a turn carries the turn's signature.
+      if (typeof signature === 'string') {
+        signedTurn =
+          signature.length >= MIN_SIGNATURE_LENGTH &&
+          signature !== SKIP_THOUGHT_SIGNATURE
+      }
+      if (signedTurn) {
+        signedCalls.add(String(call.id ?? call.name))
+      }
+    }
+  }
+  for (const content of contents) {
+    if (!content || typeof content !== 'object') continue
+    const record = content as { role?: unknown; parts?: unknown }
+    if (record.role !== 'user' || !Array.isArray(record.parts)) continue
+    if (record.parts.length === 0) continue
+    const sameTarget = record.parts.every((part) => {
+      const response = (
+        part as { functionResponse?: { name?: unknown; id?: unknown } }
+      )?.functionResponse
+      return (
+        response !== undefined &&
+        signedCalls.has(String(response.id ?? response.name))
+      )
+    })
+    if (sameTarget) record.role = 'model'
+  }
+}
+
 function sanitizeRequestPayloadForAntigravity(
   payload: Record<string, unknown>,
 ): void {
@@ -764,8 +833,12 @@ function sanitizeRequestPayloadForAntigravity(
               sig = undefined
             }
 
+            // The native CLI sends only the camel-case key; a snake-case
+            // duplicate from host history is dropped.
             if (sig) {
-              return { ...part, thought_signature: sig, thoughtSignature: sig }
+              const signed = { ...part, thoughtSignature: sig }
+              delete signed.thought_signature
+              return signed
             }
 
             // If not the first part, just return the part without adding any signature keys
@@ -911,7 +984,11 @@ function getThinkingPartText(part: any): string {
   return ''
 }
 
-function hasCachedMatchingSignature(part: any, sessionId: string): boolean {
+function hasCachedMatchingSignature(
+  part: any,
+  sessionId: string,
+  wire: RequestWireLocation,
+): boolean {
   if (!part || typeof part !== 'object') {
     return false
   }
@@ -921,7 +998,7 @@ function hasCachedMatchingSignature(part: any, sessionId: string): boolean {
     return false
   }
 
-  const expectedSignature = getCachedSignature(sessionId, text)
+  const expectedSignature = wire.signatures.getCachedSignature(sessionId, text)
   if (!expectedSignature) {
     return false
   }
@@ -962,7 +1039,11 @@ function ensureThoughtSignature(part: any, sessionId: string): any {
   return part
 }
 
-function hasSignedThinkingPart(part: any, sessionId?: string): boolean {
+function hasSignedThinkingPart(
+  part: any,
+  sessionId: string | undefined,
+  wire: RequestWireLocation,
+): boolean {
   if (!part || typeof part !== 'object') {
     return false
   }
@@ -986,7 +1067,7 @@ function hasSignedThinkingPart(part: any, sessionId?: string): boolean {
       return true
     }
 
-    return hasCachedMatchingSignature(part, sessionId)
+    return hasCachedMatchingSignature(part, sessionId, wire)
   }
 
   if (
@@ -1012,7 +1093,7 @@ function hasSignedThinkingPart(part: any, sessionId?: string): boolean {
       return true
     }
 
-    return hasCachedMatchingSignature(part, sessionId)
+    return hasCachedMatchingSignature(part, sessionId, wire)
   }
 
   return false
@@ -1021,6 +1102,7 @@ function hasSignedThinkingPart(part: any, sessionId?: string): boolean {
 function ensureThinkingBeforeToolUseInContents(
   contents: any[],
   signatureSessionKey: string,
+  wire: RequestWireLocation,
 ): any[] {
   return contents.map((content: any) => {
     if (
@@ -1049,6 +1131,7 @@ function ensureThinkingBeforeToolUseInContents(
         hasSignedThinkingPart(
           ensureThoughtSignature(p, signatureSessionKey),
           signatureSessionKey,
+          wire,
         ),
     )
 
@@ -1065,8 +1148,8 @@ function ensureThinkingBeforeToolUseInContents(
     }
     // Replace thinking parts with sentinels in-place to preserve array indices (cache-friendly).
     // Deleting parts via .filter() shifts array indices → changes hash → busts prompt cache.
-    const lastThinking = defaultSignatureStore.get(signatureSessionKey)
-    log.debug('Replacing thinking with sentinels in-place', {
+    const lastThinking = wire.signatures.signatureStore.get(signatureSessionKey)
+    wire.logger.debug('Replacing thinking with sentinels in-place', {
       signatureSessionKey,
       hasCachedSig: !!lastThinking,
     })
@@ -1118,7 +1201,8 @@ function hasToolUseInContents(contents: any[]): boolean {
 
 function hasSignedThinkingInContents(
   contents: any[],
-  sessionId?: string,
+  sessionId: string | undefined,
+  wire: RequestWireLocation,
 ): boolean {
   return contents.some((content: any) => {
     if (
@@ -1129,7 +1213,7 @@ function hasSignedThinkingInContents(
       return false
     }
     return (content.parts as any[]).some((part) =>
-      hasSignedThinkingPart(part, sessionId),
+      hasSignedThinkingPart(part, sessionId, wire),
     )
   })
 }
@@ -1154,7 +1238,8 @@ function hasToolUseInMessages(messages: any[]): boolean {
 
 function hasSignedThinkingInMessages(
   messages: any[],
-  sessionId?: string,
+  sessionId: string | undefined,
+  wire: RequestWireLocation,
 ): boolean {
   return messages.some((message: any) => {
     if (
@@ -1165,7 +1250,7 @@ function hasSignedThinkingInMessages(
       return false
     }
     return (message.content as any[]).some((block) =>
-      hasSignedThinkingPart(block, sessionId),
+      hasSignedThinkingPart(block, sessionId, wire),
     )
   })
 }
@@ -1173,6 +1258,7 @@ function hasSignedThinkingInMessages(
 function ensureThinkingBeforeToolUseInMessages(
   messages: any[],
   signatureSessionKey: string,
+  wire: RequestWireLocation,
 ): any[] {
   return messages.map((message: any) => {
     if (
@@ -1210,6 +1296,7 @@ function ensureThinkingBeforeToolUseInMessages(
         hasSignedThinkingPart(
           ensureMessageThinkingSignature(b, signatureSessionKey),
           signatureSessionKey,
+          wire,
         ),
     )
 
@@ -1227,11 +1314,14 @@ function ensureThinkingBeforeToolUseInMessages(
 
     // Replace thinking blocks with sentinels in-place to preserve array indices (cache-friendly).
     // Deleting/reordering via .filter() shifts indices → changes hash → busts prompt cache.
-    const lastThinking = defaultSignatureStore.get(signatureSessionKey)
-    log.debug('Replacing thinking with sentinels in-place (Messages format)', {
-      signatureSessionKey,
-      hasCachedSig: !!lastThinking,
-    })
+    const lastThinking = wire.signatures.signatureStore.get(signatureSessionKey)
+    wire.logger.debug(
+      'Replacing thinking with sentinels in-place (Messages format)',
+      {
+        signatureSessionKey,
+        hasCachedSig: !!lastThinking,
+      },
+    )
     return {
       ...message,
       content: blocks.map((b) => {
@@ -1260,15 +1350,84 @@ export function getPluginSessionId(): string {
   return PLUGIN_SESSION_ID
 }
 
-let _lastCacheStats: {
+/** Prompt-cache statistics from the last response that reported them. */
+export interface RequestCacheStats {
   model: string
   read: number
   total: number
   hitRate: number
-} | null = null
+}
+
+/**
+ * One location's state for the wire functions: its signature cache and
+ * keep_thinking policy, debug log, logger, session fingerprint, the thinking
+ * already shown in its debug view and its last prompt-cache statistics.
+ * `createRequestWireLocation` builds one; OpenCode 1's module-level functions
+ * use the single-location binding over the module-level state.
+ */
+export interface RequestWireLocation {
+  readonly signatures: Pick<
+    LocationSignatureCache,
+    'keepThinking' | 'signatureStore' | 'cacheSignature' | 'getCachedSignature'
+  >
+  readonly debug: Pick<
+    LocationDebug,
+    'isDebugTuiEnabled' | 'logAntigravityDebugResponse' | 'logCacheStats'
+  >
+  readonly logger: Logger
+  /** Fingerprint used when the selected account has none. */
+  sessionFingerprint(): Fingerprint
+  readonly displayedThinkingHashes: Set<string>
+  readonly cacheStats: { last: RequestCacheStats | null }
+}
+
+/** Builds one location's wire state from its own collaborators. */
+export function createRequestWireLocation(input: {
+  signatures: RequestWireLocation['signatures']
+  debug: RequestWireLocation['debug']
+  logger: Logger
+  /** Defaults to a fingerprint generated once for this location. */
+  sessionFingerprint?: Fingerprint
+}): RequestWireLocation {
+  const fingerprint = input.sessionFingerprint ?? generateFingerprint()
+  return {
+    signatures: input.signatures,
+    debug: input.debug,
+    logger: input.logger,
+    sessionFingerprint: () => fingerprint,
+    displayedThinkingHashes: new Set<string>(),
+    cacheStats: { last: null },
+  }
+}
+
+// OpenCode 1's single-location binding: every read goes to the module-level
+// config, signature cache, debug log and fingerprint at call time.
+const openCode1WireLocation: RequestWireLocation = {
+  signatures: {
+    get keepThinking() {
+      return getKeepThinking()
+    },
+    signatureStore: defaultSignatureStore,
+    cacheSignature: (sessionId, text, signature) =>
+      cacheSignature(sessionId, text, signature),
+    getCachedSignature: (sessionId, text) =>
+      getCachedSignature(sessionId, text),
+  },
+  debug: {
+    isDebugTuiEnabled: () => isDebugTuiEnabled(),
+    logAntigravityDebugResponse: (context, response, meta) =>
+      logAntigravityDebugResponse(context, response, meta),
+    logCacheStats: (model, cacheRead, cacheWrite, totalInput) =>
+      logCacheStats(model, cacheRead, cacheWrite, totalInput),
+  },
+  logger: log,
+  sessionFingerprint: () => getSessionFingerprint(),
+  displayedThinkingHashes: sessionDisplayedThinkingHashes,
+  cacheStats: { last: null },
+}
 
 export function getLastCacheStats() {
-  return _lastCacheStats
+  return openCode1WireLocation.cacheStats.last
 }
 const STREAM_ACTION = 'streamGenerateContent'
 
@@ -1311,7 +1470,8 @@ export interface PrepareRequestOptions {
   agyRequestTimestamp?: number
 }
 
-export function prepareAntigravityRequest(
+function prepareAntigravityRequestIn(
+  wire: RequestWireLocation,
   input: RequestInfo,
   init: RequestInit | undefined,
   accessToken: string,
@@ -1361,6 +1521,8 @@ export function prepareAntigravityRequest(
   headers.delete('x-session-affinity')
   headers.delete('x-session-id')
   headers.delete('x-parent-session-id')
+  headers.delete('x-opencode-session-id')
+  headers.delete('x-opencode-parent-session-id')
   // Strip x-goog-user-project header to prevent 403 auth/license conflicts.
   // This header is added by OpenCode/AI SDK and can force project-level checks
   // that are not required for Antigravity/Gemini CLI OAuth requests.
@@ -1391,7 +1553,7 @@ export function prepareAntigravityRequest(
 
   const isClaude = isClaudeModel(resolved.actualModel)
   const isClaudeThinking = isClaudeThinkingModel(resolved.actualModel)
-  const keepThinkingEnabled = getKeepThinking()
+  const keepThinkingEnabled = wire.signatures.keepThinking
 
   // Tier-based thinking configuration from model resolver (can be overridden by variant config)
   let tierThinkingBudget = resolved.thinkingBudget
@@ -1477,8 +1639,9 @@ export function prepareAntigravityRequest(
             deepFilterThinkingBlocks(
               req,
               signatureSessionKey,
-              getCachedSignature,
+              wire.signatures.getCachedSignature,
               true,
+              keepThinkingEnabled,
             )
 
             // Step 2: THEN inject signed thinking from cache (after stripping)
@@ -1490,6 +1653,7 @@ export function prepareAntigravityRequest(
               ;(req as any).contents = ensureThinkingBeforeToolUseInContents(
                 (req as any).contents,
                 signatureSessionKey,
+                wire,
               )
             }
             if (
@@ -1500,6 +1664,7 @@ export function prepareAntigravityRequest(
               ;(req as any).messages = ensureThinkingBeforeToolUseInMessages(
                 (req as any).messages,
                 signatureSessionKey,
+                wire,
               )
             }
 
@@ -1511,6 +1676,7 @@ export function prepareAntigravityRequest(
             sanitizeRequestPayloadForAntigravity(req)
             stripUnsupportedAntigravityFields(req)
             configureAntigravityToolCalling(req)
+            normalizeNativeFunctionResponseRoles(req)
           }
         }
 
@@ -1557,15 +1723,17 @@ export function prepareAntigravityRequest(
                 hasSignedThinkingInContents(
                   (req as any).contents,
                   signatureSessionKey,
+                  wire,
                 )) ||
               (Array.isArray((req as any).messages) &&
                 hasSignedThinkingInMessages(
                   (req as any).messages,
                   signatureSessionKey,
+                  wire,
                 )),
           )
           const hasCachedThinking =
-            defaultSignatureStore.has(signatureSessionKey)
+            wire.signatures.signatureStore.has(signatureSessionKey)
           needsSignedThinkingWarmup =
             hasToolUse && !hasSignedThinking && !hasCachedThinking
         }
@@ -1573,6 +1741,16 @@ export function prepareAntigravityRequest(
         const wireRequest = requestObjects.at(-1)
         if (wireRequest) {
           if (headerStyle === 'antigravity') {
+            const generationConfig = wireRequest.generationConfig
+            const config =
+              generationConfig &&
+              typeof generationConfig === 'object' &&
+              !Array.isArray(generationConfig)
+                ? (generationConfig as Record<string, unknown>)
+                : {}
+            applyAgyNativeGenerationConfig(effectiveModel, config)
+            if (Object.keys(config).length > 0)
+              wireRequest.generationConfig = config
             const metadata = buildAgyAgentRequestMetadata(
               options?.agySession ?? DEFAULT_AGY_REQUEST_SESSION,
               wireRequest,
@@ -1620,15 +1798,19 @@ export function prepareAntigravityRequest(
         )
         const isGemini3 = effectiveModel.toLowerCase().includes('gemini-3')
 
-        log.debug(
+        wire.logger.debug(
           `[ThinkingResolution] rawModel=${rawModel} resolvedModel=${effectiveModel} resolvedTier=${tierThinkingLevel ?? 'none'} variantLevel=${variantConfig?.thinkingLevel ?? 'none'} variantBudget=${variantConfig?.thinkingBudget ?? 'none'} providerOptions.google=${JSON.stringify((requestPayload.providerOptions as any)?.google ?? null)} generationConfig.thinkingConfig=${JSON.stringify((rawGenerationConfig as any)?.thinkingConfig ?? null)}`,
         )
         // providerOptions belongs to the host AI SDK and is only used above to
         // resolve the requested variant. It is never part of the Google wire schema.
         delete requestPayload.providerOptions
 
-        if (variantConfig?.thinkingLevel && isGemini3) {
-          // Gemini 3 native format - use thinkingLevel directly
+        if (
+          variantConfig?.thinkingLevel &&
+          (isGemini3 ||
+            getAgyNativeModel(effectiveModel)?.supportsAdaptiveThinking)
+        ) {
+          // Host effort variants select the corresponding native wire route.
           const variantModelBase = rawModel
             .replace(/-preview-customtools$/i, '')
             .replace(/-preview$/i, '')
@@ -1648,7 +1830,7 @@ export function prepareAntigravityRequest(
         } else if (variantConfig?.thinkingBudget) {
           if (isGemini3) {
             // Legacy format for Gemini 3 - convert with deprecation warning
-            log.warn(
+            wire.logger.warn(
               '[Deprecated] Using thinkingBudget for Gemini 3 model. Use thinkingLevel instead.',
             )
             tierThinkingLevel =
@@ -2127,8 +2309,9 @@ export function prepareAntigravityRequest(
           deepFilterThinkingBlocks(
             requestPayload,
             signatureSessionKey,
-            getCachedSignature,
+            wire.signatures.getCachedSignature,
             true,
+            keepThinkingEnabled,
           )
 
           // Step 2: THEN inject signed thinking from cache (after stripping)
@@ -2140,6 +2323,7 @@ export function prepareAntigravityRequest(
             requestPayload.contents = ensureThinkingBeforeToolUseInContents(
               requestPayload.contents,
               signatureSessionKey,
+              wire,
             )
           }
           if (
@@ -2150,6 +2334,7 @@ export function prepareAntigravityRequest(
             requestPayload.messages = ensureThinkingBeforeToolUseInMessages(
               requestPayload.messages,
               signatureSessionKey,
+              wire,
             )
           }
 
@@ -2165,14 +2350,16 @@ export function prepareAntigravityRequest(
                 hasSignedThinkingInContents(
                   requestPayload.contents,
                   signatureSessionKey,
+                  wire,
                 )) ||
               (Array.isArray(requestPayload.messages) &&
                 hasSignedThinkingInMessages(
                   requestPayload.messages,
                   signatureSessionKey,
+                  wire,
                 ))
             const hasCachedThinking =
-              defaultSignatureStore.has(signatureSessionKey)
+              wire.signatures.signatureStore.has(signatureSessionKey)
             needsSignedThinkingWarmup =
               hasToolUse && !hasSignedThinking && !hasCachedThinking
           }
@@ -2295,7 +2482,7 @@ export function prepareAntigravityRequest(
               requestPayload.contents,
             )
 
-            defaultSignatureStore.delete(signatureSessionKey)
+            wire.signatures.signatureStore.delete(signatureSessionKey)
           }
         }
 
@@ -2341,8 +2528,33 @@ export function prepareAntigravityRequest(
         stripInjectedDebugFromRequestPayload(requestPayload)
         sanitizeRequestPayloadForAntigravity(requestPayload)
         if (headerStyle === 'antigravity') {
+          const generationConfig = requestPayload.generationConfig
+          const config =
+            generationConfig &&
+            typeof generationConfig === 'object' &&
+            !Array.isArray(generationConfig)
+              ? (generationConfig as Record<string, unknown>)
+              : {}
+          applyAgyNativeGenerationConfig(effectiveModel, config)
+          if (Object.keys(config).length > 0)
+            requestPayload.generationConfig = config
           stripUnsupportedAntigravityFields(requestPayload)
           configureAntigravityToolCalling(requestPayload)
+          // Function-response roles depend on the signatures settled by the
+          // sanitizer above; a response turn that becomes a model turn at the
+          // end of the request then needs the trailing user turn.
+          normalizeNativeFunctionResponseRoles(requestPayload)
+          if (Array.isArray(requestPayload.contents)) {
+            const lastContent = requestPayload.contents[
+              requestPayload.contents.length - 1
+            ] as { role?: unknown } | undefined
+            if (lastContent?.role === 'model') {
+              requestPayload.contents.push({
+                role: 'user',
+                parts: [{ text: '[Continue]' }],
+              })
+            }
+          }
         }
         // Use the stable default project ID (never a per-request random one):
         // a fresh random project each request busts the prompt cache and
@@ -2421,7 +2633,7 @@ export function prepareAntigravityRequest(
     // Antigravity mode: Match Antigravity Manager behavior
     // AM only sends User-Agent on content requests — no X-Goog-Api-Client, no Client-Metadata header
     // (ideType=ANTIGRAVITY goes in request body metadata via project.ts, not as a header)
-    const fingerprint = options?.fingerprint ?? getSessionFingerprint()
+    const fingerprint = options?.fingerprint ?? wire.sessionFingerprint()
     const fingerprintHeaders = buildFingerprintHeaders(fingerprint)
 
     headers.set(
@@ -2460,6 +2672,18 @@ export function prepareAntigravityRequest(
   }
 }
 
+/** OpenCode 1's request preparation over its module-level state. */
+export function prepareAntigravityRequest(
+  ...args: Parameters<typeof prepareAntigravityRequestIn> extends [
+    unknown,
+    ...infer Rest,
+  ]
+    ? Rest
+    : never
+): ReturnType<typeof prepareAntigravityRequestIn> {
+  return prepareAntigravityRequestIn(openCode1WireLocation, ...args)
+}
+
 export function buildThinkingWarmupBody(
   bodyText: string | undefined,
   isClaudeThinking: boolean,
@@ -2477,8 +2701,10 @@ export function buildThinkingWarmupBody(
 
   const warmupPrompt = 'Warmup request for thinking signature.'
 
-  const wireModel =
-    typeof parsed.model === 'string' ? parsed.model : 'claude-sonnet-4-6'
+  const candidate = typeof parsed.model === 'string' ? parsed.model : ''
+  if (candidate && isRetiredAgyModel(candidate)) return null
+  const wireModel = candidate || 'claude-sonnet-5-5-low'
+  parsed.model = wireModel
   const requestObjects: Record<string, unknown>[] = []
   const updateRequest = (req: Record<string, unknown>) => {
     req.contents = [{ role: 'user', parts: [{ text: warmupPrompt }] }]
@@ -2493,9 +2719,11 @@ export function buildThinkingWarmupBody(
       includeThoughts: true,
       thinkingBudget: AGY_CLAUDE_THINKING_BUDGET,
     }
-    generationConfig.maxOutputTokens =
+    generationConfig.maxOutputTokens ??=
+      generationConfig.max_output_tokens ??
       getAgyMaxOutputTokens(wireModel) ??
       computeClaudeMaxOutputTokens(AGY_CLAUDE_THINKING_BUDGET)
+    applyAgyNativeGenerationConfig(wireModel, generationConfig)
     req.generationConfig = generationConfig
     requestObjects.push(req)
   }
@@ -2541,7 +2769,8 @@ export function buildThinkingWarmupBody(
  * For streaming SSE responses, uses TransformStream for true real-time incremental streaming.
  * Thinking/reasoning tokens are transformed and forwarded immediately as they arrive.
  */
-export async function transformAntigravityResponse(
+async function transformAntigravityResponseIn(
+  wire: RequestWireLocation,
   response: Response,
   streaming: boolean,
   debugContext?: AntigravityDebugContext | null,
@@ -2565,15 +2794,17 @@ export async function transformAntigravityResponse(
   // - If keep_thinking=true (but no debug): inject placeholder to trigger signature caching
   // Both use the same injection path (injectDebugThinking) for consistent behavior
   const debugText =
-    isDebugTuiEnabled() && Array.isArray(debugLines) && debugLines.length > 0
+    wire.debug.isDebugTuiEnabled() &&
+    Array.isArray(debugLines) &&
+    debugLines.length > 0
       ? formatDebugLinesForThinking(debugLines)
-      : getKeepThinking()
+      : wire.signatures.keepThinking
         ? SYNTHETIC_THINKING_PLACEHOLDER
         : undefined
   const cacheSignatures = shouldCacheThinkingSignatures(effectiveModel)
 
   if (!isJsonResponse && !isEventStreamResponse) {
-    logAntigravityDebugResponse(debugContext, response, {
+    wire.debug.logAntigravityDebugResponse(debugContext, response, {
       note: 'Non-JSON response (body omitted)',
     })
     return response
@@ -2585,7 +2816,7 @@ export async function transformAntigravityResponse(
   if (streaming && response.ok && isEventStreamResponse && response.body) {
     const headers = new Headers(response.headers)
 
-    logAntigravityDebugResponse(debugContext, response, {
+    wire.debug.logAntigravityDebugResponse(debugContext, response, {
       note: 'Streaming SSE response (real-time transform)',
     })
     noteGeminiDumpResponse(dumpContext, response)
@@ -2596,9 +2827,9 @@ export async function transformAntigravityResponse(
       : response.body
 
     const streamingTransformer = createStreamingTransformer(
-      defaultSignatureStore,
+      wire.signatures.signatureStore,
       {
-        onCacheSignature: cacheSignature,
+        onCacheSignature: wire.signatures.cacheSignature,
         onInjectDebug: injectDebugThinking,
         onUsageMetadata: (usage) => {
           if (effectiveModel) {
@@ -2607,11 +2838,11 @@ export async function transformAntigravityResponse(
             const hitRate =
               totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0
             const status = cacheRead > 0 ? 'HIT' : 'MISS'
-            logCacheStats(effectiveModel, cacheRead, 0, totalInput)
-            log.debug(
+            wire.debug.logCacheStats(effectiveModel, cacheRead, 0, totalInput)
+            wire.logger.debug(
               `[Cache] ${status} model=${effectiveModel} read=${cacheRead} total=${totalInput} hitRate=${hitRate}%`,
             )
-            _lastCacheStats = {
+            wire.cacheStats.last = {
               model: effectiveModel,
               read: cacheRead,
               total: totalInput,
@@ -2627,7 +2858,7 @@ export async function transformAntigravityResponse(
         cacheSignatures,
         displayedThinkingHashes:
           effectiveModel && isGemini3Model(effectiveModel)
-            ? sessionDisplayedThinkingHashes
+            ? wire.displayedThinkingHashes
             : undefined,
         // injectSyntheticThinking removed - keep_thinking now unified with debug via debugText
       },
@@ -2759,8 +2990,8 @@ export async function transformAntigravityResponse(
       const hitRate =
         totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0
       const status = cacheRead > 0 ? 'HIT' : 'MISS'
-      logCacheStats(effectiveModel, cacheRead, 0, totalInput)
-      log.debug(
+      wire.debug.logCacheStats(effectiveModel, cacheRead, 0, totalInput)
+      wire.logger.debug(
         `[Cache] ${status} model=${effectiveModel} read=${cacheRead} total=${totalInput} hitRate=${hitRate}%`,
       )
     }
@@ -2789,7 +3020,7 @@ export async function transformAntigravityResponse(
       }
     }
 
-    logAntigravityDebugResponse(debugContext, response, {
+    wire.debug.logAntigravityDebugResponse(debugContext, response, {
       body: text,
       note: streaming ? 'Streaming SSE payload (buffered fallback)' : undefined,
       headersOverride: headers,
@@ -2826,11 +3057,46 @@ export async function transformAntigravityResponse(
       throw error
     }
 
-    logAntigravityDebugResponse(debugContext, response, {
+    wire.debug.logAntigravityDebugResponse(debugContext, response, {
       error,
       note: 'Failed to transform Antigravity response',
     })
     return responseFallback
+  }
+}
+
+/** OpenCode 1's response transformation over its module-level state. */
+export function transformAntigravityResponse(
+  ...args: Parameters<typeof transformAntigravityResponseIn> extends [
+    unknown,
+    ...infer Rest,
+  ]
+    ? Rest
+    : never
+): Promise<Response> {
+  return transformAntigravityResponseIn(openCode1WireLocation, ...args)
+}
+
+/**
+ * The wire functions bound to one location's state. Preparation and
+ * response handling follow exactly the OpenCode 1 rules; only the signature
+ * cache, keep_thinking policy, debug log, logger, fallback fingerprint,
+ * displayed-thinking set and cache statistics are the location's own.
+ */
+export function createRequestWire(location: RequestWireLocation): {
+  prepare: typeof prepareAntigravityRequest
+  transformResponse: typeof transformAntigravityResponse
+  buildThinkingWarmupBody: typeof buildThinkingWarmupBody
+  getImageModelLocalTitle: typeof getImageModelLocalTitle
+  getLastCacheStats: typeof getLastCacheStats
+} {
+  return {
+    prepare: (...args) => prepareAntigravityRequestIn(location, ...args),
+    transformResponse: (...args) =>
+      transformAntigravityResponseIn(location, ...args),
+    buildThinkingWarmupBody,
+    getImageModelLocalTitle,
+    getLastCacheStats: () => location.cacheStats.last,
   }
 }
 
@@ -2845,13 +3111,19 @@ export const __testExports = {
   isGeminiToolUsePart,
   isGeminiThinkingPart,
   ensureThoughtSignature,
-  hasSignedThinkingPart,
-  hasSignedThinkingInContents,
-  hasSignedThinkingInMessages,
+  // The helpers below are exposed over OpenCode 1's module-level state.
+  hasSignedThinkingPart: (part: any, sessionId?: string) =>
+    hasSignedThinkingPart(part, sessionId, openCode1WireLocation),
+  hasSignedThinkingInContents: (contents: any[], sessionId?: string) =>
+    hasSignedThinkingInContents(contents, sessionId, openCode1WireLocation),
+  hasSignedThinkingInMessages: (messages: any[], sessionId?: string) =>
+    hasSignedThinkingInMessages(messages, sessionId, openCode1WireLocation),
   hasToolUseInContents,
   hasToolUseInMessages,
-  ensureThinkingBeforeToolUseInContents,
-  ensureThinkingBeforeToolUseInMessages,
+  ensureThinkingBeforeToolUseInContents: (contents: any[], key: string) =>
+    ensureThinkingBeforeToolUseInContents(contents, key, openCode1WireLocation),
+  ensureThinkingBeforeToolUseInMessages: (messages: any[], key: string) =>
+    ensureThinkingBeforeToolUseInMessages(messages, key, openCode1WireLocation),
   MIN_SIGNATURE_LENGTH,
   transformSseLine,
   transformStreamingPayload,

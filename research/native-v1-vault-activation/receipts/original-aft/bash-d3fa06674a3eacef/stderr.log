@@ -1,0 +1,41 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:
+51 |   })
+52 |   expect(
+53 |     receipt.vaultCalls.filter(
+54 |       (call) => call.method === 'credential.get_scoped',
+55 |     ),
+56 |   ).toEqual([
+         ^
+error: expect(received).toEqual(expected)
+
+  [
+    {
+      "method": "credential.get_scoped",
+      "params": {
+        "credential_id": "synthetic-credential",
+        "enrollment_token": "abababababababababababababababababababababababababababababababab",
+        "min_ttl_ms": 300000,
+      },
+    },
++   {
++     "method": "credential.get_scoped",
++     "params": {
++       "credential_id": "synthetic-credential",
++       "enrollment_token": "abababababababababababababababababababababababababababababababab",
++       "min_ttl_ms": 300000,
++     },
++   },
+  ]
+
+- Expected  - 0
++ Received  + 8
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_bb9f912ee65400cc/packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:56:5)
+(fail) official 1.17.13 absent-auth first request activates and serves the approved vault [15241.35ms]
+
+ 0 pass
+ 1 fail
+ 14 expect() calls
+Ran 1 test across 1 file. [15.66s]

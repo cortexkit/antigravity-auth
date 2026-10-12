@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
+import { getAgyNativeModel } from './model-registry.ts'
 
 const FNV1A_64_OFFSET_BASIS = 0xcbf29ce484222325n
 const FNV1A_64_PRIME = 0x100000001b3n
@@ -15,27 +16,6 @@ const AGY_REQUEST_FIELD_ORDER = [
   'generationConfig',
   'sessionId',
 ] as const
-
-const AGY_MODEL_ENUM_BY_WIRE_MODEL: Readonly<Record<string, string>> = {
-  'gemini-3.5-flash-extra-low': 'MODEL_PLACEHOLDER_M187',
-  'gemini-3.5-flash-low': 'MODEL_PLACEHOLDER_M20',
-  'gemini-3-flash-agent': 'MODEL_PLACEHOLDER_M84',
-  'gemini-3.6-flash-low': 'MODEL_PLACEHOLDER_M73',
-  'gemini-3.6-flash-medium': 'MODEL_PLACEHOLDER_M72',
-  'gemini-3.6-flash-high': 'MODEL_PLACEHOLDER_M71',
-  'gemini-3.7-flash-low': 'MODEL_PLACEHOLDER_M300',
-  'gemini-3.7-flash-medium': 'MODEL_PLACEHOLDER_M299',
-  'gemini-3.7-flash-high': 'MODEL_PLACEHOLDER_M298',
-  'gemini-3.8-flash-low': 'MODEL_PLACEHOLDER_M320',
-  'gemini-3.8-flash-medium': 'MODEL_PLACEHOLDER_M319',
-  'gemini-3.8-flash-high': 'MODEL_PLACEHOLDER_M318',
-  'gemini-3.1-pro-low': 'MODEL_PLACEHOLDER_M36',
-  'gemini-pro-agent': 'MODEL_PLACEHOLDER_M16',
-  'claude-sonnet-4-6': 'MODEL_PLACEHOLDER_M35',
-  'claude-opus-4-6-thinking': 'MODEL_PLACEHOLDER_M26',
-  'gemini-3.1-flash-image': 'MODEL_PLACEHOLDER_M21',
-  'gpt-oss-120b-medium': 'MODEL_OPENAI_GPT_OSS_120B_MEDIUM',
-}
 
 export interface AgyRequestSessionContext {
   conversationId: string
@@ -202,8 +182,15 @@ export class AgyRequestSessionStore {
   }
 }
 
+// Historical metadata remains readable; host admission refuses these retired routes.
+const HISTORICAL_AGY_MODEL_ENUMS: Readonly<Record<string, string>> = {
+  'claude-sonnet-4-6': 'MODEL_PLACEHOLDER_M35',
+  'claude-opus-4-6-thinking': 'MODEL_PLACEHOLDER_M26',
+}
+
 export function getAgyModelEnum(model: string): string | undefined {
-  return AGY_MODEL_ENUM_BY_WIRE_MODEL[model.toLowerCase()]
+  const lower = model.toLowerCase()
+  return getAgyNativeModel(lower)?.model ?? HISTORICAL_AGY_MODEL_ENUMS[lower]
 }
 
 export function orderAgyRequestPayloadInPlace(

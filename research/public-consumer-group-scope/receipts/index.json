@@ -1,0 +1,266 @@
+[
+  {
+    "taskId": "bash-a6cdf332c5c09f57",
+    "command": "bun --version; bun research/public-consumer-group-scope/trace-owned-wrapper.ts separate-first; inner=$?; printf '\\nTRACE_INNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outerExit": 1,
+    "remoteJobId": "01a12c10-5301-7399-a0ed-678741298705",
+    "remoteExit": {
+      "type": "exit",
+      "code": 1
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-a6cdf332c5c09f57/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-a6cdf332c5c09f57.stdout.txt",
+        "bytes": 36601,
+        "sha256": "41063850a839a2228e978f1918ede3559bb0f96394c7625afefbab74177c1b9b"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-a6cdf332c5c09f57/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-a6cdf332c5c09f57.stderr.txt",
+        "bytes": 2390,
+        "sha256": "bf57b59e5417ca4ea6ae10d17eae318d33803742665e7677859ee60206f36676"
+      }
+    ]
+  },
+  {
+    "taskId": "bash-6a46ede1326b128f",
+    "command": "bun --version; for mode in normal changed-after foreign-session canonical; do printf '\\nTRACE_MODE=%s\\n' \"$mode\"; bun research/public-consumer-group-scope/trace-owned-wrapper.ts \"$mode\"; code=$?; printf '\\nTRACE_INNER_EXIT[%s]=%s\\n' \"$mode\" \"$code\"; if [ \"$mode\" = normal ] && [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; done",
+    "outerExit": 0,
+    "remoteJobId": "01a12c10-de9c-75b3-b6f8-384e4bbe5f57",
+    "remoteExit": {
+      "type": "exit",
+      "code": 0
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-6a46ede1326b128f/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-6a46ede1326b128f.stdout.txt",
+        "bytes": 146908,
+        "sha256": "5882ecc5fc1787607d25efdfc238af12bbbf350d3ef4dba54411feb7e0cb02a9"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-6a46ede1326b128f/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-6a46ede1326b128f.stderr.txt",
+        "bytes": 24740,
+        "sha256": "68a003087a3668274c236e9983ae344898882515f6bf96e7bb51d37918050c52"
+      }
+    ]
+  },
+  {
+    "taskId": "bash-9ec4a28354db8feb",
+    "command": "bun --version && bun scripts/prepare-common-auth-public-consumer.ts bun test --isolate packages/core/src/public-command-scope.test.ts packages/core/src/__fixtures__/public-consumer-command.test.ts",
+    "outerExit": 0,
+    "remoteJobId": "01a12c17-ea70-7631-9316-fc348f976383",
+    "remoteExit": {
+      "type": "exit",
+      "code": 0
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-9ec4a28354db8feb/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-9ec4a28354db8feb.stdout.txt",
+        "bytes": 162013,
+        "sha256": "1ceb07f79d8b716ddb6e845741796cf3dcb05b003c3e9240ee281ace50f96869"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-9ec4a28354db8feb/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-9ec4a28354db8feb.stderr.txt",
+        "bytes": 1626,
+        "sha256": "99552438e5a1e1140d41fcacfd46c16968aa9f401e5fce799d41f74229c1fe94"
+      }
+    ]
+  },
+  {
+    "taskId": "bash-f120521b0369a200",
+    "command": "bun --version && ./node_modules/.bin/tsc --version && bun run --cwd packages/core typecheck && ./node_modules/.bin/tsc -p tsconfig.scripts.json",
+    "outerExit": 2,
+    "remoteJobId": "01a12c18-6284-71b7-8852-1756482f4f57",
+    "remoteExit": {
+      "type": "exit",
+      "code": 2
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-f120521b0369a200/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-f120521b0369a200.stdout.txt",
+        "bytes": 61221,
+        "sha256": "84facbbb80bdda8ee63e0657dae815976524c42e01f8a0b5098d5a3fc29f6ff6"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-f120521b0369a200/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-f120521b0369a200.stderr.txt",
+        "bytes": 15,
+        "sha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
+      }
+    ]
+  },
+  {
+    "taskId": "bash-e605cfa795a98b2f",
+    "command": "bun --version && ./node_modules/.bin/tsc --version && bun run --cwd packages/core build && bun run --cwd packages/core typecheck && ./node_modules/.bin/tsc -p tsconfig.scripts.json",
+    "outerExit": 0,
+    "remoteJobId": "01a12c18-9f4f-7311-93ba-8d3965b6172f",
+    "remoteExit": {
+      "type": "exit",
+      "code": 0
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-e605cfa795a98b2f/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-e605cfa795a98b2f.stdout.txt",
+        "bytes": 58,
+        "sha256": "7966377778c1e2a650b7d4f3a6fd93ddc7425aba84a8775e3cc98ec348b2884f"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-e605cfa795a98b2f/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-e605cfa795a98b2f.stderr.txt",
+        "bytes": 104,
+        "sha256": "c86773da81b3c0aef318e88ea651e1898f478b0cbeffaff8ec2324147ed285ad"
+      }
+    ]
+  },
+  {
+    "taskId": "bash-5df1a4daa867e5d2",
+    "command": "bun --version; bun test --isolate packages/core/src/public-command-scope.test.ts -t 'admits a separately grouped child|refuses an unseen same-session orphan'; inner=$?; printf 'MUTATION_INNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outerExit": 1,
+    "remoteJobId": "01a12c19-719e-7704-b4a9-8bd909afae9b",
+    "remoteExit": {
+      "type": "exit",
+      "code": 1
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-5df1a4daa867e5d2/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-5df1a4daa867e5d2.stdout.txt",
+        "bytes": 56,
+        "sha256": "95444cb9b2505058588ded6d554ad865b335ef015f4613e9f68d828fbddad49c"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-5df1a4daa867e5d2/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-5df1a4daa867e5d2.stderr.txt",
+        "bytes": 1054,
+        "sha256": "6634b83cdf8402335d2dc12f95116eb1d405509e217e0b93b3f5b779a0fb27f0"
+      }
+    ]
+  },
+  {
+    "taskId": "bash-64f42a5b22663dcc",
+    "command": "bun --version; bun test --isolate packages/core/src/public-command-scope.test.ts -t 'admits a separately grouped child|refuses changed recorded PGID or SID'; inner=$?; printf 'MUTATION_INNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"",
+    "outerExit": 1,
+    "remoteJobId": "01a12c19-c79a-75a1-b4e3-c9ff0b6ed005",
+    "remoteExit": {
+      "type": "exit",
+      "code": 1
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-64f42a5b22663dcc/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-64f42a5b22663dcc.stdout.txt",
+        "bytes": 56,
+        "sha256": "95444cb9b2505058588ded6d554ad865b335ef015f4613e9f68d828fbddad49c"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-64f42a5b22663dcc/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-64f42a5b22663dcc.stderr.txt",
+        "bytes": 849,
+        "sha256": "45c0214bab2740a64ca4923bbe00a89604de1c3815516965813140aaedfe851d"
+      }
+    ]
+  },
+  {
+    "taskId": "bash-7e8adfa97fd7bcd2",
+    "command": "bun --version && ./node_modules/.bin/biome --version && ./node_modules/.bin/biome check packages/core/src/__fixtures__/public-command-processes.test.ts packages/core/src/__fixtures__/public-consumer-command.test.ts packages/core/src/public-command-scope.test.ts && ./node_modules/.bin/tsc --version && ./node_modules/.bin/tsc --noEmit --target ESNext --module Preserve --moduleResolution bundler --allowImportingTsExtensions --skipLibCheck --strict --types bun,node --lib ESNext,DOM research/public-consumer-group-scope/trace-owned-wrapper.ts && bun scripts/prepare-common-auth-public-consumer.ts bun test --isolate packages/core/src/public-command-scope.test.ts packages/core/src/__fixtures__/public-consumer-command.test.ts packages/opencode/src/plugin/shared/local-grant.test.ts packages/e2e-tests/src/v1-vault-activation.e2e.test.ts",
+    "outerExit": 1,
+    "remoteJobId": "01a12c1a-bcbb-7609-b822-989c5cc7a574",
+    "remoteExit": {
+      "type": "exit",
+      "code": 1
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-7e8adfa97fd7bcd2/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-7e8adfa97fd7bcd2.stdout.txt",
+        "bytes": 165811,
+        "sha256": "65674bd0ebcf0436c4f4c5c3e5107cc9b4fbf20470c5a730fc351d327f735ccc"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-7e8adfa97fd7bcd2/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-7e8adfa97fd7bcd2.stderr.txt",
+        "bytes": 5746,
+        "sha256": "4bd02da49f39e4a64a1ff233fb88f2e1db416b22f074eed1401a75ccf4fd3d5a"
+      }
+    ]
+  },
+  {
+    "taskId": "bash-9d832cf1bb17fa85",
+    "command": "bun --version && ./node_modules/.bin/biome --version && ./node_modules/.bin/biome check packages/core/src/__fixtures__/public-command-processes.test.ts packages/core/src/__fixtures__/public-consumer-command.test.ts packages/core/src/public-command-scope.test.ts && ./node_modules/.bin/tsc --version && bun run --cwd packages/core build && bun run --cwd packages/core typecheck && ./node_modules/.bin/tsc -p tsconfig.scripts.json && bun scripts/prepare-common-auth-public-consumer.ts bun test --isolate packages/core/src/public-command-scope.test.ts packages/core/src/__fixtures__/public-consumer-command.test.ts packages/opencode/src/plugin/shared/local-grant.test.ts && bun research/public-consumer-group-scope/trace-owned-wrapper.ts separate-first",
+    "outerExit": 0,
+    "remoteJobId": "01a12c1f-d826-72a3-a8a6-3e10b3e272fb",
+    "remoteExit": {
+      "type": "exit",
+      "code": 0
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-9d832cf1bb17fa85/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-9d832cf1bb17fa85.stdout.txt",
+        "bytes": 315747,
+        "sha256": "7c0b415c58affb9a56827b26203bc958ece669a7a2f24557865b3ff7ed1b9061"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-9d832cf1bb17fa85/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-9d832cf1bb17fa85.stderr.txt",
+        "bytes": 3583,
+        "sha256": "4656d20ba9a89878e78f0177adaff5585e88ece96bbd20ecd1f94218cd0d59fe"
+      }
+    ]
+  },
+  {
+    "taskId": "bash-b15ed6628c69198f",
+    "command": "set -e\nbun --version\n./node_modules/.bin/tsc --version\nbun run --cwd packages/core build\noriginal=packages/e2e-tests/src/v1-vault-activation.e2e.test.ts\nbaseline=research/public-consumer-group-scope/.adjacent-original.ts\ncp \"$original\" \"$baseline\"\ntrap 'cp \"$baseline\" \"$original\"; rm \"$baseline\"' EXIT\ncp research/public-consumer-group-scope/receipts/owner-adjacent-test.ts.txt \"$original\"\nnode --input-type=module -e 'import{readFileSync}from\"node:fs\";import{createHash}from\"node:crypto\";const m=JSON.parse(readFileSync(\"research/public-consumer-group-scope/receipts/owner-adjacent-test.manifest.json\"));const b=readFileSync(m.path);if(b.length!==m.bytes||createHash(\"sha256\").update(b).digest(\"hex\")!==m.sha256)throw Error(\"parent overlay differs\");console.log(\"OWNER_TEST_OVERLAY_SHA256=\"+m.sha256)'\n./node_modules/.bin/tsc -p tsconfig.scripts.json\nset +e\nbun scripts/prepare-common-auth-public-consumer.ts bun test --isolate packages/core/src/public-command-scope.test.ts packages/core/src/__fixtures__/public-consumer-command.test.ts packages/opencode/src/plugin/shared/local-grant.test.ts packages/e2e-tests/src/v1-vault-activation.e2e.test.ts\ninner=$?\nprintf 'SCOPED_INNER_EXIT=%s\\n' \"$inner\"\nexit \"$inner\"",
+    "outerExit": 1,
+    "remoteJobId": "01a12c23-1068-70a1-a03e-6aaa6f62550a",
+    "remoteExit": {
+      "type": "exit",
+      "code": 1
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-b15ed6628c69198f/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-b15ed6628c69198f.stdout.txt",
+        "bytes": 287629,
+        "sha256": "79f507383d0460acc0f25d5da07e90e5c8e3c62b269d1547a80e4a50c1e89ae4"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-b15ed6628c69198f/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-b15ed6628c69198f.stderr.txt",
+        "bytes": 4612,
+        "sha256": "50813c6dad9389b0eb2230a6e0067770b31b4eef3eabec62970ad92b42651ae9"
+      }
+    ]
+  },
+  {
+    "taskId": "bash-9edc9564c3b19e15",
+    "command": "set -e\nbun --version\n./node_modules/.bin/biome --version\n./node_modules/.bin/biome check packages/core/src/__fixtures__/public-command-processes.test.ts packages/core/src/__fixtures__/public-consumer-command.test.ts packages/core/src/public-command-scope.test.ts\n./node_modules/.bin/tsc --version\nbun run --cwd packages/core build\nbun run --cwd packages/core typecheck\noriginal=packages/e2e-tests/src/v1-vault-activation.e2e.test.ts\nbaseline=research/public-consumer-group-scope/.adjacent-original.ts\ncp \"$original\" \"$baseline\"\ntrap 'cp \"$baseline\" \"$original\"; rm \"$baseline\"' EXIT\ncp research/public-consumer-group-scope/receipts/owner-adjacent-test-r2.ts.txt \"$original\"\nnode --input-type=module -e 'import{readFileSync}from\"node:fs\";import{createHash}from\"node:crypto\";const m=JSON.parse(readFileSync(\"research/public-consumer-group-scope/receipts/owner-adjacent-test-r2.manifest.json\"));const b=readFileSync(m.path);if(b.length!==m.bytes||createHash(\"sha256\").update(b).digest(\"hex\")!==m.sha256)throw Error(\"parent R2 overlay differs\");console.log(\"OWNER_TEST_OVERLAY_SHA256=\"+m.sha256)'\n./node_modules/.bin/tsc -p tsconfig.scripts.json\nset +e\nbun scripts/prepare-common-auth-public-consumer.ts bun test --isolate packages/core/src/public-command-scope.test.ts packages/core/src/__fixtures__/public-consumer-command.test.ts\ncore=$?\nprintf 'CORE_BASELINE_INNER_EXIT=%s\\n' \"$core\"\nbun scripts/prepare-common-auth-public-consumer.ts bun test --isolate packages/e2e-tests/src/v1-vault-activation.e2e.test.ts -t 'owned cleanup kills a surviving descendant after its session leader exits'\nadjacent=$?\nprintf 'ADJACENT_INNER_EXIT=%s\\n' \"$adjacent\"\nif [ \"$core\" -ne 0 ]; then exit \"$core\"; fi\nexit \"$adjacent\"",
+    "outerExit": 0,
+    "remoteJobId": "01a12c29-d4fc-764d-8fce-0114bb1af801",
+    "remoteExit": {
+      "type": "exit",
+      "code": 0
+    },
+    "files": [
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-9edc9564c3b19e15/io/stdout",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-9edc9564c3b19e15.stdout.txt",
+        "bytes": 191398,
+        "sha256": "21bfbe642dc18fd552fe7639a5303eb6ea6aa83005e4be9bb7211495e142c5e4"
+      },
+      {
+        "originalPath": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/c4a629ab54e453a9/bash-9edc9564c3b19e15/io/stderr",
+        "preservedPath": "research/public-consumer-group-scope/receipts/bash-9edc9564c3b19e15.stderr.txt",
+        "bytes": 2051,
+        "sha256": "0abfced33b9d0ea271da690b120745e40138a22e245c7dea4a1381dc77ee5bee"
+      }
+    ]
+  }
+]

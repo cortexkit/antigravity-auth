@@ -1,0 +1,403 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+packages/e2e-tests/src/v1-packed-vault-harness.ts:36:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × Sort the imported names.
+  
+    34 │   installNativeGaPacks,
+    35 │ } from './opencode-ga-host-inputs.ts'
+  > 36 │ import {
+       │ ^^^^^^^^
+  > 37 │   finite,
+        ...
+  > 41 │   withSyntheticVault,
+  > 42 │ } from './v1-vault-activation-harness.ts'
+       │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    43 │ 
+    44 │ const ROOT = resolve(import.meta.dir, '../../..')
+  
+  i Safe fix: Organize imports and exports (Biome)
+  
+     36  36 │   import {
+     37  37 │     finite,
+     38     │ - ··startChild,
+     39     │ - ··SYNTHETIC_PROJECT,
+     40     │ - ··SYNTHETIC_TOKEN,
+         38 │ + ··SYNTHETIC_PROJECT,
+         39 │ + ··SYNTHETIC_TOKEN,
+         40 │ + ··startChild,
+     41  41 │     withSyntheticVault,
+     42  42 │   } from './v1-vault-activation-harness.ts'
+  
+
+packages/e2e-tests/src/v1-packed-vault-harness.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     45  45 │   export const PACKED_PACKAGE = '@cortexkit/opencode-antigravity-auth'
+     46  46 │   const CORE_PACKAGE = '@cortexkit/antigravity-auth-core'
+     47     │ - const·HOST_ARCHIVE·=·'.cortexkit/parent-inputs/v1-packed-floor-r1/opencode-linux-x64-1.17.13.tgz'
+     48     │ - const·ARCHIVE_SHA·=·'04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331'
+     49     │ - const·ARCHIVE_SRI·=·'sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=='
+     50     │ - const·ELF_SHA·=·'ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d'
+         47 │ + const·HOST_ARCHIVE·=
+         48 │ + ··'.cortexkit/parent-inputs/v1-packed-floor-r1/opencode-linux-x64-1.17.13.tgz'
+         49 │ + const·ARCHIVE_SHA·=
+         50 │ + ··'04a172f44c3449e1251f6f4b4dc9c391166a078c5aba04c9c1717411b4e84331'
+         51 │ + const·ARCHIVE_SRI·=
+         52 │ + ··'sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=='
+         53 │ + const·ELF_SHA·=
+         54 │ + ··'ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d'
+     51  55 │   export const VAULT_MARKER = {
+     52     │ - ··google:·{·type:·'oauth',·access:·'',·refresh:·'claustrum-tombstone:v1:google',·expires:·0·},
+         56 │ + ··google:·{
+         57 │ + ····type:·'oauth',
+         58 │ + ····access:·'',
+         59 │ + ····refresh:·'claustrum-tombstone:v1:google',
+         60 │ + ····expires:·0,
+         61 │ + ··},
+     53  62 │   }
+     54  63 │   
+    ······· │ 
+     74  83 │   /** Require a package-directory configuration and an actual read of its manifest-selected server. */
+     75  84 │   export function assertPackedLoading(loading: PackedLoading): void {
+     76     │ - ··check(loading.configuredPlugin·===·pathToFileURL(loading.packageDirectory).href,·'Not·configured·as·the·installed·package·directory')
+     77     │ - ··check(loading.manifestEntry·===·join(loading.packageDirectory,·'dist/server.js'),·'Unexpected·manifest·server·arm')
+     78     │ - ··check(loading.resolvedEntry·===·loading.manifestEntry,·'Installed·resolution·disagrees·with·manifest')
+     79     │ - ··check(loading.entrySha256·===·loading.packedEntrySha256,·'Loaded·server·differs·from·the·pack')
+     80     │ - ··const·opens·=·loading.trace.split('\n').filter((line)·=>·/\bopen(at|at2)?\(/.test(line))
+     81     │ - ··check(opens.some((line)·=>·line.includes(`"${loading.manifestEntry}"`)·&&·!line.includes('=·-1')),·'Installed·server·entry·was·not·read·by·the·native·host')
+     82     │ - ··check(!opens.some((line)·=>·line.includes(`${loading.packageDirectory}/dist/index.js`)·||·line.includes(`${loading.sourceRoot}/packages/opencode/src/`)·||·line.includes(`${loading.sourceRoot}/packages/core/src/`)),·'Source·or·root-factory·loading·is·not·the·packed·server·route')
+         85 │ + ··check(
+         86 │ + ····loading.configuredPlugin·===·pathToFileURL(loading.packageDirectory).href,
+         87 │ + ····'Not·configured·as·the·installed·package·directory',
+         88 │ + ··)
+         89 │ + ··check(
+         90 │ + ····loading.manifestEntry·===·join(loading.packageDirectory,·'dist/server.js'),
+         91 │ + ····'Unexpected·manifest·server·arm',
+         92 │ + ··)
+         93 │ + ··check(
+         94 │ + ····loading.resolvedEntry·===·loading.manifestEntry,
+         95 │ + ····'Installed·resolution·disagrees·with·manifest',
+         96 │ + ··)
+         97 │ + ··check(
+         98 │ + ····loading.entrySha256·===·loading.packedEntrySha256,
+         99 │ + ····'Loaded·server·differs·from·the·pack',
+        100 │ + ··)
+        101 │ + ··const·opens·=·loading.trace
+        102 │ + ····.split('\n')
+        103 │ + ····.filter((line)·=>·/\bopen(at|at2)?\(/.test(line))
+        104 │ + ··check(
+        105 │ + ····opens.some(
+        106 │ + ······(line)·=>
+        107 │ + ········line.includes(`"${loading.manifestEntry}"`)·&&·!line.includes('=·-1'),
+        108 │ + ····),
+        109 │ + ····'Installed·server·entry·was·not·read·by·the·native·host',
+        110 │ + ··)
+        111 │ + ··check(
+        112 │ + ····!opens.some(
+        113 │ + ······(line)·=>
+        114 │ + ········line.includes(`${loading.packageDirectory}/dist/index.js`)·||
+        115 │ + ········line.includes(`${loading.sourceRoot}/packages/opencode/src/`)·||
+        116 │ + ········line.includes(`${loading.sourceRoot}/packages/core/src/`),
+        117 │ + ····),
+        118 │ + ····'Source·or·root-factory·loading·is·not·the·packed·server·route',
+        119 │ + ··)
+     83 120 │   }
+     84 121 │   
+     85 122 │   /** Validate the primary decoded wire, not a title call or an unrelated nonce-bearing string. */
+     86     │ - export·function·assertPackedWire(requests:·GaRawPeer['requests'],·nonce:·string):·void·{
+        123 │ + export·function·assertPackedWire(
+        124 │ + ··requests:·GaRawPeer['requests'],
+        125 │ + ··nonce:·string,
+        126 │ + ):·void·{
+     87 127 │     check(requests.length === 1, 'Expected exactly one physical first request')
+     88 128 │     const request = requests[0]!
+    ······· │ 
+     90 130 │     for (let i = 0; i < request.rawHeaders.length; i += 2)
+     91 131 │       headers.append(request.rawHeaders[i]!, request.rawHeaders[i + 1]!)
+     92     │ - ··check(headers.get('authorization')·===·`Bearer·${SYNTHETIC_TOKEN}`,·'Wire·bearer·did·not·come·from·the·approved·synthetic·vault')
+     93     │ - ··check(['daily-cloudcode-pa.googleapis.com',·'cloudcode-pa.googleapis.com'].includes(headers.get('host')·??·''),·'Wire·host·identity·changed')
+        132 │ + ··check(
+        133 │ + ····headers.get('authorization')·===·`Bearer·${SYNTHETIC_TOKEN}`,
+        134 │ + ····'Wire·bearer·did·not·come·from·the·approved·synthetic·vault',
+        135 │ + ··)
+        136 │ + ··check(
+        137 │ + ····[
+        138 │ + ······'daily-cloudcode-pa.googleapis.com',
+        139 │ + ······'cloudcode-pa.googleapis.com',
+        140 │ + ····].includes(headers.get('host')·??·''),
+        141 │ + ····'Wire·host·identity·changed',
+        142 │ + ··)
+     94 143 │     const body = record(JSON.parse(request.body))
+     95 144 │     check(body.project === SYNTHETIC_PROJECT, 'Wire project attribution changed')
+    ······· │ 
+    101 150 │     sourceTree: string | undefined
+    102 151 │     sourceHashes: Record<string, string>
+    103     │ - ··runtime:·{·bun:·string;·platform:·string;·arch:·string;·interfaces:·string[];·unprivilegedPortStart:·string·}
+        152 │ + ··runtime:·{
+        153 │ + ····bun:·string
+        154 │ + ····platform:·string
+        155 │ + ····arch:·string
+        156 │ + ····interfaces:·string[]
+        157 │ + ····unprivilegedPortStart:·string
+        158 │ + ··}
+    104 159 │     profile: string
+    105 160 │     archive: { path: string; bytes: number; sha256: string; sri: string }
+    ······· │ 
+    117 172 │     tlsEvents: GaRawPeer['events']
+    118 173 │     vaultCalls: Record<string, unknown>[]
+    119     │ - ··controls:·{·name:·string;·requests:·number;·stdout:·string;·stderr:·string;·exitCode:·number·|·null;·marker:·unknown·}[]
+        174 │ + ··controls:·{
+        175 │ + ····name:·string
+        176 │ + ····requests:·number
+        177 │ + ····stdout:·string
+        178 │ + ····stderr:·string
+        179 │ + ····exitCode:·number·|·null
+        180 │ + ····marker:·unknown
+        181 │ + ··}[]
+    120 182 │     traces: Record<string, string>
+    121 183 │     localFileSyscalls: string[]
+    ······· │ 
+    125 187 │   
+    126 188 │   export async function runPackedVault(): Promise<PackedVaultReceipt> {
+    127     │ - ··check(process.platform·===·'linux'·&&·process.arch·===·'x64',·'Packed·native·gate·requires·isolated·Linux·x64')
+    128     │ - ··check(Object.keys(networkInterfaces()).every((name)·=>·name·===·'lo'),·'Packed·native·runtime·must·expose·only·loopback')
+        189 │ + ··check(
+        190 │ + ····process.platform·===·'linux'·&&·process.arch·===·'x64',
+        191 │ + ····'Packed·native·gate·requires·isolated·Linux·x64',
+        192 │ + ··)
+        193 │ + ··check(
+        194 │ + ····Object.keys(networkInterfaces()).every((name)·=>·name·===·'lo'),
+        195 │ + ····'Packed·native·runtime·must·expose·only·loopback',
+        196 │ + ··)
+    129 197 │     const profile = realpathSync(mkdtempSync('/tmp/packed-v1-vault-'))
+    130 198 │     chmodSync(profile, 0o700)
+    ······· │ 
+    140 208 │       sourceTree: process.env.GA_SOURCE_TREE,
+    141 209 │       sourceHashes: {},
+    142     │ - ····runtime:·{·bun:·Bun.version,·platform:·process.platform,·arch:·process.arch,·interfaces:·Object.keys(networkInterfaces()),·unprivilegedPortStart:·readFileSync('/proc/sys/net/ipv4/ip_unprivileged_port_start',·'utf8').trim()·},
+        210 │ + ····runtime:·{
+        211 │ + ······bun:·Bun.version,
+        212 │ + ······platform:·process.platform,
+        213 │ + ······arch:·process.arch,
+        214 │ + ······interfaces:·Object.keys(networkInterfaces()),
+        215 │ + ······unprivilegedPortStart:·readFileSync(
+        216 │ + ········'/proc/sys/net/ipv4/ip_unprivileged_port_start',
+        217 │ + ········'utf8',
+        218 │ + ······).trim(),
+        219 │ + ····},
+    143 220 │       profile,
+    144 221 │       archive: { path: join(ROOT, HOST_ARCHIVE), bytes: 0, sha256: '', sri: '' },
+    145 222 │       binary: { path: join(profile, 'opencode'), sha256: '', version: '' },
+  397 more lines truncated
+  
+
+packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × Sort these imports.
+  
+   > 1 │ import { expect, test } from 'bun:test'
+       │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   > 2 │ import {
+   > 3 │   assertPackedLoading,
+   > 4 │   assertPackedWire,
+        ...
+   > 8 │ } from './v1-packed-vault-harness.ts'
+   > 9 │ import { record } from './opencode-ga-harness.ts'
+       │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    10 │ import { SYNTHETIC_PROJECT, SYNTHETIC_TOKEN } from './v1-vault-activation-harness.ts'
+    11 │ 
+  
+  i Safe fix: Organize imports and exports (Biome)
+  
+     1  1 │   import { expect, test } from 'bun:test'
+     2    │ - import·{
+     3    │ - ··assertPackedLoading,
+     4    │ - ··assertPackedWire,
+     5    │ - ··emitPackedReceipt,
+     6    │ - ··runPackedVault,
+     7    │ - ··VAULT_MARKER,
+     8    │ - }·from·'./v1-packed-vault-harness.ts'
+     9    │ - import·{·record·}·from·'./opencode-ga-harness.ts'
+        2 │ + import·{·record·}·from·'./opencode-ga-harness.ts'
+        3 │ + import·{
+        4 │ + ··assertPackedLoading,
+        5 │ + ··assertPackedWire,
+        6 │ + ··emitPackedReceipt,
+        7 │ + ··runPackedVault,
+        8 │ + ··VAULT_MARKER,
+        9 │ + }·from·'./v1-packed-vault-harness.ts'
+    10 10 │   import { SYNTHETIC_PROJECT, SYNTHETIC_TOKEN } from './v1-vault-activation-harness.ts'
+    11 11 │   
+  
+
+packages/e2e-tests/src/v1-packed-vault.e2e.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     8   8 │   } from './v1-packed-vault-harness.ts'
+     9   9 │   import { record } from './opencode-ga-harness.ts'
+    10     │ - import·{·SYNTHETIC_PROJECT,·SYNTHETIC_TOKEN·}·from·'./v1-vault-activation-harness.ts'
+        10 │ + import·{
+        11 │ + ··SYNTHETIC_PROJECT,
+        12 │ + ··SYNTHETIC_TOKEN,
+        13 │ + }·from·'./v1-vault-activation-harness.ts'
+    11  14 │   
+    12  15 │   test('official V1 loads the packed server and completes a vault raw-TLS first request', async () => {
+    ······ │ 
+    20  23 │     assertPackedLoading(receipt.loading!)
+    21  24 │     assertPackedWire(receipt.requests, receipt.nonce)
+    22     │ - ··const·result·=·receipt.processes.find((child)·=>·child.name·===·'first-request')!
+        25 │ + ··const·result·=·receipt.processes.find(
+        26 │ + ····(child)·=>·child.name·===·'first-request',
+        27 │ + ··)!
+    23  28 │     expect(result.exitCode).toBe(0)
+    24     │ - ··const·events·=·result.stdout.trim().split('\n').map((line)·=>·record(JSON.parse(line)))
+    25     │ - ··expect(events.some((event)·=>·event.type·===·'text'·&&·record(event.part).text·===·`GA_OK_${receipt.nonce}`)).toBe(true)
+        29 │ + ··const·events·=·result.stdout
+        30 │ + ····.trim()
+        31 │ + ····.split('\n')
+        32 │ + ····.map((line)·=>·record(JSON.parse(line)))
+        33 │ + ··expect(
+        34 │ + ····events.some(
+        35 │ + ······(event)·=>
+        36 │ + ········event.type·===·'text'·&&
+        37 │ + ········record(event.part).text·===·`GA_OK_${receipt.nonce}`,
+        38 │ + ····),
+        39 │ + ··).toBe(true)
+    26  40 │     expect(events.some((event) => event.type === 'step_finish')).toBe(true)
+    27     │ - ··const·gets·=·receipt.vaultCalls.filter((call)·=>·call.method·===·'credential.get_scoped')
+        41 │ + ··const·gets·=·receipt.vaultCalls.filter(
+        42 │ + ····(call)·=>·call.method·===·'credential.get_scoped',
+        43 │ + ··)
+    28  44 │     expect(gets.length).toBeGreaterThan(0)
+    29     │ - ··for·(const·call·of·gets)·expect(call.params).toEqual({·enrollment_token:·'ab'.repeat(32),·credential_id:·'synthetic-credential',·min_ttl_ms:·300000·})
+        45 │ + ··for·(const·call·of·gets)
+        46 │ + ····expect(call.params).toEqual({
+        47 │ + ······enrollment_token:·'ab'.repeat(32),
+        48 │ + ······credential_id:·'synthetic-credential',
+        49 │ + ······min_ttl_ms:·300000,
+        50 │ + ····})
+    30  51 │     expect(receipt.localFileSyscalls).toEqual([])
+    31     │ - ··expect(receipt.processes.every((child)·=>·child.reaped·&&·!child.timedOut·&&·child.signalFailures.length·===·0)).toBe(true)
+    32     │ - ··expect(receipt.tlsEvents.some((event)·=>·event.event·===·'primary.parsed')).toBe(true)
+    33     │ - ··expect(receipt.tlsEvents.filter((event)·=>·event.event.includes('error'))).toEqual([])
+        52 │ + ··expect(
+        53 │ + ····receipt.processes.every(
+        54 │ + ······(child)·=>
+        55 │ + ········child.reaped·&&·!child.timedOut·&&·child.signalFailures.length·===·0,
+        56 │ + ····),
+        57 │ + ··).toBe(true)
+        58 │ + ··expect(
+        59 │ + ····receipt.tlsEvents.some((event)·=>·event.event·===·'primary.parsed'),
+        60 │ + ··).toBe(true)
+        61 │ + ··expect(
+        62 │ + ····receipt.tlsEvents.filter((event)·=>·event.event.includes('error')),
+        63 │ + ··).toEqual([])
+    34  64 │   }, 180000)
+    35  65 │   
+    36  66 │   const nonce = 'fixture-primary-nonce'
+    37  67 │   function wire() {
+    38     │ - ··return·[{·body:·JSON.stringify({·project:·SYNTHETIC_PROJECT,·model:·'gemini-3.8-flash-high',·request:·{·contents:·[{·role:·'user',·parts:·[{·text:·nonce·}]·}]·}·}),·rawHeaders:·['Host',·'daily-cloudcode-pa.googleapis.com',·'Authorization',·`Bearer·${SYNTHETIC_TOKEN}`],·receivedAt:·1,·peer:·7·}]
+        68 │ + ··return·[
+        69 │ + ····{
+        70 │ + ······body:·JSON.stringify({
+        71 │ + ········project:·SYNTHETIC_PROJECT,
+        72 │ + ········model:·'gemini-3.8-flash-high',
+        73 │ + ········request:·{·contents:·[{·role:·'user',·parts:·[{·text:·nonce·}]·}]·},
+        74 │ + ······}),
+        75 │ + ······rawHeaders:·[
+        76 │ + ········'Host',
+        77 │ + ········'daily-cloudcode-pa.googleapis.com',
+        78 │ + ········'Authorization',
+        79 │ + ········`Bearer·${SYNTHETIC_TOKEN}`,
+        80 │ + ······],
+        81 │ + ······receivedAt:·1,
+        82 │ + ······peer:·7,
+        83 │ + ····},
+        84 │ + ··]
+    39  85 │   }
+    40  86 │   
+    ······ │ 
+    45  91 │     expect(() => assertPackedWire(wrongBearer, nonce)).toThrow('Wire bearer')
+    46  92 │     const wrongProject = wire()
+    47     │ - ··wrongProject[0]!.body·=·wrongProject[0]!.body.replace(SYNTHETIC_PROJECT,·'wrong-project')
+        93 │ + ··wrongProject[0]!.body·=·wrongProject[0]!.body.replace(
+        94 │ + ····SYNTHETIC_PROJECT,
+        95 │ + ····'wrong-project',
+        96 │ + ··)
+    48  97 │     expect(() => assertPackedWire(wrongProject, nonce)).toThrow('Wire project')
+    49  98 │     const wrongModel = wire()
+    50     │ - ··wrongModel[0]!.body·=·wrongModel[0]!.body.replace('gemini-3.8-flash-high',·'wrong-model')
+        99 │ + ··wrongModel[0]!.body·=·wrongModel[0]!.body.replace(
+       100 │ + ····'gemini-3.8-flash-high',
+       101 │ + ····'wrong-model',
+       102 │ + ··)
+    51 103 │     expect(() => assertPackedWire(wrongModel, nonce)).toThrow('Wire model')
+    52     │ - ··expect(()·=>·assertPackedWire(wire(),·'absent-nonce')).toThrow('Primary·wire·nonce')
+       104 │ + ··expect(()·=>·assertPackedWire(wire(),·'absent-nonce')).toThrow(
+       105 │ + ····'Primary·wire·nonce',
+       106 │ + ··)
+    53 107 │   })
+    54 108 │   
+    55 109 │   test('loading assertion rejects a source, factory or direct-entry route', () => {
+    56     │ - ··const·entry·=·'/tmp/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js'
+    57     │ - ··const·loading·=·{·packageDirectory:·'/tmp/consumer/node_modules/@cortexkit/opencode-antigravity-auth',·configuredPlugin:·'file:///tmp/consumer/node_modules/@cortexkit/opencode-antigravity-auth',·manifestEntry:·entry,·resolvedEntry:·entry,·entrySha256:·'packed-hash',·packedEntrySha256:·'packed-hash',·trace:·`openat(AT_FDCWD,·"${entry}",·O_RDONLY)·=·7`,·sourceRoot:·'/checkout'·}
+       110 │ + ··const·entry·=
+       111 │ + ····'/tmp/consumer/node_modules/@cortexkit/opencode-antigravity-auth/dist/server.js'
+       112 │ + ··const·loading·=·{
+       113 │ + ····packageDirectory:
+       114 │ + ······'/tmp/consumer/node_modules/@cortexkit/opencode-antigravity-auth',
+       115 │ + ····configuredPlugin:
+       116 │ + ······'file:///tmp/consumer/node_modules/@cortexkit/opencode-antigravity-auth',
+       117 │ + ····manifestEntry:·entry,
+       118 │ + ····resolvedEntry:·entry,
+       119 │ + ····entrySha256:·'packed-hash',
+       120 │ + ····packedEntrySha256:·'packed-hash',
+       121 │ + ····trace:·`openat(AT_FDCWD,·"${entry}",·O_RDONLY)·=·7`,
+       122 │ + ····sourceRoot:·'/checkout',
+       123 │ + ··}
+    58 124 │     assertPackedLoading(loading)
+    59     │ - ··expect(()·=>·assertPackedLoading({·...loading,·configuredPlugin:·`file://${entry}`·})).toThrow('installed·package·directory')
+    60     │ - ··expect(()·=>·assertPackedLoading({·...loading,·trace:·'openat(AT_FDCWD,·"/checkout/packages/opencode/src/plugin/index.ts",·O_RDONLY)·=·7'·})).toThrow('was·not·read')
+    61     │ - ··expect(()·=>·assertPackedLoading({·...loading,·trace:·`${loading.trace}\nopenat(AT_FDCWD,·"/checkout/packages/opencode/src/plugin/index.ts",·O_RDONLY)·=·8`·})).toThrow('Source·or·root-factory')
+       125 │ + ··expect(()·=>
+       126 │ + ····assertPackedLoading({·...loading,·configuredPlugin:·`file://${entry}`·}),
+       127 │ + ··).toThrow('installed·package·directory')
+       128 │ + ··expect(()·=>
+       129 │ + ····assertPackedLoading({
+       130 │ + ······...loading,
+       131 │ + ······trace:
+       132 │ + ········'openat(AT_FDCWD,·"/checkout/packages/opencode/src/plugin/index.ts",·O_RDONLY)·=·7',
+       133 │ + ····}),
+       134 │ + ··).toThrow('was·not·read')
+       135 │ + ··expect(()·=>
+       136 │ + ····assertPackedLoading({
+       137 │ + ······...loading,
+       138 │ + ······trace:·`${loading.trace}\nopenat(AT_FDCWD,·"/checkout/packages/opencode/src/plugin/index.ts",·O_RDONLY)·=·8`,
+       139 │ + ····}),
+       140 │ + ··).toThrow('Source·or·root-factory')
+    62 141 │   })
+    63 142 │   
+  
+
+packages/e2e-tests/src/v1-vault-activation-harness.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    675 675 │   ): Promise<void> {
+    676 676 │     // Use the production client's own framing and proof implementation rather than a replacement client.
+    677     │ - ··const·clientEntry·=·Bun.resolveSync(
+    678     │ - ····'@cortexkit/claustrum-client',
+    679     │ - ····clientBase,
+    680     │ - ··)
+        677 │ + ··const·clientEntry·=·Bun.resolveSync('@cortexkit/claustrum-client',·clientBase)
+    681 678 │     const subc: SubcWire = await import(
+    682 679 │       Bun.resolveSync('@cortexkit/subc-client', dirname(clientEntry))
+  
+
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

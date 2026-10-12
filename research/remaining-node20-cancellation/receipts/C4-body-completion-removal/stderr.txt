@@ -1,0 +1,23 @@
+
+packages/core/src/fetch-timeout.test.ts:
+(pass) caller/body lifetime without AbortSignal.any > preserves metadata, clone metadata, and unbuffered body bytes [0.71ms]
+400 |     )
+401 |     expect(listeners.size).toBe(1)
+402 |     const reason = { cancel: 'consumer' }
+403 |     await response.body!.cancel(reason)
+404 |     expect(cancel).toHaveBeenCalledWith(reason)
+405 |     expect(listeners.size).toBe(0)
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/packages/core/src/fetch-timeout.test.ts:405:28)
+(fail) caller/body lifetime without AbortSignal.any > forwards cancel reason and detaches and releases the source on cancel [0.26ms]
+
+ 1 pass
+ 18 filtered out
+ 1 fail
+ 20 expect() calls
+Ran 2 tests across 1 file. [144.00ms]

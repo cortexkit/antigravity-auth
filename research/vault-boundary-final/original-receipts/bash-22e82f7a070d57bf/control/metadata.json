@@ -1,0 +1,32 @@
+{
+  "schema_version": 7,
+  "harness": "runner",
+  "task_id": "bash-22e82f7a070d57bf",
+  "session_id": "alfonso:bg_cd8afc26a634541b",
+  "command": "git status --short; git diff --stat; git diff --numstat; git ls-files --others --exclude-standard; git hash-object packages/core/src/credential-redaction.ts packages/core/src/credential-redaction.test.ts packages/core/src/index.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/shared/request-services.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/pi/src/stream.ts packages/pi/src/stream.test.ts packages/pi/src/commands.ts packages/pi/src/commands.test.ts",
+  "mode": "pipes",
+  "workdir": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b",
+  "project_root": "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b",
+  "status": "completed",
+  "started_at": 1791744913732,
+  "finished_at": 1791744914413,
+  "duration_ms": 681,
+  "timeout_ms": 1800000,
+  "default_hard_kill": true,
+  "exit_code": 0,
+  "child_pid": null,
+  "pgid": 21255,
+  "live_descendants": [],
+  "completion_delivered": true,
+  "notify_on_completion": false,
+  "compressed": true,
+  "pty_rows": null,
+  "pty_cols": null,
+  "sandbox_native": false,
+  "status_reason": null,
+  "call_key": {
+    "requester": "reserved:broca",
+    "key": "bash-22e82f7a070d57bf",
+    "minted": true
+  }
+}

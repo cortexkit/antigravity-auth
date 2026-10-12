@@ -1,0 +1,1 @@
+bun --version && bun node_modules/typescript/bin/tsc --version && bun run --cwd packages/core build && bun node_modules/typescript/bin/tsc -p research/native-v1-vault-activation/tsconfig.json

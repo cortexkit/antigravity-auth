@@ -1,0 +1,69 @@
+{
+  "archiveBytes": 251088,
+  "archiveSha256": "bf0f0828d155183dec1c29e5277ededd6cbd46e6b839ca696434e477f081216b",
+  "tarSha256": "8e7844ad61e2161a3110c9146e4da5e1f508261ce897603457f8056cf7274661",
+  "archiveFiles": 189,
+  "archivePayloadBytes": 930861,
+  "publishedExports": [
+    "./rpc",
+    "./rpc/client",
+    "./fs",
+    "./pi-slot",
+    "./logger",
+    "./sidebar-file",
+    "./tui-prefs",
+    "./tui-build",
+    "./tui",
+    "./store",
+    "./quota",
+    "./routing",
+    "./commands",
+    "./auth-menu",
+    "./opencode2",
+    "./claustrum",
+    "./cachekeep",
+    "./dump"
+  ],
+  "selectedPublicRoots": [
+    "./rpc",
+    "./rpc/client",
+    "./logger",
+    "./tui",
+    "./store",
+    "./fs",
+    "./claustrum",
+    "./commands",
+    "./auth-menu",
+    "./routing",
+    "./quota",
+    "./opencode2",
+    "./pi-slot"
+  ],
+  "canonicalFiles": 156,
+  "canonicalBytes": 822249,
+  "coreFiles": 129,
+  "coreBytes": 696000,
+  "coreNonlocalStaticImports": [
+    "@cortexkit/claustrum-client",
+    "node:async_hooks",
+    "node:child_process",
+    "node:crypto",
+    "node:fs",
+    "node:fs/promises",
+    "node:path",
+    "node:timers/promises",
+    "node:util"
+  ],
+  "slimRuntimeFiles": [
+    "rpc/client.js",
+    "rpc/port-file.js",
+    "rpc/rpc-client.js",
+    "tui/index.js"
+  ],
+  "manifestSha256": "3588f6584586433f03dd9123af05f5272a7950e4cec1323828f00b2a5c6dfeb5",
+  "inventorySha256": "e8029297b2ca9cf9e9f3b43709f58fc7ae22eb0026c3c492544f6d76b3ddaf86",
+  "utilityFiles": [
+    "util/any-signal.js"
+  ],
+  "cachekeepFiles": []
+}

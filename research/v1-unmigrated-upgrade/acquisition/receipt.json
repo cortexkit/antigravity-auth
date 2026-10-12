@@ -1,0 +1,12 @@
+{
+  "metadataUrl": "https://registry.npmjs.org/@cortexkit%2fantigravity-auth-core/2.2.1",
+  "metadataSha256": "533d13848f4f0bcc940d5edc1ac66cb144565156edb77871e0c61ad389a6602e",
+  "archiveUrl": "https://registry.npmjs.org/@cortexkit/antigravity-auth-core/-/antigravity-auth-core-2.2.1.tgz",
+  "name": "@cortexkit/antigravity-auth-core",
+  "version": "2.2.1",
+  "gitHead": "626cce39848b4b6db2d64ff7cbed1f7b4dc0259d",
+  "bytes": 149696,
+  "sha1": "b79e2384f0e55a3267b20d9b8e8f5416f204a1df",
+  "integrity": "sha512-w+hNrJSuUdJtJbZEwQMHhKvFDvZ8gc7aH1n6uzTCkeDaFmfuSpyX270BlUIzGIU+IohqOZL0aHmT4+TVL0SqqA==",
+  "sha256": "d36d22ffca3c06f1e495218bc48fbf462d0babef329f576a211181c5d15f5cf1"
+}

@@ -1,0 +1,1 @@
+bash research/remaining-node20-cancellation/run-gate.sh P12-final-import-safety bash -c 'python3 --version && python3 research/remaining-node20-cancellation/import-receipt.test.py -v'

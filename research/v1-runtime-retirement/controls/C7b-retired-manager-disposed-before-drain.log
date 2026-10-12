@@ -1,0 +1,354 @@
+## C7b-retired-manager-disposed-before-drain
+mutated: packages/opencode/src/plugin/lifecycle.ts
+diff --stat during mutation:
+ packages/opencode/src/plugin/lifecycle.ts | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+diff --git a/packages/opencode/src/plugin/lifecycle.ts b/packages/opencode/src/plugin/lifecycle.ts
+index f98cf428..65ec75f5 100644
+--- a/packages/opencode/src/plugin/lifecycle.ts
++++ b/packages/opencode/src/plugin/lifecycle.ts
+@@ -101,11 +101,12 @@ export function createPluginLifecycle(
+     const record = {
+       requests,
+       done: (async () => {
++        // NON-VACUITY BREAK: manager disposed before its runtime drains
++        await manager.dispose()
+         const drained = await Promise.allSettled([
+           queueDrained,
+           requests?.retire(),
+         ])
+-        await manager.dispose()
+         const failed = drained.find(
+           (outcome): outcome is PromiseRejectedResult =>
+             outcome.status === 'rejected',
+bun test v1.4.2 (744846f84)
+
+src/plugin/fetch-interceptor.test.ts:
+(pass) createFetchInterceptor > non-generative passthrough > delegates requests to upstream fetch when the URL is not generativelanguage [5.62ms]
+(pass) createFetchInterceptor > non-generative passthrough > preserves the caller-supplied abort signal on passthrough [1.39ms]
+(pass) createFetchInterceptor > non-OAuth auth > returns the upstream response when getAuth returns a non-OAuth auth [1.89ms]
+(pass) createFetchInterceptor > local image titles > retains successful synthetic text for local image-model title requests [6.01ms]
+(pass) createFetchInterceptor > Request normalization > normalizes a Request input into a URL+init so the transform pipeline sees headers/body [8.05ms]
+(pass) createFetchInterceptor > caller abort > rejects when the caller aborts before the no-account check [1.76ms]
+(pass) createFetchInterceptor > lifecycle disposal > joins an admitted unit through repeated disposal calls before releasing its resources [1.64ms]
+(pass) createFetchInterceptor > lifecycle disposal > clears per-instance retry/warmup state on dispose() [1.42ms]
+(pass) createFetchInterceptor > lifecycle disposal > stops intercepting after dispose() [2.01ms]
+(pass) createFetchInterceptor > lifecycle disposal > final disposal waits for a request still reading its admission, which then sends nothing and reads no sign-in [3.90ms]
+(pass) createFetchInterceptor > lifecycle disposal > retirement refuses later requests without passing them upstream, and finishes a request already admitted [5.13ms]
+(pass) createFetchInterceptor > no-account 401 response > returns HTTP 401 with Google error envelope when no accounts are configured [1.31ms]
+(pass) createFetchInterceptor > no-account 401 response > includes the requested model in the no-account envelope [1.37ms]
+(pass) createFetchInterceptor > no-account 401 response > returns the same 401 envelope when accounts are removed mid-loop [1.47ms]
+(pass) createFetchInterceptor > killswitch wiring > routes around a killed current account to the next eligible account without waiting [2.88ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast 412 when the killswitch excludes the entire pool [4.36ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast soft-quota 412 with 2026-07-22T13:35:00.000Z reset [2.07ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast soft-quota 412 with unknown reset [1.89ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast soft-quota 412 with invalid-reset reset [2.71ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 5700000ms at clock 1784721600000 [2.00ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1544400000ms at clock 1784721600000 [1.72ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1800000000ms at clock 1784721600000 [38.94ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1807200000ms at clock 1784721600000 [32.25ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1810800000ms at clock 1784721600000 [34.16ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1814400000ms at clock 1784721600000 [22.81ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1886400000ms at clock 1784721600000 [20.44ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 5400000000ms at clock 1784721600000 [8.40ms]
+(pass) createFetchInterceptor > native error responses > returns a fail-fast pool 412 without clamping 1800000000ms at clock -1000000000000 [13.12ms]
+(pass) createFetchInterceptor > native error responses > does not invent a quota reset from the fallback sleep duration [12.78ms]
+(pass) createFetchInterceptor > native error responses > does not emit an invalid reset header for a nonfinite pool wait [12.44ms]
+(pass) createFetchInterceptor > native error responses > still waits below the configured maximum for soft_quota [5.88ms]
+(pass) createFetchInterceptor > native error responses > still waits below the configured maximum for pool_unavailable [1.98ms]
+(pass) createFetchInterceptor > native error responses > returns a native 401 when token refresh supplies no access token [5.55ms]
+(pass) createFetchInterceptor > native error responses > preserves original context 400 bytes and headers for Prompt is too long [17.79ms]
+(pass) createFetchInterceptor > native error responses > preserves original context 400 bytes and headers for prompt_too_long [27.62ms]
+(pass) createFetchInterceptor > native error responses > returns a native 502 only after the bounded empty-response attempts [9.15ms]
+(pass) createFetchInterceptor > account-store source > refuses the next physical send once the store row is disabled after selection [3.27ms]
+(pass) createFetchInterceptor > account-store source > refuses the next physical send once the store row is replaced after selection [2.33ms]
+(pass) createFetchInterceptor > account-store source > captures the grant's row before the save that follows its refresh [1.95ms]
+(pass) createFetchInterceptor > account-store source > checks the row captured with the grant, not the account object's later ref [1.92ms]
+(pass) createFetchInterceptor > account-store source > refreshes the selected store account through the repository on its own row [2.04ms]
+(pass) createFetchInterceptor > vault custody source > uses the same vault selector that supplies the menu and sidebar rows [2.52ms]
+(pass) createFetchInterceptor > vault custody source > admits every physical attempt and sends with that receipt's token and project [2.19ms]
+(pass) createFetchInterceptor > vault custody source > reports a served 401 against the receipt that served it [1.64ms]
+(pass) createFetchInterceptor > transport failures > propagates connection resets instead of emitting them as assistant text [1.95ms]
+(pass) createFetchInterceptor > per-instance isolation > two interceptors do not share rate-limit state [2.85ms]
+(pass) admits no further local physical attempt when enrollment changes during a failed send [3.10ms]
+
+src/plugin/auth-loader.test.ts:
+(pass) createAuthLoader > serves a fresh vault activation without reading native auth, then refuses its marker after disconnect without touching local files [10.49ms]
+(pass) createAuthLoader > restores auth drift from storage before creating the account runtime [2.11ms]
+(pass) createAuthLoader > clears stale storage only when auth cannot be restored [0.14ms]
+418 |       })
+419 |       // The replaced runtime is retired, not aborted, and its manager stays
+420 |       // open until that retirement finishes.
+421 |       expect(firstRetire).toHaveBeenCalledTimes(1)
+422 |       expect(firstDispose).not.toHaveBeenCalled()
+423 |       expect(firstManager.dispose).not.toHaveBeenCalled()
+                                             ^
+error: expect(received).not.toHaveBeenCalled()
+
+Expected number of calls: 0
+Received number of calls: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/auth-loader.test.ts:423:40)
+(fail) createAuthLoader > zeros provider costs and replaces fetch and account runtimes on reload [3.37ms]
+(pass) createAuthLoader > returned fetch delegates to the live runtime after reload() [4.15ms]
+(pass) createAuthLoader > exposes load on the handle so contract consumers can read it [0.14ms]
+655 |       } as never)
+656 | 
+657 |       await loader.reload(getAuth)
+658 |       expect(firstRetire).toHaveBeenCalledTimes(1)
+659 |       expect(firstDispose).not.toHaveBeenCalled()
+660 |       expect(firstManager.dispose).not.toHaveBeenCalled()
+                                             ^
+error: expect(received).not.toHaveBeenCalled()
+
+Expected number of calls: 0
+Received number of calls: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/auth-loader.test.ts:660:40)
+(fail) createAuthLoader > returns from reload() without waiting for the replaced runtime to finish its admitted requests [14.62ms]
+(pass) createAuthLoader on the account store > routes with the core manager over the store and never reads the pool file [196.27ms]
+(pass) createAuthLoader on the account store > refreshes proactively through the repository on the due account's own ref, never the host client [205.64ms]
+(pass) createAuthLoader on the account store > creates the store only for a genuinely fresh location, and never over a pool file [78.11ms]
+(pass) createAuthLoader on the account store > leaves the store untouched when the host holds no sign-in [93.79ms]
+(pass) createAuthLoader on the account store > refuses to serve a bound generation with interrupted repository work, without the pool file [0.34ms]
+(pass) createAuthLoader on the account store > refuses to start while a migration is pending, without falling back to the pool file [0.10ms]
+(pass) enrollment authority at loader and request start > does not open local accounts or read the native login while vault authority is active [0.20ms]
+(pass) enrollment authority at loader and request start > builds and sends no vault runtime when the loader is disposed during the request authority read [0.14ms]
+(pass) enrollment authority at loader and request start > sends nothing on a vault runtime whose construction finishes after loader disposal began, and disposes it [0.14ms]
+
+src/plugin/lifecycle.test.ts:
+(pass) PluginLifecycle > disposes runtime and shared state in dependency order [0.15ms]
+(pass) PluginLifecycle > disposes producers BEFORE the sidebar drain and consumers AFTER [0.06ms]
+(pass) PluginLifecycle > a producer that enqueues a sidebar write during dispose lands before drain [0.05ms]
+(pass) PluginLifecycle > awaits a producer whose async dispose enqueues a write only after an in-flight refresh settles [0.06ms]
+(pass) PluginLifecycle > performs disposal only once [0.17ms]
+(pass) PluginLifecycle > disposes the previous runtime before publishing its replacement [0.10ms]
+(pass) PluginLifecycle > drains sidebar writes before tearing down the RPC server (file logger / RPC) [0.07ms]
+(pass) PluginLifecycle > treats drainSidebarWrites as a no-op when omitted (back-compat) [0.07ms]
+394 |           fresh.requests,
+395 |         ),
+396 |       ).toBe(true)
+397 |       expect(lifecycle.getAccountManager()).toBe(newManager)
+398 |       // The old queue's timers stop at once; the old manager stays open.
+399 |       expect(events).toEqual(['old-queue:dispose', 'old-requests:retire'])
+                           ^
+error: expect(received).toEqual(expected)
+
+  [
+    "old-queue:dispose",
++   "old-manager:flush",
++   "old-manager:dispose",
+    "old-requests:retire",
+  ]
+
+- Expected  - 0
++ Received  + 2
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/lifecycle.test.ts:399:22)
+(fail) PluginLifecycle request runtime retirement > retires a replaced request runtime and disposes its manager only after the retirement finishes [0.48ms]
+450 |     )
+451 |     await oldRequests.retire.mock.results[0]?.value
+452 |     // Final disposal begins while the old queue is still refreshing.
+453 |     const disposal = lifecycle.dispose()
+454 |     await new Promise((resolve) => setTimeout(resolve, 0))
+455 |     expect(events).toEqual([
+                         ^
+error: expect(received).toEqual(expected)
+
+  [
+    "old-queue:stop",
++   "old-manager:flush",
++   "old-manager:dispose",
+    "old-requests:retired",
+    "old-requests:abort",
+  ]
+
+- Expected  - 0
++ Received  + 2
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/lifecycle.test.ts:455:20)
+(fail) PluginLifecycle request runtime retirement > keeps a replaced manager open until its queue finishes a refresh under way, and final disposal still owns it meanwhile [1.45ms]
+496 |       live.requests,
+497 |     )
+498 | 
+499 |     await lifecycle.dispose()
+500 | 
+501 |     expect(events).toEqual([
+                         ^
+error: expect(received).toEqual(expected)
+
+  [
++   "old-manager:flush",
++   "old-manager:dispose",
+    "old-requests:retire",
+    "live-requests:abort",
+    "old-requests:abort",
+    "old-requests:retired",
+-   "old-manager:flush",
+-   "old-manager:dispose",
+    "live-queue:dispose",
+    "live-manager:flush",
+    "live-manager:dispose",
+    "producer:dispose",
+    "sidebar:drain",
+  ]
+
+- Expected  - 2
++ Received  + 2
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/lifecycle.test.ts:501:20)
+(fail) PluginLifecycle request runtime retirement > aborts live and retired request runtimes before any manager is disposed, and before producers and the sidebar drain [0.20ms]
+(pass) PluginLifecycle request runtime retirement > disposes an offered request runtime, queue and manager once disposal has begun [0.05ms]
+(pass) PluginLifecycle RPC ownership > stops a registered RPC server during disposal [0.04ms]
+(pass) PluginLifecycle debug log disposal > calls closeDebugLog as a consumer-phase disposable during lifecycle disposal [0.38ms]
+(pass) PluginLifecycle debug log disposal > flushes buffered debug lines to disk when closeDebugLog runs during dispose [2.53ms]
+
+src/plugin/shared/request-services.test.ts:
+(pass) prepareAgyWireRequest envelope parity > appends a real user turn when the host payload ends with a model turn [0.47ms]
+(pass) prepareAgyWireRequest envelope parity > applies the shared Claude thinking and schema transform [2.13ms]
+(pass) prepareAgyWireRequest envelope parity > normalizes replay signatures across parallel function calls [0.51ms]
+(pass) prepareAgyWireRequest envelope parity > injects the supported sentinel when Claude replay has no valid signature [0.31ms]
+(pass) prepareAgyWireRequest envelope parity > uses the native model role for same-target function responses [0.54ms]
+(pass) prepareAgyWireRequest envelope parity > keeps responses to an unsigned (foreign) call in a user turn [0.46ms]
+(pass) prepareAgyWireRequest envelope parity > removes unsupported tools and thinking from image requests [0.71ms]
+(pass) prepareAgyWireRequest envelope parity > sets VALIDATED on tool requests and removes host provider options [0.78ms]
+(pass) prepareAgyWireRequest against the frozen agy CLI 1.1.24 capture > emits the captured envelope and request field order [0.73ms]
+(pass) createRequestExecutor retry contract > tries the Antigravity endpoints in fallback order after a 404 [1.97ms]
+(pass) createRequestExecutor retry contract > retries the same endpoint once after a capacity 503 [977.03ms]
+(pass) createRequestExecutor retry contract > retries selection after a failed refresh and sends with the next grant [0.79ms]
+(pass) createRequestExecutor retry contract > never sends a local grant whose captured check reports it stale [0.39ms]
+(pass) createRequestExecutor retry contract > refuses a send once the row identity captured with the grant changes, even with the same bearer [0.58ms]
+(pass) createRequestExecutor retry contract > keeps the freshly resolved token when project resolution answers from an older cache entry [0.48ms]
+(pass) createRequestExecutor retry contract > captures the grant before project resolution, so a row change during it is refused [0.38ms]
+(pass) createRequestExecutor retry contract > returns the native 401 when the only account's refresh yields no credential [0.17ms]
+(pass) createRequestExecutor retry contract > removes an invalid_grant account and continues on the next one [0.60ms]
+(pass) createRequestExecutor retry contract > clears stored auth and returns the no-account 401 when the last grant is revoked [0.28ms]
+(pass) createRequestExecutor retry contract > rejects with the original transport error object after every endpoint fails [0.24ms]
+(pass) createRequestExecutor retry contract > returns the last upstream response when the only account is ineligible [0.94ms]
+(pass) createRequestExecutor vault admissions > admits every physical send and sends with that admission only [0.65ms]
+(pass) createRequestExecutor vault admissions > reports a 401 against its admission and keeps it when the vault serves no newer version [0.40ms]
+(pass) createRequestExecutor vault 401 rotation > retries the same endpoint once with a newer version of the same credential [0.49ms]
+(pass) createRequestExecutor vault 401 rotation > does not retry a 401 on a rotated admission for another account [0.28ms]
+(pass) createRequestExecutor local refresh attribution > refreshes exactly the selected row when two rows share a refresh token, and sends its successor [0.39ms]
+(pass) createRequestExecutor request kinds > sends a title on an unregistered model to the title fallback model [0.43ms]
+(pass) createRequestExecutor request kinds > keeps a registered text model for a title request [0.02ms]
+(pass) createRequestExecutor request kinds > answers an image-model title locally only for the title kind [0.39ms]
+(pass) createRequestExecutor request kinds > keeps title metadata out of the primary conversation step sequence [1.28ms]
+(pass) createRequestWire location state > records prompt-cache statistics only in the location that saw them [0.47ms]
+(pass) Antigravity-owned selection policy > dispatches on an account with no quota reading while the killswitch is on [0.40ms]
+(pass) Antigravity-owned selection policy > refuses with a native 412 once a fresh reading is below the floor [0.25ms]
+(pass) Antigravity-owned selection policy > keeps a Claude rate-limit mark from blocking a Gemini request on the same account [0.73ms]
+(pass) createRequestExecutor per-request sender > sends through the request's own raw sender with request-specific cancellation [0.45ms]
+(pass) createRequestExecutor cancellation and overflow > propagates the caller exact abort reason to an admitted physical send [0.49ms]
+(pass) createRequestExecutor cancellation and overflow > final shutdown aborts physical I/O and waits for its cleanup [0.38ms]
+(pass) createRequestExecutor cancellation and overflow > retirement keeps an admitted send and its body, refuses new requests, and resolves after both finish [0.84ms]
+(pass) createRequestExecutor cancellation and overflow > disposal after retirement aborts the retired body and ends the retirement [0.49ms]
+(pass) createRequestExecutor cancellation and overflow > an authority transition preserves admitted physical work and refuses the next local request [0.42ms]
+(pass) createRequestExecutor cancellation and overflow > rejects with the abort reason when cancelled during a retry wait [11.65ms]
+(pass) createRequestExecutor cancellation and overflow > returns the original context-overflow response unread, without rotating [0.84ms]
+(pass) createRequestExecutor cancellation and overflow > serves local image-model titles without selecting an account [0.52ms]
+2118 |       expect(await fresh.text()).toContain('after-reload')
+2119 |       expect(sends).toBe(2)
+2120 | 
+2121 |       // The replaced manager stays open while its admitted stream is held.
+2122 |       expect(pendingRead).toBeUndefined()
+2123 |       expect(events).toEqual([])
+                            ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "manager 1 disposed",
++ ]
+
+- Expected  - 1
++ Received  + 3
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/shared/request-services.test.ts:2123:22)
+(fail) OpenCode 1 runtime replacement with admitted streams > a reload keeps a stream admitted by the replaced runtime alive [2.29ms]
+2185 |         }),
+2186 |         (error: unknown) => ({ kind: 'error' as const, error }),
+2187 |       )
+2188 |       await refreshStarted
+2189 |       await loader.reload(getAuth)
+2190 |       expect(events).toEqual([])
+                            ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "manager 1 disposed",
++ ]
+
+- Expected  - 1
++ Received  + 3
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/shared/request-services.test.ts:2190:22)
+(fail) OpenCode 1 runtime replacement with admitted streams > a reload keeps a request admitted during its token refresh, then saves and sends the successor token [0.83ms]
+(pass) OpenCode 1 runtime replacement with admitted streams > two concurrent first local requests after vault custody reload the local runtime once [0.98ms]
+2314 |         error: { message: 'The Antigravity request executor is disposed' },
+2315 |       })
+2316 |       // Shutdown cancelled the physical upstream body and waited for the
+2317 |       // stream before disposing the manager it used, then the live one.
+2318 |       expect(held.cancelled()).toBe(true)
+2319 |       expect(events).toEqual([
+                            ^
+error: expect(received).toEqual(expected)
+
+  [
+-   "stream settled",
+    "manager 1 disposed",
++   "stream settled",
+    "manager 2 disposed",
+  ]
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/shared/request-services.test.ts:2319:22)
+(fail) OpenCode 1 runtime replacement with admitted streams > final shutdown aborts a stream still held by a replaced runtime and waits for it [4.04ms]
+2436 |       const beforeRelease = [...events]
+2437 | 
+2438 |       releaseRefresh()
+2439 |       expect(await replaced).toBe(true)
+2440 |       await first.disposed
+2441 |       expect({ beforeRelease, events }).toEqual({
+                                               ^
+error: expect(received).toEqual(expected)
+
+  {
+-   "beforeRelease": [],
++   "beforeRelease": [
++     "manager 1 disposed",
++   ],
+    "events": [
++     "manager 1 disposed",
+      "manager 1 saved refresh-0-proactive",
+-     "manager 1 disposed",
+    ],
+  }
+
+- Expected  - 2
++ Received  + 4
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/shared/request-services.test.ts:2441:41)
+(fail) OpenCode 1 runtime replacement with admitted streams > a replaced manager stays open until its refresh queue has finished an admitted proactive refresh [6.64ms]
+
+9 tests failed:
+(fail) createAuthLoader > zeros provider costs and replaces fetch and account runtimes on reload [3.37ms]
+(fail) createAuthLoader > returns from reload() without waiting for the replaced runtime to finish its admitted requests [14.62ms]
+(fail) PluginLifecycle request runtime retirement > retires a replaced request runtime and disposes its manager only after the retirement finishes [0.48ms]
+(fail) PluginLifecycle request runtime retirement > keeps a replaced manager open until its queue finishes a refresh under way, and final disposal still owns it meanwhile [1.45ms]
+(fail) PluginLifecycle request runtime retirement > aborts live and retired request runtimes before any manager is disposed, and before producers and the sidebar drain [0.20ms]
+(fail) OpenCode 1 runtime replacement with admitted streams > a reload keeps a stream admitted by the replaced runtime alive [2.29ms]
+(fail) OpenCode 1 runtime replacement with admitted streams > a reload keeps a request admitted during its token refresh, then saves and sends the successor token [0.83ms]
+(fail) OpenCode 1 runtime replacement with admitted streams > final shutdown aborts a stream still held by a replaced runtime and waits for it [4.04ms]
+(fail) OpenCode 1 runtime replacement with admitted streams > a replaced manager stays open until its refresh queue has finished an admitted proactive refresh [6.64ms]
+
+ 117 pass
+ 9 fail
+ 609 expect() calls
+Ran 126 tests across 4 files. [2.26s]
+exit=1
+diff --stat after restore (expect empty):
+[end]

@@ -1,0 +1,9 @@
+{
+  // Type program for the OpenCode 2 (GA 2.0.22) real-host harness and the
+  // pinned host-contract inputs. It uses the same compiler settings and the
+  // same @types/node 25 + @types/bun 1.3 pair as packages/opencode's GA
+  // program (typeRoots there resolve relative to that file), and checks the
+  // published @opencode/plugin 2.0.22 declarations with library checking on.
+  "extends": "../opencode/tsconfig.ga.json",
+  "include": ["docker/**/*.ts", "src/opencode-ga*.ts", "../../test/global.d.ts"]
+}

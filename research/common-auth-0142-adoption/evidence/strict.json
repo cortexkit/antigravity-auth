@@ -1,0 +1,40 @@
+[
+  {
+    "command": [
+      "bun",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "1.4.2\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "node_modules/.bin/tsc",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "Version 6.0.3\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bun",
+      "run",
+      "build"
+    ],
+    "exitStatus": 0,
+    "stdout": "Embedding and private Bun-lock roots verified (Bun 1.4.2)\nCore common-auth embedding verified against the pinned archive\nCopied 129 embedded common-auth files\nEmbedding and private Bun-lock roots verified (Bun 1.4.2)\nEmbedded declarations: 77 strict roots in NodeNext/Bundler; client TYPE closure 7 files\nPublic TUI build: 25 raw, 25 runtime files\nPublic TUI build: 12 raw, 12 runtime files\nProduct build: tsc, canonical copy, 2 audited bundles, raw/runtime TUI for OpenCode 1 and GA\nFinalized relative specifiers in 146 declaration files\n",
+    "stderr": "$ bun run embed:check && bun run --cwd packages/core build && bun run --cwd packages/opencode build && bun run --cwd packages/pi build\n$ bun run --cwd packages/opencode embed:check && bun packages/core/scripts/embed-common-auth.ts --check\n$ bun scripts/build-tui.ts --check\n$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs\n$ bun run embed:check && bun scripts/build-tui.ts --library && esbuild src/server.ts --bundle --platform=node --format=esm --external:zod --outfile=dist/server.js --sourcemap --metafile=dist/server.meta.json --log-level=warning && tsc -p tsconfig.ga.emit.json && bun ../../scripts/finalize-declaration-specifiers.ts dist/types .\n$ bun scripts/build-tui.ts --check\n$ rm -rf dist && tsc -p tsconfig.build.json --emitDeclarationOnly && esbuild src/index.ts --bundle --platform=node --format=esm --external:@earendil-works/* --external:@cortexkit/antigravity-auth-core --external:@cortexkit/claustrum-client --outfile=dist/index.js --sourcemap\n\n  dist/index.js       58.4kb\n  dist/index.js.map  125.2kb\n\n\u26a1 Done in 4ms\n"
+  },
+  {
+    "command": [
+      "bun",
+      "run",
+      "typecheck"
+    ],
+    "exitStatus": 0,
+    "stdout": "Embedding and private Bun-lock roots verified (Bun 1.4.2)\nCore common-auth embedding verified against the pinned archive\nCopied 129 embedded common-auth files\nEmbedding and private Bun-lock roots verified (Bun 1.4.2)\nEmbedded declarations: 77 strict roots in NodeNext/Bundler; client TYPE closure 7 files\n",
+    "stderr": "$ bun run embed:check && bun run --cwd packages/core build && bun run --cwd packages/core typecheck && bun run --cwd packages/opencode typecheck && bun run --cwd packages/pi typecheck && bun run --cwd packages/e2e-tests typecheck:ga && tsc -p tsconfig.scripts.json\n$ bun run --cwd packages/opencode embed:check && bun packages/core/scripts/embed-common-auth.ts --check\n$ bun scripts/build-tui.ts --check\n$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs\n$ tsc --noEmit\n$ bun run embed:check && bun scripts/build-tui.ts --types && tsc --noEmit && tsc -p tsconfig.ga.json\n$ bun scripts/build-tui.ts --check\n$ tsc --noEmit\n$ tsc -p tsconfig.ga.json\n"
+  }
+]

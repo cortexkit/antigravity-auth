@@ -1,0 +1,6 @@
+1.4.2
+Version 6.0.3
+Version: 2.5.3
+
+Copied 128 embedded common-auth files
+packages/e2e-tests/src/v1-vault-activation-harness.ts(667,31): error TS2307: Cannot find module '@cortexkit/subc-client' or its corresponding type declarations.

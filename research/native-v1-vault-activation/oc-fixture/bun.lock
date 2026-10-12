@@ -1,0 +1,20 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "v1-official-floor-linux-x64-fixture",
+      "dependencies": {
+        "opencode-linux-x64": "1.17.13"
+      }
+    }
+  },
+  "packages": {
+    "opencode-linux-x64": [
+      "opencode-linux-x64@1.17.13",
+      "",
+      {},
+      "sha512-6naffcRwMLUM0kYuwJ3tRWt1/NXPybt9u8ZqTvSZwATM54+GhQmoiz8Qb9GYFTiwSJmB1rq8VoEmwh1VPzBcFw=="
+    ]
+  }
+}

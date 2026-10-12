@@ -1,0 +1,64 @@
+# staged design-A product + new witnesses only (product files unchanged from the staged index); bun 1.4.2; Darwin arm64
+bun test v1.4.2 (744846f84)
+
+src/plugin/fetch-interceptor.test.ts:
+520 |         })
+521 |         // Let a disposal that does not wait for the request finish first.
+522 |         await new Promise((resolve) => setTimeout(resolve, 0))
+523 |         releaseAdmission()
+524 |         await disposal
+525 |         expect({ outcome: await outcome, events }).toEqual({
+                                                         ^
+error: expect(received).toEqual(expected)
+
+  {
+    "events": [
+-     "admission read returned",
+      "disposal finished",
++     "admission read returned",
++     "host sign-in read",
+    ],
+-   "outcome": "The local request runtime is disposed",
++   "outcome": "The Antigravity request executor is disposed",
+  }
+
+- Expected  - 2
++ Received  + 3
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/fetch-interceptor.test.ts:525:52)
+(fail) createFetchInterceptor > lifecycle disposal > final disposal waits for a request still reading its admission, which then sends nothing and reads no sign-in [21.10ms]
+
+src/plugin/shared/request-services.test.ts:
+2436 |       const beforeRelease = [...events]
+2437 | 
+2438 |       releaseRefresh()
+2439 |       expect(await replaced).toBe(true)
+2440 |       await first.disposed
+2441 |       expect({ beforeRelease, events }).toEqual({
+                                               ^
+error: expect(received).toEqual(expected)
+
+  {
+-   "beforeRelease": [],
++   "beforeRelease": [
++     "manager 1 disposed",
++   ],
+    "events": [
++     "manager 1 disposed",
+      "manager 1 saved refresh-0-proactive",
+-     "manager 1 disposed",
+    ],
+  }
+
+- Expected  - 2
++ Received  + 4
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_b2909364eb3d953c/packages/opencode/src/plugin/shared/request-services.test.ts:2441:41)
+(fail) OpenCode 1 runtime replacement with admitted streams > a replaced manager stays open until its refresh queue has finished an admitted proactive refresh [5.13ms]
+
+ 0 pass
+ 93 filtered out
+ 2 fail
+ 4 expect() calls
+Ran 2 tests across 2 files. [816.00ms]
+exit=1

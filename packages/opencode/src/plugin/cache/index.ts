@@ -4,5 +4,9 @@
 
 export {
   createSignatureCache,
+  getSignatureCacheFilePath,
   SignatureCache,
+  type SignatureCacheOptions,
+  type SignatureCacheRetention,
+  type ThinkingCacheData,
 } from './signature-cache'

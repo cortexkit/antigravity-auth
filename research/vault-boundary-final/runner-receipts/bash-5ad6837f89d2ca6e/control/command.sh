@@ -1,0 +1,1 @@
+bun --version; node --version; bunx tsc --version; bun run --cwd packages/core build && bun run --cwd packages/pi typecheck && bun test --isolate packages/pi/src/stream.test.ts; inner=$?; printf '\nINNER_EXIT=%s\n' "$inner"; exit "$inner"

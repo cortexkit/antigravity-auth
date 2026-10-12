@@ -1,0 +1,24 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "opencode-ga-offline-host-fixture",
+      "dependencies": {
+        "@opencode/cli-linux-x64": "2.0.22",
+        "@cortexkit/claustrum-client": "0.6.2",
+        "jsonc-parser": "3.3.1",
+        "xdg-basedir": "5.1.0",
+        "zod": "4.4.3"
+      }
+    }
+  },
+  "packages": {
+    "@opencode/cli-linux-x64": ["@opencode/cli-linux-x64@2.0.22", "", { "os": "linux", "cpu": "x64" }, "sha512-DlV1qgEDDnVqpTWMPqv7tCHCcXodzZBFaMcxjsiYdY6E5gHH2Q68JfasVksyQ1nu6m1887WQKGhOsepE+oKyYw=="],
+    "@cortexkit/claustrum-client": ["@cortexkit/claustrum-client@0.6.2", "", { "dependencies": { "@cortexkit/subc-client": "^0.16.0" } }, "sha512-9eZwP08q10r2t3YgZQLE0e5qL861L+IevkcEik0G6E2ZT2pXJwpygxnc6o1AFc1vF4N3jqA0PMOf4NzTmiXViw=="],
+    "@cortexkit/subc-client": ["@cortexkit/subc-client@0.16.1", "", {}, "sha512-TJqOcfMVxhCfZMANmEH/9w+L+zYxFSy5p5Zl/shDErtGSeUF6HFiwZ7OR/P2qFvpSg/yxCbsdenZ7rs5SE6fhA=="],
+    "jsonc-parser": ["jsonc-parser@3.3.1", "", {}, "sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ=="],
+    "xdg-basedir": ["xdg-basedir@5.1.0", "", {}, "sha512-GCPAHLvrIH13+c0SuacwvRYj2SxJXQ4kaVTT5xgL3kPrz56XxkF21IGhjSE1+W0aw7gpBWRGXLCPnPby6lSpmQ=="],
+    "zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="]
+  }
+}

@@ -1,0 +1,1 @@
+bun --version; node --version; bun run --cwd packages/core build && bun test --isolate packages/core/src/credential-redaction.test.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/opencode/src/plugin/auth-loader.test.ts packages/pi/src/stream.test.ts packages/pi/src/commands.test.ts

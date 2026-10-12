@@ -1,0 +1,59 @@
+[
+  {
+    "command": [
+      "node",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "v24.21.0\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "node",
+      "--check",
+      "tools/common-auth-build/build.mjs"
+    ],
+    "exitStatus": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "node_modules/.bin/tsc",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "Version 6.0.3\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "node_modules/.bin/tsc",
+      "-p",
+      "test/common-auth-0113-producer/tsconfig.source.json"
+    ],
+    "exitStatus": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bun",
+      "--version"
+    ],
+    "exitStatus": 0,
+    "stdout": "1.4.2\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bun",
+      "run",
+      "embed:check"
+    ],
+    "exitStatus": 0,
+    "stdout": "Embedding and private Bun-lock roots verified (Bun 1.4.2)\nCore common-auth embedding verified against the pinned archive\n",
+    "stderr": "$ bun run --cwd packages/opencode embed:check && bun packages/core/scripts/embed-common-auth.ts --check\n$ bun scripts/build-tui.ts --check\n"
+  }
+]

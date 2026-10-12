@@ -1,0 +1,23 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/opencode/src/plugin/shared/request-services.test.ts:
+1330 |       return WIRE.transformResponse(...args)
+1331 |     } } })
+1332 |     try {
+1333 |       const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+1334 |       expect(response.status).toBe(200)
+1335 |       expect(await response.text()).toContain('ok')
+                                           ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "ok"
+Received: "{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hi\"}]}}]}"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/shared/request-services.test.ts:1335:37)
+(fail) createRequestExecutor vault admissions > scrubs distinct auxiliary vault bearers before cache-warmup diagnostics reach the sink [1012.70ms]
+
+ 0 pass
+ 60 filtered out
+ 1 fail
+ 4 expect() calls
+Ran 1 test across 1 file. [1254.00ms]

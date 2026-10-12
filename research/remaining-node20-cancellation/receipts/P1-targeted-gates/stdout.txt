@@ -1,0 +1,10 @@
+1.4.2
+v24.21.0
+Version 6.0.3
+Copied 128 embedded common-auth files
+src/fetch-timeout.test.ts(57,30): error TS7006: Parameter 'type' implicitly has an 'any' type.
+src/fetch-timeout.test.ts(57,36): error TS7006: Parameter 'listener' implicitly has an 'any' type.
+src/fetch-timeout.test.ts(57,46): error TS7006: Parameter 'options' implicitly has an 'any' type.
+src/fetch-timeout.test.ts(61,33): error TS7006: Parameter 'type' implicitly has an 'any' type.
+src/fetch-timeout.test.ts(61,39): error TS7006: Parameter 'listener' implicitly has an 'any' type.
+src/fetch-timeout.test.ts(61,49): error TS7006: Parameter 'options' implicitly has an 'any' type.

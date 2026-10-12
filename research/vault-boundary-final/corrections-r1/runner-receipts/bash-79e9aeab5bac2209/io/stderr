@@ -1,0 +1,39 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/opencode/src/plugin/shared/request-services.test.ts:
+960 |       const error = await executor.execute(NON_STREAM_URL, CHAT_INIT(caller.signal)).catch((error: unknown) => error)
+961 |       expect(used).toEqual([opaque])
+962 |       expect(h.calls).toHaveLength(0)
+963 |       expect(error).toBe(failure)
+964 |       expect(failure.code).toBe('PROJECT_LOOKUP_FAILED')
+965 |       expect(failure.message).toBe('project lookup echo [credential]')
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "project lookup echo [credential]"
+Received: "project lookup echo opaque_project_lookup_748a"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/shared/request-services.test.ts:965:31)
+(fail) createRequestExecutor retry contract > redacts the actual local project-lookup bearer before cancellation returns its terminal failure [7.59ms]
+1324 |       return okJson()
+1325 |     } })
+1326 |     const dependencies = vaultDeps(h, async () => ({ credentialId: 'credential-a', accountIdentity: 'identity-a', recordVersion: 1, accessToken: admissions++ === 0 ? mainToken : auxiliaryToken, projectId: 'project-effective', report401: async () => {} }))
+1327 |     const executor = createRequestExecutor({ ...dependencies, debug: { ...dependencies.debug, isDebugEnabled: () => true }, wire: { ...WIRE, prepare: (...args) => {
+1328 |       const prepared = WIRE.prepare(...args)
+1329 |       expect(prepared.needsSignedThinkingWarmup).toBe(true)
+       ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at toBe (unknown:1:1)
+      at prepare (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/shared/request-services.test.ts:1329:50)
+      at execute (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/opencode/src/plugin/shared/request-services.ts:1870:30)
+(fail) createRequestExecutor vault admissions > scrubs distinct auxiliary vault bearers before thinking-warmup diagnostics reach the sink [4.52ms]
+
+ 0 pass
+ 59 filtered out
+ 2 fail
+ 7 expect() calls
+Ran 2 tests across 1 file. [210.00ms]

@@ -1,0 +1,20 @@
+{
+  "base_commit": "d89c151945b95461a05f22d63aae71abf27852a2",
+  "runner": "ck-motor, Linux x64, 4 vCPUs, only lo",
+  "versions": {"bun":"1.4.2 (744846f84)","tsc":"6.0.3","biome":"2.5.3","native":"1.17.13"},
+  "gates": ["bun run --cwd packages/core build - passed, copied 128 embedded files", "bun node_modules/typescript/bin/tsc -p research/native-v1-vault-activation/tsconfig.json - passed (no-emit silent success)", "./node_modules/.bin/biome check packages/e2e-tests/src/v1-vault-activation-harness.ts packages/e2e-tests/src/v1-vault-activation.e2e.test.ts --error-on-warnings - passed, checked 2 files, no fixes", "bun test --isolate ./packages/e2e-tests/src/v1-vault-activation.e2e.test.ts - passed: 1 pass, 0 fail, 23 expect() calls, 4.77s"],
+  "snapshot": {"packages/e2e-tests/src/v1-vault-activation-harness.ts":"03251aca3dd0e1923fe5a46a9d317dc1037e31650abb9c69606da3e6f54515ae","packages/e2e-tests/src/v1-vault-activation.e2e.test.ts":"7889c2ca2aff14e68b21d059baebbc9a142790e8e2c4ab49b564f192db2d6210","packages/opencode/src/plugin/index.ts":"0f72360b679768da6ff5931251930d1232a815316c6be897522d4b21b5c9f46d","packages/core/src/common-auth-embedded/source-output.json":"20280ed9fe35760b4cd9d55c230a7bc7be09d789d8549ed31235694ce9eff240"},
+  "binary_sha256":"ae98d78e8b9a4f3ef4fd16920bfb3dedeab731c0586badff501f75b53ece3b6d",
+  "profile":"/tmp/native-v1-vault-3J28WL",
+  "sdk_version":"1.17.13",
+  "authAbsentBefore":true,
+  "localArtifactsAbsentBefore":true,
+  "marker":{"google":{"type":"oauth","refresh":"claustrum-tombstone:v1:google","access":"","expires":0}},
+  "request":{"path":"/v1internal:streamGenerateContent","authorization":"Bearer synthetic-native-v1-vault-access","project":"synthetic-native-v1-project","model":"gemini-3.8-flash-high","payload_sha256":"97d0ce7efc4311cdb376122725f1701bcb4b65c1e29e6fcb49c49ce0a42a122b","payload_bytes":16471},
+  "request_count":1,
+  "credential_get_count":2,
+  "localFileSyscalls":[],
+  "forbidden_network_or_oauth_observations":[],
+  "all_native_processes": [{"name":"version","pid":81,"exitCode":0,"signal":null,"timedOut":false,"reaped":true},{"name":"auth-help","pid":94,"exitCode":0,"signal":null,"timedOut":false,"reaped":true},{"name":"serve-help","pid":107,"exitCode":0,"signal":null,"timedOut":false,"reaped":true},{"name":"run-help","pid":120,"exitCode":0,"signal":null,"timedOut":false,"reaped":true},{"name":"enrollment","pid":133,"exitCode":0,"signal":null,"timedOut":false,"reaped":true},{"name":"login","pid":142,"exitCode":0,"signal":null,"timedOut":false,"reaped":true},{"name":"first-request","pid":156,"exitCode":0,"signal":null,"timedOut":false,"reaped":true}],
+  "first_request_raw":{"stdout":"{\"type\":\"step_start\",\"timestamp\":1791732840764,\"sessionID\":\"ses_ed466891bffeFzaB7ikRAz2Ehv\",\"part\":{\"id\":\"prt_12b99792d00178iyF3U74aeVqz\",\"messageID\":\"msg_12b9977a00010wVFNIW3dLygws\",\"sessionID\":\"ses_ed466891bffeFzaB7ikRAz2Ehv\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1791732840765,\"sessionID\":\"ses_ed466891bffeFzaB7ikRAz2Ehv\",\"part\":{\"id\":\"prt_12b99792f001DZI9GlztBFvf3T\",\"messageID\":\"msg_12b9977a00010wVFNIW3dLygws\",\"sessionID\":\"ses_ed466891bffeFzaB7ikRAz2Ehv\",\"type\":\"text\",\"text\":\"Native V1 vault first request completed.\",\"time\":{\"start\":1791732840751,\"end\":1791732840753}}}\n{\"type\":\"step_finish\",\"timestamp\":1791732840765,\"sessionID\":\"ses_ed466891bffeFzaB7ikRAz2Ehv\",\"part\":{\"id\":\"prt_12b9979330016mmyWg9Et2ZSV7\",\"reason\":\"stop\",\"messageID\":\"msg_12b9977a00010wVFNIW3dLygws\",\"sessionID\":\"ses_ed466891bffeFzaB7ikRAz2Ehv\",\"type\":\"step-finish\",\"tokens\":{\"total\":8,\"input\":1,\"output\":7,\"reasoning\":0,\"cache\":{\"write\":0,\"read\":0}},\"cost\":0}}\n","stderr":""}
+}

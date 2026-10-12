@@ -30,6 +30,8 @@ process.env.APPDATA = config
 process.env.LOCALAPPDATA = cache
 process.env.OPENCODE_CONFIG_DIR = join(config, 'opencode')
 process.env.PI_AGENT_DIR = pi
+// Pi's native credential reader uses its own directory override.
+process.env.PI_CODING_AGENT_DIR = pi
 process.env.PI_ANTIGRAVITY_AUTH_FILE = join(pi, 'antigravity-accounts.json')
 process.env.OPENCODE_ANTIGRAVITY_GEMINI_DUMP_DIR = join(root, 'gemini-dumps')
 // Pin the two state-dir overrides so tests that reset them restore to an

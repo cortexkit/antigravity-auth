@@ -1,0 +1,25 @@
+
+packages/core/src/public-command-scope.test.ts:
+(pass) admits a separately grouped child only through fresh parent/birth ancestry [0.27ms]
+(pass) refuses an unseen same-session orphan rather than retrospectively adopting it [0.11ms]
+(pass) refuses a parent born after the candidate child [0.03ms]
+(pass) refuses a reused captured ancestor before admitting its candidate child [0.05ms]
+(pass) retains captured descendants after parent and leader exit [0.06ms]
+(pass) refuses changed recorded PGID or SID before dispatching a signal [0.14ms]
+(pass) requires capture before signaling and treats an owned ESRCH as benign [0.09ms]
+
+packages/core/src/__fixtures__/public-consumer-command.test.ts:
+(pass) reaps controlled live descendants that outlive the leader with retained pipes [1216.64ms]
+(pass) reaps controlled live descendants that outlive the leader with closed pipes [1106.59ms]
+(pass) retains the fixture and primary failure when controlled live descendant cleanup cannot be confirmed [91.97ms]
+(pass) reaps a captured same-session descendant in a separate process group after leader exit [1110.84ms]
+(pass) rejects PID birth-identity mismatch before dispatching any signal [0.24ms]
+(pass) rejects a reused leader or group identity before dispatching any signal [0.06ms]
+(pass) reports observed descendants outside the captured group or session as unresolved [0.10ms]
+(pass) permits fresh exact identity controls but not larger production deadlines [0.12ms]
+(pass) retains exact offender, captured identity and leader in a scope refusal [0.08ms]
+
+ 16 pass
+ 0 fail
+ 51 expect() calls
+Ran 16 tests across 2 files. [3.94s]

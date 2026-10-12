@@ -1,0 +1,68 @@
+name: Windows offline account migration
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  migration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Install frozen dependencies and build the candidate migration CLI
+        shell: pwsh
+        run: |
+          bun install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun run --cwd packages/core build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun run --cwd packages/opencode esbuild src/cli.ts --bundle --platform=node --format=esm --external:@cortexkit/antigravity-auth-core --outfile=dist/windows-migration-cli.mjs
+          exit $LASTEXITCODE
+      - name: Acquire the released regression baseline
+        shell: pwsh
+        run: |
+          $consumer = Join-Path $env:RUNNER_TEMP 'agy-migration-baseline'
+          New-Item -ItemType Directory -Path $consumer | Out-Null
+          Set-Location $consumer
+          '{"name":"owned-migration-baseline","private":true}' | Set-Content package.json
+          npm view '@cortexkit/opencode-antigravity-auth@3.0.0' --json | Set-Content registry-opencode.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm view '@cortexkit/antigravity-auth-core@3.0.0' --json | Set-Content registry-core.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm install '@cortexkit/opencode-antigravity-auth@3.0.0' --ignore-scripts --no-audit --no-fund --cache "$env:RUNNER_TEMP/agy-migration-cache"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node -e "const fs=require('fs'); for(const file of ['registry-opencode.json','registry-core.json']) {const data=JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'')); if(data.version!=='3.0.0'||data.gitHead!=='f39bc1ba7201d5ac52d69b3f970d9905829d55f9')throw Error('Released baseline identity mismatch');}"
+          exit $LASTEXITCODE
+      - name: Verify migration over the exact released failure leftovers
+        shell: pwsh
+        run: |
+          node test/windows-migration/verify.mjs "$env:RUNNER_TEMP/agy-migration-evidence" "$env:RUNNER_TEMP/agy-migration-baseline" packages/opencode/dist/windows-migration-cli.mjs
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-migration-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/agy-migration-evidence
+            ${{ runner.temp }}/agy-migration-baseline/registry-*.json
+          if-no-files-found: error

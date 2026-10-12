@@ -1,0 +1,148 @@
+{
+  "base": "6a13318a93714fb796446d48c27d142b868d872c",
+  "contract": "The wrapper owns verified descendants of the captured command, not one process group. Same-SID membership is only a discovery boundary, not proof of ancestry.",
+  "originalCi": {
+    "run": 38159607825,
+    "kind": "Unmodified parent-owned GitHub run metadata and failed-step log, not AFT suite output",
+    "inputs": [
+      {
+        "path": ".cortexkit/parent-inputs/ci-6a13318a-original-r1/run.json",
+        "bytes": 6604,
+        "sha256": "03d53536182b09296587d574a301cb4473b39d513de3be86e12d887bea28e048"
+      },
+      {
+        "path": ".cortexkit/parent-inputs/ci-6a13318a-original-r1/failed.log",
+        "bytes": 234717,
+        "sha256": "6a0a14282c6a5c4553d12aaedf731d56c7426aee991cbe9423e4dd851995bbd0"
+      }
+    ],
+    "hashVerification": "Both original byte counts and SHA-256 values matched MANIFEST.json locally",
+    "refusalLines": "failed.log:1324-1349",
+    "leader": {
+      "pid": 3939,
+      "ppid": 3884,
+      "pgid": 3939,
+      "sid": 3939,
+      "start": "40091",
+      "zombie": false
+    },
+    "expectedAndCurrent": {
+      "pid": 6227,
+      "ppid": 6212,
+      "pgid": 6227,
+      "sid": 3939,
+      "start": "60922",
+      "zombie": false
+    },
+    "signals": [],
+    "exit": 1,
+    "mechanism": "The refusal is the root-PGID comparison, reached in session-member inspection. Birth and current/captured child identity match. The original log contains no child argv/executable or complete parent chain; it does not identify the spawning call.",
+    "baseCallChain": [
+      "package.json:13 test -> scripts/prepare-common-auth-public-consumer.ts bun test --isolate ...",
+      "scripts/prepare-common-auth-public-consumer.ts:172-177 spawn(detached:true); :216-227 capture root PID/birth/SID/PGID",
+      "scripts/prepare-common-auth-public-consumer.ts:230-275 monitor -> inspectPublicCommandScope at :239",
+      "packages/core/src/__fixtures__/public-command-processes.test.ts:102-125 Linux session(SID) discovery -> :332-340 member assertion",
+      "packages/core/src/__fixtures__/public-command-processes.test.ts:306 current.pgid !== leader.pgid -> :309 refusal",
+      "scripts/prepare-common-auth-public-consumer.ts:297 reapPublicCommandScope -> inspectPublicCommandScope -> same refusal; no signal; AggregateError; root CLI exit 1"
+    ]
+  },
+  "controlledOriginal": {
+    "separateAtFirstObservation": {
+      "taskId": "bash-a6cdf332c5c09f57",
+      "leader": {
+        "pid": 12,
+        "ppid": 4,
+        "pgid": 12,
+        "sid": 12,
+        "start": "61023139"
+      },
+      "child": {
+        "pid": 13,
+        "ppid": 12,
+        "pgid": 13,
+        "sid": 12,
+        "start": "61023141"
+      },
+      "executable": "/usr/bin/python3.14",
+      "argv": [
+        "python3",
+        "research/public-consumer-group-scope/owned-group-witness.py",
+        "separate-first",
+        "1fdbc0b4-f838-426f-8aae-9e68cb3d3315"
+      ],
+      "source": "owned-group-witness.py forks, then the child calls os.setpgid(0, 0), without setsid",
+      "result": "Actual wrapper/inspector refused matching child identity with distinct PGID; zero signals; inner/outer/remote exit 1",
+      "groupTransitionObserved": false
+    },
+    "comparisonsTaskId": "bash-6a46ede1326b128f",
+    "comparisons": [
+      "Normal child: child13 PPID12 SID/PGID12 birth61026875; individual SIGTERM; wrapper cleanup true; inner exit0",
+      "Changed-after-capture: child23 PPID22 SID/PGID22 birth61027076 at first observation; later PPID1 SID22 PGID23 with same birth; refusal, zero signals, inner exit1",
+      "Foreign-session-after-capture: child33 PPID32 SID/PGID32 birth61027274; later PPID1 SID/PGID33 with same birth; refusal, zero signals, inner exit1"
+    ],
+    "canonicalAttempt": "Actual wrapper around test/common-auth-094-adoption/embed-build, with genuine public consumer prerequisites. No CI group anomaly reproduced. Observed build.mjs and npm pack/npm children all in root PGID42/SID42. Docker ENOENT, offline cache misses and the injected 60000ms diagnostic deadline are preserved in the original recorder. No Docker checks passed and no daemon was installed. Canonical inner exit1; enclosing multi-control recorder exit0. This is not a canonical suite pass."
+  },
+  "correction": {
+    "source": "packages/core/src/__fixtures__/public-command-processes.test.ts",
+    "admission": "For each previously unseen live session member, walk fresh parent/birth links to the recorded leader or a currently birth-verified captured descendant, reject cycles/oversized chains, missing/zombie parents and children predating parents, then reread the complete chain before storing any new member. Refuse unverifiable live orphans rather than adopting them by SID.",
+    "identity": "PID and birth match the recorded member; SID matches both record and leader; PGID matches that member's recorded PGID, not the root's; birth cannot precede the leader. The leader remains protected by its own original identity.",
+    "signal": "Require a recorded member before signals, then freshly validate leader if present and target PID/birth/SID/recorded PGID. Signal individual positive PIDs only, preserve benign ESRCH and signal receipts; no group-wide kill.",
+    "retention": "Keep captured descendants across parent/leader exit and legal reparenting; remove only absent/zombie members after identity validation. Scope failures remain errors, retain fixtures and preserve primary failures.",
+    "bounds": "No production bound, monitor cadence, timeout, CLI or inspector API change. Existing 300ms deliberate failure/refusal controls and reap/grace/output bounds remain unchanged. Successful live witnesses use the existing production execution bound only.",
+    "testAcknowledgment": "Generated parent waits for an owned file acknowledgment. The existing inspectorFactory queues a microtask from the real native session call; it writes the acknowledgment only after the wrapper's monitor records successful real ownership admission for that sample and the child PID/birth is present. Parent then exits; descendant remains live for cleanup. No blind sleep proves capture. Receipt records the child's actual PPID/SID/PGID, not the root's proxy values.",
+    "testContractChange": "The old optional periodicObservation=false performance comparison was removed from live descendant cases because a deliberately unsampled immediate orphan cannot satisfy verified ancestry. Existing after-leader-exit cleanup assertions are retained; normal retained/closed pipe cases and injected inspection failure are still tested.",
+    "limitations": [
+      "Existing inspector discovery samples the root's session; a child that leaves before its first capture cannot be discovered/proven by that interface. Already captured foreign SID/group/birth changes are refused. No claim of exhaustive atomic fork tracing is made.",
+      "Fresh native validation and kill are not atomic; the pre-existing PID-reuse race between final read and signal remains explicit.",
+      "The exact CI child spawning call remains unmeasured; neither Bun, Docker, detached spawning nor setsid is asserted as its cause."
+    ]
+  },
+  "verification": {
+    "versions": {
+      "bun": "1.4.2",
+      "typescript": "6.0.3",
+      "biome": "2.5.3",
+      "python": "3.14.4"
+    },
+    "scopedPositive": "bash-9d832cf1bb17fa85: same-job core build/typecheck and scripts typecheck passed; Biome checked 3 files; 34 tests in 3 files passed (259 assertions); separately grouped actual wrapper witness returned0 with cleanup true and individual child325 SIGTERM in PGID325/SID324",
+    "latestCoreAndScriptTypes": "Final receipt-field changes passed core typecheck and scripts typecheck after same-job core build; core build copied129 embedded files. A subsequent owner-overlay job also passed scripts typecheck.",
+    "originalAdjacentFailure": "bash-7e8adfa97fd7bcd2: 17pass/3fail/1error. Missing same-job core declarations affected activation/local-grant tests; the unseen-orphan E2E witness additionally failed the newly required ancestry check. This latter failure is a real contract change, not baseline noise.",
+    "ownerOverlay": {
+      "path": "packages/e2e-tests/src/v1-vault-activation.e2e.test.ts",
+      "sha256": "715131cce55058ec3e1fdd98e9cbaa8e2a6ac0c429b0b94d64414a68e08f594e",
+      "provenance": "Parent-owned exact bytes were copied only into the disposable Linux test mirror and restored on exit; the local out-of-fence source was never edited. Input is preserved as receipts/owner-adjacent-test.ts.txt.",
+      "result": "bash-b15ed6628c69198f: 36pass/1fail, 293 assertions. All17 scoped ownership tests and all17 local-grant tests passed. Main native activation and ESRCH control passed. The owner descendant test alone failed receipt.exitCode null vs0 after waiting for the exit event; startChild fills receipt.exitCode on close, not exit. Original red preserved for owner repair. Inner/outer/remote exit1."
+    },
+    "inspection": "AFT diagnostics reported Biome clean but TypeScript analysis partial (mise configuration crash during LSP initialization); authoritative remote tsc checks passed.",
+    "commentReviews": "Sidekick staged-source comment review sk_worker_00000000-0000-4013-98dc-f5b6d01de990 examined5 blocks/9 lines across3 source files and flagged none; prior review covered the two research programs.",
+    "fullSuite": "Not forced or claimed green: ck-motor has no Docker and the canonical attempt lacked nested private offline-cache entries. No CI rerun was performed.",
+    "finalGate": {
+      "taskId": "bash-9edc9564c3b19e15",
+      "ownerR2Sha256": "6a37e4dddc2580f837b344e7ce8879c8aec49c382911e9ae3403abefbdc17665",
+      "ownerR2Bytes": 7175,
+      "types": "Same-job core build (129 copied embedded files), core tsc --noEmit and tsc -p tsconfig.scripts.json all passed; TypeScript6.0.3",
+      "lint": "Biome2.5.3 checked3 source files; no fixes/errors",
+      "tests": "Bun1.4.2:17 scoped ownership tests passed in2 files (54assertions); only previously failed owner adjacent witness rerun:1pass/2filtered (7assertions). Both wrappers confirmed cleanup and returned0; outer/remote exit0. Exact owner R2 overlay restored on exit; no local out-of-fence source edit."
+    }
+  },
+  "mutationEvidence": [
+    {
+      "control": "Bypass fresh ancestry admission and record arbitrary SID rows",
+      "taskId": "bash-5df1a4daa867e5d2",
+      "expected_red": "refuses an unseen same-session orphan rather than retrospectively adopting it",
+      "captured_output": "1pass/1fail,5filtered: orphan refusal failed (function did not throw); admits a separately grouped child only through fresh parent/birth ancestry stayed green. MUTATION_INNER_EXIT=1; outer/remote exit1.",
+      "applied_evidence": "packages/core/src/__fixtures__/public-command-processes.test.ts: live mutant explicitly marked; staged live state before mutation; git diff --stat during:1file,1insertion(+),1deletion(-); after git checkout -- path && touch path:empty",
+      "outcome": "reddened"
+    },
+    {
+      "control": "Neutralize current.pgid !== expected.pgid before individual dispatch",
+      "taskId": "bash-64f42a5b22663dcc",
+      "expected_red": "refuses changed recorded PGID or SID before dispatching a signal",
+      "captured_output": "1pass/1fail,5filtered: recorded-PGID refusal failed (function did not throw); admits a separately grouped child only through fresh parent/birth ancestry stayed green. MUTATION_INNER_EXIT=1; outer/remote exit1.",
+      "applied_evidence": "packages/core/src/__fixtures__/public-command-processes.test.ts: live mutant explicitly marked; staged live state before mutation; git diff --stat during:1file,1insertion(+),1deletion(-); after git checkout -- path && touch path:empty",
+      "outcome": "reddened"
+    }
+  ],
+  "receiptIndex": "receipts/index.json retains original AFT paths/task IDs, remote job IDs, original stream hashes and true outer/remote terminal exits. Embedded printed inner exits and wrapper completion records are preserved in their unmodified streams. No environment.bin or operator configuration was read.",
+  "approvalGate": "Commit requires explicit owner approval of the exact staged source/evidence tree; final delivery records the decision."
+}

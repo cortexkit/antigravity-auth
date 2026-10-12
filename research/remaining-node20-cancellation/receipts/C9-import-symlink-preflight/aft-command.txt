@@ -1,0 +1,1 @@
+bash research/remaining-node20-cancellation/run-gate.sh C9-import-symlink-preflight bash -c 'python3 --version && python3 research/remaining-node20-cancellation/import-receipt.test.py -v ReceiptImportControls.test_rejects_symlink_ancestors_and_targets_before_any_writes ReceiptImportControls.test_valid_import_preserves_all_raw_bytes'

@@ -255,106 +255,151 @@ describe('formatQuotaStatusPlain', () => {
 })
 
 describe('formatCachedQuotaWithStatus', () => {
+  const now = 1_800_000_000_000
+  const futureTime = new Date(now + 7_200_000).toISOString()
+
   it('returns undefined for undefined quota', () => {
-    expect(formatCachedQuotaWithStatus(undefined)).toBeUndefined()
+    expect(formatCachedQuotaWithStatus(undefined, now, now)).toBeUndefined()
   })
 
-  it('returns undefined for empty quota', () => {
-    expect(formatCachedQuotaWithStatus({})).toBeUndefined()
+  it('shows the shared missing-reading message for empty quota', () => {
+    expect(formatCachedQuotaWithStatus({}, now, now)).toBe(
+      'no quota reading yet',
+    )
   })
 
   it('ignores unknown / legacy quota keys while keeping the supported ones', () => {
-    // Older snapshots may carry `claude`, `gemini-antigravity`, or
-    // `gemini-cli` keys left over from the 3/4-key model. The collapsed
-    // two-pool projection must drop those (not crash, not surface them
-    // as extra groups) and render only the supported pools.
-    const result = formatCachedQuotaWithStatus({
-      claude: { remainingFraction: 0.5 },
-      'gemini-antigravity': { remainingFraction: 0.5 },
-      'gemini-cli': { remainingFraction: 0.5 },
-      'non-gemini': { remainingFraction: 0.8 },
-    } as never)
-    expect(result).toBe('Non-Gemini 80%')
+    const result = formatCachedQuotaWithStatus(
+      {
+        claude: { remainingFraction: 0.5 },
+        'gemini-antigravity': { remainingFraction: 0.5 },
+        'gemini-cli': { remainingFraction: 0.5 },
+        'non-gemini': { remainingFraction: 0.8 },
+      },
+      now,
+      now,
+    )
+    expect(result).toBe('Claude / GPT-OSS 80% left')
   })
 
-  it('formats READY groups without status label', () => {
-    const result = formatCachedQuotaWithStatus({
-      'non-gemini': { remainingFraction: 0.8 },
-    })
-    expect(result).toBe('Non-Gemini 80%')
+  it('formats READY groups without a redundant status label', () => {
+    expect(
+      formatCachedQuotaWithStatus(
+        { 'non-gemini': { remainingFraction: 0.8 } },
+        now,
+        now,
+      ),
+    ).toBe('Claude / GPT-OSS 80% left')
   })
 
-  it('formats LOW groups with LOW label', () => {
-    const result = formatCachedQuotaWithStatus({
-      'non-gemini': { remainingFraction: 0.15 },
-    })
-    expect(result).toBe('Non-Gemini low 15%')
+  it('formats LOW groups using the same remaining figure as other views', () => {
+    expect(
+      formatCachedQuotaWithStatus(
+        { 'non-gemini': { remainingFraction: 0.15 } },
+        now,
+        now,
+      ),
+    ).toBe('Claude / GPT-OSS 15% left')
   })
 
-  it('formats EXHAUSTED groups without trailing 0%', () => {
-    const futureTime = new Date(Date.now() + 7200000).toISOString()
-    const result = formatCachedQuotaWithStatus({
-      gemini: { remainingFraction: 0, resetTime: futureTime },
-    })
-    // Single exhausted group — all groups exhausted, so formatCachedQuotaWithStatus
-    // returns condensed reset info (undefined when no reset time)
-    expect(result).toBeUndefined()
+  it('formats EXHAUSTED groups with their reported zero and reset', () => {
+    expect(
+      formatCachedQuotaWithStatus(
+        { gemini: { remainingFraction: 0, resetTime: futureTime } },
+        now,
+        now,
+      ),
+    ).toBe('Gemini 0% left, resets 2h')
   })
 
-  it('treats stale 0% without reset time as READY (not exhausted)', () => {
-    const result = formatCachedQuotaWithStatus({
-      gemini: { remainingFraction: 0 },
-    })
-    // Stale cache: no resetTime means quota likely already reset — treated as READY
-    // READY at 0% still shows percentage (not hidden since pct < 100)
-    expect(result).toBe('Gemini 0%')
+  it('does not infer a reset or READY label from an absent reset time', () => {
+    expect(
+      formatCachedQuotaWithStatus(
+        { gemini: { remainingFraction: 0 } },
+        now,
+        now,
+      ),
+    ).toBe('Gemini 0% left')
   })
 
   it('formats multiple groups with mixed status', () => {
-    const futureTime = new Date(Date.now() + 7200000).toISOString()
-    const result = formatCachedQuotaWithStatus({
-      'non-gemini': { remainingFraction: 0.8 },
-      gemini: { remainingFraction: 0, resetTime: futureTime },
-    })
-    // Not all exhausted, so per-model breakdown shown; EXHAUSTED includes reset time
-    expect(result).toMatch(/^Gemini exhausted resets in \dh, Non-Gemini 80%/)
+    expect(
+      formatCachedQuotaWithStatus(
+        {
+          'non-gemini': { remainingFraction: 0.8 },
+          gemini: { remainingFraction: 0, resetTime: futureTime },
+        },
+        now,
+        now,
+      ),
+    ).toBe('Gemini 0% left, resets 2h · Claude / GPT-OSS 80% left')
   })
 
   it('includes non-Gemini quota in account health and summaries', () => {
-    const futureTime = new Date(Date.now() + 7200000).toISOString()
     const quota = {
       gemini: { remainingFraction: 1 },
       'non-gemini': { remainingFraction: 0, resetTime: futureTime },
     }
-
     expect(classifyOverallQuotaHealth(quota).health).toBe('partial')
-    expect(formatCachedQuotaWithStatus(quota)).toMatch(
-      /^Non-Gemini exhausted resets in \dh/,
+    expect(formatCachedQuotaWithStatus(quota, now, now)).toBe(
+      'Gemini 100% left · Claude / GPT-OSS 0% left, resets 2h',
     )
   })
 
-  it('hides groups at 100% READY', () => {
-    const result = formatCachedQuotaWithStatus({
-      'non-gemini': { remainingFraction: 1.0 },
-      gemini: { remainingFraction: 0.5 },
-    })
-    expect(result).toBe('Gemini 50%')
+  it('keeps reported groups at 100% rather than hiding their windows', () => {
+    expect(
+      formatCachedQuotaWithStatus(
+        {
+          'non-gemini': { remainingFraction: 1 },
+          gemini: { remainingFraction: 0.5 },
+        },
+        now,
+        now,
+      ),
+    ).toBe('Gemini 50% left · Claude / GPT-OSS 100% left')
   })
 
-  it('returns undefined when all groups are 100% READY', () => {
-    const result = formatCachedQuotaWithStatus({
-      'non-gemini': { remainingFraction: 1.0 },
-      gemini: { remainingFraction: 1.0 },
-    })
-    expect(result).toBeUndefined()
+  it('keeps all reported groups when all are at 100%', () => {
+    expect(
+      formatCachedQuotaWithStatus(
+        {
+          'non-gemini': { remainingFraction: 1 },
+          gemini: { remainingFraction: 1 },
+        },
+        now,
+        now,
+      ),
+    ).toBe('Gemini 100% left · Claude / GPT-OSS 100% left')
   })
 
   it('skips groups with non-numeric remaining fraction', () => {
-    const result = formatCachedQuotaWithStatus({
-      'non-gemini': { remainingFraction: undefined },
-      gemini: { remainingFraction: 0.5 },
-    })
-    expect(result).toBe('Gemini 50%')
+    expect(
+      formatCachedQuotaWithStatus(
+        {
+          'non-gemini': { remainingFraction: undefined },
+          gemini: { remainingFraction: 0.5 },
+        },
+        now,
+        now,
+      ),
+    ).toBe('Gemini 50% left')
+  })
+
+  it('does not fabricate an age for an undated cached figure', () => {
+    expect(
+      formatCachedQuotaWithStatus(
+        { gemini: { remainingFraction: 0.5 } },
+        undefined,
+        now,
+      ),
+    ).toBe('no quota reading yet')
+    expect(
+      formatCachedQuotaWithStatus(
+        { gemini: { remainingFraction: 0.5 } },
+        now - 20 * 60_000,
+        now,
+      ),
+    ).toBe('Gemini 50% left · checked 20m ago')
   })
 })
 

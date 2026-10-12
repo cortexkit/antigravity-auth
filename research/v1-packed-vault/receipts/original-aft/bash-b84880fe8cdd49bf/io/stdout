@@ -1,0 +1,6 @@
+1.4.2
+Copied 129 embedded common-auth files
+Version 6.0.3
+packages/e2e-tests/src/v1-packed-vault-harness.ts(497,31): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Uint8Array<ArrayBufferLike>'.
+packages/e2e-tests/src/v1-packed-vault-harness.ts(659,58): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Uint8Array<ArrayBufferLike>'.
+packages/e2e-tests/src/v1-packed-vault-harness.ts(701,67): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Uint8Array<ArrayBufferLike>'.

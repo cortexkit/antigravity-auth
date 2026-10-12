@@ -1,0 +1,16 @@
+timestamp=2026-10-11T17:57:01.884Z level=INFO run=6f312497 message="creating instance" directory=/tmp/packed-v1-vault-QNn1Tl/host/project
+timestamp=2026-10-11T17:57:01.886Z level=INFO run=6f312497 message=fromDirectory directory=/tmp/packed-v1-vault-QNn1Tl/host/project
+timestamp=2026-10-11T17:57:01.900Z level=INFO run=6f312497 message=bootstrapping directory=/tmp/packed-v1-vault-QNn1Tl/host/project
+timestamp=2026-10-11T17:57:01.903Z level=INFO run=6f312497 message=loading path=/tmp/packed-v1-vault-QNn1Tl/host/config/opencode/config.json
+timestamp=2026-10-11T17:57:01.903Z level=INFO run=6f312497 message=loading path=/tmp/packed-v1-vault-QNn1Tl/host/config/opencode/opencode.json
+timestamp=2026-10-11T17:57:01.908Z level=INFO run=6f312497 message=loading path=/tmp/packed-v1-vault-QNn1Tl/host/config/opencode/opencode.jsonc
+timestamp=2026-10-11T17:57:01.910Z level=INFO run=6f312497 message=loading path=/tmp/packed-v1-vault-QNn1Tl/host/config/opencode/opencode.json
+timestamp=2026-10-11T17:57:01.913Z level=INFO run=6f312497 message=loading path=/tmp/packed-v1-vault-QNn1Tl/host/config/opencode/opencode.jsonc
+timestamp=2026-10-11T17:57:01.923Z level=INFO run=6f312497 message=loading path=/tmp/packed-v1-vault-QNn1Tl/host/project/.opencode/opencode.json
+timestamp=2026-10-11T17:57:01.924Z level=INFO run=6f312497 message=loading path=/tmp/packed-v1-vault-QNn1Tl/host/project/.opencode/opencode.jsonc
+timestamp=2026-10-11T17:57:02.061Z level=INFO run=6f312497 message="all LSPs are disabled"
+timestamp=2026-10-11T17:57:02.062Z level=INFO run=6f312497 message="all formatters are disabled"
+timestamp=2026-10-11T17:57:02.062Z level=INFO run=6f312497 message=init
+[0m
+timestamp=2026-10-11T17:57:02.691Z level=ERROR run=6f312497 message="Failed to fetch models.dev" cause="Cause([Fail(HttpClientError: Transport error (GET https://models.dev/api.json) (cause: Error: Unable to connect. Is the computer able to access the url?))])"
+timestamp=2026-10-11T17:57:02.756Z level=INFO run=6f312497 message="disposing instance" directory=/tmp/packed-v1-vault-QNn1Tl/host/project

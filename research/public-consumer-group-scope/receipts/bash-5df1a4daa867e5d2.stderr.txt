@@ -1,0 +1,41 @@
+
+packages/core/src/public-command-scope.test.ts:
+(pass) admits a separately grouped child only through fresh parent/birth ancestry [0.20ms]
+57 |   expect(() =>
+58 |     inspectPublicCommandScope(
+59 |       owned,
+60 |       inspector([leader, { ...child, ppid: 1 }]),
+61 |     ),
+62 |   ).toThrow('parent/birth ancestry unavailable')
+         ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "parent/birth ancestry unavailable"
+
+Received function did not throw
+Received value: [
+  {
+    pid: 101,
+    ppid: 10,
+    pgid: 101,
+    sid: 101,
+    start: 100n,
+    zombie: false,
+  }, {
+    pid: 103,
+    ppid: 1,
+    pgid: 103,
+    sid: 101,
+    start: 120n,
+    zombie: false,
+  }
+]
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/public-command-scope.test.ts:62:5)
+(fail) refuses an unseen same-session orphan rather than retrospectively adopting it [0.13ms]
+
+ 1 pass
+ 5 filtered out
+ 1 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [134.00ms]

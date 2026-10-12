@@ -1,0 +1,359 @@
+{
+  "namespace": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/6fdfb3b4ac8b1ffe",
+  "tasks": [
+    {
+      "task": "bash-1e6587884330c5fa",
+      "command": "git status --short; git branch --show-current; git rev-parse HEAD",
+      "exit": 0,
+      "remote": null,
+      "files": [
+        {
+          "path": "control/command.sh",
+          "bytes": 65,
+          "sha256": "161cff1c99a0d2e0b92500c9cee336d0a9bc1ef54bc9959eabfb4cb1ed8b1604"
+        },
+        {
+          "path": "control/metadata.json",
+          "bytes": 1001,
+          "sha256": "7db27af9ae442aec24c6983ae9b932d87c6bff8f481cc7f9ca4c59b2c35f0035"
+        },
+        {
+          "path": "io/stdout",
+          "bytes": 109,
+          "sha256": "dee8712e59fb6044435c663ab9c5456671c45662dc854edbe45dadfec0461e9b"
+        },
+        {
+          "path": "io/stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    {
+      "task": "bash-925826db97925a46",
+      "command": "mkdir -p research/vault-boundary-final; set -o pipefail; { bun --version; bun run --cwd packages/core build && bun test --isolate packages/pi/src/stream.test.ts packages/opencode/src/plugin/shared/request-services.test.ts --test-name-pattern 'selected credential boundary|composed OpenCode'; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"; } 2>&1 | tee research/vault-boundary-final/red-first.log",
+      "exit": 1,
+      "remote": {
+        "connection_file": "/Users/ufukaltinok/.local/share/cortexkit/run/subc-connection.json",
+        "explicit_runon": true,
+        "harness": "runner",
+        "session": "alfonso:bg_cd8afc26a634541b",
+        "requested_vcpus": 4,
+        "requested_network": false,
+        "granted_network": false,
+        "accepted": true,
+        "started": {
+          "seq": 0,
+          "queue_wait_ms": 17,
+          "started_at_ms": 1791744464057
+        },
+        "job_id": "01a12c4a-c4e2-72f4-b056-34b5e9dcabf9",
+        "last_seq": 5,
+        "gap_recovery": null,
+        "undelivered_output": [],
+        "stdout_len": 8127,
+        "stderr_len": 0,
+        "unknown_len": 0,
+        "cancel_requested": false,
+        "terminal": {
+          "job_id": "01a12c4a-c4e2-72f4-b056-34b5e9dcabf9",
+          "outcome": {
+            "type": "exit",
+            "code": 1
+          },
+          "wall_ms": 2055,
+          "queue_wait_ms": 17,
+          "bundle_bytes": 4667,
+          "ran": "remote",
+          "tree_hash": "ecadd2a9c4b2606ef8917ac7e71b93fe93f09835",
+          "workspace_changes": []
+        },
+        "fallback_digest": "98b21ddc473503098e0b093d0618864fe297e9bccccd021b0029dd29db3666ca",
+        "env_not_forwarded": [
+          "GIT_CONFIG_COUNT",
+          "GIT_CONFIG_KEY_0",
+          "GIT_CONFIG_VALUE_0",
+          "HOME",
+          "LOGNAME",
+          "ORT_DYLIB_PATH",
+          "OSLogRateLimit",
+          "PATH",
+          "SHELL",
+          "TMPDIR",
+          "USER",
+          "XDG_RUNTIME_DIR",
+          "XPC_FLAGS",
+          "XPC_SERVICE_NAME",
+          "__CF_USER_TEXT_ENCODING"
+        ],
+        "retry": {
+          "request_digest": "1064bc2bed71ffb7cef8bd0e636da5acd527780279f42f9c319049a884a04464",
+          "attempts": 1,
+          "first_refusal_at_ms": null,
+          "next_retry_at_ms": null,
+          "waited_ms": null
+        },
+        "queue_position": 0,
+        "output_received": true
+      },
+      "files": [
+        {
+          "path": "control/command.sh",
+          "bytes": 410,
+          "sha256": "d8e3c120b73276e310481eb0e51fa6865f7270920eb913bcdbebd1bab56a56a1"
+        },
+        {
+          "path": "control/metadata.json",
+          "bytes": 3740,
+          "sha256": "33a9b30d6cff8f803617af73de50baf5f8f2fadb8b1cc8fcccc60315d9cbf099"
+        },
+        {
+          "path": "io/stdout",
+          "bytes": 8127,
+          "sha256": "d9b68a0255ae22222146faf7f03776e64fad7f3c2f39802ff1ff0b27da880892"
+        },
+        {
+          "path": "io/stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    {
+      "task": "bash-9839ce80387ca190",
+      "command": "date -u '+%Y-%m-%dT%H:%M:%SZ'; git status --short",
+      "exit": 0,
+      "remote": null,
+      "files": [
+        {
+          "path": "control/command.sh",
+          "bytes": 49,
+          "sha256": "9cdd2d00be6f54ad67bf0ddf4c8bb64913fed47c1e5110c9c87df615dbe5845f"
+        },
+        {
+          "path": "control/metadata.json",
+          "bytes": 985,
+          "sha256": "a94e4e4bf14ee6c6b73683111252814ce1c17747052c89b90c236e2501e4f2e9"
+        },
+        {
+          "path": "io/stdout",
+          "bytes": 119,
+          "sha256": "e6212e90a4b06b6ca97e18c27cd5411794f15fa80fb64bfed98faf1898c95f05"
+        },
+        {
+          "path": "io/stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    {
+      "task": "bash-63a6f9fd388d8e78",
+      "command": "set -o pipefail; { bun --version; bun run --cwd packages/core build && bun test --isolate packages/pi/src/commands.test.ts packages/opencode/src/plugin/shared/request-services.test.ts --test-name-pattern 'public unreadable enrollment|vetoes project metadata|final captured grant'; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"; } 2>&1 | tee /tmp/vault-boundary-red-authority.log",
+      "exit": 2,
+      "remote": {
+        "connection_file": "/Users/ufukaltinok/.local/share/cortexkit/run/subc-connection.json",
+        "explicit_runon": true,
+        "harness": "runner",
+        "session": "alfonso:bg_cd8afc26a634541b",
+        "requested_vcpus": 4,
+        "requested_network": false,
+        "granted_network": false,
+        "accepted": true,
+        "started": {
+          "seq": 0,
+          "queue_wait_ms": 10,
+          "started_at_ms": 1791744701659
+        },
+        "job_id": "01a12c4e-181f-738a-a64c-e807f978755c",
+        "last_seq": 3,
+        "gap_recovery": null,
+        "undelivered_output": [],
+        "stdout_len": 377,
+        "stderr_len": 0,
+        "unknown_len": 0,
+        "cancel_requested": false,
+        "terminal": {
+          "job_id": "01a12c4e-181f-738a-a64c-e807f978755c",
+          "outcome": {
+            "type": "exit",
+            "code": 2
+          },
+          "wall_ms": 1635,
+          "queue_wait_ms": 10,
+          "bundle_bytes": 7376,
+          "ran": "remote",
+          "tree_hash": "e781daf4e5bd25b89af592f2ccb0adda8db96390",
+          "workspace_changes": []
+        },
+        "fallback_digest": "c6f6f6b9ecf2b15c4b6bae4b840ba397c9c31e89d3d2337a727d26768d14555d",
+        "env_not_forwarded": [
+          "GIT_CONFIG_COUNT",
+          "GIT_CONFIG_KEY_0",
+          "GIT_CONFIG_VALUE_0",
+          "HOME",
+          "LOGNAME",
+          "ORT_DYLIB_PATH",
+          "OSLogRateLimit",
+          "PATH",
+          "SHELL",
+          "TMPDIR",
+          "USER",
+          "XDG_RUNTIME_DIR",
+          "XPC_FLAGS",
+          "XPC_SERVICE_NAME",
+          "__CF_USER_TEXT_ENCODING"
+        ],
+        "retry": {
+          "request_digest": "f3f97d7d645e5dcaa696a88e4084fb9b9a58b74541eaab9e6199d945dd98ff98",
+          "attempts": 1,
+          "first_refusal_at_ms": null,
+          "next_retry_at_ms": null,
+          "waited_ms": null
+        },
+        "queue_position": 0,
+        "output_received": true
+      },
+      "files": [
+        {
+          "path": "control/command.sh",
+          "bytes": 393,
+          "sha256": "510e8a082c499ca8fa6d0ee3de9bafca7ee2950b3a8d798f5b6deef63b87d8a7"
+        },
+        {
+          "path": "control/metadata.json",
+          "bytes": 3723,
+          "sha256": "6376f801030ec92234b831510d742409b89a59c2decf8ef0df6abff8fea942f2"
+        },
+        {
+          "path": "io/stdout",
+          "bytes": 377,
+          "sha256": "85fc1ef8fd2be7f6851262cba79beada6a34f4b7288ea5e974809c532b5c00df"
+        },
+        {
+          "path": "io/stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    {
+      "task": "bash-aec3d26f18a194f4",
+      "command": "set -o pipefail; { bun --version; bun run --cwd packages/core build && bun test --isolate packages/pi/src/commands.test.ts packages/opencode/src/plugin/shared/request-services.test.ts --test-name-pattern 'public unreadable enrollment|vetoes project metadata|final captured grant'; inner=$?; printf '\\nINNER_EXIT=%s\\n' \"$inner\"; exit \"$inner\"; } 2>&1 | tee /tmp/vault-boundary-red-authority-fixed-setup.log",
+      "exit": 1,
+      "remote": {
+        "connection_file": "/Users/ufukaltinok/.local/share/cortexkit/run/subc-connection.json",
+        "explicit_runon": true,
+        "harness": "runner",
+        "session": "alfonso:bg_cd8afc26a634541b",
+        "requested_vcpus": 4,
+        "requested_network": false,
+        "granted_network": false,
+        "accepted": true,
+        "started": {
+          "seq": 0,
+          "queue_wait_ms": 380,
+          "started_at_ms": 1791744724642
+        },
+        "job_id": "01a12c4e-af8d-7016-83b7-f9fecadd824d",
+        "last_seq": 4,
+        "gap_recovery": null,
+        "undelivered_output": [],
+        "stdout_len": 3128,
+        "stderr_len": 0,
+        "unknown_len": 0,
+        "cancel_requested": false,
+        "terminal": {
+          "job_id": "01a12c4e-af8d-7016-83b7-f9fecadd824d",
+          "outcome": {
+            "type": "exit",
+            "code": 1
+          },
+          "wall_ms": 2647,
+          "queue_wait_ms": 380,
+          "bundle_bytes": 2817,
+          "ran": "remote",
+          "tree_hash": "edfbee5f06416ac44c4bf90f815d514ca324a535",
+          "workspace_changes": []
+        },
+        "fallback_digest": "18ee67d5c19b5365ad1573eb12d7feb5d297277f64472552be0d26266a16322f",
+        "env_not_forwarded": [
+          "GIT_CONFIG_COUNT",
+          "GIT_CONFIG_KEY_0",
+          "GIT_CONFIG_VALUE_0",
+          "HOME",
+          "LOGNAME",
+          "ORT_DYLIB_PATH",
+          "OSLogRateLimit",
+          "PATH",
+          "SHELL",
+          "TMPDIR",
+          "USER",
+          "XDG_RUNTIME_DIR",
+          "XPC_FLAGS",
+          "XPC_SERVICE_NAME",
+          "__CF_USER_TEXT_ENCODING"
+        ],
+        "retry": {
+          "request_digest": "1bbe099c46ad2fde33be3eaae5d43f2c6b464becded3a08b91128eaf1122b0e0",
+          "attempts": 1,
+          "first_refusal_at_ms": null,
+          "next_retry_at_ms": null,
+          "waited_ms": null
+        },
+        "queue_position": 0,
+        "output_received": true
+      },
+      "files": [
+        {
+          "path": "control/command.sh",
+          "bytes": 405,
+          "sha256": "c17d3e42a692a25510d3d28d79ab31a60a42253218c46993d8ff88d102e1b26a"
+        },
+        {
+          "path": "control/metadata.json",
+          "bytes": 3738,
+          "sha256": "a082b74fa9ca15f48287292b95f19128ea27c49f0f68ec486ac65c8e8bb94e36"
+        },
+        {
+          "path": "io/stdout",
+          "bytes": 3128,
+          "sha256": "f68df4dee8d425ea43e6ddb84f77f0f81fbb607e7370f13d056cb93cf23f3955"
+        },
+        {
+          "path": "io/stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    {
+      "task": "bash-22e82f7a070d57bf",
+      "command": "git status --short; git diff --stat; git diff --numstat; git ls-files --others --exclude-standard; git hash-object packages/core/src/credential-redaction.ts packages/core/src/credential-redaction.test.ts packages/core/src/index.ts packages/opencode/src/plugin/auth-loader.test.ts packages/opencode/src/plugin/shared/request-services.ts packages/opencode/src/plugin/shared/request-services.test.ts packages/pi/src/stream.ts packages/pi/src/stream.test.ts packages/pi/src/commands.ts packages/pi/src/commands.test.ts",
+      "exit": 0,
+      "remote": null,
+      "files": [
+        {
+          "path": "control/command.sh",
+          "bytes": 514,
+          "sha256": "26f14512cd3ff3275125dfffec119fcd672f16c746cb12a3ebec51a0656a0258"
+        },
+        {
+          "path": "control/metadata.json",
+          "bytes": 1450,
+          "sha256": "17b028d0cd6285433e8955c299a0abe061a1d54c8975479c05da7a5d1c798cf9"
+        },
+        {
+          "path": "io/stdout",
+          "bytes": 1855,
+          "sha256": "ea3357bb2bcc1a172601c32d429c1ef06a7b169847c82f4e0d6a302caec08138"
+        },
+        {
+          "path": "io/stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+# Red run of the new packages/pi/src/index.test.ts witnesses against UNCHANGED
+# packages/pi/src/index.ts at base d2d0e5e6 (only the test file was edited).
+# Runner: remote Linux (ck-motor, 4 vCPUs) via
+#   bun run --cwd packages/core build && cd packages/pi && bun test --isolate src/index.test.ts 2>&1 | grep -v '^\s*$'
+# Output copied verbatim from the tool result (the remote job leaves no files locally).
+
+1.4.2 (bun --version on the runner)
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+Copied 128 embedded common-auth files
+bun test v1.4.2 (744846f84)
+src/index.test.ts:
+(pass) Pi Antigravity model catalog > exposes the live GPT-OSS route but not unsupported image-output chat models [21.73ms]
+(pass) replaces the native Google catalog and reads only the google OAuth credential in the real Pi registry [62.64ms]
+(pass) the production default entry selects the vault stream and registers the shared menu [68.17ms]
+239 |       {
+240 |         readClaustrumEnrollmentStatus: async () => status.enrollment,
+241 |       },
+242 |     )
+243 |     if (authority === 'unreadable' || status.mode === 'unreadable') {
+244 |       throw new PiVaultSetupError(
+                  ^
+PiVaultSetupError: Vault enrollment or source settings cannot be read. Local credentials remain unavailable.
+      at <anonymous> (.../packages/pi/src/index.ts:244:13)
+      at async <anonymous> (.../packages/pi/src/index.ts:267:24)
+      at async registerCortexKitPiAntigravity (.../packages/pi/src/index.ts:295:9)
+      at async <anonymous> (.../packages/pi/src/index.test.ts:390:33)
+(fail) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable enrollment state [2.54ms]
+PiVaultSetupError: Vault enrollment or source settings cannot be read. Local credentials remain unavailable.
+      at <anonymous> (.../packages/pi/src/index.ts:244:13)
+      at async <anonymous> (.../packages/pi/src/index.ts:267:24)
+      at async registerCortexKitPiAntigravity (.../packages/pi/src/index.ts:295:9)
+      at async <anonymous> (.../packages/pi/src/index.test.ts:390:33)
+(fail) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for an unreadable mode file [1.34ms]
+254 |     if (status.mode !== 'local')
+255 |       throw new PiVaultSetupError(
+                  ^
+PiVaultSetupError: Vault enrollment must be approved before activating vault credentials.
+      at <anonymous> (.../packages/pi/src/index.ts:255:13)
+      at async <anonymous> (.../packages/pi/src/index.ts:267:24)
+      at async registerCortexKitPiAntigravity (.../packages/pi/src/index.ts:295:9)
+      at async <anonymous> (.../packages/pi/src/index.test.ts:390:33)
+(fail) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for custody mode with no enrollment [1.09ms]
+280 |     if (mode.mode === 'custody') await slot.enterVault()
+281 |     else if ((await slot.exitVault()) === 'conflict')
+282 |       throw new PiVaultSetupError(
+                  ^
+PiVaultSetupError: The native Google login changed. It was not overwritten; restore the saved login after resolving the conflict.
+      at <anonymous> (.../packages/pi/src/index.ts:282:13)
+      at async registerCortexKitPiAntigravity (.../packages/pi/src/index.ts:295:9)
+      at async <anonymous> (.../packages/pi/src/index.test.ts:390:33)
+(fail) Pi startup when the credential slot cannot be synchronized > registers the menu and a refusing google provider for a native Google login that conflicts with the saved one [8.38ms]
+PiVaultSetupError: Vault enrollment or source settings cannot be read. Local credentials remain unavailable.
+      at <anonymous> (.../packages/pi/src/index.ts:244:13)
+      at async <anonymous> (.../packages/pi/src/index.ts:267:24)
+      at async registerCortexKitPiAntigravity (.../packages/pi/src/index.ts:295:9)
+      at async <anonymous> (.../packages/pi/src/index.test.ts:437:15)
+(fail) Pi startup when the credential slot cannot be synchronized > names the slot failure in the refusal [1.83ms]
+PiVaultSetupError: Vault enrollment must be approved before activating vault credentials.
+      at <anonymous> (.../packages/pi/src/index.ts:255:13)
+      at async <anonymous> (.../packages/pi/src/index.ts:267:24)
+      at async registerCortexKitPiAntigravity (.../packages/pi/src/index.ts:295:9)
+      at async <anonymous> (.../packages/pi/src/index.test.ts:460:31)
+(fail) Pi startup when the credential slot cannot be synchronized > serves local again once the Vault section chooses the local login [1.50ms]
+603 |       string,
+604 |       ProviderConfig,
+605 |     ]
+606 |     // The mode file now says local and the native login is back: the last
+607 |     // registration must be the local provider, not the overtaken vault one.
+608 |     expect(last.oauth).toBeDefined()
+                             ^
+error: expect(received).toBeDefined()
+Received: undefined
+      at <anonymous> (.../packages/pi/src/index.test.ts:608:24)
+(fail) finishes an older slot synchronization before a mode change registers its provider [27.39ms]
+ 3 pass
+ 7 fail
+ 32 expect() calls
+Ran 10 tests across 1 file. [475.00ms]
+
+# Notes
+# - "..." abbreviates the worktree path
+#   /Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_8c631e5c03db8a98
+#   in stack frames; repeated source excerpts for identical throw sites are elided.
+# - Every startup failure above is the factory rejecting at index.ts:295 (the
+#   startup `await synchronizeSlot()`), before registerPiAntigravityCommand at
+#   index.ts:313, so /antigravity and the provider are never registered.
+# - The last failure is the overlapping-synchronization witness: a session_start
+#   synchronization that read vault authority before a Forget finished last and
+#   registered the vault provider over the local one (mode file local, native
+#   login restored).

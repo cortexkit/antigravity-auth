@@ -16,10 +16,10 @@
 
 import { createHash } from 'node:crypto'
 import type {
+  AccountModelFamily as ModelFamily,
   QuotaGroup,
   QuotaGroupSummary,
 } from '@cortexkit/antigravity-auth-core'
-import type { ModelFamily } from './accounts'
 import { AntigravityKillswitchError } from './errors'
 import type { OperatorSettings } from './operator-settings'
 

@@ -1,0 +1,4 @@
+ .../opencode/src/plugin/shared/request-services.ts | 27 +++++++---------------
+ packages/pi/src/commands.ts                        |  3 ++-
+ packages/pi/src/stream.ts                          | 23 +++++++-----------
+ 3 files changed, 18 insertions(+), 35 deletions(-)

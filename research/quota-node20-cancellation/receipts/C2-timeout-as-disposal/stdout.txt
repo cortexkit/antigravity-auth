@@ -1,0 +1,3 @@
+297:        if (disposed || controller.signal.aborted) { // NON-VACUITY BREAK
+bun test v1.4.2 (744846f84)
+test exit 1

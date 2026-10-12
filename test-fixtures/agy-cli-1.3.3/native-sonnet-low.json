@@ -1,0 +1,47 @@
+{
+  "endpoint": "/v1internal:streamGenerateContent",
+  "http_version": "HTTP/1.1",
+  "header_order": [
+    "Host",
+    "User-Agent",
+    "Transfer-Encoding",
+    "Authorization",
+    "Content-Type",
+    "Accept-Encoding"
+  ],
+  "user_agent": "antigravity/cli/1.3.3 (aidev_client; os_type=darwin; arch=arm64; cl=996823801; auth_method=consumer)",
+  "envelope_keys": [
+    "project",
+    "requestId",
+    "request",
+    "model",
+    "userAgent",
+    "requestType"
+  ],
+  "model": "claude-sonnet-5-5-low",
+  "request_keys": [
+    "contents",
+    "systemInstruction",
+    "tools",
+    "labels",
+    "generationConfig",
+    "sessionId"
+  ],
+  "native_generation_config": {
+    "maxOutputTokens": 128000,
+    "thinkingConfig": {
+      "includeThoughts": true,
+      "thinkingBudget": 0,
+      "thinkingLevel": "LOW"
+    }
+  },
+  "as_sent_generation_config": {
+    "maxOutputTokens": 2048,
+    "thinkingConfig": {
+      "includeThoughts": true,
+      "thinkingBudget": 0,
+      "thinkingLevel": "LOW"
+    }
+  },
+  "native_model_enum": "MODEL_PLACEHOLDER_M403"
+}

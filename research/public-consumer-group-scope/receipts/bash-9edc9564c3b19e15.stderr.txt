@@ -1,0 +1,37 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+$ tsc --noEmit
+
+packages/core/src/public-command-scope.test.ts:
+(pass) admits a separately grouped child only through fresh parent/birth ancestry [0.25ms]
+(pass) refuses an unseen same-session orphan rather than retrospectively adopting it [0.08ms]
+(pass) refuses a parent born after the candidate child [0.02ms]
+(pass) refuses a reused captured ancestor before admitting its candidate child [0.02ms]
+(pass) retains captured descendants after parent and leader exit [0.05ms]
+(pass) rechecks ancestry birth identities before recording a new descendant [0.08ms]
+(pass) refuses changed recorded PGID or SID before dispatching a signal [0.10ms]
+(pass) requires capture before signaling and treats an owned ESRCH as benign [0.19ms]
+
+packages/core/src/__fixtures__/public-consumer-command.test.ts:
+(pass) reaps controlled live descendants that outlive the leader with retained pipes [1165.49ms]
+(pass) reaps controlled live descendants that outlive the leader with closed pipes [1081.63ms]
+(pass) retains the fixture and primary failure when controlled live descendant cleanup cannot be confirmed [72.12ms]
+(pass) reaps a captured same-session descendant in a separate process group after leader exit [1090.00ms]
+(pass) rejects PID birth-identity mismatch before dispatching any signal [0.20ms]
+(pass) rejects a reused leader or group identity before dispatching any signal [0.03ms]
+(pass) reports observed descendants outside the captured group or session as unresolved [0.08ms]
+(pass) permits fresh exact identity controls but not larger production deadlines [0.11ms]
+(pass) retains exact offender, captured identity and leader in a scope refusal [0.08ms]
+
+ 17 pass
+ 0 fail
+ 54 expect() calls
+Ran 17 tests across 2 files. [3.77s]
+
+packages/e2e-tests/src/v1-vault-activation.e2e.test.ts:
+(pass) owned cleanup kills a surviving descendant after its session leader exits [39.84ms]
+
+ 1 pass
+ 2 filtered out
+ 0 fail
+ 7 expect() calls
+Ran 1 test across 1 file. [172.00ms]

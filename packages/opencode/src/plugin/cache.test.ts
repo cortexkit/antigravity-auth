@@ -1,174 +1,103 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 
+import * as cacheModule from './cache'
 import {
   cacheSignature,
-  clearCachedAuth,
   clearSignatureCache,
   getCachedSignature,
-  resolveCachedAuth,
-  storeCachedAuth,
+  getDiskSignatureCache,
+  initDiskSignatureCache,
+  shutdownDiskSignatureCache,
 } from './cache'
-import type { OAuthAuthDetails } from './types'
 
-function createAuth(
-  overrides: Partial<OAuthAuthDetails> = {},
-): OAuthAuthDetails {
-  return {
-    type: 'oauth',
-    refresh: 'refresh-token|project-id',
-    access: 'access-token',
-    expires: Date.now() + 3600000,
-    ...overrides,
+function listSourceFiles(dir: string): string[] {
+  const files: string[] = []
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name)
+    if (statSync(path).isDirectory()) {
+      files.push(...listSourceFiles(path))
+    } else if (/\.(ts|tsx)$/.test(name)) {
+      files.push(path)
+    }
   }
+  return files
 }
 
-describe('Auth Cache', () => {
+// The refresh-token keyed auth snapshot cache was write-only: no production
+// code read from it. It was removed with its writers and clears, and nothing
+// replaces it.
+describe('removed auth cache', () => {
+  it('exports no auth-cache API from the cache module', () => {
+    const exported = Object.keys(cacheModule)
+    expect(exported).not.toContain('resolveCachedAuth')
+    expect(exported).not.toContain('storeCachedAuth')
+    expect(exported).not.toContain('clearCachedAuth')
+  })
+
+  it('leaves no auth-cache reference in package source', () => {
+    const srcRoot = join(import.meta.dir, '..')
+    const offenders = listSourceFiles(srcRoot).filter((file) => {
+      if (file === join(import.meta.dir, 'cache.test.ts')) return false
+      return /\b(resolve|store|clear)CachedAuth\b|\bauthCache\b/.test(
+        readFileSync(file, 'utf8'),
+      )
+    })
+    expect(offenders).toEqual([])
+  })
+})
+
+describe('OpenCode 1 disk signature binding', () => {
   beforeEach(() => {
     jest.useRealTimers()
-    clearCachedAuth()
   })
 
-  afterEach(() => {
-    clearCachedAuth()
+  afterEach(async () => {
+    await shutdownDiskSignatureCache()
   })
 
-  describe('resolveCachedAuth', () => {
-    it('returns input auth when no cache exists and caches it', () => {
-      const auth = createAuth()
-      const result = resolveCachedAuth(auth)
-      expect(result).toEqual(auth)
+  it('persists through the shared disk cache and clears the hot map on shutdown', async () => {
+    const disk = initDiskSignatureCache({
+      enabled: true,
+      memory_ttl_seconds: 3600,
+      disk_ttl_seconds: 172800,
+      write_interval_seconds: 60,
     })
+    expect(disk).not.toBeNull()
+    expect(getDiskSignatureCache()).toBe(disk)
 
-    it('returns input auth when refresh key is empty', () => {
-      const auth = createAuth({ refresh: '' })
-      const result = resolveCachedAuth(auth)
-      expect(result).toEqual(auth)
+    cacheSignature('legacy-session', 'legacy thinking', 'legacy-sig')
+    expect(disk!.getStats().dirty).toBe(true)
+
+    await shutdownDiskSignatureCache()
+    expect(getDiskSignatureCache()).toBeNull()
+    // Shutdown cleared the hot map and left no disk cache to fall back to.
+    expect(getCachedSignature('legacy-session', 'legacy thinking')).toBe(
+      undefined,
+    )
+    // Shutdown also flushed: a new disk cache loads the signature from the
+    // file, so the lookup succeeds again.
+    initDiskSignatureCache({
+      enabled: true,
+      memory_ttl_seconds: 3600,
+      disk_ttl_seconds: 172800,
+      write_interval_seconds: 60,
     })
-
-    it('returns input auth when it has valid (unexpired) access token', () => {
-      const oldAuth = createAuth({
-        access: 'old-access',
-        expires: Date.now() + 3600000,
-      })
-      resolveCachedAuth(oldAuth) // cache it
-
-      const newAuth = createAuth({
-        access: 'new-access',
-        expires: Date.now() + 7200000,
-      })
-      const result = resolveCachedAuth(newAuth)
-      expect(result.access).toBe('new-access')
-    })
-
-    it('returns cached auth when input auth is expired but cached is valid', () => {
-      jest.useFakeTimers()
-      jest.setSystemTime(new Date(0))
-
-      const validAuth = createAuth({
-        access: 'valid-access',
-        expires: 3600000, // expires at t=3600000
-      })
-      resolveCachedAuth(validAuth) // cache it
-
-      // Now create an expired auth with the same refresh token
-      const expiredAuth = createAuth({
-        access: 'expired-access',
-        expires: 30000, // expires within buffer (60s)
-      })
-
-      const result = resolveCachedAuth(expiredAuth)
-      expect(result.access).toBe('valid-access')
-    })
-
-    it('returns input auth when both are expired (updates cache)', () => {
-      jest.useFakeTimers()
-      jest.setSystemTime(new Date(0))
-
-      const expiredCached = createAuth({
-        access: 'cached-expired',
-        expires: 30000, // expired within buffer
-      })
-      resolveCachedAuth(expiredCached)
-
-      const expiredNew = createAuth({
-        access: 'new-expired',
-        expires: 20000, // also expired within buffer
-      })
-
-      const result = resolveCachedAuth(expiredNew)
-      expect(result.access).toBe('new-expired')
-    })
+    expect(getCachedSignature('legacy-session', 'legacy thinking')).toBe(
+      'legacy-sig',
+    )
   })
 
-  describe('storeCachedAuth', () => {
-    it('stores auth in cache', () => {
-      const auth = createAuth({ access: 'stored-access' })
-      storeCachedAuth(auth)
-
-      const expiredAuth = createAuth({
-        access: 'expired',
-        expires: Date.now() - 1000,
-      })
-      const result = resolveCachedAuth(expiredAuth)
-      expect(result.access).toBe('stored-access')
-    })
-
-    it('does nothing when refresh key is empty', () => {
-      const auth = createAuth({ refresh: '', access: 'no-key-access' })
-      storeCachedAuth(auth)
-
-      // Should not be retrievable since key was empty
-      const testAuth = createAuth({ refresh: '', access: 'test' })
-      const result = resolveCachedAuth(testAuth)
-      expect(result.access).toBe('test') // returns the input, not cached
-    })
-
-    it('does nothing when refresh key is whitespace only', () => {
-      const auth = createAuth({ refresh: '   ', access: 'whitespace-access' })
-      storeCachedAuth(auth)
-
-      const testAuth = createAuth({ refresh: '   ', access: 'test' })
-      const result = resolveCachedAuth(testAuth)
-      expect(result.access).toBe('test')
-    })
-  })
-
-  describe('clearCachedAuth', () => {
-    it('clears all cache when no argument provided', () => {
-      storeCachedAuth(createAuth({ refresh: 'token1|p', access: 'access1' }))
-      storeCachedAuth(createAuth({ refresh: 'token2|p', access: 'access2' }))
-
-      clearCachedAuth()
-
-      const auth1 = createAuth({ refresh: 'token1|p', access: 'new1' })
-      const auth2 = createAuth({ refresh: 'token2|p', access: 'new2' })
-
-      expect(resolveCachedAuth(auth1).access).toBe('new1')
-      expect(resolveCachedAuth(auth2).access).toBe('new2')
-    })
-
-    it('clears specific refresh token from cache', () => {
-      storeCachedAuth(createAuth({ refresh: 'token1|p', access: 'access1' }))
-      storeCachedAuth(createAuth({ refresh: 'token2|p', access: 'access2' }))
-
-      clearCachedAuth('token1|p')
-
-      // token1 should be cleared
-      const expiredAuth1 = createAuth({
-        refresh: 'token1|p',
-        access: 'new1',
-        expires: Date.now() - 1000,
-      })
-      expect(resolveCachedAuth(expiredAuth1).access).toBe('new1')
-
-      // token2 should still be cached
-      const expiredAuth2 = createAuth({
-        refresh: 'token2|p',
-        access: 'new2',
-        expires: Date.now() - 1000,
-      })
-      expect(resolveCachedAuth(expiredAuth2).access).toBe('access2')
-    })
+  it('returns no disk cache when the signature cache is disabled', () => {
+    expect(
+      initDiskSignatureCache({
+        enabled: false,
+        memory_ttl_seconds: 3600,
+        disk_ttl_seconds: 172800,
+        write_interval_seconds: 60,
+      }),
+    ).toBeNull()
   })
 })
 

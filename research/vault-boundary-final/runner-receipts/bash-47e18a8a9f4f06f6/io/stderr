@@ -1,0 +1,5 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+$ tsc --noEmit
+$ bun run embed:check && bun scripts/build-tui.ts --types && tsc --noEmit && tsc -p tsconfig.ga.json
+$ bun scripts/build-tui.ts --check
+$ tsc --noEmit

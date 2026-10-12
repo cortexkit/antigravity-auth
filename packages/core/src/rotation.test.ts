@@ -76,3 +76,35 @@ describe('rotation primitives', () => {
     ).toBe(1)
   })
 })
+
+describe('tracker reindexing', () => {
+  it('moves health and token state to new indexes and drops accounts that left', () => {
+    const now = () => 1_000_000
+    const health = new HealthScoreTracker({}, now)
+    const tokens = new TokenBucketTracker({}, now)
+    health.recordFailure(0)
+    health.recordFailure(0)
+    health.recordRateLimit(2)
+    tokens.consume(0, 10)
+    tokens.consume(2, 3)
+    const failedScore = health.getScore(0)
+    const limitedScore = health.getScore(2)
+    const fresh = new HealthScoreTracker({}, now).getScore(9)
+    // Account 0 moved to 1, account 2 left, account 1 (untracked) to 0.
+    const mapping = new Map([
+      [0, 1],
+      [1, 0],
+    ])
+    health.reindex(mapping)
+    tokens.reindex(mapping)
+    expect(health.getScore(1)).toBe(failedScore)
+    expect(health.getConsecutiveFailures(1)).toBe(2)
+    expect(health.getScore(0)).toBe(fresh)
+    expect(health.getScore(2)).toBe(fresh)
+    expect(limitedScore).not.toBe(fresh)
+    const initialTokens = new TokenBucketTracker({}, now).getTokens(9)
+    expect(tokens.getTokens(1)).toBe(initialTokens - 10)
+    expect(tokens.getTokens(2)).toBe(initialTokens)
+    expect(tokens.getTokens(0)).toBe(initialTokens)
+  })
+})

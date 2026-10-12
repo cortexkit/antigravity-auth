@@ -1,0 +1,119 @@
+1.4.2
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+Copied 129 embedded common-auth files
+bun test v1.4.2 (744846f84)
+
+packages/pi/src/stream.test.ts:
+229 |     })
+230 |     fetchWithAgyCliTransportMock.mockImplementationOnce(async () => terminalTextResponse())
+231 |     const { result } = await collectStream(streamCortexKitAntigravity(fakeModel(), userContext(), { apiKey: 'test-token' }, async () => {
+232 |       if (!admitted) throw new Error('local enrollment changed')
+233 |     }))
+234 |     expect(result.errorMessage).toContain('local enrollment changed')
+                                      ^
+error: Received value must be an array type, or both received and expected values must be strings.
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/pi/src/stream.test.ts:234:33)
+(fail) selected credential boundary > refuses local dispatch when enrollment changes during project resolution [6.46ms]
+243 |         if (source === 'http') return new Response(detail, { status: 403 })
+244 |         return sseResponse([`data: ${JSON.stringify({ response: { error: { code: 403, status: 'PERMISSION_DENIED', message: detail } } })}\n\n`])
+245 |       })
+246 |       const { result } = await collectStream(streamCortexKitAntigravity(fakeModel(), userContext(), { apiKey: 'test-token' }))
+247 |       expect(result.stopReason).toBe('error')
+248 |       expect(result.errorMessage).not.toContain('test-token')
+                                            ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "test-token"
+Received: "echo test-token Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/pi/src/stream.test.ts:248:39)
+(fail) selected credential boundary > redacts selected credential in Pi transport errors [1.12ms]
+243 |         if (source === 'http') return new Response(detail, { status: 403 })
+244 |         return sseResponse([`data: ${JSON.stringify({ response: { error: { code: 403, status: 'PERMISSION_DENIED', message: detail } } })}\n\n`])
+245 |       })
+246 |       const { result } = await collectStream(streamCortexKitAntigravity(fakeModel(), userContext(), { apiKey: 'test-token' }))
+247 |       expect(result.stopReason).toBe('error')
+248 |       expect(result.errorMessage).not.toContain('test-token')
+                                            ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "test-token"
+Received: "Antigravity request failed: HTTP 403 echo test-token Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/pi/src/stream.test.ts:248:39)
+(fail) selected credential boundary > redacts selected credential in Pi http errors [0.39ms]
+243 |         if (source === 'http') return new Response(detail, { status: 403 })
+244 |         return sseResponse([`data: ${JSON.stringify({ response: { error: { code: 403, status: 'PERMISSION_DENIED', message: detail } } })}\n\n`])
+245 |       })
+246 |       const { result } = await collectStream(streamCortexKitAntigravity(fakeModel(), userContext(), { apiKey: 'test-token' }))
+247 |       expect(result.stopReason).toBe('error')
+248 |       expect(result.errorMessage).not.toContain('test-token')
+                                            ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "test-token"
+Received: "Antigravity stream error (PERMISSION_DENIED, code 403): echo test-token Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/pi/src/stream.test.ts:248:39)
+(fail) selected credential boundary > redacts selected credential in Pi sse errors [0.47ms]
+(pass) selected credential boundary > preserves error-looking successful Pi content exactly [0.24ms]
+
+packages/opencode/src/plugin/shared/request-services.test.ts:
+954 |       try {
+955 |         if (source === 'transport') {
+956 |           const error = await executor.execute(STREAM_URL, CHAT_INIT()).catch((error: unknown) => error)
+957 |           expect(error).toBe(failure)
+958 |           expect(failure.code).toBe('ECONNRESET')
+959 |           expect(failure.cause).toBeUndefined()
+                                      ^
+error: expect(received).toBeUndefined()
+
+Received: 943 |   })
+944 | 
+945 |   for (const source of ['transport', 'http', 'sse'] as const) {
+946 |     it(`redacts selected credential in composed OpenCode ${source} errors`, async () => {
+947 |       const detail = 'echo access-fresh Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature'
+948 |       const failure = Object.assign(new Error(detail), { code: 'ECONNRESET', detail, cause: new Error(detail) })
+                                                                                                      ^
+error: echo access-fresh Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/opencode/src/plugin/shared/request-services.test.ts:948:97)
+
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/opencode/src/plugin/shared/request-services.test.ts:959:33)
+(fail) createRequestExecutor retry contract > redacts selected credential in composed OpenCode transport errors [11.95ms]
+964 |           }
+965 |         } else {
+966 |           const response = await executor.execute(source === 'http' ? NON_STREAM_URL : STREAM_URL, CHAT_INIT())
+967 |           expect(response.status).toBe(source === 'http' ? 400 : 200)
+968 |           const text = await response.text()
+969 |           expect(text).not.toContain('access-fresh')
+                                 ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "access-fresh"
+Received: "{\"error\":{\"code\":400,\"status\":\"INVALID_ARGUMENT\",\"message\":\"echo access-fresh Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature\\n\\n[Debug Info]\\nRequested Model: gemini-3-flash\\nEffective Model: gemini-3-flash-medium\\nProject: project-effective\\nEndpoint: https://daily-cloudcode-pa.googleapis.com/v1internal:generateContent\\nStatus: 400\\nRequest ID: N/A\\nTool Debug Missing: 0\"}}"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/opencode/src/plugin/shared/request-services.test.ts:969:28)
+(fail) createRequestExecutor retry contract > redacts selected credential in composed OpenCode http errors [2.75ms]
+964 |           }
+965 |         } else {
+966 |           const response = await executor.execute(source === 'http' ? NON_STREAM_URL : STREAM_URL, CHAT_INIT())
+967 |           expect(response.status).toBe(source === 'http' ? 400 : 200)
+968 |           const text = await response.text()
+969 |           expect(text).not.toContain('access-fresh')
+                                 ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "access-fresh"
+Received: "data: {\"error\":{\"code\":400,\"message\":\"echo access-fresh Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature\"}}\n\n\ndata: {\"response\":{\"usageMetadata\":{\"promptTokenCount\":0,\"candidatesTokenCount\":0,\"totalTokenCount\":0}}}\n\n"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/opencode/src/plugin/shared/request-services.test.ts:969:28)
+(fail) createRequestExecutor retry contract > redacts selected credential in composed OpenCode sse errors [1.28ms]
+
+ 1 pass
+ 100 filtered out
+ 7 fail
+ 16 expect() calls
+Ran 8 tests across 2 files. [347.00ms]
+
+INNER_EXIT=1

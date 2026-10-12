@@ -1,0 +1,1 @@
+bash -c bun\ --version\ \&\&\ ./node_modules/.bin/tsc\ --version\ \&\&\ bun\ run\ --cwd\ packages/core\ build\ \&\&\ bun\ test\ --isolate\ packages/pi/src/stream.test.ts\ -t\ \"retains\ forwarding\ through\ successful\ body\ cleanup\|works\ without\ AbortSignal.any\ with\ a\ caller\ signal\" 

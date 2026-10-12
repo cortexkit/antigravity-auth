@@ -1,0 +1,1 @@
+bun --version; node --version; bun run --cwd packages/core build && bun test --isolate -t 'selected credential boundary|redacts selected credential|vetoes project metadata persistence|final captured grant await|public unreadable enrollment' packages/opencode/src/plugin/shared/request-services.test.ts packages/pi/src/stream.test.ts packages/pi/src/commands.test.ts

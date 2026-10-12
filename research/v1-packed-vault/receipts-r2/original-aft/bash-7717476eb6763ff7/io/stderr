@@ -1,0 +1,12 @@
+
+packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:
+(pass) official V1 loads the packed server and completes a vault raw-TLS first request [47131.96ms]
+(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.18ms]
+(pass) loading assertion rejects a source, factory or direct-entry route [0.11ms]
+(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.04ms]
+(pass) dormancy assertion requires byte-identical slots and no slot secret on wire [0.09ms]
+
+ 5 pass
+ 0 fail
+ 50 expect() calls
+Ran 5 tests across 1 file. [47.47s]

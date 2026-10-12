@@ -1,0 +1,22 @@
+
+packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:
+13 | } from './v1-vault-activation-harness.ts'
+14 | 
+15 | test('official V1 loads the packed server and completes a vault raw-TLS first request', async () => {
+16 |   const receipt = await runPackedVault()
+17 |   emitPackedReceipt(receipt)
+18 |   expect(receipt.error).toBeUndefined()
+                             ^
+error: expect(received).toBeUndefined()
+
+Received: "Error: ENOENT: no such file or directory, lstat '/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/node_modules/@opencode-ai/sdk'\n    at realpathSync (unknown)\n    at runPackedVault (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:357:20)\n    at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:16:25)\n    at processTicksAndRejections (native:7:39)"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:18:25)
+(fail) official V1 loads the packed server and completes a vault raw-TLS first request [1046.70ms]
+(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.33ms]
+(pass) loading assertion rejects a source, factory or direct-entry route [0.24ms]
+
+ 2 pass
+ 1 fail
+ 8 expect() calls
+Ran 3 tests across 1 file. [1388.00ms]

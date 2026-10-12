@@ -1,0 +1,1 @@
+bun --version; node --version; bun run --cwd packages/core build && bun test --isolate -t 'native Node ESM|safe object and symbol|failed diagnostic metadata|owned SSE reader|stale SSE length|successful diagnostic-looking' packages/core/src/credential-redaction.test.ts; inner=$?; printf '\nINNER_EXIT=%s\n' "$inner"; exit "$inner"

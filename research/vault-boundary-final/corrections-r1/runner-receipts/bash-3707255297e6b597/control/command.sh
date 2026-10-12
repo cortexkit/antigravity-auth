@@ -1,0 +1,6 @@
+git add packages/core/src/credential-redaction.ts packages/core/src/credential-redaction.test.ts packages/core/src/index.ts packages/opencode/src/plugin/shared/request-services.ts packages/opencode/src/plugin/shared/request-services.test.ts; git diff --stat; python3 - <<'PY'
+from pathlib import Path
+p=Path('packages/opencode/src/plugin/shared/request-services.ts');s=p.read_text();assert s.count('selectedCredentials.add(admission.accessToken)')==1;s=s.replace('selectedCredentials.add(admission.accessToken)','// NON-VACUITY BREAK: forget auxiliary admission bearer');assert s.count('if (auth.access) selectedCredentials.add(auth.access)')==1;s=s.replace('if (auth.access) selectedCredentials.add(auth.access)','// NON-VACUITY BREAK: forget project lookup bearer');p.write_text(s)
+p=Path('packages/core/src/credential-redaction.ts');s=p.read_text();needle='reader.releaseLock()';assert s.count(needle)==3;p.write_text(s.replace(needle,'/* NON-VACUITY BREAK: retain terminal reader lock */'))
+PY
+ git diff --stat

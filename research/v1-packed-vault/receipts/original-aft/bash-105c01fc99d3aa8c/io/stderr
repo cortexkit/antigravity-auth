@@ -1,0 +1,34 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/e2e-tests/src/opencode-ga-harness.test.ts:
+(pass) native-job source/parser controls, not official-host certification > requires all ten measured controls including DNS and UNIX evidence [0.59ms]
+(pass) native-job source/parser controls, not official-host certification > rejects any external socket success or failed local round trip [0.18ms]
+(pass) native-job source/parser controls, not official-host certification > rejects a child in another namespace or allowed outbound connection [0.10ms]
+(pass) native-job source/parser controls, not official-host certification > rejects namespace creation success or unrelated unshare failures [0.07ms]
+(pass) native-job source/parser controls, not official-host certification > rejects jobs with privileges, missing syscall filtering, extra interfaces or emulation [0.12ms]
+(pass) native-job source/parser controls, not official-host certification > cannot manufacture measured admission from a native-job environment flag [0.06ms]
+(pass) native-job source/parser controls, not official-host certification > parses actual Linux status field spelling without assuming values [0.05ms]
+(pass) native-job source/parser controls, not official-host certification > requires both real loopback host aliases; missing aliases never skip TLS cases [0.17ms]
+(pass) native-job source/parser controls, not official-host certification > pins the actual 2.0.22 platform package to the tracked SRI without .bin stubs [22.44ms]
+(pass) native-job source/parser controls, not official-host certification > uses genuine SDK declaration exports from its isolated dependency layout [0.46ms]
+(pass) native-job source/parser controls, not official-host certification > keeps the complete 102-case inventory and the Docker network-none path [0.05ms]
+(pass) native-job source/parser controls, not official-host certification > resolves packed public server entries rather than assuming a dist filename [1.05ms]
+(pass) native-job source/parser controls, not official-host certification > accepts the actual Bun environment when the TLS override is absent [0.72ms]
+(pass) native-job source/parser controls, not official-host certification > rejects every explicit TLS override, including empty and non-enumerable keys [0.42ms]
+(pass) native-job source/parser controls, not official-host certification > constructs owned profiles including PI directories and every OpenCode database [0.62ms]
+(pass) shared bounded archive and owned command controls > installs multiple verified ordinary pack members and preserves single-member extraction [1.59ms]
+(pass) shared bounded archive and owned command controls > rejects pack traversal, symlinks and duplicate files before materialization [0.36ms]
+(pass) shared bounded archive and owned command controls > checks parent, process group and start time before sending any signal [0.26ms]
+(pass) shared bounded archive and owned command controls > retains primary and cleanup failures instead of treating bounded termination as success [0.07ms]
+(pass) shared bounded archive and owned command controls > runs only an owned inert child, retaining both output streams [6.24ms]
+(pass) shared bounded archive and owned command controls > caps an inert child output and refuses to report synthetic success [2.80ms]
+(pass) shared bounded archive and owned command controls > bounds an inert child deadline and reaps the owned process [101.81ms]
+(pass) authenticates native controls only to their owned loopback origin [2.29ms]
+(pass) refreshes the generated host fixture from the actual bare-token contract [0.12ms]
+(pass) keeps the canonical Google request URL for production raw-TLS routing [2.58ms]
+(pass) admits Linux x64 artifact preparation without asserting runtime container membership [0.10ms]
+
+ 26 pass
+ 0 fail
+ 124 expect() calls
+Ran 26 tests across 1 file. [494.00ms]

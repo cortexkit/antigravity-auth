@@ -1,0 +1,25 @@
+test_rejects_parent_traversal_before_any_writes (__main__.ReceiptImportControls.test_rejects_parent_traversal_before_any_writes) ... FAIL
+test_valid_import_preserves_all_raw_bytes (__main__.ReceiptImportControls.test_valid_import_preserves_all_raw_bytes) ... ok
+
+======================================================================
+FAIL: test_rejects_parent_traversal_before_any_writes (__main__.ReceiptImportControls.test_rejects_parent_traversal_before_any_writes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/research/remaining-node20-cancellation/import-receipt.test.py", line 64, in test_rejects_parent_traversal_before_any_writes
+    self.assert_no_write(payload({
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+        f'{PREFIX}/valid/stdout.txt': 'must not be written',
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        f'{PREFIX}/../../escape.txt': 'must not escape',
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    }))
+    ^^^
+  File "/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_02d27d3f0a44fbf6/research/remaining-node20-cancellation/import-receipt.test.py", line 45, in assert_no_write
+    self.assertNotEqual(result.returncode, 0, result.stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 == 0 : b''
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.025s
+
+FAILED (failures=1)

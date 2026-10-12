@@ -1,0 +1,1 @@
+bun --version; node --version; bun run --cwd packages/core build && bun test --isolate -t 'redacts upstream SSE cancellation failure' packages/core/src/credential-redaction.test.ts; inner=$?; printf '\nINNER_EXIT=%s\n' "$inner"; exit "$inner"

@@ -1,0 +1,59 @@
+# Unmigrated 2.2.1 upgrade release gate
+
+## Result
+
+The unmodified 3.0.0 preparation served and rewrote the real published-2.2.1 pool. After the bounded adapter change, the native gate passes **19 tests / 136 assertions** with production plugin defaults enabled. The final native job runs `bun test --isolate ./packages/e2e-tests/src/v1-unmigrated-upgrade.e2e.test.ts`: task `bash-1b8c0f71f2d4b6b3`, job `01a12d51-c380-751b-a67a-b9b40cd37fd5`, actual input tree `5a4c542c74d7e94fd4fa176c775bf800a11ed69d`; the Linux process exit and outer runner exit are both 0. `FINAL-SUMMARY.json` is a derived navigation aid; the original terminal records and gzip receipt are authoritative.
+
+One official OpenCode 1.17.13 server, PID 209 / Linux process start-time identity 63135306, remains alive across both refused model requests. Both native assistant messages contain an `APIError` with statusCode 412, isRetryable false, and exactly:
+
+> Antigravity accounts require offline migration. Stop OpenCode, then run `npx @cortexkit/opencode-antigravity-auth@3.0.0 migrate --offline`.
+
+No assistant success text is synthesized. The negative phase runs from new-host startup through instance disposal and owned shutdown, before any vault ceremony or migration. Observed generation, OAuth, project, quota and unknown TLS calls, TLS accepts, OAuth DNS attempts, and account-file mutation syscalls are all zero in this phase. The original pool SHA256 stays `ad6bb788a8e38516b8f2b7eb1b51f1f60943895f5f44bafe708e52c914b0645b` before writer shutdown, before host startup, after each request, and after native instance disposal and owned host shutdown. Full account/credential/sidecar inventories also retain bytes, inode, mode and modification time. No new store, pointer, journal or backup is created in this phase.
+
+## Product change
+
+- Storage supplies one static, pinned migration instruction for `migration-required`.
+- The loader returns its existing delegating fetch without constructing a manager or refresh queue. Local generative calls receive Google's 412 `FAILED_PRECONDITION` envelope; unrelated fetches retain normal passthrough and caller cancellation. Request-time authority is still checked first, so an approved vault can serve without reading the dormant native login.
+- Account target resolution no longer treats `migration-required` as permission to use the pool. Account-state sidebar publication and quota/tier producers leave the unavailable local target untouched; they do not fabricate an empty manager or change defaults.
+- Two prior unit assertions deliberately change contract: an existing pool's opening now has the pinned command, and `usesPoolFile(migration-required)` is false. Fresh-install and bound-store tests remain unchanged.
+
+No core migration/store primitive, embedding, dependency, manifest, lockfile, updater policy, existing native helper, `.motor/hosts`, or documentation outside this evidence directory is changed.
+
+## Exact host retry behavior
+
+The official v1.17.13 `session/retry.ts`, `provider/error.ts` and package manifest are retained as separately acquired public source, with URL/byte/SHA256 provenance in `official-retry-source/inventory.json`. The native binary itself remains pinned by the original archive SRI/size/SHA256, ELF machine/hash and executed version in each receipt.
+
+The official retry function returns immediately for an APIError when `isRetryable` is false and status is not at least 500 (`retry.ts.txt:68-75`). This precedes its API message handling at line 122 and the plain-text rate-limit patterns at lines 125-150. The measured Google SDK error has the exact instruction, status 412 and `isRetryable: false`. Native logs show exactly two INFO process attempts and no retry status; each API request terminates under the original finite deadline. The release manifest pins Google's SDK to 3.0.73; the native result, rather than a guessed SDK parser, proves the actual message extraction.
+
+## Positive companions
+
+1. Approved synthetic vault custody serves a real model request through the production raw TLS path while the old local pool and retained Google OAuth bytes stay unchanged. The actual native activation command reports authentication failure rather than overwriting that occupied slot. The served bearer/project are the synthetic vault's, not the dormant local credential. Existing occupied-slot, vault shutdown, caller cancellation and passthrough tests pass unchanged.
+2. After the hosts and old writer are fully stopped, the actual packed new CLI runs `migrate --offline --yes` and exits 0. The same binary, profile and 3.0.0 packs then restart. A real production OAuth POST obtains a synthetic renewed bearer; the first model request succeeds over real TLS with the correct project and nonce. Public read-only packed-core inspection shows the same RowRef/credential epoch, no access token immediately after migration, then the persisted renewed accessToken and unchanged refresh secret after serving. No manager, transport or migration result is injected.
+
+The owned DNS responder binds only namespace-local 127.0.0.1:53, answers A only for oauth2.googleapis.com, gives no AAAA address and rejects every unknown name. This native job has no `/etc/resolv.conf`; its actual resolver reaches the local responder, as proved by a separately recorded control. The CA/leaf covers exactly daily-cloudcode-pa.googleapis.com, cloudcode-pa.googleapis.com and oauth2.googleapis.com; generated input/output hashes and actual form-encoded refresh bytes are retained. Trust is limited to that owned startup CA. No shared DNS/hosts/trust setting, TLS verification override, capability or egress grant is used. The unchanged containment helper passes both before and after fixture cleanup.
+
+## Background and mutation proof
+
+No antigravity.json settings suppress production quota, proactive-refresh, recovery, warmup or update defaults. A source companion forces a real default quota tick through the existing clock/timer seam and waits for its next schedule before disposal. Kernel directory notifications catch even transient poll-lock creation. Removing the quota tick's migration-required admission predicate makes that companion fail; the unrelated package-export test still passes.
+
+Two earlier attempts exposed inadequate observations: disposing at the timer callback could stop asynchronous admission before the lock phase, and a promise-module spy did not observe the imported file-lock implementation. Both undefended controls are retained; the final witness uses natural tick completion and real kernel notifications. Neutralizing the native syscall write detector uniquely reddens its real baseline-write control while the baseline-send/error control stays green. Breaking the static instruction uniquely reddens the loader contract test while the handle-surface test stays green.
+
+Omitting OAuth from the recorder, without changing its real response, uniquely reddens the genuine migration companion at the expected refresh-count assertion; the negative OAuth-zero test stays green. The first attempt at this control did not reach refresh: immediate SIGTERM of a successful vault request left an outstanding sidebar lock. The harness now invokes the official `/instance/dispose` endpoint to drain the native instance before strict owned process cleanup, preserving the original time limits. That earlier unrelated 500 is retained as not-reached evidence, not credited as a counter proof. Structured entries are in `mutation-evidence.json`.
+
+## Evidence layout and scope
+
+`original-aft.tar.gz` retains the byte-identical `original-aft/c1cd4f2098959f91/<task>/control|io` TerminalRecord tree, including commands, stdout/stderr, metadata, inner/outer exits and available pipeline status. `original-record-hashes.json` binds each member, and `original-archive.json` binds the archive. The expanded copies remain in this owned worktree but are ignored to keep Git review bounded; the archive preserves the actual tree, not reconstructed terminal text. Decoded receipts are stored as gzip; only the baseline JSON is also committed because the positive write/send control reads it directly.
+
+Account mutation scope includes legacy pool bytes and metadata; all pool locks, temporary files and sidecars; credentials/native auth.json; sidebar account state; and all new-store generations, pointers, backups, journals and migration files. OpenCode session database/write-ahead-log/shared-memory files, host logs/cache and plugin RPC connection/port files inside the owned temporary profile are separately inventoried normal runtime, not account mutation. Global host state and live profiles are never read. All account, enrollment and refreshed bearer values are synthetic; application client identifiers in the real OAuth form are unchanged published constants.
+
+All setup failures and intermediate failed gates are retained, including ignored-archive ENOENT, unnecessary effect dependency resolution, initial resolver-file assumption, typed socket annotation error, sidebar-state writes exposed with defaults, corrected native INFO/error log counting, the accessor assertion corrected from access to the public accessToken field, and the mistaken disconnect method corrected to the existing useLocal operation. The initial assertion that the GA fixture mismatched was an inference error: its lock includes transitive subc-client, and `assertGaFixturePins` passed unchanged.
+
+Final strict checks: TypeScript 6.0.3 passes the script, OpenCode and evidence programs; Bun 1.4.2 runs 140 unit tests / 782 assertions across the six relevant files; Biome 2.5.3 checks eight changed TypeScript files. Native build/pack and all 19 gate tests pass in the final no-egress Linux-x64 job. No tag, publish, push or fleet operation occurred. Commit is held for the parent engineering agent's independent source/receipt review.
+
+## Post-review composition correction
+
+The independently reviewed predecessor index tree is `ba406fd947df17dcfdaead0211d428006dbf9753`. Its eight source files are frozen in `predecessor-ba406fd9-source.tar.gz` (SHA256 `ca6f1460093e7c90de17d35b6afe1359269038cbae4498561225a3e94464ca2d`), and its original terminal archive, hash manifest, result and summary remain unchanged under the `predecessor-*` evidence names. The predecessor native packet is not claimed to cover the corrected source.
+
+Parent review identified two composition contracts that the initial unavailable helper did not preserve. Direct calls through `createAntigravityPlugin` reproduced both before product correction: `bash-9d8914879fc97e9a` ran four production-composition tests, with three failing (configured passthrough fell through to a refusing global fetch; explicit live and null init signals could not override an aborted Request) and the inherited/explicit-aborted cancellation control passing. The helper now receives the same configured fetchImpl as the ordinary interceptor and passes unrelated input/init through unchanged. For a local generative refusal, explicit init.signal takes precedence over Request.signal, including null, matching the existing core timeout helper's policy. No manager, interceptor, timeout wrapper or global signal shim is constructed to achieve this.
+
+Updated strict gate `bash-b4d4e7709ba33c4f` passes all three TypeScript programs, 140 tests / 782 assertions including those four composition cases and the natural-next-schedule/default-poller/kernel-notification companion, and Biome's eight-file check. Updated native gate `bash-1b8c0f71f2d4b6b3` repeats all 19 negative, vault, migration and positive controls with the corrected compiled packs and current source fingerprints. Original predecessor positives, removals and failed attempts are preserved separately. Component commit remains held for parent review of this updated source and evidence.

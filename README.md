@@ -2,13 +2,14 @@
 
 Google Antigravity OAuth for coding agents. Authenticate with your Google account and access Antigravity quota for Gemini, Claude, and GPT-OSS models from OpenCode, the Pi coding agent, or the standalone CLI.
 
-This monorepo ships four packages:
+Here **V1** means OpenCode 1.x; **GA** means the OpenCode 2.x general-availability host API. Both use one OpenCode package, including server and TUI entries.
+
+This monorepo ships three publishable packages:
 
 | Package | Host | Role |
 | --- | --- | --- |
-| [`@cortexkit/opencode-antigravity-auth`](packages/opencode) | OpenCode 1.x server | Intercepts `fetch()`, runs the account pool + quota manager, drives slash commands, and exposes a TUI sidebar through a loopback RPC. |
+| [`@cortexkit/opencode-antigravity-auth`](packages/opencode) | OpenCode V1 + GA server/TUI | Unified package: V1 fetch interception, GA loopback bridge, account pool + quota manager, and the `/antigravity` menu/sidebar. |
 | [`@cortexkit/pi-antigravity-auth`](packages/pi) | Pi coding agent | Registers a custom provider with OAuth login + Gemini streaming. |
-| [`@cortexkit/opencode-v2-antigravity-auth`](packages/opencode-v2) | OpenCode 2.x server | Routes the host's native Gemini requests through a loopback bridge backed by the shared account pool and AGY transport, and registers an OAuth method that appends accounts. |
 | [`@cortexkit/antigravity-auth-core`](packages/core) | Any harness | Harness-agnostic core: OAuth PKCE, raw HTTP/1.1 transport, device fingerprint, request transforms, account pool, quota manager, durable storage. All host adapters depend on it. |
 
 ## Risk and terms-of-service warning
@@ -17,44 +18,37 @@ This monorepo ships four packages:
 >
 > Using this software (and any proxy for Antigravity) violates Google's Terms of Service. Google account holders have reported **suspensions, bans, and shadow-bans** (restricted access without notice). The tool is **not endorsed by Google**, and every account is operated by the account holder. You assume all legal, financial, and technical risk. Operators and contributors are not liable for outcomes.
 
-The shipped headers, project IDs, and OAuth client identifiers match the publicly observable behavior of the upstream Antigravity CLI; they are not credentials and may be inspected in this repository. **OAuth credentials (refresh tokens, access tokens, browser cookies), bearer tokens, and request/response dumps never appear in this README or the project tree** — they live exclusively in `antigravity-accounts.json` on the operator's machine, the `~/.cache/opencode/antigravity-accounts.json` fallback, or the developer-controlled debug log directory. Do not paste any of them into issues or chat.
+The shipped headers, project IDs, and OAuth client identifiers match the publicly observable behavior of the upstream Antigravity CLI; they are not credentials and may be inspected in this repository. **Keep OAuth credentials (refresh/access tokens, browser cookies), bearer tokens, and request/response dumps out of this repository, issues, and chat.** Credentials belong in the local shared account store, native host auth slots, or vault custody files; debug logs and dumps can also contain sensitive data.
 
 ## Packages and supported hosts
 
 | Host | Package version | Host requirement | Install path |
 | --- | --- | --- | --- |
-| OpenCode 1.x (server + TUI) | `latest` | `@opencode-ai/plugin >=1.17.13 <2` · `@opentui/core`, `@opentui/keymap`, `@opentui/solid` all `^0.4.5` | `opencode plugin @cortexkit/opencode-antigravity-auth@latest` (writes the server entry to `opencode.json` and the TUI entry to `tui.json`) |
-| OpenCode 2.x | `latest` | OpenCode `>=2 <3` | `npm install @cortexkit/opencode-v2-antigravity-auth`, then register the package and models in `opencode.json` |
-| Pi coding agent | `latest` | `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui` (peer) | `pi install npm:@cortexkit/pi-antigravity-auth` then `/login google-antigravity` |
-| Standalone CLI | shipped inside the OpenCode 1.x package as the `antigravity-auth` bin | Node 20+ | `npx @cortexkit/opencode-antigravity-auth` |
+| OpenCode V1 (server + TUI) | unified OpenCode package | OpenCode `>=1.17.13 <2`; V1 uses `@opencode-ai/plugin` | V1 installer/manual registrations below |
+| OpenCode GA (2.x server + TUI) | same unified OpenCode package | OpenCode `>=2.0.22`; `@opencode/plugin >=2.0.22` | Public `./server` + `./tui` entries; source-backed directory config below |
+| Pi coding agent | `latest` | `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui` (peer) | `pi install npm:@cortexkit/pi-antigravity-auth` then `/login google` |
+| Standalone CLI | shipped inside the unified OpenCode package as the `antigravity-auth` bin | Node 20+ | `npx @cortexkit/opencode-antigravity-auth --help` |
 | Node libraries (harness builders) | `latest` core | Node 20+ | `npm install @cortexkit/antigravity-auth-core` |
 
-The OpenCode 1.x package exposes two `exports` subpaths the host installer reads:
+The [OpenCode manifest](packages/opencode/package.json) exposes `.` (`dist/index.js`, legacy V1 root), `./server` (`dist/server.js`, hybrid V1/GA server), and `./tui` (`src/tui/entry.mjs`, dispatching to the appropriate V1/GA TUI). Shipped top-level [`server.js`](packages/opencode/server.js) and [`tui.js`](packages/opencode/tui.js) forward directory-based host loading to those public entries. There is no separate OpenCode 2 package.
 
-- `exports["."]` — the bundled `dist/index.js` server root; `opencode plugin` writes this entry into `opencode.json`'s `plugin` array.
-- `exports["./tui"]` — `src/tui/entry.mjs`, the OpenTUI sidebar loader; `opencode plugin` writes this entry into `tui.json` so the TUI process picks it up on the next host start. The precompiled JSX tree ships under `dist/src/tui-compiled/` and is regenerated by `bun run build:tui`; the host's loader also accepts the raw `src/tui.tsx` source path for development installs.
-
-The host enforces the minimum OpenCode version through the package's `engines.opencode` field (`>=1.17.13 <2`); `opencode plugin` refuses to install a plugin that asks for an unsupported range. Both core and opencode packages are dual-target: the OpenCode package bundles a CommonJS-free ESM artifact via `esbuild`, while the core package ships `tsc`-emitted ESM. Runtime requirements match the `engines.node` field (`>=20`).
+`engines.opencode` is `>=1.17.13 <2 || >=2.0.22`; Node is `>=20`. Host peers are optional in the manifest: V1/GA plugin SDKs are separate, OpenTUI peers are `>=0.4.5`, and `solid-js` is `>=1.9.0`. The checkout pins V1 SDK `1.17.13`/OpenTUI `0.4.5` and GA SDK `2.0.22`/OpenTUI `0.5.14`; the peer range alone does not prove every host/runtime combination. Host installer behavior is distinct from these package exports.
 
 ## Installation matrix
 
-### OpenCode 1.x (npm — the only end-user install path)
+### OpenCode V1 (npm)
 
-The supported installer writes both registrations in one step:
+For V1 hosts that expose `opencode plugin`, the documented npm installation command is:
 
 ```bash
 opencode plugin @cortexkit/opencode-antigravity-auth@latest
 ```
 
-What this does:
-
-- Reads the package's `exports["."]` (the server root) and writes it into `~/.config/opencode/opencode.json` under the `plugin` array — that is the `auth.loader` and `fetch` interceptor the host calls on every model dispatch.
-- Reads the package's `exports["./tui"]` (the OpenTUI sidebar loader) and writes it into `~/.config/opencode/tui.json` so the TUI process picks the sidebar up on the next host start.
-- Refuses to install when the host's OpenCode version falls outside the package's `engines.opencode` range (`>=1.17.13 <2`).
+Check your host's help and resulting registrations: the repository establishes the package entries, not every host installer's behavior. V1 needs the server registration in `opencode.json` and a TUI registration in `tui.json`; do not reuse this V1 CLI/config recipe for GA.
 
 #### Manual config (hand-edited configs)
 
-If you cannot use `opencode plugin`, write both files by hand. The server entry lives in `opencode.json`:
+The V1 manual registration examples are below (merge them into your existing host configs). The server entry lives in `opencode.json`:
 
 ```jsonc
 // ~/.config/opencode/opencode.json
@@ -74,50 +68,39 @@ The TUI entry lives in a separate `tui.json` file under the same config dir:
 
 The two files are independent — the host reads the server registration from `opencode.json` and the TUI registration from `tui.json`. Dropping one side disables that half of the plugin without touching the other.
 
-### OpenCode 2.x
+### OpenCode GA (2.x)
 
-Install the separate OpenCode 2 host adapter:
+Use **the same** `@cortexkit/opencode-antigravity-auth` package. It ships both GA server and TUI entries. The repository's [pinned host input](packages/e2e-tests/docker/ga-binary-pin.json) is OpenCode `2.0.22`; the [GA harness](packages/e2e-tests/src/opencode-ga-harness.ts) registers an absolute plugin **directory** in `opencode.json`'s plural `plugins` array and colocates `server`/`tui` wrappers importing the public package entries.
 
-```bash
-npm install @cortexkit/opencode-v2-antigravity-auth
-```
-
-OpenCode 2 uses plural `plugins` and `providers` keys. Register the package in `opencode.json`, then copy the complete provider model map from [`packages/opencode-v2/example/opencode.json`](packages/opencode-v2/example/opencode.json):
+The shipped `server.js`/`tui.js` forwarders support registering the installed package's absolute directory in `plugins`, as shown below:
 
 ```jsonc
 {
-  "plugins": ["@cortexkit/opencode-v2-antigravity-auth"],
-  "providers": {
-    "google": {
-      "models": {
-        // Copy the supported Antigravity definitions from the example.
-      }
-    }
-  }
+  "plugins": ["/absolute/path/to/node_modules/@cortexkit/opencode-antigravity-auth"]
 }
 ```
 
-The adapter has no TUI registration; it uses OpenCode 2's native provider UI.
+The directory example follows the shipped forwarders, not a verified GA npm-installer command. The pinned harness uses an instrumented wrapper directory; direct npm-spec registration/installer syntax is not established here. Consult the matching host's install/config documentation rather than assuming V1's `opencode plugin` or `tui.json` behavior. Do not copy the harness's synthetic Google API key or mock `baseURL` into a real config. The harness's default fixture config has no user model map; no copied model-map requirement is established. Models are served under `google/…`, and the package supplies the Antigravity catalog.
 
 ### OpenCode from this checkout (contributors)
 
 Link the package into your local OpenCode config so the working-tree version is used:
 
 ```bash
-bun install                                  # at repo root
-bun run build                                # build all four published packages
+bun install --frozen-lockfile                # at repo root
+bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
+bun run build                                # core -> unified opencode -> pi
 bun run --cwd packages/opencode smoke:tui    # smoke-test the bundled TUI
-bun run smoke:opencode-v2                    # smoke-test packed OpenCode 2 resolution
 ```
 
-Then point `OPENCODE_CONFIG_DIR` at a project that has the development plugin entry, or copy `dist/` and `dist/src/tui-compiled/` into a directory OpenCode watches.
+Use an isolated config/database if you run a host from source; never point source probes at your everyday host profile. Register the complete built package's public server/TUI entries using the matching host's config surface above. Copying only `dist/` omits the top-level directory forwarders and `src/tui/entry.mjs` loader.
 
 ### Pi
 
 ```bash
 pi install npm:@cortexkit/pi-antigravity-auth
 pi                                                # interactive
-/login google-antigravity                         # OAuth
+/login google                         # OAuth
 ```
 
 Pi's extension loader discovers the package's `pi.extensions` field and registers the provider automatically; no manual wiring required.
@@ -133,17 +116,41 @@ npx -y @cortexkit/opencode-antigravity-auth quota        # live quota snapshot
 npx -y @cortexkit/opencode-antigravity-auth quota --refresh --json
 ```
 
-The CLI writes to the same `antigravity-accounts.json` the OpenCode plugin reads, so a `login` from the standalone bin is visible to the plugin immediately on the next restart.
+In local mode, the CLI and both OpenCode adapters use the same shared account store. Initialize or migrate it before login; the old `antigravity-accounts.json` pool is retired by migration and is no longer the active writer target.
+
+### Major upgrades: migration and rollback
+
+This guide describes the current source tree, not a claim that an unreleased major version is available on npm. Use `antigravity-auth` from the **build you are upgrading to**, whose `--help` lists `init`, `migrate`, and `rollback`; an older installed CLI may not implement them. Below, “new CLI” means that build's CLI.
+
+**Before a major upgrade**, set the top-level `auto_update` field to `false` in the effective `antigravity.json` (merge into existing settings), and ensure project overrides do not re-enable it:
+
+```json
+{
+  "auto_update": false
+}
+```
+
+The published v2.2.1 default is `true`; its update check on host restart can advance pinned plugin configs across major versions. A version specifier alone is not an update hold. This precaution disables the existing automatic config update, not the required offline migration. See the [v2.2.1 updater](https://github.com/cortexkit/antigravity-auth/blob/v2.2.1/packages/opencode/src/hooks/auto-update-checker/index.ts) and [schema](https://github.com/cortexkit/antigravity-auth/blob/v2.2.1/packages/opencode/src/plugin/config/schema.ts).
+
+- **Fresh installation:** run `antigravity-auth init` before login. Initialization refuses an existing legacy OpenCode pool.
+- **Upgrade an existing legacy OpenCode pool:** stop **every OpenCode and Antigravity process and timer** using that pool, then run `antigravity-auth migrate --offline`. Type `yes` at the stopped-process confirmation prompt. Optional `--yes` skips the prompt but does not make concurrent use safe.
+- **Downgrade after migration:** stop every OpenCode and Antigravity process and timer using the pool again, run `antigravity-auth rollback --offline` with the **new CLI**, confirm and wait for success, then install/start the older build. Never run old and new builds concurrently.
+
+Offline rollback exports **current credentials and metadata** from the active store generation into legacy V4 JSON, rather than restoring tokens from the original backup. It refuses an existing/recreated legacy file, a changed rollback snapshot, or credentials/metadata changed during rollback. Do not copy an old snapshot back or recreate the legacy pool. On a refusal, leave hosts stopped and resolve the reported conflict.
+
+Migration and rollback manage the **local OpenCode pool**, not the host's native Google auth slot used to activate the provider, or approved credentials held by the vault. Before changing builds, disconnect vault enrollment via `/antigravity` → Vault in the currently installed plugin or extension; re-login if native credentials cannot be safely restored. Do not assume all native host records will be restored. Pi's native auth file is not the OpenCode pool: **Pi-only users must not run these migration commands on it**. For Pi, change old `google-antigravity/…` model selections to `google/…` and run `/login google`; old credential slots are not automatically moved or overwritten.
+
+The exact CLI options and stopped-process confirmation are in [`packages/opencode/src/cli.ts`](packages/opencode/src/cli.ts); current-credential export and refusal checks are in [`packages/core/src/account-migration.ts`](packages/core/src/account-migration.ts).
 
 ## First login
 
-1. Install the package and start OpenCode (or the standalone CLI).
-2. For OpenCode: open the auth menu and choose **Antigravity (Google OAuth)**, or run `/antigravity-account add`.
+1. Install the intended build and initialize a fresh local store with `antigravity-auth init`, or complete the [offline migration](#major-upgrades-migration-and-rollback) of an existing OpenCode pool before starting the host.
+2. For OpenCode: open the Google auth menu and choose **Antigravity (Google OAuth)**, or use Sign in from `/antigravity`.
 3. For the CLI: run `antigravity-auth login`. `--project <id>` pins a Google Cloud project before the flow; `--no-browser` prints the URL instead of opening it (useful in headless / SSH sessions — see [Troubleshooting](#troubleshooting)).
-4. Approve the consent screen. The browser redirects to `http://localhost:51121/oauth-callback`; the local listener completes the PKCE exchange, persists `refreshToken` / `accessToken` / `email` / optional `projectId` into `~/.config/opencode/antigravity-accounts.json` (mode `0600`).
+4. Approve the consent screen. The browser redirects to `http://localhost:51121/oauth-callback`; the local listener completes the PKCE exchange and persists the account through the active local shared store, not the legacy JSON file. Vault mode uses vault custody instead of the local pool.
 5. Verify with `antigravity-auth quota`.
 
-A fresh install may auto-fetch a project ID from the Cloud Code Assist API. If the lookup fails the plugin uses the hardcoded fallback project (`rising-fact-p41fc`); see [403 Permission Denied](https://github.com/cortexkit/antigravity-auth/issues) for manually setting a project ID.
+A fresh install may auto-fetch a project ID from the Cloud Code Assist API. If the lookup fails the plugin uses the fallback project (`rising-fact-p41fc`); see [Troubleshooting](#troubleshooting) for choosing your own project during login.
 
 ## Models and routing
 
@@ -159,7 +166,7 @@ Header style controls the `User-Agent`, `X-Goog-Api-Client`, and `Client-Metadat
 
 - **Antigravity-first (default):** Gemini requests first try the Antigravity header set; on `429 RESOURCE_EXHAUSTED` they fall back to the Gemini CLI header set.
 - **CLI-first (`cli_first: true`):** Gemini requests first try the Gemini CLI header set; on `429` they fall back to Antigravity.
-- **Style-fallback (`quota_style_fallback: true`):** Re-sends the SAME request through the other header set when the active pool is rate-limited, consuming tokens from BOTH pools (default off to prevent double-spend across pools). The field is mutable from the `/antigravity-routing` dialog at runtime — toggling it does not require a restart.
+- **Style-fallback (`quota_style_fallback: true`):** Re-sends the SAME request through the other header set when the active pool is rate-limited, consuming tokens from BOTH pools (default off to prevent double-spend across pools). Change the live routing setting from `/antigravity` → Routing.
 - **Claude always uses Antigravity** regardless of the toggles.
 
 When all accounts for a given family cool down, the fetch interceptor waits up to `max_rate_limit_wait_seconds` (default `300`) before failing fast.
@@ -167,7 +174,9 @@ When all accounts for a given family cool down, the fetch interceptor waits up t
 ### Model IDs shipped in the registry
 
 - `antigravity-gemini-3.8-flash`, `antigravity-gemini-3.7-flash`, `antigravity-gemini-3.6-flash`, `antigravity-gemini-3.5-flash`, `antigravity-gemini-3.1-pro`, `antigravity-gemini-3.1-flash-image`
-- `antigravity-claude-sonnet-4-6-thinking`, `antigravity-claude-opus-4-6-thinking`
+- `antigravity-claude-sonnet-5-5`, `antigravity-claude-opus-5-5` (low, medium and high effort)
+
+Claude 4.6 routes are retired and refuse requests; they are not aliases for 5.5.
 - `antigravity-gpt-oss-120b-medium`
 - `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-3.1-pro-preview`, `gemini-3.1-pro-preview-customtools` (Gemini CLI namespace)
 
@@ -175,9 +184,9 @@ Legacy `antigravity-gemini-3-flash` style aliases resolve through `MODEL_ALIASES
 
 ## Multi-account behavior
 
-The account pool persists in `antigravity-accounts.json` (storage schema `AccountStorageV4`) with locking via `acquireFencedFileLock` so concurrent writers cannot corrupt the file. Each account carries:
+In local mode, OpenCode V1 and GA share the account repository at the resolved account path; projects do not create independent pools. After initialization/migration, `antigravity-accounts.json.store.pointer.json` beside the legacy path records the active store directory containing `config.json` and `state.json`. Legacy `antigravity-accounts.json` is an import/export format, not the active writer target. Each local account carries:
 
-- `refreshToken` (stored in plaintext; the file sits under `0600` with its parent directory at `0700` — filesystem permissions are the only protection at rest)
+- `refreshToken` (stored in plaintext in owner-only files/directories — filesystem permissions are not encryption)
 - `email`, `enabled`, `coolingDownUntil`, `cachedQuota`, `healthScore`
 - `projectId` (optional; used by Gemini CLI)
 - `fingerprintHistory` and `verificationRequired` / `verificationUrl` (used by the verification flow)
@@ -194,6 +203,10 @@ Account selection (`account_selection_strategy`):
 
 `switch_on_first_rate_limit` controls whether the interceptor switches accounts after the first 429 (default on) or retries the same account once first. `default_retry_after_seconds` (60) and `max_backoff_seconds` (60) shape the wait between attempts. `request_jitter_max_ms` adds timing jitter — set to `100–500` to avoid thundering-herd patterns when running many parallel agents.
 
+### Local authority and vault custody
+
+Use `/antigravity` → Vault to request access, select approved vault accounts, or return to local mode. **Local** authority uses the initialized/migrated local repository. **Vault custody** uses vault request credentials and excludes the local pool; unavailable enrollment or vault data does not permit a local fallback. OpenCode 1 needs a saved Google auth entry to load the provider. Once loaded, approved enrollment supplies vault credentials without reading or validating that entry's contents: existing ordinary Google logins and placeholder records from other enrollments remain unchanged. Explicit fresh provider activation refuses to overwrite an occupied Google auth slot. GA vault serving requires the native Google connection created for that enrollment; Pi requires the non-secret Google-slot marker created for that enrollment. Do not hand-edit mode files or copy credentials to bypass a refusal. See [`vault-custody.ts`](packages/opencode/src/plugin/vault-custody.ts), [`auth-loader.ts`](packages/opencode/src/plugin/auth-loader.ts), and [`vault-activation.ts`](packages/opencode/src/plugin/vault-activation.ts).
+
 ## Quota semantics and killswitch
 
 Each account carries a per-quota-group `cachedQuota` (`{ remainingFraction, resetTime }` for `claude`, `gemini-pro`, `gemini-flash`, `gpt-oss`). The quota manager refreshes them opportunistically:
@@ -205,7 +218,7 @@ Each account carries a per-quota-group `cachedQuota` (`{ remainingFraction, rese
 - **All-exhausted:** when every account exceeds the threshold the interceptor waits for the earliest reset time, then waits up to `max_rate_limit_wait_seconds` before failing fast.
 - **Proactive rotation:** after a successful request, if the active account's remaining quota drops below `proactive_rotation_threshold_percent` (default `20`) the next request is dispatched from a warm-cache account to avoid a forced 429 mid-conversation.
 
-The **operator killswitch** (`/antigravity-killswitch`) is a hard rejection layer run before dispatch:
+The **operator killswitch** (`/antigravity` → Limits) excludes accounts below configured remaining-quota floors and rejects a request if no eligible account remains:
 
 - `enabled` (default `false`) — master switch.
 - `minimum_remaining_percent` — global threshold; accounts whose freshest cached quota is ≤ this are excluded.
@@ -217,22 +230,20 @@ Both filters are evaluated *before* the token bucket / health score pick, so the
 
 ## OpenCode sidebar and slash commands
 
-The sidebar lives under the OpenCode TUI; it is **read-only** and polls `sidebar-state.json` every two seconds. The state contract version is `1`; the host loader silently falls back to `DEFAULT_SIDEBAR_STATE` on malformed JSON or unknown versions.
+The V1 sidebar is **read-only** and polls `sidebar-state.json` every two seconds. The file contract version is `1`; the loader falls back to `DEFAULT_SIDEBAR_STATE` on malformed JSON or unknown versions. GA also ships a sidebar and menu, but polls location-scoped snapshots through the host's native RPC client rather than this V1 file protocol; see [`ga/tui/host-ga.tsx`](packages/opencode/src/ga/tui/host-ga.tsx).
 
 ### Slash commands
 
-All six commands are registered in `packages/opencode/src/plugin/commands.ts` and the modal flow goes through `packages/opencode/src/tui/command-dialogs.tsx`. The plugin entry writes a sidebar freshness bump after every apply through `createSidebarRefresher` so the TUI's next poll sees a fresh `checkedAt`.
+There is one public command: **`/antigravity`**. It opens the shared menu rather than accepting the old per-feature slash commands or their arguments. V1 registration is in [`plugin/catalog.ts`](packages/opencode/src/plugin/catalog.ts); menu construction is in [`plugin/commands.ts`](packages/opencode/src/plugin/commands.ts), with TUI rendering in [`tui/command-dialogs.tsx`](packages/opencode/src/tui/command-dialogs.tsx).
 
-| Command | Args | Effect |
-| --- | --- | --- |
-| `/antigravity-quota` | `[refresh]` | Status (or refresh) of cached quota across accounts. Returns within `2s` default. |
-| `/antigravity-account` | `add` · `refresh` · `remove` · `list` | Manage the account pool. `add` and `refresh` opt into a `120_000` ms RPC timeout (OAuth can take two minutes on a fresh login). `list` and `remove` use the `2_000` default. |
-| `/antigravity-routing` | `cli_first=true\|false` · `quota_style_fallback=true\|false` | Toggle the live routing flags. Omit a key to flip the current value. Persists immediately. |
-| `/antigravity-killswitch` | `enabled=true\|false` · `minimum_remaining_percent=0..100` | Configure the killswitch. Per-account thresholds are set via direct config edit. |
-| `/antigravity-dump` | `enable` · `disable` · `status` | Toggle wire-dump capture for the next request. (Backward-compatible alias: `/gemini-dump`.) |
-| `/antigravity-logging` | `error` · `warn` · `info` · `debug` · `trace` | Adjust runtime logging; takes effect immediately and persists across restarts. |
-
-Every apply RPC defaults to `2_000` ms. The account `add` / `refresh` paths opt into `120_000` ms because the OAuth flow can take up to two minutes on a fresh login. The two timeouts are visible to operators as the `timeoutMs` knob on the apply result.
+| Menu section | Use |
+| --- | --- |
+| Accounts / Sign in | Inspect, enable/disable, remove, or reauthorize local accounts; start Google OAuth. Availability depends on the active source. |
+| Quota | Inspect readings or check quota now. |
+| Routing | Change live routing settings, including CLI-first and style fallback. |
+| Limits | Configure the killswitch and account floors. |
+| Diagnostics | Adjust logging and wire-dump capture. Treat dumps as sensitive. |
+| Vault | Request enrollment, choose approved vault accounts, or disconnect to return to local authority. |
 
 ### Sidebar contract
 
@@ -244,29 +255,32 @@ Every writer follows the same recipe (serialize through `sidebarWriteChain` → 
 
 ## Standalone CLI
 
-`antigravity-auth` (the bin inside the OpenCode package) accepts three commands. The parser rejects anything else with `exit 2`.
+`antigravity-auth` (the bin inside `@cortexkit/opencode-antigravity-auth`) accepts the commands listed below, plus `--help`. The parser rejects unsupported commands/options with `exit 2`.
 
 ```bash
 antigravity-auth login [--project <id>] [--no-browser]
 antigravity-auth list [--json]
 antigravity-auth quota [--json] [--refresh]
+antigravity-auth init
+antigravity-auth migrate --offline [--yes]
+antigravity-auth rollback --offline [--yes]
 ```
 
 - `login` performs the same PKCE + local callback flow as the plugin. `--project <id>` pins the project ID before the request; `--no-browser` prints the URL instead of opening it. The CLI auto-detects a headless session (`SSH_*`, `OPENCODE_HEADLESS=1`) and combines that with `--no-browser` for you.
 - `list` prints a fixed-width table (`INDEX`, `EMAIL`, `STATUS`) where `STATUS` is `active`, `disabled`, `ineligible`, or `verification-required`. `--json` emits the same data as JSON.
 - `quota` prints `ACCOUNT`, `STATUS`, `GROUP`, `REMAINING`, `RESET`. With `--refresh` it forces a live refresh; with `--json` it emits the same array as JSON. Exit code is `0` on success, `1` on a thrown error, and `2` on a parse failure.
 
-All commands write to the same `antigravity-accounts.json` the plugin reads; a login from the CLI shows up in the next sidebar poll after the plugin reload.
+`init`, `migrate`, and `rollback` change which account store is active; migration/rollback require all pool users to be stopped. See [Major upgrades](#major-upgrades-migration-and-rollback) before using them. Login persists through the same local shared store that the OpenCode adapters use. `list` and `quota` read accounts; they are not substitutes for initialization or migration.
 
 ## Pi usage
 
 ```bash
 pi install npm:@cortexkit/pi-antigravity-auth
 pi
-/login google-antigravity                    # OAuth flow
+/login google                    # OAuth flow
 ```
 
-The Pi extension registers the `google-antigravity` provider automatically through the package's `pi.extensions` field; no further wiring is needed. Both packages delegate to `@cortexkit/antigravity-auth-core`, so the request transport and model transforms are shared. The account-pool layer is not: Pi holds a single credential locally (no `antigravity-accounts.json`, no rotation, no killswitch, no operator settings). Multi-account rotation, quota routing, and the killswitch are OpenCode-only.
+The Pi extension registers the `google` provider through `pi.extensions`; select models as `google/antigravity-…`. Both host adapters delegate transport and transforms to core, but Pi local mode uses one credential in Pi's native `auth.json` Google slot, **not** the OpenCode pool. Vault mode can list/select approved vault accounts and serves one at a time, without local rotation, recorded quota gating, killswitch, or operator settings. Use `/antigravity` for vault setup. Vault custody backs up the native Google login and replaces Pi's `auth.json` Google slot with a non-secret placeholder; disconnect only restores a saved login when safe and refuses to overwrite a slot changed by another process. Re-login may be needed. See [Pi's upgrade notes](packages/pi/README.md#major-upgrades-and-downgrade) for the old `google-antigravity` provider ID.
 
 ## Configuration reference
 
@@ -327,36 +341,37 @@ The Pi extension registers the `google-antigravity` provider automatically throu
 | `token_bucket.regeneration_rate_per_minute` | number (0.1-60) | `6` | — | Rate budget refills. |
 | `token_bucket.initial_tokens` | number (1-1000) | `50` | — | Starting budget. |
 | `auto_update` | bool | `true` | — | Background npm update check + auto-pin. |
-| `operator.routing.cli_first` | bool | `false` | — | Live override of `cli_first` (from `/antigravity-routing`). |
+| `operator.routing.cli_first` | bool | `false` | — | Live override of `cli_first` (from `/antigravity` → Routing). |
 | `operator.routing.quota_style_fallback` | bool | `false` | — | Live override of `quota_style_fallback`. |
 | `operator.killswitch.enabled` | bool | `false` | — | Master killswitch. |
 | `operator.killswitch.minimum_remaining_percent` | number (0-100) | `5` | — | Global hard block threshold. |
 | `operator.killswitch.accounts` | record<string, number> | unset | — | Optional per-account override (key = `sha256(refreshToken).slice(0,12)`). Absent by default; falls back to `minimum_remaining_percent`. |
-| `operator.log_level` | `error` \| `warn` \| `info` \| `debug` \| `trace` | `"info"` | — | Runtime log-level filter (mutable from `/antigravity-logging`). |
+| `operator.log_level` | `error` \| `warn` \| `info` \| `debug` \| `trace` | `"info"` | — | Runtime log-level filter (`/antigravity` → Diagnostics). |
 
-`globalThis.fetch` calls inside the package go through `fetchWithActiveTimeout` (see [State, cache, log, RPC, and dump files](#state-cache-log-rpc-and-dump-files)).
+Raw generative AGY sends and standard-fetch callers use different timeout scopes (see [State, cache, log, RPC, and dump files](#state-cache-log-rpc-and-dump-files)).
 
 ## State, cache, log, RPC, and dump files
 
 | Purpose | Path | Mode | Notes |
 | --- | --- | --- | --- |
-| Account pool | `$OPENCODE_CONFIG_DIR/antigravity-accounts.json` (or `$XDG_CONFIG_HOME/opencode/antigravity-accounts.json`, fallback to `%APPDATA%\opencode\…`) | `0600` | Per-account tokens, quota cache, fingerprint history. Storage schema `V4`. |
+| Local account store | Beside the resolved legacy path: `antigravity-accounts.json.store.pointer.json` selects `antigravity-accounts.json.store.<id>.generation/` | Owner-only | Active `config.json` / `state.json`, migration journal and protected transfer/backup files. Shared by OpenCode V1/GA, not Pi native auth. |
+| Legacy pool | `$OPENCODE_CONFIG_DIR/antigravity-accounts.json` (default `~/.config/opencode/antigravity-accounts.json`) | `0600` | Pre-migration input / successful rollback output (V4); not the active store after migration. |
 | Plugin config | `antigravity.json` (project `.opencode/`, then user) | `0600` | The Zod-validated config above; `OpenCodeConfigDir` environment variable override. |
 | Debug logs | `antigravity-logs/<file>.log` (or `log_dir`) | `0600` | Created by the debug subsystem when `debug` is on. |
-| Sidebar state | `$XDG_STATE_HOME/cortexkit/antigravity-auth/sidebar-state.json` (override `ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE`) | `0600` | Versioned contract `1`; pruned to 24h/100 entries. |
-| RPC port file | `$XDG_STATE_HOME/cortexkit/antigravity-auth/rpc/<project-hash>/port-<pid>.json` (override `ANTIGRAVITY_AUTH_RPC_DIR`) | `0600` dir `0700` | Loopback HTTP token bearer for the TUI. |
+| V1 sidebar state | `$XDG_STATE_HOME/cortexkit/antigravity-auth/sidebar-state.json` (override `ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE`) | `0600` | Versioned contract `1`; pruned to 24h/100 entries. |
+| V1 RPC port file | `$XDG_STATE_HOME/cortexkit/antigravity-auth/rpc/<project-hash>/port-<pid>.json` (override `ANTIGRAVITY_AUTH_RPC_DIR`) | `0600` dir `0700` | Loopback HTTP token bearer for the TUI. |
 | Signature cache | `signature-cache-disk-<hash>.json` under `keep_thinking` path | `0600` | 2-day default TTL. |
 | Wire dump | `antigravity-logs/dumps/` | `0600` | Sensitive — see [Security and redaction](#security-and-redaction). |
 
-The **fetch interceptor** uses `fetchWithActiveTimeout` (`packages/core/src/fetch-timeout.ts`). The contract is intentional: the **`15_000` ms header-timeout** aborts only the request until the underlying `fetch` resolves; once headers arrive the timeout listener is removed and the body may stream past the deadline. **Streaming responses are bounded by the `agy-transport.ts` idle-timeout watchdog (`180_000` ms / 3 min)**, so a stalled SSE chunk counts as a transport failure even though the header budget has been exceeded. Operators should not raise the 15s header window to chase a streaming response — the stream watchdog is the right knob.
+The raw generative AGY path uses [`agy-transport.ts`](packages/core/src/agy-transport.ts), with a default **`180_000` ms (3 min) response-header wait** and a separate **`180_000` ms no-body-data idle timeout**. Neither is a total streaming deadline. The standard-fetch helper [`fetchWithActiveTimeout`](packages/core/src/fetch-timeout.ts), used by other callers including Gemini CLI-style sends, defaults to **`15_000` ms until headers arrive**; it removes that timeout at headers but keeps caller cancellation connected until the body ends, errors, or is canceled. Do not interpret the helper's 15s budget as the raw AGY transport's limit.
 
-The **RPC** between the TUI (`packages/opencode/src/tui-compiled/`) and the server plugin (`packages/opencode/src/rpc/rpc-server.ts`) uses a per-PID port file (`$XDG_STATE_HOME/cortexkit/antigravity-auth/rpc/<project-hash>/port-<pid>.json`). The TUI process reads the highest-mtime live entry, drops stale entries with `process.kill(pid, 0)` checks, and posts to `/rpc/apply` or `/rpc/pending-notifications` with a `Bearer <token>` header. Apply default timeout is `2_000` ms; `120_000` ms for `antigravity-account add`/`refresh`. Notifications are pushed over loopback HTTP and drained via the same `/rpc/pending-notifications` long-poll.
+The **V1 RPC** between the TUI and [`rpc-server.ts`](packages/opencode/src/rpc/rpc-server.ts) uses a per-PID port file (`$XDG_STATE_HOME/cortexkit/antigravity-auth/rpc/<project-hash>/port-<pid>.json`). The TUI reads a live entry and exchanges shared menu requests/notifications with the loopback server using a `Bearer <token>` header. GA has its own server/TUI integration; do not treat the V1 port-file protocol as a host config requirement.
 
-**Disposal:** the plugin's `dispose()` (called on host shutdown) drains sidebar writes via `drainSidebarWrites()` BEFORE tearing down the RPC server and file logger so any in-flight write enqueued at shutdown lands before the host closes the terminal. The lifecycle disposes (in order): the active `AccountManager` + token refresh queue → the disk signature cache → the session registry → the fetch state → sidebar drain → registered disposables (RPC server, file logger).
+**V1 disposal:** `dispose()` marks the plugin closing synchronously, blocking new admission. It aborts and waits for live and retiring requests and token-refresh shutdown before releasing their account managers, then closes the signature cache and clears session/fetch state. Registered producers (components that enqueue sidebar writes) stop first so the sidebar-write queue can settle; registered consumers (RPC server/file logger) stop after that drain. This orders shutdown and waits for queued work to settle; it does not guarantee every attempted write succeeded or the terminal rendered a final snapshot. See [`lifecycle.ts`](packages/opencode/src/plugin/lifecycle.ts).
 
 ## Security and redaction
 
-- Refresh tokens live in `antigravity-accounts.json` with file mode `0600`. The file is rewritten through `acquireFencedFileLock` so concurrent writers never corrupt state. Existing overly-permissive files are tightened on load.
+- Local credentials live in the active shared account-store generation; legacy JSON is only the pre-migration/rollback format. Keep the pointer, generation, backups, and transfer files private. Vault custody and native host auth slots are separate credential locations; none belong in Git or issue reports.
 - The sidebar state file carries only `id`/`label`/`enabled`/`health`/`current`/`cooldownUntil`/`quota` — never a refresh token, access token, project ID, fingerprint, or other credential-shaped field. `redactAccountForSidebar` is the single conversion point.
 - The killswitch `accounts` field is keyed by `sha256(refreshToken).slice(0,12)` so the raw token never lands in the config, sidebar, RPC payload, or apply response. The hash is deterministic per token but irreversible.
 - `debug` file logs MAY include request headers and response bodies for the model under test. Do not enable `debug` on a session that handles personally identifiable data. The wire dump produces a raw request/response pair; keep it out of issue reports. Operators can route logs to an encrypted directory via `log_dir`.
@@ -370,18 +385,18 @@ The **RPC** between the TUI (`packages/opencode/src/tui-compiled/`) and the serv
 | OAuth callback hangs | The browser can't reach `localhost:51121` (SSH, remote dev, Docker, WSL2) | `antigravity-auth login --no-browser`, copy the URL into a browser that can reach the host; or `ssh -L 51121:localhost:51121 user@remote` to forward the callback port. |
 | Safari shows "Safari can't open the page" | HTTPS-Only mode blocks `http://localhost` callback | Use Chrome or Firefox; or temporarily disable HTTPS-Only mode (Safari → Settings → Privacy) during login. |
 | `Address already in use :51121` | Stale OAuth listener from a previous run | `lsof -i :51121` (or `netstat -ano \| findstr :51121` on Windows), kill the listed PID, retry. |
-| `Permission 'cloudaicompanion.companions.generateChat' denied` (`rising-fact-p41fc` fallback project) | Antigravity returned no project ID | Enable the `Gemini for Google Cloud API` (`cloudaicompanion.googleapis.com`) on a Google Cloud project and add `projectId` to the account in `antigravity-accounts.json`. Repeat per account in multi-account setups. |
-| All accounts show `cooling-down` (quota available) | The threshold filter is excluding the entire pool | Lower `soft_quota_threshold_percent`, or wait for `soft_quota_cache_ttl_minutes` to expire and let the stale-TTL fail-open kick in. Refresh quota via `/antigravity-quota refresh`. |
+| `Permission 'cloudaicompanion.companions.generateChat' denied` (`rising-fact-p41fc` fallback project) | Antigravity returned no project ID | Enable the `Gemini for Google Cloud API` (`cloudaicompanion.googleapis.com`) on your project and authenticate locally with `antigravity-auth login --project <id>`. Do not hand-edit retired pool JSON; vault accounts require the vault operator's help. |
+| All accounts show `cooling-down` (quota available) | The threshold filter is excluding the entire pool | Lower `soft_quota_threshold_percent`, or wait for `soft_quota_cache_ttl_minutes` to expire: expired readings are treated as unknown rather than excluding accounts. Check quota via `/antigravity` → Quota. |
 | Sidebar shows "Awaiting Antigravity state" forever | The state file is missing or unreadable | Confirm `$XDG_STATE_HOME/cortexkit/antigravity-auth/sidebar-state.json` exists and is `0600`; verify the running plugin's user can write to the directory. |
-| `Antigravity RPC server is not available` from the TUI | The TUI is polling but no server has bound a port | Confirm the host process actually loaded the plugin (`config.command.antigravity-quota` should appear); the RPC dir (`ANTIGRAVITY_AUTH_RPC_DIR` or its default) must be writable. |
-| TUI shows "Awaiting antigravity bundle" / spawn fails | `bun run build:tui` was skipped, or the precompiled tree is missing | Run `bun run --cwd packages/opencode build` (it bundles `tsc` + `esbuild` + `build:tui`); confirm `dist/src/tui-compiled/tui.tsx` exists. |
-| `quota_backoff` recovered slowly | `quota_refresh_interval_minutes` is too high | Lower it; or run `/antigravity-quota refresh` to force a refresh. |
+| `Antigravity RPC server is not available` from the V1 TUI | No server has bound a port | Confirm the server plugin and `/antigravity` command loaded; the RPC dir (`ANTIGRAVITY_AUTH_RPC_DIR` or its default) must be writable. |
+| TUI shows "Awaiting antigravity bundle" / spawn fails | Generated TUI trees are missing | For a source checkout, use Bun 1.4.2 and `bun run --cwd packages/opencode build:tui`; check the matching `src/tui-compiled/` or `src/tui-ga-compiled/` tree. For an npm install, reinstall the intended build rather than copying partial generated files. |
+| `quota_backoff` recovered slowly | `quota_refresh_interval_minutes` is too high | Lower it; or use `/antigravity` → Quota to check now. |
 | Malformed JSON in `antigravity.json` | Invalid escape / trailing comma | `bun -e 'JSON.parse(require("fs").readFileSync(require("os").homedir()+"/.config/opencode/antigravity.json","utf8"))'`; the schema reference in the file (`$schema: assets/antigravity.schema.json`) drives editor IntelliSense. |
 | `Invalid signature in thinking block` errors | `keep_thinking` left on through a Claude version bump | Set `keep_thinking: false`; or clear `signature_cache.disk_ttl_seconds` and restart. The `SKIP_THOUGHT_SIGNATURE` sentinel is injected automatically for known-bad signatures. |
 | Pre-`v2` inline quota helper script | Removed in `v2` — the script no longer ships | Use `antigravity-auth quota [--refresh] [--json]`; the npm-installed `antigravity-auth` binary replaces it. |
 | Debug log location unknown | `debug` toggled off, or `log_dir` misconfigured | `debug: true` + `log_dir: "/secure/path"`; logs sit under `antigravity-logs/` by default and contain request/response bodies — handle with care. |
 
-When none of the above resolves the issue: stop the host, delete `antigravity-accounts.json` (and optionally `~/.cache/opencode/node_modules/@cortexkit/opencode-antigravity-auth` if a stale npm cache is suspected), and run `opencode auth login` again. Re-add accounts one at a time so a single problem account can be isolated.
+When none of the above resolves the issue, stop the host and inspect the error shown by `/antigravity` or the CLI before changing credentials, especially initialization, migration, or vault-conflict errors. Do not delete the legacy file, pointer, generation, or custody files as a generic reset: that can destroy migration/rollback evidence or a saved native login. Use account actions or provider re-login once the active source is healthy; include only redacted errors in support requests.
 
 ## Development workflow
 
@@ -389,10 +404,11 @@ This monorepo uses Bun for contribution commands; consumers install through npm.
 
 ```bash
 # at repo root
-bun install                                         # sync workspace
+bun install --frozen-lockfile                       # sync workspace
+bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
 bun run build                                       # core -> opencode -> pi
 bun run typecheck                                   # tsc across the workspace + scripts tsconfig
-bun run test                                        # bun test --isolate across packages
+bun run test                                        # isolated source selectors from package.json
 bun run test:e2e                                    # plugin-flow + cli-flow + rpc-tui-flow
 bun run test:e2e:models                             # live Antigravity model inventory (gated by CI)
 bun run test:e2e:regression                         # cross-model + Gemini CLI regression
@@ -400,11 +416,11 @@ bun run --cwd packages/opencode smoke:tui           # bundle + spawn the TUI pre
 bun run format:check && bun run lint                # Biome format + lint (no auto-fix in CI)
 ```
 
-The TUI side ships a precompiled JSX tree (`packages/opencode/src/tui-compiled/`) generated by `bun run build:tui` (alias of `bunx tsx packages/opencode/scripts/build-tui.ts`). The output is gitignored; rebuild it as part of every `bun run build`. A smoke-test (`bun run --cwd packages/opencode smoke:tui`) installs the freshly-built artifact as a tarball into a scratch dir and confirms the host can resolve both the `server` and `tui` subpaths. CI runs the smoke-test before TUI-loading tests and before publishing.
+The TUI side ships V1 and GA compiled/raw JSX trees selected by the public loader. `bun run build:tui` runs the package's Bun build script with the private compiler inputs; use **Bun 1.4.2** and install `tools/common-auth-build` from its frozen lockfile first. Generated trees are rebuilt by the package build. `bun run --cwd packages/opencode smoke:tui` installs fresh tarballs in a scratch consumer and checks server/TUI resolution; it is not a substitute for running a host against an isolated profile.
 
-`bun run dev` symlinks all packages into a `dist-dev/` tree and watches for source changes. `bun run dev:clean` removes the dev symlinks; use it after switching branches.
+`bun run dev` is a V1 development helper: it builds core/OpenCode, links `.opencode/plugins/antigravity-auth.js` to the built OpenCode `dist/index.js`, and starts watchers. `bun run dev:clean` removes that link. It is not a GA installer or a Pi development profile; use isolated host configuration for source work. See [`scripts/dev.ts`](scripts/dev.ts).
 
-Pre-commit hooks (`.lefthook.yml`) run Biome on changed files; CI re-runs the full `bun run format:check && bun run lint` gate.
+Pre-commit hooks (`lefthook.yml`) run Biome on changed code/config files; CI re-runs the full `bun run format:check && bun run lint` gate. Biome does not validate Markdown.
 
 ## Test strategy
 
@@ -412,7 +428,7 @@ The repo splits tests by what they exercise and what they need:
 
 | Scope | Tooling | Network | How to run |
 | --- | --- | --- | --- |
-| Unit (deterministic) | `bun test --isolate` (`packages/{core,opencode,pi}/src`, `packages/e2e-tests/src`) | No | `bun run test` |
+| Unit (deterministic) | Isolated core/OpenCode/Pi source and selected repository tests; exact selectors in `package.json` | No | `bun run test` |
 | Black-box e2e (deterministic) | Mock Antigravity server, harness runner (`packages/e2e-tests/`) | No | `bun run test:e2e` |
 | Live model inventory | `bun run test:e2e:models` (uses `test-models.ts`) | Yes — gated by CI label | `bun run test:e2e:models` |
 | Cross-model regression | `bun run test:e2e:regression` (`script/test-regression.ts`) | Yes | `bun run test:e2e:regression` |
@@ -422,28 +438,27 @@ Deterministic tests run everywhere (including in CI). The live `test:e2e:models`
 
 ## Release process
 
-```bash
-./scripts/release.sh 1.7.0            # tag-driven release: typecheck -> test -> build -> sync version -> commit + tag + push
-./scripts/release.sh 1.7.0 --dry      # dry run: previews version sync without committing/pushing
-```
+Maintainers pass the chosen semver to [`scripts/release.sh`](scripts/release.sh); `--dry` previews version synchronization without committing/pushing. Do not treat the source guide as an announcement that the next major version has been published.
 
-The script enforces semver, refuses to run on a dirty tree, and refuses to run on a non-`main`/`master` branch without confirmation. It runs `bun run typecheck` → `bun run test` → `bun run build` before any mutation. `scripts/version-sync.mjs` is a Node script (no Bun runtime dep) that walks every workspace and writes the new version into each `package.json`. The script tags the release and pushes it; the GitHub workflow is what runs the actual publish.
+The script enforces semver, refuses to run on a dirty tree, and requires confirmation on a non-`main`/`master` branch. After toolchain/embedding preflight it runs `bun run typecheck` → `bun run test` → `bun run build`, then synchronizes versions before committing/tagging/pushing. [`scripts/version-sync.mjs`](scripts/version-sync.mjs) sets the three publishable package versions and the adapters' core dependency pins; it does not rewrite every workspace. The GitHub workflow performs the actual publish.
 
 The `Release` workflow (`.github/workflows/release.yml`) runs on tag push (or `workflow_dispatch`) and:
 
-1. **Test** job — checkout the tag ref → install Bun 1.3 + Node 24 → `bun install --frozen-lockfile` → `bun run typecheck` → `bun run build` → `bun run --cwd packages/opencode smoke:tui` → `bun test` → `bun run test:e2e` → `bun run format:check` → `bun run lint`.
-2. **Publish** job — matrixed across the four packages (`@cortexkit/antigravity-auth-core`, `@cortexkit/opencode-antigravity-auth`, `@cortexkit/pi-antigravity-auth`, `@cortexkit/opencode-v2-antigravity-auth`) with `max-parallel: 1` so each package picks up its own OIDC token; `npm Trusted Publishing` (`npm publish --workspace … --access public --provenance`) handles the upload. The job skips a package if its npm version is already published.
+1. **Test** job — checkout the tag ref, prepare the pinned toolchains, then run the embedding, typecheck, build, TUI smoke, isolated source-test, e2e, format, and lint gates. Use `bun run test`, not bare root `bun test`; see the workflow for exact selectors.
+2. **Publish** job — matrixed across core, unified OpenCode, and Pi, one package at a time (`max-parallel: 1`). Each package job obtains its own OIDC token; `npm Trusted Publishing` (`npm publish --workspace … --access public --provenance`) handles the upload. The job skips a package if its npm version is already published.
 3. **GitHub Release** job — `softprops/action-gh-release@v2` creates the GitHub release with `generate_release_notes: true`.
+
+The publish job checks out the selected tag/ref, derives the version from the dispatch input or tag name (stripping `v`), runs `node scripts/version-sync.mjs` with that version, then builds and publishes. Thus GitHub synchronizes the checked-out manifests before publishing; it does not require their original versions to already equal the tag. See [the release workflow](.github/workflows/release.yml).
 
 CI (`.github/workflows/ci.yml`) reuses the same typecheck → build → smoke → test → e2e → format → lint chain on every push to `main` and on every pull request. The `issue-triage.yml` workflow handles GitHub-issue routing.
 
 ## Architecture and structure links
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — system-of-record architecture doc across all four packages.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — architecture overview of core, unified OpenCode, and Pi.
 - [STRUCTURE.md](STRUCTURE.md) — file-system map of the monorepo.
 - [packages/opencode/ARCHITECTURE.md](packages/opencode/ARCHITECTURE.md) — OpenCode plugin architecture in detail.
 - [packages/opencode/STRUCTURE.md](packages/opencode/STRUCTURE.md) — OpenCode package file-system map.
-- [packages/opencode/CHANGELOG.md](packages/opencode/CHANGELOG.md) — version history (current is `2.0.0`; previous major was `1.6.0`).
+- [packages/opencode/CHANGELOG.md](packages/opencode/CHANGELOG.md) — version history.
 - [packages/opencode/docs/CONFIGURATION.md](packages/opencode/docs/CONFIGURATION.md) — detailed option walkthrough.
 - [packages/opencode/docs/MULTI-ACCOUNT.md](packages/opencode/docs/MULTI-ACCOUNT.md) — load balancing, dual quota pools, account storage.
 - [packages/opencode/docs/MODEL-VARIANTS.md](packages/opencode/docs/MODEL-VARIANTS.md) — variants, thinking budgets, model selection.

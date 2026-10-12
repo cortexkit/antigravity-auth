@@ -1,0 +1,23 @@
+
+packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:
+14 | } from './v1-vault-activation-harness.ts'
+15 | 
+16 | test('official V1 loads the packed server and completes a vault raw-TLS first request', async () => {
+17 |   const receipt = await runPackedVault()
+18 |   emitPackedReceipt(receipt)
+19 |   expect(receipt.error).toBeUndefined()
+                             ^
+error: expect(received).toBeUndefined()
+
+Received: "Error: login exceeded its finite deadline\n    at check (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:66:29)\n    at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:337:5)\n    at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:341:26)\n    at async <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:567:15)\n    at async withSyntheticVault (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-vault-activation-harness.ts:857:11)\n    at async runPackedVault (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault-harness.ts:540:11)\n    at unknown\n    at processTicksAndRejections (native:7:39)"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:19:25)
+(fail) official V1 loads the packed server and completes a vault raw-TLS first request [72435.71ms]
+(pass) wire assertion rejects unrelated identity, bearer, project and nonce [0.47ms]
+(pass) loading assertion rejects a source, factory or direct-entry route [0.21ms]
+(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.09ms]
+
+ 3 pass
+ 1 fail
+ 12 expect() calls
+Ran 4 tests across 1 file. [72.79s]

@@ -1,0 +1,12 @@
+{
+  "name": "opencode-ga-offline-host-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@opencode/cli-linux-x64": "2.0.22",
+    "@cortexkit/claustrum-client": "0.6.2",
+    "jsonc-parser": "3.3.1",
+    "xdg-basedir": "5.1.0",
+    "zod": "4.4.3"
+  }
+}

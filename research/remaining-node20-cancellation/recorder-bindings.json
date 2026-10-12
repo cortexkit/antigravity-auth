@@ -1,0 +1,817 @@
+[
+  {
+    "case": "C0-missing-any-baseline",
+    "task_id": "bash-aa8ddf392fe99e16",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-aa8ddf392fe99e16/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-aa8ddf392fe99e16/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-aa8ddf392fe99e16/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b72-3d88-73ed-97df-8a4796aa399e",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "stdout.txt": {
+        "original_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "retained_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "b5d18bb53a0447c58d064e87fc7e476a7559ccf4c48bd8000f7b0a3297f57c7d",
+        "retained_sha256": "b5d18bb53a0447c58d064e87fc7e476a7559ccf4c48bd8000f7b0a3297f57c7d",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C0-build-and-missing-any-baseline",
+    "task_id": "bash-7abb17dbfdc2bed7",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-7abb17dbfdc2bed7/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-7abb17dbfdc2bed7/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-7abb17dbfdc2bed7/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b72-6aaa-7632-8375-dc99e62bd5de",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "stdout.txt": {
+        "original_sha256": "f4a50661ae026b6850636143500aafa037c587831fcc1abc4514d4cac3358914",
+        "retained_sha256": "f4a50661ae026b6850636143500aafa037c587831fcc1abc4514d4cac3358914",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "1a1d310d87823bc58fa4951a9d41fb016fa312f42e6b408b5710ed4148ccef2a",
+        "retained_sha256": "1a1d310d87823bc58fa4951a9d41fb016fa312f42e6b408b5710ed4148ccef2a",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C0-missing-any",
+    "task_id": "bash-9763f4e4012b0459",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9763f4e4012b0459/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9763f4e4012b0459/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9763f4e4012b0459/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b72-f424-77db-ab79-e16a83d3762e",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "5cd0b2048f7779fe4bfa39f862905cbc1f2fded0d5a26da6d0dba8f1a02b4f48",
+        "retained_sha256": "5cd0b2048f7779fe4bfa39f862905cbc1f2fded0d5a26da6d0dba8f1a02b4f48",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "f4a50661ae026b6850636143500aafa037c587831fcc1abc4514d4cac3358914",
+        "retained_sha256": "f4a50661ae026b6850636143500aafa037c587831fcc1abc4514d4cac3358914",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "2772e00ce25684920ffcf51463aba304495a7d8b7a87378ec8556a9cd1b04853",
+        "retained_sha256": "2772e00ce25684920ffcf51463aba304495a7d8b7a87378ec8556a9cd1b04853",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C1-caller-at-headers",
+    "task_id": "bash-b3e2c90e83ee291d",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-b3e2c90e83ee291d/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-b3e2c90e83ee291d/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-b3e2c90e83ee291d/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b7e-5b73-72e9-a2c9-474394288f54",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "mutation-during.txt": {
+        "original_sha256": "44fb05e6c47d4f9be8ca5c6b3b2230cfc4e20445955f2a365d53cad3160618b7",
+        "retained_sha256": "44fb05e6c47d4f9be8ca5c6b3b2230cfc4e20445955f2a365d53cad3160618b7",
+        "byte_identical": true
+      },
+      "command.sh": {
+        "original_sha256": "a849939da7253043d4534d8ce9f7f28b102846bc55f40bbec5b02710235090dd",
+        "retained_sha256": "a849939da7253043d4534d8ce9f7f28b102846bc55f40bbec5b02710235090dd",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "retained_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "d538b1e98ce0bc1563c15b3583cac1f8f0c75af145102d46c319b5bf75c54d32",
+        "retained_sha256": "d538b1e98ce0bc1563c15b3583cac1f8f0c75af145102d46c319b5bf75c54d32",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C2-deadline-after-headers",
+    "task_id": "bash-8268c4b715cfb6af",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-8268c4b715cfb6af/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-8268c4b715cfb6af/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-8268c4b715cfb6af/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b7f-14ec-7536-a7f2-68c91edb7f29",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "mutation-during.txt": {
+        "original_sha256": "f6efdab88d91d82e9f7f81657bb881ec89443e6b77492a501c6813d15a856dbe",
+        "retained_sha256": "f6efdab88d91d82e9f7f81657bb881ec89443e6b77492a501c6813d15a856dbe",
+        "byte_identical": true
+      },
+      "command.sh": {
+        "original_sha256": "370a31e5ee3f6b3aacf11790d3e2ff2583174ed78a2ca6dca3c2163723c50608",
+        "retained_sha256": "370a31e5ee3f6b3aacf11790d3e2ff2583174ed78a2ca6dca3c2163723c50608",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "retained_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "94f7b86c447c86f87be852559e459e08abee1b5b6f654a3c2c3c2aebda0a835a",
+        "retained_sha256": "94f7b86c447c86f87be852559e459e08abee1b5b6f654a3c2c3c2aebda0a835a",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C3-forwarder-removal",
+    "task_id": "bash-9270ab0e42ef5b59",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9270ab0e42ef5b59/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9270ab0e42ef5b59/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9270ab0e42ef5b59/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b7f-ba2e-734d-b397-8671d0836223",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "mutation-during.txt": {
+        "original_sha256": "c036cbd5882cda5fa0ff41af786b6dec46e359463a5740b6ecb3eea41e3a94ee",
+        "retained_sha256": "c036cbd5882cda5fa0ff41af786b6dec46e359463a5740b6ecb3eea41e3a94ee",
+        "byte_identical": true
+      },
+      "command.sh": {
+        "original_sha256": "a3b28b30a5fc6dfab6fa395c044d08bcaec078259658027502ca499cb7ef7012",
+        "retained_sha256": "a3b28b30a5fc6dfab6fa395c044d08bcaec078259658027502ca499cb7ef7012",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "retained_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "2b276e14ed308ea355feca780ea1c2b2bfa9264533a6ab51ff622761510549fb",
+        "retained_sha256": "2b276e14ed308ea355feca780ea1c2b2bfa9264533a6ab51ff622761510549fb",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C4-body-completion-removal",
+    "task_id": "bash-b388c98e48e56381",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-b388c98e48e56381/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-b388c98e48e56381/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-b388c98e48e56381/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b80-b828-7667-8dca-112f0ab72ee4",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "mutation-during.txt": {
+        "original_sha256": "f6efdab88d91d82e9f7f81657bb881ec89443e6b77492a501c6813d15a856dbe",
+        "retained_sha256": "f6efdab88d91d82e9f7f81657bb881ec89443e6b77492a501c6813d15a856dbe",
+        "byte_identical": true
+      },
+      "command.sh": {
+        "original_sha256": "405ae3c48c845ef56d5bb5b1a81570c089a2622c7e91dce2cc1ffad2c63e2b31",
+        "retained_sha256": "405ae3c48c845ef56d5bb5b1a81570c089a2622c7e91dce2cc1ffad2c63e2b31",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "retained_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "7a5b1cd169a7277590003ced33796c234f2174f6c33d4bed017c8f75e6ed9cdd",
+        "retained_sha256": "7a5b1cd169a7277590003ced33796c234f2174f6c33d4bed017c8f75e6ed9cdd",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C5-pi-final-removal",
+    "task_id": "bash-a7e421d9d1a0187c",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-a7e421d9d1a0187c/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-a7e421d9d1a0187c/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-a7e421d9d1a0187c/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b81-9a3e-77b7-ad28-3e0a437b1465",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "mutation-during.txt": {
+        "original_sha256": "c7f48b0d12f6480f2c286da2ddb1b81bf0508bdc319c4ac11a098cca86a3ac5d",
+        "retained_sha256": "c7f48b0d12f6480f2c286da2ddb1b81bf0508bdc319c4ac11a098cca86a3ac5d",
+        "byte_identical": true
+      },
+      "command.sh": {
+        "original_sha256": "d29fc46e69d8bb567178f50c684d108ce1c0b98afa219658d4c15f7287408e26",
+        "retained_sha256": "d29fc46e69d8bb567178f50c684d108ce1c0b98afa219658d4c15f7287408e26",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "6421eaf983cc36b282e19945ba20cb10e8ee52e8ea781e4d8dcc3025304d8fa0",
+        "retained_sha256": "6421eaf983cc36b282e19945ba20cb10e8ee52e8ea781e4d8dcc3025304d8fa0",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "c1c4b7c443c1214e13bf3aa09025b9526f43d14e8091bff715e03a625fc0c054",
+        "retained_sha256": "c1c4b7c443c1214e13bf3aa09025b9526f43d14e8091bff715e03a625fc0c054",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C6-idle-cleanup-baseline",
+    "task_id": "bash-94dcf9b3e93c05da",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-94dcf9b3e93c05da/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-94dcf9b3e93c05da/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-94dcf9b3e93c05da/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b7c-193d-7277-b268-5af6fb01dc33",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "727de1281b43d3b771e09274fb4e3ed5682887c9ee7b103e7756aedbc4ae5bcb",
+        "retained_sha256": "727de1281b43d3b771e09274fb4e3ed5682887c9ee7b103e7756aedbc4ae5bcb",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "retained_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "6be480de2985ebee4bb434b8ebb68eb7f951eb7e70989a2017e37e1f62ce94b7",
+        "retained_sha256": "6be480de2985ebee4bb434b8ebb68eb7f951eb7e70989a2017e37e1f62ce94b7",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C7-request-inheritance",
+    "task_id": "bash-52d0a368ba76dcd6",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-52d0a368ba76dcd6/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-52d0a368ba76dcd6/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-52d0a368ba76dcd6/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b82-f7ab-7182-b248-00389c1ce2eb",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "mutation-during.txt": {
+        "original_sha256": "f6efdab88d91d82e9f7f81657bb881ec89443e6b77492a501c6813d15a856dbe",
+        "retained_sha256": "f6efdab88d91d82e9f7f81657bb881ec89443e6b77492a501c6813d15a856dbe",
+        "byte_identical": true
+      },
+      "command.sh": {
+        "original_sha256": "a7ac67067db2afa4a0f0d3db7a5b1125bbe865a5977c750ee2d56e3b82e0cf9f",
+        "retained_sha256": "a7ac67067db2afa4a0f0d3db7a5b1125bbe865a5977c750ee2d56e3b82e0cf9f",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "retained_sha256": "06131b5c0c09b486b4c5ed68db26500097b9e7c882c2e9a469e09fbf7a8cd781",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "cb023b02e695d0235b45021ca34a983a2d226fedff4bd7e14b04ca9bfaa60387",
+        "retained_sha256": "cb023b02e695d0235b45021ca34a983a2d226fedff4bd7e14b04ca9bfaa60387",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "P1-targeted-gates",
+    "task_id": "bash-e5d7f924fbfe5789",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-e5d7f924fbfe5789/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-e5d7f924fbfe5789/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-e5d7f924fbfe5789/io/stderr",
+    "outer_exit_code": 2,
+    "remote_job_id": "01a12b77-5682-748c-94f4-16ab15feb186",
+    "remote_terminal_exit_code": 2,
+    "inner_exit_code": 2,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "3136424514bc910f43e25a9a48904b1d88b52a35bbee23ae08828bad15213c1c",
+        "retained_sha256": "3136424514bc910f43e25a9a48904b1d88b52a35bbee23ae08828bad15213c1c",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "91485533c5b384b2fe510a86c4aae69bc9838d4be3c6d831fe6b27970898222d",
+        "retained_sha256": "91485533c5b384b2fe510a86c4aae69bc9838d4be3c6d831fe6b27970898222d",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "c86773da81b3c0aef318e88ea651e1898f478b0cbeffaff8ec2324147ed285ad",
+        "retained_sha256": "c86773da81b3c0aef318e88ea651e1898f478b0cbeffaff8ec2324147ed285ad",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+        "retained_sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "P2-targeted-gates",
+    "task_id": "bash-9b1a7431419ad904",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9b1a7431419ad904/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9b1a7431419ad904/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9b1a7431419ad904/io/stderr",
+    "outer_exit_code": 2,
+    "remote_job_id": "01a12b78-0e06-7269-9511-3da900dd4c1e",
+    "remote_terminal_exit_code": 2,
+    "inner_exit_code": 2,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "3136424514bc910f43e25a9a48904b1d88b52a35bbee23ae08828bad15213c1c",
+        "retained_sha256": "3136424514bc910f43e25a9a48904b1d88b52a35bbee23ae08828bad15213c1c",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "9f4814915d43420c3ce2cab6ef9889ff494e8078af84755a4bd3d6f82f5af380",
+        "retained_sha256": "9f4814915d43420c3ce2cab6ef9889ff494e8078af84755a4bd3d6f82f5af380",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "c86773da81b3c0aef318e88ea651e1898f478b0cbeffaff8ec2324147ed285ad",
+        "retained_sha256": "c86773da81b3c0aef318e88ea651e1898f478b0cbeffaff8ec2324147ed285ad",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+        "retained_sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "P3-targeted-gates",
+    "task_id": "bash-dae35e9f84099118",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-dae35e9f84099118/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-dae35e9f84099118/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-dae35e9f84099118/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b78-7072-7094-8040-aded0b3cbbee",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "3136424514bc910f43e25a9a48904b1d88b52a35bbee23ae08828bad15213c1c",
+        "retained_sha256": "3136424514bc910f43e25a9a48904b1d88b52a35bbee23ae08828bad15213c1c",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "f4a50661ae026b6850636143500aafa037c587831fcc1abc4514d4cac3358914",
+        "retained_sha256": "f4a50661ae026b6850636143500aafa037c587831fcc1abc4514d4cac3358914",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "2be63ddba39949f6bbc1255de8750975ce529e0640ac75643354bb8cc298165f",
+        "retained_sha256": "2be63ddba39949f6bbc1255de8750975ce529e0640ac75643354bb8cc298165f",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "P4-targeted-gates",
+    "task_id": "bash-aceb01ed902a0fdb",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-aceb01ed902a0fdb/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-aceb01ed902a0fdb/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-aceb01ed902a0fdb/io/stderr",
+    "outer_exit_code": 0,
+    "remote_job_id": "01a12b7a-68ae-76a1-a760-4f0861213cfe",
+    "remote_terminal_exit_code": 0,
+    "inner_exit_code": 0,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "3136424514bc910f43e25a9a48904b1d88b52a35bbee23ae08828bad15213c1c",
+        "retained_sha256": "3136424514bc910f43e25a9a48904b1d88b52a35bbee23ae08828bad15213c1c",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "f4a50661ae026b6850636143500aafa037c587831fcc1abc4514d4cac3358914",
+        "retained_sha256": "f4a50661ae026b6850636143500aafa037c587831fcc1abc4514d4cac3358914",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "0012b440151d7a76810e746f49f3e7e795411b13984e5d88c065cc08caf943a5",
+        "retained_sha256": "0012b440151d7a76810e746f49f3e7e795411b13984e5d88c065cc08caf943a5",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "retained_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "P7-final-gates",
+    "task_id": "bash-0dfffb0485d6a2f3",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-0dfffb0485d6a2f3/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-0dfffb0485d6a2f3/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-0dfffb0485d6a2f3/io/stderr",
+    "outer_exit_code": 127,
+    "remote_job_id": "01a12b86-dc8d-715e-9319-8ddd64d880f5",
+    "remote_terminal_exit_code": 127,
+    "inner_exit_code": 127,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "ea0751322f15fcc81964345f16a495cb3f75a60e818834292187f7945dba892a",
+        "retained_sha256": "ea0751322f15fcc81964345f16a495cb3f75a60e818834292187f7945dba892a",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "cdddb90a4c3af04444b00107a8ad6dc3a2b38ab45abf96911358563f6e4bbcb0",
+        "retained_sha256": "cdddb90a4c3af04444b00107a8ad6dc3a2b38ab45abf96911358563f6e4bbcb0",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "89bcae70cdb42e71e9e8a21935d4d62b36a3432ef234b0b567bcc2ed36742234",
+        "retained_sha256": "89bcae70cdb42e71e9e8a21935d4d62b36a3432ef234b0b567bcc2ed36742234",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "743c7850cccfba5e53a9002663ec1ddd1079315a98bdbfdde10e6044f56abefe",
+        "retained_sha256": "743c7850cccfba5e53a9002663ec1ddd1079315a98bdbfdde10e6044f56abefe",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "P8-final-gates",
+    "task_id": "bash-685d3b9b5afea962",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-685d3b9b5afea962/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-685d3b9b5afea962/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-685d3b9b5afea962/io/stderr",
+    "outer_exit_code": 0,
+    "remote_job_id": "01a12b87-5927-76d3-81cb-2741c95d8683",
+    "remote_terminal_exit_code": 0,
+    "inner_exit_code": 0,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "608c6398ffcc6970162cba3a8c8ff6668ea6b55f71e5250cedc3c49ead7d6615",
+        "retained_sha256": "efb0e40fc63ce4d0f98d22c080cabbd14f72a77eba4379378dad043a071ea313",
+        "byte_identical": false,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "df21de84d7efecd5475e00fd22b6175e662936f40d998707be16c4c451f1d031",
+        "retained_sha256": "df21de84d7efecd5475e00fd22b6175e662936f40d998707be16c4c451f1d031",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "011cb28a91380613758889d55828ace676f29300edb0d718f1e47e20670aac87",
+        "retained_sha256": "011cb28a91380613758889d55828ace676f29300edb0d718f1e47e20670aac87",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "retained_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "P10-reviewed-http-tests",
+    "task_id": "bash-9abc729afa84179b",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9abc729afa84179b/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9abc729afa84179b/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-9abc729afa84179b/io/stderr",
+    "outer_exit_code": 0,
+    "remote_job_id": "01a12ba1-bd43-7184-88bd-f6b06f4ccb9a",
+    "remote_terminal_exit_code": 0,
+    "inner_exit_code": 0,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "bc0a55bea723ee3bc5e5405e6aa9304de2399d21a70f6780b4687db8a3f4efbc",
+        "retained_sha256": "bc0a55bea723ee3bc5e5405e6aa9304de2399d21a70f6780b4687db8a3f4efbc",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "d4a49ed1ab7b273ebffb96a2f9db8c6f88ead2ada5e9c2bc3b12309283cb79f6",
+        "retained_sha256": "d4a49ed1ab7b273ebffb96a2f9db8c6f88ead2ada5e9c2bc3b12309283cb79f6",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "d60ae3ed18eb5666d10953e48491ef4774a75f40dab3c3ec138d3a7352caf866",
+        "retained_sha256": "d60ae3ed18eb5666d10953e48491ef4774a75f40dab3c3ec138d3a7352caf866",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "retained_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "P9-reviewed-http-tests",
+    "task_id": "bash-52191dd9e6d6e823",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-52191dd9e6d6e823/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-52191dd9e6d6e823/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-52191dd9e6d6e823/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12b9e-1d71-7367-b76f-88a39611c97f",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "bc0a55bea723ee3bc5e5405e6aa9304de2399d21a70f6780b4687db8a3f4efbc",
+        "retained_sha256": "bc0a55bea723ee3bc5e5405e6aa9304de2399d21a70f6780b4687db8a3f4efbc",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "47fb0989da793b35b9f24ea332f198c4a3da745b9e4d4bf0d3c23cb3a2b19b31",
+        "retained_sha256": "47fb0989da793b35b9f24ea332f198c4a3da745b9e4d4bf0d3c23cb3a2b19b31",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "2c891e4343bd0d16bee1c13eb7e1396f565b7577f207716b3a142394bd3847bf",
+        "retained_sha256": "2c891e4343bd0d16bee1c13eb7e1396f565b7577f207716b3a142394bd3847bf",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "P11-import-safety",
+    "task_id": "bash-7ffd27ae11065418",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-7ffd27ae11065418/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-7ffd27ae11065418/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-7ffd27ae11065418/io/stderr",
+    "outer_exit_code": 0,
+    "remote_job_id": "01a12bb8-5178-72f1-b0b1-b406dcfb5862",
+    "remote_terminal_exit_code": 0,
+    "inner_exit_code": 0,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "c88baa2ab787c2d3d25a0014791969c625d6966fa926d8b076207f0558292008",
+        "retained_sha256": "c88baa2ab787c2d3d25a0014791969c625d6966fa926d8b076207f0558292008",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "63990b3ee50c49ab28d70e29c0f967f0c71330e39243ffeb4d3a8d5878c8a978",
+        "retained_sha256": "63990b3ee50c49ab28d70e29c0f967f0c71330e39243ffeb4d3a8d5878c8a978",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "500b7372b6c9be6ed234f7c972940a21210ada477a0f9e3ad7430c6ed958f03d",
+        "retained_sha256": "500b7372b6c9be6ed234f7c972940a21210ada477a0f9e3ad7430c6ed958f03d",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "retained_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "P12-final-import-safety",
+    "task_id": "bash-4a864cce4ae8a301",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-4a864cce4ae8a301/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-4a864cce4ae8a301/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-4a864cce4ae8a301/io/stderr",
+    "outer_exit_code": 0,
+    "remote_job_id": "01a12bc3-28b9-7493-b64e-ed59131626bd",
+    "remote_terminal_exit_code": 0,
+    "inner_exit_code": 0,
+    "retained_copies": {
+      "command.sh": {
+        "original_sha256": "c88baa2ab787c2d3d25a0014791969c625d6966fa926d8b076207f0558292008",
+        "retained_sha256": "c88baa2ab787c2d3d25a0014791969c625d6966fa926d8b076207f0558292008",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "63990b3ee50c49ab28d70e29c0f967f0c71330e39243ffeb4d3a8d5878c8a978",
+        "retained_sha256": "63990b3ee50c49ab28d70e29c0f967f0c71330e39243ffeb4d3a8d5878c8a978",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "66fe736c8152e215404d9d59d0596ca018721e01bc13ddca64baf83b2652264c",
+        "retained_sha256": "66fe736c8152e215404d9d59d0596ca018721e01bc13ddca64baf83b2652264c",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "retained_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C8-import-traversal",
+    "task_id": "bash-918aafa290e7049d",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-918aafa290e7049d/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-918aafa290e7049d/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-918aafa290e7049d/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12bbc-bce5-7328-b1e3-4c081d407b24",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "mutation-during.txt": {
+        "original_sha256": "20abdfe9b86089ce61d4aa31964f53868e8caf8dc091ad559c2ce31d30c395b9",
+        "retained_sha256": "20abdfe9b86089ce61d4aa31964f53868e8caf8dc091ad559c2ce31d30c395b9",
+        "byte_identical": true
+      },
+      "command.sh": {
+        "original_sha256": "55e93c03866649841354fc2f578f1a616ef2ece52e32079aec005419dfa30942",
+        "retained_sha256": "55e93c03866649841354fc2f578f1a616ef2ece52e32079aec005419dfa30942",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "63990b3ee50c49ab28d70e29c0f967f0c71330e39243ffeb4d3a8d5878c8a978",
+        "retained_sha256": "63990b3ee50c49ab28d70e29c0f967f0c71330e39243ffeb4d3a8d5878c8a978",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "7b74644b4af6b08dbef0cb0eb90b8664f3ba758c9aa4f462dc49ca07846650da",
+        "retained_sha256": "7b74644b4af6b08dbef0cb0eb90b8664f3ba758c9aa4f462dc49ca07846650da",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C9-import-symlink-preflight",
+    "task_id": "bash-b29fab99c8f7ab01",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-b29fab99c8f7ab01/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-b29fab99c8f7ab01/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-b29fab99c8f7ab01/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12bbe-a5f7-75b6-a294-b5aaedf24e3c",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "mutation-during.txt": {
+        "original_sha256": "20abdfe9b86089ce61d4aa31964f53868e8caf8dc091ad559c2ce31d30c395b9",
+        "retained_sha256": "20abdfe9b86089ce61d4aa31964f53868e8caf8dc091ad559c2ce31d30c395b9",
+        "byte_identical": true
+      },
+      "command.sh": {
+        "original_sha256": "948adc12855dd21f880ae4e20638db6c8e4ce7f138785333cb6d1186c1817f20",
+        "retained_sha256": "948adc12855dd21f880ae4e20638db6c8e4ce7f138785333cb6d1186c1817f20",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "63990b3ee50c49ab28d70e29c0f967f0c71330e39243ffeb4d3a8d5878c8a978",
+        "retained_sha256": "63990b3ee50c49ab28d70e29c0f967f0c71330e39243ffeb4d3a8d5878c8a978",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "44d1192b4065fa7258aefbf47cee05c6b500daa0b9b406aca3b462bab92a8b25",
+        "retained_sha256": "44d1192b4065fa7258aefbf47cee05c6b500daa0b9b406aca3b462bab92a8b25",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  },
+  {
+    "case": "C10-import-symlink-independent",
+    "task_id": "bash-7013194700bf7357",
+    "original_metadata": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-7013194700bf7357/control/metadata.json",
+    "original_outer_stdout": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-7013194700bf7357/io/stdout",
+    "original_outer_stderr": "/Users/ufukaltinok/.local/share/cortexkit/aft/runner/bash-tasks/fee2450c165a28e5/bash-7013194700bf7357/io/stderr",
+    "outer_exit_code": 1,
+    "remote_job_id": "01a12bc2-66d1-70c4-a5a8-aa561759eb13",
+    "remote_terminal_exit_code": 1,
+    "inner_exit_code": 1,
+    "retained_copies": {
+      "mutation-during.txt": {
+        "original_sha256": "20abdfe9b86089ce61d4aa31964f53868e8caf8dc091ad559c2ce31d30c395b9",
+        "retained_sha256": "20abdfe9b86089ce61d4aa31964f53868e8caf8dc091ad559c2ce31d30c395b9",
+        "byte_identical": true
+      },
+      "command.sh": {
+        "original_sha256": "948adc12855dd21f880ae4e20638db6c8e4ce7f138785333cb6d1186c1817f20",
+        "retained_sha256": "948adc12855dd21f880ae4e20638db6c8e4ce7f138785333cb6d1186c1817f20",
+        "byte_identical": true,
+        "argv_identical": true
+      },
+      "stdout.txt": {
+        "original_sha256": "63990b3ee50c49ab28d70e29c0f967f0c71330e39243ffeb4d3a8d5878c8a978",
+        "retained_sha256": "63990b3ee50c49ab28d70e29c0f967f0c71330e39243ffeb4d3a8d5878c8a978",
+        "byte_identical": true
+      },
+      "stderr.txt": {
+        "original_sha256": "f28a9ec7613d28fea42c12eb505439ea6d94736e50101ae1f52916dd13718b64",
+        "retained_sha256": "f28a9ec7613d28fea42c12eb505439ea6d94736e50101ae1f52916dd13718b64",
+        "byte_identical": true
+      },
+      "exit-code.txt": {
+        "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "retained_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+        "byte_identical": true
+      }
+    }
+  }
+]

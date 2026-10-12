@@ -1,0 +1,1 @@
+cd packages/core && grep -n "NON-VACUITY" src/quota-manager.ts; bun test --isolate src/quota-manager.test.ts; echo "test exit $?"

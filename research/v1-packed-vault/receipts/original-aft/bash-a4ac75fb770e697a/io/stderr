@@ -1,0 +1,28 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:
+155 | 
+156 | test('wire assertion rejects unrelated identity, bearer, project and nonce', () => {
+157 |   assertPackedWire(wire(), nonce)
+158 |   const wrongBearer = wire()
+159 |   wrongBearer[0]!.rawHeaders[3] = 'Bearer wrong-token'
+160 |   expect(() => assertPackedWire(wrongBearer, nonce)).toThrow('Wire bearer')
+                                                           ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "Wire bearer"
+
+Received function did not throw
+Received value: undefined
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_91eed9d8fa2e51f1/packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:160:54)
+(fail) wire assertion rejects unrelated identity, bearer, project and nonce [0.37ms]
+(pass) loading assertion rejects a source, factory or direct-entry route [0.18ms]
+(pass) network assertion rejects a Google OAuth/project lookup before TLS [0.07ms]
+(pass) dormancy assertion requires byte-identical slots and no slot secret on wire [0.09ms]
+
+ 3 pass
+ 1 filtered out
+ 1 fail
+ 9 expect() calls
+Ran 4 tests across 1 file. [330.00ms]

@@ -1,3 +1,5 @@
+import { formatAntigravityQuota } from '@cortexkit/antigravity-auth-core'
+
 import type { CooldownReason } from '../accounts'
 import type { QuotaGroupSummary } from '../quota'
 import { ANSI } from './ansi'
@@ -245,58 +247,32 @@ export function classifyOverallQuotaHealth(
   return { health: 'available' }
 }
 
-/**
- * Build a quota summary string with status labels for cached quota data.
- * Used in auth menu account hints.
- *
- * When all groups are exhausted, returns a single condensed "resets in Xh Ym"
- * instead of listing each model separately.
- *
- * Example: "Claude 80%, Gemini Flash LOW 15%"
- */
 export function formatCachedQuotaWithStatus(
   cachedQuota:
     | Partial<
         Record<string, { remainingFraction?: number; resetTime?: string }>
       >
     | undefined,
+  checkedAt?: number,
+  now = Date.now(),
 ): string | undefined {
-  if (!cachedQuota) {
-    return undefined
-  }
-
-  // When all groups are exhausted, don't list each model — the badge handles it
-  const overall = classifyOverallQuotaHealth(cachedQuota)
-  if (overall.health === 'exhausted') {
-    return undefined
-  }
-
-  const entries = [
-    { key: 'gemini', label: 'Gemini' },
-    { key: 'non-gemini', label: 'Non-Gemini' },
-  ].flatMap(({ key, label }) => {
-    const value = cachedQuota[key]?.remainingFraction
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-      return []
-    }
-    const pct = Math.round(Math.max(0, Math.min(1, value)) * 100)
-    const status = classifyGroupStatus(cachedQuota[key] as QuotaGroupSummary)
-    // Hide groups at 100% READY — they're noise
-    if (status.label === 'READY' && pct >= 100) {
-      return []
-    }
-    if (status.label === 'READY') {
-      return [`${label} ${pct}%`]
-    }
-    // Skip pct% for EXHAUSTED — the status label already conveys 0%
-    // Use lowercase labels in hints to match account badge style ([active], [exhausted])
-    if (status.label === 'EXHAUSTED') {
-      return [`${label} ${formatQuotaStatusPlain(status).toLowerCase()}`]
-    }
-    return [`${label} ${formatQuotaStatusPlain(status).toLowerCase()} ${pct}%`]
-  })
-
-  return entries.length > 0 ? entries.join(', ') : undefined
+  if (!cachedQuota) return undefined
+  const groups = Object.fromEntries(
+    Object.entries(cachedQuota).filter(
+      (
+        entry,
+      ): entry is [
+        string,
+        { remainingFraction?: number; resetTime?: string },
+      ] =>
+        (entry[0] === 'gemini' || entry[0] === 'non-gemini') &&
+        entry[1] !== undefined,
+    ),
+  )
+  return formatAntigravityQuota(
+    { cachedQuota: groups, cachedQuotaUpdatedAt: checkedAt },
+    { now },
+  )
 }
 
 /**

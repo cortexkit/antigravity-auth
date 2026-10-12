@@ -1,0 +1,4 @@
+{
+  "extends": "../../tsconfig.scripts.json",
+  "include": ["../../packages/e2e-tests/src/v1-packed-vault-harness.ts", "../../packages/e2e-tests/src/v1-packed-vault.e2e.test.ts"]
+}

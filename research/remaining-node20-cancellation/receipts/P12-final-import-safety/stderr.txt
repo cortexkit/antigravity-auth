@@ -1,0 +1,13 @@
+test_rejects_a_symlink_owned_root_before_any_writes (__main__.ReceiptImportControls.test_rejects_a_symlink_owned_root_before_any_writes) ... ok
+test_rejects_absolute_paths_before_any_writes (__main__.ReceiptImportControls.test_rejects_absolute_paths_before_any_writes) ... ok
+test_rejects_invalid_maps_and_compression_before_any_writes (__main__.ReceiptImportControls.test_rejects_invalid_maps_and_compression_before_any_writes) ... ok
+test_rejects_oversized_encoded_and_expanded_payloads_before_any_writes (__main__.ReceiptImportControls.test_rejects_oversized_encoded_and_expanded_payloads_before_any_writes) ... ok
+test_rejects_parent_traversal_before_any_writes (__main__.ReceiptImportControls.test_rejects_parent_traversal_before_any_writes) ... ok
+test_rejects_symlink_ancestors_and_targets_before_any_writes (__main__.ReceiptImportControls.test_rejects_symlink_ancestors_and_targets_before_any_writes) ... ok
+test_rejects_too_many_files_before_any_writes (__main__.ReceiptImportControls.test_rejects_too_many_files_before_any_writes) ... ok
+test_valid_import_preserves_all_raw_bytes (__main__.ReceiptImportControls.test_valid_import_preserves_all_raw_bytes) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.427s
+
+OK

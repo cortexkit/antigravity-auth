@@ -1,0 +1,4 @@
+acquisition/unpacked/
+original-aft/
+decoded/*/receipt.json
+!decoded/bash-908b0af4c4425b60/receipt.json

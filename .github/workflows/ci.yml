@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'verify/**']
   pull_request:
     branches: [main]
 
@@ -14,6 +14,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          # Package installation tests build an older commit for comparison;
+          # a shallow checkout cannot provide that commit to git archive.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -23,10 +27,16 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3
+          bun-version: 1.4.2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install private TUI compiler from locked repository input
+        run: |
+          bun packages/opencode/scripts/embed-common-auth.ts --check
+          bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
+          bun run embed:check
 
       - name: Run type check
         run: bun run typecheck
@@ -36,9 +46,6 @@ jobs:
 
       - name: Smoke test TUI
         run: bun run --cwd packages/opencode smoke:tui
-
-      - name: Smoke test packed OpenCode 2 adapter
-        run: bun run smoke:opencode-v2
 
       - name: Run tests
         run: bun run test
@@ -54,3 +61,60 @@ jobs:
 
       - name: Lint
         run: bun run lint
+
+  rpc-runtime-matrix:
+    name: RPC runtime matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      # Each runtime is installed in turn; its executable path is recorded
+      # before the next setup step changes PATH. Bun 1.3.14 is copied aside
+      # because a later setup-bun step may replace the same binary.
+      - name: Setup Node.js 20.0.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.0.0
+
+      - name: Record Node.js 20.0.0
+        run: echo "NODE20=$(command -v node)" >> "$GITHUB_ENV"
+
+      - name: Setup Node.js 24.16.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24.16.0
+
+      - name: Record Node.js 24.16.0
+        run: echo "NODE24=$(command -v node)" >> "$GITHUB_ENV"
+
+      - name: Setup Bun 1.3.14
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Record Bun 1.3.14
+        run: |
+          mkdir -p "$RUNNER_TEMP/bun-1.3.14"
+          cp "$(command -v bun)" "$RUNNER_TEMP/bun-1.3.14/bun"
+          echo "BUN13=$RUNNER_TEMP/bun-1.3.14/bun" >> "$GITHUB_ENV"
+
+      - name: Setup Bun 1.4.2
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Record Bun 1.4.2
+        run: echo "BUN14=$(command -v bun)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install private TUI compiler from locked repository input
+        run: |
+          bun packages/opencode/scripts/embed-common-auth.ts --check
+          bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
+          bun run embed:check
+
+      - name: Run RPC contracts on all four runtimes
+        run: bun run test:rpc:matrix

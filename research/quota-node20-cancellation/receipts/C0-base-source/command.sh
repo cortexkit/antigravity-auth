@@ -1,0 +1,1 @@
+cd packages/core && bun --version && grep -c "AbortSignal.any(\[controller" src/quota-manager.ts; bun test --isolate src/quota-manager.test.ts; echo "test exit $?"

@@ -1,0 +1,23 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+
+packages/core/src/credential-redaction.test.ts:
+133 |   it('redacts failed HTTP body-read errors while preserving safe classification', async () => {
+134 |     const classification = Object.freeze({ retry: false, status: 403 })
+135 |     const failure = Object.assign(new Error(`echo ${selected}`), { code: 'HTTP_BODY_FAILED', status: 403, classification })
+136 |     const original = new Response(new ReadableStream({ start(controller) { controller.error(failure) } }), { status: 403 })
+137 |     await expect(redactCredentialResponse(original, selected)).rejects.toBe(failure)
+138 |     expect(failure.message).toBe('echo [credential]')
+                                  ^
+error: expect(received).toBe(expected)
+
+Expected: "echo [credential]"
+Received: "echo opaque-selected-token"
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_3052fdcfd59c0a84/packages/core/src/credential-redaction.test.ts:138:29)
+(fail) credential redaction > redacts failed HTTP body-read errors while preserving safe classification [2.18ms]
+
+ 0 pass
+ 17 filtered out
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [138.00ms]

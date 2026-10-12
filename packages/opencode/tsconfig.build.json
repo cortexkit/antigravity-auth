@@ -7,7 +7,10 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "allowImportingTsExtensions": false,
+    // Sources may import siblings with a `.ts` extension; emit rewrites those
+    // specifiers to `.js` so the compiled files import compiled files.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "isolatedModules": true
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "index.ts"],
@@ -16,6 +19,10 @@
     "src/**/*.test.tsx",
     "src/**/*.spec.ts",
     "src/**/*.spec.tsx",
-    "src/tui-compiled"
+    "src/tui-compiled",
+    "src/tui-raw",
+    "src/tui-ga-raw",
+    "src/tui-ga-compiled",
+    "src/common-auth-embedded/**/*.js"
   ]
 }

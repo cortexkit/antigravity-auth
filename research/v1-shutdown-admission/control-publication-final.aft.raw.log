@@ -1,0 +1,10 @@
+ran remotely on ck-motor (4 vCPUs requested)
+AFT stripped env names: ["AFT_AGENT_DISCLAIM_PRIVACY","AFT_GH_SHIMS_DIR","AFT_GH_SHIM_BINARY","AFT_GH_SHIM_TICKET","AFT_GIT_CO_AUTHOR","NEXTEST_TEST_THREADS","RUST_TEST_THREADS","SSH_AUTH_SOCK","SUBC_MODULE_ID"]
+the remote job does not receive: GIT_CONFIG_COUNT, GIT_CONFIG_KEY_0, GIT_CONFIG_VALUE_0, HOME, LOGNAME, ORT_DYLIB_PATH, OSLogRateLimit, PATH, SHELL, TMPDIR; +5 more
+{"command": ["bun", "--version"], "stdout": "1.4.2\n", "stderr": "", "inner_exit": 0}
+{"command": ["bun", "run", "--cwd", "packages/core", "build"], "stdout": "Copied 128 embedded common-auth files\n", "stderr": "$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs\n", "inner_exit": 0}
+{"command": ["bun", "test", "--isolate", "packages/opencode/src/plugin/lifecycle.test.ts", "-t", "publishes closing before synchronous disposal-hook admissions|performs disposal only once"], "stdout": "bun test v1.4.2 (744846f84)\n", "stderr": "\npackages/opencode/src/plugin/lifecycle.test.ts:\n(pass) PluginLifecycle > performs disposal only once [0.59ms]\n408 | \n409 |     expect(lifecycle.isClosing()).toBe(false)\n410 |     const disposal = lifecycle.dispose()\n411 |     // Both admissions run inside the first dispose call, before its async\n412 |     // body returns a promise. A promise assigned afterward cannot fence them.\n413 |     expect(closingInHook).toBe(true)\n                                ^\nerror: expect(received).toBe(expected)\n\nExpected: true\nReceived: false\n\n      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_2bb5e81fff3bc331/packages/opencode/src/plugin/lifecycle.test.ts:413:27)\n(fail) PluginLifecycle request runtime retirement > publishes closing before synchronous disposal-hook admissions [0.86ms]\n\n 1 pass\n 16 filtered out\n 1 fail\n 3 expect() calls\nRan 2 tests across 1 file. [195.00ms]\n", "inner_exit": 1}
+git state: not reported by the runner
+untracked files: not reported by the runner
+ignored writes: not reported by the runner
+[exit code: 1]

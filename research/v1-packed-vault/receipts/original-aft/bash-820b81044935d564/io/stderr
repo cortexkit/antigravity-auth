@@ -1,0 +1,61 @@
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+packages/e2e-tests/src/v1-packed-vault-harness.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    699 699 │         )
+    700 700 │       }
+    701     │ - ····receipt.wireHashes·=·receipt.requests.map((request)·=>·sha256(Buffer.from(request.body)))
+        701 │ + ····receipt.wireHashes·=·receipt.requests.map((request)·=>
+        702 │ + ······sha256(Buffer.from(request.body)),
+        703 │ + ····)
+    702 704 │       if (existsSync(accountFile) || existsSync(`${accountFile}.store`))
+    703 705 │         receipt.error = `${receipt.error ?? ''}\nLocal account artifact created`
+  
+
+packages/e2e-tests/src/v1-packed-vault.e2e.test.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × Sort these imports.
+  
+   > 1 │ import { expect, test } from 'bun:test'
+       │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   > 2 │ import {
+   > 3 │   assertNoGoogleSideCalls,
+   > 4 │   assertPackedLoading,
+        ...
+   > 9 │ } from './v1-packed-vault-harness.ts'
+  > 10 │ import { record } from './opencode-ga-harness.ts'
+       │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    11 │ import {
+    12 │   SYNTHETIC_PROJECT,
+  
+  i Safe fix: Organize imports and exports (Biome)
+  
+      1   1 │   import { expect, test } from 'bun:test'
+      2     │ - import·{
+      3     │ - ··assertNoGoogleSideCalls,
+      4     │ - ··assertPackedLoading,
+      5     │ - ··assertPackedWire,
+      6     │ - ··emitPackedReceipt,
+      7     │ - ··runPackedVault,
+      8     │ - ··VAULT_MARKER,
+      9     │ - }·from·'./v1-packed-vault-harness.ts'
+     10     │ - import·{·record·}·from·'./opencode-ga-harness.ts'
+          2 │ + import·{·record·}·from·'./opencode-ga-harness.ts'
+          3 │ + import·{
+          4 │ + ··assertNoGoogleSideCalls,
+          5 │ + ··assertPackedLoading,
+          6 │ + ··assertPackedWire,
+          7 │ + ··emitPackedReceipt,
+          8 │ + ··runPackedVault,
+          9 │ + ··VAULT_MARKER,
+         10 │ + }·from·'./v1-packed-vault-harness.ts'
+     11  11 │   import {
+     12  12 │     SYNTHETIC_PROJECT,
+  
+
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

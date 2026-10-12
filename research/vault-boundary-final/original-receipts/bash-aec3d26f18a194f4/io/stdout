@@ -1,0 +1,58 @@
+1.4.2
+$ rm -rf dist && tsc -p tsconfig.build.json && bun scripts/copy-common-auth-embedded.mjs
+Copied 129 embedded common-auth files
+bun test v1.4.2 (744846f84)
+
+packages/pi/src/commands.test.ts:
+217 |   await setup.connectStep()
+218 |   await writeFile(setup.paths.statePath, '{broken enrollment')
+219 |   const { menu } = await openPiMenu()
+220 |   const payload = await menu.open(invocation)
+221 |   expect(section(payload, 'accounts').lines.join('\n')).toContain('unreadable')
+222 |   expect(section(payload, 'routing').lines.join('\n')).toContain('refused')
+                                                             ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "refused"
+Received: "Every request uses Pi's own login. There is no account rotation."
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/pi/src/commands.test.ts:222:56)
+(fail) public unreadable enrollment makes Accounts and Routing refuse local serving and keeps Disconnect reachable [305.18ms]
+
+packages/opencode/src/plugin/shared/request-services.test.ts:
+951 |       local = false
+952 |       return { auth: { ...auth, refresh: 'new-project-metadata' }, effectiveProjectId: 'new-project' }
+953 |     } } })
+954 |     try {
+955 |       await executor.execute(NON_STREAM_URL, CHAT_INIT()).catch(() => {})
+956 |       expect(update.mock.calls.filter(([, auth]) => auth.refresh === 'new-project-metadata')).toHaveLength(0)
+                                                                                                    ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 0
+Received length: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/opencode/src/plugin/shared/request-services.test.ts:956:95)
+(fail) createRequestExecutor retry contract > vetoes project metadata persistence after public source authority changes during resolution [9.49ms]
+963 |     const h = harness({ respond: async () => okJson() })
+964 |     const credentials = h.deps.credentials as LocalRequestCredentials<ManagedAccount>
+965 |     const executor = createRequestExecutor({ ...h.deps, assertAdmission: async () => { if (!local) throw new Error('authority changed') }, credentials: { ...credentials, captureGrant: () => ({ source: 'pool-file', check: async () => { local = false } }) } })
+966 |     try {
+967 |       await executor.execute(NON_STREAM_URL, CHAT_INIT()).catch(() => {})
+968 |       expect(h.calls).toHaveLength(0)
+                            ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 0
+Received length: 1
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_cd8afc26a634541b/packages/opencode/src/plugin/shared/request-services.test.ts:968:23)
+(fail) createRequestExecutor retry contract > refuses a physical send after authority changes during the final captured grant await [5.07ms]
+
+ 0 pass
+ 54 filtered out
+ 3 fail
+ 5 expect() calls
+Ran 3 tests across 2 files. [796.00ms]
+
+INNER_EXIT=1

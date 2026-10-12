@@ -1,0 +1,161 @@
+# Red run of the new genuine-loader witnesses in packages/pi/src/startup-order.test.ts
+# against UNCHANGED packages/pi/src/index.ts at base d2d0e5e6 (only tests edited).
+# Native-host runtime proof: real @earendil-works/pi-coding-agent 0.87.1
+# createAgentSession + extension loader, genuine common-auth 0.14.1 Pi slot helper,
+# owned /tmp fixtures, PI_OFFLINE=1, fetch refused.
+# Runner: remote Linux (ck-motor, 4 vCPUs) via
+#   bun run --cwd packages/core build >/dev/null 2>&1; cd packages/pi && bun test --isolate src/startup-order.test.ts 2>&1 | grep -v '^\s*$'
+# Output copied verbatim from the tool result (the remote job leaves no files locally);
+# the second and third diffs repeat the same 22 built-in model ids and are kept whole.
+
+bun test v1.4.2 (744846f84)
+src/startup-order.test.ts:
+(pass) awaits the native slot swap before the real Pi loader resolves its first google model request [93.89ms]
+error: expect(received).toEqual(expected)
+  {
+-   "builtInGoogle": [],
+-   "commands": [
+-     "antigravity",
++   "builtInGoogle": [
++     "deep-research-max-preview-04-2026",
++     "deep-research-preview-04-2026",
++     "gemini-2.5-computer-use-preview-10-2025",
++     "gemini-2.5-flash",
++     "gemini-2.5-flash-lite",
++     "gemini-2.5-pro",
++     "gemini-3-flash-preview",
++     "gemini-3.1-flash-lite",
++     "gemini-3.1-flash-lite-image",
++     "gemini-3.1-flash-lite-preview",
++     "gemini-3.1-flash-live-preview",
++     "gemini-3.1-pro-preview",
++     "gemini-3.1-pro-preview-customtools",
++     "gemini-3.5-flash",
++     "gemini-3.5-flash-lite",
++     "gemini-3.6-flash",
++     "gemini-3.7-flash",
++     "gemini-3.8-flash",
++     "gemini-flash-latest",
++     "gemini-flash-lite-latest",
++     "gemma-4-26b-a4b-it",
++     "gemma-4-31b-it",
+    ],
+-   "errors": [],
+-   "registrations": [
+-     "registerProvider:google",
+-     "registerCommand:antigravity",
+-     "factory:end",
++   "commands": [],
++   "errors": [
++     "Failed to load extension: Vault enrollment or source settings cannot be read. Local credentials remain unavailable.",
+    ],
++   "registrations": [],
+  }
+- Expected  - 8
++ Received  + 27
+      at <anonymous> (.../packages/pi/src/startup-order.test.ts:470:10)
+(fail) the real Pi loader keeps /antigravity and refuses google requests for an unreadable enrollment state beside a native login [8.84ms]
+error: expect(received).toEqual(expected)
+  {
+-   "builtInGoogle": [],
+-   "commands": [
+-     "antigravity",
++   "builtInGoogle": [
++     "deep-research-max-preview-04-2026",
++     "deep-research-preview-04-2026",
++     "gemini-2.5-computer-use-preview-10-2025",
++     "gemini-2.5-flash",
++     "gemini-2.5-flash-lite",
++     "gemini-2.5-pro",
++     "gemini-3-flash-preview",
++     "gemini-3.1-flash-lite",
++     "gemini-3.1-flash-lite-image",
++     "gemini-3.1-flash-lite-preview",
++     "gemini-3.1-flash-live-preview",
++     "gemini-3.1-pro-preview",
++     "gemini-3.1-pro-preview-customtools",
++     "gemini-3.5-flash",
++     "gemini-3.5-flash-lite",
++     "gemini-3.6-flash",
++     "gemini-3.7-flash",
++     "gemini-3.8-flash",
++     "gemini-flash-latest",
++     "gemini-flash-lite-latest",
++     "gemma-4-26b-a4b-it",
++     "gemma-4-31b-it",
+    ],
+-   "errors": [],
+-   "registrations": [
+-     "registerProvider:google",
+-     "registerCommand:antigravity",
+-     "factory:end",
++   "commands": [],
++   "errors": [
++     "Failed to load extension: Vault enrollment must be approved before activating vault credentials.",
+    ],
++   "registrations": [],
+  }
+- Expected  - 8
++ Received  + 27
+      at <anonymous> (.../packages/pi/src/startup-order.test.ts:470:10)
+(fail) the real Pi loader keeps /antigravity and refuses google requests for custody mode with no enrollment and no native login [6.02ms]
+error: expect(received).toEqual(expected)
+  {
+-   "builtInGoogle": [],
+-   "commands": [
+-     "antigravity",
++   "builtInGoogle": [
++     "deep-research-max-preview-04-2026",
++     "deep-research-preview-04-2026",
++     "gemini-2.5-computer-use-preview-10-2025",
++     "gemini-2.5-flash",
++     "gemini-2.5-flash-lite",
++     "gemini-2.5-pro",
++     "gemini-3-flash-preview",
++     "gemini-3.1-flash-lite",
++     "gemini-3.1-flash-lite-image",
++     "gemini-3.1-flash-lite-preview",
++     "gemini-3.1-flash-live-preview",
++     "gemini-3.1-pro-preview",
++     "gemini-3.1-pro-preview-customtools",
++     "gemini-3.5-flash",
++     "gemini-3.5-flash-lite",
++     "gemini-3.6-flash",
++     "gemini-3.7-flash",
++     "gemini-3.8-flash",
++     "gemini-flash-latest",
++     "gemini-flash-lite-latest",
++     "gemma-4-26b-a4b-it",
++     "gemma-4-31b-it",
+    ],
+-   "errors": [],
+-   "registrations": [
+-     "registerProvider:google",
+-     "registerCommand:antigravity",
+-     "factory:end",
++   "commands": [],
++   "errors": [
++     "Failed to load extension: The native Google login changed. It was not overwritten; restore the saved login after resolving the conflict.",
+    ],
++   "registrations": [],
+  }
+- Expected  - 8
++ Received  + 27
+      at <anonymous> (.../packages/pi/src/startup-order.test.ts:470:10)
+(fail) the real Pi loader keeps /antigravity and refuses google requests for a native Google login that conflicts with the saved one [8.73ms]
+ 1 pass
+ 3 fail
+ 24 expect() calls
+Ran 4 tests across 1 file. [344.00ms]
+
+# Notes
+# - "..." abbreviates the worktree path in stack frames; the 5-line source
+#   excerpt bun prints above each diff (startup-order.test.ts:465-470) is elided.
+# - Runtime-proven here (native host): a rejected factory is recorded in
+#   extensionsResult.errors, contributes no command, and leaves Pi's built-in
+#   Google catalog (22 non-Antigravity google models) active. The audit listed
+#   that last point as unverified.
+# - Source-derived only (not run): the reachable production paths into these
+#   states (vault `blocked` ceremonies mapped to unreadable by core; an
+#   interrupted Forget; a native /login during vault mode) come from the audit's
+#   source reading. These fixtures write the end states directly.

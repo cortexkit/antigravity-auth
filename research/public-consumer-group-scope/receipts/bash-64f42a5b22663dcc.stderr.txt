@@ -1,0 +1,25 @@
+
+packages/core/src/public-command-scope.test.ts:
+(pass) admits a separately grouped child only through fresh parent/birth ancestry [0.24ms]
+112 |         child,
+113 |         inspector([changed]),
+114 |         'SIGTERM',
+115 |         (pid) => sent.push(pid),
+116 |       ),
+117 |     ).toThrow('left captured session/group scope')
+            ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "left captured session/group scope"
+
+Received function did not throw
+Received value: undefined
+
+      at <anonymous> (/Users/ufukaltinok/.local/share/cortexkit/alfonso/worktrees/05295e001750d9e5/bg_15bbe55bebbd7fb4/packages/core/src/public-command-scope.test.ts:117:7)
+(fail) refuses changed recorded PGID or SID before dispatching a signal [0.17ms]
+
+ 1 pass
+ 5 filtered out
+ 1 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [134.00ms]
