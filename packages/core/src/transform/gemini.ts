@@ -109,12 +109,18 @@ export function toGeminiSchema(
     // `exclusiveMaximum` for every model family (Gemini, Claude, GPT), not
     // just GPT. OpenCode emits them (zod `.gt(0)` → `exclusiveMinimum: 0`),
     // producing `400 INVALID_ARGUMENT: Unknown name "exclusiveMinimum"`.
-    // Always strip them; preserve intent as `minimum`/`maximum` + hint.
+    // Always strip them. Downgrade a numeric bound to inclusive
+    // `minimum`/`maximum` only when that field is absent. Skip the downgrade
+    // when numeric constraints are moved into the description: the GPT bridge
+    // re-encodes those protobuf fields as strings.
     if (key === 'exclusiveMinimum' || key === 'exclusiveMaximum') {
       const target = key === 'exclusiveMinimum' ? 'minimum' : 'maximum'
       if (typeof value === 'number') {
         numericConstraintHints.push(`${key}: ${value}`)
-        if (result[target] === undefined) {
+        if (
+          !options.moveNumericConstraintsToDescription &&
+          inputSchema[target] === undefined
+        ) {
           result[target] = value
         }
       } else if (typeof value === 'boolean') {

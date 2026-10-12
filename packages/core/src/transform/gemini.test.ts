@@ -1720,5 +1720,48 @@ describe('transform/gemini', () => {
       expect(props.offset).not.toHaveProperty('exclusiveMinimum')
       expect(props.offset?.minimum).toBe(0)
     })
+
+    it('keeps an explicit minimum when exclusiveMinimum is listed first', () => {
+      const result = toGeminiSchema({
+        type: 'number',
+        exclusiveMinimum: 0,
+        minimum: 1,
+      }) as Record<string, unknown>
+      expect(result).not.toHaveProperty('exclusiveMinimum')
+      expect(result.minimum).toBe(1)
+      expect(result.description).toContain('exclusiveMinimum: 0')
+    })
+
+    it('moves numeric exclusive bounds into the description for GPT schemas', () => {
+      const exclusiveFirst = toGeminiSchema(
+        {
+          type: 'integer',
+          exclusiveMinimum: 0,
+          minimum: 1,
+          exclusiveMaximum: 10,
+        },
+        { moveNumericConstraintsToDescription: true },
+      ) as Record<string, unknown>
+      expect(exclusiveFirst).not.toHaveProperty('exclusiveMinimum')
+      expect(exclusiveFirst).not.toHaveProperty('exclusiveMaximum')
+      expect(exclusiveFirst).not.toHaveProperty('minimum')
+      expect(exclusiveFirst).not.toHaveProperty('maximum')
+      expect(exclusiveFirst.description).toContain('exclusiveMinimum: 0')
+      expect(exclusiveFirst.description).toContain('minimum: 1')
+      expect(exclusiveFirst.description).toContain('exclusiveMaximum: 10')
+
+      const minimumFirst = toGeminiSchema(
+        {
+          type: 'number',
+          minimum: 1,
+          exclusiveMinimum: 0,
+        },
+        { moveNumericConstraintsToDescription: true },
+      ) as Record<string, unknown>
+      expect(minimumFirst).not.toHaveProperty('minimum')
+      expect(minimumFirst).not.toHaveProperty('exclusiveMinimum')
+      expect(minimumFirst.description).toContain('minimum: 1')
+      expect(minimumFirst.description).toContain('exclusiveMinimum: 0')
+    })
   })
 })
