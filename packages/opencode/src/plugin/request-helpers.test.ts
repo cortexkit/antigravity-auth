@@ -23,6 +23,7 @@ import {
   normalizeThinkingConfig,
   parseAntigravityApiBody,
   recursivelyParseJsonStrings,
+  repairGptOssToolPairing,
   resolveThinkingConfig,
   rewriteAntigravityPreviewAccessError,
   transformThinkingParts,
@@ -2404,5 +2405,432 @@ describe('recursivelyParseJsonStrings', () => {
         },
       },
     })
+  })
+})
+
+describe('repairGptOssToolPairing', () => {
+  it('pairs matching functionCall and functionResponse with identical IDs when none provided', () => {
+    const contents = [
+      {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              name: 'read_file',
+              args: { path: 'foo.txt' },
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: 'read_file',
+              response: { content: 'hello' },
+            },
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[0].parts[0].functionCall.id).toBe('tool-call-1')
+    expect(result[1].parts[0].functionResponse.id).toBe('tool-call-1')
+  })
+
+  it('pairs multiple matching calls and responses for the same function name in FIFO order', () => {
+    const contents = [
+      {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              name: 'fetch_data',
+              args: { id: 1 },
+            },
+          },
+          {
+            functionCall: {
+              name: 'fetch_data',
+              args: { id: 2 },
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: 'fetch_data',
+              response: { result: 'one' },
+            },
+          },
+          {
+            functionResponse: {
+              name: 'fetch_data',
+              response: { result: 'two' },
+            },
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[0].parts[0].functionCall.id).toBe('tool-call-1')
+    expect(result[1].parts[0].functionResponse.id).toBe('tool-call-1')
+    expect(result[0].parts[1].functionCall.id).toBe('tool-call-2')
+    expect(result[1].parts[1].functionResponse.id).toBe('tool-call-2')
+  })
+
+  it('preserves existing call ID and matches response to it', () => {
+    const contents = [
+      {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              name: 'query_db',
+              id: 'custom-call-id-99',
+              args: {},
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: 'query_db',
+              response: { rows: [] },
+            },
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[0].parts[0].functionCall.id).toBe('custom-call-id-99')
+    expect(result[1].parts[0].functionResponse.id).toBe('custom-call-id-99')
+  })
+
+  it('preserves existing response ID and matches call to it', () => {
+    const contents = [
+      {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              name: 'query_db',
+              args: {},
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: 'query_db',
+              id: 'resp-id-42',
+              response: { rows: [] },
+            },
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[0].parts[0].functionCall.id).toBe('resp-id-42')
+    expect(result[1].parts[0].functionResponse.id).toBe('resp-id-42')
+  })
+
+  it('tracks existing tool-call-N IDs and allocates without collision', () => {
+    const contents = [
+      {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              name: 'existing_tool',
+              id: 'tool-call-5',
+              args: {},
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: 'existing_tool',
+              id: 'tool-call-5',
+              response: {},
+            },
+          },
+        ],
+      },
+      {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              name: 'new_tool',
+              args: {},
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: 'new_tool',
+              response: {},
+            },
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[0].parts[0].functionCall.id).toBe('tool-call-5')
+    expect(result[1].parts[0].functionResponse.id).toBe('tool-call-5')
+    expect(result[2].parts[0].functionCall.id).toBe('tool-call-6')
+    expect(result[3].parts[0].functionResponse.id).toBe('tool-call-6')
+  })
+
+  it('allocates ID for unpaired call or response', () => {
+    const contents = [
+      {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              name: 'lone_call',
+              args: {},
+            },
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[0].parts[0].functionCall.id).toBe('tool-call-1')
+  })
+
+  it('strips thought and thoughtSignature from parts', () => {
+    const contents = [
+      {
+        role: 'model',
+        parts: [
+          {
+            thought: true,
+            thoughtSignature: 'some-signature-value',
+            text: 'I am reasoning about the request.',
+          },
+          {
+            thought: true,
+            functionCall: {
+              name: 'do_action',
+              args: {},
+            },
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[0].parts[0].thought).toBeUndefined()
+    expect(result[0].parts[0].thoughtSignature).toBeUndefined()
+    expect(result[0].parts[0].text).toBe('I am reasoning about the request.')
+
+    expect(result[0].parts[1].thought).toBeUndefined()
+    expect(result[0].parts[1].functionCall).toBeDefined()
+  })
+
+  it('handles empty stripped parts by inserting fallback text "."', () => {
+    const contents = [
+      {
+        role: 'model',
+        parts: [
+          {
+            thought: true,
+            thoughtSignature: 'sig-only',
+          },
+          {
+            thought: true,
+            text: '',
+          },
+          {
+            thought: true,
+            text: '   ',
+          },
+          {
+            text: 'normal text',
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[0].parts[0]).toEqual({ text: '.' })
+    expect(result[0].parts[1]).toEqual({ text: '.' })
+    expect(result[0].parts[2]).toEqual({ text: '.' })
+    expect(result[0].parts[3]).toEqual({ text: 'normal text' })
+  })
+
+  it('handles empty parts without thought by inserting fallback text "."', () => {
+    const contents = [
+      {
+        role: 'model',
+        parts: [{}, { text: '' }],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[0].parts[0]).toEqual({ text: '.' })
+    expect(result[0].parts[1]).toEqual({ text: '.' })
+  })
+
+  it('does not pair earlier orphaned response with later call (earlier response does not steal ID)', () => {
+    const contents = [
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: 'fetch_data',
+              response: { result: 'orphaned_first' },
+            },
+          },
+        ],
+      },
+      {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              name: 'fetch_data',
+              args: { id: 1 },
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: 'fetch_data',
+              response: { result: 'valid_second' },
+            },
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[1].parts[0].functionCall.id).toBe('tool-call-1')
+    expect(result[2].parts[0].functionResponse.id).toBe('tool-call-1')
+    expect(result[0].parts[0].functionResponse.id).toBe('tool-call-2')
+  })
+
+  it('ensures earlier orphaned response does not steal explicit ID from later call', () => {
+    const contents = [
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: 'do_action',
+              response: { ok: false },
+            },
+          },
+        ],
+      },
+      {
+        role: 'model',
+        parts: [
+          {
+            functionCall: {
+              name: 'do_action',
+              id: 'explicit-call-id',
+              args: {},
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: 'do_action',
+              response: { ok: true },
+            },
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[1].parts[0].functionCall.id).toBe('explicit-call-id')
+    expect(result[2].parts[0].functionResponse.id).toBe('explicit-call-id')
+    expect(result[0].parts[0].functionResponse.id).toBe('tool-call-1')
+  })
+
+  it('does not overwrite inlineData or fileData parts with text "." when thoughts are stripped', () => {
+    const contents = [
+      {
+        role: 'user',
+        parts: [
+          {
+            thought: true,
+            thoughtSignature: 'sig-inline',
+            inlineData: {
+              mimeType: 'image/png',
+              data: 'base64data==',
+            },
+          },
+          {
+            thought: true,
+            thought_signature: 'sig-file',
+            fileData: {
+              mimeType: 'application/pdf',
+              fileUri: 'gs://bucket/doc.pdf',
+            },
+          },
+        ],
+      },
+    ]
+
+    const result = repairGptOssToolPairing(contents)
+    expect(result[0].parts[0].thought).toBeUndefined()
+    expect(result[0].parts[0].thoughtSignature).toBeUndefined()
+    expect(result[0].parts[0].inlineData).toEqual({
+      mimeType: 'image/png',
+      data: 'base64data==',
+    })
+    expect(result[0].parts[0].text).toBeUndefined()
+
+    expect(result[0].parts[1].thought).toBeUndefined()
+    expect(result[0].parts[1].thought_signature).toBeUndefined()
+    expect(result[0].parts[1].fileData).toEqual({
+      mimeType: 'application/pdf',
+      fileUri: 'gs://bucket/doc.pdf',
+    })
+    expect(result[0].parts[1].text).toBeUndefined()
+  })
+
+  it('returns non-array input unchanged', () => {
+    expect(repairGptOssToolPairing(null as any)).toBeNull()
+    expect(repairGptOssToolPairing(undefined as any)).toBeUndefined()
   })
 })

@@ -2560,6 +2560,266 @@ export function applyToolPairingFixes(
   return { contentsFixed, messagesFixed }
 }
 
+/**
+ * Repairs tool pairing and strips thought blocks for GPT-OSS models.
+ *
+ * GPT-OSS models reject Gemini thought blocks and require exact ID pairing
+ * between functionCall and functionResponse.
+ *
+ * - Inspects contents and parts for functionCall and functionResponse.
+ * - Collects calls by name and responses by name.
+ * - Tracks existing IDs and allocates `tool-call-${++counter}` for calls and responses that need matching IDs.
+ * - Strips `thought` and `thoughtSignature` properties from parts.
+ * - If after removing thought/thoughtSignature a part has no functionCall and no functionResponse and empty text,
+ *   sets `part.text = '.'` to avoid Gemini schema errors with empty parts.
+ *
+ * @param contents - Gemini-style contents array
+ * @returns Updated contents with paired tool IDs and stripped thoughts
+ */
+export function repairGptOssToolPairing(contents: unknown): any {
+  if (!Array.isArray(contents)) {
+    return contents
+  }
+
+  // Phase 1: Clone parts, strip thought/thoughtSignature, and insert fallback '.' for empty parts
+  const updatedContents = contents.map((content: any) => {
+    if (!content || typeof content !== 'object') {
+      return content
+    }
+
+    if (!Array.isArray(content.parts)) {
+      return { ...content }
+    }
+
+    const newParts = content.parts.map((part: any) => {
+      if (!part || typeof part !== 'object') {
+        return part
+      }
+
+      const cloned: any = { ...part }
+      if (cloned.functionCall && typeof cloned.functionCall === 'object') {
+        cloned.functionCall = { ...cloned.functionCall }
+      }
+      if (
+        cloned.functionResponse &&
+        typeof cloned.functionResponse === 'object'
+      ) {
+        cloned.functionResponse = { ...cloned.functionResponse }
+      }
+
+      delete cloned.thought
+      delete cloned.thoughtSignature
+      delete cloned.thought_signature
+
+      const hasFuncCall = Boolean(cloned.functionCall)
+      const hasFuncResp = Boolean(cloned.functionResponse)
+      const hasInlineData = Boolean(cloned.inlineData)
+      const hasFileData = Boolean(cloned.fileData)
+      const hasText =
+        typeof cloned.text === 'string' && cloned.text.trim().length > 0
+
+      if (
+        !hasFuncCall &&
+        !hasFuncResp &&
+        !hasInlineData &&
+        !hasFileData &&
+        !hasText
+      ) {
+        cloned.text = '.'
+      }
+
+      return cloned
+    })
+
+    return { ...content, parts: newParts }
+  })
+
+  // Phase 2: Track existing IDs across all functionCall and functionResponse parts
+  const existingIds = new Set<string>()
+  let counter = 0
+
+  for (const content of updatedContents) {
+    if (!content || !Array.isArray(content.parts)) continue
+    for (const part of content.parts) {
+      if (!part || typeof part !== 'object') continue
+
+      const callId = part.functionCall?.id
+      if (typeof callId === 'string' && callId) {
+        existingIds.add(callId)
+        const match = callId.match(/^tool-call-(\d+)$/)
+        if (match && typeof match[1] === 'string') {
+          counter = Math.max(counter, parseInt(match[1], 10))
+        }
+      }
+
+      const respId = part.functionResponse?.id
+      if (typeof respId === 'string' && respId) {
+        existingIds.add(respId)
+        const match = respId.match(/^tool-call-(\d+)$/)
+        if (match && typeof match[1] === 'string') {
+          counter = Math.max(counter, parseInt(match[1], 10))
+        }
+      }
+    }
+  }
+
+  const allocateId = (): string => {
+    let id: string
+    do {
+      id = `tool-call-${++counter}`
+    } while (existingIds.has(id))
+    existingIds.add(id)
+    return id
+  }
+
+  interface GptOssFunctionCall {
+    name?: string
+    id?: string
+    args?: unknown
+    [key: string]: unknown
+  }
+
+  interface GptOssFunctionResponse {
+    name?: string
+    id?: string
+    response?: unknown
+    [key: string]: unknown
+  }
+
+  interface CallHolder {
+    call: GptOssFunctionCall
+    contentIndex: number
+    partIndex: number
+  }
+
+  interface ResponseHolder {
+    resp: GptOssFunctionResponse
+    contentIndex: number
+    partIndex: number
+  }
+
+  // Phase 3: Collect calls and responses by function name with content and part positions
+  const callsByName = new Map<string, CallHolder[]>()
+  const responsesByName = new Map<string, ResponseHolder[]>()
+
+  let contentIndex = 0
+  for (const content of updatedContents) {
+    const currentContentIndex = contentIndex++
+    if (!content || !Array.isArray(content.parts)) continue
+
+    let partIndex = 0
+    for (const part of content.parts) {
+      const currentPartIndex = partIndex++
+      if (!part || typeof part !== 'object') continue
+
+      if (part.functionCall && typeof part.functionCall === 'object') {
+        const callObj = part.functionCall as GptOssFunctionCall
+        const name = typeof callObj.name === 'string' ? callObj.name : ''
+        const list = callsByName.get(name) || []
+        list.push({
+          call: callObj,
+          contentIndex: currentContentIndex,
+          partIndex: currentPartIndex,
+        })
+        callsByName.set(name, list)
+      }
+
+      if (part.functionResponse && typeof part.functionResponse === 'object') {
+        const respObj = part.functionResponse as GptOssFunctionResponse
+        const name = typeof respObj.name === 'string' ? respObj.name : ''
+        const list = responsesByName.get(name) || []
+        list.push({
+          resp: respObj,
+          contentIndex: currentContentIndex,
+          partIndex: currentPartIndex,
+        })
+        responsesByName.set(name, list)
+      }
+    }
+  }
+
+  const isResponseAfterCall = (
+    respHolder: ResponseHolder,
+    callHolder: CallHolder,
+  ): boolean => {
+    if (respHolder.contentIndex > callHolder.contentIndex) {
+      return true
+    }
+    if (
+      respHolder.contentIndex === callHolder.contentIndex &&
+      respHolder.partIndex > callHolder.partIndex
+    ) {
+      return true
+    }
+    return false
+  }
+
+  // Phase 4: Pair matching calls and responses with identical IDs
+  const allNames = new Set([...callsByName.keys(), ...responsesByName.keys()])
+
+  for (const name of allNames) {
+    const calls = callsByName.get(name) || []
+    const responses = responsesByName.get(name) || []
+
+    const pairedCalls = new Set<CallHolder>()
+    const pairedResponses = new Set<ResponseHolder>()
+
+    // Pass 1: Calls and responses that already share an identical ID where response is after call
+    for (const callHolder of calls) {
+      if (!callHolder.call.id) continue
+      for (const respHolder of responses) {
+        if (pairedResponses.has(respHolder)) continue
+        if (
+          isResponseAfterCall(respHolder, callHolder) &&
+          respHolder.resp.id &&
+          respHolder.resp.id === callHolder.call.id
+        ) {
+          pairedCalls.add(callHolder)
+          pairedResponses.add(respHolder)
+          break
+        }
+      }
+    }
+
+    // Pass 2: Pair remaining calls and responses in document order (response must come after call)
+    for (const callHolder of calls) {
+      if (pairedCalls.has(callHolder)) continue
+
+      for (const respHolder of responses) {
+        if (pairedResponses.has(respHolder)) continue
+        if (isResponseAfterCall(respHolder, callHolder)) {
+          let pairedId: string | undefined =
+            callHolder.call.id || respHolder.resp.id
+          if (!pairedId) {
+            pairedId = allocateId()
+          }
+          callHolder.call.id = pairedId
+          respHolder.resp.id = pairedId
+          pairedCalls.add(callHolder)
+          pairedResponses.add(respHolder)
+          break
+        }
+      }
+    }
+
+    // Pass 3: Ensure any leftover calls without responses have an ID
+    for (const callHolder of calls) {
+      if (!callHolder.call.id) {
+        callHolder.call.id = allocateId()
+      }
+    }
+
+    // Pass 4: Ensure any leftover responses without calls have an ID
+    for (const respHolder of responses) {
+      if (!respHolder.resp.id) {
+        respHolder.resp.id = allocateId()
+      }
+    }
+  }
+
+  return updatedContents
+}
+
 // ============================================================================
 // LOCAL TEXT AND NATIVE GOOGLE ERROR RESPONSES
 // ============================================================================

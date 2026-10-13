@@ -1959,6 +1959,53 @@ describe('request.ts', () => {
       })
     })
 
+    it('repairs tool pairing and strips thoughts for GPT-OSS models', () => {
+      const result = prepareAntigravityRequest(
+        'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gpt-oss-120b-medium:generateContent',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'model',
+                parts: [
+                  { thought: true, thoughtSignature: 'sig-abc' },
+                  {
+                    functionCall: {
+                      name: 'run_cmd',
+                      args: { cmd: 'ls' },
+                    },
+                  },
+                ],
+              },
+              {
+                role: 'user',
+                parts: [
+                  {
+                    functionResponse: {
+                      name: 'run_cmd',
+                      response: { output: 'file.txt' },
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+        'antigravity',
+      )
+
+      const wrapped = JSON.parse(result.init.body as string)
+      const contents = wrapped.request.contents
+      expect(result.effectiveModel).toBe('gpt-oss-120b-medium')
+      expect(contents[0].parts[0]).toEqual({ text: '.' })
+      expect(contents[0].parts[1].functionCall.id).toBe('tool-call-1')
+      expect(contents[1].parts[0].functionResponse.id).toBe('tool-call-1')
+    })
+
     it('sanitizes already-wrapped agy requests and preserves existing tool config fields', () => {
       const result = prepareAntigravityRequest(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent',

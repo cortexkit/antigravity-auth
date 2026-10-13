@@ -70,6 +70,7 @@ import {
   isThinkingCapableModel,
   normalizeThinkingConfig,
   parseAntigravityApiBody,
+  repairGptOssToolPairing,
   resolveThinkingConfig,
   rewriteAntigravityPreviewAccessError,
   transformThinkingParts,
@@ -1554,6 +1555,7 @@ function prepareAntigravityRequestIn(
   const isClaude = isClaudeModel(resolved.actualModel)
   const isClaudeThinking = isClaudeThinkingModel(resolved.actualModel)
   const keepThinkingEnabled = wire.signatures.keepThinking
+  const isGptOss = effectiveModel.toLowerCase().startsWith('gpt-oss-')
 
   // Tier-based thinking configuration from model resolver (can be overridden by variant config)
   let tierThinkingBudget = resolved.thinkingBudget
@@ -1670,6 +1672,10 @@ function prepareAntigravityRequestIn(
 
             // Step 3: Apply tool pairing fixes (ID assignment, response matching, orphan recovery)
             applyToolPairingFixes(req as Record<string, unknown>, true)
+          }
+
+          if (isGptOss && Array.isArray(req.contents)) {
+            req.contents = repairGptOssToolPairing(req.contents)
           }
 
           if (headerStyle === 'antigravity') {
@@ -2444,6 +2450,12 @@ function prepareAntigravityRequestIn(
         if (Array.isArray(requestPayload.messages)) {
           requestPayload.messages = validateAndFixClaudeToolPairing(
             requestPayload.messages,
+          )
+        }
+
+        if (isGptOss && Array.isArray(requestPayload.contents)) {
+          requestPayload.contents = repairGptOssToolPairing(
+            requestPayload.contents,
           )
         }
 
