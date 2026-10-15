@@ -1557,6 +1557,32 @@ function stderrLogSink(record: {
   }
 }
 
+/**
+ * OpenCode validates an RPC method's answer as a JSON value before it is
+ * serialized. The snapshot builders set some optional keys to `undefined`
+ * (for example an account's `cooldownUntil` when it is not cooling down), and
+ * a strict JSON-value check rejects those, surfacing as
+ * `rpc.invalid_output: Expected JSON value at ["accounts"]`. Drop
+ * `undefined`-valued keys recursively so the answer is always a JSON value;
+ * absent optional keys are already treated as `undefined` by the client's
+ * parsers. Arrays and primitives pass through unchanged, and `null` is kept.
+ */
+export function toRpcJson<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((entry) => toRpcJson(entry)) as T
+  if (value !== null && typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype === Object.prototype || prototype === null) {
+      const result: Record<string, unknown> = {}
+      for (const [key, entry] of Object.entries(value)) {
+        if (entry === undefined) continue
+        result[key] = toRpcJson(entry)
+      }
+      return result as T
+    }
+  }
+  return value
+}
+
 function headerValue(
   request: Request,
   names: readonly string[],
@@ -1640,9 +1666,11 @@ export async function setupGaActivation(
       },
       parseApplyRequest: commandsModule.parseApplyRequest,
       onChanged: (event) => {
-        void rpcRegistration?.events.emit('changed', event).catch(() => {
-          // A missed changed notification delays the client's next state request.
-        })
+        void rpcRegistration?.events
+          .emit('changed', toRpcJson(event))
+          .catch(() => {
+            // A missed changed notification delays the client's next state request.
+          })
       },
     })
 
@@ -1666,8 +1694,10 @@ export async function setupGaActivation(
     runtime.scope.add(activation, 'producer')
 
     const handlers: RpcHandlers<typeof ANTIGRAVITY_RPC_DEFINITION> = {
-      state: (input, call) => activation.handlers.state(input, call.signal),
-      apply: (input, call) => activation.handlers.apply(input, call.signal),
+      state: async (input, call) =>
+        toRpcJson(await activation.handlers.state(input, call.signal)),
+      apply: async (input, call) =>
+        toRpcJson(await activation.handlers.apply(input, call.signal)),
     }
     rpcRegistration = await context.rpc.register(
       ANTIGRAVITY_RPC_DEFINITION,

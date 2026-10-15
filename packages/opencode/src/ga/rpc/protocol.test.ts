@@ -184,18 +184,25 @@ describe('antigravity-auth RPC identity', () => {
     expect(ANTIGRAVITY_MENU_COMMAND_NAME).toBe(ANTIGRAVITY_MENU_COMMAND)
   })
 
-  it('every definition schema is a Standard Schema V1 object', () => {
-    const schemas = [
+  it('uses Standard Schema V1 for inputs and a JSON Schema for wire outputs', () => {
+    // The host must be able to serialize a method answer, which it does
+    // through the registered wire schema; a Standard Schema decodes but does
+    // not encode, so outputs (and the event payload) are JSON Schema while the
+    // inputs keep the strict Standard Schema validator.
+    const inputs = [
       ANTIGRAVITY_RPC_DEFINITION.methods.state.input,
-      ANTIGRAVITY_RPC_DEFINITION.methods.state.output,
       ANTIGRAVITY_RPC_DEFINITION.methods.apply.input,
-      ANTIGRAVITY_RPC_DEFINITION.methods.apply.output,
-      ANTIGRAVITY_RPC_DEFINITION.events.changed.schema,
     ]
-    for (const schema of schemas) {
+    for (const schema of inputs) {
       expect(schema['~standard'].version).toBe(1)
       expect(schema['~standard'].vendor).toBe('cortexkit.antigravity-auth')
     }
+    for (const schema of [
+      ANTIGRAVITY_RPC_DEFINITION.methods.state.output,
+      ANTIGRAVITY_RPC_DEFINITION.methods.apply.output,
+      ANTIGRAVITY_RPC_DEFINITION.events.changed.schema,
+    ])
+      expect(schema.type).toBe('object')
     expect(
       ANTIGRAVITY_RPC_DEFINITION.methods.state.input['~standard'].validate(
         STATE_INPUT,
