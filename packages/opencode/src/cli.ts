@@ -23,7 +23,7 @@ import {
   type OAuthLoginRequest,
   performOAuthLogin,
 } from './plugin/oauth-login'
-import { persistAccountPool } from './plugin/persist-account-pool'
+import { commitLogins, persistAccountPool } from './plugin/persist-account-pool'
 import { checkAccountsQuotaStandalone } from './plugin/quota'
 import { startOAuthListener } from './plugin/server'
 import { getStoragePath, loadAccounts } from './plugin/storage'
@@ -400,7 +400,12 @@ const execFileAsync = promisify(execFile)
 
 async function openBrowserDefault(url: string): Promise<void> {
   if (process.platform === 'win32') {
-    await execFileAsync('cmd', ['/c', 'start', '', url])
+    // `cmd.exe` treats `&` in the URL as a command separator, so the URL must be
+    // passed as a single quoted token or everything after the first `&` (for
+    // example `response_type`) is lost.
+    await execFileAsync('cmd', ['/c', 'start', '""', `"${url}"`], {
+      windowsVerbatimArguments: true,
+    })
     return
   }
   await execFileAsync(process.platform === 'darwin' ? 'open' : 'xdg-open', [
@@ -437,9 +442,13 @@ export function createDefaultCliDependencies(): CliDependencies {
         exchange: exchangeAntigravity,
         startListener: startOAuthListener,
         openBrowser,
+        announce: (url) => {
+          process.stdout.write(`Open this URL to sign in:\n${url}\n`)
+        },
         upsert: async (result) => {
-          await persistAccountPool(
-            [result],
+          await persistCliLogin(
+            resolve(getStoragePath()),
+            result,
             request.startFresh && request.accounts.length === 0,
           )
         },
@@ -543,6 +552,48 @@ async function readAccountStore(legacyPath: string): Promise<CliAccountsRead> {
       }
     }
     return { kind: 'store', accounts: read.rows.map(cliAccountOf) }
+  } finally {
+    await repository.dispose()
+  }
+}
+
+/**
+ * Persist one successful OAuth login to the active account source. A migrated
+ * account store owns the retired pool file and refuses the pre-store writer,
+ * so a login must go through the store repository; an uninitialized or legacy
+ * layout still writes the pre-store pool file.
+ *
+ * The store path uses `commitLogins` (the same add/upsert the OpenCode sign-in
+ * uses) rather than a pool replacement: a replacement leaves a resumable
+ * management journal that does not complete reliably on Windows, and a single
+ * interactive login is an add, not a wipe.
+ */
+async function persistCliLogin(
+  legacyPath: string,
+  result: AntigravityTokenExchangeSuccess,
+  replaceAll: boolean,
+): Promise<void> {
+  const modules = await loadCommonAuthStoreModules()
+  const admission = await readAccountStoreBinding(legacyPath, modules, Date.now)
+  if (admission.status !== 'bound') {
+    await persistAccountPool([result], replaceAll)
+    return
+  }
+  const repository = createAccountRepositoryFactory(modules)({
+    paths: admission.paths,
+    now: Date.now,
+    exchange: async ({ refreshToken }) => {
+      const refreshed = await refreshAntigravityToken(refreshToken)
+      return {
+        accessToken: refreshed.access,
+        refreshToken: refreshed.refresh,
+        expiresAt: refreshed.expires,
+      }
+    },
+  })
+  try {
+    const [committed] = await commitLogins(repository, [result])
+    if (committed?.status === 'refused') throw new Error(committed.message)
   } finally {
     await repository.dispose()
   }

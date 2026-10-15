@@ -25,6 +25,8 @@ export interface OAuthLoginDependencies {
   exchange: typeof exchangeAntigravity
   startListener: typeof startOAuthListener
   openBrowser(url: string): Promise<void>
+  /** Reports the authorization URL when the browser is not opened (headless / --no-browser). */
+  announce?(url: string): void
   upsert(result: AntigravityTokenExchangeSuccess): Promise<void>
 }
 
@@ -56,6 +58,8 @@ export async function performOAuthLogin(
     const authorization = await deps.authorize(request.projectId ?? '')
     if (!request.noBrowser && !request.isHeadless) {
       await deps.openBrowser(authorization.url)
+    } else {
+      deps.announce?.(authorization.url)
     }
 
     const params = callbackParams(
