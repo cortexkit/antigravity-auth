@@ -15,6 +15,7 @@ import {
   AccountStoreUnavailableError,
   createAccountAccessService,
   createRepositoryAccountAccessService,
+  extractAccountAccessErrorDetails,
   normalizeGoogleVerificationUrl,
   selectBestVerificationUrl,
 } from './account-access'
@@ -55,6 +56,83 @@ function accountStorage(): AccountStorageV4 {
     ],
   }
 }
+
+describe('ineligible refusal detection', () => {
+  it('detects the machine-readable token', () => {
+    const details = extractAccountAccessErrorDetails(
+      '{"error":{"status":"FAILED_PRECONDITION","message":"account_ineligible"}}',
+    )
+    expect(details.accountIneligible).toBe(true)
+  })
+
+  it("detects Google's human-readable individuals-tier refusal", () => {
+    const details = extractAccountAccessErrorDetails(
+      'Error: Your current account is not eligible for Gemini Code Assist for individuals. ' +
+        'To use Gemini Code Assist for individuals you must be 18 years old or older. ' +
+        'If you think you are receiving this message in error, please ensure you have ' +
+        'verified your age and try to log in again.',
+    )
+    expect(details.accountIneligible).toBe(true)
+  })
+
+  it('detects the refusal when it arrives inside a JSON message field', () => {
+    const details = extractAccountAccessErrorDetails(
+      '{"error":{"code":403,"message":"Your current account is not eligible for Gemini Code Assist for individuals. You must be 18 years old or older."}}',
+    )
+    expect(details.accountIneligible).toBe(true)
+  })
+
+  it('does not read the age-verification words in a healthy response as a refusal', () => {
+    const details = extractAccountAccessErrorDetails(
+      JSON.stringify({
+        currentTier: { id: 'free-tier', name: 'Antigravity' },
+        privacyNotice: {
+          showNotice: true,
+          noticeText:
+            'Gemini Code Assist for individuals handles your data. ' +
+            'Please read our Privacy Policy and how we manage your personal information.',
+        },
+      }),
+    )
+    expect(details.accountIneligible).toBe(false)
+    expect(details.validationRequired).toBe(false)
+  })
+
+  it('still reports validation_required without claiming ineligibility', () => {
+    const details = extractAccountAccessErrorDetails(
+      '{"error":{"status":"FAILED_PRECONDITION","message":"validation_required"}}',
+    )
+    expect(details.validationRequired).toBe(true)
+    expect(details.accountIneligible).toBe(false)
+  })
+
+  it('leaves an unrelated rate-limit refusal alone', () => {
+    const details = extractAccountAccessErrorDetails(
+      'Quota exceeded for this project.',
+    )
+    expect(details.accountIneligible).toBe(false)
+    expect(details.validationRequired).toBe(false)
+  })
+
+  it('does not disable an account for an unrelated 403 mentioning an age requirement', () => {
+    const details = extractAccountAccessErrorDetails(
+      '{"error":{"code":403,"message":"Applicants must be 18 years old or older to use this service."}}',
+    )
+    expect(details.accountIneligible).toBe(false)
+  })
+
+  it('detects the age sentence when it names the product, in either order', () => {
+    const leading = extractAccountAccessErrorDetails(
+      'Gemini Code Assist for individuals requires that you must be 18 years old or older.',
+    )
+    expect(leading.accountIneligible).toBe(true)
+
+    const trailing = extractAccountAccessErrorDetails(
+      'You must be 18 years old or older to use Gemini Code Assist for individuals.',
+    )
+    expect(trailing.accountIneligible).toBe(true)
+  })
+})
 
 describe('verification URL selection', () => {
   it('normalizes escaped Google URLs and rejects other hosts', () => {

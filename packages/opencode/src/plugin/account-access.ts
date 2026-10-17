@@ -169,6 +169,32 @@ export function selectBestVerificationUrl(urls: string[]): string | undefined {
   return unique[0]
 }
 
+/**
+ * The machine-readable token, plus the human-readable sentence Google returns
+ * when a request reaches the individuals tier instead of a provisioned managed
+ * project. That sentence carries neither `account_ineligible` nor
+ * `validation_required`, so the token alone left it classed as an ordinary
+ * error: the account was never disabled, never rotated away from, and the
+ * request was retried on the same account until the retry budget ran out.
+ *
+ * The token is matched anywhere; it is unambiguous on its own. The two prose
+ * alternatives are matched only against Gemini refusal context, so an unrelated
+ * 403 cannot disable an account: the second needs the refusal wording, and the
+ * third needs "Gemini Code Assist" within 200 characters of the age sentence on
+ * the same line. A bare substring such as /age/ would be worse still — it
+ * matches the privacy notice in a healthy 200 response ("...how Gemini Code
+ * Assist for individuals handles your DATA...").
+ */
+const INELIGIBLE_REFUSAL_PATTERNS: readonly RegExp[] = [
+  /(^|[^a-z0-9_])account_ineligible([^a-z0-9_]|$)/i,
+  /not eligible for gemini code assist/i,
+  /(gemini code assist[^\n]{0,200}18 years old or older)|(18 years old or older[^\n]{0,200}gemini code assist)/i,
+]
+
+function matchesIneligibleRefusal(text: string): boolean {
+  return INELIGIBLE_REFUSAL_PATTERNS.some((pattern) => pattern.test(text))
+}
+
 export function extractAccountAccessErrorDetails(bodyText: string): {
   validationRequired: boolean
   accountIneligible: boolean
@@ -178,8 +204,7 @@ export function extractAccountAccessErrorDetails(bodyText: string): {
   const decodedBody = decodeEscapedText(bodyText)
   const lowerBody = decodedBody.toLowerCase()
   let validationRequired = lowerBody.includes('validation_required')
-  const ineligiblePattern = /(^|[^a-z0-9_])account_ineligible([^a-z0-9_]|$)/i
-  let accountIneligible = ineligiblePattern.test(decodedBody)
+  let accountIneligible = matchesIneligibleRefusal(decodedBody)
   let message: string | undefined
   const verificationUrls = new Set<string>()
 
@@ -225,7 +250,7 @@ export function extractAccountAccessErrorDetails(bodyText: string): {
       if (lowerValue.includes('validation_required')) {
         validationRequired = true
       }
-      if (ineligiblePattern.test(normalizedValue)) {
+      if (matchesIneligibleRefusal(normalizedValue)) {
         accountIneligible = true
       }
       if (
