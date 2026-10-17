@@ -80,7 +80,23 @@ The shipped `server.js`/`tui.js` forwarders support registering the installed pa
 }
 ```
 
-The directory example follows the shipped forwarders, not a verified GA npm-installer command. The pinned harness uses an instrumented wrapper directory; direct npm-spec registration/installer syntax is not established here. Consult the matching host's install/config documentation rather than assuming V1's `opencode plugin` or `tui.json` behavior. Do not copy the harness's synthetic Google API key or mock `baseURL` into a real config. The harness's default fixture config has no user model map; no copied model-map requirement is established. Models are served under `google/…`, and the package supplies the Antigravity catalog.
+The package attaches its Antigravity catalog to the host's `google` provider, so the host must expose one. OpenCode 2.0.22 shipped a `google` provider by default; hosts that do not (for example later 2.x builds whose catalog omits it until configured) register nothing until `providers.google` exists. Declare it alongside the plugin:
+
+```jsonc
+{
+  "plugins": ["/absolute/path/to/node_modules/@cortexkit/opencode-antigravity-auth"],
+  "providers": {
+    "google": {
+      "settings": {
+        "baseURL": "https://generativelanguage.googleapis.com/v1beta",
+        "apiKey": "cortexkit-antigravity-local"
+      }
+    }
+  }
+}
+```
+
+The `apiKey` and `baseURL` are placeholders: the adapter rewrites and authenticates every request for its models on the loopback bridge before egress. Do not reuse the harness's synthetic key or mock `baseURL`. The directory example follows the shipped forwarders, not a verified GA npm-installer command. The pinned harness uses an instrumented wrapper directory; direct npm-spec registration/installer syntax is not established here. Consult the matching host's install/config documentation rather than assuming V1's `opencode plugin` or `tui.json` behavior. Do not copy the harness's synthetic Google API key or mock `baseURL` into a real config. The harness's default fixture config has no user model map; no copied model-map requirement is established. Models are served under `google/…`, and the package supplies the Antigravity catalog.
 
 ### OpenCode from this checkout (contributors)
 

@@ -3463,13 +3463,17 @@ class StoreAccountRepository implements AccountRepository {
       await handle.close()
     }
     // Persist both the transfer entry and its containing directory before
-    // publishing a journal that requires the transfer to recover.
-    for (const path of [this.paths.transfersDir, this.paths.storeDir]) {
-      const directory = await open(path, 'r')
-      try {
-        await directory.sync()
-      } finally {
-        await directory.close()
+    // publishing a journal that requires the transfer to recover. Windows
+    // rejects fsync on a directory handle, so directory durability is a
+    // POSIX-only guarantee (see accountMigrationDurability).
+    if (process.platform !== 'win32') {
+      for (const path of [this.paths.transfersDir, this.paths.storeDir]) {
+        const directory = await open(path, 'r')
+        try {
+          await directory.sync()
+        } finally {
+          await directory.close()
+        }
       }
     }
   }

@@ -14,7 +14,7 @@ import {
   realpath,
   rm,
 } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build as bundle } from 'esbuild'
 import { parse } from 'jsonc-parser'
@@ -360,7 +360,9 @@ export async function verifyPrerequisites(): Promise<void> {
       'package.json',
     )
     const actual = realpathSync(path)
-    if (!actual.startsWith(`${realpathSync(TOOL_ROOT)}/node_modules/`))
+    if (
+      !actual.startsWith(`${realpathSync(TOOL_ROOT)}${sep}node_modules${sep}`)
+    )
       throw new Error(`build.prerequisite_order: private root escaped ${name}`)
     const pkg = JSON.parse(await readFile(actual, 'utf8'))
     const expected =
@@ -701,7 +703,8 @@ export async function buildLibrary(packageRoot = PACKAGE_ROOT) {
         `${JSON.stringify(result.metafile, null, 2)}\n`,
       )
     }
-    run('chmod', ['0755', 'dist/cli.js'], packageRoot)
+    if (process.platform !== 'win32')
+      run('chmod', ['0755', 'dist/cli.js'], packageRoot)
     await buildTuiRoots({ packageRoot })
     console.log(
       'Product build: tsc, canonical copy, 2 audited bundles, raw/runtime TUI for OpenCode 1 and GA',

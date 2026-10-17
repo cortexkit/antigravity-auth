@@ -1812,8 +1812,25 @@ export const AntigravityNotificationPayloadSchema =
 // Definition
 
 /**
+ * OpenCode 2 encodes an RPC method's `output`, and encodes an event's `data`,
+ * through the registered wire schema. The adapter's strict contract schemas
+ * (`Antigravity*Schema`) are Standard Schema validators used for decoding and
+ * for the handler's own checks, but the host does not serialize a value
+ * through a Standard Schema on the response path: registering them as the
+ * wire schema made every `state`/`apply` answer fail the host's body encoder
+ * with `InvalidRequestError: Expected JSON value at ["output"]` (OpenCode
+ * 2.0.29). A permissive JSON Schema keeps the host able to encode the
+ * already-validated value; the strict contract still runs inside the handler
+ * and in the client's own parse.
+ */
+const RPC_WIRE_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: true,
+} as const
+
+/**
  * The definition the server registers and clients call. Its shape is the one
- * the OpenCode 2.0.22 RPC registry reads: `id`, `methods.<name>.{input,
+ * the OpenCode 2.0.22+ RPC registry reads: `id`, `methods.<name>.{input,
  * output}` and `events.<name>.schema`. This module imports nothing from the
  * host SDK, so the check against the SDK's `Rpc.PortableDefinition` type
  * happens where the server passes this object to `rpc.register`.
@@ -1823,15 +1840,15 @@ export const ANTIGRAVITY_RPC_DEFINITION = {
   methods: {
     state: {
       input: AntigravityStateInputSchema,
-      output: AntigravityStateOutputSchema,
+      output: RPC_WIRE_JSON_SCHEMA,
     },
     apply: {
       input: AntigravityApplyInputSchema,
-      output: AntigravityApplyOutputSchema,
+      output: RPC_WIRE_JSON_SCHEMA,
     },
   },
   events: {
-    changed: { schema: AntigravityChangedEventSchema },
+    changed: { schema: RPC_WIRE_JSON_SCHEMA },
   },
 } as const
 

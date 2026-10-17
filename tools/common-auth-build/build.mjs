@@ -38,7 +38,7 @@ async function verifiedCompiler() {
     const installed = await realpath(
       resolve(toolRoot, 'node_modules', name, 'package.json'),
     )
-    if (!installed.startsWith(`${toolRoot}/node_modules/`))
+    if (!installed.startsWith(`${toolRoot}${sep}node_modules${sep}`))
       throw new Error(`Private tool root escaped: ${name}`)
     if (JSON.parse(await readFile(installed, 'utf8')).version !== version)
       throw new Error(`Private tool version mismatch: ${name}`)

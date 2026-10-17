@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- OpenCode 2.0.29 compatibility for the GA adapter. The `antigravity-auth` RPC registers a JSON Schema for each method's wire `output` (and the `changed` event payload) instead of the strict Standard Schema, which the newer host cannot serialize, and every answer is stripped of `undefined`-valued keys. Previously each `state`/`apply` call failed with `InvalidRequestError: Expected JSON value at ["output"]` or `rpc.invalid_output: Expected JSON value at ["accounts"]`, which broke the `/antigravity` menu and sidebar. The strict contract still runs inside the handler and in the client's own parse.
+
 ## [2.3.0] - 2026-09-17
 
 ### Added
