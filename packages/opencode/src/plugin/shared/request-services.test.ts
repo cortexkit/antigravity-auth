@@ -10,6 +10,7 @@ import {
   type AgyTransportOptions,
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
   AccountManager as CoreAccountManager,
+  createQuotaManager,
   type EnrollmentAuthority,
   fetchWithAgyCliTransport,
   HealthScoreTracker,
@@ -31,6 +32,7 @@ import { createAuthLoader } from '../auth-loader'
 import { DEFAULT_CONFIG } from '../config'
 import { createLocationConfig } from '../config/loader'
 import { createLocationDebug } from '../debug'
+import { createFetchInterceptor } from '../fetch-interceptor'
 import { createGaJobExecutor } from '../ga-location-services'
 import { createGeminiDumpState } from '../gemini-dump'
 import { createPluginLifecycle } from '../lifecycle'
@@ -48,6 +50,7 @@ import {
 import { AgySessionRegistry } from '../session-context'
 import { createSignatureStore } from '../stores/signature-store'
 import type { GetAuth } from '../types'
+import { publishResponse } from './after-handoff.ts'
 import {
   createRequestExecutor,
   type LocalRequestCredentials,
@@ -1555,7 +1558,9 @@ it('disposal drains successful-send quota after-work without delaying the reply'
     },
   })
   try {
-    const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+    const response = await publishResponse((onResponseHandoff) =>
+      executor.execute(NON_STREAM_URL, CHAT_INIT(), { onResponseHandoff }),
+    )
     await reached.promise
     expect(response.status).toBe(200)
     expect(await response.text()).toContain('hi')
@@ -3370,6 +3375,11 @@ describe('OpenCode 1 runtime replacement with admitted streams', () => {
     ) => Promise<OAuthAuthDetails | undefined>
     readAuthority?: () => Promise<EnrollmentAuthority>
     beforeLoad?: (loadNumber: number) => Promise<void>
+    beforePublication?: () => Promise<void>
+    quota?: (signal?: AbortSignal) => Promise<void>
+    interceptor?: boolean
+    config?: Partial<typeof DEFAULT_CONFIG>
+    advisoryLogs?: string[]
   }) {
     const lifecycle = createPluginLifecycle({
       sessionRegistry: { clear() {} },
@@ -3432,17 +3442,84 @@ describe('OpenCode 1 runtime replacement with admitted streams', () => {
       }),
       createFetch: ({ accountManager }) => {
         runtimes.push(accountManager)
-        const executor = createRequestExecutor(
-          harness({
-            pool: accountManager,
-            respond: options.respond,
-            ...(options.refresh && { refresh: options.refresh }),
-          }).deps,
-        )
+        const deps = harness({
+          pool: accountManager,
+          respond: options.respond,
+          ...(options.refresh && { refresh: options.refresh }),
+          config: {
+            ...(options.quota ? { quota_refresh_interval_minutes: 1 } : {}),
+            ...options.config,
+          },
+        }).deps
+        const executor = createRequestExecutor({
+          ...deps,
+          logger: options.advisoryLogs
+            ? {
+                ...deps.logger,
+                debug: (message) => {
+                  options.advisoryLogs?.push(message)
+                },
+              }
+            : deps.logger,
+          credentials:
+            deps.credentials.domain === 'local' && options.quota
+              ? {
+                  ...deps.credentials,
+                  refreshQuotaAfterSuccess: (_account, _interval, signal) =>
+                    options.quota!(signal),
+                }
+              : deps.credentials,
+        })
+        const quotaManager = createQuotaManager({
+          keyOf: (account) => account.refreshToken,
+          fetchAccountQuota: async (_account, signal) => {
+            await options.quota?.(signal)
+            return { index: 0, status: 'skipped' }
+          },
+        })
+        if (options.interceptor) {
+          for (const account of accountManager.getAccounts())
+            accountManager.updateFromAuth(account, {
+              type: 'oauth',
+              access: 'access',
+              refresh: `refresh-0|project-0|managed-0`,
+              expires: Date.now() + 3_600_000,
+            })
+        }
+        const interceptor = options.interceptor
+          ? createFetchInterceptor({
+              client: {
+                auth: { set: async () => {} },
+                tui: { showToast: async () => {} },
+              } as never,
+              directory: testRoot(),
+              providerId: 'google',
+              config: deps.config,
+              accountManager: accountManager as never,
+              accountSource: { kind: 'pool-file' },
+              quotaManager,
+              getAuth,
+              agySessionRegistry: deps.sessions,
+              agyTransport: async (url, init, transportOptions) =>
+                options.respond({ url, init, options: transportOptions }),
+              onRouting: () => {},
+            })
+          : undefined
         return {
-          fetch: (input, init) => executor.execute(input, init),
-          retire: () => executor.retire(),
-          dispose: () => executor.dispose(),
+          fetch: async (input, init, onResponseHandoff) => {
+            const response = await (interceptor
+              ? interceptor.fetch(input, init, onResponseHandoff)
+              : executor.execute(input, init, { onResponseHandoff }))
+            await options.beforePublication?.()
+            return response
+          },
+          retire: () =>
+            interceptor ? interceptor.retire() : executor.retire(),
+          dispose: async () => {
+            await interceptor?.dispose()
+            await executor.dispose()
+            await quotaManager.dispose()
+          },
         }
       },
       dependencies: {
@@ -3469,6 +3546,175 @@ describe('OpenCode 1 runtime replacement with admitted streams', () => {
       events,
       disposed,
     }
+  }
+
+  it('starts V1 quota only after public fetch publication', async () => {
+    const prepared = Promise.withResolvers<void>()
+    const publication = Promise.withResolvers<void>()
+    const entered = Promise.withResolvers<void>()
+    const events: string[] = []
+    const h = runtimeLoader({
+      interceptor: true,
+      respond: async () => okJson(),
+      beforePublication: async () => {
+        prepared.resolve()
+        await publication.promise
+      },
+      quota: async () => {
+        events.push('quota')
+        entered.resolve()
+      },
+    })
+    try {
+      const fetch = await h.load()
+      const pending = fetch(NON_STREAM_URL, CHAT_INIT()).then((response) => {
+        events.push('public')
+        return response
+      })
+      await prepared.promise
+      expect(events).toEqual([])
+      publication.resolve()
+      const response = await pending
+      await entered.promise
+      expect(events).toEqual(['public', 'quota'])
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain('hi')
+    } finally {
+      publication.resolve()
+      await h.lifecycle.dispose()
+    }
+  })
+
+  it('a retried 2xx starts quota only for the final published response', async () => {
+    const retry = Promise.withResolvers<void>()
+    const finish = Promise.withResolvers<void>()
+    let sends = 0
+    let quota = 0
+    const h = runtimeLoader({
+      interceptor: true,
+      config: { empty_response_retry_delay_ms: 0 },
+      respond: async () => {
+        sends++
+        if (sends === 1)
+          return new Response('{"response":{"candidates":[]}}', {
+            headers: { 'content-type': 'application/json' },
+          })
+        retry.resolve()
+        await finish.promise
+        return okJson()
+      },
+      quota: async () => {
+        quota++
+      },
+    })
+    try {
+      const fetch = await h.load()
+      const pending = fetch(NON_STREAM_URL, CHAT_INIT())
+      await retry.promise
+      expect(quota).toBe(0)
+      finish.resolve()
+      expect(await (await pending).text()).toContain('hi')
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(sends).toBe(2)
+      expect(quota).toBe(1)
+    } finally {
+      finish.resolve()
+      await h.lifecycle.dispose()
+    }
+  })
+
+  for (const after of [false, true]) {
+    it(`V1 cancellation ${after ? 'after' : 'before'} publication ${after ? 'aborts' : 'drops'} quota`, async () => {
+      const prepared = Promise.withResolvers<void>()
+      const publish = Promise.withResolvers<void>()
+      const entered = Promise.withResolvers<void>()
+      const aborted = Promise.withResolvers<void>()
+      const controller = new AbortController()
+      let entries = 0
+      const h = runtimeLoader({
+        interceptor: true,
+        respond: async () => okJson(),
+        beforePublication: async () => {
+          prepared.resolve()
+          await publish.promise
+        },
+        quota: async (signal) => {
+          entries++
+          entered.resolve()
+          if (!signal) throw new Error('quota signal missing')
+          if (signal.aborted) aborted.resolve()
+          else
+            signal.addEventListener('abort', () => aborted.resolve(), {
+              once: true,
+            })
+          await aborted.promise
+        },
+      })
+      try {
+        const fetch = await h.load()
+        // Use Request.signal, not only init.signal, to pin both fetch forms.
+        const reply = fetch(
+          new Request(NON_STREAM_URL, CHAT_INIT(controller.signal)),
+        )
+        await prepared.promise
+        if (!after) controller.abort()
+        publish.resolve()
+        const response = await reply
+        if (after) {
+          await entered.promise
+          expect(await response.text()).toContain('hi')
+          controller.abort()
+          await aborted.promise
+        }
+        await h.lifecycle.dispose()
+        expect(entries).toBe(after ? 1 : 0)
+      } finally {
+        controller.abort()
+        publish.resolve()
+        await h.lifecycle.dispose()
+      }
+    })
+  }
+
+  for (const synchronous of [true, false]) {
+    it(`absorbs ${synchronous ? 'throwing' : 'rejecting'} quota after V1 handoff without changing the reply`, async () => {
+      const errors: unknown[] = []
+      const onUnhandled = (error: unknown) => {
+        errors.push(error)
+      }
+      process.on('unhandledRejection', onUnhandled)
+      const entered = Promise.withResolvers<void>()
+      const logs: string[] = []
+      const h = runtimeLoader({
+        respond: async () => okJson(),
+        advisoryLogs: logs,
+        quota: (signal) => {
+          expect(signal?.aborted).toBe(false)
+          entered.resolve()
+          if (synchronous) throw new Error('private quota failure')
+          return Promise.reject(new Error('private quota failure'))
+        },
+      })
+      try {
+        const fetch = await h.load()
+        const response = await fetch(NON_STREAM_URL, CHAT_INIT())
+        await entered.promise
+        expect(response.status).toBe(200)
+        expect(await response.text()).toContain('hi')
+        await h.lifecycle.dispose()
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(errors).toEqual([])
+        expect(
+          logs.filter(
+            (message) => message === 'post-response-advisory-work-failed',
+          ),
+        ).toHaveLength(1)
+        expect(logs.join(' ')).not.toContain('private quota failure')
+      } finally {
+        await h.lifecycle.dispose()
+        process.off('unhandledRejection', onUnhandled)
+      }
+    })
   }
 
   it('a reload keeps a stream admitted by the replaced runtime alive', async () => {

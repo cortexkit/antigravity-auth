@@ -1256,6 +1256,45 @@ test_count_pattern = "Ran {count} test"
 expect_red = ['^disposal\sdrains\ssuccessful-send\squota\safter-work\swithout\sdelaying\sthe\sreply$']
 
 [[control]]
+id = "shared-successful-quota-after-handoff"
+guards = "The real OpenCode 1 loader publishes its public fetch promise before successful-send quota transport starts."
+file = "packages/opencode/src/plugin/shared/request-services.ts"
+old = "              account.consecutiveFailures = 0"
+new = "              if (credentials.domain === 'local') void credentials.refreshQuotaAfterSuccess?.(account, config.quota_refresh_interval_minutes, init?.signal).catch(() => {}) // NON-VACUITY BREAK: start quota eagerly before publication.\n              account.consecutiveFailures = 0"
+test_file = "packages/opencode/src/plugin/shared/request-services.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/shared/request-services.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/shared/request-services.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^OpenCode\s1\sruntime\sreplacement\swith\sadmitted\sstreams\sstarts\sV1\squota\sonly\safter\spublic\sfetch\spublication$']
+
+[[control]]
+id = "ga-successful-quota-head-acknowledgement"
+guards = "The bridge acknowledges successful-send quota only after writing and flushing the response head, not on executor return."
+file = "packages/opencode/src/ga/server/index.ts"
+old = "        })\n      } catch (error) {\n        acknowledge = undefined"
+new = "        })\n        acknowledge?.() // NON-VACUITY BREAK: acknowledge executor return before head publication.\n        acknowledge = undefined\n      } catch (error) {\n        acknowledge = undefined"
+test_file = "packages/opencode/src/plugin/ga-location-services.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/ga-location-services.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/ga-location-services.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^starts\sGA\squota\sonly\safter\sbridge\shead\sflush$']
+
+[[control]]
+id = "ga-successful-quota-head-flush"
+guards = "Real loopback fetch receives headers without waiting for the gated upstream body."
+file = "packages/opencode/src/ga/server/index.ts"
+old = "  response.flushHeaders()"
+new = "  // NON-VACUITY BREAK: keep headers buffered until a body byte."
+test_file = "packages/opencode/src/plugin/ga-location-services.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/ga-location-services.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/ga-location-services.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^GA\sflush\smakes\sheaders\savailable\sbefore\sgated\supstream\sbody$']
+
+[[control]]
 id = "ga-advisory-quota-abort-bound"
 guards = "Request cancellation bounds quota after-work even when an injected quota transport never settles."
 file = "packages/opencode/src/plugin/quota.ts"

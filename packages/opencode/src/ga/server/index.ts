@@ -354,6 +354,8 @@ export interface GaJobContext {
    */
   readonly signal: AbortSignal
   readonly send: GaRawSender
+  /** Registers lazy success work for this job's flushed response head. */
+  readonly onResponseHandoff?: (acknowledge: () => void) => void
 }
 
 /**
@@ -541,20 +543,36 @@ export async function startGaLoopbackBridge(
     })
     try {
       let upstream: Response
+      let acknowledge: (() => void) | undefined
       try {
         upstream = await options.execute(entry.job, {
           signal: controller.signal,
           send: options.send,
+          onResponseHandoff: (callback) => {
+            acknowledge = callback
+          },
         })
       } catch (error) {
+        acknowledge = undefined
         upstream = gaPreHeaderFailureResponse(error)
       }
-      await pipeResponse(upstream, response, (error) => {
-        // An adapted body owns its error even while disposal drains its reader.
-        // Unadapted jobs must not create retained failures after closing starts.
-        if (!state.released && (state.claimed || !closing))
-          state.failure = error
-      })
+      await pipeResponse(
+        upstream,
+        response,
+        (error) => {
+          // An adapted body owns its error even while disposal drains its reader.
+          // Unadapted jobs must not create retained failures after closing starts.
+          if (!state.released && (state.claimed || !closing))
+            state.failure = error
+        },
+        () => {
+          if (!response.destroyed && !controller.signal.aborted && !closing) {
+            const callback = acknowledge
+            acknowledge = undefined
+            callback?.()
+          }
+        },
+      )
     } finally {
       running.delete(controller)
       if (!closing && !state.claimed && !state.released) {
@@ -749,6 +767,7 @@ async function pipeResponse(
   upstream: Response,
   response: ServerResponse,
   onFailure: (error: Error) => void,
+  onHandoff: () => void,
 ): Promise<void> {
   const contentType =
     upstream.headers.get('content-type') ?? 'application/octet-stream'
@@ -757,6 +776,8 @@ async function pipeResponse(
     return
   }
   writeResponseHead(response, upstream.status, contentType)
+  response.flushHeaders()
+  onHandoff()
   if (!upstream.body) {
     response.end()
     return

@@ -29,6 +29,7 @@ import {
   transformAntigravityResponse,
 } from './request'
 import type { AgySessionRegistry } from './session-context'
+import type { RegisterResponseHandoff } from './shared/after-handoff.ts'
 import {
   createLocalQuotaRefresh,
   createRequestExecutor,
@@ -111,7 +112,11 @@ export interface FetchInterceptorContext {
  * host signature so it can be slotted into `LoaderResult` unchanged.
  */
 export interface FetchInterceptor {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
+  fetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+    onResponseHandoff?: RegisterResponseHandoff,
+  ): Promise<Response>
   dispose(): void | Promise<void>
 }
 
@@ -313,9 +318,11 @@ export function createFetchInterceptor(
           body: { type: 'oauth', refresh: '', access: '', expires: 0 },
         })
       },
-      refreshQuotaAfterSuccess: async (account, intervalMinutes) => {
+      refreshQuotaAfterSuccess: async (account, intervalMinutes, signal) => {
+        signal?.throwIfAborted()
         await context.assertAdmission?.()
-        await refreshQuotaAfterSuccess(account, intervalMinutes)
+        signal?.throwIfAborted()
+        await refreshQuotaAfterSuccess(account, intervalMinutes, signal)
       },
     },
     // The trackers the manager selects with: its own for a store-backed
@@ -342,6 +349,7 @@ export function createFetchInterceptor(
   async function intercept(
     input: RequestInfo | URL,
     init?: RequestInit,
+    onResponseHandoff?: RegisterResponseHandoff,
   ): Promise<Response> {
     await context.assertAdmission?.()
     // Disposal may have begun during the admission read; nothing more is
@@ -353,12 +361,13 @@ export function createFetchInterceptor(
       if (!isOAuthAuth(latestAuth)) return upstreamFetch(input, init)
     }
 
-    return executor.execute(input, init)
+    return executor.execute(input, init, { onResponseHandoff })
   }
 
   async function fetch(
     input: RequestInfo | URL,
     init?: RequestInit,
+    onResponseHandoff?: RegisterResponseHandoff,
   ): Promise<Response> {
     if (disposed) {
       // After dispose we deliberately stop intercepting so an in-flight call
@@ -375,7 +384,7 @@ export function createFetchInterceptor(
     // refused rather than sent without this plugin's credentials.
     if (retired) throw new Error('The local request runtime is retired')
 
-    const pending = intercept(input, init)
+    const pending = intercept(input, init, onResponseHandoff)
     entering.add(pending)
     void pending.then(
       () => entering.delete(pending),
