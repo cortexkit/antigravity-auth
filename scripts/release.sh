@@ -83,24 +83,9 @@ if [[ -n "$PREPARE" ]]; then
   exit 0
 fi
 
-echo "→ Running pre-release checks..."
-echo ""
+echo "→ Verifying CI workflows on the exact release commit..."
+bun scripts/check-release-ci.ts
 
-[[ "$(bun --version)" == "1.4.2" ]] || { echo "Error: private TUI compiler requires Bun 1.4.2"; exit 1; }
-bun packages/opencode/scripts/embed-common-auth.ts --check
-bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
-bun run embed:check
-
-echo "  bun run typecheck..."
-bun run typecheck 2>&1 || { echo "Error: Typecheck failed"; exit 1; }
-
-echo "  bun run test..."
-bun run test 2>&1 || { echo "Error: Tests failed"; exit 1; }
-
-echo "  bun run build..."
-bun run build 2>&1 || { echo "Error: Build failed"; exit 1; }
-
-echo "  ✓ All checks passed"
 echo ""
 
 echo "→ Verifying the prepared version-sync commit..."
