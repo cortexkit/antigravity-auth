@@ -1,6 +1,6 @@
 {
   "name": "@cortexkit/pi-antigravity-auth",
-  "version": "3.0.6",
+  "version": "3.0.7",
   "description": "Google Antigravity OAuth extension for pi - access Gemini and Claude models using Google credentials",
   "type": "module",
   "license": "MIT",
@@ -43,7 +43,7 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@cortexkit/antigravity-auth-core": "3.0.6",
+    "@cortexkit/antigravity-auth-core": "3.0.7",
     "@cortexkit/claustrum-client": "0.10.0"
   },
   "peerDependencies": {
