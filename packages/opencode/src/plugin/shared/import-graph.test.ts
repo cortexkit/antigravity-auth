@@ -164,6 +164,10 @@ describe('shared request engine import graph', () => {
     }
 
     expect(imports).toEqual({
+      './after-handoff.ts': [
+        'createAfterHandoff',
+        'type RegisterResponseHandoff',
+      ],
       './request-cancellation': [
         'createRequestCancellation',
         'retainResponseLifetime',

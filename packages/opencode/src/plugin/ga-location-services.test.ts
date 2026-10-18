@@ -16,6 +16,7 @@ import {
   rmSync,
 } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
+import { ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
@@ -41,7 +42,11 @@ import type {
   GaSendInput,
   HarnessAccountsObservation,
 } from '../ga/server/index.ts'
-import { GaRequestOwnership, rewriteGaHttpRequest } from '../ga/server/index.ts'
+import {
+  GaRequestOwnership,
+  rewriteGaHttpRequest,
+  startGaLoopbackBridge,
+} from '../ga/server/index.ts'
 import { createLocalAccountCredentials } from './accounts.ts'
 import { BackgroundQuotaRefresh } from './background-quota-refresh.ts'
 import type { LocationDebug } from './debug.ts'
@@ -1065,6 +1070,262 @@ function expectFinalizedSend(
   )
   expect(sent.endpoint).toBe(new URL(prepared.resolvedUrl).origin)
   expect(sent.kind).toBe(transportJob.kind)
+}
+
+ownedIt('starts GA quota only after bridge head flush', async (scope) => {
+  const ready = Promise.withResolvers<void>()
+  const publish = Promise.withResolvers<void>()
+  const quota = Promise.withResolvers<void>()
+  const events: string[] = []
+  const flush = ServerResponse.prototype.flushHeaders
+  const flushed = spyOn(
+    ServerResponse.prototype,
+    'flushHeaders',
+  ).mockImplementation(function (this: ServerResponse) {
+    flush.call(this)
+    events.push('flush')
+  })
+  scope.defer(async () => flushed.mockRestore())
+  const location = await transportLocation(scope, 'local', {
+    send: async () => terminalResponse(),
+    quotaFetch: async () => {
+      events.push('quota')
+      quota.resolve()
+      return new Response('{}', {
+        headers: { 'content-type': 'application/json' },
+      })
+    },
+  })
+  const bridge = await startGaLoopbackBridge({
+    send: async () => {
+      throw new Error('unused send')
+    },
+    execute: async (job, context) => {
+      const response = await location.serving.execute(job, {
+        ...context,
+        onResponseHandoff: (acknowledge) =>
+          context.onResponseHandoff?.(() => {
+            events.push('ack')
+            acknowledge()
+          }),
+      })
+      ready.resolve()
+      await publish.promise
+      return response
+    },
+  })
+  scope.defer(() => bridge.dispose())
+  const request = bridge.rewrite(
+    new Request(transportJob.url, {
+      method: 'POST',
+      body: transportJob.body,
+    }),
+    transportJob,
+    {},
+  )
+  const reply = fetch(request, { signal: AbortSignal.timeout(3000) })
+  try {
+    await ready.promise
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(events).toEqual([])
+    publish.resolve()
+    const response = await reply
+    await quota.promise
+    expect(events).toEqual(['flush', 'ack', 'quota'])
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('transport reached')
+  } finally {
+    publish.resolve()
+    await reply.then(
+      (response) => (response.bodyUsed ? undefined : response.body?.cancel()),
+      () => {},
+    )
+  }
+})
+
+ownedIt(
+  'GA flush makes headers available before gated upstream body',
+  async (scope) => {
+    let body: ReadableStreamDefaultController<Uint8Array> | undefined
+    const location = await transportLocation(scope, 'local', {
+      send: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              body = controller
+            },
+          }),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      quotaFetch: async () => new Response('{}'),
+    })
+    const bridge = await startGaLoopbackBridge({
+      execute: location.serving.execute,
+      send: async () => {
+        throw new Error('unused send')
+      },
+    })
+    scope.defer(() => bridge.dispose())
+    const request = bridge.rewrite(
+      new Request(transportJob.url, {
+        method: 'POST',
+        body: transportJob.body,
+      }),
+      transportJob,
+      {},
+    )
+    try {
+      const response = await fetch(request, {
+        signal: AbortSignal.timeout(2000),
+      })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe('text/event-stream')
+      body?.enqueue(
+        new TextEncoder().encode(
+          'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"gated reply"}]},"finishReason":"STOP"}]}}\n\n',
+        ),
+      )
+      body?.close()
+      expect(await response.text()).toContain('gated reply')
+    } finally {
+      try {
+        body?.close()
+      } catch {}
+    }
+  },
+)
+
+ownedIt(
+  'GA quota rejection after handoff preserves status body and terminal frame',
+  async (scope) => {
+    const errors: unknown[] = []
+    const onUnhandled = (error: unknown) => {
+      errors.push(error)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    scope.defer(async () => {
+      process.off('unhandledRejection', onUnhandled)
+    })
+    const entered = Promise.withResolvers<void>()
+    const fail = Promise.withResolvers<void>()
+    scope.defer(async () => fail.resolve())
+    const location = await transportLocation(scope, 'local', {
+      send: async () => terminalResponse(),
+      quotaFetch: async () => {
+        entered.resolve()
+        await fail.promise
+        throw new Error('private quota transport failure')
+      },
+    })
+    const bridge = await startGaLoopbackBridge({
+      execute: location.serving.execute,
+      send: async () => terminalResponse(),
+    })
+    scope.defer(() => bridge.dispose())
+    const request = bridge.rewrite(
+      new Request(transportJob.url, {
+        method: 'POST',
+        body: transportJob.body,
+      }),
+      transportJob,
+      {},
+    )
+    try {
+      const response = await fetch(request, {
+        signal: AbortSignal.timeout(3000),
+      })
+      await entered.promise
+      expect(response.status).toBe(200)
+      fail.resolve()
+      const text = await response.text()
+      expect(text).toContain('transport reached')
+      expect(text).toContain('"finishReason":"STOP"')
+      expect(text.endsWith('\n\n')).toBe(true)
+      expect(text).not.toContain('private quota transport failure')
+      await location.dispose()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(errors).toEqual([])
+    } finally {
+      fail.resolve()
+    }
+  },
+)
+
+for (const after of [false, true]) {
+  ownedIt(
+    `GA host close ${after ? 'after' : 'before'} head ${after ? 'aborts' : 'drops'} quota`,
+    async (scope) => {
+      const ready = Promise.withResolvers<void>()
+      const publish = Promise.withResolvers<void>()
+      const entered = Promise.withResolvers<void>()
+      const quotaAborted = Promise.withResolvers<void>()
+      const jobAborted = Promise.withResolvers<void>()
+      let entries = 0
+      const location = await transportLocation(scope, 'local', {
+        send: async () =>
+          new Response(new ReadableStream({ start() {} }), {
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+        quotaFetch: async (_url, _init, options) => {
+          entries++
+          entered.resolve()
+          options.signal?.addEventListener(
+            'abort',
+            () => quotaAborted.resolve(),
+            { once: true },
+          )
+          await quotaAborted.promise
+          return new Response('{}')
+        },
+      })
+      const bridge = await startGaLoopbackBridge({
+        send: async () => terminalResponse(),
+        execute: async (job, context) => {
+          context.signal.addEventListener('abort', () => jobAborted.resolve(), {
+            once: true,
+          })
+          const response = await location.serving.execute(job, context)
+          ready.resolve()
+          await publish.promise
+          return response
+        },
+      })
+      scope.defer(() => bridge.dispose())
+      const controller = new AbortController()
+      const request = bridge.rewrite(
+        new Request(transportJob.url, {
+          method: 'POST',
+          body: transportJob.body,
+        }),
+        transportJob,
+        {},
+      )
+      const reply = fetch(request, { signal: controller.signal }).then(
+        (response) => response,
+        () => undefined,
+      )
+      try {
+        await ready.promise
+        if (after) {
+          publish.resolve()
+          const response = await reply
+          expect(response?.status).toBe(200)
+          await entered.promise
+        }
+        controller.abort()
+        await jobAborted.promise
+        publish.resolve()
+        await reply
+        if (after) await quotaAborted.promise
+        await bridge.dispose()
+        await location.dispose()
+        expect(entries).toBe(after ? 1 : 0)
+      } finally {
+        controller.abort()
+        publish.resolve()
+      }
+    },
+  )
 }
 
 if (lifetimeControl) {

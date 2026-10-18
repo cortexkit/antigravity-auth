@@ -94,6 +94,10 @@ import {
   type OpenCodeSessionIdentity,
 } from '../session-context'
 import {
+  createAfterHandoff,
+  type RegisterResponseHandoff,
+} from './after-handoff.ts'
+import {
   type CapturedLocalGrant,
   isLocalGrantError,
   LocalGrantSupersededError,
@@ -466,6 +470,8 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
 
 /** Per-request inputs the host supplies alongside the HTTP request. */
 export interface RequestExecuteOptions {
+  /** Installed by the host adapter; executor completion is not publication. */
+  readonly onResponseHandoff?: RegisterResponseHandoff
   /**
    * The host session this request belongs to. When omitted, the OpenCode
    * session headers on the request are read.
@@ -834,7 +840,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     selectedCredentials: Set<string>,
     selectedProjectIds: Set<string>,
     deadline: PreResponseDeadline,
-    waitPolicy: { refusal?: () => Response },
+    waitPolicy: {
+      refusal?: () => Response
+      quota?: (signal: AbortSignal) => Promise<void>
+    },
   ): Promise<Response> {
     const assertAdmission = async (): Promise<void> => {
       await deadline.wait(() => deps.assertAdmission?.())
@@ -2337,33 +2346,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               if (!advisoryClosing)
                 accountManager.markAccountUsed(account.index)
 
-              if (
-                credentials.domain === 'local' &&
-                !advisoryClosing &&
-                credentials.refreshQuotaAfterSuccess
-              ) {
-                const quotaCancellation = createRequestCancellation(
-                  init?.signal
-                    ? [init.signal, shutdown.signal]
-                    : [shutdown.signal],
-                )
-                const work = credentials
-                  .refreshQuotaAfterSuccess(
-                    account,
-                    config.quota_refresh_interval_minutes,
-                    quotaCancellation.signal,
-                  )
-                  .catch(() => {
-                    log.debug('post-response-advisory-work-failed')
-                  })
-                  .finally(() => quotaCancellation.release())
-                advisoryWork.add(work)
-                void work.then(
-                  () => advisoryWork.delete(work),
-                  () => advisoryWork.delete(work),
-                )
-              }
-
               const proactiveThreshold =
                 config.proactive_rotation_threshold_percent ?? 20
               if (
@@ -2543,6 +2525,17 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               }
             }
 
+            if (
+              response.ok &&
+              transformedResponse.ok &&
+              credentials.domain === 'local' &&
+              !advisoryClosing &&
+              credentials.refreshQuotaAfterSuccess
+            ) {
+              const refresh = credentials.refreshQuotaAfterSuccess
+              waitPolicy.quota = (signal) =>
+                refresh(account, config.quota_refresh_interval_minutes, signal)
+            }
             return transformedResponse
           } catch (error) {
             if (error instanceof PreResponseTimeoutError) throw error
@@ -2783,7 +2776,17 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         deps.preResponseClock,
       )
       log.debug('pre-response-start', { limitMs: PRE_RESPONSE_DEADLINE_MS })
-      const waitPolicy: { refusal?: () => Response } = {}
+      const handoff = createAfterHandoff(
+        advisoryWork,
+        requestedSignal
+          ? [requestedSignal, shutdown.signal]
+          : [shutdown.signal],
+        () => log.debug('post-response-advisory-work-failed'),
+      )
+      const waitPolicy: {
+        refusal?: () => Response
+        quota?: (signal: AbortSignal) => Promise<void>
+      } = {}
       const selectedCredentials = new Set<string>()
       const selectedProjectIds = new Set<string>()
       const pending = deadline
@@ -2814,6 +2817,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             // Overflow classification read a clone to EOF. Reuse that text
             // for redaction; safe diagnostics retain the original unread response.
             if (bufferedOverflow.has(response)) {
+              handoff.cancel()
               deadline.dispose()
               cancellation.release()
               return redactCredentialResponse(
@@ -2830,14 +2834,26 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             inFlight.add(retained.settled)
             void retained.settled.then(() => inFlight.delete(retained.settled))
             void retained.settled.then(() => deadline.dispose())
-            return redactCredentialResponse(
+            const published = await redactCredentialResponse(
               preserveResponseMetadata(retained.response, response),
               [...selectedCredentials],
               undefined,
               [...selectedProjectIds],
             )
+            if (
+              published.ok &&
+              waitPolicy.quota &&
+              requestOptions?.onResponseHandoff
+            ) {
+              handoff.register(waitPolicy.quota)
+              requestOptions.onResponseHandoff(handoff.acknowledge)
+            } else {
+              handoff.cancel()
+            }
+            return published
           },
           (error: unknown) => {
+            handoff.cancel()
             deadline.dispose()
             cancellation.release()
             throw redactCredentialError(
@@ -2848,6 +2864,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           },
         )
         .catch((error: unknown) => {
+          handoff.cancel()
           deadline.dispose()
           cancellation.release()
           throw redactCredentialError(

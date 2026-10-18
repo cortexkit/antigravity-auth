@@ -1454,6 +1454,9 @@ export function createGaJobExecutor(
       {
         kind: job.kind,
         variant: job.variant ?? undefined,
+        ...(context.onResponseHandoff
+          ? { onResponseHandoff: context.onResponseHandoff }
+          : {}),
         session: {
           sessionId: job.sessionID,
           parentSessionId: job.parentSessionID,

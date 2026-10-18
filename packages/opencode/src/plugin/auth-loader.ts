@@ -36,6 +36,10 @@ import {
 } from './refresh-queue'
 import { isGenerativeLanguageRequest } from './request'
 import {
+  publishResponse,
+  type RegisterResponseHandoff,
+} from './shared/after-handoff.ts'
+import {
   AccountStorageUnreadableError,
   type AccountStoreOpening,
   clearAccounts,
@@ -68,7 +72,11 @@ function refreshTokenIdentity(refreshToken: string): string {
 }
 
 export interface AuthFetchRuntime {
-  fetch: LoaderResult['fetch']
+  fetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+    onResponseHandoff?: RegisterResponseHandoff,
+  ): Promise<Response>
   dispose(): Promise<void> | void
 }
 
@@ -646,57 +654,58 @@ export function createAuthLoader({
       // through the OLD interceptor after an OAuth add. The wrapper
       // matches the host's `LoaderResult.fetch` signature exactly
       // (no `this` binding) so behavior is preserved.
-      fetch: async (input, init) => {
-        assertOpen()
-        const authority = (await readAuthority?.()) ?? 'local'
-        // Shutdown may have begun while the authority was read; nothing is
-        // built or sent after admission closes, even while disposal drains.
-        assertOpen()
-        if (authority === 'unreadable') throw new Error(VAULT_ACCOUNT_REMEDY)
-        if (authority === 'vault') {
-          currentRequestSource = 'vault'
-          if (!createVaultFetch) throw new Error(VAULT_ACCOUNT_REMEDY)
-          vaultFetchRuntime ??= createVaultFetch().catch((error) => {
-            vaultFetchRuntime = null
-            throw error
-          })
-          const vaultRuntime = await vaultFetchRuntime
+      fetch: (input, init) =>
+        publishResponse(async (onResponseHandoff) => {
           assertOpen()
-          return vaultRuntime.fetch(input, init)
-        }
-        // Check authority first: an approved vault remains usable even when
-        // this location's local pool is waiting for offline migration.
-        if (localUnavailable) {
-          return fetchWithoutLocalAccounts(input, init, fetchImpl)
-        }
-        if (
-          readAuthority &&
-          (localRequestReload ||
-            currentRequestSource !== 'local' ||
-            !fetchRuntime)
-        ) {
-          if (!latestGetAuth)
-            throw new Error('The host sign-in reader is unavailable')
-          // Requests arriving together share one reload, so a later one
-          // never replaces the runtime an earlier one is already sending on.
-          if (!localRequestReload) {
-            const started = reload(latestGetAuth).finally(() => {
-              if (localRequestReload === started) localRequestReload = null
+          const authority = (await readAuthority?.()) ?? 'local'
+          // Shutdown may have begun while the authority was read; nothing is
+          // built or sent after admission closes, even while disposal drains.
+          assertOpen()
+          if (authority === 'unreadable') throw new Error(VAULT_ACCOUNT_REMEDY)
+          if (authority === 'vault') {
+            currentRequestSource = 'vault'
+            if (!createVaultFetch) throw new Error(VAULT_ACCOUNT_REMEDY)
+            vaultFetchRuntime ??= createVaultFetch().catch((error) => {
+              vaultFetchRuntime = null
+              throw error
             })
-            localRequestReload = started
+            const vaultRuntime = await vaultFetchRuntime
+            assertOpen()
+            return vaultRuntime.fetch(input, init, onResponseHandoff)
           }
-          await localRequestReload
-          assertOpen()
-          if ((await readAuthority()) !== 'local')
-            throw new Error(VAULT_ACCOUNT_REMEDY)
-          assertOpen()
-        }
-        if (localUnavailable)
-          return fetchWithoutLocalAccounts(input, init, fetchImpl)
-        if (currentRequestSource !== 'local' || !fetchRuntime)
-          throw new Error('The local account runtime is unavailable')
-        return fetchRuntime.fetch(input, init)
-      },
+          // Check authority first: an approved vault remains usable even when
+          // this location's local pool is waiting for offline migration.
+          if (localUnavailable) {
+            return fetchWithoutLocalAccounts(input, init, fetchImpl)
+          }
+          if (
+            readAuthority &&
+            (localRequestReload ||
+              currentRequestSource !== 'local' ||
+              !fetchRuntime)
+          ) {
+            if (!latestGetAuth)
+              throw new Error('The host sign-in reader is unavailable')
+            // Requests arriving together share one reload, so a later one
+            // never replaces the runtime an earlier one is already sending on.
+            if (!localRequestReload) {
+              const started = reload(latestGetAuth).finally(() => {
+                if (localRequestReload === started) localRequestReload = null
+              })
+              localRequestReload = started
+            }
+            await localRequestReload
+            assertOpen()
+            if ((await readAuthority()) !== 'local')
+              throw new Error(VAULT_ACCOUNT_REMEDY)
+            assertOpen()
+          }
+          if (localUnavailable)
+            return fetchWithoutLocalAccounts(input, init, fetchImpl)
+          if (currentRequestSource !== 'local' || !fetchRuntime)
+            throw new Error('The local account runtime is unavailable')
+          return fetchRuntime.fetch(input, init, onResponseHandoff)
+        }),
     }
   }
 
