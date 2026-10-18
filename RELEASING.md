@@ -24,12 +24,14 @@ Use Bun 1.4.2 and a clean checkout. Release preparation and tagging are separate
    pass atomically writes ignored `.cortexkit/release-gates/native-inert.json`,
    including the stdout SHA-256. A failed or interrupted attempt writes no pass;
    attempting to record it removes any prior record.
-3. Run `./scripts/release.sh <version>` to run all existing pre-release checks,
-   verify and tag/push. It makes no version changes. HEAD must be the version-only
+3. Run `./scripts/release.sh <version>` to require successful `CI` and
+   `Windows account migration and vault` workflow runs on the exact commit
+   (verified with `gh`), then verify and tag/push. It makes no version changes
+   and no longer builds or tests locally. HEAD must be the version-only
    preparation commit for that version: parsed manifests and lock may differ
    from its parent only in version/core-pin fields. The passing gate record must
-   name **HEAD exactly**, even if another commit has the same tree. Any new commit
-   requires another gate run and record; never edit the record manually.
+   name **HEAD exactly**, even if another commit has the same tree. Any new
+   commit requires another gate run and record; never edit the record manually.
 
 The `<version>` and `<saved-io/stdout>` strings above are placeholders, not Git
 refs. Run portable gate tests with `bun test --isolate test/native-inert-*.test.ts

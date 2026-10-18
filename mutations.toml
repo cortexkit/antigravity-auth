@@ -1683,3 +1683,28 @@ runner = "command"
 command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate test/common-auth-010-store/pointer-durability.test.ts -t \"$1|^pointer publication durability rejects canonical journal content changes after the owned save$\"", "--", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^pointer\spublication\sdurability\spersists\sall\sempty\ssupport\sdirectories\sbefore\sthe\sgeneration\sand\slink$']
+
+[[control]]
+id = "release-ci-refuses-in-progress-run"
+guards = "A workflow that is still running cannot authorize a release tag."
+file = "scripts/check-release-ci.ts"
+old = '''  return (
+    typeof run.headSha === 'string' &&
+    run.headSha.toLowerCase() === headSha.toLowerCase() &&
+    run.status === 'completed' &&
+    run.conclusion === 'success'
+  )'''
+new = '''  return (
+    typeof run.headSha === 'string' &&
+    run.headSha.toLowerCase() === headSha.toLowerCase() &&
+    (
+      // NON-VACUITY BREAK: treat a running workflow as complete.
+      run.status !== 'completed' || run.conclusion === 'success'
+    )
+  )'''
+test_file = "test/release-ci.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "test/release-ci.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bun", "test", "--isolate", "test/release-ci.test.ts", "-t", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^release\sCI\scheck\srefuses\san\sin-progress\sworkflow\srun$']
