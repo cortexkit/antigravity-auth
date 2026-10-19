@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import {
   cp,
   link,
@@ -18,8 +19,13 @@ import { build as bundle } from 'esbuild'
 import ts from 'typescript'
 import {
   buildPhase,
+  buildPhaseNote,
   withBuildPhaseClock,
 } from '../../../scripts/build-phase-clock.ts'
+import {
+  runBuildTestChild,
+  UnreapedBuildTestChild,
+} from '../../../scripts/build-test-child.ts'
 import {
   auditGraph,
   BUNDLE_EXTERNALS,
@@ -39,6 +45,11 @@ import { sha256 } from './embed-common-auth'
 import { inspectPack, pack } from './smoke-tui-pack-install'
 
 const repo = resolve(PACKAGE_ROOT, '../..')
+const setupProbe = process.env.AGY_BUILD_SETUP_PROBE === '1'
+const setupEvents: string[] = []
+let setupLive = false
+let setup: Promise<void> | undefined
+let canRemove = true
 let owned: string
 let product: string
 let serial = 0
@@ -125,8 +136,35 @@ async function hashes(root: string, tree: string) {
   )
 }
 beforeAll(
-  async () =>
-    withBuildPhaseClock('build.beforeAll', 120000, async () => {
+  () => {
+    const deadline = performance.now() + 120000
+    setup = withBuildPhaseClock('build.beforeAll', 120000, async () => {
+      if (setupProbe) {
+        mkdirSync(join(PACKAGE_ROOT, 'src/tui-raw'), { recursive: true })
+        owned = mkdtempSync(join(PACKAGE_ROOT, 'src/tui-raw/.checks-'))
+        product = owned
+        writeFileSync(join(product, 'audit.ts'), 'export const value = 1\n')
+        setupLive = true
+        try {
+          // Hold the last audit read past Bun's hook deadline, not past teardown.
+          await new Promise<void>((release) => {
+            setTimeout(async () => {
+              setupEvents.push(
+                await lstat(product).then(
+                  () => 'release-present',
+                  () => 'release-missing',
+                ),
+              )
+              release()
+            }, 200)
+          })
+          await auditGraph(join(product, 'audit.ts'))
+          setupEvents.push('audit-drained')
+        } finally {
+          setupLive = false
+        }
+        return
+      }
       await buildPhase('beforeAll.mkdir fixture parent', () =>
         mkdir(join(PACKAGE_ROOT, 'src/tui-raw'), { recursive: true }),
       )
@@ -137,14 +175,48 @@ beforeAll(
         verifyPrerequisites(),
       )
       product = await buildPhase('beforeAll.fixture full', () => fixture(true))
-      await buildPhase('beforeAll.buildTuiRoots', () =>
-        buildTuiRoots({ packageRoot: product }),
-      )
-    }),
-  120000,
+      try {
+        // Keep synchronous compiler waits outside the runner so its deadline can cancel and reap them.
+        await buildPhase('beforeAll.buildTuiRoots child', () =>
+          runBuildTestChild(
+            [
+              '-e',
+              `import { buildTuiRoots } from ${JSON.stringify(import.meta.resolve('./build-tui.ts'))}; await buildTuiRoots({ packageRoot: ${JSON.stringify(product)} });`,
+            ],
+            deadline,
+          ),
+        )
+      } catch (error) {
+        if (error instanceof UnreapedBuildTestChild) canRemove = false
+        throw error
+      }
+    })
+    return setup
+  },
+  setupProbe ? 100 : 120000,
 )
 afterAll(async () => {
-  if (owned) await rm(owned, { recursive: true, force: true })
+  await withBuildPhaseClock('build.afterAll', 5000, async () => {
+    buildPhaseNote(
+      'fixture owner',
+      JSON.stringify({ pid: process.pid, fixture: owned?.split('/').pop() }),
+    )
+    // Bun reports a hook timeout without cancelling its promise; join its final reads before deletion.
+    await setup?.catch(() => {})
+    buildPhaseNote('afterAll.setup settled', 'setup fulfilled or rejected')
+    if (owned && canRemove)
+      await buildPhase('afterAll.rm owned', () =>
+        rm(owned, { recursive: true, force: true }),
+      )
+  })
+  if (setupProbe)
+    console.log(
+      `BUILD_SETUP_TEARDOWN ${JSON.stringify({ events: setupEvents, live: setupLive })}`,
+    )
+})
+
+test.skipIf(!setupProbe)('build.setup_probe', () => {
+  throw new Error('the timed-out setup must not run its test body')
 })
 
 test('graph.source', async () => {

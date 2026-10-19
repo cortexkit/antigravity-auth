@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test'
+import { expect } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
@@ -15,6 +15,11 @@ import {
 } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { lifetimeHooks } from '../../fixtures/lifetime-hooks.ts'
+
+// A timed-out synchronous wait can resume into the asynchronous snapshot below.
+// Drain that test body before deleting its inputs or starting its successor.
+const { test, afterEach } = lifetimeHooks()
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '../../..')
