@@ -815,10 +815,14 @@ test('build.prerequisite_order', async () => {
         'embed:check',
       )
   }
+  // release.sh only verifies CI and Windows results before tagging; it installs and
+  // builds nothing itself, so the install-order rule applies to the two workflows.
+  const releaseScript = await readFile(join(repo, 'scripts/release.sh'), 'utf8')
+  expect(releaseScript).not.toMatch(/\bbun install\b/)
+  expect(releaseScript).toContain('bun scripts/check-release-ci.ts')
   for (const path of [
     '.github/workflows/ci.yml',
     '.github/workflows/release.yml',
-    'scripts/release.sh',
   ]) {
     const code = await readFile(join(repo, path), 'utf8')
     expect(code).toContain('1.4.2')
