@@ -129,6 +129,7 @@ export async function runPublicConsumerCommand(
   let stdoutBytes = 0
   let stderrBytes = 0
   let parentDeadlineMs = 0
+  let flushFileBoundaries = () => {}
   try {
     const oldDistRoot = await prepareLegacyWriter(fixture.root)
     for (const directory of [
@@ -207,6 +208,7 @@ export async function runPublicConsumerCommand(
     let sampledSlow = false
     let reportedFailure = false
     const snapshot = (reason: 'deadline' | 'failure') => {
+      files.flush()
       if (!scope || !inspector) return
       if (firstSlowSnapshot) {
         console.error(firstSlowSnapshot)
@@ -231,6 +233,9 @@ export async function runPublicConsumerCommand(
       },
       (line) => process.stderr.write(line),
     )
+    flushFileBoundaries = () => {
+      files.flush()
+    }
     phaseMonitor = setInterval(() => {
       reportBuildPhases()
       if (!sampledSlow && files.slow() && scope && inspector) {
@@ -248,6 +253,7 @@ export async function runPublicConsumerCommand(
       child?.once('close', () => {
         pipesClosed = true
         files.close()
+        if (primary || status !== 0 || cleanupFailure) files.flush()
         resolve()
       }),
     )
@@ -431,6 +437,7 @@ export async function runPublicConsumerCommand(
       cleanupFailure ??= error
       cleanupConfirmed = false
     }
+    if (primary || status !== 0 || cleanupFailure) flushFileBoundaries()
   }
   const commandFailure =
     primary ??

@@ -6,6 +6,7 @@ import {
 import { traceSyncTestChild } from '../scripts/test-child-lifecycle.ts'
 import {
   createTestFileObserver,
+  FILE_BOUNDARY_RECORDS,
   STALL_SNAPSHOT_BYTES,
 } from '../scripts/test-stall-diagnostics.ts'
 
@@ -19,6 +20,12 @@ test.skipIf(!linux)(
       output.push(String(line))
     })
     const log = spyOn(console, 'log').mockImplementation(() => {})
+    const stderr = spyOn(process.stderr, 'write').mockImplementation(
+      (chunk) => {
+        output.push(String(chunk))
+        return true
+      },
+    )
     const diagnostic = createPublicCommandDiagnostic(true)
     try {
       await expect(
@@ -26,7 +33,7 @@ test.skipIf(!linux)(
           [
             process.execPath,
             '-e',
-            `import { spawn } from 'node:child_process'; spawn(process.execPath, ['-e', 'setInterval(() => {}, 100)', 'SECRET_ARG_MUST_NOT_APPEAR'], { stdio: 'ignore' }); setInterval(() => {}, 100);`,
+            `import { spawn } from 'node:child_process'; spawn(process.execPath, ['-e', 'setInterval(() => {}, 100)', 'SECRET_ARG_MUST_NOT_APPEAR'], { stdio: 'ignore' }); process.stderr.write('test/previous.test.ts:\\ntest/current.test.ts:\\n'); setInterval(() => {}, 100);`,
           ],
           {
             executionMs: 1_000,
@@ -42,6 +49,23 @@ test.skipIf(!linux)(
         line.startsWith('[test-stall-snapshot] '),
       )
       expect(lines).toHaveLength(1)
+      const boundaries = output.filter((line) =>
+        line.startsWith('[test-file-boundary] '),
+      )
+      expect(
+        boundaries.map((line) => {
+          const record = JSON.parse(line.slice('[test-file-boundary] '.length))
+          return [record.event, record.path]
+        }),
+      ).toEqual([
+        ['start', 'test/previous.test.ts'],
+        ['end', 'test/previous.test.ts'],
+        ['start', 'test/current.test.ts'],
+        ['end', 'test/current.test.ts'],
+      ])
+      expect(output.indexOf(boundaries[2] ?? '')).toBeLessThan(
+        output.indexOf(lines[0] ?? ''),
+      )
       const line = lines[0] ?? ''
       expect(Buffer.byteLength(line)).toBeLessThanOrEqual(STALL_SNAPSHOT_BYTES)
       expect(line).not.toContain('SECRET_')
@@ -73,6 +97,7 @@ test.skipIf(!linux)(
     } finally {
       error.mockRestore()
       log.mockRestore()
+      stderr.mockRestore()
     }
   },
   20_000,
@@ -92,7 +117,10 @@ test('file boundary observer handles split headers and bounds partial lines', ()
     Buffer.from('\u001b[32mpackages/core/src/beta.test.ts:\u001b[0m\n'),
   )
   const bytes = files.close()
+  expect(lines).toHaveLength(0)
+  expect(files.flush()).toBe(bytes)
   expect(lines).toHaveLength(4)
+  expect(files.flush()).toBe(0)
   expect(bytes).toBe(Buffer.byteLength(lines.join('')))
   const records = lines.map((line) =>
     JSON.parse(line.slice('[test-file-boundary] '.length)),
@@ -110,6 +138,119 @@ test('file boundary observer handles split headers and bounds partial lines', ()
     expect(record.wall).toMatch(/^\d{4}-\d\d-\d\dT/)
   }
 })
+
+test('file boundary observer retains only the last 64 records until a failure flush', () => {
+  const lines: string[] = []
+  const files = createTestFileObserver(
+    123,
+    () => 0,
+    (line) => lines.push(line),
+  )
+  for (let index = 0; index < 40; index++)
+    files.feed(Buffer.from(`test/buffer-${index}.test.ts:\n`))
+  const observedBytes = files.close()
+  expect(lines).toHaveLength(0)
+  expect(files.flush()).toBeLessThan(observedBytes)
+  expect(lines).toHaveLength(FILE_BOUNDARY_RECORDS)
+  expect(
+    JSON.parse((lines[0] ?? '').slice('[test-file-boundary] '.length)),
+  ).toMatchObject({ event: 'start', path: 'test/buffer-8.test.ts' })
+  expect(
+    JSON.parse((lines.at(-1) ?? '').slice('[test-file-boundary] '.length)),
+  ).toMatchObject({ event: 'end', path: 'test/buffer-39.test.ts' })
+  expect(files.flush()).toBe(0)
+})
+
+test.skipIf(!linux)(
+  'green supervisor command prints no file boundaries',
+  async () => {
+    const output: string[] = []
+    const error = spyOn(console, 'error').mockImplementation((line) => {
+      output.push(String(line))
+    })
+    const log = spyOn(console, 'log').mockImplementation(() => {})
+    const stderr = spyOn(process.stderr, 'write').mockImplementation(
+      (chunk) => {
+        output.push(String(chunk))
+        return true
+      },
+    )
+    try {
+      const status = await runPublicConsumerCommand(
+        [
+          process.execPath,
+          '-e',
+          `process.stderr.write('test/green-first.test.ts:\\ntest/green-final.test.ts:\\n');`,
+        ],
+        {
+          executionMs: 3_000,
+          reapMs: 1_000,
+          termGraceMs: 50,
+          outputCapBytes: 4096,
+        },
+      )
+      expect(status).toBe(0)
+      expect(output.join('')).toContain('test/green-final.test.ts:')
+      expect(output.join('')).not.toContain('[test-file-boundary]')
+      expect(output.join('')).not.toContain('[test-stall-snapshot]')
+    } finally {
+      error.mockRestore()
+      log.mockRestore()
+      stderr.mockRestore()
+    }
+  },
+  20_000,
+)
+
+test.skipIf(!linux)(
+  'nonzero supervisor exit flushes recent boundaries including the final file end',
+  async () => {
+    const output: string[] = []
+    const error = spyOn(console, 'error').mockImplementation((line) => {
+      output.push(String(line))
+    })
+    const log = spyOn(console, 'log').mockImplementation(() => {})
+    const stderr = spyOn(process.stderr, 'write').mockImplementation(
+      (chunk) => {
+        output.push(String(chunk))
+        return true
+      },
+    )
+    try {
+      const status = await runPublicConsumerCommand(
+        [
+          process.execPath,
+          '-e',
+          `process.stderr.write('test/nonzero.test.ts:\\n'); process.exitCode = 7;`,
+        ],
+        {
+          executionMs: 3_000,
+          reapMs: 1_000,
+          termGraceMs: 50,
+          outputCapBytes: 4096,
+        },
+      )
+      expect(status).toBe(7)
+      const boundaries = output.filter((line) =>
+        line.startsWith('[test-file-boundary] '),
+      )
+      expect(
+        boundaries.map((line) => {
+          const record = JSON.parse(line.slice('[test-file-boundary] '.length))
+          return [record.event, record.path]
+        }),
+      ).toEqual([
+        ['start', 'test/nonzero.test.ts'],
+        ['end', 'test/nonzero.test.ts'],
+      ])
+    } finally {
+      error.mockRestore()
+      log.mockRestore()
+      stderr.mockRestore()
+    }
+  },
+  20_000,
+)
 
 test('synchronous lifecycle failures report only safe command metadata and observation times', () => {
   const journalRoot = process.env.AGY_COMMON_AUTH_STORE_CONSUMER

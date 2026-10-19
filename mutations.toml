@@ -1773,3 +1773,16 @@ runner = "command"
 command = ["bun", "test", "--isolate", "test/build-tui-lifetime.test.ts", "-t", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^build setup timeout stays failed and teardown drains the held audit before removing its fixture$']
+
+[[control]]
+id = "test-boundary-green-silence"
+guards = "Successful supervised test runs retain recent file boundaries without printing diagnostic lines."
+file = "scripts/test-stall-diagnostics.ts"
+old = "    recent.push(line)"
+new = "    recent.push(line); emit(line) // NON-VACUITY BREAK: print boundaries before a failure."
+test_file = "test/test-stall-diagnostics.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "test/test-stall-diagnostics.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bun", "test", "--isolate", "test/test-stall-diagnostics.test.ts", "-t", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^green supervisor command prints no file boundaries$']

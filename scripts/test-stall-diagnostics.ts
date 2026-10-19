@@ -11,6 +11,7 @@ import {
 import { pendingTestChildLifecycles } from './test-child-lifecycle.ts'
 
 export const STALL_SNAPSHOT_BYTES = 24 * 1024
+export const FILE_BOUNDARY_RECORDS = 64
 const MAX_PIDS = 8
 
 /** Limit inspectPublicCommandScope's discovery refusal log to basename and argument count. */
@@ -268,10 +269,13 @@ export function createTestFileObserver(
   let fileStarted = started
   let sampled = false
   let bytes = 0
+  // Keep recent context without adding output to successful test runs.
+  const recent: string[] = []
   const boundary = (event: 'start' | 'end') => {
     const line = `[test-file-boundary] ${JSON.stringify({ event, wall: new Date().toISOString(), elapsedMs: Math.round(performance.now() - started), path, runnerPid, ownedLiveChildren: liveChildren(), observed: 'bun-header-or-close' })}\n`
     bytes += Buffer.byteLength(line)
-    emit(line)
+    recent.push(line)
+    if (recent.length > FILE_BOUNDARY_RECORDS) recent.shift()
   }
   return {
     feed(chunk: Buffer) {
@@ -305,6 +309,12 @@ export function createTestFileObserver(
       if (path) boundary('end')
       path = undefined
       return bytes
+    },
+    flush() {
+      // Consume records so snapshot and exit handling cannot print the same context twice.
+      const pending = recent.splice(0)
+      for (const line of pending) emit(line)
+      return Buffer.byteLength(pending.join(''))
     },
   }
 }
