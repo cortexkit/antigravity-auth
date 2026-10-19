@@ -816,7 +816,7 @@ describe('openAccountStore', () => {
 // Genuine public store
 //
 // These tests exercise the store and filesystem modules copied verbatim from
-// the pinned published common-auth archive into the core package. They run in
+// the pinned candidate common-auth archive into the core package. They run in
 // disposable directories, migrate real account files, verify the completed
 // migration owns those paths, and retire that migration during rollback.
 // Before loading the modules, the receipt must name that exact archive and
@@ -827,9 +827,9 @@ describe('openAccountStore', () => {
 
 const RELEASED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.19.0',
+  version: '0.20.0',
   tarballSha256:
-    'dd32b53e849a7d98ed861a5f9d3d81645b31169350257ef1732f7827b8684885',
+    '88c500844527ea1f6a0a80cc35d6170cf07bef357cd3b4b29d7f5b1c067daa72',
 } as const
 
 async function embeddedFilesBelow(
@@ -870,7 +870,7 @@ function genuineModules(): Promise<CommonAuthStoreModules> {
     if (
       receipt.package !== RELEASED_COMMON_AUTH.package ||
       receipt.version !== RELEASED_COMMON_AUTH.version ||
-      receipt.artifactStatus !== 'published' ||
+      receipt.artifactStatus !== 'candidate' ||
       receipt.tarballSha256 !== RELEASED_COMMON_AUTH.tarballSha256 ||
       !Array.isArray(receipt.files)
     ) {

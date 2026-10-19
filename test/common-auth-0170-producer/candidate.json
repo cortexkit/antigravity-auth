@@ -1,14 +1,14 @@
 {
-  "version": "0.19.0",
-  "artifactStatus": "published",
-  "archiveBytes": 291445,
-  "sha256": "dd32b53e849a7d98ed861a5f9d3d81645b31169350257ef1732f7827b8684885",
-  "sri": "sha512-p7oy26dBllFF6mkQinsyyqqFP8FKoyVvHyt/aQWEGTljn0AbVRj++Co5Mict4ffQUPrujlQwThilUoPn/AsB8Q==",
-  "manifestSha256": "f526a17479e409aed0ce9ba1b20cdd8dc4a12704ba3a33f97768922b155d3f97",
-  "inventorySha256": "0f3e4c606dc5d590c9820d584720b57aec96616febf97fa576f9504f4983080b",
+  "version": "0.20.0",
+  "artifactStatus": "candidate",
+  "archiveBytes": 295513,
+  "sha256": "88c500844527ea1f6a0a80cc35d6170cf07bef357cd3b4b29d7f5b1c067daa72",
+  "sri": "sha512-hmir+jdsfI1YBNPyPbm/UeiF4xIXQ7PiiOuIgmwIwfo+Ca2g8hpoj5Nw2Atq+KLnnkB0+P/KjLOPsRqWIy6+lw==",
+  "manifestSha256": "5fa40c7b5c8e4e05c33889c6cdffbf3555fe84d6bba091bfcb1e43a38a2a894f",
+  "inventorySha256": "d61acc40eb6cf7c84ca400577e35bf233d25e4b4d9c3fbf37a49dce89b634b0f",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
-  "canonicalFiles": 178,
-  "canonicalBytes": 962914,
+  "canonicalFiles": 180,
+  "canonicalBytes": 978017,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -169,24 +169,34 @@
       "134d4950e10d5cd67fd28dba7af51f67e801e719d40b2824bf48e8dde55a1b7b"
     ],
     [
+      "claustrum/availability.d.ts",
+      3375,
+      "eba8ff78abed434be6194715d214a53322f4414a28e6a7389fe14f8a52b772ac"
+    ],
+    [
+      "claustrum/availability.js",
+      4107,
+      "4bfb03de131ed7d036631a6d6455cc6f465ab7a9ea61575a7378d2f447c7cf67"
+    ],
+    [
       "claustrum/consumer.d.ts",
-      7516,
-      "5bd8eae33d4d0098376fe5b6d6d0171eb6041ba1d0ae9ef5da40e569a36897bd"
+      7663,
+      "05f0ca84f69e72264a13d304da76937960f2a0bce966cfb8c702865df75117df"
     ],
     [
       "claustrum/consumer.js",
-      18272,
-      "82726ae5b1f14f5bb3a19d1e9a9d312dd8f8339f837f1efbecd65e8195f3c01c"
+      19234,
+      "38938cdcb6a4f3c368202f7d5c6b4a9ac3d742a71dd751a73d4275067be092ed"
     ],
     [
       "claustrum/custody.d.ts",
-      10126,
-      "053619f193ea68739125624cf1bcb078c78cb38e506c7009894d92c672f88b88"
+      10684,
+      "f221ef617bc2a8ae9bfc5c177030ba80c9e5894daa5a1f378dc6cccfe3033ccb"
     ],
     [
       "claustrum/custody.js",
-      15835,
-      "ba5c42a9ad00f66b4e33ae8e810d1b0e8a57c433179dec7c939706c682e49a8f"
+      20876,
+      "174190a1547752da80e1a6300931ad631b137f6148912ced011481a778c78520"
     ],
     [
       "claustrum/enrollment.d.ts",
@@ -200,8 +210,8 @@
     ],
     [
       "claustrum/errors.d.ts",
-      1095,
-      "ba3dbd69b13c521944bd700b063afaaced9a1312bbfbfcebb8ae8b4f3785c52a"
+      1145,
+      "b7533d4c281807224d6d05f4bb7a596006862a6c05dc4462fae02af388054bce"
     ],
     [
       "claustrum/errors.js",
@@ -220,13 +230,13 @@
     ],
     [
       "claustrum/index.d.ts",
-      2939,
-      "cd2f374dec9e06a7962d2c262c08c965213610107ff1f4f972c2c76c35fe8254"
+      3189,
+      "192814aa1063cf84eb7b845b92e2a7013b1728f94d1607ac1623fe74429d4e22"
     ],
     [
       "claustrum/index.js",
-      2141,
-      "33dc58809d432ea7bbe3f3d4425fe575589a018854444b63e0874f917981ab19"
+      2331,
+      "5823e7ddf89510252919d4ab89450667891654108ee1fe20d7cb14364d6a6a00"
     ],
     [
       "claustrum/insula.d.ts",
@@ -355,8 +365,8 @@
     ],
     [
       "fs/private-files.js",
-      12025,
-      "4b46f7b37c11da02f655a6ca841fa51189ceefffaa4476f4fa7a27f953c54ad4"
+      12448,
+      "1c8f34202b535d774d8c1a53bd403255f02701760c7378e020756c02c55a97c4"
     ],
     [
       "fs/refresh-file-lock.d.ts",

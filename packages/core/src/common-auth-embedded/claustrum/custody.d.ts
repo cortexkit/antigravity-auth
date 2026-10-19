@@ -132,6 +132,17 @@ export interface ClaustrumScopedAttempt {
     readonly accessToken: string;
     readonly recordVersion: number;
     readonly expiresAtMs: number | null;
+    /**
+     * True when this receipt was not freshly served but is the last token kept
+     * from an earlier read, used because the vault could not be reached. A 401
+     * with such a receipt must not be retried and is not reported to the vault,
+     * which is unreachable.
+     */
+    readonly fromKeptReceipt?: true;
+}
+export interface KeptReceiptState {
+    readonly active: boolean;
+    readonly since: number | null;
 }
 /** Reads the provider identity a served token executes under, when the plugin can tell. */
 export type IdentityParser = (accessToken: string) => string | undefined;
@@ -151,13 +162,15 @@ export declare function decideScopedRetryAfter401(site: string, served: Claustru
  * so it cannot expire while a long request is still using it.
  */
 export declare const SERVING_MARGIN_MS = 300000;
+/** A kept receipt needs a minute of headroom, not the vault's refresh demand. */
+export declare const KEPT_RECEIPT_MARGIN_MS = 60000;
 /**
  * Reads this consumer's vault credentials (list, fetch, 401 report), with the
- * enrollment token as authorization. Used by every host of a plugin. There is
- * deliberately no credential cache and no single-flight of credential reads:
- * each physical send is authorized by the vault, so a revoked enrollment or a
- * changed record takes effect on the next send. The enrollment token is
- * re-read per operation so an operator's reissue on disk is picked up.
+ * enrollment token as authorization. Used by every host of a plugin. Every
+ * physical send still asks the vault first. Only an unreachable vault permits
+ * reuse of the last validated receipt, in memory and bounded by its expiry.
+ * The enrollment token is re-read per operation so revocation and disconnect
+ * still take effect without a process restart.
  */
 export declare class ClaustrumScopedCustody {
     #private;
@@ -185,16 +198,17 @@ export declare class ClaustrumScopedCustody {
      * skipped records: they simply are not this consumer's.
      */
     discover(signal?: AbortSignal): Promise<VaultInventory>;
-    /**
-     * Fetch the credential for one physical send and wrap it in a fresh receipt.
-     * The vault's served identity (or, without one, the plugin's parse of the
-     * token) must equal the roster's when both are present. Without
-     * `requireAssertion`, absence on either side proves nothing and does not
-     * refuse; the receipt records what the vault asserted separately from what
-     * the roster expected. With it, a reply that does not itself name the
-     * credential id and the expected account is refused.
-     */
-    authorize(identity: ClaustrumScopedIdentity, signal?: AbortSignal): Promise<ClaustrumScopedAttempt>;
+    /** Discard bearer material when a route is removed, declined or rebound. */
+    forget(credentialId: string): void;
+    /** Apply an already-held roster; this never fetches credentials or writes it. */
+    retain(identities: readonly (ClaustrumScopedIdentity & {
+        enabled: boolean;
+        state: string;
+    })[]): void;
+    /** A frozen, non-secret summary for a plugin's status display. */
+    keptReceiptState(): KeptReceiptState;
+    /** Ask the vault first; retain one validated receipt per credential in memory only. */
+    authorize(identity: ClaustrumScopedIdentity, signal?: AbortSignal, routeId?: string): Promise<ClaustrumScopedAttempt>;
     /**
      * Report that a send this consumer actually made was rejected. Only a 401
      * is reported (the vault refuses 429, 402 and 5xx reports), addressed by

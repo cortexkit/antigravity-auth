@@ -79,6 +79,12 @@
     "auth-menu/menu.js": ["./confirm.js", "./select.js", "./terminal.js"],
     "auth-menu/select.d.ts": ["./terminal.js"],
     "auth-menu/select.js": ["./ansi.js", "./terminal.js"],
+    "claustrum/availability.d.ts": ["./errors.js"],
+    "claustrum/availability.js": [
+      "./errors.js",
+      "@cortexkit/claustrum-client",
+      "@cortexkit/subc-client"
+    ],
     "claustrum/consumer.d.ts": [
       "../quota/index.js",
       "../routing/index.js",
@@ -104,6 +110,7 @@
     ],
     "claustrum/custody.js": [
       "../logger/index.js",
+      "./availability.js",
       "./enrollment.js",
       "./errors.js",
       "./host-slot.js",
@@ -122,6 +129,7 @@
     ],
     "claustrum/host-slot.js": ["./errors.js"],
     "claustrum/index.d.ts": [
+      "./availability.js",
       "./consumer.js",
       "./custody.js",
       "./enrollment.js",
@@ -133,6 +141,7 @@
       "@cortexkit/claustrum-client"
     ],
     "claustrum/index.js": [
+      "./availability.js",
       "./consumer.js",
       "./custody.js",
       "./enrollment.js",

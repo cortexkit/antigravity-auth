@@ -1,7 +1,7 @@
 import type { ClaustrumReporterSource } from '@cortexkit/claustrum-client';
 import type { QuotaObservation } from '../quota/index.js';
 import type { RoutingRow } from '../routing/index.js';
-import { type ClaustrumFamily, type ClaustrumScopedAttempt, type ClaustrumScopedClient, type IdentityParser, type VaultGrantReach } from './custody.js';
+import { type ClaustrumFamily, type ClaustrumScopedAttempt, type ClaustrumScopedClient, type IdentityParser, type KeptReceiptState, type VaultGrantReach } from './custody.js';
 import { type ClaustrumLogger } from './errors.js';
 import { type InsulaQuotaOptions } from './insula.js';
 import { type AccountMapper, type QuotaReceipt, type VaultRosterFile } from './roster.js';
@@ -81,6 +81,8 @@ export declare class ClaustrumConsumer<Q = QuotaObservation> {
      * held the discovery lease and its newer roster was served instead).
      */
     grantReach(): VaultGrantReach | undefined;
+    /** Whether any account is using an in-memory outage receipt, without I/O. */
+    keptReceiptState(): KeptReceiptState;
     /** Rows for `/routing`, from the last committed roster. */
     routingRows(): RoutingRow[];
     refresh(): Promise<VaultRosterFile | undefined>;

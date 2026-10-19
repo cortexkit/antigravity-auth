@@ -184,19 +184,25 @@ export async function replaceWindowsFile(from, to, options = {}) {
     to = resolve(to);
     const now = options.now ?? (() => performance.now());
     const start = now();
-    const deadline = Math.min(start + 500, options.deadline ?? Infinity);
+    const leaseDeadline = options.deadline ?? Infinity;
+    let retryDeadline;
     const delays = [0, 10, 20, 40, 80, 100];
     let original;
     let attempts = 0;
     for (const delay of delays) {
+        const deadline = Math.min(retryDeadline ?? Infinity, leaseDeadline);
         if (now() >= deadline)
             break;
         if (delay)
             await (options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(Math.min(delay, Math.max(0, deadline - now())));
         if (now() >= deadline)
             break;
+        const fenceStart = now();
         await options.beforeRename?.();
-        if (now() >= deadline)
+        // Ownership checks fence every attempt but do not spend the sharing-retry budget.
+        if (retryDeadline !== undefined)
+            retryDeadline += now() - fenceStart;
+        if (now() >= leaseDeadline)
             break;
         attempts++;
         try {
@@ -212,6 +218,8 @@ export async function replaceWindowsFile(from, to, options = {}) {
                     !detail.reason;
             if (!candidate)
                 break;
+            // Start the retry window only once a rename has actually failed.
+            retryDeadline ??= now() + 500;
         }
     }
     const error = new PrivateFileError(to, 'rename', original ??

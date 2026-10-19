@@ -6,11 +6,13 @@
 import { ClaustrumClient, } from '@cortexkit/claustrum-client';
 import { insulaUsageTransport } from './insula.js';
 export { ClaustrumCredentialError, } from '@cortexkit/claustrum-client';
+export { ClaustrumUnreachableError, classifyVaultFailure, VAULT_FAILURE_CLASSES, } from './availability.js';
 export { ClaustrumConsumer, } from './consumer.js';
-export { ClaustrumScopedCustody, decideScopedRetryAfter401, isScopedCredentialRotation, SERVING_MARGIN_MS, } from './custody.js';
+export { ClaustrumScopedCustody, decideScopedRetryAfter401, isScopedCredentialRotation, KEPT_RECEIPT_MARGIN_MS, SERVING_MARGIN_MS, } from './custody.js';
 export { ClaustrumEnrollmentManager, classifyEnrollmentError, connectClaustrumEnrollmentClient, disconnectClaustrumEnrollment, enrollmentAuthority, enrollmentName, getClaustrumEnrollmentPaths, hostEnrollmentPaths, RETRYABLE_ENROLLMENT_CODES, readClaustrumEnrollmentStatus, readClaustrumEnrollmentToken, resetClaustrumEnrollmentState, TERMINAL_ENROLLMENT_CODES, } from './enrollment.js';
 export { ClaustrumConsumerError, } from './errors.js';
 export { assertHostSlotMatchesMode, assertNotCustodyPlaceholder, CUSTODY_PLACEHOLDER_PREFIX, classifyHostSlot, custodyPlaceholder, custodyPlaceholderKey, isCustodyPlaceholder, isCustodyPlaceholderValue, } from './host-slot.js';
+export { acquireInsulaQuotaSource, } from './insula.js';
 export { acceptAccount, declineAccount, isDeclined, } from './interlock.js';
 export { acceptVaultRoute, DEFAULT_ROUTE_PREFIX, declineVaultRoute, mutateVaultRoster, projectVaultRoster, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, resolveVaultPrimary, vaultRoutingRows, } from './roster.js';
 /**
