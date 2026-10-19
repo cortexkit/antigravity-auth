@@ -1708,3 +1708,55 @@ runner = "command"
 command = ["bun", "test", "--isolate", "test/release-ci.test.ts", "-t", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^release\sCI\scheck\srefuses\san\sin-progress\sworkflow\srun$']
+
+[[control]]
+id = "shared-vault-model-kept-admission"
+guards = "A model send admits a validated kept receipt when only the vault transport is unreachable."
+file = "packages/core/src/vault-account-source.ts"
+old = "  if (receipt.credentialType !== 'oauth')"
+new = "  if (receipt.credentialType !== 'oauth' || receipt.fromKeptReceipt) // NON-VACUITY BREAK: refuse kept model receipts."
+test_file = "packages/opencode/src/plugin/fetch-interceptor.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/fetch-interceptor.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/fetch-interceptor.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^createFetchInterceptor\svault\scustody\ssource\svault\soutage\sreceipts\sOpenCode\s1\ssends\sa\skept\sreceipt\sduring\san\soutage\swithout\sreading\sor\swriting\slocal\saccounts$']
+
+[[control]]
+id = "shared-vault-kept-401-no-readmission"
+guards = "A kept receipt 401 returns the upstream response without asking the vault again or retrying."
+file = "packages/opencode/src/plugin/shared/request-services.ts"
+old = "                !sendAdmission.fromKeptReceipt &&"
+new = "                true && // NON-VACUITY BREAK: re-admit after a kept receipt 401."
+test_file = "packages/opencode/src/plugin/fetch-interceptor.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/fetch-interceptor.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/fetch-interceptor.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^createFetchInterceptor\svault\scustody\ssource\svault\soutage\sreceipts\sa\skept\sreceipt\s401\sis\snot\sretried\sor\sreported\sand\sfences\sthe\snext\soutage\ssend$']
+
+[[control]]
+id = "shared-vault-fresh-401-report-order"
+guards = "Re-admitting the same version before the final 401 report cannot retain the rejected token for an outage."
+file = "packages/opencode/src/plugin/shared/request-services.ts"
+old = "                let next: RequestSendAdmission | undefined"
+new = "                await sendAdmission.report401(response.status) // NON-VACUITY BREAK: report before re-admission.\n                let next: RequestSendAdmission | undefined"
+test_file = "packages/opencode/src/plugin/fetch-interceptor.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/fetch-interceptor.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/fetch-interceptor.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^createFetchInterceptor\svault\scustody\ssource\svault\soutage\sreceipts\sa\sfresh\sreceipt\s401\sre-admits\sthe\ssame\sversion\swithout\sretry\sand\sdrops\sit\sbefore\san\soutage$']
+
+[[control]]
+id = "shared-vault-kept-receipt-provenance"
+guards = "The kept-receipt flag survives the core admission and shared credential boundary into the model 401 loop."
+file = "packages/core/src/vault-account-source.ts"
+old = "    fromKeptReceipt: receipt.fromKeptReceipt,"
+new = "    fromKeptReceipt: undefined, // NON-VACUITY BREAK: discard kept-receipt provenance."
+test_file = "packages/opencode/src/plugin/fetch-interceptor.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/fetch-interceptor.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/fetch-interceptor.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^createFetchInterceptor\svault\scustody\ssource\svault\soutage\sreceipts\sa\skept\sreceipt\s401\sis\snot\sretried\sor\sreported\sand\sfences\sthe\snext\soutage\ssend$']

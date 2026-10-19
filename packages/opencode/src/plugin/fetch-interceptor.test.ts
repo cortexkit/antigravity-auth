@@ -22,13 +22,20 @@ import {
   loadCommonAuthClaustrum,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  keptReceipts,
+  outageVault,
+} from '../../../core/src/__fixtures__/vault-outage.ts'
 import { AccountManager, loadAccountManagerFromRepository } from './accounts'
+import { createAuthLoader } from './auth-loader'
 import { DEFAULT_CONFIG } from './config'
 import type { AgyTransport } from './dependencies'
 import {
   createFetchInterceptor,
   createVaultFetchInterceptor,
 } from './fetch-interceptor'
+import { createPluginLifecycle } from './lifecycle'
+import { fetchVaultAccountQuota } from './quota'
 import { AgySessionRegistry } from './session-context'
 import { createVaultAccountMenuSections } from './shared/vault-menu'
 import type { VaultRequestSource } from './shared/vault-request-credentials'
@@ -36,6 +43,7 @@ import {
   createVaultAccountPool,
   type VaultAccountPool,
 } from './shared/vault-request-credentials'
+import * as accountStorage from './storage'
 import { type AccountStorageV4, saveAccountsReplace } from './storage'
 import type { GetAuth, PluginClient } from './types'
 import { createOpenCodeVaultAccountPool } from './vault-custody'
@@ -1650,6 +1658,254 @@ describe('createFetchInterceptor', () => {
       } finally {
         interceptor.dispose()
       }
+    })
+
+    describe('vault outage receipts', () => {
+      async function loadedVaultInterceptor(source: VaultRequestSource) {
+        const interceptor = await vaultInterceptor(source)
+        const lifecycle = createPluginLifecycle({
+          sessionRegistry: { clear() {} },
+          shutdownDiskSignatureCache: async () => {},
+          clearFetchState() {},
+        })
+        const loader = createAuthLoader({
+          client: fakeClient(),
+          providerId: 'google',
+          config: DEFAULT_CONFIG,
+          lifecycle,
+          readAuthority: async () => 'vault',
+          createFetch: () => {
+            throw new Error(
+              'vault loader must not construct a local interceptor',
+            )
+          },
+          createVaultFetch: async () => interceptor,
+          dependencies: {
+            loadAccounts: async () => {
+              throw new Error('vault loader must not read local accounts')
+            },
+            openAccountStore: async () => {
+              throw new Error('vault loader must not open local accounts')
+            },
+            isDebugEnabled: () => false,
+          },
+        })
+        const loaded = await loader(
+          async () => {
+            throw new Error('vault loader must not read native auth')
+          },
+          { models: {} } as never,
+        )
+        if (typeof loaded.fetch !== 'function')
+          throw new Error('no loader fetch')
+        return {
+          fetch: loaded.fetch,
+          dispose: async () => {
+            await lifecycle.dispose()
+          },
+        }
+      }
+      it('OpenCode 1 sends a kept receipt during an outage without reading or writing local accounts', async () => {
+        const vault = await outageVault('opencode')
+        const interceptor = await loadedVaultInterceptor(vault.source)
+        const local = [
+          spyOn(accountStorage, 'loadAccounts'),
+          spyOn(accountStorage, 'openAccountStore'),
+          spyOn(accountStorage, 'saveAccounts'),
+          spyOn(accountStorage, 'saveAccountsReplace'),
+          spyOn(accountStorage, 'mutateAccountStorage'),
+          spyOn(accountStorage, 'clearAccounts'),
+        ]
+        transportHandler = async () => okJson()
+        try {
+          expect(
+            (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
+          ).toBe(200)
+          vault.unreachable()
+          await expect(vault.source.refresh()).rejects.toMatchObject({
+            kind: 'unavailable',
+          })
+          expect(
+            (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
+          ).toBe(200)
+          expect([sent(0), sent(1)]).toEqual([
+            {
+              authorization: 'Bearer outage-bearer',
+              project: 'outage-project',
+            },
+            {
+              authorization: 'Bearer outage-bearer',
+              project: 'outage-project',
+            },
+          ])
+          expect(await keptReceipts(vault)).toEqual([false, true])
+          expect(vault.gets).toHaveLength(2)
+          expect(vault.lists()).toBe(3)
+          for (const operation of local)
+            expect(operation).not.toHaveBeenCalled()
+        } finally {
+          await interceptor.dispose()
+          for (const operation of local) operation.mockRestore()
+          vault.dispose()
+        }
+      })
+
+      it('quota checks through source.send use a kept receipt during an outage', async () => {
+        const vault = await outageVault('opencode')
+        const interceptor = await loadedVaultInterceptor(vault.source)
+        transportHandler = async () => okJson()
+        const quotaTransport = mock(
+          async (_url: string, init?: RequestInit) => {
+            expect(new Headers(init?.headers).get('authorization')).toBe(
+              'Bearer outage-bearer',
+            )
+            expect(JSON.parse(String(init?.body)).project).toBe(
+              'outage-project',
+            )
+            return Response.json({
+              groups: [
+                {
+                  displayName: 'Gemini Models',
+                  buckets: [
+                    {
+                      bucketId: 'gemini-weekly',
+                      displayName: 'Weekly',
+                      window: 'weekly',
+                      remainingFraction: 0.75,
+                    },
+                  ],
+                },
+              ],
+            })
+          },
+        )
+        try {
+          expect(
+            (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
+          ).toBe(200)
+          vault.unreachable()
+          const reading = await fetchVaultAccountQuota({
+            source: vault.source,
+            ref: vault.ref,
+            signal: new AbortController().signal,
+            transport: quotaTransport,
+            logger: { debug() {} },
+          })
+          expect(reading.quota.error).toBeUndefined()
+          expect(reading.fellBackToLegacy).toBe(false)
+          expect(quotaTransport).toHaveBeenCalledTimes(1)
+          expect(await keptReceipts(vault)).toEqual([false, true])
+          expect(vault.gets).toHaveLength(2)
+        } finally {
+          await interceptor.dispose()
+          vault.dispose()
+        }
+      })
+
+      it('a kept receipt 401 is not retried or reported and fences the next outage send', async () => {
+        const vault = await outageVault('opencode')
+        const interceptor = await loadedVaultInterceptor(vault.source)
+        transportHandler = async () => okJson()
+        try {
+          expect(
+            (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
+          ).toBe(200)
+          const listsBefore401 = vault.lists()
+          vault.unreachable()
+          transportHandler = async () =>
+            new Response('{"error":{"code":401}}', { status: 401 })
+          expect(
+            (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
+          ).toBe(401)
+          expect(await keptReceipts(vault)).toEqual([false, true])
+          expect(vault.gets).toHaveLength(2)
+          expect(vault.lists()).toBe(listsBefore401)
+          expect(vault.reports).toHaveLength(0)
+          expect(transportMock).toHaveBeenCalledTimes(2)
+          await expect(
+            interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+          ).rejects.toMatchObject({ kind: 'unavailable' })
+          expect(transportMock).toHaveBeenCalledTimes(2)
+          expect(vault.gets.length).toBeGreaterThan(2)
+          expect(vault.reports).toHaveLength(0)
+        } finally {
+          await interceptor.dispose()
+          vault.dispose()
+        }
+      })
+
+      it('a fresh receipt 401 followed immediately by an outage cannot retain the rejected token', async () => {
+        const vault = await outageVault('opencode')
+        const interceptor = await loadedVaultInterceptor(vault.source)
+        transportHandler = async () => {
+          vault.unreachable()
+          return new Response('{"error":{"code":401}}', { status: 401 })
+        }
+        try {
+          expect(
+            (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
+          ).toBe(401)
+          expect(vault.gets).toHaveLength(2)
+          expect(vault.reports).toHaveLength(1)
+          expect(transportMock).toHaveBeenCalledTimes(1)
+          await expect(
+            interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+          ).rejects.toMatchObject({ kind: 'unavailable' })
+          expect(transportMock).toHaveBeenCalledTimes(1)
+          expect(vault.reports).toHaveLength(1)
+        } finally {
+          await interceptor.dispose()
+          vault.dispose()
+        }
+      })
+
+      it('a fresh receipt 401 re-admits the same version without retry and drops it before an outage', async () => {
+        const vault = await outageVault('opencode')
+        const interceptor = await loadedVaultInterceptor(vault.source)
+        transportHandler = async () =>
+          new Response('{"error":{"code":401}}', { status: 401 })
+        try {
+          expect(
+            (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
+          ).toBe(401)
+          expect(vault.reports).toHaveLength(1)
+          expect(vault.gets).toHaveLength(2)
+          expect(transportMock).toHaveBeenCalledTimes(1)
+          vault.unreachable()
+          await expect(
+            interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+          ).rejects.toMatchObject({ kind: 'unavailable' })
+          expect(transportMock).toHaveBeenCalledTimes(1)
+          expect(vault.reports).toHaveLength(1)
+        } finally {
+          await interceptor.dispose()
+          vault.dispose()
+        }
+      })
+
+      it('an answered grant_denied drops the kept receipt instead of serving it during a later outage', async () => {
+        const vault = await outageVault('opencode')
+        const interceptor = await loadedVaultInterceptor(vault.source)
+        transportHandler = async () => okJson()
+        try {
+          expect(
+            (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
+          ).toBe(200)
+          vault.deny()
+          await expect(
+            interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+          ).rejects.toMatchObject({ code: 'grant_denied' })
+          vault.unreachable()
+          await expect(
+            interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+          ).rejects.toMatchObject({ kind: 'unavailable' })
+          expect(transportMock).toHaveBeenCalledTimes(1)
+          expect(vault.reports).toHaveLength(0)
+        } finally {
+          await interceptor.dispose()
+          vault.dispose()
+        }
+      })
     })
 
     describe('a request when the approved vault serves no accounts', () => {

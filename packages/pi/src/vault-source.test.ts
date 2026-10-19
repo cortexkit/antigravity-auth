@@ -15,6 +15,10 @@ import {
   type VaultRouteRef,
   type VaultSendAdmission,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  keptReceipts,
+  outageVault,
+} from '../../core/src/__fixtures__/vault-outage.ts'
 import type { PiVaultModeRead } from './vault-setup.ts'
 
 import {
@@ -115,6 +119,45 @@ function harness(): Harness {
 const ok = () => new Response('ok', { status: 200 })
 
 describe('Pi vault request path', () => {
+  it('sends a kept receipt through the Pi model path during a vault outage', async () => {
+    const vault = await outageVault('pi')
+    const send = createPiVaultSend({
+      readMode: () => ({ ok: true, record: { version: 1, mode: 'custody' } }),
+      source: async () => vault.source,
+    })
+    const upstream: { bearer: string; projectId: string }[] = []
+    const dispatch = async (credential: {
+      accessToken: string
+      projectId: string
+    }) => {
+      upstream.push({
+        bearer: credential.accessToken,
+        projectId: credential.projectId,
+      })
+      return ok()
+    }
+    try {
+      expect((await send(dispatch, new AbortController().signal)).status).toBe(
+        200,
+      )
+      vault.unreachable()
+      await expect(vault.source.refresh()).rejects.toMatchObject({
+        kind: 'unavailable',
+      })
+      expect((await send(dispatch, new AbortController().signal)).status).toBe(
+        200,
+      )
+      expect(upstream).toEqual([
+        { bearer: 'outage-bearer', projectId: 'outage-project' },
+        { bearer: 'outage-bearer', projectId: 'outage-project' },
+      ])
+      expect(await keptReceipts(vault)).toEqual([false, true])
+      expect(vault.gets).toHaveLength(2)
+      expect(vault.lists()).toBe(2)
+    } finally {
+      vault.dispose()
+    }
+  })
   it('checks mode before reaching the source, then sends on the captured route', async () => {
     const h = harness()
     const seen: VaultSendAdmission[] = []

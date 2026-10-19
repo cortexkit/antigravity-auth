@@ -32,6 +32,10 @@ import {
   readAccountStoreAdmission,
   sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  keptReceipts,
+  outageVault,
+} from '../../../core/src/__fixtures__/vault-outage.ts'
 
 import { placeholderSecret } from '../common-auth-embedded/opencode2/index.js'
 import type {
@@ -1454,6 +1458,62 @@ if (lifetimeControl) {
 }
 
 describe('GA composed transport', () => {
+  ownedIt(
+    'returns a kept receipt 401 without re-admission or retry during a vault outage',
+    async (scope) => {
+      const vault = await outageVault('opencode')
+      scope.defer(async () => vault.dispose())
+      const sends: GaSendInput[] = []
+      const location = await transportLocation(
+        scope,
+        'vault',
+        {
+          send: async (input) => {
+            sends.push(input)
+            return sends.length === 1
+              ? terminalResponse()
+              : new Response('{"error":{"code":401}}', { status: 401 })
+          },
+        },
+        1,
+        vault.source,
+      )
+      const execute = () =>
+        location.serving.execute(transportJob, {
+          signal: scope.controller().signal,
+          send: async () => {
+            throw new Error('unused transport')
+          },
+        })
+      try {
+        expect((await execute()).status).toBe(200)
+        const listsBefore401 = vault.lists()
+        vault.unreachable()
+        const response = await execute()
+        expect(response.status).toBe(401)
+        expect(sends).toHaveLength(2)
+        expect(
+          sends.map((input) => ({
+            token: input.auth.access,
+            project: input.envelope.project,
+          })),
+        ).toEqual([
+          { token: 'outage-bearer', project: 'outage-project' },
+          { token: 'outage-bearer', project: 'outage-project' },
+        ])
+        expect(await keptReceipts(vault)).toEqual([false, true])
+        expect(vault.gets).toHaveLength(2)
+        expect(vault.lists()).toBe(listsBefore401)
+        expect(vault.reports).toHaveLength(0)
+        await expect(execute()).rejects.toMatchObject({ kind: 'unavailable' })
+        expect(sends).toHaveLength(2)
+        expect(vault.gets.length).toBeGreaterThan(2)
+        expect(vault.reports).toHaveLength(0)
+      } finally {
+        await location.dispose()
+      }
+    },
+  )
   ownedIt(
     'sends the switched-account warmup probe and main request through the override',
     async (scope) => {

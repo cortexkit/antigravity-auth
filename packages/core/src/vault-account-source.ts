@@ -175,6 +175,8 @@ export interface VaultRouteRef {
  * never copy it.
  */
 export interface VaultSendAdmission {
+  /** True only when the consumer served its in-memory receipt during an outage. */
+  readonly fromKeptReceipt?: true
   readonly routeId: string
   readonly credentialId: string
   readonly accountIdentity: string
@@ -252,13 +254,20 @@ export interface AntigravityVaultAccountSource {
    * Report to Claustrum that the request sent with `admission` got a 401, so
    * the vault can mark that served record version bad. Pass the original
    * response status; only 401 is reported, once per admission, against that
-   * admission's own receipt and record version. Other statuses return false.
+   * admission's own receipt and record version. A kept receipt is discarded
+   * without contacting the vault and returns false, as do other statuses.
    */
   reportServedStatus(
     admission: VaultSendAdmission,
     status: number,
     reporterSource?: VaultReporterSource,
   ): Promise<boolean>
+  /** Apply the consumer's retry policy to the original receipts behind these admissions. */
+  retryAfter401?(
+    served: VaultSendAdmission,
+    current: VaultSendAdmission | undefined,
+    site: string,
+  ): boolean
   /**
    * The non-secret facts that tie an observation (usage, quota) to the send
    * that produced it: route, credential id, asserted account and served record
@@ -419,6 +428,7 @@ function admissionFromReceipt(
     recordVersion: receipt.recordVersion,
     projectId: receipt.projectId,
     expiresAtMs: receipt.expiresAtMs,
+    fromKeptReceipt: receipt.fromKeptReceipt,
   }
   Object.defineProperty(admission, 'accessToken', {
     value: receipt.accessToken,
@@ -535,7 +545,7 @@ export function createAntigravityVaultAccountSource(
       401,
       reporterSource ?? options.reporterSource,
     )
-    return true
+    return entry.receipt.fromKeptReceipt !== true
   }
 
   /**
@@ -589,10 +599,21 @@ export function createAntigravityVaultAccountSource(
     },
     routes: () => (closed ? [] : routeRefs(consumer.snapshot(), isDeclined)),
     admit,
+    retryAfter401: (served, current, site) =>
+      claustrum.decideScopedRetryAfter401(
+        site,
+        issuedEntry(served).receipt,
+        current && issuedEntry(current).receipt,
+        options.logger,
+      ),
     send: async (ref, dispatch, sendOptions) => {
       const signal = sendOptions.signal
       let admission = await admit(ref, signal)
       let response = await dispatch(admission, signal)
+      if (response.status === 401 && admission.fromKeptReceipt) {
+        await reportServedStatus(admission, 401, sendOptions.reporterSource)
+        return response
+      }
       if (response.status === 401 && !signal?.aborted) {
         let current: VaultSendAdmission | undefined
         try {

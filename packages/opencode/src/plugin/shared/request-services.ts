@@ -302,6 +302,12 @@ export interface LocalRequestCredentials<A extends RequestAccountRow> {
  */
 export interface VaultRequestCredentials<A extends RequestAccountRow> {
   readonly domain: 'vault'
+  /** Decide whether a fresh admission may retry a 401 from the served admission. */
+  retryAfter401?(
+    served: RequestSendAdmission,
+    current: RequestSendAdmission | undefined,
+    site: string,
+  ): boolean
   admit(request: {
     /** The metadata row selected for this send. */
     readonly account: A
@@ -317,6 +323,7 @@ export interface VaultRequestCredentials<A extends RequestAccountRow> {
 
 /** One vault admission, valid for exactly one physical send. */
 export interface RequestSendAdmission {
+  readonly fromKeptReceipt?: true
   /** The vault credential this admission serves. */
   readonly credentialId: string
   /** The account the vault asserted for this admission. */
@@ -328,8 +335,8 @@ export interface RequestSendAdmission {
   readonly projectId: string
   /**
    * Reports a 401 served to this send against the exact record version
-   * this admission carried. Called without awaiting the result; a rejection
-   * is logged and ignored.
+   * this admission carried. A kept receipt is discarded without a vault report.
+   * A reporting failure is logged and ignored unless the request was aborted.
    */
   report401(status: number): Promise<unknown>
 }
@@ -1958,32 +1965,32 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               sendAdmission &&
               response.status === 401
             ) {
-              // Report the 401 against the exact record version this send's
-              // admission carried, then take a fresh admission. Only a newer
-              // version of the same credential and account may retry this
-              // endpoint, once; otherwise the 401 stands.
-              try {
-                await deadline.wait(() =>
-                  sendAdmission!.report401(response.status),
-                )
-              } catch (error) {
-                checkAborted()
-                log.debug('send-admission-401-report-failed', {
-                  error: String(error),
-                })
-              }
-              if (!vault401Retried) {
-                const next = await deadline.wait(() =>
-                  credentials.admit({
-                    account,
-                    signal: abortSignal,
-                  }),
-                )
-                if (
-                  next.credentialId === sendAdmission.credentialId &&
-                  next.accountIdentity === sendAdmission.accountIdentity &&
-                  next.recordVersion > sendAdmission.recordVersion
-                ) {
+              // Match ClaustrumConsumer.send: a rejected kept receipt is discarded
+              // without re-admitting. For fresh receipts, re-admit before reporting
+              // the final 401 so the report also discards any kept copy of the
+              // rejected record version.
+              if (
+                !sendAdmission.fromKeptReceipt &&
+                !vault401Retried &&
+                !abortSignal?.aborted
+              ) {
+                let next: RequestSendAdmission | undefined
+                try {
+                  next = await deadline.wait(() =>
+                    credentials.admit({ account, signal: abortSignal }),
+                  )
+                } catch {
+                  checkAborted()
+                  // A failed re-admission leaves the original upstream 401 intact.
+                }
+                const retry = credentials.retryAfter401
+                  ? credentials.retryAfter401(sendAdmission, next, 'model')
+                  : next &&
+                    !next.fromKeptReceipt &&
+                    next.credentialId === sendAdmission.credentialId &&
+                    next.accountIdentity === sendAdmission.accountIdentity &&
+                    next.recordVersion > sendAdmission.recordVersion
+                if (next && retry) {
                   vault401Retried = true
                   rotatedAdmission = next
                   void response.body?.cancel().catch(() => {})
@@ -1993,6 +2000,16 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   i -= 1
                   continue
                 }
+              }
+              try {
+                await deadline.wait(() =>
+                  sendAdmission!.report401(response.status),
+                )
+              } catch (error) {
+                checkAborted()
+                log.debug('send-admission-401-report-failed', {
+                  error: String(error),
+                })
               }
             }
 

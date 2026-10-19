@@ -47,7 +47,9 @@ export type VaultRequestSource = Pick<
   AntigravityVaultAccountSource,
   'refresh' | 'routes' | 'admit' | 'reportServedStatus'
 > &
-  Partial<Pick<AntigravityVaultAccountSource, 'emptyRosterCause'>>
+  Partial<
+    Pick<AntigravityVaultAccountSource, 'emptyRosterCause' | 'retryAfter401'>
+  >
 
 /** The vault account source operations durable selection state uses. */
 export type VaultStateSource = Pick<
@@ -116,6 +118,7 @@ export function refreshVaultAccountRow(
  */
 class VaultSendGrant implements RequestSendAdmission {
   declare readonly accessToken: string
+  readonly fromKeptReceipt?: true
   readonly credentialId: string
   readonly accountIdentity: string
   readonly recordVersion: number
@@ -134,6 +137,7 @@ class VaultSendGrant implements RequestSendAdmission {
     this.accountIdentity = admission.accountIdentity
     this.recordVersion = admission.recordVersion
     this.projectId = admission.projectId
+    this.fromKeptReceipt = admission.fromKeptReceipt
     this.report401 = report
   }
 }
@@ -145,21 +149,46 @@ class VaultSendGrant implements RequestSendAdmission {
  * `createVaultSelectionState`).
  */
 export function createVaultRequestCredentials(
-  source: Pick<VaultRequestSource, 'admit' | 'reportServedStatus'>,
+  source: Pick<
+    VaultRequestSource,
+    'admit' | 'reportServedStatus' | 'retryAfter401'
+  >,
   onAdmitted?: {
     readonly source: Pick<VaultStateSource, 'attribution'>
     admitted(row: VaultAccountRow, attribution: VaultStateAttribution): void
   },
 ): VaultRequestCredentials<VaultAccountRow> {
+  const issued = new WeakMap<
+    RequestSendAdmission,
+    Awaited<ReturnType<VaultRequestSource['admit']>>
+  >()
   return {
     domain: 'vault',
+    ...(source.retryAfter401 && {
+      retryAfter401(
+        served: RequestSendAdmission,
+        current: RequestSendAdmission | undefined,
+        site: string,
+      ) {
+        const original = issued.get(served)
+        if (!original)
+          throw new Error('Retry requires an original vault admission')
+        return source.retryAfter401!(
+          original,
+          current && issued.get(current),
+          site,
+        )
+      },
+    }),
     async admit({ account, signal }) {
       const admission = await source.admit(account.route, signal)
       if (onAdmitted)
         onAdmitted.admitted(account, onAdmitted.source.attribution(admission))
-      return new VaultSendGrant(admission, (status) =>
+      const grant = new VaultSendGrant(admission, (status) =>
         source.reportServedStatus(admission, status),
       )
+      issued.set(grant, admission)
+      return grant
     },
   }
 }

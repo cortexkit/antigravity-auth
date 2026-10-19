@@ -2490,7 +2490,7 @@ describe('createRequestExecutor vault 401 rotation', () => {
     try {
       const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
       expect(response.status).toBe(200)
-      expect(reports).toEqual([{ version: 1, status: 401 }])
+      expect(reports).toEqual([])
       expect(
         h.calls.map((call) =>
           new Headers(call.init?.headers).get('authorization'),
