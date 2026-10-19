@@ -816,9 +816,9 @@ describe('authorized local quota fetcher', () => {
 // ---------------------------------------------------------------------------
 // Account-store quota checks over the genuine public store
 //
-// Use the pinned candidate's store and filesystem code copied into the core package.
+// Use the pinned published package's store and filesystem code copied into the core package.
 // Its common-auth-embedded/source-output.json records each file's size and
-// SHA-256 from the pinned candidate archive at
+// SHA-256 from the pinned published archive at
 // `tools/common-auth-build/inputs/cortexkit-common-auth-0.20.0.tgz`. Verify each file against that
 // record before loading it with loadCommonAuthStoreModules; any difference
 // fails the test. Account files live in a separate disposable directory.
@@ -828,7 +828,7 @@ const RELEASED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
   version: '0.20.0',
   tarballSha256:
-    '88c500844527ea1f6a0a80cc35d6170cf07bef357cd3b4b29d7f5b1c067daa72',
+    'd762d95b12173af425dc0bb131d5c62cccf3b5b9449c97f3568f2d121ae8e66c',
 } as const
 
 async function embeddedFilesBelow(
@@ -848,7 +848,7 @@ let genuine: Promise<CommonAuthStoreModules> | undefined
 
 /**
  * Loads the store and filesystem copy embedded in the core package from the
- * pinned candidate archive. Before loading, it verifies that the embedding
+ * pinned published archive. Before loading, it verifies that the embedding
  * receipt names that archive and each file matches the receipt's recorded size
  * and SHA-256.
  */
@@ -874,12 +874,12 @@ function genuineModules(): Promise<CommonAuthStoreModules> {
     if (
       receipt.package !== RELEASED_COMMON_AUTH.package ||
       receipt.version !== RELEASED_COMMON_AUTH.version ||
-      receipt.artifactStatus !== 'candidate' ||
+      receipt.artifactStatus !== 'published' ||
       receipt.tarballSha256 !== RELEASED_COMMON_AUTH.tarballSha256 ||
       !Array.isArray(receipt.files)
     ) {
       throw new Error(
-        `source-output.json does not record the pinned candidate common-auth ${RELEASED_COMMON_AUTH.version} archive`,
+        `source-output.json does not record the pinned published common-auth ${RELEASED_COMMON_AUTH.version} archive`,
       )
     }
     const recorded = receipt.files.filter((file) =>
