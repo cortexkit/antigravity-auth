@@ -26,6 +26,16 @@ type PhaseClockHooks = {
   phase: <T>(name: string, action: () => Promise<T>) => Promise<T>
   sync: <T>(name: string, action: () => T) => T
   note: (name: string, detail: string) => void
+  child?: <
+    T extends Pick<
+      ReturnType<typeof spawnSync>,
+      'pid' | 'status' | 'signal' | 'error'
+    >,
+  >(
+    command: string,
+    argc: number,
+    action: () => T,
+  ) => T
 }
 function phaseClockHooks() {
   return (
@@ -540,14 +550,12 @@ export async function verifySelectors(
 }
 
 function run(command: string, args: string[], cwd = PACKAGE_ROOT) {
+  const execute = () =>
+    spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 120000 })
+  const observe = phaseClockHooks()?.child
   const result = buildSyncPhase(
     `child spawn: ${command} ${args.join(' ')} (cwd ${cwd})`,
-    () =>
-      spawnSync(command, args, {
-        cwd,
-        encoding: 'utf8',
-        timeout: 120000,
-      }),
+    () => (observe ? observe(command, args.length, execute) : execute()),
   )
   buildPhaseNote(
     'child exit',

@@ -5,6 +5,8 @@ import {
   type PublicCommandScope,
   reapPublicCommandScope,
 } from '../packages/core/src/__fixtures__/public-command-processes.test.ts'
+import { traceAsyncTestChild } from './test-child-lifecycle.ts'
+import { safeDiagnosticInspector } from './test-stall-diagnostics.ts'
 
 export class UnreapedBuildTestChild extends Error {}
 
@@ -13,7 +15,9 @@ export async function runBuildTestChild(
   argv: string[],
   deadline: number,
 ): Promise<void> {
-  const inspector = await createPublicCommandInspector()
+  const inspector = safeDiagnosticInspector(
+    await createPublicCommandInspector(),
+  )
   let scope: PublicCommandScope | undefined
   let primary: unknown
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -23,6 +27,7 @@ export async function runBuildTestChild(
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  traceAsyncTestChild(child, process.execPath, argv.length)
   let exited = false
   let status: number | null = null
   let signal: string | null = null

@@ -17,6 +17,11 @@ import {
 } from '../packages/core/src/__fixtures__/public-command-processes.test.ts'
 
 import { createBuildPhaseReporter } from './build-phase-clock.ts'
+import {
+  captureTestStall,
+  createTestFileObserver,
+  ownedLiveTestChildren,
+} from './test-stall-diagnostics.ts'
 
 export const PUBLIC_COMMAND_BOUNDS = {
   executionMs: 20 * 60_000,
@@ -116,6 +121,7 @@ export async function runPublicConsumerCommand(
   let executionTimer: ReturnType<typeof setTimeout> | undefined
   let monitor: ReturnType<typeof setInterval> | undefined
   let phaseMonitor: ReturnType<typeof setInterval> | undefined
+  let snapshotTimer: ReturnType<typeof setTimeout> | undefined
   let pipeTimer: ReturnType<typeof setTimeout> | undefined
   let leaderExited = false
   let pipesClosed = false
@@ -196,10 +202,52 @@ export async function runPublicConsumerCommand(
     })
     child.once('error', stop)
     const reportBuildPhases = createBuildPhaseReporter(fixture.root)
-    phaseMonitor = setInterval(() => reportBuildPhases(), 1_000)
+    let firstSlowSnapshot: string | undefined
+    let deadlineSnapshot: string | undefined
+    let sampledSlow = false
+    let reportedFailure = false
+    const snapshot = (reason: 'deadline' | 'failure') => {
+      if (!scope || !inspector) return
+      if (firstSlowSnapshot) {
+        console.error(firstSlowSnapshot)
+        firstSlowSnapshot = undefined
+      }
+      const line =
+        reason === 'deadline'
+          ? (deadlineSnapshot ??
+            captureTestStall(reason, scope, inspector, fixture.root))
+          : captureTestStall(reason, scope, inspector, fixture.root)
+      if (line) console.error(line)
+    }
+    const files = createTestFileObserver(
+      ownedPid ?? -1,
+      () => {
+        if (!scope || !inspector) return null
+        try {
+          return ownedLiveTestChildren(scope, inspector)
+        } catch {
+          return null
+        }
+      },
+      (line) => process.stderr.write(line),
+    )
+    phaseMonitor = setInterval(() => {
+      reportBuildPhases()
+      if (!sampledSlow && files.slow() && scope && inspector) {
+        sampledSlow = true
+        // Keep the early sample quiet unless this command eventually fails.
+        firstSlowSnapshot = captureTestStall(
+          'slow-file',
+          scope,
+          inspector,
+          fixture.root,
+        )
+      }
+    }, 1_000)
     const closed = new Promise<void>((resolve) =>
       child?.once('close', () => {
         pipesClosed = true
+        files.close()
         resolve()
       }),
     )
@@ -213,6 +261,13 @@ export async function runPublicConsumerCommand(
         bytes += chunk.length
         if (input === child?.stdout) stdoutBytes = bytes
         else stderrBytes = bytes
+        if (input === child?.stderr) {
+          files.feed(chunk)
+          if (!reportedFailure && /(?:^|\n)\(fail\) /.test(chunk.toString())) {
+            reportedFailure = true
+            snapshot('failure')
+          }
+        }
         if (bytes <= bounds.outputCapBytes) output.write(chunk)
         else stop(new Error('test command output cap exceeded'))
       })
@@ -289,11 +344,28 @@ export async function runPublicConsumerCommand(
         startedMs: executionStartedMs,
         parentDeadlineMs,
       }
-    executionTimer = setTimeout(
-      () => stop(new Error('test command execution deadline exceeded')),
-      bounds.executionMs,
+    executionTimer = setTimeout(() => {
+      reportedFailure = true
+      snapshot('deadline')
+      stop(new Error('test command execution deadline exceeded'))
+    }, bounds.executionMs)
+    snapshotTimer = setTimeout(
+      () => {
+        if (scope && inspector)
+          deadlineSnapshot = captureTestStall(
+            'deadline',
+            scope,
+            inspector,
+            fixture.root,
+          )
+      },
+      Math.max(
+        1,
+        bounds.executionMs - Math.min(1_000, bounds.executionMs / 10),
+      ),
     )
     await stopped
+    if ((primary || status !== 0) && !reportedFailure) snapshot('failure')
     reportBuildPhases(
       primary || status !== 0
         ? String(primary ?? `test command exited with code ${status}`)
@@ -301,6 +373,7 @@ export async function runPublicConsumerCommand(
     )
     clearInterval(phaseMonitor)
     clearTimeout(executionTimer)
+    clearTimeout(snapshotTimer)
     clearInterval(monitor)
     const deadline = performance.now() + bounds.reapMs
     if (scope) {
@@ -346,6 +419,7 @@ export async function runPublicConsumerCommand(
       )
   } finally {
     clearTimeout(executionTimer)
+    clearTimeout(snapshotTimer)
     clearTimeout(pipeTimer)
     clearInterval(monitor)
     clearInterval(phaseMonitor)

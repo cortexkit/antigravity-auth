@@ -22,6 +22,7 @@ import {
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { traceSyncTestChild } from '../../scripts/test-child-lifecycle.ts'
 
 const repoRoot = resolve(import.meta.dir, '../..')
 const coreRoot = join(repoRoot, 'packages/core')
@@ -48,11 +49,15 @@ let consumer: string
 let installed: string
 
 function run(command: string, args: string[], cwd: string) {
-  const result = spawnSync(command, args, {
-    cwd,
-    encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1' },
-  })
+  const spawn = () =>
+    spawnSync(command, args, {
+      cwd,
+      encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1' },
+    })
+  const result = args[0]?.endsWith('/typescript/bin/tsc')
+    ? traceSyncTestChild('packed-core-tsc', command, args.length, spawn)
+    : spawn()
   if (result.status !== 0)
     throw new Error(
       `${command} ${args.join(' ')} failed (${result.status}):\n${result.stdout}\n${result.stderr}`,

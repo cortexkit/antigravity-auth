@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { reconcileMotor } from '../scripts/native-inert-gate.ts'
+import { traceSyncTestChild } from '../scripts/test-child-lifecycle.ts'
 
 const sourceRoot = resolve(import.meta.dir, '..')
 const inventoryPath = 'packages/e2e-tests/docker/native-inert-inventory.json'
@@ -22,15 +23,17 @@ afterEach(() => {
 })
 
 function git(root: string, ...args: string[]) {
-  const result = Bun.spawnSync(['git', ...args], {
-    cwd: root,
-    env: {
-      ...process.env,
-      GIT_CONFIG_COUNT: '1',
-      GIT_CONFIG_KEY_0: 'safe.directory',
-      GIT_CONFIG_VALUE_0: root,
-    },
-  })
+  const result = traceSyncTestChild('native-git', 'git', args.length, () =>
+    Bun.spawnSync(['git', ...args], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'safe.directory',
+        GIT_CONFIG_VALUE_0: root,
+      },
+    }),
+  )
   if (result.exitCode !== 0) throw new Error(result.stderr.toString())
   return result.stdout.toString().trim()
 }
@@ -77,9 +80,16 @@ function fixture() {
 }
 
 function run(root: string, script: string, ...args: string[]) {
-  return Bun.spawnSync(
-    [process.execPath, join(sourceRoot, 'scripts', script), ...args],
-    { cwd: root },
+  return traceSyncTestChild(
+    'native-run',
+    process.execPath,
+    args.length + 1,
+    () =>
+      Bun.spawnSync(
+        [process.execPath, join(sourceRoot, 'scripts', script), ...args],
+        { cwd: root },
+      ),
+    true,
   )
 }
 

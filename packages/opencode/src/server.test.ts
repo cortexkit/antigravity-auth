@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Host } from '@opencode/plugin/host'
+import { traceSyncTestChild } from '../../../scripts/test-child-lifecycle.ts'
 
 const packageRoot = resolve(import.meta.dir, '..')
 const packageName = '@cortexkit/opencode-antigravity-auth'
@@ -38,7 +39,10 @@ let consumer: string
 let installed: string
 
 function run(command: string, args: string[], cwd: string) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8' })
+  const spawn = () => spawnSync(command, args, { cwd, encoding: 'utf8' })
+  const result = args[0]?.endsWith('/typescript/bin/tsc')
+    ? traceSyncTestChild('packed-server-tsc', command, args.length, spawn)
+    : spawn()
   if (result.status !== 0)
     throw new Error(
       `${command} ${args.join(' ')} failed (${result.status}):\n${result.stdout}\n${result.stderr}`,

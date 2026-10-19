@@ -181,7 +181,7 @@ beforeAll(
           runBuildTestChild(
             [
               '-e',
-              `import { buildTuiRoots } from ${JSON.stringify(import.meta.resolve('./build-tui.ts'))}; await buildTuiRoots({ packageRoot: ${JSON.stringify(product)} });`,
+              `import { withBuildPhaseClock } from ${JSON.stringify(import.meta.resolve('../../../scripts/build-phase-clock.ts'))}; import { buildTuiRoots } from ${JSON.stringify(import.meta.resolve('./build-tui.ts'))}; await withBuildPhaseClock('build.setup child', 120000, () => buildTuiRoots({ packageRoot: ${JSON.stringify(product)} }));`,
             ],
             deadline,
           ),

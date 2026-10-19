@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { traceSyncTestChild } from '../scripts/test-child-lifecycle.ts'
 import { TestLifetime } from './fixtures/test-lifetime.ts'
 
 async function timeoutChild(oldOrder: boolean) {
@@ -54,25 +55,32 @@ it('successor waits for the original final read', async () => {
 })
 `,
     )
-    const child = spawnSync(
+    const child = traceSyncTestChild(
+      'lifetime',
       process.execPath,
-      ['test', '--isolate', './lifetime.test.ts'],
-      {
-        cwd: root,
-        env: {
-          PATH: '/usr/bin:/bin',
-          HOME: root,
-          USERPROFILE: root,
-          TMPDIR: root,
-          XDG_CONFIG_HOME: root,
-          XDG_DATA_HOME: root,
-          XDG_STATE_HOME: root,
-          XDG_CACHE_HOME: root,
-        },
-        encoding: 'utf8',
-        timeout: 4_000,
-        maxBuffer: 128 * 1024,
-      },
+      3,
+      () =>
+        spawnSync(
+          process.execPath,
+          ['test', '--isolate', './lifetime.test.ts'],
+          {
+            cwd: root,
+            env: {
+              PATH: '/usr/bin:/bin',
+              HOME: root,
+              USERPROFILE: root,
+              TMPDIR: root,
+              XDG_CONFIG_HOME: root,
+              XDG_DATA_HOME: root,
+              XDG_STATE_HOME: root,
+              XDG_CACHE_HOME: root,
+            },
+            encoding: 'utf8',
+            timeout: 4_000,
+            maxBuffer: 128 * 1024,
+          },
+        ),
+      true,
     )
     const completed = await readFile(join(root, 'completed'), 'utf8').catch(
       (error) => {

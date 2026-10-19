@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { traceBuildTestChild } from './test-child-lifecycle.ts'
 
 const directory = 'build-test-phase-clocks'
 const storage = new AsyncLocalStorage<PhaseClock>()
@@ -232,5 +233,10 @@ export function createBuildPhaseReporter(
 // Expose optional clock hooks under a shared symbol for copied build scripts.
 Object.defineProperty(globalThis, Symbol.for('cortexkit.build-phase-clock'), {
   configurable: true,
-  value: { phase: buildPhase, sync: buildSyncPhase, note: buildPhaseNote },
+  value: {
+    phase: buildPhase,
+    sync: buildSyncPhase,
+    note: buildPhaseNote,
+    child: traceBuildTestChild,
+  },
 })
