@@ -231,6 +231,8 @@ export interface OpenCodeVaultCustodyOptions {
   readonly connectEnrollment?: () => Promise<EnrollmentConnection>
   readonly logger?: VaultLogger
   readonly now?: () => number
+  /** Background observation interval; the shared consumer keeps its 5s default. */
+  readonly pollIntervalMs?: number
 }
 
 export interface OpenCodeVaultCustody {
@@ -356,6 +358,9 @@ export function createOpenCodeVaultCustody(
         state: { path: paths.stateFile, fs: await loadCommonAuthFs() },
         ...(options.logger ? { logger: options.logger } : {}),
         ...(options.now ? { now: options.now } : {}),
+        ...(options.pollIntervalMs !== undefined
+          ? { pollIntervalMs: options.pollIntervalMs }
+          : {}),
       })
       const activeSource: AntigravityVaultAccountSource = {
         ...created,

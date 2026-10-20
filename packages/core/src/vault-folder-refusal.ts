@@ -12,9 +12,9 @@
  * pins.
  */
 
-/**
- * `@cortexkit/claustrum-client` 0.10.0 (`notPrivate` in private-path.js):
- * `enrollment token folder <path> is not private: <reason>`.
+/** The client's `notPrivate` check emits this message for an enrollment-token
+ * folder it refuses; the pattern extracts that folder before applying the
+ * shared-folder remedy below.
  */
 const CLIENT_REFUSAL = /^enrollment token folder (.+) is not private: (.+)$/s
 

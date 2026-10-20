@@ -152,8 +152,26 @@ describe('Pi vault request path', () => {
         { bearer: 'outage-bearer', projectId: 'outage-project' },
       ])
       expect(await keptReceipts(vault)).toEqual([false, true])
+      // During an outage the shared consumer reuses its last credential grant;
+      // a background roster check can find recovery without another grant read.
+      await vault.waitForLists(3)
+      expect(vault.gets).toHaveLength(1)
+      expect(vault.lists()).toBe(3)
+
+      vault.reachable()
+      await new Promise<void>((resolve) => setTimeout(resolve, 2_100))
+      await vault.waitForLists(4)
+      expect(vault.lists()).toBe(4)
+      expect((await send(dispatch, new AbortController().signal)).status).toBe(
+        200,
+      )
+      expect(upstream).toEqual([
+        { bearer: 'outage-bearer', projectId: 'outage-project' },
+        { bearer: 'outage-bearer', projectId: 'outage-project' },
+        { bearer: 'outage-bearer', projectId: 'outage-project' },
+      ])
+      expect(await keptReceipts(vault)).toEqual([false, true, false])
       expect(vault.gets).toHaveLength(2)
-      expect(vault.lists()).toBe(2)
     } finally {
       vault.dispose()
     }

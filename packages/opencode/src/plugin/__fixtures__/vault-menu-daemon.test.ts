@@ -111,6 +111,10 @@ export async function startMenuVaultFixture(
           ],
         },
       }
+    if (method === 'auth.watch_scoped' && params.enrollment_token === token)
+      // This fixture models an older vault server: reject watches so the
+      // client confirms the roster and falls back to its polling interval.
+      return { error: { code: 'unknown_method', class: 'permanent' } }
     if (
       method === 'credential.get_scoped' &&
       params.enrollment_token === token &&

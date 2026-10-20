@@ -44,7 +44,8 @@
   },
   "dependencies": {
     "@cortexkit/antigravity-auth-core": "3.0.7",
-    "@cortexkit/claustrum-client": "0.10.0"
+    "@cortexkit/claustrum-client": "0.12.0",
+    "@cortexkit/subc-client": "0.22.5"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

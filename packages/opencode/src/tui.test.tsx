@@ -709,7 +709,7 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     fixture.cleanup()
   })
 
-  it('renders the sibling-shaped active compact row when prefs.collapsed is true', async () => {
+  it('renders the shared narrow quota line when prefs.collapsed is true', async () => {
     const payload = writeState({
       checkedAt: Date.now(),
       routingAuthoritative: true,
@@ -753,12 +753,10 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     )
     await testSetup.flush()
     const frame = testSetup.captureCharFrame()
-    // Compact row: active account, the lowest current window with its plain
-    // group name, and the filled dot. The collapsed row now names one
-    // binding figure rather than every group, so it fits a narrow sidebar.
+    // The shared narrow formatter combines both groups on the active account's row.
     expect(frame).toContain('Primary')
-    expect(frame).toContain('Gemini 30% left')
-    expect(frame).not.toContain('75% left')
+    expect(frame).toContain('Ge 30% · Ot 75% left')
+    expect(frame).not.toContain('Gemini 30% left')
     expect(frame).not.toMatch(/\bGm\b|\bNG\b/)
     expect(frame).toContain('●')
     // Header indicator is the collapsed glyph.
@@ -852,8 +850,8 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     await testSetup.flush()
     const collapsedFrame = testSetup.captureCharFrame()
     expect(collapsedFrame).toContain('▶')
-    expect(collapsedFrame).toContain('Gemini 30% left')
-    expect(collapsedFrame).not.toContain('75% left')
+    expect(collapsedFrame).toContain('Ge 30% · Ot 75% left')
+    expect(collapsedFrame).not.toContain('Gemini 30% left')
     testSetup.renderer.destroy()
   })
 

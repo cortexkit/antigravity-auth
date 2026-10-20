@@ -25,29 +25,47 @@ export async function outageVault(host: 'opencode' | 'pi') {
   const reports: Parameters<VaultScopedClient['reportAuthFailureScoped']>[0][] =
     []
   let lists = 0
+  let settledLists = 0
+  const listWaiters: Array<{ count: number; resolve: () => void }> = []
+  const settleListWaiters = () => {
+    const pending = listWaiters.filter((waiter) => settledLists < waiter.count)
+    for (const waiter of listWaiters) {
+      if (settledLists >= waiter.count) waiter.resolve()
+    }
+    listWaiters.splice(0, listWaiters.length, ...pending)
+  }
+  const waitForLists = (count: number) =>
+    settledLists >= count
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => listWaiters.push({ count, resolve }))
   const client: VaultScopedClient = {
     async listScoped() {
       lists++
-      if (failure) throw failure
-      return {
-        view: 'outage-roster',
-        rows: [
-          {
-            id: 'outage-credential',
-            accountId: 'outage-account',
-            categories: ['antigravity-native'],
-            credentialType: 'oauth',
-            serves: [],
-            providerIds: [],
-            refreshAdapter: 'antigravity',
-            state: 'active',
-            recordVersion: 1,
-            operations: ['read'],
-            createdAtMs: null,
-          },
-        ],
-        grants: undefined,
-        grantTuples: undefined,
+      try {
+        if (failure) throw failure
+        return {
+          view: 'outage-roster',
+          rows: [
+            {
+              id: 'outage-credential',
+              accountId: 'outage-account',
+              categories: ['antigravity-native'],
+              credentialType: 'oauth',
+              serves: [],
+              providerIds: [],
+              refreshAdapter: 'antigravity',
+              state: 'active',
+              recordVersion: 1,
+              operations: ['read'],
+              createdAtMs: null,
+            },
+          ],
+          grants: undefined,
+          grantTuples: undefined,
+        }
+      } finally {
+        settledLists++
+        settleListWaiters()
       }
     },
     async getScoped(input) {
@@ -88,10 +106,14 @@ export async function outageVault(host: 'opencode' | 'pi') {
     reports,
     authorize,
     lists: () => lists,
+    waitForLists,
     unreachable() {
       failure = Object.assign(new Error('connect ECONNREFUSED'), {
         code: 'ECONNREFUSED',
       })
+    },
+    reachable() {
+      failure = undefined
     },
     deny() {
       failure = new ClaustrumCredentialError(

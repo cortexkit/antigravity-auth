@@ -14,7 +14,8 @@
     "@cortexkit/opencode-antigravity-auth": "workspace:*"
   },
   "devDependencies": {
-    "@cortexkit/subc-client": "0.16.1",
+    "@cortexkit/claustrum-client": "0.12.0",
+    "@cortexkit/subc-client": "0.22.5",
     "@opencode/plugin": "2.0.22",
     "@types/bun": "1.3",
     "@types/json-schema": "7.0.15",

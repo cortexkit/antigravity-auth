@@ -5,8 +5,9 @@
     "": {
       "name": "opencode-ga-offline-host-fixture",
       "dependencies": {
-        "@cortexkit/claustrum-client": "0.10.0",
+        "@cortexkit/claustrum-client": "0.12.0",
         "@cortexkit/private-files": "0.2.1",
+        "@cortexkit/subc-client": "0.22.5",
         "@opencode/cli-linux-x64": "2.0.22",
         "jsonc-parser": "3.3.1",
         "xdg-basedir": "5.1.0",
@@ -15,7 +16,7 @@
     },
   },
   "packages": {
-    "@cortexkit/claustrum-client": ["@cortexkit/claustrum-client@0.10.0", "", { "dependencies": { "@cortexkit/store": "^0.2.1", "@cortexkit/subc-client": "^0.16.0" } }, "sha512-7mTbq80KPN3x4J6QUR+h8iE12r2/O9vlpcafi4OrUDB14IQglmXXitz+iX0BoqCwlRxYMJehdi31/x55fZhRJg=="],
+    "@cortexkit/claustrum-client": ["@cortexkit/claustrum-client@0.12.0", "", { "dependencies": { "@cortexkit/store": "^0.2.1", "@cortexkit/subc-client": "^0.22.0" } }, "sha512-Eqo2V8XgVzbZvolFYn11HX0TMRt21pnc9bWLYkcT4KW6kJ2fFLkzvXGzQ++MOmQpq8Bd3Jl5xA6yKkXTnimDOw=="],
 
     "@cortexkit/private-files": ["@cortexkit/private-files@0.2.1", "", {}, "sha512-U7ofFl45DDYScXo7vSV/4OPxn0xC1mflKpW8tbK8/3OaRd9q+TDEY25UWO8itXtSAlhBMqhZBZ3NxZNL5IyrSg=="],
 
@@ -23,7 +24,7 @@
 
     "@cortexkit/store/@cortexkit/private-files": ["@cortexkit/private-files@0.1.0", "", {}, "sha512-gQ3Ad0UohqGxA92CM64+UWWap8deP+uYA0cW0RV5owLWHG+S9sHci0HHr9ZYEZiyPsgF0wj/zbznqBXz1+GAPQ=="],
 
-    "@cortexkit/subc-client": ["@cortexkit/subc-client@0.16.1", "", {}, "sha512-TJqOcfMVxhCfZMANmEH/9w+L+zYxFSy5p5Zl/shDErtGSeUF6HFiwZ7OR/P2qFvpSg/yxCbsdenZ7rs5SE6fhA=="],
+    "@cortexkit/subc-client": ["@cortexkit/subc-client@0.22.5", "", {}, "sha512-C3yw60RtmWDsG6wXtEBRA+T2ybUFbIjfaAnQmuf3HIlWniLOBWoYNwMVdcUORc3wxegE5vC58DFhA3VPJ9+aAw=="],
 
     "@opencode/cli-linux-x64": ["@opencode/cli-linux-x64@2.0.22", "", { "os": "linux", "cpu": "x64" }, "sha512-DlV1qgEDDnVqpTWMPqv7tCHCcXodzZBFaMcxjsiYdY6E5gHH2Q68JfasVksyQ1nu6m1887WQKGhOsepE+oKyYw=="],
 

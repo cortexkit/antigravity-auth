@@ -1788,6 +1788,33 @@ test_count_pattern = "Ran {count} test"
 expect_red = ['^green supervisor command prints no file boundaries$']
 
 [[control]]
+id = "shared-vault-roster-watch-and-reconnect"
+guards = "A supported vault roster watch avoids poll reads, refreshes on a changed view and reads again after resubscription."
+edits = [
+  { file = "packages/core/src/common-auth-embedded/claustrum/consumer.js", old = "                this.#openWatch();", new = "                // NON-VACUITY BREAK: disable roster-watch setup." },
+  { file = "packages/core/src/common-auth-embedded/source-output.json", old = "\"bytes\": 23139,\n      \"sourceSha256\": \"7b97c80964eaffa9f4c4fc3334885ce4c2da80ed330288311d08b0c8c7edca31\",\n      \"outputSha256\": \"7b97c80964eaffa9f4c4fc3334885ce4c2da80ed330288311d08b0c8c7edca31\"", new = "\"bytes\": 23170,\n      \"sourceSha256\": \"7b97c80964eaffa9f4c4fc3334885ce4c2da80ed330288311d08b0c8c7edca31\",\n      \"outputSha256\": \"ea4eb8ac63d37db767eaaa352d533af302bc0efc635cb2ee97de74c476beec78\"" },
+]
+test_file = "packages/opencode/src/plugin/vault-custody.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/vault-custody.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/vault-custody.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['OpenCode 1 vault observation watches the roster instead of listing every poll']
+
+[[control]]
+id = "tui-collapsed-groups-in-narrow-form"
+guards = "The narrow quota line retains its group labels from the shared projection."
+file = "packages/opencode/src/tui.tsx"
+old = "    groups: QUOTA_ORDER.map((scope) => ({\n      scope,\n      label: GROUP_NAMES[scope],\n    })),"
+new = "    // NON-VACUITY BREAK: omit the projected quota groups."
+test_file = "packages/opencode/src/tui-narrow-frames.test.tsx"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/tui-narrow-frames.test.tsx", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/tui-narrow-frames.test.tsx -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['OpenCode 1 collapsed sidebar row in a narrow sidebar uses the exact shared narrow form or the label fallback at 32 columns']
+
+[[control]]
 id = "tui-collapsed-label-only-fallback"
 guards = "A shared quota wider than the row is replaced by the account label and status dot, never clipped or wrapped."
 file = "packages/opencode/src/tui.tsx"
@@ -1798,4 +1825,4 @@ list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/ope
 runner = "command"
 command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/tui-narrow-frames.test.tsx -t \"$1\"", "--", "{test}"]
 test_count_pattern = "Ran {count} test"
-expect_red = ['^OpenCode\s1\scollapsed\ssidebar\srow\sin\sa\snarrow\ssidebar\sshows\sthe\sshared\sline\sat\sits\s26-cell\sboundary\sand\sonly\sthe\slabel\sjust\sbelow$']
+expect_red = ['OpenCode 1 collapsed sidebar row in a narrow sidebar shows the shared line at its 26-cell boundary and only the label just below']

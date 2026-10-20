@@ -20,6 +20,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadCommonAuthClaustrum } from '@cortexkit/antigravity-auth-core'
+import { ClaustrumClient } from '@cortexkit/claustrum-client'
 
 import { createVaultAccountPool } from './shared/vault-request-credentials.ts'
 import {
@@ -33,6 +34,7 @@ import {
 
 /** A well-formed enrollment token, as the vault issues them. */
 const ENROLLMENT_TOKEN = 'ab'.repeat(32)
+const OBSERVATION_NOW = Date.UTC(2026, 0, 10, 12, 0, 0)
 
 let root: string
 let accountFile: string
@@ -902,6 +904,222 @@ it('starts vault-authority discovery when the request joins an old local observa
     expect(pool.selector.rows).toHaveLength(1)
   } finally {
     release()
+    await custody.dispose()
+  }
+})
+
+type TestWatchNotice = {
+  kind: 'changed'
+  epoch: string
+  seq: number
+  view: string
+  keys: string
+}
+
+type TestWatchEnd =
+  | { kind: 'stopped' }
+  | { kind: 'transport_lost'; error: unknown }
+
+function fakeObservationClient(supportsWatch: boolean) {
+  let listCalls = 0
+  let watchCalls = 0
+  let noticeCalls = 0
+  let view = 'view-1'
+  const notices: Array<(notice: TestWatchNotice) => void> = []
+  const closeWatches: Array<(end: TestWatchEnd) => void> = []
+  const client: Record<string, unknown> = {
+    listScoped: async () => {
+      listCalls++
+      return {
+        view,
+        rows: [
+          {
+            id: 'credential',
+            accountId: 'identity',
+            credentialType: 'oauth',
+            createdAtMs: 1,
+            state: 'active',
+            recordVersion: 1,
+            categories: ['antigravity-native'],
+            serves: ['google'],
+            providerIds: ['google'],
+            operations: ['read'],
+            refreshAdapter: 'antigravity',
+          },
+        ],
+        grants: undefined,
+        grantTuples: undefined,
+      }
+    },
+    getScoped: async () => {
+      throw new Error('unexpected credential fetch')
+    },
+    reportAuthFailureScoped: async () => {},
+    close: () => {
+      for (const close of closeWatches) close({ kind: 'stopped' })
+    },
+  }
+  if (supportsWatch) {
+    client.watchScoped = (onNotice: (notice: TestWatchNotice) => void) => {
+      const index = watchCalls++
+      let close!: (end: TestWatchEnd) => void
+      const closed = new Promise<TestWatchEnd>((resolve) => {
+        close = resolve
+      })
+      notices[index] = (notice) => {
+        noticeCalls++
+        onNotice(notice)
+      }
+      closeWatches[index] = close
+      queueMicrotask(() =>
+        notices[index]?.({
+          kind: 'changed',
+          epoch: `epoch-${index}`,
+          seq: 1,
+          view,
+          keys: '',
+        }),
+      )
+      return {
+        stop: () => close({ kind: 'stopped' }),
+        closed,
+      }
+    }
+  }
+  return {
+    client: client as never,
+    get listCalls() {
+      return listCalls
+    },
+    get watchCalls() {
+      return watchCalls
+    },
+    get noticeCalls() {
+      return noticeCalls
+    },
+    changeView(next: string) {
+      view = next
+      notices[0]?.({
+        kind: 'changed',
+        epoch: 'epoch-0',
+        seq: 2,
+        view: next,
+        keys: 'credential',
+      })
+    },
+    dropWatch(index: number) {
+      closeWatches[index]?.({
+        kind: 'transport_lost',
+        error: new Error('simulated watch loss'),
+      })
+    },
+  }
+}
+
+async function waitUntil(
+  condition: () => boolean,
+  description: string,
+  timeoutMs = 3_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!condition()) {
+    if (Date.now() >= deadline)
+      throw new Error(`Timed out waiting for ${description}`)
+    await new Promise<void>((resolve) => setTimeout(resolve, 5))
+  }
+}
+
+async function startObservedVault(
+  client: ReturnType<typeof fakeObservationClient>,
+  now: () => number,
+  pollIntervalMs: number,
+) {
+  const service = fakeEnrollmentService()
+  service.approveNext()
+  const { custody } = custodyWith(async () => undefined, service, {
+    connect: async () => client.client,
+    now,
+    pollIntervalMs,
+  })
+  expect((await custody.requestAccess()).state).toBe('approved')
+  await custody.useVault()
+  await custody.startObservation()
+  return custody
+}
+
+it('OpenCode 1 vault observation watches the roster instead of listing every poll', async () => {
+  const supportsWatch = Object.getOwnPropertyNames(
+    ClaustrumClient.prototype,
+  ).includes('watchScoped')
+  // Model the public wrapper: its `watchScoped` method exists only in 0.12.0+.
+  const client = fakeObservationClient(supportsWatch)
+  let currentTime = OBSERVATION_NOW
+  let clockReads = 0
+  const custody = await startObservedVault(
+    client,
+    () => {
+      clockReads++
+      return currentTime
+    },
+    2_000,
+  )
+  try {
+    await waitUntil(
+      () =>
+        client.listCalls === 1 &&
+        client.watchCalls === 1 &&
+        client.noticeCalls > 0,
+      'the initial roster and accepted watch',
+    )
+    const beforePoll = clockReads
+    currentTime += 6_001
+    await waitUntil(
+      () => clockReads > beforePoll,
+      'the simulated post-five-second poll tick',
+    )
+    expect(client.listCalls).toBe(1)
+
+    client.changeView('view-2')
+    await waitUntil(() => client.listCalls === 2, 'the changed roster view')
+    expect(client.listCalls).toBe(2)
+
+    client.dropWatch(0)
+    await waitUntil(
+      () =>
+        client.watchCalls === 2 &&
+        client.listCalls === 3 &&
+        client.noticeCalls > 1,
+      'the replacement watch and its first roster read',
+    )
+    expect(client.listCalls).toBe(3)
+  } finally {
+    await custody.dispose()
+  }
+})
+
+it('OpenCode 1 vault observation keeps polling when the client has no watch method', async () => {
+  const client = fakeObservationClient(false)
+  let currentTime = OBSERVATION_NOW
+  let clockReads = 0
+  const custody = await startObservedVault(
+    client,
+    () => {
+      clockReads++
+      return currentTime
+    },
+    50,
+  )
+  try {
+    await waitUntil(() => client.listCalls === 1, 'the initial fallback roster')
+    const beforePoll = clockReads
+    currentTime += 6_001
+    await waitUntil(
+      () => clockReads > beforePoll && client.listCalls > 1,
+      'the fallback roster poll',
+    )
+    expect(client.listCalls).toBe(2)
+    expect(client.watchCalls).toBe(0)
+  } finally {
     await custody.dispose()
   }
 })

@@ -263,7 +263,7 @@ describe('windows rework — reviewer frames', () => {
     testSetup.renderer.destroy()
   })
 
-  it('(c) Collapsed row — pool + binding-window label + percent left', async () => {
+  it('(c) Collapsed row — shared narrow line for both quota groups', async () => {
     const future = Date.now() + 5 * 60 * 1000
     const future2 = Date.now() + 7 * 24 * 60 * 60 * 1000
     const payload = writeState({
@@ -339,11 +339,10 @@ describe('windows rework — reviewer frames', () => {
     await testSetup.flush()
     const frame = testSetup.captureCharFrame()
     console.log(`\n${dumpFrame('(c) Collapsed row frame', frame)}`)
-    // The collapsed row shows the lowest current window across both groups,
-    // with its plain group name and window, rather than one figure per group.
-    expect(frame).toContain('Gemini 7d 92% left')
-    expect(frame).not.toMatch(/\bGm\b|\bNG\b/)
-    expect(frame).not.toContain('96% left')
+    // The shared narrow formatter combines both groups without local prefixes.
+    expect(frame).toContain('Ge 7d 92% · Ot 5h 96% left')
+    expect(frame).not.toContain('Gemini 7d 92% left')
+    expect(frame).not.toContain('Other 5h 96% left')
     expect(frame).toContain('●')
     testSetup.renderer.destroy()
   })

@@ -1739,10 +1739,27 @@ describe('createFetchInterceptor', () => {
             },
           ])
           expect(await keptReceipts(vault)).toEqual([false, true])
-          expect(vault.gets).toHaveLength(2)
+          // During an outage the shared consumer reuses its last credential grant;
+          // a background roster check can find recovery without another grant read.
+          await vault.waitForLists(3)
+          expect(vault.gets).toHaveLength(1)
           expect(vault.lists()).toBe(3)
           for (const operation of local)
             expect(operation).not.toHaveBeenCalled()
+
+          vault.reachable()
+          await new Promise<void>((resolve) => setTimeout(resolve, 2_100))
+          await vault.waitForLists(4)
+          expect(vault.lists()).toBe(4)
+          expect(
+            (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
+          ).toBe(200)
+          expect(sent(2)).toEqual({
+            authorization: 'Bearer outage-bearer',
+            project: 'outage-project',
+          })
+          expect(await keptReceipts(vault)).toEqual([false, true, false])
+          expect(vault.gets).toHaveLength(2)
         } finally {
           await interceptor.dispose()
           for (const operation of local) operation.mockRestore()

@@ -120,7 +120,7 @@ test('embed.integrity', async () => {
   const input = await readFile(join(root, inputPath))
   expect(hash(input)).toBe(publication.sha256)
   expect(sri(input)).toBe(publication.sri)
-  expect(readVerifiedArchive(input, publication).size).toBe(219)
+  expect(readVerifiedArchive(input, publication).size).toBe(221)
   expect(() =>
     readVerifiedArchive(input, { ...publication, sri: 'sha512-wrong' }),
   ).toThrow('integrity: SHA512 SRI mismatch')
@@ -161,7 +161,7 @@ test('embed.inventory', async () => {
     expect(hash(data)).toBe(String(digest))
     total += data.length
   }
-  expect(total).toBe(978017)
+  expect(total).toBe(1026068)
   for (const [property, value, message] of [
     ['name', 'wrong', 'identity'],
     ['version', '0.9.4', 'version'],
