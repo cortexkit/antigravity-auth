@@ -441,6 +441,19 @@ export function gaSettingsOf(
 // State source
 // ---------------------------------------------------------------------------
 
+/** The newest quota reading time among `rows`, or `null` without a reading. */
+export function newestQuotaReadingAt(
+  rows: readonly { readonly cachedQuotaUpdatedAt?: number | null }[],
+): number | null {
+  let newest: number | null = null
+  for (const row of rows) {
+    const at = row.cachedQuotaUpdatedAt
+    if (typeof at === 'number' && Number.isFinite(at) && at > (newest ?? -1))
+      newest = at
+  }
+  return newest
+}
+
 export interface GaAccountStateOptions {
   readonly repository: Pick<AccountRepository, 'read'>
   readonly registry: GaSelectorRegistry
@@ -521,7 +534,20 @@ export function createGaAccountStateSource(
     if (input.signal.aborted) throw abortError(input.signal)
     const projected = project(read, options.registry, health)
     const settings = options.settings()
-    const status = options.status()
+    const reported = options.status()
+    // From the whole ready roster, so an over-limit answer keeps its freshness.
+    const status: AntigravityStatusDto = {
+      ...reported,
+      checkedAt:
+        reported.checkedAt ??
+        newestQuotaReadingAt(
+          read.status === 'ready'
+            ? read.rows.map((row) =>
+                row.quota.status === 'present' ? row.quota.quota : {},
+              )
+            : [],
+        ),
+    }
     const route = options.route(input.scope)
     if (input.signal.aborted) throw abortError(input.signal)
 
@@ -1708,7 +1734,7 @@ function vaultSelectors(createSelector: () => string) {
  * accounts as redaction rows with opaque selectors, read one at a time.
  * Vault rows carry no metadata or access blocks of this plugin's own.
  */
-function createGaVaultStateSource(input: {
+export function createGaVaultStateSource(input: {
   /** The pipeline's current selection rows. */
   readonly rows: () => readonly VaultAccountRow[]
   readonly selectorOf: (row: VaultAccountRow) => string
@@ -1746,12 +1772,15 @@ function createGaVaultStateSource(input: {
                 ...(row.cachedQuota !== undefined
                   ? { cachedQuota: row.cachedQuota }
                   : {}),
+                ...(row.cachedQuotaUpdatedAt !== undefined
+                  ? { cachedQuotaUpdatedAt: row.cachedQuotaUpdatedAt }
+                  : {}),
               },
             })),
           },
       route,
       status: {
-        checkedAt: null,
+        checkedAt: newestQuotaReadingAt(rows),
         quotaBackoffUntil: null,
         routingAuthoritative: true,
       },

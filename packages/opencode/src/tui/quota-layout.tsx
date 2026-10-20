@@ -4,7 +4,7 @@
  * Quota layout shared by the OpenCode 1 sidebar (`tui.tsx`) and the OpenCode 2
  * sidebar (`ga/tui/host-ga.tsx`): one account block with its header line, the
  * reading age once per account, plain-word group headers and one width-fitted
- * row per quota window.
+ * row per quota window, plus the collapsed row's lowest current figure.
  *
  * Each renderer supplies its own data source and colors. This module imports
  * only the pure quota presentation helpers, so it stays inside both TUI
@@ -28,8 +28,8 @@ export type QuotaTone = 'ok' | 'warn' | 'err' | 'muted' | 'accent' | 'text'
 export type QuotaColor = string | RGBA | undefined
 
 /**
- * How a renderer colors the quota layout. OpenCode 1 maps these onto its live
- * host theme; a renderer without a theme returns `undefined` everywhere.
+ * How a renderer colors the quota layout. Each sidebar maps these onto its
+ * live host theme; a missing theme token returns `undefined`.
  */
 export interface QuotaPalette {
   readonly text: () => QuotaColor
@@ -185,6 +185,54 @@ export function accountWindows(
 // read and it has a read time at all.
 export function showsFigure(window: AccountWindow): boolean {
   return window.text.remaining != null && !window.text.resetSinceReading
+}
+
+// The collapsed row has room for one word before the window name.
+const COLLAPSED_GROUP_NAMES: Record<QuotaGroupKey, string> = {
+  gemini: 'Gemini',
+  'non-gemini': 'Other',
+}
+
+export interface CollapsedQuota {
+  // The group and window of the figure (`Other 7d `), dropped when narrow.
+  prefix: string
+  text: string
+  remaining: number | null
+}
+
+// The collapsed row's figure: the lowest current window across both groups.
+// A window that reset since its reading is not current and never binds.
+export function collapsedQuota(
+  account: QuotaLayoutAccount,
+  now: number,
+): CollapsedQuota {
+  if (account.quota.gemini == null && account.quota['non-gemini'] == null)
+    return { prefix: '', text: '—', remaining: null }
+  const windows = accountWindows(account, now)
+  let lowest: AccountWindow | undefined
+  for (const window of windows) {
+    if (!showsFigure(window)) continue
+    if (
+      lowest === undefined ||
+      (window.text.remaining ?? 100) < (lowest.text.remaining ?? 100)
+    )
+      lowest = window
+  }
+  if (lowest) {
+    const name = lowest.text.name
+    return {
+      prefix: `${COLLAPSED_GROUP_NAMES[lowest.key]}${name ? ` ${name}` : ''} `,
+      text: lowest.text.figure,
+      remaining: lowest.text.remaining,
+    }
+  }
+  return {
+    prefix: '',
+    text: windows.some((window) => window.text.resetSinceReading)
+      ? RESET_SINCE_READING
+      : NO_QUOTA_READING,
+    remaining: null,
+  }
 }
 
 interface WindowRowLayout {

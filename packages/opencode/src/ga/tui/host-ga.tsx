@@ -67,9 +67,14 @@ import {
 } from '../../tui/host-api'
 import {
   ASSUMED_CONTENT_WIDTH,
+  collapsedQuota,
   DEFAULT_QUOTA_APPEARANCE,
+  fitLabel,
   QuotaAccountBlock,
+  type QuotaColor,
   type QuotaPalette,
+  type QuotaTone,
+  quotaTone,
 } from '../../tui/quota-layout'
 import { fitRouteParts } from '../../tui/route-layout'
 
@@ -113,8 +118,33 @@ export interface GaSlotClaim {
   readonly render: (input: { readonly sessionID: string }) => JSX.Element
 }
 
+/** The host theme tokens the sidebar reads; any of them may be missing. */
+export interface GaTheme {
+  readonly text?: {
+    readonly base?: QuotaColor
+    readonly muted?: QuotaColor
+    readonly action?: { readonly primary?: { readonly base?: QuotaColor } }
+    readonly feedback?: {
+      readonly success?: { readonly base?: QuotaColor }
+      readonly warning?: { readonly base?: QuotaColor }
+      readonly error?: { readonly base?: QuotaColor }
+    }
+  }
+  readonly background?: { readonly base?: QuotaColor }
+}
+
+/** The host's durable plugin storage, as far as the sidebar uses it. */
+export interface GaStorage {
+  store<Value extends object>(
+    key: string,
+    options: { readonly initial: Value },
+  ): readonly [Value, (mutation: (draft: Value) => void) => Promise<void>]
+}
+
 /** The parts of the GA TUI `Context` this adapter uses. */
 export interface GaTuiContext {
+  readonly theme?: GaTheme
+  readonly storage?: GaStorage
   readonly location: GaLocationRef | undefined
   readonly client: {
     readonly rpc: {
@@ -1480,18 +1510,84 @@ interface SidebarView {
   readonly readAt: number
 }
 
-// The GA context carries no theme, so the quota layout keeps the host's
-// default text color everywhere.
-const HOST_COLORS: QuotaPalette = {
-  text: () => undefined,
-  muted: () => undefined,
-  tone: () => undefined,
+// The host theme as the quota layout's colors; a missing token keeps the
+// host's default color.
+function themePalette(theme: () => GaTheme | undefined): QuotaPalette {
+  const tone = (name: QuotaTone): QuotaColor => {
+    const text = theme()?.text
+    switch (name) {
+      case 'ok':
+        return text?.feedback?.success?.base
+      case 'warn':
+        return text?.feedback?.warning?.base
+      case 'err':
+        return text?.feedback?.error?.base
+      case 'muted':
+        return text?.muted
+      case 'accent':
+        return text?.action?.primary?.base
+      default:
+        return text?.base
+    }
+  }
+  return { text: () => tone('text'), muted: () => tone('muted'), tone }
+}
+
+// One account on one line, as the OpenCode 1 collapsed row: the label, the
+// lowest current figure and a dot in the account's status tone.
+function CollapsedAccount(props: {
+  readonly palette: QuotaPalette
+  readonly account: ProjectionAccount
+  readonly statusTone: QuotaTone
+  readonly now: () => number
+  readonly width: () => number
+}): JSX.Element {
+  const quota = () => collapsedQuota(props.account, props.now())
+  const tone = (): QuotaTone => {
+    const remaining = quota().remaining
+    return remaining == null
+      ? 'muted'
+      : quotaTone(100 - remaining, DEFAULT_QUOTA_APPEARANCE)
+  }
+  // The group prefix goes first when narrow; then the label is cut.
+  const figure = () => {
+    const { prefix, text } = quota()
+    const full = `${prefix}${text}`
+    return props.account.label.length + 1 + full.length + 2 <= props.width()
+      ? full
+      : text
+  }
+  const label = () =>
+    fitLabel(props.account.label, props.width() - 1 - figure().length - 2)
+  return (
+    <box width='100%' flexDirection='row' justifyContent='space-between'>
+      <text flexShrink={0} wrapMode='none' fg={props.palette.muted()}>
+        {label()}
+      </text>
+      <box flexDirection='row' flexShrink={0}>
+        <text flexShrink={0} wrapMode='none' fg={props.palette.tone(tone())}>
+          <b>{figure()}</b>
+        </text>
+        <text
+          flexShrink={0}
+          wrapMode='none'
+          fg={props.palette.tone(props.statusTone)}
+        >
+          {' ●'}
+        </text>
+      </box>
+    </box>
+  )
 }
 
 function GaSidebar(props: {
   readonly view: () => SidebarView | undefined
   readonly sessionID: string
+  readonly theme: () => GaTheme | undefined
+  readonly collapsed: () => boolean
+  readonly toggleCollapsed: () => void
 }): JSX.Element {
+  const palette = themePalette(props.theme)
   // The route line belongs to one session; show it only in that session's
   // sidebar, never another session's.
   const route = () => {
@@ -1520,27 +1616,57 @@ function GaSidebar(props: {
   }
   return (
     <box flexDirection='column' width='100%'>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: OpenTUI draws to a terminal; ARIA roles do not apply */}
       <box
         ref={(element) => {
           titleRow = element
         }}
         onSizeChange={measureContentWidth}
+        onMouseDown={() => props.toggleCollapsed()}
         width='100%'
         flexDirection='row'
       >
-        <text>
-          <b>Antigravity</b>
-        </text>
+        <box
+          paddingLeft={1}
+          paddingRight={1}
+          backgroundColor={palette.tone('accent')}
+        >
+          <text fg={props.theme()?.background?.base}>
+            <b>{`${props.collapsed() ? '▶' : '▼'} ANTIGRAVITY`}</b>
+          </text>
+        </box>
       </box>
-      <Show when={props.view()} fallback={<text>connecting…</text>}>
+      <Show
+        when={props.view()}
+        fallback={<text fg={palette.muted()}>connecting…</text>}
+      >
         {(view) => (
-          <>
+          <Show
+            when={!props.collapsed()}
+            fallback={
+              <For each={view().projected.accounts}>
+                {(account, index) => (
+                  <Show when={view().accounts[index()]}>
+                    {(source) => (
+                      <CollapsedAccount
+                        palette={palette}
+                        account={source()}
+                        statusTone={account.statusTone}
+                        now={() => view().readAt}
+                        width={contentWidth}
+                      />
+                    )}
+                  </Show>
+                )}
+              </For>
+            }
+          >
             <For each={view().projected.accounts}>
               {(account, index) => (
                 <Show when={view().accounts[index()]}>
                   {(source) => (
                     <QuotaAccountBlock
-                      palette={HOST_COLORS}
+                      palette={palette}
                       appearance={DEFAULT_QUOTA_APPEARANCE}
                       account={source()}
                       status={account.status}
@@ -1549,19 +1675,23 @@ function GaSidebar(props: {
                       width={contentWidth}
                       marginTop={index() === 0 ? 0 : 1}
                     >
-                      <text>{`  ${account.health}`}</text>
+                      <text fg={palette.muted()}>{`  ${account.health}`}</text>
                     </QuotaAccountBlock>
                   )}
                 </Show>
               )}
             </For>
             <Show when={routeLine()}>
-              {(line) => <text wrapMode='none'>{line()}</text>}
+              {(line) => (
+                <text wrapMode='none' fg={palette.muted()}>
+                  {line()}
+                </text>
+              )}
             </Show>
             <For each={view().projected.notices}>
-              {(notice) => <text>{notice}</text>}
+              {(notice) => <text fg={palette.tone('warn')}>{notice}</text>}
             </For>
-          </>
+          </Show>
         )}
       </Show>
     </box>
@@ -1603,9 +1733,36 @@ export function setupGaTui(
   const ui = createGaMenuUi(context, active)
   const [view, setView] = createSignal<SidebarView | undefined>(undefined)
 
+  // Durable on hosts with plugin storage; for this TUI session otherwise.
+  const saved = context.storage?.store('sidebar', {
+    initial: { collapsed: false },
+  })
+  // A click shows at once; until then the saved value decides.
+  const [chosen, setChosen] = createSignal<boolean | undefined>(undefined)
+  const collapsed = () => chosen() ?? saved?.[0].collapsed === true
+  const toggleCollapsed = () => {
+    const next = !collapsed()
+    setChosen(next)
+    saved?.[1]((draft) => {
+      draft.collapsed = next
+    }).catch((error: unknown) => {
+      logger?.warn('sidebar-collapse-not-saved', {
+        error: error instanceof Error ? error.name : typeof error,
+      })
+    })
+  }
+
   const releaseSlot = context.ui.slot({
     append: 'sidebar.content',
-    render: (input) => <GaSidebar view={view} sessionID={input.sessionID} />,
+    render: (input) => (
+      <GaSidebar
+        view={view}
+        sessionID={input.sessionID}
+        theme={() => context.theme}
+        collapsed={collapsed}
+        toggleCollapsed={toggleCollapsed}
+      />
+    ),
   })
 
   // The latest snapshot per scope; the drawer's menu is built from it.

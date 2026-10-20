@@ -49,12 +49,10 @@ import type {
 } from '@opencode-ai/plugin/tui'
 import { createSlot } from '@opentui/solid'
 import { createSignal, For, type JSX, onCleanup, onMount, Show } from 'solid-js'
-import { NO_QUOTA_READING } from './quota-presentation'
 import { getRpcDir } from './rpc/rpc-dir'
 import {
   readSidebarState,
   type SidebarAccountState,
-  type SidebarQuotaKey,
   type SidebarStateV1,
 } from './sidebar-state'
 import { createTuiFileLogger, type TuiLogger } from './tui/file-logger'
@@ -64,16 +62,13 @@ import {
   type V1Notification,
 } from './tui/host-v1'
 import {
-  type AccountWindow,
   ASSUMED_CONTENT_WIDTH,
-  accountWindows,
+  collapsedQuota,
   fitLabel,
   QuotaAccountBlock,
   type QuotaPalette,
   type QuotaTone,
   quotaTone,
-  RESET_SINCE_READING,
-  showsFigure,
 } from './tui/quota-layout'
 import { routeLineFits } from './tui/route-layout'
 import {
@@ -137,11 +132,6 @@ let rpcInFlight = false
 const GLOBAL_NOTIFICATION_CURSOR = '__global__'
 const MAX_NOTIFICATION_CURSORS = 256
 
-// The collapsed row has room for one word before the window name.
-const COLLAPSED_GROUP_NAMES: Record<SidebarQuotaKey, string> = {
-  gemini: 'Gemini',
-  'non-gemini': 'Other',
-}
 // --- Theme tokens ----------------------------------------------------------
 //
 // The sidebar pulls its colors from the live host theme (`api.theme.current`
@@ -517,48 +507,6 @@ function AccountBlock(props: {
       marginTop={props.marginTop}
     />
   )
-}
-
-interface CollapsedQuota {
-  // The group and window of the figure (`Other 7d `), dropped when narrow.
-  prefix: string
-  text: string
-  remaining: number | null
-}
-
-// The collapsed row's figure: the lowest current window across both groups.
-// A window that reset since its reading is not current and never binds.
-function collapsedQuota(
-  account: SidebarAccountState,
-  now: number,
-): CollapsedQuota {
-  if (account.quota.gemini == null && account.quota['non-gemini'] == null)
-    return { prefix: '', text: '—', remaining: null }
-  const windows = accountWindows(account, now)
-  let lowest: AccountWindow | undefined
-  for (const window of windows) {
-    if (!showsFigure(window)) continue
-    if (
-      lowest === undefined ||
-      (window.text.remaining ?? 100) < (lowest.text.remaining ?? 100)
-    )
-      lowest = window
-  }
-  if (lowest) {
-    const name = lowest.text.name
-    return {
-      prefix: `${COLLAPSED_GROUP_NAMES[lowest.key]}${name ? ` ${name}` : ''} `,
-      text: lowest.text.figure,
-      remaining: lowest.text.remaining,
-    }
-  }
-  return {
-    prefix: '',
-    text: windows.some((window) => window.text.resetSinceReading)
-      ? RESET_SINCE_READING
-      : NO_QUOTA_READING,
-    remaining: null,
-  }
 }
 
 function formatWait(ms: number): string {

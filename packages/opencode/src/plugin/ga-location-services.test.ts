@@ -57,6 +57,7 @@ import {
   createMemoryQuotaSnapshots,
   type LocationRuntime,
 } from './shared/runtime.ts'
+import { vaultAccountRows } from './shared/vault-request-credentials.ts'
 
 const activeCases = new Set<GaTestCase>()
 
@@ -272,8 +273,10 @@ const {
   createGaRouteBook,
   createGaRuntimeCollaborators,
   createGaSelectorRegistry,
+  createGaVaultStateSource,
   GA_ACCOUNTS_FILE,
   gaSettingsOf,
+  newestQuotaReadingAt,
 } = await import('./ga-location-services.ts')
 
 function row(ref: RowRef, overrides: Partial<AccountRow> = {}): AccountRow {
@@ -391,6 +394,74 @@ async function selectorsOf(
   return [selectors[0] ?? '', selectors[1] ?? '', ...selectors.slice(2)]
 }
 
+describe('GA quota freshness', () => {
+  it('picks the newest finite reading time', () => {
+    expect(newestQuotaReadingAt([])).toBeNull()
+    expect(
+      newestQuotaReadingAt([{}, { cachedQuotaUpdatedAt: Number.NaN }]),
+    ).toBeNull()
+    expect(
+      newestQuotaReadingAt([
+        { cachedQuotaUpdatedAt: 5 },
+        {},
+        { cachedQuotaUpdatedAt: 9 },
+        { cachedQuotaUpdatedAt: 7 },
+      ]),
+    ).toBe(9)
+  })
+
+  it('forwards vault reading times and reports the newest as checkedAt', async () => {
+    const [first, second] = vaultAccountRows([
+      {
+        routeId: 'r1',
+        credentialId: 'c1',
+        accountIdentity: 'i1',
+        label: 'one',
+      },
+      {
+        routeId: 'r2',
+        credentialId: 'c2',
+        accountIdentity: 'i2',
+        label: 'two',
+      },
+    ])
+    if (!first || !second) throw new Error('no vault rows')
+    const groups = { gemini: { remainingFraction: 0.4, modelCount: 1 } }
+    let rows = [first, second]
+    const source = createGaVaultStateSource({
+      rows: () => rows,
+      selectorOf: (entry) => `sel-${entry.route.routeId}`,
+      generation: 'g-test',
+      settings: settingsDto,
+      route: () => null,
+    })
+    const read = () =>
+      source.read({ scope: sessionless, signal: new AbortController().signal })
+    expect((await read()).status.checkedAt).toBeNull()
+
+    // The second row holds a reading time without usable groups.
+    rows = [
+      { ...first, cachedQuota: groups, cachedQuotaUpdatedAt: 2_000 },
+      { ...second, cachedQuotaUpdatedAt: 6_000 },
+    ]
+    const answer = await read()
+    expect(answer.status.checkedAt).toBe(6_000)
+    if (answer.accounts.kind !== 'complete') throw new Error('over limit')
+    expect(
+      answer.accounts.rows.map((entry) => entry.row.cachedQuotaUpdatedAt),
+    ).toEqual([2_000, 6_000])
+    expect(JSON.stringify(answer)).not.toContain('i1')
+
+    rows = Array.from({ length: 65 }, (_, index) => ({
+      ...first,
+      cachedQuotaUpdatedAt: 1_000 + index,
+    }))
+    const over = await read()
+    expect(over.accounts).toEqual({ kind: 'over-limit', count: 65 })
+    expect(over.status.checkedAt).toBe(1_064)
+  })
+})
+
 describe('GA account state', () => {
   it('keeps a selector for the same credential and retires it when the epoch changes', async () => {
     const repository = new MemoryRepository([row(A), row(B)])
@@ -453,6 +524,43 @@ describe('GA account state', () => {
     expect(observed.map((entry) => entry.readSeq)).toEqual([1])
   })
 
+  it('reports the newest quota reading as checkedAt', async () => {
+    const quotaRead = (at: number): Partial<AccountRow> => ({
+      quota: {
+        status: 'present',
+        quota: {
+          schemaVersion: 1,
+          cachedQuota: { gemini: { remainingFraction: 0.5, modelCount: 1 } },
+          cachedQuotaUpdatedAt: at,
+        },
+      },
+    })
+    const repository = new MemoryRepository([row(A), row(B)])
+    const source = stateSource(repository)
+    const read = () =>
+      source.read({ scope: sessionless, signal: new AbortController().signal })
+    expect((await read()).status.checkedAt).toBeNull()
+
+    repository.rows = [row(A, quotaRead(1_000)), row(B, quotaRead(3_000))]
+    expect((await read()).status.checkedAt).toBe(3_000)
+  })
+
+  it('keeps a checkedAt the location reports itself', async () => {
+    const source = createGaAccountStateSource({
+      repository: new MemoryRepository([row(A)]),
+      registry: createGaSelectorRegistry(),
+      generation: 'g-test',
+      settings: settingsDto,
+      status: () => ({ ...status(), checkedAt: 42 }),
+      route: () => null,
+    })
+    const read = await source.read({
+      scope: sessionless,
+      signal: new AbortController().signal,
+    })
+    expect(read.status.checkedAt).toBe(42)
+  })
+
   it('reports an over-limit roster without issuing selectors', async () => {
     const rows = Array.from({ length: 65 }, (_, index) =>
       row({ id: `row-${index}`, credentialEpoch: 1 }),
@@ -463,6 +571,35 @@ describe('GA account state', () => {
       signal: new AbortController().signal,
     })
     expect(read.accounts).toEqual({ kind: 'over-limit', count: 65 })
+    expect(read.status.checkedAt).toBeNull()
+  })
+
+  it('keeps the newest quota reading as checkedAt for an over-limit roster', async () => {
+    const rows = Array.from({ length: 65 }, (_, index) =>
+      row(
+        { id: `row-${index}`, credentialEpoch: 1 },
+        index === 40
+          ? {
+              quota: {
+                status: 'present',
+                quota: {
+                  schemaVersion: 1,
+                  cachedQuota: {
+                    gemini: { remainingFraction: 0.5, modelCount: 1 },
+                  },
+                  cachedQuotaUpdatedAt: 7_000,
+                },
+              },
+            }
+          : {},
+      ),
+    )
+    const read = await stateSource(new MemoryRepository(rows)).read({
+      scope: sessionless,
+      signal: new AbortController().signal,
+    })
+    expect(read.accounts).toEqual({ kind: 'over-limit', count: 65 })
+    expect(read.status.checkedAt).toBe(7_000)
   })
 
   it('reads settings fresh for every answer', async () => {

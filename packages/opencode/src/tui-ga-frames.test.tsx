@@ -10,8 +10,8 @@
  * Every quota window must stay on one line, the pools must carry the plain
  * group names (`Gemini`, `Other models`), a window whose reset passed after
  * its reading must not show the stored figure, and the reading age appears
- * once per account. The GA sidebar has no collapsed mode, so there is no
- * collapsed-row case here.
+ * once per account. Collapsed, each account takes one line with its lowest
+ * current figure.
  *
  * Set AGY_PRINT_FRAMES=1 to print every captured frame.
  */
@@ -242,9 +242,13 @@ async function capture(
   answer: unknown,
   width: number,
   sessionID = 'ses_a',
+  collapsed = false,
 ): Promise<string> {
   const fake = fakeContext(answer)
-  const cleanup = setupGaTui(fake.context as never, {
+  const storage = {
+    store: () => [{ collapsed }, async () => undefined] as const,
+  }
+  const cleanup = setupGaTui({ ...fake.context, storage } as never, {
     now: () => NOW,
     schedule: () => () => undefined,
   })
@@ -400,6 +404,27 @@ describe('OpenCode 2 sidebar quota layout', () => {
             ? 'Route Account 1 · claude'
             : 'Route Account 1 · claude · antigravity',
       )
+    })
+
+    it(`a collapsed account fits one line at ${width} columns`, async () => {
+      const frame = await capture(
+        snapshot([freshAccount()], { route: ROUTE }),
+        width,
+        'ses_a',
+        true,
+      )
+      show('collapsed', width, frame)
+      expectNoWrappedFragments(frame)
+      const lines = contentLines(frame)
+      expect(lines).toHaveLength(2)
+      expect(lines[0]).toBe('▶ ANTIGRAVITY')
+      // The lowest current window names its group and window when it fits.
+      expect(lines[1]).toMatch(
+        width < 29
+          ? /^Account 1 +48% left ●$/
+          : /^Account 1 +Other 7d 48% left ●$/,
+      )
+      expect(lines[1]?.length).toBeLessThanOrEqual(width)
     })
 
     it(`a session without a route shows no route line at ${width} columns`, async () => {

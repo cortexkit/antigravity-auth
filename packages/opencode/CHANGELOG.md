@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- The OpenCode 2 sidebar now uses the host theme: quota bars and figures are colored by remaining quota with the same thresholds as OpenCode 1, the status word follows the account state, secondary text is muted and degraded-state notices use the warning color. Hosts without a theme render the same text uncolored.
+- The OpenCode 2 sidebar header is a clickable `▼/▶ ANTIGRAVITY` badge that collapses the panel to one line per account (label, lowest current figure, status dot), like OpenCode 1's collapsed row. The choice is saved in the host's plugin storage when available and lasts for the session otherwise.
+
+### Fixed
+
+- The OpenCode 2 sidebar no longer says "quota not checked yet" once quota readings exist: `state` answers now report the newest reading time as `status.checkedAt`, for local and vault accounts.
+- Vault accounts on OpenCode 2 now show their cached quota figures and reading age instead of "no quota reading yet", because their reading time is forwarded to the sidebar.
+- An OpenCode 2 roster above the account limit still reports its newest quota reading time instead of `checkedAt: null`.
+
 ## [2.3.0] - 2026-09-17
 
 ### Added

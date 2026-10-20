@@ -2269,6 +2269,136 @@ describe('GA TUI setup', () => {
     }
   })
 
+  // The OpenCode 2 `ResolvedTheme` token shape, as far as the sidebar reads it.
+  const GA_THEME = {
+    text: {
+      base: '#e0e0e0',
+      muted: '#808080',
+      action: { primary: { base: '#8080ff' } },
+      feedback: {
+        success: { base: '#00c000' },
+        warning: { base: '#e0a000' },
+        error: { base: '#e00000' },
+      },
+    },
+    background: { base: '#101010' },
+  }
+
+  function fgOf(
+    spans: { lines: Array<{ spans: Array<{ fg: unknown; text: string }> }> },
+    text: string,
+  ): string | undefined {
+    for (const line of spans.lines)
+      for (const span of line.spans)
+        if (span.text.includes(text)) return String(span.fg)
+    return undefined
+  }
+
+  it('colors the quota layout, status and secondary text with the host theme', async () => {
+    const { setupGaTui } = await import('./ga/tui/host-ga')
+    const fake = fakeContext([
+      gaSnapshot({
+        accounts: [
+          gaAccount({
+            quota: {
+              gemini: { remainingPercent: 20, checkedAt: Date.now() },
+              'non-gemini': { remainingPercent: 80, checkedAt: Date.now() },
+            },
+          }),
+        ],
+      }),
+    ])
+    const cleanup = setupGaTui({ ...fake.context, theme: GA_THEME } as never, {
+      schedule: () => () => undefined,
+    })
+    await settle0()
+    const view = await testRender(() => renderClaim(fake.claim(), 'ses_a'), {
+      width: 40,
+      height: 14,
+    })
+    try {
+      await settle()
+      const spans = view.captureSpans()
+      // Tones follow the OpenCode 1 defaults: 80% used or more is an error.
+      expect(fgOf(spans, '20% left')).toBe(hexToRgbaString('#e00000'))
+      expect(fgOf(spans, '80% left')).toBe(hexToRgbaString('#00c000'))
+      expect(fgOf(spans, 'active')).toBe(hexToRgbaString('#00c000'))
+      expect(fgOf(spans, 'Account 1')).toBe(hexToRgbaString('#e0e0e0'))
+      expect(fgOf(spans, 'Other models')).toBe(hexToRgbaString('#808080'))
+      expect(fgOf(spans, 'health 90')).toBe(hexToRgbaString('#808080'))
+      expect(fgOf(spans, 'ANTIGRAVITY')).toBe(hexToRgbaString('#101010'))
+    } finally {
+      view.renderer.destroy()
+      await cleanup()
+    }
+  })
+
+  it('collapses to one line per account on a header click and saves the choice', async () => {
+    const { setupGaTui } = await import('./ga/tui/host-ga')
+    const fake = fakeContext([gaSnapshot()])
+    const saved = { collapsed: false }
+    const storage = {
+      store: () =>
+        [
+          saved,
+          async (mutation: (draft: typeof saved) => void) => mutation(saved),
+        ] as const,
+    }
+    const cleanup = setupGaTui({ ...fake.context, storage } as never, {
+      schedule: () => () => undefined,
+    })
+    await settle0()
+    const view = await testRender(() => renderClaim(fake.claim(), 'ses_a'), {
+      width: 40,
+      height: 12,
+    })
+    try {
+      await settle()
+      expect(view.captureCharFrame()).toContain('▼ ANTIGRAVITY')
+      await view.mockMouse.click(3, 0)
+      await settle()
+      const lines = view
+        .captureCharFrame()
+        .split('\n')
+        .map((line) => line.trim())
+      expect(lines[0]).toBe('▶ ANTIGRAVITY')
+      expect(
+        lines.some((line) => /^Account 1 +Gemini 55% left ●$/.test(line)),
+      ).toBe(true)
+      expect(lines).not.toContain('health 90')
+      expect(lines).not.toContain('Gemini')
+      expect(saved.collapsed).toBe(true)
+    } finally {
+      view.renderer.destroy()
+      await cleanup()
+    }
+  })
+
+  it('starts collapsed when the host storage remembers it', async () => {
+    const { setupGaTui } = await import('./ga/tui/host-ga')
+    const fake = fakeContext([gaSnapshot()])
+    const storage = {
+      store: () => [{ collapsed: true }, async () => undefined] as const,
+    }
+    const cleanup = setupGaTui({ ...fake.context, storage } as never, {
+      schedule: () => () => undefined,
+    })
+    await settle0()
+    const view = await testRender(() => renderClaim(fake.claim(), 'ses_a'), {
+      width: 40,
+      height: 12,
+    })
+    try {
+      await settle()
+      const frame = view.captureCharFrame()
+      expect(frame).toContain('▶ ANTIGRAVITY')
+      expect(frame).not.toContain('health 90')
+    } finally {
+      view.renderer.destroy()
+      await cleanup()
+    }
+  })
+
   it('applies a choice, then redraws from a fresh state read rather than the apply answer', async () => {
     const { setupGaTui } = await import('./ga/tui/host-ga')
     const fresh = gaSnapshot({
