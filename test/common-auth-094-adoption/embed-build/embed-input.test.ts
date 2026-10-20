@@ -418,10 +418,20 @@ test('build.repo_hygiene', async () => {
     '.gitignore',
     childManifest,
     'packages/opencode/scripts/build-tui.ts',
+    // The copied build script imports this command helper.
+    'packages/opencode/scripts/run-command.ts',
     'packages/opencode/scripts/embed-common-auth.ts',
     // The root embed:check also checks core's embedded output, through
     // core's call into the same emitter.
     'packages/core/scripts/embed-common-auth.ts',
+    // The root lint and pre-commit hooks need the native-inert gate inputs.
+    'scripts/lint-native-inert-sources.ts',
+    'scripts/native-inert-gate.ts',
+    'scripts/native-inert-result.ts',
+    'packages/e2e-tests/docker/measure-ga-proxy-matrix.ts',
+    'packages/e2e-tests/docker/ga-contract-inputs.test.ts',
+    'packages/e2e-tests/src/fixtures/opencode-ga-host/native-job.ts',
+    'packages/e2e-tests/docker/inert-fixture.ts',
     `${privateRoot}/package.json`,
     privateLock,
     ...protectedPaths,
