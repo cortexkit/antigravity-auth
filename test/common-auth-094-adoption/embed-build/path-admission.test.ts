@@ -1,5 +1,4 @@
 import { expect } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   link,
@@ -16,6 +15,7 @@ import {
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { lifetimeHooks } from '../../fixtures/lifetime-hooks.ts'
+import { runCommand } from '../../support/run-command.ts'
 
 // A timed-out synchronous wait can resume into the asynchronous snapshot below.
 // Drain that test body before deleting its inputs or starting its successor.
@@ -119,7 +119,11 @@ async function snapshot(root: string, prefix = ''): Promise<Snapshot[]> {
   return entries
 }
 
-function invoke(cwd: string, paths: Paths) {
+// The build fails at its own deadline, before the 120 s test timeout.
+const BUILD_DEADLINE_MS = 90_000
+
+/** Resolves with the node-style status field the assertions below read. */
+async function invoke(cwd: string, paths: Paths) {
   const args = [
     build,
     '--package-root',
@@ -132,19 +136,19 @@ function invoke(cwd: string, paths: Paths) {
     paths.runtimeDir,
   ]
   if (paths.mapFile !== undefined) args.push('--map', paths.mapFile)
-  return spawnSync(process.execPath, args, {
+  const result = await runCommand([process.execPath, ...args], {
     cwd,
-    encoding: 'utf8',
-    timeout: 120000,
     env: { ...process.env, npm_config_offline: 'true' },
+    deadlineMs: BUILD_DEADLINE_MS,
   })
+  return { ...result, status: result.exitCode }
 }
 
 async function refuses(root: string, paths: Paths, message: string) {
   // Directory membership, link targets and every owned source/foreign byte are witnessed.
   // Existing output sentinels make any compiler traversal or catch-cleanup destructive.
   const before = await snapshot(root)
-  const result = invoke(root, paths)
+  const result = await invoke(root, paths)
   const after = await snapshot(root)
   expect(after).toEqual(before)
   expect(result.signal).toBeNull()
@@ -312,7 +316,7 @@ test('build.lexical_path_refusals', async () => {
 test('build.symlink_root_equivalence', async () => {
   const { root, paths } = await owned()
   const beforeSource = await snapshot(join(paths.packageRoot, 'src'))
-  const real = invoke(root, paths)
+  const real = await invoke(root, paths)
   expect(real.status).toBe(0)
   expect(real.stdout).toContain('Public TUI build: 3 raw, 3 runtime files')
   const realRaw = await snapshot(paths.rawDir)
@@ -323,14 +327,14 @@ test('build.symlink_root_equivalence', async () => {
   const previousMap = JSON.parse(realMap.toString())
   previousMap.compiler = '@cortexkit/common-auth/tui-build@0.9.4'
   await writeFile(paths.mapFile!, `${JSON.stringify(previousMap, null, 2)}\n`)
-  const upgraded = invoke(root, paths)
+  const upgraded = await invoke(root, paths)
   expect(upgraded.status).toBe(0)
   expect(await readFile(paths.mapFile!)).toEqual(realMap)
   expect(await snapshot(paths.rawDir)).toEqual(realRaw)
   expect(await snapshot(paths.runtimeDir)).toEqual(realRuntime)
   const alias = join(root, 'linked-package')
   await symlink(paths.packageRoot, alias, 'dir')
-  const linked = invoke(root, {
+  const linked = await invoke(root, {
     packageRoot: alias,
     entryFile: join(alias, 'src/tui.tsx'),
     rawDir: join(alias, 'raw'),
@@ -344,7 +348,7 @@ test('build.symlink_root_equivalence', async () => {
   expect(await readFile(paths.mapFile!)).toEqual(realMap)
   expect(await snapshot(join(paths.packageRoot, 'src'))).toEqual(beforeSource)
   // Reject a package-root alias paired with destinations spelled under the real root.
-  const mixed = invoke(root, { ...paths, packageRoot: alias })
+  const mixed = await invoke(root, { ...paths, packageRoot: alias })
   expect(mixed.status).toBe(1)
   expect(`${mixed.stdout}${mixed.stderr}`).toContain(
     'Output must be inside package root',

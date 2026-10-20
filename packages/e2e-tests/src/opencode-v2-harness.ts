@@ -1,9 +1,10 @@
-import { execFileSync, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { createRequire } from 'node:module'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { runCommand } from '../../../test/support/run-command.ts'
 
 export interface OpenCodeV2RecordedRequest {
   kind: 'adapter' | 'direct-provider'
@@ -274,7 +275,12 @@ export async function createOpenCodeV2Harness(
   }
   for (const directory of Object.values(paths))
     mkdirSync(directory, { recursive: true })
-  execFileSync('git', ['init', '-q'], { cwd: paths.project })
+  const init = await runCommand(['git', 'init', '-q'], {
+    cwd: paths.project,
+    deadlineMs: 10_000,
+  })
+  if (init.exitCode !== 0)
+    throw new Error(`Command failed: git init -q\n${init.stderr}`)
   writeFileSync(
     join(paths.project, 'README.md'),
     '# OpenCode 2 E2E\n\nTool round-trip fixture.\n',

@@ -22,7 +22,7 @@ type Label = (typeof labels)[number]
 type SyncResult = {
   pid: number
   status?: number | null
-  exitCode?: number
+  exitCode?: number | null
   signal?: string | null
   signalCode?: string
   error?: unknown
@@ -44,6 +44,59 @@ export function traceSyncTestChild<T extends SyncResult>(
   run: () => T,
   nonzeroExpected = false,
 ): T {
+  const trace = openChildRecord(
+    label,
+    command,
+    argc,
+    'synchronous-wait-return',
+    nonzeroExpected,
+  )
+  try {
+    return trace.settled(run())
+  } catch (error) {
+    trace.threw()
+    throw error
+  } finally {
+    trace.close()
+  }
+}
+
+/**
+ * Same journal as traceSyncTestChild for a command run asynchronously. The
+ * command resolves only after the child exited and both output pipes were read
+ * to the end, so one parent observation time covers exit and pipe closure.
+ */
+export async function traceTestCommand<T extends SyncResult>(
+  label: Label,
+  command: string,
+  argc: number,
+  run: () => Promise<T>,
+  nonzeroExpected = false,
+): Promise<T> {
+  const trace = openChildRecord(
+    label,
+    command,
+    argc,
+    'asynchronous-exit-and-output-end',
+    nonzeroExpected,
+  )
+  try {
+    return trace.settled(await run())
+  } catch (error) {
+    trace.threw()
+    throw error
+  } finally {
+    trace.close()
+  }
+}
+
+function openChildRecord(
+  label: Label,
+  command: string,
+  argc: number,
+  observation: string,
+  nonzeroExpected: boolean,
+) {
   const now = () => ({
     wall: new Date().toISOString(),
     elapsedMs: Math.round(performance.now()),
@@ -62,7 +115,7 @@ export function traceSyncTestChild<T extends SyncResult>(
     signal: null as string | null,
     exitObserved: null as ReturnType<typeof now> | null,
     pipesClosedObserved: null as ReturnType<typeof now> | null,
-    observation: 'synchronous-wait-return',
+    observation,
     failed: false,
     errorObserved: false,
   }
@@ -81,35 +134,37 @@ export function traceSyncTestChild<T extends SyncResult>(
     }
   }
   save()
-  try {
-    const result = run()
-    record.waitReturned = now()
-    record.pid = result.pid
-    record.status = result.status ?? result.exitCode ?? null
-    record.signal = result.signal ?? result.signalCode ?? null
-    record.failed =
-      !!result.error || record.status !== 0 || record.signal !== null
-    record.errorObserved = !!result.error
-    // These are parent observation times, not claims about when the kernel exited.
-    if (record.status !== null || record.signal !== null)
-      record.exitObserved = record.waitReturned
-    if (!result.error) record.pipesClosedObserved = record.waitReturned
-    return result
-  } catch (error) {
-    record.waitReturned = now()
-    record.failed = true
-    record.errorObserved = true
-    throw error
-  } finally {
-    save()
-    if (
-      record.failed &&
-      (!nonzeroExpected ||
-        record.errorObserved ||
-        record.signal ||
-        record.status === null)
-    )
-      console.error(`[test-child-lifecycle] ${JSON.stringify(record)}`)
+  return {
+    settled<T extends SyncResult>(result: T): T {
+      record.waitReturned = now()
+      record.pid = result.pid
+      record.status = result.status ?? result.exitCode ?? null
+      record.signal = result.signal ?? result.signalCode ?? null
+      record.failed =
+        !!result.error || record.status !== 0 || record.signal !== null
+      record.errorObserved = !!result.error
+      // These are parent observation times, not claims about when the kernel exited.
+      if (record.status !== null || record.signal !== null)
+        record.exitObserved = record.waitReturned
+      if (!result.error) record.pipesClosedObserved = record.waitReturned
+      return result
+    },
+    threw() {
+      record.waitReturned = now()
+      record.failed = true
+      record.errorObserved = true
+    },
+    close() {
+      save()
+      if (
+        record.failed &&
+        (!nonzeroExpected ||
+          record.errorObserved ||
+          record.signal ||
+          record.status === null)
+      )
+        console.error(`[test-child-lifecycle] ${JSON.stringify(record)}`)
+    },
   }
 }
 

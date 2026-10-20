@@ -10,21 +10,28 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { runCommandBytes } from './support/run-command.ts'
 
 const sourceRoot = resolve(import.meta.dir, '..')
+// Each command fails at its own deadline, before the enclosing test's timeout.
+const TEST_TIMEOUT_MS = 90_000
+const COMMAND_DEADLINE_MS = 60_000
 const roots: string[] = []
 afterEach(() => {
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
 
-function git(root: string, ...args: string[]) {
-  const result = Bun.spawnSync(['git', ...args], { cwd: root })
+async function git(root: string, ...args: string[]) {
+  const result = await runCommandBytes(['git', ...args], {
+    cwd: root,
+    deadlineMs: COMMAND_DEADLINE_MS,
+  })
   if (result.exitCode) throw new Error(result.stderr.toString())
   return result.stdout.toString().trim()
 }
 
-function fixture() {
+async function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'release-prepare-'))
   roots.push(root)
   mkdirSync(join(root, 'scripts'), { recursive: true })
@@ -53,7 +60,7 @@ function fixture() {
       JSON.stringify(pkg),
     )
   }
-  const installed = Bun.spawnSync(
+  const installed = await runCommandBytes(
     [
       process.execPath,
       'install',
@@ -61,7 +68,7 @@ function fixture() {
       '--ignore-scripts',
       '--offline',
     ],
-    { cwd: root },
+    { cwd: root, deadlineMs: COMMAND_DEADLINE_MS },
   )
   if (installed.exitCode) throw new Error(installed.stderr.toString())
   symlinkSync(
@@ -69,16 +76,16 @@ function fixture() {
     join(root, 'node_modules'),
     'dir',
   )
-  git(root, 'init', '-b', 'main')
-  git(root, 'config', 'user.name', 'Release Test')
-  git(root, 'config', 'user.email', 'release@example.invalid')
-  git(root, 'config', 'core.hooksPath', '/dev/null')
-  git(root, 'add', '.')
-  git(root, 'commit', '-m', 'fixture')
+  await git(root, 'init', '-b', 'main')
+  await git(root, 'config', 'user.name', 'Release Test')
+  await git(root, 'config', 'user.email', 'release@example.invalid')
+  await git(root, 'config', 'core.hooksPath', '/dev/null')
+  await git(root, 'add', '.')
+  await git(root, 'commit', '-m', 'fixture')
   return root
 }
 
-function bump(root: string, corrupt?: string) {
+async function bump(root: string, corrupt?: string) {
   for (const name of ['core', 'opencode', 'pi']) {
     const path = join(root, 'packages', name, 'package.json')
     const pkg = JSON.parse(readFileSync(path, 'utf8'))
@@ -107,8 +114,8 @@ function bump(root: string, corrupt?: string) {
   writeFileSync(lockPath, JSON.stringify(lock))
   if (corrupt === 'source')
     writeFileSync(join(root, 'source.ts'), 'export const smuggled = true\n')
-  git(root, 'add', '.')
-  git(
+  await git(root, 'add', '.')
+  await git(
     root,
     'commit',
     '-m',
@@ -123,45 +130,55 @@ for (const state of [
   'source',
   'subject',
 ] as const) {
-  test(`release version-sync check handles ${state}`, () => {
-    const root = fixture()
-    bump(root, state)
-    const checked = Bun.spawnSync(
+  test(
+    `release version-sync check handles ${state}`,
+    async () => {
+      const root = await fixture()
+      await bump(root, state)
+      const checked = await runCommandBytes(
+        [
+          process.execPath,
+          join(sourceRoot, 'scripts/check-release-version.ts'),
+          '1.0.1',
+        ],
+        { cwd: root, deadlineMs: COMMAND_DEADLINE_MS },
+      )
+      expect(checked.exitCode === 0, checked.stderr.toString()).toBe(
+        state === 'valid',
+      )
+    },
+    TEST_TIMEOUT_MS,
+  )
+}
+
+test(
+  'release --prepare commits versions without a tag or gate',
+  async () => {
+    const root = await fixture()
+    const prepared = await runCommandBytes(
+      ['bash', 'scripts/release.sh', '--prepare', '1.0.1'],
+      { cwd: root, deadlineMs: COMMAND_DEADLINE_MS },
+    )
+    expect(prepared.exitCode, prepared.stderr.toString()).toBe(0)
+    expect(await git(root, 'log', '-1', '--format=%s')).toBe('release: v1.0.1')
+    expect(await git(root, 'tag', '--list')).toBe('')
+    expect(await git(root, 'status', '--porcelain')).toBe('')
+    expect(prepared.stdout.toString()).not.toContain(
+      'Running pre-release checks',
+    )
+    expect(prepared.stdout.toString()).not.toContain('Creating tag')
+    const checked = await runCommandBytes(
       [
         process.execPath,
         join(sourceRoot, 'scripts/check-release-version.ts'),
         '1.0.1',
       ],
-      { cwd: root },
+      { cwd: root, deadlineMs: COMMAND_DEADLINE_MS },
     )
-    expect(checked.exitCode === 0, checked.stderr.toString()).toBe(
-      state === 'valid',
-    )
-  })
-}
-
-test('release --prepare commits versions without a tag or gate', () => {
-  const root = fixture()
-  const prepared = Bun.spawnSync(
-    ['bash', 'scripts/release.sh', '--prepare', '1.0.1'],
-    { cwd: root },
-  )
-  expect(prepared.exitCode, prepared.stderr.toString()).toBe(0)
-  expect(git(root, 'log', '-1', '--format=%s')).toBe('release: v1.0.1')
-  expect(git(root, 'tag', '--list')).toBe('')
-  expect(git(root, 'status', '--porcelain')).toBe('')
-  expect(prepared.stdout.toString()).not.toContain('Running pre-release checks')
-  expect(prepared.stdout.toString()).not.toContain('Creating tag')
-  const checked = Bun.spawnSync(
-    [
-      process.execPath,
-      join(sourceRoot, 'scripts/check-release-version.ts'),
-      '1.0.1',
-    ],
-    { cwd: root },
-  )
-  expect(
-    checked.exitCode,
-    `${checked.stderr}\n${git(root, 'diff', 'HEAD^', 'HEAD', '--', 'bun.lock')}`,
-  ).toBe(0)
-})
+    expect(
+      checked.exitCode,
+      `${checked.stderr}\n${await git(root, 'diff', 'HEAD^', 'HEAD', '--', 'bun.lock')}`,
+    ).toBe(0)
+  },
+  TEST_TIMEOUT_MS,
+)

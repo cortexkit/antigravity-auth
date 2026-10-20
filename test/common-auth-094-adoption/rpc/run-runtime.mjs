@@ -1,20 +1,71 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 import { fixture, hash, repository } from './fixture.mjs'
 import { validateResult } from './result-validator.mjs'
 
-export function admitRuntime(runtime) {
+/**
+ * Run one child asynchronously and collect its output. This module is loaded
+ * by Bun tests and by the Node runtime matrix, so it cannot use the Bun-only
+ * test/support/run-command.ts helper; it follows the same rules. A synchronous
+ * spawn can hang a Bun test runner on Linux (oven-sh/bun#34069). A spawn failure
+ * resolves with `error` set, as spawnSync reported it. Past the deadline the
+ * child is killed and the call throws with the command name. Nothing retries.
+ */
+function runChild(file, args, deadlineMs) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, {
+      cwd: repository,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    let error
+    let expired = false
+    child.stdout.setEncoding('utf8').on('data', (chunk) => {
+      stdout += chunk
+    })
+    child.stderr.setEncoding('utf8').on('data', (chunk) => {
+      stderr += chunk
+    })
+    let settled = false
+    const finish = (status, signal) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (expired)
+        reject(
+          new Error(
+            `command ${basename(file)} (argc=${args.length + 1}) exceeded its ${deadlineMs} ms deadline and was killed`,
+          ),
+        )
+      else resolve({ status, signal, stdout, stderr, error })
+    }
+    let timer = setTimeout(() => {
+      expired = true
+      child.kill('SIGKILL')
+      // Report once the child is reaped, without waiting on pipes a grandchild
+      // may still hold; give up waiting after a short bound.
+      child.once('exit', () => finish(null, 'SIGKILL'))
+      timer = setTimeout(() => finish(null, null), 2000)
+    }, deadlineMs)
+    child.once('error', (cause) => {
+      error = cause
+      // A child that never started has no exit or pipes to wait for.
+      if (child.pid === undefined) finish(null, null)
+    })
+    // close follows both exit and the end of both output pipes.
+    child.once('close', finish)
+  })
+}
+
+export async function admitRuntime(runtime) {
   assert(
     isAbsolute(runtime.path),
     `${runtime.name}: supply an explicit executable path`,
   )
-  const child = spawnSync(runtime.path, ['--version'], {
-    cwd: repository,
-    encoding: 'utf8',
-    timeout: 5000,
-  })
+  const child = await runChild(runtime.path, ['--version'], 5000)
   assert.equal(
     child.error,
     undefined,
@@ -43,11 +94,7 @@ export async function runRuntime(runtime) {
       join(repository, 'test/common-auth-094-adoption/rpc/runtime.mjs'),
       root,
     ]
-    const child = spawnSync(runtime.path, argv, {
-      cwd: repository,
-      encoding: 'utf8',
-      timeout: 45000,
-    })
+    const child = await runChild(runtime.path, argv, 45000)
     assert.equal(
       child.error,
       undefined,

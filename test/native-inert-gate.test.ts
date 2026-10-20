@@ -11,20 +11,24 @@ import {
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { reconcileMotor } from '../scripts/native-inert-gate.ts'
-import { traceSyncTestChild } from '../scripts/test-child-lifecycle.ts'
+import { traceTestCommand } from '../scripts/test-child-lifecycle.ts'
+import { runCommandBytes } from './support/run-command.ts'
 
 const sourceRoot = resolve(import.meta.dir, '..')
 const inventoryPath = 'packages/e2e-tests/docker/native-inert-inventory.json'
 const frozen = readFileSync(join(sourceRoot, inventoryPath))
 const roots: string[] = []
+// Each command fails at its own deadline, before the enclosing test's timeout.
+const TEST_TIMEOUT_MS = 60_000
+const COMMAND_DEADLINE_MS = 30_000
 afterEach(() => {
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
 
-function git(root: string, ...args: string[]) {
-  const result = traceSyncTestChild('native-git', 'git', args.length, () =>
-    Bun.spawnSync(['git', ...args], {
+async function git(root: string, ...args: string[]) {
+  const result = await traceTestCommand('native-git', 'git', args.length, () =>
+    runCommandBytes(['git', ...args], {
       cwd: root,
       env: {
         ...process.env,
@@ -32,27 +36,28 @@ function git(root: string, ...args: string[]) {
         GIT_CONFIG_KEY_0: 'safe.directory',
         GIT_CONFIG_VALUE_0: root,
       },
+      deadlineMs: COMMAND_DEADLINE_MS,
     }),
   )
   if (result.exitCode !== 0) throw new Error(result.stderr.toString())
   return result.stdout.toString().trim()
 }
 
-function fixture() {
+async function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'native-inert-record-'))
   roots.push(root)
   mkdirSync(join(root, 'packages/e2e-tests/docker'), { recursive: true })
   writeFileSync(join(root, inventoryPath), frozen)
   writeFileSync(join(root, '.gitignore'), '.cortexkit/\n')
-  git(root, 'init', '-b', 'main')
-  git(root, 'config', 'user.name', 'Gate Test')
-  git(root, 'config', 'user.email', 'gate@example.invalid')
-  git(root, 'add', '.')
-  git(root, '-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'fixture')
+  await git(root, 'init', '-b', 'main')
+  await git(root, 'config', 'user.name', 'Gate Test')
+  await git(root, 'config', 'user.email', 'gate@example.invalid')
+  await git(root, 'add', '.')
+  await git(root, '-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'fixture')
   const result = {
     schemaVersion: 1,
-    commit: git(root, 'rev-parse', 'HEAD'),
-    tree: git(root, 'rev-parse', 'HEAD^{tree}'),
+    commit: await git(root, 'rev-parse', 'HEAD'),
+    tree: await git(root, 'rev-parse', 'HEAD^{tree}'),
     pass: true,
     stages: [
       'bun-version',
@@ -80,32 +85,36 @@ function fixture() {
 }
 
 function run(root: string, script: string, ...args: string[]) {
-  return traceSyncTestChild(
+  return traceTestCommand(
     'native-run',
     process.execPath,
     args.length + 1,
     () =>
-      Bun.spawnSync(
+      runCommandBytes(
         [process.execPath, join(sourceRoot, 'scripts', script), ...args],
-        { cwd: root },
+        { cwd: root, deadlineMs: COMMAND_DEADLINE_MS },
       ),
     true,
   )
 }
 
-test('native-inert record writer accepts a fully validated result', () => {
-  const { root, result, record } = fixture()
-  const stdout = join(root, '.cortexkit/stdout')
-  mkdirSync(join(root, '.cortexkit'), { recursive: true })
-  const text = `stage output\nNATIVE_INERT_GATE_RESULT=${JSON.stringify(result)}\n`
-  writeFileSync(stdout, text)
-  const written = run(root, 'record-native-inert-gate.ts', stdout)
-  expect(written.exitCode, written.stderr.toString()).toBe(0)
-  expect(JSON.parse(readFileSync(record, 'utf8'))).toEqual({
-    ...result,
-    stdoutSha256: createHash('sha256').update(text).digest('hex'),
-  })
-})
+test(
+  'native-inert record writer accepts a fully validated result',
+  async () => {
+    const { root, result, record } = await fixture()
+    const stdout = join(root, '.cortexkit/stdout')
+    mkdirSync(join(root, '.cortexkit'), { recursive: true })
+    const text = `stage output\nNATIVE_INERT_GATE_RESULT=${JSON.stringify(result)}\n`
+    writeFileSync(stdout, text)
+    const written = await run(root, 'record-native-inert-gate.ts', stdout)
+    expect(written.exitCode, written.stderr.toString()).toBe(0)
+    expect(JSON.parse(readFileSync(record, 'utf8'))).toEqual({
+      ...result,
+      stdoutSha256: createHash('sha256').update(text).digest('hex'),
+    })
+  },
+  TEST_TIMEOUT_MS,
+)
 
 for (const invalid of [
   'pass false',
@@ -122,32 +131,39 @@ for (const invalid of [
   'bad schema',
   'bad times',
 ] as const) {
-  test(`native-inert record writer rejects ${invalid}`, () => {
-    const { root, result, record } = fixture()
-    mkdirSync(join(root, '.cortexkit/release-gates'), { recursive: true })
-    writeFileSync(record, JSON.stringify({ ...result, commit: '0'.repeat(40) }))
-    if (invalid === 'pass false') result.pass = false
-    if (invalid === 'missing stage') result.stages.pop()
-    if (invalid === '40 names') result.names.pop()
-    if (invalid === 'wrong hash') result.inventorySha256 = '0'.repeat(64)
-    if (invalid === 'unknown commit') result.commit = 'f'.repeat(40)
-    if (invalid === 'wrong tree') result.tree = '0'.repeat(40)
-    if (invalid === 'failed stage')
-      result.stages[0] = { name: 'bun-version', exit: 1 }
-    if (invalid === 'zero assertions') result.motor.assertions = 0
-    if (invalid === 'bad schema') result.schemaVersion = 2
-    if (invalid === 'bad times') result.endedUtc = 'yesterday'
-    let text = `NATIVE_INERT_GATE_RESULT=${JSON.stringify(result)}\n`
-    if (invalid === 'two result lines') text += text
-    if (invalid === 'truncated line') text = text.slice(0, -5)
-    if (invalid === 'interrupted output')
-      text = 'stage started, job interrupted\n'
-    const stdout = join(root, '.cortexkit/stdout')
-    writeFileSync(stdout, text)
-    const written = run(root, 'record-native-inert-gate.ts', stdout)
-    expect(written.exitCode).not.toBe(0)
-    expect(existsSync(record)).toBe(false)
-  })
+  test(
+    `native-inert record writer rejects ${invalid}`,
+    async () => {
+      const { root, result, record } = await fixture()
+      mkdirSync(join(root, '.cortexkit/release-gates'), { recursive: true })
+      writeFileSync(
+        record,
+        JSON.stringify({ ...result, commit: '0'.repeat(40) }),
+      )
+      if (invalid === 'pass false') result.pass = false
+      if (invalid === 'missing stage') result.stages.pop()
+      if (invalid === '40 names') result.names.pop()
+      if (invalid === 'wrong hash') result.inventorySha256 = '0'.repeat(64)
+      if (invalid === 'unknown commit') result.commit = 'f'.repeat(40)
+      if (invalid === 'wrong tree') result.tree = '0'.repeat(40)
+      if (invalid === 'failed stage')
+        result.stages[0] = { name: 'bun-version', exit: 1 }
+      if (invalid === 'zero assertions') result.motor.assertions = 0
+      if (invalid === 'bad schema') result.schemaVersion = 2
+      if (invalid === 'bad times') result.endedUtc = 'yesterday'
+      let text = `NATIVE_INERT_GATE_RESULT=${JSON.stringify(result)}\n`
+      if (invalid === 'two result lines') text += text
+      if (invalid === 'truncated line') text = text.slice(0, -5)
+      if (invalid === 'interrupted output')
+        text = 'stage started, job interrupted\n'
+      const stdout = join(root, '.cortexkit/stdout')
+      writeFileSync(stdout, text)
+      const written = await run(root, 'record-native-inert-gate.ts', stdout)
+      expect(written.exitCode).not.toBe(0)
+      expect(existsSync(record)).toBe(false)
+    },
+    TEST_TIMEOUT_MS,
+  )
 }
 
 for (const state of [
@@ -156,37 +172,43 @@ for (const state of [
   'pass false',
   'exact commit',
 ] as const) {
-  test(`native-inert release check handles ${state}`, () => {
-    const { root, result, record } = fixture()
-    if (state === 'other commit') {
-      git(
-        root,
-        '-c',
-        'core.hooksPath=/dev/null',
-        'commit',
-        '--allow-empty',
-        '-m',
-        'identical tree, different commit',
+  test(
+    `native-inert release check handles ${state}`,
+    async () => {
+      const { root, result, record } = await fixture()
+      if (state === 'other commit') {
+        await git(
+          root,
+          '-c',
+          'core.hooksPath=/dev/null',
+          'commit',
+          '--allow-empty',
+          '-m',
+          'identical tree, different commit',
+        )
+        expect(await git(root, 'rev-parse', 'HEAD^{tree}')).toBe(result.tree)
+      }
+      if (state === 'pass false') result.pass = false
+      if (state !== 'absent') {
+        mkdirSync(join(root, '.cortexkit/release-gates'), { recursive: true })
+        writeFileSync(
+          record,
+          JSON.stringify({ ...result, stdoutSha256: 'a'.repeat(64) }),
+        )
+      }
+      const checked = await run(root, 'check-native-inert-release.ts')
+      expect(checked.exitCode === 0, checked.stderr.toString()).toBe(
+        state === 'exact commit',
       )
-      expect(git(root, 'rev-parse', 'HEAD^{tree}')).toBe(result.tree)
-    }
-    if (state === 'pass false') result.pass = false
-    if (state !== 'absent') {
-      mkdirSync(join(root, '.cortexkit/release-gates'), { recursive: true })
-      writeFileSync(
-        record,
-        JSON.stringify({ ...result, stdoutSha256: 'a'.repeat(64) }),
-      )
-    }
-    const checked = run(root, 'check-native-inert-release.ts')
-    expect(checked.exitCode === 0, checked.stderr.toString()).toBe(
-      state === 'exact commit',
-    )
-    if (state !== 'exact commit') {
-      expect(checked.stderr.toString()).toContain('bun run test:native-inert')
-      expect(checked.stderr.toString()).toContain('record-native-inert-gate.ts')
-    }
-  })
+      if (state !== 'exact commit') {
+        expect(checked.stderr.toString()).toContain('bun run test:native-inert')
+        expect(checked.stderr.toString()).toContain(
+          'record-native-inert-gate.ts',
+        )
+      }
+    },
+    TEST_TIMEOUT_MS,
+  )
 }
 
 test('motor reconciliation requires each frozen registration, entry and framework pass once', () => {

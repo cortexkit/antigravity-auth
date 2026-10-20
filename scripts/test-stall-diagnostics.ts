@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process'
 import { closeSync, constants, openSync, readSync } from 'node:fs'
 import { basename } from 'node:path'
 import {
@@ -8,6 +7,7 @@ import {
   type PublicCommandInspector,
   type PublicCommandScope,
 } from '../packages/core/src/__fixtures__/public-command-processes.test.ts'
+import { runCommand } from '../test/support/run-command.ts'
 import { pendingTestChildLifecycles } from './test-child-lifecycle.ts'
 
 export const STALL_SNAPSHOT_BYTES = 24 * 1024
@@ -99,13 +99,38 @@ export function ownedLiveTestChildren(
   ).length
 }
 
+/** Bound for one ps row; a slower ps is reported as unavailable. */
+const PS_DEADLINE_MS = 1_000
+
+/** Read one ps row without a synchronous spawn, which can wedge Bun (oven-sh/bun#34069). */
+async function psRow(pid: number): Promise<string> {
+  try {
+    const ps = await runCommand(
+      [
+        '/bin/ps',
+        '-p',
+        String(pid),
+        '-o',
+        'pid=,ppid=,pgid=,sid=,stat=,etimes=,pcpu=,rss=,wchan=',
+      ],
+      {
+        env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' },
+        deadlineMs: PS_DEADLINE_MS,
+      },
+    )
+    return ps.exitCode === 0 ? ps.stdout.trim().slice(0, 1024) : 'unavailable'
+  } catch {
+    return 'unavailable'
+  }
+}
+
 /** Never serialize argv, environment, proc comm/Name, or inspection errors. */
-export function captureTestStall(
+export async function captureTestStall(
   reason: 'deadline' | 'slow-file' | 'failure',
   scope: PublicCommandScope,
   inspector: PublicCommandInspector,
   lifecycleRoot?: string,
-): string | undefined {
+): Promise<string | undefined> {
   if (process.platform !== 'linux') return undefined
   const processes: Record<string, unknown>[] = []
   let omitted = 0
@@ -194,21 +219,7 @@ export function captureTestStall(
                 truncated: argv.status === 'truncated',
               }
             : { basename: 'unavailable', argc: null }
-        const ps = spawnSync(
-          '/bin/ps',
-          [
-            '-p',
-            String(pid),
-            '-o',
-            'pid=,ppid=,pgid=,sid=,stat=,etimes=,pcpu=,rss=,wchan=',
-          ],
-          {
-            encoding: 'utf8',
-            timeout: 250,
-            maxBuffer: 2048,
-            env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' },
-          },
-        )
+        const ps = await psRow(pid)
         const current = inspector.read(pid)
         if (!current) continue
         assertPublicCommandIdentity(identity, current, identity)
@@ -222,7 +233,7 @@ export function captureTestStall(
           sid: current.sid,
           birth: current.start.toString(),
           command,
-          ps: ps.status === 0 ? ps.stdout.trim().slice(0, 1024) : 'unavailable',
+          ps,
           stat: numericStat.slice(0, 2048),
           status,
         })

@@ -1,7 +1,7 @@
 import { expect, it } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import { symlink, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { runCommand } from '../../../../test/support/run-command.ts'
 import {
   admitPublicArchiveBytes,
   admitPublicConsumer,
@@ -17,6 +17,10 @@ import {
   LEGACY_WRITER_PROVENANCE,
   prepareLegacyWriter,
 } from './legacy-writer.test.ts'
+
+// The Node probe fails at its own deadline, before its test's timeout.
+const PROBE_TIMEOUT_MS = 30_000
+const PROBE_DEADLINE_MS = 15_000
 
 it('reconstructs the exact historical writer and refuses missing or changed runtime closure bytes', async () => {
   const fixture = await provisionPublicConsumer()
@@ -105,27 +109,37 @@ it('refuses corrupted public store payload bytes', async () => {
   }
 })
 
-it('stages the real private-files backend for isolated public consumers on every platform', async () => {
-  const fixture = await provisionPublicConsumer()
-  try {
-    await stagePrivateFilesDependency(fixture.root)
-    const result = spawnSync(
-      'node',
-      [
-        '--input-type=module',
-        '-e',
-        "import assert from 'node:assert/strict'; import { realpathSync } from 'node:fs'; import { fileURLToPath } from 'node:url'; import * as backend from '@cortexkit/private-files'; import * as fs from './fs-bridge.mjs'; assert.equal(realpathSync(fileURLToPath(new URL('..', import.meta.resolve('@cortexkit/private-files')))), realpathSync('./node_modules/@cortexkit/private-files')); assert.equal(typeof fs.writeJsonAtomic, 'function'); assert.equal(typeof backend.verifySafeParent, 'function'); assert.equal(typeof (await backend.verifySafeParent(process.cwd())).ok, 'boolean'); console.log('PUBLIC_PRIVATE_FILES_BACKEND_OK')",
-      ],
-      { cwd: fixture.root, encoding: 'utf8' },
-    )
-    expect(result.error).toBeUndefined()
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.stderr).toBe('')
-    expect(result.stdout.trim()).toBe('PUBLIC_PRIVATE_FILES_BACKEND_OK')
-  } finally {
-    await fixture.remove()
-  }
-})
+it(
+  'stages the real private-files backend for isolated public consumers on every platform',
+  async () => {
+    const fixture = await provisionPublicConsumer()
+    try {
+      await stagePrivateFilesDependency(fixture.root)
+      const ran = await runCommand(
+        [
+          'node',
+          '--input-type=module',
+          '-e',
+          "import assert from 'node:assert/strict'; import { realpathSync } from 'node:fs'; import { fileURLToPath } from 'node:url'; import * as backend from '@cortexkit/private-files'; import * as fs from './fs-bridge.mjs'; assert.equal(realpathSync(fileURLToPath(new URL('..', import.meta.resolve('@cortexkit/private-files')))), realpathSync('./node_modules/@cortexkit/private-files')); assert.equal(typeof fs.writeJsonAtomic, 'function'); assert.equal(typeof backend.verifySafeParent, 'function'); assert.equal(typeof (await backend.verifySafeParent(process.cwd())).ok, 'boolean'); console.log('PUBLIC_PRIVATE_FILES_BACKEND_OK')",
+        ],
+        { cwd: fixture.root, deadlineMs: PROBE_DEADLINE_MS },
+      )
+      // Keep the node-style fields the assertions read; a spawn failure now throws.
+      const result = {
+        ...ran,
+        status: ran.exitCode,
+        error: undefined as Error | undefined,
+      }
+      expect(result.error).toBeUndefined()
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stderr).toBe('')
+      expect(result.stdout.trim()).toBe('PUBLIC_PRIVATE_FILES_BACKEND_OK')
+    } finally {
+      await fixture.remove()
+    }
+  },
+  PROBE_TIMEOUT_MS,
+)
 
 it('refuses an isolated private-files link that does not resolve to the installed backend', async () => {
   const fixture = await provisionPublicConsumer()

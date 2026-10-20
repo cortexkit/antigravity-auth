@@ -1,7 +1,4 @@
-import {
-  type ChildProcessWithoutNullStreams,
-  execFileSync,
-} from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import {
   appendFileSync,
@@ -59,6 +56,7 @@ import {
   ScriptTarget,
   SyntaxKind,
 } from 'typescript'
+import { runCommandBytes } from '../../../test/support/run-command.ts'
 import { getAgyModelEnum } from '../../core/src/agy-request-metadata.ts'
 import { getPublicModelDefinitions } from '../../core/src/model-registry.ts'
 import { resolveAntigravityModel } from '../../core/src/transform/model-resolver.ts'
@@ -80,6 +78,25 @@ import {
   assertOwnedCommandSucceeded,
   startOwnedCommand,
 } from './fixtures/opencode-ga-host/owned-command.ts'
+
+/**
+ * Run a setup command to completion; a nonzero exit throws with its stderr, as
+ * execFileSync did. The command is killed and named if it passes its deadline.
+ */
+async function checkedCommand(
+  argv: string[],
+  options: {
+    cwd: string
+    env: Record<string, string | undefined>
+    deadlineMs: number
+  },
+): Promise<void> {
+  const result = await runCommandBytes(argv, options)
+  if (result.exitCode !== 0)
+    throw new Error(
+      `Command failed: ${argv.join(' ')}\n${result.stderr.toString()}`,
+    )
+}
 
 // Committed repository files: the pinned OpenCode binary digest and the
 // released host contract. The runner reads them from the checkout, never from
@@ -1501,10 +1518,10 @@ export interface GaTlsFiles {
  * told to trust at startup. The system trust store, the plugin's own CA
  * setting and its endpoint overrides are left untouched.
  */
-export function createGaTlsFiles(
+export async function createGaTlsFiles(
   paths: GaPaths,
   identity: 'matching' | 'wrong-san' | 'missing-san',
-): GaTlsFiles {
+): Promise<GaTlsFiles> {
   requireCondition(
     process.env.ANTIGRAVITY_GA_HOST_EXECUTION === '1',
     'TLS fixture execution is not admitted',
@@ -1518,13 +1535,12 @@ export function createGaTlsFiles(
   const caKey = join(root, 'ca.key')
   const csr = join(root, 'leaf.csr')
   const run = (args: string[]) =>
-    execFileSync('/usr/bin/openssl', args, {
+    checkedCommand(['/usr/bin/openssl', ...args], {
       cwd: root,
       env: gaChildEnvironment(paths, process.env),
-      stdio: 'pipe',
-      timeout: 10_000,
+      deadlineMs: 10_000,
     })
-  run([
+  await run([
     'req',
     '-x509',
     '-newkey',
@@ -1541,7 +1557,7 @@ export function createGaTlsFiles(
   ])
   // Missing-SAN deliberately uses a nonmatching CN. It makes no universal
   // assertion about a TLS implementation's legacy matching-CN fallback.
-  run([
+  await run([
     'req',
     '-new',
     '-newkey',
@@ -1559,7 +1575,7 @@ export function createGaTlsFiles(
     extension,
     `basicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n${identity === 'missing-san' ? '' : `subjectAltName=${(identity === 'matching' ? GA_HOSTNAMES : ['wrong.ga.invalid']).map((hostname) => `DNS:${hostname}`).join(',')}\n`}`,
   )
-  run([
+  await run([
     'x509',
     '-req',
     '-in',
@@ -2588,29 +2604,30 @@ async function prepareGaImage(repoRoot: string, prefix: string): Promise<void> {
   }
   for (const path of Object.values(env).filter((path) => path !== env.PATH))
     mkdirSync(path, { recursive: true, mode: 0o700 })
-  const pack = (directory: string, filename: string) => {
+  const pack = async (directory: string, filename: string) => {
     const target = join(prefix, filename)
-    execFileSync(
-      '/usr/local/bin/bun',
-      ['pm', 'pack', '--ignore-scripts', '--filename', target],
-      {
-        cwd: join(repoRoot, directory),
-        env,
-        stdio: 'pipe',
-        timeout: 60_000,
-      },
+    await checkedCommand(
+      [
+        '/usr/local/bin/bun',
+        'pm',
+        'pack',
+        '--ignore-scripts',
+        '--filename',
+        target,
+      ],
+      { cwd: join(repoRoot, directory), env, deadlineMs: 60_000 },
     )
     return target
   }
-  const core = pack('packages/core', 'core.tgz')
-  const plugin = pack('packages/opencode', 'plugin.tgz')
+  const core = await pack('packages/core', 'core.tgz')
+  const plugin = await pack('packages/opencode', 'plugin.tgz')
   writeFileSync(
     join(prefix, 'package.json'),
     JSON.stringify({ private: true, type: 'module' }),
   )
-  execFileSync(
-    '/usr/local/bin/npm',
+  await checkedCommand(
     [
+      '/usr/local/bin/npm',
       'install',
       '--prefix',
       prefix,
@@ -2622,7 +2639,7 @@ async function prepareGaImage(repoRoot: string, prefix: string): Promise<void> {
       core,
       plugin,
     ],
-    { cwd: prefix, env, stdio: 'pipe', timeout: 120_000 },
+    { cwd: prefix, env, deadlineMs: 120_000 },
   )
   const entry = join(
     prefix,
@@ -3806,7 +3823,7 @@ export async function createOpenCodeGaHarness(
         options.rawSender === true,
         'Raw TLS cases must omit send override',
       )
-      tlsFiles = createGaTlsFiles(paths, options.rawTls.identity)
+      tlsFiles = await createGaTlsFiles(paths, options.rawTls.identity)
       rawPeer = await startGaRawPeer(tlsFiles, options.rawTls.phase, nonce)
       startup.trust = options.rawTls.missingTrust ? undefined : tlsFiles.ca
       if (options.rawTls.proxy) {
@@ -3847,10 +3864,10 @@ export async function createOpenCodeGaHarness(
       await options.accounts.assertCurrentStoreInput(paths, caseId)
     }
     if (gaOwnershipCase(caseId)) await verifyGaOwnershipConfig(paths)
-    execFileSync('/usr/bin/git', ['init', '-q'], {
+    await checkedCommand(['/usr/bin/git', 'init', '-q'], {
       cwd: paths.project,
       env: gaChildEnvironment(paths, process.env),
-      timeout: 5000,
+      deadlineMs: 5000,
     })
     host = await startGaHost(executable, paths, startup)
     const runningHost = host

@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from 'bun:test'
-import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   cp,
@@ -24,6 +23,7 @@ import {
   validatePublication,
 } from '../../../packages/opencode/scripts/embed-common-auth.ts'
 import publication from '../../common-auth-0170-producer/candidate.json'
+import { runCommand } from '../../support/run-command.ts'
 import fixtures from './archive-fixtures.json'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -74,23 +74,40 @@ async function copy(root: string, paths: readonly string[]) {
       ),
     )
 }
-function command(cwd: string, program: string, args: string[]) {
-  return execFileSync(program, args, {
-    cwd,
-    encoding: 'utf8',
-    timeout: 120000,
-    env: { ...process.env, npm_config_offline: 'true', LEFTHOOK: '1' },
-    stdio: ['ignore', 'pipe', 'pipe'],
+// Each command fails at its own deadline, before the 120 s test timeout.
+const COMMAND_DEADLINE_MS = 90_000
+/** Resolves with the node-style status field the assertions below read. */
+async function spawn(
+  program: string,
+  args: string[],
+  options: { cwd: string; env?: Record<string, string | undefined> },
+) {
+  const result = await runCommand([program, ...args], {
+    ...options,
+    deadlineMs: COMMAND_DEADLINE_MS,
   })
+  return { ...result, status: result.exitCode }
+}
+/** Returns stdout; a nonzero exit throws with stderr, as execFileSync did. */
+async function command(cwd: string, program: string, args: string[]) {
+  const result = await spawn(program, args, {
+    cwd,
+    env: { ...process.env, npm_config_offline: 'true', LEFTHOOK: '1' },
+  })
+  if (result.status !== 0)
+    throw new Error(
+      `Command failed: ${program} ${args.join(' ')}\n${result.stderr}`,
+    )
+  return result.stdout
 }
 function git(cwd: string, ...args: string[]) {
   return command(cwd, 'git', args)
 }
-function init(cwd: string) {
-  git(cwd, 'init', '-q')
-  git(cwd, 'config', 'user.email', 'fixture@example.invalid')
-  git(cwd, 'config', 'user.name', 'Owned fixture')
-  git(cwd, 'config', 'core.hooksPath', '/dev/null')
+async function init(cwd: string) {
+  await git(cwd, 'init', '-q')
+  await git(cwd, 'config', 'user.email', 'fixture@example.invalid')
+  await git(cwd, 'config', 'user.name', 'Owned fixture')
+  await git(cwd, 'config', 'core.hooksPath', '/dev/null')
 }
 async function hashes(directory: string, paths: readonly string[]) {
   return Promise.all(
@@ -285,38 +302,44 @@ test('embed.clean_input', async () => {
     '.gitignore',
     '.dockerignore',
   ])
-  init(target)
-  git(target, 'config', 'core.autocrlf', 'true')
-  const attr = git(
-    target,
-    'check-attr',
-    'text',
-    'eol',
-    'filter',
-    'working-tree-encoding',
-    '--',
-    ...protectedPaths,
+  await init(target)
+  await git(target, 'config', 'core.autocrlf', 'true')
+  const attr = (
+    await git(
+      target,
+      'check-attr',
+      'text',
+      'eol',
+      'filter',
+      'working-tree-encoding',
+      '--',
+      ...protectedPaths,
+    )
   )
     .trim()
     .split('\n')
   expect(attr.length).toBe(protectedPaths.length * 4)
   for (const line of attr) expect(line.endsWith(': unset')).toBe(true)
-  expect(git(target, 'check-ignore', '-v', '--', inputPath)).toContain('*.tgz')
+  expect(await git(target, 'check-ignore', '-v', '--', inputPath)).toContain(
+    '*.tgz',
+  )
   await put(
     target,
     'tools/common-auth-build/inputs/other.tgz',
     'must be ignored',
   )
   expect(
-    git(
-      target,
-      'check-ignore',
-      '--',
-      'tools/common-auth-build/inputs/other.tgz',
+    (
+      await git(
+        target,
+        'check-ignore',
+        '--',
+        'tools/common-auth-build/inputs/other.tgz',
+      )
     ).trim(),
   ).toBe('tools/common-auth-build/inputs/other.tgz')
   // Keep unrelated archives ignored while tracking this exact published input.
-  git(
+  await git(
     target,
     'add',
     '.gitattributes',
@@ -324,11 +347,11 @@ test('embed.clean_input', async () => {
     '.dockerignore',
     ...protectedPaths.filter((path) => path !== inputPath),
   )
-  git(target, 'add', '-f', inputPath)
-  expect(git(target, 'ls-files', '*.tgz').trim()).toBe(inputPath)
-  git(target, 'commit', '-qm', 'Owned byte-preservation fixture')
+  await git(target, 'add', '-f', inputPath)
+  expect((await git(target, 'ls-files', '*.tgz')).trim()).toBe(inputPath)
+  await git(target, 'commit', '-qm', 'Owned byte-preservation fixture')
   const checkout = join(await owned(), 'checkout')
-  git(
+  await git(
     target,
     '-c',
     'core.autocrlf=true',
@@ -359,7 +382,7 @@ test('embed.clean_input', async () => {
   let container = ''
   let built = false
   try {
-    command(target, 'docker', [
+    await command(target, 'docker', [
       'build',
       '--network=none',
       '--pull=false',
@@ -368,15 +391,13 @@ test('embed.clean_input', async () => {
       '.',
     ])
     built = true
-    container = command(target, 'docker', [
-      'create',
-      tag,
-      '/never-executed',
-    ]).trim()
-    command(target, 'docker', ['cp', `${container}:/inputs/.`, exported])
+    container = (
+      await command(target, 'docker', ['create', tag, '/never-executed'])
+    ).trim()
+    await command(target, 'docker', ['cp', `${container}:/inputs/.`, exported])
   } finally {
-    if (container) command(target, 'docker', ['rm', container])
-    if (built) command(target, 'docker', ['image', 'rm', tag])
+    if (container) await command(target, 'docker', ['rm', container])
+    if (built) await command(target, 'docker', ['image', 'rm', tag])
   }
   expect(await names(exported)).toEqual(['cortexkit-common-auth-0.21.1.tgz'])
   expect(
@@ -443,7 +464,7 @@ test('build.repo_hygiene', async () => {
   // The real embedding check resolves scripts relative to their own files and
   // requires a private installation contained in this fixture, not vendor links.
   const lockBytes = await readFile(join(target, privateLock))
-  const installed = command(join(target, privateRoot), 'bun', [
+  const installed = await command(join(target, privateRoot), 'bun', [
     'install',
     '--frozen-lockfile',
     '--offline',
@@ -487,10 +508,8 @@ test('build.repo_hygiene', async () => {
       corePayload,
       Buffer.concat([corePayloadBytes, Buffer.from('\n')]),
     )
-    const alteredCore = spawnSync(process.execPath, ['run', 'format:check'], {
+    const alteredCore = await spawn(process.execPath, ['run', 'format:check'], {
       cwd: target,
-      encoding: 'utf8',
-      timeout: 120000,
     })
     expect(alteredCore.status).toBe(1)
     expect(`${alteredCore.stdout}${alteredCore.stderr}`).toContain(
@@ -511,10 +530,8 @@ test('build.repo_hygiene', async () => {
       privateLock,
       Buffer.concat([lockBytes, Buffer.from('\n')]),
     )
-    const invalidLock = spawnSync(process.execPath, ['run', 'format:check'], {
+    const invalidLock = await spawn(process.execPath, ['run', 'format:check'], {
       cwd: target,
-      encoding: 'utf8',
-      timeout: 120000,
     })
     if (invalidLock.status !== 1)
       console.error(
@@ -537,16 +554,16 @@ test('build.repo_hygiene', async () => {
   expect(await hashes(target, immutable)).toEqual(before)
   for (const script of ['format:check', 'lint', 'format']) {
     await admitChild()
-    const output = command(target, 'bun', ['run', script])
+    const output = await command(target, 'bun', ['run', script])
     expect(output).toContain(
       'Embedding and private Bun-lock roots verified (Bun 1.4.2)',
     )
     expect(output).toMatch(/(?:Formatted|Checked) [1-9]\d* files?/)
     expect(await hashes(target, immutable)).toEqual(before)
   }
-  init(target)
-  git(target, 'add', '.')
-  command(target, join(root, 'node_modules/.bin/lefthook'), [
+  await init(target)
+  await git(target, 'add', '.')
+  await command(target, join(root, 'node_modules/.bin/lefthook'), [
     'run',
     'pre-commit',
   ])
@@ -556,24 +573,22 @@ test('build.repo_hygiene', async () => {
     handwritten,
     'export const handwritten={value:"not formatted"};\n',
   )
-  const badFormat = spawnSync(process.execPath, ['run', 'format:check'], {
+  const badFormat = await spawn(process.execPath, ['run', 'format:check'], {
     cwd: target,
-    encoding: 'utf8',
   })
   expect(badFormat.status).toBe(1)
   expect(`${badFormat.stdout}${badFormat.stderr}`).toContain('handwritten.ts')
   await put(target, handwritten, 'debugger\nexport const handwritten = 1\n')
-  const badLint = spawnSync(process.execPath, ['run', 'lint'], {
+  const badLint = await spawn(process.execPath, ['run', 'lint'], {
     cwd: target,
-    encoding: 'utf8',
   })
   expect(badLint.status).toBe(1)
   expect(`${badLint.stdout}${badLint.stderr}`).toContain('noDebugger')
-  git(target, 'add', handwritten)
-  const hook = spawnSync(
+  await git(target, 'add', handwritten)
+  const hook = await spawn(
     join(root, 'node_modules/.bin/lefthook'),
     ['run', 'pre-commit'],
-    { cwd: target, encoding: 'utf8', env: { ...process.env, LEFTHOOK: '1' } },
+    { cwd: target, env: { ...process.env, LEFTHOOK: '1' } },
   )
   expect(hook.status).not.toBe(0)
   expect(`${hook.stdout}${hook.stderr}`).toContain('noDebugger')
@@ -582,11 +597,11 @@ test('build.repo_hygiene', async () => {
     handwritten,
     'export const handwritten={value:"not formatted"};\n',
   )
-  command(target, 'bun', ['run', 'format'])
-  command(target, 'bun', ['run', 'format:check'])
-  command(target, 'bun', ['run', 'lint'])
-  git(target, 'add', handwritten)
-  command(target, join(root, 'node_modules/.bin/lefthook'), [
+  await command(target, 'bun', ['run', 'format'])
+  await command(target, 'bun', ['run', 'format:check'])
+  await command(target, 'bun', ['run', 'lint'])
+  await git(target, 'add', handwritten)
+  await command(target, join(root, 'node_modules/.bin/lefthook'), [
     'run',
     'pre-commit',
   ])

@@ -9,7 +9,6 @@
 // from this repository's installed copies, so nothing is fetched.
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
@@ -26,23 +25,35 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Host } from '@opencode/plugin/host'
-import { traceSyncTestChild } from '../../../scripts/test-child-lifecycle.ts'
+import { traceTestCommand } from '../../../scripts/test-child-lifecycle.ts'
+import { runCommand } from '../../../test/support/run-command.ts'
 
 const packageRoot = resolve(import.meta.dir, '..')
 const packageName = '@cortexkit/opencode-antigravity-auth'
 
 /** Bound on one type-check test: one tsc process over the packed types. */
 const COMPILER_RUN_MS = 60_000
+/** The compiler process fails at its own deadline, before the test's limit. */
+const COMPILER_DEADLINE_MS = 50_000
+/** Bounds for packing and unpacking the package before the tests. */
+const SETUP_TIMEOUT_MS = 120_000
+const COMMAND_DEADLINE_MS = 50_000
 
 let root: string
 let consumer: string
 let installed: string
 
-function run(command: string, args: string[], cwd: string) {
-  const spawn = () => spawnSync(command, args, { cwd, encoding: 'utf8' })
-  const result = args[0]?.endsWith('/typescript/bin/tsc')
-    ? traceSyncTestChild('packed-server-tsc', command, args.length, spawn)
-    : spawn()
+async function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  deadlineMs = COMMAND_DEADLINE_MS,
+) {
+  const spawn = () => runCommand([command, ...args], { cwd, deadlineMs })
+  const ran = args[0]?.endsWith('/typescript/bin/tsc')
+    ? await traceTestCommand('packed-server-tsc', command, args.length, spawn)
+    : await spawn()
+  const result = { ...ran, status: ran.exitCode }
   if (result.status !== 0)
     throw new Error(
       `${command} ${args.join(' ')} failed (${result.status}):\n${result.stdout}\n${result.stderr}`,
@@ -58,7 +69,7 @@ function linkDependency(name: string) {
   symlinkSync(dirname(manifest), target, 'dir')
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'opencode-server-entry-'))
   consumer = join(root, 'consumer')
   mkdirSync(consumer)
@@ -66,7 +77,7 @@ beforeAll(() => {
     join(consumer, 'package.json'),
     `${JSON.stringify({ name: 'server-entry-consumer', private: true, type: 'module' })}\n`,
   )
-  run(
+  await run(
     process.execPath,
     ['pm', 'pack', '--ignore-scripts', '--destination', root, '--quiet'],
     packageRoot,
@@ -75,7 +86,7 @@ beforeAll(() => {
   if (!tarball) throw new Error('bun pm pack produced no tarball')
   installed = join(consumer, 'node_modules', packageName)
   mkdirSync(installed, { recursive: true })
-  run(
+  await run(
     'tar',
     ['-xzf', join(root, tarball), '-C', installed, '--strip-components=1'],
     root,
@@ -84,7 +95,7 @@ beforeAll(() => {
     readFileSync(join(installed, 'package.json'), 'utf8'),
   )
   for (const name of Object.keys(manifest.dependencies)) linkDependency(name)
-})
+}, SETUP_TIMEOUT_MS)
 
 afterAll(() => {
   rmSync(root, { recursive: true, force: true })
@@ -154,7 +165,7 @@ describe('packed ./server entry', () => {
     ['Bundler', { module: 'ESNext', moduleResolution: 'Bundler' }],
   ] as const)(
     'type-checks the published server declarations under %s with library checking on',
-    (label, resolution) => {
+    async (label, resolution) => {
       // Type-only packages the declarations name: both host SDKs, Node types
       // and the JSON Schema types the GA SDK's provider package needs.
       for (const name of [
@@ -200,7 +211,12 @@ export { ga }
       const tsc = createRequire(join(packageRoot, 'package.json')).resolve(
         'typescript/bin/tsc',
       )
-      run(process.execPath, [tsc, '-p', config], consumer)
+      await run(
+        process.execPath,
+        [tsc, '-p', config],
+        consumer,
+        COMPILER_DEADLINE_MS,
+      )
     },
     // A full strict compiler run over the published declarations, as a separate
     // process, takes several seconds; Bun's default 5 s test limit is too short.

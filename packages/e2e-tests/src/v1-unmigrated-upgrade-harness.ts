@@ -756,7 +756,7 @@ export async function runUnmigratedUpgrade(): Promise<UpgradeReceipt> {
     receipt.writerAck = JSON.parse(readFileSync(ack, 'utf8'))
     snapshot('before-new-host-startup')
     process.env.ANTIGRAVITY_GA_HOST_EXECUTION = '1'
-    const tls = createGaTlsFiles(paths, 'matching')
+    const tls = await createGaTlsFiles(paths, 'matching')
     const extension = join(dirname(tls.certificate), 'upgrade.ext')
     writeFileSync(
       extension,

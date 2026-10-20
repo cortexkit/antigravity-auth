@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
@@ -28,6 +27,7 @@ import {
   loadCommonAuthPiSlot,
 } from '@cortexkit/antigravity-auth-core'
 
+import { runCommand } from '../../../test/support/run-command.ts'
 import { createDefaultCliDependencies, runCli } from './cli.ts'
 import {
   createProcessFence,
@@ -276,18 +276,21 @@ function windowsInspectionFixture() {
   }
 }
 
-function cli(p: ReturnType<typeof profile>, ...argv: string[]) {
-  const result = spawnSync(
-    node,
-    [join(packageRoot, 'dist/cli.js'), 'setup', ...argv],
-    {
-      cwd: p.home,
-      env: p.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      encoding: 'utf8',
-      timeout: 30_000,
-    },
+// The CLI process fails at its own deadline, before the enclosing test's timeout.
+const CLI_DEADLINE_MS = 30_000
+const CLI_TEST_TIMEOUT_MS = 45_000
+
+/** Resolves with the node-style fields the assertions read; a spawn failure throws. */
+async function cli(p: ReturnType<typeof profile>, ...argv: string[]) {
+  const ran = await runCommand(
+    [node, join(packageRoot, 'dist/cli.js'), 'setup', ...argv],
+    { cwd: p.home, env: p.env, deadlineMs: CLI_DEADLINE_MS },
   )
+  const result = {
+    ...ran,
+    status: ran.exitCode,
+    error: undefined as Error | undefined,
+  }
   expect(result.error).toBeUndefined()
   return result
 }
@@ -327,78 +330,82 @@ function seedLocal(p: ReturnType<typeof profile>) {
 }
 
 describe('real setup CLI entry', () => {
-  it('dry-run alone without a terminal reports plans without any filesystem changes', () => {
-    const p = profile()
-    seedLocal(p)
-    writeFileSync(
-      join(p.config, 'opencode.jsonc'),
-      '{\n  // keep this setting\n  "theme": "owned",\n  "plugin": ["other-plugin@1"]\n}\n',
-      { mode: 0o640 },
-    )
-    const before = snapshot(p.root)
-    const result = cli(p, '--dry-run')
-    expect({ status: result.status, stderr: result.stderr }).toEqual({
-      status: 0,
-      stderr: '',
-    })
-    expect(result.stdout).toContain(
-      'Dry run: no registrations, enrollment, sign-in or migration',
-    )
-    expect(result.stdout).toContain('Would write')
-    expect(result.stdout).toContain(
-      `@cortexkit/opencode-antigravity-auth@${version}`,
-    )
-    expect(result.stdout).toContain('"plugin"')
-    expect(result.stdout).toContain(
-      'Next: start OpenCode and run /antigravity.',
-    )
-    expect(snapshot(p.root)).toEqual(before)
-  })
+  it(
+    'dry-run alone without a terminal reports plans without any filesystem changes',
+    async () => {
+      const p = profile()
+      seedLocal(p)
+      writeFileSync(
+        join(p.config, 'opencode.jsonc'),
+        '{\n  // keep this setting\n  "theme": "owned",\n  "plugin": ["other-plugin@1"]\n}\n',
+        { mode: 0o640 },
+      )
+      const before = snapshot(p.root)
+      const result = await cli(p, '--dry-run')
+      expect({ status: result.status, stderr: result.stderr }).toEqual({
+        status: 0,
+        stderr: '',
+      })
+      expect(result.stdout).toContain(
+        'Dry run: no registrations, enrollment, sign-in or migration',
+      )
+      expect(result.stdout).toContain('Would write')
+      expect(result.stdout).toContain(
+        `@cortexkit/opencode-antigravity-auth@${version}`,
+      )
+      expect(result.stdout).toContain('"plugin"')
+      expect(result.stdout).toContain(
+        'Next: start OpenCode and run /antigravity.',
+      )
+      expect(snapshot(p.root)).toEqual(before)
+    },
+    CLI_TEST_TIMEOUT_MS,
+  )
+
+  it.each(['1', '2', 'both'])(
+    'dry-run --opencode=%s reports plans without any filesystem changes',
+    async (generation) => {
+      const p = profile()
+      writeFileSync(
+        join(p.config, 'opencode.jsonc'),
+        '{\n  // keep this setting\n  "theme": "owned",\n  "plugin": ["other-plugin@1"]\n}\n',
+        { mode: 0o640 },
+      )
+      const before = snapshot(p.root)
+      const result = await cli(
+        p,
+        '--yes',
+        '--dry-run',
+        '--no-claustrum',
+        `--opencode=${generation}`,
+      )
+      expect({ status: result.status, stderr: result.stderr }).toEqual({
+        status: 0,
+        stderr: '',
+      })
+      expect(result.stdout).toContain(
+        'Dry run: no registrations, enrollment, sign-in or migration',
+      )
+      expect(result.stdout).toContain('Would write')
+      expect(result.stdout).toContain(
+        `@cortexkit/opencode-antigravity-auth@${version}`,
+      )
+      expect(result.stdout).toContain(
+        generation === '2' ? '"plugins"' : '"plugin"',
+      )
+      expect(result.stdout).toContain(
+        'Next: start OpenCode and run /antigravity.',
+      )
+      expect(snapshot(p.root)).toEqual(before)
+    },
+    CLI_TEST_TIMEOUT_MS,
+  )
 
   it.each([
     '1',
     '2',
     'both',
-  ])('dry-run --opencode=%s reports plans without any filesystem changes', (generation) => {
-    const p = profile()
-    writeFileSync(
-      join(p.config, 'opencode.jsonc'),
-      '{\n  // keep this setting\n  "theme": "owned",\n  "plugin": ["other-plugin@1"]\n}\n',
-      { mode: 0o640 },
-    )
-    const before = snapshot(p.root)
-    const result = cli(
-      p,
-      '--yes',
-      '--dry-run',
-      '--no-claustrum',
-      `--opencode=${generation}`,
-    )
-    expect({ status: result.status, stderr: result.stderr }).toEqual({
-      status: 0,
-      stderr: '',
-    })
-    expect(result.stdout).toContain(
-      'Dry run: no registrations, enrollment, sign-in or migration',
-    )
-    expect(result.stdout).toContain('Would write')
-    expect(result.stdout).toContain(
-      `@cortexkit/opencode-antigravity-auth@${version}`,
-    )
-    expect(result.stdout).toContain(
-      generation === '2' ? '"plugins"' : '"plugin"',
-    )
-    expect(result.stdout).toContain(
-      'Next: start OpenCode and run /antigravity.',
-    )
-    expect(snapshot(p.root)).toEqual(before)
-  })
-
-  it.each([
-    '1',
-    '2',
-    'both',
-  ])('--yes --opencode=%s registers without changing unrelated config or permissions', (generation) => {
+  ])('--yes --opencode=%s registers without changing unrelated config or permissions', async (generation) => {
     const p = profile()
     const local = seedLocal(p)
     const configFile = join(p.config, 'opencode.jsonc')
@@ -407,7 +414,12 @@ describe('real setup CLI entry', () => {
       '{\n  // unrelated comment\n  "theme": "owned",\n  "permission": { "bash": "ask" },\n  "plugin": ["other-plugin@1"]\n}\n',
     )
     chmodSync(configFile, 0o640)
-    const result = cli(p, '--yes', '--no-claustrum', `--opencode=${generation}`)
+    const result = await cli(
+      p,
+      '--yes',
+      '--no-claustrum',
+      `--opencode=${generation}`,
+    )
     expect({ status: result.status, stderr: result.stderr }).toEqual({
       status: 0,
       stderr: '',
@@ -432,60 +444,83 @@ describe('real setup CLI entry', () => {
     expect(statSync(configFile).mode & 0o777).toBe(0o640)
     expect(readFileSync(local.authPath, 'utf8')).toBe(local.native)
     expect(result.stdout).toContain('Migration completed')
-    const again = cli(p, '--yes', '--no-claustrum', `--opencode=${generation}`)
+    const again = await cli(
+      p,
+      '--yes',
+      '--no-claustrum',
+      `--opencode=${generation}`,
+    )
     expect(again.status).toBe(0)
     expect(again.stdout).toContain('Accounts already migrated.')
     expect(readFileSync(configFile, 'utf8')).toBe(config)
   }, 60_000)
 
-  it('--no-claustrum skips enrollment and retains all native credentials', () => {
-    const p = profile()
-    const local = seedLocal(p)
-    const result = cli(p, '--yes', '--no-claustrum', '--opencode=1')
-    expect({ status: result.status, stderr: result.stderr }).toEqual({
-      status: 0,
-      stderr: '',
-    })
-    expect(result.stdout).toContain('(local)')
-    expect(result.stdout).not.toContain('ck auth enroll approve')
-    expect(readFileSync(local.authPath, 'utf8')).toBe(local.native)
-    expect(readdirSync(p.config)).not.toContain('antigravity-auth-vault')
-  })
+  it(
+    '--no-claustrum skips enrollment and retains all native credentials',
+    async () => {
+      const p = profile()
+      const local = seedLocal(p)
+      const result = await cli(p, '--yes', '--no-claustrum', '--opencode=1')
+      expect({ status: result.status, stderr: result.stderr }).toEqual({
+        status: 0,
+        stderr: '',
+      })
+      expect(result.stdout).toContain('(local)')
+      expect(result.stdout).not.toContain('ck auth enroll approve')
+      expect(readFileSync(local.authPath, 'utf8')).toBe(local.native)
+      expect(readdirSync(p.config)).not.toContain('antigravity-auth-vault')
+    },
+    CLI_TEST_TIMEOUT_MS,
+  )
 
-  it('generation 2 --login defers OAuth to the host without reading or writing V1 auth', () => {
-    const p = profile()
-    const authPath = join(p.env.XDG_DATA_HOME, 'opencode', 'auth.json')
-    mkdirSync(dirname(authPath), { recursive: true, mode: 0o700 })
-    writeFileSync(authPath, '{not a native auth map', { mode: 0o600 })
-    const result = cli(p, '--yes', '--no-claustrum', '--login', '--opencode=2')
-    expect({ status: result.status, stderr: result.stderr }).toEqual({
-      status: 0,
-      stderr: '',
-    })
-    expect(result.stdout).toContain(
-      'In OpenCode 2, run opencode auth login, select Google, then choose Google (antigravity-auth pool, browser).',
-    )
-    expect(result.stdout).toContain('No accounts to migrate.')
-    expect(readFileSync(authPath, 'utf8')).toBe('{not a native auth map')
-    expect(readdirSync(p.config)).not.toContain('antigravity-accounts.json')
-  })
+  it(
+    'generation 2 --login defers OAuth to the host without reading or writing V1 auth',
+    async () => {
+      const p = profile()
+      const authPath = join(p.env.XDG_DATA_HOME, 'opencode', 'auth.json')
+      mkdirSync(dirname(authPath), { recursive: true, mode: 0o700 })
+      writeFileSync(authPath, '{not a native auth map', { mode: 0o600 })
+      const result = await cli(
+        p,
+        '--yes',
+        '--no-claustrum',
+        '--login',
+        '--opencode=2',
+      )
+      expect({ status: result.status, stderr: result.stderr }).toEqual({
+        status: 0,
+        stderr: '',
+      })
+      expect(result.stdout).toContain(
+        'In OpenCode 2, run opencode auth login, select Google, then choose Google (antigravity-auth pool, browser).',
+      )
+      expect(result.stdout).toContain('No accounts to migrate.')
+      expect(readFileSync(authPath, 'utf8')).toBe('{not a native auth map')
+      expect(readdirSync(p.config)).not.toContain('antigravity-accounts.json')
+    },
+    CLI_TEST_TIMEOUT_MS,
+  )
 
-  it('refuses contradictory vault flags before writing any profile files', () => {
-    const p = profile()
-    const before = snapshot(p.root)
-    const result = cli(
-      p,
-      '--yes',
-      '--no-claustrum',
-      '--claustrum',
-      '--opencode=1',
-    )
-    expect(result.status).toBe(1)
-    expect(result.stderr).toContain(
-      '--claustrum and --no-claustrum cannot be used together',
-    )
-    expect(snapshot(p.root)).toEqual(before)
-  })
+  it(
+    'refuses contradictory vault flags before writing any profile files',
+    async () => {
+      const p = profile()
+      const before = snapshot(p.root)
+      const result = await cli(
+        p,
+        '--yes',
+        '--no-claustrum',
+        '--claustrum',
+        '--opencode=1',
+      )
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain(
+        '--claustrum and --no-claustrum cannot be used together',
+      )
+      expect(snapshot(p.root)).toEqual(before)
+    },
+    CLI_TEST_TIMEOUT_MS,
+  )
 
   it('server and CLI keep both vault clients external without lazy chunks or inlining', () => {
     for (const name of ['server', 'cli', 'index']) {
@@ -1012,34 +1047,38 @@ describe('setup plugin callbacks', () => {
     expect(existsSync(join(p.config, 'opencode.jsonc'))).toBe(false)
   })
 
-  it('real CLI dry-run selects both hosts without callbacks, Pi inspection, lock acquisition or slot repairs', () => {
-    const p = profile()
-    fakeHostCommands(p)
-    mkdirSync(p.env.PI_AGENT_DIR, { mode: 0o700 })
-    mkdirSync(p.env.PI_CODING_AGENT_DIR, { mode: 0o700 })
-    writeFileSync(join(p.env.PI_AGENT_DIR, 'auth.json'), 'extension decoy')
-    const authPath = join(p.env.PI_CODING_AGENT_DIR, 'auth.json')
-    writeFileSync(authPath, '{invalid native auth')
-    writeFileSync(`${authPath}.lock`, 'owned inspection obstacle', {
-      mode: 0o600,
-    })
-    const before = snapshot(p.root)
-    const result = cli(
-      p,
-      '--yes',
-      '--dry-run',
-      '--opencode=2',
-      '--no-claustrum',
-    )
-    expect({ status: result.status, stderr: result.stderr }).toEqual({
-      status: 0,
-      stderr: '',
-    })
-    expect(result.stdout).toContain('Pi: found')
-    expect(result.stdout).toContain(p.env.PI_CODING_AGENT_DIR)
-    expect(result.stdout).toContain('for opencode, pi (local)')
-    expect(snapshot(p.root)).toEqual(before)
-  })
+  it(
+    'real CLI dry-run selects both hosts without callbacks, Pi inspection, lock acquisition or slot repairs',
+    async () => {
+      const p = profile()
+      fakeHostCommands(p)
+      mkdirSync(p.env.PI_AGENT_DIR, { mode: 0o700 })
+      mkdirSync(p.env.PI_CODING_AGENT_DIR, { mode: 0o700 })
+      writeFileSync(join(p.env.PI_AGENT_DIR, 'auth.json'), 'extension decoy')
+      const authPath = join(p.env.PI_CODING_AGENT_DIR, 'auth.json')
+      writeFileSync(authPath, '{invalid native auth')
+      writeFileSync(`${authPath}.lock`, 'owned inspection obstacle', {
+        mode: 0o600,
+      })
+      const before = snapshot(p.root)
+      const result = await cli(
+        p,
+        '--yes',
+        '--dry-run',
+        '--opencode=2',
+        '--no-claustrum',
+      )
+      expect({ status: result.status, stderr: result.stderr }).toEqual({
+        status: 0,
+        stderr: '',
+      })
+      expect(result.stdout).toContain('Pi: found')
+      expect(result.stdout).toContain(p.env.PI_CODING_AGENT_DIR)
+      expect(result.stdout).toContain('for opencode, pi (local)')
+      expect(snapshot(p.root)).toEqual(before)
+    },
+    CLI_TEST_TIMEOUT_MS,
+  )
 
   it('V1 vault preconditions refuse a local native login before any enrollment write, while generation 2 never reads that slot', async () => {
     const p = profile()

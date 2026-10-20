@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from 'bun:test'
 import * as childProcess from 'node:child_process'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import {
@@ -100,6 +100,7 @@ import {
   verifiedBinary,
   type Wire,
 } from './measure-ga-proxy-matrix.ts'
+import { runCommand } from '../../../test/support/run-command.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 function nativeTestProfile(env: NodeJS.ProcessEnv): 'portable' | 'motor-inert' {
@@ -4627,7 +4628,7 @@ describe(GIT_GROUP, () => {
       }
     },
   )
-  test('inert Git template trap copies its canary when exclusions are removed', () => {
+  test('inert Git template trap copies its canary when exclusions are removed', async () => {
     const parent = mkdtempSync(join(tmpdir(), 'ga-native-git-canary-'))
     try {
       const root = nativeGitRoot(parent, 'row')
@@ -4638,18 +4639,19 @@ describe(GIT_GROUP, () => {
         join(root, 'home/.gitconfig'),
         `[init]\n templateDir = ${template}\n`,
       )
-      const result = spawnSync(
-        '/usr/bin/git',
-        ['-C', join(root, 'project'), 'init'],
+      // Git fails at its own deadline, before this test's timeout.
+      const ran = await runCommand(
+        ['/usr/bin/git', '-C', join(root, 'project'), 'init'],
         {
-          encoding: 'utf8',
           env: {
             PATH: '/usr/bin:/bin',
             HOME: join(root, 'home'),
             GIT_CONFIG_NOSYSTEM: '1',
           },
+          deadlineMs: 5_000,
         },
       )
+      const result = { ...ran, status: ran.exitCode }
       expect(result.status).toBe(0)
       expect(
         readFileSync(join(root, 'project/.git/inert-template-canary'), 'utf8'),
@@ -4657,7 +4659,7 @@ describe(GIT_GROUP, () => {
     } finally {
       rmSync(parent, { recursive: true, force: true })
     }
-  })
+  }, 10_000)
   const optionsFor = (root: string, compare: string) =>
     parseArgs([
       '--profile',
@@ -4769,23 +4771,30 @@ describe('explicit matrix measurement profiles', () => {
       validateMatrix(value, pin)
     }).toThrow('unknown/malformed row')
   })
-  test('Docker four-input layout loads without any native-job fixture', () => {
+  test('Docker four-input layout loads without any native-job fixture', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ga-docker-layout-'))
     try {
       for (const name of Object.keys(sourceDigests()))
         writeFileSync(join(root, name), readFileSync(join(HERE, name)))
-      const result = spawnSync(
-        process.execPath,
+      // The loader fails at its own deadline, before this test's timeout.
+      const ran = await runCommand(
         [
+          process.execPath,
           '-e',
           `import { readFileSync } from 'node:fs'; import { validateMatrix, PinSchema } from ${JSON.stringify(join(root, 'measure-ga-proxy-matrix.ts'))}; console.log(JSON.stringify(validateMatrix(JSON.parse(readFileSync(0, 'utf8')), PinSchema.parse(JSON.parse(readFileSync(${JSON.stringify(join(root, 'ga-binary-pin.json'))}, 'utf8')))).native))`,
         ],
         {
-          encoding: 'utf8',
-          input: JSON.stringify(matrix()),
+          stdin: JSON.stringify(matrix()),
           env: { PATH: process.env.PATH },
+          deadlineMs: 15_000,
         },
       )
+      // Keep the node-style fields the assertions read; a spawn failure now throws.
+      const result = {
+        ...ran,
+        status: ran.exitCode,
+        error: undefined as Error | undefined,
+      }
       expect(result.error).toBeUndefined()
       expect(result.status).toBe(0)
       expect(result.stderr).toBe('')
@@ -4793,7 +4802,7 @@ describe('explicit matrix measurement profiles', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
   test('missing and unknown matrix profiles are refused explicitly', () => {
     const { profile: _profile, ...untagged } = matrix()
     expect(() => {
@@ -5715,7 +5724,7 @@ describe('GA shell runner fixture preflight, not native host certification', () 
       witness:
         'Missing GA join input: packages/e2e-tests/docker/ga-proxy-env-matrix.json',
     },
-  ])('enforces the correct fixture set with smoke=$smoke', ({
+  ])('enforces the correct fixture set with smoke=$smoke', async ({
     smoke,
     status,
     witness,
@@ -5733,14 +5742,20 @@ describe('GA shell runner fixture preflight, not native host certification', () 
       GIT_COMMITTER_NAME: 'Fixture',
       GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
     }
-    const command = (file: string, args: string[]) =>
-      spawnSync(file, args, {
+    // Each command fails at its own deadline, before this test's timeout.
+    // Results keep the node-style fields the assertions read; a spawn failure throws.
+    const command = async (file: string, args: string[]) => {
+      const ran = await runCommand([file, ...args], {
         cwd: root,
         env,
-        encoding: 'utf8',
-        timeout: 10_000,
-        maxBuffer: 128 * 1024,
+        deadlineMs: 10_000,
       })
+      return {
+        ...ran,
+        status: ran.exitCode,
+        error: undefined as Error | undefined,
+      }
+    }
     try {
       mkdirSync(bin)
       const runner = 'packages/e2e-tests/docker/run-opencode-ga-test.sh'
@@ -5786,11 +5801,11 @@ describe('GA shell runner fixture preflight, not native host certification', () 
           'Owned preflight fixture',
         ],
       ]) {
-        const result = command('git', args)
+        const result = await command('git', args)
         expect(result.error).toBeUndefined()
         expect(result.status).toBe(0)
       }
-      const result = command('/bin/bash', [
+      const result = await command('/bin/bash', [
         join(root, runner),
         ...(smoke ? ['--smoke'] : []),
         '--inputs',
@@ -5804,7 +5819,7 @@ describe('GA shell runner fixture preflight, not native host certification', () 
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 60_000)
 })
 
 test('Docker bootstrap avoids Hub and verifies Bun before extraction', () => {

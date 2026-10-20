@@ -1,9 +1,9 @@
 import { describe, expect } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { lifetimeHooks } from '../../../test/fixtures/lifetime-hooks.ts'
+import { runCommand } from '../../../test/support/run-command.ts'
 import { PUBLIC_CONSUMER_ENV } from './__fixtures__/common-auth-public-consumer.test.ts'
 import { publicationPublicModules } from './__fixtures__/publication-public-modules.ts'
 
@@ -240,101 +240,117 @@ describe('published account store through AccountRepository.replacePool', () => 
   })
 })
 
+// The crash child fails at its own deadline, before its test's timeout.
+const CRASH_CHILD_DEADLINE_MS = 10_000
+const CRASH_REPLAY_TIMEOUT_MS = 30_000
+
 for (const step of [
   'before-config-write',
   'after-config-write',
   'after-state-write',
 ] as const) {
-  it(`replays after an actual child exit at ${step}`, async () => {
-    const p = await pool()
-    const child = spawnSync(
-      process.execPath,
-      [
-        join(import.meta.dir, '__fixtures__/publication-crash-child.ts'),
-        p.paths.legacyPath,
-        step,
-        consumer,
-      ],
-      {
-        cwd: p.root,
-        env: {
-          PATH: '/usr/bin:/bin',
-          HOME: p.root,
-          USERPROFILE: p.root,
-          TMPDIR: p.root,
-          XDG_CONFIG_HOME: p.root,
-          XDG_DATA_HOME: p.root,
-          XDG_STATE_HOME: p.root,
-          XDG_CACHE_HOME: p.root,
-        },
-        encoding: 'utf8',
-        timeout: 10_000,
-        maxBuffer: 128 * 1024,
-      },
-    )
-    // Print captured child output before an assertion hides the failure reason.
-    if (child.error || child.signal || child.status !== 91 || child.stderr) {
-      console.error(
-        'Unexpected publication crash-child result',
-        JSON.stringify({
+  it(
+    `replays after an actual child exit at ${step}`,
+    async () => {
+      const p = await pool()
+      const ran = await runCommand(
+        [
+          process.execPath,
+          join(import.meta.dir, '__fixtures__/publication-crash-child.ts'),
+          p.paths.legacyPath,
           step,
-          error: child.error?.stack ?? null,
-          status: child.status,
-          signal: child.signal,
-          stdout: child.stdout,
-          stderr: child.stderr,
-        }),
+          consumer,
+        ],
+        {
+          cwd: p.root,
+          env: {
+            PATH: '/usr/bin:/bin',
+            HOME: p.root,
+            USERPROFILE: p.root,
+            TMPDIR: p.root,
+            XDG_CONFIG_HOME: p.root,
+            XDG_DATA_HOME: p.root,
+            XDG_STATE_HOME: p.root,
+            XDG_CACHE_HOME: p.root,
+          },
+          deadlineMs: CRASH_CHILD_DEADLINE_MS,
+        },
       )
-    }
-    expect(child.error).toBeUndefined()
-    expect(child.signal).toBeNull()
-    expect(child.status).toBe(91)
-    expect(child.stderr).toBe('')
-    const operation = await journal(p.paths)
-    expect(operation.progress.step).toBe(
-      step === 'after-state-write' ? 'add' : 'publish',
-    )
-    const receipt = await p.native.publication(operation.id)
-    expect(receipt?.phase).toBe(
-      step === 'after-config-write' ? 'committed' : undefined,
-    )
-    const before = await p.native.read()
-    if (before.status !== 'ready')
-      throw new Error('native read failed after child exit')
-    if (step === 'before-config-write') {
-      expect(before.rows.find((row) => row.id === 'old')?.candidate).toBe(true)
-      expect(before.rows.find((row) => row.id === 'new')?.candidate).toBe(false)
-    } else if (step === 'after-state-write') {
-      expect(before.rows.map((row) => [row.id, row.candidate])).toEqual([
-        ['old', true],
+      // Keep the node-style fields read below; a spawn failure now throws.
+      const child = {
+        ...ran,
+        status: ran.exitCode,
+        error: undefined as Error | undefined,
+      }
+      // Print captured child output before an assertion hides the failure reason.
+      if (child.error || child.signal || child.status !== 91 || child.stderr) {
+        console.error(
+          'Unexpected publication crash-child result',
+          JSON.stringify({
+            step,
+            error: child.error?.stack ?? null,
+            status: child.status,
+            signal: child.signal,
+            stdout: child.stdout,
+            stderr: child.stderr,
+          }),
+        )
+      }
+      expect(child.error).toBeUndefined()
+      expect(child.signal).toBeNull()
+      expect(child.status).toBe(91)
+      expect(child.stderr).toBe('')
+      const operation = await journal(p.paths)
+      expect(operation.progress.step).toBe(
+        step === 'after-state-write' ? 'add' : 'publish',
+      )
+      const receipt = await p.native.publication(operation.id)
+      expect(receipt?.phase).toBe(
+        step === 'after-config-write' ? 'committed' : undefined,
+      )
+      const before = await p.native.read()
+      if (before.status !== 'ready')
+        throw new Error('native read failed after child exit')
+      if (step === 'before-config-write') {
+        expect(before.rows.find((row) => row.id === 'old')?.candidate).toBe(
+          true,
+        )
+        expect(before.rows.find((row) => row.id === 'new')?.candidate).toBe(
+          false,
+        )
+      } else if (step === 'after-state-write') {
+        expect(before.rows.map((row) => [row.id, row.candidate])).toEqual([
+          ['old', true],
+        ])
+        expect(await readFile(p.paths.statePath, 'utf8')).toContain(
+          'synthetic-new-refresh',
+        )
+      } else {
+        expect(before.rows.map((row) => row.id)).toEqual(['new'])
+      }
+      // The exited crash-fixture process used one-second lock expirations. Wait
+      // for its abandoned locks to expire before reopening the pool; do not delete
+      // lock files or change the production lease durations and deadlines.
+      await Bun.sleep(1100)
+      expect((await p.open().replacePool([input('new')])).outcome).toBe(
+        'completed',
+      )
+      expect((await p.native.publication(operation.id))?.phase).toBe('cleaned')
+      expect(await journal(p.paths)).toBeUndefined()
+      const served = await p.native.read()
+      if (served.status !== 'ready')
+        throw new Error('native unavailable after replay')
+      expect(served.rows.map((row) => [row.id, row.candidate])).toEqual([
+        ['new', true],
       ])
-      expect(await readFile(p.paths.statePath, 'utf8')).toContain(
-        'synthetic-new-refresh',
-      )
-    } else {
-      expect(before.rows.map((row) => row.id)).toEqual(['new'])
-    }
-    // The exited crash-fixture process used one-second lock expirations. Wait
-    // for its abandoned locks to expire before reopening the pool; do not delete
-    // lock files or change the production lease durations and deadlines.
-    await Bun.sleep(1100)
-    expect((await p.open().replacePool([input('new')])).outcome).toBe(
-      'completed',
-    )
-    expect((await p.native.publication(operation.id))?.phase).toBe('cleaned')
-    expect(await journal(p.paths)).toBeUndefined()
-    const served = await p.native.read()
-    if (served.status !== 'ready')
-      throw new Error('native unavailable after replay')
-    expect(served.rows.map((row) => [row.id, row.candidate])).toEqual([
-      ['new', true],
-    ])
-    expect(
-      (await readFile(p.paths.statePath, 'utf8')).includes(
-        'synthetic-old-refresh',
-      ),
-    ).toBe(false)
-  })
+      expect(
+        (await readFile(p.paths.statePath, 'utf8')).includes(
+          'synthetic-old-refresh',
+        ),
+      ).toBe(false)
+    },
+    CRASH_REPLAY_TIMEOUT_MS,
+  )
 }
 
 it('replaces an account with overlapping secret and identity without rotating the old row during staging', async () => {

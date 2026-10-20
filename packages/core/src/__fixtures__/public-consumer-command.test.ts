@@ -1,5 +1,4 @@
 import { expect, it } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
@@ -11,6 +10,7 @@ import {
   PUBLIC_COMMAND_BOUNDS,
   runPublicConsumerCommand,
 } from '../../../../scripts/prepare-common-auth-public-consumer.ts'
+import { runCommand } from '../../../../test/support/run-command.ts'
 import {
   admitPublicConsumer,
   publicFixtureBytes,
@@ -32,17 +32,17 @@ const BOUNDS = {
   outputCapBytes: 4096,
 }
 
-function liveOwnedDescendant(
+async function liveOwnedDescendant(
   pid: number,
   nonce: string,
   group: number,
-): boolean {
-  const probe = spawnSync(
-    '/bin/ps',
-    ['-p', String(pid), '-o', 'pid=,pgid=,stat=,args='],
-    { encoding: 'utf8', timeout: 500, maxBuffer: 16 * 1024 },
+): Promise<boolean> {
+  // A probe past its deadline throws, as the synchronous timeout did.
+  const ran = await runCommand(
+    ['/bin/ps', '-p', String(pid), '-o', 'pid=,pgid=,stat=,args='],
+    { deadlineMs: 500 },
   )
-  if (probe.error) throw probe.error
+  const probe = { ...ran, status: ran.exitCode }
   if (probe.status === 1 && !probe.stdout.trim()) return false
   if (probe.status !== 0)
     throw new Error(`owned descendant probe failed: ${probe.stderr}`)
@@ -202,7 +202,7 @@ for (const [keepPipes, failInspection, separateGroup] of [
             throw new Error(
               'controlled live descendant receipt identity differs',
             )
-          const alive = liveOwnedDescendant(
+          const alive = await liveOwnedDescendant(
             receipt.descendant,
             nonce,
             receipt.group,
@@ -259,7 +259,11 @@ for (const [keepPipes, failInspection, separateGroup] of [
         try {
           if (
             receipt &&
-            liveOwnedDescendant(receipt.descendant, nonce, receipt.group)
+            (await liveOwnedDescendant(
+              receipt.descendant,
+              nonce,
+              receipt.group,
+            ))
           ) {
             const actual = await createPublicCommandInspector()
             try {
@@ -291,11 +295,21 @@ for (const [keepPipes, failInspection, separateGroup] of [
               )
               const deadline = performance.now() + 1000
               while (
-                liveOwnedDescendant(receipt.descendant, nonce, receipt.group) &&
+                (await liveOwnedDescendant(
+                  receipt.descendant,
+                  nonce,
+                  receipt.group,
+                )) &&
                 performance.now() < deadline
               )
                 await new Promise((resolve) => setTimeout(resolve, 10))
-              if (liveOwnedDescendant(receipt.descendant, nonce, receipt.group))
+              if (
+                await liveOwnedDescendant(
+                  receipt.descendant,
+                  nonce,
+                  receipt.group,
+                )
+              )
                 throw new Error(
                   'controlled live descendant cleanup unconfirmed',
                 )

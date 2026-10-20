@@ -196,19 +196,19 @@ test('rpc.matrix.admission_refusal: missing executables and wrong versions fail 
     repository,
     'test/common-auth-094-adoption/rpc/.owned/no-such-executable',
   )
-  expect(() =>
+  await expect(
     admitRuntime({
       name: 'Missing runtime',
       path: missing,
       version: 'v20.0.0',
     }),
-  ).toThrow('executable admission failed')
+  ).rejects.toThrow('executable admission failed')
   const wrong = {
     name: 'Wrong version',
     path: process.execPath,
     version: 'not-a-required-version',
   }
-  expect(() => admitRuntime(wrong)).toThrow('wrong exact version')
+  await expect(admitRuntime(wrong)).rejects.toThrow('wrong exact version')
   await expect(main(['--node20', missing, ...args.slice(2)])).rejects.toThrow(
     'executable admission failed',
   )

@@ -6,7 +6,7 @@ import { admitRuntime, runRuntime } from './run-runtime.mjs'
 // The separate required matrix checks all four supplied binaries and versions.
 test('S-RPC complete contracts on the current unit-test runtime', async () => {
   const version = process.versions.bun ?? process.version
-  const runtime = admitRuntime({
+  const runtime = await admitRuntime({
     name: `Current runtime ${version}`,
     kind: process.versions.bun ? 'bun' : 'node',
     version,

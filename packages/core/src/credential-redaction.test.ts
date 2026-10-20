@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { runCommand } from '../../../test/support/run-command.ts'
 import {
   redactCredentialError,
   redactCredentialFrame,
@@ -36,10 +36,11 @@ describe('credential redaction', () => {
     })
   })
 
-  it('imports the same-job built core root through native Node ESM without a resolution shim', () => {
-    const result = spawnSync(
-      'node',
+  it('imports the same-job built core root through native Node ESM without a resolution shim', async () => {
+    // The Node process fails at its own deadline, before this test's timeout.
+    const ran = await runCommand(
       [
+        'node',
         '--input-type=module',
         '--eval',
         `
@@ -50,16 +51,16 @@ describe('credential redaction', () => {
       ],
       {
         cwd: fileURLToPath(new URL('../../../', import.meta.url)),
-        encoding: 'utf8',
-        timeout: 4_000,
+        deadlineMs: 4_000,
       },
     )
+    const result = { ...ran, status: ran.exitCode }
     expect(result.stderr).toBe('')
     expect(result.status).toBe(0)
     expect(result.stdout.trim()).toBe(
       'native-node-core-root-import: 1 check passed',
     )
-  })
+  }, 10_000)
 
   for (const frozen of [false, true]) {
     it(`preserves safe object and symbol classification metadata on ${frozen ? 'frozen' : 'writable'} errors`, () => {

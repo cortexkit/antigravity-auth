@@ -38,7 +38,9 @@ export function parseMatrixArgs(args) {
 export async function main(args) {
   // Run --version on every supplied binary and require its exact version before
   // creating fixtures or running RPC callbacks.
-  const runtimes = parseMatrixArgs(args).map(admitRuntime)
+  const runtimes = []
+  for (const runtime of parseMatrixArgs(args))
+    runtimes.push(await admitRuntime(runtime))
   const failures = []
   for (const runtime of runtimes) {
     try {

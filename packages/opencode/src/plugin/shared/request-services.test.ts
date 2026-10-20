@@ -22,6 +22,7 @@ import {
   SKIP_THOUGHT_SIGNATURE,
   TokenBucketTracker,
 } from '@cortexkit/antigravity-auth-core'
+import { runCommandBytes } from '../../../../../test/support/run-command.ts'
 import {
   createGaRawSender,
   GA_RAW_IDLE_TIMEOUT_MS,
@@ -667,24 +668,28 @@ async function silentPeer(phase: 'origin' | 'tls' | 'connect' | 'proxy-tls') {
     mkdirSync(root, { recursive: true })
     const key = join(root, 'key.pem')
     const cert = join(root, 'cert.pem')
-    const generated = Bun.spawnSync([
-      'openssl',
-      'req',
-      '-x509',
-      '-newkey',
-      'rsa:2048',
-      '-nodes',
-      '-keyout',
-      key,
-      '-out',
-      cert,
-      '-days',
-      '1',
-      '-subj',
-      '/CN=localhost',
-      '-addext',
-      'subjectAltName=DNS:localhost,IP:127.0.0.1',
-    ])
+    // Key generation fails at its own deadline, before Bun's 5 s test limit.
+    const generated = await runCommandBytes(
+      [
+        'openssl',
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        key,
+        '-out',
+        cert,
+        '-days',
+        '1',
+        '-subj',
+        '/CN=localhost',
+        '-addext',
+        'subjectAltName=DNS:localhost,IP:127.0.0.1',
+      ],
+      { deadlineMs: 4_000 },
+    )
     if (generated.exitCode !== 0) throw new Error(generated.stderr.toString())
     loopbackIdentity = { key: readFileSync(key), cert: readFileSync(cert) }
   }

@@ -204,12 +204,17 @@ export async function runPublicConsumerCommand(
     child.once('error', stop)
     const reportBuildPhases = createBuildPhaseReporter(fixture.root)
     let firstSlowSnapshot: string | undefined
+    // Captures run ps asynchronously; a pending slow-file sample is awaited
+    // before a later snapshot so it is still printed first.
+    let slowSample: Promise<void> | undefined
     let deadlineSnapshot: string | undefined
     let sampledSlow = false
     let reportedFailure = false
-    const snapshot = (reason: 'deadline' | 'failure') => {
+    const snapshot = async (reason: 'deadline' | 'failure') => {
       files.flush()
       if (!scope || !inspector) return
+      const [ownedScope, ownedInspector] = [scope, inspector]
+      await slowSample
       if (firstSlowSnapshot) {
         console.error(firstSlowSnapshot)
         firstSlowSnapshot = undefined
@@ -217,8 +222,18 @@ export async function runPublicConsumerCommand(
       const line =
         reason === 'deadline'
           ? (deadlineSnapshot ??
-            captureTestStall(reason, scope, inspector, fixture.root))
-          : captureTestStall(reason, scope, inspector, fixture.root)
+            (await captureTestStall(
+              reason,
+              ownedScope,
+              ownedInspector,
+              fixture.root,
+            )))
+          : await captureTestStall(
+              reason,
+              ownedScope,
+              ownedInspector,
+              fixture.root,
+            )
       if (line) console.error(line)
     }
     const files = createTestFileObserver(
@@ -241,11 +256,16 @@ export async function runPublicConsumerCommand(
       if (!sampledSlow && files.slow() && scope && inspector) {
         sampledSlow = true
         // Keep the early sample quiet unless this command eventually fails.
-        firstSlowSnapshot = captureTestStall(
+        slowSample = captureTestStall(
           'slow-file',
           scope,
           inspector,
           fixture.root,
+        ).then(
+          (line) => {
+            firstSlowSnapshot = line
+          },
+          () => {},
         )
       }
     }, 1_000)
@@ -271,7 +291,7 @@ export async function runPublicConsumerCommand(
           files.feed(chunk)
           if (!reportedFailure && /(?:^|\n)\(fail\) /.test(chunk.toString())) {
             reportedFailure = true
-            snapshot('failure')
+            void snapshot('failure').catch(() => {})
           }
         }
         if (bytes <= bounds.outputCapBytes) output.write(chunk)
@@ -352,17 +372,25 @@ export async function runPublicConsumerCommand(
       }
     executionTimer = setTimeout(() => {
       reportedFailure = true
-      snapshot('deadline')
-      stop(new Error('test command execution deadline exceeded'))
+      // Record the cause now; release the run only after the snapshot printed.
+      primary ??= new Error('test command execution deadline exceeded')
+      void snapshot('deadline')
+        .catch(() => {})
+        .finally(wake)
     }, bounds.executionMs)
     snapshotTimer = setTimeout(
       () => {
         if (scope && inspector)
-          deadlineSnapshot = captureTestStall(
+          void captureTestStall(
             'deadline',
             scope,
             inspector,
             fixture.root,
+          ).then(
+            (line) => {
+              deadlineSnapshot = line
+            },
+            () => {},
           )
       },
       Math.max(
@@ -371,7 +399,7 @@ export async function runPublicConsumerCommand(
       ),
     )
     await stopped
-    if ((primary || status !== 0) && !reportedFailure) snapshot('failure')
+    if ((primary || status !== 0) && !reportedFailure) await snapshot('failure')
     reportBuildPhases(
       primary || status !== 0
         ? String(primary ?? `test command exited with code ${status}`)

@@ -556,7 +556,7 @@ export async function runPackedVault(): Promise<PackedVaultReceipt> {
       agent: { title: { disable: true }, summary: { disable: true } },
     })
     process.env.ANTIGRAVITY_GA_HOST_EXECUTION = '1'
-    const tls = createGaTlsFiles(paths, 'matching')
+    const tls = await createGaTlsFiles(paths, 'matching')
     env.NODE_EXTRA_CA_CERTS = tls.ca
     let activeNonce = receipt.nonce
     peer = await startGaRawPeer(tls, 'success', () => activeNonce)

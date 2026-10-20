@@ -1,11 +1,15 @@
 import { expect, it } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { traceSyncTestChild } from '../scripts/test-child-lifecycle.ts'
+import { traceTestCommand } from '../scripts/test-child-lifecycle.ts'
 import { TestLifetime } from './fixtures/test-lifetime.ts'
+import { runCommand } from './support/run-command.ts'
+
+// The nested runner fails at its own deadline, before the enclosing test's timeout.
+const CHILD_DEADLINE_MS = 4_000
+const TEST_TIMEOUT_MS = 10_000
 
 async function timeoutChild(oldOrder: boolean) {
   const root = await mkdtemp(join(tmpdir(), 'agy-lifetime-proof-'))
@@ -55,14 +59,13 @@ it('successor waits for the original final read', async () => {
 })
 `,
     )
-    const child = traceSyncTestChild(
+    const ran = await traceTestCommand(
       'lifetime',
       process.execPath,
       3,
       () =>
-        spawnSync(
-          process.execPath,
-          ['test', '--isolate', './lifetime.test.ts'],
+        runCommand(
+          [process.execPath, 'test', '--isolate', './lifetime.test.ts'],
           {
             cwd: root,
             env: {
@@ -75,13 +78,18 @@ it('successor waits for the original final read', async () => {
               XDG_STATE_HOME: root,
               XDG_CACHE_HOME: root,
             },
-            encoding: 'utf8',
-            timeout: 4_000,
-            maxBuffer: 128 * 1024,
+            deadlineMs: CHILD_DEADLINE_MS,
           },
         ),
       true,
     )
+    // Keep the result shape the assertions below were written against; a
+    // spawn failure now throws instead of setting `error`.
+    const child = {
+      ...ran,
+      status: ran.exitCode,
+      error: undefined as Error | undefined,
+    }
     const completed = await readFile(join(root, 'completed'), 'utf8').catch(
       (error) => {
         if (
@@ -99,34 +107,42 @@ it('successor waits for the original final read', async () => {
   }
 }
 
-it('keeps the original timeout failed and joins its final disk read before teardown and successor setup', async () => {
-  const result = await timeoutChild(false)
-  expect(result.child.error).toBeUndefined()
-  expect(result.child.signal).toBeNull()
-  expect(result.child.status).toBe(1)
-  expect(result.output).toContain('timed out after 100ms')
-  expect(result.child.stdout).toContain('ORIGINAL_FINAL_READ_COMPLETED')
-  expect(result.output).toContain(
-    '(pass) successor waits for the original final read',
-  )
-  expect(result.output).toContain('1 pass')
-  expect(result.output).toContain('1 fail')
-  expect(result.output).not.toContain('Unhandled error')
-  expect(result.completed).toBe('original')
-})
+it(
+  'keeps the original timeout failed and joins its final disk read before teardown and successor setup',
+  async () => {
+    const result = await timeoutChild(false)
+    expect(result.child.error).toBeUndefined()
+    expect(result.child.signal).toBeNull()
+    expect(result.child.status).toBe(1)
+    expect(result.output).toContain('timed out after 100ms')
+    expect(result.child.stdout).toContain('ORIGINAL_FINAL_READ_COMPLETED')
+    expect(result.output).toContain(
+      '(pass) successor waits for the original final read',
+    )
+    expect(result.output).toContain('1 pass')
+    expect(result.output).toContain('1 fail')
+    expect(result.output).not.toContain('Unhandled error')
+    expect(result.completed).toBe('original')
+  },
+  TEST_TIMEOUT_MS,
+)
 
-it('detects the old cleanup ordering that deletes state before the timed-out body finishes', async () => {
-  const result = await timeoutChild(true)
-  expect(result.child.error).toBeUndefined()
-  expect(result.child.signal).toBeNull()
-  expect(result.child.status).toBe(1)
-  expect(result.output).toContain('timed out after 100ms')
-  expect(result.child.stdout).not.toContain('ORIGINAL_FINAL_READ_COMPLETED')
-  expect(result.output).not.toContain(
-    '(pass) successor waits for the original final read',
-  )
-  expect(result.completed).toBeUndefined()
-})
+it(
+  'detects the old cleanup ordering that deletes state before the timed-out body finishes',
+  async () => {
+    const result = await timeoutChild(true)
+    expect(result.child.error).toBeUndefined()
+    expect(result.child.signal).toBeNull()
+    expect(result.child.status).toBe(1)
+    expect(result.output).toContain('timed out after 100ms')
+    expect(result.child.stdout).not.toContain('ORIGINAL_FINAL_READ_COMPLETED')
+    expect(result.output).not.toContain(
+      '(pass) successor waits for the original final read',
+    )
+    expect(result.completed).toBeUndefined()
+  },
+  TEST_TIMEOUT_MS,
+)
 
 it('preserves ordinary assertion and operation failures while releasing late barriers', async () => {
   const lifetime = new TestLifetime()

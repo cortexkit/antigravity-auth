@@ -6,7 +6,6 @@
 // cross-runtime matrix runs in CI.
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import {
   existsSync,
   lstatSync,
@@ -22,7 +21,8 @@ import {
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { traceSyncTestChild } from '../../scripts/test-child-lifecycle.ts'
+import { traceTestCommand } from '../../scripts/test-child-lifecycle.ts'
+import { runCommand } from '../support/run-command.ts'
 
 const repoRoot = resolve(import.meta.dir, '../..')
 const coreRoot = join(repoRoot, 'packages/core')
@@ -43,21 +43,33 @@ const ENTRIES = [
 
 /** Bound on one type-check test: one tsc process over the packed types. */
 const COMPILER_RUN_MS = 60_000
+/** The compiler process fails at its own deadline, before the test's limit. */
+const COMPILER_DEADLINE_MS = 50_000
+/** Bounds for packing, unpacking and running one consumer probe. */
+const SETUP_TIMEOUT_MS = 120_000
+const PROBE_TIMEOUT_MS = 30_000
+const COMMAND_DEADLINE_MS = 20_000
 
 let root: string
 let consumer: string
 let installed: string
 
-function run(command: string, args: string[], cwd: string) {
+async function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  deadlineMs = COMMAND_DEADLINE_MS,
+) {
   const spawn = () =>
-    spawnSync(command, args, {
+    runCommand([command, ...args], {
       cwd,
-      encoding: 'utf8',
       env: { ...process.env, NO_COLOR: '1' },
+      deadlineMs,
     })
-  const result = args[0]?.endsWith('/typescript/bin/tsc')
-    ? traceSyncTestChild('packed-core-tsc', command, args.length, spawn)
-    : spawn()
+  const ran = args[0]?.endsWith('/typescript/bin/tsc')
+    ? await traceTestCommand('packed-core-tsc', command, args.length, spawn)
+    : await spawn()
+  const result = { ...ran, status: ran.exitCode }
   if (result.status !== 0)
     throw new Error(
       `${command} ${args.join(' ')} failed (${result.status}):\n${result.stdout}\n${result.stderr}`,
@@ -75,8 +87,12 @@ function linkDependency(name: string) {
 }
 
 /** Packs `packageRoot` (already built) and unpacks it as an installed package. */
-function installPacked(packageRoot: string, name: string, filename: string) {
-  run(
+async function installPacked(
+  packageRoot: string,
+  name: string,
+  filename: string,
+) {
+  await run(
     process.execPath,
     [
       'pm',
@@ -90,7 +106,7 @@ function installPacked(packageRoot: string, name: string, filename: string) {
   )
   const target = join(consumer, 'node_modules', name)
   mkdirSync(target, { recursive: true })
-  run(
+  await run(
     'tar',
     ['-xzf', join(root, filename), '-C', target, '--strip-components=1'],
     root,
@@ -98,13 +114,13 @@ function installPacked(packageRoot: string, name: string, filename: string) {
   return target
 }
 
-function runConsumer(source: string): string {
+function runConsumer(source: string): Promise<string> {
   const script = join(consumer, `probe-${Date.now()}-${Math.random()}.mjs`)
   writeFileSync(script, source)
   return run(process.execPath, [script], consumer)
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'core-public-consumer-'))
   consumer = join(root, 'consumer')
   mkdirSync(consumer)
@@ -112,8 +128,8 @@ beforeAll(() => {
     join(consumer, 'package.json'),
     `${JSON.stringify({ name: 'core-public-consumer', private: true, type: 'module' })}\n`,
   )
-  installed = installPacked(coreRoot, corePackage, 'core.tgz')
-  installPacked(piRoot, piPackage, 'pi.tgz')
+  installed = await installPacked(coreRoot, corePackage, 'core.tgz')
+  await installPacked(piRoot, piPackage, 'pi.tgz')
   for (const name of [
     CLAUSTRUM_CLIENT,
     '@cortexkit/subc-client',
@@ -122,7 +138,7 @@ beforeAll(() => {
     'zod',
   ])
     linkDependency(name)
-})
+}, SETUP_TIMEOUT_MS)
 
 afterAll(() => {
   rmSync(root, { recursive: true, force: true })
@@ -138,8 +154,10 @@ describe('packed core common-auth bindings', () => {
     }
   })
 
-  it('loads each entry lazily and as the same module as its subpath export', () => {
-    const output = runConsumer(`
+  it(
+    'loads each entry lazily and as the same module as its subpath export',
+    async () => {
+      const output = await runConsumer(`
       const core = await import('${corePackage}')
       const entries = ${JSON.stringify(ENTRIES)}
       const loaders = {
@@ -165,21 +183,25 @@ describe('packed core common-auth bindings', () => {
         withLock: typeof fs.withLock,
       }))
     `)
-    const result = JSON.parse(output.trim())
-    expect(result.same).toEqual(
-      Object.fromEntries(ENTRIES.map((entry) => [entry, true])),
-    )
-    expect(result.openPoolStore).toBe('function')
-    expect(result.withLock).toBe('function')
-  })
+      const result = JSON.parse(output.trim())
+      expect(result.same).toEqual(
+        Object.fromEntries(ENTRIES.map((entry) => [entry, true])),
+      )
+      expect(result.openPoolStore).toBe('function')
+      expect(result.withLock).toBe('function')
+    },
+    PROBE_TIMEOUT_MS,
+  )
 
-  it('imports the package root without loading a missing embedded entry, and retries the load', () => {
-    const chunk = join(
-      installed,
-      'dist/common-auth-embedded/claustrum/index.js',
-    )
-    const parked = `${chunk}.parked`
-    const output = runConsumer(`
+  it(
+    'imports the package root without loading a missing embedded entry, and retries the load',
+    async () => {
+      const chunk = join(
+        installed,
+        'dist/common-auth-embedded/claustrum/index.js',
+      )
+      const parked = `${chunk}.parked`
+      const output = await runConsumer(`
       import { renameSync } from 'node:fs'
       renameSync(${JSON.stringify(chunk)}, ${JSON.stringify(parked)})
       const core = await import('${corePackage}')
@@ -198,20 +220,24 @@ describe('packed core common-auth bindings', () => {
         retried: typeof claustrum.ClaustrumConsumer,
       }))
     `)
-    const result = JSON.parse(output.trim())
-    expect(result.firstError).not.toBeNull()
-    expect(result.storeLoaded).toBe('function')
-    expect(result.retried).toBe('function')
-    // The probe restores the chunk; a failed probe must not leave it parked.
-    try {
-      renameSync(parked, chunk)
-    } catch {}
-  })
+      const result = JSON.parse(output.trim())
+      expect(result.firstError).not.toBeNull()
+      expect(result.storeLoaded).toBe('function')
+      expect(result.retried).toBe('function')
+      // The probe restores the chunk; a failed probe must not leave it parked.
+      try {
+        renameSync(parked, chunk)
+      } catch {}
+    },
+    PROBE_TIMEOUT_MS,
+  )
 
-  it('builds the shared /antigravity menu in sections mode from the packed root', () => {
-    // The mode a host without account rows (Pi) uses: four host sections run
-    // through the embedded library dispatcher.
-    const output = runConsumer(`
+  it(
+    'builds the shared /antigravity menu in sections mode from the packed root',
+    async () => {
+      // The mode a host without account rows (Pi) uses: four host sections run
+      // through the embedded library dispatcher.
+      const output = await runConsumer(`
       const core = await import('${corePackage}')
       const section = (title) => ({ title, build: () => ({ lines: [title] }) })
       const menu = core.createAntigravityCommandMenu({
@@ -230,18 +256,20 @@ describe('packed core common-auth bindings', () => {
         slots: payload.menu.sections.map((entry) => entry.slot),
       }))
     `)
-    expect(JSON.parse(output.trim())).toEqual({
-      command: 'antigravity',
-      slots: ['accounts', 'quota', 'routing', 'limits'],
-    })
-  })
+      expect(JSON.parse(output.trim())).toEqual({
+        command: 'antigravity',
+        slots: ['accounts', 'quota', 'routing', 'limits'],
+      })
+    },
+    PROBE_TIMEOUT_MS,
+  )
 
   it.each([
     ['NodeNext', { module: 'NodeNext', moduleResolution: 'NodeNext' }],
     ['Bundler', { module: 'ESNext', moduleResolution: 'Bundler' }],
   ] as const)(
     'type-checks root and subpath imports under %s resolution with library checking on',
-    (label, resolution) => {
+    async (label, resolution) => {
       const types = join(consumer, 'node_modules/@types/node')
       if (!existsSync(types)) {
         mkdirSync(dirname(types), { recursive: true })
@@ -307,7 +335,12 @@ export const menu: CommandMenu = createAntigravityCommandMenu(menuOptions)
       const tsc = createRequire(join(repoRoot, 'package.json')).resolve(
         'typescript/bin/tsc',
       )
-      run(process.execPath, [tsc, '-p', config], consumer)
+      await run(
+        process.execPath,
+        [tsc, '-p', config],
+        consumer,
+        COMPILER_DEADLINE_MS,
+      )
     },
     // A full strict compiler run over the published declarations, as a separate
     // process, takes several seconds; Bun's default 5 s test limit is too short.

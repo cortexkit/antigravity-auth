@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
@@ -16,6 +15,7 @@ import {
   loadCommonAuthClaustrum,
   loadCommonAuthPiSlot,
 } from '@cortexkit/antigravity-auth-core'
+import { runCommand } from '../../../test/support/run-command.ts'
 
 import type {
   OAuthLoginDependencies,
@@ -165,15 +165,22 @@ describe('Pi native path', () => {
     const p = profile(pathKind === 'tilde')
     // Start with the owned HOME before importing the public SDK: Bun's current
     // process can retain its startup OS home after a test changes process.env.
-    const sdk = spawnSync(
-      node,
+    // The Node probe fails at its own deadline, before this test's timeout.
+    const ran = await runCommand(
       [
+        node,
         '--input-type=module',
         '--eval',
         "import { getAgentDir } from '@earendil-works/pi-coding-agent'; process.stdout.write(JSON.stringify(getAgentDir()))",
       ],
-      { cwd: piWorkspace, env: p.env, encoding: 'utf8', timeout: 5_000 },
+      { cwd: piWorkspace, env: p.env, deadlineMs: 5_000 },
     )
+    // Keep the node-style fields the assertions read; a spawn failure now throws.
+    const sdk = {
+      ...ran,
+      status: ran.exitCode,
+      error: undefined as Error | undefined,
+    }
     expect(sdk.error).toBeUndefined()
     expect(sdk.status).toBe(0)
     const sdkDirectory = JSON.parse(sdk.stdout)
@@ -187,7 +194,7 @@ describe('Pi native path', () => {
       runSetup(plugin, ['--yes', '--no-claustrum'], p.deps.setupIO),
     ).rejects.toThrow('detection captured')
     expect(ceremony).not.toHaveBeenCalled()
-  })
+  }, 15_000)
 
   it.each([
     'absolute',

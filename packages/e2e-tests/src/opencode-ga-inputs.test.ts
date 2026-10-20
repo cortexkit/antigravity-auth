@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test'
-import { spawnSync } from 'node:child_process'
 import {
   existsSync,
   mkdtempSync,
@@ -11,6 +10,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { runCommand } from '../../../test/support/run-command.ts'
 import {
   initializeFreshAccountStore,
   readAccountStoreAdmission,
@@ -803,10 +803,11 @@ describe('GA current-store fixture admission', () => {
     }
   })
 
-  it('phase clocks report a never-resolving phase before a real Bun test timeout', () => {
-    const child = spawnSync(
-      process.execPath,
+  it('phase clocks report a never-resolving phase before a real Bun test timeout', async () => {
+    // The nested runner fails at its own deadline, before this test's timeout.
+    const ran = await runCommand(
       [
+        process.execPath,
         'test',
         '--isolate',
         fileURLToPath(import.meta.url),
@@ -816,10 +817,15 @@ describe('GA current-store fixture admission', () => {
       {
         cwd: process.cwd(),
         env: { ...process.env, GA_STORE_FIXTURE_TIMEOUT_PROBE: '1' },
-        encoding: 'utf8',
-        timeout: 5000,
+        deadlineMs: 5000,
       },
     )
+    // Keep the node-style fields the assertions read; a spawn failure now throws.
+    const child = {
+      ...ran,
+      status: ran.exitCode,
+      error: undefined as Error | undefined,
+    }
     const output = `${child.stdout ?? ''}${child.stderr ?? ''}`
     expect(child.error).toBeUndefined()
     expect(child.status).not.toBe(0)
@@ -840,7 +846,7 @@ describe('GA current-store fixture admission', () => {
     expect(trace.fixtureId).toBe('fixture-timeout-probe')
     expect(trace.phases.at(-1)?.name).toBe('repository.read')
     expect(trace.openPhase).toBe('repository.read')
-  })
+  }, 10_000)
 
   it('seeds nothing and admits initialization-required only for the two real-login cases', async () => {
     const testName =

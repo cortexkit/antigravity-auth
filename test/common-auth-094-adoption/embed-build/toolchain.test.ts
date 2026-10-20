@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from 'bun:test'
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { runCommand } from '../../support/run-command.ts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const prefix = 'tools/common-auth-build'
@@ -17,14 +17,18 @@ async function owned() {
 }
 const digest = (data: Uint8Array) =>
   createHash('sha256').update(data).digest('hex')
-function run(cwd: string, args: string[]) {
-  return execFileSync('bun', args, {
+// Each command fails at its own deadline, before the 120 s test timeout.
+const COMMAND_DEADLINE_MS = 90_000
+/** Returns stdout; a nonzero exit throws with stderr, as execFileSync did. */
+async function run(cwd: string, args: string[]) {
+  const result = await runCommand(['bun', ...args], {
     cwd,
-    timeout: 120000,
-    encoding: 'utf8',
     env: { ...process.env, npm_config_offline: 'true' },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    deadlineMs: COMMAND_DEADLINE_MS,
   })
+  if (result.exitCode !== 0)
+    throw new Error(`Command failed: bun ${args.join(' ')}\n${result.stderr}`)
+  return result.stdout
 }
 afterEach(async () => {
   for (const directory of scratch.splice(0))
@@ -32,7 +36,7 @@ afterEach(async () => {
 })
 
 test('build.private_toolchain', async () => {
-  expect(run(root, ['--version']).trim()).toBe('1.4.2')
+  expect((await run(root, ['--version'])).trim()).toBe('1.4.2')
   const target = await owned()
   // Install into a separate directory from the pinned archive and offline cache,
   // without workspace links or registry access.
@@ -49,7 +53,7 @@ test('build.private_toolchain', async () => {
   expect(before).toBe(
     '9b4d544de46e5911c7af54c82a2807d30eff3aaf8de12e83b0585a269e2bfac5',
   )
-  const installed = run(target, [
+  const installed = await run(target, [
     'install',
     '--frozen-lockfile',
     '--offline',
@@ -72,7 +76,7 @@ test('build.private_toolchain', async () => {
   })
   // Bun parses its own JSONC lockfile; no private dependency is added to the product.
   const lock = JSON.parse(
-    run(target, [
+    await run(target, [
       '-e',
       "console.log(JSON.stringify(Bun.JSON5.parse(await Bun.file('bun.lock').text())))",
     ]),
@@ -157,10 +161,10 @@ test('build.private_public_contract', async () => {
   ]
   const nestedMap = [...args]
   nestedMap[nestedMap.length - 1] = join(target, 'raw/map.json')
-  expect(() => run(target, nestedMap)).toThrow(
+  await expect(run(target, nestedMap)).rejects.toThrow(
     'Build map must be outside emitted trees and source entry',
   )
-  expect(run(target, args)).toContain(
+  expect(await run(target, args)).toContain(
     'Public TUI build: 3 raw, 3 runtime files',
   )
   expect(await readFile(join(target, 'raw/selector.js'))).toEqual(
@@ -236,7 +240,7 @@ test('build.private_public_contract', async () => {
       files: ['raw/'],
     }),
   )
-  expect(() => run(target, args)).toThrow(
+  await expect(run(target, args)).rejects.toThrow(
     'Published destination differs from emitted',
   )
   await expect(readFile(join(target, 'raw/tui.tsx'))).rejects.toThrow('ENOENT')
