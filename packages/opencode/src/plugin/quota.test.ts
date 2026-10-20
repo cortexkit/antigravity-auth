@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-
 import {
   type AccountMetadataV3,
   type AccountRepository,
@@ -16,6 +15,10 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 
 import { lifetimeHooks } from '../../../../test/fixtures/lifetime-hooks.ts'
+import {
+  ANTIGRAVITY_ENDPOINT_PROD,
+  ANTIGRAVITY_QUOTA_ENDPOINT,
+} from '../constants'
 import {
   DEFAULT_SIDEBAR_STATE,
   drainSidebarWrites,
@@ -399,8 +402,6 @@ describe('pushSidebarQuotaSnapshot', () => {
       expect(events).toEqual([
         'fetch:start',
         'fetch:start',
-        'fetch:start',
-        'fetch:start',
         'sidebar:write-start',
         'lifecycle:drain',
         'drain:sees-sidebar-write',
@@ -606,7 +607,7 @@ describe('authorized local quota fetcher', () => {
           { status: 200 },
         )
       }
-      return new Response(JSON.stringify({ buckets: [] }), { status: 200 })
+      return new Response(JSON.stringify({ models: {} }), { status: 200 })
     }
   }
 
@@ -764,6 +765,71 @@ describe('authorized local quota fetcher', () => {
     ).toBe(true)
   })
 
+  it('keeps local quota failures on daily and never stores the production pool', async () => {
+    for (const failure of [
+      { name: '429', response: 429 },
+      { name: '503', response: 503 },
+      { name: 'network error', response: null },
+    ]) {
+      const requests: string[] = []
+      const fetchQuota = createAuthorizedFetchAccountQuota({
+        authorize: async () => authorized(),
+        logger: silent,
+        transport: () => async (url) => {
+          requests.push(url)
+          if (url.startsWith(ANTIGRAVITY_ENDPOINT_PROD)) {
+            if (url.includes('fetchAvailableModels')) {
+              return new Response(
+                JSON.stringify({
+                  models: {
+                    'gemini-2.5-pro': {
+                      quotaInfo: { remainingFraction: 0.91 },
+                    },
+                  },
+                }),
+              )
+            }
+            return new Response(
+              JSON.stringify({
+                groups: [
+                  {
+                    displayName: 'Gemini Models',
+                    buckets: [
+                      {
+                        bucketId: 'gemini-weekly',
+                        displayName: 'Weekly',
+                        window: 'weekly',
+                        remainingFraction: 0.91,
+                      },
+                    ],
+                  },
+                ],
+              }),
+            )
+          }
+          if (failure.response === null) throw new Error('daily unavailable')
+          return new Response('daily unavailable', {
+            status: failure.response,
+          })
+        },
+      })
+
+      const result = await fetchQuota(ACCOUNT, new AbortController().signal)
+      expect(result.status, failure.name).toBe('error')
+      expect(result.quota, failure.name).toBeUndefined()
+      expect(requests.length, failure.name).toBeGreaterThan(0)
+      expect(
+        requests.some((url) => url.includes('fetchAvailableModels')),
+        failure.name,
+      ).toBe(true)
+      expect(
+        requests.every((url) => url.startsWith(ANTIGRAVITY_QUOTA_ENDPOINT)),
+        failure.name,
+      ).toBe(true)
+      expect(JSON.stringify(result)).not.toContain('0.91')
+    }
+  })
+
   it('stops sending once the grant goes stale and does not apply the reading', async () => {
     const requests: SentRequest[] = []
     let checks = 0
@@ -810,6 +876,87 @@ describe('authorized local quota fetcher', () => {
       error: 'aborted',
     })
     expect(requests).toEqual([])
+  })
+})
+
+describe('OpenCode local quota manager', () => {
+  it('backs off and keeps cached quota stale when the daily host fails', async () => {
+    const previousQuota = {
+      gemini: { remainingFraction: 0.42, modelCount: 1 },
+    }
+    const account: AccountMetadataV3 = {
+      refreshToken: 'local-manager-refresh-token',
+      managedProjectId: 'managed-project',
+      addedAt: 0,
+      lastUsed: 0,
+      cachedQuota: previousQuota,
+    }
+    const client = {
+      auth: { set: mock(async () => {}) },
+    } as unknown as PluginClient
+    const requests: string[] = []
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
+      (async () =>
+        new Response(
+          JSON.stringify({ access_token: 'fresh-access', expires_in: 3600 }),
+          { status: 200 },
+        )) as unknown as typeof fetch,
+    )
+    const manager = createOpenCodeQuotaManager(client, 'google', {
+      fetchVia: async (url) => {
+        requests.push(url)
+        if (url.startsWith(ANTIGRAVITY_ENDPOINT_PROD)) {
+          if (url.includes('fetchAvailableModels'))
+            return new Response(
+              JSON.stringify({
+                models: {
+                  'gemini-2.5-pro': {
+                    quotaInfo: { remainingFraction: 0.91 },
+                  },
+                },
+              }),
+            )
+          return new Response(
+            JSON.stringify({
+              groups: [
+                {
+                  displayName: 'Gemini Models',
+                  buckets: [
+                    {
+                      bucketId: 'gemini-weekly',
+                      displayName: 'Weekly',
+                      window: 'weekly',
+                      remainingFraction: 0.91,
+                    },
+                  ],
+                },
+              ],
+            }),
+          )
+        }
+        return new Response('daily unavailable', { status: 503 })
+      },
+    })
+
+    try {
+      const result = await manager.refreshAccount(account, {
+        index: 0,
+        force: true,
+      })
+      expect(result.status).toBe('error')
+      expect(manager.getBackoffUntil(account)).toBeGreaterThan(Date.now())
+      expect(account.cachedQuota).toEqual(previousQuota)
+      expect(requests.some((url) => url.includes('fetchAvailableModels'))).toBe(
+        true,
+      )
+      expect(
+        requests.every((url) => url.startsWith(ANTIGRAVITY_QUOTA_ENDPOINT)),
+      ).toBe(true)
+      expect(JSON.stringify(result)).not.toContain('0.91')
+    } finally {
+      await manager.dispose()
+      fetchSpy.mockRestore()
+    }
   })
 })
 
@@ -1492,7 +1639,7 @@ describe('vault quota check', () => {
     }
   }
 
-  it('builds every physical request from its own new admission, so a failed endpoint is retried with another', async () => {
+  it('keeps summary and legacy requests on daily after a failed summary', async () => {
     const vault = vaultSource()
     const sent: Sent[] = []
     let summaryCalls = 0
@@ -1515,24 +1662,70 @@ describe('vault quota check', () => {
     const summaryRequests = sent.filter((request) =>
       request.url.includes('retrieveUserQuotaSummary'),
     )
-    expect(summaryRequests).toHaveLength(2)
-    // The second summary request does not reuse the first one's grant.
-    expect(summaryRequests[1]?.bearer).not.toBe(summaryRequests[0]?.bearer)
-    expect(summaryRequests[1]?.project).not.toBe(summaryRequests[0]?.project)
+    expect(summaryRequests).toHaveLength(1)
+    expect(
+      sent.every((request) =>
+        request.url.startsWith(ANTIGRAVITY_QUOTA_ENDPOINT),
+      ),
+    ).toBe(true)
     expectOneAdmissionPerRequest(sent, vault.issued)
     expect(vault.issued).toHaveLength(sent.length)
 
-    expect(reading.fellBackToLegacy).toBe(false)
-    expect(reading.quota.groups).not.toEqual({})
-    // The quota result identifies the credential ID and record version used
-    // by the request that returned it.
-    const answering = vault.issued.find(
-      (admission) =>
-        `Bearer ${admission.accessToken}` === summaryRequests[1]?.bearer,
-    )
-    expect(reading.quotaAttribution?.recordVersion).toBe(
-      answering?.recordVersion,
-    )
+    expect(reading.fellBackToLegacy).toBe(true)
+    expect(
+      sent.some((request) => request.url.includes('fetchAvailableModels')),
+    ).toBe(true)
+  })
+
+  it('does not substitute the production pool when a vault daily read fails', async () => {
+    for (const failure of [
+      { name: '429', response: 429 },
+      { name: '503', response: 503 },
+      { name: 'network error', response: null },
+    ]) {
+      const vault = vaultSource()
+      const sent: Sent[] = []
+      const reading = await fetchVaultAccountQuota({
+        source: vault.source,
+        ref,
+        signal: new AbortController().signal,
+        logger: silent,
+        transport: recordingTransport(sent, (request) => {
+          if (request.url.startsWith(ANTIGRAVITY_ENDPOINT_PROD)) {
+            return request.url.includes('fetchAvailableModels')
+              ? new Response(
+                  JSON.stringify({
+                    models: {
+                      'gemini-2.5-pro': {
+                        quotaInfo: { remainingFraction: 0.91 },
+                      },
+                    },
+                  }),
+                )
+              : summaryOk()
+          }
+          if (failure.response === null) throw new Error('daily unavailable')
+          return new Response('daily unavailable', {
+            status: failure.response,
+          })
+        }),
+      })
+
+      expect(sent.length, failure.name).toBeGreaterThan(0)
+      expect(
+        sent.every((request) =>
+          request.url.startsWith(ANTIGRAVITY_QUOTA_ENDPOINT),
+        ),
+        failure.name,
+      ).toBe(true)
+      expect(
+        sent.some((request) => request.url.includes('fetchAvailableModels')),
+        failure.name,
+      ).toBe(true)
+      expect(reading.quota.groups, failure.name).toEqual({})
+      expect(reading.quota.error, failure.name).toBeDefined()
+      expect(JSON.stringify(reading)).not.toContain('0.5')
+    }
   })
 
   it('stops at an admission refusal between attempts and sends nothing more', async () => {

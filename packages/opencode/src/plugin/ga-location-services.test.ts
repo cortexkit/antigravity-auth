@@ -32,12 +32,16 @@ import {
   readAccountStoreAdmission,
   sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
+
 import {
   keptReceipts,
   outageVault,
 } from '../../../core/src/__fixtures__/vault-outage.ts'
-
 import { placeholderSecret } from '../common-auth-embedded/opencode2/index.js'
+import {
+  ANTIGRAVITY_ENDPOINT_PROD,
+  ANTIGRAVITY_QUOTA_ENDPOINT,
+} from '../constants'
 import type {
   GaBridgeJob,
   GaHttpRequestEvent,
@@ -2520,6 +2524,9 @@ describe('GA quota check authorization', () => {
       expect(
         calls.every((call) => call.authorization === 'Bearer access-fresh'),
       ).toBe(true)
+      expect(
+        calls.every((call) => call.url.startsWith(ANTIGRAVITY_QUOTA_ENDPOINT)),
+      ).toBe(true)
 
       const { rowRef: _dropped, ...unattributed } = target
       const refused = await fetchQuota(
@@ -2532,6 +2539,75 @@ describe('GA quota check authorization', () => {
       })
     } finally {
       await cleanup()
+    }
+  })
+
+  it('keeps GA quota failures on daily instead of recording the production pool', async () => {
+    for (const failure of [
+      { name: '429', response: 429 },
+      { name: '503', response: 503 },
+      { name: 'network error', response: null },
+    ]) {
+      const { repository, cleanup } = await freshRepository()
+      try {
+        const manager = AccountManager.fromRepository(await repository.read(), {
+          repository,
+        })
+        const calls: string[] = []
+        const fetchQuota = createGaFetchAccountQuota({
+          repository,
+          now: Date.now,
+          logger: { debug: () => undefined },
+          overrides: {
+            ensureProjectContext: async (auth) => ({
+              auth,
+              effectiveProjectId: 'project-q',
+            }),
+            quotaFetch: async (url) => {
+              calls.push(url)
+              if (url.startsWith(ANTIGRAVITY_ENDPOINT_PROD)) {
+                if (url.includes('fetchAvailableModels')) {
+                  return new Response(
+                    JSON.stringify({
+                      models: {
+                        'gemini-2.5-pro': {
+                          quotaInfo: { remainingFraction: 0.91 },
+                        },
+                      },
+                    }),
+                  )
+                }
+                return new Response(
+                  '{"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-weekly","remainingFraction":0.91}]}]}',
+                )
+              }
+              if (failure.response === null)
+                throw new Error('daily unavailable')
+              return new Response('daily unavailable', {
+                status: failure.response,
+              })
+            },
+          },
+        })
+        const [target] = manager.getAccountsForQuotaCheck()
+        if (!target) throw new Error('missing target')
+        const result = await fetchQuota(target, new AbortController().signal)
+
+        expect(result.status, failure.name).toBe('error')
+        expect(result.quota, failure.name).toBeUndefined()
+        expect(calls.length, failure.name).toBeGreaterThan(0)
+        expect(
+          calls.some((url) => url.includes('fetchAvailableModels')),
+          failure.name,
+        ).toBe(true)
+        expect(
+          calls.every((url) => url.startsWith(ANTIGRAVITY_QUOTA_ENDPOINT)),
+          failure.name,
+        ).toBe(true)
+        expect(JSON.stringify(result)).not.toContain('0.91')
+      } finally {
+        await cleanup()
+      }
     }
   })
 

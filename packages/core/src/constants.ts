@@ -39,6 +39,12 @@ export const ANTIGRAVITY_ENDPOINT_AUTOPUSH =
 export const ANTIGRAVITY_ENDPOINT_PROD = 'https://cloudcode-pa.googleapis.com'
 
 /**
+ * Quota reads stay on daily because Gemini quota pools can differ between
+ * daily and production, making host failover return the wrong usage reading.
+ */
+export const ANTIGRAVITY_QUOTA_ENDPOINT = ANTIGRAVITY_ENDPOINT_DAILY
+
+/**
  * Endpoint fallback order (daily → prod).
  * Autopush removed to reduce unnecessary fallback API calls — it rarely works when daily fails.
  * Shared across request handling and project discovery to mirror CLIProxy behavior.

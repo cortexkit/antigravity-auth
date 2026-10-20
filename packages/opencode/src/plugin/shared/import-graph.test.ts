@@ -256,7 +256,7 @@ describe('shared request engine import graph', () => {
     })
   })
 
-  it('keeps the Antigravity endpoint fallback list imported only by the engine and quota', () => {
+  it('keeps content endpoint failover in the request engine and quota on daily', () => {
     const importers: string[] = []
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir)) {
@@ -275,9 +275,9 @@ describe('shared request engine import graph', () => {
     }
     walk(srcDir)
 
-    expect(importers.sort()).toEqual([
-      'plugin/quota.ts',
-      'plugin/shared/request-services.ts',
-    ])
+    expect(importers.sort()).toEqual(['plugin/shared/request-services.ts'])
+    expect(readFileSync(join(srcDir, 'plugin/quota.ts'), 'utf8')).toContain(
+      'ANTIGRAVITY_QUOTA_ENDPOINT',
+    )
   })
 })

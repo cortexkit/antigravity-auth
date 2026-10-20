@@ -7,6 +7,11 @@ import type {
   VaultProviderStateFile,
   VaultSendAdmission,
 } from '@cortexkit/antigravity-auth-core'
+
+import {
+  ANTIGRAVITY_ENDPOINT_PROD,
+  ANTIGRAVITY_QUOTA_ENDPOINT,
+} from '../constants'
 import { readSidebarState, setSidebarMachineState } from '../sidebar-state'
 import { BackgroundQuotaRefresh } from './background-quota-refresh'
 import { BackgroundVaultQuotaRefresh } from './background-vault-quota-refresh'
@@ -37,6 +42,8 @@ function fixture() {
   let issued = 0
   let writes = 0
   let publishes = 0
+  let dailyFailure: number | null | undefined
+  const requests: string[] = []
   const outcomes: unknown[] = []
   const entered = deferred()
   let wait: Promise<void> | undefined
@@ -136,6 +143,7 @@ function fixture() {
   ) => {
     const signal = extra.signal ?? init.signal
     physical++
+    requests.push(String(url))
     entered.resolve()
     if (wait) {
       await Promise.race([
@@ -146,6 +154,39 @@ function fixture() {
       ])
       signal?.throwIfAborted()
     }
+    if (String(url).startsWith(ANTIGRAVITY_ENDPOINT_PROD)) {
+      if (String(url).includes('fetchAvailableModels')) {
+        return new Response(
+          JSON.stringify({
+            models: {
+              'gemini-2.5-pro': {
+                quotaInfo: { remainingFraction: 0.91 },
+              },
+            },
+          }),
+        )
+      }
+      return new Response(
+        JSON.stringify({
+          groups: [
+            {
+              displayName: 'Gemini Models',
+              buckets: [
+                {
+                  bucketId: 'gemini-weekly',
+                  displayName: 'Weekly',
+                  window: 'weekly',
+                  remainingFraction: 0.91,
+                },
+              ],
+            },
+          ],
+        }),
+      )
+    }
+    if (dailyFailure === null) throw new Error('daily unavailable')
+    if (typeof dailyFailure === 'number')
+      return new Response('daily unavailable', { status: dailyFailure })
     return new Response(
       JSON.stringify(
         String(url).includes('retrieveUserQuotaSummary')
@@ -203,6 +244,7 @@ function fixture() {
     stored,
     accounts,
     outcomes,
+    requests,
     clearRoutes: () => {
       routes.length = 0
     },
@@ -253,6 +295,9 @@ function fixture() {
     },
     failCommit: (failure: NonNullable<typeof commitFailure>) => {
       commitFailure = failure
+    },
+    failDaily: (status: number | null) => {
+      dailyFailure = status
     },
     badAnswer: () => {
       badAnswer = true
@@ -342,6 +387,36 @@ describe('BackgroundVaultQuotaRefresh', () => {
       )
     } finally {
       await f.cleanup()
+    }
+  })
+
+  it('leaves stale vault readings untouched when the daily host fails', async () => {
+    for (const failure of [429, 503, null] as const) {
+      const f = fixture()
+      try {
+        f.seedReadings(f.now - 1_000_000)
+        f.failDaily(failure)
+        await f.poller.tick()
+
+        expect(f.requests.length).toBeGreaterThan(0)
+        expect(
+          f.requests.some((url) => url.includes('fetchAvailableModels')),
+        ).toBe(true)
+        expect(
+          f.requests.every((url) => url.startsWith(ANTIGRAVITY_QUOTA_ENDPOINT)),
+        ).toBe(true)
+        expect(f.writes).toBe(0)
+        expect(
+          f.stored.accounts['identity-0']?.quota?.cachedQuota?.gemini
+            ?.remainingFraction,
+        ).toBe(0.812345)
+        expect(
+          f.stored.accounts['identity-0']?.quota?.cachedQuotaUpdatedAt,
+        ).toBe(f.now - 1_000_000)
+        expect(JSON.stringify(f.stored)).not.toContain('0.91')
+      } finally {
+        await f.cleanup()
+      }
     }
   })
 })

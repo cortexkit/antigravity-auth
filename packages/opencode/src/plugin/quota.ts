@@ -47,8 +47,8 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 
 import {
-  ANTIGRAVITY_ENDPOINT_FALLBACKS,
   ANTIGRAVITY_PROVIDER_ID,
+  ANTIGRAVITY_QUOTA_ENDPOINT,
 } from '../constants'
 import {
   buildSidebarMachineStateFromAccounts,
@@ -543,7 +543,7 @@ async function fetchLegacyModelsFallback(options: {
     const modelsResponse = await fetchAvailableModels({
       accessToken: options.accessToken,
       projectId: options.projectId,
-      endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+      endpoints: [ANTIGRAVITY_QUOTA_ENDPOINT],
       userAgent: buildAntigravityHarnessUserAgent(),
       timeoutMs: 10_000,
       ...(options.fetchVia ? { fetchVia: options.fetchVia } : {}),
@@ -590,7 +590,7 @@ async function fetchQuotaPayloads(options: {
         accessToken,
         managedProjectId,
         projectId,
-        endpoints: ANTIGRAVITY_ENDPOINT_FALLBACKS,
+        endpoints: [ANTIGRAVITY_QUOTA_ENDPOINT],
         userAgent: buildAntigravityHarnessUserAgent(),
         timeoutMs: 10_000,
         ...(fetchVia ? { fetchVia } : {}),
@@ -820,7 +820,7 @@ export async function fetchVaultAccountQuota(
     fellBackToLegacy: boolean
     attribution?: VaultStateAttribution
   }> => {
-    for (const endpoint of ANTIGRAVITY_ENDPOINT_FALLBACKS) {
+    for (const endpoint of [ANTIGRAVITY_QUOTA_ENDPOINT]) {
       // An answer that cannot be aggregated counts as a failed request.
       const result = await attempt(async (grant, fetchVia) =>
         aggregateQuotaSummary(
@@ -848,7 +848,7 @@ export async function fetchVaultAccountQuota(
     // Fetch the legacy model list. After a 403, retry once without a project
     // as a separate request with a newly authorized vault credential, rather
     // than reusing the authorization from the rejected request.
-    for (const endpoint of ANTIGRAVITY_ENDPOINT_FALLBACKS) {
+    for (const endpoint of [ANTIGRAVITY_QUOTA_ENDPOINT]) {
       for (const withProject of [true, false]) {
         const result = await attempt((grant, fetchVia) =>
           fetchAvailableModels({
@@ -1097,6 +1097,14 @@ export function createAuthorizedFetchAccountQuota(
           error: `quota check refused (stale grant: ${staleReason})`,
         }
       }
+      if (payloads.quota.error) {
+        return {
+          ...base,
+          status: 'error',
+          disabled: false,
+          error: payloads.quota.error,
+        }
+      }
       return {
         ...base,
         status: 'ok',
@@ -1184,6 +1192,7 @@ function makeFetchAccountQuota(
           }),
           signal,
         )
+        if (payloads.quota.error) throw new Error(payloads.quota.error)
         return {
           index,
           email: account.email,
@@ -1248,6 +1257,7 @@ function makeFetchAccountQuota(
         logger: log,
       })
       quotaResult = payloads.quota
+      if (quotaResult.error) throw new Error(quotaResult.error)
       fellBackToLegacy = payloads.fellBackToLegacy
 
       for (const [family, groupQuota] of Object.entries(quotaResult.groups)) {

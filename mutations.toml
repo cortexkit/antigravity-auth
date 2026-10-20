@@ -1878,3 +1878,55 @@ runner = "command"
 command = ["bun", "test", "--isolate", "test/native-inert-gate.test.ts", "-t", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^native-inert\ssource\slint\scovers\severy\sgate\ssource\sand\sis\swired\sinto\slint\sscripts\sand\spre-commit$']
+
+
+[[control]]
+id = "quota-local-daily-only"
+guards = "Local and GA quota checks cannot use production Gemini quota after daily fails."
+file = "packages/opencode/src/plugin/quota.ts"
+old = '''        projectId,
+        endpoints: [ANTIGRAVITY_QUOTA_ENDPOINT],
+        userAgent: buildAntigravityHarnessUserAgent(),'''
+new = '''        projectId,
+        endpoints: [ANTIGRAVITY_QUOTA_ENDPOINT, 'https://cloudcode-pa.googleapis.com'],
+        userAgent: buildAntigravityHarnessUserAgent(), // NON-VACUITY BREAK: let quota switch pools.'''
+test_file = "packages/opencode/src/plugin/quota.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/quota.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/quota.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^authorized\slocal\squota\sfetcher\skeeps\slocal\squota\sfailures\son\sdaily\sand\snever\sstores\sthe\sproduction\spool$']
+
+[[control]]
+id = "quota-vault-daily-summary-only"
+guards = "Vault summary quota checks never retry on production after daily fails."
+file = "packages/opencode/src/plugin/quota.ts"
+old = '''    for (const endpoint of [ANTIGRAVITY_QUOTA_ENDPOINT]) {
+      // An answer that cannot be aggregated counts as a failed request.'''
+new = '''    for (const endpoint of [ANTIGRAVITY_QUOTA_ENDPOINT, 'https://cloudcode-pa.googleapis.com']) {
+      // An answer that cannot be aggregated counts as a failed request. // NON-VACUITY BREAK: switch quota pools.'''
+test_file = "packages/opencode/src/plugin/quota.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/quota.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/quota.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^vault\squota\scheck\sdoes\snot\ssubstitute\sthe\sproduction\spool\swhen\sa\svault\sdaily\sread\sfails$']
+
+[[control]]
+id = "quota-vault-daily-legacy-only"
+guards = "Vault legacy model-list quota checks remain on daily after summary failure."
+file = "packages/opencode/src/plugin/quota.ts"
+old = '''    // Fetch the legacy model list. After a 403, retry once without a project
+    // as a separate request with a newly authorized vault credential, rather
+    // than reusing the authorization from the rejected request.
+    for (const endpoint of [ANTIGRAVITY_QUOTA_ENDPOINT]) {'''
+new = '''    // Fetch the legacy model list. After a 403, retry once without a project
+    // as a separate request with a newly authorized vault credential, rather
+    // than reusing the authorization from the rejected request.
+    for (const endpoint of [ANTIGRAVITY_QUOTA_ENDPOINT, 'https://cloudcode-pa.googleapis.com']) { // NON-VACUITY BREAK: switch quota pools.'''
+test_file = "packages/opencode/src/plugin/quota.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/quota.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/quota.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^vault\squota\scheck\sdoes\snot\ssubstitute\sthe\sproduction\spool\swhen\sa\svault\sdaily\sread\sfails$']
