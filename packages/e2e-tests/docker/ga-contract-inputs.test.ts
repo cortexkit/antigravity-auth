@@ -42,6 +42,7 @@ import {
   ScriptTarget,
   version as typescriptVersion,
 } from 'typescript'
+import { runCommand } from '../../../test/support/run-command.ts'
 import type { NativeProbeCommandResult } from '../src/fixtures/opencode-ga-host/native-job.ts'
 import {
   assertRewriteConformance,
@@ -100,7 +101,6 @@ import {
   verifiedBinary,
   type Wire,
 } from './measure-ga-proxy-matrix.ts'
-import { runCommand } from '../../../test/support/run-command.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 function nativeTestProfile(env: NodeJS.ProcessEnv): 'portable' | 'motor-inert' {
