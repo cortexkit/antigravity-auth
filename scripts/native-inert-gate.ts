@@ -20,12 +20,29 @@ const TEST_PATHS = [
   'packages/e2e-tests/src/opencode-ga-harness.test.ts',
   'packages/e2e-tests/src/opencode-ga-inputs.test.ts',
 ]
-const SOURCE_PATHS = [
+export const SOURCE_PATHS = [
   'packages/e2e-tests/docker/measure-ga-proxy-matrix.ts',
   TEST_PATHS[0] as string,
   'packages/e2e-tests/src/fixtures/opencode-ga-host/native-job.ts',
   'packages/e2e-tests/docker/inert-fixture.ts',
 ]
+
+export function createScopedBiomeConfig(root: string, temporary: string) {
+  const config = join(temporary, 'biome.scoped.json')
+  writeFileSync(
+    config,
+    JSON.stringify({
+      extends: [join(root, 'biome.jsonc')],
+      files: { includes: ['**'] },
+    }),
+    { mode: 0o600 },
+  )
+  return config
+}
+
+export function scopedBiomeCheckArgs(config: string) {
+  return ['check', '--config-path', config, ...SOURCE_PATHS]
+}
 
 export function reconcileMotor(
   stdout: string,
@@ -174,15 +191,7 @@ export async function nativeInertGate(): Promise<number> {
     result.names = inventory(raw)
     result.inventorySha256 = sha256(raw)
     temporary = mkdtempSync(join(tmpdir(), 'native-inert-gate-'))
-    const config = join(temporary, 'biome.scoped.json')
-    writeFileSync(
-      config,
-      JSON.stringify({
-        extends: [join(root, 'biome.jsonc')],
-        files: { includes: ['**'] },
-      }),
-      { mode: 0o600 },
-    )
+    const config = createScopedBiomeConfig(root, temporary)
     const commands = [
       ['bun', '--version'],
       ['./node_modules/.bin/tsc', '--version'],
@@ -190,13 +199,7 @@ export async function nativeInertGate(): Promise<number> {
       ['bun', 'run', '--cwd', 'packages/core', 'build'],
       ['bun', 'run', '--cwd', 'packages/e2e-tests', 'typecheck:ga'],
       ['./node_modules/.bin/tsc', '-p', 'tsconfig.scripts.json'],
-      [
-        './node_modules/.bin/biome',
-        'check',
-        '--config-path',
-        config,
-        ...SOURCE_PATHS,
-      ],
+      ['./node_modules/.bin/biome', ...scopedBiomeCheckArgs(config)],
       [
         'env',
         '-u',

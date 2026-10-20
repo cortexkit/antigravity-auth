@@ -3,3 +3,5 @@ pre-commit:
     biome:
       glob: '*.{ts,tsx,js,mjs,json,jsonc,yml,yaml}'
       run: bunx biome check --staged --no-errors-on-unmatched
+    native-inert:
+      run: bun run lint:native-inert

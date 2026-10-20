@@ -1865,3 +1865,16 @@ runner = "command"
 command = ["bun", "test", "--isolate", "test/test-stall-diagnostics.test.ts", "-t", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^wedge\sdetector\signores\sa\szombie\sonly\s30\ss\sold$']
+
+[[control]]
+id = "native-inert-scoped-lint-root-wiring"
+guards = "Removing the root lint invocation must leave no gate source outside the scoped Biome check."
+file = "package.json"
+old = '"lint": "bun run embed:check && biome lint . --error-on-warnings && bun run lint:native-inert",'
+new = '"lint": "bun run embed:check && biome lint . --error-on-warnings # NON-VACUITY BREAK",'
+test_file = "test/native-inert-gate.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "test/native-inert-gate.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bun", "test", "--isolate", "test/native-inert-gate.test.ts", "-t", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^native-inert\ssource\slint\scovers\severy\sgate\ssource\sand\sis\swired\sinto\slint\sscripts\sand\spre-commit$']

@@ -10,7 +10,12 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { reconcileMotor } from '../scripts/native-inert-gate.ts'
+
+import {
+  reconcileMotor,
+  SOURCE_PATHS,
+  scopedBiomeCheckArgs,
+} from '../scripts/native-inert-gate.ts'
 import { traceTestCommand } from '../scripts/test-child-lifecycle.ts'
 import { runCommandBytes } from './support/run-command.ts'
 
@@ -246,4 +251,28 @@ test('motor reconciliation requires each frozen registration, entry and framewor
   expect(() =>
     reconcileMotor(stdout, `${stderr}(skip) other case\n`, names),
   ).toThrow()
+})
+
+test('native-inert source lint covers every gate source and is wired into lint scripts and pre-commit', () => {
+  const scripts = JSON.parse(
+    readFileSync(join(sourceRoot, 'package.json'), 'utf8'),
+  ).scripts as Record<string, string>
+  const lefthook = readFileSync(join(sourceRoot, 'lefthook.yml'), 'utf8')
+  const expectedSources = [
+    'packages/e2e-tests/docker/measure-ga-proxy-matrix.ts',
+    'packages/e2e-tests/docker/ga-contract-inputs.test.ts',
+    'packages/e2e-tests/src/fixtures/opencode-ga-host/native-job.ts',
+    'packages/e2e-tests/docker/inert-fixture.ts',
+  ]
+
+  expect(SOURCE_PATHS).toEqual(expectedSources)
+  expect(scopedBiomeCheckArgs('/tmp/biome.scoped.json').slice(3)).toEqual(
+    SOURCE_PATHS,
+  )
+  expect(scripts['lint:native-inert']).toBe(
+    'bun scripts/lint-native-inert-sources.ts',
+  )
+  expect(scripts.lint).toContain('bun run lint:native-inert')
+  expect(scripts['format:check']).toContain('bun run lint:native-inert')
+  expect(lefthook).toContain('run: bun run lint:native-inert')
 })
