@@ -122,6 +122,9 @@ function scopedWindowParts(quota, options) {
         const remainingPercent = clampPercent(limit.remainingPercent ?? 0);
         return {
             scope: limit.scope,
+            ...(limit.windowMinutes === undefined
+                ? {}
+                : { windowMinutes: limit.windowMinutes }),
             part: {
                 kind: 'window',
                 name: quotaWindowName(limit),
@@ -212,6 +215,66 @@ function scopeAbbreviations(scopes) {
     }
     return new Map(scopes.map((scope) => [scope, short(scopeDisplayName(scope))]));
 }
+/** The most groups a grouped narrow line shows. */
+const NARROW_GROUP_LIMIT = 2;
+/**
+ * The names the groups read under in the narrow line, one per listed group:
+ * each label's short name, derived exactly as a model window's is (`Gemini`
+ * → `Ge`, `Other models` → `Ot`, colliding names extended until they
+ * differ), computed over every listed group so a group keeps its name
+ * whichever groups show. A blank label falls back to the group's scope.
+ */
+function groupShortNames(groups) {
+    const labels = groups.map((group) => group.label.trim() || group.scope);
+    const short = scopeAbbreviations(labels);
+    return labels.map((label) => short.get(label) ?? label);
+}
+/**
+ * The narrow line of a reading whose windows belong to named groups and that
+ * has no account-wide window: for each group, its tightest window as
+ * `Ge 7d 62%`, with ` left` once at the end. The tightest window is the
+ * one with least left, compared before rounding; on a tie the first in
+ * display order (the shorter window) wins. At most two groups show: the two
+ * with least left, earlier-listed first on a tie, and always in the order
+ * the reading lists them, so the line does not reorder as the figures move.
+ * A group with no reported window is skipped. Windows outside the listed
+ * groups and the credit budget are left out. Undefined when the rule does
+ * not apply, so the caller uses the ordinary narrow rule.
+ */
+function groupedNarrowPieces(groups, windows) {
+    if (!groups || groups.length === 0)
+        return undefined;
+    const reported = windows.filter(({ part }) => part.kind === 'window');
+    if (reported.some(({ scope }) => scope === ALL_SCOPE))
+        return undefined;
+    const candidates = groups.flatMap((group, listed) => {
+        const inGroup = reported.filter(({ scope }) => scope === group.scope);
+        // `windows` is already in display order, and strictly lower wins, so on
+        // a tie the shorter window keeps the place.
+        const groupTightest = inGroup.reduce((least, window) => least === undefined ||
+            (window.part.remainingPercent ?? 0) < (least.part.remainingPercent ?? 0)
+            ? window
+            : least, undefined);
+        return groupTightest ? [{ group, listed, window: groupTightest }] : [];
+    });
+    if (candidates.length === 0)
+        return undefined;
+    const names = groupShortNames(groups);
+    const left = (candidate) => candidate.window.part.remainingPercent ?? 0;
+    const shown = [...candidates]
+        .sort((a, b) => left(a) - left(b) || a.listed - b.listed)
+        .slice(0, NARROW_GROUP_LIMIT)
+        .sort((a, b) => a.listed - b.listed);
+    return shown.map((candidate, index) => {
+        const { windowMinutes } = candidate.window;
+        const piece = [
+            names[candidate.listed] ?? candidate.group.scope,
+            ...(windowMinutes === undefined ? [] : [lengthName(windowMinutes)]),
+            `${wholePercent(left(candidate))}%`,
+        ].join(' ');
+        return index === shown.length - 1 ? `${piece} left` : piece;
+    });
+}
 /**
  * The narrow form's pieces: every account-wide window as `5h 92%`, then at
  * most one more item, with ` left` added once to the last piece. That item is
@@ -224,10 +287,15 @@ function scopeAbbreviations(scopes) {
  * be chosen; when nothing at all is shown it keeps its compact wording
  * (`credits available`). No age is added; `isQuotaStale` says whether the
  * reading is stale. A window whose reset arrived after the reading keeps its
- * figure, as in the other forms.
+ * figure, as in the other forms. A reading that lists named groups and has no
+ * account-wide window reads one item per group instead (see
+ * `groupedNarrowPieces`).
  */
 function narrowTextParts(quota, options) {
     const { windows } = scopedWindowParts(quota, options);
+    const grouped = groupedNarrowPieces(quota?.groups, windows);
+    if (grouped)
+        return grouped;
     const general = windows.filter(({ part, scope }) => part.kind === 'window' && scope === ALL_SCOPE);
     const scoped = windows.filter(({ part, scope }) => part.kind === 'window' && scope !== ALL_SCOPE);
     const abbreviations = scopeAbbreviations(scoped.map(({ scope }) => scope));

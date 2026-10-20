@@ -6,5 +6,5 @@ export type { CreditBudgetCleared, CreditBudgetEntry, CreditBudgetReading, Quota
 export { ALL_SCOPE, DEFAULT_REQUIRED_LABELS, decodeQuotaMap, emptyQuotaMap, isQuotaMap, } from './map.js';
 export type { ObservedBudget, ObservedPair, ObservedReading, QuotaObservation, } from './merge.js';
 export { isQuotaObservation, mergeQuotaObservation, QuotaCodecError, } from './merge.js';
-export type { ExhaustionReset, ProjectedBudget, ProjectedLimit, ProjectedQuota, } from './projection.js';
+export type { ExhaustionReset, ProjectedBudget, ProjectedLimit, ProjectedQuota, QuotaGroup, } from './projection.js';
 export { budgetExhaustedResetAt, futureResetAt, projectQuota, readsExhausted, } from './projection.js';

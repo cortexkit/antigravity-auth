@@ -4,6 +4,7 @@ import { ClaustrumUnreachableError, classifyVaultFailure, } from './availability
 import { readClaustrumEnrollmentToken } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
 import { CUSTODY_PLACEHOLDER_PREFIX } from './host-slot.js';
+import { ScopedRosterWatch, } from './watch.js';
 /** Only a new version of the same account may replace an in-flight 401. */
 export function isScopedCredentialRotation(served, current) {
     return (current !== undefined &&
@@ -106,7 +107,7 @@ function grantReachOf(listed) {
 /**
  * Reads this consumer's vault credentials (list, fetch, 401 report), with the
  * enrollment token as authorization. Used by every host of a plugin. Every
- * physical send still asks the vault first. Only an unreachable vault permits
+ * physical send asks the vault first while reachable. Only an unreachable vault permits
  * reuse of the last validated receipt, in memory and bounded by its expiry.
  * The enrollment token is re-read per operation so revocation and disconnect
  * still take effect without a process restart.
@@ -123,7 +124,18 @@ export class ClaustrumScopedCustody {
     #reports = new WeakMap();
     #kept = new Map();
     #keptAttempts = new WeakMap();
+    #setTimeout;
+    #clearTimeout;
+    #outage = false;
+    #outageError = new ClaustrumUnreachableError();
+    #probeTimer;
+    #probing = false;
+    #lastProbeAt = -Infinity;
+    #probeDelay = 2_000;
     #closed = false;
+    /** The view of the last successful `discover()`, for `watchRoster`. */
+    #discoveredView;
+    #watches = new Set();
     constructor(options) {
         const tokenPath = options.tokenPath;
         if (options.readToken) {
@@ -141,6 +153,65 @@ export class ClaustrumScopedCustody {
         this.#requireAssertion = options.requireAssertion ?? false;
         this.#now = options.now ?? Date.now;
         this.#logger = options.logger ?? defaultLogger;
+        this.#setTimeout = options.setTimeoutImpl ?? setTimeout;
+        this.#clearTimeout = options.clearTimeoutImpl ?? clearTimeout;
+    }
+    /** A watch losing its transport is the same outage as an unreachable read. */
+    transportLost(error) {
+        if (this.#closed || this.#outage)
+            return;
+        this.#outage = true;
+        this.#outageError =
+            error instanceof ClaustrumCredentialError
+                ? error
+                : new ClaustrumUnreachableError();
+        this.#logger.warn('serving kept vault receipt', { reason: 'unreachable' });
+        this.#scheduleProbe();
+    }
+    /** Any vault answer ends transport fallback, even when it refuses access. */
+    reachable() {
+        if (this.#closed || !this.#outage)
+            return;
+        this.#outage = false;
+        if (this.#probeTimer)
+            this.#clearTimeout(this.#probeTimer);
+        this.#probeTimer = undefined;
+        this.#probeDelay = 2_000;
+        for (const kept of this.#kept.values())
+            kept.since = null;
+        (this.#logger.info ?? defaultLogger.info)('vault receipt serving resumed', { reason: 'reachable' });
+    }
+    #scheduleProbe() {
+        if (this.#closed || !this.#outage || this.#probeTimer || this.#probing)
+            return;
+        this.#probeTimer = this.#setTimeout(() => {
+            this.#probeTimer = undefined;
+            this.#probe(true);
+        }, this.#probeDelay);
+        this.#probeTimer.unref?.();
+    }
+    #probe(idle = false) {
+        if (this.#closed || !this.#outage || this.#probing)
+            return;
+        if (this.#now() - this.#lastProbeAt < 1_000) {
+            this.#scheduleProbe();
+            return;
+        }
+        this.#lastProbeAt = this.#now();
+        this.#probing = true;
+        // Both triggers share list_scoped discovery, including its receipt-drop rules.
+        // Sends never await discovery or let idle backoff delay the next send probe.
+        // A probe commits no roster, so it is not the host's discovery and does
+        // not move the view a roster watch compares notices against.
+        void this.#list()
+            .catch(() => {
+            if (idle && this.#outage)
+                this.#probeDelay = Math.min(this.#probeDelay * 2, 30_000);
+        })
+            .finally(() => {
+            this.#probing = false;
+            this.#scheduleProbe();
+        });
     }
     #check(signal) {
         if (this.#closed)
@@ -179,6 +250,10 @@ export class ClaustrumScopedCustody {
         }
         catch (error) {
             this.#check(signal);
+            if (classifyVaultFailure(error) === 'unreachable')
+                this.transportLost(error);
+            else
+                this.reachable();
             // Keep the vault's own refusals (ClaustrumCredentialError, carrying
             // code, class and action); replace any other error, whose text may echo
             // request params that include the enrollment token.
@@ -192,6 +267,7 @@ export class ClaustrumScopedCustody {
             removeAbortListener?.();
         }
         this.#check(signal);
+        this.reachable();
         return result;
     }
     /**
@@ -201,6 +277,11 @@ export class ClaustrumScopedCustody {
      * skipped records: they simply are not this consumer's.
      */
     async discover(signal) {
+        const inventory = await this.#list(signal);
+        this.#discoveredView = inventory.view;
+        return inventory;
+    }
+    async #list(signal) {
         let inventory;
         let token;
         try {
@@ -214,8 +295,7 @@ export class ClaustrumScopedCustody {
             inventory = await this.#call(() => this.#client.listScoped(token), signal);
         }
         catch (error) {
-            if (classifyVaultFailure(error) !== 'unreachable')
-                this.#kept.clear();
+            this.listFailed(error);
             throw error;
         }
         const skipped = [];
@@ -264,6 +344,20 @@ export class ClaustrumScopedCustody {
             ...(grantReach && { grantReach }),
         };
     }
+    /**
+     * Apply a failed account listing: any answer from the vault (a refusal such
+     * as a revoked enrollment's `not_found`) drops every kept receipt, while an
+     * unreachable vault keeps them. A vault watch that ends with the same
+     * refusal calls this too, so both paths treat it alike.
+     */
+    listFailed(error) {
+        if (classifyVaultFailure(error) === 'unreachable')
+            this.transportLost(error);
+        else {
+            this.reachable();
+            this.#kept.clear();
+        }
+    }
     /** Discard bearer material when a route is removed, declined or rebound. */
     forget(credentialId) {
         this.#kept.delete(credentialId);
@@ -298,7 +392,7 @@ export class ClaustrumScopedCustody {
             ? attempt.credentialType === 'api_key'
             : attempt.expiresAtMs - this.#now() > KEPT_RECEIPT_MARGIN_MS;
     }
-    /** Ask the vault first; retain one validated receipt per credential in memory only. */
+    /** Ask the vault while reachable; retain one validated receipt in memory only. */
     async authorize(identity, signal, routeId = 'vault') {
         this.#check(signal);
         const { credentialId, credentialType, accountIdentity } = identity;
@@ -318,10 +412,12 @@ export class ClaustrumScopedCustody {
             this.#kept.clear();
             throw error;
         }
+        if (this.#outage && kept) {
+            this.#probe();
+            return this.#serveKept(credentialId, kept, token, routeId);
+        }
         try {
             const attempt = await this.#authorizeFresh({ credentialId, credentialType, accountIdentity }, token, signal);
-            if (kept?.since !== null && kept?.since !== undefined)
-                (this.#logger.info ?? defaultLogger.info)('vault receipt serving resumed', { routeId, reason: 'reachable' });
             this.#kept.set(credentialId, { attempt, routeId, since: null });
             return attempt;
         }
@@ -331,25 +427,23 @@ export class ClaustrumScopedCustody {
                 this.forget(credentialId);
                 throw error;
             }
-            // A concurrent refusal or 401 may already have discarded this entry.
-            if (!kept ||
-                this.#kept.get(credentialId) !== kept ||
-                !this.#usable(kept.attempt)) {
-                this.forget(credentialId);
-                throw error;
-            }
-            if (kept.since === null) {
-                kept.since = this.#now();
-                this.#logger.warn('serving kept vault receipt', {
-                    routeId,
-                    reason: 'unreachable',
-                });
-            }
-            const attempt = Object.freeze(Object.defineProperty({ ...kept.attempt, fromKeptReceipt: true }, 'accessToken', { value: kept.attempt.accessToken, enumerable: false }));
-            this.#provenance.set(attempt, token);
-            this.#keptAttempts.set(attempt, routeId);
-            return attempt;
+            return this.#serveKept(credentialId, kept, token, routeId, error);
         }
+    }
+    #serveKept(credentialId, kept, token, routeId, error = this.#outageError) {
+        // A concurrent refusal or 401 may already have discarded this entry.
+        if (!kept ||
+            this.#kept.get(credentialId) !== kept ||
+            !this.#usable(kept.attempt)) {
+            this.forget(credentialId);
+            throw error;
+        }
+        if (kept.since === null)
+            kept.since = this.#now();
+        const attempt = Object.freeze(Object.defineProperty({ ...kept.attempt, fromKeptReceipt: true }, 'accessToken', { value: kept.attempt.accessToken, enumerable: false }));
+        this.#provenance.set(attempt, token);
+        this.#keptAttempts.set(attempt, routeId);
+        return attempt;
     }
     /**
      * Fetch and validate a fresh receipt before retaining it. The vault assertion
@@ -484,10 +578,71 @@ export class ClaustrumScopedCustody {
             throw error;
         }
     }
+    /**
+     * Watch this consumer's visible vault accounts instead of listing them on a
+     * short timer. Opens one `watchScoped` on this custody's client and calls
+     * `onView` when the host must run its discovery (see
+     * `ClaustrumRosterWatchOptions`). A claustrum-client without `watchScoped`
+     * (before 0.12.0) or a vault that answers `unknown_method` reports
+     * `fallback` and opens nothing. A watch that closes before any notice was
+     * never accepted: the client reads once to learn why, and the watch reports
+     * `fallback` and tries one new watch after `WATCH_RETRY_MS`, never in a
+     * loop. A watch that closes after notices is re-opened after
+     * `RESUBSCRIBE_BACKOFF_MS`, doubling per close in a row. A lost transport
+     * starts this custody's outage, exactly as an unreachable call does, and
+     * the first notice of a watch ends it. Timers are unreferenced; `close()`
+     * on the returned watch or on this custody stops it.
+     *
+     * The watch keeps no history, so the host still lists on a slow timer while
+     * the mode is `watching`: every `SAFETY_POLL_MS` (five minutes). In any
+     * other mode the host keeps its usual list timer.
+     */
+    watchRoster(options) {
+        this.#check();
+        const watch = new ScopedRosterWatch({
+            client: this.#client,
+            enrollmentToken: () => this.#token(),
+            view: options.view ?? (() => this.#discoveredView),
+            discover: async (view) => {
+                await options.onView(view);
+            },
+            onRefused: (error) => {
+                // Apply a refused watch as discover() applies a refused account
+                // listing: every kept receipt is dropped.
+                this.listFailed(error);
+                options.onRefused?.(error);
+            },
+            onTransportLost: () => this.transportLost(),
+            onReachable: () => this.reachable(),
+            onError: options.onError,
+            onMode: options.onMode,
+            logger: this.#logger,
+            now: this.#now,
+            setTimeoutImpl: this.#setTimeout,
+            clearTimeoutImpl: this.#clearTimeout,
+        });
+        this.#watches.add(watch);
+        watch.start();
+        return {
+            get mode() {
+                return watch.mode;
+            },
+            close: () => {
+                this.#watches.delete(watch);
+                watch.stop();
+            },
+        };
+    }
     close() {
         if (this.#closed)
             return;
         this.#closed = true;
+        if (this.#probeTimer)
+            this.#clearTimeout(this.#probeTimer);
+        this.#probeTimer = undefined;
+        for (const watch of this.#watches)
+            watch.stop();
+        this.#watches.clear();
         this.#kept.clear();
         this.#client.close();
     }

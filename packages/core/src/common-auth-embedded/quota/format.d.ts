@@ -14,6 +14,9 @@ export declare const NO_LIMITS_REPORTED = "no limits reported";
  * `narrow` fits one line per account in a narrow sidebar: `5h 92% · 7d 66%
  * · Fa 98% left`, the account-wide windows plus at most one model-scoped
  * window or the budget (as `cr`), and no stale marker (see `isQuotaStale`).
+ * A reading whose windows belong to named groups and that has no
+ * account-wide window reads up to two groups instead:
+ * `Ge 7d 62% · Ot 7d 48% left`.
  */
 export type QuotaTextForm = 'compact' | 'full' | 'narrow';
 export interface QuotaTextOptions {

@@ -15,6 +15,7 @@ export { assertHostSlotMatchesMode, assertNotCustodyPlaceholder, CUSTODY_PLACEHO
 export { acquireInsulaQuotaSource, } from './insula.js';
 export { acceptAccount, declineAccount, isDeclined, } from './interlock.js';
 export { acceptVaultRoute, DEFAULT_ROUTE_PREFIX, declineVaultRoute, mutateVaultRoster, projectVaultRoster, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, resolveVaultPrimary, vaultRoutingRows, } from './roster.js';
+export { ChangeNoticeReader, RESUBSCRIBE_BACKOFF_MS, SAFETY_POLL_MS, ScopedRosterWatch, WATCH_RETRY_MS, } from './watch.js';
 /**
  * Connect the client that lists and fetches this consumer's vault credentials
  * on the request path. `connectionFile` is required: this library

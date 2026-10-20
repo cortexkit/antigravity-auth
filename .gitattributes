@@ -7,7 +7,7 @@
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.14.1.tgz -text -eol -filter -working-tree-encoding
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.14.2.tgz -text -eol -filter -working-tree-encoding
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.16.0.tgz -text -eol -filter -working-tree-encoding
-/tools/common-auth-build/inputs/cortexkit-common-auth-0.20.0.tgz -text -eol -filter -working-tree-encoding
+/tools/common-auth-build/inputs/cortexkit-common-auth-0.21.1.tgz -text -eol -filter -working-tree-encoding
 /packages/opencode/src/common-auth-embedded/*/*.js -text -eol -filter -working-tree-encoding
 /packages/opencode/src/common-auth-embedded/*/*.d.ts -text -eol -filter -working-tree-encoding
 /packages/opencode/src/common-auth-embedded/logger/capture-sink.d.ts -text -eol -filter -working-tree-encoding

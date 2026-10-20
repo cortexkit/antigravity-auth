@@ -5,6 +5,7 @@ import { readClaustrumEnrollmentToken } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
 import { acquireInsulaQuotaSource } from './insula.js';
 import { acceptVaultRoute, declineVaultRoute, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, vaultRoutingRows, } from './roster.js';
+import { SAFETY_POLL_MS } from './watch.js';
 /**
  * One plugin host's view of its vault accounts. It turns vault credentials
  * into rows for `/routing`, authorizes each physical send with the vault, and
@@ -29,6 +30,10 @@ export class ClaustrumConsumer {
     #timer;
     #started = false;
     #insula;
+    #vaultWatch;
+    #releaseInsulaWatch;
+    /** When this instance last completed a discovery, by `now`. */
+    #discoveredAt;
     constructor(options) {
         this.#options = options;
         this.#logger = options.logger ?? createLogger('claustrum');
@@ -91,6 +96,8 @@ export class ClaustrumConsumer {
                     requireAssertion: this.#options.requireAssertion,
                     now: this.#options.now,
                     logger: this.#logger,
+                    setTimeoutImpl: this.#options.setTimeoutImpl,
+                    clearTimeoutImpl: this.#options.clearTimeoutImpl,
                 });
                 if (this.#options.insula && client.insula) {
                     this.#insula = acquireInsulaQuotaSource(client.insula, this.#options.tokenPath);
@@ -122,6 +129,22 @@ export class ClaustrumConsumer {
             ? latest.reach
             : undefined;
     }
+    /** How this consumer currently learns about changes, without I/O. */
+    watchState() {
+        return Object.freeze({
+            vault: this.#vaultWatch?.mode ?? 'polling',
+            ...(this.#options.insula && {
+                insula: this.#insula?.source.watchMode() ?? 'polling',
+            }),
+        });
+    }
+    /** Close the watches with the connection they belong to. */
+    #stopWatch() {
+        this.#vaultWatch?.close();
+        this.#vaultWatch = undefined;
+        this.#releaseInsulaWatch?.();
+        this.#releaseInsulaWatch = undefined;
+    }
     /** Whether any account is using an in-memory outage receipt, without I/O. */
     keptReceiptState() {
         return (this.#custody?.keptReceiptState() ??
@@ -139,6 +162,7 @@ export class ClaustrumConsumer {
             if (!(await this.#active())) {
                 this.#roster = undefined;
                 this.#grantReach = undefined;
+                this.#stopWatch();
                 this.#custody?.close();
                 this.#custody = undefined;
                 this.#insula?.release();
@@ -181,12 +205,23 @@ export class ClaustrumConsumer {
             // notification, and the poll runs every few seconds.
             if (roster && changed)
                 this.#options.onRoster?.(roster);
+            this.#discoveredAt = (this.#options.now ?? Date.now)();
             return roster;
         })().finally(() => {
             this.#refreshing = undefined;
         });
         return this.#refreshing;
     }
+    /**
+     * Poll in the background and open the vault and insula watches. Until the
+     * vault watch is accepted, and whenever it is unavailable, every tick lists
+     * the vault exactly as before watches existed. While it is open a tick
+     * lists only when five minutes have passed since the last discovery, since
+     * the watch keeps no history; it still checks `isCustodyActive`, so a switch
+     * to local mode closes the connection as quickly as before. Insula is
+     * polled on the tick only while its own watch is not open. A host not in
+     * vault mode makes no request.
+     */
     start() {
         if (this.#started)
             return;
@@ -194,8 +229,10 @@ export class ClaustrumConsumer {
         this.#started = true;
         const tick = async () => {
             try {
-                await this.refresh();
+                if (await this.#listDue())
+                    await this.refresh();
                 await this.refreshInsulaQuota();
+                this.#openWatch();
             }
             catch (error) {
                 if (!this.#shutdown.signal.aborted)
@@ -213,6 +250,53 @@ export class ClaustrumConsumer {
             this.#timer.unref?.();
         };
         void tick();
+    }
+    /** Whether a background tick must list the vault now. */
+    async #listDue() {
+        if (this.#vaultWatch?.mode !== 'watching')
+            return true;
+        const now = (this.#options.now ?? Date.now)();
+        if (this.#discoveredAt === undefined ||
+            now - this.#discoveredAt >= SAFETY_POLL_MS)
+            return true;
+        // refresh() is what closes the connection when the host left vault mode.
+        return !(await this.#active());
+    }
+    /**
+     * Open the vault and insula watches once a vault connection exists. Only
+     * reached in vault mode: a host in local mode never connects.
+     */
+    #openWatch() {
+        const custody = this.#custody;
+        if (this.#shutdown.signal.aborted || !custody)
+            return;
+        // The same entry point a host without a consumer uses, so both apply
+        // notices, refusals and outages alike.
+        this.#vaultWatch ??= custody.watchRoster({
+            view: () => this.#roster?.view,
+            // The existing discovery, so a watched change commits the roster and
+            // re-applies it to kept receipts exactly as a poll does. A refresh
+            // already in flight may have listed before the change was announced,
+            // so wait for it and list again.
+            onView: async () => {
+                while (this.#refreshing)
+                    await this.#refreshing.catch(() => { });
+                await this.refresh();
+            },
+            // Custody has dropped kept receipts, as a poll meeting the same
+            // refusal from list_scoped would.
+            onRefused: (error) => this.#options.onError?.(error),
+            onError: (error) => {
+                if (!this.#shutdown.signal.aborted)
+                    this.#options.onError?.(error);
+            },
+        });
+        if (this.#options.insula && this.#insula && !this.#releaseInsulaWatch)
+            this.#releaseInsulaWatch = this.#insula.source.watch({
+                provider: this.#options.insula.provider,
+                setTimeoutImpl: this.#options.setTimeoutImpl,
+                clearTimeoutImpl: this.#options.clearTimeoutImpl,
+            });
     }
     /**
      * Fetch on a background tick, at most once per minute across projects with
@@ -291,6 +375,7 @@ export class ClaustrumConsumer {
         if (!roster || !(await this.#active())) {
             this.#custody?.close();
             this.#custody = undefined;
+            this.#stopWatch();
             this.#insula?.release();
             this.#insula = undefined;
             throw new ClaustrumConsumerError('not-active', 'Claustrum scoped custody is not active');
@@ -444,6 +529,7 @@ export class ClaustrumConsumer {
         if (this.#timer)
             (this.#options.clearTimeoutImpl ?? clearTimeout)(this.#timer);
         this.#timer = undefined;
+        this.#stopWatch();
         this.#custody?.close();
         this.#insula?.release();
         this.#insula = undefined;

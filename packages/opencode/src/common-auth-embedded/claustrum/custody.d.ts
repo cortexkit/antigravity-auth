@@ -1,9 +1,14 @@
 import { type ClaustrumClient, type ClaustrumReporterSource, type EnrollmentTokenFile } from '@cortexkit/claustrum-client';
 import { type ClaustrumLogger } from './errors.js';
 import type { InsulaUsageTransport } from './insula.js';
+import { type ScopedWatchSource, type WatchMode } from './watch.js';
+/**
+ * `watchScoped` is present from claustrum-client 0.12.0. Hosts detect it at
+ * run time and keep polling without it.
+ */
 export type ClaustrumScopedClient = Pick<ClaustrumClient, 'listScoped' | 'getScoped' | 'reportAuthFailureScoped' | 'close'> & {
     insula?: InsulaUsageTransport;
-};
+} & ScopedWatchSource;
 /** The two credential types a plugin's family can hold; routing differs by type. */
 export type VaultCredentialType = 'oauth' | 'api_key';
 /**
@@ -144,6 +149,46 @@ export interface KeptReceiptState {
     readonly active: boolean;
     readonly since: number | null;
 }
+export interface ClaustrumRosterWatchOptions {
+    /**
+     * Run the host's own discovery (`custody.discover()`, then its roster
+     * commit). Called with the newest notice's view when that view differs from
+     * the last discovered one, when a notice shows a sequence gap or a new
+     * epoch, and on the first notice of a watch re-opened after a close (the
+     * time between two watches was not observed). One call runs at a time;
+     * notices that arrive meanwhile earn at most one more call, which runs only
+     * if the view still differs. A rejection goes to `onError`.
+     */
+    onView: (view: string) => unknown;
+    /**
+     * The view of the roster the host last committed. Defaults to the view of
+     * the last successful `custody.discover()` (outage probes excluded). Pass it
+     * when the host can commit a roster it did not list itself (a peer process
+     * held the discovery lease) or can fail after listing.
+     */
+    view?: () => string | undefined;
+    /**
+     * Called whenever the mode changes. The watch starts in `polling`. Keep the
+     * host's own list timer at its usual pace unless the mode is `watching`.
+     */
+    onMode?: (mode: WatchMode) => void;
+    /**
+     * The vault refused the watch, and its confirming `list_scoped` read it with
+     * this error (a revoked enrollment answers `not_found`). Custody has already
+     * applied it as it applies a refused discovery (`listFailed`: every kept
+     * receipt is dropped); handle it as the host handles that refusal.
+     */
+    onRefused?: (error: unknown) => void;
+    /** A failed `onView`, or a watch that could not be opened. */
+    onError?: (error: unknown) => void;
+}
+/** A vault watch held by a custody; see `ClaustrumScopedCustody.watchRoster`. */
+export interface ClaustrumRosterWatch {
+    /** How the host currently learns about changes. */
+    readonly mode: WatchMode;
+    /** Stop the watch and its timers. Safe to call more than once. */
+    close(): void;
+}
 /** Reads the provider identity a served token executes under, when the plugin can tell. */
 export type IdentityParser = (accessToken: string) => string | undefined;
 /** Only a new version of the same account may replace an in-flight 401. */
@@ -167,7 +212,7 @@ export declare const KEPT_RECEIPT_MARGIN_MS = 60000;
 /**
  * Reads this consumer's vault credentials (list, fetch, 401 report), with the
  * enrollment token as authorization. Used by every host of a plugin. Every
- * physical send still asks the vault first. Only an unreachable vault permits
+ * physical send asks the vault first while reachable. Only an unreachable vault permits
  * reuse of the last validated receipt, in memory and bounded by its expiry.
  * The enrollment token is re-read per operation so revocation and disconnect
  * still take effect without a process restart.
@@ -190,7 +235,13 @@ export declare class ClaustrumScopedCustody {
         requireAssertion?: boolean;
         now?: () => number;
         logger?: ClaustrumLogger;
+        setTimeoutImpl?: typeof setTimeout;
+        clearTimeoutImpl?: typeof clearTimeout;
     });
+    /** A watch losing its transport is the same outage as an unreachable read. */
+    transportLost(error?: unknown): void;
+    /** Any vault answer ends transport fallback, even when it refuses access. */
+    reachable(): void;
     /**
      * List this consumer's credentials. A record that cannot be used is skipped
      * and warned about rather than failing the whole list, so one bad record
@@ -198,6 +249,13 @@ export declare class ClaustrumScopedCustody {
      * skipped records: they simply are not this consumer's.
      */
     discover(signal?: AbortSignal): Promise<VaultInventory>;
+    /**
+     * Apply a failed account listing: any answer from the vault (a refusal such
+     * as a revoked enrollment's `not_found`) drops every kept receipt, while an
+     * unreachable vault keeps them. A vault watch that ends with the same
+     * refusal calls this too, so both paths treat it alike.
+     */
+    listFailed(error: unknown): void;
     /** Discard bearer material when a route is removed, declined or rebound. */
     forget(credentialId: string): void;
     /** Apply an already-held roster; this never fetches credentials or writes it. */
@@ -207,7 +265,7 @@ export declare class ClaustrumScopedCustody {
     })[]): void;
     /** A frozen, non-secret summary for a plugin's status display. */
     keptReceiptState(): KeptReceiptState;
-    /** Ask the vault first; retain one validated receipt per credential in memory only. */
+    /** Ask the vault while reachable; retain one validated receipt in memory only. */
     authorize(identity: ClaustrumScopedIdentity, signal?: AbortSignal, routeId?: string): Promise<ClaustrumScopedAttempt>;
     /**
      * Report that a send this consumer actually made was rejected. Only a 401
@@ -217,5 +275,25 @@ export declare class ClaustrumScopedCustody {
      * custody did not issue is refused rather than reported.
      */
     reportFailure(attempt: ClaustrumScopedAttempt, status: number, reporterSource: ClaustrumReporterSource): Promise<void>;
+    /**
+     * Watch this consumer's visible vault accounts instead of listing them on a
+     * short timer. Opens one `watchScoped` on this custody's client and calls
+     * `onView` when the host must run its discovery (see
+     * `ClaustrumRosterWatchOptions`). A claustrum-client without `watchScoped`
+     * (before 0.12.0) or a vault that answers `unknown_method` reports
+     * `fallback` and opens nothing. A watch that closes before any notice was
+     * never accepted: the client reads once to learn why, and the watch reports
+     * `fallback` and tries one new watch after `WATCH_RETRY_MS`, never in a
+     * loop. A watch that closes after notices is re-opened after
+     * `RESUBSCRIBE_BACKOFF_MS`, doubling per close in a row. A lost transport
+     * starts this custody's outage, exactly as an unreachable call does, and
+     * the first notice of a watch ends it. Timers are unreferenced; `close()`
+     * on the returned watch or on this custody stops it.
+     *
+     * The watch keeps no history, so the host still lists on a slow timer while
+     * the mode is `watching`: every `SAFETY_POLL_MS` (five minutes). In any
+     * other mode the host keeps its usual list timer.
+     */
+    watchRoster(options: ClaustrumRosterWatchOptions): ClaustrumRosterWatch;
     close(): void;
 }

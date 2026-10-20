@@ -266,7 +266,7 @@ export async function preparePublicMigrationConsumer(
   }
   if (
     packageManifest?.name !== '@cortexkit/common-auth' ||
-    packageManifest.version !== '0.20.0'
+    packageManifest.version !== '0.21.1'
   )
     throw new Error('public package inventory differs')
   const exports = record(packageManifest.exports)

@@ -5,6 +5,7 @@ import { type ClaustrumFamily, type ClaustrumScopedAttempt, type ClaustrumScoped
 import { type ClaustrumLogger } from './errors.js';
 import { type InsulaQuotaOptions } from './insula.js';
 import { type AccountMapper, type QuotaReceipt, type VaultRosterFile } from './roster.js';
+import { type WatchMode } from './watch.js';
 export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
     /**
      * The roster file: one row per vault account (route id, credential id,
@@ -41,6 +42,12 @@ export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
      */
     onRoster?: (roster: VaultRosterFile) => void;
     onError?: (error: unknown) => void;
+    /**
+     * How often `start()` ticks. A tick lists the vault when no vault watch is
+     * open (before it is accepted, or when the vault or the client cannot
+     * watch), and otherwise only every five minutes, as a safety net. A tick
+     * polls insula (at most once a minute) only while its watch is not open.
+     */
     pollIntervalMs?: number;
     setTimeoutImpl?: typeof setTimeout;
     clearTimeoutImpl?: typeof clearTimeout;
@@ -48,6 +55,15 @@ export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
     logger?: ClaustrumLogger;
     /** Optional background quota source. In-band readings still use recordQuota. */
     insula?: InsulaQuotaOptions<Q>;
+}
+/**
+ * How a started consumer learns about changes, for logs and status displays.
+ * `insula` is present when the consumer was given an insula source. Never
+ * carries secrets.
+ */
+export interface ClaustrumWatchState {
+    readonly vault: WatchMode;
+    readonly insula?: WatchMode;
 }
 export interface SendOptions {
     /**
@@ -81,11 +97,23 @@ export declare class ClaustrumConsumer<Q = QuotaObservation> {
      * held the discovery lease and its newer roster was served instead).
      */
     grantReach(): VaultGrantReach | undefined;
+    /** How this consumer currently learns about changes, without I/O. */
+    watchState(): ClaustrumWatchState;
     /** Whether any account is using an in-memory outage receipt, without I/O. */
     keptReceiptState(): KeptReceiptState;
     /** Rows for `/routing`, from the last committed roster. */
     routingRows(): RoutingRow[];
     refresh(): Promise<VaultRosterFile | undefined>;
+    /**
+     * Poll in the background and open the vault and insula watches. Until the
+     * vault watch is accepted, and whenever it is unavailable, every tick lists
+     * the vault exactly as before watches existed. While it is open a tick
+     * lists only when five minutes have passed since the last discovery, since
+     * the watch keeps no history; it still checks `isCustodyActive`, so a switch
+     * to local mode closes the connection as quickly as before. Insula is
+     * polled on the tick only while its own watch is not open. A host not in
+     * vault mode makes no request.
+     */
     start(): void;
     /**
      * Fetch on a background tick, at most once per minute across projects with
