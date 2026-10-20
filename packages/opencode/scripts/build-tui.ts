@@ -3,7 +3,6 @@
  * installed tools/common-auth-build toolchain. That API owns TUI emission,
  * output naming and transforms; this script independently checks the graphs.
  */
-import { spawnSync } from 'node:child_process'
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import {
   cp,
@@ -19,7 +18,9 @@ import { fileURLToPath } from 'node:url'
 import { build as bundle } from 'esbuild'
 import { parse } from 'jsonc-parser'
 import ts from 'typescript'
+
 import { embedCommonAuth, sha256 } from './embed-common-auth'
+import { type CommandResult, runCommand } from './run-command'
 
 const phaseClockKey = Symbol.for('cortexkit.build-phase-clock')
 type PhaseClockHooks = {
@@ -27,15 +28,12 @@ type PhaseClockHooks = {
   sync: <T>(name: string, action: () => T) => T
   note: (name: string, detail: string) => void
   child?: <
-    T extends Pick<
-      ReturnType<typeof spawnSync>,
-      'pid' | 'status' | 'signal' | 'error'
-    >,
+    T extends Pick<CommandResult, 'pid' | 'status' | 'signal' | 'error'>,
   >(
     command: string,
     argc: number,
-    action: () => T,
-  ) => T
+    action: () => Promise<T>,
+  ) => Promise<T>
 }
 function phaseClockHooks() {
   return (
@@ -549,11 +547,10 @@ export async function verifySelectors(
   }
 }
 
-function run(command: string, args: string[], cwd = PACKAGE_ROOT) {
-  const execute = () =>
-    spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 120000 })
+async function run(command: string, args: string[], cwd = PACKAGE_ROOT) {
+  const execute = () => runCommand(command, args, { cwd, deadlineMs: 120_000 })
   const observe = phaseClockHooks()?.child
-  const result = buildSyncPhase(
+  const result = await buildPhase(
     `child spawn: ${command} ${args.join(' ')} (cwd ${cwd})`,
     () => (observe ? observe(command, args.length, execute) : execute()),
   )
@@ -609,7 +606,7 @@ export async function buildTui({
     await buildPhase('buildTui.mkdir dist', () =>
       mkdir(join(packageRoot, 'dist'), { recursive: true }),
     )
-    run(
+    await run(
       process.execPath,
       [
         join(TOOL_ROOT, 'build.mjs'),
@@ -809,7 +806,7 @@ export async function buildLibrary(packageRoot = PACKAGE_ROOT) {
     await verifyPrerequisites()
     await checkEmbeddedTypes()
     await rm(join(packageRoot, 'dist'), { recursive: true, force: true })
-    run(
+    await run(
       process.execPath,
       [
         join(REPO_ROOT, 'node_modules/typescript/bin/tsc'),
@@ -827,7 +824,7 @@ export async function buildLibrary(packageRoot = PACKAGE_ROOT) {
     // The root export's declarations keep source specifiers (`./x.ts`,
     // `./dir`) that installed packages cannot resolve; rewrite them to the
     // compiled `.js` paths here, so every build of this tree is finalized.
-    run(
+    await run(
       process.execPath,
       [
         join(REPO_ROOT, 'scripts/finalize-declaration-specifiers.ts'),
@@ -859,7 +856,7 @@ export async function buildLibrary(packageRoot = PACKAGE_ROOT) {
         `${JSON.stringify(result.metafile, null, 2)}\n`,
       )
     }
-    run('chmod', ['0755', 'dist/cli.js'], packageRoot)
+    await run('chmod', ['0755', 'dist/cli.js'], packageRoot)
     await buildTuiRoots({ packageRoot })
     console.log(
       'Product build: tsc, canonical copy, 2 audited bundles, raw/runtime TUI for OpenCode 1 and GA',

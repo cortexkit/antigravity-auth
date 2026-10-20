@@ -14,7 +14,7 @@ import { runCommand } from './support/run-command.ts'
 const root = resolve(import.meta.dir, '..')
 const SYNC_SPAWN = /\b(?:spawnSync|execFileSync|execSync)\s*\(/
 
-/** Test files, fixtures, harnesses and the supervisor that runs the suite. */
+/** Test-related sources and TUI build scripts run by Bun tests. */
 function inScope(path: string): boolean {
   if (!/\.(?:[cm]?[jt]s|tsx)$/.test(path)) return false
   return (
@@ -23,6 +23,8 @@ function inScope(path: string): boolean {
     path.includes('/__fixtures__/') ||
     path.startsWith('packages/e2e-tests/') ||
     [
+      'packages/opencode/scripts/build-tui.ts',
+      'packages/opencode/scripts/smoke-tui-pack-install.ts',
       'scripts/prepare-common-auth-public-consumer.ts',
       'scripts/test-stall-diagnostics.ts',
       'scripts/test-child-lifecycle.ts',
@@ -67,7 +69,7 @@ const ALLOWED: Record<string, string> = {
   'test/windows-vault/dacl.mjs': 'Node-only Windows verifier',
 }
 
-test('tests and test support never spawn children synchronously', async () => {
+test('tests, test support and TUI build scripts never spawn children synchronously', async () => {
   const listed = await runCommand(['git', 'ls-files', '-z'], {
     cwd: root,
     env: {

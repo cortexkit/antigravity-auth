@@ -19,8 +19,8 @@ const labels = [
   'build-setup',
 ] as const
 type Label = (typeof labels)[number]
-type SyncResult = {
-  pid: number
+type ChildResult = {
+  pid?: number
   status?: number | null
   exitCode?: number | null
   signal?: string | null
@@ -28,16 +28,16 @@ type SyncResult = {
   error?: unknown
 }
 
-export function traceBuildTestChild<T extends SyncResult>(
+export function traceBuildTestChild<T extends ChildResult>(
   command: string,
   argc: number,
-  run: () => T,
-): T {
-  return traceSyncTestChild('build-tui', command, argc, run)
+  run: () => Promise<T>,
+): Promise<T> {
+  return traceTestCommand('build-tui', command, argc, run)
 }
 
 /** Sync APIs expose wait return, not kernel exit or individual pipe-close events. */
-export function traceSyncTestChild<T extends SyncResult>(
+export function traceSyncTestChild<T extends ChildResult>(
   label: Label,
   command: string,
   argc: number,
@@ -66,7 +66,7 @@ export function traceSyncTestChild<T extends SyncResult>(
  * command resolves only after the child exited and both output pipes were read
  * to the end, so one parent observation time covers exit and pipe closure.
  */
-export async function traceTestCommand<T extends SyncResult>(
+export async function traceTestCommand<T extends ChildResult>(
   label: Label,
   command: string,
   argc: number,
@@ -135,9 +135,9 @@ function openChildRecord(
   }
   save()
   return {
-    settled<T extends SyncResult>(result: T): T {
+    settled<T extends ChildResult>(result: T): T {
       record.waitReturned = now()
-      record.pid = result.pid
+      record.pid = result.pid ?? null
       record.status = result.status ?? result.exitCode ?? null
       record.signal = result.signal ?? result.signalCode ?? null
       record.failed =

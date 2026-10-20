@@ -1,5 +1,4 @@
 /** Fresh npm/Bun packs and real isolated consumers. Never import a consumer package from this repository process. */
-import { spawnSync } from 'node:child_process'
 import {
   mkdir,
   mkdtemp,
@@ -17,7 +16,6 @@ import {
   auditGraph,
   buildPhase,
   buildPhaseNote,
-  buildSyncPhase,
   checkGaGraph,
   inventory,
   PACKAGE_ROOT,
@@ -25,26 +23,35 @@ import {
   verifyPrerequisites,
 } from './build-tui'
 import { sha256 } from './embed-common-auth'
+import { runCommand } from './run-command'
 
 const repo = resolve(PACKAGE_ROOT, '../..')
 const productName = '@cortexkit/opencode-antigravity-auth'
 const coreName = '@cortexkit/antigravity-auth-core'
 export const baselineRevision = '45625093922278e7d8f1f1415df42bbc0ca1883e'
-function run(
+async function run(
   command: string,
   args: string[],
   cwd: string,
   env: NodeJS.ProcessEnv = process.env,
-) {
-  const result = buildSyncPhase(
+): Promise<string> {
+  const commandEnv =
+    command === 'git'
+      ? {
+          ...env,
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'safe.directory',
+          GIT_CONFIG_VALUE_0: repo,
+        }
+      : env
+  const result = await buildPhase(
     `child spawn: ${command} ${args.join(' ')} (cwd ${cwd})`,
     () =>
-      spawnSync(command, args, {
+      runCommand(command, args, {
         cwd,
-        env,
-        encoding: 'utf8',
-        timeout: 180000,
-        maxBuffer: 16 * 1024 * 1024,
+        env: commandEnv,
+        deadlineMs: 180_000,
+        maxBufferBytes: 16 * 1024 * 1024,
       }),
   )
   buildPhaseNote(
@@ -80,12 +87,17 @@ export async function pack(
   const flags = scripts ? [] : ['--ignore-scripts']
   // The destination starts empty; a successful command cannot discover an old tarball.
   if (manager === 'npm')
-    run(
+    await run(
       'npm',
       ['pack', '--json', '--pack-destination', destination, ...flags],
       root,
     )
-  else run('bun', ['pm', 'pack', '--destination', destination, ...flags], root)
+  else
+    await run(
+      'bun',
+      ['pm', 'pack', '--destination', destination, ...flags],
+      root,
+    )
   const names = (await readdir(destination)).filter((path) =>
     path.endsWith('.tgz'),
   )
@@ -95,7 +107,7 @@ export async function pack(
 
 export async function inspectPack(tar: string, target: string) {
   await mkdir(target, { recursive: true })
-  const listed = run('tar', ['-tzf', tar], repo)
+  const listed = (await run('tar', ['-tzf', tar], repo))
     .trim()
     .split('\n')
     .filter((path) => !path.endsWith('/'))
@@ -108,7 +120,7 @@ export async function inspectPack(tar: string, target: string) {
     )
   )
     throw new Error('pack.repository_input_excluded: private input shipped')
-  run('tar', ['-xzf', tar, '-C', target], repo)
+  await run('tar', ['-xzf', tar, '-C', target], repo)
   const root = join(target, 'package')
   const required = new Set([
     'src/tui/entry.mjs',
@@ -336,7 +348,7 @@ export async function baseline(workspace: string) {
   const root = join(workspace, 'baseline')
   await buildPhase('baseline.mkdir', () => mkdir(root))
   const archive = join(root, 'source.tar')
-  run(
+  await run(
     'git',
     [
       'archive',
@@ -348,7 +360,7 @@ export async function baseline(workspace: string) {
     ],
     repo,
   )
-  run('tar', ['-xf', archive, '-C', root], repo)
+  await run('tar', ['-xf', archive, '-C', root], repo)
   const packageRoot = join(root, 'packages/opencode')
   const coreRoot = join(root, 'packages/core')
   await buildPhase('baseline.link core dependencies', () =>
@@ -361,7 +373,7 @@ export async function baseline(workspace: string) {
   await buildPhase('baseline.link root dependencies', () =>
     symlink(join(repo, 'node_modules'), join(root, 'node_modules'), 'dir'),
   )
-  run(
+  await run(
     join(repo, 'node_modules/.bin/tsc'),
     ['-p', 'tsconfig.build.json'],
     coreRoot,
@@ -405,7 +417,7 @@ export async function baseline(workspace: string) {
       )
   }
 
-  run(
+  await run(
     join(repo, 'node_modules/.bin/tsc'),
     ['-p', 'tsconfig.build.json'],
     packageRoot,
@@ -426,7 +438,7 @@ export async function baseline(workspace: string) {
         banner: name === 'cli' ? { js: '#!/usr/bin/env node' } : undefined,
       }),
     )
-  run('bun', ['scripts/build-tui.ts'], packageRoot)
+  await run('bun', ['scripts/build-tui.ts'], packageRoot)
   return packageRoot
 }
 
@@ -557,7 +569,7 @@ async function install(
   }
   const resolution = installResolution(manager, cutoff)
   await mkdir(env.HOME, { recursive: true })
-  run(
+  await run(
     manager,
     ['install', ...resolution.args, ...(scripts ? [] : ['--ignore-scripts'])],
     root,
@@ -573,7 +585,7 @@ async function install(
   const probe = join(root, 'probe.mjs')
   await writeFile(probe, consumerProbe({ installed, ui, contract }))
   const args = ui ? ['--preload', '@opentui/solid/preload', probe] : [probe]
-  const output = run('bun', args, root, env)
+  const output = await run('bun', args, root, env)
   if (!output.includes(consumerWitness(ui, contract)))
     throw new Error('consumer.installed_resolution: absent child witness')
   // Run Node import and CLI probes from the consumer, with its isolated HOME,
@@ -586,7 +598,7 @@ assert.equal(import.meta.resolve(${JSON.stringify(productName)}), pathToFileURL(
 assert.equal(typeof (await import(${JSON.stringify(productName)})).GoogleOAuthPlugin, 'function'); console.log('Node installed imports: 2 checks');
 ${contract === 'candidate' ? privateFilesProbe() : ''}`,
   )
-  const nodeOutput = run(
+  const nodeOutput = await run(
     'node',
     ['--experimental-import-meta-resolve', join(root, 'node-probe.mjs')],
     root,
@@ -598,7 +610,12 @@ ${contract === 'candidate' ? privateFilesProbe() : ''}`,
     !nodeOutput.includes('Linux packed core/opencode private-files: 4 checks')
   )
     throw new Error('consumer.private_files: absent Linux runtime witness')
-  const cli = run('node', [join(installed, 'dist/cli.js'), '--help'], root, env)
+  const cli = await run(
+    'node',
+    [join(installed, 'dist/cli.js'), '--help'],
+    root,
+    env,
+  )
   if (!cli.includes('antigravity-auth'))
     throw new Error('consumer.cli_lean: CLI help witness absent')
   if (contract === 'candidate') {
@@ -606,7 +623,7 @@ ${contract === 'candidate' ? privateFilesProbe() : ''}`,
     const pi = join(root, 'pi-profile')
     await mkdir(config, { recursive: true, mode: 0o700 })
     const before = await readdir(config)
-    const planned = run(
+    const planned = await run(
       'node',
       [
         join(root, 'node_modules/.bin/antigravity-auth'),
@@ -645,8 +662,8 @@ ${contract === 'candidate' ? privateFilesProbe() : ''}`,
 async function main() {
   const cutoff = new Date()
   await verifyPrerequisites()
-  run('bun', ['run', '--cwd', 'packages/core', 'build'], repo)
-  run('bun', ['run', 'build'], PACKAGE_ROOT)
+  await run('bun', ['run', '--cwd', 'packages/core', 'build'], repo)
+  await run('bun', ['run', 'build'], PACKAGE_ROOT)
   const workspace = await mkdtemp(join(repo, '.tui-pack-'))
   try {
     const core = await pack(

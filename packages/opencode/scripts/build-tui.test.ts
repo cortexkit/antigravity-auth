@@ -42,6 +42,7 @@ import {
   verifySelectors,
 } from './build-tui'
 import { sha256 } from './embed-common-auth'
+import { runCommand } from './run-command'
 import { inspectPack, pack } from './smoke-tui-pack-install'
 
 const repo = resolve(PACKAGE_ROOT, '../..')
@@ -1078,3 +1079,29 @@ test('pack.repository_input_excluded', async () => {
     await rm(join(product, 'tools'), { recursive: true, force: true })
   }
 }, 120000)
+
+test('async build command preserves output and nonzero exit status', async () => {
+  const result = await runCommand(
+    process.execPath,
+    [
+      '-e',
+      "process.stdout.write('command output'); process.stderr.write('command error'); process.exitCode = 7",
+    ],
+    { cwd: repo, deadlineMs: 2_000 },
+  )
+
+  expect(result.status).toBe(7)
+  expect(result.stdout).toBe('command output')
+  expect(result.stderr).toBe('command error')
+})
+
+test('async build command kills a child at its deadline and names the command', async () => {
+  const command = process.execPath
+
+  await expect(
+    runCommand(command, ['-e', 'setInterval(() => {}, 1000)'], {
+      cwd: repo,
+      deadlineMs: 250,
+    }),
+  ).rejects.toThrow(`Command timed out after 250 ms: ${command}`)
+})
