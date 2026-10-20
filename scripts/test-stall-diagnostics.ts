@@ -126,7 +126,7 @@ async function psRow(pid: number): Promise<string> {
 
 /** Never serialize argv, environment, proc comm/Name, or inspection errors. */
 export async function captureTestStall(
-  reason: 'deadline' | 'slow-file' | 'failure',
+  reason: 'deadline' | 'slow-file' | 'failure' | 'bun-spawnsync-wedge',
   scope: PublicCommandScope,
   inspector: PublicCommandInspector,
   lifecycleRoot?: string,
@@ -310,6 +310,10 @@ export function createTestFileObserver(
       }
       pending = pending.slice(pending.lastIndexOf('\n') + 1).slice(-2048)
     },
+    /** Whether a test file header has been seen and its file is still running. */
+    open() {
+      return path !== undefined
+    },
     slow() {
       if (!path || sampled || performance.now() - fileStarted < 30_000)
         return false
@@ -327,5 +331,133 @@ export function createTestFileObserver(
       for (const line of pending) emit(line)
       return Buffer.byteLength(pending.join(''))
     },
+  }
+}
+
+/** One process as ps reports it for the spawnSync wedge check. */
+export interface WedgeProcessRow {
+  pid: number
+  ppid: number
+  /** ps STAT, such as `Rsl` or `Z`; the first letter is the scheduler state. */
+  state: string
+  elapsedS: number
+  cpuPercent: number
+}
+
+/** The test runner and its direct children at one moment. */
+export interface WedgeSnapshot {
+  runner: WedgeProcessRow
+  children: WedgeProcessRow[]
+}
+
+export interface BunSpawnSyncWedge {
+  runnerPid: number
+  cpuPercent: number
+  zombiePid: number
+  zombieElapsedS: number
+}
+
+/**
+ * Bun's synchronous spawn can lose a child's exit on Linux (oven-sh/bun#34069):
+ * the child stays a zombie that is never reaped while the runner busy-spins in
+ * its wait loop. Only that exact picture counts: a runnable runner at high CPU
+ * beside a direct zombie child at least 60 seconds old.
+ */
+export const BUN_SPAWNSYNC_WEDGE = {
+  runnerCpuPercent: 90,
+  zombieElapsedS: 60,
+  checkIntervalMs: 15_000,
+} as const
+
+/** Match the wedge signature; anything less, or no snapshot, is not a match. */
+export function matchBunSpawnSyncWedge(
+  snapshot: WedgeSnapshot | undefined,
+  platform: NodeJS.Platform = process.platform,
+): BunSpawnSyncWedge | undefined {
+  if (platform !== 'linux' || !snapshot) return undefined
+  const { runner } = snapshot
+  if (!runner.state.startsWith('R')) return undefined
+  if (!(runner.cpuPercent >= BUN_SPAWNSYNC_WEDGE.runnerCpuPercent))
+    return undefined
+  const zombie = snapshot.children.find(
+    (child) =>
+      child.ppid === runner.pid &&
+      child.state.startsWith('Z') &&
+      child.elapsedS >= BUN_SPAWNSYNC_WEDGE.zombieElapsedS,
+  )
+  if (!zombie) return undefined
+  return {
+    runnerPid: runner.pid,
+    cpuPercent: runner.cpuPercent,
+    zombiePid: zombie.pid,
+    zombieElapsedS: zombie.elapsedS,
+  }
+}
+
+export function bunSpawnSyncWedgeMessage(wedge: BunSpawnSyncWedge): string {
+  return `Bun spawnSync child-exit loss (oven-sh/bun#34069): test runner pid ${wedge.runnerPid} is spinning at ${wedge.cpuPercent}% CPU with zombie child pid ${wedge.zombiePid} for ${wedge.zombieElapsedS}s`
+}
+
+/** Parse `ps -o pid=,ppid=,stat=,etimes=,pcpu=` rows into the runner and its direct children. */
+export function parseWedgePs(
+  text: string,
+  runnerPid: number,
+): WedgeSnapshot | undefined {
+  const rows: WedgeProcessRow[] = []
+  for (const line of text.split('\n')) {
+    const fields = line.trim().split(/\s+/)
+    if (fields.length !== 5) continue
+    const [pid, ppid, state, elapsedS, cpuPercent] = fields as [
+      string,
+      string,
+      string,
+      string,
+      string,
+    ]
+    const row = {
+      pid: Number(pid),
+      ppid: Number(ppid),
+      state,
+      elapsedS: Number(elapsedS),
+      cpuPercent: Number(cpuPercent),
+    }
+    if (
+      ![row.pid, row.ppid, row.elapsedS, row.cpuPercent].every(Number.isFinite)
+    )
+      continue
+    rows.push(row)
+  }
+  const runner = rows.find((row) => row.pid === runnerPid)
+  if (!runner) return undefined
+  return {
+    runner,
+    children: rows.filter((row) => row.ppid === runnerPid),
+  }
+}
+
+/** Read the runner and its direct children; undefined off Linux or when ps fails. */
+export async function readWedgeSnapshot(
+  runnerPid: number,
+): Promise<WedgeSnapshot | undefined> {
+  if (process.platform !== 'linux') return undefined
+  try {
+    const ps = await runCommand(
+      [
+        '/bin/ps',
+        '-o',
+        'pid=,ppid=,stat=,etimes=,pcpu=',
+        '-p',
+        String(runnerPid),
+        '--ppid',
+        String(runnerPid),
+      ],
+      {
+        env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' },
+        deadlineMs: PS_DEADLINE_MS,
+      },
+    )
+    return ps.exitCode === 0 ? parseWedgePs(ps.stdout, runnerPid) : undefined
+  } catch {
+    return undefined
   }
 }

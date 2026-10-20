@@ -1,13 +1,20 @@
 import { expect, spyOn, test } from 'bun:test'
 import {
   createPublicCommandDiagnostic,
+  PUBLIC_COMMAND_BOUNDS,
   runPublicConsumerCommand,
 } from '../scripts/prepare-common-auth-public-consumer.ts'
 import { traceSyncTestChild } from '../scripts/test-child-lifecycle.ts'
 import {
+  bunSpawnSyncWedgeMessage,
   createTestFileObserver,
   FILE_BOUNDARY_RECORDS,
+  matchBunSpawnSyncWedge,
+  parseWedgePs,
+  readWedgeSnapshot,
   STALL_SNAPSHOT_BYTES,
+  type WedgeProcessRow,
+  type WedgeSnapshot,
 } from '../scripts/test-stall-diagnostics.ts'
 
 const linux = process.platform === 'linux'
@@ -297,3 +304,189 @@ test('synchronous lifecycle failures report only safe command metadata and obser
     error.mockRestore()
   }
 })
+
+// Rows modelled on a real CI stall: the test runner in state R at 99.8% CPU
+// and its only child a zombie for 1,195 s.
+const runner = (overrides: Partial<WedgeProcessRow> = {}): WedgeProcessRow => ({
+  pid: 4174,
+  ppid: 4118,
+  state: 'Rsl',
+  elapsedS: 1199,
+  cpuPercent: 99.8,
+  ...overrides,
+})
+const child = (overrides: Partial<WedgeProcessRow> = {}): WedgeProcessRow => ({
+  pid: 4207,
+  ppid: 4174,
+  state: 'Z',
+  elapsedS: 1195,
+  cpuPercent: 0,
+  ...overrides,
+})
+const wedgeSnapshot = (
+  runnerRow = runner(),
+  children = [child()],
+): WedgeSnapshot => ({ runner: runnerRow, children })
+
+test('wedge detector matches a spinning runner with an old zombie child', () => {
+  expect(matchBunSpawnSyncWedge(wedgeSnapshot(), 'linux')).toEqual({
+    runnerPid: 4174,
+    cpuPercent: 99.8,
+    zombiePid: 4207,
+    zombieElapsedS: 1195,
+  })
+  // The thresholds are inclusive.
+  expect(
+    matchBunSpawnSyncWedge(
+      wedgeSnapshot(runner({ cpuPercent: 90 }), [child({ elapsedS: 60 })]),
+      'linux',
+    ),
+  ).toBeDefined()
+})
+
+test('wedge detector ignores a runner at 50 percent CPU', () => {
+  expect(
+    matchBunSpawnSyncWedge(wedgeSnapshot(runner({ cpuPercent: 50 })), 'linux'),
+  ).toBeUndefined()
+})
+
+test('wedge detector ignores a zombie only 30 s old', () => {
+  expect(
+    matchBunSpawnSyncWedge(
+      wedgeSnapshot(runner(), [child({ elapsedS: 30 })]),
+      'linux',
+    ),
+  ).toBeUndefined()
+})
+
+test('wedge detector ignores a sleeping runner with an old zombie', () => {
+  expect(
+    matchBunSpawnSyncWedge(wedgeSnapshot(runner({ state: 'Ssl' })), 'linux'),
+  ).toBeUndefined()
+})
+
+test('wedge detector ignores an old child that is not a zombie', () => {
+  expect(
+    matchBunSpawnSyncWedge(
+      wedgeSnapshot(runner(), [child({ state: 'S' }), child({ state: 'R' })]),
+      'linux',
+    ),
+  ).toBeUndefined()
+})
+
+test('wedge detector ignores a runner without children', () => {
+  expect(
+    matchBunSpawnSyncWedge(wedgeSnapshot(runner(), []), 'linux'),
+  ).toBeUndefined()
+})
+
+test('wedge detector does nothing without a snapshot or off Linux', () => {
+  expect(matchBunSpawnSyncWedge(undefined, 'linux')).toBeUndefined()
+  expect(matchBunSpawnSyncWedge(wedgeSnapshot(), 'darwin')).toBeUndefined()
+  expect(matchBunSpawnSyncWedge(wedgeSnapshot(), 'win32')).toBeUndefined()
+})
+
+test('wedge stop error names the Bun issue and both pids', () => {
+  const wedge = matchBunSpawnSyncWedge(wedgeSnapshot(), 'linux')
+  if (!wedge) throw new Error('full match expected')
+  expect(bunSpawnSyncWedgeMessage(wedge)).toBe(
+    'Bun spawnSync child-exit loss (oven-sh/bun#34069): test runner pid 4174 is spinning at 99.8% CPU with zombie child pid 4207 for 1195s',
+  )
+})
+
+test('wedge ps rows parse into the runner and only its direct children', () => {
+  const parsed = parseWedgePs(
+    '   4174    4118 Rsl     1199 99.8\n   4207    4174 Z       1195  0.0\n   4300    4207 S         10  0.0\nnot a row\n',
+    4174,
+  )
+  expect(parsed).toEqual(wedgeSnapshot())
+  expect(parseWedgePs('   4207    4174 Z  1195  0.0\n', 4174)).toBeUndefined()
+})
+
+test.skipIf(!linux)(
+  'supervisor stops on the wedge signature with a snapshot instead of waiting for its deadline',
+  async () => {
+    const output: string[] = []
+    const error = spyOn(console, 'error').mockImplementation((line) => {
+      output.push(String(line))
+    })
+    const log = spyOn(console, 'log').mockImplementation(() => {})
+    const stderr = spyOn(process.stderr, 'write').mockImplementation(
+      (chunk) => {
+        output.push(String(chunk))
+        return true
+      },
+    )
+    const reads: number[] = []
+    const started = performance.now()
+    try {
+      await expect(
+        runPublicConsumerCommand(
+          [
+            process.execPath,
+            '-e',
+            `process.stderr.write('test/wedged.test.ts:\\n'); setInterval(() => {}, 100);`,
+          ],
+          {
+            executionMs: PUBLIC_COMMAND_BOUNDS.executionMs,
+            reapMs: 1_000,
+            termGraceMs: 50,
+            outputCapBytes: 4096,
+          },
+          undefined,
+          undefined,
+          {
+            intervalMs: 100,
+            platform: 'linux',
+            read: async (pid) => {
+              reads.push(pid)
+              return wedgeSnapshot(runner({ pid }), [child({ ppid: pid })])
+            },
+          },
+        ),
+      ).rejects.toThrow(
+        /^Bun spawnSync child-exit loss \(oven-sh\/bun#34069\): test runner pid \d+ is spinning at 99\.8% CPU with zombie child pid 4207 for 1195s$/,
+      )
+      expect(performance.now() - started).toBeLessThan(10_000)
+      expect(reads.length).toBeGreaterThan(0)
+      const lines = output.filter((line) =>
+        line.startsWith('[test-stall-snapshot] '),
+      )
+      expect(lines).toHaveLength(1)
+      const snapshot = JSON.parse(
+        (lines[0] ?? '').slice('[test-stall-snapshot] '.length),
+      )
+      expect(snapshot.reason).toBe('bun-spawnsync-wedge')
+      expect(snapshot.processes[0].pid).toBe(reads[0])
+    } finally {
+      error.mockRestore()
+      log.mockRestore()
+      stderr.mockRestore()
+    }
+  },
+  20_000,
+)
+
+test.skipIf(!linux)(
+  'wedge snapshot reads the live runner and its direct children through ps',
+  async () => {
+    const sleeper = Bun.spawn(
+      [process.execPath, '-e', 'setTimeout(() => {}, 10_000)'],
+      { stdio: ['ignore', 'ignore', 'ignore'] },
+    )
+    try {
+      const observed = await readWedgeSnapshot(process.pid)
+      expect(observed?.runner.pid).toBe(process.pid)
+      expect(observed?.runner.state).toMatch(/^[A-Z]/)
+      expect(
+        observed?.children.some(
+          (row) => row.pid === sleeper.pid && row.ppid === process.pid,
+        ),
+      ).toBe(true)
+    } finally {
+      sleeper.kill('SIGKILL')
+      await sleeper.exited
+    }
+  },
+  10_000,
+)

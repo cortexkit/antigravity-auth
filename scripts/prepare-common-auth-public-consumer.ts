@@ -18,9 +18,14 @@ import {
 
 import { createBuildPhaseReporter } from './build-phase-clock.ts'
 import {
+  BUN_SPAWNSYNC_WEDGE,
+  bunSpawnSyncWedgeMessage,
   captureTestStall,
   createTestFileObserver,
+  matchBunSpawnSyncWedge,
   ownedLiveTestChildren,
+  readWedgeSnapshot,
+  type WedgeSnapshot,
 } from './test-stall-diagnostics.ts'
 
 export const PUBLIC_COMMAND_BOUNDS = {
@@ -77,6 +82,19 @@ export interface PublicCommandDiagnostic {
   }
 }
 
+/** How the supervisor watches for Bun's spawnSync wedge; tests inject the reader. */
+export interface WedgeWatch {
+  intervalMs: number
+  read: (runnerPid: number) => Promise<WedgeSnapshot | undefined>
+  platform: NodeJS.Platform
+}
+
+export const DEFAULT_WEDGE_WATCH: WedgeWatch = {
+  intervalMs: BUN_SPAWNSYNC_WEDGE.checkIntervalMs,
+  read: readWedgeSnapshot,
+  platform: process.platform,
+}
+
 export function createPublicCommandDiagnostic(
   periodicObservation: boolean,
 ): PublicCommandDiagnostic {
@@ -96,6 +114,7 @@ export async function runPublicConsumerCommand(
   }> = PUBLIC_COMMAND_BOUNDS,
   inspectorFactory: () => Promise<PublicCommandInspector> = createPublicCommandInspector,
   diagnostic?: PublicCommandDiagnostic,
+  wedgeWatch: WedgeWatch = DEFAULT_WEDGE_WATCH,
 ): Promise<number> {
   const [command, ...args] = argv
   if (!command) throw new Error('explicit test command required')
@@ -121,6 +140,7 @@ export async function runPublicConsumerCommand(
   let executionTimer: ReturnType<typeof setTimeout> | undefined
   let monitor: ReturnType<typeof setInterval> | undefined
   let phaseMonitor: ReturnType<typeof setInterval> | undefined
+  let wedgeMonitor: ReturnType<typeof setInterval> | undefined
   let snapshotTimer: ReturnType<typeof setTimeout> | undefined
   let pipeTimer: ReturnType<typeof setTimeout> | undefined
   let leaderExited = false
@@ -210,7 +230,9 @@ export async function runPublicConsumerCommand(
     let deadlineSnapshot: string | undefined
     let sampledSlow = false
     let reportedFailure = false
-    const snapshot = async (reason: 'deadline' | 'failure') => {
+    const snapshot = async (
+      reason: 'deadline' | 'failure' | 'bun-spawnsync-wedge',
+    ) => {
       files.flush()
       if (!scope || !inspector) return
       const [ownedScope, ownedInspector] = [scope, inspector]
@@ -313,6 +335,34 @@ export async function runPublicConsumerCommand(
       scope = { leader, observed: new Map([[leader.pid, leader]]), signals: [] }
       const ownedScope = scope,
         nativeInspector = inspector
+      if (wedgeWatch.platform === 'linux') {
+        // Fail fast on Bun's lost spawnSync child exit instead of spinning until
+        // the execution deadline. A detected wedge stops the test command,
+        // which is not restarted.
+        let checking = false
+        wedgeMonitor = setInterval(() => {
+          if (checking || primary || !files.open()) return
+          checking = true
+          void wedgeWatch
+            .read(ownedScope.leader.pid)
+            .then(async (observed) => {
+              const wedge = matchBunSpawnSyncWedge(
+                observed,
+                wedgeWatch.platform,
+              )
+              if (!wedge || primary) return
+              clearInterval(wedgeMonitor)
+              reportedFailure = true
+              primary = new Error(bunSpawnSyncWedgeMessage(wedge))
+              await snapshot('bun-spawnsync-wedge').catch(() => {})
+              wake()
+            })
+            .catch(() => {})
+            .finally(() => {
+              checking = false
+            })
+        }, wedgeWatch.intervalMs)
+      }
       if (diagnostic?.periodicObservation !== false)
         monitor = setInterval(() => {
           const enteredMs = diagnostic ? performance.now() : 0
@@ -406,6 +456,7 @@ export async function runPublicConsumerCommand(
         : undefined,
     )
     clearInterval(phaseMonitor)
+    clearInterval(wedgeMonitor)
     clearTimeout(executionTimer)
     clearTimeout(snapshotTimer)
     clearInterval(monitor)
@@ -457,6 +508,7 @@ export async function runPublicConsumerCommand(
     clearTimeout(pipeTimer)
     clearInterval(monitor)
     clearInterval(phaseMonitor)
+    clearInterval(wedgeMonitor)
     child?.stdout?.destroy()
     child?.stderr?.destroy()
     try {

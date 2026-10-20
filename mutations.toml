@@ -1839,3 +1839,29 @@ runner = "command"
 command = ["bun", "test", "--isolate", "test/support/run-command.test.ts", "-t", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^runCommand\skills\sa\scommand\sat\sits\sdeadline\sand\snames\sit$']
+
+[[control]]
+id = "bun-spawnsync-wedge-detector-matches"
+guards = "The test supervisor recognizes Bun's lost spawnSync child exit (spinning runner beside an old zombie child) and stops the run instead of waiting for its 20-minute deadline."
+file = "scripts/test-stall-diagnostics.ts"
+old = "  if (!zombie) return undefined"
+new = "  return undefined // NON-VACUITY BREAK: never report the wedge."
+test_file = "test/test-stall-diagnostics.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "test/test-stall-diagnostics.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bun", "test", "--isolate", "test/test-stall-diagnostics.test.ts", "-t", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^wedge\sdetector\smatches\sa\sspinning\srunner\swith\san\sold\szombie\schild$']
+
+[[control]]
+id = "bun-spawnsync-wedge-zombie-age"
+guards = "A zombie child younger than the wedge threshold does not stop the test run; only a long-unreaped child matches Bun's lost spawnSync exit."
+file = "scripts/test-stall-diagnostics.ts"
+old = "      child.elapsedS >= BUN_SPAWNSYNC_WEDGE.zombieElapsedS,"
+new = "      true, // NON-VACUITY BREAK: ignore the zombie age."
+test_file = "test/test-stall-diagnostics.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "test/test-stall-diagnostics.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bun", "test", "--isolate", "test/test-stall-diagnostics.test.ts", "-t", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^wedge\sdetector\signores\sa\szombie\sonly\s30\ss\sold$']
