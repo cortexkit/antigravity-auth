@@ -89,4 +89,11 @@ it('formats the current Antigravity pool keys with named models and genuine cach
   expect(formatAntigravityQuota(quota, { now })).toBe(
     'Gemini 58% left · Claude / GPT-OSS 25% left',
   )
+  expect(projectAntigravityQuota(quota)?.groups).toEqual([
+    { scope: 'gemini', label: 'Gemini' },
+    { scope: 'non-gemini', label: 'Other models' },
+  ])
+  expect(formatAntigravityQuota(quota, { now, form: 'narrow' })).toBe(
+    'Ge 58% · Ot 25% left',
+  )
 })

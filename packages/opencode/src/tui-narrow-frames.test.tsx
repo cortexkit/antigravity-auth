@@ -39,6 +39,7 @@ const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 const NOW = Date.UTC(2026, 0, 10, 12, 0, 0)
 const WIDTHS = [32, 38, 48] as const
+const COLLAPSED_WIDTHS = [20, 26, 27, 28, 29, 30, 31, 32, 38, 48] as const
 
 const NOOP_LOGGER: TuiLogger = {
   debug: () => undefined,
@@ -234,6 +235,25 @@ function vaultAccount(): SidebarAccountState {
   }
 }
 
+function secondFreshAccount(): SidebarAccountState {
+  const account = freshAccount()
+  account.id = 'acct-1'
+  account.label = 'Account 2'
+  const gemini = account.quota.gemini
+  const other = account.quota['non-gemini']
+  if (gemini) {
+    gemini.remainingPercent = 71
+    const weekly = gemini.windows?.find((window) => window.window === 'weekly')
+    if (weekly) weekly.remainingPercent = 71
+  }
+  if (other) {
+    other.remainingPercent = 40
+    const weekly = other.windows?.find((window) => window.window === 'weekly')
+    if (weekly) weekly.remainingPercent = 40
+  }
+  return account
+}
+
 function emptyAccount(): SidebarAccountState {
   return {
     id: 'acct-0',
@@ -283,6 +303,46 @@ async function capture(
     await setup.flush()
     await setup.flush()
     return trimFrame(setup.captureCharFrame())
+  } finally {
+    setup.renderer.destroy()
+  }
+}
+
+type SpanFrame = {
+  lines: Array<{ spans: Array<{ fg: unknown; text: string }> }>
+}
+
+async function captureWithSpans(
+  fixture: Fixture,
+  payload: SidebarStateV1,
+  width: number,
+  overrides: Partial<AntigravityAuthTuiPrefs> = {},
+): Promise<{ frame: string; spans: SpanFrame }> {
+  writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
+  const controller = createSidebarController({
+    ...DEFAULT_PREFS,
+    ...overrides,
+    header: { ...DEFAULT_PREFS.header, showVersion: false },
+    appearance: { ...DEFAULT_PREFS.appearance, ...overrides.appearance },
+  })
+  const setup = await testRender(
+    () => (
+      <SidebarPanel
+        controller={controller}
+        logger={NOOP_LOGGER}
+        stateFile={fixture.statePath}
+        now={() => NOW}
+      />
+    ),
+    { width, height: 32 },
+  )
+  try {
+    await setup.flush()
+    await setup.flush()
+    return {
+      frame: trimFrame(setup.captureCharFrame()),
+      spans: setup.captureSpans(),
+    }
   } finally {
     setup.renderer.destroy()
   }
@@ -526,15 +586,22 @@ describe('OpenCode 1 sidebar in a narrow sidebar', () => {
   })
 })
 
-// Every reset in this reading has passed, including the one window whose
-// stored figure would be the lowest.
-function allResetAccount(): SidebarAccountState {
-  const account = staleAccount()
-  const gemini = account.quota.gemini?.windows?.[1]
-  if (gemini) gemini.resetAt = NOW - 10 * HOUR
+// A recent reading whose Gemini weekly reset arrived after it was taken.
+function passedResetAccount(): SidebarAccountState {
+  const account = freshAccount()
+  const gemini = account.quota.gemini?.windows?.find(
+    (window) => window.window === 'weekly',
+  )
+  if (gemini) gemini.resetAt = NOW - MINUTE
   return account
 }
 
+// OpenCode 1.18.35 fixes the sidebar at 42 columns with 2+2 cells of padding;
+// the sidebar_content wrapper adds one more right-padding cell, leaving 37
+// nominal content cells. It auto-shows only when the terminal is wider than
+// 120 columns, so 20/26-column frames below are harness stress widths, not
+// normal layouts. Source: packages/tui/src/routes/session/sidebar.tsx:28-37,48-86
+// and routes/session/index.tsx:255-276 at OpenCode 1.18.35.
 describe('OpenCode 1 collapsed sidebar row in a narrow sidebar', () => {
   let fixture: Fixture
 
@@ -547,61 +614,149 @@ describe('OpenCode 1 collapsed sidebar row in a narrow sidebar', () => {
   })
 
   const collapsedPrefs = { collapsed: true, rememberCollapsed: true }
+  const freshText = 'Ge 7d 62% · Ot 7d 48% left'
+  const secondText = 'Ge 7d 71% · Ot 7d 40% left'
+  const staleText = 'Ge 7d 9% · Ot 7d 0% left'
+  const emptyText = 'no quota reading yet'
+  const statusDot = ' ●'
 
-  async function collapsedRow(
-    account: SidebarAccountState,
+  async function collapsedRows(
+    accounts: SidebarAccountState[],
     width: number,
     label: string,
-  ): Promise<string> {
+  ): Promise<string[]> {
     const frame = await capture(
       fixture,
-      state({ accounts: [account] }),
+      state({ accounts }),
       width,
       undefined,
       collapsedPrefs,
     )
     show(`collapsed ${label}`, width, frame)
     expectNoWrappedFragments(frame)
-    expect(frame).not.toMatch(/\bGm\b|\bNG\b/)
-    const rows = contentLines(frame).filter((line) => /[●⊘]$/.test(line))
-    expect(rows).toHaveLength(1)
-    return rows[0] ?? ''
+    const rows = contentLines(frame).filter(
+      (line) =>
+        /Account \d+|Ge 7d|no quota reading yet|left [●⊘]|— [●⊘]/.test(line) ||
+        line.startsWith('… '),
+    )
+    expect(rows).toHaveLength(accounts.length)
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(width - 2)
+    return rows
   }
 
-  for (const width of WIDTHS) {
-    it(`names the lowest window when it fits at ${width} columns`, async () => {
-      const row = await collapsedRow(freshAccount(), width, 'fresh')
-      expect(row).toMatch(/^Account 1\s+Other 7d 48% left ●$/)
+  function expectSharedRow(
+    row: string,
+    label: string,
+    text: string,
+    width: number,
+  ): void {
+    const innerWidth = width - 2
+    if (text.length > innerWidth) {
+      expect(row).toMatch(new RegExp(`^${label}\\s+●$`))
+      return
+    }
+    expect(row).toContain(text)
+    if (text.length + statusDot.length <= innerWidth)
+      expect(row.endsWith('●')).toBe(true)
+    else expect(row).toBe(text)
+    if (text === freshText || text === secondText) {
+      if (width === 32) expect(row).toMatch(/^…\s/)
+      if (width === 38) expect(row).toMatch(/^Accoun…\s/)
+      if (width === 48) expect(row).toMatch(/^Account \d+\s/)
+    }
+  }
+
+  for (const width of COLLAPSED_WIDTHS) {
+    it(`uses the exact shared narrow form or the label fallback at ${width} columns`, async () => {
+      const rows = await collapsedRows([freshAccount()], width, 'fresh')
+      expectSharedRow(rows[0] ?? '', 'Account 1', freshText, width)
     })
 
-    it(`skips a window whose reset passed when choosing the lowest at ${width} columns`, async () => {
-      // The stored 0% left of the Other 7d window would be lowest, but that
-      // window reset after the reading; the Gemini 7d 9% is still current.
-      const row = await collapsedRow(staleAccount(), width, 'stale')
-      expect(row).not.toMatch(/(^|\s)0% left/)
-      expect(row).toMatch(/^Account 1\s+Gemini 7d 9% left ●$/)
+    it(`keeps the shared figure when a reset passed at ${width} columns`, async () => {
+      const rows = await collapsedRows(
+        [passedResetAccount()],
+        width,
+        'passed reset',
+      )
+      expectSharedRow(rows[0] ?? '', 'Account 1', freshText, width)
     })
 
-    it(`says the quota reset when every window reset at ${width} columns`, async () => {
-      const row = await collapsedRow(allResetAccount(), width, 'all reset')
-      expect(row).not.toMatch(/% left/)
-      expect(row).toMatch(/\breset since last check ●$/)
-      // The label is cut, with an ellipsis, before anything wraps.
-      if (width === 32) expect(row).toMatch(/^Acco… reset/)
-      else expect(row).toMatch(/^Account 1\s/)
+    it(`uses the shared stale reading at ${width} columns`, async () => {
+      const rows = await collapsedRows([staleAccount()], width, 'stale')
+      expectSharedRow(rows[0] ?? '', 'Account 1', staleText, width)
     })
 
-    it(`keeps the empty-state dash without quota at ${width} columns`, async () => {
-      const row = await collapsedRow(emptyAccount(), width, 'empty')
-      expect(row).toMatch(/^Account 1\s+— ●$/)
+    it(`uses the shared empty-quota text at ${width} columns`, async () => {
+      const rows = await collapsedRows([emptyAccount()], width, 'empty')
+      expectSharedRow(rows[0] ?? '', 'Account 1', emptyText, width)
+    })
+
+    it(`renders one shared row per account at ${width} columns`, async () => {
+      const rows = await collapsedRows(
+        [freshAccount(), secondFreshAccount()],
+        width,
+        'several accounts',
+      )
+      expectSharedRow(rows[0] ?? '', 'Account 1', freshText, width)
+      expectSharedRow(rows[1] ?? '', 'Account 2', secondText, width)
     })
   }
 
-  it('drops the group and window name before cutting the label', async () => {
-    // 26 columns leave 24: `Account 1 Other 7d 48% left ●` needs 29.
-    const fresh = await collapsedRow(freshAccount(), 26, 'fresh')
-    expect(fresh).toMatch(/^Account 1\s+48% left ●$/)
-    const stale = await collapsedRow(staleAccount(), 26, 'stale')
-    expect(stale).toMatch(/^Account 1\s+9% left ●$/)
+  it('shows the shared line at its 26-cell boundary and only the label just below', async () => {
+    const tooNarrow = await collapsedRows(
+      [freshAccount()],
+      27,
+      'below shared-line boundary',
+    )
+    expect(tooNarrow[0]).toMatch(/^Account 1\s+●$/)
+
+    const justFits = await collapsedRows(
+      [freshAccount()],
+      28,
+      'shared-line boundary',
+    )
+    expect(justFits[0]).toBe(freshText)
+  })
+
+  it('keeps the status dot and the minimum label only when the measured width allows both', async () => {
+    const withoutLabel = await collapsedRows(
+      [freshAccount()],
+      31,
+      'quota and status dot without label',
+    )
+    expect(withoutLabel[0]).toBe(`${freshText}${statusDot}`)
+
+    const minimumLabel = await collapsedRows(
+      [freshAccount()],
+      32,
+      'minimum label with quota and status dot',
+    )
+    expect(minimumLabel[0]).toBe(`… ${freshText}${statusDot}`)
+  })
+
+  it('dims the entire shared line when the shared stale helper marks it old', async () => {
+    const fresh = await captureWithSpans(
+      fixture,
+      state({ accounts: [freshAccount()] }),
+      32,
+      collapsedPrefs,
+    )
+    const stale = await captureWithSpans(
+      fixture,
+      state({ accounts: [staleAccount()] }),
+      32,
+      collapsedPrefs,
+    )
+    show('fresh color reference', 32, fresh.frame)
+    show('stale reading is dimmed', 32, stale.frame)
+    const foreground = (spans: SpanFrame, text: string) =>
+      spans.lines
+        .flatMap((line) => line.spans)
+        .find((span) => span.text.includes(text))?.fg
+    const freshColor = foreground(fresh.spans, freshText)
+    const staleColor = foreground(stale.spans, staleText)
+    expect(freshColor).toBeDefined()
+    expect(staleColor).toBeDefined()
+    expect(staleColor).not.toEqual(freshColor)
   })
 })

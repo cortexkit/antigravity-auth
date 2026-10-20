@@ -3,6 +3,7 @@ import {
   formatQuota,
   type ProjectedLimit,
   type ProjectedQuota,
+  type QuotaGroup,
   type QuotaTextOptions,
   quotaTextParts,
 } from './common-auth-embedded/quota/index.js'
@@ -73,7 +74,15 @@ export function projectAntigravityQuota(
       })
     }
   }
-  return { scope: 'all', limits, checkedAt }
+  return {
+    scope: 'all',
+    limits,
+    checkedAt,
+    groups: [
+      { scope: 'gemini', label: 'Gemini' },
+      { scope: 'non-gemini', label: 'Other models' },
+    ] satisfies readonly QuotaGroup[],
+  }
 }
 
 export function formatAntigravityQuota(

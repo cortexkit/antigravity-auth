@@ -1786,3 +1786,16 @@ runner = "command"
 command = ["bun", "test", "--isolate", "test/test-stall-diagnostics.test.ts", "-t", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^green supervisor command prints no file boundaries$']
+
+[[control]]
+id = "tui-collapsed-label-only-fallback"
+guards = "A shared quota wider than the row is replaced by the account label and status dot, never clipped or wrapped."
+file = "packages/opencode/src/tui.tsx"
+old = "              const showQuota = text.length <= width"
+new = "              const showQuota = true // NON-VACUITY BREAK: render the quota even when it cannot fit."
+test_file = "packages/opencode/src/tui-narrow-frames.test.tsx"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/tui-narrow-frames.test.tsx", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/tui-narrow-frames.test.tsx -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^OpenCode\s1\scollapsed\ssidebar\srow\sin\sa\snarrow\ssidebar\sshows\sthe\sshared\sline\sat\sits\s26-cell\sboundary\sand\sonly\sthe\slabel\sjust\sbelow$']

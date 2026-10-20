@@ -48,13 +48,26 @@ import type {
   TuiThemeCurrent,
 } from '@opencode-ai/plugin/tui'
 import { createSlot } from '@opentui/solid'
-import { createSignal, For, type JSX, onCleanup, onMount, Show } from 'solid-js'
-import { NO_QUOTA_READING } from './quota-presentation'
+import {
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from 'solid-js'
+
+import {
+  formatQuota,
+  isQuotaStale,
+  type ProjectedLimit,
+  type ProjectedQuota,
+} from './common-auth-embedded/quota/index.js'
 import { getRpcDir } from './rpc/rpc-dir'
 import {
   readSidebarState,
   type SidebarAccountState,
-  type SidebarQuotaKey,
   type SidebarStateV1,
 } from './sidebar-state'
 import { createTuiFileLogger, type TuiLogger } from './tui/file-logger'
@@ -64,16 +77,15 @@ import {
   type V1Notification,
 } from './tui/host-v1'
 import {
-  type AccountWindow,
   ASSUMED_CONTENT_WIDTH,
   accountWindows,
   fitLabel,
+  GROUP_NAMES,
+  QUOTA_ORDER,
   QuotaAccountBlock,
   type QuotaPalette,
   type QuotaTone,
   quotaTone,
-  RESET_SINCE_READING,
-  showsFigure,
 } from './tui/quota-layout'
 import { routeLineFits } from './tui/route-layout'
 import {
@@ -137,11 +149,6 @@ let rpcInFlight = false
 const GLOBAL_NOTIFICATION_CURSOR = '__global__'
 const MAX_NOTIFICATION_CURSORS = 256
 
-// The collapsed row has room for one word before the window name.
-const COLLAPSED_GROUP_NAMES: Record<SidebarQuotaKey, string> = {
-  gemini: 'Gemini',
-  'non-gemini': 'Other',
-}
 // --- Theme tokens ----------------------------------------------------------
 //
 // The sidebar pulls its colors from the live host theme (`api.theme.current`
@@ -456,8 +463,8 @@ function StatRow(props: {
 }
 
 // Fleet CollapsedRow: muted label left, caller-supplied value right. The
-// collapsed view renders one for the active account. The caller sizes both
-// sides to the measured width, so neither side may wrap.
+// collapsed view renders one row for every visible account. The caller sizes
+// both sides to the measured width, so neither side may wrap.
 function CollapsedRow(props: {
   theme: () => Theme
   label: string
@@ -519,45 +526,50 @@ function AccountBlock(props: {
   )
 }
 
-interface CollapsedQuota {
-  // The group and window of the figure (`Other 7d `), dropped when narrow.
-  prefix: string
-  text: string
-  remaining: number | null
-}
-
-// The collapsed row's figure: the lowest current window across both groups.
-// A window that reset since its reading is not current and never binds.
-function collapsedQuota(
+// Sidebar snapshots store quota values as percentages and epoch-millisecond
+// reset times. Adapt those values to the shared projection so common-auth, not
+// the renderer, decides how the narrow line reads.
+function sidebarQuotaProjection(
   account: SidebarAccountState,
   now: number,
-): CollapsedQuota {
-  if (account.quota.gemini == null && account.quota['non-gemini'] == null)
-    return { prefix: '', text: '—', remaining: null }
-  const windows = accountWindows(account, now)
-  let lowest: AccountWindow | undefined
-  for (const window of windows) {
-    if (!showsFigure(window)) continue
+): ProjectedQuota | undefined {
+  const limits: ProjectedLimit[] = []
+  for (const { key, reading } of accountWindows(account, now)) {
+    const { checkedAt, remainingPercent, resetAt, window } = reading
     if (
-      lowest === undefined ||
-      (window.text.remaining ?? 100) < (lowest.text.remaining ?? 100)
+      typeof checkedAt !== 'number' ||
+      !Number.isFinite(checkedAt) ||
+      checkedAt < 0 ||
+      !Number.isFinite(remainingPercent)
     )
-      lowest = window
+      continue
+    const resetsAt =
+      typeof resetAt === 'number' &&
+      Number.isFinite(resetAt) &&
+      Math.abs(resetAt) <= 8.64e15
+        ? new Date(resetAt).toISOString()
+        : undefined
+    limits.push({
+      scope: key,
+      label: GROUP_NAMES[key],
+      kind: 'reading',
+      checkedAt,
+      remainingPercent: Math.max(0, Math.min(100, remainingPercent)),
+      ...(window
+        ? { windowMinutes: window === 'weekly' ? 7 * 24 * 60 : 5 * 60 }
+        : {}),
+      ...(resetsAt ? { resetsAt } : {}),
+    })
   }
-  if (lowest) {
-    const name = lowest.text.name
-    return {
-      prefix: `${COLLAPSED_GROUP_NAMES[lowest.key]}${name ? ` ${name}` : ''} `,
-      text: lowest.text.figure,
-      remaining: lowest.text.remaining,
-    }
-  }
+  if (limits.length === 0) return undefined
   return {
-    prefix: '',
-    text: windows.some((window) => window.text.resetSinceReading)
-      ? RESET_SINCE_READING
-      : NO_QUOTA_READING,
-    remaining: null,
+    scope: 'all',
+    limits,
+    checkedAt: Math.min(...limits.map((limit) => limit.checkedAt)),
+    groups: QUOTA_ORDER.map((scope) => ({
+      scope,
+      label: GROUP_NAMES[scope],
+    })),
   }
 }
 
@@ -738,70 +750,77 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
         </Show>
       </box>
 
-      {/* Collapsed: the active account's lowest current figure and fleet status dot. */}
+      {/* Collapsed: one measured, non-wrapping row for each visible account. */}
       <Show when={collapsed() && hasData()}>
-        {(() => {
-          const account = () =>
-            visibleAccounts().find((entry) => entry.current) ??
-            visibleAccounts()[0]
-          const unavailable = () => {
-            const selected = account()
-            return (
-              selected != null &&
-              (!selected.enabled ||
-                (selected.cooldownUntil != null &&
-                  selected.cooldownUntil > now()))
-            )
-          }
-          return (
-            <Show when={account()}>
-              {(selected) => {
-                const quota = () => collapsedQuota(selected(), now())
-                const tone = (): Tone => {
-                  const remaining = quota().remaining
-                  return remaining == null
-                    ? 'muted'
-                    : quotaTone(100 - remaining, prefs().appearance)
-                }
-                // Label, one space, the figure and the two-cell dot. The
-                // group prefix goes first when narrow; then the label is cut.
-                const figure = () => {
-                  const { prefix, text } = quota()
-                  const full = `${prefix}${text}`
-                  return selected().label.length + 1 + full.length + 2 <=
-                    contentWidth()
-                    ? full
-                    : text
-                }
-                const label = () =>
-                  fitLabel(
-                    selected().label,
-                    contentWidth() - 1 - figure().length - 2,
+        <For each={visibleAccounts()}>
+          {(account) => {
+            const unavailable = () =>
+              !account.enabled ||
+              (account.cooldownUntil != null && account.cooldownUntil > now())
+            const line = createMemo(() => {
+              const currentTime = now()
+              const projection = sidebarQuotaProjection(account, currentTime)
+              const text = formatQuota(projection, {
+                now: currentTime,
+                form: 'narrow',
+              })
+              const remaining = projection?.limits.length
+                ? Math.min(
+                    ...projection.limits.map(
+                      (limit) => limit.remainingPercent ?? 100,
+                    ),
                   )
-                return (
-                  <CollapsedRow theme={theme} label={label()}>
-                    <box flexDirection='row' flexShrink={0}>
-                      <text
-                        flexShrink={0}
-                        wrapMode='none'
-                        fg={toneColor(theme(), tone())}
-                      >
-                        <b>{figure()}</b>
-                      </text>
-                      <text
-                        flexShrink={0}
-                        wrapMode='none'
-                        fg={toneColor(theme(), unavailable() ? 'err' : tone())}
-                      >
-                        {unavailable() ? ' ⊘' : ' ●'}
-                      </text>
-                    </box>
-                  </CollapsedRow>
-                )
-              }}
-            </Show>
-          )
-        })()}
+                : undefined
+              const tone =
+                remaining === undefined
+                  ? 'muted'
+                  : quotaTone(100 - remaining, prefs().appearance)
+              const stale = isQuotaStale(projection, { now: currentTime })
+              const dot = unavailable() ? ' ⊘' : ' ●'
+              const width = contentWidth()
+              // Keep a complete shared line or omit it; a partial quota can
+              // make an account look as if it has less remaining.
+              const showQuota = text.length <= width
+              const showDot =
+                dot.length <= width &&
+                (!showQuota || text.length + dot.length <= width)
+              const rightWidth =
+                (showQuota ? text.length : 0) + (showDot ? dot.length : 0)
+              const labelWidth = Math.max(0, width - rightWidth - 1)
+              return {
+                dot,
+                label: fitLabel(account.label, labelWidth),
+                showDot,
+                showQuota,
+                stale,
+                text,
+                tone,
+              }
+            })
+            const quotaColor = () =>
+              line().stale ? theme().textMuted : toneColor(theme(), line().tone)
+            const dotColor = () =>
+              line().stale
+                ? theme().textMuted
+                : toneColor(theme(), unavailable() ? 'err' : line().tone)
+            return (
+              <CollapsedRow theme={theme} label={line().label}>
+                <box flexDirection='row' flexShrink={0}>
+                  <Show when={line().showQuota}>
+                    <text flexShrink={0} wrapMode='none' fg={quotaColor()}>
+                      <b>{line().text}</b>
+                    </text>
+                  </Show>
+                  <Show when={line().showDot}>
+                    <text flexShrink={0} wrapMode='none' fg={dotColor()}>
+                      {line().dot}
+                    </text>
+                  </Show>
+                </box>
+              </CollapsedRow>
+            )
+          }}
+        </For>
       </Show>
 
       {/* Expanded: full sections. Also render when there's no data so the
