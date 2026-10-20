@@ -33,7 +33,10 @@ export function createScopedBiomeConfig(root: string, temporary: string) {
     config,
     JSON.stringify({
       extends: [join(root, 'biome.jsonc')],
-      files: { includes: ['**'] },
+      files: {
+        // A fixture config must not become a second project root during this check.
+        includes: ['**', '!!**/biome.json', '!!**/biome.jsonc'],
+      },
     }),
     { mode: 0o600 },
   )

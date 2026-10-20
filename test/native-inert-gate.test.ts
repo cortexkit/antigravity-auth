@@ -1,17 +1,20 @@
 import { afterEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import {
+  createScopedBiomeConfig,
   reconcileMotor,
   SOURCE_PATHS,
   scopedBiomeCheckArgs,
@@ -276,3 +279,110 @@ test('native-inert source lint covers every gate source and is wired into lint s
   expect(scripts['format:check']).toContain('bun run lint:native-inert')
   expect(lefthook).toContain('run: bun run lint:native-inert')
 })
+
+test('scoped native-inert Biome config excludes nested project configs', () => {
+  const temporary = mkdtempSync(join(tmpdir(), 'native-inert-biome-config-'))
+  roots.push(temporary)
+  const configPath = createScopedBiomeConfig(sourceRoot, temporary)
+  const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+    extends: string[]
+    files: { includes: string[] }
+  }
+
+  // GitHub CI run 39475258143 reported a nested-root error for a copied fixture
+  // config. The same nested invocation passes locally, so assert the scanner
+  // exclusion explicitly and still exercise the nested lint entry below.
+  expect(config.extends).toEqual([join(sourceRoot, 'biome.jsonc')])
+  expect(config.files.includes).toEqual([
+    '**',
+    '!!**/biome.json',
+    '!!**/biome.jsonc',
+  ])
+  expect(scopedBiomeCheckArgs(configPath)).toEqual([
+    'check',
+    '--config-path',
+    configPath,
+    ...SOURCE_PATHS,
+  ])
+})
+
+test(
+  'native-inert lint runs from a nested Biome root inside another repository',
+  async () => {
+    const outer = mkdtempSync(join(tmpdir(), 'native-inert-outer-repo-'))
+    roots.push(outer)
+    writeFileSync(
+      join(outer, 'biome.jsonc'),
+      readFileSync(join(sourceRoot, 'biome.jsonc')),
+    )
+    writeFileSync(
+      join(outer, 'package.json'),
+      readFileSync(join(sourceRoot, 'package.json')),
+    )
+    await git(outer, 'init', '-b', 'main')
+    await git(outer, 'config', 'user.name', 'Gate Test')
+    await git(outer, 'config', 'user.email', 'gate@example.invalid')
+    await git(outer, 'add', 'biome.jsonc', 'package.json')
+    await git(
+      outer,
+      '-c',
+      'core.hooksPath=/dev/null',
+      'commit',
+      '-m',
+      'outer repository',
+    )
+
+    const fixture = join(
+      outer,
+      'test/common-auth-094-adoption/embed-build/.owned-native-inert',
+    )
+    mkdirSync(fixture, { recursive: true })
+    writeFileSync(
+      join(fixture, 'biome.jsonc'),
+      readFileSync(join(sourceRoot, 'biome.jsonc')),
+    )
+    writeFileSync(
+      join(fixture, 'package.json'),
+      readFileSync(join(sourceRoot, 'package.json')),
+    )
+    mkdirSync(join(fixture, 'scripts'), { recursive: true })
+    for (const script of [
+      'lint-native-inert-sources.ts',
+      'native-inert-gate.ts',
+      'native-inert-result.ts',
+    ])
+      copyFileSync(
+        join(sourceRoot, 'scripts', script),
+        join(fixture, 'scripts', script),
+      )
+    symlinkSync(join(sourceRoot, 'node_modules'), join(fixture, 'node_modules'))
+    for (const source of SOURCE_PATHS) {
+      const destination = join(fixture, source)
+      mkdirSync(dirname(destination), { recursive: true })
+      copyFileSync(join(sourceRoot, source), destination)
+    }
+    expect(existsSync(join(fixture, '.git'))).toBe(false)
+
+    const result = await traceTestCommand(
+      'native-run',
+      process.execPath,
+      2,
+      () =>
+        runCommandBytes([process.execPath, 'run', 'lint:native-inert'], {
+          cwd: fixture,
+          env: {
+            ...process.env,
+            npm_config_offline: 'true',
+            LEFTHOOK: '1',
+          },
+          deadlineMs: COMMAND_DEADLINE_MS,
+        }),
+      true,
+    )
+    const output = `${result.stdout.toString()}${result.stderr.toString()}`
+    expect(result.exitCode, output).toBe(0)
+    expect(output).toContain('Found 6 warnings.')
+    expect(output).not.toContain('Found a nested root configuration')
+  },
+  TEST_TIMEOUT_MS,
+)
