@@ -1,9 +1,14 @@
 import { afterAll, afterEach, jest, type Mock, mock, spyOn } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createTestRoot } from './support/test-root.ts'
 
-const root = mkdtempSync(join(tmpdir(), 'antigravity-auth-test-'))
+const root = createTestRoot({
+  env: process.env,
+  testFile: Bun.main,
+  diskTempDir: tmpdir(),
+})
 const home = join(root, 'home')
 const config = join(root, 'config')
 const cache = join(root, 'cache')

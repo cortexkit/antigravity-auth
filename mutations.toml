@@ -17,6 +17,19 @@
 # catalogued here; .github/workflows/windows-migration.yml remains its platform gate.
 
 [[control]]
+id = "test-tmpfs-preserves-durability-disk-roots"
+guards = "The test preload never moves durability-listed suites to tmpfs when MOTOR opts in."
+file = "test/support/test-root.ts"
+old = "  const disk = Object.hasOwn(DISK_TEST_FILES, file)"
+new = "  const disk = false // NON-VACUITY BREAK: ignore the durability list."
+test_file = "test/test-root.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "test/test-root.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ] && [ -n \"${CKDEV_MUTATE_DIFF_LOG:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" test/support/test-root.ts > \"$CKDEV_MUTATE_DIFF_LOG\"; diff_status=$?; cat \"$CKDEV_MUTATE_DIFF_LOG\"; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; fi; bun test --isolate test/test-root.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^test\stemp\sroots\sdurability-listed\sfiles\skeep\sdisk\sroots$']
+
+[[control]]
 id = "native-inert-record-rejects-failed-gate"
 guards = "A failed native-inert gate cannot mint a release record."
 file = "scripts/native-inert-result.ts"
