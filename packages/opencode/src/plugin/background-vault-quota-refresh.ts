@@ -266,42 +266,58 @@ export class BackgroundVaultQuotaRefresh {
           fetchReading: async (ref, signal) => {
             rowFailure = 'fetch-failed'
             await this.assertActive(controller)
-            const reading = await fetchVaultAccountQuota({
-              source,
-              ref,
-              signal,
-              logger: this.options.logger,
-              onFailure: (error, refused) => {
-                const kind = vaultQuotaErrorKind(error)
-                if (kind !== 'unknown' || outcome.errorKind === undefined)
-                  outcome.errorKind = kind
-                if (refused)
-                  rowFailure = vaultQuotaErrorReason(error, 'admission-refused')
-              },
-              transport: async (url, init, extra) => {
-                // Re-check just before every physical request, including retries/fallbacks.
-                await this.assertActive(controller)
-                await lock.assertOwned()
-                controller.signal.throwIfAborted()
-                outcome.endpoint = String(url).includes(
-                  'retrieveUserQuotaSummary',
-                )
-                  ? 'summary'
-                  : 'models'
-                try {
-                  const response = await this.options.transport(
-                    url,
-                    { ...init, signal: extra.signal ?? controller.signal },
-                    extra,
+            const fallback = () =>
+              fetchVaultAccountQuota({
+                source,
+                ref,
+                signal,
+                logger: this.options.logger,
+                onFailure: (error, refused) => {
+                  const kind = vaultQuotaErrorKind(error)
+                  if (kind !== 'unknown' || outcome.errorKind === undefined)
+                    outcome.errorKind = kind
+                  if (refused)
+                    rowFailure = vaultQuotaErrorReason(
+                      error,
+                      'admission-refused',
+                    )
+                },
+                transport: async (url, init, extra) => {
+                  // Re-check just before every physical request, including retries/fallbacks.
+                  await this.assertActive(controller)
+                  await lock.assertOwned()
+                  controller.signal.throwIfAborted()
+                  outcome.endpoint = String(url).includes(
+                    'retrieveUserQuotaSummary',
                   )
-                  outcome.status = response.status
-                  return response
-                } catch (error) {
-                  outcome.errorKind = vaultQuotaErrorKind(error)
-                  throw error
-                }
-              },
-            })
+                    ? 'summary'
+                    : 'models'
+                  try {
+                    const response = await this.options.transport(
+                      url,
+                      { ...init, signal: extra.signal ?? controller.signal },
+                      extra,
+                    )
+                    outcome.status = response.status
+                    return response
+                  } catch (error) {
+                    outcome.errorKind = vaultQuotaErrorKind(error)
+                    throw error
+                  }
+                },
+              })
+            const reading = source.pollInsulaQuotaForRoute
+              ? await source.pollInsulaQuotaForRoute(
+                  ref,
+                  fallback,
+                  signal,
+                  (reason) => {
+                    rowFailure = `insula-${reason}`
+                  },
+                )
+              : await fallback()
+            if (reading === undefined && rowFailure === 'fetch-failed')
+              rowFailure = 'insula-skipped'
             await this.assertActive(controller)
             await lock.assertOwned()
             return reading

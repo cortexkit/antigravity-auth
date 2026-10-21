@@ -53,6 +53,7 @@ import {
   type VaultAccountPool,
   type VaultAccountPoolOptions,
 } from './shared/vault-request-credentials.ts'
+import { normalizeVaultInsulaQuota } from './vault-insula-quota'
 
 /** The host auth slot this plugin's provider lives in on OpenCode. */
 export const OPENCODE_VAULT_PROVIDER = 'google'
@@ -233,6 +234,8 @@ export interface OpenCodeVaultCustodyOptions {
   readonly now?: () => number
   /** Background observation interval; the shared consumer keeps its 5s default. */
   readonly pollIntervalMs?: number
+  /** Enable the OpenCode 1 background quota source; other hosts keep direct polling. */
+  readonly insulaQuota?: boolean
 }
 
 export interface OpenCodeVaultCustody {
@@ -356,6 +359,14 @@ export function createOpenCodeVaultCustody(
         onError: () => options.onRosterChanged?.(),
         reporterSource: options.reporterSource,
         state: { path: paths.stateFile, fs: await loadCommonAuthFs() },
+        ...(options.insulaQuota
+          ? {
+              insula: {
+                provider: 'antigravity',
+                normalize: normalizeVaultInsulaQuota,
+              },
+            }
+          : {}),
         ...(options.logger ? { logger: options.logger } : {}),
         ...(options.now ? { now: options.now } : {}),
         ...(options.pollIntervalMs !== undefined

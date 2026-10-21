@@ -680,12 +680,14 @@ export function createVaultAccountPool(
 
 /**
  * A quota reading for one vault account, as the vault quota check returns
- * it: the summary, and the credential-free attribution of the admission
- * whose answer produced it (absent when none did).
+ * it: the summary and the credential-free admission attribution that binds
+ * its write. Insula readings also carry their original observation time.
  */
 export interface VaultQuotaAnswer {
   readonly quota: QuotaSummary
   readonly quotaAttribution?: VaultStateAttribution
+  /** Producer observation time; absent for a direct poll dated on completion. */
+  readonly observedAt?: number
 }
 
 /** The stored quota reading for a summary taken at `at`. */
@@ -709,9 +711,10 @@ export function vaultQuotaState(quota: QuotaSummary, at: number): QuotaState {
 
 /**
  * Checks quota for every row of a durable vault pool and records each
- * reading through the source's provider-state commit, attributed to the
- * admission that produced it. A row counts as checked only when its reading
- * was written; a reading with an error, without an attribution, or whose
+ * reading through the source's provider-state commit. Admission attribution
+ * binds the write; the reading keeps its observation time. A row counts as
+ * checked only when its reading was written; a reading with an error, without
+ * an attribution, or whose
  * write the source refuses (another credential, account or a newer record
  * version) is not checked and is not shown. A written reading is also put
  * on the row that is still at that route, credential and account. An
@@ -723,7 +726,7 @@ export async function checkVaultQuota(input: {
   readonly fetchReading: (
     ref: VaultRouteRef,
     signal: AbortSignal,
-  ) => Promise<VaultQuotaAnswer>
+  ) => Promise<VaultQuotaAnswer | undefined>
   readonly signal: AbortSignal
   readonly now?: () => number
   readonly onError?: (error: unknown) => void
@@ -741,6 +744,10 @@ export async function checkVaultQuota(input: {
       input.onStage?.('fetch')
       const answer = await input.fetchReading(row.route, input.signal)
       input.signal.throwIfAborted()
+      if (answer === undefined) {
+        input.onOutcome?.('fetch-failed')
+        continue
+      }
       const attribution = answer.quotaAttribution
       if (answer.quota.error !== undefined) {
         input.onOutcome?.('fetch-failed')
@@ -750,7 +757,7 @@ export async function checkVaultQuota(input: {
         input.onOutcome?.('unattributed')
         continue
       }
-      const reading = vaultQuotaState(answer.quota, now())
+      const reading = vaultQuotaState(answer.quota, answer.observedAt ?? now())
       input.onStage?.('commit')
       input.signal.throwIfAborted()
       const result = await state.recordQuota(attribution, reading, input.signal)

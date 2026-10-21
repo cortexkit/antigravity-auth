@@ -857,6 +857,11 @@ for (const direction of ['local to vault', 'vault to local'] as const) {
           : '1 account served from the vault',
       )
       daemon.approve()
+      if (direction === 'vault to local') {
+        await daemon.waitForUsage(true)
+        expect(daemon.activeUsageConnections).toBeGreaterThan(0)
+        daemon.expectUsageCancellation()
+      }
       const result = await rpc.apply({
         command: ANTIGRAVITY_MENU_COMMAND,
         sectionId: 'vault',
@@ -898,6 +903,12 @@ for (const direction of ['local to vault', 'vault to local'] as const) {
       else expect(serialized).toContain('"title":"Sign in"')
       expect(daemon.calls).toContain('auth.enroll_poll')
       expect(daemon.calls).toContain('credential.list_scoped')
+      if (direction === 'vault to local') {
+        await daemon.waitForUsage(false)
+        expect(daemon.activeUsageConnections).toBe(0)
+        expect(daemon.usage.watches).toBeGreaterThan(0)
+        expect(daemon.usage.closedWatches).toBe(daemon.usage.watches)
+      }
       expect(daemon.errors).toEqual([])
       expect(await rpc.pendingNotifications(0, 'other-menu-session')).toEqual(
         [],

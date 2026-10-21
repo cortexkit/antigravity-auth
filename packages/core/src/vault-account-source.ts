@@ -27,6 +27,7 @@
  */
 
 import type { CommonAuthClaustrumModule } from './common-auth-runtime.ts'
+import type { QuotaSummary } from './quota-types.ts'
 import {
   ANTIGRAVITY_VAULT_FAMILY,
   ANTIGRAVITY_VAULT_REQUIRE_ASSERTION,
@@ -48,8 +49,17 @@ import {
 // Types taken from the public `./claustrum` module
 // ---------------------------------------------------------------------------
 
-type ClaustrumConsumerClass = CommonAuthClaustrumModule['ClaustrumConsumer']
+declare const Consumer: CommonAuthClaustrumModule['ClaustrumConsumer']
+type ClaustrumConsumerClass = typeof Consumer<VaultBackgroundQuotaReading>
 type ClaustrumConsumerInstance = InstanceType<ClaustrumConsumerClass>
+
+/** Quota with its producer's observation time and admission attribution for the write. */
+export interface VaultBackgroundQuotaReading {
+  quota: QuotaSummary
+  observedAt?: number
+  accountIdentity?: string
+  quotaAttribution?: VaultStateAttribution
+}
 
 export type VaultConsumerOptions =
   ConstructorParameters<ClaustrumConsumerClass>[0]
@@ -88,7 +98,13 @@ export type VaultClaustrumConsumer = Pick<
   | 'accept'
   | 'close'
   | 'grantReach'
->
+> &
+  Partial<
+    Pick<
+      ClaustrumConsumerInstance,
+      'pollInsulaQuotaForRoute' | 'lookupInsulaQuotaForRoute'
+    >
+  >
 
 /**
  * The part of `./claustrum` this source uses. The module namespace itself
@@ -224,6 +240,7 @@ export interface AntigravityVaultSourceOptions {
   pollIntervalMs?: number
   now?: () => number
   logger?: VaultLogger
+  insula?: VaultConsumerOptions['insula']
 }
 
 export interface AntigravityVaultAccountSource {
@@ -274,6 +291,13 @@ export interface AntigravityVaultAccountSource {
    * version. Carries no token or project; pass it to `commitState`.
    */
   attribution(admission: VaultSendAdmission): VaultStateAttribution
+  /** Cache first; only a usable account reading obtains an admission to bind its write. */
+  pollInsulaQuotaForRoute?(
+    ref: VaultRouteRef,
+    fallback: () => Promise<VaultBackgroundQuotaReading | undefined>,
+    signal?: AbortSignal,
+    onSkip?: (reason: 'cold' | 'upstream-failed') => void,
+  ): Promise<VaultBackgroundQuotaReading | undefined>
   /**
    * Update the account's provider state; see `commitVaultProviderState`. The
    * write is refused unless the roster and a fresh receipt still show the
@@ -461,6 +485,7 @@ export function createAntigravityVaultAccountSource(
     }),
     ...(options.now && { now: options.now }),
     ...(options.logger && { logger: options.logger }),
+    ...(options.insula && { insula: options.insula }),
   })
   const issued = new WeakMap<VaultSendAdmission, IssuedAdmission>()
   const isDeclined = claustrum.isDeclined.bind(claustrum)
@@ -658,6 +683,50 @@ export function createAntigravityVaultAccountSource(
         accountIdentity: admission.accountIdentity,
         recordVersion: admission.recordVersion,
       })
+    },
+    pollInsulaQuotaForRoute: async (ref, fallback, signal, onSkip) => {
+      await assertServing(signal)
+      assertCurrentRoute(ref)
+      if (!consumer.pollInsulaQuotaForRoute) return fallback()
+      let usedFallback = false
+      const reading = await untilAborted(
+        consumer.pollInsulaQuotaForRoute(ref.routeId, () => {
+          usedFallback = true
+          return fallback()
+        }),
+        signal,
+      )
+      if (reading === undefined) {
+        // Polling returns no reading while insula is cold or its upstream fetch
+        // failed. Look up that cache-only reason for the host's tick outcome.
+        const result = consumer.lookupInsulaQuotaForRoute
+          ? await untilAborted(
+              consumer.lookupInsulaQuotaForRoute(ref.routeId),
+              signal,
+            )
+          : undefined
+        if (result?.miss === 'cold' || result?.miss === 'upstream-failed')
+          onSkip?.(result.miss)
+        return undefined
+      }
+      if (usedFallback) return reading
+      if (reading.accountIdentity !== ref.accountIdentity)
+        throw new AntigravityVaultSourceError(
+          'identity-contradicted',
+          'The background quota reading belongs to another vault account',
+        )
+      // The admission binds the write, not the observation time. Its bearer is
+      // never dispatched: the reading was already obtained by insula.
+      const admission = await admit(ref, signal)
+      return {
+        ...reading,
+        quotaAttribution: {
+          routeId: admission.routeId,
+          credentialId: admission.credentialId,
+          accountIdentity: admission.accountIdentity,
+          recordVersion: admission.recordVersion,
+        },
+      }
     },
     commitState: async (attribution, update, signal) => {
       assertOpen(signal)

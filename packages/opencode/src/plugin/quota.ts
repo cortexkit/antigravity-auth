@@ -622,7 +622,7 @@ async function fetchQuotaPayloads(options: {
 /** The vault account source operations a quota check uses. */
 export type VaultQuotaSource = Pick<
   AntigravityVaultAccountSource,
-  'send' | 'attribution'
+  'send' | 'attribution' | 'pollInsulaQuotaForRoute'
 >
 
 /** Quota summaries and the credential versions that authorized their requests. */

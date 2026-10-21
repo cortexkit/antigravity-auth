@@ -1792,7 +1792,7 @@ id = "shared-vault-roster-watch-and-reconnect"
 guards = "A supported vault roster watch avoids poll reads, refreshes on a changed view and reads again after resubscription."
 edits = [
   { file = "packages/core/src/common-auth-embedded/claustrum/consumer.js", old = "                this.#openWatch();", new = "                // NON-VACUITY BREAK: disable roster-watch setup." },
-  { file = "packages/core/src/common-auth-embedded/source-output.json", old = "\"bytes\": 23139,\n      \"sourceSha256\": \"7b97c80964eaffa9f4c4fc3334885ce4c2da80ed330288311d08b0c8c7edca31\",\n      \"outputSha256\": \"7b97c80964eaffa9f4c4fc3334885ce4c2da80ed330288311d08b0c8c7edca31\"", new = "\"bytes\": 23170,\n      \"sourceSha256\": \"7b97c80964eaffa9f4c4fc3334885ce4c2da80ed330288311d08b0c8c7edca31\",\n      \"outputSha256\": \"ea4eb8ac63d37db767eaaa352d533af302bc0efc635cb2ee97de74c476beec78\"" },
+  { file = "packages/core/src/common-auth-embedded/source-output.json", old = "\"bytes\": 25150,\n      \"sourceSha256\": \"58cd180a286241cbe699441939045a28132c04ba1fb0b4e5a07ff1b18b3ff486\",\n      \"outputSha256\": \"58cd180a286241cbe699441939045a28132c04ba1fb0b4e5a07ff1b18b3ff486\"", new = "\"bytes\": 25181,\n      \"sourceSha256\": \"58cd180a286241cbe699441939045a28132c04ba1fb0b4e5a07ff1b18b3ff486\",\n      \"outputSha256\": \"35bdc3e68262ce31817ed6167cfe79aa8067a758169806fc1b523a4276d4ad56\"" },
 ]
 test_file = "packages/opencode/src/plugin/vault-custody.test.ts"
 list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/vault-custody.test.ts", "-t", "{test}"]
@@ -1930,3 +1930,42 @@ runner = "command"
 command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/quota.test.ts -t \"$1\"", "--", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^vault\squota\scheck\sdoes\snot\ssubstitute\sthe\sproduction\spool\swhen\sa\svault\sdaily\sread\sfails$']
+
+[[control]]
+id = "vault-insula-reject-oauth"
+guards = "An OAuth sidebar echo cannot replace a vault account's independent daily quota poll."
+file = "packages/opencode/src/plugin/vault-insula-quota.ts"
+old = "  if (entry.source !== 'vault') return undefined"
+new = "  if (false) return undefined // NON-VACUITY BREAK: accept the sidebar echo."
+test_file = "packages/opencode/src/plugin/vault-insula-quota.test.ts"
+list_command = ["bash", "-c", "bun scripts/list-bun-tests.mjs --cwd . packages/opencode/src/plugin/vault-insula-quota.test.ts -t \"$1|^insula vault quota manual check remains a direct daily poll even with insula cached$\"", "--", "{test}"]
+runner = "command"
+command = ["bash", "-c", "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=\"$PWD\" git diff --stat && bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/vault-insula-quota.test.ts -t \"$1|^insula vault quota manual check remains a direct daily poll even with insula cached$\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^insula\svault\squota\soauth\secho\sis\sa\smiss\sand\sthe\sdaily\spoll\sruns$']
+
+[[control]]
+id = "vault-insula-tick-first"
+guards = "The background tick consumes a trusted insula reading without dispatching its vault bearer to Google."
+file = "packages/opencode/src/plugin/background-vault-quota-refresh.ts"
+old = "            const reading = source.pollInsulaQuotaForRoute"
+new = "            const reading = false // NON-VACUITY BREAK: always poll Google."
+test_file = "packages/opencode/src/plugin/vault-insula-quota.test.ts"
+list_command = ["bash", "-c", "bun scripts/list-bun-tests.mjs --cwd . packages/opencode/src/plugin/vault-insula-quota.test.ts -t \"$1|^insula vault quota manual check remains a direct daily poll even with insula cached$\"", "--", "{test}"]
+runner = "command"
+command = ["bash", "-c", "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=\"$PWD\" git diff --stat && bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/vault-insula-quota.test.ts -t \"$1|^insula vault quota manual check remains a direct daily poll even with insula cached$\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^insula\svault\squota\stick\sstores\sall\sfour\sID-matched\swindows\sat\sfetchedAt\swithout\sGoogle$']
+
+[[control]]
+id = "vault-insula-observation-time"
+guards = "Cached insula quota retains fetchedAt instead of gaining freshness when the plugin polls."
+file = "packages/opencode/src/plugin/vault-insula-quota.ts"
+old = "    observedAt: context.fetchedAt,"
+new = "    observedAt: Date.now(), // NON-VACUITY BREAK: fabricate a new observation time."
+test_file = "packages/opencode/src/plugin/vault-insula-quota.test.ts"
+list_command = ["bash", "-c", "bun scripts/list-bun-tests.mjs --cwd . packages/opencode/src/plugin/vault-insula-quota.test.ts -t \"$1|^insula vault quota manual check remains a direct daily poll even with insula cached$\"", "--", "{test}"]
+runner = "command"
+command = ["bash", "-c", "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=\"$PWD\" git diff --stat && bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/vault-insula-quota.test.ts -t \"$1|^insula vault quota manual check remains a direct daily poll even with insula cached$\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^insula\svault\squota\stick\sstores\sall\sfour\sID-matched\swindows\sat\sfetchedAt\swithout\sGoogle$']

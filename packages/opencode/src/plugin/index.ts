@@ -246,6 +246,7 @@ export const createAntigravityPlugin =
     let vaultQuotaPoller: BackgroundVaultQuotaRefresh | undefined
     const vaultCustody = createOpenCodeVaultCustody({
       accountFile: resolve(getStoragePath()),
+      insulaQuota: true,
       readHostSlot: async () => {
         if (!cachedGetAuth)
           throw new Error('OpenCode has not provided its sign-in yet')

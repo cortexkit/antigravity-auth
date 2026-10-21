@@ -10,6 +10,14 @@ type FrameHeader = {
   corr: unknown
 }
 
+export function expectedInsulaReset(
+  insulaRoute: boolean,
+  switchingToLocal: boolean,
+  code: unknown,
+): boolean {
+  return insulaRoute && switchingToLocal && code === 'ECONNRESET'
+}
+
 /** A loopback vault using the installed client's wire protocol and real enrollment flow. */
 export async function startMenuVaultFixture(
   root: string,
@@ -29,6 +37,9 @@ export async function startMenuVaultFixture(
   const daemonId = Uint8Array.from({ length: 16 }, (_, index) => 200 + index)
   const token = 'ab'.repeat(32)
   const sockets = new Set<Socket>()
+  const usageSockets = new Set<Socket>()
+  const usage = { watches: 0, closedWatches: 0, cancels: 0, resets: 0 }
+  let switchingToLocal = false
   const errors: string[] = []
   const calls: string[] = []
   let approved = false
@@ -57,6 +68,7 @@ export async function startMenuVaultFixture(
   const handle = (
     method: string | undefined,
     params: Record<string, unknown>,
+    insulaRoute: boolean,
   ) => {
     if (method) calls.push(method)
     if (
@@ -115,6 +127,8 @@ export async function startMenuVaultFixture(
       // This fixture models an older vault server: reject watches so the
       // client confirms the roster and falls back to its polling interval.
       return { error: { code: 'unknown_method', class: 'permanent' } }
+    if (insulaRoute && method === 'usage.get')
+      return { result: [], completeProviders: ['antigravity'] }
     if (
       method === 'credential.get_scoped' &&
       params.enrollment_token === token &&
@@ -141,8 +155,26 @@ export async function startMenuVaultFixture(
   }
   const server = createServer((socket) => {
     sockets.add(socket)
-    socket.once('close', () => sockets.delete(socket))
-    socket.on('error', (error) => errors.push(error.message))
+    let insulaRoute = false
+    let watchingUsage = false
+    socket.once('close', () => {
+      sockets.delete(socket)
+      usageSockets.delete(socket)
+      if (watchingUsage) usage.closedWatches++
+    })
+    socket.on('error', (error) => {
+      // Stopping the consumer on a custody switch cancels its private usage
+      // connections. No other route, error code or lifecycle permits a reset.
+      if (
+        expectedInsulaReset(
+          insulaRoute,
+          switchingToLocal,
+          (error as NodeJS.ErrnoException).code,
+        )
+      )
+        usage.resets++
+      else errors.push(error.message)
+    })
     let buffer = Buffer.alloc(0)
     let phase: 'hello' | 'auth' | 'frames' = 'hello'
     let routeChannel: number | undefined
@@ -200,14 +232,23 @@ export async function startMenuVaultFixture(
             subc.HEADER_LEN + header.len,
           )
           buffer = buffer.subarray(subc.HEADER_LEN + header.len)
+          if (header.ty === subc.FrameType.Cancel && insulaRoute)
+            usage.cancels++
           if (header.ty !== subc.FrameType.Request) continue
           const request = JSON.parse(body.toString()) as {
             op?: string
             method?: string
             params?: Record<string, unknown>
+            target?: { kind?: string; module_id?: string }
           }
           if (header.channel === 0) {
-            if (request.op === 'route.open') routeChannel = 7
+            if (request.op === 'route.open') {
+              routeChannel = 7
+              insulaRoute =
+                request.target?.kind === 'management_surface' &&
+                request.target.module_id === 'insula'
+              if (insulaRoute) usageSockets.add(socket)
+            }
             respond(socket, header, { route_channel: 7, route_epoch: 1 })
             continue
           }
@@ -220,7 +261,25 @@ export async function startMenuVaultFixture(
             )
             continue
           }
-          respond(socket, header, handle(request.method, request.params ?? {}))
+          if (insulaRoute && request.method === 'usage.watch') {
+            calls.push(request.method)
+            watchingUsage = true
+            usage.watches++
+            // Keep the stream open so the switch test must observe the client's
+            // cancellation, rather than a server-ended or never-opened watch.
+            respond(
+              socket,
+              header,
+              { kind: 'changed', epoch: 'owned-usage', seq: 1 },
+              subc.FrameType.StreamData,
+            )
+            continue
+          }
+          respond(
+            socket,
+            header,
+            handle(request.method, request.params ?? {}, insulaRoute),
+          )
         }
       } catch (error) {
         errors.push(String(error))
@@ -253,6 +312,23 @@ export async function startMenuVaultFixture(
     connectionFile,
     calls,
     errors,
+    usage,
+    get activeUsageConnections() {
+      return usageSockets.size
+    },
+    expectUsageCancellation() {
+      switchingToLocal = true
+    },
+    async waitForUsage(watching: boolean) {
+      const deadline = Date.now() + 3_000
+      while (watching ? usage.watches === 0 : usageSockets.size > 0) {
+        if (Date.now() >= deadline)
+          throw new Error(
+            'Usage connection did not reach the expected lifecycle state',
+          )
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    },
     approve() {
       approved = true
     },
