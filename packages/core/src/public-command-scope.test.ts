@@ -63,6 +63,17 @@ type AncestryDiagnostic = {
     omitted: number
   }
 }
+type WalkAncestryDiagnostic = Omit<
+  AncestryDiagnostic,
+  'phase' | 'expected' | 'current' | 'endpoint'
+> & {
+  phase: 'walk'
+  candidate: DiagnosticIdentity & { commandLine: PublicCommandArgvObservation }
+  cursor: DiagnosticIdentity
+  parent?: DiagnosticIdentity | null
+  parentRead: 'attempted' | 'not-attempted'
+  failedConditions: string[]
+}
 
 const ancestryRefusalPrefix = 'PUBLIC_COMMAND_ANCESTRY_REFUSAL='
 
@@ -72,13 +83,11 @@ function serializeIdentity(
   return { ...identity, start: identity.start.toString() }
 }
 
-function readAncestryDiagnostic(messages: string[]): AncestryDiagnostic {
+function readAncestryDiagnostic<T = AncestryDiagnostic>(messages: string[]): T {
   expect(messages).toHaveLength(1)
   const message = messages[0]!
   expect(message.startsWith(ancestryRefusalPrefix)).toBe(true)
-  return JSON.parse(
-    message.slice(ancestryRefusalPrefix.length),
-  ) as AncestryDiagnostic
+  return JSON.parse(message.slice(ancestryRefusalPrefix.length)) as T
 }
 
 function captureDiagnostics(action: () => void): string[] {
@@ -140,6 +149,164 @@ it('refuses a parent born after the candidate child', () => {
     ),
   ).toThrow('parent/birth ancestry unavailable')
   expect(owned.observed.has(child.pid)).toBe(false)
+})
+
+it.each([
+  ['parent-unavailable', undefined],
+  ['parent-zombie', { ...parent, zombie: true }],
+  ['parent-born-after-child', { ...parent, start: 130n }],
+] as const)('records the walk refusal for %s without adopting the candidate', (condition, parentResult) => {
+  const owned = scope()
+  const candidate = { ...child, pid: 104, ppid: child.pid, start: 125n }
+  const observations: number[] = []
+  const native: PublicCommandInspector = {
+    read(pid) {
+      if (pid === parent.pid) return parentResult
+      return [leader, child].find((row) => row.pid === pid)
+    },
+    session: () => [candidate, parent],
+    observeArgv(identity) {
+      observations.push(identity.pid)
+      return { status: 'available', argv: ['inert-child', `${identity.pid}`] }
+    },
+    close() {},
+  }
+  const messages = captureDiagnostics(() =>
+    expectAncestryRefusal(() => inspectPublicCommandScope(owned, native)),
+  )
+  const diagnostic = readAncestryDiagnostic<WalkAncestryDiagnostic>(messages)
+  expect(diagnostic).toEqual({
+    phase: 'walk',
+    candidate: {
+      ...serializeIdentity(candidate),
+      commandLine: { status: 'available', argv: ['inert-child', '104'] },
+    },
+    cursor: serializeIdentity(child),
+    parent: parentResult ? serializeIdentity(parentResult) : null,
+    parentRead: 'attempted',
+    failedConditions: [condition],
+    chain: [serializeIdentity(candidate), serializeIdentity(child)],
+    leader: serializeIdentity(leader),
+    monitor: { pid: process.pid, ppid: process.ppid },
+    directChildDiscovery: {
+      children: [
+        {
+          pid: parent.pid,
+          start: '110',
+          commandLine: { status: 'available', argv: ['inert-child', '102'] },
+        },
+      ],
+      omitted: 0,
+    },
+  })
+  expect(observations).toEqual([parent.pid, candidate.pid])
+  expect([...owned.observed.values()]).toEqual([leader])
+  expect(owned.signals).toEqual([])
+})
+
+it.each([
+  'unavailable',
+  'throws',
+  'absent',
+  'truncated',
+] as const)('labels walk candidate argv %s without changing the refusal', (mode) => {
+  const native = inspector([child, leader])
+  if (mode !== 'absent')
+    native.observeArgv = () => {
+      if (mode === 'throws') throw new Error('observer failed')
+      return mode === 'truncated'
+        ? { status: 'truncated', argv: ['bounded-prefix'] }
+        : { status: 'unavailable', reason: 'child exited' }
+    }
+  const messages = captureDiagnostics(() =>
+    expectAncestryRefusal(() => inspectPublicCommandScope(scope(), native)),
+  )
+  const diagnostic = readAncestryDiagnostic<WalkAncestryDiagnostic>(messages)
+  expect(diagnostic.phase).toBe('walk')
+  expect(diagnostic.candidate.commandLine).toEqual(
+    mode === 'truncated'
+      ? { status: 'truncated', argv: ['bounded-prefix'] }
+      : {
+          status: 'unavailable',
+          reason:
+            mode === 'unavailable'
+              ? 'child exited'
+              : mode === 'throws'
+                ? 'discovery argv observer failed'
+                : 'discovery argv observer unavailable',
+        },
+  )
+})
+
+it.each([
+  'cycle',
+  'bound',
+] as const)('records the walk %s refusal without changing its error', (condition) => {
+  const owned = scope()
+  const candidate = { ...child, pid: 1000, ppid: 1001 }
+  const native: PublicCommandInspector = {
+    read(pid) {
+      if (pid === leader.pid) return leader
+      return {
+        ...candidate,
+        pid,
+        ppid: condition === 'cycle' ? candidate.pid : pid + 1,
+      }
+    },
+    session: () => [candidate],
+    observeArgv: () => ({ status: 'available', argv: ['inert-child'] }),
+    close() {},
+  }
+  const messages = captureDiagnostics(() => {
+    expect(() => inspectPublicCommandScope(owned, native)).toThrow(
+      /^owned process ancestry cycle or bound exceeded$/,
+    )
+  })
+  const diagnostic = readAncestryDiagnostic<WalkAncestryDiagnostic>(messages)
+  expect(diagnostic.phase).toBe('walk')
+  expect(diagnostic.failedConditions).toEqual([condition])
+  expect(diagnostic.candidate).toEqual({
+    ...serializeIdentity(candidate),
+    commandLine: { status: 'available', argv: ['inert-child'] },
+  })
+  expect(diagnostic.chain).toHaveLength(condition === 'cycle' ? 2 : 16_384)
+  expect(diagnostic.cursor.pid).toBe(
+    condition === 'cycle' ? candidate.pid : candidate.pid + 16_384,
+  )
+  expect(diagnostic.parentRead).toBe('not-attempted')
+  expect(diagnostic.parent).toBeUndefined()
+  expect(diagnostic.leader).toEqual(serializeIdentity(leader))
+  expect(diagnostic.monitor).toEqual({ pid: process.pid, ppid: process.ppid })
+  expect(diagnostic.directChildDiscovery).toEqual({ children: [], omitted: 0 })
+  expect([...owned.observed.values()]).toEqual([leader])
+  expect(owned.signals).toEqual([])
+})
+
+it.each([
+  'parent',
+  'cycle',
+] as const)('preserves the walk %s refusal when the diagnostic sink throws', (condition) => {
+  const owned = scope()
+  const native = inspector([
+    leader,
+    { ...child, ppid: condition === 'cycle' ? child.pid : parent.pid },
+  ])
+  const sink = spyOn(console, 'error').mockImplementation(() => {
+    throw new Error('sink failed')
+  })
+  try {
+    if (condition === 'parent')
+      expectAncestryRefusal(() => inspectPublicCommandScope(owned, native))
+    else
+      expect(() => inspectPublicCommandScope(owned, native)).toThrow(
+        /^owned process ancestry cycle or bound exceeded$/,
+      )
+    expect(sink).toHaveBeenCalledTimes(1)
+    expect([...owned.observed.values()]).toEqual([leader])
+    expect(owned.signals).toEqual([])
+  } finally {
+    sink.mockRestore()
+  }
 })
 
 it.skipIf(process.platform !== 'linux')(

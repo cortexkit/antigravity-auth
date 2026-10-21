@@ -148,6 +148,26 @@ function linuxArgv(
   }
 }
 
+function observeCommandLine(
+  identity: PublicCommandIdentity,
+  inspector: PublicCommandInspector,
+): PublicCommandArgvObservation {
+  try {
+    const commandLine = inspector.observeArgv?.(identity) ?? {
+      status: 'unavailable',
+      reason: 'discovery argv observer unavailable',
+    }
+    return commandLine.status === 'unavailable'
+      ? commandLine
+      : { ...commandLine, argv: [...commandLine.argv] }
+  } catch {
+    return {
+      status: 'unavailable',
+      reason: 'discovery argv observer failed',
+    }
+  }
+}
+
 function discoverDirectChildren(
   scope: PublicCommandScope,
   members: PublicCommandIdentity[],
@@ -160,24 +180,10 @@ function discoverDirectChildren(
       discovery.omitted++
       continue
     }
-    let commandLine: PublicCommandArgvObservation
-    try {
-      commandLine = inspector.observeArgv?.(member) ?? {
-        status: 'unavailable',
-        reason: 'discovery argv observer unavailable',
-      }
-      if (commandLine.status !== 'unavailable')
-        commandLine = { ...commandLine, argv: [...commandLine.argv] }
-    } catch {
-      commandLine = {
-        status: 'unavailable',
-        reason: 'discovery argv observer failed',
-      }
-    }
     discovery.children.push({
       pid: member.pid,
       start: member.start.toString(),
-      commandLine,
+      commandLine: observeCommandLine(member, inspector),
     })
   }
   return discovery
@@ -450,10 +456,48 @@ function capturePublicCommandAncestry(
 ): boolean {
   const chain: PublicCommandIdentity[] = []
   const seen = new Set<number>()
+  const serialize = (identity: PublicCommandIdentity) => ({
+    pid: identity.pid,
+    ppid: identity.ppid,
+    pgid: identity.pgid,
+    sid: identity.sid,
+    start: identity.start.toString(),
+    zombie: identity.zombie,
+  })
+  const recordRefusal = (details: () => object) => {
+    try {
+      console.error(
+        `PUBLIC_COMMAND_ANCESTRY_REFUSAL=${JSON.stringify({
+          candidate: serialize(member),
+          chain: chain.map(serialize),
+          leader: serialize(scope.leader),
+          monitor: { pid: process.pid, ppid: process.ppid },
+          directChildDiscovery: discovery,
+          ...details(),
+        })}`,
+      )
+    } catch {
+      // Diagnostic logging must not replace the refusal that prevents adoption.
+    }
+  }
   let cursor = member
   for (;;) {
-    if (seen.has(cursor.pid) || seen.size >= MAX_PROCESSES)
+    if (seen.has(cursor.pid) || seen.size >= MAX_PROCESSES) {
+      recordRefusal(() => ({
+        phase: 'walk',
+        candidate: {
+          ...serialize(member),
+          commandLine: observeCommandLine(member, inspector),
+        },
+        cursor: serialize(cursor),
+        parentRead: 'not-attempted',
+        failedConditions: [
+          ...(seen.has(cursor.pid) ? ['cycle'] : []),
+          ...(seen.size >= MAX_PROCESSES ? ['bound'] : []),
+        ],
+      }))
       throw new Error('owned process ancestry cycle or bound exceeded')
+    }
     seen.add(cursor.pid)
     const captured =
       cursor.pid === scope.leader.pid
@@ -474,8 +518,26 @@ function capturePublicCommandAncestry(
     }
     chain.push(cursor)
     const parent = inspector.read(cursor.ppid)
-    if (!parent || parent.zombie || cursor.start < parent.start)
+    if (!parent || parent.zombie || cursor.start < parent.start) {
+      recordRefusal(() => ({
+        phase: 'walk',
+        candidate: {
+          ...serialize(member),
+          commandLine: observeCommandLine(member, inspector),
+        },
+        cursor: serialize(cursor),
+        parent: parent ? serialize(parent) : null,
+        parentRead: 'attempted',
+        failedConditions: [
+          ...(!parent ? ['parent-unavailable'] : []),
+          ...(parent?.zombie ? ['parent-zombie'] : []),
+          ...(parent && cursor.start < parent.start
+            ? ['parent-born-after-child']
+            : []),
+        ],
+      }))
       throw new Error('owned process parent/birth ancestry unavailable')
+    }
     cursor = parent
   }
   // SID is a discovery boundary, not ownership proof. Capture only a fresh
@@ -497,31 +559,12 @@ function capturePublicCommandAncestry(
         candidateExited = true
         continue
       }
-      try {
-        const serialize = (identity: PublicCommandIdentity) => ({
-          pid: identity.pid,
-          ppid: identity.ppid,
-          pgid: identity.pgid,
-          sid: identity.sid,
-          start: identity.start.toString(),
-          zombie: identity.zombie,
-        })
-        console.error(
-          `PUBLIC_COMMAND_ANCESTRY_REFUSAL=${JSON.stringify({
-            phase: 'revalidation',
-            candidate: serialize(member),
-            expected: serialize(expected),
-            current: current ? serialize(current) : null,
-            chain: chain.map(serialize),
-            endpoint: serialize(cursor),
-            leader: serialize(scope.leader),
-            monitor: { pid: process.pid, ppid: process.ppid },
-            directChildDiscovery: discovery,
-          })}`,
-        )
-      } catch {
-        // Diagnostic logging must not replace the refusal that prevents adoption.
-      }
+      recordRefusal(() => ({
+        phase: 'revalidation',
+        expected: serialize(expected),
+        current: current ? serialize(current) : null,
+        endpoint: serialize(cursor),
+      }))
       throw new Error('owned process parent/birth ancestry unavailable')
     }
     assertPublicCommandIdentity(expected, current, scope.leader)
