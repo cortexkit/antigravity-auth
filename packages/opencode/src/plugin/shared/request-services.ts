@@ -53,7 +53,10 @@ import {
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
 
-import { ANTIGRAVITY_ENDPOINT_FALLBACKS } from '../../constants'
+import {
+  ANTIGRAVITY_ENDPOINT_DAILY,
+  ANTIGRAVITY_ENDPOINT_FALLBACKS,
+} from '../../constants'
 import type { AntigravityConfig } from '../config'
 import type { LocationDebug } from '../debug'
 import { AntigravityKillswitchError } from '../errors'
@@ -1085,6 +1088,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     let localRecaptureUsed = false
     const maxWaitMs = (config.max_rate_limit_wait_seconds ?? 300) * 1000
     let allAccountsBlockedAt: number | undefined
+    // Accounts whose daily endpoint answered that the requested model does
+    // not exist for them. They are left out of selection for the rest of
+    // this request only; no rate limit, cooldown or failure is recorded.
+    const modelUnavailableIndexes = new Set<number>()
 
     while (true) {
       await assertAdmission()
@@ -1179,6 +1186,40 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 .filter((index) => !eligibleIndexes.has(index)),
             )
 
+      if (modelUnavailableIndexes.size > 0) {
+        const candidates = accountManager
+          .getEnabledAccounts()
+          .filter(
+            (entry) =>
+              eligibleIndexes === null || eligibleIndexes.has(entry.index),
+          )
+        if (
+          candidates.length > 0 &&
+          candidates.every((entry) => modelUnavailableIndexes.has(entry.index))
+        ) {
+          // Every account that could serve this request lacks the model.
+          // Waiting or retrying cannot change that, so end with a
+          // non-retryable local refusal instead of the last upstream 404.
+          pushDebug(
+            `model-unavailable: all ${candidates.length} eligible account(s) skipped`,
+          )
+          log.warn('model-unavailable-all-accounts', {
+            family,
+            model,
+            accounts: candidates.length,
+          })
+          return createNativeGoogleErrorResponse({
+            status: 412,
+            reason: 'model_unavailable',
+          })
+        }
+      }
+
+      const excludedIndexes =
+        modelUnavailableIndexes.size === 0
+          ? killedIndexes
+          : new Set([...(killedIndexes ?? []), ...modelUnavailableIndexes])
+
       let account = accountManager.getCurrentOrNextForFamily(
         family,
         model,
@@ -1187,7 +1228,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         config.soft_quota_threshold_percent,
         softQuotaCacheTtlMs,
         accountSessionIdentity,
-        killedIndexes,
+        excludedIndexes,
       )
 
       // The selected account must be inside the eligibility mask.
@@ -1786,6 +1827,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
       let apiRequestCount = 0
       let shouldSwitchAccount = false
+      // Set when this selection ends because the account lacks the model;
+      // that rotation is not a failed attempt and does not count toward
+      // max_account_switches.
+      let skippedForModelUnavailable = false
       if (account.fingerprint) {
         pushDebug(
           `fingerprint: deviceId=${account.fingerprint.deviceId.slice(0, 8)}...`,
@@ -2257,6 +2302,56 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               break
             }
 
+            // Google answers 404 with the structured status NOT_FOUND when
+            // the requested model does not exist for this account. The prod
+            // endpoint cannot serve it either: it answers 429, which would be
+            // handled as a rate limit and put the account on cooldown. Skip
+            // this account for this model for the rest of the request
+            // without recording a rate limit, cooldown or failure. A 404 without that status (wrong
+            // path, proxy page, non-JSON body) keeps the endpoint fallback
+            // below.
+            if (
+              response.status === 404 &&
+              currentEndpoint === ANTIGRAVITY_ENDPOINT_DAILY
+            ) {
+              const notFoundBody = await deadline.wait(() =>
+                response
+                  .clone()
+                  .text()
+                  .catch(() => ''),
+              )
+              const unavailable = parseModelUnavailableError(notFoundBody)
+              if (unavailable) {
+                if (tokenConsumed) {
+                  trackers.token.refund(account.index)
+                  tokenConsumed = false
+                }
+                // Only the structured codes are logged; the body and its
+                // message text never reach a log.
+                const reasonCodes =
+                  unavailable.reasons.length > 0
+                    ? unavailable.reasons.join(',')
+                    : 'none'
+                const note = `model-unavailable idx=${account.index} status=${unavailable.status} reasons=${reasonCodes}`
+                pushDebug(note)
+                debug.logAntigravityDebugResponse(debugContext, response, {
+                  note,
+                })
+                log.info('model-unavailable', {
+                  accountIndex: account.index,
+                  family,
+                  model,
+                  status: unavailable.status,
+                  reasons: unavailable.reasons,
+                })
+                void response.body?.cancel().catch(() => {})
+                modelUnavailableIndexes.add(account.index)
+                skippedForModelUnavailable = true
+                shouldSwitchAccount = true
+                break
+              }
+            }
+
             const quotaKey = getQuotaKey(family, model)
             retryState.resetRateLimitState(account.index, quotaKey)
             retryState.resetAccountFailureState(account.index)
@@ -2344,9 +2439,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             }
 
             const shouldRetryEndpoint =
-              response.status === 403 ||
-              response.status === 404 ||
-              response.status >= 500
+              response.status === 404 || response.status >= 500
 
             if (
               shouldRetryEndpoint &&
@@ -2667,6 +2760,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         }
       }
 
+      if (shouldSwitchAccount && skippedForModelUnavailable) {
+        // Selection above leaves this account out and ends the request with
+        // a model-unavailable refusal once no eligible account remains.
+        continue
+      }
+
       if (shouldSwitchAccount) {
         accountSwitchCount++
 
@@ -2907,6 +3006,51 @@ interface RateLimitBodyInfo {
   message?: string
   quotaResetTime?: string
   reason?: string
+}
+
+/** Structured codes of a Google error that says the model does not exist. */
+interface ModelUnavailableError {
+  status: 'NOT_FOUND'
+  /** `error.details[].reason` codes; identifier-shaped values only. */
+  reasons: string[]
+}
+
+/** Reason codes are identifiers; anything else may carry message text. */
+const ERROR_REASON_CODE = /^[A-Za-z0-9_.-]{1,128}$/
+
+/**
+ * Reads Google's structured error status from a 404 body. Only an
+ * `error.status` of `NOT_FOUND` means the requested model is unavailable to
+ * the account; a non-JSON body or any other status returns null so the
+ * caller keeps its ordinary 404 handling. Never returns message text.
+ */
+function parseModelUnavailableError(
+  bodyText: string,
+): ModelUnavailableError | null {
+  let body: unknown
+  try {
+    body = JSON.parse(bodyText)
+  } catch {
+    return null
+  }
+  // Some Google endpoints wrap the error object in a one-element array.
+  const envelope = Array.isArray(body) ? body[0] : body
+  if (!envelope || typeof envelope !== 'object') return null
+  const error = (envelope as { error?: unknown }).error
+  if (!error || typeof error !== 'object') return null
+  if ((error as { status?: unknown }).status !== 'NOT_FOUND') return null
+  const details = (error as { details?: unknown }).details
+  const reasons: string[] = []
+  if (Array.isArray(details)) {
+    for (const detail of details) {
+      if (!detail || typeof detail !== 'object') continue
+      const reason = (detail as { reason?: unknown }).reason
+      if (typeof reason === 'string' && ERROR_REASON_CODE.test(reason)) {
+        reasons.push(reason)
+      }
+    }
+  }
+  return { status: 'NOT_FOUND', reasons }
 }
 
 function extractRateLimitBodyInfo(body: unknown): RateLimitBodyInfo {

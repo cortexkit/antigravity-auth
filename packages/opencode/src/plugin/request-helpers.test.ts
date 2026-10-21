@@ -2007,6 +2007,31 @@ describe('createNativeGoogleErrorResponse', () => {
     })
   })
 
+  it('returns a fixed non-retryable refusal when no account has the model', async () => {
+    const response = createNativeGoogleErrorResponse({
+      status: 412,
+      reason: 'model_unavailable',
+    })
+    expect(response.status).toBe(412)
+    expect(response.ok).toBe(false)
+    expect([...response.headers]).toEqual([
+      ['content-type', 'application/json'],
+    ])
+    const text = await response.text()
+    // OpenCode's retry classifier must find nothing retryable in this body.
+    expect(text).not.toMatch(
+      /429|500|502|503|504|524|rate limited|rate_limit|resource_exhausted|try again later|unavailable|exhausted|overloaded/i,
+    )
+    expect(JSON.parse(text)).toEqual({
+      error: {
+        code: 412,
+        status: 'FAILED_PRECONDITION',
+        message:
+          'The requested Antigravity model is not available to the configured accounts. Choose another model.',
+      },
+    })
+  })
+
   it('returns native UNAUTHENTICATED for a missing access token', async () => {
     const response = createNativeGoogleErrorResponse({
       status: 401,

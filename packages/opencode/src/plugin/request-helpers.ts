@@ -2613,6 +2613,12 @@ type NativeGoogleErrorOptions =
       /** Remaining milliseconds until a known reset; omit unknown resets. Do not substitute a retry sleep or cap this value at the configured maximum wait. */
       resetAfterMs?: number | null
     }
+  | {
+      status: 412
+      reason: 'model_unavailable'
+      /** No account has the model, so there is no quota reset to wait for. */
+      resetAfterMs?: never
+    }
   | { status: 401; reason: 'missing_access_token' }
   | { status: 502; reason: 'empty_response' }
 
@@ -2623,6 +2629,8 @@ const NATIVE_GOOGLE_ERROR_MESSAGES = {
     'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or disable soft quota protection.',
   pool_unavailable:
     'Antigravity account pool has no account available within the configured wait limit. Add accounts with `opencode auth login` or wait for quota reset.',
+  model_unavailable:
+    'The requested Antigravity model is not available to the configured accounts. Choose another model.',
   missing_access_token:
     'Missing access token. Run `opencode auth login` to reauthenticate.',
   empty_response:
