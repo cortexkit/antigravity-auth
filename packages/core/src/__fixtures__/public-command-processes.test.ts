@@ -447,7 +447,7 @@ function capturePublicCommandAncestry(
   member: PublicCommandIdentity,
   inspector: PublicCommandInspector,
   discovery: DirectChildDiscovery,
-): void {
+): boolean {
   const chain: PublicCommandIdentity[] = []
   const seen = new Set<number>()
   let cursor = member
@@ -480,9 +480,23 @@ function capturePublicCommandAncestry(
   }
   // SID is a discovery boundary, not ownership proof. Capture only a fresh
   // parent/birth chain to the leader or an already verified descendant.
+  let candidateExited = false
   for (const expected of [...chain, cursor]) {
     const current = inspector.read(expected.pid)
+    // A gone or zombie candidate has already exited, so it cannot be signalled.
+    // Keep its ancestry verified, then omit it from this live-process result.
+    if (current && expected === member && current.zombie) {
+      assertPublicCommandIdentity(expected, current, scope.leader)
+      if (current.ppid !== expected.ppid)
+        throw new Error('owned process parent/birth ancestry changed')
+      candidateExited = true
+      continue
+    }
     if (!current || current.zombie) {
+      if (expected === member) {
+        candidateExited = true
+        continue
+      }
       try {
         const serialize = (identity: PublicCommandIdentity) => ({
           pid: identity.pid,
@@ -514,7 +528,9 @@ function capturePublicCommandAncestry(
     if (expected !== cursor && current.ppid !== expected.ppid)
       throw new Error('owned process parent/birth ancestry changed')
   }
+  if (candidateExited) return false
   for (const captured of chain) scope.observed.set(captured.pid, captured)
+  return true
 }
 
 export function inspectPublicCommandScope(
@@ -536,13 +552,17 @@ export function inspectPublicCommandScope(
   // Save discovery evidence before ancestry revalidation can lose a child. It
   // never enters observed and is emitted only by the existing refusal report.
   const discovery = discoverDirectChildren(scope, members, inspector)
+  const exited = new Set<number>()
   for (const member of members) {
     const captured = scope.observed.get(member.pid)
     if (captured) assertPublicCommandIdentity(captured, member, scope.leader)
-    else if (!member.zombie)
-      capturePublicCommandAncestry(scope, member, inspector, discovery)
+    else if (
+      !member.zombie &&
+      !capturePublicCommandAncestry(scope, member, inspector, discovery)
+    )
+      exited.add(member.pid)
   }
-  return members.filter((member) => !member.zombie)
+  return members.filter((member) => !member.zombie && !exited.has(member.pid))
 }
 
 export function signalPublicCommandMember(

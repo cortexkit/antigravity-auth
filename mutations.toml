@@ -1969,3 +1969,24 @@ runner = "command"
 command = ["bash", "-c", "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=\"$PWD\" git diff --stat && bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/vault-insula-quota.test.ts -t \"$1|^insula vault quota manual check remains a direct daily poll even with insula cached$\"", "--", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^insula\svault\squota\stick\sstores\sall\sfour\sID-matched\swindows\sat\sfetchedAt\swithout\sGoogle$']
+
+[[control]]
+id = "public-command-candidate-exit-race"
+guards = "A newly discovered child that exits during ancestry revalidation is omitted without capture, while surviving ancestors remain verified."
+file = "packages/core/src/__fixtures__/public-command-processes.test.ts"
+old = '''    if (current && expected === member && current.zombie) {
+      assertPublicCommandIdentity(expected, current, scope.leader)
+      if (current.ppid !== expected.ppid)
+        throw new Error('owned process parent/birth ancestry changed')
+      candidateExited = true
+      continue
+    }'''
+new = '''    if (current && expected === member && current.zombie) { // NON-VACUITY BREAK: refuse the exited candidate.
+      throw new Error('owned process parent/birth ancestry unavailable')
+    }'''
+test_file = "packages/core/src/public-command-scope.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/core/src/public-command-scope.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ] && [ -n \"${CKDEV_MUTATE_DIFF_LOG:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" packages/core/src/__fixtures__/public-command-processes.test.ts > \"$CKDEV_MUTATE_DIFF_LOG\"; diff_status=$?; cat \"$CKDEV_MUTATE_DIFF_LOG\"; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; fi; if [ -n \"${CKDEV_MUTATE_OUTPUT_LOG:-}\" ]; then bun test --isolate packages/core/src/public-command-scope.test.ts -t \"$1\" 2>&1 | tee \"$CKDEV_MUTATE_OUTPUT_LOG\"; test_status=${PIPESTATUS[0]}; else bun test --isolate packages/core/src/public-command-scope.test.ts -t \"$1\"; test_status=$?; fi; exit \"$test_status\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^drops\sa\smember\sthat\sbecomes\sa\szombie\sduring\sancestry\srevalidation$']

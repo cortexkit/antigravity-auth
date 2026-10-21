@@ -219,7 +219,7 @@ it('rechecks ancestry birth identities before recording a new descendant', () =>
   expect(owned.observed.has(child.pid)).toBe(false)
 })
 
-it('diagnoses a disappeared identity at final ancestry revalidation', () => {
+it('drops a member that disappears during ancestry revalidation', () => {
   const owned = scope()
   const reads: number[] = []
   const native: PublicCommandInspector = {
@@ -231,9 +231,9 @@ it('diagnoses a disappeared identity at final ancestry revalidation', () => {
     session: () => [child],
     close() {},
   }
-  const messages = captureDiagnostics(() =>
-    expectAncestryRefusal(() => inspectPublicCommandScope(owned, native)),
-  )
+  const messages = captureDiagnostics(() => {
+    expect(inspectPublicCommandScope(owned, native)).toEqual([])
+  })
 
   expect(reads).toEqual([
     leader.pid,
@@ -241,30 +241,74 @@ it('diagnoses a disappeared identity at final ancestry revalidation', () => {
     parent.pid,
     leader.pid,
     child.pid,
+    parent.pid,
+    leader.pid,
   ])
-  const diagnostic = readAncestryDiagnostic(messages)
-  expect(diagnostic.phase).toBe('revalidation')
-  expect(diagnostic.candidate).toEqual(serializeIdentity(child))
-  expect(diagnostic.expected).toEqual(serializeIdentity(child))
-  expect(diagnostic.current).toBeNull()
-  expect(diagnostic.chain).toEqual([
-    serializeIdentity(child),
-    serializeIdentity(parent),
-  ])
-  expect(diagnostic.endpoint).toEqual(serializeIdentity(leader))
-  expect(diagnostic.leader).toEqual(serializeIdentity(leader))
-  expect(diagnostic.monitor).toEqual({ pid: process.pid, ppid: process.ppid })
+  expect(messages).toEqual([])
   expect(owned.observed.has(child.pid)).toBe(false)
+  expect([...owned.observed.keys()]).toEqual([leader.pid])
   expect(owned.signals).toEqual([])
 })
 
-it('diagnoses the actual zombie snapshot at final ancestry revalidation', () => {
+it('drops a member that becomes a zombie during ancestry revalidation', () => {
   const owned = scope()
   const zombie = { ...child, zombie: true }
+  const reads: number[] = []
   const native: PublicCommandInspector = {
     read(pid) {
+      reads.push(pid)
       if (pid === child.pid) return zombie
       return [parent, leader].find((row) => row.pid === pid)
+    },
+    session: () => [child],
+    close() {},
+  }
+  const messages = captureDiagnostics(() => {
+    expect(inspectPublicCommandScope(owned, native)).toEqual([])
+  })
+
+  expect(reads.slice(-3)).toEqual([child.pid, parent.pid, leader.pid])
+  expect(messages).toEqual([])
+  expect(owned.observed.has(child.pid)).toBe(false)
+  expect([...owned.observed.keys()]).toEqual([leader.pid])
+  expect(owned.signals).toEqual([])
+})
+
+it('still refuses a zombie endpoint during ancestry revalidation', () => {
+  const owned = scope()
+  const zombieLeader = { ...leader, zombie: true }
+  let endpointCheckPending = false
+  const native: PublicCommandInspector = {
+    read(pid) {
+      if (pid === parent.pid) {
+        endpointCheckPending = true
+        return parent
+      }
+      if (pid === leader.pid && endpointCheckPending) return zombieLeader
+      return [parent, leader].find((row) => row.pid === pid)
+    },
+    session: () => [parent],
+    close() {},
+  }
+  const messages = captureDiagnostics(() =>
+    expectAncestryRefusal(() => inspectPublicCommandScope(owned, native)),
+  )
+
+  const diagnostic = readAncestryDiagnostic(messages)
+  expect(diagnostic.expected).toEqual(serializeIdentity(leader))
+  expect(diagnostic.current).toEqual(serializeIdentity(zombieLeader))
+  expect([...owned.observed.keys()]).toEqual([leader.pid])
+  expect(owned.signals).toEqual([])
+})
+
+it('still refuses a zombie middle ancestor during ancestry revalidation', () => {
+  const owned = scope()
+  const zombieParent = { ...parent, zombie: true }
+  let parentReads = 0
+  const native: PublicCommandInspector = {
+    read(pid) {
+      if (pid === parent.pid && ++parentReads === 2) return zombieParent
+      return [child, parent, leader].find((row) => row.pid === pid)
     },
     session: () => [child],
     close() {},
@@ -274,24 +318,66 @@ it('diagnoses the actual zombie snapshot at final ancestry revalidation', () => 
   )
 
   const diagnostic = readAncestryDiagnostic(messages)
-  expect(diagnostic.expected).toEqual(serializeIdentity(child))
-  expect(diagnostic.current).toEqual(serializeIdentity(zombie))
+  expect(diagnostic.expected).toEqual(serializeIdentity(parent))
+  expect(diagnostic.current).toEqual(serializeIdentity(zombieParent))
   expect(owned.observed.has(child.pid)).toBe(false)
   expect(owned.signals).toEqual([])
 })
 
-it('retains discovery argv and birth when a direct child disappears at revalidation', () => {
+it('still refuses a candidate whose PID birth identity changed during revalidation', () => {
+  const owned = scope()
+  let childReads = 0
+  const native: PublicCommandInspector = {
+    read(pid) {
+      if (pid === child.pid && ++childReads === 1)
+        return { ...child, start: child.start + 1n }
+      return [child, parent, leader].find((row) => row.pid === pid)
+    },
+    session: () => [child],
+    close() {},
+  }
+
+  expect(() => inspectPublicCommandScope(owned, native)).toThrow(
+    'owned process PID birth identity changed',
+  )
+  expect(owned.observed.has(child.pid)).toBe(false)
+  expect(owned.signals).toEqual([])
+})
+
+it('still refuses a candidate whose parent changed during ancestry revalidation', () => {
+  const owned = scope()
+  let childReads = 0
+  const native: PublicCommandInspector = {
+    read(pid) {
+      if (pid === child.pid && ++childReads === 1)
+        return { ...child, ppid: leader.pid }
+      return [child, parent, leader].find((row) => row.pid === pid)
+    },
+    session: () => [child],
+    close() {},
+  }
+
+  expect(() => inspectPublicCommandScope(owned, native)).toThrow(
+    'owned process parent/birth ancestry changed',
+  )
+  expect(owned.observed.has(child.pid)).toBe(false)
+  expect(owned.signals).toEqual([])
+})
+
+it('retains discovery argv and birth when the endpoint disappears at revalidation', () => {
   const owned = scope()
   const events: string[] = []
   const argv = ['inert-child', '--discovery-marker']
+  let leaderReads = 0
   const native: PublicCommandInspector = {
     read(pid) {
       events.push(`read:${pid}`)
       if (pid === parent.pid) {
         argv[1] = '--late-lookup-would-be-wrong'
-        return undefined
+        return parent
       }
-      return pid === leader.pid ? leader : undefined
+      if (pid === leader.pid) return ++leaderReads === 4 ? undefined : leader
+      return undefined
     },
     session: () => [parent],
     observeArgv(identity) {
@@ -305,7 +391,7 @@ it('retains discovery argv and birth when a direct child disappears at revalidat
   )
   const diagnostic = readAncestryDiagnostic(messages)
   expect(diagnostic.current).toBeNull()
-  expect(diagnostic.expected).toEqual(serializeIdentity(parent))
+  expect(diagnostic.expected).toEqual(serializeIdentity(leader))
   expect(diagnostic.directChildDiscovery).toEqual({
     children: [
       {
@@ -325,6 +411,7 @@ it('retains discovery argv and birth when a direct child disappears at revalidat
     `argv:${parent.pid}:${parent.start}`,
     `read:${leader.pid}`,
     `read:${parent.pid}`,
+    `read:${leader.pid}`,
   ])
   const sent: number[] = []
   expect(() =>
@@ -341,10 +428,14 @@ it.each([
   'unavailable',
   'throws',
   'absent',
-] as const)('labels discovery argv %s without changing the disappeared-child refusal', (mode) => {
+] as const)('labels discovery argv %s without changing the endpoint refusal', (mode) => {
   const owned = scope()
+  let leaderReads = 0
   const native: PublicCommandInspector = {
-    read: (pid) => (pid === leader.pid ? leader : undefined),
+    read(pid) {
+      if (pid === leader.pid) return ++leaderReads === 4 ? undefined : leader
+      return pid === parent.pid ? parent : undefined
+    },
     session: () => [parent],
     close() {},
   }
@@ -359,9 +450,9 @@ it.each([
   const messages = captureDiagnostics(() =>
     expectAncestryRefusal(() => inspectPublicCommandScope(owned, native)),
   )
-  expect(
-    readAncestryDiagnostic(messages).directChildDiscovery.children,
-  ).toEqual([
+  const diagnostic = readAncestryDiagnostic(messages)
+  expect(diagnostic.expected).toEqual(serializeIdentity(leader))
+  expect(diagnostic.directChildDiscovery.children).toEqual([
     {
       pid: parent.pid,
       start: parent.start.toString(),
@@ -387,8 +478,12 @@ it('bounds direct-child discovery storage and explicitly counts omitted observat
     pid: 200 + index,
   }))
   let observations = 0
+  let leaderReads = 0
   const native: PublicCommandInspector = {
-    read: (pid) => (pid === leader.pid ? leader : undefined),
+    read(pid) {
+      if (pid === leader.pid) return ++leaderReads === 4 ? undefined : leader
+      return children.find((row) => row.pid === pid)
+    },
     session: () => children,
     observeArgv() {
       observations++
@@ -533,9 +628,11 @@ it('emits no diagnostic or file output for successful direct-child discovery', (
 
 it('preserves ancestry refusal when the diagnostic sink throws', () => {
   const owned = scope()
+  let leaderReads = 0
   const native: PublicCommandInspector = {
     read(pid) {
-      if (pid === child.pid) return undefined
+      if (pid === leader.pid) return ++leaderReads === 4 ? undefined : leader
+      if (pid === child.pid) return child
       return [parent, leader].find((row) => row.pid === pid)
     },
     session: () => [child],
