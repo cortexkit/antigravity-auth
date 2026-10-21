@@ -128,6 +128,9 @@ export function insulaUsageTransport(options) {
 }
 const MINUTE = 60_000;
 const MAX_AGE = 4 * MINUTE;
+// consumer-contract.md:331 refetches a slot after 60 s. Two such intervals
+// bound our willingness to wait, not a claim that insula completed its sweep.
+const COLD_WAIT = 2 * MINUTE;
 const sources = new Map();
 // Keep only the minute budget after the last owner closes, so project churn
 // cannot reset the bound. Expired budgets are pruned on the next tick.
@@ -170,6 +173,9 @@ export class InsulaQuotaSource {
     transport;
     key;
     #entries = [];
+    #available = false;
+    #completeProviders = new Set();
+    #coldSince = new Map();
     /** Every usage.get, polled or watch-driven, shares this one slot. */
     #reads = new CoalescedRead(async () => {
         try {
@@ -178,13 +184,25 @@ export class InsulaQuotaSource {
                 !Array.isArray(reply.result) ||
                 reply.error !== undefined)
                 throw new Error('unavailable insula usage');
-            // Each response is a snapshot, not a delta. Missing accounts fall back;
-            // neither pending nor the entry count asserts provider completeness.
+            // Each response is a snapshot, not a delta. Only completeProviders
+            // asserts completeness; neither pending nor the entry count does.
             this.#entries = reply.result.filter((entry) => record(entry) && typeof entry.provider === 'string');
+            this.#available =
+                this.#entries.length === reply.result.length &&
+                    (reply.completeProviders === undefined ||
+                        (Array.isArray(reply.completeProviders) &&
+                            reply.completeProviders.every((value) => typeof value === 'string')));
+            this.#completeProviders = new Set(this.#available && Array.isArray(reply.completeProviders)
+                ? reply.completeProviders
+                : []);
+            for (const provider of this.#completeProviders)
+                this.#coldSince.delete(provider);
         }
         catch {
             // Refusal is absence, even if the previous reading was still young.
             this.#entries = [];
+            this.#available = false;
+            this.#completeProviders.clear();
         }
     }, () => { });
     #reader = new ChangeNoticeReader();
@@ -390,6 +408,50 @@ export class InsulaQuotaSource {
             };
         }
         return undefined;
+    }
+    /** Cache-only background lookup; current() retains its original miss behavior. */
+    lookup(provider, accountId, now) {
+        if (!this.#available)
+            return { miss: 'unreachable' };
+        const entry = this.#entries.find((value) => value.provider === provider &&
+            typeof value.account === 'string' &&
+            value.account.trim() === accountId);
+        // An unlabelled error describes the provider's credential path, not an
+        // unrelated labelled account. Never borrow another account's verdict.
+        const errorClass = (entry ??
+            this.#entries.find((value) => value.provider === provider &&
+                value.account === undefined &&
+                value.errorClass !== undefined))?.errorClass;
+        if (errorClass === 'upstream_failed')
+            return { miss: 'upstream-failed' };
+        if (errorClass === 'credential_absent' ||
+            errorClass === 'credential_unusable' ||
+            errorClass === 'credential_rejected')
+            return { miss: 'credential' };
+        if (errorClass !== undefined)
+            return { miss: 'unreachable' };
+        if (entry) {
+            const fetchedAt = typeof entry.fetchedAt === 'string'
+                ? Date.parse(entry.fetchedAt)
+                : Number.NaN;
+            if (!record(entry.usage) || !Number.isFinite(fetchedAt))
+                return { miss: 'unreachable' };
+            const reading = {
+                entry,
+                context: {
+                    fetchedAt,
+                    ...(typeof entry.source === 'string' && { source: entry.source }),
+                },
+            };
+            return now >= fetchedAt + MAX_AGE || entry.stale !== undefined
+                ? { miss: 'stale', reading }
+                : { reading };
+        }
+        if (this.#completeProviders.has(provider))
+            return { miss: 'absent' };
+        const since = this.#coldSince.get(provider) ?? now;
+        this.#coldSince.set(provider, since);
+        return { miss: now - since >= COLD_WAIT ? 'unreachable' : 'cold' };
     }
 }
 export function acquireInsulaQuotaSource(transport, tokenPath) {

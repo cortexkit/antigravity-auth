@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.21.1.tgz'
-export const producerVersion = '0.21.1'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.22.0.tgz'
+export const producerVersion = '0.22.0'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '4ff9c514bfa7d539483ce9c25e054267c4dc368a0ce8c7f60c74ddac36613a65',
-  sri: 'sha512-DORasuyhF7FOTiw0kiL1DlIw9aPvMmBsdoxzkXJEIrKvNzUuv2lcOvHkflpot9KcoqPLCRJxyZLtMO+LVN61gw==',
+  sha256: '846844993cfddd8511e5cf9b0a364629b210a3efbd086ba7d51eed8fc52581ab',
+  sri: 'sha512-02yOfdzAI1QSwtofnjvSeFsELl6Lo1kp7jE4pCRFLRx0q0aFxlGeJgWacIVvM7y/DClkhstQvaRrtL/VSs8jUQ==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -143,13 +143,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'auth-menu/login.d.ts',
-    2211,
-    'eb6d85bdff6cc5d614d263ba2e972e535bc5a770cbe1d98b6265341ce1085340',
+    2080,
+    '059c952d50b86007a48dc53fefbc600df8708d84ee203942f1bb0f9262b67542',
   ],
   [
     'auth-menu/login.js',
-    3698,
-    'cced3c8bf07c9782f88b9b49d0ace79ff70c8b32919eba4856face9398a39eae',
+    3972,
+    'f55cb1e2a40cab6ef99b5386682615dca059e8d7d982f4a508306c225084f647',
   ],
   [
     'auth-menu/menu.d.ts',
@@ -203,13 +203,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/consumer.d.ts',
-    9037,
-    '5d508c6b0e62ada6e60f09f52052fd6ee26fe6dacd626ef4e5e1430bd8535fdb',
+    9422,
+    '757c3c0e9a0d03984d0510dc5a6248e35426fe03d2b72a0a1f59204b9f1666ef',
   ],
   [
     'claustrum/consumer.js',
-    23139,
-    '7b97c80964eaffa9f4c4fc3334885ce4c2da80ed330288311d08b0c8c7edca31',
+    25150,
+    '58cd180a286241cbe699441939045a28132c04ba1fb0b4e5a07ff1b18b3ff486',
   ],
   [
     'claustrum/custody.d.ts',
@@ -253,8 +253,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/index.d.ts',
-    3613,
-    'b8f9cb374e5d5545d50a1521d85e4337d28b17d4b0dabdb3548186675b1c2965',
+    3708,
+    '97dc7d8f1cd9a74301a55569a06a2661d54966240edbfdcaf5989d112ec94885',
   ],
   [
     'claustrum/index.js',
@@ -263,13 +263,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/insula.d.ts',
-    4643,
-    'be11868f8d766b8c3dc105b3891743bbec1388005be8d2688d617c95b0194e2a',
+    5463,
+    'e1c9ecf858b7ecbb21c1f954cbd35b5ea77494e5aca9dbd198fe5e2cd0a3a95f',
   ],
   [
     'claustrum/insula.js',
-    16715,
-    '98ac4011e091b142618b83e3258eda3ccfb40ec75ee0c5a2cbeff89aa1f88003',
+    19744,
+    '506b549f26a741599bfee04bf334cf7b29fde4077a79f65bc2dad78e03bafee0',
   ],
   [
     'claustrum/interlock.d.ts',
@@ -1109,7 +1109,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '8934b1886e475ab797895c1cb6243be3b5c73fe0a1b6275da53fe220b40a28f5'
+    '54a62fbb678175e44ab4c970371e7f05961953f96ba39bdd86f95c42f9b0744d'
   )
     throw new Error('publication: manifest bytes')
 }

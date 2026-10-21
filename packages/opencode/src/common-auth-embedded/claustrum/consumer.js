@@ -3,7 +3,7 @@ import { combineAbortSignals } from '../util/any-signal.js';
 import { ClaustrumScopedCustody, decideScopedRetryAfter401, } from './custody.js';
 import { readClaustrumEnrollmentToken } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
-import { acquireInsulaQuotaSource } from './insula.js';
+import { acquireInsulaQuotaSource, } from './insula.js';
 import { acceptVaultRoute, declineVaultRoute, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, vaultRoutingRows, } from './roster.js';
 import { SAFETY_POLL_MS } from './watch.js';
 /**
@@ -32,6 +32,7 @@ export class ClaustrumConsumer {
     #insula;
     #vaultWatch;
     #releaseInsulaWatch;
+    #insulaSkips = new Map();
     /** When this instance last completed a discovery, by `now`. */
     #discoveredAt;
     constructor(options) {
@@ -355,6 +356,44 @@ export class ClaustrumConsumer {
         catch {
             return undefined;
         }
+    }
+    /** Cache-only background lookup, preserving the reason a route has no reading. */
+    async lookupInsulaQuotaForRoute(routeId) {
+        const options = this.#options.insula;
+        if (!options || this.#shutdown.signal.aborted || !(await this.#active()))
+            return { miss: 'unreachable' };
+        try {
+            await readClaustrumEnrollmentToken(this.#options.tokenPath);
+            const roster = await readVaultRoster(this.#options.rosterPath);
+            const account = roster?.rows.find((row) => row.routeId === routeId)?.accountIdentity;
+            if (!account || !this.#insula)
+                return { miss: 'unreachable' };
+            const result = this.#insula.source.lookup(options.provider, account, (this.#options.now ?? Date.now)());
+            const reading = result.reading &&
+                options.normalize(result.reading.entry, result.reading.context);
+            if (result.miss)
+                return { miss: result.miss, ...(reading !== undefined && { reading }) };
+            // Refusing an echo or unsupported window leaves the plugin's poll in charge.
+            return reading === undefined ? { miss: 'unreachable' } : { reading };
+        }
+        catch {
+            return { miss: 'unreachable' };
+        }
+    }
+    /** Skip the fallback poll while insula is cold or its upstream fetch failed. */
+    async pollInsulaQuotaForRoute(routeId, fallback) {
+        const result = await this.lookupInsulaQuotaForRoute(routeId);
+        if (result.miss === 'cold' || result.miss === 'upstream-failed') {
+            if (this.#insulaSkips.get(routeId) !== result.miss) {
+                this.#insulaSkips.set(routeId, result.miss);
+                this.#logger.warn('skipped insula provider poll', {
+                    reason: result.miss,
+                });
+            }
+            return undefined;
+        }
+        this.#insulaSkips.delete(routeId);
+        return result.miss ? fallback() : result.reading;
     }
     #normalizeInsulaQuota(accountIdentity) {
         if (!this.#options.insula || !accountIdentity)

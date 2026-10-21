@@ -34,6 +34,27 @@ export interface InsulaQuotaContext {
     fetchedAt: number;
     source?: string;
 }
+export type InsulaQuotaMiss = 'cold' | 'stale' | 'absent' | 'upstream-failed' | 'credential' | 'unreachable';
+export interface InsulaQuotaReading {
+    entry: InsulaUsageEntry;
+    context: InsulaQuotaContext;
+}
+/** A miss may retain a dated reading; it is not a current quota observation. */
+export type InsulaQuotaLookup = {
+    reading: InsulaQuotaReading;
+    miss?: never;
+} | {
+    miss: InsulaQuotaMiss;
+    reading?: InsulaQuotaReading;
+};
+/** The normalized equivalent of a source lookup, for a plugin's quota type. */
+export type InsulaQuotaResult<Q> = {
+    reading: Q;
+    miss?: never;
+} | {
+    miss: InsulaQuotaMiss;
+    reading?: Q;
+};
 export interface InsulaQuotaOptions<Q> {
     provider: 'codex' | 'claude' | 'antigravity';
     /**
@@ -110,6 +131,8 @@ export declare class InsulaQuotaSource {
         entry: InsulaUsageEntry;
         context: InsulaQuotaContext;
     } | undefined;
+    /** Cache-only background lookup; current() retains its original miss behavior. */
+    lookup(provider: string, accountId: string, now: number): InsulaQuotaLookup;
 }
 export declare function acquireInsulaQuotaSource(transport: InsulaUsageTransport, tokenPath: string): {
     source: InsulaQuotaSource;

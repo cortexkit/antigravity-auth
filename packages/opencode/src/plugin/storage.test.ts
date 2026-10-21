@@ -827,9 +827,9 @@ describe('openAccountStore', () => {
 
 const RELEASED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.21.1',
+  version: '0.22.0',
   tarballSha256:
-    '4ff9c514bfa7d539483ce9c25e054267c4dc368a0ce8c7f60c74ddac36613a65',
+    '846844993cfddd8511e5cf9b0a364629b210a3efbd086ba7d51eed8fc52581ab',
 } as const
 
 async function embeddedFilesBelow(

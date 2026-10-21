@@ -3,7 +3,7 @@ import type { QuotaObservation } from '../quota/index.js';
 import type { RoutingRow } from '../routing/index.js';
 import { type ClaustrumFamily, type ClaustrumScopedAttempt, type ClaustrumScopedClient, type IdentityParser, type KeptReceiptState, type VaultGrantReach } from './custody.js';
 import { type ClaustrumLogger } from './errors.js';
-import { type InsulaQuotaOptions } from './insula.js';
+import { type InsulaQuotaOptions, type InsulaQuotaResult } from './insula.js';
 import { type AccountMapper, type QuotaReceipt, type VaultRosterFile } from './roster.js';
 import { type WatchMode } from './watch.js';
 export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
@@ -134,6 +134,10 @@ export declare class ClaustrumConsumer<Q = QuotaObservation> {
      * A route without a known provider account cannot join an insula entry.
      */
     cachedInsulaQuotaForRoute(routeId: string): Promise<Q | undefined>;
+    /** Cache-only background lookup, preserving the reason a route has no reading. */
+    lookupInsulaQuotaForRoute(routeId: string): Promise<InsulaQuotaResult<Q>>;
+    /** Skip the fallback poll while insula is cold or its upstream fetch failed. */
+    pollInsulaQuotaForRoute(routeId: string, fallback: () => Promise<Q | undefined>): Promise<Q | undefined>;
     /**
      * Authorize one physical send on a vault route. The roster file is re-read
      * first, so a decline committed by another process applies before the next

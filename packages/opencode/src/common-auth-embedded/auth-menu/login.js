@@ -1,6 +1,6 @@
-import { execFileSync as defaultExecFileSync, spawn as defaultSpawn, } from 'node:child_process';
-/** Opens a URL with the platform's opener; false when that fails. */
-export function openBrowserForMenu(url, platform = process.platform, execFileSync = defaultExecFileSync, spawn = defaultSpawn) {
+import { spawn as defaultSpawn } from 'node:child_process';
+/** Opens a URL with the platform's opener; false when it could not start. */
+export function openBrowserForMenu(url, platform = process.platform, spawn = defaultSpawn) {
     try {
         if (platform === 'win32') {
             // Start-Process opens the URL with its associated app. Base64 UTF-16LE
@@ -28,15 +28,18 @@ export function openBrowserForMenu(url, platform = process.platform, execFileSyn
             // Node leaves pid undefined when the process could not be started.
             return child.pid !== undefined;
         }
-        else {
-            execFileSync(platform === 'darwin' ? 'open' : 'xdg-open', [url], {
-                stdio: 'ignore',
-                timeout: 3000,
-            });
-        }
-        return true;
+        const child = spawn(platform === 'darwin' ? 'open' : 'xdg-open', [url], {
+            stdio: 'ignore',
+        });
+        // A failed launch reports asynchronously; without a listener it would
+        // become an uncaught exception after this function has returned.
+        child.on('error', () => { });
+        child.unref();
+        // The URL handler's process may outlive the caller; a pid means launch began.
+        return child.pid !== undefined;
     }
     catch {
+        // Browser launch is best effort; the printed URL remains the fallback.
         return false;
     }
 }
@@ -53,7 +56,7 @@ function printFlow(context, flow) {
 }
 /**
  * Runs a login for the menu: a browser login first and, when no browser can
- * be opened, a device-code login instead, so a headless machine can still
+ * be started, a device-code login instead, so a headless machine can still
  * add an account. The URL is always printed, so an operator can open it by
  * hand when the opener reports success but nothing appears.
  */

@@ -26,28 +26,24 @@ export interface MenuLogin {
         signal?: AbortSignal;
     }): Promise<LoginFlow>;
     /**
-     * Opens the URL in a browser; false or a throw means no browser could be
-     * opened. Defaults to `openBrowserForMenu`.
+     * Opens the URL in a browser; false or a throw means its opener could not be
+     * started. Defaults to `openBrowserForMenu`.
      */
     openBrowser?(url: string): boolean | undefined | Promise<boolean | undefined>;
 }
-type BrowserExec = (file: string, args: string[], options: {
-    stdio: 'ignore';
-    timeout: number;
-}) => unknown;
 type BrowserSpawn = (file: string, args: string[], options: {
     stdio: 'ignore';
-    windowsHide: true;
+    windowsHide?: true;
 }) => {
     pid?: number;
     unref(): void;
     on(event: 'error', listener: () => void): unknown;
 };
-/** Opens a URL with the platform's opener; false when that fails. */
-export declare function openBrowserForMenu(url: string, platform?: NodeJS.Platform, execFileSync?: BrowserExec, spawn?: BrowserSpawn): boolean;
+/** Opens a URL with the platform's opener; false when it could not start. */
+export declare function openBrowserForMenu(url: string, platform?: NodeJS.Platform, spawn?: BrowserSpawn): boolean;
 /**
  * Runs a login for the menu: a browser login first and, when no browser can
- * be opened, a device-code login instead, so a headless machine can still
+ * be started, a device-code login instead, so a headless machine can still
  * add an account. The URL is always printed, so an operator can open it by
  * hand when the opener reports success but nothing appears.
  */
