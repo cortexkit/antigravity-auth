@@ -2287,6 +2287,336 @@ describe('createRequestExecutor retry contract', () => {
   })
 })
 
+// Google answers a model the account cannot use with HTTP 404 and the
+// structured status NOT_FOUND. That account is skipped for the rest of the
+// request: no prod send, no rate limit or cooldown, rotation to the next
+// account, and a non-retryable 412 once no account has the model.
+describe('createRequestExecutor model unavailable (404 NOT_FOUND)', () => {
+  const DAILY = ANTIGRAVITY_ENDPOINT_FALLBACKS[0]
+  const PROD = ANTIGRAVITY_ENDPOINT_FALLBACKS[1]
+  const MODEL_UNAVAILABLE_412 = {
+    error: {
+      code: 412,
+      status: 'FAILED_PRECONDITION',
+      message:
+        'The requested Antigravity model is not available to the configured accounts. Choose another model.',
+    },
+  }
+
+  function modelNotFound(): Response {
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: 404,
+          message: 'Requested entity was not found.',
+          status: 'NOT_FOUND',
+        },
+      }),
+      { status: 404, headers: { 'content-type': 'application/json' } },
+    )
+  }
+
+  /** One bearer per account row, so each send names the account it used. */
+  const perAccountRefresh = async (auth: OAuthAuthDetails) => ({
+    ...auth,
+    access: `access-${auth.refresh.split('|')[0]}`,
+    expires: Date.now() + 3.6e6,
+  })
+
+  function bearer(call: TransportCall): string | null {
+    return new Headers(call.init?.headers).get('authorization')
+  }
+
+  function sends(h: Harness): Array<[string, string | null]> {
+    return h.calls.map((call) => [new URL(call.url).origin, bearer(call)])
+  }
+
+  function accountState(pool: CoreAccountManager) {
+    return pool.getAccounts().map((account) => ({
+      rateLimitResetTimes: { ...account.rateLimitResetTimes },
+      coolingDownUntil: account.coolingDownUntil,
+      cooldownReason: account.cooldownReason,
+      consecutiveFailures: account.consecutiveFailures,
+      enabled: account.enabled,
+    }))
+  }
+
+  function penaltySpies(h: Harness) {
+    return {
+      markRateLimited: spyOn(h.pool, 'markRateLimited'),
+      markRateLimitedWithReason: spyOn(h.pool, 'markRateLimitedWithReason'),
+      markAccountCoolingDown: spyOn(h.pool, 'markAccountCoolingDown'),
+      recordRateLimit: spyOn(h.deps.trackers.health, 'recordRateLimit'),
+      recordFailure: spyOn(h.deps.trackers.health, 'recordFailure'),
+    }
+  }
+
+  function expectNoPenalty(spies: ReturnType<typeof penaltySpies>) {
+    for (const spy of Object.values(spies)) expect(spy).not.toHaveBeenCalled()
+  }
+
+  it('skips an account without the model and serves from the next account on daily only', async () => {
+    const h = harness({
+      pool: makePool(2),
+      refresh: perAccountRefresh,
+      respond: async (call) =>
+        bearer(call) === 'Bearer access-refresh-0' ? modelNotFound() : okJson(),
+    })
+    const before = accountState(h.pool)
+    const spies = penaltySpies(h)
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain('hi')
+      expect(sends(h)).toEqual([
+        [DAILY, 'Bearer access-refresh-0'],
+        [DAILY, 'Bearer access-refresh-1'],
+      ])
+      expectNoPenalty(spies)
+      expect(accountState(h.pool)[0]).toEqual(before[0]!)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('ends with a non-retryable 412 when no account has the model', async () => {
+    const h = harness({
+      pool: makePool(3),
+      refresh: perAccountRefresh,
+      // Hybrid selection consumes a token bucket per send; the skip must
+      // give it back. Three accounts also exceed max_account_switches (1),
+      // which a model-unavailable skip does not count against.
+      config: { account_selection_strategy: 'hybrid' },
+      respond: async () => modelNotFound(),
+    })
+    const token = new TokenBucketTracker()
+    const tokensBefore = [0, 1, 2].map((index) => token.getTokens(index))
+    const before = accountState(h.pool)
+    const spies = penaltySpies(h)
+    const executor = createRequestExecutor({
+      ...h.deps,
+      trackers: { ...h.deps.trackers, token },
+    })
+    try {
+      const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
+      expect(response.status).toBe(412)
+      expect([...response.headers]).toEqual([
+        ['content-type', 'application/json'],
+      ])
+      const text = await response.text()
+      expect(JSON.parse(text)).toEqual(MODEL_UNAVAILABLE_412)
+      expect(text).not.toMatch(/claude|account-|refresh-/i)
+      expect(h.calls.map((call) => new URL(call.url).origin)).toEqual([
+        DAILY,
+        DAILY,
+        DAILY,
+      ])
+      expect(new Set(h.calls.map(bearer))).toEqual(
+        new Set([
+          'Bearer access-refresh-0',
+          'Bearer access-refresh-1',
+          'Bearer access-refresh-2',
+        ]),
+      )
+      expectNoPenalty(spies)
+      expect(accountState(h.pool)).toEqual(before)
+      for (const [index, tokens] of tokensBefore.entries()) {
+        expect(token.getTokens(index)).toBeCloseTo(tokens, 1)
+      }
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  for (const [label, notFound] of [
+    ['a non-JSON body', () => new Response('missing', { status: 404 })],
+    [
+      'another structured status',
+      () =>
+        new Response(
+          JSON.stringify({
+            error: { code: 404, status: 'UNIMPLEMENTED', message: 'x' },
+          }),
+          { status: 404, headers: { 'content-type': 'application/json' } },
+        ),
+    ],
+  ] as const) {
+    it(`keeps the prod fallback for a 404 with ${label}, and returns a second 404 without rotating`, async () => {
+      const h = harness({
+        pool: makePool(2),
+        refresh: perAccountRefresh,
+        respond: async () => notFound(),
+      })
+      const before = accountState(h.pool)
+      const spies = penaltySpies(h)
+      const executor = createRequestExecutor(h.deps)
+      try {
+        const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
+        expect(response.status).toBe(404)
+        expect(sends(h)).toEqual([
+          [DAILY, 'Bearer access-refresh-0'],
+          [PROD, 'Bearer access-refresh-0'],
+        ])
+        expectNoPenalty(spies)
+        expect(accountState(h.pool)).toEqual(before)
+      } finally {
+        await executor.dispose()
+      }
+    })
+  }
+
+  it('still rate-limits and rotates after a daily 429', async () => {
+    const h = harness({
+      pool: makePool(2),
+      refresh: perAccountRefresh,
+      respond: async (call) =>
+        bearer(call) === 'Bearer access-refresh-0'
+          ? new Response(
+              JSON.stringify({
+                error: {
+                  code: 429,
+                  status: 'RESOURCE_EXHAUSTED',
+                  message: 'quota exhausted',
+                  details: [
+                    {
+                      '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                      reason: 'QUOTA_EXHAUSTED',
+                    },
+                  ],
+                },
+              }),
+              {
+                status: 429,
+                headers: {
+                  'content-type': 'application/json',
+                  'retry-after': '3600',
+                },
+              },
+            )
+          : okJson(),
+    })
+    const spies = penaltySpies(h)
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(sends(h)).toEqual([
+        [DAILY, 'Bearer access-refresh-0'],
+        [DAILY, 'Bearer access-refresh-1'],
+      ])
+      expect(spies.markRateLimitedWithReason).toHaveBeenCalledTimes(1)
+      expect(spies.recordRateLimit).toHaveBeenCalledWith(0)
+      const first = h.pool.getAccounts()[0]!
+      expect(
+        h.pool.isRateLimited(first, 'claude', 'claude-sonnet-5-5-low'),
+      ).toBe(true)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('returns an unclassified daily 403 without a prod send', async () => {
+    const h = harness({
+      pool: makePool(2),
+      refresh: perAccountRefresh,
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 403,
+              status: 'PERMISSION_DENIED',
+              message: 'The caller does not have permission',
+            },
+          }),
+          { status: 403, headers: { 'content-type': 'application/json' } },
+        ),
+    })
+    const before = accountState(h.pool)
+    const spies = penaltySpies(h)
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
+      expect(response.status).toBe(403)
+      expect(sends(h)).toEqual([[DAILY, 'Bearer access-refresh-0']])
+      expectNoPenalty(spies)
+      expect(accountState(h.pool)).toEqual(before)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('still falls back to prod after a daily 500', async () => {
+    const h = harness({
+      pool: makePool(2),
+      refresh: perAccountRefresh,
+      respond: async (call) =>
+        new URL(call.url).origin === DAILY
+          ? new Response('internal', { status: 500 })
+          : okJson(),
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(sends(h)).toEqual([
+        [DAILY, 'Bearer access-refresh-0'],
+        [PROD, 'Bearer access-refresh-0'],
+      ])
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('GA executor skips the account without a prod send', async () => {
+    const h = harness({
+      pool: makePool(2),
+      refresh: perAccountRefresh,
+      respond: async (call) =>
+        bearer(call) === 'Bearer access-refresh-0' ? modelNotFound() : okJson(),
+    })
+    const spies = penaltySpies(h)
+    const executor = createRequestExecutor(h.deps)
+    const bridge = await startGaLoopbackBridge({
+      execute: createGaJobExecutor(executor),
+      send: async () => {
+        throw new Error('unused raw sender')
+      },
+    })
+    try {
+      const response = await fetch(
+        bridge.rewrite(
+          new Request(CLAUDE_URL, CHAT_INIT()),
+          {
+            sessionID: 'model-unavailable-ga',
+            parentSessionID: null,
+            kind: 'primary',
+            modelID: 'claude-sonnet-5-5-low',
+            variant: null,
+            url: CLAUDE_URL,
+            body: String(CHAT_INIT().body),
+          },
+          {
+            HTTP_PROXY: undefined,
+            HTTPS_PROXY: undefined,
+            ALL_PROXY: undefined,
+          },
+        ),
+      )
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain('hi')
+      expect(sends(h)).toEqual([
+        [DAILY, 'Bearer access-refresh-0'],
+        [DAILY, 'Bearer access-refresh-1'],
+      ])
+      expectNoPenalty(spies)
+    } finally {
+      await bridge.dispose()
+      await executor.dispose()
+    }
+  })
+})
+
 /** Vault credentials over the harness pool's rows: only `admit` exists. */
 function vaultDeps(
   h: Harness,

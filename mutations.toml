@@ -2032,3 +2032,42 @@ runner = "command"
 command = ["bash", "-c", "if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ] && [ -n \"${CKDEV_MUTATE_DIFF_LOG:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" packages/core/src/__fixtures__/public-command-processes.test.ts > \"$CKDEV_MUTATE_DIFF_LOG\"; diff_status=$?; cat \"$CKDEV_MUTATE_DIFF_LOG\"; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; fi; if [ -n \"${CKDEV_MUTATE_OUTPUT_LOG:-}\" ]; then bun test --isolate packages/core/src/public-command-scope.test.ts -t \"$1\" 2>&1 | tee \"$CKDEV_MUTATE_OUTPUT_LOG\"; test_status=${PIPESTATUS[0]}; else bun test --isolate packages/core/src/public-command-scope.test.ts -t \"$1\"; test_status=$?; fi; exit \"$test_status\"", "--", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^drops\sa\smember\sthat\sbecomes\sa\szombie\sduring\sancestry\srevalidation$']
+
+[[control]]
+id = "shared-model-unavailable-no-prod-fallback"
+guards = "A daily 404 NOT_FOUND (model unavailable to the account) rotates accounts on daily and is never retried on prod."
+file = "packages/opencode/src/plugin/shared/request-services.ts"
+old = "              if (unavailable) {"
+new = "              if (unavailable && false) { // NON-VACUITY BREAK: fall back to prod again."
+test_file = "packages/opencode/src/plugin/shared/request-services.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/shared/request-services.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/shared/request-services.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^createRequestExecutor\smodel\sunavailable\s\(404\sNOT_FOUND\)\sskips\san\saccount\swithout\sthe\smodel\sand\sserves\sfrom\sthe\snext\saccount\son\sdaily\sonly$']
+
+[[control]]
+id = "shared-model-unavailable-no-rate-limit"
+guards = "Skipping an account that lacks the model records no rate limit, cooldown or failure against it."
+file = "packages/opencode/src/plugin/shared/request-services.ts"
+old = "                modelUnavailableIndexes.add(account.index)"
+new = "                modelUnavailableIndexes.add(account.index); accountManager.markRateLimited(account, 60_000, family, model) // NON-VACUITY BREAK: penalize the account."
+test_file = "packages/opencode/src/plugin/shared/request-services.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/shared/request-services.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/shared/request-services.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^createRequestExecutor\smodel\sunavailable\s\(404\sNOT_FOUND\)\sends\swith\sa\snon-retryable\s412\swhen\sno\saccount\shas\sthe\smodel$']
+
+[[control]]
+id = "shared-model-unavailable-keys-on-error-status"
+guards = "Only Google's structured error.status NOT_FOUND marks a model unavailable; another 404 keeps the prod fallback."
+file = "packages/opencode/src/plugin/shared/request-services.ts"
+old = "              const unavailable = parseModelUnavailableError(notFoundBody)"
+new = "              const unavailable = notFoundBody === null ? null : { status: 'NOT_FOUND' as const, reasons: [] as string[] } // NON-VACUITY BREAK: key on the HTTP 404 alone."
+test_file = "packages/opencode/src/plugin/shared/request-services.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/shared/request-services.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/shared/request-services.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^createRequestExecutor\smodel\sunavailable\s\(404\sNOT_FOUND\)\skeeps\sthe\sprod\sfallback\sfor\sa\s404\swith\sanother\sstructured\sstatus,\sand\sreturns\sa\ssecond\s404\swithout\srotating$']

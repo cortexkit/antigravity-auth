@@ -208,7 +208,10 @@ describe('shared request engine import graph', () => {
         'type QuotaManager',
         'type TokenBucketTracker',
       ],
-      '../../constants': ['ANTIGRAVITY_ENDPOINT_FALLBACKS'],
+      '../../constants': [
+        'ANTIGRAVITY_ENDPOINT_DAILY',
+        'ANTIGRAVITY_ENDPOINT_FALLBACKS',
+      ],
       '../config': ['type AntigravityConfig'],
       '../debug': ['type LocationDebug'],
       '../errors': ['AntigravityKillswitchError'],
