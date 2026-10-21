@@ -6,7 +6,7 @@
 // scope, orders the result the way the primitives expect, and carries each
 // entry's (scope, label) so a decision names the limit it judged rather than
 // the position it occupied.
-import { ALL_SCOPE, readQuotaCounters, } from './map.js';
+import { ALL_SCOPE, isQuotaCredits, readQuotaCounters, } from './map.js';
 function project(entry) {
     if (entry.kind === 'retired') {
         return {
@@ -95,12 +95,14 @@ export function projectQuota(map, scope = ALL_SCOPE) {
         : undefined;
     const budget = map?.budget?.kind === 'reading' ? projectBudget(map.budget) : undefined;
     const counters = readQuotaCounters(map?.counters);
+    const credits = isQuotaCredits(map?.credits) ? map.credits : undefined;
     return {
         scope,
         limits,
         ...(checkedAt === undefined ? {} : { checkedAt }),
         ...(budget === undefined ? {} : { budget }),
         ...(counters === undefined ? {} : { counters }),
+        ...(credits === undefined ? {} : { credits }),
     };
 }
 /**

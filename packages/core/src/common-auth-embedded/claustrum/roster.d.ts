@@ -2,6 +2,8 @@ import { type QuotaMap, type QuotaObservation } from '../quota/index.js';
 import type { RoutingRow } from '../routing/index.js';
 import type { ClaustrumScopedAttempt, ClaustrumScopedCustody, SkippedVaultRecord, VaultCredential, VaultCredentialType, VaultInventory } from './custody.js';
 import { type DeclinedAccount } from './interlock.js';
+import { type VaultQuotaPublication } from './quota-writer.js';
+export { drainVaultQuota } from './quota-writer.js';
 /**
  * One vault account as the pool sees it. It carries no bearer material: the
  * access token is fetched from the vault for every send. Several vault
@@ -91,6 +93,7 @@ export interface VaultRosterLockContext {
     assertOwned: () => Promise<void>;
 }
 export interface MutateVaultRosterOptions {
+    signal?: AbortSignal;
     /**
      * Runs when the new roster is fully staged on disk, immediately before the
      * rename that publishes it, so a caller can confirm a lease of its own at
@@ -127,7 +130,10 @@ export type QuotaReceipt = Pick<ClaustrumScopedAttempt, 'credentialId' | 'accoun
  * write is fenced on the receipt the reading was taken with: it lands only
  * while the row still holds that receipt's credential (as representative or
  * alias) and account, so a slow read for a replaced account can never land on
- * its successor. Returns whether the observation was kept.
+ * its successor. Resolves false when the fence refuses the reading against the
+ * roster as it stands now (on disk, plus readings this process has not
+ * written yet), and true once the reading is queued for the next write. The
+ * write applies the fence again, so a rebind between the two still refuses.
  */
 export declare function recordVaultQuota(path: string, input: QuotaReceipt & {
     routeId: string;
@@ -139,19 +145,28 @@ export declare function recordVaultQuota(path: string, input: QuotaReceipt & {
  * lands only while the row is still bound to that exact known account, so a
  * reading taken before a replacement never reaches the successor. Unlike
  * `recordVaultQuota` it never binds an account: a row without a known account
- * is refused. Returns whether the observation was kept.
+ * is refused. Resolves false when the row is not bound to that account now,
+ * and true once the reading is queued, as `recordVaultQuota` does.
  */
 export declare function recordVaultAccountQuota(path: string, input: {
     routeId: string;
     accountIdentity: string;
     observation: QuotaObservation;
 }): Promise<boolean>;
+/** Apply the same identity fence to memory overlays and durable quota batches. */
+export declare function applyVaultQuota(current: VaultRosterFile | undefined, input: VaultQuotaPublication): {
+    roster: VaultRosterFile | undefined;
+    kept: boolean;
+};
+export declare function forgetPendingVaultDiscovery(path: string): void;
 /**
  * Discover and commit the roster. The lease covers the list call and the
  * commit, not just the write: an opaque view cannot tell a delayed old reply
  * from a newer one, so a run that lost its lease is refused at commit. A
  * failed list, or custody switching off mid-run, never writes anything; a
  * peer holding the lease means its last committed roster is served instead.
+ * A write-lock timeout keeps the discovered inventory for the next poll,
+ * unless a peer has superseded its base view in the meantime.
  */
 export declare function refreshVaultRoster(options: {
     path: string;
@@ -159,6 +174,7 @@ export declare function refreshVaultRoster(options: {
     isActive?: () => boolean | Promise<boolean>;
     signal?: AbortSignal;
     projection?: ProjectionOptions | (() => ProjectionOptions);
+    onInventory?: (inventory: VaultInventory) => void;
 }): Promise<VaultRosterFile | undefined>;
 /**
  * A host-owned main account as last verified from the vault: the plugin's

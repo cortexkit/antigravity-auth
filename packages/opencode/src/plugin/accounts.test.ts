@@ -2920,11 +2920,11 @@ describe('loadAccountManagerFromRepository', () => {
 // SHA-256 from the pinned producer archive; matching every entry prevents a
 // stale or modified embedded module from standing in for that producer.
 
-const RELEASED_COMMON_AUTH = {
+const EMBEDDED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.22.0',
+  version: '0.23.0',
   tarballSha256:
-    '846844993cfddd8511e5cf9b0a364629b210a3efbd086ba7d51eed8fc52581ab',
+    '8a2cd4a5df7c056c4f815c8cd59b109ceb02135eb7b7b0e14a1b3d9891af2cfb',
 } as const
 
 async function embeddedFilesBelow(
@@ -2967,14 +2967,14 @@ function genuineModules(): Promise<CommonAuthStoreModules> {
       files?: Array<{ output: string; bytes: number; outputSha256: string }>
     }
     if (
-      receipt.package !== RELEASED_COMMON_AUTH.package ||
-      receipt.version !== RELEASED_COMMON_AUTH.version ||
+      receipt.package !== EMBEDDED_COMMON_AUTH.package ||
+      receipt.version !== EMBEDDED_COMMON_AUTH.version ||
       receipt.artifactStatus !== 'published' ||
-      receipt.tarballSha256 !== RELEASED_COMMON_AUTH.tarballSha256 ||
+      receipt.tarballSha256 !== EMBEDDED_COMMON_AUTH.tarballSha256 ||
       !Array.isArray(receipt.files)
     ) {
       throw new Error(
-        `source-output.json does not record the published common-auth ${RELEASED_COMMON_AUTH.version} archive`,
+        `source-output.json does not record the published common-auth ${EMBEDDED_COMMON_AUTH.version} archive`,
       )
     }
     const recorded = receipt.files.filter((file) =>

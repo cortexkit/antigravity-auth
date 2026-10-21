@@ -1,9 +1,9 @@
 export type { QuotaCodec } from './codec.js';
 export { quotaCodec } from './codec.js';
 export type { QuotaParts, QuotaTextForm, QuotaTextOptions, QuotaWindowPart, } from './format.js';
-export { formatQuota, isQuotaStale, NO_LIMITS_REPORTED, NO_QUOTA_READING, QUOTA_STALE_AFTER_MS, quotaTextParts, quotaWindowName, quotaWindowParts, } from './format.js';
-export type { CreditBudgetCleared, CreditBudgetEntry, CreditBudgetReading, QuotaAbsentEntry, QuotaCounter, QuotaEntry, QuotaMap, QuotaReadingEntry, QuotaRetiredEntry, } from './map.js';
-export { ALL_SCOPE, DEFAULT_REQUIRED_LABELS, decodeQuotaMap, emptyQuotaMap, isQuotaMap, } from './map.js';
+export { formatQuota, isQuotaStale, NO_LIMITS_REPORTED, NO_QUOTA_READING, QUOTA_STALE_AFTER_MS, quotaCreditsText, quotaTextParts, quotaWindowName, quotaWindowParts, } from './format.js';
+export type { CreditBudgetCleared, CreditBudgetEntry, CreditBudgetReading, QuotaAbsentEntry, QuotaCounter, QuotaCredits, QuotaEntry, QuotaMap, QuotaReadingEntry, QuotaRetiredEntry, } from './map.js';
+export { ALL_SCOPE, DEFAULT_REQUIRED_LABELS, decodeQuotaMap, emptyQuotaMap, isQuotaCredits, isQuotaMap, } from './map.js';
 export type { ObservedBudget, ObservedPair, ObservedReading, QuotaObservation, } from './merge.js';
 export { isQuotaObservation, mergeQuotaObservation, QuotaCodecError, } from './merge.js';
 export type { ExhaustionReset, ProjectedBudget, ProjectedLimit, ProjectedQuota, QuotaGroup, } from './projection.js';

@@ -48,12 +48,30 @@ export interface QuotaCounter {
     value: number;
     checkedAt: number;
 }
+/**
+ * Prepaid credits a provider account holds beside its rate-limit windows (for
+ * example a ChatGPT workspace's credits, which keep requests working after a
+ * window is used up). This is a state, not a count or the spend budget: the
+ * account has credits or not, they may be unlimited, and the provider may
+ * report a balance. It carries its own observation time.
+ */
+export interface QuotaCredits {
+    hasCredits: boolean;
+    unlimited: boolean;
+    /** The balance the provider reported, when it reported one. */
+    balance?: number;
+    /** The provider's verdict that the overage allowance is used up. */
+    overageLimitReached?: boolean;
+    checkedAt: number;
+}
 export interface QuotaMap {
     limits: QuotaEntry[];
     /** Absent means no observation has reported on the budget yet. */
     budget?: CreditBudgetEntry;
     /** Provider-named counts, each with its own observation time. */
     counters?: Record<string, QuotaCounter>;
+    /** Absent means no observation has reported on prepaid credits yet. */
+    credits?: QuotaCredits;
 }
 export declare function emptyQuotaMap(): QuotaMap;
 /** The time an entry speaks for: its reading, retirement or absence time. */
@@ -61,9 +79,14 @@ export declare function entryTime(entry: QuotaEntry): number;
 export declare function limitKey(scope: string, label: string): string;
 export declare function isCreditBudgetEntry(value: unknown): value is CreditBudgetEntry;
 export declare function isQuotaCounters(value: unknown): value is Record<string, QuotaCounter>;
+/** True when `value` is a well-formed prepaid-credits record. */
+export declare function isQuotaCredits(value: unknown): value is QuotaCredits;
 /** Keep usable counters without letting one malformed count hide a quota map. */
 export declare function readQuotaCounters(value: unknown): Record<string, QuotaCounter> | undefined;
-/** Decode persisted quota, dropping malformed counters but not limit evidence. */
+/**
+ * Decode persisted quota, dropping malformed counters or a malformed credits
+ * record but not limit or budget evidence.
+ */
 export declare function decodeQuotaMap(value: unknown): QuotaMap | undefined;
 /**
  * True when `value` is a well-formed quota map. Unrecognised top-level keys

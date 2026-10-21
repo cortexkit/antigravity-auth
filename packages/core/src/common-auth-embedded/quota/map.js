@@ -14,6 +14,9 @@
 // reset clock. It is a tri-state: absent (never reported), a reading, or
 // cleared (the provider reported that no budget exists).
 //
+// Provider-named counters and the prepaid credits record sit beside them too,
+// each judged by its own observation time rather than the limits'.
+//
 // The map is plain JSON so the store can persist it without interpreting it.
 /** The scope of a limit that binds every request regardless of model. */
 export const ALL_SCOPE = 'all';
@@ -93,6 +96,18 @@ function isQuotaCounter(value) {
 export function isQuotaCounters(value) {
     return isRecord(value) && Object.values(value).every(isQuotaCounter);
 }
+function isBoolean(value) {
+    return typeof value === 'boolean';
+}
+/** True when `value` is a well-formed prepaid-credits record. */
+export function isQuotaCredits(value) {
+    return (isRecord(value) &&
+        typeof value.hasCredits === 'boolean' &&
+        typeof value.unlimited === 'boolean' &&
+        optional(value, 'balance', isFiniteNumber) &&
+        optional(value, 'overageLimitReached', isBoolean) &&
+        isFiniteNumber(value.checkedAt));
+}
 /** Keep usable counters without letting one malformed count hide a quota map. */
 export function readQuotaCounters(value) {
     if (!isRecord(value))
@@ -102,20 +117,29 @@ export function readQuotaCounters(value) {
         ? undefined
         : Object.fromEntries(entries);
 }
-/** Decode persisted quota, dropping malformed counters but not limit evidence. */
+/**
+ * Decode persisted quota, dropping malformed counters or a malformed credits
+ * record but not limit or budget evidence.
+ */
 export function decodeQuotaMap(value) {
     // A valid map is returned as the same object, so stored quota keeps the
-    // identity it had before counters existed; only a map with a malformed
-    // counter is copied without it.
+    // identity it had before counters and credits existed. A map with a
+    // malformed counter or credits record is copied with those malformed
+    // fields left out.
     if (isQuotaMap(value))
         return value;
     if (!isRecord(value))
         return undefined;
-    const { counters: rawCounters, ...rest } = value;
+    const { counters: rawCounters, credits: rawCredits, ...rest } = value;
     if (!isQuotaMap(rest))
         return undefined;
     const counters = readQuotaCounters(rawCounters);
-    return { ...rest, ...(counters === undefined ? {} : { counters }) };
+    const credits = isQuotaCredits(rawCredits) ? rawCredits : undefined;
+    return {
+        ...rest,
+        ...(counters === undefined ? {} : { counters }),
+        ...(credits === undefined ? {} : { credits }),
+    };
 }
 /**
  * True when `value` is a well-formed quota map. Unrecognised top-level keys
@@ -136,5 +160,6 @@ export function isQuotaMap(value) {
         seen.add(key);
     }
     return (optional(value, 'budget', isCreditBudgetEntry) &&
-        optional(value, 'counters', isQuotaCounters));
+        optional(value, 'counters', isQuotaCounters) &&
+        optional(value, 'credits', isQuotaCredits));
 }

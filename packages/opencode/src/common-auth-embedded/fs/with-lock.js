@@ -21,6 +21,7 @@ export class LockOwnershipError extends Error {
 export async function withLock(target, options, fn) {
     const started = performance.now();
     for (;;) {
+        options.signal?.throwIfAborted();
         const lock = await acquireRefreshFileLock({
             path: target,
             name: options.name,
@@ -33,6 +34,7 @@ export async function withLock(target, options, fn) {
         });
         if (lock) {
             try {
+                options.signal?.throwIfAborted();
                 return await fn(lock);
             }
             finally {

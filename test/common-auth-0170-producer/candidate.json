@@ -1,14 +1,14 @@
 {
-  "version": "0.22.0",
+  "version": "0.23.0",
   "artifactStatus": "published",
-  "archiveBytes": 310382,
-  "sha256": "846844993cfddd8511e5cf9b0a364629b210a3efbd086ba7d51eed8fc52581ab",
-  "sri": "sha512-02yOfdzAI1QSwtofnjvSeFsELl6Lo1kp7jE4pCRFLRx0q0aFxlGeJgWacIVvM7y/DClkhstQvaRrtL/VSs8jUQ==",
-  "manifestSha256": "54a62fbb678175e44ab4c970371e7f05961953f96ba39bdd86f95c42f9b0744d",
-  "inventorySha256": "bb230979d7ce509c5b49f9855f8ec07949c616a8c94e3f749c8edb33192086f4",
+  "archiveBytes": 316248,
+  "sha256": "8a2cd4a5df7c056c4f815c8cd59b109ceb02135eb7b7b0e14a1b3d9891af2cfb",
+  "sri": "sha512-WwCjPwOhbZBomCAPxEooCiSDgvcaIsEn5yjTqmEy0PU0ZJUKSr3cE8Il0AsW7xU2h2Wo267rsciZhV3rPlUPCA==",
+  "manifestSha256": "410d8fce651a108131983ccb1cea70ea789ac27d8e1b61f249ede7a35b292334",
+  "inventorySha256": "c743fb2a36260c3c33626d3f658c36c398642b0ee4a7aae4a6e0cb9b8aa3da7d",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
-  "canonicalFiles": 182,
-  "canonicalBytes": 1032551,
+  "canonicalFiles": 184,
+  "canonicalBytes": 1054172,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -58,13 +58,13 @@
       "types": "./dist/quota/index.d.ts",
       "import": "./dist/quota/index.js"
     },
-    "./opencode2": {
-      "types": "./dist/opencode2/index.d.ts",
-      "import": "./dist/opencode2/index.js"
-    },
     "./pi-slot": {
       "types": "./dist/pi-slot/index.d.ts",
       "import": "./dist/pi-slot/index.js"
+    },
+    "./opencode2": {
+      "types": "./dist/opencode2/index.d.ts",
+      "import": "./dist/opencode2/index.js"
     }
   },
   "files": [
@@ -180,13 +180,13 @@
     ],
     [
       "claustrum/consumer.d.ts",
-      9422,
-      "757c3c0e9a0d03984d0510dc5a6248e35426fe03d2b72a0a1f59204b9f1666ef"
+      9548,
+      "150eac9038881740a78e5664501a6ef0aa5e177a6dd46854cbeaf38513463e90"
     ],
     [
       "claustrum/consumer.js",
-      25150,
-      "58cd180a286241cbe699441939045a28132c04ba1fb0b4e5a07ff1b18b3ff486"
+      25698,
+      "ec47dc016bf4d95655c17093a78d9c214b623214c821d352f73ea60f830c0d83"
     ],
     [
       "claustrum/custody.d.ts",
@@ -230,13 +230,13 @@
     ],
     [
       "claustrum/index.d.ts",
-      3708,
-      "97dc7d8f1cd9a74301a55569a06a2661d54966240edbfdcaf5989d112ec94885"
+      3761,
+      "f2c1b8d99048666c068805b08b430492b2632be08e2beda466ee56b871572847"
     ],
     [
       "claustrum/index.js",
-      2456,
-      "1e2ae0ee6f2754189e846298a1c6ce2dd4a5eb8cb7f9293f6c24f9725b8537be"
+      2509,
+      "5f8b4bebfc2dec055b69769adcd1ce48ad7acc2c26256edbe4a2e984dc788147"
     ],
     [
       "claustrum/insula.d.ts",
@@ -259,14 +259,24 @@
       "031b95ccc3b3779ddb3be78278b29d6b2a741fc8217443a610ad2f98fe33ef33"
     ],
     [
+      "claustrum/quota-writer.d.ts",
+      1112,
+      "35c3193c833ef169b5ebd9fdb03a8e08c234e9154b68b04d3cbea79975fffd14"
+    ],
+    [
+      "claustrum/quota-writer.js",
+      9694,
+      "5a7d5d1059dcadc06aa41e81e0707cc444636473822047f0ec72da7589c770f1"
+    ],
+    [
       "claustrum/roster.d.ts",
-      9932,
-      "7c5684ff5c3f66d418f3624d07565a08556662f445cb96a7575a270851fab9c3"
+      10931,
+      "c394bc08c7cce4dc68fd539ac03cb200727534693600c7daf5ba7c9c4d0618ce"
     ],
     [
       "claustrum/roster.js",
-      25106,
-      "e6ac8f59dab51db4756ccbaa89fc73acd213a7a4795fdf5a7c7e4f653455fe94"
+      27602,
+      "45ed2d4e69fad154ce86f5ff4f839c2ae9269dd9146ce7a8b2e5b6f49476ddf8"
     ],
     [
       "claustrum/watch.d.ts",
@@ -390,13 +400,13 @@
     ],
     [
       "fs/with-lock.d.ts",
-      1153,
-      "a0509ca4ee64b392b69c7a8555c7b33c0c223a8e58aec48848c3216350f1ba0c"
+      1179,
+      "403d301f0cc332b72f8e7d904ac26f8efc93081cbd2cddd46b3f6a5a61d52685"
     ],
     [
       "fs/with-lock.js",
-      1697,
-      "35b4ed6dec77ffcb7850e655a35957da15c14a0fa27b6f3d1d634e243de43456"
+      1789,
+      "94fa839ec83d730280048f7e586453daadc590c4fbcf5601fd96f4a2d4193d6b"
     ],
     [
       "logger/capture-sink.d.ts",
@@ -530,53 +540,53 @@
     ],
     [
       "quota/format.d.ts",
-      4415,
-      "293073e9f75e7f15790669f4be8340061566e889259593fcfaf17be9fa4f0a01"
+      5507,
+      "7df60af3e135f34e157bf41c05b59052047f1a583ff3f1dabb3ca4e525b8089a"
     ],
     [
       "quota/format.js",
-      16323,
-      "d4856ea40dc4269f9a6ffa78bee8564ba648170530e8ff71af4cf38ba5f3baaa"
+      18143,
+      "e00f3bb6d9da8b13522f02f953387e218f9cc6b62b80821ca081aa06f76d27c6"
     ],
     [
       "quota/index.d.ts",
-      1059,
-      "fbb7a865108f98da1f3bb44fba20614a2998ccf5c906b271419b49d37a814214"
+      1107,
+      "bbc90a42ee076209b368a3ffd477b0554dbe86da63c7e345cd3515b8ffc8950a"
     ],
     [
       "quota/index.js",
-      511,
-      "691e7db4bf6025770991f98adda82ca4cb9be45eeefa3709b114fb2decfdf66e"
+      545,
+      "781024edb9aa55a4cb88dfd0657abe569a1d9d15ac2b9a4a90456499a21a85fd"
     ],
     [
       "quota/map.d.ts",
-      2901,
-      "28ba151926d76d45051065b243032ae4f698a3c4f94b44f32341c97467c7faf6"
+      3876,
+      "95a8545c91726fecad46289ffd7fb400b62c376bfbc44477348ae30efe2ee853"
     ],
     [
       "quota/map.js",
-      5669,
-      "95339af4c80684b4e462f5ba32affeaa5f8b5885db599dc5e8ac1ffd1890d729"
+      6610,
+      "c25cf67edc7d9cdc697d8956181d55cd13e823bead30c6acc82477c8222eb1df"
     ],
     [
       "quota/merge.d.ts",
-      1775,
-      "3531d738712f40b79415cd58940c55bf4cce6827c500fc3912368ff012e31f25"
+      1997,
+      "b1f5d76d4176b118f7dbc19dd7d2f986697c8ecae2476b2cbe0c5a2538560527"
     ],
     [
       "quota/merge.js",
-      7439,
-      "64440806fd70d214eb6a6f4c98f3a6ba442ca48d39762395a202c25fbf08a23e"
+      8096,
+      "b1d76faf1fb480b97ef1886ce75dbd2156002baedc39249468559cb4eece5bbb"
     ],
     [
       "quota/projection.d.ts",
-      3549,
-      "2bbf4942bc034f3521c6c35e30446d73de525a099f7ba49c004d160e4dd917ea"
+      3661,
+      "c4f4c8c53245bd0c8bd08a1483aede705a4c3e21e4a131f14835340ffee38fab"
     ],
     [
       "quota/projection.js",
-      5640,
-      "be7012f1df5845a1f3377b148f35ffe029583c1b9b5426f70a7ba96f7b49a150"
+      5787,
+      "762f4ba4f64accc7f7344402897ddaad3cfc908c11ff8e6ee9b6277602b78702"
     ],
     [
       "routing/admission.d.ts",
@@ -760,13 +770,13 @@
     ],
     [
       "setup/process-fence.d.ts",
-      1615,
-      "9eda9454a17fb7f8482746d9e8cf0e04a81f752d3ccff07a77880966a3550e7d"
+      1897,
+      "12161c0ddc3ed14c50ff62dd441158aeaa5285bb49f6735c5b2e5b3a430364fb"
     ],
     [
       "setup/process-fence.js",
-      10923,
-      "e2db85ab7ae29b99e9801787c0bb4f0bf58acc5b8c231a0c4acef30cde812747"
+      11015,
+      "ff848eb647b155a2dfbb8a201b5330b8b9ba3ac12dc6af7bc4f0f514d94a83c4"
     ],
     [
       "setup/prompts.js",

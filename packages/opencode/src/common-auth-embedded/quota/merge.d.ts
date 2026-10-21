@@ -1,4 +1,4 @@
-import { type QuotaCounter, type QuotaMap } from './map.js';
+import { type QuotaCounter, type QuotaCredits, type QuotaMap } from './map.js';
 export interface ObservedReading {
     /** Defaults to `all`. */
     scope?: string;
@@ -34,6 +34,11 @@ export interface QuotaObservation {
     budget?: ObservedBudget;
     /** Each named count uses its own time, independently of limits and budget. */
     counters?: Record<string, QuotaCounter>;
+    /**
+     * Prepaid credits, judged by their own time independently of limits, budget
+     * and counters. Absent means the observation says nothing about credits.
+     */
+    credits?: QuotaCredits;
 }
 /** Thrown by `mergeQuotaObservation` when either argument is malformed. */
 export declare class QuotaCodecError extends TypeError {

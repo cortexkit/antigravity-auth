@@ -4,7 +4,8 @@ import { ClaustrumScopedCustody, decideScopedRetryAfter401, } from './custody.js
 import { readClaustrumEnrollmentToken } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
 import { acquireInsulaQuotaSource, } from './insula.js';
-import { acceptVaultRoute, declineVaultRoute, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, vaultRoutingRows, } from './roster.js';
+import { pendingVaultQuota, retainVaultQuotaWriter } from './quota-writer.js';
+import { acceptVaultRoute, applyVaultQuota, declineVaultRoute, forgetPendingVaultDiscovery, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, vaultRoutingRows, } from './roster.js';
 import { SAFETY_POLL_MS } from './watch.js';
 /**
  * One plugin host's view of its vault accounts. It turns vault credentials
@@ -35,9 +36,13 @@ export class ClaustrumConsumer {
     #insulaSkips = new Map();
     /** When this instance last completed a discovery, by `now`. */
     #discoveredAt;
+    #releaseQuotaWriter;
     constructor(options) {
         this.#options = options;
         this.#logger = options.logger ?? createLogger('claustrum');
+        this.#releaseQuotaWriter = retainVaultQuotaWriter(options.rosterPath, (publication) => {
+            this.#roster = applyVaultQuota(this.#roster, publication).roster;
+        });
     }
     #assertOpen(signal) {
         this.#shutdown.signal.throwIfAborted();
@@ -176,11 +181,9 @@ export class ClaustrumConsumer {
             let discovered;
             const roster = await refreshVaultRoster({
                 path: this.#options.rosterPath,
-                custody: {
-                    discover: async (signal) => {
-                        discovered = await custody.discover(signal);
-                        return discovered;
-                    },
+                custody,
+                onInventory: (inventory) => {
+                    discovered = inventory;
                 },
                 isActive: () => this.#active(),
                 signal: this.#shutdown.signal,
@@ -193,7 +196,7 @@ export class ClaustrumConsumer {
             });
             this.#assertOpen();
             const changed = roster?.view !== this.#roster?.view;
-            this.#roster = roster;
+            this.#roster = pendingVaultQuota(this.#options.rosterPath, roster);
             custody.retain(roster?.rows ?? []);
             // Each discovery replaces the previous value, including with unknown. A
             // refresh that served a peer's roster discovered nothing and leaves it;
@@ -349,7 +352,7 @@ export class ClaustrumConsumer {
             return undefined;
         try {
             await readClaustrumEnrollmentToken(this.#options.tokenPath);
-            const roster = await readVaultRoster(this.#options.rosterPath);
+            const roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
             const row = roster?.rows.find((entry) => entry.routeId === routeId);
             return this.#normalizeInsulaQuota(row?.accountIdentity);
         }
@@ -364,7 +367,7 @@ export class ClaustrumConsumer {
             return { miss: 'unreachable' };
         try {
             await readClaustrumEnrollmentToken(this.#options.tokenPath);
-            const roster = await readVaultRoster(this.#options.rosterPath);
+            const roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
             const account = roster?.rows.find((row) => row.routeId === routeId)?.accountIdentity;
             if (!account || !this.#insula)
                 return { miss: 'unreachable' };
@@ -419,7 +422,7 @@ export class ClaustrumConsumer {
             this.#insula = undefined;
             throw new ClaustrumConsumerError('not-active', 'Claustrum scoped custody is not active');
         }
-        const current = await readVaultRoster(this.#options.rosterPath);
+        const current = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
         this.#assertOpen(signal);
         const observed = roster.rows.find((row) => row.routeId === routeId);
         const configured = current?.rows.find((row) => row.routeId === routeId);
@@ -511,13 +514,13 @@ export class ClaustrumConsumer {
     async decline(routeId) {
         this.#assertOpen();
         await declineVaultRoute(this.#options.rosterPath, routeId);
-        this.#roster = await readVaultRoster(this.#options.rosterPath);
+        this.#roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
         this.#custody?.retain(this.#roster?.rows ?? []);
     }
     async accept(routeId) {
         this.#assertOpen();
         await acceptVaultRoute(this.#options.rosterPath, routeId);
-        this.#roster = await readVaultRoster(this.#options.rosterPath);
+        this.#roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
     }
     /**
      * Store a quota or profile observation for a vault route. The receipt the
@@ -527,7 +530,7 @@ export class ClaustrumConsumer {
      */
     async recordQuota(routeId, observation, attempt) {
         this.#assertOpen();
-        const kept = await recordVaultQuota(this.#options.rosterPath, {
+        return recordVaultQuota(this.#options.rosterPath, {
             routeId,
             observation,
             credentialId: attempt.credentialId,
@@ -539,27 +542,21 @@ export class ClaustrumConsumer {
                 expectedAccountIdentity: attempt.expectedAccountIdentity,
             }),
         });
-        if (kept)
-            this.#roster = await readVaultRoster(this.#options.rosterPath);
-        return kept;
     }
     /**
      * Store a background observation that belongs to an account rather than to
      * a served credential (an insula reading from `cachedInsulaQuotaForRoute`).
      * It lands only while the route is still bound to that known account, so no
      * credential fetch is needed and a replaced account's reading is dropped.
-     * The in-memory roster is reloaded from the file, without a vault call.
+     * Memory updates immediately; durable publication is detached and coalesced.
      */
     async recordAccountQuota(routeId, accountIdentity, observation) {
         this.#assertOpen();
-        const kept = await recordVaultAccountQuota(this.#options.rosterPath, {
+        return recordVaultAccountQuota(this.#options.rosterPath, {
             routeId,
             accountIdentity,
             observation,
         });
-        if (kept)
-            this.#roster = await readVaultRoster(this.#options.rosterPath);
-        return kept;
     }
     close() {
         if (this.#shutdown.signal.aborted)
@@ -574,5 +571,12 @@ export class ClaustrumConsumer {
         this.#insula = undefined;
         this.#roster = undefined;
         this.#grantReach = undefined;
+        void this.#releaseQuotaWriter();
+        forgetPendingVaultDiscovery(this.#options.rosterPath);
+    }
+    /** Close immediately; the last consumer also waits for the writer's bounded drain. */
+    async dispose() {
+        this.close();
+        await this.#releaseQuotaWriter();
     }
 }

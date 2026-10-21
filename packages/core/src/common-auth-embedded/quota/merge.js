@@ -11,7 +11,7 @@
 // no entry gets an absence record. A pair outside the coverage is never
 // touched, so a header-shaped partial observation (which covers only what it
 // carries) cannot erase a family limit or the budget.
-import { ALL_SCOPE, decodeQuotaMap, entryTime, isQuotaCounters, limitKey, } from './map.js';
+import { ALL_SCOPE, decodeQuotaMap, entryTime, isQuotaCounters, isQuotaCredits, limitKey, } from './map.js';
 /** Thrown by `mergeQuotaObservation` when either argument is malformed. */
 export class QuotaCodecError extends TypeError {
     constructor(message) {
@@ -84,7 +84,8 @@ export function isQuotaObservation(value) {
     if (!coverage.every(isObservedPair))
         return false;
     return ((value.budget === undefined || isObservedBudget(value.budget)) &&
-        (value.counters === undefined || isQuotaCounters(value.counters)));
+        (value.counters === undefined || isQuotaCounters(value.counters)) &&
+        (value.credits === undefined || isQuotaCredits(value.credits)));
 }
 function compareEntries(left, right) {
     if (left.scope !== right.scope)
@@ -109,6 +110,17 @@ function mergeCounters(stored, observed) {
         }
     }
     return counters.size === 0 ? undefined : Object.fromEntries(counters);
+}
+// Credits merge like a single counter: the newer record wins, an equal time
+// applies (the observation applied last wins), and an observation without
+// credits leaves the stored record alone.
+function mergeCredits(stored, observed) {
+    if (observed === undefined)
+        return stored;
+    if (stored !== undefined && observed.checkedAt < stored.checkedAt) {
+        return stored;
+    }
+    return { ...observed };
 }
 /**
  * Applies `observation` to `stored` (undefined for a row with no map yet) and
@@ -166,13 +178,15 @@ export function mergeQuotaObservation(stored, observation) {
             : { scope, label: pair.label, kind: 'retired', retiredAt: at });
     }
     // Keys this module does not recognise are carried over untouched.
-    const { limits: _limits, budget: _budget, counters: _counters, ...unknownKeys } = base;
+    const { limits: _limits, budget: _budget, counters: _counters, credits: _credits, ...unknownKeys } = base;
     const budget = mergeBudget(base.budget, observation.budget, at);
     const counters = mergeCounters(base.counters, observation.counters);
+    const credits = mergeCredits(base.credits, observation.credits);
     return {
         ...unknownKeys,
         limits: [...entries.values()].sort(compareEntries),
         ...(budget === undefined ? {} : { budget }),
         ...(counters === undefined ? {} : { counters }),
+        ...(credits === undefined ? {} : { credits }),
     };
 }

@@ -102,6 +102,7 @@
       "./enrollment.js",
       "./errors.js",
       "./insula.js",
+      "./quota-writer.js",
       "./roster.js",
       "./watch.js"
     ],
@@ -141,6 +142,7 @@
       "./host-slot.js",
       "./insula.js",
       "./interlock.js",
+      "./quota-writer.js",
       "./roster.js",
       "./watch.js",
       "@cortexkit/claustrum-client"
@@ -154,6 +156,7 @@
       "./host-slot.js",
       "./insula.js",
       "./interlock.js",
+      "./quota-writer.js",
       "./roster.js",
       "./watch.js",
       "@cortexkit/claustrum-client"
@@ -166,11 +169,19 @@
       "@cortexkit/subc-client",
       "node:path"
     ],
+    "claustrum/quota-writer.d.ts": ["../quota/index.js", "./roster.js"],
+    "claustrum/quota-writer.js": [
+      "../logger/index.js",
+      "../quota/index.js",
+      "./roster.js",
+      "node:path"
+    ],
     "claustrum/roster.d.ts": [
       "../quota/index.js",
       "../routing/index.js",
       "./custody.js",
-      "./interlock.js"
+      "./interlock.js",
+      "./quota-writer.js"
     ],
     "claustrum/roster.js": [
       "../fs/index.js",
@@ -178,7 +189,9 @@
       "../quota/index.js",
       "./errors.js",
       "./interlock.js",
-      "node:crypto"
+      "./quota-writer.js",
+      "node:crypto",
+      "node:path"
     ],
     "claustrum/watch.d.ts": ["./errors.js"],
     "claustrum/watch.js": [],
@@ -299,7 +312,7 @@
       "node:timers/promises"
     ],
     "quota/codec.js": ["./map.js", "./merge.js"],
-    "quota/format.d.ts": ["./projection.js"],
+    "quota/format.d.ts": ["./map.js", "./projection.js"],
     "quota/format.js": ["./map.js"],
     "quota/index.d.ts": [
       "./codec.js",

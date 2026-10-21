@@ -1,4 +1,4 @@
-import { type QuotaCounter, type QuotaMap } from './map.js';
+import { type QuotaCounter, type QuotaCredits, type QuotaMap } from './map.js';
 export interface ProjectedLimit {
     scope: string;
     label: string;
@@ -40,6 +40,8 @@ export interface ProjectedQuota {
     /** Present only when the stored budget is a reading, not cleared. */
     budget?: ProjectedBudget;
     counters?: Record<string, QuotaCounter>;
+    /** The stored prepaid credits, unchanged in every scope. */
+    credits?: QuotaCredits;
     /**
      * The named groups the windows belong to, in the order the plugin lists
      * them. Set only by a plugin whose windows all belong to such groups; the

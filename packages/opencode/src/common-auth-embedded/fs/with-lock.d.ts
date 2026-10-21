@@ -28,6 +28,7 @@ export interface LockOptions {
     ttlMs: number;
     timeoutMs: number;
     renew?: boolean;
+    signal?: AbortSignal;
     onStep?: Parameters<typeof acquireRefreshFileLock>[0]['onStep'];
     onRenewalTimer?: Parameters<typeof acquireRefreshFileLock>[0]['onRenewalTimer'];
 }

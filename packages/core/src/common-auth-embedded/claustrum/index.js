@@ -14,6 +14,7 @@ export { ClaustrumConsumerError, } from './errors.js';
 export { assertHostSlotMatchesMode, assertNotCustodyPlaceholder, CUSTODY_PLACEHOLDER_PREFIX, classifyHostSlot, custodyPlaceholder, custodyPlaceholderKey, isCustodyPlaceholder, isCustodyPlaceholderValue, } from './host-slot.js';
 export { acquireInsulaQuotaSource, } from './insula.js';
 export { acceptAccount, declineAccount, isDeclined, } from './interlock.js';
+export { drainVaultQuota } from './quota-writer.js';
 export { acceptVaultRoute, DEFAULT_ROUTE_PREFIX, declineVaultRoute, mutateVaultRoster, projectVaultRoster, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, resolveVaultPrimary, vaultRoutingRows, } from './roster.js';
 export { ChangeNoticeReader, RESUBSCRIBE_BACKOFF_MS, SAFETY_POLL_MS, ScopedRosterWatch, WATCH_RETRY_MS, } from './watch.js';
 /**

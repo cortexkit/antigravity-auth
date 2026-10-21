@@ -54,7 +54,7 @@ test('producer.native_windows_archive_pin', async () => {
 
 async function archive() {
   const bytes = await readFile(join(root, inputPath))
-  expect(bytes.length).toBe(310382)
+  expect(bytes.length).toBe(316248)
   expect(digest(bytes)).toBe(publication.sha256)
   const entries = readVerifiedArchive(bytes, publication)
   validatePublication(entries)
@@ -69,9 +69,9 @@ async function owned() {
   return path
 }
 
-// Independently scan import specifiers in the published JavaScript and declaration
-// text to check the frozen closure. Keep this witness separate from the producer's
-// AST graph traversal so the two checks do not validate themselves.
+// Independently scan import specifiers in the pinned archive's JavaScript and
+// declarations. Keep this witness separate from the producer's AST traversal so
+// neither check reuses the other's import graph.
 function imports(text: string): string[] {
   return sorted(
     [
@@ -155,13 +155,13 @@ test('producer.public_roots_and_exact_closure', async () => {
   const graph = reach(entries, starts)
   expect(graph.files).toEqual(selected)
   expect(graph.externals).toEqual(closure.nonlocalImports)
-  expect(graph.files.length).toBe(182)
+  expect(graph.files.length).toBe(184)
   expect(
     graph.files.reduce(
       (sum, file) => sum + entries.get(`package/dist/${file}`)!.length,
       0,
     ),
-  ).toBe(1032551)
+  ).toBe(1054172)
   expect(graph.files.filter((file) => file.startsWith('routing/'))).toEqual(
     closure.routingFiles,
   )
@@ -237,11 +237,11 @@ test('producer.verbatim_map', async () => {
   const map = JSON.parse(
     await readFile(join(target, outputPath, 'source-output.json'), 'utf8'),
   )
-  expect(map.version).toBe('0.22.0')
+  expect(map.version).toBe('0.23.0')
   expect(map.artifactStatus).toBe('published')
   expect(map.publicRoots).toEqual(publication.publicRoots)
-  expect(map.canonicalFiles).toBe(182)
-  expect(map.canonicalBytes).toBe(1032551)
+  expect(map.canonicalFiles).toBe(184)
+  expect(map.canonicalBytes).toBe(1054172)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])
@@ -313,9 +313,9 @@ test('producer.shared_core_profile_exact_closure', async () => {
       'utf8',
     ),
   )
-  expect(required.length).toBe(137)
-  expect(map.canonicalFiles).toBe(137)
-  expect(map.canonicalBytes).toBe(836435)
+  expect(required.length).toBe(139)
+  expect(map.canonicalFiles).toBe(139)
+  expect(map.canonicalBytes).toBe(857682)
   expect(map.publicRoots).toEqual(profile.publicRoots)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.files.map((file: { output: string }) => file.output)).toEqual(

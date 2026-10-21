@@ -1,3 +1,4 @@
+import { type QuotaCredits } from './map.js';
 import type { ProjectedLimit, ProjectedQuota } from './projection.js';
 /** A reading older than this is marked with its age. */
 export declare const QUOTA_STALE_AFTER_MS: number;
@@ -31,6 +32,13 @@ export interface QuotaWindowPart {
     kind: 'window' | 'budget';
     /** The display name of a quota window, or `credits` for the budget. */
     name: string;
+    /**
+     * The label the narrow line gives this item: an account-wide window keeps
+     * its name (`5h`), a model-scoped window reads as its model's short name
+     * (`Fa` for Fable, extended until names in the same reading differ), and
+     * the budget reads `cr`. For layouts too narrow for the full name.
+     */
+    short: string;
     /** The shared figure wording, including `credits` for budget figures. */
     figure: string;
     /** The unrounded remaining percentage, clamped to 0–100, when known. */
@@ -84,3 +92,14 @@ export declare function quotaTextParts(quota: ProjectedQuota | undefined, option
  * provider answered without a limit for any window.
  */
 export declare function formatQuota(quota: ProjectedQuota | undefined, options: QuotaTextOptions): string;
+/**
+ * Prepaid credits as one short value, worded as the official Codex client's
+ * status view words them: `Unlimited` for unlimited credits, `<n> credits`
+ * for a finite positive balance (rounded to a whole number), `Available` when
+ * the account has credits but no usable balance was reported, and undefined
+ * when the account has no credits (or `credits` is undefined), so a caller
+ * shows no credits row at all. Unlimited wins even when `hasCredits` is false.
+ * No other formatter adds this text; a caller that wants a credits row asks
+ * for it.
+ */
+export declare function quotaCreditsText(credits: Pick<QuotaCredits, 'hasCredits' | 'unlimited' | 'balance'> | undefined): string | undefined;

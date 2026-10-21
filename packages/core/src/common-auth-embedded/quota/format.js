@@ -107,6 +107,25 @@ export function quotaWindowParts(quota, options) {
     return age === undefined ? { windows: parts } : { windows: parts, age };
 }
 /**
+ * The narrow label of each scoped window part, as `narrowTextParts` names
+ * them: model short names are worked out over every model-scoped window in
+ * the reading, so two models never share a short name.
+ */
+function withShortNames(windows) {
+    const abbreviations = scopeAbbreviations(windows
+        .filter(({ part, scope }) => part.kind === 'window' && scope !== ALL_SCOPE)
+        .map(({ scope }) => scope));
+    for (const window of windows) {
+        window.part.short =
+            window.part.kind === 'budget'
+                ? 'cr'
+                : window.scope === ALL_SCOPE
+                    ? window.part.name
+                    : (abbreviations.get(window.scope) ?? window.scope);
+    }
+    return windows;
+}
+/**
  * `quotaWindowParts` with each window's scope kept beside it. The narrow form
  * needs the scope to name and pick model-scoped windows; the public parts do
  * not carry it, so their shape stays as it was.
@@ -128,6 +147,7 @@ function scopedWindowParts(quota, options) {
             part: {
                 kind: 'window',
                 name: quotaWindowName(limit),
+                short: '',
                 figure: percentLeft(limit.remainingPercent ?? 0),
                 remainingPercent,
                 checkedAt: limit.checkedAt,
@@ -149,6 +169,7 @@ function scopedWindowParts(quota, options) {
             part: {
                 kind: 'budget',
                 name: 'credits',
+                short: '',
                 figure,
                 ...(remainingPercent === undefined
                     ? {}
@@ -158,6 +179,7 @@ function scopedWindowParts(quota, options) {
             },
         });
     }
+    withShortNames(windows);
     if (windows.length > 0) {
         const age = now - Math.min(...windows.map(({ part }) => part.checkedAt));
         if (age > (options.staleAfterMs ?? QUOTA_STALE_AFTER_MS)) {
@@ -298,20 +320,21 @@ function narrowTextParts(quota, options) {
         return grouped;
     const general = windows.filter(({ part, scope }) => part.kind === 'window' && scope === ALL_SCOPE);
     const scoped = windows.filter(({ part, scope }) => part.kind === 'window' && scope !== ALL_SCOPE);
-    const abbreviations = scopeAbbreviations(scoped.map(({ scope }) => scope));
     // The items competing for the one slot after the account-wide windows, in
     // tie-break order: scoped windows in display order, then the budget. A
     // spent budget counts as 0% left; one without a percentage cannot compete.
+    // Their labels are the parts' short names, so the narrow line and a layout
+    // reading `short` always agree.
     const budget = windows.find(({ part }) => part.kind === 'budget');
     const budgetLeft = budget?.spent ? 0 : budget?.part.remainingPercent;
     const extras = [
-        ...scoped.map(({ scope, part }) => ({
-            label: abbreviations.get(scope) ?? scope,
+        ...scoped.map(({ part }) => ({
+            label: part.short,
             remaining: part.remainingPercent ?? 0,
         })),
-        ...(budgetLeft === undefined
+        ...(budgetLeft === undefined || budget === undefined
             ? []
-            : [{ label: 'cr', remaining: budgetLeft }]),
+            : [{ label: budget.part.short, remaining: budgetLeft }]),
     ];
     // Strictly lower wins, so on a tie the earlier item keeps the slot.
     const tightest = extras.reduce((best, item) => best === undefined || item.remaining < best.remaining ? item : best, undefined);
@@ -356,4 +379,26 @@ export function formatQuota(quota, options) {
     return quota && quota.limits.length > 0
         ? NO_LIMITS_REPORTED
         : NO_QUOTA_READING;
+}
+/**
+ * Prepaid credits as one short value, worded as the official Codex client's
+ * status view words them: `Unlimited` for unlimited credits, `<n> credits`
+ * for a finite positive balance (rounded to a whole number), `Available` when
+ * the account has credits but no usable balance was reported, and undefined
+ * when the account has no credits (or `credits` is undefined), so a caller
+ * shows no credits row at all. Unlimited wins even when `hasCredits` is false.
+ * No other formatter adds this text; a caller that wants a credits row asks
+ * for it.
+ */
+export function quotaCreditsText(credits) {
+    if (credits === undefined)
+        return undefined;
+    if (credits.unlimited)
+        return 'Unlimited';
+    if (!credits.hasCredits)
+        return undefined;
+    const { balance } = credits;
+    return typeof balance === 'number' && Number.isFinite(balance) && balance > 0
+        ? `${Math.round(balance)} credits`
+        : 'Available';
 }

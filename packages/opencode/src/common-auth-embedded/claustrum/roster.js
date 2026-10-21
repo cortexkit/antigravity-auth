@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
-import { acquireRefreshFileLock, withLock, writeJsonAtomic, } from '../fs/index.js';
+import { resolve } from 'node:path';
+import { acquireRefreshFileLock, LockContentionError, withLock, writeJsonAtomic, } from '../fs/index.js';
 import { readPrivateText, windowsPrivateFiles } from '../fs/private-files.js';
-import { decodeQuotaMap, mergeQuotaObservation, } from '../quota/index.js';
+import { decodeQuotaMap, isQuotaObservation, mergeQuotaObservation, } from '../quota/index.js';
 import { ClaustrumConsumerError } from './errors.js';
 import { acceptAccount, declineAccount, isDeclined, } from './interlock.js';
+import { enqueueVaultQuota, pendingVaultQuota, } from './quota-writer.js';
+export { drainVaultQuota } from './quota-writer.js';
 export const DEFAULT_ROUTE_PREFIX = 'vault:';
 function hash(value) {
     return createHash('sha256').update(value).digest('hex');
@@ -313,6 +316,7 @@ const WRITE_LOCK = {
     name: 'claustrum-roster-write',
     ttlMs: 10_000,
     timeoutMs: 5_000,
+    renew: true,
 };
 const DISCOVERY_LEASE = { name: 'claustrum-roster', ttlMs: 30_000 };
 /**
@@ -321,7 +325,7 @@ const DISCOVERY_LEASE = { name: 'claustrum-roster', ttlMs: 30_000 };
  * before any rename performed inside `change`; if it throws, do not rename.
  */
 export async function mutateVaultRoster(path, change, options = {}) {
-    return withLock(path, WRITE_LOCK, async (lock) => {
+    return withLock(path, { ...WRITE_LOCK, signal: options.signal }, async (lock) => {
         const current = await readVaultRoster(path);
         const { next, result } = await change(current, {
             assertOwned: () => lock.assertOwned(),
@@ -333,6 +337,7 @@ export async function mutateVaultRoster(path, change, options = {}) {
             await writeJsonAtomic(path, next, {
                 beforeRename: async () => {
                     await options.beforePublish?.();
+                    options.signal?.throwIfAborted();
                     await lock.assertOwned();
                 },
             });
@@ -415,29 +420,30 @@ function receiptFence(row, receipt) {
  * write is fenced on the receipt the reading was taken with: it lands only
  * while the row still holds that receipt's credential (as representative or
  * alias) and account, so a slow read for a replaced account can never land on
- * its successor. Returns whether the observation was kept.
+ * its successor. Resolves false when the fence refuses the reading against the
+ * roster as it stands now (on disk, plus readings this process has not
+ * written yet), and true once the reading is queued for the next write. The
+ * write applies the fence again, so a rebind between the two still refuses.
  */
-export function recordVaultQuota(path, input) {
-    return mutateVaultRoster(path, (current) => {
-        const row = current?.rows.find((entry) => entry.routeId === input.routeId);
-        const fence = !current || !row ? 'refuse' : receiptFence(row, input);
-        if (!current || !row || fence === 'refuse')
-            return { result: false };
-        const quota = mergeQuotaObservation(row.quota, input.observation);
-        // A bound account is `unclaimed`: the vault's list has not named it, and
-        // the next projection keeps it as the account this credential last
-        // logged into until the vault names one.
-        const bound = fence === 'bind'
-            ? { accountIdentity: input.accountIdentity, unclaimed: true }
-            : {};
-        return {
-            next: {
-                ...current,
-                rows: current.rows.map((entry) => entry === row ? { ...entry, ...bound, quota } : entry),
-            },
-            result: true,
-        };
+export async function recordVaultQuota(path, input) {
+    const { routeId, observation, ...receipt } = input;
+    return enqueueFencedVaultQuota(path, {
+        routeId,
+        observation,
+        accountIdentity: receipt.accountIdentity,
+        receipt,
     });
+}
+// The answer callers rely on (false for a replaced account) comes from the
+// fence, so it runs here against the current roster before anything is
+// queued. The read takes no lock: the roster file is replaced atomically.
+async function enqueueFencedVaultQuota(path, publication) {
+    if (!isQuotaObservation(publication.observation))
+        return false;
+    const current = pendingVaultQuota(path, await readVaultRoster(path));
+    if (!applyVaultQuota(current, publication).kept)
+        return false;
+    return enqueueVaultQuota(path, publication);
 }
 /**
  * Merge a quota observation that belongs to an account rather than to a
@@ -445,25 +451,42 @@ export function recordVaultQuota(path, input) {
  * lands only while the row is still bound to that exact known account, so a
  * reading taken before a replacement never reaches the successor. Unlike
  * `recordVaultQuota` it never binds an account: a row without a known account
- * is refused. Returns whether the observation was kept.
+ * is refused. Resolves false when the row is not bound to that account now,
+ * and true once the reading is queued, as `recordVaultQuota` does.
  */
 export function recordVaultAccountQuota(path, input) {
-    return mutateVaultRoster(path, (current) => {
-        const row = current?.rows.find((entry) => entry.routeId === input.routeId);
-        if (!current ||
-            !row ||
-            row.accountIdentity === undefined ||
-            row.accountIdentity !== input.accountIdentity)
-            return { result: false };
-        const quota = mergeQuotaObservation(row.quota, input.observation);
-        return {
-            next: {
-                ...current,
-                rows: current.rows.map((entry) => entry === row ? { ...entry, quota } : entry),
-            },
-            result: true,
-        };
-    });
+    return enqueueFencedVaultQuota(path, input);
+}
+/** Apply the same identity fence to memory overlays and durable quota batches. */
+export function applyVaultQuota(current, input) {
+    const row = current?.rows.find((entry) => entry.routeId === input.routeId);
+    const fence = !row
+        ? 'refuse'
+        : input.receipt
+            ? receiptFence(row, input.receipt)
+            : row.accountIdentity !== undefined &&
+                row.accountIdentity === input.accountIdentity
+                ? 'hold'
+                : 'refuse';
+    if (!current || !row || fence === 'refuse')
+        return { roster: current, kept: false };
+    const quota = mergeQuotaObservation(row.quota, input.observation);
+    // Binding remembers which account this credential proved, without claiming
+    // that the vault's discovery has named that account yet.
+    const bound = fence === 'bind'
+        ? { accountIdentity: input.accountIdentity, unclaimed: true }
+        : {};
+    return {
+        roster: {
+            ...current,
+            rows: current.rows.map((entry) => entry === row ? { ...entry, ...bound, quota } : entry),
+        },
+        kept: true,
+    };
+}
+const pendingDiscoveries = new Map();
+export function forgetPendingVaultDiscovery(path) {
+    pendingDiscoveries.delete(resolve(path));
 }
 /**
  * Discover and commit the roster. The lease covers the list call and the
@@ -471,12 +494,16 @@ export function recordVaultAccountQuota(path, input) {
  * from a newer one, so a run that lost its lease is refused at commit. A
  * failed list, or custody switching off mid-run, never writes anything; a
  * peer holding the lease means its last committed roster is served instead.
+ * A write-lock timeout keeps the discovered inventory for the next poll,
+ * unless a peer has superseded its base view in the meantime.
  */
 export async function refreshVaultRoster(options) {
     options.signal?.throwIfAborted();
     const active = async () => (await options.isActive?.()) ?? true;
-    if (!(await active()))
+    if (!(await active())) {
+        forgetPendingVaultDiscovery(options.path);
         return undefined;
+    }
     const lease = await acquireRefreshFileLock({
         ...DISCOVERY_LEASE,
         path: options.path,
@@ -489,8 +516,25 @@ export async function refreshVaultRoster(options) {
             throw new ClaustrumConsumerError('roster-busy', 'Claustrum account discovery is already in progress');
         return persisted;
     }
+    const key = resolve(options.path);
+    let discovered;
     try {
-        const inventory = await options.custody.discover(options.signal);
+        const previous = await readVaultRoster(options.path);
+        const pending = pendingDiscoveries.get(key);
+        // Opaque view cursors cannot be ordered. Reuse a discovery only while no
+        // peer has committed a different view since it was read.
+        discovered =
+            pending &&
+                (pending.previousView === previous?.view ||
+                    pending.inventory.view === previous?.view)
+                ? pending
+                : {
+                    inventory: await options.custody.discover(options.signal),
+                    previousView: previous?.view,
+                };
+        pendingDiscoveries.delete(key);
+        const { inventory } = discovered;
+        options.onInventory?.(inventory);
         options.signal?.throwIfAborted();
         return await mutateVaultRoster(options.path, async (current) => {
             if (!(await active()))
@@ -503,7 +547,20 @@ export async function refreshVaultRoster(options) {
             const next = projectVaultRoster(current, inventory, projection);
             const changed = JSON.stringify(current) !== JSON.stringify(next);
             return { ...(changed && { next }), result: next };
+        }, {
+            beforePublish: async () => {
+                options.signal?.throwIfAborted();
+                await lease.assertOwned();
+            },
         });
+    }
+    catch (error) {
+        if (error instanceof LockContentionError &&
+            discovered &&
+            !options.signal?.aborted &&
+            (await active()))
+            pendingDiscoveries.set(key, discovered);
+        throw error;
     }
     finally {
         await lease.release();

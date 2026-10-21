@@ -33,11 +33,18 @@ export declare function listSetupProcesses(runner?: CommandRunner, options?: {
     onStep?: (details: ProcessInspectionStep) => void;
     /** False skips the Windows PowerShell query for Node and Bun command lines. */
     inspectRuntimes?: boolean;
+    /**
+     * The process to leave out, the running setup itself. Defaults to
+     * `process.pid`; tests pass a value no listed process can have, because in
+     * a container this process can hold any small PID a fixture uses.
+     */
+    selfPid?: number;
 }): Promise<Array<{
     pid: number;
     command: string;
 }>>;
 export declare function createProcessFence(runner?: CommandRunner, options?: {
     platform?: string;
+    selfPid?: number;
 }): ProcessFence;
 export declare function assertHostsStopped(fence: ProcessFence, env?: SetupEnvironment): Promise<void>;

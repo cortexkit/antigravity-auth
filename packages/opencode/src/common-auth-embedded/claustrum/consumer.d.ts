@@ -169,8 +169,10 @@ export declare class ClaustrumConsumer<Q = QuotaObservation> {
      * a served credential (an insula reading from `cachedInsulaQuotaForRoute`).
      * It lands only while the route is still bound to that known account, so no
      * credential fetch is needed and a replaced account's reading is dropped.
-     * The in-memory roster is reloaded from the file, without a vault call.
+     * Memory updates immediately; durable publication is detached and coalesced.
      */
     recordAccountQuota(routeId: string, accountIdentity: string, observation: QuotaObservation): Promise<boolean>;
     close(): void;
+    /** Close immediately; the last consumer also waits for the writer's bounded drain. */
+    dispose(): Promise<void>;
 }

@@ -1834,7 +1834,7 @@ id = "shared-vault-roster-watch-and-reconnect"
 guards = "A supported vault roster watch avoids poll reads, refreshes on a changed view and reads again after resubscription."
 edits = [
   { file = "packages/core/src/common-auth-embedded/claustrum/consumer.js", old = "                this.#openWatch();", new = "                // NON-VACUITY BREAK: disable roster-watch setup." },
-  { file = "packages/core/src/common-auth-embedded/source-output.json", old = "\"bytes\": 25150,\n      \"sourceSha256\": \"58cd180a286241cbe699441939045a28132c04ba1fb0b4e5a07ff1b18b3ff486\",\n      \"outputSha256\": \"58cd180a286241cbe699441939045a28132c04ba1fb0b4e5a07ff1b18b3ff486\"", new = "\"bytes\": 25181,\n      \"sourceSha256\": \"58cd180a286241cbe699441939045a28132c04ba1fb0b4e5a07ff1b18b3ff486\",\n      \"outputSha256\": \"35bdc3e68262ce31817ed6167cfe79aa8067a758169806fc1b523a4276d4ad56\"" },
+  { file = "packages/core/src/common-auth-embedded/source-output.json", old = "\"bytes\": 25698,\n      \"sourceSha256\": \"ec47dc016bf4d95655c17093a78d9c214b623214c821d352f73ea60f830c0d83\",\n      \"outputSha256\": \"ec47dc016bf4d95655c17093a78d9c214b623214c821d352f73ea60f830c0d83\"", new = "\"bytes\": 25729,\n      \"sourceSha256\": \"ec47dc016bf4d95655c17093a78d9c214b623214c821d352f73ea60f830c0d83\",\n      \"outputSha256\": \"1effc3cd13eb0662d728fbf4364b70de91121f9572aaf8a51679e8cad84ac5e0\"" },
 ]
 test_file = "packages/opencode/src/plugin/vault-custody.test.ts"
 list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/vault-custody.test.ts", "-t", "{test}"]
