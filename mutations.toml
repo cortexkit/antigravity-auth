@@ -1217,6 +1217,35 @@ test_count_pattern = "Ran {count} test"
 expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\smodeled\spartial\snamespace\sENOENT\sreaches\sthe\sextant\sthread\sgroup\srefusal\swithout\slaunch\sor\ssignal$']
 
 [[control]]
+id = "ga-admission-inspected-group-thread-spawn"
+guards = "A new thread in an already inspected group with unchanged leader birth does not refuse native-job admission."
+file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
+old = '''        const changed =
+          [...inspectedGroups].some(
+            ([tgid, start]) => groups.get(tgid) !== start,
+          ) || [...groups.keys()].some((tgid) => !inspectedGroups.has(tgid))'''
+new = '''        const changed = admissionMembers.length !== members.length || members.some((tid) => !admissionMembers.includes(tid)) // NON-VACUITY BREAK: restore TID-set comparison.'''
+test_file = "packages/e2e-tests/docker/ga-contract-inputs.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/e2e-tests/docker/ga-contract-inputs.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && env -u GA_NATIVE_JOB_TEST_PROFILE bun test --isolate packages/e2e-tests/docker/ga-contract-inputs.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\smodeled\srunner\sthread\sspawn\spreserves\sinspected\sgroup\sadmission$']
+
+[[control]]
+id = "ga-admission-uninspected-thread-group"
+guards = "A newly listed thread cannot admit a group that was absent from the first inspected task inventory."
+file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
+old = '          ) || [...groups.keys()].some((tgid) => !inspectedGroups.has(tgid))'
+new = '          ) // NON-VACUITY BREAK: wave through uninspected groups.'
+test_file = "packages/e2e-tests/docker/ga-contract-inputs.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/e2e-tests/docker/ga-contract-inputs.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && env -u GA_NATIVE_JOB_TEST_PROFILE bun test --isolate packages/e2e-tests/docker/ga-contract-inputs.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\smodeled\sadmission\srefuses\sthread\sin\suninspected\sgroup\sbetween\stask\sinventories$']
+
+[[control]]
 id = "ga-store-fixture-phase-timeout-emission"
 guards = "A never-resolving current-store fixture phase prints one open-phase clock before Bun enforces its test timeout."
 file = "packages/e2e-tests/src/opencode-ga-inputs.test.ts"
