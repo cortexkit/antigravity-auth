@@ -1,4 +1,8 @@
-// Provisional pending measurement of real request-to-header latency.
+// Measured through the native Antigravity CLI: Claude Opus 5.5 high sends
+// response headers within about 3 s and then streams its thinking, while
+// Gemini 3.8 Flash and Argon at high hold the headers until thinking ends
+// (5-6 s on short prompts). Ten minutes leaves wide headroom over both; it is
+// a backstop for an endpoint that never answers, not a thinking limit.
 export const PRE_RESPONSE_DEADLINE_MS = 600_000
 
 // Fixed text avoids status-code and quota phrases scanned by host retry policies.
