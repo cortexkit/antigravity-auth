@@ -2201,6 +2201,8 @@ function observedNativeTasks(
 ): { tid: number; tgid: number; state: string }[] {
   let members = cgroupThreadMembers(summary, budget)
   const first = new Map<number, NativeTaskFact>()
+  let admissionGroups: Map<number, string> | undefined
+  let admissionMembers: number[] = []
   for (;;) {
     checkCleanupBudget(budget)
     const observations: { tid: number; tgid: number; state: string }[] = []
@@ -2245,22 +2247,70 @@ function observedNativeTasks(
         )
       }
     }
+    if (!budget && missing.length === 0) {
+      const groups = new Map<number, string>()
+      for (const { tgid } of observations) {
+        if (groups.has(tgid)) continue
+        let identity: NativeProcessIdentity | undefined
+        try {
+          identity = nativeProcess(tgid)
+        } catch (error) {
+          if (!(error instanceof NativeIdentityUnavailable)) throw error
+          throw new Error(
+            `UNKNOWN extant thread group ${tgid} has a dead or unqualifiable leader: ${String(error)}`,
+          )
+        }
+        if (
+          !identity ||
+          identity.namespace !== summary.namespace.self ||
+          identity.cgroup !== summary.cgroup.self
+        )
+          throw new Error('UNKNOWN foreign thread group identity')
+        groups.set(tgid, identity.start)
+      }
+      if (admissionGroups) {
+        const inspectedGroups = admissionGroups
+        // Threads may come and go inside an inspected process. A new group,
+        // departed group or reused leader must still refuse admission.
+        const changed =
+          [...inspectedGroups].some(
+            ([tgid, start]) => groups.get(tgid) !== start,
+          ) || [...groups.keys()].some((tgid) => !inspectedGroups.has(tgid))
+        if (changed) {
+          emitNativeTaskDifference(admissionMembers, members, first)
+          throw new Error(
+            'UNKNOWN cgroup task inventory changed during admission',
+          )
+        }
+        return observations
+      }
+      admissionGroups = groups
+    }
+    if (!budget && admissionGroups && missing.length > 0) {
+      emitNativeTaskDifference(admissionMembers, members, first)
+      throw new Error('UNKNOWN listed cgroup task has unavailable identity')
+    }
     const next = cgroupThreadMembers(summary, budget)
     if (missing.some((tid) => next.includes(tid)))
       throw new Error('UNKNOWN listed cgroup task has unavailable identity')
     if (
+      budget &&
       next.length === members.length &&
       next.every((tid) => members.includes(tid))
     ) {
       checkCleanupBudget(budget)
       return observations
     }
-    // Every TID in cgroup.threads must have been inspected before absence is safe.
-    // Inspect replacements within the existing cleanup budget. Without a budget,
-    // a changed task list refuses admission rather than starting an unbounded scan.
     if (!budget) {
-      emitNativeTaskDifference(members, next, first)
-      throw new Error('UNKNOWN cgroup task inventory changed during admission')
+      if (missing.length > 0) {
+        emitNativeTaskDifference(members, next, first)
+        throw new Error(
+          'UNKNOWN cgroup task inventory changed during admission',
+        )
+      }
+      // Admission takes exactly two snapshots, including every newly listed TID.
+      // Cleanup instead retries replacements within its original budget.
+      admissionMembers = members
     }
     members = next
   }

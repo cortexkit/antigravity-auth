@@ -1988,7 +1988,145 @@ test('actor teardown preserves the primary failure and still settles and removes
   await expect(finishInertTest([primary], [])).rejects.toBe(primary)
 })
 
+// Model both task inventories and leader identities without borrowing host /proc.
+function modeledAdmissionTasks(
+  before: { tid: number; tgid: number }[],
+  after = before,
+  changedBirth?: number,
+) {
+  const summary = nativeBoundarySummary()
+  const threads = `/sys/fs/cgroup${summary.cgroup.self}/cgroup.threads`
+  const paths: string[] = []
+  let inventories = 0
+  const read = fs.readFileSync
+  const link = fs.readlinkSync
+  const directory = fs.readdirSync
+  const readModeled = new Proxy(read, {
+    apply(target, receiver, args: unknown[]) {
+      const path = String(args[0])
+      paths.push(path)
+      if (path === threads) {
+        inventories++
+        return (inventories === 1 ? before : after)
+          .map(({ tid }) => tid)
+          .join('\n')
+      }
+      if (path === threads.replace('cgroup.threads', 'cgroup.procs'))
+        return [...new Set(before.map(({ tgid }) => tgid))].join('\n')
+      const match = /^\/proc\/(\d+)\/(status|stat|cgroup)$/.exec(path)
+      if (match) {
+        const pid = Number(match[1])
+        const tasks = inventories < 2 ? before : after
+        const task = tasks.find(({ tid }) => tid === pid)
+        if (!task && !tasks.some(({ tgid }) => tgid === pid))
+          throw Object.assign(new Error('modeled departed task'), {
+            code: 'ENOENT',
+          })
+        if (match[2] === 'status')
+          return `Pid:\t${pid}\nTgid:\t${task?.tgid ?? pid}\nUid:\t999 999 999 999\n`
+        if (match[2] === 'cgroup') return `0::${summary.cgroup.self}\n`
+        const birth = inventories >= 2 && pid === changedBirth ? '999' : '123'
+        return `${pid} (modeled runner) S ${Array(18).fill('0').join(' ')} ${birth} 0\n`
+      }
+      return Reflect.apply(target, receiver, args)
+    },
+  })
+  const reads = spyOn(fs, 'readFileSync').mockImplementation(readModeled)
+  const links = spyOn(fs, 'readlinkSync').mockImplementation(
+    new Proxy(link, {
+      apply(target, receiver, args: unknown[]) {
+        if (/^\/proc\/\d+\/ns\/pid$/.test(String(args[0])))
+          return summary.namespace.self
+        return Reflect.apply(target, receiver, args)
+      },
+    }),
+  )
+  const directories = spyOn(fs, 'readdirSync').mockImplementation(
+    new Proxy(directory, {
+      apply(target, receiver, args: unknown[]) {
+        if (String(args[0]) === '/proc')
+          return [...new Set(before.map(({ tgid }) => String(tgid)))]
+        return Reflect.apply(target, receiver, args)
+      },
+    }),
+  )
+  return {
+    summary,
+    read: readModeled,
+    paths,
+    inventories: () => inventories,
+    reset: () => {
+      inventories = 0
+    },
+    restore: () => {
+      directories.mockRestore()
+      links.mockRestore()
+      reads.mockRestore()
+    },
+  }
+}
+
 describe(CLEANUP_GROUP, () => {
+  test('modeled runner thread spawn preserves inspected group admission', () => {
+    const model = modeledAdmissionTasks(
+      [{ tid: 100, tgid: 100 }],
+      [
+        { tid: 100, tgid: 100 },
+        { tid: 101, tgid: 100 },
+      ],
+    )
+    const lines: string[] = []
+    const stop = enableNativeTaskDiagnostic({
+      runnerPid: 100,
+      actorPids: () => [],
+      emit: (line) => lines.push(line),
+    })
+    try {
+      expect(scopedProcesses(model.summary, true)).toMatchObject([
+        { pid: 100, start: '123', namespace: model.summary.namespace.self },
+      ])
+      expect(model.inventories()).toBe(2)
+      expect(model.paths).toContain('/proc/101/status')
+      expect(model.paths).toContain('/proc/101/stat')
+      expect(lines).toEqual([])
+    } finally {
+      stop()
+      model.restore()
+    }
+  })
+  for (const control of [
+    'new thread group',
+    'thread in uninspected group',
+    'changed leader birth',
+    'departed group',
+  ] as const)
+    test(`modeled admission refuses ${control} between task inventories`, () => {
+      const before = [
+        { tid: 100, tgid: 100 },
+        ...(control === 'departed group' ? [{ tid: 300, tgid: 300 }] : []),
+      ]
+      const after =
+        control === 'departed group'
+          ? [{ tid: 300, tgid: 300 }]
+          : control === 'new thread group'
+            ? [...before, { tid: 200, tgid: 200 }]
+            : control === 'thread in uninspected group'
+              ? [...before, { tid: 201, tgid: 200 }]
+              : before
+      const model = modeledAdmissionTasks(
+        before,
+        after,
+        control === 'changed leader birth' ? 100 : undefined,
+      )
+      try {
+        expect(() => threadGroupHasLiveTasks(100, model.summary)).toThrow(
+          'UNKNOWN cgroup task inventory changed during admission',
+        )
+        expect(model.inventories()).toBe(2)
+      } finally {
+        model.restore()
+      }
+    })
   test('modeled partial namespace ENOENT reaches the extant thread group refusal without launch or signal', () => {
     const summary = nativeBoundarySummary()
     const threads = `/sys/fs/cgroup${summary.cgroup.self}/cgroup.threads`
@@ -2047,7 +2185,7 @@ describe(CLEANUP_GROUP, () => {
     try {
       let reason: string | undefined
       try {
-        scopedProcesses(summary, true)
+        scopedProcesses(summary, true, { deadline: performance.now() + 3000 })
       } catch (error) {
         reason = (error as Error).message
       }
@@ -2066,18 +2204,26 @@ describe(CLEANUP_GROUP, () => {
     }
   })
   test('admission task diagnostic retains first identities without changing the exact refusal', () => {
-    const summary = nativeBoundarySummary()
-    const threads = `/sys/fs/cgroup${summary.cgroup.self}/cgroup.threads`
-    const original = fs.readFileSync
+    const model = modeledAdmissionTasks(
+      [
+        { tid: 101, tgid: 100 },
+        { tid: 102, tgid: process.pid },
+        { tid: 103, tgid: 300 },
+      ],
+      [
+        { tid: 102, tgid: process.pid },
+        { tid: 103, tgid: 300 },
+        { tid: 104, tgid: 300 },
+      ],
+    )
+    const { summary } = model
+    const original = model.read
     const lines: string[] = []
-    let inventories = 0
     let vanishedReads = 0
     const reads = spyOn(fs, 'readFileSync').mockImplementation(
       new Proxy(original, {
         apply(target, receiver, args: unknown[]) {
           const path = String(args[0])
-          if (path === threads)
-            return ++inventories === 1 ? '101\n102\n103\n' : '102\n103\n104\n'
           const match = /^\/proc\/(10[1-4])\/(status|stat)$/.exec(path)
           if (match) {
             const tid = Number(match[1])
@@ -2105,7 +2251,7 @@ describe(CLEANUP_GROUP, () => {
       }
       refusal()
       expect(lines).toEqual([])
-      inventories = 0
+      model.reset()
       vanishedReads = 0
       const stop = enableNativeTaskDiagnostic({
         runnerPid: process.pid,
@@ -2137,7 +2283,7 @@ describe(CLEANUP_GROUP, () => {
           { tid: 104, tgid: 300, start: '1040', state: 'S', group: 'unknown' },
         ],
       })
-      inventories = 0
+      model.reset()
       vanishedReads = 0
       const stopThrowing = enableNativeTaskDiagnostic({
         runnerPid: process.pid,
@@ -2151,7 +2297,7 @@ describe(CLEANUP_GROUP, () => {
       } finally {
         stopThrowing()
       }
-      inventories = 0
+      model.reset()
       vanishedReads = 0
       const stopUnknownActors = enableNativeTaskDiagnostic({
         runnerPid: process.pid,
@@ -2173,6 +2319,7 @@ describe(CLEANUP_GROUP, () => {
       )
     } finally {
       reads.mockRestore()
+      model.restore()
     }
   })
   for (const control of [
@@ -2181,9 +2328,15 @@ describe(CLEANUP_GROUP, () => {
     'admission turnover',
   ] as const)
     test(`source-modeled ${control} refuses unresolved task coverage in the real helper`, () => {
-      const summary = nativeBoundarySummary()
+      const model = modeledAdmissionTasks(
+        [{ tid: 101, tgid: 100 }],
+        control === 'admission turnover'
+          ? [{ tid: 102, tgid: 200 }]
+          : [{ tid: 101, tgid: 100 }],
+      )
+      const { summary } = model
       const threads = `/sys/fs/cgroup${summary.cgroup.self}/cgroup.threads`
-      const read = fs.readFileSync
+      const read = model.read
       let inventories = 0
       let taskReads = 0
       const reads = spyOn(fs, 'readFileSync').mockImplementation(
@@ -2194,9 +2347,7 @@ describe(CLEANUP_GROUP, () => {
               inventories++
               return control === 'duplicate inventory'
                 ? '101\n101\n'
-                : control === 'admission turnover' && inventories > 1
-                  ? '102\n'
-                  : '101\n'
+                : Reflect.apply(target, receiver, args)
             }
             if (path === '/proc/101/status') {
               taskReads++
@@ -2225,6 +2376,7 @@ describe(CLEANUP_GROUP, () => {
         expect(taskReads).toBe(control === 'duplicate inventory' ? 0 : 1)
       } finally {
         reads.mockRestore()
+        model.restore()
       }
     })
   test('source-modeled replacement task is inspected by the real group helper', () => {
@@ -2301,9 +2453,10 @@ describe(CLEANUP_GROUP, () => {
     }
   })
   test('source-modeled stable terminal task inventory certifies only finished groups', () => {
-    const summary = nativeBoundarySummary()
+    const model = modeledAdmissionTasks([{ tid: 101, tgid: 100 }])
+    const { summary } = model
     const threads = `/sys/fs/cgroup${summary.cgroup.self}/cgroup.threads`
-    const original = fs.readFileSync
+    const original = model.read
     let inventories = 0
     let terminalReads = 0
     const reads = spyOn(fs, 'readFileSync').mockImplementation(
@@ -2326,9 +2479,10 @@ describe(CLEANUP_GROUP, () => {
     try {
       expect(threadGroupHasLiveTasks(100, summary)).toBe(false)
       expect(inventories).toBe(2)
-      expect(terminalReads).toBe(1)
+      expect(terminalReads).toBe(2)
     } finally {
       reads.mockRestore()
+      model.restore()
     }
   })
   test('source-modeled task discovery refuses a live group omitted from both leader inventories without signaling a TID', () => {
