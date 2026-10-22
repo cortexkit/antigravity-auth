@@ -5,6 +5,18 @@ import { defaultCommandRunner } from './command-runner.js';
 const WINDOWS_CIM_TIMEOUT_MS = 45_000;
 const HOSTS = new Set(['opencode', 'litecode', 'opencode2', 'pi']);
 const RUNTIMES = new Set(['node', 'bun']);
+/**
+ * The fence's one Windows query. It selects every image whose name starts
+ * with a host or runtime name, a superset of what `hostName` can recognize
+ * from an image (it strips only an extension), and returns image name, PID
+ * and command line from one snapshot. The answer always carries
+ * `complete: true`, so an empty or cut-off answer is never mistaken for an
+ * empty process list.
+ */
+const WINDOWS_FENCE_FILTER = [...HOSTS, ...RUNTIMES]
+    .map((name) => `Name LIKE '${name}%'`)
+    .join(' OR ');
+const WINDOWS_FENCE_QUERY = `$ErrorActionPreference = 'Stop'; $rows = @(Get-CimInstance Win32_Process -Filter "${WINDOWS_FENCE_FILTER}" | Select-Object Name,ProcessId,CommandLine); ConvertTo-Json -Compress -Depth 3 -InputObject @{ complete = $true; processes = $rows }`;
 const PI_SCRIPT_PATTERN = /(?:^|[/\\])pi-coding-agent[/\\]dist[/\\](?:(?:bundle|bun)[/\\])?cli\.m?js$/i;
 /** Splits a command line into arguments, keeping double-quoted ones whole. */
 function commandArguments(command) {
@@ -169,6 +181,45 @@ export async function listSetupProcesses(runner = defaultCommandRunner, options 
         }
     };
     try {
+        if (windows && options.hostImagesOnly) {
+            const details = await inspect('CIM', 'powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_FENCE_QUERY], WINDOWS_CIM_TIMEOUT_MS);
+            if (details.exitCode !== 0)
+                throw new ProcessInspectionError(inspection);
+            // An empty or truncated answer fails to parse or lacks `complete`, so a
+            // query that silently printed nothing is never read as "no hosts".
+            const value = JSON.parse(details.stdout);
+            if (!value ||
+                typeof value !== 'object' ||
+                !('complete' in value) ||
+                value.complete !== true ||
+                !('processes' in value))
+                throw new ProcessInspectionError(inspection);
+            const listed = value.processes;
+            const rows = listed === null ? [] : Array.isArray(listed) ? listed : [listed];
+            const processes = [];
+            for (const row of rows) {
+                if (!row ||
+                    typeof row !== 'object' ||
+                    !('Name' in row) ||
+                    typeof row.Name !== 'string' ||
+                    !('ProcessId' in row) ||
+                    !Number.isSafeInteger(row.ProcessId) ||
+                    row.ProcessId < 0 ||
+                    !('CommandLine' in row))
+                    throw new ProcessInspectionError(inspection);
+                const pid = row.ProcessId;
+                // As with tasklist, a host program is judged by its image name, and
+                // a Node or Bun process by the script on its command line. A runtime
+                // whose command line cannot be read cannot be cleared.
+                if (!/^(?:node|bun)\.exe$/i.test(row.Name))
+                    processes.push({ pid, command: row.Name });
+                else if (typeof row.CommandLine === 'string')
+                    processes.push({ pid, command: row.CommandLine });
+                else if (pid !== selfPid)
+                    throw new ProcessInspectionError(inspection);
+            }
+            return processes;
+        }
         const result = await inspect(windows ? 'tasklist' : 'ps', windows ? 'tasklist.exe' : 'ps', windows ? ['/fo', 'csv', '/nh'] : ['-eo', 'pid,command']);
         if (result.exitCode !== 0)
             throw new ProcessInspectionError(inspection);
@@ -246,7 +297,11 @@ export function createProcessFence(runner = defaultCommandRunner, options = {}) 
     const isHost = (entry) => entry.pid !== selfPid && hostName(entry.command) !== null;
     return {
         async listRunningHosts(env) {
-            return (await listSetupProcesses(runner, { ...options, env })).filter(isHost);
+            return (await listSetupProcesses(runner, {
+                ...options,
+                env,
+                hostImagesOnly: true,
+            })).filter(isHost);
         },
         async previewRunningHosts(env) {
             const processes = await listSetupProcesses(runner, {

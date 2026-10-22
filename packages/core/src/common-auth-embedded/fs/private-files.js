@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { lstat, readFile, rename, unlink } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 export const windowsPrivateFiles = process.platform === 'win32';
 const migrationNotices = new Set();
 function ioCode(detail) {
@@ -20,8 +21,51 @@ let backend;
 export function setPrivateFilesBackendForTest(api) {
     backend = api ? Promise.resolve(api) : undefined;
 }
+/** The fixed `reason` of a refusal because the Windows native addon did not load. */
+export const PRIVATE_FILES_UNAVAILABLE_REASON = 'native-addon-unavailable';
+function privateFilesUnavailable(cause) {
+    return Object.assign(new Error('Windows private-files native addon is unavailable', { cause }), {
+        code: 'ERR_PRIVATE_FILES_UNAVAILABLE',
+        reason: PRIVATE_FILES_UNAVAILABLE_REASON,
+    });
+}
+function isUnavailable(api, error) {
+    return (error instanceof api.PrivateFilesUnavailableError ||
+        error?.code ===
+            'ERR_PRIVATE_FILES_UNAVAILABLE');
+}
+/**
+ * Importing @cortexkit/private-files succeeds even when its Windows addon
+ * cannot load: the package loads the addon on first use, and some of its
+ * checks then report the failure as an ordinary refusal such as
+ * `unsupported-filesystem`. So prove the addon loads before handing the
+ * package out. Verifying a path that does not exist loads the addon first and
+ * then fails harmlessly; only the package's own "unavailable" error means the
+ * addon is missing.
+ */
+async function assertNativeAddonLoads(api) {
+    try {
+        await api.verifyPrivatePath(join(tmpdir(), `.common-auth-private-files-probe-${randomUUID()}`), 'file');
+    }
+    catch (error) {
+        if (isUnavailable(api, error))
+            throw privateFilesUnavailable(error);
+    }
+}
+/**
+ * Load the package once per process. On Windows a failed import or addon load
+ * is kept, so every later private-file operation refuses at once with
+ * ERR_PRIVATE_FILES_UNAVAILABLE. There is no fallback to permission bits:
+ * they do not protect files on Windows.
+ */
 function loadBackend() {
-    backend ??= import('@cortexkit/private-files');
+    backend ??= import('@cortexkit/private-files').then(async (api) => {
+        if (windowsPrivateFiles)
+            await assertNativeAddonLoads(api);
+        return api;
+    }, (cause) => {
+        throw windowsPrivateFiles ? privateFilesUnavailable(cause) : cause;
+    });
     return backend;
 }
 export class PrivateFileError extends Error {
@@ -38,7 +82,9 @@ export class PrivateFileError extends Error {
     orphanPath;
     constructor(path, stage, cause) {
         const detail = cause;
-        super(`Private file refused at ${stage}: ${path} (${detail?.reason ?? detail?.code ?? 'io-error'}). Use a safe parent directory. Repair only a named secret file in safe ancestry whose owner the published policy trusts, without changing its owner or any existing directory. Previously exposed credentials may need rotation. Windows requires the private-files native prebuild and an ACL-persisting local filesystem such as NTFS.`, { cause });
+        super(detail?.code === 'ERR_PRIVATE_FILES_UNAVAILABLE'
+            ? `Private file refused at ${stage}: ${path} (${PRIVATE_FILES_UNAVAILABLE_REASON}). The Windows native addon of @cortexkit/private-files could not be loaded, so owner-only access cannot be enforced and nothing was read or written. Reinstall the plugin so the private-files Windows prebuild for this architecture is present; Windows has no safe fallback to permission bits.`
+            : `Private file refused at ${stage}: ${path} (${detail?.reason ?? detail?.code ?? 'io-error'}). Keep this file in a folder that only you, the system or administrators can change, such as a folder in your home directory. If other users could read the file before, sign in again to replace the credentials it held. On Windows the file must also be on a local drive that keeps Windows file permissions, such as NTFS.`, { cause });
         this.path = path;
         this.stage = stage;
         this.name = 'PrivateFileError';

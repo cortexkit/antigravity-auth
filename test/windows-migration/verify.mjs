@@ -182,7 +182,7 @@ if (scenario === 'unsafe') {
   assert.ok(refusal, fixed.stderr)
   assert.equal(
     refusal[2],
-    'Use a safe parent directory. Repair only a named secret file in safe ancestry whose owner the published policy trusts, without changing its owner or any existing directory. Previously exposed credentials may need rotation. Windows requires the private-files native prebuild and an ACL-persisting local filesystem such as NTFS.',
+    'Keep this file in a folder that only you, the system or administrators can change, such as a folder in your home directory. If other users could read the file before, sign in again to replace the credentials it held. On Windows the file must also be on a local drive that keeps Windows file permissions, such as NTFS.',
   )
   assert.equal(digest(await readFile(legacy)), digest(original))
   assert.equal(existsSync(`${legacy}.store.pointer.json`), false)

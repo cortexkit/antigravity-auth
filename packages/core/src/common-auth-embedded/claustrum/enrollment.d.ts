@@ -1,5 +1,10 @@
 import { type ClaustrumClientOptions as ClaustrumEnrollmentClientOptions, type EnrollmentPollOutcome, type EnrollmentTokenFile, writeEnrollmentTokenFile } from '@cortexkit/claustrum-client';
 /**
+ * The code a vault without the enrollment ceremony answers a proposal with.
+ * Setup reports it as "this vault cannot connect plugins" instead of waiting.
+ */
+export declare const UNSUPPORTED_ENROLLMENT_CODE = "unknown_method";
+/**
  * Codes the vault's closed enrollment-refusal vocabulary marks permanent. The
  * client labels some module error frames transient/retry regardless, so the
  * producer's code takes precedence over the client's action for these.

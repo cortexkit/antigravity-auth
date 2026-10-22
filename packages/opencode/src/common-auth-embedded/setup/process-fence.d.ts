@@ -39,6 +39,13 @@ export declare function listSetupProcesses(runner?: CommandRunner, options?: {
      * a container this process can hold any small PID a fixture uses.
      */
     selfPid?: number;
+    /**
+     * Windows only: answer with one CIM query for the images a fence cares
+     * about (host programs, Node and Bun), returning image name, PID and
+     * command line together, instead of `tasklist` followed by a second CIM
+     * query. The result lists only those processes.
+     */
+    hostImagesOnly?: boolean;
 }): Promise<Array<{
     pid: number;
     command: string;

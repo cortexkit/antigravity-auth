@@ -9,6 +9,7 @@ node_modules
 !tools/common-auth-build/inputs/cortexkit-common-auth-0.14.2.tgz
 !tools/common-auth-build/inputs/cortexkit-common-auth-0.16.0.tgz
 !tools/common-auth-build/inputs/cortexkit-common-auth-0.23.0.tgz
+!tools/common-auth-build/inputs/cortexkit-common-auth-0.24.0.tgz
 **/*.log
 .tmp
 .alfonso

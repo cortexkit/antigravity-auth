@@ -136,6 +136,12 @@ function fixture(pathKey: 'Path' | 'PATH') {
       run: async (file) => {
         if (file === 'tasklist.exe')
           return { exitCode: 0, stdout: '"System","0"\r\n', stderr: '' }
+        if (file === 'powershell.exe')
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({ complete: true, processes: [] }),
+            stderr: '',
+          }
         if (file === 'cmd.exe')
           return { exitCode: 0, stdout: '1.0.0\r\n', stderr: '' }
         throw new Error(`Unexpected command outside the fixture: ${file}`)

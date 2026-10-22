@@ -227,16 +227,21 @@ function windowsInspectionFixture() {
           writeFileSync(startupPath, Buffer.alloc(64, 0x53), { mode: 0o600 })
           return {
             exitCode: 0,
-            stdout: JSON.stringify([
-              {
-                ProcessId: firstPid,
-                CommandLine: 'node "C:\\owned-preview\\opencode"',
-              },
-              {
-                ProcessId: firstPid + 1,
-                CommandLine: 'bun "C:\\owned-preview\\unrelated.js"',
-              },
-            ]),
+            stdout: JSON.stringify({
+              complete: true,
+              processes: [
+                {
+                  Name: 'node.exe',
+                  ProcessId: firstPid,
+                  CommandLine: 'node "C:\\owned-preview\\opencode"',
+                },
+                {
+                  Name: 'bun.exe',
+                  ProcessId: firstPid + 1,
+                  CommandLine: 'bun "C:\\owned-preview\\unrelated.js"',
+                },
+              ],
+            }),
             stderr: '',
           }
         }
@@ -607,7 +612,7 @@ describe('setup plugin callbacks', () => {
   it('real Windows setup still inspects runtime command lines and refuses a running host before callbacks (synthetic runner)', async () => {
     const f = windowsInspectionFixture()
     expect(await f.execute(false)).toBe(1)
-    expect(f.calls).toEqual(['tasklist.exe', 'powershell.exe'])
+    expect(f.calls).toEqual(['powershell.exe'])
     expect(f.errors()).toContain(
       'Please quit all OpenCode, LiteCode, and Pi processes before running setup.',
     )

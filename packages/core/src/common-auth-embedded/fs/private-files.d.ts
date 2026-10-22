@@ -5,6 +5,8 @@ type Backend = typeof import('@cortexkit/private-files');
 type Kind = 'file' | 'directory';
 /** Tests inject a backend here; production always imports the private-files package. */
 export declare function setPrivateFilesBackendForTest(api?: Backend): void;
+/** The fixed `reason` of a refusal because the Windows native addon did not load. */
+export declare const PRIVATE_FILES_UNAVAILABLE_REASON = "native-addon-unavailable";
 export declare class PrivateFileError extends Error {
     readonly path: string;
     readonly stage: string;

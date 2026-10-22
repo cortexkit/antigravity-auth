@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.23.0.tgz'
-export const producerVersion = '0.23.0'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.24.0.tgz'
+export const producerVersion = '0.24.0'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '8a2cd4a5df7c056c4f815c8cd59b109ceb02135eb7b7b0e14a1b3d9891af2cfb',
-  sri: 'sha512-WwCjPwOhbZBomCAPxEooCiSDgvcaIsEn5yjTqmEy0PU0ZJUKSr3cE8Il0AsW7xU2h2Wo267rsciZhV3rPlUPCA==',
+  sha256: '7b96e74e4017df1678050b1fe18ca821a548da4412414d4df222307a7c1d0ca0',
+  sri: 'sha512-dHGHnWBbVC/NHTq22GlFaqYFWg7M1TcCYZvYVIML1bx/rQiIoG05t/ojXjRWdrymHV7GYoaE+yx0YdYHHrPByQ==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -223,13 +223,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/enrollment.d.ts',
-    7743,
-    '7503e56a09f94e77a94a7ae15fd616f149ec9f675ec7c79bdea4a014ca014143',
+    7976,
+    'd6b4e8561ccc0ff2f9b4386856c5fe3dc7c475e13f98314a0666d0b20458d43b',
   ],
   [
     'claustrum/enrollment.js',
-    33520,
-    'eeac604495c093503007478ab803c05b6e0bce8bf281f8bf9bbfee44c8ff85f1',
+    35060,
+    'a9ca3a23778cc86ab9798051ba19dcb3b2b8e3dc4c4fda356cbd56eca50097db',
   ],
   [
     'claustrum/errors.d.ts',
@@ -403,13 +403,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/private-files.d.ts',
-    3228,
-    '1882d869cfebb3cebc8b9db47fb15083f8300c51c26c71666e898377fcd9a1ba',
+    3398,
+    'b344509a32fcd983f09e5814286630a53c8e577ad1b973eabe19f8e58659e8d3',
   ],
   [
     'fs/private-files.js',
-    12448,
-    '1c8f34202b535d774d8c1a53bd403255f02701760c7378e020756c02c55a97c4',
+    14779,
+    '114c06ce4c0998087878d99c5dc37425e90d5fad205f57fe0bdf9694e3c8e31d',
   ],
   [
     'fs/refresh-file-lock.d.ts',
@@ -772,19 +772,24 @@ const canonical: readonly (readonly [string, number, string])[] = [
     '025b5f7b429978cc3842cc72240b8bc154a86859ceb2ad3b5ad8636ab334e649',
   ],
   [
+    'setup/enroll.d.ts',
+    2199,
+    'd7599ee67d3906d57f599447d243c6695d53b22d2105af317d36120e9f7c8ca7',
+  ],
+  [
     'setup/enroll.js',
-    4022,
-    '233b36d6422c93e7de0f7e73d1c09fdac54d8ae4090b15b91e1b99160e1ad0fa',
+    8484,
+    '2ec864a300326a2ce9b8dd79750704e438af04ef5fa9e3b744a8ecdd7e0e41d6',
   ],
   [
     'setup/index.d.ts',
-    842,
-    '43b22470cb458058db2bc628e6502f4cd55184deff519c86213dd8d0e3e0000e',
+    970,
+    'f443b8d501334f8384878606ff19beee0241e70e7f4cc3dd0d0fd4636f8433c5',
   ],
   [
     'setup/index.js',
-    517,
-    '4b00ca576b580ce54b53c2ef6c2a03d1e00c3fde9d3174328cd7458edd38ec79',
+    617,
+    '3ab259b0ba5e5e6d83ea9077adf11e2c561d4a7788710adbb6e8e0ed88dcd44b',
   ],
   [
     'setup/paths.js',
@@ -793,13 +798,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'setup/process-fence.d.ts',
-    1897,
-    '12161c0ddc3ed14c50ff62dd441158aeaa5285bb49f6735c5b2e5b3a430364fb',
+    2223,
+    'ed246d2c16821cc51170e4099466450e26821c81fc3b96ad2d7fde18ea4ee9c6',
   ],
   [
     'setup/process-fence.js',
-    11015,
-    'ff848eb647b155a2dfbb8a201b5330b8b9ba3ac12dc6af7bc4f0f514d94a83c4',
+    14008,
+    '8ca9546a205fe9d6daecc2604c7e4608df5d09e0bd0f774fe8da40f26a3ffefb',
   ],
   [
     'setup/prompts.js',
@@ -818,8 +823,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'setup/types.d.ts',
-    5535,
-    '69f8ee1e9345d72dec1e04bb5ce9fa38e6cc77339f53ad042b625c636c415068',
+    5722,
+    'db068b3f2428734ad731c120443c7e5a432f5d568a8a61c21c7978855e613063',
   ],
   [
     'store/attribution.d.ts',
@@ -1119,7 +1124,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '410d8fce651a108131983ccb1cea70ea789ac27d8e1b61f249ede7a35b292334'
+    'f2a3ec570157879087fcad4f2c707003b32fd0fe127284d7f9e9af59d900cffd'
   )
     throw new Error('publication: manifest bytes')
 }
