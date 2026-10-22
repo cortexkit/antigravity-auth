@@ -585,7 +585,27 @@ describe('authorized local quota fetcher', () => {
   }
 
   /** A transport that records every physical request and answers it. */
-  function recordingTransport(requests: SentRequest[]): Transport {
+  function recordingTransport(
+    requests: SentRequest[],
+    summaryResponse: () => Response = () =>
+      new Response(
+        JSON.stringify({
+          groups: [
+            {
+              displayName: 'Gemini',
+              buckets: [
+                {
+                  bucketId: 'gemini-weekly',
+                  remainingFraction: 0.25,
+                  window: 'weekly',
+                },
+              ],
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+  ): Transport {
     return () => async (url, init, extra) => {
       const headers = new Headers(init.headers)
       requests.push({
@@ -595,17 +615,7 @@ describe('authorized local quota fetcher', () => {
         signal: extra.signal,
       })
       if (url.includes('retrieveUserQuotaSummary')) {
-        return new Response(
-          JSON.stringify({
-            groups: [
-              {
-                displayName: 'Gemini',
-                buckets: [{ remainingFraction: 0.25, window: 'WEEKLY' }],
-              },
-            ],
-          }),
-          { status: 200 },
-        )
+        return summaryResponse()
       }
       return new Response(JSON.stringify({ models: {} }), { status: 200 })
     }
@@ -843,7 +853,10 @@ describe('authorized local quota fetcher', () => {
             : { status: 'stale', reason: 'credential replaced' }
         }),
       logger: silent,
-      transport: recordingTransport(requests),
+      transport: recordingTransport(
+        requests,
+        () => new Response('summary unavailable', { status: 503 }),
+      ),
     })
     const result = await fetchQuota(ACCOUNT, new AbortController().signal)
     expect(requests).toHaveLength(1)

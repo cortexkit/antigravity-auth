@@ -33,7 +33,7 @@ function deferred() {
   return { promise, resolve }
 }
 
-function fixture() {
+function fixture(quotaSummary?: { groups: unknown[] }) {
   const dir = mkdtempSync(join(tmpdir(), 'vault-poller-'))
   const stateFile = join(dir, 'sidebar-state.json')
   let authority: 'vault' | 'local' | 'unreadable' = 'vault'
@@ -192,7 +192,7 @@ function fixture() {
         String(url).includes('retrieveUserQuotaSummary')
           ? badAnswer
             ? {}
-            : {
+            : (quotaSummary ?? {
                 groups: [
                   {
                     displayName: 'Gemini Models',
@@ -206,7 +206,7 @@ function fixture() {
                     ],
                   },
                 ],
-              }
+              })
           : { buckets: [] },
       ),
       { status: 200 },
@@ -817,6 +817,98 @@ describe('vault manual quota and durable sidebar projection', () => {
       expect(sidebar.accounts[0]?.quota.gemini?.remainingFraction).toBe(
         0.512345,
       )
+      expect(sidebar.checkedAt).toBe(fetchAt + 1_000)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('manual Quota menu check keeps Gemini Models when Argon follows it', async () => {
+    const f = fixture({
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'gemini-5h',
+              displayName: '5h',
+              window: '5h',
+              remainingFraction: 0.4,
+              resetTime: '2030-01-01T05:00:00Z',
+            },
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly',
+              window: 'weekly',
+              remainingFraction: 0,
+              resetTime: '2030-01-08T00:00:00Z',
+            },
+          ],
+        },
+        {
+          displayName: 'Gemini 4 Argon',
+          // Assumed Pro Argon bucket ID: `gemini-argon-weekly` (not confirmed).
+          buckets: [
+            {
+              bucketId: 'gemini-argon-weekly',
+              displayName: 'Argon Weekly',
+              window: 'weekly',
+              remainingFraction: 1,
+              resetTime: '2030-01-15T00:00:00Z',
+            },
+          ],
+        },
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            {
+              bucketId: '3p-weekly',
+              displayName: 'Weekly',
+              window: 'weekly',
+              remainingFraction: 0.8,
+              resetTime: '2030-01-08T00:00:00Z',
+            },
+          ],
+        },
+      ],
+    })
+    try {
+      await f.pool.sync()
+      const fetchAt = f.now
+      const { source, pool } = await f.options.currentVaultPool()
+      const sections = createVaultAccountMenuSections(
+        pool,
+        () => 'opaque-choice',
+        (signal) =>
+          checkAndPublishVaultQuota(
+            {
+              pool,
+              signal,
+              now: f.options.now,
+              fetchReading: (ref, check) =>
+                fetchVaultAccountQuota({
+                  source,
+                  ref,
+                  signal: check,
+                  logger: f.options.logger,
+                  transport: f.options.transport,
+                }),
+            },
+            f.options.publishSidebar,
+          ),
+      )
+      const quota = await sections.quota.build({ notify() {} })
+      const action = quota.actions?.find((entry) => entry.id === 'refresh')
+      expect(action).toBeDefined()
+      await action!.run({ values: {}, invocation: { notify() {} } })
+      expect(f.writes).toBe(2)
+      expect(f.publishes).toBe(1)
+      const storedGemini = f.accounts['identity-0']?.quota?.cachedQuota?.gemini
+      expect(storedGemini?.remainingFraction).toBe(0)
+      expect(storedGemini?.resetTime).toBe('2030-01-08T00:00:00Z')
+      const sidebar = readSidebarState(f.stateFile)
+      expect(sidebar.accounts[0]?.quota.gemini?.checkedAt).toBe(fetchAt)
+      expect(sidebar.accounts[0]?.quota.gemini?.remainingFraction).toBe(0)
       expect(sidebar.checkedAt).toBe(fetchAt + 1_000)
     } finally {
       await f.cleanup()

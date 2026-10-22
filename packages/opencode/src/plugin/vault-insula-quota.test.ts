@@ -363,6 +363,44 @@ describe('insula vault quota', () => {
     ).toBeUndefined()
   })
 
+  it('does not let an Argon window replace the canonical Gemini weekly reading', () => {
+    const normalized = normalizeVaultInsulaQuota(
+      entry({
+        usage: {
+          extraRateWindows: [
+            {
+              id: 'gemini-weekly',
+              window: {
+                usedPercent: 40,
+                resetsAt: RESET_7D,
+                windowMinutes: 10080,
+              },
+            },
+            {
+              // Assumed Pro Argon bucket ID: `gemini-argon-weekly` (not confirmed).
+              id: 'gemini-argon-weekly',
+              window: {
+                usedPercent: 100,
+                resetsAt: RESET_7D,
+                windowMinutes: 10080,
+              },
+            },
+          ],
+        },
+      }),
+      { fetchedAt: FETCHED },
+    )
+
+    expect(normalized?.quota.groups.gemini).toEqual({
+      modelCount: 0,
+      remainingFraction: 0.6,
+      resetTime: RESET_7D,
+      windows: [
+        { window: 'weekly', remainingFraction: 0.6, resetTime: RESET_7D },
+      ],
+    })
+  })
+
   it('an account-mismatched reading is refused before admission', async () => {
     const f = await fixture([entry()], { wrongReadingAccount: true })
     try {

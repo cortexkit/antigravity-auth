@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+
 import type { AccountMetadataV3 } from './account-types.ts'
+import { setLogSink } from './logger.ts'
 import {
   aggregateQuotaSummary,
   createQuotaManager,
@@ -73,6 +75,7 @@ afterEach(() => {
     manager.dispose()
   }
   managers = []
+  setLogSink(null)
 })
 
 // Generic so callers keep the full manager type (refreshAccount, getCached,
@@ -1416,18 +1419,11 @@ describe('aggregateQuotaSummary', () => {
         remainingFraction: 0.9,
       },
       {
-        bucketId: 'gemini-daily',
+        bucketId: 'gemini-5h',
         displayName: 'Daily',
         window: 'daily',
         resetTime: '2026-07-25T00:00:00Z',
         remainingFraction: 0.5,
-      },
-      {
-        bucketId: 'gemini-5h',
-        displayName: '5h',
-        window: '5h',
-        resetTime: '2026-07-24T12:00:00Z',
-        remainingFraction: 0.8,
       },
     ]
     const wirePayload = {
@@ -1444,13 +1440,11 @@ describe('aggregateQuotaSummary', () => {
     })
     const summary = aggregateQuotaSummary(response)
     const windows = summary.groups.gemini!.windows!
-    expect(windows).toHaveLength(3)
-    // Known windows sorted shortest-first: 5h → weekly
-    expect(windows[0]!.window).toBe('5h')
-    expect(windows[1]!.window).toBe('weekly')
+    expect(windows).toHaveLength(2)
+    expect(windows[0]!.window).toBe('weekly')
     // Unknown window ('daily') sorts last. QuotaWindow does not include it,
     // so read the value as a plain string to assert the raw kind survived.
-    const unknownWindow: string = windows[2]!.window
+    const unknownWindow: string = windows[1]!.window
     expect(unknownWindow).toBe('daily')
   })
 
@@ -1475,6 +1469,258 @@ describe('aggregateQuotaSummary', () => {
     const summary = aggregateQuotaSummary(response)
     expect(summary.groups.gemini!.modelCount).toBe(2)
     expect(summary.modelCount).toBe(2)
+  })
+
+  function responseWithArgon(argonFirst: boolean) {
+    // Assumed Pro Argon bucket ID: `gemini-argon-weekly` (not confirmed).
+    const argon = {
+      displayName: 'Gemini 4 Argon',
+      description: 'Models: Gemini 4 Argon',
+      buckets: [
+        {
+          bucketId: 'gemini-argon-weekly',
+          displayName: 'Argon Weekly',
+          window: 'weekly' as const,
+          resetTime: '2026-01-15T00:00:00Z',
+          remainingFraction: 1,
+        },
+      ],
+    }
+    const gemini = {
+      displayName: 'Gemini Models',
+      description: 'Models: Gemini Pro, Gemini Flash',
+      buckets: [
+        {
+          bucketId: 'gemini-5h',
+          displayName: '5h Limit',
+          window: '5h' as const,
+          resetTime: '2026-01-08T05:00:00Z',
+          remainingFraction: 0.4,
+        },
+        {
+          bucketId: 'gemini-weekly',
+          displayName: 'Weekly Limit',
+          window: 'weekly' as const,
+          resetTime: '2026-01-15T00:00:00Z',
+          remainingFraction: 0,
+        },
+      ],
+    }
+    const nonGemini = {
+      displayName: 'Claude and GPT models',
+      description: 'Models: Claude, GPT',
+      buckets: [
+        {
+          bucketId: '3p-5h',
+          displayName: '5h Limit',
+          window: '5h' as const,
+          resetTime: '2026-01-08T05:00:00Z',
+          remainingFraction: 0.75,
+        },
+        {
+          bucketId: '3p-weekly',
+          displayName: 'Weekly Limit',
+          window: 'weekly' as const,
+          resetTime: '2026-01-15T00:00:00Z',
+          remainingFraction: 0.8,
+        },
+      ],
+    }
+    return {
+      groups: argonFirst
+        ? [argon, gemini, nonGemini]
+        : [gemini, argon, nonGemini],
+    } satisfies RetrieveUserQuotaSummaryResponse
+  }
+
+  it('keeps the Gemini Models pool when Argon follows it', () => {
+    const summary = aggregateQuotaSummary(responseWithArgon(false))
+    expect(summary.groups.gemini?.remainingFraction).toBe(0)
+    expect(summary.groups.gemini?.resetTime).toBe('2026-01-15T00:00:00Z')
+    expect(summary.groups['non-gemini']?.remainingFraction).toBe(0.75)
+    expect(summary.groups['non-gemini']?.resetTime).toBe('2026-01-08T05:00:00Z')
+    expect(summary.modelCount).toBe(4)
+    expect(summary.groups.gemini?.modelCount).toBe(2)
+  })
+
+  it('keeps the Gemini Models pool when Argon precedes it', () => {
+    const summary = aggregateQuotaSummary(responseWithArgon(true))
+    expect(summary.groups.gemini?.remainingFraction).toBe(0)
+    expect(summary.groups.gemini?.resetTime).toBe('2026-01-15T00:00:00Z')
+    expect(summary.groups['non-gemini']?.remainingFraction).toBe(0.75)
+    expect(summary.groups['non-gemini']?.resetTime).toBe('2026-01-08T05:00:00Z')
+    expect(summary.modelCount).toBe(4)
+    expect(summary.groups.gemini?.modelCount).toBe(2)
+  })
+
+  it('uses the available canonical weekly bucket when 5h is absent', () => {
+    const summary = aggregateQuotaSummary({
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-15T00:00:00Z',
+              remainingFraction: 0.6,
+            },
+          ],
+        },
+      ],
+    })
+    expect(summary.groups.gemini?.remainingFraction).toBe(0.6)
+    expect(summary.groups.gemini?.resetTime).toBe('2026-01-15T00:00:00Z')
+    expect(summary.groups.gemini?.windows).toEqual([
+      {
+        window: 'weekly',
+        remainingFraction: 0.6,
+        resetTime: '2026-01-15T00:00:00Z',
+      },
+    ])
+  })
+
+  it('skips disabled buckets without removing the active weekly quota', () => {
+    const summary = aggregateQuotaSummary({
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          description: 'Models: Gemini Flash',
+          buckets: [
+            {
+              bucketId: 'gemini-5h',
+              displayName: '5h Limit',
+              window: '5h',
+              resetTime: '2026-10-22T17:00:00Z',
+              remainingFraction: 1,
+              disabled: true,
+            },
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-10-29T12:00:00Z',
+              remainingFraction: 0,
+            },
+          ],
+        },
+        {
+          displayName: 'Claude and GPT models',
+          description: 'Models: Claude',
+          buckets: [
+            {
+              bucketId: '3p-5h',
+              displayName: '5h Limit',
+              window: '5h',
+              resetTime: '2026-10-22T17:00:00Z',
+              remainingFraction: 1,
+              disabled: true,
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(summary.groups.gemini).toEqual({
+      remainingFraction: 0,
+      resetTime: '2026-10-29T12:00:00Z',
+      modelCount: 1,
+      windows: [
+        {
+          window: 'weekly',
+          remainingFraction: 0,
+          resetTime: '2026-10-29T12:00:00Z',
+        },
+      ],
+    })
+    expect(summary.groups['non-gemini']).toBeUndefined()
+    expect(summary.modelCount).toBe(1)
+  })
+
+  it('ignores an Argon-only response', () => {
+    const { groups } = responseWithArgon(false)
+    const summary = aggregateQuotaSummary({ groups: [groups[1]!] })
+    expect(summary.groups.gemini).toBeUndefined()
+    expect(summary.groups['non-gemini']).toBeUndefined()
+    expect(summary.modelCount).toBe(0)
+  })
+
+  it('keeps the most constrained duplicate canonical bucket and logs only its id', () => {
+    const records: Array<{
+      service: string
+      level: string
+      message: string
+      extra?: Record<string, unknown>
+    }> = []
+    setLogSink((record) => records.push(record))
+    const summary = aggregateQuotaSummary({
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          description: 'Models: Gemini Pro',
+          buckets: [
+            {
+              bucketId: 'gemini-5h',
+              displayName: '5h Limit',
+              window: '5h',
+              resetTime: '2026-01-08T05:00:00Z',
+              remainingFraction: 0.4,
+            },
+          ],
+        },
+        {
+          displayName: 'Gemini Models Weekly',
+          description: 'Models: Gemini Flash',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-15T00:00:00Z',
+              remainingFraction: 0.7,
+            },
+          ],
+        },
+        {
+          displayName: 'Duplicate Gemini Models Weekly',
+          description: 'Models: Gemini Mini',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly',
+              resetTime: '2026-01-22T00:00:00Z',
+              remainingFraction: 0.2,
+            },
+          ],
+        },
+      ],
+    })
+    expect(summary.groups.gemini?.windows).toEqual([
+      {
+        window: '5h',
+        remainingFraction: 0.4,
+        resetTime: '2026-01-08T05:00:00Z',
+      },
+      {
+        window: 'weekly',
+        remainingFraction: 0.2,
+        resetTime: '2026-01-22T00:00:00Z',
+      },
+    ])
+    expect(summary.groups.gemini?.remainingFraction).toBe(0.2)
+    expect(summary.groups.gemini?.modelCount).toBe(3)
+    expect(summary.modelCount).toBe(3)
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({
+      level: 'debug',
+      message: 'duplicate quota summary bucket ids',
+      extra: { bucketIds: ['gemini-weekly'] },
+    })
+    expect(JSON.stringify(records)).not.toMatch(
+      /remainingFraction|resetTime|0\.2|0\.7/,
+    )
   })
 
   it('back-compat: treats a windows-less QuotaGroupSummary gracefully', () => {

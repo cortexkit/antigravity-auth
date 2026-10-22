@@ -606,6 +606,7 @@ export interface RetrieveUserQuotaSummaryBucket {
   window: 'weekly' | '5h'
   resetTime: string
   remainingFraction: number
+  disabled?: boolean
   description?: string
 }
 
@@ -643,16 +644,20 @@ function mostConstrainedWindow(
 }
 
 /**
- * Map a retrieveUserQuotaSummary bucketId prefix to our internal pool.
- *
- * bucketId prefixes:
- *   `gemini-*` → gemini
- *   `3p-*`     → non-gemini
+ * Map only quota bucket IDs whose meaning is known to an internal pool.
+ * Other IDs may describe separate entitlements and must not affect these pools.
  */
 function poolForBucketId(bucketId: string): QuotaGroup | null {
-  if (bucketId.startsWith('gemini-')) return 'gemini'
-  if (bucketId.startsWith('3p-')) return 'non-gemini'
-  return null
+  switch (bucketId) {
+    case 'gemini-5h':
+    case 'gemini-weekly':
+      return 'gemini'
+    case '3p-5h':
+    case '3p-weekly':
+      return 'non-gemini'
+    default:
+      return null
+  }
 }
 
 /**
@@ -695,55 +700,71 @@ function windowDurationMs(window: 'weekly' | '5h' | string): number {
 /**
  * Aggregate a retrieveUserQuotaSummary response into a QuotaSummary.
  *
- * Each RUQS group maps to a pool via bucketId prefix. Within a pool,
- * windows are stored shortest-first (5h before weekly, etc.). The pool's
- * `remainingFraction`/`resetTime` derive from the most-constrained window.
+ * Only known bucket IDs contribute. Their windows are merged across groups,
+ * stored shortest-first, and reduced to the most-constrained pool reading.
  */
 export function aggregateQuotaSummary(
   response: RetrieveUserQuotaSummaryResponse,
 ): QuotaSummary {
-  const groups: Partial<Record<QuotaGroup, QuotaGroupSummary>> = {}
-  let totalCount = 0
+  const windowsByPool: Record<QuotaGroup, Map<string, QuotaWindowEntry>> = {
+    gemini: new Map(),
+    'non-gemini': new Map(),
+  }
+  const modelCounts: Record<QuotaGroup, number> = {
+    gemini: 0,
+    'non-gemini': 0,
+  }
+  const seenBucketIds = new Set<string>()
+  const duplicateBucketIds = new Set<string>()
 
   for (const group of response.groups) {
-    const windows: QuotaWindowEntry[] = []
+    const contributingPools = new Set<QuotaGroup>()
     for (const bucket of group.buckets) {
+      // A disabled bucket's remaining fraction may be stale, so exclude it from quota calculations.
+      if (bucket.disabled === true) continue
       const pool = poolForBucketId(bucket.bucketId)
       if (!pool) continue
-      windows.push({
+      contributingPools.add(pool)
+      const window: QuotaWindowEntry = {
         window: bucket.window,
         remainingFraction: normalizeRemainingFraction(bucket.remainingFraction),
         resetTime: bucket.resetTime,
-      })
+      }
+      const previous = windowsByPool[pool].get(bucket.bucketId)
+      if (seenBucketIds.has(bucket.bucketId)) {
+        duplicateBucketIds.add(bucket.bucketId)
+      } else {
+        seenBucketIds.add(bucket.bucketId)
+      }
+      if (!previous || window.remainingFraction < previous.remainingFraction) {
+        windowsByPool[pool].set(bucket.bucketId, window)
+      }
     }
-    if (windows.length === 0) continue
 
-    // Order: shortest window first so the binding 5h window leads visually.
-    windows.sort(
-      (a, b) => windowDurationMs(a.window) - windowDurationMs(b.window),
-    )
-
-    const constrained = mostConstrainedWindow(windows)
-    // Pick the first RECOGNIZED bucket for pool derivation. Older
-    // servers may prepend a junk bucket (system noise, a non-standard
-    // prefix like `claude-3p-`) whose bucketId doesn't match any of
-    // our pool prefixes; the legacy poolForBucketId derivation used
-    // group.buckets[0] unconditionally, which silently dropped the
-    // whole group when an unknown prefix led the array.
-    const recognizedBucket = group.buckets.find((bucket) =>
-      poolForBucketId(bucket.bucketId),
-    )
-    if (!recognizedBucket) continue
-    const pool = poolForBucketId(recognizedBucket.bucketId)
-    if (!pool || !constrained) continue
-
-    // The description is a list of model names comma-separated, often
-    // prefixed with a label like "Models within this group:". Strip
-    // the prefix before splitting so it doesn't count as a model.
+    // Count only groups that contain a known bucket ID for the pool.
     const modelCount = group.description
       ? parseDescriptionModelCount(group.description)
       : 0
+    for (const pool of contributingPools) modelCounts[pool] += modelCount
+  }
 
+  if (duplicateBucketIds.size > 0) {
+    log.debug('duplicate quota summary bucket ids', {
+      bucketIds: [...duplicateBucketIds].sort(),
+    })
+  }
+
+  const groups: Partial<Record<QuotaGroup, QuotaGroupSummary>> = {}
+  let totalCount = 0
+  for (const pool of ['gemini', 'non-gemini'] as const) {
+    const windows = [...windowsByPool[pool].values()]
+    if (windows.length === 0) continue
+    windows.sort(
+      (a, b) => windowDurationMs(a.window) - windowDurationMs(b.window),
+    )
+    const constrained = mostConstrainedWindow(windows)
+    if (!constrained) continue
+    const modelCount = modelCounts[pool]
     groups[pool] = {
       remainingFraction: constrained.remainingFraction,
       resetTime: constrained.resetTime,

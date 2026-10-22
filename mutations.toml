@@ -2084,3 +2084,29 @@ runner = "command"
 command = ["bash", "-c", "if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ] && [ -n \"${CKDEV_MUTATE_DIFF_LOG:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" packages/opencode/src/plugin/vault-custody.ts > \"$CKDEV_MUTATE_DIFF_LOG\"; diff_status=$?; cat \"$CKDEV_MUTATE_DIFF_LOG\"; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; fi; run_tests() { bun run --cwd packages/core build || return $?; bun test --isolate packages/opencode/src/plugin/vault-approval.test.ts -t \"$1\"; }; output_log=\"${CKDEV_MUTATE_OUTPUT_LOG:-/tmp/ckdev-mutate-opencode-$$.log}\"; run_tests \"$1\" 2>&1 | tee \"$output_log\"; test_status=${PIPESTATUS[0]}; exit \"$test_status\"", "--", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^OpenCode\snames\san\sunsupported\svault\sin\sthe\srequest-access\smenu\saction\swithout\sstarting\san\sapproval\swatch$']
+
+[[control]]
+id = "quota-summary-argon-prefix-matching"
+guards = "A separate Argon bucket cannot replace the canonical Gemini quota summary."
+file = "packages/core/src/quota-manager.ts"
+old = "  switch (bucketId) {"
+new = "  if (bucketId.startsWith('gemini-')) return 'gemini' // NON-VACUITY BREAK: restore prefix matching.\n  if (bucketId.startsWith('3p-')) return 'non-gemini'\n  switch (bucketId) {"
+test_file = "packages/core/src/quota-manager.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/core/src/quota-manager.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ] && [ -n \"${CKDEV_MUTATE_DIFF_LOG:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" packages/core/src/quota-manager.ts > \"$CKDEV_MUTATE_DIFF_LOG\"; diff_status=$?; cat \"$CKDEV_MUTATE_DIFF_LOG\"; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; fi; bun run --cwd packages/core build || exit $?; output_log=\"${CKDEV_MUTATE_OUTPUT_LOG:-/tmp/ckdev-mutate-quota-$$.log}\"; bun test --isolate packages/core/src/quota-manager.test.ts -t \"$1\" 2>&1 | tee \"$output_log\"; test_status=${PIPESTATUS[0]}; exit \"$test_status\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^aggregateQuotaSummary.*keeps\sthe\sGemini\sModels\spool\swhen\sArgon\sfollows\sit$']
+
+[[control]]
+id = "quota-summary-disabled-window"
+guards = "Disabled summary buckets do not contribute stale remaining fractions to either quota pool."
+file = "packages/core/src/quota-manager.ts"
+old = "      if (bucket.disabled === true) continue"
+new = "      if (false && bucket.disabled === true) continue // NON-VACUITY BREAK: keep suspended buckets."
+test_file = "packages/core/src/quota-manager.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/core/src/quota-manager.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ] && [ -n \"${CKDEV_MUTATE_DIFF_LOG:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" packages/core/src/quota-manager.ts > \"$CKDEV_MUTATE_DIFF_LOG\"; diff_status=$?; cat \"$CKDEV_MUTATE_DIFF_LOG\"; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; fi; bun run --cwd packages/core build || exit $?; output_log=\"${CKDEV_MUTATE_OUTPUT_LOG:-/tmp/ckdev-mutate-disabled-$$.log}\"; bun test --isolate packages/core/src/quota-manager.test.ts -t \"$1\" 2>&1 | tee \"$output_log\"; test_status=${PIPESTATUS[0]}; exit \"$test_status\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^aggregateQuotaSummary.*skips\sdisabled\sbuckets\swithout\sremoving\sthe\sactive\sweekly\squota$']
