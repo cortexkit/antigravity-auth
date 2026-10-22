@@ -11,10 +11,10 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
 import {
   type CommonAuthClaustrumModule,
   loadCommonAuthClaustrum,
+  UNSUPPORTED_VAULT_CODE,
 } from '@cortexkit/antigravity-auth-core'
 import type {
   ClaustrumEnrollmentConnection,
@@ -642,6 +642,44 @@ describe('Pi vault enrollment guidance', () => {
     held.release()
     await settle(() => call.notices.length > 1)
     expect(call.notices).toEqual([{ message: APPROVED, kind: 'info' }])
+  })
+
+  it('names a Claustrum vault that cannot connect plugins in the request-access result', async () => {
+    const setup = makeSetup()
+    setup.connectStep = async () => ({
+      state: 'unavailable',
+      proposedName: PI_ANTIGRAVITY_ENROLLMENT_NAME,
+      code: UNSUPPORTED_VAULT_CODE,
+    })
+    const call = invocation()
+    const result = await action(
+      await build(createPiVaultSection({ setup: async () => setup })),
+      'request-access',
+    ).run({ values: {}, invocation: call.value })
+
+    expect(result).toEqual({
+      ok: false,
+      text: 'Vault access: this Claustrum vault is too old to connect plugins. Ask the vault operator to update Claustrum, or keep using your local accounts.',
+    })
+    expect(call.notices).toEqual([])
+  })
+
+  it('keeps the reachability text for other unavailable enrollment codes', async () => {
+    const setup = makeSetup()
+    setup.connectStep = async () => ({
+      state: 'unavailable',
+      proposedName: PI_ANTIGRAVITY_ENROLLMENT_NAME,
+      code: 'connection-lost',
+    })
+    const result = await action(
+      await build(createPiVaultSection({ setup: async () => setup })),
+      'request-access',
+    ).run({ values: {}, invocation: invocation().value })
+
+    expect(result).toEqual({
+      ok: false,
+      text: "Vault access: Pi can't reach the vault right now. Try again later (reference: connection-lost).",
+    })
   })
 
   it('says where to find the request ID when Pi does not know it', async () => {

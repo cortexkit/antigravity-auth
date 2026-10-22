@@ -21,7 +21,6 @@
 
 import { chmod, mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-
 import {
   type AntigravityVaultAccountSource,
   type CommonAuthClaustrumModule,
@@ -37,6 +36,7 @@ import {
   readVaultProviderState,
   resolveClaustrumConnectionPath,
   sharedVaultTokenFolderOutcome,
+  UNSUPPORTED_VAULT_CODE,
   VAULT_ACCOUNT_REMEDY,
   VAULT_RECLASSIFY_COMMAND,
   VAULT_STATUS_COMMAND,
@@ -684,6 +684,12 @@ async function refusalOr(
   return 'Done. Start a new request to use the change.'
 }
 
+function isUnsupportedEnrollment(status: EnrollmentStatus): boolean {
+  return (
+    status.state === 'unavailable' && status.code === UNSUPPORTED_VAULT_CODE
+  )
+}
+
 function describeEnrollment(status: EnrollmentStatus): string {
   switch (status.state) {
     case 'idle':
@@ -699,7 +705,9 @@ function describeEnrollment(status: EnrollmentStatus): string {
     case 'blocked':
       return `blocked (${status.code})`
     case 'unavailable':
-      return `vault unavailable (${status.code})`
+      return isUnsupportedEnrollment(status)
+        ? "this vault can't connect plugins yet"
+        : `vault unavailable (${status.code})`
     case 'busy':
       return 'another setup step is running'
   }
@@ -809,10 +817,15 @@ function enrollmentGuidance(status: EnrollmentStatus): string[] {
     return [
       'Resolve the enrollment problem with the vault operator, then request vault access again.',
     ]
-  if (status.state === 'unavailable')
+  if (status.state === 'unavailable') {
+    if (isUnsupportedEnrollment(status))
+      return [
+        'This Claustrum vault is too old to connect plugins. Ask the vault operator to update Claustrum, or keep using your local accounts.',
+      ]
     return [
       'Check that the vault is running and its connection file is available, then request vault access again.',
     ]
+  }
   if (status.state === 'busy')
     return [
       'Another enrollment operation is running. OpenCode will keep checking its outcome in the background.',

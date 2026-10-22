@@ -9,14 +9,23 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+import { UNSUPPORTED_ENROLLMENT_CODE } from './common-auth-embedded/claustrum/enrollment.js'
 import { loadCommonAuthClaustrum } from './common-auth-runtime.ts'
-import { enrollmentAuthority } from './vault-enrollment-authority.ts'
+import {
+  enrollmentAuthority,
+  UNSUPPORTED_VAULT_CODE,
+} from './vault-enrollment-authority.ts'
 
 const proposedName = 'antigravity-auth-opencode'
 const syntheticPaths = {
   tokenPath: '/synthetic-token',
   statePath: '/synthetic-state',
 }
+it('matches the library code for an unsupported vault', () => {
+  expect(UNSUPPORTED_VAULT_CODE).toBe(UNSUPPORTED_ENROLLMENT_CODE)
+})
+
 const roots: string[] = []
 afterEach(() => {
   for (const root of roots.splice(0))

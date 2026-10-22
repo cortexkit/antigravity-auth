@@ -4,6 +4,10 @@ import {
 } from './common-auth-runtime.ts'
 
 export type EnrollmentAuthority = 'vault' | 'local' | 'unreadable'
+
+/** Matches common-auth's internal code, which the public Claustrum entry does not export. */
+export const UNSUPPORTED_VAULT_CODE = 'unknown_method'
+
 type EnrollmentPaths = Parameters<
   CommonAuthClaustrumModule['readClaustrumEnrollmentStatus']
 >[0]

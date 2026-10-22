@@ -22,6 +22,7 @@ export function expectedInsulaReset(
 export async function startMenuVaultFixture(
   root: string,
   credential?: { accessToken: string; projectId: string },
+  options: { unsupportedEnrollment?: boolean } = {},
 ) {
   // Node needs --experimental-import-meta-resolve to honor the client as the parent.
   const clientEntry =
@@ -272,6 +273,19 @@ export async function startMenuVaultFixture(
               header,
               { kind: 'changed', epoch: 'owned-usage', seq: 1 },
               subc.FrameType.StreamData,
+            )
+            continue
+          }
+          if (
+            options.unsupportedEnrollment &&
+            request.method?.startsWith('auth.enroll_')
+          ) {
+            if (request.method) calls.push(request.method)
+            respond(
+              socket,
+              header,
+              { code: 'unknown_method', class: 'permanent' },
+              subc.FrameType.Error,
             )
             continue
           }

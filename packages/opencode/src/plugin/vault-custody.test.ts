@@ -771,7 +771,12 @@ describe('Vault request failure outcomes', () => {
       if (state === 'denied')
         expect(result.text).toContain('request vault access again')
       if (state === 'unavailable')
-        expect(result.text).toContain('connection file')
+        expect(result.text).toBe(
+          [
+            'Vault access: vault unavailable (connection-unavailable)',
+            'Check that the vault is running and its connection file is available, then request vault access again.',
+          ].join('\n'),
+        )
     })
   }
 

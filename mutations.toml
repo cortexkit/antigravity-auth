@@ -2071,3 +2071,16 @@ runner = "command"
 command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/shared/request-services.test.ts -t \"$1\"", "--", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^createRequestExecutor\smodel\sunavailable\s\(404\sNOT_FOUND\)\skeeps\sthe\sprod\sfallback\sfor\sa\s404\swith\sanother\sstructured\sstatus,\sand\sreturns\sa\ssecond\s404\swithout\srotating$']
+
+[[control]]
+id = "opencode-unsupported-vault-guidance"
+guards = "OpenCode names an older Claustrum vault instead of claiming it is unreachable."
+file = "packages/opencode/src/plugin/vault-custody.ts"
+old = "status.code === UNSUPPORTED_VAULT_CODE"
+new = "status.code === 'never-supported-code' // NON-VACUITY BREAK: ignore the unsupported-vault code."
+test_file = "packages/opencode/src/plugin/vault-approval.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/vault-approval.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ] && [ -n \"${CKDEV_MUTATE_DIFF_LOG:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" packages/opencode/src/plugin/vault-custody.ts > \"$CKDEV_MUTATE_DIFF_LOG\"; diff_status=$?; cat \"$CKDEV_MUTATE_DIFF_LOG\"; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; fi; run_tests() { bun run --cwd packages/core build || return $?; bun test --isolate packages/opencode/src/plugin/vault-approval.test.ts -t \"$1\"; }; output_log=\"${CKDEV_MUTATE_OUTPUT_LOG:-/tmp/ckdev-mutate-opencode-$$.log}\"; run_tests \"$1\" 2>&1 | tee \"$output_log\"; test_status=${PIPESTATUS[0]}; exit \"$test_status\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^OpenCode\snames\san\sunsupported\svault\sin\sthe\srequest-access\smenu\saction\swithout\sstarting\san\sapproval\swatch$']

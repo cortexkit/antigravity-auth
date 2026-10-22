@@ -13,6 +13,7 @@ import {
   type AccountRepositoryRead,
   createAccountRepositoryFactory,
   initializeFreshAccountStore,
+  loadCommonAuthClaustrum,
   loadCommonAuthStoreModules,
   readAccountStoreAdmission,
 } from '@cortexkit/antigravity-auth-core'
@@ -29,7 +30,11 @@ import { createOperatorSettingsRegistry } from './operator-settings.ts'
 import { createLocationRuntime } from './shared/runtime.ts'
 import { getStoragePath } from './storage.ts'
 import type { PluginInput, Provider } from './types.ts'
-import { createOpenCodeVaultCustody } from './vault-custody.ts'
+import {
+  createOpenCodeVaultCustody,
+  OPENCODE_VAULT_ENROLLMENT_NAME,
+  openCodeVaultPaths,
+} from './vault-custody.ts'
 
 const MODEL = 'gemini-3-flash'
 const URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:streamGenerateContent?alt=sse`
@@ -203,6 +208,58 @@ async function fixture() {
 }
 
 const APPROVED_NOTICE = 'Vault access: approved as antigravity-auth-opencode'
+
+it('OpenCode names an unsupported vault in the request-access menu action without starting an approval watch', async () => {
+  const root = realpathSync(
+    mkdtempSync('/tmp/opencode-unsupported-enrollment-'),
+  )
+  const daemon = await startMenuVaultFixture(root, undefined, {
+    unsupportedEnrollment: true,
+  })
+  const accountFile = join(root, 'antigravity-accounts.json')
+  const custody = createOpenCodeVaultCustody({
+    accountFile,
+    readHostSlot: async () => undefined,
+    reporterSource: 'direct',
+    connectionFile: () => daemon.connectionFile,
+  })
+  try {
+    const invocation = { notify: () => undefined }
+    const content = await custody.menuSection().build(invocation)
+    const action = content.actions?.find(
+      (entry) => entry.id === 'request-access',
+    )
+    if (!action) throw new Error('Missing vault request action')
+    expect(await action.run({ values: {}, invocation })).toEqual({
+      ok: false,
+      text: [
+        "Vault access: this vault can't connect plugins yet",
+        'This Claustrum vault is too old to connect plugins. Ask the vault operator to update Claustrum, or keep using your local accounts.',
+      ].join('\n'),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 2_100))
+    expect(
+      daemon.calls.some((method) => method.startsWith('auth.enroll_')),
+    ).toBe(true)
+    expect(daemon.calls).not.toContain('auth.enroll_poll')
+    expect(daemon.errors).toEqual([])
+    const claustrum = await loadCommonAuthClaustrum()
+    const enrollmentPaths = claustrum.hostEnrollmentPaths({
+      stateDir: openCodeVaultPaths(accountFile).dir,
+      host: 'opencode',
+    })
+    expect(
+      await claustrum.readClaustrumEnrollmentStatus(
+        enrollmentPaths,
+        OPENCODE_VAULT_ENROLLMENT_NAME,
+      ),
+    ).toEqual({ state: 'idle' })
+  } finally {
+    await custody.dispose()
+    await daemon.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
 function localCredentialUsage(read: AccountRepositoryRead) {
   if (read.status !== 'ready') throw new Error(read.status)
