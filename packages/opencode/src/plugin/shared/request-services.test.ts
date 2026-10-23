@@ -3023,6 +3023,64 @@ describe('createRequestExecutor vault admissions', () => {
 })
 
 describe('createRequestExecutor vault 401 rotation', () => {
+  it('cancels after successful fresh 401 re-admission before retry selection', async () => {
+    const controller = new AbortController()
+    const reason = new Error('cancelled after vault re-admission')
+    const entered = Promise.withResolvers<void>()
+    const readmitted = Promise.withResolvers<RequestSendAdmission>()
+    const report401 = mock(async () => {})
+    const retryAfter401 = mock(() => false)
+    let admissions = 0
+    const admission = (version: number): RequestSendAdmission => ({
+      credentialId: 'credential-a',
+      accountIdentity: 'identity-a',
+      recordVersion: version,
+      accessToken: `token-v${version}`,
+      projectId: 'admission-project',
+      report401,
+    })
+    const h = harness({
+      refresh: async () => {
+        throw new Error('vault sends must not refresh')
+      },
+      respond: async () => new Response('unauthorized', { status: 401 }),
+    })
+    const executor = createRequestExecutor({
+      ...h.deps,
+      credentials: {
+        domain: 'vault',
+        admit: () => {
+          admissions += 1
+          if (admissions === 1) return Promise.resolve(admission(1))
+          entered.resolve()
+          return readmitted.promise
+        },
+        retryAfter401,
+      },
+    })
+    try {
+      const pending = executor.execute(
+        NON_STREAM_URL,
+        CHAT_INIT(controller.signal),
+      )
+      void pending.catch(() => {})
+      await entered.promise
+      readmitted.resolve(admission(2))
+      // Advance the resolved admission through the deadline wrapper's final abort check.
+      // Four microtask turns stop before the executor resumes to select a retry.
+      for (let turn = 0; turn < 4; turn++) await Promise.resolve()
+      controller.abort(reason)
+      await expect(pending).rejects.toBe(reason)
+      expect(admissions).toBe(2)
+      expect(retryAfter401).not.toHaveBeenCalled()
+      expect(report401).not.toHaveBeenCalled()
+      expect(h.calls).toHaveLength(1)
+      expect(h.refreshed).toEqual([])
+    } finally {
+      await executor.dispose()
+    }
+  })
+
   it('retries the same endpoint once with a newer version of the same credential', async () => {
     const reports: Array<{ version: number; status: number }> = []
     const versions = [1, 2]

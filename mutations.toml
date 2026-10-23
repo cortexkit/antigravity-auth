@@ -1847,7 +1847,7 @@ id = "shared-vault-roster-watch-and-reconnect"
 guards = "A supported vault roster watch avoids poll reads, refreshes on a changed view and reads again after resubscription."
 edits = [
   { file = "packages/core/src/common-auth-embedded/claustrum/consumer.js", old = "                this.#openWatch();", new = "                // NON-VACUITY BREAK: disable roster-watch setup." },
-  { file = "packages/core/src/common-auth-embedded/source-output.json", old = "\"bytes\": 25698,\n      \"sourceSha256\": \"ec47dc016bf4d95655c17093a78d9c214b623214c821d352f73ea60f830c0d83\",\n      \"outputSha256\": \"ec47dc016bf4d95655c17093a78d9c214b623214c821d352f73ea60f830c0d83\"", new = "\"bytes\": 25729,\n      \"sourceSha256\": \"ec47dc016bf4d95655c17093a78d9c214b623214c821d352f73ea60f830c0d83\",\n      \"outputSha256\": \"1effc3cd13eb0662d728fbf4364b70de91121f9572aaf8a51679e8cad84ac5e0\"" },
+  { file = "packages/core/src/common-auth-embedded/source-output.json", old = "\"bytes\": 26470,\n      \"sourceSha256\": \"b2087accd6e8759fb49173dc744243ed703520d5011386ef514672be8fe79fbe\",\n      \"outputSha256\": \"b2087accd6e8759fb49173dc744243ed703520d5011386ef514672be8fe79fbe\"", new = "\"bytes\": 26501,\n      \"sourceSha256\": \"b2087accd6e8759fb49173dc744243ed703520d5011386ef514672be8fe79fbe\",\n      \"outputSha256\": \"efd66bcb7d1e3e355f1f9bb2fc1b20e3e83be2aab81ee528747d05c3584a48df\"" },
 ]
 test_file = "packages/opencode/src/plugin/vault-custody.test.ts"
 list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/vault-custody.test.ts", "-t", "{test}"]
@@ -2153,3 +2153,22 @@ runner = "command"
 command = ["bash", "-c", "if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ] && [ -n \"${CKDEV_MUTATE_DIFF_LOG:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" packages/core/src/quota-manager.ts > \"$CKDEV_MUTATE_DIFF_LOG\"; diff_status=$?; cat \"$CKDEV_MUTATE_DIFF_LOG\"; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; fi; bun run --cwd packages/core build || exit $?; output_log=\"${CKDEV_MUTATE_OUTPUT_LOG:-/tmp/ckdev-mutate-disabled-$$.log}\"; bun test --isolate packages/core/src/quota-manager.test.ts -t \"$1\" 2>&1 | tee \"$output_log\"; test_status=${PIPESTATUS[0]}; exit \"$test_status\"", "--", "{test}"]
 test_count_pattern = "Ran {count} test"
 expect_red = ['^aggregateQuotaSummary.*skips\sdisabled\sbuckets\swithout\sremoving\sthe\sactive\sweekly\squota$']
+
+[[control]]
+id = "shared-vault-successful-401-readmission-abort"
+guards = "Cancellation after successful fresh 401 re-admission stops retry selection, reporting and further sends."
+file = "packages/opencode/src/plugin/shared/request-services.ts"
+old = '''                  next = await deadline.wait(() =>
+                    credentials.admit({ account, signal: abortSignal }),
+                  )
+                  checkAborted()'''
+new = '''                  next = await deadline.wait(() =>
+                    credentials.admit({ account, signal: abortSignal }),
+                  )
+                  // NON-VACUITY BREAK: ignore cancellation after successful re-admission.'''
+test_file = "packages/opencode/src/plugin/shared/request-services.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/opencode/src/plugin/shared/request-services.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "python3 -c 'from pathlib import Path; text=Path(\"packages/opencode/src/plugin/shared/request-services.ts\").read_text(); start=text.index(\"                  next = await deadline.wait\"); print(text[start:text.index(\"                } catch\", start)])'; if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" packages/opencode/src/plugin/shared/request-services.ts; diff_status=$?; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; else git diff --stat; fi; bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/shared/request-services.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^createRequestExecutor\svault\s401\srotation\scancels\safter\ssuccessful\sfresh\s401\sre-admission\sbefore\sretry\sselection$']

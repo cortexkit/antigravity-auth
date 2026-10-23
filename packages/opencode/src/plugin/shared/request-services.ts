@@ -2024,6 +2024,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   next = await deadline.wait(() =>
                     credentials.admit({ account, signal: abortSignal }),
                   )
+                  checkAborted()
                 } catch {
                   checkAborted()
                   // A failed re-admission leaves the original upstream 401 intact.
