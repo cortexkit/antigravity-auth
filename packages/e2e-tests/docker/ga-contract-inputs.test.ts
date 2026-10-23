@@ -2214,6 +2214,56 @@ describe(CLEANUP_GROUP, () => {
       model.restore()
     }
   })
+  test('an outside-namespace zero never helps an ordinary host qualify or reach a signal', () => {
+    // A 0 in cgroup.procs is only tolerated inside an already qualified MOTOR
+    // job. On an ordinary host (host PID 1 and namespace, no MOTOR unit), every
+    // member list reads as zeros here, yet the guard must still refuse at
+    // placement, before it reads any member list, and must never signal.
+    const read = fs.readFileSync
+    const link = fs.readlinkSync
+    const paths: string[] = []
+    const reads = spyOn(fs, 'readFileSync').mockImplementation(
+      new Proxy(read, {
+        apply(target, receiver, args: unknown[]) {
+          const path = String(args[0])
+          paths.push(path)
+          if (path === '/proc/self/cgroup')
+            return '0::/user.slice/user-1000.slice/session-1.scope\n'
+          if (path === '/proc/1/comm') return 'systemd\n'
+          if (/cgroup\.(procs|threads)$/.test(path)) return '0\n0\n'
+          return Reflect.apply(target, receiver, args)
+        },
+      }),
+    )
+    const links = spyOn(fs, 'readlinkSync').mockImplementation(
+      new Proxy(link, {
+        apply(target, receiver, args: unknown[]) {
+          const path = String(args[0])
+          if (path === '/proc/self/ns/pid') return 'pid:[4026531836]'
+          if (path === '/proc/1/ns/pid') return 'pid:[4026531836]'
+          return Reflect.apply(target, receiver, args)
+        },
+      }),
+    )
+    let signals = 0
+    const signal = spyOn(process, 'kill').mockImplementation(() => {
+      signals++
+      return true
+    })
+    try {
+      expect(() => qualifyNativeProcessScope()).toThrow(
+        'native cleanup requires the unprivileged Linux x64 MOTOR job (',
+      )
+      expect(
+        paths.filter((path) => /cgroup\.(procs|threads)$/.test(path)),
+      ).toEqual([])
+      expect(signals).toBe(0)
+    } finally {
+      signal.mockRestore()
+      links.mockRestore()
+      reads.mockRestore()
+    }
+  })
   test('cgroup member lists admit only distinct positive ids and count outside-namespace zeros', () => {
     expect(
       cgroupMemberIds(['0', '1', '2', '29', '30'], 'cgroup.procs', 'ambiguous'),
