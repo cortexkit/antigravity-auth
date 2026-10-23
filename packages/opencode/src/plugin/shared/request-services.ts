@@ -3118,8 +3118,8 @@ function extractRateLimitBodyInfo(body: unknown): RateLimitBodyInfo {
   }
 
   if (message) {
-    const afterMatch = message.match(/reset after\s+([0-9hms.]+)/i)
-    const rawDuration = afterMatch?.[1]
+    const reset = message.match(/(?:reset after|resets? in)\s+([0-9hms.]+)/i)
+    const rawDuration = reset?.[1]
     if (rawDuration) {
       const parsed = parseDurationToMs(rawDuration)
       if (parsed !== null) {
