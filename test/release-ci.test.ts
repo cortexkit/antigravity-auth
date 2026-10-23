@@ -152,3 +152,30 @@ test('release.sh tag path checks CI without running local build or test commands
   expect(ciCheck).toBeGreaterThanOrEqual(0)
   expect(ciCheck).toBeLessThan(tag)
 })
+
+test('release.sh tag path pushes only the tag, never a branch', () => {
+  const source = readFileSync(
+    resolve(import.meta.dir, '../scripts/release.sh'),
+    'utf8',
+  )
+  const prepareMessage = 'echo "Prepared $TAG. No gate, tag or push was run."'
+  const prepareMessageIndex = source.indexOf(prepareMessage)
+  expect(prepareMessageIndex).toBeGreaterThanOrEqual(0)
+  const prepareEnd = source.indexOf('\nfi\n', prepareMessageIndex)
+  expect(prepareEnd).toBeGreaterThanOrEqual(0)
+  const tagPath = source.slice(prepareEnd + '\nfi\n'.length)
+  const commands = tagPath
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'))
+
+  // Publishing a local release branch is what this guards against: the one
+  // push on the tag path names the tag and nothing else, after it is created.
+  const pushes = commands.filter((line) => /\bgit\s+push\b/.test(line))
+  expect(pushes).toEqual(['git push origin "$TAG"'])
+  expect(tagPath).not.toMatch(/\$\{?BRANCH\b/)
+  expect(tagPath).not.toMatch(/\bgit\s+push\b[^\n]*(?:--all|--mirror|HEAD)/)
+  expect(tagPath.indexOf('git push origin "$TAG"')).toBeGreaterThan(
+    tagPath.indexOf('git tag -a "$TAG"'),
+  )
+})

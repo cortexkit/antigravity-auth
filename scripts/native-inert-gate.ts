@@ -1,13 +1,21 @@
 import { spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import {
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  type GatePlacement,
   type GateResult,
   git,
   INVENTORY_PATH,
   inventory,
   object,
+  qualifiedPlacement,
   RESULT_PREFIX,
   STAGE_NAMES,
   sameNames,
@@ -157,10 +165,31 @@ async function runStage(
   )
 }
 
+// Read where this gate process runs, directly and without spawning anything, so
+// the record proves its own placement. Any unreadable fact throws.
+export function observeGatePlacement(): GatePlacement {
+  const uid = process.getuid?.()
+  const euid = process.geteuid?.()
+  const gid = process.getgid?.()
+  if (uid === undefined || euid === undefined || gid === undefined)
+    throw new Error('native-inert gate cannot read its user identity')
+  return {
+    arch: process.arch,
+    uid,
+    euid,
+    gid,
+    host: hostname(),
+    pidNamespace: readlinkSync('/proc/self/ns/pid'),
+    pid1Namespace: readlinkSync('/proc/1/ns/pid'),
+    pid1Comm: readFileSync('/proc/1/comm', 'utf8').trim(),
+    cgroup: readFileSync('/proc/self/cgroup', 'utf8').trim(),
+  }
+}
+
 export async function nativeInertGate(): Promise<number> {
   const root = process.cwd()
   const result: GateResult = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     commit: '',
     tree: '',
     pass: false,
@@ -186,6 +215,9 @@ export async function nativeInertGate(): Promise<number> {
       throw new Error(
         'native-inert gate requires the qualified MOTOR Linux job',
       )
+    result.placement = observeGatePlacement()
+    // Refuse an unqualified placement now rather than after every stage ran.
+    qualifiedPlacement(result.placement)
     if (git(root, 'status', '--porcelain') !== '')
       throw new Error('native-inert gate requires a clean working tree')
     result.commit = git(root, 'rev-parse', 'HEAD').trim()

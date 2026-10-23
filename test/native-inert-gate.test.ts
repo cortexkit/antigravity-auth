@@ -61,10 +61,23 @@ async function fixture() {
   await git(root, 'add', '.')
   await git(root, '-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'fixture')
   const result = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     commit: await git(root, 'rev-parse', 'HEAD'),
     tree: await git(root, 'rev-parse', 'HEAD^{tree}'),
     pass: true,
+    // The placement the MOTOR build server reported for the 3.0.11 gate.
+    placement: {
+      arch: 'x64',
+      uid: 999,
+      euid: 999,
+      gid: 986,
+      host: 'cortexkit-builder',
+      pidNamespace: 'pid:[4026533381]',
+      pid1Namespace: 'pid:[4026533381]',
+      pid1Comm: 'bash',
+      cgroup:
+        '0::/system.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service',
+    },
     stages: [
       'bun-version',
       'typescript-version',
@@ -122,6 +135,36 @@ test(
   TEST_TIMEOUT_MS,
 )
 
+test(
+  'native-inert record writer accepts a qualified pass and stores its placement',
+  async () => {
+    const { root, result, record } = await fixture()
+    // Another MOTOR host: a different job user and runner unit still qualify.
+    result.placement = {
+      ...result.placement,
+      uid: 996,
+      euid: 996,
+      host: 'motor-tenant',
+      pidNamespace: 'pid:[4026532999]',
+      pid1Namespace: 'pid:[4026532999]',
+      cgroup:
+        '0::/system.slice/motor-job-0195f3a2-7c1d-7e4b-9a10-3d5e8f6a2b1c.service',
+    }
+    mkdirSync(join(root, '.cortexkit'), { recursive: true })
+    const stdout = join(root, '.cortexkit/stdout')
+    writeFileSync(
+      stdout,
+      `NATIVE_INERT_GATE_RESULT=${JSON.stringify(result)}\n`,
+    )
+    const written = await run(root, 'record-native-inert-gate.ts', stdout)
+    expect(written.exitCode, written.stderr.toString()).toBe(0)
+    expect(JSON.parse(readFileSync(record, 'utf8')).placement).toEqual(
+      result.placement,
+    )
+  },
+  TEST_TIMEOUT_MS,
+)
+
 for (const invalid of [
   'pass false',
   'missing stage',
@@ -136,6 +179,9 @@ for (const invalid of [
   'zero assertions',
   'bad schema',
   'bad times',
+  'pass without placement',
+  'pass with uid 0',
+  'pass with a host namespace',
 ] as const) {
   test(
     `native-inert record writer rejects ${invalid}`,
@@ -155,8 +201,18 @@ for (const invalid of [
       if (invalid === 'failed stage')
         result.stages[0] = { name: 'bun-version', exit: 1 }
       if (invalid === 'zero assertions') result.motor.assertions = 0
-      if (invalid === 'bad schema') result.schemaVersion = 2
+      if (invalid === 'bad schema') result.schemaVersion = 3
       if (invalid === 'bad times') result.endedUtc = 'yesterday'
+      if (invalid === 'pass without placement')
+        Reflect.deleteProperty(result, 'placement')
+      if (invalid === 'pass with uid 0')
+        Object.assign(result.placement, { uid: 0, euid: 0 })
+      if (invalid === 'pass with a host namespace')
+        Object.assign(result.placement, {
+          pidNamespace: 'pid:[4026531836]',
+          pid1Namespace: 'pid:[4026531836]',
+          pid1Comm: 'systemd',
+        })
       let text = `NATIVE_INERT_GATE_RESULT=${JSON.stringify(result)}\n`
       if (invalid === 'two result lines') text += text
       if (invalid === 'truncated line') text = text.slice(0, -5)
@@ -167,6 +223,10 @@ for (const invalid of [
       const written = await run(root, 'record-native-inert-gate.ts', stdout)
       expect(written.exitCode).not.toBe(0)
       expect(existsSync(record)).toBe(false)
+      if (invalid.startsWith('pass with'))
+        expect(written.stderr.toString()).toContain(
+          'native-inert gate placement is not a qualified MOTOR job',
+        )
     },
     TEST_TIMEOUT_MS,
   )
@@ -176,6 +236,8 @@ for (const state of [
   'absent',
   'other commit',
   'pass false',
+  'schema 1 record',
+  'no placement',
   'exact commit',
 ] as const) {
   test(
@@ -195,6 +257,12 @@ for (const state of [
         expect(await git(root, 'rev-parse', 'HEAD^{tree}')).toBe(result.tree)
       }
       if (state === 'pass false') result.pass = false
+      // A record written before placement proofs existed.
+      if (state === 'schema 1 record') {
+        result.schemaVersion = 1
+        Reflect.deleteProperty(result, 'placement')
+      }
+      if (state === 'no placement') Reflect.deleteProperty(result, 'placement')
       if (state !== 'absent') {
         mkdirSync(join(root, '.cortexkit/release-gates'), { recursive: true })
         writeFileSync(
@@ -206,6 +274,12 @@ for (const state of [
       expect(checked.exitCode === 0, checked.stderr.toString()).toBe(
         state === 'exact commit',
       )
+      if (state === 'schema 1 record')
+        expect(checked.stderr.toString()).toContain(
+          'native-inert record has schema 1, which carries no placement proof; rerun',
+        )
+      if (state === 'no placement')
+        expect(checked.stderr.toString()).toContain('(no placement recorded)')
       if (state !== 'exact commit') {
         expect(checked.stderr.toString()).toContain('bun run test:native-inert')
         expect(checked.stderr.toString()).toContain(
