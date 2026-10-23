@@ -378,6 +378,78 @@ export function acceptVaultRoute(path, routeId) {
         };
     });
 }
+function invalidOrder(message) {
+    return new ClaustrumConsumerError('invalid-order', message);
+}
+/**
+ * Why `routeIds` is not an order of these rows: it must name every distinct
+ * route id exactly once and nothing else. The message quotes only ids the
+ * caller supplied; route ids it left out are counted, not named.
+ */
+function vaultOrderProblem(rows, routeIds) {
+    if (!Array.isArray(routeIds))
+        return 'route ids must be an array of route ids';
+    const rosterIds = new Set(rows.map((row) => row.routeId));
+    const given = new Set();
+    for (const id of routeIds) {
+        if (typeof id !== 'string')
+            return 'route ids must be an array of route ids';
+        if (given.has(id))
+            return `route id ${id} appears more than once`;
+        if (!rosterIds.has(id))
+            return `route id ${id} is not in the roster`;
+        given.add(id);
+    }
+    const missing = [...rosterIds].filter((id) => !given.has(id)).length;
+    if (missing > 0)
+        return `the order leaves out ${missing} roster route id${missing === 1 ? '' : 's'}`;
+    return undefined;
+}
+/**
+ * Set the order vault accounts are tried in. Routing reads that order from
+ * the roster's row order (`vaultRoutingRows`), and a later discovery keeps
+ * each account at its position, so the order lasts until the next reorder.
+ * The order is this host's routing preference: the vault has no order of its
+ * own, and this never contacts it.
+ *
+ * `routeIds` must name every roster route id exactly once; anything else
+ * (an unknown, missing or repeated id) refuses with `invalid-order` and
+ * writes nothing. It runs under the roster's write lock, like every other
+ * roster write, so a quota reading or decline committed meanwhile is kept.
+ * Each row is kept as the same object, so only the positions change: every
+ * row's fields and the rest of the file stay as they were. An order equal to
+ * the current one writes nothing. A host with no roster file yet has no
+ * routes, so only the empty order is accepted.
+ *
+ * A `ClaustrumConsumer` in the same process does not see the new order until
+ * it re-reads the file: call `consumer.reorder` instead to update both.
+ */
+export function reorderVaultRoster(path, routeIds, options = {}) {
+    return mutateVaultRoster(path, (current) => {
+        const rows = current?.rows ?? [];
+        const problem = vaultOrderProblem(rows, routeIds);
+        if (problem)
+            throw invalidOrder(problem);
+        // Group by route id so a hand-edited file that repeats one keeps every
+        // copy: the later copies travel right after the first.
+        const byId = new Map();
+        for (const row of rows) {
+            const group = byId.get(row.routeId);
+            if (group)
+                group.push(row);
+            else
+                byId.set(row.routeId, [row]);
+        }
+        const ids = [...routeIds];
+        const next = ids.flatMap((id) => byId.get(id) ?? []);
+        if (!current || next.every((row, index) => row === rows[index]))
+            return { result: { ids, outcome: 'unchanged' } };
+        return {
+            next: { ...current, rows: next },
+            result: { ids, outcome: 'reordered' },
+        };
+    }, { ...(options.signal && { signal: options.signal }) });
+}
 /**
  * What a receipt may do to a row's quota: `hold` (the row holds the receipt's
  * credential and account), `bind` (the row has never had a known account and

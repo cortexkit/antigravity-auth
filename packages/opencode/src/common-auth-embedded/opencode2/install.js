@@ -97,8 +97,9 @@ function applyHeaderEditsTo(target, edits) {
  *   whether output has started and when the response ended, attributed to
  *   an attempt by the rules below;
  * - `retry` asks the host to retry at once when an account was refused
- *   before any output, so `model.request` runs again and can pick another
- *   account, and refuses to retry once output has started.
+ *   before any output and `chooseAccount` names another account for the
+ *   next attempt, keeps the host's decision when the refused account was the
+ *   last one that can serve, and refuses to retry once output has started.
  *
  * Attribution. A send belongs to the attempt named by the mark
  * `model.request` left on it, so several attempts of one session and kind
@@ -159,6 +160,42 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
         catch { }
     };
     const describe = (error) => error instanceof Error ? error.message : String(error);
+    // Adapter choices may enqueue work by session. Serialize their consumption
+    // and release so a new choice cannot overtake cleanup, even after forgetting.
+    const choiceWork = new Map();
+    const inChoiceOrder = (sessionID, run) => {
+        const result = (choiceWork.get(sessionID) ?? Promise.resolve()).then(run);
+        const settled = result.then(() => { }, () => { });
+        choiceWork.set(sessionID, settled);
+        void settled.then(() => {
+            if (choiceWork.get(sessionID) === settled)
+                choiceWork.delete(sessionID);
+        });
+        return result;
+    };
+    const afterChoiceWork = (sessionID, run) => {
+        const pending = choiceWork.get(sessionID);
+        return pending ? pending.then(() => afterChoiceWork(sessionID, run)) : run();
+    };
+    const releaseChoice = async (next) => {
+        try {
+            await adapter.dropChoice?.({ ...next.input, accountId: next.accountId });
+        }
+        catch (error) {
+            warn('opencode2 auth dropChoice threw; the request is unaffected', {
+                sessionID: next.input.sessionID,
+                error: describe(error),
+            });
+        }
+    };
+    const discardPending = (key) => {
+        const pending = pendingRetries.get(key);
+        pendingRetries.delete(key);
+        if (pending?.next) {
+            const next = pending.next;
+            void inChoiceOrder(pending.sessionID, () => releaseChoice(next));
+        }
+    };
     const emit = async (event, payload) => {
         const set = listeners.get(event);
         if (!set || set.size === 0)
@@ -204,11 +241,12 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
     /** The attempts of one session and kind, oldest first. */
     const attemptsOf = (key) => [...attempts.values()].filter((rec) => rec.key === key);
     const newestOf = (key) => attemptsOf(key).at(-1);
-    /** Forgets an attempt, and its key's pending retry once nothing else holds the key. */
+    /** Forgets an attempt and any pending retry it owns, or whose key is no longer held. */
     const drop = (rec) => {
         attempts.delete(rec.id);
-        if (!attemptsOf(rec.key).length)
-            pendingRetries.delete(rec.key);
+        if (pendingRetries.get(rec.key)?.attemptId === rec.id ||
+            !attemptsOf(rec.key).length)
+            discardPending(rec.key);
     };
     const remember = (rec) => {
         attempts.set(rec.id, rec);
@@ -300,18 +338,31 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
     };
     const select = async (scope, hook, assertActive, transport) => {
         const key = keyOf(scope.sessionID, scope.kind);
-        const retried = pendingRetries.get(key);
-        pendingRetries.delete(key);
-        const previousAccountId = retried?.accountId ?? newestOf(key)?.accountId;
-        supersede(key);
-        const input = {
-            ...scope,
-            ...(previousAccountId === undefined ? {} : { previousAccountId }),
-            ...(retried?.rerouteFrom === undefined
-                ? {}
-                : { rerouteFrom: retried.rerouteFrom }),
-        };
-        const accountId = await adapter.chooseAccount(input);
+        const { input, accountId } = await afterChoiceWork(scope.sessionID, async () => {
+            assertActive();
+            const retried = pendingRetries.get(key);
+            pendingRetries.delete(key);
+            const previousAccountId = retried?.accountId ?? newestOf(key)?.accountId;
+            supersede(key);
+            const next = retried?.next;
+            const matches = next !== undefined &&
+                next.input.modelID === scope.modelID &&
+                next.input.agent === scope.agent;
+            const input = {
+                ...scope,
+                phase: 'request',
+                ...(previousAccountId === undefined ? {} : { previousAccountId }),
+                ...(retried?.rerouteFrom ? { rerouteFrom: retried.rerouteFrom } : {}),
+            };
+            if (next && !matches) {
+                await inChoiceOrder(scope.sessionID, () => releaseChoice(next));
+                assertActive();
+            }
+            const accountId = matches
+                ? next.accountId
+                : await adapter.chooseAccount(input);
+            return { input, accountId };
+        });
         assertActive();
         let headers = {};
         let data;
@@ -730,62 +781,130 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
         }
         const rec = picked;
         await withSelection(rec.scope, async (assertActive) => {
+            const checkRetryActive = assertActive;
             rec.judged = true;
-            let decision = hostDecision;
-            let reason;
-            let rerouteFrom;
             const attempt = rec.attempt;
-            if (rec.accountId === undefined || !attempt) {
-                decision = { retry: false };
-                reason = 'no-account';
-            }
-            else if (rec.outputStarted) {
-                // The user has already seen part of this answer; a retry would
-                // send it again.
-                decision = { retry: false };
-                reason = 'output-started';
-            }
-            else {
+            if (attempt && !rec.outputStarted) {
                 if (!rec.limit) {
                     const signal = adapter.limitFromError?.(draft.error, attempt);
                     if (signal)
                         noteLimit(rec, signal, 'error');
                 }
-                // The next `chooseAccount` should see whatever the plugin learnt
-                // from how this attempt ended.
-                if (rec.ended) {
+                // Account selection must observe all feedback from the refused send.
+                if (rec.ended)
                     await rec.ended;
-                    assertActive();
-                }
-                if (rec.limit) {
+                if (rec.limit)
                     await rec.limit.delivered;
-                    assertActive();
-                    rec.rerouted = true;
-                    rerouteFrom = {
-                        accountId: rec.accountId,
-                        limit: rec.limit.signal,
-                    };
-                    // No delay: the next attempt goes to another account, and the
-                    // host would otherwise wait out the refused account's backoff,
-                    // or not retry at all for errors it deems final.
-                    decision = { retry: true, delay: 0 };
-                    reason = 'reroute';
+            }
+            checkRetryActive();
+            const { decision, reason } = await inChoiceOrder(rec.scope.sessionID, async () => {
+                checkRetryActive();
+                const old = pendingRetries.get(rec.key);
+                pendingRetries.delete(rec.key);
+                if (old?.next)
+                    await releaseChoice(old.next);
+                checkRetryActive();
+                let decision = hostDecision;
+                let reason;
+                let rerouteFrom;
+                let next;
+                if (rec.accountId === undefined || !attempt) {
+                    decision = { retry: false };
+                    reason = 'no-account';
+                }
+                else if (rec.outputStarted) {
+                    // The user has already seen part of this answer; a retry would
+                    // send it again.
+                    decision = { retry: false };
+                    reason = 'output-started';
                 }
                 else {
-                    reason = 'host-decides';
+                    if (rec.limit) {
+                        const refused = {
+                            accountId: rec.accountId,
+                            limit: rec.limit.signal,
+                        };
+                        // Ask the adapter now, with the same input the next attempt
+                        // would give it, which account serves that attempt. Rerouting
+                        // is right only when that is another account: otherwise the
+                        // next attempt would find no account (a `no-account` refusal
+                        // the host treats as a defect and does not retry) or go back
+                        // at once to the account that just refused.
+                        let accountId;
+                        const input = {
+                            ...rec.scope,
+                            phase: 'retry',
+                            previousAccountId: rec.accountId,
+                            rerouteFrom: refused,
+                        };
+                        try {
+                            accountId = await adapter.chooseAccount(input);
+                        }
+                        catch (error) {
+                            // Treated as no other account: the host's own decision
+                            // stands, and the next attempt asks the adapter again.
+                            warn('opencode2 auth chooseAccount threw while the retry hook looked for another account; the host decides the retry', {
+                                sessionID: rec.scope.sessionID,
+                                error: describe(error),
+                            });
+                        }
+                        if (accountId !== undefined)
+                            next = { accountId, input };
+                        try {
+                            checkRetryActive();
+                        }
+                        catch (error) {
+                            // A selection revoked while the adapter was choosing cannot be used.
+                            if (next)
+                                await releaseChoice(next);
+                            throw error;
+                        }
+                        if (accountId !== undefined && accountId !== rec.accountId) {
+                            rec.rerouted = true;
+                            rerouteFrom = refused;
+                            // The next attempt takes this choice rather than asking
+                            // again, so an account limited between here and the host's
+                            // retry costs one refused send, which this hook judges
+                            // again, rather than a `no-account` refusal.
+                            // No delay: the next attempt goes to another account, and the
+                            // host would otherwise wait out the refused account's backoff,
+                            // or not retry at all for errors it deems final.
+                            decision = { retry: true, delay: 0 };
+                            reason = 'reroute';
+                        }
+                        else {
+                            // The refused account keeps the host's wait and serves the
+                            // retry. Undefined or a throw commits nothing: choose later.
+                            reason = 'host-decides-last-account';
+                        }
+                    }
+                    else {
+                        reason = 'host-decides';
+                    }
                 }
-            }
-            draft.decision = decision;
-            // The host's retry runs `model.request` again for this attempt's
-            // session and kind; that next attempt, and no other attempt of the
-            // session, is told what this one ended with.
-            if (decision.retry && rec.accountId !== undefined) {
-                pendingRetries.set(rec.key, {
-                    sessionID: rec.scope.sessionID,
-                    accountId: rec.accountId,
-                    ...(rerouteFrom === undefined ? {} : { rerouteFrom }),
-                });
-            }
+                draft.decision = decision;
+                // The host's retry runs `model.request` again for this attempt's
+                // session and kind; that next attempt, and no other attempt of the
+                // session, is told what this one ended with.
+                if (decision.retry &&
+                    rec.accountId !== undefined &&
+                    attempts.has(rec.id)) {
+                    pendingRetries.set(rec.key, {
+                        attemptId: rec.id,
+                        sessionID: rec.scope.sessionID,
+                        accountId: rec.accountId,
+                        ...(rerouteFrom === undefined ? {} : { rerouteFrom }),
+                        ...(next === undefined ? {} : { next }),
+                    });
+                }
+                else if (next) {
+                    // Only the computed decision is final here: an incoming veto may
+                    // have been overridden by a reroute to another account.
+                    await releaseChoice(next);
+                }
+                return { decision, reason };
+            });
+            checkRetryActive();
             await emit('retry', {
                 sessionID: draft.sessionID,
                 ...(rec.accountId === undefined
@@ -815,7 +934,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
         }
         for (const [key, pending] of pendingRetries) {
             if (pending.sessionID === sessionID)
-                pendingRetries.delete(key);
+                discardPending(key);
         }
     };
     const abort = new AbortController();
@@ -867,10 +986,12 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             for (const rec of attempts.values())
                 abandon(rec, 'the installation was disposed');
             attempts.clear();
-            pendingRetries.clear();
+            for (const key of pendingRetries.keys())
+                discardPending(key);
             ownedSockets.clear();
             latestTransportOwned.clear();
             listeners.clear();
+            await Promise.all(choiceWork.values());
             await Promise.all(registrations.map(async (registration) => {
                 try {
                     await registration.dispose();

@@ -5,7 +5,7 @@ import { readClaustrumEnrollmentToken } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
 import { acquireInsulaQuotaSource, } from './insula.js';
 import { pendingVaultQuota, retainVaultQuotaWriter } from './quota-writer.js';
-import { acceptVaultRoute, applyVaultQuota, declineVaultRoute, forgetPendingVaultDiscovery, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, vaultRoutingRows, } from './roster.js';
+import { acceptVaultRoute, applyVaultQuota, declineVaultRoute, forgetPendingVaultDiscovery, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, reorderVaultRoster, vaultRoutingRows, } from './roster.js';
 import { SAFETY_POLL_MS } from './watch.js';
 /**
  * One plugin host's view of its vault accounts. It turns vault credentials
@@ -485,8 +485,12 @@ export class ClaustrumConsumer {
             let current;
             try {
                 current = await this.authorize(routeId, signal);
+                // Cancellation can land after authorize settles, before this continuation.
+                signal?.throwIfAborted();
             }
-            catch {
+            catch (error) {
+                if (signal?.aborted)
+                    throw error;
                 // Re-authorization failed: keep this 401 and report it against the
                 // receipt (served record version) this request was sent with.
             }
@@ -521,6 +525,17 @@ export class ClaustrumConsumer {
         this.#assertOpen();
         await acceptVaultRoute(this.#options.rosterPath, routeId);
         this.#roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
+    }
+    /**
+     * Set the order vault accounts are tried in (`reorderVaultRoster`), then
+     * re-read the roster, so the next routing decision in this process uses
+     * the new order without waiting for a discovery. Never contacts the vault.
+     */
+    async reorder(routeIds) {
+        this.#assertOpen();
+        const result = await reorderVaultRoster(this.#options.rosterPath, routeIds);
+        this.#roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
+        return result;
     }
     /**
      * Store a quota or profile observation for a vault route. The receipt the

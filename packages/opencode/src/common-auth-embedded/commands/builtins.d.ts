@@ -48,6 +48,43 @@ export interface RoutingSectionOptions {
      */
     orderedVariants?: MenuChoice[];
     formerMainId?: string;
+    /**
+     * The vault accounts' routing order, for a plugin that can run in vault
+     * mode. Called on each build; return the order while the plugin routes
+     * through vault accounts and undefined otherwise. While it returns one, the
+     * section shows and sets the vault accounts' order (by the name the menu
+     * shows for each account) instead of the pool roster's. Wire it to
+     * `ClaustrumConsumer.snapshot()` and `ClaustrumConsumer.reorder`, or to
+     * `readVaultRoster` and `reorderVaultRoster` for a plugin without a
+     * consumer.
+     */
+    vaultOrder?: () => VaultRoutingOrder | undefined | Promise<VaultRoutingOrder | undefined>;
+}
+/**
+ * The order vault accounts are tried in, as the Routing section reads and
+ * sets it in vault mode. Shaped after `/claustrum`'s roster, without
+ * importing it, so the menu does not need the vault client.
+ */
+export interface VaultRoutingOrder {
+    /**
+     * Every vault roster row, in roster (routing) order: its route id and the
+     * name the plugin shows for that account (the roster row's `label`, or its
+     * email). Route ids are long and opaque, so the section shows and accepts
+     * labels; a route id is still accepted wherever a label is.
+     */
+    rows: readonly {
+        id: string;
+        label: string;
+    }[];
+    /**
+     * Sets the order. `ids` are route ids, every one exactly once. Wire it to
+     * `ClaustrumConsumer.reorder` or `reorderVaultRoster`, which refuse any
+     * other list without writing.
+     */
+    reorder(ids: readonly string[]): Promise<{
+        ids: readonly string[];
+        outcome: 'reordered' | 'unchanged';
+    }>;
 }
 export interface LimitsSectionOptions {
     /**

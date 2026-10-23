@@ -1,4 +1,4 @@
-export type { AccountsSectionOptions, LimitsSectionOptions, LoginOutcome, QuotaSectionOptions, RoutingSectionOptions, } from './builtins.js';
+export type { AccountsSectionOptions, LimitsSectionOptions, LoginOutcome, QuotaSectionOptions, RoutingSectionOptions, VaultRoutingOrder, } from './builtins.js';
 export { MENU_DISABLED_REASON } from './builtins.js';
 export type { CommandMenu, CommandMenuOptions, StoreSectionSlot, } from './menu.js';
 export { createCommandMenu, parseApplyRequest } from './menu.js';

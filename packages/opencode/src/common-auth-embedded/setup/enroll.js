@@ -5,7 +5,7 @@ import { ClaustrumEnrollmentManager, connectClaustrumEnrollmentClient, hostEnrol
 import { ProcessFenceViolationError, ProcessInspectionError, } from './process-fence.js';
 const ENROLLMENT_INCOMPLETE_MESSAGE = 'Claustrum enrollment did not complete. Inspect and approve with ck, then rerun setup.';
 /** Fixed text: no version, host or account detail, so it is safe to print anywhere. */
-export const UNSUPPORTED_VAULT_MESSAGE = 'This Claustrum vault does not support connecting plugins yet, so setup cannot connect to it. Run setup without --claustrum to use local accounts.';
+export const UNSUPPORTED_VAULT_MESSAGE = 'This Claustrum vault is too old to connect plugins. Run ck upgrade to move to Claustrum v0.2.0 or newer (read "Upgrading from v0.1.3" in its release notes first), or run setup without --claustrum to use local accounts.';
 /**
  * The longest setup waits, in total, for the vault to create the enrollment
  * request and for an operator to approve it. It matches the wait setup always

@@ -119,6 +119,37 @@ export declare function mutateVaultRoster<T>(path: string, change: (current: Vau
 export declare function declineVaultRoute(path: string, routeId: string): Promise<undefined>;
 /** Lift the user's decline for a vault account and every alias of it. */
 export declare function acceptVaultRoute(path: string, routeId: string): Promise<undefined>;
+/** Options of `reorderVaultRoster`. */
+export interface ReorderVaultRosterOptions {
+    /** Aborts the wait for the roster's write lock. */
+    signal?: AbortSignal;
+}
+export interface ReorderVaultRosterResult {
+    /** The route id order now on disk. */
+    ids: string[];
+    /** `unchanged` when the roster was already in this order; nothing was written. */
+    outcome: 'reordered' | 'unchanged';
+}
+/**
+ * Set the order vault accounts are tried in. Routing reads that order from
+ * the roster's row order (`vaultRoutingRows`), and a later discovery keeps
+ * each account at its position, so the order lasts until the next reorder.
+ * The order is this host's routing preference: the vault has no order of its
+ * own, and this never contacts it.
+ *
+ * `routeIds` must name every roster route id exactly once; anything else
+ * (an unknown, missing or repeated id) refuses with `invalid-order` and
+ * writes nothing. It runs under the roster's write lock, like every other
+ * roster write, so a quota reading or decline committed meanwhile is kept.
+ * Each row is kept as the same object, so only the positions change: every
+ * row's fields and the rest of the file stay as they were. An order equal to
+ * the current one writes nothing. A host with no roster file yet has no
+ * routes, so only the empty order is accepted.
+ *
+ * A `ClaustrumConsumer` in the same process does not see the new order until
+ * it re-reads the file: call `consumer.reorder` instead to update both.
+ */
+export declare function reorderVaultRoster(path: string, routeIds: readonly string[], options?: ReorderVaultRosterOptions): Promise<ReorderVaultRosterResult>;
 /**
  * The receipt fields a quota or profile observation must carry to say which
  * send (credential and account) it came from. Pass the

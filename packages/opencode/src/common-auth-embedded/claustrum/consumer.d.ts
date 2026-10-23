@@ -4,7 +4,7 @@ import type { RoutingRow } from '../routing/index.js';
 import { type ClaustrumFamily, type ClaustrumScopedAttempt, type ClaustrumScopedClient, type IdentityParser, type KeptReceiptState, type VaultGrantReach } from './custody.js';
 import { type ClaustrumLogger } from './errors.js';
 import { type InsulaQuotaOptions, type InsulaQuotaResult } from './insula.js';
-import { type AccountMapper, type QuotaReceipt, type VaultRosterFile } from './roster.js';
+import { type AccountMapper, type QuotaReceipt, type ReorderVaultRosterResult, type VaultRosterFile } from './roster.js';
 import { type WatchMode } from './watch.js';
 export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
     /**
@@ -157,6 +157,12 @@ export declare class ClaustrumConsumer<Q = QuotaObservation> {
     /** Decline a vault account: it stays listed and never routes until accepted. */
     decline(routeId: string): Promise<void>;
     accept(routeId: string): Promise<void>;
+    /**
+     * Set the order vault accounts are tried in (`reorderVaultRoster`), then
+     * re-read the roster, so the next routing decision in this process uses
+     * the new order without waiting for a discovery. Never contacts the vault.
+     */
+    reorder(routeIds: readonly string[]): Promise<ReorderVaultRosterResult>;
     /**
      * Store a quota or profile observation for a vault route. The receipt the
      * reading was taken with is required: the observation lands only while the
