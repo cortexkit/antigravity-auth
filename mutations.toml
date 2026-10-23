@@ -526,6 +526,19 @@ expect_red = ['^V1\sinjected\sfetch\sapplies\sthe\sbuilder\sheader\stimeout\sbef
 
 
 [[control]]
+id = "tool-schema-non-array-items"
+guards = "Explicit non-array parameter nodes omit items while array nodes retain their item schemas on the Gemini wire."
+file = "packages/core/src/transform/gemini.ts"
+old = "      if (key === 'items' && schemaType !== 'ARRAY') continue"
+new = "      if (key === 'items' && schemaType !== 'ARRAY' && false) continue // NON-VACUITY BREAK: retain incompatible items."
+test_file = "packages/opencode/src/plugin/request.test.ts"
+list_command = ["bash", "-c", "bun scripts/list-bun-tests.mjs --cwd . packages/opencode/src/plugin/request.test.ts -t \"$1|Gemini wire retains items on array parameter nodes\"", "--", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/request.test.ts -t \"$1|Gemini wire retains items on array parameter nodes\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^tool\sschema\swire\snormalization\sGemini\sGemini\swire\somits\sitems\son\snon-array\sparameter\snodes$']
+
+[[control]]
 id = "tool-schema-string-only-enum"
 guards = "Antigravity tool enums contain strings only, without changing boolean or numeric value types."
 file = "packages/core/src/transform/gemini.ts"

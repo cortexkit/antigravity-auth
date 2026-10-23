@@ -700,6 +700,124 @@ describe('transform/gemini', () => {
   })
 
   describe('toGeminiSchema', () => {
+    it('omits items on a non-array schema', () => {
+      expect(
+        toGeminiSchema({ type: 'string', items: { type: 'string' } }),
+      ).toEqual({ type: 'STRING' })
+    })
+
+    it('omits properties on a non-object schema', () => {
+      expect(
+        toGeminiSchema({
+          type: 'number',
+          properties: { x: { type: 'string' } },
+        }),
+      ).toEqual({ type: 'NUMBER' })
+    })
+
+    it('omits incompatible structure recursively without changing numeric constraints', () => {
+      expect(
+        toGeminiSchema({
+          type: 'object',
+          items: { type: 'string' },
+          properties: {
+            count: {
+              type: 'NuMbEr',
+              minimum: 1,
+              maximum: 9,
+              properties: { x: { type: 'string' } },
+              required: ['x'],
+              propertyOrdering: ['x'],
+              items: { type: 'string' },
+            },
+            values: {
+              type: 'ArRaY',
+              properties: { x: { type: 'string' } },
+              required: ['x'],
+              propertyOrdering: ['x'],
+              items: {
+                type: 'BOOLEAN',
+                items: { type: 'string' },
+                properties: { x: { type: 'string' } },
+              },
+            },
+          },
+        }),
+      ).toEqual({
+        type: 'OBJECT',
+        properties: {
+          count: { type: 'NUMBER', minimum: 1, maximum: 9 },
+          values: { type: 'ARRAY', items: { type: 'BOOLEAN' } },
+        },
+      })
+    })
+
+    it('retains structural fields on untyped nodes', () => {
+      expect(
+        toGeminiSchema({
+          properties: { x: { type: 'string', items: { type: 'number' } } },
+          required: ['x'],
+          propertyOrdering: ['x'],
+          items: { type: 'array' },
+        }),
+      ).toEqual({
+        properties: { x: { type: 'STRING' } },
+        required: ['x'],
+        propertyOrdering: ['x'],
+        items: { type: 'ARRAY', items: { type: 'STRING' } },
+      })
+    })
+
+    it('normalizes union branches while preserving anyOf and converted oneOf', () => {
+      const branches = [
+        { type: 'string', items: { type: 'string' } },
+        { type: 'array', properties: { x: { type: 'number' } } },
+        { type: 'object', properties: { x: { type: 'number' } } },
+      ]
+      const expected = {
+        anyOf: [
+          { type: 'STRING' },
+          { type: 'ARRAY', items: { type: 'STRING' } },
+          { type: 'OBJECT', properties: { x: { type: 'NUMBER' } } },
+        ],
+      }
+      expect(toGeminiSchema({ anyOf: branches })).toEqual(expected)
+      expect(toGeminiSchema({ oneOf: branches })).toEqual(expected)
+    })
+
+    it('preserves keyword-like property names and is idempotent', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          items: { type: 'array', items: { type: 'integer' } },
+          properties: {
+            type: 'object',
+            properties: { type: { type: 'string' } },
+            required: ['type'],
+          },
+          required: { type: 'boolean', items: { type: 'string' } },
+        },
+        required: ['items', 'properties', 'required'],
+        propertyOrdering: ['items', 'properties', 'required'],
+      }
+      const expected = {
+        type: 'OBJECT',
+        properties: {
+          items: { type: 'ARRAY', items: { type: 'INTEGER' } },
+          properties: {
+            type: 'OBJECT',
+            properties: { type: { type: 'STRING' } },
+            required: ['type'],
+          },
+          required: { type: 'BOOLEAN' },
+        },
+        required: ['items', 'properties', 'required'],
+        propertyOrdering: ['items', 'properties', 'required'],
+      }
+      expect(toGeminiSchema(schema)).toEqual(expected)
+      expect(toGeminiSchema(toGeminiSchema(schema))).toEqual(expected)
+    })
+
     it('returns null/undefined as-is', () => {
       expect(toGeminiSchema(null)).toBe(null)
       expect(toGeminiSchema(undefined)).toBe(undefined)

@@ -259,6 +259,10 @@ export function toGeminiSchema(
     schema as Record<string, unknown>,
     numericConstraintHints,
   )
+  const schemaType =
+    typeof inputSchema.type === 'string'
+      ? inputSchema.type.toUpperCase()
+      : undefined
   let result: Record<string, unknown> = {}
 
   // First pass: collect all property names for required validation
@@ -272,6 +276,16 @@ export function toGeminiSchema(
   }
 
   for (const [key, value] of Object.entries(inputSchema)) {
+    // Explicit types restrict items to arrays and object fields to objects.
+    // Untyped schemas may describe unions, so retain both kinds of fields.
+    if (schemaType !== undefined) {
+      if (key === 'items' && schemaType !== 'ARRAY') continue
+      if (
+        schemaType !== 'OBJECT' &&
+        ['properties', 'required', 'propertyOrdering'].includes(key)
+      )
+        continue
+    }
     if (options.claudeValidated) {
       if (key === 'title') continue
       if (key === 'additionalProperties' && value === false)

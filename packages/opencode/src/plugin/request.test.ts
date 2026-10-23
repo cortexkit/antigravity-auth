@@ -2913,6 +2913,87 @@ describe('tool schema wire normalization', () => {
           .functionDeclarations[0].parameters
       }
 
+      if (family === 'Gemini') {
+        it('Gemini wire omits items on non-array parameter nodes', () => {
+          const schema = wireSchema({
+            nested: {
+              type: 'object',
+              properties: {
+                label: { type: 'string', items: { type: 'string' } },
+                choice: {
+                  anyOf: [
+                    { type: 'boolean', items: { type: 'number' } },
+                    { type: 'array', items: { type: 'integer' } },
+                  ],
+                },
+              },
+            },
+          })
+          expect(schema.properties.nested).toEqual({
+            type: 'OBJECT',
+            properties: {
+              label: { type: 'STRING' },
+              choice: {
+                anyOf: [
+                  { type: 'BOOLEAN' },
+                  { type: 'ARRAY', items: { type: 'INTEGER' } },
+                ],
+              },
+            },
+          })
+        })
+
+        it('Gemini wire retains items on array parameter nodes', () => {
+          const schema = wireSchema({
+            nested: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  items: { type: 'array', items: { type: 'integer' } },
+                  choice: { oneOf: [{ type: 'array' }, { type: 'string' }] },
+                },
+              },
+            },
+          })
+          expect(schema.properties.nested).toEqual({
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                items: { type: 'ARRAY', items: { type: 'INTEGER' } },
+                choice: {
+                  anyOf: [
+                    { type: 'ARRAY', items: { type: 'STRING' } },
+                    { type: 'STRING' },
+                  ],
+                },
+              },
+            },
+          })
+        })
+
+        it('Gemini wire omits object structure on non-object parameter nodes', () => {
+          const schema = wireSchema({
+            nested: {
+              type: 'array',
+              items: {
+                type: 'number',
+                properties: { x: { type: 'string' } },
+                required: ['x'],
+                propertyOrdering: ['x'],
+                minimum: 1,
+                maximum: 9,
+              },
+            },
+          })
+          expect(schema.properties.nested).toEqual({
+            type: 'ARRAY',
+            items: { type: 'NUMBER', minimum: 1, maximum: 9 },
+          })
+        })
+      }
+
       it('retains documented Gemini Schema fields with the appropriate validation mode', () => {
         const schema = wireSchema({
           value: {
