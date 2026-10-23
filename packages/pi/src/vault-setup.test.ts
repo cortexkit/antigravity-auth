@@ -659,7 +659,7 @@ describe('Pi vault enrollment guidance', () => {
 
     expect(result).toEqual({
       ok: false,
-      text: 'Vault access: This Claustrum vault is too old to connect plugins. Run ck upgrade to move to Claustrum v0.2.0 or newer (read "Upgrading from v0.1.3" in its release notes first), or keep using your local accounts.',
+      text: 'Vault access: this Claustrum vault is too old to connect plugins. Run ck upgrade to move to Claustrum v0.2.0 or newer (read "Upgrading from v0.1.3" in its release notes first), or keep using your local accounts.',
     })
     expect(call.notices).toEqual([])
   })
