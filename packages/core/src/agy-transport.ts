@@ -9,6 +9,10 @@ import { buildAntigravityHarnessUserAgent } from './fingerprint.ts'
 const DEFAULT_HTTPS_PORT = 443
 const DEFAULT_PROXY_PORT = 8080
 
+// Per attempt. Measured response headers arrive within single-digit seconds for
+// both Claude (1.4-3.1 s) and Gemini (about 3.7 s even before a 50-66 s think,
+// agy 1.4.5), because thinking streams after the headers. So this only catches
+// an attempt that never starts answering.
 export const DEFAULT_AGY_RESPONSE_HEADER_TIMEOUT_MS = 180_000
 // Max time the response body may stall (no bytes received) before the socket is
 // destroyed. Streaming responses emit data far more frequently than this; a

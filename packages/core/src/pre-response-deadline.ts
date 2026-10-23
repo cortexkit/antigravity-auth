@@ -1,8 +1,9 @@
-// Measured through the native Antigravity CLI: Claude Opus 5.5 high sends
-// response headers within about 3 s and then streams its thinking, while
-// Gemini 3.8 Flash and Argon at high hold the headers until thinking ends
-// (5-6 s on short prompts). Ten minutes leaves wide headroom over both; it is
-// a backstop for an endpoint that never answers, not a thinking limit.
+// Measured through the native Antigravity CLI (agy 1.4.5 for the long Gemini
+// runs): Claude Opus 5.5 high sends response headers in 1.4-3.1 s, and Gemini
+// 3.8 Flash high sends them in about 3.7 s even when it then thinks for 23-30k
+// tokens over 50-66 s. Both stream their thinking after the headers. Ten
+// minutes leaves wide headroom; it is a backstop for an endpoint that never
+// answers, not a thinking limit.
 export const PRE_RESPONSE_DEADLINE_MS = 600_000
 
 // Fixed text avoids status-code and quota phrases scanned by host retry policies.
