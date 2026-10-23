@@ -2047,6 +2047,23 @@ test_count_pattern = "Ran {count} test"
 expect_red = ['^createRequestExecutor\smodel\sunavailable\s\(404\sNOT_FOUND\)\sskips\san\saccount\swithout\sthe\smodel\sand\sserves\sfrom\sthe\snext\saccount\son\sdaily\sonly$']
 
 [[control]]
+id = "plugin-lifecycle-rejected-live-queue-cleanup"
+guards = "A rejected live refresh drain cannot skip manager disposal or later teardown stages."
+file = "packages/opencode/src/plugin/lifecycle.ts"
+old = '''    const liveQueueDrained = collectCleanupFailure(
+      () => oldQueue?.dispose(),
+      failures,
+    )'''
+new = '''    const liveQueueDrained = Promise.resolve(oldQueue?.dispose())
+    await liveQueueDrained // NON-VACUITY BREAK: propagate before manager cleanup.'''
+test_file = "packages/opencode/src/plugin/lifecycle.test.ts"
+list_command = ["bash", "-c", "bun scripts/list-bun-tests.mjs --cwd . packages/opencode/src/plugin/lifecycle.test.ts -t \"$1|^PluginLifecycle disposes runtime and shared state in dependency order$\"", "--", "{test}"]
+runner = "command"
+command = ["bash", "-c", "if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" packages/opencode/src/plugin/lifecycle.ts; diff_status=$?; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; fi; bun -e 'const p = \"packages/opencode/src/plugin/lifecycle.ts\"; const lines = (await Bun.file(p).text()).split(\"\\n\"); lines.forEach((line, i) => { if (line.includes(\"NON-VACUITY BREAK\")) console.log(`${p}:${i + 1}: ${line}`) })' && bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/lifecycle.test.ts -t \"$1|^PluginLifecycle disposes runtime and shared state in dependency order$\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^PluginLifecycle\sdispose\scompletes\sall\steardown\sstages\safter\sa\srejected\slive\squeue\sdrain$']
+
+[[control]]
 id = "shared-model-unavailable-no-rate-limit"
 guards = "Skipping an account that lacks the model records no rate limit, cooldown or failure against it."
 file = "packages/opencode/src/plugin/shared/request-services.ts"
