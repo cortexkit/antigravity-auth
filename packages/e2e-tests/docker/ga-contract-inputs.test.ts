@@ -72,6 +72,7 @@ import {
   assertNative,
   assertNativeJobAdmission,
   assertNativeRunnerUnchanged,
+  cgroupMemberIds,
   classify,
   commandForCase,
   enableNativeTaskDiagnostic,
@@ -2078,7 +2079,11 @@ function modeledAdmissionTasks(
   before: { tid: number; tgid: number }[],
   after = before,
   changedBirth?: number,
+  // Members the kernel lists as 0 because they live outside this PID namespace,
+  // as the MOTOR runner's own process does on the hosted tenant and Boat.
+  outsideNamespace = 0,
 ) {
+  const outside = Array<string>(outsideNamespace).fill('0')
   const summary = nativeBoundarySummary()
   const threads = `/sys/fs/cgroup${summary.cgroup.self}/cgroup.threads`
   const paths: string[] = []
@@ -2092,12 +2097,15 @@ function modeledAdmissionTasks(
       paths.push(path)
       if (path === threads) {
         inventories++
-        return (inventories === 1 ? before : after)
-          .map(({ tid }) => tid)
-          .join('\n')
+        return [
+          ...outside,
+          ...(inventories === 1 ? before : after).map(({ tid }) => tid),
+        ].join('\n')
       }
       if (path === threads.replace('cgroup.threads', 'cgroup.procs'))
-        return [...new Set(before.map(({ tgid }) => tgid))].join('\n')
+        return [...outside, ...new Set(before.map(({ tgid }) => tgid))].join(
+          '\n',
+        )
       const match = /^\/proc\/(\d+)\/(status|stat|cgroup)$/.exec(path)
       if (match) {
         const pid = Number(match[1])
@@ -2178,6 +2186,53 @@ describe(CLEANUP_GROUP, () => {
       stop()
       model.restore()
     }
+  })
+  test('modeled tenant cgroup member outside the PID namespace is counted but never inventoried or signalled', () => {
+    // The hosted tenant listed cgroup.procs as "0 1 2 29 30": the runner process
+    // that unshared the job's PID namespace stays in the unit and reads as 0.
+    const model = modeledAdmissionTasks(
+      [{ tid: 100, tgid: 100 }],
+      undefined,
+      undefined,
+      1,
+    )
+    let signals = 0
+    const signal = spyOn(process, 'kill').mockImplementation(() => {
+      signals++
+      return true
+    })
+    try {
+      expect(scopedProcesses(model.summary, true)).toMatchObject([
+        { pid: 100, start: '123', namespace: model.summary.namespace.self },
+      ])
+      expect(model.paths.filter((path) => path.startsWith('/proc/0/'))).toEqual(
+        [],
+      )
+      expect(signals).toBe(0)
+    } finally {
+      signal.mockRestore()
+      model.restore()
+    }
+  })
+  test('cgroup member lists admit only distinct positive ids and count outside-namespace zeros', () => {
+    expect(
+      cgroupMemberIds(['0', '1', '2', '29', '30'], 'cgroup.procs', 'ambiguous'),
+    ).toEqual({ members: [1, 2, 29, 30], outsideNamespace: 1 })
+    expect(cgroupMemberIds(['0', '0', '7'], 'cgroup.threads', 'x')).toEqual({
+      members: [7],
+      outsideNamespace: 2,
+    })
+    expect(() =>
+      cgroupMemberIds(
+        ['5', '5'],
+        'cgroup.procs',
+        'ambiguous cgroup membership',
+      ),
+    ).toThrow('ambiguous cgroup membership')
+    for (const entry of ['', 'max', '-1', '01', '1.5', '1e3', ' 4'])
+      expect(() => cgroupMemberIds([entry], 'cgroup.procs', 'x')).toThrow(
+        `unqualifiable cgroup.procs entry ${JSON.stringify(entry)}`,
+      )
   })
   for (const control of [
     'new thread group',
@@ -2958,6 +3013,8 @@ describe(CLEANUP_GROUP, () => {
       `actor-free budget expiry during ${phase} forbids subsequent reads and signals`,
       async () => {
         const scope = qualifyNativeProcessScope()
+        // The modeled survivor belongs to the qualified job user, whatever its uid.
+        const jobUid = scope.summary.controller.uid
         const read = fs.readFileSync
         const readdir = fs.readdirSync
         const readlink = fs.readlinkSync
@@ -3000,7 +3057,7 @@ describe(CLEANUP_GROUP, () => {
                   return modeledStat
                 }
                 if (path === `/proc/${modeledPid}/status`)
-                  return `Pid:\t${modeledPid}\nTgid:\t${modeledPid}\nUid:\t999\t999\t999\t999\n`
+                  return `Pid:\t${modeledPid}\nTgid:\t${modeledPid}\nUid:\t${jobUid}\t${jobUid}\t${jobUid}\t${jobUid}\n`
                 if (path === `/proc/${modeledPid}/cgroup`)
                   return `0::${scope.summary.cgroup.self}\n`
               }

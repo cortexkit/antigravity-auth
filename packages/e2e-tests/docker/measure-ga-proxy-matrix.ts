@@ -665,7 +665,7 @@ function nativeLayout(root: string) {
 }
 function positiveInteger(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1)
-    throw new Error('expected positive integer')
+    throw new Error(`expected positive integer, got ${String(value)}`)
   return value
 }
 
@@ -748,7 +748,7 @@ function pressureObservation(value: unknown, jobUid: number) {
 }
 function nonnegativeInteger(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
-    throw new Error('expected nonnegative integer')
+    throw new Error(`expected nonnegative integer, got ${String(value)}`)
   return value
 }
 function privilegedStatus(value: unknown) {
@@ -2097,22 +2097,50 @@ function nativeProcess(
   }
 }
 
+// The kernel lists a cgroup member that lives outside the reader's PID namespace
+// as 0. Where the MOTOR runner unshares the job's PID namespace itself (Boat and
+// the hosted tenant, unlike the build server's PrivatePIDs), the runner's own
+// process stays in the job unit and appears this way. It has no PID in this
+// namespace, so cleanup here can never signal it, and no command started here
+// can become one: every descendant of this namespace stays inside it. Such
+// entries are counted, never inventoried. Every other entry must be a distinct
+// positive id.
+export function cgroupMemberIds(
+  entries: string[],
+  source: string,
+  ambiguous: string,
+  budget?: NativeCleanupBudget,
+): { members: number[]; outsideNamespace: number } {
+  let outsideNamespace = 0
+  const members: number[] = []
+  for (const entry of entries) {
+    checkCleanupBudget(budget)
+    if (entry === '0') outsideNamespace++
+    else if (/^[1-9]\d*$/.test(entry) && Number.isSafeInteger(Number(entry)))
+      members.push(Number(entry))
+    else
+      throw new Error(`unqualifiable ${source} entry ${JSON.stringify(entry)}`)
+  }
+  if (new Set(members).size !== members.length) throw new Error(ambiguous)
+  return { members, outsideNamespace }
+}
 function cgroupThreadMembers(
   summary: ReturnType<typeof parseProcessBoundary>,
   budget?: NativeCleanupBudget,
 ): number[] {
-  const members = withinCleanupBudget(budget, () =>
-    readFileSync(`/sys/fs/cgroup${summary.cgroup.self}/cgroup.threads`, 'utf8'),
-  )
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((value) => {
-      checkCleanupBudget(budget)
-      return positiveInteger(Number(value))
-    })
-  if (new Set(members).size !== members.length)
-    throw new Error('UNKNOWN ambiguous cgroup task inventory')
-  return members
+  return cgroupMemberIds(
+    withinCleanupBudget(budget, () =>
+      readFileSync(
+        `/sys/fs/cgroup${summary.cgroup.self}/cgroup.threads`,
+        'utf8',
+      ),
+    )
+      .split(/\s+/)
+      .filter(Boolean),
+    'cgroup.threads',
+    'UNKNOWN ambiguous cgroup task inventory',
+    budget,
+  ).members
 }
 export interface NativeTaskDiagnostic {
   runnerPid: number
@@ -2730,17 +2758,16 @@ export function scopedProcesses(
   binding = false,
   budget?: NativeCleanupBudget,
 ): NativeProcessIdentity[] {
-  const members = withinCleanupBudget(budget, () =>
-    readFileSync(`/sys/fs/cgroup${summary.cgroup.self}/cgroup.procs`, 'utf8'),
-  )
-    .trim()
-    .split('\n')
-    .map((value) => {
-      checkCleanupBudget(budget)
-      return positiveInteger(Number(value))
-    })
-  if (new Set(members).size !== members.length)
-    throw new Error('ambiguous cgroup membership')
+  const members = cgroupMemberIds(
+    withinCleanupBudget(budget, () =>
+      readFileSync(`/sys/fs/cgroup${summary.cgroup.self}/cgroup.procs`, 'utf8'),
+    )
+      .trim()
+      .split('\n'),
+    'cgroup.procs',
+    'ambiguous cgroup membership',
+    budget,
+  ).members
   const visible = withinCleanupBudget(budget, () => readdirSync('/proc'))
     .filter((value) => {
       checkCleanupBudget(budget)

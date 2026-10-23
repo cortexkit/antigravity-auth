@@ -1376,6 +1376,19 @@ test_count_pattern = "Ran {count} test"
 expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\scleanup\ssignals\sa\ssurvivor\sonly\swhen\sthe\squalified\sjob\suid\sowns\sit$', '^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\sa\suid-997\sjob\squalifies\send\sto\send\sacross\splacement,\sidentities,\sschema\sand\scleanup\sownership$']
 
 [[control]]
+id = "ga-cgroup-outside-namespace-member"
+guards = "A cgroup member the kernel lists as 0 (outside this PID namespace, as on the MOTOR tenant and Boat) is counted, not refused or inventoried."
+file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
+old = "    if (entry === '0') outsideNamespace++"
+new = "    if (entry === 'NON-VACUITY BREAK') outsideNamespace++ // NON-VACUITY BREAK: refuse outside-namespace members again."
+test_file = "packages/e2e-tests/docker/ga-contract-inputs.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/e2e-tests/docker/ga-contract-inputs.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && env -u GA_NATIVE_JOB_TEST_PROFILE bun test --isolate packages/e2e-tests/docker/ga-contract-inputs.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\smodeled\stenant\scgroup\smember\soutside\sthe\sPID\snamespace\sis\scounted\sbut\snever\sinventoried\sor\ssignalled$', '^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\scgroup\smember\slists\sadmit\sonly\sdistinct\spositive\sids\sand\scount\soutside-namespace\szeros$']
+
+[[control]]
 id = "ga-store-fixture-phase-timeout-emission"
 guards = "A never-resolving current-store fixture phase prints one open-phase clock before Bun enforces its test timeout."
 file = "packages/e2e-tests/src/opencode-ga-inputs.test.ts"
