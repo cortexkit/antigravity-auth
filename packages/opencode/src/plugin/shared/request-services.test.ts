@@ -1360,6 +1360,231 @@ describe('createRequestExecutor pre-response deadline', () => {
   }
 })
 
+describe('createRequestExecutor quota reset text', () => {
+  const model = 'antigravity-gemini-3.8-flash'
+  const url = modelUrl(model, 'generateContent')
+  const message =
+    'Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 4h9m10s.  [Debug Info] Requested Model: antigravity-gemini-3.8-flash'
+
+  async function assertHold(
+    text: string,
+    expectedDelayMs: number,
+    details?: unknown[],
+    headers?: HeadersInit,
+  ) {
+    let now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const h = harness({
+      pool: makePool(2),
+      config: {
+        default_retry_after_seconds: 60,
+        max_backoff_seconds: 2,
+        max_rate_limit_wait_seconds: 1,
+      },
+      respond: async (_call, index) =>
+        index === 0
+          ? new Response(
+              JSON.stringify({
+                error: {
+                  code: 429,
+                  message: text,
+                  status: 'RESOURCE_EXHAUSTED',
+                  ...(details ? { details } : {}),
+                },
+              }),
+              { status: 429, headers },
+            )
+          : okJson(),
+    })
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    const first = h.pool.getAccounts()[0]!
+    const second = h.pool.getAccounts()[1]!
+    const selectFirst = (requestedModel = model) =>
+      h.pool.getCurrentOrNextForFamily(
+        'gemini',
+        requestedModel,
+        'sticky',
+        false,
+        100,
+        600_000,
+        undefined,
+        new Set([second.index]),
+      )
+    try {
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(200)
+      await response.text()
+      expect(h.calls).toHaveLength(2)
+      expect(h.refreshedAccounts).toEqual([first, second])
+      expect(mark).toHaveBeenCalledTimes(1)
+      expect(mark).toHaveBeenCalledWith(
+        first,
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        expectedDelayMs,
+        h.deps.config.failure_ttl_seconds * 1000,
+      )
+      expect(first.rateLimitResetTimes).toEqual({
+        [`gemini:${model}`]: FIXED_NOW + expectedDelayMs,
+      })
+      expect(first.enabled).toBe(true)
+      expect(selectFirst('antigravity-gemini-3.1-pro')).toBe(first)
+      now = FIXED_NOW + expectedDelayMs - 1
+      expect(h.pool.isRateLimited(first, 'gemini', model)).toBe(true)
+      expect(selectFirst()).toBeNull()
+      expect(h.pool.getCurrentOrNextForFamily('gemini', model)).toBe(second)
+      now = FIXED_NOW + expectedDelayMs + 1
+      expect(h.pool.isRateLimited(first, 'gemini', model)).toBe(false)
+      expect(selectFirst()).toBe(first)
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+      date.mockRestore()
+    }
+  }
+
+  it('individual quota Resets in holds the account model until the supplied reset', async () => {
+    await assertHold(message, 14_950_000)
+  })
+
+  it('reset after retains its existing account model hold', async () => {
+    await assertHold(
+      'Individual quota reached. reset after 4h9m10s.',
+      14_950_000,
+    )
+  })
+
+  for (const phrase of ['reset in', 'resets in', 'ReSeTs In']) {
+    it(`${phrase} recognizes compound decimal units and trailing punctuation`, async () => {
+      await assertHold(
+        `Individual quota reached. ${phrase} 1.5h2m3.5s.`,
+        5_523_500,
+      )
+    })
+  }
+
+  it('RetryInfo takes precedence over metadata text and retry headers', async () => {
+    await assertHold(
+      message,
+      120_000,
+      [
+        { metadata: { quotaResetDelay: '240s' } },
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: '120s',
+        },
+      ],
+      { 'retry-after-ms': '360000' },
+    )
+  })
+
+  it('quota reset metadata takes precedence over text and retry headers', async () => {
+    await assertHold(
+      message,
+      240_000,
+      [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 'invalid',
+        },
+        { metadata: { quotaResetDelay: '4m', quotaResetTimeStamp: 'later' } },
+      ],
+      { 'retry-after': '360' },
+    )
+  })
+
+  it('reset text takes precedence over retry headers', async () => {
+    await assertHold(message, 14_950_000, undefined, { 'retry-after': '360' })
+  })
+
+  for (const phrase of [
+    'Individual quota reached.',
+    'Individual quota reached. Resets in',
+    'Individual quota reached. reset in soon.',
+    'Individual quota reached. reset after ...',
+    'Individual quota reached. retry in 4h9m10s.',
+  ]) {
+    it(`missing or invalid reset text retains the default: ${phrase}`, async () => {
+      await assertHold(phrase, 60_000)
+    })
+  }
+
+  it('missing reset duration retains retry-after-ms before retry-after', async () => {
+    await assertHold(
+      'Individual quota reached. Resets in soon.',
+      180_000,
+      undefined,
+      {
+        'retry-after-ms': '180000',
+        'retry-after': '360',
+      },
+    )
+  })
+
+  it('missing reset duration retains retry-after before the default', async () => {
+    await assertHold('Individual quota reached.', 360_000, undefined, {
+      'retry-after': '360',
+    })
+  })
+
+  it('a long individual quota reset does not extend the caller wait budget', async () => {
+    let now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const clock = deadlineClock()
+    const h = harness({
+      config: {
+        max_rate_limit_wait_seconds: 2,
+        max_backoff_seconds: 2,
+      },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: { code: 429, message, status: 'RESOURCE_EXHAUSTED' },
+          }),
+          { status: 429 },
+        ),
+    })
+    Object.assign(h.deps, { preResponseClock: clock })
+    const save = spyOn(h.pool, 'requestSaveToDisk').mockImplementation(() => {})
+    const delays: number[] = []
+    const realTimeout = globalThis.setTimeout
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: () => void,
+      delay: number,
+    ) => {
+      const handle = realTimeout(() => {}, 2 ** 30)
+      handle.unref()
+      queueMicrotask(() => {
+        clearTimeout(handle)
+        delays.push(delay)
+        now += delay
+        clock.advance(delay)
+        callback()
+      })
+      return handle
+    }) as typeof setTimeout)
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(429)
+      await response.text()
+      const blocked = await executor.execute(url, CHAT_INIT())
+      expect(blocked.status).toBe(412)
+      expect(await blocked.json()).toMatchObject({ error: { code: 412 } })
+      expect(h.calls).toHaveLength(1)
+      expect(now - FIXED_NOW).toBeLessThanOrEqual(2_000)
+      expect(delays).toEqual([1_000])
+    } finally {
+      await executor.dispose()
+      timer.mockRestore()
+      save.mockRestore()
+      date.mockRestore()
+    }
+  })
+})
+
 describe('createRequestExecutor cumulative no-account wait budget', () => {
   function blockedHarness(
     kind: 'rate' | 'soft' | 'mixed',

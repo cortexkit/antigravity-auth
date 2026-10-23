@@ -2047,6 +2047,19 @@ test_count_pattern = "Ran {count} test"
 expect_red = ['^drops\sa\smember\sthat\sbecomes\sa\szombie\sduring\sancestry\srevalidation$']
 
 [[control]]
+id = "shared-individual-quota-reset-text-hold"
+guards = "A text-only individual quota reset holds the affected account/model until the supplied duration, rather than the default retry interval."
+file = "packages/opencode/src/plugin/shared/request-services.ts"
+old = '    const reset = message.match(/(?:reset after|resets? in)\s+([0-9hms.]+)/i)'
+new = '    const reset = message.match(/reset after\s+([0-9hms.]+)/i) // NON-VACUITY BREAK: ignore reset in and resets in.'
+test_file = "packages/opencode/src/plugin/shared/request-services.test.ts"
+list_command = ["bash", "-c", "bun scripts/list-bun-tests.mjs --cwd . packages/opencode/src/plugin/shared/request-services.test.ts -t \"$1|^createRequestExecutor quota reset text reset after retains its existing account model hold$\"", "--", "{test}"]
+runner = "command"
+command = ["bash", "-c", "printf '\\nProduction matcher for this run:\\n'; python3 -c 'from pathlib import Path; print(next(line for line in Path(\"packages/opencode/src/plugin/shared/request-services.ts\").read_text().splitlines() if \"const reset =\" in line))'; git diff --stat; if [ -n \"${CKDEV_MUTATE_ORIGINAL:-}\" ] && [ -n \"${CKDEV_MUTATE_DIFF_LOG:-}\" ]; then git diff --no-index --stat \"$CKDEV_MUTATE_ORIGINAL\" packages/opencode/src/plugin/shared/request-services.ts > \"$CKDEV_MUTATE_DIFF_LOG\"; diff_status=$?; cat \"$CKDEV_MUTATE_DIFF_LOG\"; if [ \"$diff_status\" -gt 1 ]; then exit \"$diff_status\"; fi; fi; bun run --cwd packages/core build && bun test --isolate packages/opencode/src/plugin/shared/request-services.test.ts -t \"$1|^createRequestExecutor quota reset text reset after retains its existing account model hold$\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^createRequestExecutor\squota\sreset\stext\sindividual\squota\sResets\sin\sholds\sthe\saccount\smodel\suntil\sthe\ssupplied\sreset$']
+
+[[control]]
 id = "shared-model-unavailable-no-prod-fallback"
 guards = "A daily 404 NOT_FOUND (model unavailable to the account) rotates accounts on daily and is never retried on prod."
 file = "packages/opencode/src/plugin/shared/request-services.ts"
