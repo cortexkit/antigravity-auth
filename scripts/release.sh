@@ -103,8 +103,10 @@ echo "→ Creating tag $TAG..."
 git tag -a "$TAG" -m "Release $TAG"
 echo ""
 
-echo "→ Pushing to origin..."
-git push origin "$BRANCH"
+echo "→ Pushing $TAG to origin..."
+# Push only the tag. It points at the release commit, which is already on main
+# by the time this runs; pushing the current branch would publish a local
+# release branch to GitHub.
 git push origin "$TAG"
 echo ""
 
