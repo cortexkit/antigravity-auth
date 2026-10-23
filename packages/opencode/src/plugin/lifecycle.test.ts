@@ -33,7 +33,75 @@ function createRefreshQueue(
   } as unknown as ProactiveRefreshQueue
 }
 
+function heldDrain() {
+  let finish: () => void = () => {}
+  const promise = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  return { promise, finish }
+}
+
 describe('PluginLifecycle', () => {
+  it('dispose completes all teardown stages after a rejected live queue drain', async () => {
+    const events: string[] = []
+    const failure = new Error('row synthetic-disabled-id is disabled')
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => events.push('sessions:clear') },
+      shutdownDiskSignatureCache: async () => {
+        events.push('cache:shutdown')
+      },
+      clearFetchState: () => events.push('fetch:clear'),
+      drainSidebarWrites: async () => {
+        events.push('sidebar:drain')
+      },
+    })
+    lifecycle.register(
+      {
+        dispose: () => {
+          events.push('producer:dispose')
+        },
+      },
+      'producer',
+    )
+    lifecycle.register({
+      dispose: () => {
+        events.push('consumer:dispose')
+      },
+    })
+    await lifecycle.replaceAccountRuntime(createAccountManager(events), {
+      dispose: mock(async () => {
+        events.push('queue:dispose')
+        throw failure
+      }),
+    } as unknown as ProactiveRefreshQueue)
+
+    const disposal = lifecycle.dispose()
+    const result = await Promise.resolve(disposal).catch(
+      (error: unknown) => error,
+    )
+
+    expect(events).toEqual([
+      'queue:dispose',
+      'manager:flush',
+      'manager:dispose',
+      'cache:shutdown',
+      'sessions:clear',
+      'fetch:clear',
+      'producer:dispose',
+      'sidebar:drain',
+      'consumer:dispose',
+    ])
+    expect(result).toBe(failure)
+    expect(lifecycle.getAccountManager()).toBeNull()
+    expect(lifecycle.dispose()).toBe(disposal)
+    expect(
+      await Promise.resolve(lifecycle.dispose()).catch(
+        (error: unknown) => error,
+      ),
+    ).toBe(failure)
+    expect(events).toHaveLength(9)
+  })
+
   it('disposes runtime and shared state in dependency order', async () => {
     const events: string[] = []
     const sessionRegistry = {
@@ -331,6 +399,319 @@ describe('PluginLifecycle', () => {
       'fetch:clear',
       'registered:dispose',
     ])
+  })
+})
+
+describe('PluginLifecycle failure isolation', () => {
+  const stages = [
+    'manager',
+    'cache',
+    'sessions',
+    'fetch',
+    'producer',
+    'sidebar',
+    'consumer',
+  ]
+
+  it.each(
+    stages,
+  )('continues cleanup after a synchronous %s failure', async (failedStage) => {
+    const events: string[] = []
+    const failure = new Error(`${failedStage} failed`)
+    const run = (stage: string) => {
+      events.push(stage)
+      if (stage === failedStage) throw failure
+    }
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => run('sessions') },
+      shutdownDiskSignatureCache: () => {
+        run('cache')
+        return Promise.resolve()
+      },
+      clearFetchState: () => run('fetch'),
+      drainSidebarWrites: () => {
+        run('sidebar')
+        return Promise.resolve()
+      },
+    })
+    lifecycle.register({ dispose: () => run('producer') }, 'producer')
+    lifecycle.register({ dispose: () => run('producer:next') }, 'producer')
+    lifecycle.register({ dispose: () => run('consumer') })
+    lifecycle.register({ dispose: () => run('consumer:next') })
+    await lifecycle.replaceAccountRuntime(
+      { dispose: () => run('manager') } as unknown as AccountManager,
+      null,
+    )
+
+    const result = await Promise.resolve(lifecycle.dispose()).catch(
+      (error: unknown) => error,
+    )
+
+    expect(events).toEqual([
+      'manager',
+      'cache',
+      'sessions',
+      'fetch',
+      'producer',
+      'producer:next',
+      'sidebar',
+      'consumer',
+      'consumer:next',
+    ])
+    expect(result).toBe(failure)
+  })
+
+  it('reports all rejected cleanup stages only after the final consumer', async () => {
+    const events: string[] = []
+    const failures = stages.map((stage) => new Error(`${stage} failed`))
+    const run = (stage: string) => {
+      events.push(stage)
+      throw failures[stages.indexOf(stage)]
+    }
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => run('sessions') },
+      shutdownDiskSignatureCache: async () => run('cache'),
+      clearFetchState: () => run('fetch'),
+      drainSidebarWrites: async () => run('sidebar'),
+    })
+    lifecycle.register({ dispose: async () => run('producer') }, 'producer')
+    lifecycle.register({ dispose: async () => run('consumer') })
+    lifecycle.register({
+      dispose: () => {
+        events.push('consumer:next')
+      },
+    })
+    await lifecycle.replaceAccountRuntime(
+      { dispose: async () => run('manager') } as unknown as AccountManager,
+      null,
+    )
+
+    const result = await Promise.resolve(lifecycle.dispose()).catch(
+      (error: unknown) => error,
+    )
+
+    expect(events).toEqual([...stages, 'consumer:next'])
+    expect(result).toBeInstanceOf(AggregateError)
+    if (!(result instanceof AggregateError))
+      throw new Error('Missing cleanup failures')
+    expect(result.errors).toEqual(failures)
+  })
+
+  it.each([
+    'throws',
+    'rejects',
+  ])('starts all aborts and waits for remaining users when a live request abort %s', async (mode) => {
+    const events: string[] = []
+    const failure = new Error('request abort failed')
+    const retirement = heldDrain()
+    const queueDrain = heldDrain()
+    const retiredAbort = heldDrain()
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {
+        events.push('cache')
+      },
+      clearFetchState: () => {},
+    })
+    const retiredManager = createAccountManager(events, 'retired-manager')
+    const liveManager = createAccountManager(events, 'live-manager')
+    await lifecycle.replaceAccountRuntime(retiredManager, null, {
+      retire: () => retirement.promise,
+      dispose: () => {
+        events.push('retired:abort')
+        return retiredAbort.promise
+      },
+    })
+    await lifecycle.replaceAccountRuntime(
+      liveManager,
+      {
+        dispose: () => {
+          events.push('queue:stop')
+          return queueDrain.promise
+        },
+      } as unknown as ProactiveRefreshQueue,
+      {
+        retire: async () => {},
+        dispose: () => {
+          events.push('live:abort')
+          if (mode === 'throws') throw failure
+          return Promise.reject(failure)
+        },
+      },
+    )
+
+    const disposal = lifecycle.dispose()
+    const result = Promise.resolve(disposal).catch((error: unknown) => error)
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(events).toEqual(['live:abort', 'retired:abort', 'queue:stop'])
+      expect(retiredManager.dispose).not.toHaveBeenCalled()
+      expect(liveManager.dispose).not.toHaveBeenCalled()
+      retiredAbort.finish()
+      retirement.finish()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(retiredManager.dispose).toHaveBeenCalledTimes(1)
+      expect(liveManager.dispose).not.toHaveBeenCalled()
+      expect(events).not.toContain('cache')
+    } finally {
+      retirement.finish()
+      retiredAbort.finish()
+      queueDrain.finish()
+      await result
+    }
+    expect(await result).toBe(failure)
+    expect(liveManager.dispose).toHaveBeenCalledTimes(1)
+    expect(events.at(-1)).toBe('cache')
+  })
+
+  it.each([
+    'throws',
+    'rejects',
+  ])('waits for request users and cleans shared state when a live queue %s', async (mode) => {
+    const events: string[] = []
+    const failure = new Error('queue failed')
+    const requestDrain = heldDrain()
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {
+        events.push('cache')
+      },
+      clearFetchState: () => {},
+    })
+    const manager = createAccountManager(events)
+    const reentry: { promise?: Promise<void> | void } = {}
+    await lifecycle.replaceAccountRuntime(
+      manager,
+      {
+        dispose: () => {
+          events.push('queue:stop')
+          reentry.promise = lifecycle.dispose()
+          if (mode === 'throws') throw failure
+          return Promise.reject(failure)
+        },
+      } as unknown as ProactiveRefreshQueue,
+      {
+        retire: async () => {},
+        dispose: () => requestDrain.promise,
+      },
+    )
+
+    const disposal = lifecycle.dispose()
+    const result = Promise.resolve(disposal).catch((error: unknown) => error)
+    try {
+      expect(reentry.promise).toBe(disposal)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(events).toEqual(['queue:stop'])
+      expect(manager.dispose).not.toHaveBeenCalled()
+    } finally {
+      requestDrain.finish()
+      await result
+    }
+    expect(await result).toBe(failure)
+    expect(lifecycle.dispose()).toBe(disposal)
+    expect(events).toEqual([
+      'queue:stop',
+      'manager:flush',
+      'manager:dispose',
+      'cache',
+    ])
+    expect(manager.dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('continues aborting retired runtimes after a synchronous retired abort failure', async () => {
+    const events: string[] = []
+    const failure = new Error('retired abort failed')
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {
+        events.push('cache')
+      },
+      clearFetchState: () => {},
+    })
+    const managers = [
+      createAccountManager(events, 'first'),
+      createAccountManager(events, 'second'),
+    ]
+    for (const [index, manager] of managers.entries()) {
+      const retirement = heldDrain()
+      await lifecycle.replaceAccountRuntime(manager, null, {
+        retire: () => retirement.promise,
+        dispose: () => {
+          events.push(`retired:${index}:abort`)
+          retirement.finish()
+          if (index === 0) throw failure
+        },
+      })
+    }
+    const liveManager = createAccountManager(events, 'live')
+    await lifecycle.replaceAccountRuntime(
+      liveManager,
+      createRefreshQueue(events),
+    )
+
+    const result = await Promise.resolve(lifecycle.dispose()).catch(
+      (error: unknown) => error,
+    )
+
+    expect(result).toBe(failure)
+    expect(events.slice(0, 3)).toEqual([
+      'retired:0:abort',
+      'retired:1:abort',
+      'queue:dispose',
+    ])
+    for (const manager of [...managers, liveManager]) {
+      expect(manager.dispose).toHaveBeenCalledTimes(1)
+    }
+    expect(events.at(-1)).toBe('cache')
+  })
+
+  it.each([
+    'throws',
+    'rejects',
+  ])('cleans live and shared state when a retired request drain %s', async (mode) => {
+    const events: string[] = []
+    const failure = new Error('retirement failed')
+    const queueDrain = heldDrain()
+    const lifecycle = createPluginLifecycle({
+      sessionRegistry: { clear: () => {} },
+      shutdownDiskSignatureCache: async () => {
+        events.push('cache')
+      },
+      clearFetchState: () => {},
+    })
+    const retiredManager = createAccountManager(events, 'retired-manager')
+    const liveManager = createAccountManager(events, 'live-manager')
+    await lifecycle.replaceAccountRuntime(
+      retiredManager,
+      {
+        dispose: () => queueDrain.promise,
+      } as unknown as ProactiveRefreshQueue,
+      {
+        retire: () => {
+          if (mode === 'throws') throw failure
+          return Promise.reject(failure)
+        },
+        dispose: () => {
+          events.push('retired:abort')
+        },
+      },
+    )
+    const replacement = lifecycle.replaceAccountRuntime(liveManager, null)
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(retiredManager.dispose).not.toHaveBeenCalled()
+    } finally {
+      queueDrain.finish()
+    }
+    expect(await replacement).toBe(true)
+    const result = await Promise.resolve(lifecycle.dispose()).catch(
+      (error: unknown) => error,
+    )
+
+    expect(result).toBe(failure)
+    expect(retiredManager.dispose).toHaveBeenCalledTimes(1)
+    expect(liveManager.dispose).toHaveBeenCalledTimes(1)
+    expect(events.at(-1)).toBe('cache')
   })
 })
 

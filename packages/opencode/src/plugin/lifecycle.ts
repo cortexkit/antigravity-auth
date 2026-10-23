@@ -69,6 +69,24 @@ export interface PluginLifecycle extends Disposable {
 
 const NOOP_DRAIN = async (): Promise<void> => {}
 
+async function collectCleanupFailure(
+  cleanup: () => Promise<void> | void,
+  failures: unknown[],
+): Promise<void> {
+  try {
+    await cleanup()
+  } catch (error) {
+    failures.push(error)
+  }
+}
+
+function reportCleanupFailures(failures: unknown[]): void {
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Plugin cleanup failed')
+  }
+}
+
 export function createPluginLifecycle(
   options: PluginLifecycleOptions,
 ): PluginLifecycle {
@@ -100,20 +118,21 @@ export function createPluginLifecycle(
     queue: ProactiveRefreshQueue | null,
     requests: AccountRequestRuntime | null,
   ): { queueDrained: Promise<void>; done: Promise<void> } => {
-    const queueDrained = Promise.resolve(queue?.dispose())
+    // Invoke immediately to stop timers, but turn synchronous throws into a
+    // drain rejection so the request retirement still starts.
+    const queueDrained = (async () => {
+      await queue?.dispose()
+    })()
     const record = {
       requests,
       done: (async () => {
-        const drained = await Promise.allSettled([
-          queueDrained,
-          requests?.retire(),
+        const failures: unknown[] = []
+        await Promise.all([
+          collectCleanupFailure(() => queueDrained, failures),
+          collectCleanupFailure(() => requests?.retire(), failures),
         ])
-        await manager.dispose()
-        const failed = drained.find(
-          (outcome): outcome is PromiseRejectedResult =>
-            outcome.status === 'rejected',
-        )
-        if (failed) throw failed.reason
+        await collectCleanupFailure(() => manager.dispose(), failures)
+        reportCleanupFailures(failures)
       })(),
     }
     retiring.add(record)
@@ -126,7 +145,6 @@ export function createPluginLifecycle(
         if (!requests) retiring.delete(record)
       },
     )
-    void queueDrained.catch(() => {})
     return { queueDrained, done: record.done }
   }
 
@@ -144,23 +162,26 @@ export function createPluginLifecycle(
     // after the runtimes and queues using it have finished.
     const retired = [...retiring]
     retiring.clear()
+    const failures: unknown[] = []
     const aborted = Promise.all([
-      oldRequests?.dispose(),
-      ...retired.map((record) => record.requests?.dispose()),
+      collectCleanupFailure(() => oldRequests?.dispose(), failures),
+      ...retired.map((record) =>
+        collectCleanupFailure(() => record.requests?.dispose(), failures),
+      ),
     ])
-    const liveQueueDrained = Promise.resolve(oldQueue?.dispose())
-    void liveQueueDrained.catch(() => {})
-    await aborted
-    const retirements = await Promise.allSettled(
-      retired.map((record) => record.done),
+    const liveQueueDrained = collectCleanupFailure(
+      () => oldQueue?.dispose(),
+      failures,
     )
-    await liveQueueDrained
-    await oldManager?.dispose()
-    const failed = retirements.find(
-      (outcome): outcome is PromiseRejectedResult =>
-        outcome.status === 'rejected',
-    )
-    if (failed) throw failed.reason
+    await Promise.all([
+      aborted,
+      liveQueueDrained,
+      ...retired.map((record) =>
+        collectCleanupFailure(() => record.done, failures),
+      ),
+    ])
+    await collectCleanupFailure(() => oldManager?.dispose(), failures)
+    reportCleanupFailures(failures)
   }
 
   const register = (
@@ -222,28 +243,38 @@ export function createPluginLifecycle(
           failDisposal = reject
         })
         void (async () => {
-          await disposeAccountRuntime()
-          await options.shutdownDiskSignatureCache()
-          options.sessionRegistry.clear()
-          options.clearFetchState()
+          // Keep dependencies alive until their users settle, then report any
+          // failures only after every remaining cleanup hook has run.
+          const failures: unknown[] = []
+          await collectCleanupFailure(disposeAccountRuntime, failures)
+          await collectCleanupFailure(
+            () => options.shutdownDiskSignatureCache(),
+            failures,
+          )
+          await collectCleanupFailure(
+            () => options.sessionRegistry.clear(),
+            failures,
+          )
+          await collectCleanupFailure(() => options.clearFetchState(), failures)
           // 1. Stop and await all producers (e.g. fetch interceptor).
           //    This prevents NEW sidebar writes from being enqueued
           //    while the drain is in flight.
           for (const disposable of producers) {
-            await disposable.dispose()
+            await collectCleanupFailure(() => disposable.dispose(), failures)
           }
           producers.length = 0
           // 2. Drain sidebar writes. Every write enqueued by a now-stopped
           //    producer lands here before the consumers (RPC server, file
           //    logger) are torn down.
-          await drainSidebarWrites()
+          await collectCleanupFailure(drainSidebarWrites, failures)
           // 3. Stop consumers. The TUI's last frame can still observe a
           //    fully landed snapshot because the file logger is still alive
           //    during the drain.
           for (const disposable of consumers) {
-            await disposable.dispose()
+            await collectCleanupFailure(() => disposable.dispose(), failures)
           }
           consumers.length = 0
+          reportCleanupFailures(failures)
         })().then(finishDisposal, failDisposal)
       }
       return disposal
