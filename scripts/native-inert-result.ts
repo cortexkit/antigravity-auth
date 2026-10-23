@@ -18,11 +18,25 @@ export const STAGE_NAMES = [
   'motor-suite',
 ] as const
 
+export interface GatePlacement {
+  arch: string
+  uid: number
+  euid: number
+  gid: number
+  host: string
+  pidNamespace: string
+  pid1Namespace: string
+  pid1Comm: string
+  cgroup: string
+}
+
 export interface GateResult {
-  schemaVersion: 1
+  schemaVersion: 2
   commit: string
   tree: string
   pass: boolean
+  // Where the gate process ran, read by the gate itself before any stage.
+  placement?: GatePlacement
   stages: Array<{ name: string; exit: number }>
   names: string[]
   inventorySha256: string
@@ -84,11 +98,77 @@ export function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+// The initial (host) PID namespace always has this inode (PROC_PID_INIT_INO in
+// the Linux kernel).
+const HOST_PID_NAMESPACE = 'pid:[4026531836]'
+// MOTOR runner unit name, documented in MOTOR docs/job-isolation.md section
+// 4.4.2 (cortexkit/motor, main e49541a7): the job's only cgroup line names its
+// own motor-job-<UUID>.service directly under system.slice. The UUID belongs to
+// the runner's unit, not to any caller-visible job id, so only its shape counts.
+const MOTOR_JOB_CGROUP =
+  /^0::\/system\.slice\/motor-job-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/
+
+// The same placement rule the native cleanup guard applies in
+// packages/e2e-tests/docker/measure-ga-proxy-matrix.ts (qualifyNativePlacement):
+// Linux x64, an unprivileged user, a private PID namespace whose PID 1 is the
+// job wrapper, and a MOTOR job cgroup. A pass recorded anywhere else is refused.
+export function qualifiedPlacement(value: unknown): GatePlacement {
+  const refuse = (fact: string) =>
+    new Error(
+      `native-inert gate placement is not a qualified MOTOR job (${fact}); rerun the gate in a MOTOR job`,
+    )
+  if (value === undefined) throw refuse('no placement recorded')
+  const placement = object(value)
+  const text = (key: string) => {
+    const field = placement[key]
+    if (typeof field !== 'string' || field.length === 0)
+      throw refuse(`missing ${key}`)
+    return field
+  }
+  const integer = (key: string) => {
+    const field = placement[key]
+    if (!Number.isSafeInteger(field) || (field as number) < 0)
+      throw refuse(`missing ${key}`)
+    return field as number
+  }
+  const result: GatePlacement = {
+    arch: text('arch'),
+    uid: integer('uid'),
+    euid: integer('euid'),
+    gid: integer('gid'),
+    host: text('host'),
+    pidNamespace: text('pidNamespace'),
+    pid1Namespace: text('pid1Namespace'),
+    pid1Comm: text('pid1Comm'),
+    cgroup: text('cgroup'),
+  }
+  if (result.arch !== 'x64') throw refuse(`arch ${result.arch}`)
+  if (result.uid === 0) throw refuse('uid 0')
+  if (result.euid !== result.uid)
+    throw refuse(`euid ${result.euid} differs from uid ${result.uid}`)
+  if (!/^pid:\[\d+\]$/.test(result.pidNamespace))
+    throw refuse(`PID namespace ${result.pidNamespace}`)
+  if (result.pidNamespace !== result.pid1Namespace)
+    throw refuse('PID namespace differs from PID1')
+  if (result.pidNamespace === HOST_PID_NAMESPACE)
+    throw refuse('host PID namespace')
+  if (result.pid1Comm !== 'bash')
+    throw refuse(`PID 1 is ${result.pid1Comm}, not the job wrapper`)
+  if (!MOTOR_JOB_CGROUP.test(result.cgroup))
+    throw refuse(`cgroup ${result.cgroup} is not a MOTOR job unit`)
+  return result
+}
+
 export function validateResult(value: unknown, root: string): GateResult {
   const result = object(value)
-  if (result.schemaVersion !== 1)
+  if (result.schemaVersion === 1)
+    throw new Error(
+      'native-inert record has schema 1, which carries no placement proof; rerun bun run test:native-inert and record its stdout again',
+    )
+  if (result.schemaVersion !== 2)
     throw new Error('unsupported native-inert schema')
   if (result.pass !== true) throw new Error('native-inert gate did not pass')
+  result.placement = qualifiedPlacement(result.placement)
   if (
     typeof result.commit !== 'string' ||
     !/^[a-f0-9]{40}$/.test(result.commit)
@@ -171,6 +251,6 @@ export function checkReleaseRecord(root: string): GateResult {
 }
 
 export const GATE_INSTRUCTIONS = `Run the gate on the prepared, clean release commit through AFT, then save that task's io/stdout locally:
-functions.bash({command: "bun run test:native-inert", runon: "linux,2c", timeout: 900000, wait: true})
+functions.bash({command: "bun run test:native-inert", runon: "linux,16c", timeout: 900000, wait: true})
 bun scripts/record-native-inert-gate.ts <saved-io/stdout>
 Then re-run ./scripts/release.sh <version>.`

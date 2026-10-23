@@ -9,8 +9,11 @@ Use Bun 1.4.2 and a clean checkout. Release preparation and tagging are separate
    Linux job (private PID namespace and root-managed cgroup):
 
    ```text
-   functions.bash({command: "bun run test:native-inert", runon: "linux,2c", timeout: 900000, wait: true})
+   functions.bash({command: "bun run test:native-inert", runon: "linux,16c", timeout: 900000, wait: true})
    ```
+
+   Request `linux,16c`: MOTOR never moves a job over 8 vCPUs to another host, so
+   the gate stays on the build server.
 
    Save the completed task's **io/stdout**, not the UI's compressed summary, to a
    local file. In the same checkout run:
@@ -23,7 +26,11 @@ Use Bun 1.4.2 and a clean checkout. Release preparation and tagging are separate
    counts and the 41 names against that commit's tracked inventory. Only a full
    pass atomically writes ignored `.cortexkit/release-gates/native-inert.json`,
    including the stdout SHA-256. A failed or interrupted attempt writes no pass;
-   attempting to record it removes any prior record.
+   attempting to record it removes any prior record. The result (schema 2) also
+   proves where it ran: the gate records its own placement (arch, user, PID
+   namespace, PID 1 and cgroup), and the writer and the release check refuse a
+   pass outside an unprivileged MOTOR job with a private PID namespace. A
+   schema-1 record has no placement and is refused; rerun the gate and record it.
 3. Run `./scripts/release.sh <version>` to require successful `CI` and
    `Windows account migration and vault` workflow runs on the exact commit
    (verified with `gh`), then verify and tag/push. It makes no version changes

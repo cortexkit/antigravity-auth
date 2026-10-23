@@ -43,6 +43,19 @@ test_count_pattern = "Ran {count} test"
 expect_red = ['^native-inert\srecord\swriter\srejects\spass\sfalse$']
 
 [[control]]
+id = "native-inert-record-requires-qualified-placement"
+guards = "A native-inert pass recorded outside an unprivileged MOTOR job with a private PID namespace cannot mint a release record."
+file = "scripts/native-inert-result.ts"
+old = "  result.placement = qualifiedPlacement(result.placement)"
+new = "  // NON-VACUITY BREAK: skip the placement check."
+test_file = "test/native-inert-gate.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "test/native-inert-gate.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bun", "test", "--isolate", "test/native-inert-gate.test.ts", "-t", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^native-inert\srecord\swriter\srejects\spass\swithout\splacement$', '^native-inert\srecord\swriter\srejects\spass\swith\suid\s0$', '^native-inert\srecord\swriter\srejects\spass\swith\sa\shost\snamespace$']
+
+[[control]]
 id = "shared-pre-response-no-selection-reset"
 guards = "The absolute pre-response deadline survives endpoint fallback and revisits to an already selected account."
 file = "packages/opencode/src/plugin/shared/request-services.ts"
