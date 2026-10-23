@@ -82,7 +82,10 @@ import {
   MatrixSchema,
   materialize,
   type NativeCommandTimers,
+  type NativePlacementFacts,
+  type NativeProcessIdentity,
   nativeHostEnv,
+  nativeSignalOwned,
   observeNativeRunner,
   PinSchema,
   PORTS,
@@ -90,6 +93,8 @@ import {
   parseLines,
   parseTunnelRequests,
   prepareNativeGit,
+  qualifyNativeJobIdentities,
+  qualifyNativePlacement,
   qualifyNativeProcessScope,
   scopedProcesses,
   selectCases,
@@ -449,6 +454,86 @@ function processBoundaryFixture() {
       },
     },
   }
+}
+
+// Placement facts as the MOTOR build server reported them for 3.0.11, before any
+// per-test change: a private PID namespace whose PID 1 is the job wrapper, and a
+// root-owned MOTOR job unit.
+const MOTOR_UNIT =
+  '/system.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service'
+function motorPlacementFacts(
+  overrides: Partial<NativePlacementFacts> = {},
+): NativePlacementFacts {
+  return {
+    platform: 'linux',
+    arch: 'x64',
+    uid: 999,
+    euid: 999,
+    pidNamespace: 'pid:[4026533381]',
+    pid1Namespace: 'pid:[4026533381]',
+    pid1Comm: 'bash',
+    cgroup: `0::${MOTOR_UNIT}\n`,
+    cgroupDirectoryUid: 0,
+    ...overrides,
+  }
+}
+function modeledIdentity(
+  pid: number,
+  uid: number,
+  comm: string,
+): NativeProcessIdentity {
+  return {
+    pid,
+    start: '123',
+    state: 'S',
+    uid,
+    namespace: 'pid:[4026533381]',
+    cgroup: MOTOR_UNIT,
+    comm,
+    parent: pid === 1 ? 0 : 1,
+    pgid: 1,
+    sid: 1,
+  }
+}
+// The serialized boundary of a job whose user is `jobUid`, with the PSI file
+// owned by that user behind the fixture's read-only mount.
+function jobUserBoundary(jobUid: number) {
+  const value = nativeMatrix()
+  value.native.processBoundary.pid1.uid = jobUid
+  value.native.processBoundary.controller.uid = jobUid
+  value.native.processBoundary.cgroup.pressureObservation.uid = jobUid
+  return value
+}
+// Classify this host from raw facts read here, independently of the guard under
+// test: a MOTOR job has a non-host PID namespace shared with a PID 1 named bash,
+// and a single unified cgroup line naming a MOTOR job unit.
+function rawMotorJobPlacement() {
+  const read = <T>(operation: () => T): T | undefined => {
+    try {
+      return operation()
+    } catch {
+      return undefined
+    }
+  }
+  const facts = {
+    platform: process.platform,
+    arch: process.arch,
+    pid1Comm: read(() => readFileSync('/proc/1/comm', 'utf8').trim()),
+    pidNamespace: read(() => readlinkSync('/proc/self/ns/pid')),
+    pid1Namespace: read(() => readlinkSync('/proc/1/ns/pid')),
+    cgroup: read(() => readFileSync('/proc/self/cgroup', 'utf8')),
+  }
+  const motor =
+    facts.platform === 'linux' &&
+    facts.arch === 'x64' &&
+    facts.pid1Comm === 'bash' &&
+    facts.pidNamespace !== undefined &&
+    facts.pidNamespace === facts.pid1Namespace &&
+    facts.pidNamespace !== 'pid:[4026531836]' &&
+    /^0::\/system\.slice\/motor-job-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.service\n$/.test(
+      facts.cgroup ?? '',
+    )
+  return { motor, facts }
 }
 
 // Keep each built-in's overloads and properties while changing a test observation.
@@ -3011,9 +3096,9 @@ describe(CLEANUP_GROUP, () => {
     'extant thread group is unknown while its listener survives original-command close',
     async () => {
       const CHILD_CODE =
-        "import ctypes, errno, json, os, select, socket, sys, threading, time\nroot, fd_text, expected_ns, expected_cgroup = sys.argv[1:5]\nready_fd = int(fd_text)\ntgid = os.getpid()\nready = threading.Event()\nstate = {}\n\n\ndef text(path):\n    with open(path) as stream:\n        return stream.read()\n\n\ndef stat_fields(tid):\n    raw = text('/proc/' + str(tid) + '/stat')\n    fields = raw[raw.rfind(')') + 2:].split()\n    return {'state': fields[0], 'birth': fields[19]}\n\n\ndef identity(tid):\n    status = dict(line.split(':', 1) for line in text('/proc/' + str(tid) + '/status').splitlines() if ':' in line)\n    return {'tid': tid, 'tgid': int(status['Tgid']), 'pid': int(status['Pid']),\n            'uids': [int(value) for value in status['Uid'].split()], **stat_fields(tid),\n            'namespace': os.readlink('/proc/' + str(tid) + '/ns/pid'),\n            'cgroup': text('/proc/' + str(tid) + '/cgroup').strip()}\n\n\ndef attempted(operation):\n    try:\n        return {'value': operation()}\n    except OSError as error:\n        return {'error': str(error), 'errno': error.errno}\n\n\ndef save(value):\n    temporary = root + '/thread-witness.tmp'\n    with open(temporary, 'w') as stream:\n        json.dump(value, stream)\n    os.replace(temporary, root + '/thread-witness.json')\n\n\ndef admitted(value):\n    return value['uids'] == [999,999,999,999] and value['namespace'] == expected_ns and value['cgroup'] == '0::' + expected_cgroup\n\n\nassert sys.platform == 'linux' and os.uname().machine == 'x86_64'\nassert os.getuid() == os.geteuid() == 999\nleader_before = identity(tgid)\nassert admitted(leader_before)\nlibc = ctypes.CDLL(None, use_errno=True)\nthread_exit = libc.syscall\nthread_exit.argtypes = (ctypes.c_long, ctypes.c_long)\nthread_exit.restype = ctypes.c_long\n\n\ndef worker():\n    expiry = time.monotonic() + 0.250\n    listener = None\n    ready_open = True\n    exit_code = 74\n    witnessed = False\n    try:\n        tid = threading.get_native_id()\n        before = identity(tid)\n        assert tid != tgid and before['tgid'] == tgid and before['pid'] == tid and admitted(before)\n        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n        listener.setblocking(False)\n        listener.bind(('127.0.0.1', 0))\n        listener.listen(1)\n        state.update({'tid': tid, 'before': before, 'expiry': expiry, 'admitted': True})\n        save({'phase': 'worker-ready-before-transition', 'leaderBefore': leader_before,\n              'threadBefore': before, 'port': listener.getsockname()[1], 'expiry': expiry})\n        ready.set()\n        while time.monotonic() < expiry:\n            leader = attempted(lambda: stat_fields(tgid))\n            if 'error' in leader and leader.get('errno') not in [errno.ENOENT, errno.ESRCH]:\n                raise RuntimeError('FAILED WITNESS unexpected leader-stat read error: ' + repr(leader))\n            if not witnessed and (('error' in leader and leader.get('errno') in [errno.ENOENT, errno.ESRCH]) or leader.get('value', {}).get('state') in ['Z','X']):\n                after = identity(tid)\n                members = [int(value) for value in text('/sys/fs/cgroup' + expected_cgroup + '/cgroup.threads').split()]\n                assert after['tgid'] == tgid and after['pid'] == tid and after['birth'] == before['birth']\n                assert after['state'] not in ['Z','X'] and admitted(after) and tid in members\n                save({'phase': 'main-exited-live-thread', 'tgid': tgid, 'tid': tid,\n                      'leaderBefore': leader_before, 'threadBefore': before, 'threadAfter': after,\n                      'leaderStatAfter': leader,\n                      'leaderNamespaceAfter': attempted(lambda: os.readlink('/proc/' + str(tgid) + '/ns/pid')),\n                      'port': listener.getsockname()[1], 'expiry': expiry, 'observed': time.monotonic(),\n                      'threadInProtectedCgroupThreads': True})\n                os.write(ready_fd, b'R')\n                os.close(ready_fd)\n                ready_open = False\n                witnessed = True\n                exit_code = 0\n            remaining = expiry - time.monotonic()\n            if remaining <= 0:\n                break\n            readable, _, _ = select.select([listener], [], [], min(0.005, remaining))\n            if not readable:\n                continue\n            try:\n                connection, _ = listener.accept()\n            except BlockingIOError:\n                continue\n            connection.setblocking(False)\n            try:\n                pending = b'inert-listener'\n                while pending and time.monotonic() < expiry:\n                    try:\n                        count = connection.send(pending)\n                        if count <= 0:\n                            break\n                        pending = pending[count:]\n                    except BlockingIOError:\n                        remaining = expiry - time.monotonic()\n                        if remaining <= 0:\n                            break\n                        select.select([], [connection], [], min(0.005, remaining))\n                    except (BrokenPipeError, ConnectionResetError):\n                        break\n            finally:\n                connection.close()\n    except BaseException as error:\n        try:\n            save({'phase': 'witness-error', 'error': repr(error), 'state': state})\n        except BaseException:\n            pass\n    finally:\n        ready.set()\n        if ready_open:\n            try:\n                os.close(ready_fd)\n            except OSError:\n                pass\n        try:\n            if listener is not None:\n                listener.close()\n        finally:\n            os._exit(exit_code)\n\n\nthreading.Thread(target=worker, daemon=False).start()\nif not ready.wait(0.050) or state.get('admitted') is not True or time.monotonic() >= state['expiry']:\n    os._exit(75)\nthread_exit(ctypes.c_long(60), ctypes.c_long(0))\nos._exit(76)"
+        "import ctypes, errno, json, os, select, socket, sys, threading, time\nroot, fd_text, expected_ns, expected_cgroup = sys.argv[1:5]\nready_fd = int(fd_text)\ntgid = os.getpid()\nready = threading.Event()\nstate = {}\n\n\ndef text(path):\n    with open(path) as stream:\n        return stream.read()\n\n\ndef stat_fields(tid):\n    raw = text('/proc/' + str(tid) + '/stat')\n    fields = raw[raw.rfind(')') + 2:].split()\n    return {'state': fields[0], 'birth': fields[19]}\n\n\ndef identity(tid):\n    status = dict(line.split(':', 1) for line in text('/proc/' + str(tid) + '/status').splitlines() if ':' in line)\n    return {'tid': tid, 'tgid': int(status['Tgid']), 'pid': int(status['Pid']),\n            'uids': [int(value) for value in status['Uid'].split()], **stat_fields(tid),\n            'namespace': os.readlink('/proc/' + str(tid) + '/ns/pid'),\n            'cgroup': text('/proc/' + str(tid) + '/cgroup').strip()}\n\n\ndef attempted(operation):\n    try:\n        return {'value': operation()}\n    except OSError as error:\n        return {'error': str(error), 'errno': error.errno}\n\n\ndef save(value):\n    temporary = root + '/thread-witness.tmp'\n    with open(temporary, 'w') as stream:\n        json.dump(value, stream)\n    os.replace(temporary, root + '/thread-witness.json')\n\n\ndef admitted(value):\n    return value['uids'] == [os.getuid()] * 4 and value['namespace'] == expected_ns and value['cgroup'] == '0::' + expected_cgroup\n\n\nassert sys.platform == 'linux' and os.uname().machine == 'x86_64'\nassert os.getuid() == os.geteuid() != 0\nleader_before = identity(tgid)\nassert admitted(leader_before)\nlibc = ctypes.CDLL(None, use_errno=True)\nthread_exit = libc.syscall\nthread_exit.argtypes = (ctypes.c_long, ctypes.c_long)\nthread_exit.restype = ctypes.c_long\n\n\ndef worker():\n    expiry = time.monotonic() + 0.250\n    listener = None\n    ready_open = True\n    exit_code = 74\n    witnessed = False\n    try:\n        tid = threading.get_native_id()\n        before = identity(tid)\n        assert tid != tgid and before['tgid'] == tgid and before['pid'] == tid and admitted(before)\n        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n        listener.setblocking(False)\n        listener.bind(('127.0.0.1', 0))\n        listener.listen(1)\n        state.update({'tid': tid, 'before': before, 'expiry': expiry, 'admitted': True})\n        save({'phase': 'worker-ready-before-transition', 'leaderBefore': leader_before,\n              'threadBefore': before, 'port': listener.getsockname()[1], 'expiry': expiry})\n        ready.set()\n        while time.monotonic() < expiry:\n            leader = attempted(lambda: stat_fields(tgid))\n            if 'error' in leader and leader.get('errno') not in [errno.ENOENT, errno.ESRCH]:\n                raise RuntimeError('FAILED WITNESS unexpected leader-stat read error: ' + repr(leader))\n            if not witnessed and (('error' in leader and leader.get('errno') in [errno.ENOENT, errno.ESRCH]) or leader.get('value', {}).get('state') in ['Z','X']):\n                after = identity(tid)\n                members = [int(value) for value in text('/sys/fs/cgroup' + expected_cgroup + '/cgroup.threads').split()]\n                assert after['tgid'] == tgid and after['pid'] == tid and after['birth'] == before['birth']\n                assert after['state'] not in ['Z','X'] and admitted(after) and tid in members\n                save({'phase': 'main-exited-live-thread', 'tgid': tgid, 'tid': tid,\n                      'leaderBefore': leader_before, 'threadBefore': before, 'threadAfter': after,\n                      'leaderStatAfter': leader,\n                      'leaderNamespaceAfter': attempted(lambda: os.readlink('/proc/' + str(tgid) + '/ns/pid')),\n                      'port': listener.getsockname()[1], 'expiry': expiry, 'observed': time.monotonic(),\n                      'threadInProtectedCgroupThreads': True})\n                os.write(ready_fd, b'R')\n                os.close(ready_fd)\n                ready_open = False\n                witnessed = True\n                exit_code = 0\n            remaining = expiry - time.monotonic()\n            if remaining <= 0:\n                break\n            readable, _, _ = select.select([listener], [], [], min(0.005, remaining))\n            if not readable:\n                continue\n            try:\n                connection, _ = listener.accept()\n            except BlockingIOError:\n                continue\n            connection.setblocking(False)\n            try:\n                pending = b'inert-listener'\n                while pending and time.monotonic() < expiry:\n                    try:\n                        count = connection.send(pending)\n                        if count <= 0:\n                            break\n                        pending = pending[count:]\n                    except BlockingIOError:\n                        remaining = expiry - time.monotonic()\n                        if remaining <= 0:\n                            break\n                        select.select([], [connection], [], min(0.005, remaining))\n                    except (BrokenPipeError, ConnectionResetError):\n                        break\n            finally:\n                connection.close()\n    except BaseException as error:\n        try:\n            save({'phase': 'witness-error', 'error': repr(error), 'state': state})\n        except BaseException:\n            pass\n    finally:\n        ready.set()\n        if ready_open:\n            try:\n                os.close(ready_fd)\n            except OSError:\n                pass\n        try:\n            if listener is not None:\n                listener.close()\n        finally:\n            os._exit(exit_code)\n\n\nthreading.Thread(target=worker, daemon=False).start()\nif not ready.wait(0.050) or state.get('admitted') is not True or time.monotonic() >= state['expiry']:\n    os._exit(75)\nthread_exit(ctypes.c_long(60), ctypes.c_long(0))\nos._exit(76)"
       const PARENT_CODE =
-        "import json, math, os, re, select, socket, subprocess, sys, time\nchild_code, root, expected_ns, expected_cgroup = sys.argv[1:5]\nread_fd, write_fd = os.pipe()\nchild = subprocess.Popen(\n    [sys.executable, '-c', child_code, root, str(write_fd), expected_ns, expected_cgroup],\n    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n    close_fds=True, pass_fds=(write_fd,), start_new_session=True,\n)\nos.close(write_fd)\nwith open(root + '/parent-child.json', 'w') as stream:\n    json.dump({'childPid': child.pid}, stream)\ntry:\n    readable, _, _ = select.select([read_fd], [], [], 0.075)\n    if not readable or os.read(read_fd, 1) != b'R':\n        raise RuntimeError('thread transition readiness not reached')\nfinally:\n    os.close(read_fd)\nwith open(root + '/thread-witness.json') as stream:\n    witness = json.load(stream)\npositive_pid = lambda value: type(value) is int and 1 < value < 2147483648\nassert witness['phase'] == 'main-exited-live-thread'\ntid, tgid, port = witness['tid'], witness['tgid'], witness['port']\nassert positive_pid(tid) and positive_pid(tgid) and tid != tgid and tgid == child.pid\nassert type(port) is int and 0 < port < 65536\nassert isinstance(witness['threadBefore']['birth'], str) and re.fullmatch('[0-9]+', witness['threadBefore']['birth'])\nexpiry = witness['expiry']\nassert type(expiry) in [int, float] and math.isfinite(expiry) and time.monotonic() < expiry\nwith open('/proc/' + str(tid) + '/status') as stream:\n    status = dict(line.split(':', 1) for line in stream.read().splitlines() if ':' in line)\nassert int(status['Tgid']) == tgid and int(status['Pid']) == tid\nassert [int(value) for value in status['Uid'].split()] == [999,999,999,999]\nassert os.readlink('/proc/' + str(tid) + '/ns/pid') == expected_ns\nwith open('/proc/' + str(tid) + '/cgroup') as stream:\n    assert stream.read().strip() == '0::' + expected_cgroup\nwith open('/proc/' + str(tid) + '/stat') as stream:\n    stat = stream.read()\nfields = stat[stat.rfind(')') + 2:].split()\nassert fields[0] not in ['Z','X'] and fields[19] == witness['threadBefore']['birth']\nwith open('/sys/fs/cgroup' + expected_cgroup + '/cgroup.threads') as stream:\n    assert tid in [int(value) for value in stream.read().split()]\npeer_deadline = min(expiry, time.monotonic() + 0.025)\nremaining = peer_deadline - time.monotonic()\nassert remaining > 0\nwith socket.create_connection(('127.0.0.1', port), timeout=remaining) as connection:\n    expected_response = b'inert-listener'\n    received = b''\n    while len(received) < len(expected_response):\n        remaining = peer_deadline - time.monotonic()\n        assert remaining > 0\n        connection.settimeout(remaining)\n        chunk = connection.recv(len(expected_response) - len(received))\n        if not chunk:\n            raise RuntimeError('FAILED WITNESS EOF before complete listener response')\n        received += chunk\n        assert received == expected_response[:len(received)]\n    assert received == expected_response\nwith open(root + '/parent-proof.json', 'w') as stream:\n    json.dump({'childPid': child.pid, 'tgid': tgid, 'tid': tid, 'birth': fields[19],\n               'port': port, 'checkedAt': time.monotonic(), 'expiry': expiry}, stream)\n# G has no P stdout/stderr and has closed the only private readiness writer.\nos._exit(0)"
+        "import json, math, os, re, select, socket, subprocess, sys, time\nchild_code, root, expected_ns, expected_cgroup = sys.argv[1:5]\nread_fd, write_fd = os.pipe()\nchild = subprocess.Popen(\n    [sys.executable, '-c', child_code, root, str(write_fd), expected_ns, expected_cgroup],\n    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n    close_fds=True, pass_fds=(write_fd,), start_new_session=True,\n)\nos.close(write_fd)\nwith open(root + '/parent-child.json', 'w') as stream:\n    json.dump({'childPid': child.pid}, stream)\ntry:\n    readable, _, _ = select.select([read_fd], [], [], 0.075)\n    if not readable or os.read(read_fd, 1) != b'R':\n        raise RuntimeError('thread transition readiness not reached')\nfinally:\n    os.close(read_fd)\nwith open(root + '/thread-witness.json') as stream:\n    witness = json.load(stream)\npositive_pid = lambda value: type(value) is int and 1 < value < 2147483648\nassert witness['phase'] == 'main-exited-live-thread'\ntid, tgid, port = witness['tid'], witness['tgid'], witness['port']\nassert positive_pid(tid) and positive_pid(tgid) and tid != tgid and tgid == child.pid\nassert type(port) is int and 0 < port < 65536\nassert isinstance(witness['threadBefore']['birth'], str) and re.fullmatch('[0-9]+', witness['threadBefore']['birth'])\nexpiry = witness['expiry']\nassert type(expiry) in [int, float] and math.isfinite(expiry) and time.monotonic() < expiry\nwith open('/proc/' + str(tid) + '/status') as stream:\n    status = dict(line.split(':', 1) for line in stream.read().splitlines() if ':' in line)\nassert int(status['Tgid']) == tgid and int(status['Pid']) == tid\nassert [int(value) for value in status['Uid'].split()] == [os.getuid()] * 4\nassert os.readlink('/proc/' + str(tid) + '/ns/pid') == expected_ns\nwith open('/proc/' + str(tid) + '/cgroup') as stream:\n    assert stream.read().strip() == '0::' + expected_cgroup\nwith open('/proc/' + str(tid) + '/stat') as stream:\n    stat = stream.read()\nfields = stat[stat.rfind(')') + 2:].split()\nassert fields[0] not in ['Z','X'] and fields[19] == witness['threadBefore']['birth']\nwith open('/sys/fs/cgroup' + expected_cgroup + '/cgroup.threads') as stream:\n    assert tid in [int(value) for value in stream.read().split()]\npeer_deadline = min(expiry, time.monotonic() + 0.025)\nremaining = peer_deadline - time.monotonic()\nassert remaining > 0\nwith socket.create_connection(('127.0.0.1', port), timeout=remaining) as connection:\n    expected_response = b'inert-listener'\n    received = b''\n    while len(received) < len(expected_response):\n        remaining = peer_deadline - time.monotonic()\n        assert remaining > 0\n        connection.settimeout(remaining)\n        chunk = connection.recv(len(expected_response) - len(received))\n        if not chunk:\n            raise RuntimeError('FAILED WITNESS EOF before complete listener response')\n        received += chunk\n        assert received == expected_response[:len(received)]\n    assert received == expected_response\nwith open(root + '/parent-proof.json', 'w') as stream:\n    json.dump({'childPid': child.pid, 'tgid': tgid, 'tid': tid, 'birth': fields[19],\n               'port': port, 'checkedAt': time.monotonic(), 'expiry': expiry}, stream)\n# G has no P stdout/stderr and has closed the only private readiness writer.\nos._exit(0)"
       const scope = qualifyNativeProcessScope()
       const root = mkdtempSync(join(tmpdir(), 'ga-native-thread-group-'))
       const oracleEnd = performance.now() + 500
@@ -3251,7 +3336,7 @@ describe(CLEANUP_GROUP, () => {
         expect(task?.birth).toBe(owned.birth)
         expect(task?.tgid).toBe(owned.tgid)
         expect(task?.pid).toBe(owned.tid)
-        expect(task?.uids).toEqual([999, 999, 999, 999])
+        expect(task?.uids).toEqual(Array(4).fill(scope.summary.controller.uid))
         expect(task?.namespace).toBe(scope.summary.namespace.self)
         expect(task?.cgroup).toBe(`0::${scope.summary.cgroup.self}`)
         expect(members()).toContain(owned.tid)
@@ -3453,6 +3538,8 @@ describe(CLEANUP_GROUP, () => {
         expect(unmocked.summary.namespace.self).toBe(
           readlinkSync('/proc/self/ns/pid'),
         )
+        // Job-owned fixtures use the qualified job user, whatever its uid is.
+        const jobUid = unmocked.summary.controller.uid
         const read = fs.readFileSync
         const stat = fs.lstatSync
         const access = fs.accessSync
@@ -3485,20 +3572,21 @@ describe(CLEANUP_GROUP, () => {
           'pid1-mismatch': 'missing protected PID1/controller identities:',
           'controller-mismatch':
             'missing protected PID1/controller identities:',
-          'namespace-mismatch': 'PID namespace differs from PID1',
+          'namespace-mismatch':
+            'native cleanup requires the unprivileged Linux x64 MOTOR job (PID namespace differs from PID1)',
           'cgroup-mismatch': 'cgroup differs from PID1',
           'psi-writable': 'unexpected value true; expected false',
           'psi-rw-mount':
             'job-owned PSI observation requires a read-only mount',
           'psi-shadow-mount': `unexpected value ${pressure}; expected /sys/fs/cgroup`,
-          'psi-owner': 'unexpected value 1000; expected 0,999',
+          'psi-owner': `unexpected value 1000; expected 0,${jobUid}`,
           'psi-substituted': 'aliased PSI observation path',
           'psi-symlink': `unprotected file: ${pressure}`,
-          'critical-owned': `unprotected file ${expectedPath}: Error: unexpected value 999; expected 0`,
-          'memory-limit-owned': `unprotected file ${expectedPath}: Error: unexpected value 999; expected 0`,
-          'pid-limit-owned': `unprotected file ${expectedPath}: Error: unexpected value 999; expected 0`,
-          'other-pressure-owned': `unprotected file ${expectedPath}: Error: unexpected value 999; expected 0`,
-          'executable-owned': `unprotected file ${expectedPath}: Error: unexpected value 999; expected 0`,
+          'critical-owned': `unprotected file ${expectedPath}: Error: unexpected value ${jobUid}; expected 0`,
+          'memory-limit-owned': `unprotected file ${expectedPath}: Error: unexpected value ${jobUid}; expected 0`,
+          'pid-limit-owned': `unprotected file ${expectedPath}: Error: unexpected value ${jobUid}; expected 0`,
+          'other-pressure-owned': `unprotected file ${expectedPath}: Error: unexpected value ${jobUid}; expected 0`,
+          'executable-owned': `unprotected file ${expectedPath}: Error: unexpected value ${jobUid}; expected 0`,
           'executable-writable': `unprotected file ${expectedPath}: Error: unexpected value true; expected false`,
           'control-writable': `unprotected file ${expectedPath}: Error: unexpected value true; expected false`,
         }[kind]
@@ -3569,7 +3657,7 @@ describe(CLEANUP_GROUP, () => {
             if (path === target) {
               reached.push(path)
               Object.defineProperty(changed, 'uid', {
-                value: fixtureUid(value, 999),
+                value: fixtureUid(value, jobUid),
               })
             }
             if (path === pressure && kind === 'psi-owner') {
@@ -3583,7 +3671,7 @@ describe(CLEANUP_GROUP, () => {
               (kind === 'psi-writable' || kind === 'psi-rw-mount')
             )
               Object.defineProperty(changed, 'uid', {
-                value: fixtureUid(value, 999),
+                value: fixtureUid(value, jobUid),
               })
             if (path === pressure && kind === 'psi-symlink') {
               reached.push(path)
@@ -3930,7 +4018,9 @@ describe(CLEANUP_GROUP, () => {
     async () => {
       const scope = qualifyNativeProcessScope()
       const controlPath = `/sys/fs/cgroup${scope.summary.cgroup.self}/cgroup.procs`
-      const expectedRefusal = `Error: unprotected file ${controlPath}: Error: unexpected value 999; expected 0`
+      // A control handed to the job user, whatever its uid, must refuse.
+      const jobUid = scope.summary.controller.uid
+      const expectedRefusal = `Error: unprotected file ${controlPath}: Error: unexpected value ${jobUid}; expected 0`
       const modifiedControls: string[] = []
       const root = mkdtempSync(join(tmpdir(), 'ga-native-before-signal-'))
       const script = inertProgram(root)
@@ -3960,7 +4050,7 @@ describe(CLEANUP_GROUP, () => {
             return value
           const changed: object = Object.create(value)
           Object.defineProperty(changed, 'uid', {
-            value: fixtureUid(value, 999),
+            value: fixtureUid(value, jobUid),
           })
           modifiedControls.push(path)
           return changed
@@ -4343,7 +4433,8 @@ describe(CLEANUP_GROUP, () => {
       try {
         const scope = qualifyNativeProcessScope()
         expect(scope.summary.cgroup.pressureObservation.uid).toBe(0)
-        expect(scope.summary.pid1.uid).toBe(999)
+        expect(scope.summary.pid1.uid).toBe(process.getuid?.() ?? -1)
+        expect(scope.summary.controller.uid).toBe(scope.summary.pid1.uid)
         expect(scope.summary.pid1.protection.uid).toBe(0)
       } finally {
         stats.mockRestore()
@@ -4426,6 +4517,301 @@ describe(CLEANUP_GROUP, () => {
       expect(() => {
         MatrixSchema.parse(value)
       }).toThrow()
+    }
+  })
+  for (const uid of [996, 997, 999])
+    test(`native placement qualifies job uid ${uid} with a private namespace and MOTOR cgroup`, () => {
+      expect(
+        qualifyNativePlacement(motorPlacementFacts({ uid, euid: uid })),
+      ).toEqual({ jobUid: uid, cgroup: MOTOR_UNIT })
+    })
+  // Each case changes one fact of a qualified MOTOR placement, or describes an
+  // ordinary host whole, and names the fact the refusal must report.
+  const HOST_NAMESPACE = 'pid:[4026531836]'
+  const CONTAINER_NAMESPACE = 'pid:[4026532001]'
+  type PlacementRefusal = [string, Partial<NativePlacementFacts>, string]
+  const placementRefusals: PlacementRefusal[] = [
+    ['uid 0', { uid: 0, euid: 0 }, '(uid 0)'],
+    ['euid 0', { uid: 997, euid: 0 }, '(euid 0 differs from uid 997)'],
+    ['unreadable uid', { uid: undefined }, '(uid unreadable)'],
+    ['arm64', { arch: 'arm64' }, '(arch arm64)'],
+    ['darwin', { platform: 'darwin' }, '(platform darwin)'],
+    [
+      'a macOS user 501',
+      {
+        platform: 'darwin',
+        arch: 'arm64',
+        uid: 501,
+        euid: 501,
+        pidNamespace: undefined,
+        pid1Namespace: undefined,
+        pid1Comm: undefined,
+        cgroup: undefined,
+        cgroupDirectoryUid: undefined,
+      },
+      '(platform darwin)',
+    ],
+    [
+      'a GitHub runner user 1001 on the host',
+      {
+        uid: 1001,
+        euid: 1001,
+        pidNamespace: HOST_NAMESPACE,
+        pid1Namespace: HOST_NAMESPACE,
+        pid1Comm: 'systemd',
+        cgroup: '0::/system.slice/hosted-compute-agent.service\n',
+      },
+      '(host PID namespace)',
+    ],
+    ...['node', 'sh'].map(
+      (comm): PlacementRefusal => [
+        `a Docker-like PID 1 ${comm} without a MOTOR cgroup`,
+        {
+          uid: 1001,
+          euid: 1001,
+          pidNamespace: CONTAINER_NAMESPACE,
+          pid1Namespace: CONTAINER_NAMESPACE,
+          pid1Comm: comm,
+          cgroup: '0::/\n',
+        },
+        `(PID 1 is ${comm}, not the job wrapper)`,
+      ],
+    ),
+    // Only the namespace requirement fails in the next cases.
+    ...['systemd', 'init', 'launchd'].map(
+      (comm): PlacementRefusal => [
+        `a host PID 1 ${comm}`,
+        { pid1Comm: comm },
+        `(PID 1 is ${comm}, not the job wrapper)`,
+      ],
+    ),
+    [
+      'the host PID namespace inode',
+      { pidNamespace: HOST_NAMESPACE, pid1Namespace: HOST_NAMESPACE },
+      '(host PID namespace)',
+    ],
+    [
+      'a PID 1 in another namespace',
+      { pid1Namespace: HOST_NAMESPACE },
+      '(PID namespace differs from PID1)',
+    ],
+    [
+      'an unreadable /proc/1',
+      { pid1Namespace: undefined, pid1Comm: undefined },
+      '(/proc/1 unreadable)',
+    ],
+    [
+      'an unreadable own PID namespace',
+      { pidNamespace: undefined },
+      '(own PID namespace unreadable)',
+    ],
+    // Only the cgroup requirement fails in the next cases.
+    [
+      'a deeper cgroup path',
+      { cgroup: `0::${MOTOR_UNIT}/payload\n` },
+      `(cgroup ${MOTOR_UNIT}/payload is not a MOTOR job unit)`,
+    ],
+    [
+      'a .scope unit',
+      { cgroup: `0::${MOTOR_UNIT.replace(/\.service$/, '.scope')}\n` },
+      'is not a MOTOR job unit)',
+    ],
+    [
+      'a non-UUID unit id',
+      { cgroup: '0::/system.slice/motor-job-runner-7.service\n' },
+      '(cgroup /system.slice/motor-job-runner-7.service is not a MOTOR job unit)',
+    ],
+    [
+      'another slice',
+      { cgroup: `0::${MOTOR_UNIT.replace('system.slice', 'user.slice')}\n` },
+      'is not a MOTOR job unit)',
+    ],
+    [
+      'a non-MOTOR service',
+      { cgroup: '0::/system.slice/actions.runner.service\n' },
+      'is not a MOTOR job unit)',
+    ],
+    [
+      'a hybrid cgroup v1 membership',
+      { cgroup: `1:name=systemd:/\n0::${MOTOR_UNIT}\n` },
+      '(not a single unified cgroup membership)',
+    ],
+    ['an unreadable cgroup', { cgroup: undefined }, '(cgroup unreadable)'],
+    [
+      'a job-owned cgroup directory',
+      { cgroupDirectoryUid: 999 },
+      '(cgroup directory owner 999)',
+    ],
+    [
+      'an unreadable cgroup directory',
+      { cgroupDirectoryUid: undefined },
+      '(cgroup directory unreadable)',
+    ],
+  ]
+  for (const [control, overrides, fact] of placementRefusals)
+    test(`native placement refuses ${control}`, () => {
+      let refusal: unknown
+      try {
+        qualifyNativePlacement(motorPlacementFacts(overrides))
+      } catch (error) {
+        refusal = error
+      }
+      if (!(refusal instanceof Error))
+        throw new Error(`placement qualified despite ${control}`)
+      expect(refusal.message).toStartWith(
+        'native cleanup requires the unprivileged Linux x64 MOTOR job (',
+      )
+      expect(refusal.message).toContain(fact)
+    })
+  test('native job identities qualify PID 1 and controller owned by job uid 997', () => {
+    const controller = modeledIdentity(4242, 997, 'bun')
+    const pid1 = modeledIdentity(1, 997, 'bash')
+    expect(qualifyNativeJobIdentities(997, controller, pid1, 4242)).toEqual({
+      controller,
+      pid1,
+    })
+  })
+  for (const [control, jobUid, controllerUid, pid1Uid, pid1Comm, pid] of [
+    ['PID 1 997 with controller 998', 997, 998, 997, 'bash', 4242],
+    ['controller 997 with PID 1 998', 997, 997, 998, 'bash', 4242],
+    ['a root-owned PID 1', 997, 997, 0, 'bash', 4242],
+    ['a root job user', 0, 0, 0, 'bash', 4242],
+    ['a non-wrapper PID 1', 997, 997, 997, 'sh', 4242],
+    ['a controller that is PID 1', 997, 997, 997, 'bash', 1],
+  ] as const)
+    test(`native job identities refuse ${control}`, () => {
+      expect(() =>
+        qualifyNativeJobIdentities(
+          jobUid,
+          modeledIdentity(pid, controllerUid, 'bun'),
+          modeledIdentity(1, pid1Uid, pid1Comm),
+          pid,
+        ),
+      ).toThrow(
+        `missing protected PID1/controller identities: ${JSON.stringify({
+          controller: modeledIdentity(pid, controllerUid, 'bun'),
+          pid1: modeledIdentity(1, pid1Uid, pid1Comm),
+          currentPid: pid,
+          jobUid,
+        })}`,
+      )
+    })
+  test('native schema accepts a uid-997 job boundary with a job-owned PSI observation', () => {
+    const value = jobUserBoundary(997)
+    const parsed = MatrixSchema.parse(value)
+    expect(parsed as unknown).toEqual(value)
+    if (parsed.profile !== 'native-job')
+      throw new Error('wrong schema fixture profile')
+    expect(parsed.native.processBoundary.controller.uid).toBe(997)
+    expect(parsed.native.processBoundary.cgroup.pressureObservation.uid).toBe(
+      997,
+    )
+  })
+  test('native schema refuses PID 1 997 with controller 998', () => {
+    const value = jobUserBoundary(997)
+    value.native.processBoundary.controller.uid = 998
+    value.native.processBoundary.cgroup.pressureObservation.uid = 0
+    expect(() => MatrixSchema.parse(value)).toThrow(
+      'unexpected value 997; expected 998',
+    )
+  })
+  test('native schema refuses a root job user', () => {
+    const value = jobUserBoundary(0)
+    expect(() => MatrixSchema.parse(value)).toThrow('expected positive integer')
+  })
+  test('native schema refuses a PSI owner 998 when the job is 997', () => {
+    const value = jobUserBoundary(997)
+    value.native.processBoundary.cgroup.pressureObservation.uid = 998
+    expect(() => MatrixSchema.parse(value)).toThrow(
+      'unexpected value 998; expected 0,997',
+    )
+  })
+  test('native cleanup signals a survivor only when the qualified job uid owns it', () => {
+    expect(nativeSignalOwned(997, 997)).toBe(true)
+    expect(nativeSignalOwned(998, 997)).toBe(false)
+    expect(nativeSignalOwned(999, 997)).toBe(false)
+    expect(nativeSignalOwned(0, 997)).toBe(false)
+    expect(nativeSignalOwned(0, 0)).toBe(false)
+  })
+  test('native cleanup checks both survivor observations against the qualified job uid', () => {
+    const source = readFileSync(
+      join(HERE, 'measure-ga-proxy-matrix.ts'),
+      'utf8',
+    )
+    const start = source.indexOf('export async function runNativeCommand(')
+    const end = source.indexOf('\nexport ', start + 1)
+    expect(start).toBeGreaterThan(0)
+    const body = source.slice(start, end)
+    expect(body).toContain(
+      'const jobUid = recheckNativeScope(scope).controller.uid',
+    )
+    expect(body.match(/nativeSignalOwned\((\w+)\.uid, jobUid\)/g)).toEqual([
+      'nativeSignalOwned(expected.uid, jobUid)',
+      'nativeSignalOwned(current.uid, jobUid)',
+    ])
+    expect(body).not.toMatch(/\.uid !== \d/)
+  })
+  test('a uid-997 job qualifies end to end across placement, identities, schema and cleanup ownership', () => {
+    const placement = qualifyNativePlacement(
+      motorPlacementFacts({ uid: 997, euid: 997 }),
+    )
+    const { controller } = qualifyNativeJobIdentities(
+      placement.jobUid,
+      modeledIdentity(4242, 997, 'bun'),
+      modeledIdentity(1, 997, 'bash'),
+      4242,
+    )
+    const parsed = MatrixSchema.parse(jobUserBoundary(placement.jobUid))
+    if (parsed.profile !== 'native-job')
+      throw new Error('wrong schema fixture profile')
+    const boundary = parsed.native.processBoundary
+    expect(boundary.cgroup.pressureObservation.uid).toBe(997)
+    expect(boundary.controller.uid).toBe(controller.uid)
+    expect(nativeSignalOwned(997, boundary.controller.uid)).toBe(true)
+    expect(nativeSignalOwned(998, boundary.controller.uid)).toBe(false)
+    expect(nativeSignalOwned(0, boundary.controller.uid)).toBe(false)
+  })
+  test('the unmocked guard refuses an ordinary host and qualifies only a MOTOR job, without any signal', async () => {
+    const raw = rawMotorJobPlacement()
+    // A separate, ordinary Bun process runs the real guard with no fs or process
+    // mocks. Any signal attempt is counted and blocked instead of delivered.
+    const script = `
+      let signals = 0
+      process.kill = () => {
+        signals++
+        throw new Error('signal trap')
+      }
+      const { qualifyNativeProcessScope } = await import(${JSON.stringify(join(HERE, 'measure-ga-proxy-matrix.ts'))})
+      let outcome
+      try {
+        const scope = qualifyNativeProcessScope()
+        outcome = { qualified: true, jobUid: scope.summary.controller.uid, uid: process.getuid?.() }
+      } catch (error) {
+        outcome = { qualified: false, error: error instanceof Error ? error.message : String(error) }
+      }
+      console.log('GUARD_OUTCOME=' + JSON.stringify({ ...outcome, signals }))
+    `
+    const ran = await runCommand([process.execPath, '-e', script], {
+      cwd: HERE,
+      deadlineMs: 30_000,
+    })
+    const line = ran.stdout
+      .split('\n')
+      .find((entry) => entry.startsWith('GUARD_OUTCOME='))
+    expect(line, `${ran.stdout}\n${ran.stderr}`).toBeDefined()
+    const outcome = JSON.parse((line ?? '').slice('GUARD_OUTCOME='.length))
+    expect(outcome.signals).toBe(0)
+    if (raw.motor)
+      expect(outcome, JSON.stringify(raw.facts)).toMatchObject({
+        qualified: true,
+        jobUid: process.getuid?.(),
+        uid: process.getuid?.(),
+      })
+    else {
+      expect(outcome.qualified, JSON.stringify(raw.facts)).toBe(false)
+      expect(outcome.error).toStartWith(
+        'native cleanup requires the unprivileged Linux x64 MOTOR job (',
+      )
     }
   })
   test('native cleanup command inventory cannot omit duplicate fail or invent a command', () => {

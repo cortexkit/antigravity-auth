@@ -693,7 +693,7 @@ function protection(value: unknown) {
     jobWritable: oneOf(p.jobWritable, [false] as const),
   }
 }
-function pressureObservation(value: unknown) {
+function pressureObservation(value: unknown, jobUid: number) {
   const p = object(value, [
     'name',
     'fileType',
@@ -719,10 +719,10 @@ function pressureObservation(value: unknown) {
     options.includes('ro') === options.includes('rw')
   )
     throw new Error('ambiguous cgroup mount access')
-  const uid = oneOf(p.uid, [0, 999] as const)
+  const uid = oneOf(p.uid, [0, jobUid])
   // PSI watch files grant stall notifications, not process or resource control.
   // Only this exact regular file may be job-owned, behind a read-only mount.
-  if (uid === 999 && !options.includes('ro'))
+  if (uid === jobUid && !options.includes('ro'))
     throw new Error('job-owned PSI observation requires a read-only mount')
   const mode = positiveInteger(p.mode)
   if (mode > 0o777 || (mode & 0o022) !== 0)
@@ -804,6 +804,9 @@ function parseProcessBoundary(value: unknown) {
     /^\/system\.slice\/motor-job-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/,
   )
   if (cgroup !== c.pid1) throw new Error('cgroup differs from PID1')
+  // One job user owns both PID 1 and the controller; it is never root.
+  const controller = object(b.controller, ['uid', 'kernel'])
+  const jobUid = positiveInteger(controller.uid)
   const controls = record(c.controls)
   if ('memory.pressure' in controls)
     throw new Error('PSI observation must have its own named role')
@@ -838,7 +841,6 @@ function parseProcessBoundary(value: unknown) {
   const argvPrefix = list(p.argvPrefix, (value) => string(value))
   if (JSON.stringify(argvPrefix) !== '["/bin/bash","-c"]')
     throw new Error('unqualified PID1 wrapper argv')
-  const controller = object(b.controller, ['uid', 'kernel'])
   const canonicalExecutable = oneOf(p.canonicalExecutable, [
     '/bin/bash',
     '/usr/bin/bash',
@@ -862,10 +864,10 @@ function parseProcessBoundary(value: unknown) {
         '/sys/fs/cgroup/system.slice',
       ]),
       controls: checkedControls,
-      pressureObservation: pressureObservation(c.pressureObservation),
+      pressureObservation: pressureObservation(c.pressureObservation, jobUid),
     },
     pid1: {
-      uid: oneOf(p.uid, [999] as const),
+      uid: oneOf(p.uid, [jobUid]),
       kernel: privilegedStatus(p.kernel),
       comm: oneOf(p.comm, ['bash'] as const),
       argvPrefix,
@@ -884,7 +886,7 @@ function parseProcessBoundary(value: unknown) {
       ),
     },
     controller: {
-      uid: oneOf(controller.uid, [999] as const),
+      uid: jobUid,
       kernel: privilegedStatus(controller.kernel),
     },
   }
@@ -1993,7 +1995,7 @@ export function snapshotNativeComparison(
   }
 }
 
-interface NativeProcessIdentity {
+export interface NativeProcessIdentity {
   pid: number
   start: string
   state: string
@@ -2438,35 +2440,164 @@ function cgroupMount(path: string, budget?: NativeCleanupBudget) {
     superOptions: right[2]?.split(','),
   }
 }
-function observedProcessBoundary(budget?: NativeCleanupBudget) {
-  checkCleanupBudget(budget)
-  if (
-    process.platform !== 'linux' ||
-    process.arch !== 'x64' ||
-    process.getuid?.() !== 999 ||
-    process.geteuid?.() !== 999
+// The initial (host) PID namespace always has this inode number
+// (PROC_PID_INIT_INO in the Linux kernel). A process that reports it shares the
+// host's process table, whatever PID 1 happens to be called.
+const HOST_PID_NAMESPACE = 'pid:[4026531836]'
+// MOTOR runner unit name, documented in MOTOR docs/job-isolation.md section
+// 4.4.2 (cortexkit/motor, main e49541a7): each job runs in its own
+// motor-job-<UUID>.service directly under system.slice. The UUID names the
+// runner's unit, not the job id a caller sees, so only its shape is checked.
+const MOTOR_JOB_CGROUP =
+  /^\/system\.slice\/motor-job-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/
+
+// Raw facts about where this process runs. Each is undefined when it could not
+// be read; an unreadable fact refuses, it is never assumed.
+export interface NativePlacementFacts {
+  platform: string
+  arch: string
+  uid: number | undefined
+  euid: number | undefined
+  pidNamespace: string | undefined
+  pid1Namespace: string | undefined
+  pid1Comm: string | undefined
+  // Full contents of /proc/self/cgroup.
+  cgroup: string | undefined
+  cgroupDirectoryUid: number | undefined
+}
+export interface NativePlacement {
+  jobUid: number
+  cgroup: string
+}
+function placementRefusal(fact: string): never {
+  throw new Error(
+    `native cleanup requires the unprivileged Linux x64 MOTOR job (${fact})`,
   )
-    throw new Error(
-      'native cleanup requires the unprivileged Linux x64 MOTOR job',
+}
+// The job must have its own PID namespace whose PID 1 is the MOTOR job wrapper.
+// Sharing PID 1 with this process is not enough on its own: on an ordinary host
+// both report the host namespace, so the host inode and a host init refuse too.
+function privatePidNamespaceRefusal(
+  facts: NativePlacementFacts,
+): string | undefined {
+  if (facts.pid1Namespace === undefined || facts.pid1Comm === undefined)
+    return '/proc/1 unreadable'
+  if (facts.pidNamespace === undefined) return 'own PID namespace unreadable'
+  if (facts.pidNamespace !== facts.pid1Namespace)
+    return 'PID namespace differs from PID1'
+  if (facts.pidNamespace === HOST_PID_NAMESPACE) return 'host PID namespace'
+  if (facts.pid1Comm !== 'bash')
+    return `PID 1 is ${facts.pid1Comm}, not the job wrapper`
+  return undefined
+}
+function motorJobCgroupRefusal(cgroup: string | undefined): string | undefined {
+  if (cgroup === undefined) return 'cgroup unreadable'
+  const unit = /^0::([^\n]+)\n$/.exec(cgroup)?.[1]
+  if (!unit) return 'not a single unified cgroup membership'
+  if (!MOTOR_JOB_CGROUP.test(unit))
+    return `cgroup ${unit} is not a MOTOR job unit`
+  return undefined
+}
+// Qualification rests on properties, not on a particular uid: an unprivileged
+// user, a private PID namespace whose PID 1 is the job wrapper, and a
+// root-owned MOTOR job cgroup. An ordinary unprivileged host user fails the
+// namespace and cgroup requirements whatever its uid is.
+export function qualifyNativePlacement(
+  facts: NativePlacementFacts,
+): NativePlacement {
+  if (facts.platform !== 'linux') placementRefusal(`platform ${facts.platform}`)
+  if (facts.arch !== 'x64') placementRefusal(`arch ${facts.arch}`)
+  const uid = facts.uid
+  if (uid === undefined || !Number.isSafeInteger(uid) || uid < 0)
+    placementRefusal('uid unreadable')
+  if (uid === 0) placementRefusal('uid 0')
+  if (facts.euid !== uid)
+    placementRefusal(`euid ${facts.euid} differs from uid ${uid}`)
+  const namespace = privatePidNamespaceRefusal(facts)
+  if (namespace) placementRefusal(namespace)
+  const cgroup = motorJobCgroupRefusal(facts.cgroup)
+  if (cgroup) placementRefusal(cgroup)
+  // MOTOR does not delegate the unit, so its directory is always root-owned.
+  if (facts.cgroupDirectoryUid !== 0)
+    placementRefusal(
+      facts.cgroupDirectoryUid === undefined
+        ? 'cgroup directory unreadable'
+        : `cgroup directory owner ${facts.cgroupDirectoryUid}`,
     )
-  const controller = nativeProcess(process.pid, budget)
-  const pid1 = nativeProcess(1, budget)
+  return {
+    jobUid: uid,
+    cgroup: (facts.cgroup ?? '').slice('0::'.length, -1),
+  }
+}
+function observedPlacement(budget?: NativeCleanupBudget): NativePlacement {
+  const fact = <T>(operation: () => T): T | undefined => {
+    checkCleanupBudget(budget)
+    let value: T | undefined
+    try {
+      value = operation()
+    } catch {
+      value = undefined
+    }
+    checkCleanupBudget(budget)
+    return value
+  }
+  const cgroup = fact(() => readFileSync('/proc/self/cgroup', 'utf8'))
+  const facts: NativePlacementFacts = {
+    platform: process.platform,
+    arch: process.arch,
+    uid: fact(() => process.getuid?.()),
+    euid: fact(() => process.geteuid?.()),
+    pidNamespace: fact(() => readlinkSync('/proc/self/ns/pid')),
+    pid1Namespace: fact(() => readlinkSync('/proc/1/ns/pid')),
+    pid1Comm: fact(() => readFileSync('/proc/1/comm', 'utf8').trim()),
+    cgroup,
+    // Only a MOTOR-shaped unit path is ever stat'ed.
+    cgroupDirectoryUid: motorJobCgroupRefusal(cgroup)
+      ? undefined
+      : fact(
+          () => lstatSync(`/sys/fs/cgroup${(cgroup ?? '').slice(3, -1)}`).uid,
+        ),
+  }
+  return qualifyNativePlacement(facts)
+}
+// PID 1 and this controller must both run as the one job user. Any other owner,
+// a non-wrapper PID 1, or a controller that is PID 1 itself refuses.
+export function qualifyNativeJobIdentities(
+  jobUid: number,
+  controller: NativeProcessIdentity | undefined,
+  pid1: NativeProcessIdentity | undefined,
+  currentPid: number,
+): { controller: NativeProcessIdentity; pid1: NativeProcessIdentity } {
   if (
     !controller ||
     !pid1 ||
-    pid1.uid !== controller.uid ||
-    pid1.uid !== 999 ||
+    !Number.isSafeInteger(jobUid) ||
+    jobUid < 1 ||
+    pid1.uid !== jobUid ||
+    controller.uid !== jobUid ||
     pid1.comm !== 'bash' ||
     controller.pid === 1
   )
     throw new Error(
-      `missing protected PID1/controller identities: ${JSON.stringify({ controller, pid1, currentPid: process.pid })}`,
+      `missing protected PID1/controller identities: ${JSON.stringify({ controller, pid1, currentPid, jobUid })}`,
     )
-  if (
-    !/^\/system\.slice\/motor-job-[0-9a-f-]{36}\.service$/.test(
-      controller.cgroup,
-    )
+  return { controller, pid1 }
+}
+// Cleanup may signal only processes owned by the qualified job user. A uid-0 or
+// foreign-user process is never this job's to kill.
+export function nativeSignalOwned(uid: number, jobUid: number): boolean {
+  return uid !== 0 && uid === jobUid
+}
+function observedProcessBoundary(budget?: NativeCleanupBudget) {
+  checkCleanupBudget(budget)
+  const placement = observedPlacement(budget)
+  const { controller, pid1 } = qualifyNativeJobIdentities(
+    placement.jobUid,
+    nativeProcess(process.pid, budget),
+    nativeProcess(1, budget),
+    process.pid,
   )
+  if (controller.cgroup !== placement.cgroup)
     throw new Error('not a MOTOR job cgroup')
   const directory = `/sys/fs/cgroup${controller.cgroup}`
   if (withinCleanupBudget(budget, () => realpathSync(directory)) !== directory)
@@ -2488,12 +2619,15 @@ function observedProcessBoundary(budget?: NativeCleanupBudget) {
     pressurePath
   )
     throw new Error('aliased PSI observation path')
-  const psi = pressureObservation({
-    name: 'memory.pressure',
-    fileType: 'regular',
-    ...observedMetadata(pressurePath, 'file', budget),
-    mount: cgroupMount(pressurePath, budget),
-  })
+  const psi = pressureObservation(
+    {
+      name: 'memory.pressure',
+      fileType: 'regular',
+      ...observedMetadata(pressurePath, 'file', budget),
+      mount: cgroupMount(pressurePath, budget),
+    },
+    placement.jobUid,
+  )
   const executable = withinCleanupBudget(budget, () =>
     readlinkSync('/proc/1/exe'),
   )
@@ -2729,7 +2863,8 @@ export async function runNativeCommand(
     testChild?: (child: ChildProcess) => void
   },
 ): Promise<NativeCommandResult> {
-  recheckNativeScope(scope)
+  // The job user observed at qualification; cleanup signals nobody else.
+  const jobUid = recheckNativeScope(scope).controller.uid
   absoluteRoot(binary)
   if (
     !Number.isInteger(options.timeoutMs) ||
@@ -2788,7 +2923,10 @@ export async function runNativeCommand(
           if (!survivors.length && closed) break
           for (const expected of survivors) {
             checkCleanupBudget(budget)
-            if (expected.uid !== 999 || BigInt(expected.start) < birthFloor)
+            if (
+              !nativeSignalOwned(expected.uid, jobUid) ||
+              BigInt(expected.start) < birthFloor
+            )
               throw new Error('new process has unqualified ownership/birth')
             recheckNativeScope(scope, budget)
             const current = resolvedNativeProcess(
@@ -2801,7 +2939,7 @@ export async function runNativeCommand(
               current.start !== expected.start ||
               current.namespace !== scope.summary.namespace.self ||
               current.cgroup !== scope.summary.cgroup.self ||
-              current.uid !== 999 ||
+              !nativeSignalOwned(current.uid, jobUid) ||
               protectedBirths.get(current.pid) === current.start ||
               current.pid === 1 ||
               current.pid === process.pid

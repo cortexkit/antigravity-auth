@@ -1272,6 +1272,97 @@ test_count_pattern = "Ran {count} test"
 expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\smodeled\sadmission\srefuses\sthread\sin\suninspected\sgroup\sbetween\stask\sinventories$']
 
 [[control]]
+id = "ga-placement-no-uid-999-requirement"
+guards = "Native placement qualifies the observed unprivileged job user rather than requiring uid 999."
+file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
+old = "  if (uid === 0) placementRefusal('uid 0')"
+new = "  if (uid !== 999) placementRefusal('uid 0') // NON-VACUITY BREAK: restore the uid-999 requirement."
+test_file = "packages/e2e-tests/docker/ga-contract-inputs.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/e2e-tests/docker/ga-contract-inputs.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && env -u GA_NATIVE_JOB_TEST_PROFILE bun test --isolate packages/e2e-tests/docker/ga-contract-inputs.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\splacement\squalifies\sjob\suid\s997\swith\sa\sprivate\snamespace\sand\sMOTOR\scgroup$']
+
+[[control]]
+id = "ga-placement-private-pid-namespace"
+guards = "Native placement refuses a host or shared PID namespace, or a PID 1 that is not the job wrapper, before any process inventory or signal."
+file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
+old = '  if (namespace) placementRefusal(namespace)'
+new = '  // NON-VACUITY BREAK: drop the private PID namespace requirement.'
+test_file = "packages/e2e-tests/docker/ga-contract-inputs.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/e2e-tests/docker/ga-contract-inputs.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && env -u GA_NATIVE_JOB_TEST_PROFILE bun test --isolate packages/e2e-tests/docker/ga-contract-inputs.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\splacement\srefuses\sa\shost\sPID\s1\ssystemd$', '^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\splacement\srefuses\sthe\shost\sPID\snamespace\sinode$', '^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\splacement\srefuses\san\sunreadable\s\/proc\/1$']
+
+[[control]]
+id = "ga-placement-motor-cgroup"
+guards = "Native placement refuses any cgroup other than exactly a MOTOR job unit directly under system.slice."
+file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
+old = '  if (cgroup) placementRefusal(cgroup)'
+new = '  // NON-VACUITY BREAK: drop the MOTOR job cgroup requirement.'
+test_file = "packages/e2e-tests/docker/ga-contract-inputs.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/e2e-tests/docker/ga-contract-inputs.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && env -u GA_NATIVE_JOB_TEST_PROFILE bun test --isolate packages/e2e-tests/docker/ga-contract-inputs.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\splacement\srefuses\sa\sdeeper\scgroup\spath$', '^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\splacement\srefuses\sa\s\.scope\sunit$', '^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\splacement\srefuses\sa\snon-UUID\sunit\sid$', '^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\splacement\srefuses\sanother\sslice$']
+
+[[control]]
+id = "ga-job-identities-controller-uid"
+guards = "Live qualification refuses a controller that does not run as the job user who owns PID 1."
+file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
+old = '    controller.uid !== jobUid ||'
+new = '    /* NON-VACUITY BREAK: accept a controller of another user. */'
+test_file = "packages/e2e-tests/docker/ga-contract-inputs.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/e2e-tests/docker/ga-contract-inputs.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && env -u GA_NATIVE_JOB_TEST_PROFILE bun test --isolate packages/e2e-tests/docker/ga-contract-inputs.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\sjob\sidentities\srefuse\sPID\s1\s997\swith\scontroller\s998$']
+
+[[control]]
+id = "ga-boundary-pid1-controller-uid"
+guards = "A serialized process boundary ties PID 1 and the controller to one job user."
+file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
+old = '      uid: oneOf(p.uid, [jobUid]),'
+new = '      uid: nonnegativeInteger(p.uid), // NON-VACUITY BREAK: stop tying PID 1 to the job user.'
+test_file = "packages/e2e-tests/docker/ga-contract-inputs.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/e2e-tests/docker/ga-contract-inputs.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && env -u GA_NATIVE_JOB_TEST_PROFILE bun test --isolate packages/e2e-tests/docker/ga-contract-inputs.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\sschema\srefuses\sPID\s1\s997\swith\scontroller\s998$']
+
+[[control]]
+id = "ga-boundary-psi-owner-job-uid"
+guards = "The PSI observation file may be owned only by root or by the job user itself."
+file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
+old = '  const uid = oneOf(p.uid, [0, jobUid])'
+new = '  const uid = nonnegativeInteger(p.uid) // NON-VACUITY BREAK: accept any PSI owner.'
+test_file = "packages/e2e-tests/docker/ga-contract-inputs.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/e2e-tests/docker/ga-contract-inputs.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && env -u GA_NATIVE_JOB_TEST_PROFILE bun test --isolate packages/e2e-tests/docker/ga-contract-inputs.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\sschema\srefuses\sa\sPSI\sowner\s998\swhen\sthe\sjob\sis\s997$']
+
+[[control]]
+id = "ga-cleanup-signals-only-job-uid"
+guards = "Native cleanup never signals a uid-0 or foreign-user process, only the qualified job user's own."
+file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
+old = '  return uid !== 0 && uid === jobUid'
+new = '  return uid !== 0 // NON-VACUITY BREAK: signal any non-root user.'
+test_file = "packages/e2e-tests/docker/ga-contract-inputs.test.ts"
+list_command = ["bun", "scripts/list-bun-tests.mjs", "--cwd", ".", "packages/e2e-tests/docker/ga-contract-inputs.test.ts", "-t", "{test}"]
+runner = "command"
+command = ["bash", "-c", "bun run --cwd packages/core build && env -u GA_NATIVE_JOB_TEST_PROFILE bun test --isolate packages/e2e-tests/docker/ga-contract-inputs.test.ts -t \"$1\"", "--", "{test}"]
+test_count_pattern = "Ran {count} test"
+expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\snative\scleanup\ssignals\sa\ssurvivor\sonly\swhen\sthe\squalified\sjob\suid\sowns\sit$', '^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sinert\scontrols\sa\suid-997\sjob\squalifies\send\sto\send\sacross\splacement,\sidentities,\sschema\sand\scleanup\sownership$']
+
+[[control]]
 id = "ga-store-fixture-phase-timeout-emission"
 guards = "A never-resolving current-store fixture phase prints one open-phase clock before Bun enforces its test timeout."
 file = "packages/e2e-tests/src/opencode-ga-inputs.test.ts"
