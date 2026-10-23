@@ -388,7 +388,7 @@ function describeEnrollment(status: ClaustrumEnrollmentStatus): string {
       return `Vault access: the vault ended this request (reference: ${status.code}). Choose Request vault access to start a new one.`
     case 'unavailable':
       if (status.code === UNSUPPORTED_VAULT_CODE)
-        return 'Vault access: this Claustrum vault is too old to connect plugins. Ask the vault operator to update Claustrum, or keep using your local accounts.'
+        return 'Vault access: This Claustrum vault is too old to connect plugins. Run ck upgrade to move to Claustrum v0.2.0 or newer (read "Upgrading from v0.1.3" in its release notes first), or keep using your local accounts.'
       return `Vault access: Pi can't reach the vault right now. Try again later (reference: ${status.code}).`
     case 'busy':
       return 'Vault access: another vault setup step is running. Try again in a moment.'

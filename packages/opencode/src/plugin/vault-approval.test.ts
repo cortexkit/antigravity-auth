@@ -233,8 +233,8 @@ it('OpenCode names an unsupported vault in the request-access menu action withou
     expect(await action.run({ values: {}, invocation })).toEqual({
       ok: false,
       text: [
-        "Vault access: this vault can't connect plugins yet",
-        'This Claustrum vault is too old to connect plugins. Ask the vault operator to update Claustrum, or keep using your local accounts.',
+        'Vault access: vault too old to connect plugins',
+        'This Claustrum vault is too old to connect plugins. Run ck upgrade to move to Claustrum v0.2.0 or newer (read "Upgrading from v0.1.3" in its release notes first), or keep using your local accounts.',
       ].join('\n'),
     })
     await new Promise((resolve) => setTimeout(resolve, 2_100))

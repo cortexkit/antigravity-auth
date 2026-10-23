@@ -706,7 +706,7 @@ function describeEnrollment(status: EnrollmentStatus): string {
       return `blocked (${status.code})`
     case 'unavailable':
       return isUnsupportedEnrollment(status)
-        ? "this vault can't connect plugins yet"
+        ? 'vault too old to connect plugins'
         : `vault unavailable (${status.code})`
     case 'busy':
       return 'another setup step is running'
@@ -820,7 +820,7 @@ function enrollmentGuidance(status: EnrollmentStatus): string[] {
   if (status.state === 'unavailable') {
     if (isUnsupportedEnrollment(status))
       return [
-        'This Claustrum vault is too old to connect plugins. Ask the vault operator to update Claustrum, or keep using your local accounts.',
+        'This Claustrum vault is too old to connect plugins. Run ck upgrade to move to Claustrum v0.2.0 or newer (read "Upgrading from v0.1.3" in its release notes first), or keep using your local accounts.',
       ]
     return [
       'Check that the vault is running and its connection file is available, then request vault access again.',
