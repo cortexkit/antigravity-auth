@@ -3,6 +3,7 @@ import { initializePool, readPool, } from './mutate.js';
 import { updateProviderStateRow, } from './provider-state.js';
 import { publication, publishRoster, } from './publication.js';
 import { PullScheduler } from './pull.js';
+import { PoolQuotaWriter } from './quota-writer.js';
 import { refreshRow, } from './refresh.js';
 import { POOL_LOCK_DEFAULTS, } from './refresh-lock.js';
 import { addRow, disableRow, enableRow, recordRowIdentity, removeRow, reorderRows, replaceRow, rotateRow, } from './rows.js';
@@ -80,9 +81,21 @@ export function openPoolStore(options) {
         rowLockOptions: options.rowLockOptions ?? {},
         firePull: (id, reason) => pulls.fire(id, reason),
     };
+    const quotaWriter = options.coalesceQuota
+        ? new PoolQuotaWriter(rt, options.quotaDrainTimeoutMs)
+        : undefined;
+    const record = (id, attribution, observation) => quotaWriter
+        ? quotaWriter.record(id, attribution, observation)
+        : recordQuota(rt, id, attribution, observation);
+    rt.publishQuota = record;
+    const overlay = (result) => {
+        if (result.status === 'ready' && quotaWriter)
+            return { ...result, rows: quotaWriter.overlay(result.rows) };
+        return result;
+    };
     return {
         async load() {
-            const result = await readPool(ctx);
+            const result = overlay(await readPool(ctx));
             if (result.status === 'ready') {
                 // A torn row is no candidate, but its pull is fired too: the pull
                 // completes the row on disk before reading it, so an interrupted
@@ -96,7 +109,7 @@ export function openPoolStore(options) {
             return toLoad(result);
         },
         async read() {
-            return toLoad(await readPool(ctx));
+            return toLoad(overlay(await readPool(ctx)));
         },
         async initialize(input = {}) {
             return { status: await initializePool(ctx, input.dropKeys ?? []) };
@@ -115,7 +128,9 @@ export function openPoolStore(options) {
         updateSettings: (mutator, callOptions) => updatePoolSettings(rt, mutator, callOptions),
         recordIdentity: (id, identity, attribution, callOptions) => recordRowIdentity(rt, id, identity, attribution, callOptions),
         refresh: (id, provider, callOptions) => refreshRow(rt, id, provider, callOptions),
-        recordQuota: (id, attribution, observation) => recordQuota(rt, id, attribution, observation),
+        recordQuota: record,
+        close: () => quotaWriter?.close() ?? Promise.resolve(),
+        dispose: () => quotaWriter?.close() ?? Promise.resolve(),
         requestReading: (id) => pulls.fire(id, 'admission'),
         pullsSettled: () => pulls.settled(),
     };

@@ -173,6 +173,7 @@
     "claustrum/quota-writer.js": [
       "../logger/index.js",
       "../quota/index.js",
+      "../quota/pending.js",
       "./roster.js",
       "node:path"
     ],
@@ -331,6 +332,7 @@
     ],
     "quota/merge.d.ts": ["./map.js"],
     "quota/merge.js": ["./map.js"],
+    "quota/pending.js": [],
     "quota/projection.d.ts": ["./map.js"],
     "quota/projection.js": ["./map.js"],
     "routing/admission.d.ts": ["../quota/map.js", "../quota/projection.js"],
@@ -478,7 +480,7 @@
       "jsonc-parser"
     ],
     "setup/types.d.ts": ["../auth-menu/terminal.js", "../claustrum/index.js"],
-    "store/attribution.d.ts": ["./runtime.js"],
+    "store/attribution.d.ts": ["./mutate.js", "./runtime.js", "./schema.js"],
     "store/attribution.js": [
       "./errors.js",
       "./mutate.js",
@@ -554,6 +556,7 @@
       "./provider-state.js",
       "./publication.js",
       "./pull.js",
+      "./quota-writer.js",
       "./refresh-lock.js",
       "./refresh.js",
       "./rows.js",
@@ -599,6 +602,15 @@
       "./mutate.js",
       "./refresh-lock.js",
       "./runtime.js"
+    ],
+    "store/quota-writer.js": [
+      "../logger/index.js",
+      "./attribution.js",
+      "./errors.js",
+      "./mutate.js",
+      "./refresh-lock.js",
+      "./runtime.js",
+      "./schema.js"
     ],
     "store/refresh-lock.d.ts": ["../fs/refresh-file-lock.js"],
     "store/refresh-lock.js": [
@@ -647,6 +659,7 @@
       "node:crypto"
     ],
     "store/runtime.d.ts": [
+      "./attribution.js",
       "./errors.js",
       "./mutate.js",
       "./refresh-lock.js",

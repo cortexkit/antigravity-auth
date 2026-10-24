@@ -1,14 +1,14 @@
 {
-  "version": "0.25.0",
+  "version": "0.26.0",
   "artifactStatus": "published",
-  "archiveBytes": 325465,
-  "sha256": "51b5e9d0fc6821f8d91ff826aa842be509a0a045d634d1ae73bfa2bd5c925d1f",
-  "sri": "sha512-/vER/ZZvBF3GvU8ZZjkCVZ8PGkcup4GjImfM0zr6V0tSG9SCyiEUHlKtQf48S2WSOyo72BQ7LP3Ix3064IhPzQ==",
-  "manifestSha256": "651caef9687dcc72dd50ba2a2e0a7f87131f3e9c367610375b0ce7fe995a5bba",
-  "inventorySha256": "c743fb2a36260c3c33626d3f658c36c398642b0ee4a7aae4a6e0cb9b8aa3da7d",
+  "archiveBytes": 329519,
+  "sha256": "a5a6cb7051ee8c45e86e19cf7a918d0e28ce1b6a80301e982efbc7bb4b98208d",
+  "sri": "sha512-qTmQ9aMG+HcyDbhKie8Nq9wxKMRQ6GXH2hKq8Fab9kHqFfzswdp2NpXofGY52RhQ2VxuyMOQr5T6lUrkbny5VQ==",
+  "manifestSha256": "6670a7af2ce84d873a45ab1aa494b3f84695a9cc270a52481835699ea0785e27",
+  "inventorySha256": "d957ef20a087a66db59ccd24d3b8e01eb77fa99a774f51632144dc6a41381c10",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
-  "canonicalFiles": 185,
-  "canonicalBytes": 1089196,
+  "canonicalFiles": 187,
+  "canonicalBytes": 1104078,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -265,8 +265,8 @@
     ],
     [
       "claustrum/quota-writer.js",
-      9694,
-      "5a7d5d1059dcadc06aa41e81e0707cc444636473822047f0ec72da7589c770f1"
+      7579,
+      "0054a12ca94aab2eecf50f9b5e090879ff184e7f286cc979f32d311e22011906"
     ],
     [
       "claustrum/roster.d.ts",
@@ -579,6 +579,11 @@
       "b1d76faf1fb480b97ef1886ce75dbd2156002baedc39249468559cb4eece5bbb"
     ],
     [
+      "quota/pending.js",
+      1876,
+      "e757a3fa9f8440190668c6154468a5baec8a84e20d6c831a6d7935c3b9bebe29"
+    ],
+    [
       "quota/projection.d.ts",
       3661,
       "c4f4c8c53245bd0c8bd08a1483aede705a4c3e21e4a131f14835340ffee38fab"
@@ -805,13 +810,13 @@
     ],
     [
       "store/attribution.d.ts",
-      1528,
-      "441dba300556a927e872597c1df3e4fbb1ac61c0a3989e98dcd3a94a773b8ed7"
+      1951,
+      "16919a55fe944b459ff511c125ac2ba34714949d38db006c8ab047dd48ab51a6"
     ],
     [
       "store/attribution.js",
-      2880,
-      "4bda762db5756c0d498d987aa3bc97eeee94be1c1ad2f005ed0ed46785e242d9"
+      3280,
+      "5b54980a4f158c9b61cd90c4a83a14e83268fe98101fc88409500bb73d1126bb"
     ],
     [
       "store/errors.d.ts",
@@ -865,13 +870,13 @@
     ],
     [
       "store/pool.d.ts",
-      10785,
-      "192ea359d2ce746b31693cf06795a281f2e06804c567975f127ea05fa6fb4aef"
+      11743,
+      "0693e165ef937c22c375a3f63d01209c844d101ddf1a6702c8acc99bb5fc2a9d"
     ],
     [
       "store/pool.js",
-      5671,
-      "8dc0d27b37204c2c3229296e8efbbfac6bcb30538b39d8d95771267487a06292"
+      6332,
+      "45a696753691027dfcadd8e94b38b111ad5085ba1cb4f769225b15efc68125d7"
     ],
     [
       "store/provider-state.d.ts",
@@ -900,8 +905,13 @@
     ],
     [
       "store/pull.js",
-      5470,
-      "4db913a0d196ed634277e4f3569c275579038f948e4adf6eb4dbbae257a41c92"
+      5602,
+      "512a723a49dae3be50aa8c67ca8f6a5c165ec72e8a991a166d8d93e33e895350"
+    ],
+    [
+      "store/quota-writer.js",
+      12396,
+      "ade5fdda516011baf11e40f672263364cea07c45bdcbfc11107e22794e9aef21"
     ],
     [
       "store/refresh-lock.d.ts",
@@ -940,8 +950,8 @@
     ],
     [
       "store/runtime.d.ts",
-      1949,
-      "6838abdf1de68578c8403f76d3404a86e0d286c28a99ff32cb8bd84544a718cb"
+      2100,
+      "34efe7252b6c0aead222cab6164340e76e9c22202049158164c56c3b46bab91f"
     ],
     [
       "store/runtime.js",

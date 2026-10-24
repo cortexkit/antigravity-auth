@@ -1,3 +1,4 @@
+import type { Attribution } from './attribution.js';
 import { type PoolOperation, PoolOperationError } from './errors.js';
 import { type ReadResult, type StoreContext } from './mutate.js';
 import type { PoolLockOptions, PoolLockSpec } from './refresh-lock.js';
@@ -10,6 +11,7 @@ export interface StoreRuntime {
     providerLock: PoolLockSpec;
     rowLockOptions: Partial<PoolLockOptions>;
     firePull(id: string, reason: PullReason): void;
+    publishQuota?: (id: string, attribution: Attribution, observation: unknown) => Promise<void>;
 }
 /**
  * The row lock's (name, path): keyed by the row's recorded wire identity when

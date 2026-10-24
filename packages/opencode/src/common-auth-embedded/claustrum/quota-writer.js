@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { createLogger } from '../logger/index.js';
 import { isQuotaObservation } from '../quota/index.js';
+import { quotaFields } from '../quota/pending.js';
 import { applyVaultQuota, mutateVaultRoster, } from './roster.js';
 // Every consumer of the same file shares one mailbox and one lock waiter.
 const writers = new Map();
@@ -34,65 +35,14 @@ export function retainVaultQuotaWriter(path, listener) {
         return writer.listeners.size ? Promise.resolve() : drainVaultQuota(path);
     })());
 }
-// Split one observation into its independently dated parts: each rate-limit
-// window (scope and label), each covered-but-unread window, the budget, each
-// counter and the credits record. The mailbox keeps the newest of each part on
-// its own, so a later observation that carries only some parts can't erase an
-// older but still newest reading of another part, which is how
-// mergeQuotaObservation treats them on disk. Each key also carries the
-// receipt's identity, so the identity fence still applies to every part.
+// Each field retains the receipt fence as well as its independent timestamp.
 function fields(publication) {
-    const result = new Map();
-    const { observation } = publication;
-    const witness = JSON.stringify([
+    return quotaFields(publication, JSON.stringify([
         publication.routeId,
         publication.receipt?.credentialId,
         publication.receipt?.accountIdentitySource,
         publication.receipt?.expectedAccountIdentity,
-    ]);
-    const add = (key, at, part) => result.set(`${witness}:${key}`, {
-        at,
-        order: 0,
-        publication: { ...publication, observation: part },
-    });
-    const keyFor = (scope, label) => JSON.stringify([scope ?? 'all', label]);
-    const read = new Set();
-    for (const reading of observation.readings ?? []) {
-        const key = keyFor(reading.scope, reading.label);
-        read.add(key);
-        add(key, observation.checkedAt, {
-            checkedAt: observation.checkedAt,
-            readings: [{ ...reading }],
-        });
-    }
-    for (const pair of observation.coverage ?? []) {
-        const key = keyFor(pair.scope, pair.label);
-        if (!read.has(key))
-            add(key, observation.checkedAt, {
-                checkedAt: observation.checkedAt,
-                coverage: [{ ...pair }],
-            });
-    }
-    if (observation.budget)
-        add('budget', observation.checkedAt, {
-            checkedAt: observation.checkedAt,
-            budget: { ...observation.budget },
-        });
-    for (const [name, counter] of Object.entries(observation.counters ?? {})) {
-        add(`counter:${name}`, counter.checkedAt, {
-            checkedAt: observation.checkedAt,
-            counters: { [name]: { ...counter } },
-        });
-    }
-    if (observation.credits)
-        add('credits', observation.credits.checkedAt, {
-            checkedAt: observation.checkedAt,
-            credits: { ...observation.credits },
-        });
-    // Even an empty observation can bind an account proved by its receipt.
-    if (!result.size)
-        add('empty', observation.checkedAt, { checkedAt: observation.checkedAt });
-    return result;
+    ]));
 }
 /** Enqueue without filesystem work; each quota field retains its own receipt fence. */
 export function enqueueVaultQuota(path, publication) {

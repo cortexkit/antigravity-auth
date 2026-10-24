@@ -448,9 +448,9 @@ describe('createOAuthMethods persistence failure handling', () => {
 
 const EMBEDDED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.25.0',
+  version: '0.26.0',
   tarballSha256:
-    '51b5e9d0fc6821f8d91ff826aa842be509a0a045d634d1ae73bfa2bd5c925d1f',
+    'a5a6cb7051ee8c45e86e19cf7a918d0e28ce1b6a80301e982efbc7bb4b98208d',
 } as const
 
 async function embeddedFilesBelow(

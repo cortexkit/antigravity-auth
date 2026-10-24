@@ -1,4 +1,6 @@
+import { type StoreContext } from './mutate.js';
 import { type StoreRuntime } from './runtime.js';
+import { type PoolRow } from './schema.js';
 /**
  * What a pull or refresh captured about its row (named by id alongside) when
  * it was issued. A result applies only while the row with that id still has
@@ -20,6 +22,9 @@ export interface Attribution {
     credentialEpoch: number;
     identity?: string;
 }
+export declare function assertQuotaEpoch(id: string, attribution: Attribution): void;
+export declare function assertQuotaRow(id: string, attribution: Attribution, row: PoolRow | undefined): asserts row is PoolRow;
+export declare function mergedQuota(ctx: StoreContext, id: string, stored: unknown, observation: unknown): unknown;
 /**
  * Merges a quota observation into a row's stored map under the store locks,
  * after attribution passes. Needs no row lock, so it is permitted from

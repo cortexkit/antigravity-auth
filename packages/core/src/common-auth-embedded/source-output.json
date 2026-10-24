@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "artifactStatus": "published",
   "publicRoots": {
     "./store": {
@@ -37,15 +37,15 @@
       "import": "./dist/pi-slot/index.js"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.25.0.tgz",
-  "tarballSha256": "51b5e9d0fc6821f8d91ff826aa842be509a0a045d634d1ae73bfa2bd5c925d1f",
-  "sri": "sha512-/vER/ZZvBF3GvU8ZZjkCVZ8PGkcup4GjImfM0zr6V0tSG9SCyiEUHlKtQf48S2WSOyo72BQ7LP3Ix3064IhPzQ==",
-  "canonicalFiles": 139,
-  "canonicalBytes": 873621,
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.26.0.tgz",
+  "tarballSha256": "a5a6cb7051ee8c45e86e19cf7a918d0e28ce1b6a80301e982efbc7bb4b98208d",
+  "sri": "sha512-qTmQ9aMG+HcyDbhKie8Nq9wxKMRQ6GXH2hKq8Fab9kHqFfzswdp2NpXofGY52RhQ2VxuyMOQr5T6lUrkbny5VQ==",
+  "canonicalFiles": 141,
+  "canonicalBytes": 888503,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 3,
-    "sha256": "ae48b730674258ec15c69f7ac8cee0b9cf0c166917e46b326dbfd6d5c380aaa8"
+    "sha256": "89dbeb07d77e0657abeb72a40fcc03a900e98292956865252349a01a15999ed0"
   },
   "files": [
     {
@@ -363,9 +363,9 @@
     {
       "source": "package/dist/claustrum/quota-writer.js",
       "output": "claustrum/quota-writer.js",
-      "bytes": 9694,
-      "sourceSha256": "5a7d5d1059dcadc06aa41e81e0707cc444636473822047f0ec72da7589c770f1",
-      "outputSha256": "5a7d5d1059dcadc06aa41e81e0707cc444636473822047f0ec72da7589c770f1",
+      "bytes": 7579,
+      "sourceSha256": "0054a12ca94aab2eecf50f9b5e090879ff184e7f286cc979f32d311e22011906",
+      "outputSha256": "0054a12ca94aab2eecf50f9b5e090879ff184e7f286cc979f32d311e22011906",
       "transform": "verbatim"
     },
     {
@@ -777,6 +777,14 @@
       "transform": "verbatim"
     },
     {
+      "source": "package/dist/quota/pending.js",
+      "output": "quota/pending.js",
+      "bytes": 1876,
+      "sourceSha256": "e757a3fa9f8440190668c6154468a5baec8a84e20d6c831a6d7935c3b9bebe29",
+      "outputSha256": "e757a3fa9f8440190668c6154468a5baec8a84e20d6c831a6d7935c3b9bebe29",
+      "transform": "verbatim"
+    },
+    {
       "source": "package/dist/quota/projection.d.ts",
       "output": "quota/projection.d.ts",
       "bytes": 3661,
@@ -875,17 +883,17 @@
     {
       "source": "package/dist/store/attribution.d.ts",
       "output": "store/attribution.d.ts",
-      "bytes": 1528,
-      "sourceSha256": "441dba300556a927e872597c1df3e4fbb1ac61c0a3989e98dcd3a94a773b8ed7",
-      "outputSha256": "441dba300556a927e872597c1df3e4fbb1ac61c0a3989e98dcd3a94a773b8ed7",
+      "bytes": 1951,
+      "sourceSha256": "16919a55fe944b459ff511c125ac2ba34714949d38db006c8ab047dd48ab51a6",
+      "outputSha256": "16919a55fe944b459ff511c125ac2ba34714949d38db006c8ab047dd48ab51a6",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/store/attribution.js",
       "output": "store/attribution.js",
-      "bytes": 2880,
-      "sourceSha256": "4bda762db5756c0d498d987aa3bc97eeee94be1c1ad2f005ed0ed46785e242d9",
-      "outputSha256": "4bda762db5756c0d498d987aa3bc97eeee94be1c1ad2f005ed0ed46785e242d9",
+      "bytes": 3280,
+      "sourceSha256": "5b54980a4f158c9b61cd90c4a83a14e83268fe98101fc88409500bb73d1126bb",
+      "outputSha256": "5b54980a4f158c9b61cd90c4a83a14e83268fe98101fc88409500bb73d1126bb",
       "transform": "verbatim"
     },
     {
@@ -971,17 +979,17 @@
     {
       "source": "package/dist/store/pool.d.ts",
       "output": "store/pool.d.ts",
-      "bytes": 10785,
-      "sourceSha256": "192ea359d2ce746b31693cf06795a281f2e06804c567975f127ea05fa6fb4aef",
-      "outputSha256": "192ea359d2ce746b31693cf06795a281f2e06804c567975f127ea05fa6fb4aef",
+      "bytes": 11743,
+      "sourceSha256": "0693e165ef937c22c375a3f63d01209c844d101ddf1a6702c8acc99bb5fc2a9d",
+      "outputSha256": "0693e165ef937c22c375a3f63d01209c844d101ddf1a6702c8acc99bb5fc2a9d",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/store/pool.js",
       "output": "store/pool.js",
-      "bytes": 5671,
-      "sourceSha256": "8dc0d27b37204c2c3229296e8efbbfac6bcb30538b39d8d95771267487a06292",
-      "outputSha256": "8dc0d27b37204c2c3229296e8efbbfac6bcb30538b39d8d95771267487a06292",
+      "bytes": 6332,
+      "sourceSha256": "45a696753691027dfcadd8e94b38b111ad5085ba1cb4f769225b15efc68125d7",
+      "outputSha256": "45a696753691027dfcadd8e94b38b111ad5085ba1cb4f769225b15efc68125d7",
       "transform": "verbatim"
     },
     {
@@ -1027,9 +1035,17 @@
     {
       "source": "package/dist/store/pull.js",
       "output": "store/pull.js",
-      "bytes": 5470,
-      "sourceSha256": "4db913a0d196ed634277e4f3569c275579038f948e4adf6eb4dbbae257a41c92",
-      "outputSha256": "4db913a0d196ed634277e4f3569c275579038f948e4adf6eb4dbbae257a41c92",
+      "bytes": 5602,
+      "sourceSha256": "512a723a49dae3be50aa8c67ca8f6a5c165ec72e8a991a166d8d93e33e895350",
+      "outputSha256": "512a723a49dae3be50aa8c67ca8f6a5c165ec72e8a991a166d8d93e33e895350",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/store/quota-writer.js",
+      "output": "store/quota-writer.js",
+      "bytes": 12396,
+      "sourceSha256": "ade5fdda516011baf11e40f672263364cea07c45bdcbfc11107e22794e9aef21",
+      "outputSha256": "ade5fdda516011baf11e40f672263364cea07c45bdcbfc11107e22794e9aef21",
       "transform": "verbatim"
     },
     {
@@ -1091,9 +1107,9 @@
     {
       "source": "package/dist/store/runtime.d.ts",
       "output": "store/runtime.d.ts",
-      "bytes": 1949,
-      "sourceSha256": "6838abdf1de68578c8403f76d3404a86e0d286c28a99ff32cb8bd84544a718cb",
-      "outputSha256": "6838abdf1de68578c8403f76d3404a86e0d286c28a99ff32cb8bd84544a718cb",
+      "bytes": 2100,
+      "sourceSha256": "34efe7252b6c0aead222cab6164340e76e9c22202049158164c56c3b46bab91f",
+      "outputSha256": "34efe7252b6c0aead222cab6164340e76e9c22202049158164c56c3b46bab91f",
       "transform": "verbatim"
     },
     {

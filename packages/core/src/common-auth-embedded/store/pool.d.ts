@@ -17,6 +17,19 @@ export interface OpenPoolStoreOptions {
     statePath: string;
     quota: QuotaCodec;
     /**
+     * Opt in to detached, coalesced quota publication, with any `quota` codec.
+     * Each accepted observation is queued whole for its row and binding, and
+     * the queue is applied in arrival order through `quota.merge` under the
+     * store locks, so the codec's own merge decides which fields a newer or
+     * older reading replaces. Accepted readings appear in read/load
+     * immediately, merged the same way; the returned promise still rejects
+     * current-row refusals before queueing. Await dispose or close at shutdown
+     * to drain.
+     */
+    coalesceQuota?: boolean;
+    /** Bounded quota drain on close/dispose, in milliseconds; defaults to 1,000. */
+    quotaDrainTimeoutMs?: number;
+    /**
      * The codec of the provider state kept beside each row's credential (see
      * `ProviderStateCodec`). Without it no row shows a provider state, and
      * every write that would set one refuses (`invalid-input`); writes that
@@ -189,6 +202,10 @@ export interface PoolStore {
     }>;
     refresh(id: string, provider: ProviderRefresh, options?: RefreshOptions): Promise<RefreshOutcome>;
     recordQuota(id: string, attribution: Attribution, observation: unknown): Promise<void>;
+    /** Drain opted-in quota publication; subsequent coalesced readings refuse. Idempotent. */
+    close(): Promise<void>;
+    /** Same bounded quota drain as close(). Does not wait for provider pull hooks. */
+    dispose(): Promise<void>;
     /** Fires a pull for a row admission refused for want of a reading. */
     requestReading(id: string): void;
     /** Resolves once every pull fired so far has settled. */
