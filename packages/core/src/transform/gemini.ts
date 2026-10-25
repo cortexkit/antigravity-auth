@@ -152,9 +152,13 @@ function mergeSchemaAllOf(
   const metadata: Record<string, unknown> = {}
   let unambiguous = allOf.length > 0
 
-  for (const branch of branches) {
+  for (const rawBranch of branches) {
+    if (!isSchemaObject(rawBranch)) {
+      unambiguous = false
+      break
+    }
+    const branch = normalizeNullableTypeArray(rawBranch)
     if (
-      !isSchemaObject(branch) ||
       (branch.type !== undefined &&
         String(branch.type).toUpperCase() !== 'OBJECT') ||
       (branch.properties !== undefined && !isSchemaObject(branch.properties))
