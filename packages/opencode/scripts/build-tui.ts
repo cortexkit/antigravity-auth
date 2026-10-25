@@ -160,9 +160,13 @@ export function checkGaGraph(
   graph: Graph,
   emitted: 'source' | 'raw' | 'runtime',
 ) {
-  for (const path of graph.files)
-    if (GA_FORBIDDEN_SOURCE.test(portable(path)))
+  for (const path of graph.files) {
+    const normalized = portable(path)
+    const srcIndex = normalized.lastIndexOf('/src/')
+    const candidate = srcIndex >= 0 ? normalized.slice(srcIndex) : normalized
+    if (GA_FORBIDDEN_SOURCE.test(candidate))
       throw new Error(`graph.ga: forbidden GA source ${path}`)
+  }
   for (const edge of graph.externals) {
     if (emitted === 'runtime') {
       // Emitted runtime code must name host runtime modules, never a package

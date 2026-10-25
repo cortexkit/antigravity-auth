@@ -742,7 +742,14 @@ test('graph.ga_roots', async () => {
 })
 
 test('graph.ga_policy_refusals', async () => {
-  const ok = { files: ['/x/src/ga/tui/host-ga.tsx'], externals: ['solid-js'] }
+  const ok = {
+    files: [
+      '/x/src/ga/tui/host-ga.tsx',
+      '/work/antigravity/packages/opencode/src/ga/tui/host-ga.tsx',
+      '/work/antigravity/packages/opencode/src/common-auth-embedded/quota/codec.js',
+    ],
+    externals: ['solid-js'],
+  }
   checkGaGraph(ok, 'source')
   const refusals: Array<
     [Parameters<typeof checkGaGraph>[0], 'source' | 'runtime', string]
