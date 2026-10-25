@@ -80,6 +80,46 @@ function describeValue(value: unknown): string {
   return JSON.stringify(value) ?? String(value)
 }
 
+function normalizeNullableTypeArray(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!Array.isArray(schema.type)) return schema
+  const allowed = new Set([
+    'string',
+    'number',
+    'integer',
+    'boolean',
+    'array',
+    'object',
+    'null',
+  ])
+  if (
+    schema.type.length === 0 ||
+    schema.type.some(
+      (type) => typeof type !== 'string' || !allowed.has(type.toLowerCase()),
+    )
+  ) {
+    return schema
+  }
+  const types = [
+    ...new Set(schema.type.map((type: string) => type.toLowerCase())),
+  ]
+  const nonNull = types.filter((type) => type !== 'null')
+  if (nonNull.length > 1) {
+    // Leave genuine multi-type unions to the existing provider validation.
+    // Throwing here would classify a schema defect as a transport failure and
+    // penalize accounts; choosing a branch would silently narrow the tool.
+    return schema
+  }
+  return {
+    ...schema,
+    type: nonNull[0] ?? 'null',
+    ...(nonNull.length === 1 && types.includes('null')
+      ? { nullable: true }
+      : {}),
+  }
+}
+
 function sameSchemaValue(left: unknown, right: unknown): boolean {
   if (left === right) return true
   if (Array.isArray(left) && Array.isArray(right)) {
@@ -255,9 +295,8 @@ export function toGeminiSchema(
   }
 
   const numericConstraintHints: string[] = []
-  const inputSchema = mergeSchemaAllOf(
-    schema as Record<string, unknown>,
-    numericConstraintHints,
+  const inputSchema = normalizeNullableTypeArray(
+    mergeSchemaAllOf(schema as Record<string, unknown>, numericConstraintHints),
   )
   const schemaType =
     typeof inputSchema.type === 'string'
