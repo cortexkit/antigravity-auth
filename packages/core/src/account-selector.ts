@@ -251,16 +251,28 @@ function clearExpiredRateLimits(
  * - Claude → "non-gemini" quota group
  * - Gemini → "gemini" quota group
  *
+ * Argon models draw on the Argon weekly pool, but only on accounts whose
+ * reading reports that pool: `cachedQuota` is the account's own cached
+ * quota, and its `gemini-argon` key is present exactly when the account's
+ * reading included the Argon bucket. Without it the model is conserved
+ * against the ordinary Gemini pool, as before.
+ *
  * @param family - The model family ("claude" | "gemini")
  * @param model - Optional model string for precise resolution
+ * @param cachedQuota - The account's cached quota; only its `gemini-argon`
+ * key is read, to decide whether the Argon pool exists on that account
  * @returns The QuotaGroup to use for soft quota checks
  */
 export function resolveQuotaGroup(
   family: ModelFamily,
   model?: string | null,
+  cachedQuota?: Partial<Record<QuotaGroup, QuotaGroupSummary>>,
 ): QuotaGroup {
   if (model) {
-    const registryGroup = getQuotaGroupForModel(model)
+    const registryGroup = getQuotaGroupForModel(
+      model,
+      cachedQuota?.['gemini-argon'] !== undefined,
+    )
     if (registryGroup) return registryGroup
     const lower = model.toLowerCase()
     // Check Claude / GPT-OSS substrings BEFORE the `gemini` substring so
@@ -291,7 +303,7 @@ function isOverSoftQuotaThreshold(
   const age = now() - account.cachedQuotaUpdatedAt
   if (age > cacheTtlMs) return false
 
-  const quotaGroup = resolveQuotaGroup(family, model)
+  const quotaGroup = resolveQuotaGroup(family, model, account.cachedQuota)
 
   const groupData = account.cachedQuota[quotaGroup]
   if (groupData?.remainingFraction == null) return false
@@ -1200,7 +1212,7 @@ export class AccountSelector<A extends SelectableAccount> {
     const age = this.now() - current.cachedQuotaUpdatedAt
     if (age > cacheTtlMs) return false
 
-    const quotaGroup = resolveQuotaGroup(family, model)
+    const quotaGroup = resolveQuotaGroup(family, model, current.cachedQuota)
     const groupData = current.cachedQuota[quotaGroup]
     if (groupData?.remainingFraction == null) return false
 
@@ -1252,10 +1264,14 @@ export class AccountSelector<A extends SelectableAccount> {
     )
     const pool = warmCandidates.length > 0 ? warmCandidates : candidates
 
-    const quotaGroup = resolveQuotaGroup(family, model)
+    // Rank by the pool the model maps to on each account: an Argon
+    // request compares Argon readings where they exist and Gemini
+    // readings elsewhere, never promising Argon headroom it cannot see.
     pool.sort((a, b) => {
-      const aRemaining = a.cachedQuota?.[quotaGroup]?.remainingFraction ?? 0
-      const bRemaining = b.cachedQuota?.[quotaGroup]?.remainingFraction ?? 0
+      const groupA = resolveQuotaGroup(family, model, a.cachedQuota)
+      const groupB = resolveQuotaGroup(family, model, b.cachedQuota)
+      const aRemaining = a.cachedQuota?.[groupA]?.remainingFraction ?? 0
+      const bRemaining = b.cachedQuota?.[groupB]?.remainingFraction ?? 0
       return bRemaining - aRemaining
     })
 
@@ -1947,11 +1963,14 @@ export class AccountSelector<A extends SelectableAccount> {
     // For gemini family, we MUST have the model to distinguish pro vs flash quotas.
     // Fail-open (return null = no wait info) if model is missing to avoid blocking on wrong quota.
     if (!model && family !== 'claude') return null
-    const quotaGroup = resolveQuotaGroup(family, model)
     const now = this.now()
     const waitTimes: number[] = []
 
     for (const acc of enabled) {
+      // Each account waits on the pool the model maps to on that account:
+      // an Argon request waits on Argon resets where reported, Gemini
+      // resets elsewhere.
+      const quotaGroup = resolveQuotaGroup(family, model, acc.cachedQuota)
       const groupData = acc.cachedQuota?.[quotaGroup]
       if (groupData?.resetTime) {
         const resetTimestamp = Date.parse(groupData.resetTime)

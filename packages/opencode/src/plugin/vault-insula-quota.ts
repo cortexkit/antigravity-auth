@@ -13,6 +13,10 @@ const windows: readonly [string, QuotaGroup, QuotaWindow][] = [
   ['gemini-weekly', 'gemini', 'weekly'],
   ['3p-5h', 'non-gemini', '5h'],
   ['3p-weekly', 'non-gemini', 'weekly'],
+  // Paid Pro accounts report a separate Argon weekly allowance under this
+  // exact bucket ID. No Argon 5-hour bucket has been seen, so only this
+  // weekly ID is mapped; any other Argon-shaped ID stays ignored.
+  ['gemini-argon-wtu-weekly', 'gemini-argon', 'weekly'],
 ]
 
 /** OAuth-sourced entries can echo our sidebar; only vault-sourced quota is independent. */

@@ -732,6 +732,9 @@ export function createOAuthMethods({
                     const groupEntries = [
                       { key: 'non-gemini', data: groups['non-gemini'] },
                       { key: 'gemini', data: groups.gemini },
+                      // Shown only for accounts whose reading reports the
+                      // Argon pool; the filter below drops absent groups.
+                      { key: 'gemini-argon', data: groups['gemini-argon'] },
                     ].filter((g) => g.data)
 
                     groupEntries.forEach((g, idx) => {

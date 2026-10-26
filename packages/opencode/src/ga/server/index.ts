@@ -1231,11 +1231,15 @@ export function createGaRpcActivation(
     }
     const gemini = entry(quota.gemini)
     const nonGemini = entry(quota['non-gemini'])
+    const argon = entry(quota['gemini-argon'])
     return omitUndefinedFields({
       ...rest,
       quota: {
         ...(gemini ? { gemini } : {}),
         ...(nonGemini ? { 'non-gemini': nonGemini } : {}),
+        // Carried only when the account reports the Argon pool, so other
+        // accounts answer byte-identical to before.
+        ...(argon ? { 'gemini-argon': argon } : {}),
       },
     })
   }

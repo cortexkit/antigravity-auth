@@ -155,6 +155,9 @@ function getHealthLabel(acc: AccountInfo): string {
 const QUOTA_KEYS: { key: string; label: string }[] = [
   { key: 'gemini', label: 'Gemini' },
   { key: 'non-gemini', label: 'Non-Gemini' },
+  // Listed only when an account reports it: the breakdown emits a line
+  // per group with data, so other accounts render exactly as before.
+  { key: 'gemini-argon', label: 'Argon' },
 ]
 
 function parseResetTimeToMs(resetTime?: string): number | null {

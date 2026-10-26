@@ -1472,7 +1472,9 @@ describe('aggregateQuotaSummary', () => {
   })
 
   function responseWithArgon(argonFirst: boolean) {
-    // Assumed Pro Argon bucket ID: `gemini-argon-weekly` (not confirmed).
+    // `gemini-argon-weekly` is a guessed ID the server has never sent: it
+    // stays ignored, which pins the exact-ID rule (no prefix matching).
+    // The confirmed Pro Argon bucket ID is `gemini-argon-wtu-weekly`.
     const argon = {
       displayName: 'Gemini 4 Argon',
       description: 'Models: Gemini 4 Argon',
@@ -1551,6 +1553,83 @@ describe('aggregateQuotaSummary', () => {
     expect(summary.groups['non-gemini']?.resetTime).toBe('2026-01-08T05:00:00Z')
     expect(summary.modelCount).toBe(4)
     expect(summary.groups.gemini?.modelCount).toBe(2)
+  })
+
+  function responseWithConfirmedArgon(
+    argonOverrides: Record<string, unknown> = {},
+  ): RetrieveUserQuotaSummaryResponse {
+    // The exact weekly bucket ID Google reports for paid Pro accounts.
+    return {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          description: 'Models: Gemini Pro, Gemini Flash',
+          buckets: [
+            {
+              bucketId: 'gemini-5h',
+              displayName: '5h Limit',
+              window: '5h' as const,
+              resetTime: '2026-01-08T05:00:00Z',
+              remainingFraction: 0.9,
+            },
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit',
+              window: 'weekly' as const,
+              resetTime: '2026-01-15T00:00:00Z',
+              remainingFraction: 0.8,
+            },
+          ],
+        },
+        {
+          displayName: 'Gemini 4 Argon',
+          description: 'Models: Gemini 4 Argon',
+          buckets: [
+            {
+              bucketId: 'gemini-argon-wtu-weekly',
+              displayName: 'Argon Weekly',
+              window: 'weekly' as const,
+              resetTime: '2026-01-22T00:00:00Z',
+              remainingFraction: 0.4,
+              ...argonOverrides,
+            },
+          ],
+        },
+      ],
+    }
+  }
+
+  it('creates a gemini-argon pool only for a reading with the confirmed bucket', () => {
+    const summary = aggregateQuotaSummary(responseWithConfirmedArgon())
+    expect(summary.groups['gemini-argon']).toEqual({
+      remainingFraction: 0.4,
+      resetTime: '2026-01-22T00:00:00Z',
+      modelCount: 1,
+      windows: [
+        {
+          window: 'weekly',
+          remainingFraction: 0.4,
+          resetTime: '2026-01-22T00:00:00Z',
+        },
+      ],
+    })
+    // The other pools are untouched by the Argon bucket.
+    expect(summary.groups.gemini?.remainingFraction).toBe(0.8)
+    expect(summary.groups.gemini?.modelCount).toBe(2)
+    expect(summary.modelCount).toBe(3)
+  })
+
+  it('skips a disabled Argon bucket without creating the pool', () => {
+    const summary = aggregateQuotaSummary(
+      responseWithConfirmedArgon({ disabled: true }),
+    )
+    expect('gemini-argon' in summary.groups).toBe(false)
+    expect(summary.groups.gemini?.remainingFraction).toBe(0.8)
+  })
+
+  it('creates no gemini-argon pool for a reading without the Argon bucket', () => {
+    const summary = aggregateQuotaSummary(loadFixture('pro-ruqs.json'))
+    expect('gemini-argon' in summary.groups).toBe(false)
   })
 
   it('uses the available canonical weekly bucket when 5h is absent', () => {

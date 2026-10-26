@@ -69,15 +69,26 @@ const QUOTA_GROUP_BY_FAMILY: Record<ModelFamily, readonly QuotaGroup[]> = {
  * the killswitch does not pull a transform stack into its import
  * graph. Models that are not recognised fall back to the family-max
  * behavior so a missed match can never widen the kill.
+ *
+ * Argon models draw on the Argon weekly pool, but only on accounts whose
+ * reading reports it. Elsewhere an Argon request is conserved against
+ * the ordinary Gemini pool, matching the selector's soft-quota fallback.
  */
 function quotaGroupForModel(
   family: ModelFamily,
   model: string | null | undefined,
+  quota?: Partial<Record<QuotaGroup, QuotaGroupSummary>>,
 ): QuotaGroup | null {
   if (!model) return null
   const lower = model.toLowerCase()
   if (family === 'claude') return 'non-gemini'
   if (family === 'gemini') {
+    // Keep this anchored test in sync with `isGeminiArgonModel` in core's
+    // model-registry: both recognise exactly the Argon model selectors.
+    if (
+      /^(?:antigravity-)?gemini-4-argon(?:-(?:low|medium|high))?$/.test(lower)
+    )
+      return quota?.['gemini-argon'] !== undefined ? 'gemini-argon' : 'gemini'
     // Check Claude / GPT-OSS substrings BEFORE the `gemini` substring so
     // a `gemini-claude-*` alias (Claude route exposed under a `gemini-`
     // namespace) attributes to the non-gemini pool rather than the
@@ -150,8 +161,9 @@ export function evaluateKillswitchForAccount(
     }
   }
 
-  const remainingPercent = quotaGroupForModel(family, options.model)
-    ? remainingPercentForGroup(quota, family, options.model!)
+  const group = quotaGroupForModel(family, options.model, quota)
+  const remainingPercent = group
+    ? remainingPercentForGroup(quota, group)
     : freshestRemainingPercent(quota, family)
   if (remainingPercent === null) {
     return {
@@ -187,11 +199,8 @@ function freshestRemainingPercent(
 
 function remainingPercentForGroup(
   quota: Partial<Record<QuotaGroup, QuotaGroupSummary>>,
-  family: ModelFamily,
-  model: string,
+  group: QuotaGroup,
 ): number | null {
-  const group = quotaGroupForModel(family, model)
-  if (!group) return null
   const entry = quota[group]
   if (!entry || typeof entry.remainingFraction !== 'number') return null
   return clampPercent(entry.remainingFraction * 100)

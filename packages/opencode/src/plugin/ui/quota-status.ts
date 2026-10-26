@@ -218,7 +218,7 @@ export function classifyOverallQuotaHealth(
     return { health: 'unknown' }
   }
 
-  const QUOTA_KEYS = ['gemini', 'non-gemini']
+  const QUOTA_KEYS = ['gemini', 'non-gemini', 'gemini-argon']
   let groupsWithData = 0
   let exhaustedCount = 0
   let maxResetMs: number | undefined
@@ -265,7 +265,9 @@ export function formatCachedQuotaWithStatus(
         string,
         { remainingFraction?: number; resetTime?: string },
       ] =>
-        (entry[0] === 'gemini' || entry[0] === 'non-gemini') &&
+        (entry[0] === 'gemini' ||
+          entry[0] === 'non-gemini' ||
+          entry[0] === 'gemini-argon') &&
         entry[1] !== undefined,
     ),
   )

@@ -2480,6 +2480,26 @@ describe('resolveQuotaGroup', () => {
     expect(resolveQuotaGroup('gemini', undefined)).toBe('gemini')
   })
 
+  it('resolves argon models to the argon pool only on accounts that report it', () => {
+    const pro = {
+      'gemini-argon': { remainingFraction: 0, modelCount: 1 },
+    }
+    expect(resolveQuotaGroup('gemini', 'gemini-4-argon-medium', pro)).toBe(
+      'gemini-argon',
+    )
+    expect(
+      resolveQuotaGroup('gemini', 'antigravity-gemini-4-argon-high', pro),
+    ).toBe('gemini-argon')
+    // Without the account's Argon pool the model is conserved against the
+    // ordinary Gemini pool, exactly as before the pool existed.
+    expect(resolveQuotaGroup('gemini', 'gemini-4-argon-medium')).toBe('gemini')
+    expect(
+      resolveQuotaGroup('gemini', 'gemini-4-argon-medium', {
+        gemini: { remainingFraction: 0.9, modelCount: 2 },
+      }),
+    ).toBe('gemini')
+  })
+
   it('model takes precedence over family', () => {
     // Cross-family pair: a `claude` family carrying a `gemini-` model
     // string must resolve to the gemini pool, and vice versa. The

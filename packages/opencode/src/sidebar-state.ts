@@ -54,7 +54,7 @@ import { xdgState } from 'xdg-basedir'
 
 export const SIDEBAR_STATE_VERSION = 2 as const
 
-export type SidebarQuotaKey = 'gemini' | 'non-gemini'
+export type SidebarQuotaKey = 'gemini' | 'non-gemini' | 'gemini-argon'
 
 export interface SidebarQuotaWindowEntry {
   window: 'weekly' | '5h'
@@ -328,7 +328,10 @@ function normalizeAccount(input: unknown): SidebarAccountState | null {
   const quotaRaw = record.quota
   const quota: SidebarAccountState['quota'] = {}
   if (isObject(quotaRaw)) {
-    for (const key of ['gemini', 'non-gemini'] as const) {
+    // The Argon pool exists only on accounts that report it: readers carry
+    // any stored Argon reading, and accounts without one read exactly the
+    // two canonical pools, as before.
+    for (const key of ['gemini', 'non-gemini', 'gemini-argon'] as const) {
       const entry = (quotaRaw as Record<string, unknown>)[key]
       const normalized = normalizeQuota(entry)
       if (normalized) quota[key] = normalized
@@ -545,6 +548,16 @@ export interface SidebarAccountRedactionInput {
         resetTime: string
       }>
     }
+    // Reported only by paid Pro accounts with the Argon weekly allowance.
+    'gemini-argon'?: {
+      remainingFraction?: number
+      resetTime?: string
+      windows?: Array<{
+        window: 'weekly' | '5h'
+        remainingFraction: number
+        resetTime: string
+      }>
+    }
     // Legacy per-pool keys written by older versions of the plugin.
     // Accepted here so the normalizer can map them to the current pool
     // keys at read time without requiring a disk migration.
@@ -685,6 +698,11 @@ export function normalizeLegacyCachedQuota(
   return {
     ...(gemini !== undefined ? { gemini } : {}),
     ...(nonGemini !== undefined ? { 'non-gemini': nonGemini } : {}),
+    // The Argon pool postdates the legacy pool keys, so a snapshot that
+    // carries both keeps its Argon pool untouched by the migration.
+    ...(raw['gemini-argon'] !== undefined
+      ? { 'gemini-argon': raw['gemini-argon'] }
+      : {}),
   }
 }
 
@@ -811,7 +829,9 @@ export function redactAccountForSidebar(
     ? undefined
     : normalizeLegacyCachedQuota(source.cachedQuota)
   if (cached) {
-    for (const key of ['gemini', 'non-gemini'] as const) {
+    // The Argon pool is projected only when the account reports it, so an
+    // account without it serializes byte-identical to before.
+    for (const key of ['gemini', 'non-gemini', 'gemini-argon'] as const) {
       const entry = cached[key]
       if (!entry) continue
       const projected = projectQuotaPoolForSidebar(

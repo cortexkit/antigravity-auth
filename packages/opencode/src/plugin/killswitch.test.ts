@@ -194,6 +194,68 @@ describe('evaluateKillswitchForAccount', () => {
     expect(decision.remainingPercent).toBe(2)
   })
 
+  it('scopes an argon request to the argon pool on accounts that report it', () => {
+    // The Argon weekly allowance is exhausted while the ordinary Gemini
+    // pool is fresh: the Argon request is denied, the Gemini request is
+    // allowed. A regression that ignored the account's Argon pool (and
+    // read Gemini for both) would allow the Argon request.
+    const pro = {
+      index: 0,
+      refreshToken: 'rt',
+      cachedQuota: {
+        gemini: { remainingFraction: 0.9, modelCount: 2 },
+        'gemini-argon': { remainingFraction: 0, modelCount: 1 },
+      },
+      cachedQuotaUpdatedAt: NOW,
+    }
+    const argon = evaluateKillswitchForAccount(pro, 'gemini', enabledWith(5), {
+      now: NOW,
+      model: 'gemini-4-argon-medium',
+    })
+    expect(argon.allowed).toBe(false)
+    expect(argon.reason).toBe('below-threshold')
+    expect(argon.remainingPercent).toBe(0)
+    const gemini = evaluateKillswitchForAccount(pro, 'gemini', enabledWith(5), {
+      now: NOW,
+      model: 'gemini-3-flash',
+    })
+    expect(gemini.allowed).toBe(true)
+    expect(gemini.remainingPercent).toBe(90)
+  })
+
+  it('counts argon against the gemini pool on accounts without the argon bucket', () => {
+    // Ultra-shaped account: no Argon bucket, exhausted Gemini pool. The
+    // Argon request is judged on the ordinary Gemini pool, exactly as
+    // before the Argon pool existed.
+    const ultra = {
+      index: 0,
+      refreshToken: 'rt',
+      cachedQuota: {
+        gemini: { remainingFraction: 0, modelCount: 2 },
+      },
+      cachedQuotaUpdatedAt: NOW,
+    }
+    const denied = evaluateKillswitchForAccount(
+      ultra,
+      'gemini',
+      enabledWith(5),
+      { now: NOW, model: 'gemini-4-argon-medium' },
+    )
+    expect(denied.allowed).toBe(false)
+    expect(denied.remainingPercent).toBe(0)
+    const fresh = evaluateKillswitchForAccount(
+      {
+        ...ultra,
+        cachedQuota: { gemini: { remainingFraction: 0.9, modelCount: 2 } },
+      },
+      'gemini',
+      enabledWith(5),
+      { now: NOW, model: 'antigravity-gemini-4-argon' },
+    )
+    expect(fresh.allowed).toBe(true)
+    expect(fresh.remainingPercent).toBe(90)
+  })
+
   it('falls back to family-max when the model is unknown', () => {
     const decision = evaluateKillswitchForAccount(
       {

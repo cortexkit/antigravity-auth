@@ -81,6 +81,61 @@ describe('projectAccount', () => {
     expect(projected.health).toBe('health 88')
   })
 
+  it('shows the argon pool only for accounts that report it', () => {
+    const withArgon = account({
+      quota: {
+        gemini: { remainingPercent: 90, checkedAt: NOW },
+        'non-gemini': { remainingPercent: 80, checkedAt: NOW },
+        'gemini-argon': {
+          remainingPercent: 40,
+          checkedAt: NOW,
+          resetAt: NOW + 7 * 86_400_000,
+          windows: [
+            {
+              window: 'weekly',
+              remainingPercent: 40,
+              checkedAt: NOW,
+              resetAt: NOW + 7 * 86_400_000,
+            },
+          ],
+        },
+      },
+    })
+    expect(projectAccount(withArgon, NOW).quota).toEqual([
+      {
+        label: 'Gemini',
+        remaining: 90,
+        figure: '90% left',
+        tone: 'ok',
+        reset: '',
+      },
+      {
+        label: 'Other models',
+        remaining: 80,
+        figure: '80% left',
+        tone: 'ok',
+        reset: '',
+      },
+      {
+        label: 'Argon 7d',
+        remaining: 40,
+        figure: '40% left',
+        tone: 'ok',
+        reset: 'resets 7d',
+      },
+    ])
+  })
+
+  it('renders no argon row for accounts without the argon bucket', () => {
+    const projected = projectAccount(account(), NOW)
+    expect(projected.quota.map((row) => row.label)).toEqual([
+      'Gemini',
+      'Other models 5h',
+      'Other models 7d',
+    ])
+    expect(JSON.stringify(projected.quota)).not.toContain('Argon')
+  })
+
   it('shows a missing reading as unknown, not as empty or full', () => {
     const projected = projectAccount(account({ quota: {} }), NOW)
     expect(projected.quota).toEqual([

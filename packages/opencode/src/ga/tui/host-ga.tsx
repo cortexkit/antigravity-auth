@@ -472,11 +472,22 @@ function checkAccount(value: unknown, path: string, issues: Issues) {
   if (!isRecord(value.quota)) {
     issues.push(`${path}.quota: expected quota readings`)
   } else {
-    keys(value.quota, [], ['gemini', 'non-gemini'], `${path}.quota`, issues)
+    keys(
+      value.quota,
+      [],
+      ['gemini', 'non-gemini', 'gemini-argon'],
+      `${path}.quota`,
+      issues,
+    )
     checkQuotaEntry(value.quota.gemini, `${path}.quota.gemini`, issues)
     checkQuotaEntry(
       value.quota['non-gemini'],
       `${path}.quota.non-gemini`,
+      issues,
+    )
+    checkQuotaEntry(
+      value.quota['gemini-argon'],
+      `${path}.quota.gemini-argon`,
       issues,
     )
   }

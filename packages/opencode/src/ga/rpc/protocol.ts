@@ -229,6 +229,8 @@ export interface AntigravityAccountDto {
   readonly quota: {
     readonly gemini?: AntigravityQuotaEntryDto
     readonly 'non-gemini'?: AntigravityQuotaEntryDto
+    /** Present only on accounts whose reading reports the Argon pool. */
+    readonly 'gemini-argon'?: AntigravityQuotaEntryDto
   }
   readonly tier?: {
     readonly id: string
@@ -755,8 +757,16 @@ function checkAccount(value: unknown, path: Path, issues: Issues): void {
   if (present(value, 'quota')) {
     const quotaPath = [...path, 'quota']
     const quota = value.quota
-    if (checkRecord(quota, quotaPath, issues, [], ['gemini', 'non-gemini'])) {
-      for (const key of ['gemini', 'non-gemini'] as const) {
+    if (
+      checkRecord(
+        quota,
+        quotaPath,
+        issues,
+        [],
+        ['gemini', 'non-gemini', 'gemini-argon'],
+      )
+    ) {
+      for (const key of ['gemini', 'non-gemini', 'gemini-argon'] as const) {
         if (present(quota, key)) {
           checkQuotaEntry(quota[key], [...quotaPath, key], issues)
         }

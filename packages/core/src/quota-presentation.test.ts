@@ -76,6 +76,64 @@ describe('Antigravity quota presentation', () => {
   })
 })
 
+it('projects the argon pool with an Ar narrow form for accounts that report it', () => {
+  const now = 1_800_000_000_000
+  const reset = new Date(now + 2 * 60 * 60_000).toISOString()
+  const quota: QuotaState = {
+    schemaVersion: 1 as const,
+    cachedQuotaUpdatedAt: now,
+    cachedQuota: {
+      gemini: {
+        remainingFraction: 0.9,
+        modelCount: 2,
+        windows: [
+          { window: 'weekly', remainingFraction: 0.9, resetTime: reset },
+        ],
+      },
+      'gemini-argon': {
+        remainingFraction: 0.4,
+        modelCount: 1,
+        windows: [
+          { window: 'weekly', remainingFraction: 0.4, resetTime: reset },
+        ],
+      },
+    },
+  }
+  expect(formatAntigravityQuota(quota, { now })).toBe(
+    'Gemini 7d 90% left, resets 2h · Argon 7d 40% left, resets 2h',
+  )
+  expect(projectAntigravityQuota(quota)?.groups).toEqual([
+    { scope: 'gemini', label: 'Gemini' },
+    { scope: 'non-gemini', label: 'Other models' },
+    { scope: 'gemini-argon', label: 'Argon' },
+  ])
+  expect(formatAntigravityQuota(quota, { now, form: 'narrow' })).toBe(
+    'Ge 7d 90% · Ar 7d 40% left',
+  )
+})
+
+it('renders byte-identical output for a reading without the argon bucket', () => {
+  const now = 1_800_000_000_000
+  const quota: QuotaState = {
+    schemaVersion: 1 as const,
+    cachedQuotaUpdatedAt: now,
+    cachedQuota: {
+      gemini: { remainingFraction: 0.58, modelCount: 3 },
+      'non-gemini': { remainingFraction: 0.25, modelCount: 2 },
+    },
+  }
+  expect(formatAntigravityQuota(quota, { now })).toBe(
+    'Gemini 58% left · Claude / GPT-OSS 25% left',
+  )
+  expect(projectAntigravityQuota(quota)?.groups).toEqual([
+    { scope: 'gemini', label: 'Gemini' },
+    { scope: 'non-gemini', label: 'Other models' },
+  ])
+  expect(formatAntigravityQuota(quota, { now, form: 'narrow' })).toBe(
+    'Ge 58% · Ot 25% left',
+  )
+})
+
 it('formats the current Antigravity pool keys with named models and genuine cache age', () => {
   const now = 1_800_000_000_000
   const quota = {

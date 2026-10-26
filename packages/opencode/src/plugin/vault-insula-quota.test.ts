@@ -363,7 +363,7 @@ describe('insula vault quota', () => {
     ).toBeUndefined()
   })
 
-  it('does not let an Argon window replace the canonical Gemini weekly reading', () => {
+  it('maps the confirmed argon weekly bucket to its own pool without touching gemini', () => {
     const normalized = normalizeVaultInsulaQuota(
       entry({
         usage: {
@@ -377,7 +377,55 @@ describe('insula vault quota', () => {
               },
             },
             {
-              // Assumed Pro Argon bucket ID: `gemini-argon-weekly` (not confirmed).
+              // The exact weekly bucket ID Google reports for paid Pro
+              // accounts. No Argon 5-hour bucket has been seen.
+              id: 'gemini-argon-wtu-weekly',
+              window: {
+                usedPercent: 100,
+                resetsAt: RESET_7D,
+                windowMinutes: 10080,
+              },
+            },
+          ],
+        },
+      }),
+      { fetchedAt: FETCHED },
+    )
+
+    expect(normalized?.quota.groups.gemini).toEqual({
+      modelCount: 0,
+      remainingFraction: 0.6,
+      resetTime: RESET_7D,
+      windows: [
+        { window: 'weekly', remainingFraction: 0.6, resetTime: RESET_7D },
+      ],
+    })
+    expect(normalized?.quota.groups['gemini-argon']).toEqual({
+      modelCount: 0,
+      remainingFraction: 0,
+      resetTime: RESET_7D,
+      windows: [
+        { window: 'weekly', remainingFraction: 0, resetTime: RESET_7D },
+      ],
+    })
+  })
+
+  it('ignores guessed argon bucket ids', () => {
+    // `gemini-argon-weekly` was an early guess the server never sent:
+    // matching is by exact bucket ID, with no prefix matching.
+    const normalized = normalizeVaultInsulaQuota(
+      entry({
+        usage: {
+          extraRateWindows: [
+            {
+              id: 'gemini-weekly',
+              window: {
+                usedPercent: 40,
+                resetsAt: RESET_7D,
+                windowMinutes: 10080,
+              },
+            },
+            {
               id: 'gemini-argon-weekly',
               window: {
                 usedPercent: 100,
@@ -399,6 +447,7 @@ describe('insula vault quota', () => {
         { window: 'weekly', remainingFraction: 0.6, resetTime: RESET_7D },
       ],
     })
+    expect(normalized?.quota.groups['gemini-argon']).toBeUndefined()
   })
 
   it('an account-mismatched reading is refused before admission', async () => {
