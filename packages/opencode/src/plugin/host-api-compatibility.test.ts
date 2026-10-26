@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import type {
   Hooks,
   Plugin,
@@ -6,6 +7,12 @@ import type {
   ToolDefinition,
 } from '@opencode-ai/plugin'
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
+import {
+  __resetProcessHeartbeatForTest,
+  type ProcessHeartbeat,
+  processConfigFolderKey,
+  processHeartbeatPath,
+} from '../process-heartbeat'
 import { createAntigravityPlugin } from './index'
 import type { PluginClient } from './types'
 
@@ -70,5 +77,31 @@ describe('v1 host API compatibility', () => {
     )
 
     await hooks.dispose?.()
+  })
+})
+
+describe('v1 process heartbeat', () => {
+  it('writes the process heartbeat on plugin start and keeps it after dispose', async () => {
+    const target = processHeartbeatPath(process.pid)
+    // Start from no heartbeat, whatever earlier plugin starts in this file left.
+    __resetProcessHeartbeatForTest()
+    rmSync(target, { force: true })
+    const plugin: Plugin = createAntigravityPlugin(ANTIGRAVITY_PROVIDER_ID)
+    const hooks: Hooks = await plugin(fakePluginInput(fakeClient()))
+    const heartbeat = JSON.parse(
+      readFileSync(target, 'utf8'),
+    ) as ProcessHeartbeat
+    const manifest = JSON.parse(
+      readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+    ) as { version: string }
+    expect(heartbeat).toEqual({
+      pid: process.pid,
+      version: manifest.version,
+      startedAt: expect.any(Number),
+      layouts: { [processConfigFolderKey()]: 'legacy' },
+    })
+    await hooks.dispose?.()
+    // The process keeps the OpenCode config folder layout until it exits.
+    expect(existsSync(target)).toBe(true)
   })
 })

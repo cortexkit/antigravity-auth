@@ -26,6 +26,7 @@ import type {
   SetupHost,
   SetupIO,
 } from './common-auth-embedded/setup/index.js'
+import { createLogger } from './plugin/logger'
 import {
   type AntigravityTokenExchangeSuccess,
   type OAuthLoginRequest,
@@ -40,6 +41,10 @@ import {
   loadAccounts,
   openAccountStore,
 } from './plugin/storage'
+import {
+  removeProcessHeartbeat,
+  startRuntimeProcessHeartbeat,
+} from './process-heartbeat'
 import {
   assertLocalOpenCodeLogin,
   assertSetupHostsStopped,
@@ -432,6 +437,25 @@ export async function runCli(
 
 const execFileAsync = promisify(execFile)
 
+/**
+ * Run one CLI command with this process's heartbeat on disk for the whole
+ * run, so other plugin versions on this machine see that a process using the
+ * OpenCode config folder is live. The heartbeat is removed when the command
+ * finishes, because the process exits right after.
+ */
+export async function runCliProcess(
+  argv: string[],
+  deps: CliDependencies,
+): Promise<number> {
+  const logger = createLogger('process-heartbeat')
+  await startRuntimeProcessHeartbeat(logger)
+  try {
+    return await runCli(argv, deps)
+  } finally {
+    await removeProcessHeartbeat(logger)
+  }
+}
+
 async function openBrowserDefault(url: string): Promise<void> {
   if (process.platform === 'win32') {
     await execFileAsync('cmd', ['/c', 'start', '', url])
@@ -712,7 +736,7 @@ function isCliEntry(): boolean {
 }
 
 if (isCliEntry()) {
-  process.exitCode = await runCli(
+  process.exitCode = await runCliProcess(
     process.argv.slice(2),
     createDefaultCliDependencies(),
   )

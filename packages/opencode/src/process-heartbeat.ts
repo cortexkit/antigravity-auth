@@ -1,0 +1,297 @@
+// Process heartbeat: which plugin versions are running on this machine.
+//
+// Every OpenCode 1 plugin instance, OpenCode 2 location and CLI run leaves
+// one small file, `<pid>.json`, in a shared directory under the user's state
+// home. A later release that moves the account, vault, cache and log files out
+// of the OpenCode config folder reads these files to learn which versions are
+// live before it acts; a reader treats a file whose pid is no longer running
+// as absent, so a crashed process leaves nothing it has to clean up.
+//
+// Writing it is best-effort. A failure is logged and never fails the loader,
+// and nothing here runs on the request path. There is no periodic refresh:
+// the file is written when the process's first owner starts, and a failed
+// write is tried again when the next owner starts.
+//
+// The file also carries `layouts`: for each OpenCode config folder this
+// process resolved, whether it keeps that folder's runtime files in the
+// config folder itself (`legacy`) or in the state home (`state-home`). This
+// release only has the legacy layout. A process that runs on the legacy
+// layout keeps its file until it exits, even after its last owner released
+// it, because its paths stay fixed for its whole life and the move must wait
+// for it.
+
+import { randomUUID } from 'node:crypto'
+import { rmSync } from 'node:fs'
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { canonicalizeOwnedPath } from './plugin/config/loader'
+import { getConfigDir } from './plugin/storage'
+
+/** Where one process keeps one config folder's runtime files. */
+export type ProcessLayout = 'legacy' | 'state-home'
+
+export interface ProcessHeartbeat {
+  pid: number
+  version: string
+  startedAt: number
+  /** Config folder key (`processConfigFolderKey()`) to its layout. */
+  layouts: Record<string, ProcessLayout>
+}
+
+/**
+ * The heartbeat directory, resolved the same way as the RPC directory:
+ * `$XDG_STATE_HOME/cortexkit/antigravity-auth/processes`, with
+ * `~/.local/state` as the state home when XDG_STATE_HOME is unset, on every
+ * operating system.
+ */
+export function processHeartbeatDir(): string {
+  const base = process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state')
+  return join(base, 'cortexkit', 'antigravity-auth', 'processes')
+}
+
+export function processHeartbeatPath(
+  pid: number = process.pid,
+  dir: string = processHeartbeatDir(),
+): string {
+  return join(dir, `${pid}.json`)
+}
+
+/**
+ * The key a config folder is recorded under: the OpenCode config folder the
+ * account file lives in (`getConfigDir()` in `plugin/storage.ts`), with
+ * symlinks resolved and letters lower-cased, so two spellings of one folder
+ * share one key.
+ */
+export function processConfigFolderKey(): string {
+  return canonicalizeOwnedPath(getConfigDir()).toLowerCase()
+}
+
+// The state every copy of this bundle in one process shares. One OpenCode
+// process can host several plugin instances (one per project directory) and
+// OpenCode 2 can load more than one copy of this bundle, all sharing one pid
+// and therefore one file, so the owner count, start time and layouts live on
+// the global object rather than in this module.
+interface SharedHeartbeatState {
+  owners: number
+  startedAt: number | undefined
+  layouts: Map<string, ProcessLayout>
+  /** The file this process last wrote and has not removed. */
+  writtenPath: string | undefined
+  /** `layouts` as last written, to tell whether the file is current. */
+  writtenLayouts: string | undefined
+  exitHookInstalled: boolean
+}
+
+const stateKey = Symbol.for('cortexkit.antigravity-auth.process-heartbeat')
+const globalState = globalThis as typeof globalThis & {
+  [stateKey]?: SharedHeartbeatState
+}
+const shared: SharedHeartbeatState = globalState[stateKey] ?? {
+  owners: 0,
+  startedAt: undefined,
+  layouts: new Map(),
+  writtenPath: undefined,
+  writtenLayouts: undefined,
+  exitHookInstalled: false,
+}
+globalState[stateKey] = shared
+
+function layoutsRecord(): Record<string, ProcessLayout> {
+  return Object.fromEntries(shared.layouts)
+}
+
+function holdsLegacyLayout(): boolean {
+  for (const layout of shared.layouts.values())
+    if (layout === 'legacy') return true
+  return false
+}
+
+// Remove the file when the process exits, where Node still runs exit
+// handlers. A process killed outright leaves the file; its dead pid then
+// counts as absent.
+function installExitHook(): void {
+  if (shared.exitHookInstalled) return
+  shared.exitHookInstalled = true
+  process.once('exit', () => {
+    if (!shared.writtenPath) return
+    try {
+      rmSync(shared.writtenPath, { force: true })
+    } catch {
+      // Exit cannot report anything; a stale file names a dead pid.
+    }
+  })
+}
+
+export interface HeartbeatLogger {
+  warn(message: string, meta?: Record<string, unknown>): unknown
+}
+
+export interface ProcessHeartbeatHandle {
+  /** Where the heartbeat is, or undefined when no write has succeeded. */
+  path: string | undefined
+  /**
+   * Drop this owner. The file is removed when no owner in the process is
+   * left and the process holds no legacy layout.
+   */
+  release(): Promise<void>
+}
+
+async function writeHeartbeatFile(
+  dir: string,
+  heartbeat: ProcessHeartbeat,
+): Promise<string> {
+  await mkdir(dir, { recursive: true, mode: 0o700 })
+  // mkdir's mode does not apply to a directory that already exists.
+  await chmod(dir, 0o700)
+  const target = processHeartbeatPath(heartbeat.pid, dir)
+  // Written to a temporary name and renamed into place, so a reader never
+  // sees a half-written file.
+  const temporary = `${target}.${randomUUID()}.tmp`
+  try {
+    await writeFile(temporary, `${JSON.stringify(heartbeat)}\n`, {
+      mode: 0o600,
+    })
+    await rename(temporary, target)
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => {})
+    throw error
+  }
+  return target
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Record this process as running `version`, with `layouts` added to the
+ * layouts it already holds. Never throws: a failed write is logged at warn
+ * and tried again at the next owner start. The file is written only when
+ * this process has not written it yet or its layouts changed, so later
+ * owners of a process whose file is current write nothing.
+ */
+export async function startProcessHeartbeat(input: {
+  version: string
+  logger: HeartbeatLogger
+  layouts?: Record<string, ProcessLayout>
+  now?: () => number
+  pid?: number
+  dir?: string
+}): Promise<ProcessHeartbeatHandle> {
+  const pid = input.pid ?? process.pid
+  const dir = input.dir ?? processHeartbeatDir()
+  shared.startedAt ??= (input.now ?? Date.now)()
+  shared.owners++
+  for (const [key, layout] of Object.entries(input.layouts ?? {}))
+    shared.layouts.set(key, layout)
+  const target = processHeartbeatPath(pid, dir)
+  const layouts = layoutsRecord()
+  const signature = JSON.stringify(layouts)
+  let path: string | undefined
+  if (shared.writtenPath === target && shared.writtenLayouts === signature) {
+    path = target
+  } else {
+    try {
+      path = await writeHeartbeatFile(dir, {
+        pid,
+        version: input.version,
+        startedAt: shared.startedAt,
+        layouts,
+      })
+      shared.writtenPath = path
+      shared.writtenLayouts = signature
+      installExitHook()
+    } catch (error) {
+      input.logger.warn('process heartbeat not written', {
+        dir,
+        error: errorText(error),
+      })
+    }
+  }
+  let released = false
+  return {
+    path,
+    async release() {
+      if (released) return
+      released = true
+      shared.owners = Math.max(0, shared.owners - 1)
+      if (shared.owners > 0) return
+      // A legacy-layout process keeps using the old paths until it exits.
+      if (holdsLegacyLayout()) return
+      await removeHeartbeatFile(input.logger)
+    },
+  }
+}
+
+async function removeHeartbeatFile(logger: HeartbeatLogger): Promise<void> {
+  const path = shared.writtenPath
+  if (!path) return
+  shared.writtenPath = undefined
+  shared.writtenLayouts = undefined
+  await rm(path, { force: true }).catch((error: unknown) => {
+    logger.warn('process heartbeat not removed', {
+      path,
+      error: errorText(error),
+    })
+  })
+}
+
+/**
+ * Remove this process's heartbeat now, whatever its owners and layouts,
+ * because the process is about to exit. The CLI calls it when its command
+ * finishes. Never throws.
+ */
+export async function removeProcessHeartbeat(
+  logger: HeartbeatLogger,
+): Promise<void> {
+  await removeHeartbeatFile(logger)
+}
+
+// The plugin's own version, read from the package manifest. This module sits
+// directly under `src/`, and the bundles it is built into sit directly under
+// `dist/`, so `../package.json` names the manifest from both.
+let packageVersion: Promise<string> | undefined
+function pluginPackageVersion(): Promise<string> {
+  packageVersion ??= readFile(
+    new URL('../package.json', import.meta.url),
+    'utf8',
+  )
+    .then((text) => (JSON.parse(text) as { version: string }).version)
+    .catch((error: unknown) => {
+      // Let the next owner start read it again.
+      packageVersion = undefined
+      throw error
+    })
+  return packageVersion
+}
+
+/**
+ * Start one owner of this process's heartbeat: the plugin's version and the
+ * OpenCode config folder on the legacy layout, the only layout this release
+ * has. Never throws; a failure is logged at warn.
+ */
+export async function startRuntimeProcessHeartbeat(
+  logger: HeartbeatLogger,
+): Promise<ProcessHeartbeatHandle> {
+  let version = 'unknown'
+  let layouts: Record<string, ProcessLayout> = {}
+  try {
+    version = await pluginPackageVersion()
+    layouts = { [processConfigFolderKey()]: 'legacy' }
+  } catch (error) {
+    logger.warn('process heartbeat details unavailable', {
+      error: errorText(error),
+    })
+  }
+  return startProcessHeartbeat({ version, logger, layouts })
+}
+
+/** Forget the process-wide heartbeat state; for tests only. */
+export function __resetProcessHeartbeatForTest(): void {
+  shared.owners = 0
+  shared.startedAt = undefined
+  shared.layouts.clear()
+  shared.writtenPath = undefined
+  shared.writtenLayouts = undefined
+}
