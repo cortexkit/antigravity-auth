@@ -24,6 +24,7 @@ import { ClaustrumClient } from '@cortexkit/claustrum-client'
 
 import { createVaultAccountPool } from './shared/vault-request-credentials.ts'
 import {
+  createOpenCodeVaultAccountPool,
   createOpenCodeVaultCustody,
   OPENCODE_VAULT_ENROLLMENT_NAME,
   OPENCODE_VAULT_HOST,
@@ -59,12 +60,15 @@ afterEach(async () => {
 function fakeEnrollmentService() {
   const proposals: { name: string }[] = []
   let approve = false
+  let approvedName: string = OPENCODE_VAULT_ENROLLMENT_NAME
   let denied = false
   let blocked = false
   return {
     proposals,
-    approveNext() {
+    /** Approve the request, under `name` when the operator chose another one. */
+    approveNext(name: string = OPENCODE_VAULT_ENROLLMENT_NAME) {
       approve = true
+      approvedName = name
     },
     denyNext() {
       denied = true
@@ -90,7 +94,7 @@ function fakeEnrollmentService() {
         return approve
           ? {
               status: 'approved' as const,
-              name: OPENCODE_VAULT_ENROLLMENT_NAME,
+              name: approvedName,
               token: ENROLLMENT_TOKEN,
               tokenGeneration: 1,
             }
@@ -440,10 +444,13 @@ it('observes source transitions with the existing consumer while local credentia
 describe('Vault section enrollment guidance', () => {
   const GRANT =
     'ck auth grant --principal enrolled:antigravity-auth-opencode --selector-kind category --selector antigravity-native --operation read'
+  const OTHER_NAME = 'antigravity-auth-opencode-2'
+  const OTHER_GRANT =
+    'ck auth grant --principal enrolled:antigravity-auth-opencode-2 --selector-kind category --selector antigravity-native --operation read'
   const pendingSteps = (approve: string) => [
     'Next, the vault operator runs these outside OpenCode:',
     approve,
-    `2. Grant read access: ${GRANT}`,
+    `2. Grant read access to the name approved in step 1, for example: ${GRANT}`,
     'Both are needed: an approval without the grant serves this host no accounts.',
     '3. OpenCode checks approval in the background and tells this session when the operator decides; once approved, accounts come from the vault.',
   ]
@@ -549,7 +556,9 @@ describe('Vault section enrollment guidance', () => {
   /**
    * Approve this host's enrollment, let the real consumer discover an empty
    * roster whose listing reports `grants` and `grantTuples`, then check the
-   * Vault section lines and the request-access action's text.
+   * request path's no-account message, the Vault section lines and the
+   * request-access action's text. The operator approves the enrollment as
+   * `approvedName`; a request's message is `refusal`.
    */
   async function expectEmptyRosterGuidance(
     grants: number | undefined,
@@ -557,9 +566,11 @@ describe('Vault section enrollment guidance', () => {
       | { selectorKind: string; selector: string; operation: string }[]
       | undefined,
     expected: string[],
+    refusal: string | undefined,
+    approvedName: string = OPENCODE_VAULT_ENROLLMENT_NAME,
   ) {
     const service = fakeEnrollmentService()
-    service.approveNext()
+    service.approveNext(approvedName)
     const { custody } = custodyWith(async () => undefined, service, {
       connect: async () => ({
         listScoped: async () => ({
@@ -577,18 +588,25 @@ describe('Vault section enrollment guidance', () => {
     })
     try {
       await custody.requestAccess()
-      await (await custody.custodySource()).refresh()
+      const source = await custody.custodySource()
+      // The source's own custody check reads the approval before listing;
+      // nothing else has read the enrollment yet when the request path asks.
+      await source.refresh()
+      const pool = createOpenCodeVaultAccountPool({
+        source,
+        grantPrincipal: () => custody.grantPrincipal(),
+      })
+      expect(pool.credentials.emptyRosterRefusal?.()).toBe(refusal)
       expect((await custody.menuSection().build(invocation)).lines).toEqual([
         'Mode: vault',
-        'Vault access: approved as antigravity-auth-opencode',
+        `Vault access: approved as ${approvedName}`,
         ...expected,
       ])
       expect(await runAction(custody, 'request-access')).toEqual({
         ok: true,
-        text: [
-          'Vault access: approved as antigravity-auth-opencode',
-          ...expected,
-        ].join('\n'),
+        text: [`Vault access: approved as ${approvedName}`, ...expected].join(
+          '\n',
+        ),
       })
     } finally {
       await custody.dispose()
@@ -597,21 +615,28 @@ describe('Vault section enrollment guidance', () => {
 
   it('names the missing read grant when the approved vault serves no accounts', async () => {
     // A vault that does not report grants leaves the cause unknown.
-    await expectEmptyRosterGuidance(undefined, undefined, NO_ACCOUNTS)
-  })
-
-  it('says no grant exists and gives the grant command when the vault reports zero grants', async () => {
     await expectEmptyRosterGuidance(
-      0,
-      [],
-      [
-        'Vault access is approved. The vault has not granted antigravity-auth-opencode read access.',
-        `The vault operator grants it with: ${GRANT}`,
-      ],
+      undefined,
+      undefined,
+      NO_ACCOUNTS,
+      undefined,
     )
   })
 
+  it('says no grant exists and gives the grant command when the vault reports zero grants', async () => {
+    const lines = [
+      'Vault access is approved. The vault has not granted antigravity-auth-opencode read access.',
+      `The vault operator grants it with: ${GRANT}`,
+    ]
+    await expectEmptyRosterGuidance(0, [], lines, lines.join('\n'))
+  })
+
   it('says the grant reaches no login and gives the reclassify and status commands when a grant exists', async () => {
+    const lines = [
+      'Vault access is approved. antigravity-auth-opencode has read access, but it reaches no Antigravity login in the vault.',
+      "The vault operator updates the vault's logins with: ck auth reclassify --from-registry",
+      'Then they check them with: ck auth status',
+    ]
     await expectEmptyRosterGuidance(
       1,
       [
@@ -621,11 +646,56 @@ describe('Vault section enrollment guidance', () => {
           operation: 'read',
         },
       ],
+      lines,
+      lines.join('\n'),
+    )
+  })
+
+  it('names the enrollment the operator approved under another name in the grant command and messages', async () => {
+    const noGrant = [
+      `Vault access is approved. The vault has not granted ${OTHER_NAME} read access.`,
+      `The vault operator grants it with: ${OTHER_GRANT}`,
+    ]
+    await expectEmptyRosterGuidance(
+      0,
+      [],
+      noGrant,
+      noGrant.join('\n'),
+      OTHER_NAME,
+    )
+  })
+
+  it('names the enrollment the operator approved under another name when the grants are unknown', async () => {
+    await expectEmptyRosterGuidance(
+      undefined,
+      undefined,
       [
-        'Vault access is approved. antigravity-auth-opencode has read access, but it reaches no Antigravity login in the vault.',
-        "The vault operator updates the vault's logins with: ck auth reclassify --from-registry",
-        'Then they check them with: ck auth status',
+        `Vault access is approved, but the vault serves ${OTHER_NAME} no Antigravity accounts.`,
+        `The vault operator grants read access with: ${OTHER_GRANT}`,
       ],
+      undefined,
+      OTHER_NAME,
+    )
+  })
+
+  it('names the enrollment the operator approved under another name when its grant reaches no login', async () => {
+    const lines = [
+      `Vault access is approved. ${OTHER_NAME} has read access, but it reaches no Antigravity login in the vault.`,
+      "The vault operator updates the vault's logins with: ck auth reclassify --from-registry",
+      'Then they check them with: ck auth status',
+    ]
+    await expectEmptyRosterGuidance(
+      1,
+      [
+        {
+          selectorKind: 'category',
+          selector: 'antigravity-native',
+          operation: 'read',
+        },
+      ],
+      lines,
+      lines.join('\n'),
+      OTHER_NAME,
     )
   })
 

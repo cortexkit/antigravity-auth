@@ -41,6 +41,12 @@ import {
   readPiVaultMode,
   writePiVaultMode,
 } from './vault-setup.ts'
+import {
+  createPiVaultAccountsPort,
+  createPiVaultRuntime,
+  createPiVaultSend,
+  PiVaultSendError,
+} from './vault-source.ts'
 
 // A 64-hex enrollment token, the only shape the vault library accepts.
 const ENROLLMENT_SECRET = 'b'.repeat(64)
@@ -509,7 +515,7 @@ function pendingSteps(approve: string): string[] {
   return [
     'Next, the vault operator runs these outside Pi:',
     approve,
-    `2. Grant read access: ${GRANT}`,
+    `2. Grant read access to the name approved in step 1, for example: ${GRANT}`,
     'Both are needed: without the grant, Pi can see no accounts in the vault.',
     '3. Pi switches to the vault once it sees the approval. Choose Request vault access to check again.',
   ]
@@ -531,13 +537,15 @@ const NO_ACCOUNTS = [
 
 /**
  * The vault's enrollment endpoint with answers the test changes as it goes:
- * `refuse` makes the next proposals fail with a vault refusal code.
+ * `refuse` makes the next proposals fail with a vault refusal code, and
+ * `approvedName` is the name the operator approves the request under.
  */
 function vaultEndpoint() {
   const calls = { proposals: 0 }
   const answers: {
     refuse?: { code: string; retry: boolean }
     poll: PollStep
+    approvedName?: string
   } = { poll: 'pending' }
   const connect = async (): Promise<ClaustrumEnrollmentConnection> => ({
     enrollPropose: async () => {
@@ -555,7 +563,7 @@ function vaultEndpoint() {
       answers.poll === 'approved'
         ? {
             status: 'approved' as const,
-            name: PI_ANTIGRAVITY_ENROLLMENT_NAME,
+            name: answers.approvedName ?? PI_ANTIGRAVITY_ENROLLMENT_NAME,
             token: ENROLLMENT_SECRET,
             tokenGeneration: 1,
           }
@@ -728,6 +736,70 @@ describe('Pi vault enrollment guidance', () => {
       APPROVED,
       ...NO_ACCOUNTS,
     ])
+  })
+
+  it('names the enrollment the operator approved under another name in the menu, request access and a send', async () => {
+    const OTHER_GRANT =
+      'ck auth grant --principal enrolled:antigravity-auth-pi-2 --selector-kind category --selector antigravity-native --operation read'
+    const NO_GRANT = [
+      'The vault operator approved Pi. The vault has not granted Pi read access.',
+      `The vault operator grants it with: ${OTHER_GRANT}`,
+    ]
+    const endpoint = vaultEndpoint()
+    endpoint.answers.poll = 'approved'
+    endpoint.answers.approvedName = 'antigravity-auth-pi-2'
+    // Pi's real vault composition over a vault that lists no account for Pi
+    // and reports zero grants.
+    const runtime = () =>
+      createPiVaultRuntime(() => hostSlot, {
+        vaultDir: join(dir, 'vault'),
+        modeFile,
+        rosterFile: join(dir, 'roster.json'),
+        connectEnrollment: endpoint.connect,
+        connect: async () => ({
+          listScoped: async () => ({
+            view: 'empty-view',
+            rows: [],
+            grants: 0,
+            grantTuples: [],
+          }),
+          getScoped: async () => {
+            throw new Error('an empty roster admits no send')
+          },
+          reportAuthFailureScoped: async () => {},
+          close() {},
+        }),
+      })
+    const first = runtime()
+    const section = createPiVaultSection({
+      setup: first.setup,
+      accounts: () => createPiVaultAccountsPort(first.requestPath),
+    })
+    expect(
+      await action(await build(section), 'request-access').run({
+        values: {},
+        invocation: invocation().value,
+      }),
+    ).toEqual({ ok: true, text: [APPROVED, ...NO_GRANT].join('\n') })
+    expect((await build(section)).lines).toEqual([
+      CUSTODY,
+      APPROVED,
+      ...NO_GRANT,
+    ])
+
+    // A fresh composition, as after a restart: the send path learns the
+    // approved name from the enrollment status it reads before sending.
+    let dispatched = 0
+    const refusal = await createPiVaultSend(runtime().requestPath)(async () => {
+      dispatched++
+      return new Response('{}')
+    }, new AbortController().signal).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(dispatched).toBe(0)
+    expect(refusal).toBeInstanceOf(PiVaultSendError)
+    expect((refusal as Error).message).toBe(NO_GRANT.join('\n'))
   })
 
   it('points an approved host with vault accounts but local mode at Serve Pi from the vault', async () => {

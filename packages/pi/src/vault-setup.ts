@@ -197,6 +197,9 @@ export class PiVaultSetupError extends Error {
 export class PiVaultSetup {
   readonly #options: PiVaultSetupOptions
   readonly paths: ClaustrumEnrollmentPaths
+  // The enrollment name from the last approved status read here, for the
+  // request path's no-account error (see `grantPrincipal`).
+  #approvedPrincipal: string | undefined
 
   constructor(options: PiVaultSetupOptions) {
     this.#options = options
@@ -225,6 +228,7 @@ export class PiVaultSetup {
           code: 'unreadable-state',
         }),
       )
+    this.#remember(enrollment)
     const authority = await enrollmentAuthority(
       this.paths,
       PI_ANTIGRAVITY_ENROLLMENT_NAME,
@@ -254,6 +258,19 @@ export class PiVaultSetup {
     }
   }
 
+  #remember(status: ClaustrumEnrollmentStatus): void {
+    if (status.state === 'approved')
+      this.#approvedPrincipal = piGrantPrincipal(status)
+  }
+
+  /**
+   * The enrollment name the vault grants read access to: the name in the
+   * last approved status read here, else the default name.
+   */
+  grantPrincipal(): string {
+    return this.#approvedPrincipal ?? PI_ANTIGRAVITY_ENROLLMENT_NAME
+  }
+
   /** Inspect the native login only when local accounts are selected. */
   async status(): Promise<PiVaultSetupStatus> {
     const source = await this.sourceStatus()
@@ -280,6 +297,7 @@ export class PiVaultSetup {
       if (current.state === 'denied' || current.state === 'blocked')
         await manager.resetTerminal()
       const reconciled = await manager.reconcile()
+      this.#remember(reconciled)
       if (reconciled.state === 'approved') {
         const saved = readPiVaultMode(this.#options.modeFile)
         await this.useVault(
@@ -397,10 +415,27 @@ function describeEnrollment(status: ClaustrumEnrollmentStatus): string {
 
 // The vault operator approves and grants with Claustrum's `ck` command,
 // outside Pi. Approval alone serves nothing: the enrollment also needs read
-// access to the vault's Antigravity accounts.
+// access to the vault's Antigravity accounts. The grant names the enrollment
+// as the operator approved it, which may differ from the name Pi proposed.
 
-/** The operator's command that grants Pi's enrollment read access to Antigravity accounts. */
-export const PI_VAULT_GRANT_COMMAND = `ck auth grant --principal enrolled:${PI_ANTIGRAVITY_ENROLLMENT_NAME} --selector-kind category --selector antigravity-native --operation read`
+/** The operator's command that grants the enrollment `principal` read access to Antigravity accounts. */
+export function vaultGrantCommand(principal: string): string {
+  return `ck auth grant --principal enrolled:${principal} --selector-kind category --selector antigravity-native --operation read`
+}
+
+/**
+ * The enrollment name the vault knows Pi by: the name the operator approved,
+ * else the proposed name, else the default Pi proposes.
+ */
+export function piGrantPrincipal(status: ClaustrumEnrollmentStatus): string {
+  return (
+    (status.state === 'approved' ? status.approvedName : undefined) ??
+    (status.state === 'idle' || status.state === 'busy'
+      ? undefined
+      : status.proposedName) ??
+    PI_ANTIGRAVITY_ENROLLMENT_NAME
+  )
+}
 
 /** What to do while Pi's request waits in the vault; names the request when Pi knows its ID. */
 function piPendingEnrollmentGuidance(requestId?: string): string[] {
@@ -409,7 +444,9 @@ function piPendingEnrollmentGuidance(requestId?: string): string[] {
     requestId === undefined
       ? `1. Find the request from ${PI_ANTIGRAVITY_ENROLLMENT_NAME} with ck auth enroll list, then approve it: ck auth enroll approve --request-id <id>`
       : `1. Approve the request: ck auth enroll approve --request-id ${requestId}`,
-    `2. Grant read access: ${PI_VAULT_GRANT_COMMAND}`,
+    // The operator may approve the request under another name; the grant
+    // must name the approved one, so the default only serves as an example.
+    `2. Grant read access to the name approved in step 1, for example: ${vaultGrantCommand(PI_ANTIGRAVITY_ENROLLMENT_NAME)}`,
     'Both are needed: without the grant, Pi can see no accounts in the vault.',
     '3. Pi switches to the vault once it sees the approval. Choose Request vault access to check again.',
   ]
@@ -433,21 +470,26 @@ function piPendingExistsGuidance(): string[] {
  * Shown when Pi is approved but the vault lists no Antigravity accounts for
  * it. When the vault reported Pi's grants, they tell the two causes apart: no
  * grant at all, or a grant that matches no login. When the grants are
- * unknown, the general message names the grant command.
+ * unknown, the general message names the grant command. `principal` is the
+ * enrollment name the operator approved (see `piGrantPrincipal`).
  */
 export function piNoVaultAccountsGuidance(
   reach: VaultGrantReach | undefined,
+  principal: string,
 ): string[] {
-  return piEmptyRosterGuidance(emptyVaultRosterCause(reach))
+  return piEmptyRosterGuidance(emptyVaultRosterCause(reach), principal)
 }
 
 /** The Vault menu's lines for each reason the vault serves Pi no account. */
-function piEmptyRosterGuidance(cause: EmptyVaultRosterCause): string[] {
+function piEmptyRosterGuidance(
+  cause: EmptyVaultRosterCause,
+  principal: string,
+): string[] {
   switch (cause) {
     case 'no-grant':
       return [
         'The vault operator approved Pi. The vault has not granted Pi read access.',
-        `The vault operator grants it with: ${PI_VAULT_GRANT_COMMAND}`,
+        `The vault operator grants it with: ${vaultGrantCommand(principal)}`,
       ]
     case 'grant-reaches-nothing':
       return [
@@ -458,22 +500,24 @@ function piEmptyRosterGuidance(cause: EmptyVaultRosterCause): string[] {
     case 'unknown':
       return [
         "The vault operator approved Pi, but Pi can't see any Antigravity accounts in the vault yet.",
-        `If the operator has not granted Pi read access yet, they run: ${PI_VAULT_GRANT_COMMAND}`,
+        `If the operator has not granted Pi read access yet, they run: ${vaultGrantCommand(principal)}`,
       ]
   }
 }
 
 /**
  * The send error when the vault serves Pi no account: the menu's lines for
- * the same cause, one per line. An unknown cause returns undefined, so the
- * send keeps its general error.
+ * the same cause, one per line, for the enrollment name `principal` (the
+ * default name without one). An unknown cause returns undefined, so the send
+ * keeps its general error.
  */
 export function piEmptyVaultRosterRefusal(
   cause: EmptyVaultRosterCause,
+  principal: string = PI_ANTIGRAVITY_ENROLLMENT_NAME,
 ): string | undefined {
   return cause === 'unknown'
     ? undefined
-    : piEmptyRosterGuidance(cause).join('\n')
+    : piEmptyRosterGuidance(cause, principal).join('\n')
 }
 
 /** The next steps for an enrollment state that needs the user or the operator to act. */
@@ -627,13 +671,18 @@ export function createPiVaultSection(
   // the first is still waiting does not report the operator's decision twice.
   let watching = false
 
-  /** Lines for an approved enrollment whose vault roster is empty; empty when unknown. */
-  const approvedRosterGuidance = async (): Promise<string[]> => {
+  /**
+   * Lines for an approved enrollment whose vault roster is empty; empty when
+   * unknown. `principal` is the enrollment name the operator approved.
+   */
+  const approvedRosterGuidance = async (
+    principal: string,
+  ): Promise<string[]> => {
     const port = options.accounts?.()
     if (!port) return []
     try {
       return (await port.list()).length === 0
-        ? piNoVaultAccountsGuidance(port.grantReach())
+        ? piNoVaultAccountsGuidance(port.grantReach(), principal)
         : []
     } catch {
       // The Vault section reports an unreachable roster when it is opened;
@@ -650,7 +699,9 @@ export function createPiVaultSection(
     [
       `${describeEnrollment(step)}${suffix}`,
       ...enrollmentGuidance(step),
-      ...(step.state === 'approved' ? await approvedRosterGuidance() : []),
+      ...(step.state === 'approved'
+        ? await approvedRosterGuidance(piGrantPrincipal(step))
+        : []),
     ].join('\n')
 
   return {
@@ -717,7 +768,12 @@ export function createPiVaultSection(
             })
           }
           if (listed.length === 0)
-            lines.push(...piNoVaultAccountsGuidance(port.grantReach()))
+            lines.push(
+              ...piNoVaultAccountsGuidance(
+                port.grantReach(),
+                piGrantPrincipal(status.enrollment),
+              ),
+            )
           else if (status.mode !== 'custody')
             lines.push(
               'Next: choose Use the vault to have Pi use these accounts.',

@@ -311,6 +311,11 @@ export interface OpenCodeVaultCustody {
   menuSection(): MenuExtraSection
   /** The vault accounts' stored provider state (missing file: none). */
   readState(): Promise<VaultProviderStateFile>
+  /**
+   * The enrollment name the vault grants read access to: the name in the
+   * last approved status custody read, else the default name.
+   */
+  grantPrincipal(): string
   /** Closes the vault source, if one was created. */
   dispose(): Promise<void>
 }
@@ -324,6 +329,10 @@ export function createOpenCodeVaultCustody(
     options.connectionFile ?? (() => resolveClaustrumConnectionPath())
   let source: AntigravityVaultAccountSource | null = null
   let creating: Promise<AntigravityVaultAccountSource> | null = null
+  // The enrollment name from the last approved status read here. The request
+  // path's no-account message is built synchronously, so it cannot read the
+  // enrollment itself; the source's custody check reads it before each listing.
+  let approvedPrincipal: string | undefined
 
   const enrollmentPaths = async (): Promise<EnrollmentPaths> =>
     (await loadClaustrum()).hostEnrollmentPaths({
@@ -333,7 +342,7 @@ export function createOpenCodeVaultCustody(
 
   const readEnrollment = async (): Promise<EnrollmentStatus> => {
     const claustrum = await loadClaustrum()
-    return claustrum
+    const status = await claustrum
       .readClaustrumEnrollmentStatus(
         await enrollmentPaths(),
         OPENCODE_VAULT_ENROLLMENT_NAME,
@@ -345,6 +354,8 @@ export function createOpenCodeVaultCustody(
           code: 'unreadable-state',
         }),
       )
+    if (status.state === 'approved') approvedPrincipal = grantPrincipal(status)
+    return status
   }
 
   /**
@@ -523,6 +534,7 @@ export function createOpenCodeVaultCustody(
    */
   const approvedNextSteps = async (
     mode: OpenCodeVaultStatus['mode'],
+    principal: string,
   ): Promise<string[]> => {
     if (mode === 'local')
       return [
@@ -534,7 +546,7 @@ export function createOpenCodeVaultCustody(
         paths.rosterFile,
       )
       return roster?.rows.length === 0
-        ? noVaultAccountsGuidance(source?.grantReach())
+        ? noVaultAccountsGuidance(source?.grantReach(), principal)
         : []
     } catch {
       return []
@@ -581,7 +593,10 @@ export function createOpenCodeVaultCustody(
       `Vault access: ${describeEnrollment(step)}`,
       ...enrollmentGuidance(step),
       ...(step.state === 'approved'
-        ? await approvedNextSteps((await custody.status()).mode)
+        ? await approvedNextSteps(
+            (await custody.status()).mode,
+            grantPrincipal(step),
+          )
         : []),
     ].join('\n')
 
@@ -694,7 +709,12 @@ export function createOpenCodeVaultCustody(
           const status = await custody.status()
           const lines = statusLines(status)
           if (status.enrollment.state === 'approved')
-            lines.push(...(await approvedNextSteps(status.mode)))
+            lines.push(
+              ...(await approvedNextSteps(
+                status.mode,
+                grantPrincipal(status.enrollment),
+              )),
+            )
           const actions: NonNullable<
             Awaited<ReturnType<MenuExtraSection['build']>>['actions']
           > = [
@@ -773,6 +793,8 @@ export function createOpenCodeVaultCustody(
 
     readState: () => readVaultProviderState(paths.stateFile),
 
+    grantPrincipal: () => approvedPrincipal ?? OPENCODE_VAULT_ENROLLMENT_NAME,
+
     dispose: async () => {
       closed = true
       cancelWait?.()
@@ -828,9 +850,27 @@ function describeEnrollment(status: EnrollmentStatus): string {
 /**
  * The vault operator approves and grants with Claustrum's `ck` command,
  * outside OpenCode. Approval alone serves nothing: the enrollment also needs
- * read access to the vault's Antigravity accounts.
+ * read access to the vault's Antigravity accounts. The grant names the
+ * enrollment as the operator approved it, which may differ from the name
+ * OpenCode proposed.
  */
-export const OPENCODE_VAULT_GRANT_COMMAND = `ck auth grant --principal enrolled:${OPENCODE_VAULT_ENROLLMENT_NAME} --selector-kind category --selector antigravity-native --operation read`
+export function vaultGrantCommand(principal: string): string {
+  return `ck auth grant --principal enrolled:${principal} --selector-kind category --selector antigravity-native --operation read`
+}
+
+/**
+ * The enrollment name the vault knows this host by: the name the operator
+ * approved, else the proposed name, else the default this host proposes.
+ */
+function grantPrincipal(status: EnrollmentStatus): string {
+  return (
+    (status.state === 'approved' ? status.approvedName : undefined) ??
+    (status.state === 'idle' || status.state === 'busy'
+      ? undefined
+      : status.proposedName) ??
+    OPENCODE_VAULT_ENROLLMENT_NAME
+  )
+}
 
 /** What to do while this host's request waits in the vault; names the request when its ID is known. */
 function pendingEnrollmentGuidance(requestId?: string): string[] {
@@ -839,7 +879,9 @@ function pendingEnrollmentGuidance(requestId?: string): string[] {
     requestId === undefined
       ? '1. Find the request ID with ck auth enroll list, then approve it: ck auth enroll approve --request-id <id>'
       : `1. Approve the request: ck auth enroll approve --request-id ${requestId}`,
-    `2. Grant read access: ${OPENCODE_VAULT_GRANT_COMMAND}`,
+    // The operator may approve the request under another name; the grant
+    // must name the approved one, so the default only serves as an example.
+    `2. Grant read access to the name approved in step 1, for example: ${vaultGrantCommand(OPENCODE_VAULT_ENROLLMENT_NAME)}`,
     'Both are needed: an approval without the grant serves this host no accounts.',
     '3. OpenCode checks approval in the background and tells this session when the operator decides; once approved, accounts come from the vault.',
   ]
@@ -863,29 +905,36 @@ function pendingExistsGuidance(): string[] {
  * accounts for it. When the vault reported this host's grants, they tell the
  * two causes apart: no grant at all, or a grant that matches no login. When
  * the grants are unknown, the general message names the grant command.
+ * `principal` is the enrollment name the operator approved.
  */
-function noVaultAccountsGuidance(reach: VaultGrantReach | undefined): string[] {
-  return emptyRosterGuidance(emptyVaultRosterCause(reach))
+function noVaultAccountsGuidance(
+  reach: VaultGrantReach | undefined,
+  principal: string,
+): string[] {
+  return emptyRosterGuidance(emptyVaultRosterCause(reach), principal)
 }
 
 /** The Vault section's lines for each reason the vault serves no account. */
-function emptyRosterGuidance(cause: EmptyVaultRosterCause): string[] {
+function emptyRosterGuidance(
+  cause: EmptyVaultRosterCause,
+  principal: string,
+): string[] {
   switch (cause) {
     case 'no-grant':
       return [
-        `Vault access is approved. The vault has not granted ${OPENCODE_VAULT_ENROLLMENT_NAME} read access.`,
-        `The vault operator grants it with: ${OPENCODE_VAULT_GRANT_COMMAND}`,
+        `Vault access is approved. The vault has not granted ${principal} read access.`,
+        `The vault operator grants it with: ${vaultGrantCommand(principal)}`,
       ]
     case 'grant-reaches-nothing':
       return [
-        `Vault access is approved. ${OPENCODE_VAULT_ENROLLMENT_NAME} has read access, but it reaches no Antigravity login in the vault.`,
+        `Vault access is approved. ${principal} has read access, but it reaches no Antigravity login in the vault.`,
         `The vault operator updates the vault's logins with: ${VAULT_RECLASSIFY_COMMAND}`,
         `Then they check them with: ${VAULT_STATUS_COMMAND}`,
       ]
     case 'unknown':
       return [
-        `Vault access is approved, but the vault serves ${OPENCODE_VAULT_ENROLLMENT_NAME} no Antigravity accounts.`,
-        `The vault operator grants read access with: ${OPENCODE_VAULT_GRANT_COMMAND}`,
+        `Vault access is approved, but the vault serves ${principal} no Antigravity accounts.`,
+        `The vault operator grants read access with: ${vaultGrantCommand(principal)}`,
       ]
   }
 }
@@ -893,25 +942,35 @@ function emptyRosterGuidance(cause: EmptyVaultRosterCause): string[] {
 /**
  * The message for a request that finds no account because the vault serves
  * this host none: the Vault section's lines for the same cause, one per line.
- * An unknown cause returns undefined, so the request keeps the general vault
- * remedy.
+ * `principal` is the enrollment name the operator approved; without it the
+ * default name is used. An unknown cause returns undefined, so the request
+ * keeps the general vault remedy.
  */
 export function openCodeEmptyVaultRosterRefusal(
   cause: EmptyVaultRosterCause,
+  principal: string = OPENCODE_VAULT_ENROLLMENT_NAME,
 ): string | undefined {
-  return cause === 'unknown' ? undefined : emptyRosterGuidance(cause).join('\n')
+  return cause === 'unknown'
+    ? undefined
+    : emptyRosterGuidance(cause, principal).join('\n')
 }
 
 /**
  * The vault account pool both OpenCode hosts send requests through. A request
- * that finds no account names the cause the Vault section names.
+ * that finds no account names the cause the Vault section names, for the
+ * enrollment name `grantPrincipal` returns (custody's `grantPrincipal`);
+ * without one, or when it returns undefined, the default name.
  */
 export function createOpenCodeVaultAccountPool(
-  options: Omit<VaultAccountPoolOptions, 'emptyRosterRefusal'>,
+  options: Omit<VaultAccountPoolOptions, 'emptyRosterRefusal'> & {
+    readonly grantPrincipal?: () => string | undefined
+  },
 ): VaultAccountPool {
+  const { grantPrincipal: principal, ...poolOptions } = options
   return createVaultAccountPool({
-    ...options,
-    emptyRosterRefusal: openCodeEmptyVaultRosterRefusal,
+    ...poolOptions,
+    emptyRosterRefusal: (cause) =>
+      openCodeEmptyVaultRosterRefusal(cause, principal?.()),
   })
 }
 
