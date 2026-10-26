@@ -58,6 +58,7 @@ import {
   rowRefKey,
   sameRowRef,
   VAULT_ACCOUNT_REMEDY,
+  type VaultProviderStateFile,
   type VaultRouteRef,
 } from '@cortexkit/antigravity-auth-core'
 import type {
@@ -97,6 +98,11 @@ import {
   diagnosticsMenuSection,
   operatorMenuSettings,
 } from './command-apply.ts'
+import {
+  acquireGaVaultCustody,
+  type GaVaultQuotaPolling,
+  type GaVaultQuotaProducerOptions,
+} from './ga-shared-vault-custody.ts'
 import type { GeminiDumpState } from './gemini-dump.ts'
 import type { Logger } from './logger.ts'
 import type { OperatorSettings } from './operator-settings.ts'
@@ -104,6 +110,7 @@ import { commitLogins } from './persist-account-pool.ts'
 import {
   createAuthorizedFetchAccountQuota,
   createStoreQuotaService,
+  fetchVaultAccountQuota,
 } from './quota.ts'
 import {
   buildThinkingWarmupBody,
@@ -129,7 +136,9 @@ import {
 } from './shared/runtime.ts'
 import { createVaultAccountMenuSections } from './shared/vault-menu'
 import {
+  cachedQuotaOf,
   checkVaultQuota,
+  VAULT_REFRESH_STALL_MS,
   type VaultAccountPool,
   type VaultAccountRow,
   type VaultQuotaAnswer,
@@ -142,7 +151,9 @@ import {
   createOpenCodeVaultAccountPool,
   createOpenCodeVaultCustody,
   type OpenCodeVaultCustody,
+  type OpenCodeVaultCustodyOptions,
 } from './vault-custody.ts'
+import { quotaReadingForVaultRoute } from './vault-sidebar-projection.ts'
 
 /** Accounts one `state` answer may carry (`ANTIGRAVITY_RPC_LIMITS.accounts`). */
 const ACCOUNT_LIMIT = 64
@@ -1026,6 +1037,18 @@ export interface GaLocationCustody
   /** The enrollment name a request's no-account message names; see `OpenCodeVaultCustody`. */
   grantPrincipal?(): string
   custodySource(): Promise<GaVaultCustodySource>
+  /** See `OpenCodeVaultCustody.recycleStalledSource`. */
+  recycleStalledSource?(maxMs: number): Promise<boolean>
+  /**
+   * The source custody serves now, without I/O. Vault services built over
+   * another source are rebuilt, since custody has replaced that one.
+   */
+  currentSource?(): unknown
+  /**
+   * The started location's background vault quota settings. Custody forgets
+   * them when this location's custody is disposed.
+   */
+  pollVaultQuota?(settings: GaVaultQuotaPolling): void
 }
 
 /**
@@ -1716,6 +1739,11 @@ function vaultSelectors(createSelector: () => string) {
 function createGaVaultStateSource(input: {
   /** The pipeline's current selection rows. */
   readonly rows: () => readonly VaultAccountRow[]
+  /**
+   * The vault's stored provider state. Read on each state read, so quota
+   * recorded after a row was listed (by any process) reaches that row.
+   */
+  readonly readState?: () => Promise<VaultProviderStateFile>
   readonly selectorOf: (row: VaultAccountRow) => string
   readonly nextReadSeq?: () => number
   readonly generation: string
@@ -1727,12 +1755,23 @@ function createGaVaultStateSource(input: {
   let queue: Promise<unknown> = Promise.resolve()
   const readOnce = async (scope: AntigravityRpcScope, signal: AbortSignal) => {
     if (signal.aborted) throw abortError(signal)
+    // An unreadable state file leaves each row with the quota it was listed with.
+    const stored = await input.readState?.().catch(() => undefined)
+    if (signal.aborted) throw abortError(signal)
     const rows = input.rows()
     const settings = input.settings()
     const route = input.route(scope)
     if (signal.aborted) throw abortError(signal)
     readSeq = input.nextReadSeq?.() ?? readSeq + 1
     const overLimit = rows.length > ACCOUNT_LIMIT
+    const quotaOf = (row: VaultAccountRow) => {
+      const reading = stored
+        ? quotaReadingForVaultRoute(row.route, stored)
+        : undefined
+      const cachedQuota =
+        (reading ? cachedQuotaOf(reading) : undefined) ?? row.cachedQuota
+      return cachedQuota !== undefined ? { cachedQuota } : {}
+    }
     const answer: GaStateRead = {
       readSeq,
       accounts: overLimit
@@ -1748,9 +1787,7 @@ function createGaVaultStateSource(input: {
                 ...(row.coolingDownUntil !== undefined
                   ? { coolingDownUntil: row.coolingDownUntil }
                   : {}),
-                ...(row.cachedQuota !== undefined
-                  ? { cachedQuota: row.cachedQuota }
-                  : {}),
+                ...quotaOf(row),
               },
             })),
           },
@@ -1821,7 +1858,7 @@ async function createGaVaultLocationServices(input: {
     GaLocationServicesBindings,
     'createSelector' | 'fetchVaultQuota'
   >
-}): Promise<GaLocationServices> {
+}): Promise<GaLocationServices & { readonly source: GaVaultCustodySource }> {
   const { custody, overrides } = input
   await input.assertAdmission?.()
   const source = await custody.custodySource()
@@ -1833,6 +1870,7 @@ async function createGaVaultLocationServices(input: {
   > | null = null
   let disposed: Promise<void> | null = null
   return {
+    source,
     runtime: {
       quotaSnapshots: createMemoryQuotaSnapshots(),
       // Never called: the runtime is given no account view for vault rows,
@@ -1921,6 +1959,7 @@ async function createGaVaultLocationServices(input: {
         execute: started.execute,
         state: createGaVaultStateSource({
           rows: () => started.rows(),
+          readState: () => custody.readState(),
           selectorOf,
           ...(input.nextReadSeq ? { nextReadSeq: input.nextReadSeq } : {}),
           generation: start.generation,
@@ -1974,6 +2013,10 @@ export function createGaLocationServicesFactory(
     let localPromise: Promise<Serving> | undefined
     let vaultPromise: Promise<Serving> | undefined
     let vaultServices: GaLocationServices | undefined
+    // The custody source `vaultServices` was built over.
+    let vaultSource: unknown
+    // The disposal of vault services retired because their source was replaced.
+    let retiredVault: Promise<void> | undefined
     let localPipeline: GaRequestPipeline | undefined
     let reauthorize: ReturnType<typeof createGaReauthorize> | undefined
     let readSeq = 0
@@ -2142,6 +2185,14 @@ export function createGaLocationServicesFactory(
         if (started) throw new Error('The location services already started')
         started = true
         const location = input.runtime
+        // The process's one background vault quota producer follows the
+        // settings of the started locations sharing this custody.
+        custody?.pollVaultQuota?.({
+          enabled: location.config.config.background_quota_refresh,
+          intervalMinutes:
+            location.config.config.background_quota_refresh_interval_minutes,
+          logger: location.logger.createLogger('vault-quota'),
+        })
         const settings = operatorMenuSettings(
           location.operatorSettings,
           () => location.config.config.account_selection_strategy,
@@ -2302,7 +2353,22 @@ export function createGaLocationServicesFactory(
         const vault = (): Promise<Serving> => {
           if (!custody)
             return Promise.reject(new Error('Vault custody is unavailable'))
+          // Custody replaces a source whose refresh stalled, possibly while
+          // another location sharing it waited. Services built over the old
+          // source would serve nothing, so they are rebuilt over the new one.
+          if (
+            vaultServices &&
+            custody.currentSource &&
+            custody.currentSource() !== vaultSource
+          ) {
+            const stale = vaultServices
+            vaultServices = undefined
+            vaultSource = undefined
+            vaultPromise = undefined
+            retiredVault = stale.dispose().catch(() => {})
+          }
           vaultPromise ??= (async () => {
+            await retiredVault
             const created = await createGaVaultLocationServices({
               custody,
               overrides,
@@ -2321,12 +2387,20 @@ export function createGaLocationServicesFactory(
             try {
               const serving = await created.start(input)
               vaultServices = created
+              vaultSource = created.source
               return serving
             } catch (error) {
               await created.dispose().catch(() => {})
               throw error
             }
-          })().catch((error) => {
+          })().catch(async (error) => {
+            // A first roster read that timed out may be waiting on a vault
+            // refresh that never settles. Once it has waited past the stall
+            // bound, custody replaces that source, so a later request
+            // connects again instead of joining the stalled refresh.
+            await custody
+              .recycleStalledSource?.(VAULT_REFRESH_STALL_MS)
+              .catch(() => false)
             vaultPromise = undefined
             throw error
           })
@@ -2414,6 +2488,7 @@ export function createGaLocationServicesFactory(
           await Promise.allSettled([
             localPromise,
             vaultPromise,
+            retiredVault,
             repositoryPromise,
           ])
           try {
@@ -2511,6 +2586,16 @@ export interface GaVaultHost {
    * own resolution of it.
    */
   readonly connectionFile?: () => string | Promise<string>
+  /**
+   * Test seams of the shared custody: its vault client, library loader,
+   * clock and observation interval. Production passes none.
+   */
+  readonly custody?: Pick<
+    OpenCodeVaultCustodyOptions,
+    'connect' | 'connectEnrollment' | 'loadClaustrum' | 'now' | 'pollIntervalMs'
+  >
+  /** Test seams of the shared background vault quota producer. */
+  readonly quota?: GaVaultQuotaProducerOptions
 }
 
 /**
@@ -2519,7 +2604,11 @@ export interface GaVaultHost {
  * collaborators above. Every activation gets its own repository, account
  * slot and pipeline. With `vault`, a location can also serve the vault's
  * accounts: each operation re-reads the enrollment files. An approved host
- * uses the vault; an unenrolled host uses its local store.
+ * uses the vault; an unenrolled host uses its local store. Locations that
+ * resolve the same account file share one vault custody and so one vault
+ * connection at a time; custody replaces a source whose refresh stalled. The
+ * shared background vault quota producer runs only while a started location
+ * has background refresh on (`acquireGaVaultCustody`).
  */
 export function createGaLocationServicesForHost(
   vault?: GaVaultHost,
@@ -2543,15 +2632,23 @@ export function createGaLocationServicesForHost(
       ...(vault
         ? {
             custody: ({ accountFile }) =>
-              createOpenCodeVaultCustody({
+              acquireGaVaultCustody({
                 accountFile,
                 readHostSlot: vault.readHostSlot,
-                ...(vault.connectionFile
-                  ? { connectionFile: vault.connectionFile }
-                  : {}),
-                // The engine reads each send's HTTP status itself.
-                reporterSource: 'direct',
+                create: ({ accountFile: file, readHostSlot }) =>
+                  createOpenCodeVaultCustody({
+                    ...vault.custody,
+                    accountFile: file,
+                    readHostSlot,
+                    ...(vault.connectionFile
+                      ? { connectionFile: vault.connectionFile }
+                      : {}),
+                    // The engine reads each send's HTTP status itself.
+                    reporterSource: 'direct',
+                  }),
+                ...(vault.quota ? { quota: vault.quota } : {}),
               }),
+            fetchVaultQuota: fetchVaultAccountQuota,
           }
         : {}),
     })(input)

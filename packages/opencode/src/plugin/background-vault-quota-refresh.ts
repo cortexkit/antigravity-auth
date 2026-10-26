@@ -52,11 +52,38 @@ export class BackgroundVaultQuotaRefresh {
   private readonly now: () => number
   private readonly random: () => number
   private readonly acquireLock: typeof acquireFencedFileLock
+  private intervalMs: number
+  // The pending timer's start and how long past the interval it adds; null
+  // while the first, randomly delayed tick or none is pending.
+  private intervalWait: { from: number; extra: number } | null = null
 
   constructor(private readonly options: BackgroundVaultQuotaRefreshOptions) {
     this.now = options.now ?? Date.now
     this.random = options.random ?? Math.random
     this.acquireLock = options.acquireLock ?? acquireFencedFileLock
+    this.intervalMs = options.intervalMs
+  }
+
+  /** The current wait between ticks. */
+  get interval(): number {
+    return this.intervalMs
+  }
+
+  /**
+   * Change the wait between ticks. A wait already running is shortened or
+   * lengthened to the new interval, counted from when it began, so a change
+   * never adds a tick of its own beyond what the new interval allows.
+   */
+  setIntervalMs(intervalMs: number): void {
+    if (intervalMs === this.intervalMs) return
+    this.intervalMs = intervalMs
+    const wait = this.intervalWait
+    if (this.timer === null || wait === null) return
+    clearTimeout(this.timer)
+    this.timer = null
+    this.intervalWait = null
+    const remaining = wait.from + intervalMs + wait.extra - this.now()
+    this.schedule(Math.max(0, remaining), wait)
   }
 
   start(): void {
@@ -78,10 +105,15 @@ export class BackgroundVaultQuotaRefresh {
     await this.inFlight
   }
 
-  private schedule(delay: number): void {
+  private schedule(
+    delay: number,
+    intervalWait: { from: number; extra: number } | null = null,
+  ): void {
     if (this.disposed || !this.started) return
+    this.intervalWait = intervalWait
     this.timer = setTimeout(() => {
       this.timer = null
+      this.intervalWait = null
       void this.tick()
     }, delay)
     this.timer.unref?.()
@@ -153,11 +185,9 @@ export class BackgroundVaultQuotaRefresh {
         }
         this.inFlight = null
         this.controller = null
-        this.schedule(
-          this.options.intervalMs +
-            Math.floor(this.random() * this.options.intervalMs * 0.1) +
-            extraJitter,
-        )
+        const extra =
+          Math.floor(this.random() * this.intervalMs * 0.1) + extraJitter
+        this.schedule(this.intervalMs + extra, { from: this.now(), extra })
       })
     return this.inFlight
   }
@@ -210,8 +240,8 @@ export class BackgroundVaultQuotaRefresh {
       await this.assertActive(controller)
       await lock.assertOwned()
       const threshold = Math.max(
-        this.options.intervalMs - 60_000,
-        Math.floor(this.options.intervalMs / 2),
+        this.intervalMs - 60_000,
+        Math.floor(this.intervalMs / 2),
       )
       const now = this.now()
       outcome.rows = pool.selector.rows.length

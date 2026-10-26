@@ -18,6 +18,7 @@ import {
   createVaultRequestCredentials,
   createVaultSelectionState,
   refreshVaultAccountRow,
+  VAULT_REFRESH_STALL_MS,
   vaultAccountRowKey,
   vaultAccountRows,
 } from './vault-request-credentials.ts'
@@ -372,6 +373,48 @@ describe('createVaultAccountPool', () => {
     expect(addedB?.lastUsed).toBe(77)
     expect(refreshes).toBe(2)
   })
+
+  it('stops waiting on a first read still pending after the stall bound and reads again', async () => {
+    let now = 1_000
+    let refreshes = 0
+    // The first refresh never settles; the second answers.
+    const pool = createVaultAccountPool({
+      source: {
+        refresh: () => {
+          refreshes++
+          return refreshes === 1
+            ? new Promise<never>(() => {})
+            : Promise.resolve(undefined)
+        },
+        routes: () => [
+          {
+            routeId: 'route',
+            credentialId: 'credential',
+            accountIdentity: 'identity',
+            label: 'Work',
+          },
+        ],
+        admit: async () => {
+          throw new Error('no send')
+        },
+        reportServedStatus: async () => false,
+      },
+      now: () => now,
+    })
+    await expect(pool.sync()).rejects.toThrow(
+      'The vault roster is not available yet',
+    )
+    // Inside the bound the pool keeps waiting on the same read.
+    now += VAULT_REFRESH_STALL_MS - 1
+    await expect(pool.sync()).rejects.toThrow(
+      'The vault roster is not available yet',
+    )
+    expect(refreshes).toBe(1)
+    now += 1
+    await pool.sync()
+    expect(refreshes).toBe(2)
+    expect(pool.selector.rows).toHaveLength(1)
+  }, 10_000)
 })
 
 describe('checkVaultQuota', () => {

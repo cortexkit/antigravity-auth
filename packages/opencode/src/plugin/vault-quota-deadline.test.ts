@@ -83,6 +83,7 @@ async function fixture(
     host: 'opencode',
     start: () => {},
     close: () => {},
+    dispose: async () => {},
     admit: async () => {
       throw new Error('unused')
     },
