@@ -19,7 +19,7 @@
  * refuses custody rather than being treated as empty.
  */
 
-import { chmod, mkdir, readFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
   type AntigravityVaultAccountSource,
@@ -86,6 +86,56 @@ type MenuActionOutcome = Exclude<
   >,
   string
 >
+
+/** One read of this host's enrollment files: the mode and the status. */
+interface EnrollmentSnapshot {
+  readonly authority: EnrollmentAuthority
+  readonly status: EnrollmentStatus
+}
+
+/**
+ * How long a remembered enrollment read lasts where a file's identity may not
+ * change on every write: on Windows some file systems report inode 0, so a
+ * replaced file is told apart only by its times and size.
+ */
+const COARSE_ENROLLMENT_IDENTITY_TTL_MS = 250
+
+/**
+ * The device, inode, size and change times of both enrollment files, taken
+ * before they are read. Undefined when a file cannot be examined; the caller
+ * then reads the files without remembering the result.
+ */
+async function enrollmentFilesIdentity(
+  paths: EnrollmentPaths,
+): Promise<
+  | { readonly key: string; readonly coarse: boolean; readonly takenAt: number }
+  | undefined
+> {
+  // A monotonic clock: a wall clock moved back (or frozen by a test) must not
+  // stretch the expiry.
+  const takenAt = performance.now()
+  let coarse = process.platform === 'win32'
+  const parts: string[] = []
+  for (const path of [paths.tokenPath, paths.statePath]) {
+    try {
+      const info = await stat(path, { bigint: true })
+      if (info.ino === 0n) coarse = true
+      parts.push(
+        `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`,
+      )
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'ENOENT'
+      )
+        parts.push('absent')
+      else return undefined
+    }
+  }
+  return { key: parts.join('|'), coarse, takenAt }
+}
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -297,6 +347,73 @@ export function createOpenCodeVaultCustody(
       )
   }
 
+  /**
+   * The last enrollment read, kept while both enrollment files keep the
+   * identity they had just before that read. The vault library replaces these
+   * files by atomic rename, so an approval or a disconnect gives a file a new
+   * identity and the next call reads it again. Where identities are coarse
+   * (see COARSE_ENROLLMENT_IDENTITY_TTL_MS), a kept read also expires after a
+   * short time. Concurrent callers that see the same identity share one read.
+   */
+  let enrollmentCache:
+    | {
+        readonly key: string
+        readonly expiresAt: number
+        readonly value: EnrollmentSnapshot
+      }
+    | undefined
+  let enrollmentReading:
+    | { readonly key: string; readonly promise: Promise<EnrollmentSnapshot> }
+    | undefined
+  const forgetEnrollment = () => {
+    enrollmentCache = undefined
+    enrollmentReading = undefined
+  }
+
+  const readEnrollmentSnapshot = async (): Promise<EnrollmentSnapshot> => {
+    const enrollment = await enrollmentPaths()
+    const identity = await enrollmentFilesIdentity(enrollment)
+    if (identity) {
+      const cached = enrollmentCache
+      if (cached?.key === identity.key && performance.now() <= cached.expiresAt)
+        return cached.value
+      if (enrollmentReading?.key === identity.key)
+        return enrollmentReading.promise
+    }
+    const promise = (async (): Promise<EnrollmentSnapshot> => {
+      // The mode stays the vault library's own decision, which treats a
+      // corrupt or missing token specially; the status adds the approval.
+      const authority = await enrollmentAuthority(
+        enrollment,
+        OPENCODE_VAULT_ENROLLMENT_NAME,
+        await loadClaustrum(),
+      )
+      return { authority, status: await readEnrollment() }
+    })()
+    if (!identity) return promise
+    const reading = { key: identity.key, promise }
+    enrollmentReading = reading
+    try {
+      const value = await promise
+      // A failed read is not kept: it may be transient, and is retried.
+      const failed =
+        value.authority === 'unreadable' ||
+        (value.status.state === 'blocked' &&
+          value.status.code === 'unreadable-state')
+      if (!failed && enrollmentReading === reading)
+        enrollmentCache = {
+          key: identity.key,
+          expiresAt: identity.coarse
+            ? identity.takenAt + COARSE_ENROLLMENT_IDENTITY_TTL_MS
+            : Number.POSITIVE_INFINITY,
+          value,
+        }
+      return value
+    } finally {
+      if (enrollmentReading === reading) enrollmentReading = undefined
+    }
+  }
+
   const requireCustodyMode = async (): Promise<void> => {
     const mode = await custody.readMode()
     if (!mode.ok)
@@ -341,19 +458,15 @@ export function createOpenCodeVaultCustody(
             })),
         isCustodyActive: async () => {
           if (closed) return false
-          const mode = await custody.readMode()
+          // Mode and approval come from one enrollment read.
+          const { authority, status } = await readEnrollmentSnapshot()
           if (closed) return false
-          const authority = !mode.ok
-            ? 'unreadable'
-            : mode.record.mode === 'custody'
-              ? 'vault'
-              : 'local'
           if (authority !== observedAuthority) {
             observedAuthority = authority
             options.onAuthorityChanged?.(authority)
           }
           if (authority !== 'vault') return false
-          return (await readEnrollment()).state === 'approved'
+          return status.state === 'approved'
         },
         onRoster: () => options.onRosterChanged?.(),
         onError: () => options.onRosterChanged?.(),
@@ -457,6 +570,8 @@ export function createOpenCodeVaultCustody(
         await manager.resetTerminal()
       return await manager.reconcile()
     } finally {
+      // This step may have rewritten the enrollment files.
+      forgetEnrollment()
       client.close()
     }
   }
@@ -502,11 +617,7 @@ export function createOpenCodeVaultCustody(
       await ensureSource()
     },
     async readMode() {
-      const authority = await enrollmentAuthority(
-        await enrollmentPaths(),
-        OPENCODE_VAULT_ENROLLMENT_NAME,
-        await loadClaustrum(),
-      )
+      const { authority } = await readEnrollmentSnapshot()
       if (authority === 'unreadable')
         return { ok: false, reason: VAULT_ACCOUNT_REMEDY }
       return {
@@ -564,6 +675,7 @@ export function createOpenCodeVaultCustody(
         await enrollmentPaths(),
         OPENCODE_VAULT_ENROLLMENT_NAME,
       )
+      forgetEnrollment()
       if (disconnected === 'busy')
         throw new OpenCodeVaultCustodyError(
           'Vault enrollment is busy. Disconnect after the current enrollment operation finishes.',

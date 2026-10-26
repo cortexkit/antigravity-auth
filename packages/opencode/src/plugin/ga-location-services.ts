@@ -2329,11 +2329,16 @@ export function createGaLocationServicesFactory(
           })
           return vaultPromise
         }
+        /**
+         * Picks the services for the current account authority. A caller that
+         * has just read the authority passes it in, so it is not read again.
+         */
         const choose = async (
           purpose: 'execute' | 'view',
+          known?: 'local' | 'vault' | 'unreadable',
         ): Promise<Serving> => {
           if (closing) throw new Error('The location services are disposed')
-          const selected = await authority()
+          const selected = known ?? (await authority())
           if (closing) throw new Error('The location services are disposed')
           if (selected === 'local') return local()
           if (selected === 'unreadable') {
@@ -2381,10 +2386,12 @@ export function createGaLocationServicesFactory(
                     throw new Error('The location services are disposed')
                   if (request.signal.aborted) throw request.signal.reason
                   for (let attempt = 0; attempt < 2; attempt++) {
+                    // The authority read before the state read also selects
+                    // the services; the read after it confirms nothing changed.
                     const before = await authority()
-                    const answer = await (await choose('view')).state.read(
-                      request,
-                    )
+                    const answer = await (
+                      await choose('view', before)
+                    ).state.read(request)
                     if (before === (await authority())) return answer
                   }
                   throw new Error(

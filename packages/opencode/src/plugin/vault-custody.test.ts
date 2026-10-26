@@ -1128,3 +1128,101 @@ it('OpenCode 1 vault observation keeps polling when the client has no watch meth
     await custody.dispose()
   }
 })
+
+describe('remembered enrollment reads', () => {
+  /** Counts calls into the vault library that read both enrollment files. */
+  async function countingClaustrum() {
+    const claustrum = await loadCommonAuthClaustrum()
+    const reads = { authority: 0, status: 0 }
+    return {
+      reads,
+      load: async () => ({
+        ...claustrum,
+        enrollmentAuthority: async (
+          ...args: Parameters<typeof claustrum.enrollmentAuthority>
+        ) => {
+          reads.authority++
+          return claustrum.enrollmentAuthority(...args)
+        },
+        readClaustrumEnrollmentStatus: async (
+          ...args: Parameters<typeof claustrum.readClaustrumEnrollmentStatus>
+        ) => {
+          reads.status++
+          return claustrum.readClaustrumEnrollmentStatus(...args)
+        },
+      }),
+    }
+  }
+
+  const LOCAL = { ok: true, record: { version: 1, mode: 'local' } } as const
+  const VAULT = { ok: true, record: { version: 1, mode: 'custody' } } as const
+  // On Windows a file's identity can be coarse, so a remembered read expires
+  // after a short time there and exact read counts are not stable.
+  const exactCounts = process.platform !== 'win32'
+
+  it('reads the files once while unchanged and sees an approval or disconnect by another process on the next read', async () => {
+    const counting = await countingClaustrum()
+    const { custody } = custodyWith(async () => undefined, undefined, {
+      loadClaustrum: counting.load,
+    })
+    // A second custody over the same files stands for another OpenCode
+    // process, so the counted custody learns of its writes only from disk.
+    const other = custodyWith(async () => undefined)
+
+    // Concurrent callers share one read.
+    expect(
+      await Promise.all(Array.from({ length: 5 }, () => custody.readMode())),
+    ).toEqual(Array.from({ length: 5 }, () => LOCAL))
+    expect(counting.reads).toEqual({ authority: 1, status: 1 })
+    for (let call = 0; call < 10; call++)
+      expect(await custody.readMode()).toEqual(LOCAL)
+    if (exactCounts) expect(counting.reads).toEqual({ authority: 1, status: 1 })
+
+    expect((await other.custody.requestAccess()).state).toBe('pending')
+    other.service.approveNext()
+    expect((await other.custody.requestAccess()).state).toBe('approved')
+    // The approval is seen at once: a remembered local mode would let a
+    // local account write proceed while the vault holds the accounts.
+    expect(await custody.readMode()).toEqual(VAULT)
+    for (let call = 0; call < 10; call++)
+      expect(await custody.readMode()).toEqual(VAULT)
+    if (exactCounts) expect(counting.reads).toEqual({ authority: 2, status: 2 })
+
+    await other.custody.useLocal()
+    expect(await custody.readMode()).toEqual(LOCAL)
+    if (exactCounts) expect(counting.reads).toEqual({ authority: 3, status: 3 })
+  })
+
+  it('serves the vault source from one remembered read and stops serving on the next refresh after a disconnect', async () => {
+    const counting = await countingClaustrum()
+    const authorities: string[] = []
+    const client = fakeObservationClient(false)
+    const { custody } = custodyWith(async () => undefined, undefined, {
+      loadClaustrum: counting.load,
+      connect: async () => client.client,
+      // No background tick during the test: every read below is a refresh's.
+      pollIntervalMs: 600_000,
+      onAuthorityChanged: (authority) => authorities.push(authority),
+    })
+    const other = custodyWith(async () => undefined)
+    other.service.approveNext()
+    expect((await other.custody.requestAccess()).state).toBe('approved')
+
+    const source = await custody.custodySource()
+    await source.refresh()
+    expect(source.routes()).toHaveLength(1)
+    const before = { ...counting.reads }
+    for (let refresh = 0; refresh < 5; refresh++) {
+      expect(await source.refresh()).toBeDefined()
+      expect(source.routes()).toHaveLength(1)
+    }
+    // Each refresh asks whether custody is active before it lists, and again
+    // while listing; none of those reads the unchanged enrollment files again.
+    if (exactCounts) expect(counting.reads).toEqual(before)
+
+    await other.custody.useLocal()
+    expect(await source.refresh()).toBeUndefined()
+    expect(source.routes()).toEqual([])
+    expect(authorities.at(-1)).toBe('local')
+  })
+})

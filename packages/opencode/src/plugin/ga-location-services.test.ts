@@ -14,6 +14,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { ServerResponse } from 'node:http'
@@ -3399,6 +3400,188 @@ describe('GA vault custody location', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+})
+
+describe('GA vault state reads and the enrollment files', () => {
+  it('reads the account authority twice per state read and rereads the enrollment files only when they change', async () => {
+    // The vault library refuses enrollment below a folder others can write:
+    // use /tmp on Unix and the system temporary directory on Windows.
+    const temporary = process.platform === 'win32' ? tmpdir() : '/tmp'
+    const root = realpathSync(mkdtempSync(join(temporary, 'ga-vault-reads-')))
+    const previous = {
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      XDG_STATE_HOME: process.env.XDG_STATE_HOME,
+      OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
+    }
+    process.env.OPENCODE_CONFIG_DIR = join(root, 'config')
+    process.env.XDG_CONFIG_HOME = join(root, 'xdg')
+    process.env.XDG_STATE_HOME = join(root, 'state')
+    const cleanups: (() => Promise<unknown>)[] = []
+    try {
+      mkdirSync(join(root, 'config'), { mode: 0o700 })
+      const accountFile = join(root, 'config', 'antigravity-accounts.json')
+      const { createOpenCodeVaultCustody, OPENCODE_VAULT_ENROLLMENT_NAME } =
+        await import('./vault-custody.ts')
+      let approve = false
+      const enrolling = createOpenCodeVaultCustody({
+        accountFile,
+        readHostSlot: async () => undefined,
+        reporterSource: 'direct',
+        connectionFile: () => join(root, 'vault-connection.json'),
+        connectEnrollment: async () => ({
+          enrollPropose: async () => ({ requestId: 'request-1' }),
+          enrollPoll: async () =>
+            approve
+              ? {
+                  status: 'approved' as const,
+                  name: OPENCODE_VAULT_ENROLLMENT_NAME,
+                  token: 'ab'.repeat(32),
+                  tokenGeneration: 1,
+                }
+              : { status: 'pending' as const },
+          close() {},
+        }),
+        connect: async () => {
+          throw new Error('enrollment only')
+        },
+      })
+      expect((await enrolling.requestAccess()).state).toBe('pending')
+      approve = true
+      expect((await enrolling.requestAccess()).state).toBe('approved')
+      await enrolling.dispose()
+
+      const claustrum = await realCore.loadCommonAuthClaustrum()
+      const libraryReads = { authority: 0, status: 0 }
+      let modeReads = 0
+      const factory = createGaLocationServicesFactory({
+        loadStoreModules: loadCommonAuthStoreModules,
+        resolveAccountFile: () => accountFile,
+        now: Date.now,
+        runtime: (input) =>
+          createGaRuntimeCollaborators({
+            ...input,
+            accounts: { current: null, quotaLogger: null },
+            now: Date.now,
+          }),
+        createPipeline: async () => {
+          throw new Error('the local pipeline is not part of this test')
+        },
+        custody: ({ accountFile: file }) => {
+          const custody = createOpenCodeVaultCustody({
+            accountFile: file,
+            readHostSlot: async () => undefined,
+            reporterSource: 'direct',
+            connectionFile: () => join(root, 'vault-connection.json'),
+            loadClaustrum: async () => ({
+              ...claustrum,
+              enrollmentAuthority: async (...args) => {
+                libraryReads.authority++
+                return claustrum.enrollmentAuthority(...args)
+              },
+              readClaustrumEnrollmentStatus: async (...args) => {
+                libraryReads.status++
+                return claustrum.readClaustrumEnrollmentStatus(...args)
+              },
+            }),
+            connect: async () =>
+              ({
+                listScoped: async () => ({
+                  view: 'view-1',
+                  rows: [
+                    {
+                      id: 'credential',
+                      accountId: 'identity',
+                      credentialType: 'oauth',
+                      createdAtMs: 1,
+                      state: 'active',
+                      recordVersion: 1,
+                      categories: ['antigravity-native'],
+                      serves: ['google'],
+                      providerIds: ['google'],
+                      operations: ['read'],
+                      refreshAdapter: 'antigravity',
+                    },
+                  ],
+                  grants: undefined,
+                  grantTuples: undefined,
+                }),
+                getScoped: async () => {
+                  throw new Error('no credential send in this test')
+                },
+                reportAuthFailureScoped: async () => {},
+                close: () => {},
+              }) as never,
+          })
+          // Counts the location's own authority reads, not the vault source's.
+          const readMode = custody.readMode.bind(custody)
+          custody.readMode = () => {
+            modeReads++
+            return readMode()
+          }
+          return custody
+        },
+      })
+      const directory = join(root, 'location')
+      mkdirSync(join(directory, '.opencode'), { recursive: true })
+      writeFileSync(
+        join(directory, '.opencode', 'antigravity.json'),
+        JSON.stringify({
+          background_quota_refresh: false,
+          proactive_token_refresh: false,
+          auto_update: false,
+        }),
+      )
+      const services = await factory({ directory, overrides: {} })
+      const runtime = await createLocationRuntime(
+        {
+          ...services.runtime,
+          directory,
+          operatorSettingsRegistry: createOperatorSettingsRegistry(),
+        },
+        services,
+      )
+      cleanups.push(() => runtime.dispose())
+      const serving = await services.start({
+        runtime,
+        generation: 'g-reads',
+        send: async () => new Response('not used'),
+        notify: () => null,
+        isConnected: () => true,
+      })
+      const read = async () => {
+        const answer = await serving.state.read({
+          scope: { kind: 'sessionless' },
+          signal: new AbortController().signal,
+        })
+        if (answer.accounts.kind !== 'complete') throw new Error('over limit')
+        return answer.accounts.rows
+      }
+      expect(await read()).toHaveLength(1)
+      const modeBefore = modeReads
+      const libraryBefore = { ...libraryReads }
+      const polls = 10
+      for (let poll = 0; poll < polls; poll++)
+        expect(await read()).toHaveLength(1)
+      // One authority read selects the services and one confirms the answer;
+      // a third read in between used to pick the services again.
+      expect(modeReads - modeBefore).toBe(2 * polls)
+      // Unchanged enrollment files are not read again. Windows may re-read
+      // after a short expiry, since a file's identity there can be coarse.
+      if (process.platform !== 'win32')
+        expect(libraryReads).toEqual(libraryBefore)
+      else
+        expect(
+          libraryReads.authority - libraryBefore.authority,
+        ).toBeLessThanOrEqual(polls)
+    } finally {
+      for (const cleanup of cleanups.reverse()) await cleanup().catch(() => {})
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 20_000)
 })
 
 describe('GA browser action lifetime', () => {
