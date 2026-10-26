@@ -16,6 +16,7 @@ type CommandMenu = ReturnType<CommonAuthCommandsModule['createCommandMenu']>
 import { cliAccountOf } from '../cli'
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
 import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
+import { startRuntimeProcessHeartbeat } from '../process-heartbeat'
 import { drainNotifications, pushNotification } from '../rpc/notifications'
 import { getRpcDir } from '../rpc/rpc-dir'
 import { startRpcServer } from '../rpc/rpc-server'
@@ -981,6 +982,13 @@ export const createAntigravityPlugin =
       drain: drainNotifications,
     })
     lifecycle.register({ dispose: () => rpcServer.stop() })
+    // Tell other plugin versions on this machine that this process is live
+    // and keeps its files in the OpenCode config folder. Best-effort: a
+    // failed write is logged, never thrown.
+    const heartbeat = await startRuntimeProcessHeartbeat(
+      createLogger('process-heartbeat'),
+    )
+    lifecycle.register({ dispose: () => heartbeat.release() })
     // Flush the debug log stream after the sidebar drain so the last
     // buffered lines land on disk before the process exits. Best-effort.
     lifecycle.register({ dispose: () => closeDebugLog().catch(() => {}) })

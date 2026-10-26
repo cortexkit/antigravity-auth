@@ -27,6 +27,8 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -78,6 +80,7 @@ const { createMemoryQuotaSnapshots } = await import(
   '../../plugin/shared/runtime.ts'
 )
 const { LoopbackProxyGuardError } = await import('../proxy-guard.ts')
+const heartbeats = await import('../../process-heartbeat.ts')
 
 type GaSendInput = import('./index.ts').GaSendInput
 type GaPluginOverrides = import('./index.ts').GaPluginOverrides
@@ -1549,6 +1552,33 @@ describe('setup against a host context', () => {
     expect(result).toBeUndefined()
     expect(services.calls).toEqual([])
     expect(log).toEqual([])
+  })
+
+  it('writes the process heartbeat for the location and keeps it after Cleanup', async () => {
+    prepareRoot()
+    const target = heartbeats.processHeartbeatPath(process.pid)
+    // Start from no heartbeat, whatever earlier setups in this file left.
+    heartbeats.__resetProcessHeartbeatForTest()
+    rmSync(target, { force: true })
+    const log: string[] = []
+    const cleanup = await server.setupGaActivation(
+      fakeHost(locationDirectory('a'), log),
+      fakeServices(log),
+    )
+    const manifest: { version: string } = JSON.parse(
+      readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
+    )
+    const configDir = process.env.OPENCODE_CONFIG_DIR
+    if (!configDir) throw new Error('prepareRoot did not set the config dir')
+    expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual({
+      pid: process.pid,
+      version: manifest.version,
+      startedAt: expect.any(Number),
+      layouts: { [realpathSync(configDir).toLowerCase()]: 'legacy' },
+    })
+    await cleanup?.()
+    // The process keeps the OpenCode config folder layout until it exits.
+    expect(readFileSync(target, 'utf8')).toContain('"legacy"')
   })
 
   it('registers the three Google-scoped hooks and the RPC, and its Cleanup removes exactly those', async () => {

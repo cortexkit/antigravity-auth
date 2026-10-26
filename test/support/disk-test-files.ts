@@ -57,6 +57,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Shared custody quota producer takes the real fenced poll lock; private-mode vault fixtures.',
   'packages/opencode/src/plugin/vault-stall-recovery.test.ts':
     'Vault source recovery over private-mode enrollment and roster files.',
+  'packages/opencode/src/process-heartbeat.test.ts':
+    'Heartbeat folder and file modes (0700/0600) and atomic temp-then-rename writes.',
   'packages/opencode/src/plugin/vault-activation.test.ts':
     'Native-auth preservation and refusal of unreadable credential directories.',
   'packages/opencode/src/plugin/auth-loader.test.ts':

@@ -51,6 +51,7 @@ import {
   type LocationRuntime,
   type LocationRuntimeOptions,
 } from '../../plugin/shared/runtime.ts'
+import { startRuntimeProcessHeartbeat } from '../../process-heartbeat.ts'
 import type {
   CommandApplyRequest,
   CommandApplyResult,
@@ -1809,6 +1810,14 @@ export async function setupGaActivation(
   // quota and token-refresh tasks, then account services; queued snapshot
   // writes drain and the runtime's files and handles close.
   try {
+    // Tell other plugin versions on this machine that this process is live
+    // and keeps its files in the OpenCode config folder. Each location is
+    // one owner of the process's single heartbeat. Best-effort: a failed
+    // write is logged, never thrown.
+    const heartbeat = await startRuntimeProcessHeartbeat(
+      runtime.logger.createLogger('process-heartbeat'),
+    )
+    runtime.scope.add({ dispose: () => heartbeat.release() }, 'consumer')
     if (context.integration?.transform) {
       runtime.scope.add(
         await registerGaAuthMethods(
