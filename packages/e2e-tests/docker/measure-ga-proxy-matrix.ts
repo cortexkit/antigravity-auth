@@ -681,6 +681,16 @@ const MOTOR_PROCESS_POLICY = {
   signedAttestation: false,
 } as const
 
+// Every cgroup directory above the MOTOR job unit (MOTOR docs/job-isolation.md
+// section 4.4.2): the cgroup root, MOTOR's motor.slice and its memory-capped
+// motor-jobs.slice. Each must be root-owned and not writable by the job, so the
+// job cannot reshape the hierarchy its own unit sits in.
+const MOTOR_CGROUP_PARENTS = [
+  '/sys/fs/cgroup',
+  '/sys/fs/cgroup/motor.slice',
+  '/sys/fs/cgroup/motor.slice/motor-jobs.slice',
+]
+
 function protection(value: unknown) {
   const p = object(value, ['uid', 'gid', 'mode', 'jobWritable'])
   const mode = positiveInteger(p.mode)
@@ -799,9 +809,12 @@ function parseProcessBoundary(value: unknown) {
     'controls',
     'pressureObservation',
   ])
+  // MOTOR job unit placement (MOTOR docs/job-isolation.md section 4.4.2): the
+  // unit sits inside motor.slice/motor-jobs.slice. The same pattern is
+  // MOTOR_JOB_CGROUP below, which the live placement check uses.
   const cgroup = string(
     c.self,
-    /^\/system\.slice\/motor-job-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/,
+    /^\/motor\.slice\/motor-jobs\.slice\/motor-job-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/,
   )
   if (cgroup !== c.pid1) throw new Error('cgroup differs from PID1')
   // One job user owns both PID 1 and the controller; it is never root.
@@ -859,10 +872,7 @@ function parseProcessBoundary(value: unknown) {
       self: cgroup,
       pid1: cgroup,
       directory: protection(c.directory),
-      parents: parents(c.parents, [
-        '/sys/fs/cgroup',
-        '/sys/fs/cgroup/system.slice',
-      ]),
+      parents: parents(c.parents, MOTOR_CGROUP_PARENTS),
       controls: checkedControls,
       pressureObservation: pressureObservation(c.pressureObservation, jobUid),
     },
@@ -1270,8 +1280,8 @@ export function normalizedMatrix(matrix: Matrix) {
               },
               cgroup: {
                 ...matrix.native.processBoundary.cgroup,
-                self: '/system.slice/motor-job-<launch-uuid>.service',
-                pid1: '/system.slice/motor-job-<launch-uuid>.service',
+                self: '/motor.slice/motor-jobs.slice/motor-job-<launch-uuid>.service',
+                pid1: '/motor.slice/motor-jobs.slice/motor-job-<launch-uuid>.service',
               },
             },
           },
@@ -2473,11 +2483,13 @@ function cgroupMount(path: string, budget?: NativeCleanupBudget) {
 // host's process table, whatever PID 1 happens to be called.
 const HOST_PID_NAMESPACE = 'pid:[4026531836]'
 // MOTOR runner unit name, documented in MOTOR docs/job-isolation.md section
-// 4.4.2 (cortexkit/motor, main e49541a7): each job runs in its own
-// motor-job-<UUID>.service directly under system.slice. The UUID names the
-// runner's unit, not the job id a caller sees, so only its shape is checked.
+// 4.4.2 (cortexkit/motor): each job runs in its own motor-job-<UUID>.service
+// inside MOTOR's memory-capped motor.slice/motor-jobs.slice parent, on every
+// Linux host type. The older system.slice/motor-job-<UUID>.service placement
+// is retired and refused. The UUID names the runner's unit, not the job id a
+// caller sees, so only its shape is checked.
 const MOTOR_JOB_CGROUP =
-  /^\/system\.slice\/motor-job-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/
+  /^\/motor\.slice\/motor-jobs\.slice\/motor-job-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/
 
 // Raw facts about where this process runs. Each is undefined when it could not
 // be read; an unreadable fact refuses, it is never assumed.
@@ -2703,7 +2715,7 @@ function observedProcessBoundary(budget?: NativeCleanupBudget) {
       pid1: pid1.cgroup,
       directory: observedProtection(directory, 'directory', budget),
       parents: Object.fromEntries(
-        ['/sys/fs/cgroup', '/sys/fs/cgroup/system.slice'].map((path) => [
+        MOTOR_CGROUP_PARENTS.map((path) => [
           path,
           observedProtection(path, 'directory', budget),
         ]),

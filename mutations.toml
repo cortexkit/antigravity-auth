@@ -1312,7 +1312,7 @@ expect_red = ['^qualified\sprivate\snamespace\snative\scleanup\ssource\sand\sine
 
 [[control]]
 id = "ga-placement-motor-cgroup"
-guards = "Native placement refuses any cgroup other than exactly a MOTOR job unit directly under system.slice."
+guards = "Native placement refuses any cgroup other than exactly a MOTOR job unit inside motor.slice/motor-jobs.slice."
 file = "packages/e2e-tests/docker/measure-ga-proxy-matrix.ts"
 old = '  if (cgroup) placementRefusal(cgroup)'
 new = '  // NON-VACUITY BREAK: drop the MOTOR job cgroup requirement.'

@@ -65,7 +65,9 @@ async function fixture() {
     commit: await git(root, 'rev-parse', 'HEAD'),
     tree: await git(root, 'rev-parse', 'HEAD^{tree}'),
     pass: true,
-    // The placement the MOTOR build server reported for the 3.0.11 gate.
+    // A placement in the shape the MOTOR build server reports: the 3.0.11 release gate's
+    // facts, with its runner unit inside motor.slice/motor-jobs.slice, where
+    // MOTOR now places every job unit.
     placement: {
       arch: 'x64',
       uid: 999,
@@ -76,7 +78,7 @@ async function fixture() {
       pid1Namespace: 'pid:[4026533381]',
       pid1Comm: 'bash',
       cgroup:
-        '0::/system.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service',
+        '0::/motor.slice/motor-jobs.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service',
     },
     stages: [
       'bun-version',
@@ -148,7 +150,7 @@ test(
       pidNamespace: 'pid:[4026532999]',
       pid1Namespace: 'pid:[4026532999]',
       cgroup:
-        '0::/system.slice/motor-job-0195f3a2-7c1d-7e4b-9a10-3d5e8f6a2b1c.service',
+        '0::/motor.slice/motor-jobs.slice/motor-job-0195f3a2-7c1d-7e4b-9a10-3d5e8f6a2b1c.service',
     }
     mkdirSync(join(root, '.cortexkit'), { recursive: true })
     const stdout = join(root, '.cortexkit/stdout')
@@ -182,6 +184,8 @@ for (const invalid of [
   'pass without placement',
   'pass with uid 0',
   'pass with a host namespace',
+  'pass with the retired system.slice job unit',
+  'pass with a job unit outside motor-jobs.slice',
 ] as const) {
   test(
     `native-inert record writer rejects ${invalid}`,
@@ -213,6 +217,13 @@ for (const invalid of [
           pid1Namespace: 'pid:[4026531836]',
           pid1Comm: 'systemd',
         })
+      // MOTOR no longer places job units directly under system.slice.
+      if (invalid === 'pass with the retired system.slice job unit')
+        result.placement.cgroup =
+          '0::/system.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service'
+      if (invalid === 'pass with a job unit outside motor-jobs.slice')
+        result.placement.cgroup =
+          '0::/motor.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service'
       let text = `NATIVE_INERT_GATE_RESULT=${JSON.stringify(result)}\n`
       if (invalid === 'two result lines') text += text
       if (invalid === 'truncated line') text = text.slice(0, -5)

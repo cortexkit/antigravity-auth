@@ -392,12 +392,13 @@ function processBoundaryFixture() {
     },
     namespace: { self: 'pid:[456]', pid1: 'pid:[456]' },
     cgroup: {
-      self: '/system.slice/motor-job-01234567-0123-4123-a123-0123456789ab.service',
-      pid1: '/system.slice/motor-job-01234567-0123-4123-a123-0123456789ab.service',
+      self: '/motor.slice/motor-jobs.slice/motor-job-01234567-0123-4123-a123-0123456789ab.service',
+      pid1: '/motor.slice/motor-jobs.slice/motor-job-01234567-0123-4123-a123-0123456789ab.service',
       directory,
       parents: {
         '/sys/fs/cgroup': directory,
-        '/sys/fs/cgroup/system.slice': directory,
+        '/sys/fs/cgroup/motor.slice': directory,
+        '/sys/fs/cgroup/motor.slice/motor-jobs.slice': directory,
       },
       controls: {
         'cgroup.procs': file,
@@ -459,9 +460,10 @@ function processBoundaryFixture() {
 
 // Placement facts as the MOTOR build server reported them for 3.0.11, before any
 // per-test change: a private PID namespace whose PID 1 is the job wrapper, and a
-// root-owned MOTOR job unit.
+// root-owned MOTOR job unit, moved into motor.slice/motor-jobs.slice where MOTOR
+// now places every job unit.
 const MOTOR_UNIT =
-  '/system.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service'
+  '/motor.slice/motor-jobs.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service'
 function motorPlacementFacts(
   overrides: Partial<NativePlacementFacts> = {},
 ): NativePlacementFacts {
@@ -531,7 +533,7 @@ function rawMotorJobPlacement() {
     facts.pidNamespace !== undefined &&
     facts.pidNamespace === facts.pid1Namespace &&
     facts.pidNamespace !== 'pid:[4026531836]' &&
-    /^0::\/system\.slice\/motor-job-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.service\n$/.test(
+    /^0::\/motor\.slice\/motor-jobs\.slice\/motor-job-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.service\n$/.test(
       facts.cgroup ?? '',
     )
   return { motor, facts }
@@ -3713,7 +3715,7 @@ describe(CLEANUP_GROUP, () => {
             }
             if (kind === 'cgroup-mismatch' && path === '/proc/1/cgroup') {
               reached.push(path)
-              return '0::/system.slice/motor-job-01234567-0123-4123-a123-0123456789ab.service\n'
+              return '0::/motor.slice/motor-jobs.slice/motor-job-01234567-0123-4123-a123-0123456789ab.service\n'
             }
             if (
               kind === 'psi-shadow-mount' &&
@@ -4615,6 +4617,32 @@ describe(CLEANUP_GROUP, () => {
       (v: ReturnType<typeof nativeMatrix>) => {
         v.native.processBoundary.cgroup.pid1 = '/system.slice/foreign.service'
       },
+      // The retired placement directly under system.slice, in both fields.
+      (v: ReturnType<typeof nativeMatrix>) => {
+        v.native.processBoundary.cgroup.self =
+          '/system.slice/motor-job-01234567-0123-4123-a123-0123456789ab.service'
+        v.native.processBoundary.cgroup.pid1 =
+          v.native.processBoundary.cgroup.self
+      },
+      // A unit under motor.slice that skips the motor-jobs.slice parent.
+      (v: ReturnType<typeof nativeMatrix>) => {
+        v.native.processBoundary.cgroup.self =
+          '/motor.slice/motor-job-01234567-0123-4123-a123-0123456789ab.service'
+        v.native.processBoundary.cgroup.pid1 =
+          v.native.processBoundary.cgroup.self
+      },
+      // A motor-jobs.slice parent the job could write to. The fixture shares one
+      // protection object across directories, so replace it rather than edit it.
+      (v: ReturnType<typeof nativeMatrix>) => {
+        const parents = v.native.processBoundary.cgroup.parents
+        const jobs = '/sys/fs/cgroup/motor.slice/motor-jobs.slice'
+        parents[jobs] = { ...parents[jobs], jobWritable: true }
+      },
+      (v: ReturnType<typeof nativeMatrix>) => {
+        const parents = v.native.processBoundary.cgroup.parents
+        const jobs = '/sys/fs/cgroup/motor.slice/motor-jobs.slice'
+        parents[jobs] = { ...parents[jobs], uid: 999 }
+      },
       (v: ReturnType<typeof nativeMatrix>) => {
         v.native.processBoundary.policy.signedAttestation = true
       },
@@ -4725,13 +4753,33 @@ describe(CLEANUP_GROUP, () => {
     ],
     [
       'a non-UUID unit id',
-      { cgroup: '0::/system.slice/motor-job-runner-7.service\n' },
-      '(cgroup /system.slice/motor-job-runner-7.service is not a MOTOR job unit)',
+      {
+        cgroup: '0::/motor.slice/motor-jobs.slice/motor-job-runner-7.service\n',
+      },
+      '(cgroup /motor.slice/motor-jobs.slice/motor-job-runner-7.service is not a MOTOR job unit)',
     ],
     [
       'another slice',
-      { cgroup: `0::${MOTOR_UNIT.replace('system.slice', 'user.slice')}\n` },
+      {
+        cgroup: `0::${MOTOR_UNIT.replace('motor.slice/motor-jobs.slice', 'user.slice')}\n`,
+      },
       'is not a MOTOR job unit)',
+    ],
+    [
+      'the retired job unit directly under system.slice',
+      {
+        cgroup:
+          '0::/system.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service\n',
+      },
+      '(cgroup /system.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service is not a MOTOR job unit)',
+    ],
+    [
+      'a job unit under motor.slice without motor-jobs.slice',
+      {
+        cgroup:
+          '0::/motor.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service\n',
+      },
+      '(cgroup /motor.slice/motor-job-01a168ba-aab2-72c9-83da-e4a254cfee3c.service is not a MOTOR job unit)',
     ],
     [
       'a non-MOTOR service',
@@ -4982,7 +5030,7 @@ describe(CLEANUP_GROUP, () => {
     fresh.native.processBoundary.namespace.self = 'pid:[789]'
     fresh.native.processBoundary.namespace.pid1 = 'pid:[789]'
     fresh.native.processBoundary.cgroup.self =
-      '/system.slice/motor-job-01234567-0123-4123-a123-0123456789ac.service'
+      '/motor.slice/motor-jobs.slice/motor-job-01234567-0123-4123-a123-0123456789ac.service'
     fresh.native.processBoundary.cgroup.pid1 =
       fresh.native.processBoundary.cgroup.self
     expect(() => assertConformance(fresh, value, pin)).not.toThrow()

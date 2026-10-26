@@ -102,11 +102,14 @@ export function object(value: unknown): Record<string, unknown> {
 // the Linux kernel).
 const HOST_PID_NAMESPACE = 'pid:[4026531836]'
 // MOTOR runner unit name, documented in MOTOR docs/job-isolation.md section
-// 4.4.2 (cortexkit/motor, main e49541a7): the job's only cgroup line names its
-// own motor-job-<UUID>.service directly under system.slice. The UUID belongs to
-// the runner's unit, not to any caller-visible job id, so only its shape counts.
+// 4.4.2 (cortexkit/motor): the job's only cgroup line names its own
+// motor-job-<UUID>.service inside MOTOR's memory-capped
+// motor.slice/motor-jobs.slice parent, on every Linux host type. The older
+// system.slice/motor-job-<UUID>.service placement is retired and refused. The
+// UUID belongs to the runner's unit, not to any caller-visible job id, so only
+// its shape counts.
 const MOTOR_JOB_CGROUP =
-  /^0::\/system\.slice\/motor-job-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/
+  /^0::\/motor\.slice\/motor-jobs\.slice\/motor-job-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.service$/
 
 // The same placement rule the native cleanup guard applies in
 // packages/e2e-tests/docker/measure-ga-proxy-matrix.ts (qualifyNativePlacement):
