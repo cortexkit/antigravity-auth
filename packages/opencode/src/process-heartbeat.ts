@@ -21,11 +21,10 @@
 // for it.
 
 import { randomUUID } from 'node:crypto'
-import { rmSync } from 'node:fs'
+import { realpathSync, rmSync } from 'node:fs'
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { canonicalizeOwnedPath } from './plugin/config/loader'
+import { join, resolve } from 'node:path'
 import { getConfigDir } from './plugin/storage'
 
 /** Where one process keeps one config folder's runtime files. */
@@ -59,12 +58,19 @@ export function processHeartbeatPath(
 
 /**
  * The key a config folder is recorded under: the OpenCode config folder the
- * account file lives in (`getConfigDir()` in `plugin/storage.ts`), with
- * symlinks resolved and letters lower-cased, so two spellings of one folder
- * share one key.
+ * account file lives in (`getConfigDir()` in `plugin/storage.ts`), as
+ * `realpathSync.native` returns it, or `path.resolve` when the folder does not
+ * exist yet. The string is used exactly as returned, with no lower-casing or
+ * other normalisation, so it matches the identity every CortexKit auth plugin's
+ * file move compares against.
  */
 export function processConfigFolderKey(): string {
-  return canonicalizeOwnedPath(getConfigDir()).toLowerCase()
+  const folder = getConfigDir()
+  try {
+    return realpathSync.native(folder)
+  } catch {
+    return resolve(folder)
+  }
 }
 
 // The state every copy of this bundle in one process shares. One OpenCode

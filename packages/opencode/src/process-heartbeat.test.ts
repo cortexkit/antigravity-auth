@@ -12,7 +12,7 @@ import {
 } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import type { CliDependencies } from './cli'
 import { runCliProcess } from './cli'
@@ -98,7 +98,7 @@ describe('process heartbeat location', () => {
   })
 
   it.skipIf(process.platform === 'win32')(
-    'keys the config folder by its real, lower-cased path',
+    'keys the config folder by its real path, exactly as realpath returns it',
     () => {
       const saved = process.env.OPENCODE_CONFIG_DIR
       const real = join(testRoot(), 'Real-Config')
@@ -108,12 +108,25 @@ describe('process heartbeat location', () => {
       symlinkSync(real, link)
       process.env.OPENCODE_CONFIG_DIR = link
       try {
-        expect(processConfigFolderKey()).toBe(realpathSync(real).toLowerCase())
+        // Letter case is kept: the key is the file move's folder identity.
+        expect(processConfigFolderKey()).toBe(realpathSync.native(real))
+        expect(processConfigFolderKey()).toContain('Real-Config')
       } finally {
         process.env.OPENCODE_CONFIG_DIR = saved
       }
     },
   )
+
+  it('keys a config folder that does not exist yet by its resolved path', () => {
+    const saved = process.env.OPENCODE_CONFIG_DIR
+    const missing = join(testRoot(), 'Not-Created-Yet', '..', 'Not-Created')
+    process.env.OPENCODE_CONFIG_DIR = missing
+    try {
+      expect(processConfigFolderKey()).toBe(resolve(missing))
+    } finally {
+      process.env.OPENCODE_CONFIG_DIR = saved
+    }
+  })
 })
 
 describe('process heartbeat write', () => {
