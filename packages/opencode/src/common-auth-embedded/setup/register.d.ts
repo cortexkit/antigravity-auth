@@ -3,6 +3,8 @@ export interface PlannedWrite {
     path: string;
     content: string;
     changed: boolean;
+    existingLocalEntries?: string[];
+    existingNpmEntries?: string[];
 }
 /** Edit only array entries so unrelated JSONC text, including comments, survives. */
 export declare function updatePluginConfig(text: string, key: 'plugin' | 'plugins', pkg: string, version: string): string;

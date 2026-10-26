@@ -28,7 +28,7 @@ type RefreshFileLockOptions = {
     onContended?: () => void;
     /** Synchronous, never awaited; throws and returned promise/thenable rejections are isolated. */
     onRenewalTimer?: (event: 'scheduled' | 'cancelled') => void;
-    onStep?: (step: 'stale-marker-stat' | 'stale-marker-claimed' | 'stale-lock-observed' | 'lock-read-ready' | 'lock-missing' | 'stale-lock-confirmed' | 'stale-lock-removed' | 'stale-lock-recreated' | 'eviction-marker-acquired' | 'renewal-owner-confirmed' | 'renewal-marker-unavailable' | 'renewal-write-fenced' | 'renewal-write-ready' | 'renewal-write-finished' | 'relinquish-read' | 'renewal-finished' | 'release-owner-confirmed') => void | Promise<void>;
+    onStep?: (step: 'stale-marker-stat' | 'stale-marker-claimed' | 'stale-lock-observed' | 'lease-contention-read-ready' | 'lock-read-ready' | 'lock-missing' | 'stale-lock-confirmed' | 'stale-lock-removed' | 'stale-lock-recreated' | 'eviction-marker-acquired' | 'renewal-owner-confirmed' | 'renewal-marker-unavailable' | 'renewal-write-fenced' | 'renewal-write-ready' | 'renewal-write-finished' | 'relinquish-read' | 'renewal-finished' | 'release-owner-confirmed') => void | Promise<void>;
 };
 /** Filesystem leases share wall time across all callers and processes. */
 export declare function acquireRefreshFileLock(options: RefreshFileLockOptions): Promise<RefreshFileLock | null>;

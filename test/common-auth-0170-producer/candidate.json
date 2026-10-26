@@ -1,14 +1,14 @@
 {
-  "version": "0.26.0",
-  "artifactStatus": "published",
-  "archiveBytes": 329519,
-  "sha256": "a5a6cb7051ee8c45e86e19cf7a918d0e28ce1b6a80301e982efbc7bb4b98208d",
-  "sri": "sha512-qTmQ9aMG+HcyDbhKie8Nq9wxKMRQ6GXH2hKq8Fab9kHqFfzswdp2NpXofGY52RhQ2VxuyMOQr5T6lUrkbny5VQ==",
-  "manifestSha256": "6670a7af2ce84d873a45ab1aa494b3f84695a9cc270a52481835699ea0785e27",
-  "inventorySha256": "d957ef20a087a66db59ccd24d3b8e01eb77fa99a774f51632144dc6a41381c10",
+  "version": "0.27.1",
+  "artifactStatus": "candidate",
+  "archiveBytes": 363237,
+  "sha256": "cca16560f5b7aaa410e0e1afead95773148d19f8f98907ce4228f867c7d019b4",
+  "sri": "sha512-Z88q236CDUPgmP3tYp2tXP1J7DVw2oO1HK7sxM2H8D8gK8ZWhkPUPSSd3ywS2K/Na2KrPzJAO6CbuxQMQG8G1g==",
+  "manifestSha256": "4e04a421f03417b815392c68aaa4c00e3f1ae4151647cf93b8c46e5266597e20",
+  "inventorySha256": "7df67f61fcd36229e0626cafb161003f0311d08190a3bee3fdef4842c56e5b37",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
-  "canonicalFiles": 187,
-  "canonicalBytes": 1104078,
+  "canonicalFiles": 193,
+  "canonicalBytes": 1211539,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -180,23 +180,23 @@
     ],
     [
       "claustrum/consumer.d.ts",
-      9907,
-      "8001ce3f928af1bc9124223071eb9c85ea3273436cd7be073c588217f942b248"
+      13309,
+      "a33f8fb2750424f1dd1e80ee6e0f260d4d5b6bdf6be3b00b2ae503bfbadb4d17"
     ],
     [
       "claustrum/consumer.js",
-      26470,
-      "b2087accd6e8759fb49173dc744243ed703520d5011386ef514672be8fe79fbe"
+      38516,
+      "46a8be88c8e5270d06bda0042235d7081dea06eaf1ae15f9a5fdf2ed93e478fd"
     ],
     [
       "claustrum/custody.d.ts",
-      14842,
-      "f776af511c7a02f8e5c4cb0361845d1e740eec96244fee5cfa1289d2212dffd9"
+      16192,
+      "ac8a3f2a47ec04ba0b6b5f69425db6672aa7660cd9249853f05fb2b4669698c2"
     ],
     [
       "claustrum/custody.js",
-      27016,
-      "5d2ead857d6e6384980dace94d308f1f47afe831c82e2b644ab434ffb0bcf151"
+      30242,
+      "cfa9c256d59ac4740f5b88fc1662a3bbb29078973cbeaf6225448c305fa580a2"
     ],
     [
       "claustrum/enrollment.d.ts",
@@ -205,8 +205,8 @@
     ],
     [
       "claustrum/enrollment.js",
-      35060,
-      "a9ca3a23778cc86ab9798051ba19dcb3b2b8e3dc4c4fda356cbd56eca50097db"
+      36501,
+      "0a6aa09a8927ae9ba11e4cc4fbe81cd8a3248d5f7db71e8592667bc870899078"
     ],
     [
       "claustrum/errors.d.ts",
@@ -229,14 +229,24 @@
       "59bd24af8dbf5d923750b6e2fb15de2ce8a59aa59e11a6740527e50d5f7f93d6"
     ],
     [
+      "claustrum/hub.d.ts",
+      9169,
+      "07a5c385738649ec5c03b6afb7a916011e565c9f9d5463b280b9896024d8f0c0"
+    ],
+    [
+      "claustrum/hub.js",
+      40718,
+      "50d57557ccd6e59989424e0df63df75570d97cdb5f71da37ce865d75f76297fd"
+    ],
+    [
       "claustrum/index.d.ts",
-      3844,
-      "36c0b94c5e18972463f48bfd7e1506d9655372aa8df065786b3a47d199cdb5e0"
+      4728,
+      "524bec258d060b75e6aeefa1e39e102e9ad7370e6c74ba2c033fcc418a1db4d7"
     ],
     [
       "claustrum/index.js",
-      2529,
-      "42c9e67bb5ec6749de488933a56fb3ee253c3b9e3588d692f171d87c59bcbd89"
+      3938,
+      "9868c6c475ba9390118bd45c3b5dafe18a51c13cfe4e61700496e9096143a42b"
     ],
     [
       "claustrum/insula.d.ts",
@@ -260,23 +270,28 @@
     ],
     [
       "claustrum/quota-writer.d.ts",
-      1112,
-      "35c3193c833ef169b5ebd9fdb03a8e08c234e9154b68b04d3cbea79975fffd14"
+      1483,
+      "c3cafec7057092a67d443667bee50b19333dcf3a8d14b63c9fbe4ac3989ba389"
     ],
     [
       "claustrum/quota-writer.js",
-      7579,
-      "0054a12ca94aab2eecf50f9b5e090879ff184e7f286cc979f32d311e22011906"
+      8527,
+      "5375e7d8a300e73f4398d610090834095fd22ba4b3830f3c62d142a67dcbe9fd"
     ],
     [
       "claustrum/roster.d.ts",
-      12574,
-      "c9ab3a89e04f72de09c5f15ccf1436b91f8a245e2253f24ec5998120058aebe7"
+      15102,
+      "30fc3b4d572e43a08a700ff169ebcb52206d1200f7ca678d2bff0a3369aaa005"
     ],
     [
       "claustrum/roster.js",
-      30876,
-      "d02184fd4d32aa8917369919edea4c44328e7332e30f3ddc41ce350e5fd1df07"
+      39326,
+      "f46fc75edcf4e418f02a5699c7395f1f44abd2e28b77067b89f7622af5890214"
+    ],
+    [
+      "claustrum/shutdown.js",
+      1270,
+      "6ccb19ab5e9bb84a978cb47a32b443abe432b4edfe69a318e45bb404ef75c45e"
     ],
     [
       "claustrum/watch.d.ts",
@@ -359,6 +374,11 @@
       "80779a8078e673ef68deaa7fdee3a0e1322078521a1f4156c0a595814c374044"
     ],
     [
+      "fs/file-read-cache.js",
+      2121,
+      "484d18996d76c44125c880347b3d3dcd10bb352743acf44c588d0b38e8e0f1a7"
+    ],
+    [
       "fs/index.d.ts",
       626,
       "31ad80c3a005dfd3c78d1b8d1a2d4c23ce9d47dd9f6b5b8c3b9ec4f07c4b5cdb"
@@ -390,13 +410,13 @@
     ],
     [
       "fs/refresh-file-lock.d.ts",
-      2125,
-      "ec643f4e081c108c1b42ceb17a83cf3e7e9997a4c75e1a61ffc33b5b44ccd414"
+      2157,
+      "cbce15eb313d425501780dd4be657cbbaa7e41064bab4ae64fea91fbd54918e9"
     ],
     [
       "fs/refresh-file-lock.js",
-      29704,
-      "5c52aad573e84e8065dcf06259ecf38345e8b5a2c401029a23d942f28c7a8521"
+      30222,
+      "314dadbe39b9f0664b6f2f6abff674197c8d86f61ba657e2031d5a8b08ec1030"
     ],
     [
       "fs/with-lock.d.ts",
@@ -450,8 +470,8 @@
     ],
     [
       "opencode2/errors.d.ts",
-      1054,
-      "5a89d3847b311f7bad67794086f7da57233657a64d675be16e2a2ff64f761050"
+      1298,
+      "14d126de16a9b787108fe3a75ed1effdc09261cad42a89b4917984333e42c600"
     ],
     [
       "opencode2/errors.js",
@@ -460,23 +480,23 @@
     ],
     [
       "opencode2/index.d.ts",
-      1153,
-      "4fb35e7d8c81d9f4515d57eb22a405ae171d75a6c6ed679faa3056b54ea9a128"
+      1204,
+      "aebb45bf6cb0359322d56b512e6bf40370feb2dfef5b4e82c25ade078f066f84"
     ],
     [
       "opencode2/index.js",
-      444,
-      "56dee0a87581451f41cab5b6baabdbe37d54679caf32ae0406473e2592dafbf9"
+      463,
+      "a626e6a4f3511e07f1e52a0969b855884bd521f0f1382ad28ed35ca83b46fc1e"
     ],
     [
       "opencode2/install.d.ts",
-      3658,
-      "7d7ee46966c9dba09c706a799496e798752780d0967c62fa922e243df3038ad5"
+      3837,
+      "14938cf47881ead2ed146478dd4c01986439bf6d586c610f386ddd2f6f95d00a"
     ],
     [
       "opencode2/install.js",
-      42489,
-      "82b12a88456d3fec034cf52dad13aa0a2736bc4c0dbbfb4b32bb98e6fcc899b6"
+      48348,
+      "5568d7c40a10055c69e599e3e65daf9d24243ba9e7264df6f1ec669e21a88f4c"
     ],
     [
       "opencode2/integration.d.ts",
@@ -500,8 +520,8 @@
     ],
     [
       "opencode2/types.d.ts",
-      21401,
-      "70033152b714eebab005a0b7fc5f84b95b0f14d1af579dc710200bbca3f8570f"
+      23395,
+      "30497c31cc2c67c0163888b55071a48fefe3090711bd4935999f403a585a4403"
     ],
     [
       "pi-slot/index.d.ts",
@@ -537,6 +557,16 @@
       "quota/codec.js",
       491,
       "4e496ce03a8a23536b467168f1dc6a7ceffb06d00ae80cb8a8868f311b2f3a8a"
+    ],
+    [
+      "quota/commit-interval.d.ts",
+      283,
+      "8b1d8b541a382d1ce366d65d9845e9d3848445cf075751b68ad963fb660ee04a"
+    ],
+    [
+      "quota/commit-interval.js",
+      864,
+      "3281afb6df69d83a7c5898e1163287f34104068ddd4085b7460c4bb392967491"
     ],
     [
       "quota/format.d.ts",
@@ -700,8 +730,8 @@
     ],
     [
       "rpc/rpc-server.js",
-      13765,
-      "eb9fc24814e9de6ce1b6ecbc7d0ea906f46a99a81f507b0f4abfc6fdccb2df83"
+      14231,
+      "62b92588917afeaa5ddb187c0e47fe5e318c313bc3e6065806052c3bef008f04"
     ],
     [
       "rpc/server-registry.d.ts",
@@ -735,8 +765,8 @@
     ],
     [
       "setup/command.js",
-      13180,
-      "ed9ff680ea01e09b9d443018b1d4746cb2e54200970165d3ddd76104f631bf12"
+      15313,
+      "69c58fd28873929126ee975eff1d4d7de2dafb483af5ccb630f5feb2e3c9abb2"
     ],
     [
       "setup/config-write.js",
@@ -795,13 +825,13 @@
     ],
     [
       "setup/register.d.ts",
-      744,
-      "7a3a2dcfa6a459c307673516b692ba526aa6b3c1e2259ec8320a17055343e8c1"
+      816,
+      "9f9c32e5eaea9623594b07dde03be3a03dec5e9569e882a7e769a9e14d67c317"
     ],
     [
       "setup/register.js",
-      6178,
-      "65171657a6b2b5788bc3dea16729a045b70c73b0f6d37ada0f1864c889450dfe"
+      9616,
+      "6318e5747df8b6e56ab4ac5e26fbc2d7446f4ab550d7a700cbc6ce19d8f80e7a"
     ],
     [
       "setup/types.d.ts",
@@ -860,23 +890,23 @@
     ],
     [
       "store/mutate.d.ts",
-      9006,
-      "009fea657c03a49b37555aa3c445c8930132234f0a1f3e8808ded5c065293ead"
+      9196,
+      "4a46be98d9eb24a690e95f26b69bd3c461d5f225170bd31fcb89147c7baac41c"
     ],
     [
       "store/mutate.js",
-      19981,
-      "095842664fb1d805159902223b7765dd4a7349ad1a5bbb5e2c135c654739a434"
+      20171,
+      "d61d08f2caed6d7a803ca4c67511e5133d28f21a90a7417f76e23b49ed00591d"
     ],
     [
       "store/pool.d.ts",
-      11743,
-      "0693e165ef937c22c375a3f63d01209c844d101ddf1a6702c8acc99bb5fc2a9d"
+      12144,
+      "64d6e7dd5600f436422e6d309a22b7f874a6afdd866873226ab1f4d5091ebc43"
     ],
     [
       "store/pool.js",
-      6332,
-      "45a696753691027dfcadd8e94b38b111ad5085ba1cb4f769225b15efc68125d7"
+      6358,
+      "1503b5c0f461678f9710a5fe22e345092de70e537a114e57b0cb651795928031"
     ],
     [
       "store/provider-state.d.ts",
@@ -910,8 +940,8 @@
     ],
     [
       "store/quota-writer.js",
-      12396,
-      "ade5fdda516011baf11e40f672263364cea07c45bdcbfc11107e22794e9aef21"
+      12960,
+      "7816549913b030045e5f7848dd57ca11841a3aa6051c30c96a7d09f82341700e"
     ],
     [
       "store/refresh-lock.d.ts",
@@ -970,13 +1000,13 @@
     ],
     [
       "store/settings.d.ts",
-      2979,
-      "2be15ac325bcfed048f12e202eaf625a6eca3f85fc35f29dff5770a31d81b7c5"
+      2994,
+      "32446dea1f8431e3fb7e38940d1dec7259dbd5c794b4117efe3875be92405fef"
     ],
     [
       "store/settings.js",
-      5176,
-      "b96a54dfca4a59a592d6bfac82e388e9a4f4c158e4b01dc8864b4bc6becbc88c"
+      5766,
+      "5ed4e0458800923b843b9b8f0671cca0c04cb26e428453e3bcc8b6d06b51470f"
     ],
     [
       "store/torn.d.ts",

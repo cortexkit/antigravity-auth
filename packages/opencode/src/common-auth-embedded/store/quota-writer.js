@@ -1,4 +1,5 @@
 import { createLogger } from '../logger/index.js';
+import { QUOTA_COMMIT_INTERVAL_MS, quotaCommitTimer, } from '../quota/commit-interval.js';
 import { assertQuotaEpoch, assertQuotaRow, mergedQuota, } from './attribution.js';
 import { PoolOperationError } from './errors.js';
 import { toFailure, withTransaction } from './mutate.js';
@@ -24,19 +25,22 @@ export const POOL_QUOTA_QUEUE_LIMIT = 128;
 export class PoolQuotaWriter {
     rt;
     timeoutMs;
+    clock;
     pending = new Map();
     warned = new Set();
     wake = new Set();
     logger;
     timer;
+    committedAt;
     running;
     closing;
     closed = false;
     stopped = false;
     failures = 0;
-    constructor(rt, timeoutMs = 1_000) {
+    constructor(rt, timeoutMs = 1_000, clock = quotaCommitTimer) {
         this.rt = rt;
         this.timeoutMs = timeoutMs;
+        this.clock = clock;
         this.logger = rt.ctx.logger ?? createLogger('store');
     }
     async record(id, attribution, observation) {
@@ -126,25 +130,33 @@ export class PoolQuotaWriter {
     schedule(delay) {
         if (this.running || this.timer || !this.pending.size || this.stopped)
             return;
-        this.timer = setTimeout(() => {
+        const remaining = this.closed
+            ? 0
+            : (this.committedAt ?? -Infinity) +
+                QUOTA_COMMIT_INTERVAL_MS -
+                this.clock.now();
+        this.timer = this.clock.schedule(Math.max(delay, remaining), () => {
             this.timer = undefined;
-            this.flush();
-        }, delay);
+            return this.flush();
+        });
         if (!this.closed)
             this.timer.unref?.();
     }
-    // Starts a flush now rather than at the coalescing timer or retry backoff;
-    // a flush already running is left to finish.
+    cancelTimer() {
+        this.timer?.cancel();
+        this.timer = undefined;
+    }
+    // A full queue overrides the interval: response handling must not wait for
+    // a quota commit slot. A flush already running is left to finish.
     flushNow() {
         if (this.running)
             return;
-        clearTimeout(this.timer);
-        this.timer = undefined;
+        this.cancelTimer();
         this.flush();
     }
     flush() {
         if (this.running || this.stopped || !this.pending.size)
-            return;
+            return this.running ?? Promise.resolve();
         // Every queued reading, each row's in arrival order.
         const batch = [...this.pending.values()].flat();
         // Short lock attempts allow retries to pick up freshly queued readings and
@@ -208,8 +220,10 @@ export class PoolQuotaWriter {
                         tx.setEntry(id, { ...entry, quota, needsFirstReading: false });
                         changed = true;
                     }
-                    if (changed && !this.stopped)
+                    if (changed && !this.stopped) {
                         await tx.commitConfig();
+                        this.committedAt = this.clock.now();
+                    }
                 }, { completeTorn: false });
                 const flushed = new Set(batch);
                 for (const [id, queue] of this.pending) {
@@ -240,6 +254,7 @@ export class PoolQuotaWriter {
                 this.schedule(delay);
             }
         })();
+        return this.running;
     }
     warn(message, data) {
         try {
@@ -257,8 +272,7 @@ export class PoolQuotaWriter {
         return this.closing;
     }
     async drain() {
-        clearTimeout(this.timer);
-        this.timer = undefined;
+        this.cancelTimer();
         let deadline;
         let wake;
         const drained = new Promise((done) => {
@@ -281,7 +295,7 @@ export class PoolQuotaWriter {
         finally {
             this.stopped = true;
             clearTimeout(deadline);
-            clearTimeout(this.timer);
+            this.cancelTimer();
             this.wake.delete(wake);
             if (this.pending.size)
                 this.warn('pool quota drain timed out; pending readings left', {

@@ -82,7 +82,7 @@ export function openPoolStore(options) {
         firePull: (id, reason) => pulls.fire(id, reason),
     };
     const quotaWriter = options.coalesceQuota
-        ? new PoolQuotaWriter(rt, options.quotaDrainTimeoutMs)
+        ? new PoolQuotaWriter(rt, options.quotaDrainTimeoutMs, options.quotaCommitTimer)
         : undefined;
     const record = (id, attribution, observation) => quotaWriter
         ? quotaWriter.record(id, attribution, observation)

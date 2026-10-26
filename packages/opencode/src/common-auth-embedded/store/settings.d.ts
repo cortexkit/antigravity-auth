@@ -50,7 +50,7 @@ export type UpdateSettingsResult = {
     /** `unchanged` when the mutator left the settings as they were; nothing was written. */
     outcome: 'updated' | 'unchanged';
 };
-/** Reads the settings without taking a lock or writing anything. */
+/** Reads only the config's settings, without taking a lock or writing anything. */
 export declare function readPoolSettings(rt: StoreRuntime): Promise<SettingsRead>;
 /**
  * One locked read-modify-write of the plugin's settings in the config file

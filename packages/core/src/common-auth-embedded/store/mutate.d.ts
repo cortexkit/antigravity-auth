@@ -52,6 +52,8 @@ export type ReadResult = ({
     kind?: 'snapshot-contended';
     retryable?: true;
 };
+/** Settings need only the config classification, not a joined roster snapshot. */
+export declare function readPoolConfig(path: string): Promise<import("./schema.js").ConfigClassification>;
 /**
  * Validate config/state/config bytes without locks. Roster replacement writes
  * config before deleting old state credentials. Re-read a changed config so an

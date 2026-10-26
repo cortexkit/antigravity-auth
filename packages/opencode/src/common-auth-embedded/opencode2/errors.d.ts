@@ -8,8 +8,11 @@
  * - `host-credential-on-wire`: after every rewrite, a header still carried
  *   one of the host's placeholder credentials. Sending it would leak a
  *   non-routable value to the provider and fail with a confusing error.
+ * - `placement-refused`: an opt-in placeholder gate found the placeholder in
+ *   multiple headers or outside the credential location it can serve. No
+ *   account has been selected and no account headers have been read.
  */
-export type OpenCode2AuthFailureKind = 'no-account' | 'host-credential-on-wire';
+export type OpenCode2AuthFailureKind = 'no-account' | 'host-credential-on-wire' | 'placement-refused';
 export declare class OpenCode2AuthError extends Error {
     readonly kind: OpenCode2AuthFailureKind;
     readonly providerID: string;

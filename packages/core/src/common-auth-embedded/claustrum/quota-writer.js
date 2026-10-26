@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { createLogger } from '../logger/index.js';
+import { QUOTA_COMMIT_INTERVAL_MS, quotaCommitTimer, } from '../quota/commit-interval.js';
 import { isQuotaObservation } from '../quota/index.js';
 import { quotaFields } from '../quota/pending.js';
 import { applyVaultQuota, mutateVaultRoster, } from './roster.js';
@@ -7,7 +8,7 @@ import { applyVaultQuota, mutateVaultRoster, } from './roster.js';
 const writers = new Map();
 const logger = createLogger('claustrum');
 const COALESCE_MS = 100;
-function writerFor(path) {
+function writerFor(path, clock = quotaCommitTimer) {
     const key = resolve(path);
     let writer = writers.get(key);
     if (!writer) {
@@ -17,6 +18,7 @@ function writerFor(path) {
             listeners: new Set(),
             wake: new Set(),
             abort: new AbortController(),
+            clock,
             failures: 0,
             draining: false,
             order: 0,
@@ -26,8 +28,8 @@ function writerFor(path) {
     return writer;
 }
 /** Retain the shared writer; the last consumer's close drains it. */
-export function retainVaultQuotaWriter(path, listener) {
-    const writer = writerFor(path);
+export function retainVaultQuotaWriter(path, listener, clock) {
+    const writer = writerFor(path, clock);
     writer.listeners.add(listener);
     let released;
     return () => (released ??= (() => {
@@ -93,37 +95,57 @@ export function pendingVaultQuota(path, roster) {
     }
     return roster;
 }
+/**
+ * Whether this process holds quota readings for `path` that no commit of the
+ * durable roster has written yet, so a reader of the file alone is not seeing
+ * everything this process would publish.
+ */
+export function hasPendingVaultQuota(path) {
+    return !!writers.get(resolve(path))?.pending.size;
+}
 function schedule(writer, delay) {
     if (writer.running ||
         writer.timer ||
         !writer.pending.size ||
         writer.abort.signal.aborted)
         return;
-    writer.timer = setTimeout(() => {
+    const remaining = writer.draining
+        ? 0
+        : (writer.committedAt ?? -Infinity) +
+            QUOTA_COMMIT_INTERVAL_MS -
+            writer.clock.now();
+    writer.timer = writer.clock.schedule(Math.max(delay, remaining), () => {
         writer.timer = undefined;
-        flush(writer);
-    }, delay);
+        return flush(writer);
+    });
     if (!writer.draining)
         writer.timer.unref?.();
 }
+function cancelTimer(writer) {
+    writer.timer?.cancel();
+    writer.timer = undefined;
+}
 function flush(writer) {
     if (writer.running || writer.abort.signal.aborted)
-        return;
+        return writer.running ?? Promise.resolve();
     const batch = new Map([...writer.pending].map(([account, pending]) => [
         account,
         new Map(pending),
     ]));
     writer.running = (async () => {
         try {
-            await mutateVaultRoster(writer.path, (current) => {
+            const committed = await mutateVaultRoster(writer.path, (current) => {
                 let next = current;
                 for (const field of orderedFields(batch)) {
                     if (field.priorReading)
                         next = applyVaultQuota(next, field.priorReading).roster;
                     next = applyVaultQuota(next, field.publication).roster;
                 }
-                return { ...(next !== current && { next }), result: undefined };
+                const changed = JSON.stringify(next) !== JSON.stringify(current);
+                return { ...(changed && { next }), result: changed };
             }, { signal: writer.abort.signal });
+            if (committed)
+                writer.committedAt = writer.clock.now();
             for (const [account, fields] of batch) {
                 const pending = writer.pending.get(account);
                 for (const [key, field] of fields) {
@@ -155,6 +177,7 @@ function flush(writer) {
             schedule(writer, backoff);
         }
     })();
+    return writer.running;
 }
 /** Wait at most timeoutMs for detached publication; shutdown loss is acceptable. */
 export async function drainVaultQuota(path, timeoutMs = 1_000) {
@@ -163,8 +186,7 @@ export async function drainVaultQuota(path, timeoutMs = 1_000) {
     if (!writer)
         return;
     writer.draining = true;
-    clearTimeout(writer.timer);
-    writer.timer = undefined;
+    cancelTimer(writer);
     let deadline;
     let wake;
     const drained = new Promise((done) => {
@@ -194,7 +216,7 @@ export async function drainVaultQuota(path, timeoutMs = 1_000) {
         // must not discard its observations or stop its retries.
         if (!writer.listeners.size) {
             writer.abort.abort();
-            clearTimeout(writer.timer);
+            cancelTimer(writer);
             writer.pending.clear();
             if (writers.get(key) === writer)
                 writers.delete(key);
