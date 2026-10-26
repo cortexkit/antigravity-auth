@@ -102,7 +102,7 @@ export type VaultClaustrumConsumer = Pick<
   Partial<
     Pick<
       ClaustrumConsumerInstance,
-      'pollInsulaQuotaForRoute' | 'lookupInsulaQuotaForRoute'
+      'pollInsulaQuotaForRoute' | 'lookupInsulaQuotaForRoute' | 'dispose'
     >
   >
 
@@ -327,6 +327,11 @@ export interface AntigravityVaultAccountSource {
   emptyRosterCause(): EmptyVaultRosterCause
   /** Close the vault connection; later calls are refused. */
   close(): void
+  /**
+   * Close as `close` does, then wait until the vault consumer has written the
+   * quota readings it still holds for the roster file.
+   */
+  dispose(): Promise<void>
 }
 
 /**
@@ -763,6 +768,13 @@ export function createAntigravityVaultAccountSource(
       if (closed) return
       closed = true
       consumer.close()
+    },
+    dispose: async () => {
+      closed = true
+      // The consumer's dispose closes it too, so a repeated call only waits
+      // again. A stand-in consumer without one is closed.
+      if (consumer.dispose) await consumer.dispose()
+      else consumer.close()
     },
   }
 }

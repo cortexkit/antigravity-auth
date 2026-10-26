@@ -261,6 +261,15 @@ export interface OpenCodeVaultCustody {
   menuSection(): MenuExtraSection
   /** The vault accounts' stored provider state (missing file: none). */
   readState(): Promise<VaultProviderStateFile>
+  /**
+   * Replaces a source whose refresh has stayed pending for `maxMs` or more:
+   * the source is disposed, which makes its pending refreshes reject, and the
+   * next `custodySource` (or observation, while it runs) builds a new one.
+   * Resolves true when a source was replaced.
+   */
+  recycleStalledSource(maxMs: number): Promise<boolean>
+  /** The source custody currently serves, without any I/O; null before one exists. */
+  currentSource(): AntigravityVaultAccountSource | null
   /** Closes the vault source, if one was created. */
   dispose(): Promise<void>
 }
@@ -274,6 +283,9 @@ export function createOpenCodeVaultCustody(
     options.connectionFile ?? (() => resolveClaustrumConnectionPath())
   let source: AntigravityVaultAccountSource | null = null
   let creating: Promise<AntigravityVaultAccountSource> | null = null
+  // When each refresh of the current source that is still pending began.
+  let pendingRefreshes = new Map<symbol, number>()
+  const clock = options.now ?? Date.now
 
   const enrollmentPaths = async (): Promise<EnrollmentPaths> =>
     (await loadClaustrum()).hostEnrollmentPaths({
@@ -314,7 +326,8 @@ export function createOpenCodeVaultCustody(
     creating = null
     const current = source ?? (await pending?.catch(() => null)) ?? null
     source = null
-    current?.close()
+    pendingRefreshes = new Map()
+    await current?.dispose()
   }
 
   let observedAuthority: EnrollmentAuthority | undefined
@@ -373,22 +386,34 @@ export function createOpenCodeVaultCustody(
           ? { pollIntervalMs: options.pollIntervalMs }
           : {}),
       })
+      const refreshes = new Map<symbol, number>()
+      // Each refresh is timed, so a consumer refresh that never settles can be
+      // found and its source replaced (`recycleStalledSource`).
+      const timedRefresh = async () => {
+        const id = Symbol('refresh')
+        refreshes.set(id, clock())
+        try {
+          return await created.refresh()
+        } finally {
+          refreshes.delete(id)
+        }
+      }
       const activeSource: AntigravityVaultAccountSource = {
         ...created,
         refresh: async () => {
-          const roster = await created.refresh()
+          const roster = await timedRefresh()
           // A request can join an observer tick that read local authority just
           // before approval. Its empty result is not vault discovery: retry
           // through the consumer's shared in-flight slot under fresh authority.
           if (!roster && !closed) {
             const mode = await custody.readMode()
-            if (mode.ok && mode.record.mode === 'custody')
-              return created.refresh()
+            if (mode.ok && mode.record.mode === 'custody') return timedRefresh()
           }
           return roster
         },
       }
       source = activeSource
+      pendingRefreshes = refreshes
       created.start()
       return activeSource
     })()
@@ -660,6 +685,27 @@ export function createOpenCodeVaultCustody(
     },
 
     readState: () => readVaultProviderState(paths.stateFile),
+
+    async recycleStalledSource(maxMs) {
+      const current = source
+      if (!current || closed) return false
+      const now = clock()
+      let stalled = false
+      for (const startedAt of pendingRefreshes.values())
+        if (now - startedAt >= maxMs) stalled = true
+      if (!stalled) return false
+      source = null
+      creating = null
+      pendingRefreshes = new Map()
+      // Disposing closes the consumer, whose pending refresh then rejects
+      // instead of waiting on its connect forever.
+      await current.dispose().catch(() => {})
+      // The observer ran on the replaced source; resume it on a new one.
+      if (observing && !closed) await ensureSource()
+      return true
+    },
+
+    currentSource: () => source,
 
     dispose: async () => {
       closed = true

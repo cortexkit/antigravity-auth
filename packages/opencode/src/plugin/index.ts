@@ -105,6 +105,7 @@ import type { RequestRoutingEntry } from './shared/request-services'
 import { createSourceSidebarPublisher } from './shared/source-sidebar'
 import { createVaultAccountMenuSections } from './shared/vault-menu'
 import {
+  VAULT_REFRESH_STALL_MS,
   type VaultAccountPool,
   vaultAccountRowKey,
 } from './shared/vault-request-credentials'
@@ -268,6 +269,9 @@ export const createAntigravityPlugin =
         }
       | undefined
     const currentVaultPool = async () => {
+      // A source whose refresh has stalled is replaced first, so this plugin's
+      // long-lived pool is rebuilt over a working source instead of reused.
+      await vaultCustody.recycleStalledSource(VAULT_REFRESH_STALL_MS)
       const source = await vaultCustody.custodySource()
       if (vaultPool && vaultPool.source === source) return vaultPool
       vaultPool = {

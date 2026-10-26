@@ -559,7 +559,8 @@ export interface VaultAccountPool {
   /**
    * Brings the rows up to date with the source's roster: the first call
    * reads the roster from the vault (a failed read is retried by the next
-   * call); later calls take the source's last committed routes. New rows
+   * call, and so is one still pending after `VAULT_REFRESH_STALL_MS`); later
+   * calls take the source's last committed routes. New rows
    * get their stored state; kept rows keep their in-memory state.
    */
   sync(): Promise<void>
@@ -568,6 +569,13 @@ export interface VaultAccountPool {
   /** Writes pending selection state. */
   flush(): Promise<void>
 }
+
+/**
+ * How long a vault roster refresh may stay pending before it counts as
+ * stalled: a pool then stops waiting on its first read, and custody replaces
+ * the source whose refresh it is (`recycleStalledSource`).
+ */
+export const VAULT_REFRESH_STALL_MS = 30_000
 
 export function createVaultAccountPool(
   options: VaultAccountPoolOptions,
@@ -617,14 +625,43 @@ export function createVaultAccountPool(
   }
 
   let firstRead: Promise<void> | null = null
+  const clock = options.now ?? Date.now
+  // Numbers each first read, so one abandoned at the stall bound cannot touch
+  // the state of the read that superseded it.
+  let readGeneration = 0
+  // When the pending first read began; null once it has settled.
+  let firstReadStartedAt: number | null = null
   const readOnce = (): Promise<void> => {
-    firstRead ??= (async () => {
-      await source.refresh()
-      selector.resetAccounts(await rowsFromSource())
-    })().catch((error: unknown) => {
+    // A first read that has waited past the stall bound is abandoned, so this
+    // call asks the source again. A source whose own refresh stalled is
+    // replaced by its custody, so the new read can reach a working one.
+    if (
+      firstReadStartedAt !== null &&
+      clock() - firstReadStartedAt >= VAULT_REFRESH_STALL_MS
+    ) {
       firstRead = null
-      throw error
-    })
+      firstReadStartedAt = null
+    }
+    if (firstRead) return firstRead
+    const generation = ++readGeneration
+    const current = () => generation === readGeneration
+    firstReadStartedAt = clock()
+    firstRead = (async () => {
+      await source.refresh()
+      const rows = await rowsFromSource()
+      if (current()) selector.resetAccounts(rows)
+    })().then(
+      () => {
+        if (current()) firstReadStartedAt = null
+      },
+      (error: unknown) => {
+        if (current()) {
+          firstRead = null
+          firstReadStartedAt = null
+        }
+        throw error
+      },
+    )
     return firstRead
   }
 
