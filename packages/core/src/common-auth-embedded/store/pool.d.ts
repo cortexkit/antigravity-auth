@@ -1,3 +1,4 @@
+import type { QuotaCommitTimer } from '../quota/commit-interval.js';
 import { type Attribution } from './attribution.js';
 import type { PoolOperationError } from './errors.js';
 import type { PoolLogger } from './hooks.js';
@@ -24,11 +25,15 @@ export interface OpenPoolStoreOptions {
      * older reading replaces. Accepted readings appear in read/load
      * immediately, merged the same way; the returned promise still rejects
      * current-row refusals before queueing. Await dispose or close at shutdown
-     * to drain.
+     * to attempt a bounded drain; readings still pending at its timeout are
+     * discarded. Normal quota commits are at least 30 seconds apart; a full
+     * queue commits early so response handling never waits for that interval.
      */
     coalesceQuota?: boolean;
     /** Bounded quota drain on close/dispose, in milliseconds; defaults to 1,000. */
     quotaDrainTimeoutMs?: number;
+    /** Monotonic clock and scheduling seam for detached quota commits. */
+    quotaCommitTimer?: QuotaCommitTimer;
     /**
      * The codec of the provider state kept beside each row's credential (see
      * `ProviderStateCodec`). Without it no row shows a provider state, and

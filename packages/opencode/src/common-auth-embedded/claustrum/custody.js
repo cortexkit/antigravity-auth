@@ -4,6 +4,7 @@ import { ClaustrumUnreachableError, classifyVaultFailure, } from './availability
 import { readClaustrumEnrollmentToken } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
 import { CUSTODY_PLACEHOLDER_PREFIX } from './host-slot.js';
+import { drainShutdown, shutdownWarning } from './shutdown.js';
 import { ScopedRosterWatch, } from './watch.js';
 /** Only a new version of the same account may replace an in-flight 401. */
 export function isScopedCredentialRotation(served, current) {
@@ -79,15 +80,56 @@ function accessTokenFromMaterial(material) {
     return access;
 }
 function credentialTypeOf(row, family) {
+    const notMine = { kind: 'not-mine' };
     if (!row.operations.includes('read'))
-        return undefined;
+        return notMine;
     if (!row.categories.includes(family.category))
-        return undefined;
+        return notMine;
+    if (row.credentialType !== 'oauth' && row.credentialType !== 'api_key')
+        return notMine;
+    if ('classify' in family) {
+        // Older clients omit these facts entirely; do not call a policy that needs them.
+        const facts = {
+            credentialId: row.id,
+            credentialType: row.credentialType,
+            categories: row.categories,
+            refreshAdapter: row.refreshAdapter,
+            ...rowFactsOf(row),
+        };
+        if (facts.providerIds === undefined)
+            return { kind: 'refused', code: 'unmapped' };
+        try {
+            const result = family.classify(facts);
+            if (result.kind === 'not-mine')
+                return notMine;
+            if (result.kind === 'mine' && typeof result.member === 'string')
+                return { kind: 'mine', type: row.credentialType, member: result.member };
+            if (result.kind === 'refused' &&
+                typeof result.code === 'string' &&
+                /^[a-z][a-z0-9-]{0,31}$/.test(result.code) &&
+                !result.code.includes('\n') &&
+                family.refusalCodes.includes(result.code))
+                return { kind: 'refused', code: result.code };
+        }
+        catch {
+            // A classifier error may contain vault data; expose only a fixed code.
+        }
+        return { kind: 'refused', code: 'unclassified' };
+    }
     if (row.credentialType === 'oauth')
-        return row.refreshAdapter === family.refreshAdapter ? 'oauth' : undefined;
+        return row.refreshAdapter === family.refreshAdapter
+            ? { kind: 'mine', type: 'oauth' }
+            : notMine;
     if (row.credentialType === 'api_key' && family.apiKeys)
-        return row.refreshAdapter === undefined ? 'api_key' : undefined;
-    return undefined;
+        return row.refreshAdapter === undefined
+            ? { kind: 'mine', type: 'api_key' }
+            : notMine;
+    return notMine;
+}
+/** Structural access keeps the public facts independent of client declarations. */
+function rowFactsOf(row) {
+    const metadata = row;
+    return { providerIds: metadata.providerIds, authMethod: metadata.authMethod };
 }
 /**
  * The grants named in the vault's list reply, or undefined when it names none.
@@ -136,6 +178,9 @@ export class ClaustrumScopedCustody {
     /** The view of the last successful `discover()`, for `watchRoster`. */
     #discoveredView;
     #watches = new Set();
+    #tokenReads = new Set();
+    #warnShutdown;
+    #disposing;
     constructor(options) {
         const tokenPath = options.tokenPath;
         if (options.readToken) {
@@ -153,6 +198,7 @@ export class ClaustrumScopedCustody {
         this.#requireAssertion = options.requireAssertion ?? false;
         this.#now = options.now ?? Date.now;
         this.#logger = options.logger ?? defaultLogger;
+        this.#warnShutdown = shutdownWarning(this.#logger);
         this.#setTimeout = options.setTimeoutImpl ?? setTimeout;
         this.#clearTimeout = options.clearTimeoutImpl ?? clearTimeout;
     }
@@ -220,7 +266,15 @@ export class ClaustrumScopedCustody {
     }
     async #token(signal) {
         this.#check(signal);
-        const value = await this.#readToken();
+        const pending = this.#readToken();
+        this.#tokenReads.add(pending);
+        let value;
+        try {
+            value = await pending;
+        }
+        finally {
+            this.#tokenReads.delete(pending);
+        }
         this.#check(signal);
         if (!/^[0-9a-f]{64}$/.test(value.token) ||
             !Number.isSafeInteger(value.token_generation) ||
@@ -299,17 +353,32 @@ export class ClaustrumScopedCustody {
             throw error;
         }
         const skipped = [];
+        const refused = [];
+        let notMine = 0;
         const candidates = [];
         const counts = new Map();
         for (const row of inventory.rows) {
-            const type = credentialTypeOf(row, this.#family);
-            if (!type)
+            const classified = credentialTypeOf(row, this.#family);
+            if (classified.kind === 'not-mine') {
+                notMine++;
                 continue;
-            candidates.push({ row, type });
+            }
+            if (classified.kind === 'refused') {
+                refused.push({
+                    ...(row.id.trim() && { credentialId: row.id }),
+                    code: classified.code,
+                });
+                continue;
+            }
+            candidates.push({
+                row,
+                type: classified.type,
+                ...(classified.member !== undefined && { member: classified.member }),
+            });
             counts.set(row.id, (counts.get(row.id) ?? 0) + 1);
         }
         const credentials = [];
-        for (const { row, type } of candidates) {
+        for (const { row, type, member } of candidates) {
             let reason;
             if (!row.id.trim())
                 reason = 'empty credential id';
@@ -320,12 +389,17 @@ export class ClaustrumScopedCustody {
             else if (!row.state.trim())
                 reason = 'empty state';
             if (reason) {
-                skipped.push({ ...(row.id.trim() && { credentialId: row.id }), reason });
+                skipped.push({
+                    ...(row.id.trim() && { credentialId: row.id }),
+                    ...(member !== undefined && { member }),
+                    reason,
+                });
                 continue;
             }
             credentials.push(Object.freeze({
                 credentialId: row.id,
                 credentialType: type,
+                ...(member !== undefined && { member }),
                 ...(row.accountId !== undefined && {
                     accountIdentity: row.accountId,
                 }),
@@ -341,6 +415,10 @@ export class ClaustrumScopedCustody {
             view: inventory.view,
             credentials: Object.freeze(credentials),
             skipped: Object.freeze(skipped),
+            ...('classify' in this.#family && {
+                refused: Object.freeze(refused),
+                notMine,
+            }),
             ...(grantReach && { grantReach }),
         };
     }
@@ -645,5 +723,11 @@ export class ClaustrumScopedCustody {
         this.#watches.clear();
         this.#kept.clear();
         this.#client.close();
+    }
+    /** Stop immediately; allow token reads 2 s and share an owner's timeout warning. */
+    async dispose(onTimeout = this.#warnShutdown) {
+        this.close();
+        this.#disposing ??= drainShutdown(this.#tokenReads, onTimeout);
+        await this.#disposing;
     }
 }

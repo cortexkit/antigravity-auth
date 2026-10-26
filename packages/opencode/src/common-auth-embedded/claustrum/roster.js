@@ -1,12 +1,36 @@
 import { createHash } from 'node:crypto';
+import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { acquireRefreshFileLock, LockContentionError, withLock, writeJsonAtomic, } from '../fs/index.js';
+import { acquireRefreshFileLock, LockContentionError, LockOwnershipError, lockPathFor, PrivateFileError, withLock, writeJsonAtomic, } from '../fs/index.js';
 import { readPrivateText, windowsPrivateFiles } from '../fs/private-files.js';
 import { decodeQuotaMap, isQuotaObservation, mergeQuotaObservation, } from '../quota/index.js';
 import { ClaustrumConsumerError } from './errors.js';
 import { acceptAccount, declineAccount, isDeclined, } from './interlock.js';
-import { enqueueVaultQuota, pendingVaultQuota, } from './quota-writer.js';
+import { enqueueVaultQuota, hasPendingVaultQuota, pendingVaultQuota, } from './quota-writer.js';
 export { drainVaultQuota } from './quota-writer.js';
+/** Declines and account order of `roster`, and nothing else of it. */
+export function vaultRosterSeed(roster) {
+    return {
+        declined: roster.declined.map((entry) => ({ ...entry })),
+        order: roster.rows.flatMap((row) => memberIds(row).map((credentialId) => ({
+            credentialId,
+            ...(row.accountIdentity !== undefined && {
+                accountIdentity: row.accountIdentity,
+            }),
+        }))),
+    };
+}
+/** Where a projected row falls in the seed's order; unknown rows go last. */
+function seedIndex(seed, row) {
+    const ids = memberIds(row);
+    const byAccount = row.accountIdentity === undefined
+        ? -1
+        : seed.order.findIndex((entry) => entry.accountIdentity === row.accountIdentity);
+    const index = byAccount >= 0
+        ? byAccount
+        : seed.order.findIndex((entry) => ids.includes(entry.credentialId));
+    return index >= 0 ? index : Infinity;
+}
 export const DEFAULT_ROUTE_PREFIX = 'vault:';
 function hash(value) {
     return createHash('sha256').update(value).digest('hex');
@@ -47,8 +71,9 @@ export function projectVaultRoster(previous, inventory, options = {}) {
     const prefix = options.routePrefix ?? DEFAULT_ROUTE_PREFIX;
     const reserved = options.reservedRouteIds ?? new Set();
     const previousRows = previous?.rows ?? [];
+    const seed = previous ? undefined : options.seed;
     // Declines follow the account and outlive its records, so none is pruned.
-    const declined = [...(previous?.declined ?? [])];
+    const declined = [...(previous?.declined ?? seed?.declined ?? [])];
     const complete = inventory.skipped.length === 0;
     const listed = new Set(inventory.credentials.map((credential) => credential.credentialId));
     const rejectedIds = new Set(inventory.skipped.flatMap((record) => record.credentialId === undefined ? [] : [record.credentialId]));
@@ -146,6 +171,11 @@ export function projectVaultRoster(previous, inventory, options = {}) {
                 ...(!chosen.claimed && identity !== undefined && { unclaimed: true }),
             },
         });
+        // With no previous roster every row is new; a seed from another key
+        // sorts them by that key's order instead of by credential id.
+        const pushed = projected.at(-1);
+        if (seed && pushed)
+            pushed.previousIndex = seedIndex(seed, pushed.row);
     }
     // An account the reply does not account for keeps its last good projection:
     // a rejected record must not read as the account having been removed. A
@@ -292,6 +322,14 @@ function decodeRoster(value) {
         rows,
         declined,
     };
+}
+/**
+ * `roster` as `readVaultRoster` decodes it from the file that holds it, so a
+ * committed roster and a later read of its file compare equal. Package
+ * internal: not exported from `/claustrum`.
+ */
+export function decodedVaultRoster(roster) {
+    return decodeRoster(JSON.parse(JSON.stringify(roster)));
 }
 export async function readVaultRoster(path) {
     let text;
@@ -561,13 +599,110 @@ export function forgetPendingVaultDiscovery(path) {
     pendingDiscoveries.delete(resolve(path));
 }
 /**
+ * Whether `error` from a roster commit at `path` means another writer had the
+ * roster at that moment, not that the commit itself failed: the discovery
+ * lease was busy before any roster existed, the write lock stayed busy, or a
+ * lock this commit held was lost. On Windows the same lock steps can reject
+ * with a PrivateFileError instead (a lock file that could not be read or
+ * replaced while another process held it), so a PrivateFileError naming one
+ * of this roster's lock files counts the same on every OS.
+ */
+export function isVaultRosterLockRefusal(path, error) {
+    const target = resolve(path);
+    if (error instanceof ClaustrumConsumerError)
+        return error.kind === 'roster-busy';
+    if (error instanceof LockContentionError ||
+        error instanceof LockOwnershipError)
+        return resolve(error.details.target) === target;
+    if (error instanceof PrivateFileError) {
+        const failed = resolve(error.path);
+        return [WRITE_LOCK.name, DISCOVERY_LEASE.name].some((name) => {
+            const lock = lockPathFor(target, name);
+            // The lock file itself, its eviction marker and the temporary files
+            // its owner record is staged in all start with the lock path.
+            return failed === lock || failed.startsWith(`${lock}.`);
+        });
+    }
+    return false;
+}
+const UNLOCKED_READ_ATTEMPTS = 4;
+/**
+ * What identifies one version of the file at `path`: the roster is always
+ * replaced by a rename, so any write gives it a different inode, and an
+ * in-place rewrite a different size or modification time. Undefined when it
+ * cannot be inspected, which callers must read as 'may have changed'.
+ */
+async function fileStamp(path) {
+    try {
+        const { dev, ino, size, mtimeMs } = await stat(path);
+        return { dev, ino, size, mtimeMs };
+    }
+    catch {
+        return undefined;
+    }
+}
+/** Whether two `fileStamp` readings are of the same file version. */
+function sameFileStamp(left, right) {
+    return (left !== undefined &&
+        right !== undefined &&
+        left.dev === right.dev &&
+        left.ino === right.ino &&
+        left.size === right.size &&
+        left.mtimeMs === right.mtimeMs);
+}
+/**
+ * Whether a roster list that lands unlocked would write exactly the file at
+ * `path`. `overlay` names what this process holds besides the file: `target` is
+ * the file's own roster, which the locked commit compares against, and `local`,
+ * when different, is that roster plus unwritten quota readings, which must
+ * equal the commit's result too. Both must equal `next(target)`'s bytes, which
+ * is the write the commit would make; any difference, a missing or unreadable
+ * file, or a read that a concurrent reader keeps changing all mean 'commit'.
+ */
+async function readUnlockedCommitTarget(path, overlay, next) {
+    for (let attempt = 0; attempt < UNLOCKED_READ_ATTEMPTS; attempt++) {
+        // Roster files are replaced by rename, so each attempt reads one whole
+        // file either way.
+        const before = await fileStamp(path);
+        const current = await readVaultRoster(path);
+        let target;
+        let local;
+        let changed;
+        try {
+            ;
+            ({ target, local } = overlay(current));
+            const written = JSON.stringify(next(target));
+            changed =
+                JSON.stringify(target) !== written ||
+                    (local !== undefined && JSON.stringify(local) !== written);
+        }
+        catch {
+            return 'commit';
+        }
+        // No lock was taken, so another writer may have replaced the file while
+        // it was being projected. The answer must describe the file as it is now,
+        // otherwise a later list of the same roster would find it changed again.
+        if (!sameFileStamp(before, await fileStamp(path)))
+            continue;
+        if (changed)
+            return 'commit';
+        // Quota readings this process enqueued while the file was being projected
+        // are not part of `current`, and a list that returns unchanged while they
+        // wait would be the only chance to serve them as this list's roster. They
+        // keep their own commit either way, so this path takes the locked one.
+        return hasPendingVaultQuota(path) ? 'commit' : 'unchanged';
+    }
+    return 'commit';
+}
+/**
  * Discover and commit the roster. The lease covers the list call and the
  * commit, not just the write: an opaque view cannot tell a delayed old reply
  * from a newer one, so a run that lost its lease is refused at commit. A
  * failed list, or custody switching off mid-run, never writes anything; a
  * peer holding the lease means its last committed roster is served instead.
  * A write-lock timeout keeps the discovered inventory for the next poll,
- * unless a peer has superseded its base view in the meantime.
+ * unless a peer has superseded its base view in the meantime. A list that
+ * would write the file the roster already holds takes no write lock at all.
  */
 export async function refreshVaultRoster(options) {
     options.signal?.throwIfAborted();
@@ -589,10 +724,11 @@ export async function refreshVaultRoster(options) {
         return persisted;
     }
     const key = resolve(options.path);
+    const listedOver = options.listedOver;
     let discovered;
     try {
         const previous = await readVaultRoster(options.path);
-        const pending = pendingDiscoveries.get(key);
+        const pending = listedOver ? undefined : pendingDiscoveries.get(key);
         // Opaque view cursors cannot be ordered. Reuse a discovery only while no
         // peer has committed a different view since it was read.
         discovered =
@@ -606,20 +742,58 @@ export async function refreshVaultRoster(options) {
                 };
         pendingDiscoveries.delete(key);
         const { inventory } = discovered;
-        options.onInventory?.(inventory);
+        // Called, not awaited: a caller noting the list here may wait for this
+        // roster's write lock, and this refresh decides below whether it needs it.
+        void options.onInventory?.(inventory);
         options.signal?.throwIfAborted();
+        const projection = typeof options.projection === 'function'
+            ? options.projection()
+            : options.projection;
+        const next = (current) => projectVaultRoster(current, inventory, projection);
+        const isActive = async () => {
+            options.signal?.throwIfAborted();
+            await lease.assertOwned();
+            return active();
+        };
+        // The write lock costs a lock file, an eviction marker and staging files in
+        // the roster's directory on every poll, so it is skipped when the list
+        // would write the file that is already there. The read deciding that takes
+        // no lock: a writer that commits between the read and this decision only
+        // makes our comparison stale, and a stale comparison never writes (the
+        // commit below judges the file again under the lock). Only equality with
+        // every byte the commit would write skips; every other answer commits.
+        const decision = await readUnlockedCommitTarget(options.path, (current) => {
+            // A hub member listed over a base view of its file: the file's own view
+            // is what the commit compares, so the overlay is the plain file. The
+            // locked commit below still applies the base-view rule.
+            if (listedOver)
+                return { target: current };
+            // This process's unwritten quota readings are part of the roster it
+            // serves, so a list that matches everything but them still commits.
+            const local = pendingVaultQuota(options.path, current);
+            return { target: current, ...(local !== current && { local }) };
+        }, next);
+        if (decision === 'unchanged') {
+            if (!(await isActive()))
+                return undefined;
+            // Returned as a later read of the file: that is what today's locked
+            // unchanged commit returns, and memory keeps only what was committed.
+            return await readVaultRoster(options.path);
+        }
         return await mutateVaultRoster(options.path, async (current) => {
             if (!(await active()))
                 return { result: undefined };
             options.signal?.throwIfAborted();
             await lease.assertOwned();
-            const projection = typeof options.projection === 'function'
-                ? options.projection()
-                : options.projection;
-            const next = projectVaultRoster(current, inventory, projection);
-            const changed = JSON.stringify(current) !== JSON.stringify(next);
-            return { ...(changed && { next }), result: next };
+            if (listedOver &&
+                current?.view !== listedOver.view &&
+                current?.view !== inventory.view)
+                return { result: current };
+            const projected = next(current);
+            const changed = JSON.stringify(current) !== JSON.stringify(projected);
+            return { ...(changed && { next: projected }), result: projected };
         }, {
+            signal: options.signal,
             beforePublish: async () => {
                 options.signal?.throwIfAborted();
                 await lease.assertOwned();
@@ -629,6 +803,7 @@ export async function refreshVaultRoster(options) {
     catch (error) {
         if (error instanceof LockContentionError &&
             discovered &&
+            !listedOver &&
             !options.signal?.aborted &&
             (await active()))
             pendingDiscoveries.set(key, discovered);

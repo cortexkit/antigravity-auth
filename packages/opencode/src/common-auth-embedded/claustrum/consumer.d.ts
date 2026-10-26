@@ -3,8 +3,9 @@ import type { QuotaObservation } from '../quota/index.js';
 import type { RoutingRow } from '../routing/index.js';
 import { type ClaustrumFamily, type ClaustrumScopedAttempt, type ClaustrumScopedClient, type IdentityParser, type KeptReceiptState, type VaultGrantReach } from './custody.js';
 import { type ClaustrumLogger } from './errors.js';
+import type { CustodyLease } from './hub.js';
 import { type InsulaQuotaOptions, type InsulaQuotaResult } from './insula.js';
-import { type AccountMapper, type QuotaReceipt, type ReorderVaultRosterResult, type VaultRosterFile } from './roster.js';
+import { type AccountMapper, type ProjectionOptions, type QuotaReceipt, type ReorderVaultRosterResult, type VaultRosterFile } from './roster.js';
 import { type WatchMode } from './watch.js';
 export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
     /**
@@ -17,6 +18,14 @@ export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
     tokenPath: string;
     family: ClaustrumFamily;
     connect: () => Promise<ClaustrumScopedClient>;
+    /**
+     * How long one `connect()` attempt may take before this consumer treats the
+     * vault as unreachable (default 10 s). A connect that never settles would
+     * otherwise leave every later `refresh()` waiting on the same promise. After
+     * the limit the waiters get an unreachable error, the next `refresh()`
+     * connects again, and a client that arrives late is closed.
+     */
+    connectTimeoutMs?: number;
     /**
      * Whether the plugin currently takes its accounts from the vault (custody
      * mode) rather than from local logins. Checked before every discovery,
@@ -65,6 +74,72 @@ export interface ClaustrumWatchState {
     readonly vault: WatchMode;
     readonly insula?: WatchMode;
 }
+/**
+ * What a hub member asks of the `ClaustrumDiscoveryHub` that built it.
+ * Package-internal: the hub implements it, and `/claustrum` exports neither
+ * it nor `createHubMember`.
+ */
+export interface HubMemberPort {
+    readonly provider: string;
+    /** The member's `start()`: make sure the hub's own driver runs. */
+    start(): void;
+    /**
+     * One hub refresh, coalesced across members (one list, one fan-out).
+     * Undefined while vault mode is off, or when the connection it ran on was
+     * ended before its fan-out finished. `errors` holds each member's own
+     * commit error; a failed list rejects instead.
+     */
+    refresh(): Promise<HubRefreshOutcome | undefined>;
+    /**
+     * The hub's authority read. The hub, not the member, decides what a false
+     * read means: it runs its inactive transition on the first one.
+     */
+    readAuthority(): Promise<boolean>;
+    acquire(signal?: AbortSignal): Promise<CustodyLease>;
+    /** False once a lease was released or its connection ended. */
+    leaseLive(lease: CustodyLease): boolean;
+    /** The hub's grant reach, only while `view` is the view it was read with. */
+    grantReach(view: string | undefined): VaultGrantReach | undefined;
+    watchMode(): WatchMode;
+    keptReceiptState(): KeptReceiptState;
+    /** Apply the union of every member's roster in memory to kept receipts. */
+    retainUnion(): void;
+    forget(credentialId: string): void;
+    /** The member closed: the hub stops committing and pushing to it. */
+    detach(): void;
+}
+export interface HubRefreshOutcome {
+    readonly errors: ReadonlyMap<string, unknown>;
+}
+/** What the hub may do to one member's memory. Package-internal. */
+export interface HubMemberHooks {
+    /**
+     * Set the roster in memory as a consumer's own refresh does (pending quota
+     * readings included) and notify `onRoster` when its view changed.
+     */
+    install(roster: VaultRosterFile): void;
+    /** Vault mode went off: forget the roster. */
+    reset(): void;
+    roster(): VaultRosterFile | undefined;
+    projection(): ProjectionOptions;
+    onError(error: unknown): void;
+}
+/**
+ * How long one connect attempt may take by default. It bounds a connect that
+ * never settles; the client's own handshake limit is not guaranteed to cover
+ * every stall, and callers waiting on discovery need an answer either way.
+ */
+export declare const DEFAULT_CONNECT_TIMEOUT_MS = 10000;
+/**
+ * Build the consumer for one hub member. `options` holds only what the member
+ * uses: the hub's roster path for this member and the member's own fields.
+ * Hub-mode paths never read `tokenPath`, `family` or `connect`, which the hub
+ * owns. Package-internal: only `ClaustrumDiscoveryHub.member` calls it.
+ */
+export declare function createHubMember<Q>(port: HubMemberPort, options: ClaustrumConsumerOptions<Q>): {
+    consumer: ClaustrumConsumer<Q>;
+    hooks: HubMemberHooks;
+};
 export interface SendOptions {
     /**
      * What kind of request this is (for example `model`, `quota`, `profile`),
@@ -179,6 +254,6 @@ export declare class ClaustrumConsumer<Q = QuotaObservation> {
      */
     recordAccountQuota(routeId: string, accountIdentity: string, observation: QuotaObservation): Promise<boolean>;
     close(): void;
-    /** Close immediately; the last consumer also waits for the writer's bounded drain. */
+    /** Close immediately; background work gets 2 s and the quota writer its own 1 s. */
     dispose(): Promise<void>;
 }

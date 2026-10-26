@@ -54,7 +54,7 @@ test('producer.native_windows_archive_pin', async () => {
 
 async function archive() {
   const bytes = await readFile(join(root, inputPath))
-  expect(bytes.length).toBe(329519)
+  expect(bytes.length).toBe(363199)
   expect(digest(bytes)).toBe(publication.sha256)
   const entries = readVerifiedArchive(bytes, publication)
   validatePublication(entries)
@@ -138,6 +138,13 @@ test('producer.public_roots_and_exact_closure', async () => {
       expect(
         [...text.matchAll(/\bimport\(([^)]+)\)/g)].map((match) => match[1]),
       ).toEqual(["'@cortexkit/private-files'"])
+    } else if (file === 'store/mutate.d.ts') {
+      // A declaration-only type reference to a module the file already
+      // imports; TypeScript erases it, so it loads nothing at runtime.
+      expect(
+        [...text.matchAll(/\bimport\s*\(([^)]+)\)/g)].map((match) => match[1]),
+      ).toEqual(['"./schema.js"'])
+      expect(text).toMatch(/^import [^\n]* from '\.\/schema\.js';$/m)
     } else if (file !== 'tui/index.js')
       expect(text).not.toMatch(/\bimport\s*\(/)
     const observed = imports(text)
@@ -155,13 +162,13 @@ test('producer.public_roots_and_exact_closure', async () => {
   const graph = reach(entries, starts)
   expect(graph.files).toEqual(selected)
   expect(graph.externals).toEqual(closure.nonlocalImports)
-  expect(graph.files.length).toBe(187)
+  expect(graph.files.length).toBe(193)
   expect(
     graph.files.reduce(
       (sum, file) => sum + entries.get(`package/dist/${file}`)!.length,
       0,
     ),
-  ).toBe(1104078)
+  ).toBe(1211539)
   expect(graph.files.filter((file) => file.startsWith('routing/'))).toEqual(
     closure.routingFiles,
   )
@@ -238,11 +245,11 @@ test('producer.verbatim_map', async () => {
   const map = JSON.parse(
     await readFile(join(target, outputPath, 'source-output.json'), 'utf8'),
   )
-  expect(map.version).toBe('0.26.0')
+  expect(map.version).toBe('0.27.1')
   expect(map.artifactStatus).toBe('published')
   expect(map.publicRoots).toEqual(publication.publicRoots)
-  expect(map.canonicalFiles).toBe(187)
-  expect(map.canonicalBytes).toBe(1104078)
+  expect(map.canonicalFiles).toBe(193)
+  expect(map.canonicalBytes).toBe(1211539)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])
@@ -314,9 +321,9 @@ test('producer.shared_core_profile_exact_closure', async () => {
       'utf8',
     ),
   )
-  expect(required.length).toBe(141)
-  expect(map.canonicalFiles).toBe(141)
-  expect(map.canonicalBytes).toBe(888503)
+  expect(required.length).toBe(147)
+  expect(map.canonicalFiles).toBe(147)
+  expect(map.canonicalBytes).toBe(981509)
   expect(map.publicRoots).toEqual(profile.publicRoots)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.files.map((file: { output: string }) => file.output)).toEqual(

@@ -1,5 +1,7 @@
-import type { HeaderEdits, InstallOpenCode2AuthOptions, OpenCode2AuthAdapter, OpenCode2AuthInstallation, OpenCode2HookContext } from './types.js';
+import type { ChooseAccountResult, HeaderEdits, InstallOpenCode2AuthOptions, OpenCode2AuthAdapter, OpenCode2AuthInstallation, OpenCode2HookContext } from './types.js';
 export declare const DEFAULT_MAX_RECORDS = 512;
+/** Bound adapter waits while allowing a 15-minute reset plus session jitter. */
+export declare const MAX_RETRY_HOLD_MS: number;
 /**
  * The request header `model.request` sets to the attempt it started. The
  * host builds the HTTP request and the WebSocket handshake from the headers
@@ -49,8 +51,8 @@ export declare function applyHeaderEdits(target: Record<string, string>, edits: 
  * compares the host-prepared secret exactly, then selects a fresh attempt only
  * for an owned send. Request-object attribution therefore needs no attempt
  * header. Frames are owned by the latest handshake of their session and kind;
- * retry runs only when the session's latest transport was owned. The host's
- * retry hook has no request identity, so concurrent mixed-ownership calls
- * cannot be distinguished there; owned retries retain the heuristic above.
+ * retry runs only when the session's latest transport was owned and the session
+ * has never mixed owned and foreign transports. The host's retry hook has no
+ * request identity, so a mixed session must keep the host's retry decision.
  */
-export declare function installOpenCode2Auth<Q, A = unknown>(ctx: OpenCode2HookContext, adapter: OpenCode2AuthAdapter<Q, A>, options?: InstallOpenCode2AuthOptions): Promise<OpenCode2AuthInstallation<Q, A>>;
+export declare function installOpenCode2Auth<Q, A = unknown>(ctx: OpenCode2HookContext, adapter: OpenCode2AuthAdapter<Q, A, ChooseAccountResult>, options?: InstallOpenCode2AuthOptions): Promise<OpenCode2AuthInstallation<Q, A>>;

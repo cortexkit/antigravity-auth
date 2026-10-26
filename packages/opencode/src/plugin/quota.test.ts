@@ -977,19 +977,19 @@ describe('OpenCode local quota manager', () => {
 // Account-store quota checks over the genuine public store
 //
 // Use the store and filesystem code copied into core from the pinned
-// @cortexkit/common-auth 0.26.0 published archive.
+// @cortexkit/common-auth 0.27.1 published archive.
 // Its common-auth-embedded/source-output.json records each file's size and
 // SHA-256 from the pinned published archive at
-// `tools/common-auth-build/inputs/cortexkit-common-auth-0.26.0.tgz`. Verify each file against that
+// `tools/common-auth-build/inputs/cortexkit-common-auth-0.27.1.tgz`. Verify each file against that
 // record before loading it with loadCommonAuthStoreModules; any difference
 // fails the test. Account files live in a separate disposable directory.
 // ---------------------------------------------------------------------------
 
 const EMBEDDED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.26.0',
+  version: '0.27.1',
   tarballSha256:
-    'a5a6cb7051ee8c45e86e19cf7a918d0e28ce1b6a80301e982efbc7bb4b98208d',
+    'a74507a1f746c9d591501ab24a630fe8bab20fb305c92738770902f003edb387',
 } as const
 
 async function embeddedFilesBelow(

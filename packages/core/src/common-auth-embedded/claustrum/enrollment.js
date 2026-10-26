@@ -3,6 +3,7 @@ import { constants as fsConstants } from 'node:fs';
 import { chmod, mkdir, open, readFile, realpath, rename, stat, unlink, } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, resolve, } from 'node:path';
 import { ClaustrumCredentialError, ClaustrumClient as ClaustrumWireClient, writeEnrollmentTokenFile, } from '@cortexkit/claustrum-client';
+import { FileReadCache } from '../fs/file-read-cache.js';
 import { acquireRefreshFileLock } from '../fs/index.js';
 import { ensurePrivateDirectory as ensureWindowsDirectory, PrivateFileError, readPrivateText, verifySafeDirectory, windowsPrivateFiles, writePrivateAtomic, } from '../fs/private-files.js';
 import { ClaustrumConsumerError } from './errors.js';
@@ -402,32 +403,56 @@ async function writeStateAtomic(path, state, ancestorOptions = {}) {
             await unlink(temporary).catch(() => { });
     }
 }
+const enrollmentStatusCache = new FileReadCache();
 export async function readClaustrumEnrollmentStatus(paths, proposedName) {
+    // Windows ACL, owner and ancestry checks are not represented by stat identity.
+    // Keep the native private-file validation and full read on every call there.
+    const result = windowsPrivateFiles
+        ? await readEnrollmentStatus(paths, proposedName)
+        : await enrollmentStatusCache.read([paths.tokenPath, paths.statePath], async ([tokenPath = paths.tokenPath, statePath = paths.statePath]) => readEnrollmentStatus({ tokenPath, statePath }, proposedName), (identities) => {
+            // Recheck the current effective user as well as mode and regular-file kind.
+            // lstat probes also prevent a link to the old inode from becoming a hit.
+            for (const metadata of identities)
+                if (metadata !== 'absent')
+                    validateReadableSecretFile(metadata);
+        });
+    const status = { ...result.status };
+    if (result.usesProposedName && status.state === 'approved')
+        status.proposedName = proposedName;
+    return status;
+}
+async function readEnrollmentStatus(paths, proposedName) {
     const tokenValue = await readBoundedJson(paths.tokenPath);
     const token = tokenValue === undefined ? undefined : decodeTokenFile(tokenValue);
     const stateValue = await readBoundedJson(paths.statePath);
     const state = stateValue === undefined ? undefined : decodeEnrollmentState(stateValue);
     if (token) {
         return {
-            state: 'approved',
-            proposedName: state?.proposedName ?? proposedName,
-            ...(state?.phase === 'approved' &&
-                state.approvedName !== undefined && {
-                approvedName: state.approvedName,
-            }),
-            tokenGeneration: token.token_generation,
+            usesProposedName: state === undefined,
+            status: {
+                state: 'approved',
+                proposedName: state?.proposedName ?? proposedName,
+                ...(state?.phase === 'approved' &&
+                    state.approvedName !== undefined && {
+                    approvedName: state.approvedName,
+                }),
+                tokenGeneration: token.token_generation,
+            },
         };
     }
     if (!state)
-        return { state: 'idle' };
+        return { status: { state: 'idle' }, usesProposedName: false };
     if (state.phase === 'approved') {
         return {
-            state: 'blocked',
-            proposedName: state.proposedName,
-            code: 'missing_token',
+            usesProposedName: false,
+            status: {
+                state: 'blocked',
+                proposedName: state.proposedName,
+                code: 'missing_token',
+            },
         };
     }
-    return statusFromState(state);
+    return { status: statusFromState(state), usesProposedName: false };
 }
 /**
  * Resolve the host's account mode from its enrollment files. It never changes

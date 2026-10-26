@@ -2,6 +2,8 @@ import { OpenCode2AuthError } from './errors.js';
 import { placeholderSecret } from './integration.js';
 import { watchServerSentEvents } from './sse.js';
 export const DEFAULT_MAX_RECORDS = 512;
+/** Bound adapter waits while allowing a 15-minute reset plus session jitter. */
+export const MAX_RETRY_HOLD_MS = 20 * 60 * 1000;
 /**
  * The request header `model.request` sets to the attempt it started. The
  * host builds the HTTP request and the WebSocket handshake from the headers
@@ -120,9 +122,9 @@ function applyHeaderEditsTo(target, edits) {
  * compares the host-prepared secret exactly, then selects a fresh attempt only
  * for an owned send. Request-object attribution therefore needs no attempt
  * header. Frames are owned by the latest handshake of their session and kind;
- * retry runs only when the session's latest transport was owned. The host's
- * retry hook has no request identity, so concurrent mixed-ownership calls
- * cannot be distinguished there; owned retries retain the heuristic above.
+ * retry runs only when the session's latest transport was owned and the session
+ * has never mixed owned and foreign transports. The host's retry hook has no
+ * request identity, so a mixed session must keep the host's retry decision.
  */
 export async function installOpenCode2Auth(ctx, adapter, options = {}) {
     const { providerID } = adapter;
@@ -142,10 +144,50 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
     const byRequest = new WeakMap();
     /** Retries the retry hook asked for, by `sessionID:kind`. */
     const pendingRetries = new Map();
+    // A shared clock orders each session's retries without retaining idle session state.
+    let retryOrder = 0;
     // The host names only session/kind for frames and only session for retry.
     // A transport's prepared credential, never global login state, owns these.
     const ownedSockets = new Set();
     const latestTransportOwned = new Map();
+    const transportSeen = new Map();
+    const mixed = (sessionID) => {
+        const seen = transportSeen.get(sessionID);
+        return seen?.ownedSeen === true && seen.foreignSeen;
+    };
+    const recordTransport = (sessionID, owned) => {
+        latestTransportOwned.set(sessionID, owned);
+        const seen = transportSeen.get(sessionID) ?? {
+            ownedSeen: false,
+            foreignSeen: false,
+        };
+        if (owned)
+            seen.ownedSeen = true;
+        else
+            seen.foreignSeen = true;
+        transportSeen.set(sessionID, seen);
+    };
+    const transportOwned = (scope, headers) => {
+        const refuse = ownership?.refuseMisplaced;
+        const carriers = refuse
+            ? [...headers].filter(([, value]) => value.includes(placeholderSecret(providerID)))
+            : [];
+        const owned = owns(headers) && (!refuse || carriers.length > 0);
+        if (refuse) {
+            if (carriers.length > 0 && (carriers.length !== 1 || !owned)) {
+                recordTransport(scope.sessionID, false);
+                throw new OpenCode2AuthError({
+                    kind: 'placement-refused',
+                    providerID,
+                    sessionID: scope.sessionID,
+                    requestKind: scope.kind,
+                    message: refuse(carriers[0]?.[0] ?? ''),
+                });
+            }
+        }
+        recordTransport(scope.sessionID, owned);
+        return owned;
+    };
     let warnedUnprovenResponse = false;
     let warnedUnmarkedSend = false;
     const listeners = new Map();
@@ -358,9 +400,10 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                 await inChoiceOrder(scope.sessionID, () => releaseChoice(next));
                 assertActive();
             }
-            const accountId = matches
+            const choice = matches
                 ? next.accountId
                 : await adapter.chooseAccount(input);
+            const accountId = typeof choice === 'string' ? choice : undefined;
             return { input, accountId };
         });
         assertActive();
@@ -570,8 +613,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
     }, scoped));
     registrations.push(await ctx.session.hook('http.request', (draft) => {
         if (ownership) {
-            const owned = owns(draft.request.headers);
-            latestTransportOwned.set(draft.sessionID, owned);
+            const owned = transportOwned(scopeOf(draft), draft.request.headers);
             if (!owned)
                 return;
         }
@@ -688,12 +730,11 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
     }, scoped));
     registrations.push(await ctx.session.hook('experimental.ws.handshake', (draft) => {
         if (ownership) {
-            const owned = owns(new Headers(draft.headers));
             const key = keyOf(draft.sessionID, draft.kind);
-            latestTransportOwned.set(draft.sessionID, owned);
             // Clear the previous handshake's ownership before selecting: if no
             // account can serve, subsequent frames must not use the old attempt.
             ownedSockets.delete(key);
+            const owned = transportOwned(scopeOf(draft), new Headers(draft.headers));
             if (!owned)
                 return;
         }
@@ -714,7 +755,8 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             if (!account || !attempt)
                 throw noAccount(rec.scope);
             await failing(rec, async () => {
-                applyHeaderEdits(draft.headers, rec.headers);
+                if (!ownership?.refuseMisplaced)
+                    applyHeaderEdits(draft.headers, rec.headers);
                 const url = adapter.rewriteHandshakeURL?.({
                     ...account,
                     url: draft.url,
@@ -722,6 +764,8 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                 });
                 if (url !== undefined)
                     draft.url = url;
+                if (ownership?.refuseMisplaced)
+                    applyHeaderEdits(draft.headers, rec.headers);
                 guard(rec.scope, Object.entries(draft.headers));
                 if (ownership)
                     ownedSockets.add(rec.key);
@@ -763,10 +807,21 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
     registrations.push(await ctx.session.hook('retry', async (draft) => {
         if (ownership && latestTransportOwned.get(draft.sessionID) !== true)
             return;
+        const hostDecision = draft.decision;
+        const hostDecides = () => emit('retry', {
+            sessionID: draft.sessionID,
+            attempt: draft.attempt,
+            reason: 'host-decides',
+            hostDecision,
+            decision: hostDecision,
+        });
+        if (mixed(draft.sessionID)) {
+            await hostDecides();
+            return;
+        }
         const picked = pickForRetry(draft.sessionID);
         if (!picked)
             return;
-        const hostDecision = draft.decision;
         if (picked === 'ambiguous') {
             // Nothing tells which open attempt failed: keep the host's
             // decision and leave every attempt as it is.
@@ -782,6 +837,11 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
         const rec = picked;
         await withSelection(rec.scope, async (assertActive) => {
             const checkRetryActive = assertActive;
+            // Recheck after entering selection before attributing an identity-less error.
+            if (mixed(draft.sessionID)) {
+                await hostDecides();
+                return;
+            }
             rec.judged = true;
             const attempt = rec.attempt;
             if (attempt && !rec.outputStarted) {
@@ -799,11 +859,21 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             checkRetryActive();
             const { decision, reason } = await inChoiceOrder(rec.scope.sessionID, async () => {
                 checkRetryActive();
+                if (mixed(draft.sessionID))
+                    return {
+                        decision: hostDecision,
+                        reason: 'host-decides',
+                    };
                 const old = pendingRetries.get(rec.key);
                 pendingRetries.delete(rec.key);
                 if (old?.next)
                     await releaseChoice(old.next);
                 checkRetryActive();
+                if (mixed(draft.sessionID))
+                    return {
+                        decision: hostDecision,
+                        reason: 'host-decides',
+                    };
                 let decision = hostDecision;
                 let reason;
                 let rerouteFrom;
@@ -830,7 +900,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                         // next attempt would find no account (a `no-account` refusal
                         // the host treats as a defect and does not retry) or go back
                         // at once to the account that just refused.
-                        let accountId;
+                        let choice;
                         const input = {
                             ...rec.scope,
                             phase: 'retry',
@@ -838,7 +908,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                             rerouteFrom: refused,
                         };
                         try {
-                            accountId = await adapter.chooseAccount(input);
+                            choice = await adapter.chooseAccount(input);
                         }
                         catch (error) {
                             // Treated as no other account: the host's own decision
@@ -848,6 +918,12 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                                 error: describe(error),
                             });
                         }
+                        const hold = typeof choice === 'object' ? choice.hold : undefined;
+                        const accountId = typeof choice === 'string'
+                            ? choice
+                            : hold
+                                ? rec.accountId
+                                : undefined;
                         if (accountId !== undefined)
                             next = { accountId, input };
                         try {
@@ -859,7 +935,30 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                                 await releaseChoice(next);
                             throw error;
                         }
-                        if (accountId !== undefined && accountId !== rec.accountId) {
+                        // A foreign transport may have arrived while choosing. Do not
+                        // publish or retain a retry choice for an unidentified call.
+                        if (mixed(draft.sessionID)) {
+                            if (next)
+                                await releaseChoice(next);
+                            return {
+                                decision: hostDecision,
+                                reason: 'host-decides',
+                            };
+                        }
+                        if (hold &&
+                            Number.isFinite(hold.delayMs) &&
+                            hold.delayMs >= 0) {
+                            // A recognised account limit can be recoverable even when
+                            // the host treats its provider error as final.
+                            decision = {
+                                retry: true,
+                                delay: Math.min(hold.delayMs, MAX_RETRY_HOLD_MS),
+                            };
+                            reason = 'hold';
+                        }
+                        else if (!hold &&
+                            accountId !== undefined &&
+                            accountId !== rec.accountId) {
                             rec.rerouted = true;
                             rerouteFrom = refused;
                             // The next attempt takes this choice rather than asking
@@ -873,6 +972,10 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                             reason = 'reroute';
                         }
                         else {
+                            if (hold && next) {
+                                await releaseChoice(next);
+                                next = undefined;
+                            }
                             // The refused account keeps the host's wait and serves the
                             // retry. Undefined or a throw commits nothing: choose later.
                             reason = 'host-decides-last-account';
@@ -892,6 +995,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                     pendingRetries.set(rec.key, {
                         attemptId: rec.id,
                         sessionID: rec.scope.sessionID,
+                        order: ++retryOrder,
                         accountId: rec.accountId,
                         ...(rerouteFrom === undefined ? {} : { rerouteFrom }),
                         ...(next === undefined ? {} : { next }),
@@ -922,6 +1026,10 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
     const forgetSession = (sessionID) => {
         revokeSelections(sessionID);
         latestTransportOwned.delete(sessionID);
+        // A foreign send can retry after forgetting and reuse of this session id.
+        // Retain its ownership history until disposal; owned-only ids need no tombstone.
+        if (!transportSeen.get(sessionID)?.foreignSeen)
+            transportSeen.delete(sessionID);
         for (const key of ownedSockets) {
             if (JSON.parse(key)[0] === sessionID)
                 ownedSockets.delete(key);
@@ -945,6 +1053,23 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                 for await (const event of events.subscribe({ signal: abort.signal })) {
                     if (event.type === 'session.deleted')
                         forgetSession(event.data.sessionID);
+                    else if (event.type === 'session.status' &&
+                        event.data.status.type === 'idle') {
+                        const sessionID = event.data.sessionID;
+                        const idleOrder = ++retryOrder;
+                        // Idle can arrive late from an earlier turn. Release only choices
+                        // already queued when observed, never a selection still in flight.
+                        void inChoiceOrder(sessionID, async () => {
+                            for (const [key, pending] of pendingRetries) {
+                                if (pending.sessionID === sessionID &&
+                                    pending.order < idleOrder) {
+                                    pendingRetries.delete(key);
+                                    if (pending.next)
+                                        await releaseChoice(pending.next);
+                                }
+                            }
+                        });
+                    }
                 }
             }
             catch (error) {
@@ -990,6 +1115,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                 discardPending(key);
             ownedSockets.clear();
             latestTransportOwned.clear();
+            transportSeen.clear();
             listeners.clear();
             await Promise.all(choiceWork.values());
             await Promise.all(registrations.map(async (registration) => {

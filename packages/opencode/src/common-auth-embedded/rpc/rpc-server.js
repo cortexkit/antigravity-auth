@@ -34,12 +34,8 @@ class BodyTooLargeError extends Error {
 function readBody(req) {
     return new Promise((resolve, reject) => {
         const tooLarge = (declaredOversize = false) => {
-            // Streamed overflow drains without closing at response finish: doing so
-            // caused EPIPE on a Bun 1.4.2 uploader. Declared oversize also drains, but
-            // half-closes after the 413: Bun 1.3.14 reused refused fetch connections
-            // despite Connection: close. Half-close preserved complete 413 JSON for
-            // tested fetch and slow declared-length uploaders on both runtimes (see
-            // research/load-probe/RPC-413-CLOSE.md for the delivery/lifecycle samples).
+            // Keep draining refused uploads so the client can finish sending after
+            // receiving the 413. The response path controls when the socket closes.
             req.removeAllListeners('data');
             req.on('data', () => { });
             req.resume();
@@ -143,20 +139,34 @@ export async function startRpcServer(options) {
             catch (error) {
                 if (!(error instanceof BodyTooLargeError))
                     throw error;
-                if (error.declaredOversize) {
-                    const socket = req.socket;
-                    res.once('finish', () => {
-                        socket.end();
-                        // Bound an abandoned upload to two seconds, matching the server's
-                        // default request-delivery timeout. end() alone left Bun 1.3.14
-                        // compatibility sockets open.
-                        const timer = setTimeout(() => socket.destroy(), 2_000);
-                        timer.unref();
-                        req.once('end', () => socket.destroy());
-                        socket.once('close', () => clearTimeout(timer));
-                        if (req.complete)
-                            socket.destroy();
+                const socket = req.socket;
+                res.once('finish', () => {
+                    socket.end();
+                    // Bound an abandoned declared upload to two seconds, matching the
+                    // default request-delivery timeout. On Bun 1.3.14, end() alone left
+                    // the connection open while the client was still uploading.
+                    const timer = setTimeout(() => socket.destroy(), 2_000);
+                    timer.unref();
+                    req.once('end', () => socket.destroy());
+                    socket.once('close', () => clearTimeout(timer));
+                    if (req.complete)
+                        socket.destroy();
+                });
+                if (!error.declaredOversize && !req.complete) {
+                    if (res.headersSent || res.writableEnded || res.destroyed)
+                        return;
+                    // Bun 1.4.4 closes Connection: close sockets at response finish even
+                    // while an upload is in flight. Content-Length delivers complete 413
+                    // JSON now; defer finish (and socket closure) until the body drains.
+                    const body = JSON.stringify({ error: 'body too large' });
+                    res.writeHead(413, {
+                        'content-type': 'application/json',
+                        'content-length': Buffer.byteLength(body),
+                        connection: 'close',
                     });
+                    res.write(body);
+                    req.once('end', () => res.end());
+                    return;
                 }
                 return json(413, { error: 'body too large' }, { connection: 'close' });
             }
