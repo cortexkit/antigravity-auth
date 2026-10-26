@@ -10,6 +10,7 @@ import {
 interface QuotaGroupFixture {
   gemini?: { remainingFraction?: number; resetTime?: string }
   'non-gemini'?: { remainingFraction?: number; resetTime?: string }
+  'gemini-argon'?: { remainingFraction?: number; resetTime?: string }
 }
 
 interface AccountFixture {
@@ -238,6 +239,37 @@ describe('projectCommandAccountRows', () => {
     )
     // The truly unknown 'gpt-4' key must not appear in the output.
     expect(quota?.find((q) => q.key === ('gpt-4' as never))).toBeUndefined()
+  })
+
+  it('projects the argon pool for accounts that report it and omits it elsewhere', () => {
+    const storage = makeProjectionFixture({
+      accounts: [
+        makeAccountFixture({
+          refreshToken: 'refresh-a',
+          label: 'Account A',
+          cachedQuota: {
+            gemini: { remainingFraction: 0.5 },
+            'gemini-argon': { remainingFraction: 0.4 },
+          },
+        }),
+        makeAccountFixture({
+          refreshToken: 'refresh-b',
+          label: 'Account B',
+          cachedQuota: { gemini: { remainingFraction: 0.7 } },
+        }),
+      ],
+    })
+
+    const rows = projectCommandAccountRows(storage)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]?.quota).toContainEqual({
+      key: 'gemini-argon',
+      label: 'Argon',
+      remainingPercent: 40,
+      resetAt: undefined,
+    })
+    // The account without the Argon bucket renders exactly as before.
+    expect(rows[1]?.quota.map((q) => q.key)).toEqual(['gemini'])
   })
 })
 

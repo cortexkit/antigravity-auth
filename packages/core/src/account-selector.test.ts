@@ -1202,3 +1202,119 @@ describe('AccountSelector membership', () => {
     expect(shared.getScore(0)).toBe(score)
   })
 })
+
+describe('gemini-argon quota routing', () => {
+  const ARGON_NOW = Date.UTC(2026, 9, 21, 12)
+  const ARGON_TTL = 10 * 60 * 1000
+  const ARGON_MODEL = 'gemini-4-argon-medium'
+  const FLASH_MODEL = 'gemini-3.8-flash-medium'
+  const ARGON_RESET = new Date(ARGON_NOW + 7 * 24 * 60 * 60_000).toISOString()
+
+  function argonRow(
+    index: number,
+    cachedQuota: SelectableAccount['cachedQuota'],
+  ): SelectableAccount {
+    return {
+      index,
+      enabled: true,
+      lastUsed: 0,
+      rateLimitResetTimes: {},
+      touchedForQuota: {},
+      cachedQuota,
+      cachedQuotaUpdatedAt: ARGON_NOW,
+    }
+  }
+
+  function freshGemini(fraction: number) {
+    return {
+      gemini: {
+        remainingFraction: fraction,
+        modelCount: 2,
+        resetTime: ARGON_RESET,
+      },
+      'non-gemini': {
+        remainingFraction: 0.9,
+        modelCount: 1,
+        resetTime: ARGON_RESET,
+      },
+    }
+  }
+
+  it('skips an argon-exhausted Pro account for argon but serves gemini from it', () => {
+    const selector = new AccountSelector<SelectableAccount>({
+      now: () => ARGON_NOW,
+    })
+    selector.resetAccounts([
+      // Paid Pro account: Argon weekly allowance exhausted, Gemini fresh.
+      argonRow(0, {
+        ...freshGemini(0.9),
+        'gemini-argon': {
+          remainingFraction: 0,
+          modelCount: 1,
+          resetTime: ARGON_RESET,
+        },
+      }),
+      argonRow(1, freshGemini(0.9)),
+    ])
+    const [pro] = selector.getAccounts()
+    if (!pro) throw new Error('missing Pro row')
+    // The Argon request sees the exhausted Argon pool and skips the account.
+    expect(
+      selector.isAccountOverSoftQuota(
+        pro,
+        'gemini',
+        50,
+        ARGON_TTL,
+        ARGON_MODEL,
+      ),
+    ).toBe(true)
+    // The same account still serves an ordinary Gemini request.
+    expect(
+      selector.isAccountOverSoftQuota(
+        pro,
+        'gemini',
+        50,
+        ARGON_TTL,
+        FLASH_MODEL,
+      ),
+    ).toBe(false)
+    // Selection routes the Argon request to the other account.
+    expect(
+      selector.getNextForFamily('gemini', ARGON_MODEL, 50, ARGON_TTL)?.index,
+    ).toBe(1)
+  })
+
+  it('counts argon against the gemini pool on accounts without the argon bucket', () => {
+    const selector = new AccountSelector<SelectableAccount>({
+      now: () => ARGON_NOW,
+    })
+    // Ultra-shaped account (Ultra plans report no Argon bucket, so the
+    // request cannot see an Argon pool here): exhausted Gemini pool.
+    const exhausted = argonRow(0, freshGemini(0))
+    const fresh = argonRow(1, freshGemini(0.9))
+    selector.resetAccounts([exhausted, fresh])
+    // Exactly as before the Argon pool existed: the request is judged on
+    // the ordinary Gemini pool.
+    expect(
+      selector.isAccountOverSoftQuota(
+        exhausted,
+        'gemini',
+        50,
+        ARGON_TTL,
+        ARGON_MODEL,
+      ),
+    ).toBe(true)
+    expect(
+      selector.isAccountOverSoftQuota(
+        fresh,
+        'gemini',
+        50,
+        ARGON_TTL,
+        ARGON_MODEL,
+      ),
+    ).toBe(false)
+    expect(
+      selector.getNextForFamily('gemini', ARGON_MODEL, 50, ARGON_TTL)?.index,
+    ).toBe(1)
+  })
+})

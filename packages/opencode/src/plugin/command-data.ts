@@ -22,7 +22,7 @@ type CommandDataAccountMetadata = {
   accountIneligible?: boolean
 }
 
-type CommandDataQuotaGroup = 'gemini' | 'non-gemini'
+type CommandDataQuotaGroup = 'gemini' | 'non-gemini' | 'gemini-argon'
 
 type CommandDataQuotaGroupSummary = {
   remainingFraction?: number
@@ -73,7 +73,7 @@ export interface CommandAccountRow {
   healthScore?: number
   cachedQuotaUpdatedAt?: number
   quota: Array<{
-    key: 'gemini' | 'non-gemini'
+    key: 'gemini' | 'non-gemini' | 'gemini-argon'
     label: string
     remainingPercent: number | null
     resetAt?: number
@@ -97,11 +97,13 @@ const QUOTA_GROUP_LABELS: Record<
 > = {
   gemini: 'Gemini',
   'non-gemini': 'Non-Gemini',
+  'gemini-argon': 'Argon',
 }
 
 const SUPPORTED_QUOTA_KEYS = [
   'gemini',
   'non-gemini',
+  'gemini-argon',
 ] as const satisfies readonly CommandAccountRow['quota'][number]['key'][]
 
 interface LiveAccountSnapshot {

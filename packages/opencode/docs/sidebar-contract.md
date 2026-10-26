@@ -65,7 +65,7 @@ Optional properties are omitted from serialized JSON when unknown.
 | `health` | Health score in `[0, 100]`. |
 | `current` | Whether it is serving at least one model family. More than one account may be current. Vault machine projections initialize this to false; session routing identifies the served account. |
 | `cooldownUntil` | Optional end of the account cooldown. |
-| `quota` | Partial map of the stable quota group keys `gemini` and `non-gemini`. A missing group means no cached reading for that group. |
+| `quota` | Partial map of the stable quota group keys `gemini`, `non-gemini` and `gemini-argon`. A missing group means no cached reading for that group. `gemini-argon` appears only for accounts whose quota reading includes Google's separate Argon weekly allowance (paid Pro plans); readers that don't know the key can ignore it. |
 | `tier` | Optional captured plan metadata: `id` (raw upstream tier string), optional `paidId` (raw paid tier string), and `capturedAt` (capture time). Absence means unknown, not free-tier. |
 
 Each `quota` group contains:

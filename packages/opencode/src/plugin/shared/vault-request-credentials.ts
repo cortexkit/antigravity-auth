@@ -242,7 +242,7 @@ export function cachedQuotaOf(
   const groups = quota.cachedQuota
   if (groups == null) return undefined
   const out: NonNullable<VaultAccountRow['cachedQuota']> = {}
-  for (const name of ['gemini', 'non-gemini'] as const) {
+  for (const name of ['gemini', 'non-gemini', 'gemini-argon'] as const) {
     const group = groups[name]
     if (group === undefined) continue
     out[name] = {

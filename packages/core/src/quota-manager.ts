@@ -467,9 +467,12 @@ function hashKey(key: string): string {
 export function classifyQuotaGroup(
   modelName: string,
   displayName?: string,
+  hasArgonPool = false,
 ): QuotaGroup | null {
-  if (isGeminiArgonModel(modelName)) return null
-  const registryGroup = getQuotaGroupForModel(modelName)
+  // The Argon weekly pool exists only on accounts that report its bucket:
+  // elsewhere the model is conserved against the ordinary Gemini pool.
+  if (isGeminiArgonModel(modelName)) return hasArgonPool ? 'gemini-argon' : null
+  const registryGroup = getQuotaGroupForModel(modelName, hasArgonPool)
   if (registryGroup) {
     return registryGroup
   }
@@ -597,7 +600,7 @@ export interface FetchAvailableModelsResponse {
 }
 
 // ============================================================================
-// retrieveUserQuotaSummary — windowed quota source (2 pools × variable windows)
+// retrieveUserQuotaSummary — windowed quota source (3 pools × variable windows)
 // ============================================================================
 
 export interface RetrieveUserQuotaSummaryBucket {
@@ -646,6 +649,8 @@ function mostConstrainedWindow(
 /**
  * Map only quota bucket IDs whose meaning is known to an internal pool.
  * Other IDs may describe separate entitlements and must not affect these pools.
+ * Matching is by exact bucket ID: no prefix matching, and no guessed
+ * window kinds for a pool (there is no known Argon 5-hour bucket).
  */
 function poolForBucketId(bucketId: string): QuotaGroup | null {
   switch (bucketId) {
@@ -655,6 +660,8 @@ function poolForBucketId(bucketId: string): QuotaGroup | null {
     case '3p-5h':
     case '3p-weekly':
       return 'non-gemini'
+    case 'gemini-argon-wtu-weekly':
+      return 'gemini-argon'
     default:
       return null
   }
@@ -709,10 +716,12 @@ export function aggregateQuotaSummary(
   const windowsByPool: Record<QuotaGroup, Map<string, QuotaWindowEntry>> = {
     gemini: new Map(),
     'non-gemini': new Map(),
+    'gemini-argon': new Map(),
   }
   const modelCounts: Record<QuotaGroup, number> = {
     gemini: 0,
     'non-gemini': 0,
+    'gemini-argon': 0,
   }
   const seenBucketIds = new Set<string>()
   const duplicateBucketIds = new Set<string>()
@@ -756,7 +765,7 @@ export function aggregateQuotaSummary(
 
   const groups: Partial<Record<QuotaGroup, QuotaGroupSummary>> = {}
   let totalCount = 0
-  for (const pool of ['gemini', 'non-gemini'] as const) {
+  for (const pool of ['gemini', 'non-gemini', 'gemini-argon'] as const) {
     const windows = [...windowsByPool[pool].values()]
     if (windows.length === 0) continue
     windows.sort(

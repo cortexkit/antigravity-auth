@@ -862,6 +862,49 @@ describe('windows rework — producer seam tests', () => {
     expect(gemini!.windows![0]!.remainingPercent).toBe(89)
   })
 
+  it('redactAccountForSidebar carries the argon pool for accounts that report it', () => {
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        gemini: { remainingFraction: 0.9 },
+        'gemini-argon': {
+          remainingFraction: 0.4,
+          resetTime: '2026-10-26T12:00:00Z',
+          windows: [
+            {
+              window: 'weekly',
+              remainingFraction: 0.4,
+              resetTime: '2026-10-26T12:00:00Z',
+            },
+          ],
+        },
+      },
+      cachedQuotaUpdatedAt: 1_800_000_000_000,
+    })
+    expect(Object.keys(redacted.quota)).toEqual(['gemini', 'gemini-argon'])
+    const argon = redacted.quota['gemini-argon']
+    expect(argon?.remainingPercent).toBe(40)
+    expect(argon?.remainingFraction).toBe(0.4)
+    expect(argon?.windows).toHaveLength(1)
+    expect(argon!.windows![0]).toMatchObject({
+      window: 'weekly',
+      remainingPercent: 40,
+    })
+  })
+
+  it('redactAccountForSidebar writes no argon key for accounts without the bucket', () => {
+    const redacted = redactAccountForSidebar({
+      index: 0,
+      cachedQuota: {
+        gemini: { remainingFraction: 0.9 },
+        'non-gemini': { remainingFraction: 0.8 },
+      },
+      cachedQuotaUpdatedAt: 1_800_000_000_000,
+    })
+    expect(Object.keys(redacted.quota)).toEqual(['gemini', 'non-gemini'])
+    expect(JSON.stringify(redacted.quota)).not.toContain('argon')
+  })
+
   it('full round-trip: write windows through setSidebarMachineState → readSidebarState', async () => {
     const root = mkdtempSync(join(tmpdir(), 'agy-seam-windows-'))
     const statePath = join(root, 'sidebar-state.json')

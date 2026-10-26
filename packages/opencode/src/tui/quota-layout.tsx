@@ -58,7 +58,7 @@ export const DEFAULT_QUOTA_APPEARANCE: QuotaAppearance = {
   errorThreshold: 80,
 }
 
-export type QuotaGroupKey = 'gemini' | 'non-gemini'
+export type QuotaGroupKey = 'gemini' | 'non-gemini' | 'gemini-argon'
 
 export interface QuotaLayoutWindow {
   readonly window: 'weekly' | '5h'
@@ -80,6 +80,8 @@ export interface QuotaLayoutAccount {
   readonly quota: {
     readonly gemini?: QuotaLayoutEntry
     readonly 'non-gemini'?: QuotaLayoutEntry
+    /** Present only on accounts whose reading reports the Argon pool. */
+    readonly 'gemini-argon'?: QuotaLayoutEntry
   }
 }
 
@@ -87,9 +89,14 @@ export interface QuotaLayoutAccount {
 export const GROUP_NAMES: Record<QuotaGroupKey, string> = {
   gemini: 'Gemini',
   'non-gemini': 'Other models',
+  'gemini-argon': 'Argon',
 }
 
-export const QUOTA_ORDER: readonly QuotaGroupKey[] = ['gemini', 'non-gemini']
+export const QUOTA_ORDER: readonly QuotaGroupKey[] = [
+  'gemini',
+  'non-gemini',
+  'gemini-argon',
+]
 
 // Shown instead of a stored figure once the window has reset since it was
 // read: the stored figure describes the window before the reset.

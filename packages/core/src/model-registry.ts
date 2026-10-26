@@ -19,7 +19,7 @@ export interface ModelLimit {
 }
 
 export type ModelModality = 'text' | 'image' | 'pdf'
-export type ModelQuotaGroup = 'gemini' | 'non-gemini'
+export type ModelQuotaGroup = 'gemini' | 'non-gemini' | 'gemini-argon'
 
 export interface ModelModalities {
   input: ModelModality[]
@@ -529,11 +529,15 @@ export function getGemini38FlashAntigravityModel(tier?: ThinkingTier): string {
 
 export function getQuotaGroupForModel(
   modelId: string,
+  hasArgonPool = false,
 ): ModelQuotaGroup | undefined {
   const normalized = modelId.toLowerCase()
-  // Argon per-model quota is retained separately: the redacted 1.3.5 quota
-  // summary does not identify an Argon weekly pool (see the fixture README).
-  if (isGeminiArgonModel(normalized)) return undefined
+  // Argon per-model quota is retained separately: the model alone does not
+  // identify an Argon weekly pool, so without evidence that this account
+  // reports one the model stays ungrouped and callers fall back to the
+  // ordinary Gemini pool (see the fixture README).
+  if (isGeminiArgonModel(normalized))
+    return hasArgonPool ? 'gemini-argon' : undefined
   return (
     QUOTA_GROUP_BY_MODEL_ID[normalized] ??
     // Check Claude / GPT-OSS substrings BEFORE the `gemini` substring so

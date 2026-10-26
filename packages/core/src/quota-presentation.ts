@@ -23,6 +23,9 @@ export type AntigravityQuotaReading = Partial<
 const MODEL_LABELS: Readonly<Record<string, string>> = {
   gemini: 'Gemini',
   'non-gemini': 'Claude / GPT-OSS',
+  // The group label shown in every view. The shared QuotaGroup carries a
+  // single display name, so the expanded view also reads "Argon".
+  'gemini-argon': 'Argon',
   claude: 'Claude',
   'gemini-pro': 'Gemini Pro',
   'gemini-flash': 'Gemini Flash',
@@ -81,6 +84,11 @@ export function projectAntigravityQuota(
     groups: [
       { scope: 'gemini', label: 'Gemini' },
       { scope: 'non-gemini', label: 'Other models' },
+      // The Argon group is listed only for accounts whose reading reports
+      // it, so every other account projects exactly as before.
+      ...(quota?.cachedQuota?.['gemini-argon'] !== undefined
+        ? [{ scope: 'gemini-argon', label: 'Argon' }]
+        : []),
     ] satisfies readonly QuotaGroup[],
   }
 }

@@ -9,7 +9,7 @@
 
 import type { AccountMetadataV3 } from './account-types.ts'
 
-export type QuotaGroup = 'gemini' | 'non-gemini'
+export type QuotaGroup = 'gemini' | 'non-gemini' | 'gemini-argon'
 
 export type QuotaWindow = 'weekly' | '5h'
 
@@ -92,6 +92,11 @@ export function normalizeLegacyCachedQuota(
   return {
     ...(gemini !== undefined ? { gemini } : {}),
     ...(nonGemini !== undefined ? { 'non-gemini': nonGemini } : {}),
+    // The Argon pool postdates the legacy pool keys, so a reading that
+    // carries both keeps its Argon pool untouched by the migration.
+    ...(raw['gemini-argon'] !== undefined
+      ? { 'gemini-argon': raw['gemini-argon'] }
+      : {}),
   }
 }
 

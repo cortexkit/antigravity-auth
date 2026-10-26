@@ -2479,8 +2479,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 )
                 if (rotated) {
                   const remaining =
-                    account.cachedQuota?.[resolveQuotaGroup(family, model)]
-                      ?.remainingFraction
+                    account.cachedQuota?.[
+                      resolveQuotaGroup(family, model, account.cachedQuota)
+                    ]?.remainingFraction
                   const remainingPct =
                     remaining != null ? `${(remaining * 100).toFixed(1)}%` : '?'
                   pushDebug(
@@ -2612,7 +2613,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
             const cachedQuota = account.cachedQuota
             if (cachedQuota) {
-              const quotaFamily = resolveQuotaGroup(family, model)
+              const quotaFamily = resolveQuotaGroup(family, model, cachedQuota)
               const groupQuota = cachedQuota[quotaFamily]
               if (groupQuota?.remainingFraction != null) {
                 const pct = Math.round(groupQuota.remainingFraction * 100)

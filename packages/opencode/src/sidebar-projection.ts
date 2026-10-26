@@ -18,7 +18,7 @@ import { quotaReadingParts } from './quota-presentation'
 
 export type ProjectionTone = 'ok' | 'warn' | 'err' | 'muted' | 'text'
 
-export type ProjectionQuotaKey = 'gemini' | 'non-gemini'
+export type ProjectionQuotaKey = 'gemini' | 'non-gemini' | 'gemini-argon'
 
 export interface ProjectionQuotaWindow {
   readonly window: 'weekly' | '5h'
@@ -45,6 +45,8 @@ export interface ProjectionAccount {
   readonly quota: {
     readonly gemini?: ProjectionQuotaEntry
     readonly 'non-gemini'?: ProjectionQuotaEntry
+    /** Present only on accounts whose reading reports the Argon pool. */
+    readonly 'gemini-argon'?: ProjectionQuotaEntry
   }
   readonly tier?: { readonly id: string; readonly paidId?: string }
 }
@@ -98,9 +100,14 @@ export interface ProjectedSidebar {
 export const QUOTA_POOL_LABELS: Readonly<Record<ProjectionQuotaKey, string>> = {
   gemini: 'Gemini',
   'non-gemini': 'Other models',
+  'gemini-argon': 'Argon',
 }
 
-const POOL_ORDER: readonly ProjectionQuotaKey[] = ['gemini', 'non-gemini']
+const POOL_ORDER: readonly ProjectionQuotaKey[] = [
+  'gemini',
+  'non-gemini',
+  'gemini-argon',
+]
 
 function clamp(value: number): number {
   if (!Number.isFinite(value)) return 0
@@ -153,6 +160,9 @@ function quotaRows(
     const entry = account.quota[key]
     const label = QUOTA_POOL_LABELS[key]
     if (!entry) {
+      // The Argon pool exists only on accounts that report it: an account
+      // without it renders no Argon row at all, exactly as before.
+      if (key === 'gemini-argon') continue
       rows.push({
         label,
         remaining: null,
