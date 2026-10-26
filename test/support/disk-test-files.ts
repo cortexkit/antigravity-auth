@@ -53,6 +53,10 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Lock-held pool persistence, corruption recovery, and chmod-based permission denial.',
   'packages/opencode/src/plugin/vault-custody.test.ts':
     'Ceremony-lock refusal, credential preservation, and directory permission checks.',
+  'packages/opencode/src/plugin/ga-shared-vault-custody.test.ts':
+    'Shared custody quota producer takes the real fenced poll lock; private-mode vault fixtures.',
+  'packages/opencode/src/plugin/vault-stall-recovery.test.ts':
+    'Vault source recovery over private-mode enrollment and roster files.',
   'packages/opencode/src/plugin/vault-activation.test.ts':
     'Native-auth preservation and refusal of unreadable credential directories.',
   'packages/opencode/src/plugin/auth-loader.test.ts':
