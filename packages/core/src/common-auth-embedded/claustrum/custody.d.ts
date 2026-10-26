@@ -22,10 +22,35 @@ export interface ClaustrumFamily {
     category: string;
     apiKeys?: boolean;
 }
+/** Non-secret classification facts, including rows decoded by older clients. */
+export interface VaultRowFacts {
+    readonly credentialId: string;
+    readonly credentialType: string;
+    readonly authMethod?: string;
+    readonly refreshAdapter?: string;
+    readonly providerIds?: readonly string[];
+    readonly categories: readonly string[];
+}
+/** A policy that partitions one category without requiring one OAuth adapter. */
+export interface ClassifyingClaustrumFamily<Code extends string> {
+    category: string;
+    refusalCodes: readonly Code[];
+    classify(row: VaultRowFacts): {
+        kind: 'not-mine';
+    } | {
+        kind: 'mine';
+        member: string;
+    } | {
+        kind: 'refused';
+        code: Code;
+    };
+}
+export type ClaustrumFamilyInput = ClaustrumFamily | ClassifyingClaustrumFamily<string>;
 /** One vault credential this consumer may serve. Never carries bearer material. */
 export interface VaultCredential {
     readonly credentialId: string;
     readonly credentialType: VaultCredentialType;
+    readonly member?: string;
     /**
      * The provider account the credential logs into, when the vault's adapter
      * claims one. Absent means the adapter makes no claim, not a mismatch.
@@ -47,6 +72,7 @@ export type SkippedVaultReason = 'empty credential id' | 'duplicate credential i
  */
 export interface SkippedVaultRecord {
     readonly credentialId?: string;
+    readonly member?: string;
     readonly reason: SkippedVaultReason;
 }
 /**
@@ -82,6 +108,13 @@ export interface VaultInventory {
     readonly view: string;
     readonly credentials: readonly VaultCredential[];
     readonly skipped: readonly SkippedVaultRecord[];
+    /** Classifying families only: fixed refusal codes, never classifier errors. */
+    readonly refused?: readonly {
+        credentialId?: string;
+        code: string;
+    }[];
+    /** Classifying families only: rows outside this family's responsibility. */
+    readonly notMine?: number;
     /**
      * The consumer's grants, as the vault's list reply named them. Undefined means unknown
      * (the vault or client predates the fields), never zero grants.
@@ -221,7 +254,7 @@ export declare class ClaustrumScopedCustody {
     #private;
     constructor(options: {
         client: ClaustrumScopedClient;
-        family: ClaustrumFamily;
+        family: ClaustrumFamilyInput;
         tokenPath?: string;
         readToken?: () => Promise<EnrollmentTokenFile>;
         parseIdentity?: IdentityParser;
@@ -296,4 +329,6 @@ export declare class ClaustrumScopedCustody {
      */
     watchRoster(options: ClaustrumRosterWatchOptions): ClaustrumRosterWatch;
     close(): void;
+    /** Stop immediately; allow token reads 2 s and share an owner's timeout warning. */
+    dispose(onTimeout?: (pendingOperations: number) => void): Promise<void>;
 }

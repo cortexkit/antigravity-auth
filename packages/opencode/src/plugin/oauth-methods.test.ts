@@ -448,9 +448,9 @@ describe('createOAuthMethods persistence failure handling', () => {
 
 const EMBEDDED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.26.0',
+  version: '0.27.0',
   tarballSha256:
-    'a5a6cb7051ee8c45e86e19cf7a918d0e28ce1b6a80301e982efbc7bb4b98208d',
+    '748413874c234c9201692ab9dab15352c4b2e65024a061a2cdc087b78dd72232',
 } as const
 
 async function embeddedFilesBelow(
@@ -491,12 +491,12 @@ function genuineModules(): Promise<CommonAuthStoreModules> {
     if (
       receipt.package !== EMBEDDED_COMMON_AUTH.package ||
       receipt.version !== EMBEDDED_COMMON_AUTH.version ||
-      receipt.artifactStatus !== 'published' ||
+      receipt.artifactStatus !== 'candidate' ||
       receipt.tarballSha256 !== EMBEDDED_COMMON_AUTH.tarballSha256 ||
       !Array.isArray(receipt.files)
     ) {
       throw new Error(
-        `the embedded common-auth receipt is not the pinned published ${EMBEDDED_COMMON_AUTH.version}`,
+        `the embedded common-auth receipt is not the pinned candidate ${EMBEDDED_COMMON_AUTH.version}`,
       )
     }
     const recorded = receipt.files.filter((file) =>

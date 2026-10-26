@@ -6,7 +6,23 @@ import { ClaustrumConsumerError } from './errors.js';
 import { acquireInsulaQuotaSource, } from './insula.js';
 import { pendingVaultQuota, retainVaultQuotaWriter } from './quota-writer.js';
 import { acceptVaultRoute, applyVaultQuota, declineVaultRoute, forgetPendingVaultDiscovery, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, reorderVaultRoster, vaultRoutingRows, } from './roster.js';
+import { drainShutdown, shutdownWarning } from './shutdown.js';
 import { SAFETY_POLL_MS } from './watch.js';
+let buildHubMember;
+/**
+ * Build the consumer for one hub member. `options` holds only what the member
+ * uses: the hub's roster path for this member and the member's own fields.
+ * Hub-mode paths never read `tokenPath`, `family` or `connect`, which the hub
+ * owns. Package-internal: only `ClaustrumDiscoveryHub.member` calls it.
+ */
+export function createHubMember(port, options) {
+    if (!buildHubMember)
+        throw new Error('ClaustrumConsumer is not initialized');
+    return buildHubMember(port, options);
+}
+function notActive() {
+    return new ClaustrumConsumerError('not-active', 'Claustrum scoped custody is not active');
+}
 /**
  * One plugin host's view of its vault accounts. It turns vault credentials
  * into rows for `/routing`, authorizes each physical send with the vault, and
@@ -19,6 +35,7 @@ export class ClaustrumConsumer {
     #options;
     #shutdown = new AbortController();
     #logger;
+    #warnShutdown;
     #custody;
     #connecting;
     #refreshing;
@@ -30,6 +47,8 @@ export class ClaustrumConsumer {
     #grantReach;
     #timer;
     #started = false;
+    #pending = new Set();
+    #disposing;
     #insula;
     #vaultWatch;
     #releaseInsulaWatch;
@@ -37,9 +56,23 @@ export class ClaustrumConsumer {
     /** When this instance last completed a discovery, by `now`. */
     #discoveredAt;
     #releaseQuotaWriter;
+    /** Set only on a member built by `ClaustrumDiscoveryHub.member`. */
+    #hub;
+    /** A hub member's one custody lease at a time. */
+    #lease;
+    /** The lease that issued each receipt, so a 401 goes back through it. */
+    #issuedBy = new WeakMap();
+    static {
+        buildHubMember = (port, options) => {
+            const consumer = new ClaustrumConsumer(options);
+            consumer.#hub = port;
+            return { consumer, hooks: consumer.#hubHooks() };
+        };
+    }
     constructor(options) {
         this.#options = options;
         this.#logger = options.logger ?? createLogger('claustrum');
+        this.#warnShutdown = shutdownWarning(this.#logger, this.#shutdown.signal);
         this.#releaseQuotaWriter = retainVaultQuotaWriter(options.rosterPath, (publication) => {
             this.#roster = applyVaultQuota(this.#roster, publication).roster;
         });
@@ -47,6 +80,11 @@ export class ClaustrumConsumer {
     #assertOpen(signal) {
         this.#shutdown.signal.throwIfAborted();
         signal?.throwIfAborted();
+    }
+    #track(pending) {
+        this.#pending.add(pending);
+        void pending.then(() => this.#pending.delete(pending), () => this.#pending.delete(pending));
+        return pending;
     }
     async #active() {
         return (await this.#options.isCustodyActive?.()) ?? true;
@@ -113,6 +151,7 @@ export class ClaustrumConsumer {
                 .finally(() => {
                 this.#connecting = undefined;
             });
+            this.#track(this.#connecting);
         }
         return this.#wait(this.#connecting);
     }
@@ -130,6 +169,8 @@ export class ClaustrumConsumer {
      * held the discovery lease and its newer roster was served instead).
      */
     grantReach() {
+        if (this.#hub)
+            return this.#hub.grantReach(this.#roster?.view);
         const latest = this.#grantReach;
         return latest && this.#roster?.view === latest.view
             ? latest.reach
@@ -137,6 +178,8 @@ export class ClaustrumConsumer {
     }
     /** How this consumer currently learns about changes, without I/O. */
     watchState() {
+        if (this.#hub)
+            return Object.freeze({ vault: this.#hub.watchMode() });
         return Object.freeze({
             vault: this.#vaultWatch?.mode ?? 'polling',
             ...(this.#options.insula && {
@@ -153,6 +196,13 @@ export class ClaustrumConsumer {
     }
     /** Whether any account is using an in-memory outage receipt, without I/O. */
     keptReceiptState() {
+        if (this.#hub) {
+            // Kept receipts live in the one shared custody, whichever lease reads it.
+            const lease = this.#lease;
+            return lease && this.#hub.leaseLive(lease)
+                ? lease.custody.keptReceiptState()
+                : this.#hub.keptReceiptState();
+        }
         return (this.#custody?.keptReceiptState() ??
             Object.freeze({ active: false, since: null }));
     }
@@ -162,6 +212,8 @@ export class ClaustrumConsumer {
     }
     refresh() {
         this.#assertOpen();
+        if (this.#hub)
+            return this.#track(this.#hubRefresh(this.#hub));
         if (this.#refreshing)
             return this.#refreshing;
         this.#refreshing = (async () => {
@@ -169,7 +221,10 @@ export class ClaustrumConsumer {
                 this.#roster = undefined;
                 this.#grantReach = undefined;
                 this.#stopWatch();
-                this.#custody?.close();
+                if (this.#custody) {
+                    this.#custody.close();
+                    this.#track(this.#custody.dispose(this.#warnShutdown));
+                }
                 this.#custody = undefined;
                 this.#insula?.release();
                 this.#insula = undefined;
@@ -214,6 +269,7 @@ export class ClaustrumConsumer {
         })().finally(() => {
             this.#refreshing = undefined;
         });
+        this.#track(this.#refreshing);
         return this.#refreshing;
     }
     /**
@@ -231,6 +287,11 @@ export class ClaustrumConsumer {
             return;
         this.#assertOpen();
         this.#started = true;
+        // A hub member has no tick or watch of its own: the hub drives it.
+        if (this.#hub) {
+            this.#hub.start();
+            return;
+        }
         const tick = async () => {
             try {
                 if (await this.#listDue())
@@ -249,11 +310,11 @@ export class ClaustrumConsumer {
                 return;
             this.#timer = (this.#options.setTimeoutImpl ?? setTimeout)(() => {
                 this.#timer = undefined;
-                void tick();
+                void this.#track(tick());
             }, delay);
             this.#timer.unref?.();
         };
-        void tick();
+        void this.#track(tick());
     }
     /** Whether a background tick must list the vault now. */
     async #listDue() {
@@ -282,11 +343,13 @@ export class ClaustrumConsumer {
             // re-applies it to kept receipts exactly as a poll does. A refresh
             // already in flight may have listed before the change was announced,
             // so wait for it and list again.
-            onView: async () => {
+            onView: () => this.#track((async () => {
                 while (this.#refreshing)
                     await this.#refreshing.catch(() => { });
+                if (this.#shutdown.signal.aborted)
+                    return;
                 await this.refresh();
-            },
+            })()),
             // Custody has dropped kept receipts, as a poll meeting the same
             // refusal from list_scoped would.
             onRefused: (error) => this.#options.onError?.(error),
@@ -412,6 +475,8 @@ export class ClaustrumConsumer {
      * poll, and a route whose credential or account changed is refused.
      */
     async authorize(routeId, signal) {
+        if (this.#hub)
+            return this.#hubAuthorize(this.#hub, routeId, signal);
         this.#assertOpen(signal);
         const roster = this.#roster ?? (await this.#wait(this.refresh(), signal));
         if (!roster || !(await this.#active())) {
@@ -459,8 +524,168 @@ export class ClaustrumConsumer {
             combined.dispose();
         }
     }
+    /** The hub's handle on this member's memory. */
+    #hubHooks() {
+        return {
+            install: (roster) => {
+                if (this.#shutdown.signal.aborted)
+                    return;
+                const changed = roster.view !== this.#roster?.view;
+                this.#roster = pendingVaultQuota(this.#options.rosterPath, roster);
+                // One subscriber's failure must not stop the hub's fan-out.
+                if (changed)
+                    try {
+                        this.#options.onRoster?.(roster);
+                    }
+                    catch (error) {
+                        this.#options.onError?.(error);
+                    }
+            },
+            reset: () => {
+                this.#roster = undefined;
+            },
+            roster: () => this.#roster,
+            projection: () => ({
+                reservedRouteIds: new Set(this.#options.reservedRouteIds?.() ?? []),
+                routePrefix: this.#options.routePrefix,
+                mapAccount: this.#options.mapAccount,
+                now: (this.#options.now ?? Date.now)(),
+            }),
+            onError: (error) => {
+                if (!this.#shutdown.signal.aborted)
+                    this.#options.onError?.(error);
+            },
+        };
+    }
+    /**
+     * A hub member's refresh is the hub's: the hub has already pushed this
+     * member's committed roster into memory when it resolves.
+     */
+    async #hubRefresh(hub) {
+        const outcome = await hub.refresh();
+        this.#assertOpen();
+        if (!outcome)
+            return undefined;
+        if (outcome.errors.has(hub.provider))
+            throw outcome.errors.get(hub.provider);
+        return this.#roster;
+    }
+    /** Release this member's lease, or only `lease` when one is named. */
+    #dropLease(lease) {
+        if (lease && this.#lease !== lease)
+            return;
+        this.#lease?.release();
+        this.#lease = undefined;
+    }
+    /** This member's lease, re-acquired once its connection has ended. */
+    async #currentLease(hub, signal) {
+        const held = this.#lease;
+        if (held && hub.leaseLive(held))
+            return held;
+        this.#dropLease();
+        const lease = await hub.acquire(signal);
+        if (this.#shutdown.signal.aborted) {
+            lease.release();
+            this.#assertOpen();
+        }
+        // A concurrent authorize may have acquired first; keep one lease.
+        const raced = this.#lease;
+        if (raced && hub.leaseLive(raced)) {
+            lease.release();
+            return raced;
+        }
+        this.#lease = lease;
+        return lease;
+    }
+    /**
+     * `authorize` for a hub member. Only the hub's own authority read decides
+     * that vault mode is off. If the hub's refresh still leaves this member
+     * without a roster, it fails with `route-unavailable` before acquiring a
+     * lease or asking for a credential, and no other member is affected.
+     */
+    async #hubAuthorize(hub, routeId, signal) {
+        this.#assertOpen(signal);
+        // A failed list rejects here; this member's own failed commit leaves it
+        // without a roster, handled below.
+        if (!this.#roster)
+            await this.#wait(hub.refresh(), signal);
+        const roster = this.#roster;
+        if (!(await hub.readAuthority())) {
+            this.#dropLease();
+            throw notActive();
+        }
+        this.#assertOpen(signal);
+        if (!roster)
+            throw new ClaustrumConsumerError('route-unavailable', 'Claustrum has no roster for this provider yet');
+        const current = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
+        this.#assertOpen(signal);
+        const observed = roster.rows.find((row) => row.routeId === routeId);
+        const configured = current?.rows.find((row) => row.routeId === routeId);
+        if (configured && !configured.enabled) {
+            if (observed)
+                hub.forget(observed.credentialId);
+            throw new ClaustrumConsumerError('route-declined', 'Claustrum route is disabled');
+        }
+        if (!observed ||
+            !configured ||
+            configured.state !== 'active' ||
+            configured.credentialId !== observed.credentialId ||
+            configured.accountIdentity !== observed.accountIdentity ||
+            configured.credentialType !== observed.credentialType) {
+            if (observed)
+                hub.forget(observed.credentialId);
+            throw new ClaustrumConsumerError('route-unavailable', 'Claustrum route is disabled, removed or changed');
+        }
+        const identity = {
+            credentialId: configured.credentialId,
+            credentialType: configured.credentialType,
+            ...(configured.accountIdentity !== undefined && {
+                accountIdentity: configured.accountIdentity,
+            }),
+        };
+        const combined = combineAbortSignals([
+            this.#shutdown.signal,
+            ...(signal ? [signal] : []),
+        ]);
+        try {
+            for (let attempt = 0;; attempt++) {
+                const lease = await this.#currentLease(hub, combined.signal);
+                try {
+                    const served = await lease.custody.authorize(identity, combined.signal, routeId);
+                    this.#issuedBy.set(served, lease);
+                    return served;
+                }
+                catch (error) {
+                    // Only a lease whose connection ended meanwhile earns one more
+                    // try, in the current connection; anything else, or a second
+                    // closed, is the answer.
+                    if (attempt > 0 ||
+                        combined.signal.aborted ||
+                        hub.leaseLive(lease) ||
+                        !(error instanceof ClaustrumConsumerError) ||
+                        error.kind !== 'closed')
+                        throw error;
+                    this.#dropLease(lease);
+                    if (!(await hub.readAuthority()))
+                        throw notActive();
+                }
+            }
+        }
+        finally {
+            combined.dispose();
+        }
+    }
     async reportFailure(attempt, status, source) {
         this.#assertOpen();
+        if (this.#hub) {
+            // Only the lease that issued the receipt may report it; once that
+            // lease was released or its connection ended, its view throws closed.
+            const lease = this.#issuedBy.get(attempt);
+            if (!lease)
+                throw new ClaustrumConsumerError('no-receipt', 'Claustrum dispatch receipt has no active owner');
+            await lease.custody.reportFailure(attempt, status, source);
+            return;
+        }
         if (!this.#custody)
             throw new ClaustrumConsumerError('no-receipt', 'Claustrum dispatch receipt has no active owner');
         await this.#custody.reportFailure(attempt, status, source);
@@ -519,7 +744,12 @@ export class ClaustrumConsumer {
         this.#assertOpen();
         await declineVaultRoute(this.#options.rosterPath, routeId);
         this.#roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
-        this.#custody?.retain(this.#roster?.rows ?? []);
+        // A hub member shares kept receipts with every other member, so they are
+        // retained against all members' rosters, never against this one alone.
+        if (this.#hub)
+            this.#hub.retainUnion();
+        else
+            this.#custody?.retain(this.#roster?.rows ?? []);
     }
     async accept(routeId) {
         this.#assertOpen();
@@ -581,7 +811,14 @@ export class ClaustrumConsumer {
             (this.#options.clearTimeoutImpl ?? clearTimeout)(this.#timer);
         this.#timer = undefined;
         this.#stopWatch();
-        this.#custody?.close();
+        if (this.#custody) {
+            this.#custody.close();
+            this.#track(this.#custody.dispose(this.#warnShutdown));
+        }
+        // A hub member gives back its lease; the shared custody stays open.
+        this.#lease?.release();
+        this.#lease = undefined;
+        this.#hub?.detach();
         this.#insula?.release();
         this.#insula = undefined;
         this.#roster = undefined;
@@ -589,9 +826,13 @@ export class ClaustrumConsumer {
         void this.#releaseQuotaWriter();
         forgetPendingVaultDiscovery(this.#options.rosterPath);
     }
-    /** Close immediately; the last consumer also waits for the writer's bounded drain. */
+    /** Close immediately; background work gets 2 s and the quota writer its own 1 s. */
     async dispose() {
         this.close();
-        await this.#releaseQuotaWriter();
+        this.#disposing ??= Promise.all([
+            drainShutdown(this.#pending, this.#warnShutdown),
+            this.#releaseQuotaWriter(),
+        ]).then(() => { });
+        await this.#disposing;
     }
 }

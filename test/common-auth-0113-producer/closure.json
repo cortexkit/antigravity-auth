@@ -90,6 +90,7 @@
       "../routing/index.js",
       "./custody.js",
       "./errors.js",
+      "./hub.js",
       "./insula.js",
       "./roster.js",
       "./watch.js",
@@ -104,6 +105,7 @@
       "./insula.js",
       "./quota-writer.js",
       "./roster.js",
+      "./shutdown.js",
       "./watch.js"
     ],
     "claustrum/custody.d.ts": [
@@ -118,6 +120,7 @@
       "./enrollment.js",
       "./errors.js",
       "./host-slot.js",
+      "./shutdown.js",
       "./watch.js",
       "@cortexkit/claustrum-client"
     ],
@@ -133,6 +136,27 @@
       "node:path"
     ],
     "claustrum/host-slot.js": ["./errors.js"],
+    "claustrum/hub.d.ts": [
+      "../quota/index.js",
+      "./consumer.js",
+      "./custody.js",
+      "./errors.js",
+      "./roster.js",
+      "./watch.js"
+    ],
+    "claustrum/hub.js": [
+      "../logger/index.js",
+      "../util/any-signal.js",
+      "./consumer.js",
+      "./custody.js",
+      "./errors.js",
+      "./roster.js",
+      "./shutdown.js",
+      "./watch.js",
+      "node:crypto",
+      "node:fs/promises",
+      "node:path"
+    ],
     "claustrum/index.d.ts": [
       "./availability.js",
       "./consumer.js",
@@ -140,6 +164,7 @@
       "./enrollment.js",
       "./errors.js",
       "./host-slot.js",
+      "./hub.js",
       "./insula.js",
       "./interlock.js",
       "./quota-writer.js",
@@ -154,6 +179,7 @@
       "./enrollment.js",
       "./errors.js",
       "./host-slot.js",
+      "./hub.js",
       "./insula.js",
       "./interlock.js",
       "./quota-writer.js",
@@ -194,6 +220,7 @@
       "node:crypto",
       "node:path"
     ],
+    "claustrum/shutdown.js": [],
     "claustrum/watch.d.ts": ["./errors.js"],
     "claustrum/watch.js": [],
     "commands/builtins.d.ts": ["../store/index.js", "./model.js", "./seam.js"],
@@ -477,7 +504,8 @@
       "./config-write.js",
       "./detect.js",
       "./paths.js",
-      "jsonc-parser"
+      "jsonc-parser",
+      "node:url"
     ],
     "setup/types.d.ts": ["../auth-menu/terminal.js", "../claustrum/index.js"],
     "store/attribution.d.ts": ["./mutate.js", "./runtime.js", "./schema.js"],

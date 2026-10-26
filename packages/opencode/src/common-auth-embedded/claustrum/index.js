@@ -12,10 +12,11 @@ export { ClaustrumScopedCustody, decideScopedRetryAfter401, isScopedCredentialRo
 export { ClaustrumEnrollmentManager, classifyEnrollmentError, connectClaustrumEnrollmentClient, disconnectClaustrumEnrollment, enrollmentAuthority, enrollmentName, getClaustrumEnrollmentPaths, hostEnrollmentPaths, RETRYABLE_ENROLLMENT_CODES, readClaustrumEnrollmentStatus, readClaustrumEnrollmentToken, resetClaustrumEnrollmentState, TERMINAL_ENROLLMENT_CODES, } from './enrollment.js';
 export { ClaustrumConsumerError, } from './errors.js';
 export { assertHostSlotMatchesMode, assertNotCustodyPlaceholder, CUSTODY_PLACEHOLDER_PREFIX, classifyHostSlot, custodyPlaceholder, custodyPlaceholderKey, isCustodyPlaceholder, isCustodyPlaceholderValue, } from './host-slot.js';
+export { ClaustrumDiscoveryHub, } from './hub.js';
 export { acquireInsulaQuotaSource, } from './insula.js';
 export { acceptAccount, declineAccount, isDeclined, } from './interlock.js';
 export { drainVaultQuota } from './quota-writer.js';
-export { acceptVaultRoute, DEFAULT_ROUTE_PREFIX, declineVaultRoute, mutateVaultRoster, projectVaultRoster, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, reorderVaultRoster, resolveVaultPrimary, vaultRoutingRows, } from './roster.js';
+export { acceptVaultRoute, DEFAULT_ROUTE_PREFIX, declineVaultRoute, mutateVaultRoster, projectVaultRoster, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, reorderVaultRoster, resolveVaultPrimary, vaultRosterSeed, vaultRoutingRows, } from './roster.js';
 export { ChangeNoticeReader, RESUBSCRIBE_BACKOFF_MS, SAFETY_POLL_MS, ScopedRosterWatch, WATCH_RETRY_MS, } from './watch.js';
 /**
  * Connect the client that lists and fetches this consumer's vault credentials

@@ -62,7 +62,25 @@ export interface ProjectionOptions {
     routePrefix?: string;
     mapAccount?: AccountMapper;
     now?: number;
+    /**
+     * Preferences carried over from another roster file, used only when there
+     * is no previous roster: its declines become this roster's declines, and
+     * its account order sorts the rows this inventory produces. No row of the
+     * seed is ever projected, so a seed cannot make an account routable.
+     */
+    seed?: VaultRosterSeed;
 }
+/** The preferences one roster file can pass to a first projection elsewhere. */
+export interface VaultRosterSeed {
+    readonly declined: readonly DeclinedAccount[];
+    /** Accounts in the seed roster's order, matched by account, then by id. */
+    readonly order: readonly {
+        readonly credentialId: string;
+        readonly accountIdentity?: string;
+    }[];
+}
+/** Declines and account order of `roster`, and nothing else of it. */
+export declare function vaultRosterSeed(roster: VaultRosterFile): VaultRosterSeed;
 export declare const DEFAULT_ROUTE_PREFIX = "vault:";
 /**
  * Project the vault's list onto the previous roster. Pure: callers serialize
@@ -87,6 +105,12 @@ export declare function projectVaultRoster(previous: VaultRosterFile | undefined
  * reaches admission.
  */
 export declare function vaultRoutingRows(roster: VaultRosterFile | undefined): RoutingRow[];
+/**
+ * `roster` as `readVaultRoster` decodes it from the file that holds it, so a
+ * committed roster and a later read of its file compare equal. Package
+ * internal: not exported from `/claustrum`.
+ */
+export declare function decodedVaultRoster(roster: VaultRosterFile): VaultRosterFile;
 export declare function readVaultRoster(path: string): Promise<VaultRosterFile | undefined>;
 /** The ownership assertion available to a roster mutation callback. */
 export interface VaultRosterLockContext {
@@ -191,6 +215,16 @@ export declare function applyVaultQuota(current: VaultRosterFile | undefined, in
 };
 export declare function forgetPendingVaultDiscovery(path: string): void;
 /**
+ * Whether `error` from a roster commit at `path` means another writer had the
+ * roster at that moment, not that the commit itself failed: the discovery
+ * lease was busy before any roster existed, the write lock stayed busy, or a
+ * lock this commit held was lost. On Windows the same lock steps can reject
+ * with a PrivateFileError instead (a lock file that could not be read or
+ * replaced while another process held it), so a PrivateFileError naming one
+ * of this roster's lock files counts the same on every OS.
+ */
+export declare function isVaultRosterLockRefusal(path: string, error: unknown): boolean;
+/**
  * Discover and commit the roster. The lease covers the list call and the
  * commit, not just the write: an opaque view cannot tell a delayed old reply
  * from a newer one, so a run that lost its lease is refused at commit. A
@@ -206,6 +240,19 @@ export declare function refreshVaultRoster(options: {
     signal?: AbortSignal;
     projection?: ProjectionOptions | (() => ProjectionOptions);
     onInventory?: (inventory: VaultInventory) => void;
+    /**
+     * For a caller that listed before taking this path's discovery lease (the
+     * discovery hub lists once for several rosters): the view this roster file
+     * held before that list. `custody.discover` then returns that list. It is
+     * held to the rule a kept discovery is held to below: it is projected only
+     * while the file still holds this view or the list's own view. Otherwise
+     * another process committed since the list, and the file is returned
+     * unchanged. No discovery is kept for a later call, because such a caller
+     * lists again.
+     */
+    listedOver?: {
+        readonly view: string | undefined;
+    };
 }): Promise<VaultRosterFile | undefined>;
 /**
  * A host-owned main account as last verified from the vault: the plugin's
