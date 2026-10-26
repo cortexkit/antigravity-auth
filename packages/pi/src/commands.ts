@@ -26,6 +26,7 @@ import {
   type PiVaultAccountsPort,
   type PiVaultSetup,
   type PiVaultSetupStatus,
+  piGrantPrincipal,
   piNoVaultAccountsGuidance,
   VAULT_ACCOUNT_AVAILABLE,
   VAULT_ACCOUNT_IN_USE,
@@ -176,7 +177,10 @@ export function createPiAntigravityAccountSections(
             ...(!problem &&
             list.length === 0 &&
             status.enrollment.state === 'approved'
-              ? piNoVaultAccountsGuidance(reach)
+              ? piNoVaultAccountsGuidance(
+                  reach,
+                  piGrantPrincipal(status.enrollment),
+                )
               : []),
           ],
           items,
@@ -217,7 +221,10 @@ export function createPiAntigravityAccountSections(
           return {
             lines: [
               'The vault gives Pi no accounts, so requests are refused. There is no account rotation.',
-              ...piNoVaultAccountsGuidance(reach),
+              ...piNoVaultAccountsGuidance(
+                reach,
+                piGrantPrincipal(status.enrollment),
+              ),
             ],
           }
         return {

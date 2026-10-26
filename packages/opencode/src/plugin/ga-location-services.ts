@@ -1023,6 +1023,8 @@ export interface GaLocationCustody
     'readMode' | 'menuSection' | 'dispose' | 'readState'
   > {
   startObservation?(): Promise<void>
+  /** The enrollment name a request's no-account message names; see `OpenCodeVaultCustody`. */
+  grantPrincipal?(): string
   custodySource(): Promise<GaVaultCustodySource>
 }
 
@@ -1859,6 +1861,7 @@ async function createGaVaultLocationServices(input: {
               error: error instanceof Error ? error.name : 'unknown',
             }),
         },
+        grantPrincipal: () => custody.grantPrincipal?.(),
       })
       pipeline = await createGaVaultRequestPipeline({
         ...(input.assertAdmission

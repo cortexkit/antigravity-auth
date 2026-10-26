@@ -71,6 +71,11 @@ export interface PiVaultRequestPathOptions {
   readMode: () => PiVaultModeRead | Promise<PiVaultModeRead>
   /** The shared vault account source, created once on first use. */
   source: () => Promise<PiVaultAccountSource>
+  /**
+   * The enrollment name a no-account error names in its grant command: the
+   * name the operator approved. Without it, the default name.
+   */
+  grantPrincipal?: () => string | Promise<string>
 }
 
 /** Require current vault-mode settings before opening the account source; refuse local or unreadable settings. */
@@ -90,6 +95,7 @@ function selectRoute(
   routes: readonly PiVaultRouteRef[],
   routeId: string | undefined,
   emptyRosterCause: () => EmptyVaultRosterCause,
+  principal: string | undefined,
 ): PiVaultRouteRef {
   if (routeId !== undefined) {
     const selected = routes.find((route) => route.routeId === routeId)
@@ -102,7 +108,7 @@ function selectRoute(
   const [only, ...rest] = routes
   if (!only)
     throw new PiVaultSendError(
-      piEmptyVaultRosterRefusal(emptyRosterCause()) ??
+      piEmptyVaultRosterRefusal(emptyRosterCause(), principal) ??
         'The vault serves Pi no Antigravity accounts yet.',
     )
   if (rest.length > 0)
@@ -135,10 +141,17 @@ export function createPiVaultSend(
       signal.throwIfAborted()
       routes = source.routes()
     }
+    // Only a request that finds no account names the enrollment; with no
+    // route to bind, this await cannot change which account the send uses.
+    const principal =
+      routes.length === 0 ? await options.grantPrincipal?.() : undefined
     // Capture the route before any further await, so the send is bound to
     // the account the roster named now, not to whatever later sits there.
-    const ref = selectRoute(routes, record.routeId, () =>
-      source.emptyRosterCause(),
+    const ref = selectRoute(
+      routes,
+      record.routeId,
+      () => source.emptyRosterCause(),
+      principal,
     )
     return source.send(ref, dispatch, { site: 'model', signal })
   }
@@ -347,6 +360,7 @@ export function createPiVaultRuntime(
         }
       },
       source,
+      grantPrincipal: async () => (await setup()).grantPrincipal(),
     },
   }
 }
