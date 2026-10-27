@@ -79,6 +79,27 @@ async function fixture(
     accountIdentity: 'secret-account',
     label: 'secret@example.test',
   }
+  const commitState: AntigravityVaultAccountSource['commitState'] = async (
+    by,
+    update,
+    signal,
+  ) => {
+    if (mode !== 'recorded')
+      throw new Error('must not commit a stalled reading')
+    signal?.throwIfAborted()
+    const next = update(stored.accounts[by.accountIdentity])
+    if (!next) throw new Error('missing quota update')
+    const state = {
+      observed: {
+        routeId: by.routeId,
+        credentialId: by.credentialId,
+        recordVersion: by.recordVersion,
+      },
+      ...next,
+    }
+    accounts[by.accountIdentity] = state
+    return { status: 'written', state }
+  }
   const source: AntigravityVaultAccountSource = {
     host: 'opencode',
     start: () => {},
@@ -106,22 +127,12 @@ async function fixture(
         },
         options.signal,
       ),
-    commitState: async (by, update, signal) => {
-      if (mode !== 'recorded')
-        throw new Error('must not commit a stalled reading')
-      signal?.throwIfAborted()
-      const next = update(stored.accounts[by.accountIdentity])
-      if (!next) throw new Error('missing quota update')
-      const state = {
-        observed: {
-          routeId: by.routeId,
-          credentialId: by.credentialId,
-          recordVersion: by.recordVersion,
-        },
-        ...next,
-      }
-      accounts[by.accountIdentity] = state
-      return { status: 'written', state }
+    commitState,
+    commitStates: async (entries, signal) => {
+      const results = []
+      for (const { attribution, update } of entries)
+        results.push(await commitState(attribution, update, signal))
+      return results
     },
   }
   const createCustody = custodyModule.createOpenCodeVaultCustody

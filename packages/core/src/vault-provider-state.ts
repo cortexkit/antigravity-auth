@@ -20,6 +20,10 @@
  * vault for a fresh receipt for the same version, and re-asserts both locks
  * just before the atomic rename.
  *
+ * A batch of quota readings (`commitVaultProviderStates`) is one commit: the
+ * same two locks, taken once in the same order, and at most one atomic rename
+ * for all the accounts it changes.
+ *
  * A write must carry the record version its observation was served under.
  * Once the vault serves a newer record version, even for the same account,
  * that write is refused and the observation (usage, quota) is dropped; it is
@@ -64,6 +68,16 @@ export const VAULT_PROVIDER_STATE_LOCK = Object.freeze({
 export type AntigravityVaultStateFs = Pick<
   CommonAuthFsModule,
   'withLock' | 'writeJsonAtomic'
+>
+
+/**
+ * The `./claustrum` functions `commitVaultProviderStates` uses: an unlocked
+ * roster read that skips the locks when no reading is still routed, the
+ * roster write lock as an ownership guard, and the decline check.
+ */
+export type VaultRosterBatchGuardModule = Pick<
+  VaultClaustrumPort,
+  'readVaultRoster' | 'mutateVaultRoster' | 'isDeclined'
 >
 
 /**
@@ -537,7 +551,7 @@ function pinAttribution(raw: unknown): VaultStateAttribution {
 function assertRosterBinding(
   roster: VaultRoster | undefined,
   attribution: VaultStateAttribution,
-  claustrum: VaultRosterGuardModule,
+  claustrum: Pick<VaultClaustrumPort, 'isDeclined'>,
 ): void {
   const row = roster?.rows.find(
     (entry) => entry.routeId === attribution.routeId,
@@ -664,4 +678,227 @@ export async function commitVaultProviderState(
       return { result }
     },
   )
+}
+
+// ---------------------------------------------------------------------------
+// Batch commit
+// ---------------------------------------------------------------------------
+
+/** One account's update in a `commitVaultProviderStates` batch. */
+export interface VaultProviderStateBatchEntry {
+  readonly attribution: VaultStateAttribution
+  readonly update: AntigravityVaultStateUpdate
+}
+
+/**
+ * One batch entry's outcome: what `commitVaultProviderState` would return for
+ * it, or `refused` with the error that dropped this entry alone (a malformed
+ * attribution, a roster that no longer routes it, a failed vault proof or a
+ * refused update). A refused entry never stops the others.
+ */
+export type VaultProviderStateBatchResult =
+  | VaultProviderStateCommitResult
+  | { status: 'refused'; error: unknown }
+
+export interface CommitVaultProviderStatesInput {
+  claustrum: VaultRosterBatchGuardModule
+  fs: AntigravityVaultStateFs
+  rosterPath: string
+  statePath: string
+  /** Applied in order, so a later entry for the same account sees the earlier one. */
+  entries: readonly VaultProviderStateBatchEntry[]
+  /**
+   * Fresh proof, while the roster write lock and the state-file lock are both
+   * held, that the vault still serves the attributed credential, account and
+   * record version. Throws to refuse that entry only. Must not use or keep the
+   * proving receipt's token or project.
+   */
+  verify: (attribution: VaultStateAttribution) => Promise<void>
+  signal?: AbortSignal
+}
+
+interface PendingBatchEntry {
+  readonly index: number
+  readonly attribution: VaultStateAttribution
+  readonly update: AntigravityVaultStateUpdate
+}
+
+/**
+ * Commits several accounts' state in one write, under the same guards as
+ * `commitVaultProviderState` taken once for the whole batch: the roster write
+ * lock as an ownership guard (the roster is not rewritten), then this file's
+ * lock; under both, each entry's roster binding is checked and the vault is
+ * asked for a fresh receipt for its record version; then one atomic rename,
+ * just before which both locks are re-asserted. A roster writer therefore
+ * cannot change the roster between these checks and the rename.
+ *
+ * Each entry keeps the attribution rules of `commitVaultProviderState` on its
+ * own: one whose attribution is malformed, whose route the roster no longer
+ * routes to its credential and account, whose vault proof fails or whose
+ * update is refused is `refused` and dropped, and the others are still
+ * handled (written, or `unchanged` when their update leaves the state as it
+ * is). If the single write fails, every entry staged in it is reported
+ * `uncertain`, as a failed single write is.
+ *
+ * The roster is first read without a lock, so a batch in which no entry is
+ * still routed takes no lock at all; the binding is then checked again under
+ * the lock. An entry refused only by its vault proof is found out under the
+ * locks, so a batch whose every proof fails takes both locks once and writes
+ * nothing. The proofs run in parallel.
+ *
+ * Throws, writing nothing, when the signal aborts before the write is staged,
+ * the roster or state file cannot be read, or a lock cannot be taken.
+ */
+export async function commitVaultProviderStates(
+  input: CommitVaultProviderStatesInput,
+): Promise<VaultProviderStateBatchResult[]> {
+  const { claustrum, fs, statePath } = input
+  input.signal?.throwIfAborted()
+  const results: VaultProviderStateBatchResult[] = new Array(
+    input.entries.length,
+  )
+  const refuse = (index: number, error: unknown) => {
+    results[index] = { status: 'refused', error }
+  }
+  let pending: PendingBatchEntry[] = []
+  for (const [index, entry] of input.entries.entries()) {
+    try {
+      pending.push({
+        index,
+        attribution: pinAttribution(entry.attribution),
+        update: entry.update,
+      })
+    } catch (error) {
+      refuse(index, error)
+    }
+  }
+  /** Refuses each entry `roster` no longer routes. */
+  const keepBound = (
+    roster: VaultRoster | undefined,
+    entries: readonly PendingBatchEntry[],
+  ): PendingBatchEntry[] =>
+    entries.filter((entry) => {
+      try {
+        assertRosterBinding(roster, entry.attribution, claustrum)
+        return true
+      } catch (error) {
+        refuse(entry.index, error)
+        return false
+      }
+    })
+
+  if (pending.length > 0)
+    pending = keepBound(
+      await claustrum.readVaultRoster(input.rosterPath),
+      pending,
+    )
+  input.signal?.throwIfAborted()
+  if (pending.length === 0) return results
+
+  await claustrum.mutateVaultRoster(
+    input.rosterPath,
+    async (roster, rosterLock) => {
+      input.signal?.throwIfAborted()
+      const bound = keepBound(roster, pending)
+      if (bound.length === 0) return { result: undefined }
+      await fs.withLock(
+        statePath,
+        VAULT_PROVIDER_STATE_LOCK,
+        async (stateLock) => {
+          input.signal?.throwIfAborted()
+          const proofs = await Promise.allSettled(
+            bound.map((entry) => input.verify(entry.attribution)),
+          )
+          input.signal?.throwIfAborted()
+          const proven = bound.filter((entry, at) => {
+            const proof = proofs[at]
+            if (proof?.status !== 'rejected') return true
+            refuse(entry.index, proof.reason)
+            return false
+          })
+          if (proven.length === 0) return
+          const file = await readVaultProviderState(statePath)
+          input.signal?.throwIfAborted()
+          const accounts: Record<string, VaultAccountState> = {
+            ...file.accounts,
+          }
+          const written: (PendingBatchEntry & { next?: VaultAccountState })[] =
+            []
+          for (const entry of proven) {
+            const identity = entry.attribution.accountIdentity
+            const current = Object.hasOwn(accounts, identity)
+              ? accounts[identity]
+              : undefined
+            try {
+              const requested: unknown = entry.update(current)
+              if (
+                isRecord(requested) &&
+                typeof (requested as { then?: unknown }).then === 'function'
+              )
+                throw new VaultProviderStateError(
+                  'invalid-update',
+                  'a state update must be synchronous',
+                )
+              if (requested === undefined || (requested === null && !current)) {
+                results[entry.index] = current
+                  ? { status: 'unchanged', state: current }
+                  : { status: 'unchanged' }
+                continue
+              }
+              if (requested === null) {
+                delete accounts[identity]
+                written.push(entry)
+                continue
+              }
+              const next: VaultAccountState = Object.freeze({
+                observed: Object.freeze({
+                  routeId: entry.attribution.routeId,
+                  credentialId: entry.attribution.credentialId,
+                  recordVersion: entry.attribution.recordVersion,
+                }),
+                ...decodeValue(requested, 'update', 'typed'),
+              })
+              accounts[identity] = next
+              written.push({ ...entry, next })
+            } catch (error) {
+              refuse(entry.index, error)
+            }
+          }
+          if (written.length === 0) return
+          const encoded = encodeVaultProviderState({ ...file, accounts })
+          try {
+            await fs.writeJsonAtomic(statePath, encoded, {
+              beforeRename: async () => {
+                await rosterLock.assertOwned()
+                await stateLock.assertOwned()
+                input.signal?.throwIfAborted()
+              },
+            })
+          } catch (error) {
+            let reloaded: VaultProviderStateFile | undefined
+            try {
+              reloaded = await readVaultProviderState(statePath)
+            } catch {
+              reloaded = undefined
+            }
+            for (const entry of written) {
+              const state =
+                reloaded &&
+                vaultAccountState(reloaded, entry.attribution.accountIdentity)
+              results[entry.index] = state
+                ? { status: 'uncertain', error, state }
+                : { status: 'uncertain', error }
+            }
+            return
+          }
+          for (const entry of written)
+            results[entry.index] = entry.next
+              ? { status: 'written', state: entry.next }
+              : { status: 'cleared' }
+        },
+      )
+      return { result: undefined }
+    },
+  )
+  return results
 }

@@ -95,6 +95,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Conservative: selector sync calls match the file-handle sync identifier fence.',
   'packages/opencode/src/plugin/vault-insula-quota.test.ts':
     'Real provider-state persistence and private-mode enrollment-token fixtures.',
+  'packages/opencode/src/plugin/vault-quota-one-commit.test.ts':
+    'Real provider-state lock and atomic rename counted per quota check; private-mode enrollment-token fixtures.',
   'packages/opencode/src/plugin/ga-location-services.test.ts':
     'Conservative: private-mode native credential fixtures.',
   'packages/opencode/src/plugin/fetch-interceptor.test.ts':

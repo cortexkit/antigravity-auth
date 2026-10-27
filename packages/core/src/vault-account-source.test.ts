@@ -183,6 +183,9 @@ function harness(): Harness {
       expect(outcome.next).toBeUndefined()
       return outcome.result
     },
+    async readVaultRoster() {
+      return h.roster
+    },
   }
   return h
 }
