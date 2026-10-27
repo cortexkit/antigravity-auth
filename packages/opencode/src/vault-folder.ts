@@ -15,10 +15,15 @@
 // message tells the user to restart OpenCode once it is resolved, and later
 // plugin instances or OpenCode 2 locations in the same process get the same
 // answer at once instead of waiting for the layout lock again.
+//
+// The same call decides where this process keeps its account store and moves
+// it into the state-home folder when that is safe (`prepareAccountStore`), so
+// every entry point that settles the vault folder also settles the store.
 
 import { createLogger } from './plugin/logger'
 import { pluginPackageVersion } from './process-heartbeat'
 import {
+  prepareAccountStore,
   prepareRuntimeLayout,
   type RuntimeLayoutLogger,
   RuntimeLayoutRefusal,
@@ -92,6 +97,10 @@ export async function prepareVaultFolder(options: {
         ? {}
         : { layoutLockWaitMs: options.layoutLockWaitMs }),
     })
+    // `prepareRuntimeLayout` decides the account store's anchor while it
+    // holds the layout lock, so `getStoragePath()` (`accountFile` above) names
+    // the settled anchor from here on.
+    await prepareAccountStore({ version, log })
   } catch (error) {
     const refusal =
       error instanceof RuntimeLayoutRefusal

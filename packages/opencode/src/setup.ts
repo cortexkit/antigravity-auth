@@ -2,10 +2,13 @@ import { lstat, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import {
   ANTIGRAVITY_PROVIDER_ID,
+  accountStorePointerPath,
   getPiAntigravityVaultDir,
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
   loadCommonAuthPiSlot,
+  loadCommonAuthStoreModules,
+  readAccountStoreBinding,
   resolveClaustrumConnectionPath,
 } from '@cortexkit/antigravity-auth-core'
 import {
@@ -29,9 +32,35 @@ import {
   OPENCODE_VAULT_ENROLLMENT_NAME,
   OPENCODE_VAULT_PROVIDER,
 } from './plugin/vault-custody.ts'
+import {
+  legacyAccountFile,
+  pathPresent,
+  runtimeLayoutLocation,
+  stateHomeAccountFile,
+} from './runtime-paths.ts'
 import { currentVaultFolder } from './vault-folder.ts'
 
 const PI_PLACEHOLDER_KEY = 'antigravity-vault-custody'
+
+/** Whether a store or its pointer is published at one anchor. */
+async function storePresent(anchor: string): Promise<boolean> {
+  return (
+    (await pathPresent(accountStorePointerPath(anchor))) ||
+    (await pathPresent(anchor))
+  )
+}
+
+/**
+ * The generation the state-home anchor publishes, for the forward `init`'s
+ * fresh store leaves at the config anchor. A store that does not bind here
+ * is not forwarded: nothing then tells an older version that it moved.
+ */
+async function publishedGeneration(anchor: string): Promise<string> {
+  const modules = await loadCommonAuthStoreModules()
+  const binding = await readAccountStoreBinding(anchor, modules, Date.now)
+  if (binding.status !== 'bound') return ''
+  return binding.receipt.id
+}
 
 /**
  * OpenCode's vault folder for `accountFile`, as this process settled it: in
@@ -465,6 +494,18 @@ export async function createSetupPlugin(
               ? 'Accounts already migrated.\n'
               : 'No accounts to migrate.\n',
           )
+          // Setup runs with every host stopped. A store this version created
+          // at the state-home anchor gets the forward that keeps an older
+          // version from starting a second one in OpenCode's config folder.
+          const stateAnchor = stateHomeAccountFile(runtimeLayoutLocation())
+          const configAnchor = legacyAccountFile(
+            runtimeLayoutLocation().configDir,
+          )
+          if (source.kind === 'store' && !(await storePresent(configAnchor)))
+            await deps.accountStore.leaveForward?.(
+              await publishedGeneration(stateAnchor),
+              stateAnchor,
+            )
           return
         }
         if ((await migrateOpenCode()) !== 0)

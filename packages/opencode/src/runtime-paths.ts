@@ -15,18 +15,25 @@
  * files once; until a process has decided, the layout marker alone tells.
  *
  * The account store (`antigravity-accounts.json`, its pointer and its
- * generation folders) stays in OpenCode's config folder in both layouts: it
- * records its own absolute paths and refuses to open anywhere else.
+ * generation folders) is anchored to a folder of its own, decided once per
+ * process (`prepareRuntimeLayout` in `runtime-layout.ts`):
+ * - `config`, beside the pool file in OpenCode's config folder, where every
+ *   release so far kept it;
+ * - `state-home`, in the state-home folder the vault moves to, which is
+ *   where a release that can move the store keeps it.
+ * A process that has not decided reads a forwarding pointer left in the
+ * config folder (`readForwardedAccountStore`, written by the move) and
+ * otherwise follows the config folder.
  *
- * So `state-home` in a heartbeat's `layouts` means "vault in the state home,
- * account store in the config folder". A later release that moves the account
- * store must not read a `state-home` heartbeat as "this process no longer
- * uses the config folder": it has to fence on version (every live process at
- * that release or newer), not on this layout value.
+ * So `state-home` in a heartbeat's `layouts` means "vault in the state home"
+ * and says nothing about the account store; that is the `stores` record. A
+ * process fences the store move on version (every live process at that
+ * release or newer) and on each live process's `stores` record, never on
+ * this layout value.
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, promises as fs, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { getConfigDir, resolveWindowsAccountAnchor } from './plugin/storage'
@@ -42,8 +49,14 @@ export const RUNTIME_CONFIG_DIR_NOTE_FILE = 'config-dir.json'
  * module does not load the vault code.
  */
 export const VAULT_DIR_NAME = 'antigravity-auth-vault'
-/** The account file's name in OpenCode's config folder. */
+/** The account file's name, in whichever folder holds a store's anchor. */
 export const ACCOUNT_FILE_NAME = 'antigravity-accounts.json'
+/**
+ * The suffix of the account store's pointer file. The pointer beside a pool
+ * file path `P` is `P.store.pointer.json`; this module reads it to find a
+ * forwarding pointer without loading the account-store code.
+ */
+export const ACCOUNT_STORE_POINTER_SUFFIX = '.store.pointer.json'
 
 /**
  * A config folder's identity: its real path as the file system spells it
@@ -75,6 +88,15 @@ export interface RuntimeLayoutLocation {
 
 export type RuntimeLayout = 'legacy' | 'state-home'
 
+/**
+ * Where a process keeps one config folder's account store: beside the pool
+ * file in OpenCode's config folder (`config`), or in the state-home folder
+ * the vault moves to (`state-home`). It is recorded for each config folder
+ * in the process heartbeat (`stores` in `process-heartbeat.ts`), because a
+ * store move waits while any live process still uses the config folder.
+ */
+export type AccountStoreAnchor = 'config' | 'state-home'
+
 // The layout each config folder got in this process, once decided, and the
 // locations computed so far. Kept on the global object because OpenCode 2 may
 // load more than one copy of this bundle into one process, and every copy
@@ -84,11 +106,13 @@ const decisionState = globalThis as typeof globalThis & {
   [decisionsKey]?: {
     decisions: Map<string, RuntimeLayout>
     locations: Map<string, RuntimeLayoutLocation>
+    storeAnchors: Map<string, AccountStoreAnchor>
   }
 }
 const shared = decisionState[decisionsKey] ?? {
   decisions: new Map<string, RuntimeLayout>(),
   locations: new Map<string, RuntimeLayoutLocation>(),
+  storeAnchors: new Map<string, AccountStoreAnchor>(),
 }
 decisionState[decisionsKey] = shared
 
@@ -154,10 +178,34 @@ export function decidedRuntimeLayout(
   return shared.decisions.get(decisionKey(location))
 }
 
+/**
+ * Fix the account store's anchor for a config folder. Only
+ * `runtime-layout.ts` calls this, once per folder, while it holds the layout
+ * lock.
+ */
+export function setAccountStoreAnchor(
+  location: RuntimeLayoutLocation,
+  anchor: AccountStoreAnchor,
+): void {
+  shared.storeAnchors.set(`${location.stateHomeDir}\0${location.key}`, anchor)
+}
+
+/**
+ * The account store's anchor for a config folder, or undefined while this
+ * process has not decided. OpenCode 1 and 2 locations of one process share
+ * it: the decision is made once per config folder.
+ */
+export function decidedAccountStoreAnchor(
+  location: RuntimeLayoutLocation,
+): AccountStoreAnchor | undefined {
+  return shared.storeAnchors.get(`${location.stateHomeDir}\0${location.key}`)
+}
+
 /** Test seam: forget every decided layout and cached location. */
 export function __resetRuntimeLayoutsForTest(): void {
   shared.decisions.clear()
   shared.locations.clear()
+  shared.storeAnchors.clear()
 }
 
 /**
@@ -239,6 +287,9 @@ export function stateHomeLogsDir(): string {
  * `%APPDATA%\opencode`. A store migrated at the `%APPDATA%\opencode` anchor
  * is found by its pointer there, the same choice `getStoragePath()` in
  * `plugin/storage.ts` makes, minus its attempt to move the Windows file.
+ *
+ * A forwarding pointer at that anchor names the store's new anchor, so this
+ * is also where a process that has not decided discovers where the store is.
  */
 export function legacyAccountFile(configDir: string = getConfigDir()): string {
   const standard = join(configDir, ACCOUNT_FILE_NAME)
@@ -257,6 +308,116 @@ export function legacyVaultDir(accountFile: string): string {
 /** The vault folder of the state-home layout for one config folder. */
 export function stateHomeVaultDir(location: RuntimeLayoutLocation): string {
   return join(location.stateHomeDir, VAULT_DIR_NAME)
+}
+
+/** The account file's path when the store stays in OpenCode's config folder. */
+export function accountStorePointerPath(accountFile: string): string {
+  return `${accountFile}${ACCOUNT_STORE_POINTER_SUFFIX}`
+}
+
+/**
+ * The account file's path when the store lives in the state-home folder: the
+ * same file name, in the folder the vault moves to. It is spelled with the
+ * real path of that folder wherever it exists, because the account store
+ * refuses a path whose folder goes through a link, and the state home often
+ * does (`/var` on macOS, a linked `~/.local/state`).
+ */
+export function stateHomeAccountFile(location: RuntimeLayoutLocation): string {
+  return join(realPathOrSelf(location.stateHomeDir), ACCOUNT_FILE_NAME)
+}
+
+/** `realpath` of `path`, or `path` when it does not exist yet. */
+function realPathOrSelf(path: string): string {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return path
+  }
+}
+
+/**
+ * True when `path` is spelled with every folder it sits in resolved through
+ * any link. An account file must be: the store refuses one whose folder goes
+ * through a link, so a store move waits until the user sets XDG_STATE_HOME to
+ * the real path.
+ */
+export function folderResolvesToItself(path: string): boolean {
+  const parent = dirname(path)
+  return realPathOrSelf(parent) === parent
+}
+
+/** What a forwarding pointer at one anchor says. */
+export interface ForwardedAccountStore {
+  /** The anchor the store moved to, as the forward spells it. */
+  legacyPath: string
+  /** The generation id published at that anchor. */
+  id: string
+}
+
+/**
+ * The forwarding pointer at `anchor`, or undefined when there is none. A
+ * pointer that cannot be read or parsed is not a forward: every account-store
+ * reader decodes it again and refuses with its own reason, which is where a
+ * damaged pointer must fail. A pointer of schema 1 (an unmoved store) is not a
+ * forward either.
+ */
+export function readForwardedAccountStore(
+  anchor: string,
+): ForwardedAccountStore | undefined {
+  let text: string
+  try {
+    text = readFileSync(accountStorePointerPath(anchor), 'utf8')
+  } catch {
+    return undefined
+  }
+  try {
+    const value = JSON.parse(text) as {
+      schemaVersion?: unknown
+      relocatedTo?: { legacyPath?: unknown; id?: unknown } | null
+    } | null
+    if (value?.schemaVersion !== 2) return undefined
+    const target = value.relocatedTo
+    if (!target || typeof target.legacyPath !== 'string') return undefined
+    if (typeof target.id !== 'string') return undefined
+    return { legacyPath: target.legacyPath, id: target.id }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The anchor one folder's stores are discovered at, before this process has
+ * decided: the forward left beside the pool file in the config folder, else
+ * that pool file, else the state-home account file. Only a process that never
+ * settled its store anchor (a tool, or a command that must not write) reads
+ * this; everything that decided uses its own anchor.
+ */
+export function discoveredAccountFile(
+  location: RuntimeLayoutLocation = runtimeLayoutLocation(),
+): string {
+  const configAnchor = legacyAccountFile(location.configDir)
+  return (
+    readForwardedAccountStore(configAnchor)?.legacyPath ??
+    (existsSync(accountStorePointerPath(configAnchor)) ||
+    existsSync(configAnchor)
+      ? configAnchor
+      : stateHomeAccountFile(location))
+  )
+}
+
+/**
+ * Whether the file or folder `path` exists, following no link: a broken link
+ * counts as present, so a caller never treats one as a fresh install.
+ */
+export async function pathPresent(path: string): Promise<boolean> {
+  try {
+    await fs.lstat(path)
+    return true
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return false
+    throw error
+  }
 }
 
 /**

@@ -22,8 +22,16 @@
 // after its last owner released it, because its paths stay fixed for its
 // whole life and the move must wait for it.
 //
+// `stores` sits beside `layouts` and records, per config folder, where the
+// account store is kept: `config` (OpenCode's config folder) or `state-home`
+// (`runtime-paths.ts`). A process that has not decided records `config`.
+// Versions that predate the store move ignore the field, and a store move
+// refuses to run while any live process still names `config`, so a process
+// that keeps the old anchor is never bypassed.
+//
 // One write is not best-effort: `recordProcessLayout` records a `legacy`
-// decision while the deciding process holds the layout lock, and throws when
+// decision, and `recordProcessAnchor` a `config` store anchor, while the
+// deciding process holds the layout lock, and throws when
 // that write fails, because a process on the old files that other processes
 // cannot see must not start.
 
@@ -33,7 +41,12 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { getConfigDir } from './plugin/storage'
-import { decidedRuntimeLayout, runtimeLayoutLocation } from './runtime-paths'
+import {
+  type AccountStoreAnchor,
+  decidedAccountStoreAnchor,
+  decidedRuntimeLayout,
+  runtimeLayoutLocation,
+} from './runtime-paths'
 
 /** Where one process keeps one config folder's runtime files. */
 export type ProcessLayout = 'legacy' | 'state-home'
@@ -44,6 +57,12 @@ export interface ProcessHeartbeat {
   startedAt: number
   /** Config folder key (`processConfigFolderKey()`) to its layout. */
   layouts: Record<string, ProcessLayout>
+  /**
+   * Config folder key to where that folder's account store is kept, for a
+   * process that decided. Absent from a heartbeat of a version that predates
+   * the store move.
+   */
+  stores?: Record<string, AccountStoreAnchor>
 }
 
 /**
@@ -90,9 +109,10 @@ interface SharedHeartbeatState {
   owners: number
   startedAt: number | undefined
   layouts: Map<string, ProcessLayout>
+  stores: Map<string, AccountStoreAnchor>
   /** The file this process last wrote and has not removed. */
   writtenPath: string | undefined
-  /** `layouts` as last written, to tell whether the file is current. */
+  /** `layouts` and `stores` as last written, to tell whether the file is current. */
   writtenLayouts: string | undefined
   exitHookInstalled: boolean
 }
@@ -105,6 +125,7 @@ const shared: SharedHeartbeatState = globalState[stateKey] ?? {
   owners: 0,
   startedAt: undefined,
   layouts: new Map(),
+  stores: new Map(),
   writtenPath: undefined,
   writtenLayouts: undefined,
   exitHookInstalled: false,
@@ -115,9 +136,35 @@ function layoutsRecord(): Record<string, ProcessLayout> {
   return Object.fromEntries(shared.layouts)
 }
 
+/**
+ * `stores` for the heartbeat. Empty when no anchor is decided: a heartbeat
+ * with no `stores` is what a version before the store move writes, and a
+ * store move treats a live one as still using the config folder.
+ */
+function storesRecord(): Record<string, AccountStoreAnchor> {
+  return Object.fromEntries(shared.stores)
+}
+
+/** What the process's file should say, to tell whether it is current. */
+function recordSignature(): string {
+  return JSON.stringify([layoutsRecord(), storesRecord()])
+}
+
 function holdsLegacyLayout(): boolean {
   for (const layout of shared.layouts.values())
     if (layout === 'legacy') return true
+  return false
+}
+
+/**
+ * A process keeps its heartbeat until it exits when its paths stay fixed for
+ * its whole life: the legacy vault layout, or the config-folder account
+ * store. The store move waits for it either way.
+ */
+function holdsFixedOldPaths(): boolean {
+  if (holdsLegacyLayout()) return true
+  for (const anchor of shared.stores.values())
+    if (anchor === 'config') return true
   return false
 }
 
@@ -189,6 +236,7 @@ export async function startProcessHeartbeat(input: {
   version: string
   logger: HeartbeatLogger
   layouts?: Record<string, ProcessLayout>
+  stores?: Record<string, AccountStoreAnchor>
   now?: () => number
   pid?: number
   dir?: string
@@ -199,9 +247,11 @@ export async function startProcessHeartbeat(input: {
   shared.owners++
   for (const [key, layout] of Object.entries(input.layouts ?? {}))
     shared.layouts.set(key, layout)
+  for (const [key, anchor] of Object.entries(input.stores ?? {}))
+    shared.stores.set(key, anchor)
   const target = processHeartbeatPath(pid, dir)
-  const layouts = layoutsRecord()
-  const signature = JSON.stringify(layouts)
+  const stores = storesRecord()
+  const signature = recordSignature()
   let path: string | undefined
   if (shared.writtenPath === target && shared.writtenLayouts === signature) {
     path = target
@@ -211,7 +261,8 @@ export async function startProcessHeartbeat(input: {
         pid,
         version: input.version,
         startedAt: shared.startedAt,
-        layouts,
+        layouts: layoutsRecord(),
+        ...(Object.keys(stores).length > 0 ? { stores } : {}),
       })
       shared.writtenPath = path
       shared.writtenLayouts = signature
@@ -231,8 +282,8 @@ export async function startProcessHeartbeat(input: {
       released = true
       shared.owners = Math.max(0, shared.owners - 1)
       if (shared.owners > 0) return
-      // A legacy-layout process keeps using the old paths until it exits.
-      if (holdsLegacyLayout()) return
+      // A process whose paths stay fixed until it exits keeps using them.
+      if (holdsFixedOldPaths()) return
       await removeHeartbeatFile(input.logger)
     },
   }
@@ -280,16 +331,52 @@ export async function recordProcessLayout(input: {
 }): Promise<void> {
   shared.layouts.set(input.key, input.layout)
   if (input.layout !== 'legacy') return
+  await writeRecords(input)
+}
+
+/**
+ * Record where this process keeps one config folder's account store (see
+ * `AccountStoreAnchor` in `runtime-paths.ts`). A `config` choice is written
+ * to the heartbeat file at once, because a process deciding whether it may
+ * move the store reads it; the caller makes the choice and this write while
+ * it holds the layout lock. A `state-home` choice only goes into the next
+ * heartbeat write. Throws when the write fails, unlike
+ * `startProcessHeartbeat`.
+ */
+export async function recordProcessAnchor(input: {
+  key: string
+  anchor: AccountStoreAnchor
+  version: string
+  now?: () => number
+  pid?: number
+  dir?: string
+}): Promise<void> {
+  shared.stores.set(input.key, input.anchor)
+  if (input.anchor !== 'config') return
+  await writeRecords(input)
+}
+
+/**
+ * Write the process's heartbeat now, with its layouts and store anchors. The
+ * caller holds the layout lock.
+ */
+async function writeRecords(input: {
+  version: string
+  now?: () => number
+  pid?: number
+  dir?: string
+}): Promise<void> {
   shared.startedAt ??= (input.now ?? Date.now)()
-  const layouts = layoutsRecord()
+  const stores = storesRecord()
   const path = await writeHeartbeatFile(input.dir ?? processHeartbeatDir(), {
     pid: input.pid ?? process.pid,
     version: input.version,
     startedAt: shared.startedAt,
-    layouts,
+    layouts: layoutsRecord(),
+    ...(Object.keys(stores).length > 0 ? { stores } : {}),
   })
   shared.writtenPath = path
-  shared.writtenLayouts = JSON.stringify(layouts)
+  shared.writtenLayouts = recordSignature()
   installExitHook()
 }
 
@@ -324,18 +411,22 @@ export async function startRuntimeProcessHeartbeat(
 ): Promise<ProcessHeartbeatHandle> {
   let version = 'unknown'
   let layouts: Record<string, ProcessLayout> = {}
+  let stores: Record<string, AccountStoreAnchor> = {}
   try {
     version = await pluginPackageVersion()
-    layouts = {
-      [processConfigFolderKey()]:
-        decidedRuntimeLayout(runtimeLayoutLocation()) ?? 'legacy',
-    }
+    const location = runtimeLayoutLocation()
+    const key = processConfigFolderKey()
+    layouts = { [key]: decidedRuntimeLayout(location) ?? 'legacy' }
+    // Only a decided anchor is recorded: an empty `stores` is what a version
+    // without the store move writes, and a store move keeps waiting for it.
+    const anchor = decidedAccountStoreAnchor(location)
+    if (anchor) stores = { [key]: anchor }
   } catch (error) {
     logger.warn('process heartbeat details unavailable', {
       error: errorText(error),
     })
   }
-  return startProcessHeartbeat({ version, logger, layouts })
+  return startProcessHeartbeat({ version, logger, layouts, stores })
 }
 
 /**
@@ -356,6 +447,7 @@ export function __resetProcessHeartbeatForTest(): void {
   shared.owners = 0
   shared.startedAt = undefined
   shared.layouts.clear()
+  shared.stores.clear()
   shared.writtenPath = undefined
   shared.writtenLayouts = undefined
 }

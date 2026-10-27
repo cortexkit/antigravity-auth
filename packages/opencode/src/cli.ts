@@ -46,6 +46,17 @@ import {
   removeProcessHeartbeat,
 } from './process-heartbeat'
 import {
+  runStoreMove,
+  type StoreMoveResult,
+  writeStateHomeStoreForward,
+} from './runtime-layout'
+import {
+  legacyAccountFile,
+  readForwardedAccountStore,
+  runtimeLayoutLocation,
+  stateHomeAccountFile,
+} from './runtime-paths'
+import {
   assertLocalOpenCodeLogin,
   assertSetupHostsStopped,
   persistPiSetupLogin,
@@ -68,11 +79,13 @@ export interface CliDependencies {
   processHeartbeat?: () => Promise<void>
   /**
    * Settles where the plugin's vault files live, moving them out of
-   * OpenCode's config folder when that is safe, before a command that reads
-   * them (login, and setup on a real run) and before its heartbeat. Rejects
-   * with the reason when they cannot be settled; the command then fails with
-   * it. `runCliProcess` supplies it; when it is absent, commands read the
-   * vault files where the layout marker says, without moving anything.
+   * OpenCode's config folder when that is safe, and where its account store
+   * lives, moving that too when that is safe. Runs before a command that
+   * uses them and before its heartbeat. Rejects with the reason when the
+   * vault folder cannot be settled; the command then fails with it.
+   * `runCliProcess` supplies it; when it is absent, commands read the vault
+   * files where the layout marker says and the account store where a
+   * forwarding pointer says, without moving anything.
    */
   prepareVaultFolder?: () => Promise<void>
   prompt(message: string): Promise<string>
@@ -108,6 +121,17 @@ export interface AccountStoreOperations {
   initialize(legacyPath: string): Promise<AccountMigrationOutcome>
   /** Reads the accounts list and quota show, without writing. */
   read(legacyPath: string): Promise<CliAccountsRead>
+  /**
+   * Moves the account store between OpenCode's config folder and the
+   * state-home folder, or back for a downgrade. Requires `--offline`, like
+   * `migrate`.
+   */
+  relocate?(): Promise<StoreMoveResult>
+  /**
+   * Writes the forwarding pointer a move leaves at the config anchor for a
+   * store this version initializes at the state-home anchor.
+   */
+  leaveForward?(id: string, stateAnchor: string): Promise<void>
 }
 
 /**
@@ -131,10 +155,16 @@ Commands:
   init
   migrate --offline [--yes]
   rollback --offline [--yes]
+  store relocate [--back] --offline [--yes]
 
 migrate moves the account file into the account store; rollback restores
 it. Both require --offline: stop every OpenCode and Antigravity process
 first. Without --yes you are asked to confirm.
+
+store relocate moves the account store into the Antigravity state folder,
+or, with --back, back into OpenCode's config folder. It needs the same
+--offline confirmation. Going back replaces the old pre-move backup with
+your current accounts.
 
 Options:
   --help  Show help
@@ -149,6 +179,7 @@ type ParsedCommand =
   | { command: 'init' }
   | { command: 'migrate'; confirmed: boolean }
   | { command: 'rollback'; confirmed: boolean }
+  | { command: 'store-relocate'; back: boolean; confirmed: boolean }
 
 type ParseResult =
   | { ok: true; value: ParsedCommand }
@@ -213,6 +244,40 @@ function parseArgs(argv: string[]): ParseResult {
     return { ok: true, value: { command } }
   }
 
+  if (command === 'store') {
+    const [subcommand, ...rest] = args
+    // `store --help` prints the same help as `--help`, and, like it, must
+    // create nothing.
+    if (subcommand === '--help' && rest.length === 0)
+      return { ok: true, value: { command: 'help' } }
+    if (subcommand !== 'relocate')
+      return {
+        ok: false,
+        error: subcommand
+          ? `Unknown command: store ${subcommand}`
+          : 'Missing command for store: expected store relocate',
+      }
+    let offline = false
+    let back = false
+    let confirmed = false
+    for (const arg of rest) {
+      if (arg === '--offline') offline = true
+      else if (arg === '--back') back = true
+      else if (arg === '--yes') confirmed = true
+      else if (arg === '--help') return { ok: true, value: { command: 'help' } }
+      else
+        return { ok: false, error: `Unknown option for store relocate: ${arg}` }
+    }
+    if (!offline) {
+      return {
+        ok: false,
+        error:
+          'store relocate runs only offline: stop every OpenCode and Antigravity process, then pass --offline',
+      }
+    }
+    return { ok: true, value: { command: 'store-relocate', back, confirmed } }
+  }
+
   if (command === 'migrate' || command === 'rollback') {
     let offline = false
     let confirmed = false
@@ -252,6 +317,58 @@ function describeOutcome(
       : []),
   ]
   return { code: 0, text: `${lines.join('\n')}\n` }
+}
+
+/** The store's position this process settled, for messages and the forward. */
+function localStore(): { source: string; stateAnchor: string } {
+  const location = runtimeLayoutLocation()
+  const forward = readForwardedAccountStore(
+    legacyAccountFile(location.configDir),
+  )
+  return {
+    source: forward?.legacyPath ?? legacyAccountFile(location.configDir),
+    stateAnchor: stateHomeAccountFile(location),
+  }
+}
+
+/**
+ * If `init` created a store at the state-home anchor, leave the forwarding
+ * pointer at the config anchor, so a version without the store move refuses
+ * there instead of creating a second store.
+ */
+async function leaveForwardFor(
+  deps: CliDependencies,
+  store: { source: string; stateAnchor: string },
+  outcome: AccountMigrationOutcome,
+): Promise<void> {
+  if (outcome.status !== 'completed') return
+  if (samePath(store.source, store.stateAnchor))
+    await deps.accountStore.leaveForward?.(
+      outcome.receipt.id,
+      store.stateAnchor,
+    )
+}
+
+/** What `store relocate` prints for the outcome of one offline move. */
+function describeStoreMove(
+  operation: 'forward' | 'reverse',
+  moved: StoreMoveResult,
+): { code: number; text: string } {
+  const what = operation === 'reverse' ? 'Reverse relocation' : 'Relocation'
+  if (moved.status === 'pending')
+    return {
+      code: 1,
+      text: `${what} did not finish (${moved.reason}); another process holds the account store. Stop it and run the command again.\n`,
+    }
+  if (moved.status === 'cancelled')
+    return {
+      code: 1,
+      text: `${what} was cancelled: another process changed the account store while it was being copied. Run the command again.\n`,
+    }
+  return {
+    code: 0,
+    text: `${what} completed: generation ${moved.id} is active.\nRestart OpenCode before using Antigravity accounts.\n`,
+  }
 }
 
 function accountStatus(account: AccountMetadataV3): string {
@@ -350,7 +467,14 @@ export async function runCli(
     // (whether vault enrollment excludes a local sign-in), so only login
     // settles the vault folder; the account-store commands leave it alone.
     if (parsed.value.command !== 'setup') {
-      if (parsed.value.command === 'login') await deps.prepareVaultFolder?.()
+      // Login reads a vault file; a store command must settle the store's
+      // anchor before it names the path it works on, or it would pick one by
+      // itself. Both settle through the same layout lock.
+      if (
+        parsed.value.command === 'login' ||
+        parsed.value.command === 'store-relocate'
+      )
+        await deps.prepareVaultFolder?.()
       await deps.processHeartbeat?.()
     }
     if (parsed.value.command === 'setup') {
@@ -365,7 +489,29 @@ export async function runCli(
     if (parsed.value.command === 'init') {
       const legacyPath = deps.accountStore.legacyPath()
       const outcome = await deps.accountStore.initialize(legacyPath)
+      await leaveForwardFor(deps, localStore(), outcome)
       const result = describeOutcome('Initialization', outcome)
+      ;(result.code === 0 ? deps.stdout : deps.stderr).write(result.text)
+      return result.code
+    }
+
+    if (parsed.value.command === 'store-relocate') {
+      if (!deps.accountStore.relocate)
+        throw new Error('store relocate is not available here')
+      const operation = parsed.value.back ? 'reverse' : 'forward'
+      if (!parsed.value.confirmed) {
+        const answer = await deps.prompt(
+          `Move the Antigravity account store ${parsed.value.back ? "back into OpenCode's config folder" : 'into the Antigravity state folder'}${parsed.value.back ? ' (this replaces the old pre-move backup with your current accounts)' : ''}? Every OpenCode and Antigravity process must be stopped. Type "yes" to continue: `,
+        )
+        if (answer.trim().toLowerCase() !== 'yes') {
+          deps.stderr.write(
+            `store relocate (${operation}) cancelled; nothing was changed.\n`,
+          )
+          return 1
+        }
+      }
+      const moved = await deps.accountStore.relocate()
+      const result = describeStoreMove(operation, moved)
       ;(result.code === 0 ? deps.stdout : deps.stderr).write(result.text)
       return result.code
     }
@@ -759,7 +905,30 @@ export function createDefaultAccountStoreOperations(): AccountStoreOperations {
         now: Date.now,
       }),
     read: readAccountStore,
+    relocate: () => {
+      // The store's position comes only from what is on disk: a forward at
+      // the config anchor means the store is at the anchor it names, and
+      // without one the store is at the config anchor.
+      const store = localStore()
+      const back = samePath(store.source, store.stateAnchor)
+      return runStoreMove({
+        source: store.source,
+        target: back
+          ? legacyAccountFile(runtimeLayoutLocation().configDir)
+          : store.stateAnchor,
+        back,
+      })
+    },
+    leaveForward: (id, stateAnchor) =>
+      writeStateHomeStoreForward(id, stateAnchor),
   }
+}
+
+/** Whether two paths name the same file, on a case-insensitive volume too. */
+function samePath(left: string, right: string): boolean {
+  return process.platform === 'win32'
+    ? resolve(left).toLowerCase() === resolve(right).toLowerCase()
+    : resolve(left) === resolve(right)
 }
 
 function isCliEntry(): boolean {

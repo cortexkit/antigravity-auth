@@ -94,6 +94,11 @@ function resetProcess() {
   __resetProcessHeartbeatForTest()
 }
 
+/**
+ * Runs the vault layout decision. These tests are about vault files and
+ * paths, so the account store's own decision is settled separately: no store
+ * exists here, and a move would create one in the state folder.
+ */
 function prepare(options: Partial<RuntimeLayoutOptions> = {}) {
   return prepareRuntimeLayout({
     version: VERSION,
@@ -101,6 +106,12 @@ function prepare(options: Partial<RuntimeLayoutOptions> = {}) {
       info: (message, meta) => logged.push({ level: 'info', message, meta }),
       warn: (message, meta) => logged.push({ level: 'warn', message, meta }),
     },
+    relocate: async () => ({ status: 'cancelled' }),
+    storeAnchors: async () => ({
+      configFolder: [],
+      unknown: [],
+      settled: true,
+    }),
     ...options,
   })
 }
@@ -373,8 +384,12 @@ describe('the vault layout on a fresh install', () => {
       JSON.parse(readFileSync(join(runtimeDir(), 'config-dir.json'), 'utf8')),
     ).toEqual({ version: 1, configDir: runtimeLayoutLocation().key })
     if (POSIX) expect(statSync(runtimeDir()).mode & 0o777).toBe(0o700)
-    // Nothing was created in OpenCode's config folder.
-    expect(existsSync(configDir())).toBe(false)
+    // Nothing but the forwarding pointer a version without the store move
+    // reads was created in OpenCode's config folder. Which is there depends on
+    // whether this machine had other live plugin processes, which the account
+    // store's own suites cover.
+    for (const name of readdirSync(configDir()))
+      expect(name).toBe('antigravity-accounts.json.store.pointer.json')
   })
 
   it('a tool that never prepared follows the marker alone', async () => {

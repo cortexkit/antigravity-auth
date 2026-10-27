@@ -25,6 +25,14 @@
 // key written by another version may be spelled differently for the same
 // folder, and blocking too widely only delays a move.
 //
+// With `storeMove`, the fence is about the account store instead. It blocks
+// on any live heartbeat or port file from a version older than the one that
+// moves the store, and on any record it cannot read. It also blocks on a live
+// heartbeat that names no `stores`, or that keeps the store in the config
+// folder (`config`) for any config folder: such a process holds paths that the
+// move would take away from it. It never decides by `layouts`: a `state-home`
+// heartbeat says where the vault files are, not where the account store is.
+//
 // What this cannot see: an OpenCode 2 location or a CLI run of a version
 // before 3.0.13 writes neither file. Port files written under a custom
 // ANTIGRAVITY_AUTH_RPC_DIR, or under an empty XDG_STATE_HOME (which the RPC
@@ -64,6 +72,12 @@ export interface VersionFenceOptions {
    * also keeps the fence shut.
    */
   layoutMove?: boolean
+  /**
+   * Set when the account store is about to move: a live process that names no
+   * `stores` record, or that keeps the store in the config folder for any
+   * config folder, also keeps the fence shut.
+   */
+  storeMove?: boolean
 }
 
 /**
@@ -153,6 +167,13 @@ type Listing =
   | { ok: false; code: string | undefined; error: string }
 
 /** A missing directory lists as empty; any other failure is reported. */
+/** The pid in `123.json` or `port-123.json`, or undefined for any other name. */
+function pidFrom(name: string, pattern: RegExp): number | undefined {
+  const match = pattern.exec(name)
+  const pid = match ? Number(match[1]) : Number.NaN
+  return Number.isSafeInteger(pid) && pid >= 1 ? pid : undefined
+}
+
 async function list(dir: string): Promise<Listing> {
   try {
     return { ok: true, names: await readdir(dir) }
@@ -166,7 +187,12 @@ async function list(dir: string): Promise<Listing> {
 type ProcessRecord =
   | { kind: 'gone' }
   | { kind: 'unreadable' }
-  | { kind: 'ok'; version: string; layouts?: Record<string, unknown> }
+  | {
+      kind: 'ok'
+      version: string
+      layouts?: Record<string, unknown>
+      stores?: Record<string, unknown>
+    }
 
 async function readProcessRecord(
   path: string,
@@ -190,18 +216,20 @@ async function readProcessRecord(
       typeof (value as { version?: unknown }).version === 'string'
     ) {
       const layouts = (value as { layouts?: unknown }).layouts
+      const stores = (value as { stores?: unknown }).stores
       return {
         kind: 'ok',
         version: (value as { version: string }).version,
-        ...(layouts !== null &&
-        typeof layouts === 'object' &&
-        !Array.isArray(layouts)
-          ? { layouts: layouts as Record<string, unknown> }
-          : {}),
+        ...(isRecord(layouts) ? { layouts } : {}),
+        ...(isRecord(stores) ? { stores } : {}),
       }
     }
   } catch {}
   return { kind: 'unreadable' }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 /**
@@ -225,12 +253,6 @@ export async function versionFenceOpen(
       return true
     }
   }
-  const pidFrom = (name: string, pattern: RegExp): number | undefined => {
-    const match = pattern.exec(name)
-    const pid = match ? Number(match[1]) : Number.NaN
-    return Number.isSafeInteger(pid) && pid >= 1 ? pid : undefined
-  }
-
   // Heartbeats: the version a live process says it runs.
   const heartbeatDir = processHeartbeatDir(options.stateHome)
   const heartbeats = await list(heartbeatDir)
@@ -256,6 +278,12 @@ export async function versionFenceOpen(
       options.layoutMove === true &&
       (heartbeat.layouts === undefined ||
         Object.values(heartbeat.layouts).includes('legacy'))
+    )
+      block({ pid, version: heartbeat.version, detail: path })
+    if (
+      options.storeMove === true &&
+      (heartbeat.stores === undefined ||
+        Object.values(heartbeat.stores).includes('config'))
     )
       block({ pid, version: heartbeat.version, detail: path })
   }
@@ -298,4 +326,119 @@ export async function versionFenceOpen(
         open: false,
         blockers: [...blockers.values()].sort((a, b) => rank(a) - rank(b)),
       }
+}
+
+/**
+ * Where a live heartbeat says a config folder's account store is kept
+ * (`stores` in `process-heartbeat.ts`): `config`, `state-home`, or unknown
+ * when the heartbeat names none for that folder or names something this
+ * release does not recognize. An unknown reading never counts as the new
+ * anchor, because the process's paths may still be the config folder's.
+ */
+export function heartbeatStoreAnchor(
+  stores: Record<string, unknown> | undefined,
+  key: string,
+): 'config' | 'state-home' | 'unknown' {
+  const value = stores?.[key]
+  return value === 'config' || value === 'state-home' ? value : 'unknown'
+}
+
+/** What the other live processes say about one config folder's store. */
+export interface StoreAnchorReading {
+  /** A live process keeps this folder's store in the config folder. */
+  configFolder: VersionFenceBlocker[]
+  /** A live process's anchor is unknown: no `stores` entry, or unreadable. */
+  unknown: VersionFenceBlocker[]
+  /** No live process holds anything but the state-home anchor. */
+  settled: boolean
+}
+
+/**
+ * Reads which live processes could still hold one config folder's store in
+ * the config folder. Covers heartbeats (their `stores` record) and RPC port
+ * files, which name only a version and a pid and therefore always count as
+ * unknown while live. Never throws: anything it cannot establish counts
+ * against a move. The version rules on the same records are the
+ * `storeMove` fence of `versionFenceOpen`.
+ */
+export async function readStoreAnchors(
+  options: {
+    stateHome?: string
+    rpcDir?: string
+    isAlive?: (pid: number) => boolean
+    selfPid?: number
+  },
+  key: string,
+): Promise<StoreAnchorReading> {
+  const isAlive = options.isAlive ?? pidAlive
+  const self = options.selfPid ?? process.pid
+  const configFolder: VersionFenceBlocker[] = []
+  const unknown: VersionFenceBlocker[] = []
+  const alive = (pid: number) => {
+    try {
+      return isAlive(pid)
+    } catch {
+      return true
+    }
+  }
+
+  const heartbeatDir = processHeartbeatDir(options.stateHome)
+  const heartbeats = await list(heartbeatDir)
+  if (!heartbeats.ok)
+    unknown.push({
+      pid: 'unknown',
+      version: 'unknown',
+      detail: heartbeats.error,
+    })
+  for (const name of heartbeats.ok ? heartbeats.names : []) {
+    const pid = pidFrom(name, /^(\d+)\.json$/)
+    if (pid === undefined || pid === self) continue
+    const path = join(heartbeatDir, name)
+    const heartbeat = await readProcessRecord(path, pid)
+    // A file removed between the listing and the read belongs to a process
+    // that has exited.
+    if (heartbeat.kind === 'gone' || !alive(pid)) continue
+    if (heartbeat.kind === 'unreadable') {
+      unknown.push({ pid, version: 'unknown', detail: path })
+      continue
+    }
+    const anchor = heartbeatStoreAnchor(heartbeat.stores, key)
+    if (anchor === 'state-home') continue
+    const blocker = { pid, version: heartbeat.version, detail: path }
+    if (anchor === 'config') configFolder.push(blocker)
+    else unknown.push(blocker)
+  }
+
+  const rpcRoot = options.rpcDir ?? rpcStateRoot(options.stateHome)
+  const projects = await list(rpcRoot)
+  if (!projects.ok)
+    unknown.push({ pid: 'unknown', version: 'unknown', detail: projects.error })
+  for (const project of projects.ok ? projects.names : []) {
+    if (!isRpcProjectDir(project)) continue
+    const dir = join(rpcRoot, project)
+    const ports = await list(dir)
+    if (!ports.ok) {
+      if (ports.code === 'ENOTDIR') continue
+      unknown.push({ pid: 'unknown', version: 'unknown', detail: ports.error })
+      continue
+    }
+    for (const name of ports.names) {
+      const pid = pidFrom(name, /^port-(\d+)\.json$/)
+      if (pid === undefined || pid === self || !alive(pid)) continue
+      const path = join(dir, name)
+      const port = await readProcessRecord(path, pid)
+      if (port.kind === 'gone') continue
+      unknown.push({
+        pid,
+        version: port.kind === 'ok' ? port.version : 'unknown',
+        detail: path,
+      })
+    }
+  }
+
+  return {
+    configFolder,
+    unknown,
+    settled: configFolder.length === 0 && unknown.length === 0,
+  }
 }

@@ -98,37 +98,55 @@ import {
   mkdir,
   readdir,
   readFile,
+  rename,
   rmdir,
   stat,
   unlink,
 } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
+  accountStorePointerPath,
   type CommonAuthClaustrumModule,
   type CommonAuthFsModule,
+  createAccountRelocationFactory,
+  initializeFreshAccountStore,
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
+  loadCommonAuthStoreModules,
+  readAccountStoreBinding,
 } from '@cortexkit/antigravity-auth-core'
 import { createLogger } from './plugin/logger'
 import {
   OPENCODE_VAULT_ENROLLMENT_NAME,
   OPENCODE_VAULT_HOST,
 } from './plugin/vault-custody'
-import { recordProcessLayout } from './process-heartbeat'
+import { recordProcessAnchor, recordProcessLayout } from './process-heartbeat'
 import {
+  type AccountStoreAnchor,
+  decidedAccountStoreAnchor,
   decidedRuntimeLayout,
+  folderResolvesToItself,
   legacyAccountFile,
   legacySignatureCacheFile,
   legacyVaultDir,
+  pathPresent,
   RUNTIME_CONFIG_DIR_NOTE_FILE,
   RUNTIME_LAYOUT_MARKER_FILE,
   type RuntimeLayout,
   type RuntimeLayoutLocation,
+  readForwardedAccountStore,
   runtimeLayoutLocation,
+  setAccountStoreAnchor,
   setRuntimeLayout,
+  stateHomeAccountFile,
   stateHomeVaultDir,
 } from './runtime-paths'
-import { type VersionFenceResult, versionFenceOpen } from './version-fence'
+import {
+  readStoreAnchors,
+  type StoreAnchorReading,
+  type VersionFenceResult,
+  versionFenceOpen,
+} from './version-fence'
 
 export type { RuntimeLayout }
 
@@ -213,6 +231,22 @@ const SHARING_RETRY_BUDGET_MS = 500
 /** The message logged once by a process that keeps the legacy layout. */
 export const RUNTIME_LAYOUT_DEFERRED_MESSAGE =
   "antigravity-auth keeps its vault files in OpenCode's config folder until every running OpenCode using it has restarted on this version."
+
+/**
+ * The message logged once, in plain words, by a process that keeps the
+ * account store in OpenCode's config folder because another live OpenCode
+ * could still be using it there.
+ */
+export const ACCOUNT_STORE_DEFERRED_MESSAGE =
+  "antigravity-auth keeps the account store in OpenCode's config folder until every running OpenCode using it has restarted on this version."
+
+/**
+ * The message logged once by a process that keeps the account store in
+ * OpenCode's config folder because the state-home folder's path goes through
+ * a link, which the account store refuses to open a file through.
+ */
+export const ACCOUNT_STORE_LINKED_PATH_MESSAGE =
+  "antigravity-auth keeps the account store in OpenCode's config folder because the path to its state folder goes through a link. Setting XDG_STATE_HOME to the real path of that folder lets it move there."
 
 /**
  * Plugin start stops when it cannot settle a safe layout: it could not take
@@ -323,6 +357,20 @@ export interface RuntimeLayoutOptions {
    * folder. Defaults to `legacySignatureCacheFile()`.
    */
   oldSignatureCacheFile?: string
+  /**
+   * Test seam: run the account-store move by hand instead of the genuine
+   * offline relocation (`runStoreMove`). The move is the only operation that
+   * runs while the layout lock is held, and replacing it keeps this module's
+   * own tests about paths and decisions.
+   */
+  relocate?: (input: StoreMoveInput) => Promise<StoreMoveResult>
+  /** Test seam: the store fence; defaults to `versionFenceOpen` with `storeMove`. */
+  storeFence?: () => Promise<VersionFenceResult>
+  /**
+   * Test seam: reads the other live processes' store anchors; defaults to
+   * `readStoreAnchors` for this machine.
+   */
+  storeAnchors?: (key: string) => Promise<StoreAnchorReading>
 }
 
 interface LayoutMarker {
@@ -358,11 +406,13 @@ const stateKey = Symbol.for('@cortexkit/antigravity-auth/runtime-layout-runs')
 const globalState = globalThis as typeof globalThis & {
   [stateKey]?: {
     runs: Map<string, Promise<RuntimeLayout>>
+    storeRuns: Map<string, Promise<AccountStoreAnchor>>
     logged: Set<string>
   }
 }
 const processState = globalState[stateKey] ?? {
   runs: new Map<string, Promise<RuntimeLayout>>(),
+  storeRuns: new Map<string, Promise<AccountStoreAnchor>>(),
   logged: new Set<string>(),
 }
 globalState[stateKey] = processState
@@ -370,6 +420,7 @@ globalState[stateKey] = processState
 /** Test seam: forget this process's runs and log lines. */
 export function __resetRuntimeLayoutRunsForTest(): void {
   processState.runs.clear()
+  processState.storeRuns.clear()
   processState.logged.clear()
 }
 
@@ -482,12 +533,7 @@ async function decide(
   const fence = options.fence ?? defaultFence(options.version)
 
   const stateHome = async (): Promise<RuntimeLayout> => {
-    await recordProcessLayout({
-      key: location.key,
-      layout: 'state-home',
-      version: options.version,
-    })
-    setRuntimeLayout(location, 'state-home')
+    await settleVault(location, options, 'state-home', log)
     return 'state-home'
   }
 
@@ -501,7 +547,10 @@ async function decide(
     const manifestLeft = await exists(
       join(stateDir, RUNTIME_LAYOUT_MANIFEST_FILE),
     ).catch(() => true)
-    if (!manifestLeft) return stateHome()
+    if (!manifestLeft) {
+      await settleVault(location, options, 'state-home', log)
+      return stateHome()
+    }
   }
 
   // A state-home folder that is OpenCode's config folder itself (a link or a
@@ -536,15 +585,10 @@ async function decide(
   const legacy = async (): Promise<RuntimeLayout> => {
     try {
       await lock.assertOwned()
-      await recordProcessLayout({
-        key: location.key,
-        layout: 'legacy',
-        version: options.version,
-      })
+      await settleVault(location, options, 'legacy', log)
     } catch (error) {
       throw new RuntimeLayoutRefusal(stateDir, errorClass(error))
     }
-    setRuntimeLayout(location, 'legacy')
     return 'legacy'
   }
 
@@ -645,6 +689,487 @@ async function decide(
 
 function defaultFence(version: string) {
   return () => versionFenceOpen({ currentVersion: version, layoutMove: true })
+}
+
+/**
+ * Record and fix this process's vault layout, then decide where its account
+ * store lives and move it there when that is safe. Runs under the layout
+ * lock. The vault layout comes first because the store's new anchor is the
+ * folder the state-home layout names, and because a store move must never
+ * run before every other process has been told where this one's vault files
+ * are.
+ */
+async function settleVault(
+  location: RuntimeLayoutLocation,
+  options: RuntimeLayoutOptions,
+  layout: RuntimeLayout,
+  log: RuntimeLayoutLogger,
+): Promise<void> {
+  await recordProcessLayout({
+    key: location.key,
+    layout,
+    version: options.version,
+  })
+  setRuntimeLayout(location, layout)
+  await settleAccountStore(location, options, log)
+}
+
+/**
+ * Decides, once per process, where this config folder's account store
+ * lives, and moves it into the state-home folder when that is safe. Call at
+ * plugin start after `prepareRuntimeLayout`, which calls it while it holds
+ * the layout lock; a process that already settled its anchor keeps it.
+ * Resolves to the anchor `getStoragePath()` in `plugin/storage.ts` now uses.
+ *
+ * A store move runs only when every account store of this config folder is
+ * at the config folder anchor, no other live process could still be using it
+ * there (the `storeMove` fence, which also reads each heartbeat's `stores`),
+ * the state-home folder's path resolves through no link, and the store's own
+ * locks are free. Otherwise this process keeps the config folder for its
+ * whole life and says why once: a deferral is never a refusal.
+ */
+export async function prepareAccountStore(
+  options: RuntimeLayoutOptions,
+): Promise<AccountStoreAnchor> {
+  const location = runtimeLayoutLocation()
+  const log = options.log ?? createLogger('runtime-layout')
+  const runKey = `${location.stateHomeDir}\0${location.key}`
+  let run = processState.storeRuns.get(runKey)
+  if (!run) {
+    run = settleAccountStore(location, options, log).finally(() => {
+      processState.storeRuns.delete(runKey)
+    })
+    processState.storeRuns.set(runKey, run)
+  }
+  return run
+}
+
+async function settleAccountStore(
+  location: RuntimeLayoutLocation,
+  options: RuntimeLayoutOptions,
+  log: RuntimeLayoutLogger,
+): Promise<AccountStoreAnchor> {
+  const decided = decidedAccountStoreAnchor(location)
+  if (decided) return decided
+  const anchor = await decideAccountStore(location, options, log)
+  setAccountStoreAnchor(location, anchor)
+  return anchor
+}
+
+async function decideAccountStore(
+  location: RuntimeLayoutLocation,
+  options: RuntimeLayoutOptions,
+  log: RuntimeLayoutLogger,
+): Promise<AccountStoreAnchor> {
+  const keepConfig = () => recordAnchor(location, options, 'config', log)
+  const configAnchor = legacyAccountFile(location.configDir)
+  const stateAnchor = stateHomeAccountFile(location)
+  const forward = readForwardedAccountStore(configAnchor)
+
+  if (forward) {
+    // A forward names where the store went. This process can use that anchor
+    // only when it is the one this config folder resolves to; otherwise
+    // neither store is served (an error, never an empty store).
+    if (!sameSpelling(forward.legacyPath, stateAnchor)) {
+      logOnce(`${location.key}\0store-forward-elsewhere`, () =>
+        log.warn(
+          'the account store moved to another folder than this process resolved; check XDG_STATE_HOME',
+          { movedTo: forward.legacyPath, expected: stateAnchor },
+        ),
+      )
+    }
+    // A moved store is usable only once its relocation finished; the store's
+    // own operation resumes or cancels an unfinished one.
+    await resumeForwardedStore(
+      location,
+      options,
+      configAnchor,
+      stateAnchor,
+      log,
+    )
+    return recordAnchor(location, options, 'state-home', log)
+  }
+
+  const configStore = await presentAccountStore(configAnchor)
+  const stateStore = await presentAccountStore(stateAnchor)
+  if (configStore && stateStore) {
+    // Two stores and no forward saying which one is current: refuse rather
+    // than pick by age and split the accounts.
+    throw new RuntimeLayoutRefusal(
+      location.stateHomeDir,
+      'two-account-stores',
+      `antigravity-auth cannot start: two account stores exist, one at ${configAnchor} and one at ${stateAnchor}, and neither is marked as moved. Keep the one you want and move the other one aside, then restart OpenCode.`,
+    )
+  }
+  if (stateStore) return recordAnchor(location, options, 'state-home', log)
+  if (configStore) {
+    if (!(await storeMovePathResolves(stateAnchor, location, log)))
+      return keepConfig()
+    return moveStore(location, options, configAnchor, stateAnchor, false, log)
+  }
+
+  // Nothing published at either anchor: a fresh installation initializes at
+  // the state-home anchor and leaves a forward at the config anchor, so a
+  // version without the store move refuses instead of creating a second
+  // store. A store that stopped before publishing its pointer starts over,
+  // exactly as an existing one would be moved.
+  if (
+    (await storeArtefacts(stateAnchor)) > 0 &&
+    !(await abandonUnpublishedStore(location, stateAnchor, log))
+  )
+    return keepConfig()
+  if (!(await storeMovePathResolves(stateAnchor, location, log)))
+    return keepConfig()
+  return initializeStore(location, options, stateAnchor, log)
+}
+
+/** Record this process's store anchor and return it. */
+async function recordAnchor(
+  location: RuntimeLayoutLocation,
+  options: RuntimeLayoutOptions,
+  anchor: AccountStoreAnchor,
+  log: RuntimeLayoutLogger,
+): Promise<AccountStoreAnchor> {
+  try {
+    await recordProcessAnchor({
+      key: location.key,
+      anchor,
+      version: options.version,
+    })
+  } catch (error) {
+    throw new RuntimeLayoutRefusal(location.stateHomeDir, errorClass(error))
+  }
+  if (anchor === 'state-home')
+    log.info('antigravity-auth keeps its account store in its state folder', {
+      accountStore: anchor,
+    })
+  return anchor
+}
+
+/**
+ * Whether the store may move into the state-home folder's path: that path
+ * must resolve through no link, because the account store refuses a file
+ * whose folder goes through one. Says so once when it does not.
+ */
+async function storeMovePathResolves(
+  stateAnchor: string,
+  location: RuntimeLayoutLocation,
+  log: RuntimeLayoutLogger,
+): Promise<boolean> {
+  if (folderResolvesToItself(stateAnchor)) return true
+  logOnce(`${location.key}\0store-linked-path`, () =>
+    log.warn(ACCOUNT_STORE_LINKED_PATH_MESSAGE, {
+      accountStore: stateAnchor,
+      stateFolder: location.stateHomeDir,
+    }),
+  )
+  return false
+}
+
+/** Whether the store fence is open, with its one deferral log line. */
+async function storeFenceOpen(
+  location: RuntimeLayoutLocation,
+  options: RuntimeLayoutOptions,
+  log: RuntimeLayoutLogger,
+): Promise<boolean> {
+  const gate = await (
+    options.storeFence ?? defaultStoreFence(options.version)
+  )()
+  if (gate.open) return true
+  logOnce(`${location.key}\0store-version-fence`, () =>
+    log.info(ACCOUNT_STORE_DEFERRED_MESSAGE, {
+      configDir: location.configDir,
+      blockers: gate.blockers,
+    }),
+  )
+  return false
+}
+
+/**
+ * Whether no other live process still says it keeps the store in the config
+ * folder. Read again right before the first irreversible step of a move: a
+ * process that started meanwhile has recorded its own choice by then.
+ */
+async function storeAnchorsSettled(
+  location: RuntimeLayoutLocation,
+  options: RuntimeLayoutOptions,
+  log: RuntimeLayoutLogger,
+): Promise<boolean> {
+  const read: (key: string) => Promise<StoreAnchorReading> =
+    options.storeAnchors ?? defaultStoreAnchors
+  const reading: StoreAnchorReading = await read(location.key)
+  if (reading.settled) return true
+  logOnce(`${location.key}\0store-anchor-fence`, () =>
+    log.info(ACCOUNT_STORE_DEFERRED_MESSAGE, {
+      configDir: location.configDir,
+      blockers: [...reading.configFolder, ...reading.unknown],
+    }),
+  )
+  return false
+}
+
+function defaultStoreFence(version: string) {
+  return () => versionFenceOpen({ currentVersion: version, storeMove: true })
+}
+
+function defaultStoreAnchors(key: string): Promise<StoreAnchorReading> {
+  return readStoreAnchors({}, key)
+}
+
+function sameSpelling(left: string, right: string): boolean {
+  return process.platform === 'win32'
+    ? left.toLowerCase() === right.toLowerCase()
+    : left === right
+}
+
+/**
+ * Whether anything is published at one anchor: a pointer of either schema, a
+ * pool file, or a store folder. A pointer that does not read as a forward
+ * still counts: its own reader refuses it, and no move starts over it.
+ */
+async function presentAccountStore(anchor: string): Promise<boolean> {
+  return (
+    (await pathPresent(accountStorePointerPath(anchor))) ||
+    (await pathPresent(anchor))
+  )
+}
+
+/** The account store's folder beside one anchor. */
+function storeFolder(anchor: string): string {
+  return `${anchor}.store`
+}
+
+/**
+ * How many leftovers an unpublished store left beside an anchor: its logical
+ * store folder, a generation folder, or one of its pointer stages.
+ */
+async function storeArtefacts(anchor: string): Promise<number> {
+  const names = await readdir(dirname(anchor)).catch(() => [] as string[])
+  const store = basename(storeFolder(anchor))
+  const pool = basename(anchor)
+  return names.filter(
+    (name) =>
+      name === store ||
+      name.startsWith(`${pool}.store.`) ||
+      (name.startsWith(pool) && name.endsWith('.tmp')),
+  ).length
+}
+
+/**
+ * Moves an unfinished store at the state-home anchor out of the way, so the
+ * move can start again from scratch. Only a store that publishes nothing
+ * (leftovers of an interrupted move, or of a fresh installation that never
+ * published) is touched; anything else is left for its own operation.
+ */
+async function abandonUnpublishedStore(
+  location: RuntimeLayoutLocation,
+  stateAnchor: string,
+  log: RuntimeLayoutLogger,
+): Promise<boolean> {
+  const store = await loadCommonAuthStoreModules()
+  const binding = await readAccountStoreBinding(stateAnchor, store, Date.now)
+  if (binding.status === 'bound') return false
+  const folder = storeFolder(stateAnchor)
+  const archived = `${folder}.abandoned-${Date.now()}`
+  await rename(folder, archived).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error
+  })
+  await unlink(accountStorePointerPath(stateAnchor)).catch(() => {})
+  log.info(
+    'antigravity-auth set an unfinished account store aside before starting its move again',
+    { configDir: location.configDir, archived },
+  )
+  return true
+}
+
+/** One offline store move between the two anchors of a config folder. */
+export interface StoreMoveInput {
+  source: string
+  target: string
+  /** Restore the store at the config anchor, for a downgrade. */
+  back: boolean
+}
+
+export type StoreMoveResult =
+  | { status: 'completed'; id: string }
+  | { status: 'pending'; reason: string }
+  | { status: 'cancelled' }
+
+/**
+ * One offline store move with the stopped-process confirmation `migrate`
+ * takes: the start-time move, setup, and `antigravity-auth store relocate`
+ * all use it, and the caller holds the layout lock.
+ */
+export async function runStoreMove(
+  input: StoreMoveInput,
+): Promise<StoreMoveResult> {
+  const outcome = await createAccountRelocationFactory(
+    await loadCommonAuthStoreModules(),
+  )({
+    legacyPath: input.source,
+    targetPath: input.target,
+    ...(input.back ? { back: true } : {}),
+    offline: { processesStopped: true },
+    now: Date.now,
+  })
+  if (outcome.status === 'completed')
+    return { status: 'completed', id: outcome.receipt.id }
+  if (outcome.status === 'pending')
+    return { status: 'pending', reason: outcome.reason }
+  return { status: 'cancelled' }
+}
+
+/**
+ * Runs one store move while the caller holds the layout lock. The fence is
+ * read once more right before it, so a process that started meanwhile and
+ * kept the config folder stops this one. A move that cannot finish (another
+ * process holds a store lock, an unfinished move of another source) keeps
+ * this process at the config folder for its life; the next start with an
+ * open fence finishes it.
+ */
+async function moveStore(
+  location: RuntimeLayoutLocation,
+  options: RuntimeLayoutOptions,
+  source: string,
+  target: string,
+  back: boolean,
+  log: RuntimeLayoutLogger,
+): Promise<AccountStoreAnchor> {
+  const keepConfig = () => recordAnchor(location, options, 'config', log)
+  if (!(await storeFenceOpen(location, options, log))) return keepConfig()
+  if (!(await storeAnchorsSettled(location, options, log))) return keepConfig()
+  try {
+    const result = await (options.relocate ?? runStoreMove)({
+      source,
+      target,
+      back,
+    })
+    if (result.status !== 'completed') {
+      logOnce(`${location.key}\0store-move-unfinished`, () =>
+        log.info(ACCOUNT_STORE_DEFERRED_MESSAGE, {
+          configDir: location.configDir,
+          reason: result.status === 'pending' ? result.reason : result.status,
+        }),
+      )
+      return keepConfig()
+    }
+    log.info(
+      "antigravity-auth moved the account store out of OpenCode's config folder",
+      { from: source, to: target, generation: result.id },
+    )
+  } catch (error) {
+    logOnce(`${location.key}\0store-move-failed`, () =>
+      log.warn(
+        "antigravity-auth's account store stays in OpenCode's config folder: moving it failed; the move is tried again at the next start",
+        {
+          configDir: location.configDir,
+          errorClass: errorClass(error),
+          ...errorFile(error),
+        },
+      ),
+    )
+    return keepConfig()
+  }
+  return recordAnchor(location, options, 'state-home', log)
+}
+
+/**
+ * Finishes or repeats the move an existing forward names. A move that
+ * stopped after its forward leaves a store no reader can bind; the store's
+ * own operation resumes it, or cancels it and captures again. A failure here
+ * is logged, and the anchor stays the state-home one the forward names, so
+ * every reader reports the store as unusable instead of serving the old one.
+ */
+async function resumeForwardedStore(
+  location: RuntimeLayoutLocation,
+  options: RuntimeLayoutOptions,
+  configAnchor: string,
+  stateAnchor: string,
+  log: RuntimeLayoutLogger,
+): Promise<void> {
+  try {
+    await moveStore(location, options, configAnchor, stateAnchor, false, log)
+  } catch (error) {
+    logOnce(`${location.key}\0store-resume-failed`, () =>
+      log.warn(
+        "antigravity-auth's account store is still moving; it could not be finished at this start",
+        {
+          configDir: location.configDir,
+          errorClass: errorClass(error),
+          ...errorFile(error),
+        },
+      ),
+    )
+  }
+}
+
+/**
+ * Creates an empty store at the state-home anchor for a genuinely fresh
+ * installation and leaves a forward at the config anchor, so a version
+ * without the store move refuses instead of creating a second, empty store.
+ * When the store cannot be created there, this process keeps the config
+ * folder and the next start tries again.
+ */
+async function initializeStore(
+  location: RuntimeLayoutLocation,
+  options: RuntimeLayoutOptions,
+  stateAnchor: string,
+  log: RuntimeLayoutLogger,
+): Promise<AccountStoreAnchor> {
+  const keepConfig = () => recordAnchor(location, options, 'config', log)
+  if (!(await storeFenceOpen(location, options, log))) return keepConfig()
+  if (!(await storeAnchorsSettled(location, options, log))) return keepConfig()
+  try {
+    const store = await loadCommonAuthStoreModules()
+    const created = await initializeFreshAccountStore(store, {
+      legacyPath: stateAnchor,
+      now: Date.now,
+    })
+    if (created.status !== 'completed')
+      throw new LayoutMoveError('fresh-store', `the store is ${created.status}`)
+    await writeStateHomeStoreForward(created.receipt.id, stateAnchor)
+  } catch (error) {
+    logOnce(`${location.key}\0store-init-failed`, () =>
+      log.warn(
+        "antigravity-auth's account store stays in OpenCode's config folder: creating it in its state folder failed; it is tried again at the next start",
+        {
+          configDir: location.configDir,
+          errorClass: errorClass(error),
+          ...errorFile(error),
+        },
+      ),
+    )
+    return keepConfig()
+  }
+  log.info('antigravity-auth created its account store in its state folder', {
+    accountStore: stateAnchor,
+  })
+  return recordAnchor(location, options, 'state-home', log)
+}
+
+/**
+ * Leaves a forwarding pointer at the config anchor for a store that now
+ * lives at the state-home anchor: the same schema-2 pointer a store move
+ * writes, so a version without the store move refuses it instead of reading
+ * "no accounts". Written atomically and durably through the account store's
+ * own writer.
+ */
+export async function writeStateHomeStoreForward(
+  id: string,
+  stateAnchor: string,
+  configAnchor: string = legacyAccountFile(runtimeLayoutLocation().configDir),
+): Promise<void> {
+  const forward = {
+    schemaVersion: 2,
+    id,
+    directoryBasename: basename(storeFolder(stateAnchor)),
+    relocatedTo: { legacyPath: stateAnchor, id },
+  }
+  const fs = await loadCommonAuthFs()
+  await fs.writeJsonAtomic(accountStorePointerPath(configAnchor), forward, {
+    durable: true,
+    durability: 'file-only-on-windows',
+  })
 }
 
 function logDeferral(

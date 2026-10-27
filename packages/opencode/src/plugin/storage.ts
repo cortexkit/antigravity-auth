@@ -62,6 +62,12 @@ import {
   readAccountStoreAdmission,
   readAccountStoreBinding,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  decidedAccountStoreAnchor,
+  discoveredAccountFile,
+  runtimeLayoutLocation,
+  stateHomeAccountFile,
+} from '../runtime-paths'
 import { createLogger } from './logger'
 
 const log = createLogger('storage')
@@ -387,8 +393,26 @@ function getStoragePathWithMigration(): string {
   return newPath
 }
 
+/**
+ * The account file path for a store kept in the state-home folder: the same
+ * file name in the state-home folder this config folder's vault files live
+ * in, spelled with that folder's real path (the store refuses a path whose
+ * folder goes through a link, and the state home often does).
+ */
+function stateHomeStoragePath(): string {
+  return stateHomeAccountFile(runtimeLayoutLocation())
+}
+
 export function getStoragePath(): string {
-  return getStoragePathWithMigration()
+  // Settled once, by the entry point that holds the layout lock
+  // (`prepareRuntimeLayout`), and never switched while the process runs.
+  const anchor = decidedAccountStoreAnchor(runtimeLayoutLocation())
+  if (anchor === 'state-home') return stateHomeStoragePath()
+  if (anchor === 'config') return getStoragePathWithMigration()
+  // Nothing settled this process's anchor (a tool, or a command that must
+  // write nothing): a forwarding pointer left in the config folder names the
+  // store's own anchor, and without one the store is where it always was.
+  return discoveredAccountFile()
 }
 
 /**
