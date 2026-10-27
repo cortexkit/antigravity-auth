@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { parseApplyRequest } from '../common-auth-embedded/commands/index.js'
 import { writePortFile as writePublicPortFile } from '../common-auth-embedded/rpc/index.js'
+import { versionFenceOpen } from '../version-fence'
 import { discoverPortFile } from './port-file'
 import type {
   CommandApplyRequest,
@@ -19,6 +21,11 @@ import {
 
 const APPLY_PATH = '/rpc/apply'
 const NOTIFICATIONS_PATH = '/rpc/pending-notifications'
+const PACKAGE_VERSION = (
+  JSON.parse(
+    readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+  ) as { version: string }
+).version
 
 const MENU = { command: 'antigravity', title: 'Antigravity', sections: [] }
 
@@ -343,6 +350,49 @@ describe('RPC server HTTP boundary', () => {
     await expect(
       fetch(`http://127.0.0.1:${handle.port}${APPLY_PATH}`),
     ).rejects.toThrow()
+    handle = undefined
+  })
+
+  it('the running RPC server publishes its plugin version in its port file', async () => {
+    // A project directory named like the plugin's own (16 hex digits), so
+    // the version fence reads it.
+    const root = join(dir, '..', 'rpc-root')
+    const projectDir = join(root, '0123456789abcdef')
+    handle = await start(projectDir)
+    const record = JSON.parse(
+      await readFile(join(projectDir, `port-${process.pid}.json`), 'utf8'),
+    ) as Record<string, unknown>
+    expect(record).toMatchObject({
+      pid: process.pid,
+      port: handle.port,
+      token: handle.token,
+      version: PACKAGE_VERSION,
+    })
+    // Discovery still finds the rewritten record.
+    expect((await discoverPortFile(projectDir, process.pid))?.port).toBe(
+      handle.port,
+    )
+    // Another process reading it through the fence sees this version: it
+    // clears a move by this version and blocks one by a newer version.
+    const fence = (currentVersion: string) =>
+      versionFenceOpen({
+        stateHome: join(dir, '..', 'no-heartbeats'),
+        rpcDir: root,
+        currentVersion,
+        selfPid: process.pid + 1,
+      })
+    expect(await fence(PACKAGE_VERSION)).toEqual({ open: true })
+    expect(await fence('999.0.0')).toEqual({
+      open: false,
+      blockers: [
+        {
+          pid: process.pid,
+          version: PACKAGE_VERSION,
+          detail: join(projectDir, `port-${process.pid}.json`),
+        },
+      ],
+    })
+    await handle.stop()
     handle = undefined
   })
 })

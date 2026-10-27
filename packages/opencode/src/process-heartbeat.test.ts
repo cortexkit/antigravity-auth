@@ -23,8 +23,15 @@ import {
   processConfigFolderKey,
   processHeartbeatDir,
   processHeartbeatPath,
+  recordProcessLayout,
   startProcessHeartbeat,
+  startRuntimeProcessHeartbeat,
 } from './process-heartbeat'
+import {
+  __resetRuntimeLayoutsForTest,
+  runtimeLayoutLocation,
+  setRuntimeLayout,
+} from './runtime-paths'
 
 const packageVersion = (
   JSON.parse(
@@ -63,6 +70,7 @@ function readHeartbeat(path: string): ProcessHeartbeat {
 
 afterEach(() => {
   __resetProcessHeartbeatForTest()
+  __resetRuntimeLayoutsForTest()
 })
 
 describe('process heartbeat location', () => {
@@ -357,6 +365,98 @@ describe('process heartbeat owners', () => {
     expect(existsSync(join(dir, '4242.json'))).toBe(true)
     await b.release()
     expect(existsSync(join(dir, '4242.json'))).toBe(true)
+  })
+})
+
+describe('recording a layout decision', () => {
+  it('writes a legacy decision at once, with every layout this process holds', async () => {
+    const dir = freshDir()
+    await recordProcessLayout({
+      key: '/config/a',
+      layout: 'state-home',
+      version: '9.9.9',
+      pid: 4242,
+      dir,
+    })
+    // A state-home decision alone writes nothing.
+    expect(existsSync(join(dir, '4242.json'))).toBe(false)
+    await recordProcessLayout({
+      key: '/config/b',
+      layout: 'legacy',
+      version: '9.9.9',
+      now: () => 77,
+      pid: 4242,
+      dir,
+    })
+    expect(readHeartbeat(join(dir, '4242.json'))).toEqual({
+      pid: 4242,
+      version: '9.9.9',
+      startedAt: 77,
+      layouts: { '/config/a': 'state-home', '/config/b': 'legacy' },
+    })
+  })
+
+  it('throws when the legacy decision cannot be written', async () => {
+    const dir = freshDir()
+    // A folder in the heartbeat's place makes the rename fail.
+    mkdirSync(join(dir, '4242.json', 'keep'), { recursive: true })
+    await expect(
+      recordProcessLayout({
+        key: '/config/a',
+        layout: 'legacy',
+        version: '9.9.9',
+        pid: 4242,
+        dir,
+      }),
+    ).rejects.toThrow()
+    expect(readdirSync(dir)).toEqual(['4242.json'])
+  })
+
+  it('a legacy decision keeps the file after the last owner releases it, and a later owner does not rewrite it', async () => {
+    const dir = freshDir()
+    const logger = recordingLogger()
+    await recordProcessLayout({
+      key: '/config/a',
+      layout: 'legacy',
+      version: '9.9.9',
+      pid: 4242,
+      dir,
+    })
+    const target = join(dir, '4242.json')
+    writeFileSync(target, 'marker')
+    const owner = await startProcessHeartbeat({
+      version: '9.9.9',
+      logger,
+      layouts: { '/config/a': 'legacy' },
+      pid: 4242,
+      dir,
+    })
+    expect(owner.path).toBe(target)
+    expect(readFileSync(target, 'utf8')).toBe('marker')
+    await owner.release()
+    expect(existsSync(target)).toBe(true)
+  })
+})
+
+describe('runtime heartbeat layouts', () => {
+  it('publishes legacy for a config folder this process has not decided', async () => {
+    const handle = await startRuntimeProcessHeartbeat(recordingLogger())
+    expect(handle.path).toBe(processHeartbeatPath())
+    expect(readHeartbeat(processHeartbeatPath()).layouts).toEqual({
+      [processConfigFolderKey()]: 'legacy',
+    })
+    await heartbeatModule.removeProcessHeartbeat(recordingLogger())
+  })
+
+  it('publishes the layout this process decided', async () => {
+    setRuntimeLayout(runtimeLayoutLocation(), 'state-home')
+    const handle = await startRuntimeProcessHeartbeat(recordingLogger())
+    expect(readHeartbeat(processHeartbeatPath()).layouts).toEqual({
+      [processConfigFolderKey()]: 'state-home',
+    })
+    // Holding no legacy layout, the last owner's release removes the file.
+    await handle.release()
+    expect(existsSync(processHeartbeatPath())).toBe(false)
   })
 })
 

@@ -3,7 +3,9 @@ import {
   RpcRequestError,
   type RpcServerAsyncOptions,
   startRpcServer as startPublicRpcServer,
+  writePortFile,
 } from '../common-auth-embedded/rpc/index.js'
+import { pluginPackageVersion } from '../process-heartbeat'
 import type {
   CommandApplyRequest,
   CommandApplyResult,
@@ -82,6 +84,24 @@ export async function startRpcServer(
         options.drain(cursor, session),
       )) as unknown as PublicDrain,
   })
+  try {
+    // The shared server publishes `port-<pid>.json` without a version. Another
+    // process deciding whether it may move the vault files out of OpenCode's
+    // config folder (`version-fence.ts`) treats a live port file without a
+    // current version as an older plugin and waits. Replace the record with
+    // one that names this plugin's version before returning; if that fails,
+    // stop the server rather than leave an unversioned record behind.
+    const versioned = {
+      port: server.port,
+      token: server.token,
+      pid: process.pid,
+      version: await pluginPackageVersion(),
+    }
+    await writePortFile(options.dir, versioned, { secureDir: true })
+  } catch (error) {
+    await server.stop().catch(() => {})
+    throw error
+  }
   let stopping: Promise<void> | undefined
   return {
     port: server.port,

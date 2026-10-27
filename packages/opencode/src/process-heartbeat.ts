@@ -13,12 +13,19 @@
 // write is tried again when the next owner starts.
 //
 // The file also carries `layouts`: for each OpenCode config folder this
-// process resolved, whether it keeps that folder's runtime files in the
-// config folder itself (`legacy`) or in the state home (`state-home`). This
-// release only has the legacy layout. A process that runs on the legacy
-// layout keeps its file until it exits, even after its last owner released
-// it, because its paths stay fixed for its whole life and the move must wait
-// for it.
+// process resolved, whether it keeps that folder's vault files in the config
+// folder itself (`legacy`) or in the state home (`state-home`), see
+// `runtime-paths.ts`. A process that has not decided records `legacy` (or
+// no layout at all when it cannot read its own package manifest, which the
+// move also treats as blocking). A
+// process that runs on the legacy layout keeps its file until it exits, even
+// after its last owner released it, because its paths stay fixed for its
+// whole life and the move must wait for it.
+//
+// One write is not best-effort: `recordProcessLayout` records a `legacy`
+// decision while the deciding process holds the layout lock, and throws when
+// that write fails, because a process on the old files that other processes
+// cannot see must not start.
 
 import { randomUUID } from 'node:crypto'
 import { realpathSync, rmSync } from 'node:fs'
@@ -26,6 +33,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { getConfigDir } from './plugin/storage'
+import { decidedRuntimeLayout, runtimeLayoutLocation } from './runtime-paths'
 
 /** Where one process keeps one config folder's runtime files. */
 export type ProcessLayout = 'legacy' | 'state-home'
@@ -254,11 +262,43 @@ export async function removeProcessHeartbeat(
   await removeHeartbeatFile(logger)
 }
 
+/**
+ * Record which layout this process uses for one config folder. A `legacy`
+ * choice is written to the heartbeat file at once, because another process
+ * deciding whether it may move the files reads it; the caller makes the
+ * choice and this write while it holds the layout lock. A `state-home`
+ * choice only goes into the next heartbeat write. Throws when the write
+ * fails, unlike `startProcessHeartbeat`.
+ */
+export async function recordProcessLayout(input: {
+  key: string
+  layout: ProcessLayout
+  version: string
+  now?: () => number
+  pid?: number
+  dir?: string
+}): Promise<void> {
+  shared.layouts.set(input.key, input.layout)
+  if (input.layout !== 'legacy') return
+  shared.startedAt ??= (input.now ?? Date.now)()
+  const layouts = layoutsRecord()
+  const path = await writeHeartbeatFile(input.dir ?? processHeartbeatDir(), {
+    pid: input.pid ?? process.pid,
+    version: input.version,
+    startedAt: shared.startedAt,
+    layouts,
+  })
+  shared.writtenPath = path
+  shared.writtenLayouts = JSON.stringify(layouts)
+  installExitHook()
+}
+
 // The plugin's own version, read from the package manifest. This module sits
 // directly under `src/`, and the bundles it is built into sit directly under
 // `dist/`, so `../package.json` names the manifest from both.
 let packageVersion: Promise<string> | undefined
-function pluginPackageVersion(): Promise<string> {
+/** This plugin's version, from its package manifest. */
+export function pluginPackageVersion(): Promise<string> {
   packageVersion ??= readFile(
     new URL('../package.json', import.meta.url),
     'utf8',
@@ -274,8 +314,10 @@ function pluginPackageVersion(): Promise<string> {
 
 /**
  * Start one owner of this process's heartbeat: the plugin's version and the
- * OpenCode config folder on the legacy layout, the only layout this release
- * has. Never throws; a failure is logged at warn.
+ * layout this process decided for its OpenCode config folder, or `legacy`
+ * while it has not decided. When the package manifest cannot be read it
+ * writes version `unknown` and no layout. Never throws; a failure is logged
+ * at warn.
  */
 export async function startRuntimeProcessHeartbeat(
   logger: HeartbeatLogger,
@@ -284,7 +326,10 @@ export async function startRuntimeProcessHeartbeat(
   let layouts: Record<string, ProcessLayout> = {}
   try {
     version = await pluginPackageVersion()
-    layouts = { [processConfigFolderKey()]: 'legacy' }
+    layouts = {
+      [processConfigFolderKey()]:
+        decidedRuntimeLayout(runtimeLayoutLocation()) ?? 'legacy',
+    }
   } catch (error) {
     logger.warn('process heartbeat details unavailable', {
       error: errorText(error),
