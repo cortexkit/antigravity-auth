@@ -1059,13 +1059,13 @@ describe('AccountManager', () => {
           manager.healthTracker,
           'getScore',
         ).mockImplementation((i) =>
-          unavailable === 'health' && i === 0 ? 40 : 70,
+          unavailable === 'health' ? (i === 0 ? 40 : 70) : i === 0 ? 100 : 50,
         )
         const tokens = spyOn(
           manager.tokenTracker,
           'getTokens',
         ).mockImplementation((i) =>
-          unavailable === 'tokens' && i === 0 ? 0 : 50,
+          unavailable === 'tokens' ? (i === 0 ? 0 : 1) : 50,
         )
         try {
           expect(
