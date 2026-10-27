@@ -123,8 +123,11 @@ export const mutateAccountStorage: typeof coreMutateAccountStorage = async (
 }
 
 /**
- * Files/directories that should be gitignored in the config directory.
- * These contain sensitive data or machine-specific state.
+ * Files/directories that should be gitignored in the folder holding the
+ * account store (`ensureGitignore` runs only for that folder). These contain
+ * sensitive data or machine-specific state. The signature cache and the
+ * default debug log folder used to live here too; they are in the plugin's
+ * state folder now, so their entries are no longer added.
  */
 // NOTE: deliberately no ".gitignore" self-ignore entry — users who track their
 // config dir as a git repo (with .gitignore committed) get endless working-tree
@@ -135,8 +138,6 @@ export const GITIGNORE_ENTRIES = [
   // The account store's generation directories hold credential files; its
   // pointer file names the current generation only.
   'antigravity-accounts.json.store*',
-  'antigravity-signature-cache.json',
-  'antigravity-logs/',
 ]
 
 /**

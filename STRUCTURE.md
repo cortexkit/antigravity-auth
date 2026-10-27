@@ -213,7 +213,7 @@ packages/opencode/
 - `packages/opencode/src/plugin/config/index.ts` — barrel for the config subtree; also calls `loadConfig` + `initRuntimeConfig`.
 - `packages/opencode/src/plugin/cache/index.ts` — barrel for the cache subtree.
 - `packages/opencode/src/plugin/cache.ts` — process-wide hot signature lookup and canonical-path disk-cache ownership. Locations retain/release their own persistence share; one location's disposal does not clear another's hot entries or signature store.
-- `packages/opencode/src/plugin/cache/signature-cache.ts` — disk-backed cache for thinking-block signatures.
+- `packages/opencode/src/plugin/cache/signature-cache.ts` — disk-backed cache for thinking-block signatures; default file `<XDG_STATE_HOME or ~/.local/state>/cortexkit/antigravity-auth/antigravity-signature-cache.json`.
 - `packages/opencode/src/plugin/stores/signature-store.ts` — `SignatureStore` persistence interface + memory-backed default.
 - `packages/opencode/src/plugin/core/streaming/index.ts` — barrel for the streaming subsubsystem.
 - `packages/opencode/src/plugin/core/streaming/transformer.ts` — the SSE reverse-transform: strips Antigravity envelope, splices `thoughtSignature`, aggregates `usageMetadata`, produces a `ReadableStream<Uint8Array>`.
@@ -254,6 +254,14 @@ Focused V1 tests include `src/plugin/auth-loader.test.ts`, `vault-activation.tes
 ## OpenCode TUI and RPC inventory
 
 The V1 TUI polls a redacted snapshot and private loopback RPC; GA uses its location-scoped RPC contract. The hybrid entry chooses the matching renderer lazily.
+
+### Where the plugin's files live
+
+- `packages/opencode/src/runtime-paths.ts` — the plugin state folder `<XDG_STATE_HOME or ~/.local/state>/cortexkit/antigravity-auth/`; per config folder runtime folders (`opencode/` or `opencode-<16 hex>/`) holding `antigravity-auth-vault/`, `layout.json` and `config-dir.json`; the default signature cache file and debug log folder (`logs/`); the old signature-cache path the move deletes.
+- `packages/opencode/src/runtime-layout.ts` — the one-time move of the vault files out of OpenCode's config folder, its refusals, and the deletion of the old signature cache.
+- `packages/opencode/src/version-fence.ts` — defers the move while an older or legacy-layout process is alive.
+- `packages/opencode/src/vault-folder.ts` — each entry point's settled vault folder, or the refusal it keeps for the process.
+- The account store, `antigravity.json` and `tui-preferences.jsonc` stay in OpenCode's config folder; moving the store is planned for a later release.
 
 ### Sidebar snapshot
 

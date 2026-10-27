@@ -73,6 +73,8 @@ export async function prepareVaultFolder(options: {
   accountFile: string
   version?: string
   log?: RuntimeLayoutLogger
+  /** Test seam: how long to wait for the layout lock. */
+  layoutLockWaitMs?: number
 }): Promise<VaultFolder> {
   const { accountFile } = options
   const key = locationKey()
@@ -82,7 +84,14 @@ export async function prepareVaultFolder(options: {
   const version =
     options.version ?? (await pluginPackageVersion().catch(() => 'unknown'))
   try {
-    await prepareRuntimeLayout({ version, accountFile, log })
+    await prepareRuntimeLayout({
+      version,
+      accountFile,
+      log,
+      ...(options.layoutLockWaitMs === undefined
+        ? {}
+        : { layoutLockWaitMs: options.layoutLockWaitMs }),
+    })
   } catch (error) {
     const refusal =
       error instanceof RuntimeLayoutRefusal

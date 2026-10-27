@@ -86,6 +86,10 @@
 //   the lock. A move that fails leaves the process on the legacy layout
 //   (registered) and logs the error class once; the next start tries again.
 //   Nothing here runs on a request.
+// - The signature cache moved to the state home as well, but it is a cache:
+//   it is recreated there, not copied. The old file in OpenCode's config
+//   folder (`legacySignatureCacheFile`) is deleted once, in the same
+//   clean-up step that records the old vault files as dealt with.
 
 import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
@@ -114,6 +118,7 @@ import { recordProcessLayout } from './process-heartbeat'
 import {
   decidedRuntimeLayout,
   legacyAccountFile,
+  legacySignatureCacheFile,
   legacyVaultDir,
   RUNTIME_CONFIG_DIR_NOTE_FILE,
   RUNTIME_LAYOUT_MARKER_FILE,
@@ -242,6 +247,29 @@ function foreignFolder(stateDir: string, identity: string) {
   )
 }
 
+/**
+ * What to do about a `layout.json` that cannot be trusted: check whether the
+ * old vault files are still in OpenCode's config folder; delete `layout.json`
+ * only if they are (the next start then decides again), and otherwise keep
+ * the runtime folder as it is.
+ */
+function markerRemedy(markerPath: string, oldVaultDir: string): string {
+  return `Check that the old vault files are still in ${oldVaultDir}. If they are, delete ${markerPath}, then restart OpenCode; if they are not, keep ${dirname(markerPath)} as it is.`
+}
+
+/** A `layout.json` that records a move from another config folder. */
+function foreignMarker(
+  markerPath: string,
+  identity: string,
+  oldVaultDir: string,
+) {
+  return new RuntimeLayoutRefusal(
+    dirname(markerPath),
+    'foreign-marker',
+    `antigravity-auth cannot start: ${markerPath} belongs to another OpenCode config folder, not ${identity}, so it cannot tell whether this folder's vault files were moved. ${markerRemedy(markerPath, oldVaultDir)}`,
+  )
+}
+
 function credentialConflict(stateDir: string, file: LayoutFile) {
   return new RuntimeLayoutRefusal(
     stateDir,
@@ -290,6 +318,11 @@ export interface RuntimeLayoutOptions {
   }
   /** Test seam: how long to wait for the layout lock. */
   layoutLockWaitMs?: number
+  /**
+   * The signature cache file older versions wrote in OpenCode's config
+   * folder. Defaults to `legacySignatureCacheFile()`.
+   */
+  oldSignatureCacheFile?: string
 }
 
 interface LayoutMarker {
@@ -459,8 +492,8 @@ async function decide(
   }
 
   // Read-only first: whose folder this is, and whether the move is done.
-  let marker = await readMarker(markerPath, stateDir)
-  await assertOwnFolder(location, marker)
+  let marker = await readMarker(markerPath, stateDir, files.vault.old)
+  await assertOwnFolder(location, marker, files)
   if (marker?.oldFilesRemoved) {
     await refuseReappearedFiles(location, files)
     // A move that stopped right after its last marker write left its
@@ -485,7 +518,7 @@ async function decide(
     )
   } catch (error) {
     // Only an existing marker settles the layout without the lock.
-    marker = await readMarker(markerPath, stateDir)
+    marker = await readMarker(markerPath, stateDir, files.vault.old)
     if (marker) {
       if (marker.oldFilesRemoved) await refuseReappearedFiles(location, files)
       return stateHome()
@@ -494,7 +527,7 @@ async function decide(
       throw new RuntimeLayoutRefusal(
         stateDir,
         'lock-timeout',
-        `antigravity-auth cannot start: ${error.message} Restart OpenCode once the other OpenCode has started, or after a minute if one crashed.`,
+        `antigravity-auth cannot start: ${error.message} Try again, or restart OpenCode, once that OpenCode has finished the move.`,
       )
     throw new RuntimeLayoutRefusal(stateDir, errorClass(error))
   }
@@ -516,8 +549,8 @@ async function decide(
   }
 
   try {
-    marker = await readMarker(markerPath, stateDir)
-    await assertOwnFolder(location, marker)
+    marker = await readMarker(markerPath, stateDir, files.vault.old)
+    await assertOwnFolder(location, marker, files)
     if (!aliased) await writeOwnerNote(location)
 
     if (marker) {
@@ -526,6 +559,8 @@ async function decide(
           fence,
           log,
           steps: options.steps,
+          oldSignatureCache:
+            options.oldSignatureCacheFile ?? legacySignatureCacheFile(),
         })
       else if (marker.oldFilesRemoved) {
         await refuseReappearedFiles(location, files)
@@ -556,6 +591,8 @@ async function decide(
         steps: options.steps,
         destinationPrivate:
           options.destinationPrivate ?? defaultDestinationPrivate,
+        oldSignatureCache:
+          options.oldSignatureCacheFile ?? legacySignatureCacheFile(),
         onMarker: () => {
           markerStarted = true
         },
@@ -584,7 +621,10 @@ async function decide(
     } catch (error) {
       if (error instanceof RuntimeLayoutRefusal) throw error
       // Once the marker write began, the marker on disk decides.
-      if (markerStarted && (await readMarker(markerPath, stateDir)))
+      if (
+        markerStarted &&
+        (await readMarker(markerPath, stateDir, files.vault.old))
+      )
         return await stateHome()
       logOnce(`${location.key}\0failed`, () =>
         log.warn(
@@ -657,6 +697,7 @@ async function moveFiles(
     log: RuntimeLayoutLogger
     steps?: RuntimeLayoutOptions['steps']
     destinationPrivate: (dir: string) => Promise<boolean>
+    oldSignatureCache: string
     onMarker: () => void
   },
 ): Promise<MoveOutcome> {
@@ -739,6 +780,13 @@ async function moveFiles(
       return { kind: 'moved', moved: present.length > 0 }
     }
     oldVaultEmptied = true
+    await removeOldSignatureCache(
+      location,
+      input.oldSignatureCache,
+      layoutLock,
+      input.steps,
+      input.log,
+    )
     await layoutLock.assertOwned()
     await writeMarker(markerPath, { ...marker, oldFilesRemoved: true })
     await removeManifestOwned(stateDir, layoutLock, input.steps)
@@ -769,6 +817,7 @@ async function finishOldFiles(
     fence: () => Promise<VersionFenceResult>
     log: RuntimeLayoutLogger
     steps?: RuntimeLayoutOptions['steps']
+    oldSignatureCache: string
   },
 ): Promise<void> {
   let locks: RefreshFileLock[] = []
@@ -809,6 +858,14 @@ async function finishOldFiles(
       },
     )
     done = true
+    step = 'signature-cache'
+    await removeOldSignatureCache(
+      location,
+      input.oldSignatureCache,
+      layoutLock,
+      input.steps,
+      input.log,
+    )
     step = 'marker'
     await layoutLock.assertOwned()
     await writeMarker(markerPath, { ...marker, oldFilesRemoved: true })
@@ -873,6 +930,35 @@ async function removeOldVaultFolder(
     await beforeRemove(files.vault.old, layoutLock, steps)
     await rmdir(files.vault.old)
   } catch {}
+}
+
+/**
+ * Remove the signature cache older versions kept in OpenCode's config folder
+ * (`legacySignatureCacheFile`), once: the move calls this right before it
+ * records its old files as dealt with, and never again after. It is a cache
+ * that rebuilds itself, so it is deleted, never copied or compared. Best
+ * effort: a failure is logged once and the move goes on.
+ */
+async function removeOldSignatureCache(
+  location: RuntimeLayoutLocation,
+  path: string,
+  layoutLock: RefreshFileLock,
+  steps: RuntimeLayoutOptions['steps'],
+  log: RuntimeLayoutLogger,
+): Promise<void> {
+  try {
+    if (!(await exists(path))) return
+    await beforeRemove(path, layoutLock, steps)
+    await unlink(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return
+    logOnce(`${location.key}\0signature-cache`, () =>
+      log.warn(
+        "antigravity-auth could not remove its old signature cache from OpenCode's config folder; it is no longer used and can be deleted",
+        { path, errorClass: errorClass(error) },
+      ),
+    )
+  }
 }
 
 /** The test seam, then the lease check that must come right before a removal. */
@@ -1036,6 +1122,7 @@ export async function removeMovedVaultStateLeftover(
   const marker = await readMarker(
     join(stateDir, RUNTIME_LAYOUT_MARKER_FILE),
     stateDir,
+    files.vault.old,
   )
   // The marker must still name this config folder's finished move; its
   // recorded hash is not what decides.
@@ -1320,6 +1407,7 @@ async function refuseReappearedFiles(
 async function readMarker(
   path: string,
   stateDir: string,
+  oldVaultDir: string,
 ): Promise<LayoutMarker | undefined> {
   let text: string | undefined
   let failure: unknown
@@ -1353,7 +1441,7 @@ async function readMarker(
   throw new RuntimeLayoutRefusal(
     stateDir,
     'malformed-marker',
-    `antigravity-auth cannot start: ${path} is malformed, so it cannot tell whether its vault files were moved. If they are still in OpenCode's config folder, delete layout.json, then restart OpenCode; if they are not, keep ${stateDir} as it is.`,
+    `antigravity-auth cannot start: ${path} is malformed, so it cannot tell whether its vault files were moved. ${markerRemedy(path, oldVaultDir)}`,
   )
 }
 
@@ -1364,10 +1452,15 @@ async function readMarker(
 async function assertOwnFolder(
   location: RuntimeLayoutLocation,
   marker: LayoutMarker | undefined,
+  files: LayoutFiles,
 ): Promise<void> {
   const stateDir = location.stateHomeDir
   if (marker?.oldDir !== undefined && marker.oldDir !== location.key)
-    throw foreignFolder(stateDir, location.key)
+    throw foreignMarker(
+      join(stateDir, RUNTIME_LAYOUT_MARKER_FILE),
+      location.key,
+      files.vault.old,
+    )
   let text: string
   try {
     text = await readFile(join(stateDir, RUNTIME_CONFIG_DIR_NOTE_FILE), 'utf8')

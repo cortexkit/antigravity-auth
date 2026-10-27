@@ -2035,9 +2035,15 @@ export function createGaLocationServicesFactory(
     }
     const nextReadSeq = () => ++readSeq
     const registry = createGaSelectorRegistry(bindings.createSelector)
+    // Why no account source may serve, from the last mode read: custody's
+    // own reason when it cannot read the mode (an unsettled vault folder
+    // names its cause and what to do there, with no enrollment advice),
+    // else the vault remedy.
+    let unavailableReason = VAULT_ACCOUNT_REMEDY
     const authority = async (): Promise<'local' | 'vault' | 'unreadable'> => {
       if (!custody) return 'local'
       const mode = await custody.readMode()
+      unavailableReason = mode.ok ? VAULT_ACCOUNT_REMEDY : mode.reason
       return mode.ok
         ? mode.record.mode === 'custody'
           ? 'vault'
@@ -2048,13 +2054,13 @@ export function createGaLocationServicesFactory(
       if (closing) throw new Error('The location services are disposed')
       const selected = await authority()
       if (closing) throw new Error('The location services are disposed')
-      if (selected !== 'local') throw new Error(VAULT_ACCOUNT_REMEDY)
+      if (selected !== 'local') throw new Error(unavailableReason)
     }
     let refreshVaultBinding: (() => Promise<void>) | undefined
     const refreshSelectedSource = async (): Promise<void> => {
       const selected = await authority()
       if (closing) throw new Error('The location services are disposed')
-      if (selected === 'unreadable') throw new Error(VAULT_ACCOUNT_REMEDY)
+      if (selected === 'unreadable') throw new Error(unavailableReason)
       // A menu action may change sources. Refresh only the newly selected
       // account view, keeping both runtime bindings and their generation intact.
       if (selected === 'local') {
@@ -2204,13 +2210,18 @@ export function createGaLocationServicesFactory(
           sections: {
             accounts: {
               title: 'Accounts',
-              build: async () => ({
-                lines: [
-                  'Account access is unavailable. Open Vault to inspect or recover enrollment.',
-                ],
-                items: [],
-                actions: [],
-              }),
+              build: async () => {
+                await authority().catch(() => {})
+                return {
+                  lines: [
+                    unavailableReason === VAULT_ACCOUNT_REMEDY
+                      ? 'Account access is unavailable. Open Vault to inspect or recover enrollment.'
+                      : unavailableReason,
+                  ],
+                  items: [],
+                  actions: [],
+                }
+              },
             },
             quota: {
               title: 'Quota',
@@ -2231,7 +2242,7 @@ export function createGaLocationServicesFactory(
         })
         const recovery: Serving = {
           execute: async () => {
-            throw new Error(VAULT_ACCOUNT_REMEDY)
+            throw new Error(unavailableReason)
           },
           state: {
             read: async ({ signal }) => {
@@ -2382,7 +2393,7 @@ export function createGaLocationServicesFactory(
               assertAdmission: async () => {
                 const selected = await authority()
                 if (closing || selected !== 'vault')
-                  throw new Error(VAULT_ACCOUNT_REMEDY)
+                  throw new Error(unavailableReason)
               },
             })
             try {
@@ -2420,7 +2431,7 @@ export function createGaLocationServicesFactory(
           if (closing) throw new Error('The location services are disposed')
           if (selected === 'local') return local()
           if (selected === 'unreadable') {
-            if (purpose === 'execute') throw new Error(VAULT_ACCOUNT_REMEDY)
+            if (purpose === 'execute') throw new Error(unavailableReason)
             return recovery
           }
           try {

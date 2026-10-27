@@ -11,6 +11,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
+import { stateHomeLogsDir } from '../../runtime-paths'
 import { createLogger, type Logger } from '../logger'
 import {
   type AntigravityConfig,
@@ -172,10 +173,11 @@ export function configExists(path: string): boolean {
 }
 
 /**
- * Get the default logs directory.
+ * Get the default logs directory (in the plugin's state folder; see
+ * `stateHomeLogsDir`).
  */
 export function getDefaultLogsDir(): string {
-  return join(getConfigDir(), 'antigravity-logs')
+  return stateHomeLogsDir()
 }
 
 /**

@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import {
   enrollmentAuthority,
   loadCommonAuthClaustrum,
+  loadCommonAuthFs,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
 import { createDefaultCliDependencies, runCliProcess } from './cli'
@@ -377,9 +378,15 @@ it('an OpenCode 1 start that cannot settle the vault folder serves neither sourc
   const transport = recordingTransport()
   const plugin = await startOpenCode1(transport)
 
-  // No local sign-in is offered, and a request gets the host's error.
+  // No local sign-in is offered, and a request gets the host's error, which
+  // names both copies rather than giving the generic vault advice.
   expect(plugin.auth.methods).toEqual([])
-  await expect(request(plugin)).rejects.toThrow(VAULT_ACCOUNT_REMEDY)
+  const refusal = await request(plugin).then(
+    () => 'served',
+    (failure: unknown) => String((failure as Error).message),
+  )
+  expect(refusal).toContain(conflict)
+  expect(refusal).not.toContain(VAULT_ACCOUNT_REMEDY)
   expect(transport.bearers).toEqual([])
   // The menu says why, naming both copies.
   const sessionID = 'unsettled-vault-session'
@@ -395,6 +402,99 @@ it('an OpenCode 1 start that cannot settle the vault folder serves neither sourc
   // Both copies stay for the user to choose from.
   expect(existsSync(join(legacyVault(), TOKEN_FILE))).toBe(true)
   expect(existsSync(join(stateVault(), TOKEN_FILE))).toBe(true)
+}, 30_000)
+
+/** Words that only make sense to a host that uses a vault. */
+const VAULT_ADVICE = [VAULT_ACCOUNT_REMEDY, 'enroll', 'Enroll', 'ck auth']
+
+/**
+ * What a local-mode OpenCode 1 host shows while its vault folder is
+ * unsettled: the request error, the menu and the sidebar, as text.
+ */
+async function unsettledLocalHostTexts(sessionID: string) {
+  const transport = recordingTransport()
+  const plugin = await startOpenCode1(transport)
+  const error = await request(plugin).then(
+    () => {
+      throw new Error('the request was served')
+    },
+    (failure: unknown) => String((failure as Error).message),
+  )
+  expect(transport.bearers).toEqual([])
+  await expect(
+    plugin['command.execute.before']?.(
+      { command: ANTIGRAVITY_MENU_COMMAND, arguments: '', sessionID },
+      { parts: [] },
+    ),
+  ).rejects.toThrow()
+  const menu = JSON.stringify(await drainNotifications(0, sessionID))
+  await plugin.dispose?.()
+  const sidebar = readFileSync(join(root, 'sidebar.json'), 'utf8')
+  return { error, menu, sidebar }
+}
+
+it('a local-mode host with a malformed layout.json is told to check the old vault files and delete layout.json, with no vault advice', async () => {
+  writeDormantLocalAccount()
+  const markerPath = join(runtimeLayoutLocation().stateHomeDir, 'layout.json')
+  mkdirSync(runtimeLayoutLocation().stateHomeDir, {
+    recursive: true,
+    mode: 0o700,
+  })
+  writeFileSync(markerPath, '{ not json', { mode: 0o600 })
+
+  const { error, menu, sidebar } =
+    await unsettledLocalHostTexts('malformed-marker')
+
+  const remedy = `${markerPath} is malformed`
+  const deleteIt = `If they are, delete ${markerPath}, then restart OpenCode`
+  for (const text of [error, menu, sidebar]) {
+    // The sidebar and menu are JSON, so compare against JSON-escaped text.
+    const escaped = (value: string) => JSON.stringify(value).slice(1, -1)
+    expect(text.includes(remedy) || text.includes(escaped(remedy))).toBe(true)
+    expect(text.includes(deleteIt) || text.includes(escaped(deleteIt))).toBe(
+      true,
+    )
+    for (const advice of VAULT_ADVICE) expect(text).not.toContain(advice)
+  }
+  expect(menu).not.toContain('synthetic-dormant-local')
+  // Nothing was changed to recover by itself.
+  expect(readFileSync(markerPath, 'utf8')).toBe('{ not json')
+}, 30_000)
+
+it('a local-mode host that timed out on the layout lock is told another OpenCode is moving the files, with no vault advice', async () => {
+  writeDormantLocalAccount()
+  const stateDir = runtimeLayoutLocation().stateHomeDir
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 })
+  const fs = await loadCommonAuthFs()
+  const held = await fs.acquireRefreshFileLock({
+    name: 'runtime-layout',
+    path: join(stateDir, 'layout.json'),
+    ttlMs: 10_000,
+    renew: true,
+  })
+  expect(held).not.toBeNull()
+  cleanups.push(async () => held?.release())
+  // The start's wait for the lock ends; the process keeps that refusal, so
+  // the plugin start below reports it at once.
+  expect(
+    (
+      await prepareVaultFolder({
+        accountFile: accountFile(),
+        log: quiet,
+        layoutLockWaitMs: 100,
+      })
+    ).refusal?.errorClass,
+  ).toBe('lock-timeout')
+
+  const { error, menu, sidebar } = await unsettledLocalHostTexts('lock-timeout')
+
+  for (const text of [error, menu, sidebar]) {
+    expect(text).toContain('for the runtime-layout lock at')
+    expect(text).toContain(
+      'Try again, or restart OpenCode, once that OpenCode has finished the move.',
+    )
+    for (const advice of VAULT_ADVICE) expect(text).not.toContain(advice)
+  }
 }, 30_000)
 
 it('disconnect after a move removes the state the move left, and an older version then reads local', async () => {

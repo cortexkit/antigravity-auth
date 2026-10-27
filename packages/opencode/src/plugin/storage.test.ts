@@ -534,8 +534,10 @@ describe('Storage Migration', () => {
 
       const gitignore = await readFile(join(configDir, '.gitignore'), 'utf8')
       expect(gitignore).toContain('antigravity-accounts.json')
-      expect(gitignore).toContain('antigravity-signature-cache.json')
-      expect(gitignore).toContain('antigravity-logs/')
+      // The signature cache and the default debug logs live in the state
+      // home now, so the account store's folder no longer lists them.
+      expect(gitignore).not.toContain('antigravity-signature-cache.json')
+      expect(gitignore).not.toContain('antigravity-logs/')
     })
 
     it('appends missing entries to existing .gitignore', async () => {
@@ -594,8 +596,8 @@ describe('Storage Migration', () => {
         'utf8',
       )
       expect(gitignore).toContain('antigravity-accounts.json')
-      expect(gitignore).toContain('antigravity-signature-cache.json')
-      expect(gitignore).toContain('antigravity-logs/')
+      expect(gitignore).not.toContain('antigravity-signature-cache.json')
+      expect(gitignore).not.toContain('antigravity-logs/')
     })
 
     it('appends missing entries to existing .gitignore', async () => {

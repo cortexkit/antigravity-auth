@@ -226,6 +226,18 @@ The render roots do not import the credential pipeline. `packages/opencode/scrip
 
 `packages/opencode/src/rpc/rpc-dir.ts` resolves the V1 directory: `ANTIGRAVITY_AUTH_RPC_DIR` wins, otherwise `<XDG_STATE_HOME>/cortexkit/antigravity-auth/rpc/<sha256(directory)[:16]>`.
 
+### Where the plugin's files live
+
+OpenCode watches its config folder, so the OpenCode plugin keeps its vault files, signature cache and default debug logs in `<XDG_STATE_HOME or ~/.local/state>/cortexkit/antigravity-auth/` on every OS:
+
+- the vault folder `antigravity-auth-vault/`, in a runtime folder per config folder: `opencode/` for `~/.config/opencode`, `opencode-<16 hex of sha256(real path)>/` for any other, with `config-dir.json` naming its owner (`packages/opencode/src/runtime-paths.ts`);
+- `antigravity-signature-cache.json`, one per state folder, shared by every config folder (`plugin/cache/signature-cache.ts`);
+- the default debug log folder `logs/` (`plugin/debug.ts`; `OPENCODE_ANTIGRAVITY_LOG_DIR`, then `log_dir`, override it).
+
+The account store, `antigravity.json` and `tui-preferences.jsonc` stay in OpenCode's config folder. The store records its own absolute paths and refuses to open elsewhere, so moving it needs its own journaled operation, planned for a later release.
+
+Each entry point settles the vault folder once per process before touching it (`packages/opencode/src/vault-folder.ts` → `runtime-layout.ts`). The first start after every OpenCode using that config folder runs a version with the move copies and verifies the vault files, writes `layout.json`, and removes the old files after a second comparison; the old signature cache is deleted at the same step, never copied. `version-fence.ts` defers the move while a heartbeat or port file shows an older or legacy-layout process. A start that cannot settle the layout serves neither vault nor local accounts and reports a refusal specific to its cause. User-facing steps, including downgrading, are in [configuration](packages/opencode/docs/CONFIGURATION.md#where-the-files-live).
+
 ## Pi extension
 
 `packages/pi/src/index.ts` is the async extension entry. It registers the `google` provider and the shared `/antigravity` recovery/menu command:

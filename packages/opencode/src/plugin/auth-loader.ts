@@ -232,6 +232,12 @@ interface CreateAuthLoaderOptions {
   createFetch: CreateAuthFetch
   fetchImpl?: FetchImpl
   readAuthority?: () => Promise<EnrollmentAuthority>
+  /**
+   * What a request is refused with while no account source may serve;
+   * defaults to the vault remedy. An entry point whose vault folder is
+   * unsettled passes the refusal's own message instead.
+   */
+  unavailableMessage?: string
   createVaultFetch?: () => Promise<AuthFetchRuntime>
   onGetAuth?(getAuth: GetAuth): void
   dependencies?: Partial<AuthLoaderDependencies>
@@ -246,6 +252,7 @@ export function createAuthLoader({
   createFetch,
   fetchImpl = (input, init) => globalThis.fetch(input, init),
   readAuthority,
+  unavailableMessage = VAULT_ACCOUNT_REMEDY,
   createVaultFetch,
   onGetAuth,
   dependencies,
@@ -661,10 +668,10 @@ export function createAuthLoader({
           // Shutdown may have begun while the authority was read; nothing is
           // built or sent after admission closes, even while disposal drains.
           assertOpen()
-          if (authority === 'unreadable') throw new Error(VAULT_ACCOUNT_REMEDY)
+          if (authority === 'unreadable') throw new Error(unavailableMessage)
           if (authority === 'vault') {
             currentRequestSource = 'vault'
-            if (!createVaultFetch) throw new Error(VAULT_ACCOUNT_REMEDY)
+            if (!createVaultFetch) throw new Error(unavailableMessage)
             vaultFetchRuntime ??= createVaultFetch().catch((error) => {
               vaultFetchRuntime = null
               throw error
@@ -697,7 +704,7 @@ export function createAuthLoader({
             await localRequestReload
             assertOpen()
             if ((await readAuthority()) !== 'local')
-              throw new Error(VAULT_ACCOUNT_REMEDY)
+              throw new Error(unavailableMessage)
             assertOpen()
           }
           if (localUnavailable)

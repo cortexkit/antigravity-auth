@@ -15,7 +15,11 @@ OpenCode uses `~/.config/opencode/` on **all platforms** including Windows.
 | Main config | `~/.config/opencode/opencode.json` |
 | Accounts | `~/.config/opencode/antigravity-accounts.json.store.pointer.json` selects the sibling `antigravity-accounts.json.store.<id>.generation/` directory containing `config.json` / `state.json`; legacy `antigravity-accounts.json` is import/export only. `OPENCODE_CONFIG_DIR` overrides that directory. |
 | Plugin config | `~/.config/opencode/antigravity.json` |
-| Debug logs | `~/.config/opencode/antigravity-logs/` |
+| Vault files | `~/.local/state/cortexkit/antigravity-auth/opencode/antigravity-auth-vault/` (`opencode-<16 hex>/` for another config folder). See [where the files live](CONFIGURATION.md#where-the-files-live). |
+| Signature cache | `~/.local/state/cortexkit/antigravity-auth/antigravity-signature-cache.json` |
+| Debug logs | `~/.local/state/cortexkit/antigravity-auth/logs/`, or `OPENCODE_ANTIGRAVITY_LOG_DIR`, then `log_dir` |
+
+`~/.local/state` is `$XDG_STATE_HOME` when that is set. The account store still lives in OpenCode's config folder; moving it is planned for a later release.
 
 > **Windows users**: `~` resolves to your user home directory (e.g., `C:\Users\YourName`). Do NOT use `%APPDATA%`.
 
@@ -384,7 +388,13 @@ Enable debug logging:
 }
 ```
 
-Logs are in `~/.config/opencode/antigravity-logs/`.
+Logs are in `~/.local/state/cortexkit/antigravity-auth/logs/`, unless `OPENCODE_ANTIGRAVITY_LOG_DIR` or `log_dir` names another folder. Older versions wrote them to `~/.config/opencode/antigravity-logs/`; you can delete that folder.
+
+---
+
+## "antigravity-auth cannot start" after an upgrade
+
+The plugin moves its vault files out of OpenCode's config folder once, and refuses to serve any accounts while it cannot tell where they are. The message says which case you hit and what to do; the cases are listed under [refusals and recovery](CONFIGURATION.md#refusals-and-recovery). Close every OpenCode before upgrading so the move never races an older one.
 
 ---
 

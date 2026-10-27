@@ -65,6 +65,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Vault-folder move: real fenced leases, durable private copies (0600/0700), hard links, and SIGKILL crash points.',
   'packages/opencode/src/runtime-layout-entry.test.ts':
     'Vault-folder move through each entry point: real layout lease, durable private copies, private-mode (0600/0700) enrollment fixtures.',
+  'packages/opencode/src/plugin/config-folder-events.test.ts':
+    'File events in the config folder during a vault-mode start: real move and roster locks, private-mode (0600/0700) fixtures, and fs.watch on a real disk.',
   'packages/opencode/src/plugin/vault-activation.test.ts':
     'Native-auth preservation and refusal of unreadable credential directories.',
   'packages/opencode/src/plugin/auth-loader.test.ts':

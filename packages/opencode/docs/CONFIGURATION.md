@@ -153,7 +153,7 @@ Settings that control plugin behavior.
 |--------|---------|-------------|
 | `quiet_mode` | `false` | Hide toast notifications (except recovery) |
 | `debug` | `false` | Enable debug logging |
-| `log_dir` | OS default | Custom directory for debug logs |
+| `log_dir` | `~/.local/state/cortexkit/antigravity-auth/logs/` | Custom directory for debug logs; `OPENCODE_ANTIGRAVITY_LOG_DIR` wins over it |
 | `auto_update` | `true` | Enable automatic plugin updates |
 
 ### Debug Logging
@@ -165,7 +165,7 @@ Settings that control plugin behavior.
 }
 ```
 
-Logs are written to `~/.config/opencode/antigravity-logs/` (or `log_dir` if set).
+Logs are written to `~/.local/state/cortexkit/antigravity-auth/logs/` (`$XDG_STATE_HOME/cortexkit/antigravity-auth/logs/` when `XDG_STATE_HOME` is set), or to `OPENCODE_ANTIGRAVITY_LOG_DIR`, then `log_dir`, when set. Older versions wrote them to `~/.config/opencode/antigravity-logs/`; logs left there are not touched, and you can delete them.
 
 ---
 
@@ -280,6 +280,51 @@ The [schema](../src/plugin/config/schema.ts) is the source of truth for complete
 
 Use `OPENCODE_ANTIGRAVITY_QUIET=1`, `OPENCODE_ANTIGRAVITY_DEBUG=1`, and `OPENCODE_ANTIGRAVITY_LOG_DIR=/secure/path` for quiet mode, file logging, and log location respectively. Account strategy and PID offset also have `OPENCODE_ANTIGRAVITY_ACCOUNT_SELECTION_STRATEGY` and `OPENCODE_ANTIGRAVITY_PID_OFFSET_ENABLED` overrides. See [account and quota semantics](MULTI-ACCOUNT.md) rather than treating thresholds as live entitlement guarantees.
 
+## Where the files live
+
+OpenCode watches its config folder (`~/.config/opencode`, or `OPENCODE_CONFIG_DIR`). The plugin therefore keeps its vault files, signature cache and default debug logs in its own state folder instead; the account store stays in the config folder (see below).
+
+| What | Where |
+| --- | --- |
+| Vault files: `antigravity-auth-vault/` (enrollment token and state, vault roster, vault provider state, mode) | The runtime folder: `~/.local/state/cortexkit/antigravity-auth/opencode/` for the config folder `~/.config/opencode`. Any other config folder gets `~/.local/state/cortexkit/antigravity-auth/opencode-<16 hex digits>/`, whose `config-dir.json` names the config folder it belongs to. |
+| Signature cache | `~/.local/state/cortexkit/antigravity-auth/antigravity-signature-cache.json`, one per state folder, shared by every config folder |
+| Debug logs | `~/.local/state/cortexkit/antigravity-auth/logs/`, unless `OPENCODE_ANTIGRAVITY_LOG_DIR` or `log_dir` names a folder (the variable wins) |
+| Account store (`antigravity-accounts.json` and its `.store` files), `antigravity.json`, `tui-preferences.jsonc` | OpenCode's config folder, as before |
+
+`~/.local/state` means `$XDG_STATE_HOME` when that is set, on every OS; on Windows it is `%USERPROFILE%\.local\state`. Runtime folders are private to your user: `0700` folders and `0600` files, or an owner-only ACL on Windows. Pi's files do not move.
+
+**The account store still lives in OpenCode's config folder.** It records its own location and refuses to open anywhere else, so it cannot be moved by copying. Moving it is planned for a later release. Until then, requests in local mode still create short-lived lock and temporary files next to it. Vault mode no longer writes in OpenCode's config folder while it runs.
+
+### When the vault files move
+
+The vault files move at the first start after every OpenCode that uses that config folder has closed, or restarted on a version with the move. The plugin copies each file, checks the copy, writes `layout.json` in the runtime folder, and then removes each old file after comparing it with its copy again. An approved enrollment comes along: you do not enroll again.
+
+While an older OpenCode is still running, the files stay where they are, and the plugin logs once: "antigravity-auth keeps its vault files in OpenCode's config folder until every running OpenCode using it has restarted on this version."
+
+In vault mode the move leaves `opencode-enrollment-state.json` in the old `antigravity-auth-vault/` on purpose. It holds no secret, and it makes an older version refuse requests instead of serving local accounts. Disconnect removes it.
+
+The old signature cache in OpenCode's config folder is deleted at the move, not copied; the new one fills itself again. Old debug logs in `antigravity-logs/` are left alone, and you can delete them.
+
+### What the move cannot see
+
+The plugin waits for running OpenCodes it can see. It cannot see an OpenCode 2 running 3.0.12 or earlier, or a short CLI command from a version before 3.0.13. **Close every OpenCode before upgrading.** If such a process writes vault files into the old folder after the move, the next start refuses until one copy is removed.
+
+### Refusals and recovery
+
+When the plugin cannot tell where its vault files are, it serves neither vault nor local accounts. Requests, the `/antigravity` menu and the sidebar all show the reason and what to do. A host that has never enrolled in a vault gets only the file-location message, with no vault instructions.
+
+- **`layout.json` is damaged, or names another config folder.** Check that the old vault files are still in OpenCode's config folder, in `antigravity-auth-vault/`. If they are, delete `layout.json` and restart OpenCode. If they are not, keep the runtime folder as it is: it holds your only copy.
+- **Another OpenCode is moving the files.** The message names the lock the plugin waited for. Try again, or restart OpenCode, once the other one has finished. A lock left by an OpenCode that crashed expires by itself within a minute.
+- **Vault files conflict between the old and the new folder.** The message names both paths; the plugin leaves both in place. Keep the newer one, which is the copy from your most recent approval or re-enrollment, delete the other, and restart OpenCode. Do not merge them or choose by file date.
+- **`config-dir.json` names another config folder.** That runtime folder belongs to another OpenCode setup. It is left untouched; move it aside and restart OpenCode.
+- **The runtime folder is not private to your user, or is a link.** Replace it with a plain folder of your own and restart OpenCode.
+
+### Downgrading
+
+Close every OpenCode. Move the files in `antigravity-auth-vault/` from the runtime folder back into `antigravity-auth-vault/` in OpenCode's config folder, next to `antigravity-accounts.json`, replacing the `opencode-enrollment-state.json` the move left there. Then delete `layout.json` from the runtime folder, so that a later upgrade moves the files again.
+
+Until you do, an older version finds the enrollment state without its token: it stays in vault mode and refuses requests rather than serving local accounts. Do not run an older version on an old copy while a newer one uses the moved files. Delete `layout.json` only for this move back, or to recover from a damaged `layout.json` as described above.
+
 ## State, cache, log, RPC, and dump files
 
 | Purpose | Location | Notes |
@@ -287,10 +332,12 @@ Use `OPENCODE_ANTIGRAVITY_QUIET=1`, `OPENCODE_ANTIGRAVITY_DEBUG=1`, and `OPENCOD
 | Local account store | In the directory containing `antigravity-accounts.json` (default `~/.config/opencode`, or `OPENCODE_CONFIG_DIR`); `antigravity-accounts.json.store.pointer.json` selects the sibling `antigravity-accounts.json.store.<id>.generation/` directory | Owner-only `config.json` / `state.json`, journals, protected backups/transfers |
 | Legacy pool | `$OPENCODE_CONFIG_DIR/antigravity-accounts.json` (default `~/.config/opencode/…`) | Migration input / successful V4 rollback output, not the active writer |
 | Plugin config | Project `.opencode/antigravity.json`, then user config | Zod-validated settings |
-| Debug logs / wire dumps | `antigravity-logs/` and `antigravity-logs/dumps/`, or `log_dir` | Sensitive request/response data; owner-only |
+| Debug logs | `~/.local/state/cortexkit/antigravity-auth/logs/`, or `OPENCODE_ANTIGRAVITY_LOG_DIR`, then `log_dir` | Sensitive request/response data; owner-only |
+| Gemini wire dumps | `opencode-antigravity-gemini-dumps/` in the OS temporary folder, or `OPENCODE_ANTIGRAVITY_GEMINI_DUMP_DIR` | Sensitive request/response data; turn dumps off after debugging |
 | OpenCode 1 sidebar | `$XDG_STATE_HOME/cortexkit/antigravity-auth/sidebar-state.json` | Override `ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE`; `0600` |
 | OpenCode 1 RPC | `$XDG_STATE_HOME/cortexkit/antigravity-auth/rpc/<project-hash>/port-<pid>.json` | Override `ANTIGRAVITY_AUTH_RPC_DIR`; loopback bearer, `0600` files / `0700` directory |
-| Signature cache | `signature-cache-disk-<hash>.json` under the `keep_thinking` path | `0600`; two-day default disk TTL |
+| Signature cache | `~/.local/state/cortexkit/antigravity-auth/antigravity-signature-cache.json`, one per state folder | Written only with `keep_thinking`; two-day default disk TTL |
+| Vault files | `antigravity-auth-vault/` in the runtime folder; see [where the files live](#where-the-files-live) | Owner-only |
 
 OpenCode 1's sidebar polls every two seconds. Writers emit contract version `2` and skip newer-major files; readers accept `1` and `2` but refuse unknown majors. Missing, unreadable, malformed, or unsupported files produce an empty default state. Legacy reads never invent email, quota fractions, or observation timestamps. Top-level `checkedAt` is publication time, not a quota reading's observation time; undated quota is never current. The owner-only machine snapshot may include genuinely known email; renderer-safe projections exclude it from the UI, logs, and toasts, keeping ordinal labels. Session routing entries older than 24 hours are removed, and only the 100 newest entries are kept. Writes serialize, lock, re-read/merge, and atomically replace. Lock contention is reported to the caller; successful writes do not prove that the terminal rendered the snapshot. See the [sidebar contract](sidebar-contract.md) for detailed fields and version policy.
 

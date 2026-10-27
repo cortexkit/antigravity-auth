@@ -5,9 +5,9 @@ import {
   statSync,
   unlinkSync,
 } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { env } from 'node:process'
+import { stateHomeLogsDir } from '../runtime-paths'
 import type { AntigravityConfig } from './config'
 import {
   deriveDebugPolicy,
@@ -21,7 +21,6 @@ import {
   redactSensitiveFields,
   truncateTextForLog,
 } from './logging-utils'
-import { ensureGitignoreSync } from './storage'
 
 const MAX_BODY_PREVIEW_CHARS = 12000
 const MAX_BODY_LOG_CHARS = 50000
@@ -62,25 +61,12 @@ interface DebugState {
 const liveLogFilePaths = new Set<string>()
 
 /**
- * Get the OS-specific config directory.
- */
-function getConfigDir(): string {
-  const platform = process.platform
-  if (platform === 'win32') {
-    return join(
-      env.APPDATA || join(homedir(), 'AppData', 'Roaming'),
-      'opencode',
-    )
-  }
-  const xdgConfig = env.XDG_CONFIG_HOME || join(homedir(), '.config')
-  return join(xdgConfig, 'opencode')
-}
-
-/**
- * Returns the logs directory, creating it if needed.
+ * Returns the logs directory, creating it if needed. The default folder is
+ * in the plugin's state folder (`stateHomeLogsDir`); older versions wrote it
+ * into OpenCode's config folder, and logs left there are never touched.
  */
 function getLogsDir(customLogDir?: string): string {
-  const logsDir = customLogDir || join(getConfigDir(), 'antigravity-logs')
+  const logsDir = customLogDir || stateHomeLogsDir()
 
   try {
     // Debug logs can contain prompt/response bodies — keep them user-only.
@@ -224,10 +210,6 @@ function createDebugState(config: DebugConfig | null): DebugState {
     ? createLogFilePath(config.log_dir)
     : undefined
   const { writer: logWriter, stream: logStream } = createLogWriter(logFilePath)
-
-  if (debugEnabled) {
-    ensureGitignoreSync(getConfigDir())
-  }
 
   return {
     debugEnabled,

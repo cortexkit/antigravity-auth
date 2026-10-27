@@ -187,6 +187,52 @@ function legacyWindowsConfigDir(): string {
 }
 
 /**
+ * The plugin's own folder in the state home,
+ * `<state home>/cortexkit/antigravity-auth`, on every OS. It holds the
+ * per-config-folder runtime folders, the signature cache and the default
+ * debug log folder.
+ */
+export function pluginStateDir(): string {
+  return join(defaultStateHome(), 'cortexkit', 'antigravity-auth')
+}
+
+/** The signature cache file's name, in both its old and its new folder. */
+export const SIGNATURE_CACHE_FILE_NAME = 'antigravity-signature-cache.json'
+
+/**
+ * Where the signature cache lives by default: one file in the plugin's state
+ * folder, shared by every config folder OpenCode uses.
+ */
+export function stateHomeSignatureCacheFile(): string {
+  return join(pluginStateDir(), SIGNATURE_CACHE_FILE_NAME)
+}
+
+/**
+ * Where versions before the move kept the signature cache: `%APPDATA%\opencode`
+ * on Windows, `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode` elsewhere.
+ * That folder never followed OPENCODE_CONFIG_DIR. Nothing writes this file
+ * any more; the move removes it once (`runtime-layout.ts`).
+ */
+export function legacySignatureCacheFile(): string {
+  const configHome =
+    process.platform === 'win32'
+      ? legacyWindowsConfigDir()
+      : join(
+          process.env.XDG_CONFIG_HOME || join(homedir(), '.config'),
+          'opencode',
+        )
+  return join(configHome, SIGNATURE_CACHE_FILE_NAME)
+}
+
+/**
+ * The default debug log folder, used when neither OPENCODE_ANTIGRAVITY_LOG_DIR
+ * nor the `log_dir` setting names one.
+ */
+export function stateHomeLogsDir(): string {
+  return join(pluginStateDir(), 'logs')
+}
+
+/**
  * The account file a legacy-layout process uses for this config folder,
  * without changing anything on disk: `<config>/antigravity-accounts.json`,
  * except on Windows when that file is missing and one exists in
