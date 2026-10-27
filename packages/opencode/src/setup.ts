@@ -239,6 +239,9 @@ export async function createSetupPlugin(
       // Validate every selected host before the first can change credentials or enrollment.
       // Public Windows readers may tighten owned file DACLs; never run them on a preview.
       await assertSetupHostsStopped()
+      // A real run is about to use the plugin's data: put this process's
+      // heartbeat on disk. A preview never reaches this callback.
+      await deps.processHeartbeat?.()
       for (const selected of context.hosts) {
         if (context.mode === 'local') {
           await assertLocal(selected, context)

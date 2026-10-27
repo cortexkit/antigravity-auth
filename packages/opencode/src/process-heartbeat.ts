@@ -293,6 +293,19 @@ export async function startRuntimeProcessHeartbeat(
   return startProcessHeartbeat({ version, logger, layouts })
 }
 
+/**
+ * The standalone CLI's owner of this process's heartbeat. Commands call it only
+ * once they are about to use the plugin's data: never for help, a rejected
+ * command line, a setup preview or a setup that refuses before its first
+ * change, which must leave the disk untouched. The CLI removes the file when
+ * its command finishes.
+ */
+export async function holdCliProcessHeartbeat(
+  logger: HeartbeatLogger,
+): Promise<void> {
+  await startRuntimeProcessHeartbeat(logger)
+}
+
 /** Forget the process-wide heartbeat state; for tests only. */
 export function __resetProcessHeartbeatForTest(): void {
   shared.owners = 0

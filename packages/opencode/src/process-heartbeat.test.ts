@@ -403,4 +403,17 @@ describe('CLI process heartbeat', () => {
     expect(await runCliProcess(['list'], deps)).toBe(1)
     expect(existsSync(target)).toBe(false)
   })
+
+  it('writes nothing for help or a rejected command line', async () => {
+    const dir = processHeartbeatDir()
+    rmSync(dir, { recursive: true, force: true })
+    const deps = {
+      stdout: { write: () => undefined },
+      stderr: { write: () => undefined },
+    } as unknown as CliDependencies
+    expect(await runCliProcess(['--help'], deps)).toBe(0)
+    expect(await runCliProcess(['no-such-command'], deps)).toBe(2)
+    // Not even the heartbeat folder: a preview must leave the disk as it was.
+    expect(existsSync(dir)).toBe(false)
+  })
 })

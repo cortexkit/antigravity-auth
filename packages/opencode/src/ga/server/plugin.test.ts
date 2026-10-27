@@ -1574,7 +1574,7 @@ describe('setup against a host context', () => {
       pid: process.pid,
       version: manifest.version,
       startedAt: expect.any(Number),
-      layouts: { [realpathSync(configDir).toLowerCase()]: 'legacy' },
+      layouts: { [realpathSync.native(configDir)]: 'legacy' },
     })
     await cleanup?.()
     // The process keeps the OpenCode config folder layout until it exits.

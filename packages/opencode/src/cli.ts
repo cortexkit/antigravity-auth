@@ -42,8 +42,8 @@ import {
   openAccountStore,
 } from './plugin/storage'
 import {
+  holdCliProcessHeartbeat,
   removeProcessHeartbeat,
-  startRuntimeProcessHeartbeat,
 } from './process-heartbeat'
 import {
   assertLocalOpenCodeLogin,
@@ -59,6 +59,12 @@ interface WritableOutput {
 export interface CliDependencies {
   stdout: WritableOutput
   stderr: WritableOutput
+  /**
+   * Puts this process's heartbeat on disk once a command is about to use the
+   * plugin's data. `runCliProcess` supplies it; when it is absent (a caller
+   * driving `runCli` directly), no heartbeat is written.
+   */
+  processHeartbeat?: () => Promise<void>
   prompt(message: string): Promise<string>
   openBrowser(url: string): Promise<void>
   isHeadless?(): boolean
@@ -328,6 +334,9 @@ export async function runCli(
   }
 
   try {
+    // Setup holds the heartbeat itself, only on a real run that passed its
+    // checks; every other command uses the plugin's data from here on.
+    if (parsed.value.command !== 'setup') await deps.processHeartbeat?.()
     if (parsed.value.command === 'setup') {
       await runPluginSetup(
         parsed.value.args,
@@ -438,19 +447,24 @@ export async function runCli(
 const execFileAsync = promisify(execFile)
 
 /**
- * Run one CLI command with this process's heartbeat on disk for the whole
- * run, so other plugin versions on this machine see that a process using the
- * OpenCode config folder is live. The heartbeat is removed when the command
- * finishes, because the process exits right after.
+ * Run one CLI command as this process's whole run. Commands put the
+ * heartbeat on disk through `processHeartbeat` only once they are about to use
+ * the plugin's data: never for help, a rejected command line, a setup preview
+ * or a setup that refuses before its first change, which must leave the disk
+ * untouched. The heartbeat is removed when the command finishes, because the
+ * process exits right after.
  */
 export async function runCliProcess(
   argv: string[],
   deps: CliDependencies,
 ): Promise<number> {
   const logger = createLogger('process-heartbeat')
-  await startRuntimeProcessHeartbeat(logger)
   try {
-    return await runCli(argv, deps)
+    return await runCli(argv, {
+      ...deps,
+      processHeartbeat:
+        deps.processHeartbeat ?? (() => holdCliProcessHeartbeat(logger)),
+    })
   } finally {
     await removeProcessHeartbeat(logger)
   }
