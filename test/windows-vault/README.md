@@ -49,11 +49,31 @@ secret-shaped strings and user paths are suppressed. It never contains token
 files, connection keys, raw request bodies, raw stacks or profile contents. The
 workflow deletes the synthetic profile after uploading the receipt, including on failure.
 
+## Moving the vault files to the state home
+
+The `vault` job then runs `layout-move.mjs` against the same bundled product
+(`product-entry.mjs` also exposes `prepareRuntimeLayout`, `getVaultDir` and
+`runtimeLayoutLocation`), in its own synthetic profile below the runner's
+original `%USERPROFILE%`. It enrolls through the real enrollment manager and
+token writer into `antigravity-auth-vault/` beside the account file, where
+versions before the move keep it, then runs the real move with no other
+process running. It checks that the moved token's folder passes
+`@cortexkit/private-files` `verifyPrivatePath(dir, 'directory')`, the check
+the token writer runs on a token's folder before it rewrites the token; that
+the moved token keeps the protected single-ACE DACL above and still reads as
+the same token; and that custody over the moved folder stays approved
+without proposing again. As a control, a second config folder whose
+state-home vault folder already exists as a plain `mkdir` (an inherited DACL
+that fails the same check) keeps its files in the config folder. The script
+fails on any platform other than Windows. The job then runs
+`packages/opencode/src/runtime-layout.test.ts` with Bun on the same runner.
+
 Local checks:
 
 ```sh
 node --check test/windows-vault/product-entry.mjs
 node --check test/windows-vault/verify.mjs
+node --check test/windows-vault/layout-move.mjs
 node --check test/windows-vault/dacl.mjs
 node --check test/windows-vault/local-reads.mjs
 node --check test/windows-vault/guards.test.mjs

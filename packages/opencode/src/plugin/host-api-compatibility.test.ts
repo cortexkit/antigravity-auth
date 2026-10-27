@@ -22,13 +22,13 @@ import {
   processConfigFolderKey,
   processHeartbeatPath,
 } from '../process-heartbeat'
+import { getVaultDir } from '../runtime-paths'
 import { createAntigravityPlugin } from './index'
 import { getStoragePath } from './storage'
 import type { PluginClient } from './types'
 import {
   OPENCODE_VAULT_ENROLLMENT_NAME,
   OPENCODE_VAULT_HOST,
-  openCodeVaultPaths,
 } from './vault-custody'
 
 function fakeClient(): PluginClient {
@@ -84,7 +84,7 @@ describe('v1 host API compatibility', () => {
       )
       const claustrum = await loadCommonAuthClaustrum()
       const enrollment = claustrum.hostEnrollmentPaths({
-        stateDir: openCodeVaultPaths(getStoragePath()).dir,
+        stateDir: getVaultDir(getStoragePath()),
         host: OPENCODE_VAULT_HOST,
       })
       expect(
@@ -147,7 +147,12 @@ describe('v1 host API compatibility', () => {
 })
 
 describe('v1 process heartbeat', () => {
-  it('writes the process heartbeat on plugin start and keeps it after dispose', async () => {
+  // The heartbeat names the layout the plugin decided for its config folder
+  // at start. Here nothing else runs and no old vault file exists, so the
+  // start settles the vault folder in the state home; such a process uses no
+  // file in OpenCode's config folder that a later move must wait for, so its
+  // heartbeat goes when its last owner releases it.
+  it('writes the process heartbeat with the layout decided at plugin start and removes it after dispose', async () => {
     const target = processHeartbeatPath(process.pid)
     // Start from no heartbeat, whatever earlier plugin starts in this file left.
     __resetProcessHeartbeatForTest()
@@ -164,10 +169,9 @@ describe('v1 process heartbeat', () => {
       pid: process.pid,
       version: manifest.version,
       startedAt: expect.any(Number),
-      layouts: { [processConfigFolderKey()]: 'legacy' },
+      layouts: { [processConfigFolderKey()]: 'state-home' },
     })
     await hooks.dispose?.()
-    // The process keeps the OpenCode config folder layout until it exits.
-    expect(existsSync(target)).toBe(true)
+    expect(existsSync(target)).toBe(false)
   })
 })

@@ -59,6 +59,9 @@ it('rebuilds the vault pool over a new source once its first roster read has sta
   // Approve this host, which selects vault mode.
   let approve = false
   const enrollment = createCustody({
+    // Where a version before the move keeps it; the plugin moves it when it
+    // starts.
+    vaultDir: join(root, 'config', 'antigravity-auth-vault'),
     accountFile,
     readHostSlot: async () => undefined,
     reporterSource: 'direct',

@@ -12,17 +12,20 @@ import { getStoragePath } from '../../plugin/storage.ts'
 import {
   OPENCODE_VAULT_ENROLLMENT_NAME,
   OPENCODE_VAULT_HOST,
-  openCodeVaultPaths,
 } from '../../plugin/vault-custody.ts'
+import { currentVaultFolder } from '../../vault-folder.ts'
 import type { GaPluginOverrides } from './index.ts'
 import { createGaPoolLogin, type GaLocalLogin } from './pool-login.ts'
 
 export const GA_VAULT_METHOD_ID = 'antigravity-vault'
 
 async function readAuthority(): Promise<EnrollmentAuthority> {
+  // The vault folder the activation settled; an unsettled one is unreadable.
+  const folder = currentVaultFolder(getStoragePath())
+  if (folder.refusal) return 'unreadable'
   const claustrum = await loadCommonAuthClaustrum()
   const paths = claustrum.hostEnrollmentPaths({
-    stateDir: openCodeVaultPaths(getStoragePath()).dir,
+    stateDir: folder.vaultDir,
     host: OPENCODE_VAULT_HOST,
   })
   return enrollmentAuthority(paths, OPENCODE_VAULT_ENROLLMENT_NAME, claustrum)

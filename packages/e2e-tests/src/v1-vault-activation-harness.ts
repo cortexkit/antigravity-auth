@@ -223,8 +223,12 @@ async function seedEnrollment() {
   const { createOpenCodeVaultCustody } = await import(
     '../../opencode/src/plugin/vault-custody.ts'
   )
+  // Seeded where a version before the move to the state home kept it,
+  // beside the account file; the plugin moves it when it starts.
+  const accountFile = process.env.ANTIGRAVITY_ACCOUNTS_PATH!
   const custody = createOpenCodeVaultCustody({
-    accountFile: process.env.ANTIGRAVITY_ACCOUNTS_PATH!,
+    vaultDir: join(dirname(accountFile), 'antigravity-auth-vault'),
+    accountFile,
     readHostSlot: async () => undefined,
     reporterSource: 'direct',
     connectEnrollment: async () => ({

@@ -51,6 +51,7 @@ import {
   type LocationRuntime,
   type LocationRuntimeOptions,
 } from '../../plugin/shared/runtime.ts'
+import { getStoragePath } from '../../plugin/storage.ts'
 import { startRuntimeProcessHeartbeat } from '../../process-heartbeat.ts'
 import type {
   CommandApplyRequest,
@@ -62,6 +63,7 @@ import {
   type SidebarAccountRedactionInput,
   type SidebarRoutingEntry,
 } from '../../sidebar-state.ts'
+import { prepareVaultFolder } from '../../vault-folder.ts'
 import {
   assertLoopbackProxyGuard,
   type LoopbackProxyEnv,
@@ -1794,6 +1796,21 @@ export async function setupGaActivation(
   const directory = context.location.directory
   const send = createGaRawSender(overrides)
 
+  // Settle where this process keeps its vault files, moving them out of
+  // OpenCode's config folder when that is safe, before the services bind
+  // custody to them. Every location of the process gets the same answer:
+  // the vault folder, or the refusal that custody then shows in the Vault
+  // section while it serves neither vault nor local accounts.
+  await prepareVaultFolder({
+    accountFile: getStoragePath(),
+    log: {
+      info: (message) =>
+        stderrLogSink({ service: 'runtime-layout', level: 'info', message }),
+      warn: (message) =>
+        stderrLogSink({ service: 'runtime-layout', level: 'warn', message }),
+    },
+  })
+
   const services = await factory({
     directory,
     overrides,
@@ -1814,10 +1831,10 @@ export async function setupGaActivation(
   // quota and token-refresh tasks, then account services; queued snapshot
   // writes drain and the runtime's files and handles close.
   try {
-    // Tell other plugin versions on this machine that this process is live
-    // and keeps its files in the OpenCode config folder. Each location is
-    // one owner of the process's single heartbeat. Best-effort: a failed
-    // write is logged, never thrown.
+    // Tell other plugin versions on this machine that this process is live,
+    // and where it keeps the vault files of its config folder (settled
+    // above). Each location is one owner of the process's single heartbeat.
+    // Best-effort: a failed write is logged, never thrown.
     const heartbeat = await startRuntimeProcessHeartbeat(
       runtime.logger.createLogger('process-heartbeat'),
     )

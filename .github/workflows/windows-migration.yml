@@ -60,6 +60,21 @@ jobs:
           "AGY_VAULT_EVIDENCE=$evidence" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           node --experimental-import-meta-resolve test/windows-vault/verify.mjs $root $evidence
           exit $LASTEXITCODE
+      # The one-time move of the vault files out of OpenCode's config folder:
+      # the moved token's folder must pass the private-path check the token
+      # writer runs, and a non-private destination must keep the old layout.
+      - name: Move the vault files to the state home and check the moved token's folder is private
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:USERPROFILE "agy-layout-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          "AGY_LAYOUT_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          node --experimental-import-meta-resolve test/windows-vault/layout-move.mjs $root
+          exit $LASTEXITCODE
+      - name: Run the vault layout move tests
+        shell: pwsh
+        run: |
+          bun test packages/opencode/src/runtime-layout.test.ts
+          exit $LASTEXITCODE
       - name: Verify Pi setup privacy repairs and dry-run isolation
         shell: pwsh
         run: |
@@ -85,6 +100,9 @@ jobs:
         run: |
           if ($env:AGY_VAULT_ROOT -and (Test-Path $env:AGY_VAULT_ROOT)) {
             Remove-Item -Recurse -Force $env:AGY_VAULT_ROOT
+          }
+          if ($env:AGY_LAYOUT_ROOT -and (Test-Path $env:AGY_LAYOUT_ROOT)) {
+            Remove-Item -Recurse -Force $env:AGY_LAYOUT_ROOT
           }
   migration:
     strategy:

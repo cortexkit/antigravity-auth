@@ -85,6 +85,7 @@ import type {
   SidebarAccountRedactionInput,
   SidebarRoutingEntry,
 } from '../sidebar-state.ts'
+import { currentVaultFolder } from '../vault-folder.ts'
 import {
   createRepositoryAccountAccessService,
   extractAccountAccessErrorDetails,
@@ -2605,7 +2606,7 @@ export interface GaVaultHost {
  * slot and pipeline. With `vault`, a location can also serve the vault's
  * accounts: each operation re-reads the enrollment files. An approved host
  * uses the vault; an unenrolled host uses its local store. Locations that
- * resolve the same account file share one vault custody and so one vault
+ * resolve the same vault folder share one vault custody and so one vault
  * connection at a time; custody replaces a source whose refresh stalled. The
  * shared background vault quota producer runs only while a started location
  * has background refresh on (`acquireGaVaultCustody`).
@@ -2631,14 +2632,28 @@ export function createGaLocationServicesForHost(
         createGaLocalRequestPipeline({ ...pipeline, accounts }),
       ...(vault
         ? {
-            custody: ({ accountFile }) =>
-              acquireGaVaultCustody({
+            custody: ({ accountFile }) => {
+              // The folder the activation settled before building services
+              // (`setupGaActivation`), or why it could not.
+              const folder = currentVaultFolder(accountFile)
+              return acquireGaVaultCustody({
+                vaultDir: folder.vaultDir,
                 accountFile,
+                ...(folder.refusal
+                  ? { layoutRefusal: folder.refusal.message }
+                  : {}),
                 readHostSlot: vault.readHostSlot,
-                create: ({ accountFile: file, readHostSlot }) =>
+                create: ({
+                  vaultDir,
+                  accountFile: file,
+                  layoutRefusal,
+                  readHostSlot,
+                }) =>
                   createOpenCodeVaultCustody({
                     ...vault.custody,
+                    vaultDir,
                     accountFile: file,
+                    ...(layoutRefusal === undefined ? {} : { layoutRefusal }),
                     readHostSlot,
                     ...(vault.connectionFile
                       ? { connectionFile: vault.connectionFile }
@@ -2647,7 +2662,8 @@ export function createGaLocationServicesForHost(
                     reporterSource: 'direct',
                   }),
                 ...(vault.quota ? { quota: vault.quota } : {}),
-              }),
+              })
+            },
             fetchVaultQuota: fetchVaultAccountQuota,
           }
         : {}),

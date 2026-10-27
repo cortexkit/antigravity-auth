@@ -63,6 +63,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Unreadable (chmod 000) heartbeat and port files, and heartbeats published by temp-then-rename.',
   'packages/opencode/src/runtime-layout.test.ts':
     'Vault-folder move: real fenced leases, durable private copies (0600/0700), hard links, and SIGKILL crash points.',
+  'packages/opencode/src/runtime-layout-entry.test.ts':
+    'Vault-folder move through each entry point: real layout lease, durable private copies, private-mode (0600/0700) enrollment fixtures.',
   'packages/opencode/src/plugin/vault-activation.test.ts':
     'Native-auth preservation and refusal of unreadable credential directories.',
   'packages/opencode/src/plugin/auth-loader.test.ts':

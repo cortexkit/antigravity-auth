@@ -1,6 +1,6 @@
 /**
- * One vault custody per OpenCode 2 process and account file, shared by every
- * location that resolves that file. Each location gets a lease through
+ * One vault custody per OpenCode 2 process and vault folder, shared by every
+ * location that resolves that folder. Each location gets a lease through
  * `acquireGaVaultCustody`. The leases share the custody's one vault source and
  * connection; if a refresh of that source stalls, custody replaces it. The
  * custody is disposed when the last lease is released. Each location still keeps
@@ -56,17 +56,31 @@ export interface GaVaultQuotaProducerOptions {
 }
 
 export interface AcquireGaVaultCustodyOptions {
-  /** The account file the location resolves; the registry key once resolved. */
+  /**
+   * The vault folder the location resolves (`currentVaultFolder` in
+   * `vault-folder.ts`); the registry key once resolved. OpenCode 1 and every
+   * OpenCode 2 location of one config folder use the same folder, wherever
+   * it lives, so they share one set of vault files.
+   */
+  readonly vaultDir: string
+  /** The account file the vault folder was settled against. */
   readonly accountFile: string
+  /**
+   * Why the vault folder could not be settled, when it could not; see
+   * `OpenCodeVaultCustodyOptions.layoutRefusal`.
+   */
+  readonly layoutRefusal?: string
   /** This location's reader of the host's own Google sign-in. */
   readonly readHostSlot: () => Promise<unknown>
   /**
-   * Builds the one custody for the account file, the first time a location
+   * Builds the one custody for the vault folder, the first time a location
    * acquires it. `readHostSlot` reads through the most recently acquired lease
    * still held, so a disposed location's host connection is never used.
    */
   readonly create: (input: {
+    readonly vaultDir: string
     readonly accountFile: string
+    readonly layoutRefusal?: string
     readonly readHostSlot: () => Promise<unknown>
   }) => OpenCodeVaultCustody
   /** Used only by the lease that creates the shared custody. */
@@ -89,19 +103,28 @@ interface SharedCustody {
 const shared = new Map<string, SharedCustody>()
 
 /**
- * A location's lease on the shared custody for its account file. Disposing the
+ * A location's lease on the shared custody for its vault folder. Disposing the
  * lease releases it; the last release stops the quota producer and disposes
  * the custody, which closes the vault connection.
  */
 export function acquireGaVaultCustody(
   options: AcquireGaVaultCustodyOptions,
 ): GaLocationCustody {
-  const key = resolve(options.accountFile)
+  // A custody that refuses because the folder is unsettled is never shared
+  // with one that serves it.
+  const key =
+    options.layoutRefusal === undefined
+      ? resolve(options.vaultDir)
+      : `unsettled\0${resolve(options.vaultDir)}`
   let entry = shared.get(key)
   if (!entry) {
     const leases = new Set<Lease>()
     const custody = options.create({
+      vaultDir: options.vaultDir,
       accountFile: options.accountFile,
+      ...(options.layoutRefusal === undefined
+        ? {}
+        : { layoutRefusal: options.layoutRefusal }),
       readHostSlot: async () => {
         const latest = [...leases].at(-1)
         if (!latest)

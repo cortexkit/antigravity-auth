@@ -32,6 +32,7 @@ import {
   toCapturedTier,
   upsertSidebarActiveRouting,
 } from '../sidebar-state'
+import { prepareVaultFolder } from '../vault-folder'
 import {
   createAccountAccessService,
   promptAccountIndexForVerification,
@@ -246,11 +247,20 @@ export const createAntigravityPlugin =
         await drainSidebarWrites()
       },
     })
-    // Store vault enrollment and account-source settings beside the shared pool.
+    // Store vault enrollment and account-source settings in the vault folder.
     // Vault requests obtain credentials from Claustrum, never OpenCode's Google login.
+    // Settle that folder first, moving it out of OpenCode's config folder when
+    // that is safe; nothing above reads or writes a vault file. A start that
+    // cannot settle it serves neither vault nor local accounts and says why.
+    const accountFile = resolve(getStoragePath())
+    const vaultFolder = await prepareVaultFolder({ accountFile })
     let vaultQuotaPoller: BackgroundVaultQuotaRefresh | undefined
     const vaultCustody = createOpenCodeVaultCustody({
-      accountFile: resolve(getStoragePath()),
+      vaultDir: vaultFolder.vaultDir,
+      accountFile,
+      ...(vaultFolder.refusal
+        ? { layoutRefusal: vaultFolder.refusal.message }
+        : {}),
       insulaQuota: true,
       readHostSlot: async () => {
         if (!cachedGetAuth)
@@ -986,9 +996,9 @@ export const createAntigravityPlugin =
       drain: drainNotifications,
     })
     lifecycle.register({ dispose: () => rpcServer.stop() })
-    // Tell other plugin versions on this machine that this process is live
-    // and keeps its files in the OpenCode config folder. Best-effort: a
-    // failed write is logged, never thrown.
+    // Tell other plugin versions on this machine that this process is live,
+    // and where it keeps the vault files of its config folder (the layout
+    // decided above). Best-effort: a failed write is logged, never thrown.
     const heartbeat = await startRuntimeProcessHeartbeat(
       createLogger('process-heartbeat'),
     )

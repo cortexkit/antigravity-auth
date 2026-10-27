@@ -9,6 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -19,6 +20,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { GaLocationServices, GaRawSender } from '../ga/server/index.ts'
+import { __resetProcessHeartbeatForTest } from '../process-heartbeat.ts'
+import { __resetRuntimeLayoutRunsForTest } from '../runtime-layout.ts'
+import {
+  __resetRuntimeLayoutsForTest,
+  legacyVaultDir,
+  runtimeLayoutLocation,
+} from '../runtime-paths.ts'
+import {
+  __resetVaultFoldersForTest,
+  prepareVaultFolder,
+} from '../vault-folder.ts'
 import type { BackgroundVaultQuotaRefresh } from './background-vault-quota-refresh.ts'
 import { createGaLocationServicesForHost } from './ga-location-services.ts'
 import { acquireGaVaultCustody } from './ga-shared-vault-custody.ts'
@@ -140,6 +152,9 @@ function fakeVault() {
 async function approveHost() {
   let approve = false
   const custody = createOpenCodeVaultCustody({
+    // No entry point settled a layout here, so the locations read the
+    // vault files beside the account file, as this seeding does.
+    vaultDir: legacyVaultDir(accountFile()),
     accountFile: accountFile(),
     readHostSlot: async () => undefined,
     reporterSource: 'direct',
@@ -400,6 +415,7 @@ describe('the shared custody lease', () => {
       dispose: async () => {},
     } as Partial<OpenCodeVaultCustody> as OpenCodeVaultCustody
     const lease = acquireGaVaultCustody({
+      vaultDir: join(root, 'lease-principal-vault'),
       accountFile: join(root, 'lease-principal-accounts.json'),
       readHostSlot: async () => undefined,
       create: () => custody,
@@ -407,9 +423,95 @@ describe('the shared custody lease', () => {
     cleanups.push(() => lease.dispose())
     expect(lease.grantPrincipal?.()).toBe('antigravity-auth-opencode-2')
   })
+
+  // The vault files can live in the state home, away from the account file,
+  // so the registry is keyed by the vault folder: locations that resolve the
+  // same folder share one custody whatever account path they hold, and a
+  // custody that refuses an unsettled folder is never shared with one that
+  // serves it.
+  it('is keyed by the vault folder, not by the account file', async () => {
+    const created: string[] = []
+    const acquire = (
+      vaultDir: string,
+      file: string,
+      layoutRefusal?: string,
+    ) => {
+      const lease = acquireGaVaultCustody({
+        vaultDir,
+        accountFile: file,
+        ...(layoutRefusal ? { layoutRefusal } : {}),
+        readHostSlot: async () => undefined,
+        create: (input) => {
+          created.push(
+            `${input.vaultDir}|${input.accountFile}|${input.layoutRefusal ?? ''}`,
+          )
+          return {
+            dispose: async () => {},
+          } as Partial<OpenCodeVaultCustody> as OpenCodeVaultCustody
+        },
+      })
+      cleanups.push(() => lease.dispose())
+      return lease
+    }
+    const moved = join(root, 'state', 'opencode', 'antigravity-auth-vault')
+    acquire(moved, join(root, 'config', 'antigravity-accounts.json'))
+    acquire(moved, join(root, 'other-config', 'antigravity-accounts.json'))
+    acquire(
+      join(root, 'config', 'antigravity-auth-vault'),
+      join(root, 'config', 'antigravity-accounts.json'),
+    )
+    acquire(
+      moved,
+      join(root, 'config', 'antigravity-accounts.json'),
+      'unsettled',
+    )
+    expect(created).toEqual([
+      `${moved}|${join(root, 'config', 'antigravity-accounts.json')}|`,
+      `${join(root, 'config', 'antigravity-auth-vault')}|${join(root, 'config', 'antigravity-accounts.json')}|`,
+      `${moved}|${join(root, 'config', 'antigravity-accounts.json')}|unsettled`,
+    ])
+  })
 })
 
 describe('one shared custody per process and account file', () => {
+  // `setupGaActivation` settles the vault folder before it builds a
+  // location's services; the production factory then binds custody to the
+  // folder it settled. A custody still reading the config folder would find
+  // only the enrollment state the move left there, with no token, and could
+  // not serve.
+  it('serves a location from the vault files the activation moved, without enrolling again', async () => {
+    const priorStateHome = process.env.XDG_STATE_HOME
+    process.env.XDG_STATE_HOME = join(root, 'state')
+    const moved = join(
+      runtimeLayoutLocation().stateHomeDir,
+      'antigravity-auth-vault',
+    )
+    cleanups.push(async () => {
+      if (priorStateHome === undefined) delete process.env.XDG_STATE_HOME
+      else process.env.XDG_STATE_HOME = priorStateHome
+      __resetRuntimeLayoutsForTest()
+      __resetRuntimeLayoutRunsForTest()
+      __resetVaultFoldersForTest()
+      __resetProcessHeartbeatForTest()
+    })
+    await approveHost()
+    const folder = await prepareVaultFolder({
+      accountFile: accountFile(),
+      log: { info() {}, warn() {} },
+    })
+    expect(folder).toEqual({ accountFile: accountFile(), vaultDir: moved })
+    expect(existsSync(join(moved, 'opencode-enrollment.json'))).toBe(true)
+    expect(
+      existsSync(
+        join(legacyVaultDir(accountFile()), 'opencode-enrollment.json'),
+      ),
+    ).toBe(false)
+    const vault = fakeVault()
+    const location = await openLocation(hostFactory(vault), 'moved')
+    await waitUntil(() => vault.counts.lists >= 1, 'the first roster')
+    expect(await request(location.serving)).toBe('status 200')
+  }, 20_000)
+
   it('holds one connection for every open location and closes it with the last', async () => {
     await approveHost()
     const vault = fakeVault()

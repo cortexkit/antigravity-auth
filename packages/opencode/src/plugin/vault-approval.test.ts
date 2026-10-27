@@ -23,6 +23,7 @@ import * as notifications from '../rpc/notifications.ts'
 import type { CommandApplyResult } from '../rpc/protocol.ts'
 import { createRpcClient } from '../rpc/rpc-client.ts'
 import * as rpcServer from '../rpc/rpc-server.ts'
+import { getVaultDir } from '../runtime-paths.ts'
 import { startMenuVaultFixture } from './__fixtures__/vault-menu-daemon.test.ts'
 import { createGaLocationServicesForHost } from './ga-location-services.ts'
 import { createAntigravityPlugin } from './index.ts'
@@ -33,7 +34,6 @@ import type { PluginInput, Provider } from './types.ts'
 import {
   createOpenCodeVaultCustody,
   OPENCODE_VAULT_ENROLLMENT_NAME,
-  openCodeVaultPaths,
 } from './vault-custody.ts'
 
 const MODEL = 'gemini-3-flash'
@@ -90,6 +90,10 @@ async function fixture() {
   const environment = {
     OPENCODE_CONFIG_DIR: join(root, 'config'),
     XDG_CONFIG_HOME: join(root, 'xdg'),
+    // The plugin moves the vault files into the state home at start. Keep it
+    // below this owner-only root: the vault library refuses to save a token
+    // below a folder others can change, as a runner's TMPDIR may be.
+    XDG_STATE_HOME: join(root, 'state'),
     ANTIGRAVITY_AUTH_RPC_DIR: join(root, 'rpc'),
     ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE: join(root, 'sidebar.json'),
     SUBC_CONNECTION_FILE: daemon.connectionFile,
@@ -157,6 +161,7 @@ async function fixture() {
   const custodies: ReturnType<typeof createOpenCodeVaultCustody>[] = []
   const collector = () => {
     const custody = createOpenCodeVaultCustody({
+      vaultDir: getVaultDir(accountFile),
       accountFile,
       readHostSlot: async () => undefined,
       reporterSource: 'direct',
@@ -217,7 +222,9 @@ it('OpenCode names an unsupported vault in the request-access menu action withou
     unsupportedEnrollment: true,
   })
   const accountFile = join(root, 'antigravity-accounts.json')
+  const vaultDir = join(root, 'antigravity-auth-vault')
   const custody = createOpenCodeVaultCustody({
+    vaultDir,
     accountFile,
     readHostSlot: async () => undefined,
     reporterSource: 'direct',
@@ -245,7 +252,7 @@ it('OpenCode names an unsupported vault in the request-access menu action withou
     expect(daemon.errors).toEqual([])
     const claustrum = await loadCommonAuthClaustrum()
     const enrollmentPaths = claustrum.hostEnrollmentPaths({
-      stateDir: openCodeVaultPaths(accountFile).dir,
+      stateDir: vaultDir,
       host: 'opencode',
     })
     expect(

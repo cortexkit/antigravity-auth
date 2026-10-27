@@ -28,6 +28,7 @@ import {
   createOpenCodeVaultCustody,
   OPENCODE_VAULT_ENROLLMENT_NAME,
   OPENCODE_VAULT_HOST,
+  OpenCodeVaultCustodyError,
   type OpenCodeVaultCustodyOptions,
   openCodeVaultPaths,
   readOpenCodeVaultMode,
@@ -39,6 +40,8 @@ const OBSERVATION_NOW = Date.UTC(2026, 0, 10, 12, 0, 0)
 
 let root: string
 let accountFile: string
+/** The vault folder these tests give custody: beside the account file. */
+let vaultDir: string
 const custodies: ReturnType<typeof createOpenCodeVaultCustody>[] = []
 
 beforeEach(() => {
@@ -49,6 +52,7 @@ beforeEach(() => {
   // The vault library refuses enrollment under a directory others can write.
   mkdirSync(join(root, 'config'), { mode: 0o700 })
   accountFile = join(root, 'config', 'antigravity-accounts.json')
+  vaultDir = join(root, 'config', 'antigravity-auth-vault')
 })
 
 afterEach(async () => {
@@ -111,6 +115,7 @@ function custodyWith(
   extra: Partial<OpenCodeVaultCustodyOptions> = {},
 ) {
   const custody = createOpenCodeVaultCustody({
+    vaultDir,
     accountFile,
     readHostSlot: hostSlot,
     reporterSource: 'direct',
@@ -126,32 +131,37 @@ function custodyWith(
 }
 
 describe('openCodeVaultPaths and the mode file', () => {
-  it('keeps the vault files in their own directory beside the account file', () => {
-    expect(openCodeVaultPaths(accountFile)).toEqual({
-      dir: join(root, 'config', 'antigravity-auth-vault'),
-      modeFile: join(
-        root,
-        'config',
-        'antigravity-auth-vault',
-        'opencode-mode.json',
-      ),
-      rosterFile: join(
-        root,
-        'config',
-        'antigravity-auth-vault',
-        'opencode-roster.json',
-      ),
-      stateFile: join(
-        root,
-        'config',
-        'antigravity-auth-vault',
-        'opencode-state.json',
-      ),
+  // The vault folder is whatever folder the entry point settled for this
+  // process: beside the account file before the move to the state home, in
+  // the state home after it. Custody no longer derives it from the account
+  // file, so a folder with any name, anywhere, holds the files.
+  it('keeps the vault files in the vault folder it is given, not beside the account file', async () => {
+    const elsewhere = join(root, 'state', 'opencode', 'moved-vault')
+    expect(openCodeVaultPaths(elsewhere)).toEqual({
+      dir: elsewhere,
+      modeFile: join(elsewhere, 'opencode-mode.json'),
+      rosterFile: join(elsewhere, 'opencode-roster.json'),
+      stateFile: join(elsewhere, 'opencode-state.json'),
     })
+    mkdirSync(join(root, 'state', 'opencode'), {
+      recursive: true,
+      mode: 0o700,
+    })
+    const service = fakeEnrollmentService()
+    service.approveNext()
+    const { custody } = custodyWith(async () => undefined, service, {
+      vaultDir: elsewhere,
+    })
+    expect((await custody.requestAccess()).state).toBe('approved')
+    await custody.useVault()
+    expect(custody.paths.dir).toBe(elsewhere)
+    expect(existsSync(join(elsewhere, 'opencode-enrollment.json'))).toBe(true)
+    expect(existsSync(join(elsewhere, 'opencode-mode.json'))).toBe(true)
+    expect(existsSync(vaultDir)).toBe(false)
   })
 
   it('reads a missing mode file as local and refuses one it cannot understand', async () => {
-    const { modeFile, dir } = openCodeVaultPaths(accountFile)
+    const { modeFile, dir } = openCodeVaultPaths(vaultDir)
     expect(await readOpenCodeVaultMode(modeFile)).toEqual({
       ok: true,
       record: { version: 1, mode: 'local' },
@@ -166,9 +176,57 @@ describe('openCodeVaultPaths and the mode file', () => {
 })
 
 describe('createOpenCodeVaultCustody', () => {
+  it('with an unsettled vault folder reads and writes no vault file, serves neither source, and says why', async () => {
+    const refusal =
+      'antigravity-auth cannot start: vault files conflict between /old/opencode-roster.json and /new/opencode-roster.json. Keep the newer one, delete the other, then restart OpenCode.'
+    // An approved enrollment on disk: an unsettled custody must not read it.
+    const service = fakeEnrollmentService()
+    service.approveNext()
+    const seeded = custodyWith(async () => undefined, service).custody
+    await seeded.requestAccess()
+    await seeded.useVault()
+    const before = readFileSync(openCodeVaultPaths(vaultDir).modeFile)
+    let connects = 0
+    const { custody } = custodyWith(
+      async () => {
+        throw new Error('the host sign-in must not be read')
+      },
+      service,
+      {
+        layoutRefusal: refusal,
+        connect: async () => {
+          connects++
+          throw new Error('no vault connection while unsettled')
+        },
+        connectEnrollment: async () => {
+          connects++
+          return service.connect()
+        },
+      },
+    )
+    await custody.startObservation()
+    expect(await custody.readMode()).toEqual({ ok: false, reason: refusal })
+    await expect(custody.custodySource()).rejects.toBeInstanceOf(
+      OpenCodeVaultCustodyError,
+    )
+    for (const action of [
+      () => custody.custodySource(),
+      () => custody.requestAccess(),
+      () => custody.useVault(),
+      () => custody.useLocal(),
+      () => custody.readState(),
+    ])
+      await expect(action()).rejects.toThrow(refusal)
+    expect(
+      await custody.menuSection().build({ notify: () => undefined }),
+    ).toEqual({ lines: [`Vault: ${refusal}`], actions: [] })
+    expect(connects).toBe(0)
+    expect(readFileSync(openCodeVaultPaths(vaultDir).modeFile)).toEqual(before)
+  })
+
   it('leaves missing enrollment directory creation to the vault library', async () => {
     const service = fakeEnrollmentService()
-    const { dir } = openCodeVaultPaths(accountFile)
+    const { dir } = openCodeVaultPaths(vaultDir)
     let firstConnection = true
     const { custody } = custodyWith(async () => undefined, service, {
       connectEnrollment: async () => {
@@ -197,7 +255,7 @@ describe('createOpenCodeVaultCustody', () => {
     expect(approved.state).toBe('approved')
 
     await custody.useVault()
-    const { dir, modeFile } = openCodeVaultPaths(accountFile)
+    const { dir, modeFile } = openCodeVaultPaths(vaultDir)
     expect(statSync(dir).mode & 0o777).toBe(0o700)
     // The mode file holds the mode only.
     expect(JSON.parse(readFileSync(modeFile, 'utf8'))).toEqual({
@@ -239,7 +297,7 @@ describe('createOpenCodeVaultCustody', () => {
       },
     })
     await custody.requestAccess()
-    const paths = openCodeVaultPaths(accountFile)
+    const paths = openCodeVaultPaths(vaultDir)
     writeFileSync(
       paths.modeFile,
       JSON.stringify({ version: 1, mode: 'custody' }),
@@ -277,7 +335,7 @@ describe('createOpenCodeVaultCustody', () => {
     try {
       await custody.requestAccess()
       await custody.useVault()
-      const paths = openCodeVaultPaths(accountFile)
+      const paths = openCodeVaultPaths(vaultDir)
       const enrollment = (await loadCommonAuthClaustrum()).hostEnrollmentPaths({
         stateDir: paths.dir,
         host: OPENCODE_VAULT_HOST,
@@ -318,7 +376,7 @@ describe('createOpenCodeVaultCustody', () => {
     await signedIn.custody.requestAccess()
     await signedIn.custody.useVault()
     writeFileSync(
-      openCodeVaultPaths(accountFile).modeFile,
+      openCodeVaultPaths(vaultDir).modeFile,
       '{"version":1,"mode":"local"}',
     )
     expect((await signedIn.custody.status()).mode).toBe('custody')

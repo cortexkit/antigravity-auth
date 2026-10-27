@@ -210,7 +210,11 @@ try {
       projectId,
     })
     process.env.SUBC_CONNECTION_FILE = daemon.connectionFile
+    // Enrolled where a version before the move kept the vault files, beside
+    // the account file; the plugin started below moves them to the state
+    // home and serves from there.
     custody = product.createOpenCodeVaultCustody({
+      vaultDir: join(config, 'antigravity-auth-vault'),
       accountFile,
       reporterSource: 'direct',
       readHostSlot: async () => {

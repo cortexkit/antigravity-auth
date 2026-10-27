@@ -24,6 +24,7 @@ import {
   spyOn,
 } from 'bun:test'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -81,6 +82,9 @@ const { createMemoryQuotaSnapshots } = await import(
 )
 const { LoopbackProxyGuardError } = await import('../proxy-guard.ts')
 const heartbeats = await import('../../process-heartbeat.ts')
+const { currentVaultFolder } = await import('../../vault-folder.ts')
+const { runtimeLayoutLocation } = await import('../../runtime-paths.ts')
+const { getStoragePath } = await import('../../plugin/storage.ts')
 
 type GaSendInput = import('./index.ts').GaSendInput
 type GaPluginOverrides = import('./index.ts').GaPluginOverrides
@@ -1548,7 +1552,12 @@ describe('setup against a host context', () => {
     expect(log).toEqual([])
   })
 
-  it('writes the process heartbeat for the location and keeps it after Cleanup', async () => {
+  // The heartbeat names the layout the activation decided for its config
+  // folder. Nothing else runs here and no old vault file exists, so the vault
+  // folder is settled in the state home; such a process uses no file in
+  // OpenCode's config folder that a later move must wait for, so its
+  // heartbeat goes with its last owner.
+  it('writes the process heartbeat with the decided layout for the location and removes it after Cleanup', async () => {
     prepareRoot()
     const target = heartbeats.processHeartbeatPath(process.pid)
     // Start from no heartbeat, whatever earlier setups in this file left.
@@ -1568,11 +1577,48 @@ describe('setup against a host context', () => {
       pid: process.pid,
       version: manifest.version,
       startedAt: expect.any(Number),
-      layouts: { [realpathSync.native(configDir)]: 'legacy' },
+      layouts: { [realpathSync.native(configDir)]: 'state-home' },
     })
     await cleanup?.()
-    // The process keeps the OpenCode config folder layout until it exits.
-    expect(readFileSync(target, 'utf8')).toContain('"legacy"')
+    expect(existsSync(target)).toBe(false)
+  })
+
+  it('moves the vault files out of the config folder before it builds the location services', async () => {
+    prepareRoot()
+    const configDir = process.env.OPENCODE_CONFIG_DIR
+    if (!configDir) throw new Error('prepareRoot did not set the config dir')
+    const legacy = join(configDir, 'antigravity-auth-vault')
+    mkdirSync(legacy, { recursive: true })
+    const token = `${JSON.stringify({ token: 'ab'.repeat(32), token_generation: 1 })}\n`
+    writeFileSync(join(legacy, 'opencode-enrollment.json'), token)
+    writeFileSync(
+      join(legacy, 'opencode-mode.json'),
+      '{"version":1,"mode":"custody"}\n',
+    )
+    const log: string[] = []
+    const inner = fakeServices(log)
+    let seen: { vaultDir: string; token: string | null } | undefined
+    const factory: GaLocationServicesFactory = (input) => {
+      // What the location's custody binds to when the services are built.
+      const folder = currentVaultFolder(getStoragePath())
+      const path = join(folder.vaultDir, 'opencode-enrollment.json')
+      seen = {
+        vaultDir: folder.vaultDir,
+        token: existsSync(path) ? readFileSync(path, 'utf8') : null,
+      }
+      return inner(input)
+    }
+    const cleanup = await server.setupGaActivation(
+      fakeHost(locationDirectory('a'), log),
+      factory,
+    )
+    cleanups.push(() => cleanup?.())
+    const moved = join(
+      runtimeLayoutLocation().stateHomeDir,
+      'antigravity-auth-vault',
+    )
+    expect(seen).toEqual({ vaultDir: moved, token })
+    expect(existsSync(join(legacy, 'opencode-enrollment.json'))).toBe(false)
   })
 
   it('registers the three Google-scoped hooks and the RPC, and its Cleanup removes exactly those', async () => {

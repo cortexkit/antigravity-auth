@@ -51,6 +51,7 @@ import {
   persistPiSetupLogin,
   runPluginSetup,
 } from './setup.ts'
+import { prepareVaultFolder } from './vault-folder'
 
 interface WritableOutput {
   write(value: string): unknown
@@ -65,6 +66,15 @@ export interface CliDependencies {
    * driving `runCli` directly), no heartbeat is written.
    */
   processHeartbeat?: () => Promise<void>
+  /**
+   * Settles where the plugin's vault files live, moving them out of
+   * OpenCode's config folder when that is safe, before a command that reads
+   * them (login, and setup on a real run) and before its heartbeat. Rejects
+   * with the reason when they cannot be settled; the command then fails with
+   * it. `runCliProcess` supplies it; when it is absent, commands read the
+   * vault files where the layout marker says, without moving anything.
+   */
+  prepareVaultFolder?: () => Promise<void>
   prompt(message: string): Promise<string>
   openBrowser(url: string): Promise<void>
   isHeadless?(): boolean
@@ -334,9 +344,15 @@ export async function runCli(
   }
 
   try {
-    // Setup holds the heartbeat itself, only on a real run that passed its
-    // checks; every other command uses the plugin's data from here on.
-    if (parsed.value.command !== 'setup') await deps.processHeartbeat?.()
+    // Setup settles the vault folder and holds the heartbeat itself, only on
+    // a real run that passed its checks; every other command uses the
+    // plugin's data from here on. Of those, only login reads a vault file
+    // (whether vault enrollment excludes a local sign-in), so only login
+    // settles the vault folder; the account-store commands leave it alone.
+    if (parsed.value.command !== 'setup') {
+      if (parsed.value.command === 'login') await deps.prepareVaultFolder?.()
+      await deps.processHeartbeat?.()
+    }
     if (parsed.value.command === 'setup') {
       await runPluginSetup(
         parsed.value.args,
@@ -447,12 +463,14 @@ export async function runCli(
 const execFileAsync = promisify(execFile)
 
 /**
- * Run one CLI command as this process's whole run. Commands put the
- * heartbeat on disk through `processHeartbeat` only once they are about to use
- * the plugin's data: never for help, a rejected command line, a setup preview
- * or a setup that refuses before its first change, which must leave the disk
- * untouched. The heartbeat is removed when the command finishes, because the
- * process exits right after.
+ * Run one CLI command as this process's whole run. Commands settle the vault
+ * folder (when they read it) and put the heartbeat on disk through
+ * `prepareVaultFolder` and `processHeartbeat` only once they are about to use
+ * the plugin's data:
+ * never for help, a rejected command line, a setup preview or a setup that
+ * refuses before its first change, which must leave the disk untouched. The
+ * heartbeat is removed when the command finishes, because the process exits
+ * right after.
  */
 export async function runCliProcess(
   argv: string[],
@@ -462,6 +480,14 @@ export async function runCliProcess(
   try {
     return await runCli(argv, {
       ...deps,
+      prepareVaultFolder:
+        deps.prepareVaultFolder ??
+        (async () => {
+          const folder = await prepareVaultFolder({
+            accountFile: resolve(getStoragePath()),
+          })
+          if (folder.refusal) throw folder.refusal
+        }),
       processHeartbeat:
         deps.processHeartbeat ?? (() => holdCliProcessHeartbeat(logger)),
     })

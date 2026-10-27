@@ -5,9 +5,10 @@
  * setup steps that switch between them, and the vault account source the
  * custody request path uses.
  *
- * Everything lives in an owner-only `antigravity-auth-vault` directory
- * beside the resolved account file: the non-secret mode file, the vault
- * roster and this host's enrollment files (written by the vault library).
+ * Everything lives in an owner-only `antigravity-auth-vault` directory, the
+ * vault folder the entry point settled for this process (`vault-folder.ts`):
+ * the non-secret mode file, the vault roster and this host's enrollment files
+ * (written by the vault library).
  * The mode file holds only the mode; no token, project or account data is
  * written here. A missing mode file is local mode, so nothing connects to
  * the vault and no source starts while local custody is in force.
@@ -20,7 +21,7 @@
  */
 
 import { chmod, mkdir, readFile, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import {
   type AntigravityVaultAccountSource,
   type CommonAuthClaustrumModule,
@@ -48,6 +49,8 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 import { writeJsonAtomic } from '@cortexkit/antigravity-auth-core/atomic-write'
 
+import { removeMovedVaultStateLeftover } from '../runtime-layout'
+import { createLogger } from './logger'
 import {
   createVaultAccountPool,
   type VaultAccountPool,
@@ -62,7 +65,10 @@ export const OPENCODE_VAULT_HOST = 'opencode'
 /** The enrollment name the vault operator sees and approves. */
 export const OPENCODE_VAULT_ENROLLMENT_NAME =
   getAntigravityVaultEnrollmentName(OPENCODE_VAULT_HOST)
-/** The vault directory's name, beside the resolved account file. */
+/**
+ * The vault directory's name, in both places it can live: beside the account
+ * file, and in the plugin's state-home folder (`runtime-paths.ts`).
+ */
 export const OPENCODE_VAULT_DIR_NAME = 'antigravity-auth-vault'
 
 type Claustrum = CommonAuthClaustrumModule
@@ -149,9 +155,9 @@ export interface OpenCodeVaultPaths {
   readonly stateFile: string
 }
 
-/** The vault paths for one resolved account file. */
-export function openCodeVaultPaths(accountFile: string): OpenCodeVaultPaths {
-  const dir = join(dirname(accountFile), OPENCODE_VAULT_DIR_NAME)
+/** The vault paths inside one vault folder. */
+export function openCodeVaultPaths(vaultDir: string): OpenCodeVaultPaths {
+  const dir = vaultDir
   return {
     dir,
     modeFile: join(dir, 'opencode-mode.json'),
@@ -259,8 +265,25 @@ export interface OpenCodeVaultStatus {
 export interface OpenCodeVaultCustodyOptions {
   readonly onAuthorityChanged?: (authority: EnrollmentAuthority) => void
   readonly onRosterChanged?: () => void
-  /** The resolved account file the vault directory sits beside. */
-  readonly accountFile: string
+  /**
+   * The folder holding this host's vault files: the one the entry point
+   * settled for this process (`prepareVaultFolder` in `vault-folder.ts`).
+   */
+  readonly vaultDir: string
+  /**
+   * The account file that folder was settled against. Disconnect hands it to
+   * `removeMovedVaultStateLeftover`, which looks for an old vault folder
+   * beside it. Defaults to the one `legacyAccountFile()` names.
+   */
+  readonly accountFile?: string
+  /**
+   * Set when the entry point could not settle where the vault files live:
+   * the refusal's message, which names the folders involved. Custody then
+   * reads and writes no vault file. The mode reads as unclear with this text,
+   * so neither vault nor local accounts are served, the Vault section shows
+   * it, and every vault action refuses with it.
+   */
+  readonly layoutRefusal?: string
   /**
    * The host's own auth slot for `google`, read through the host's public
    * API and shaped as the vault library classifies it (`oauth` or `api`).
@@ -332,7 +355,19 @@ export interface OpenCodeVaultCustody {
 export function createOpenCodeVaultCustody(
   options: OpenCodeVaultCustodyOptions,
 ): OpenCodeVaultCustody {
-  const paths = openCodeVaultPaths(options.accountFile)
+  const paths = openCodeVaultPaths(options.vaultDir)
+  const layoutRefusal = options.layoutRefusal
+  // What custody reports for this host's enrollment while the vault folder
+  // is unsettled: nothing is read, and the code says why.
+  const unsettled: EnrollmentStatus = {
+    state: 'unavailable',
+    proposedName: OPENCODE_VAULT_ENROLLMENT_NAME,
+    code: 'vault-folder-unsettled',
+  }
+  const refuseUnsettled = () => {
+    if (layoutRefusal !== undefined)
+      throw new OpenCodeVaultCustodyError(layoutRefusal)
+  }
   const loadClaustrum = options.loadClaustrum ?? loadCommonAuthClaustrum
   const connectionFile =
     options.connectionFile ?? (() => resolveClaustrumConnectionPath())
@@ -353,6 +388,7 @@ export function createOpenCodeVaultCustody(
     })
 
   const readEnrollment = async (): Promise<EnrollmentStatus> => {
+    if (layoutRefusal !== undefined) return unsettled
     const claustrum = await loadClaustrum()
     const status = await claustrum
       .readClaustrumEnrollmentStatus(
@@ -394,6 +430,8 @@ export function createOpenCodeVaultCustody(
   }
 
   const readEnrollmentSnapshot = async (): Promise<EnrollmentSnapshot> => {
+    if (layoutRefusal !== undefined)
+      return { authority: 'unreadable', status: unsettled }
     const enrollment = await enrollmentPaths()
     const identity = await enrollmentFilesIdentity(enrollment)
     if (identity) {
@@ -438,6 +476,7 @@ export function createOpenCodeVaultCustody(
   }
 
   const requireCustodyMode = async (): Promise<void> => {
+    refuseUnsettled()
     const mode = await custody.readMode()
     if (!mode.ok)
       throw new OpenCodeVaultCustodyError(
@@ -465,6 +504,7 @@ export function createOpenCodeVaultCustody(
   let cancelWait: (() => void) | undefined
   const ensureSource = async (): Promise<AntigravityVaultAccountSource> => {
     if (closed) throw new OpenCodeVaultCustodyError('Vault custody is disposed')
+    refuseUnsettled()
     if (source) return source
     creating ??= (async () => {
       const claustrum = await loadClaustrum()
@@ -582,6 +622,7 @@ export function createOpenCodeVaultCustody(
     resetTerminal: boolean,
   ): Promise<EnrollmentStatus> => {
     if (closed) throw new OpenCodeVaultCustodyError('Vault custody is disposed')
+    refuseUnsettled()
     const claustrum = await loadClaustrum()
     // Enrollment creates missing directories with native owner-only ACLs on Windows.
     // Precreating one with mkdir/chmod would leave an inherited DACL the token writer refuses.
@@ -653,10 +694,15 @@ export function createOpenCodeVaultCustody(
   const custody: OpenCodeVaultCustody = {
     paths,
     async startObservation() {
+      // Nothing to observe while the vault folder is unsettled; the start
+      // goes on so the menu and requests can say why.
+      if (layoutRefusal !== undefined) return
       observing = true
       await ensureSource()
     },
     async readMode() {
+      if (layoutRefusal !== undefined)
+        return { ok: false, reason: layoutRefusal }
       const { authority } = await readEnrollmentSnapshot()
       if (authority === 'unreadable')
         return { ok: false, reason: VAULT_ACCOUNT_REMEDY }
@@ -700,6 +746,7 @@ export function createOpenCodeVaultCustody(
     },
 
     async useVault() {
+      refuseUnsettled()
       const enrollment = await readEnrollment()
       if (enrollment.state !== 'approved')
         throw new OpenCodeVaultCustodyError(
@@ -710,6 +757,7 @@ export function createOpenCodeVaultCustody(
     },
 
     async useLocal() {
+      refuseUnsettled()
       const claustrum = await loadClaustrum()
       const disconnected = await claustrum.disconnectClaustrumEnrollment(
         await enrollmentPaths(),
@@ -724,6 +772,18 @@ export function createOpenCodeVaultCustody(
       await ensureVaultDir(paths.dir)
       await writeJsonAtomic(paths.modeFile, LOCAL_MODE)
       if (observing) await source?.refresh()
+      // A move of the vault files out of OpenCode's config folder may have
+      // left the enrollment state there, so that older versions of this
+      // plugin kept refusing local accounts. Disconnected, they may use them
+      // again: remove that leftover too.
+      try {
+        await removeMovedVaultStateLeftover(paths.dir, options.accountFile)
+      } catch (error) {
+        ;(options.logger ?? createLogger('vault-custody')).warn(
+          "The vault enrollment state a move left in OpenCode's config folder could not be removed; older plugin versions still read vault mode there",
+          { error: error instanceof Error ? error.message : String(error) },
+        )
+      }
     },
 
     menuSection() {
@@ -731,6 +791,10 @@ export function createOpenCodeVaultCustody(
         id: 'vault',
         title: 'Vault',
         build: async () => {
+          // The start could not settle where the vault files live: say why,
+          // and offer nothing that would touch them.
+          if (layoutRefusal !== undefined)
+            return { lines: [`Vault: ${layoutRefusal}`], actions: [] }
           const status = await custody.status()
           const lines = statusLines(status)
           if (status.enrollment.state === 'approved')
@@ -816,7 +880,10 @@ export function createOpenCodeVaultCustody(
       }
     },
 
-    readState: () => readVaultProviderState(paths.stateFile),
+    readState: async () => {
+      refuseUnsettled()
+      return readVaultProviderState(paths.stateFile)
+    },
 
     grantPrincipal: () => approvedPrincipal ?? OPENCODE_VAULT_ENROLLMENT_NAME,
 

@@ -1335,6 +1335,7 @@ for (const source of ['cold local', 'unavailable vault'] as const) {
       let hostSlotReads = 0
       const initialConnection = Promise.withResolvers<void>()
       const custody = createOpenCodeVaultCustody({
+        vaultDir: join(directory, 'antigravity-auth-vault'),
         accountFile,
         reporterSource: 'direct',
         readHostSlot: async () => {

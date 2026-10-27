@@ -46,10 +46,10 @@ import { V1_VAULT_ACTIVATION_LABEL } from './plugin/vault-activation'
 import {
   createOpenCodeVaultCustody,
   OPENCODE_VAULT_ENROLLMENT_NAME,
-  openCodeVaultPaths,
 } from './plugin/vault-custody'
 import { drainNotifications } from './rpc/notifications'
 import { createRpcClient } from './rpc/rpc-client'
+import { getVaultDir } from './runtime-paths'
 
 // The store binds its timers on import; load it before the quota-tick test
 // temporarily replaces the global timer function.
@@ -667,7 +667,11 @@ it('the production V1 entry opens the vault menu without opening or changing dor
     activeIndexByFamily: { claude: 0, gemini: 0 },
   })
   writeFileSync(accountFile, localBytes, { mode: 0o600 })
+  // Seeded where a version before the move kept it, beside the account
+  // file; the plugin moves it to the state home when it starts.
+  const legacyVault = getVaultDir(accountFile)
   const seeding = createOpenCodeVaultCustody({
+    vaultDir: legacyVault,
     accountFile,
     reporterSource: 'direct',
     readHostSlot: async () => {
@@ -689,7 +693,7 @@ it('the production V1 entry opens the vault menu without opening or changing dor
     expect((await seeding.requestAccess()).state).toBe('approved')
     const claustrum = await loadCommonAuthClaustrum()
     const paths = claustrum.hostEnrollmentPaths({
-      stateDir: openCodeVaultPaths(accountFile).dir,
+      stateDir: legacyVault,
       host: 'opencode',
     })
     unlinkSync(paths.tokenPath)
@@ -764,6 +768,10 @@ for (const direction of ['local to vault', 'vault to local'] as const) {
     const daemon = await startMenuVaultFixture(owned)
     const overrides = {
       OPENCODE_CONFIG_DIR: join(owned, 'config'),
+      // The plugin moves the vault files into the state home at start. Keep
+      // it below this owner-only root: the vault library refuses to save a
+      // token below a folder others can change, as a runner's TMPDIR may be.
+      XDG_STATE_HOME: join(owned, 'state'),
       ANTIGRAVITY_AUTH_RPC_DIR: join(owned, 'rpc'),
       ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE: join(owned, 'sidebar.json'),
       SUBC_CONNECTION_FILE: daemon.connectionFile,
@@ -787,11 +795,16 @@ for (const direction of ['local to vault', 'vault to local'] as const) {
       ),
     )
     let dispose: (() => Promise<void> | void) | undefined
+    // Seeded where a version before the move kept it, beside the account
+    // file; the plugin moves it to the state home when it starts.
     const seeding = createOpenCodeVaultCustody({
+      vaultDir: getVaultDir(getStoragePath()),
       accountFile: getStoragePath(),
       reporterSource: 'direct',
       readHostSlot: async () => undefined,
     })
+    // Reads the vault folder the plugin settled, once it has started.
+    let settled: ReturnType<typeof createOpenCodeVaultCustody> | undefined
     try {
       const accountFile = getStoragePath()
       const modules = await loadCommonAuthStoreModules()
@@ -838,6 +851,12 @@ for (const direction of ['local to vault', 'vault to local'] as const) {
         createPluginInput(client, owned),
       )
       dispose = plugin.dispose
+      settled = createOpenCodeVaultCustody({
+        vaultDir: getVaultDir(accountFile),
+        accountFile,
+        reporterSource: 'direct',
+        readHostSlot: async () => undefined,
+      })
       const sessionId = 'menu-switch-session'
       await expect(
         plugin['command.execute.before']?.(
@@ -883,7 +902,7 @@ for (const direction of ['local to vault', 'vault to local'] as const) {
             ? `Vault access: approved as ${OPENCODE_VAULT_ENROLLMENT_NAME}`
             : 'Done. Start a new request to use the change.',
       })
-      expect(await seeding.readMode()).toMatchObject({
+      expect(await settled.readMode()).toMatchObject({
         ok: true,
         record: { mode: direction === 'local to vault' ? 'custody' : 'local' },
       })
@@ -921,6 +940,7 @@ for (const direction of ['local to vault', 'vault to local'] as const) {
       expect(client.auth.set).not.toHaveBeenCalled()
     } finally {
       await dispose?.()
+      await settled?.dispose()
       await seeding.dispose()
       await daemon.close()
       fetchSpy.mockRestore()

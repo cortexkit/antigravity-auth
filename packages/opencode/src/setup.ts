@@ -28,10 +28,22 @@ import { nativeOpenCodeAuthPath } from './plugin/vault-activation.ts'
 import {
   OPENCODE_VAULT_ENROLLMENT_NAME,
   OPENCODE_VAULT_PROVIDER,
-  openCodeVaultPaths,
 } from './plugin/vault-custody.ts'
+import { currentVaultFolder } from './vault-folder.ts'
 
 const PI_PLACEHOLDER_KEY = 'antigravity-vault-custody'
+
+/**
+ * OpenCode's vault folder for `accountFile`, as this process settled it: in
+ * the state home once the vault files moved there, beside the account file
+ * before. A process that has not settled it (a dry run, a preview) follows
+ * the layout marker without writing anything.
+ */
+function openCodeVaultDir(accountFile: string): string {
+  const folder = currentVaultFolder(accountFile)
+  if (folder.refusal) throw folder.refusal
+  return folder.vaultDir
+}
 
 function nativeAuthPath(
   host: SetupHost,
@@ -80,7 +92,7 @@ export async function assertLocalOpenCodeLogin(
   if (
     (await claustrum.enrollmentAuthority(
       claustrum.hostEnrollmentPaths({
-        stateDir: openCodeVaultPaths(legacyPath).dir,
+        stateDir: openCodeVaultDir(legacyPath),
         host: 'opencode',
       }),
       OPENCODE_VAULT_ENROLLMENT_NAME,
@@ -124,7 +136,7 @@ async function writeNativeSlot(
         const claustrum = await loadCommonAuthClaustrum()
         const stateDir =
           host === 'opencode'
-            ? openCodeVaultPaths(resolve(getStoragePath())).dir
+            ? openCodeVaultDir(resolve(getStoragePath()))
             : getPiAntigravityVaultDir()
         if (
           (await claustrum.enrollmentAuthority(
@@ -170,12 +182,18 @@ export async function createSetupPlugin(
   forceLogin = false,
 ): Promise<SetupPlugin> {
   const claustrum = await loadCommonAuthClaustrum()
-  const opencode = openCodeVaultPaths(resolve(getStoragePath()))
   const piDir = getPiAntigravityVaultDir()
   const hosts = {
     opencode: {
       name: OPENCODE_VAULT_ENROLLMENT_NAME,
-      paths: { stateDir: opencode.dir, host: 'opencode' },
+      // Read at each use: a real run settles the vault folder in
+      // `beforeSignIn`, which may move it after this plugin is built.
+      paths: {
+        get stateDir() {
+          return openCodeVaultDir(resolve(getStoragePath()))
+        },
+        host: 'opencode',
+      },
     },
     pi: {
       name: 'antigravity-auth-pi',
@@ -239,8 +257,11 @@ export async function createSetupPlugin(
       // Validate every selected host before the first can change credentials or enrollment.
       // Public Windows readers may tighten owned file DACLs; never run them on a preview.
       await assertSetupHostsStopped()
-      // A real run is about to use the plugin's data: put this process's
-      // heartbeat on disk. A preview never reaches this callback.
+      // A real run is about to use the plugin's data: settle where OpenCode's
+      // vault files live (every host is stopped, so moving them is usually
+      // safe now), then put this process's heartbeat on disk. A preview never
+      // reaches this callback. Pi's files never move.
+      if (context.hosts.includes('opencode')) await deps.prepareVaultFolder?.()
       await deps.processHeartbeat?.()
       for (const selected of context.hosts) {
         if (context.mode === 'local') {

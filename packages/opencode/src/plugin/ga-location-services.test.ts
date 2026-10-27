@@ -3423,7 +3423,9 @@ describe('GA vault state reads and the enrollment files', () => {
       const { createOpenCodeVaultCustody, OPENCODE_VAULT_ENROLLMENT_NAME } =
         await import('./vault-custody.ts')
       let approve = false
+      const vaultDir = join(root, 'config', 'antigravity-auth-vault')
       const enrolling = createOpenCodeVaultCustody({
+        vaultDir,
         accountFile,
         readHostSlot: async () => undefined,
         reporterSource: 'direct',
@@ -3468,6 +3470,7 @@ describe('GA vault state reads and the enrollment files', () => {
         },
         custody: ({ accountFile: file }) => {
           const custody = createOpenCodeVaultCustody({
+            vaultDir,
             accountFile: file,
             readHostSlot: async () => undefined,
             reporterSource: 'direct',
