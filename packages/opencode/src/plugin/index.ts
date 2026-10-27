@@ -254,6 +254,12 @@ export const createAntigravityPlugin =
     // cannot settle it serves neither vault nor local accounts and says why.
     const accountFile = resolve(getStoragePath())
     const vaultFolder = await prepareVaultFolder({ accountFile })
+    // What a request, the menu and the sidebar say while no account source
+    // may serve. With an unsettled vault folder that is the refusal's own
+    // message: it names the cause and what to do about it, and says nothing
+    // about enrolling, which would mislead a host that never used a vault.
+    const unavailableMessage =
+      vaultFolder.refusal?.message ?? VAULT_ACCOUNT_REMEDY
     let vaultQuotaPoller: BackgroundVaultQuotaRefresh | undefined
     const vaultCustody = createOpenCodeVaultCustody({
       vaultDir: vaultFolder.vaultDir,
@@ -356,6 +362,7 @@ export const createAntigravityPlugin =
     })
     const sidebarPublisher = createSourceSidebarPublisher({
       readAuthority,
+      unavailableMessage,
       local: async () => {
         const manager = lifecycle.getAccountManager()
         const active = manager?.getActiveIndexByFamily()
@@ -418,6 +425,9 @@ export const createAntigravityPlugin =
       await sidebarPublisher.dispose()
       await vaultCustody.dispose()
     }
+    // A start that could not settle its vault folder gets no authority or
+    // roster change to publish on, so the sidebar says why once, now.
+    if (vaultFolder.refusal) scheduleSidebarPublication()
     const publishRouting =
       (source: 'local' | 'vault') =>
       (sessionId: string, entry: RequestRoutingEntry): void => {
@@ -626,7 +636,7 @@ export const createAntigravityPlugin =
         sections: {
           accounts: {
             title: 'Accounts',
-            build: () => ({ lines: [VAULT_ACCOUNT_REMEDY] }),
+            build: () => ({ lines: [unavailableMessage] }),
           },
           quota: { title: 'Quota', build: () => ({}) },
         },
@@ -825,12 +835,13 @@ export const createAntigravityPlugin =
       publishSidebar: () => sidebarPublisher.publish(),
       fetchImpl: dependencies.fetchImpl,
       readAuthority,
+      unavailableMessage,
       createVaultFetch: async () => {
         const { source, pool } = await currentVaultPool()
         return createVaultFetchInterceptor({
           assertAdmission: async () => {
             if ((await readAuthority()) !== 'vault')
-              throw new Error(VAULT_ACCOUNT_REMEDY)
+              throw new Error(unavailableMessage)
           },
           client,
           config,
@@ -856,7 +867,7 @@ export const createAntigravityPlugin =
         createFetchInterceptor({
           assertAdmission: async () => {
             if ((await readAuthority()) !== 'local')
-              throw new Error(VAULT_ACCOUNT_REMEDY)
+              throw new Error(unavailableMessage)
           },
           client,
           directory,

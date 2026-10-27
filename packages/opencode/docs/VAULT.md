@@ -30,6 +30,10 @@ Those metadata effects never change file contents, ownership, permissions on exi
 
 Pi's native folder follows `PI_CODING_AGENT_DIR` (including `~` expansion), or `~/.pi/agent`. `PI_AGENT_DIR` and `PI_ANTIGRAVITY_AUTH_FILE` retain plugin account/vault-state roles and do not redirect the native login. See [setup](CONFIGURATION.md#guided-setup).
 
+## Where the vault files live
+
+OpenCode's vault files (`antigravity-auth-vault/`: enrollment token and state, vault roster, vault provider state and mode) live in the plugin's runtime folder, `~/.local/state/cortexkit/antigravity-auth/opencode/` (`opencode-<16 hex>/` for a config folder other than `~/.config/opencode`), not in OpenCode's config folder. Versions before the move kept them beside `antigravity-accounts.json`; the first start after every OpenCode using that config folder has restarted on a newer version moves them, and an approved enrollment survives the move without enrolling again. The local account store does not move: it stays in OpenCode's config folder, and moving it is planned for a later release. Close every OpenCode before upgrading. See [where the files live](CONFIGURATION.md#where-the-files-live) for the move, its refusals and how to downgrade.
+
 ## Disconnect and change builds safely
 
 Disconnect through `/antigravity` → Vault in the currently installed plugin/extension before changing builds. Restoration is conditional: it must not overwrite a native login changed by another process, and conflicting saved custody state refuses. Re-login may be needed; no complete restoration of all native host records is promised.

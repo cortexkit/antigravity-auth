@@ -25,11 +25,11 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { stateHomeSignatureCacheFile } from '../../runtime-paths'
 import type { SignatureCacheConfig } from '../config'
 import type { Clock } from '../neutral-types'
-import { ensureGitignoreSync } from '../storage'
 
 // =============================================================================
 // Types
@@ -83,21 +83,15 @@ export interface ThinkingCacheData {
 // Path Utilities
 // =============================================================================
 
-function getConfigDir(): string {
-  const platform = process.platform
-  if (platform === 'win32') {
-    return join(
-      process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'),
-      'opencode',
-    )
-  }
-  const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
-  return join(xdgConfig, 'opencode')
-}
-
-/** Default on-disk location of the signature cache for this environment. */
+/**
+ * Default on-disk location of the signature cache:
+ * `<state home>/cortexkit/antigravity-auth/antigravity-signature-cache.json`.
+ * Older versions kept it in OpenCode's config folder, which OpenCode watches;
+ * that old file is removed once by the vault move (`runtime-layout.ts`), not
+ * copied, because the cache rebuilds itself.
+ */
 export function getSignatureCacheFilePath(): string {
-  return join(getConfigDir(), 'antigravity-signature-cache.json')
+  return stateHomeSignatureCacheFile()
 }
 
 export interface SignatureCacheOptions {
@@ -422,8 +416,6 @@ export class SignatureCache {
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true })
       }
-
-      ensureGitignoreSync(dir)
 
       const now = this.now()
 

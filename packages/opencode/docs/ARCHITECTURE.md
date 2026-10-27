@@ -275,7 +275,7 @@ export OPENCODE_ANTIGRAVITY_DEBUG_TUI=1  # TUI log panel output
 
 ### Log Location
 
-`~/.config/opencode/antigravity-logs/`
+`~/.local/state/cortexkit/antigravity-auth/logs/` (`$XDG_STATE_HOME` replaces `~/.local/state` when set), unless `OPENCODE_ANTIGRAVITY_LOG_DIR` or `log_dir` names another folder.
 
 ### What To Check
 

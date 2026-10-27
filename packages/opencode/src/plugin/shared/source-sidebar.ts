@@ -13,6 +13,12 @@ export interface SourceSidebarOptions {
     accountIds: readonly string[],
   ) => Promise<void>
   readonly now?: () => number
+  /**
+   * The sidebar's error while no account source may serve; defaults to the
+   * vault remedy. An entry point whose vault folder is unsettled passes the
+   * refusal's own message instead.
+   */
+  readonly unavailableMessage?: string
 }
 
 /** Choose local or vault sidebar rows before reading accounts; finish queued snapshot writes on shutdown. */
@@ -22,7 +28,7 @@ export function createSourceSidebarPublisher(options: SourceSidebarOptions) {
   const unavailable = (): SidebarMachineState => ({
     checkedAt: (options.now ?? Date.now)(),
     accounts: [],
-    lastError: VAULT_ACCOUNT_REMEDY,
+    lastError: options.unavailableMessage ?? VAULT_ACCOUNT_REMEDY,
   })
   return {
     publish(): Promise<void> {

@@ -18,6 +18,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { VAULT_ACCOUNT_REMEDY } from '@cortexkit/antigravity-auth-core'
 
 import type { GaLocationServices, GaRawSender } from '../ga/server/index.ts'
 import { __resetProcessHeartbeatForTest } from '../process-heartbeat.ts'
@@ -510,6 +511,42 @@ describe('one shared custody per process and account file', () => {
     const location = await openLocation(hostFactory(vault), 'moved')
     await waitUntil(() => vault.counts.lists >= 1, 'the first roster')
     expect(await request(location.serving)).toBe('status 200')
+  }, 20_000)
+
+  it('a local-mode location whose layout.json is malformed is refused with the layout message, not vault advice', async () => {
+    const priorStateHome = process.env.XDG_STATE_HOME
+    process.env.XDG_STATE_HOME = join(root, 'state')
+    cleanups.push(async () => {
+      if (priorStateHome === undefined) delete process.env.XDG_STATE_HOME
+      else process.env.XDG_STATE_HOME = priorStateHome
+      __resetRuntimeLayoutsForTest()
+      __resetRuntimeLayoutRunsForTest()
+      __resetVaultFoldersForTest()
+      __resetProcessHeartbeatForTest()
+    })
+    // No vault files anywhere: this host never enrolled.
+    const stateDir = runtimeLayoutLocation().stateHomeDir
+    mkdirSync(stateDir, { recursive: true, mode: 0o700 })
+    const markerPath = join(stateDir, 'layout.json')
+    writeFileSync(markerPath, '{ not json', { mode: 0o600 })
+    // The activation's settle step, as `setupGaActivation` runs it.
+    const folder = await prepareVaultFolder({
+      accountFile: accountFile(),
+      log: { info() {}, warn() {} },
+    })
+    expect(folder.refusal?.errorClass).toBe('malformed-marker')
+
+    const vault = fakeVault()
+    const location = await openLocation(hostFactory(vault), 'unsettled')
+    const refusal = await request(location.serving)
+    expect(refusal).toContain(`${markerPath} is malformed`)
+    expect(refusal).toContain(
+      `If they are, delete ${markerPath}, then restart OpenCode`,
+    )
+    expect(refusal).not.toContain(VAULT_ACCOUNT_REMEDY)
+    expect(refusal).not.toMatch(/enroll/i)
+    // Neither source served: the vault was never asked.
+    expect(vault.counts.connects).toBe(0)
   }, 20_000)
 
   it('holds one connection for every open location and closes it with the last', async () => {

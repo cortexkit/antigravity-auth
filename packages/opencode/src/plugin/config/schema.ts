@@ -117,7 +117,7 @@ export const AntigravityConfigSchema = z.object({
   /**
    * Custom directory for debug logs.
    * Env override: OPENCODE_ANTIGRAVITY_LOG_DIR=/path/to/logs
-   * @default OS-specific config dir + "/antigravity-logs"
+   * @default "<state home>/cortexkit/antigravity-auth/logs" ($XDG_STATE_HOME, else ~/.local/state, on every OS)
    */
   log_dir: z.string().optional(),
 

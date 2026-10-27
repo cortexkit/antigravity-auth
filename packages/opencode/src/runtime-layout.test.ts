@@ -824,6 +824,10 @@ describe('moving an existing vault folder', () => {
       name: 'RuntimeLayoutRefusal',
       message: expect.stringContaining(`${path} is malformed`),
     })
+    // The refusal says what to check and which file to delete.
+    await expect(prepare()).rejects.toThrow(
+      `Check that the old vault files are still in ${oldVault()}. If they are, delete ${path}, then restart OpenCode`,
+    )
     expect(present(configDir(), files)).toEqual(files)
     expect(present(runtimeDir(), files)).toEqual(absent(files))
     expect(readFileSync(path, 'utf8')).toBe(text)
@@ -1197,6 +1201,10 @@ describe('the layout lease before every removal', () => {
       await expect(prepare({ layoutLockWaitMs: 1_500 })).rejects.toThrow(
         `antigravity-auth cannot start: it waited 2 s for the runtime-layout lock at ${join(runtimeDir(), 'layout.json')}.`,
       )
+      resetProcess()
+      await expect(prepare({ layoutLockWaitMs: 100 })).rejects.toThrow(
+        'Try again, or restart OpenCode, once that OpenCode has finished the move.',
+      )
       expect(logged).toContainEqual(
         expect.objectContaining({
           level: 'info',
@@ -1208,6 +1216,96 @@ describe('the layout lease before every removal', () => {
     } finally {
       await held?.release()
     }
+  })
+})
+
+describe('the old signature cache', () => {
+  // Older versions kept the signature cache in `$XDG_CONFIG_HOME/opencode`
+  // (`%APPDATA%\opencode` on Windows), whatever OPENCODE_CONFIG_DIR said.
+  // Both point at this test's config folder here.
+  let savedConfigHome: Record<string, string | undefined>
+  beforeEach(() => {
+    savedConfigHome = {
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      APPDATA: process.env.APPDATA,
+    }
+    process.env.XDG_CONFIG_HOME = join(root, 'config')
+    process.env.APPDATA = join(root, 'config')
+  })
+  afterEach(() => {
+    for (const [name, value] of Object.entries(savedConfigHome)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  })
+  const oldCache = () => join(configDir(), 'antigravity-signature-cache.json')
+  const newCache = () =>
+    join(root, 'state', 'cortexkit', 'antigravity-auth', basename(oldCache()))
+
+  it('the move removes it once and never copies it', async () => {
+    seed(configDir(), oldLayout())
+    writeFileSync(oldCache(), '{"version":"1.0","entries":{}}\n')
+
+    expect(await prepare()).toBe('state-home')
+    expect(existsSync(oldCache())).toBe(false)
+    expect(existsSync(newCache())).toBe(false)
+
+    // Once the move is done it is never looked at again.
+    writeFileSync(oldCache(), 'written by an older version\n')
+    resetProcess()
+    expect(await prepare()).toBe('state-home')
+    expect(readFileSync(oldCache(), 'utf8')).toBe(
+      'written by an older version\n',
+    )
+  })
+
+  it('a fresh install removes it too', async () => {
+    mkdirSync(configDir(), { recursive: true })
+    writeFileSync(oldCache(), '{}\n')
+    expect(await prepare()).toBe('state-home')
+    expect(existsSync(oldCache())).toBe(false)
+  })
+
+  it('stays while the move waits for an older version', async () => {
+    seed(configDir(), oldLayout())
+    writeFileSync(oldCache(), '{}\n')
+    heartbeat(process.ppid, { version: '3.0.13' })
+    expect(await prepare()).toBe('legacy')
+    expect(existsSync(oldCache())).toBe(true)
+  })
+
+  it('clean-up after a crash after the marker removes it', async () => {
+    seed(configDir(), oldLayout())
+    writeFileSync(oldCache(), '{}\n')
+    expect(
+      await prepare({
+        steps: {
+          afterMarker: () => {
+            throw new Error('crash')
+          },
+        },
+      }),
+    ).toBe('state-home')
+    expect(existsSync(oldCache())).toBe(true)
+
+    resetProcess()
+    expect(await prepare()).toBe('state-home')
+    expect(existsSync(oldCache())).toBe(false)
+    expect(marker()?.oldFilesRemoved).toBe(true)
+  })
+
+  it('a lease lost right before it is removed keeps it and records nothing as done', async () => {
+    seed(configDir(), oldLayout())
+    writeFileSync(oldCache(), '{}\n')
+    await prepare({
+      steps: {
+        beforeRemove: (path) => {
+          if (path === oldCache()) stealLayoutLease()
+        },
+      },
+    }).catch(() => {})
+    expect(existsSync(oldCache())).toBe(true)
+    expect(marker()?.oldFilesRemoved).toBeUndefined()
   })
 })
 
@@ -1379,6 +1477,12 @@ describe('paths the move must not touch', () => {
       `${JSON.stringify({ version: 1, oldDir: join(root, 'elsewhere'), oldFilesRemoved: true })}\n`,
     )
     await expect(prepare()).rejects.toThrow(/belongs to another OpenCode/)
+    await expect(prepare()).rejects.toThrow(
+      `${join(runtimeDir(), 'layout.json')} belongs to another OpenCode config folder`,
+    )
+    await expect(prepare()).rejects.toThrow(
+      `Check that the old vault files are still in ${oldVault()}. If they are, delete ${join(runtimeDir(), 'layout.json')}, then restart OpenCode`,
+    )
     expect(present(configDir(), oldLayout())).toEqual(oldLayout())
   })
 

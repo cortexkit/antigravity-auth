@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test'
-import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import { DEFAULT_CONFIG } from './config'
 
@@ -74,9 +80,7 @@ describe('debug sink policy', () => {
     } = await import('./debug')
 
     // log_dir inside the isolated ANTIGRAVITY_TEST_ROOT so we don't touch the
-    // host filesystem. The preloaded `OPENCODE_CONFIG_DIR` is also under
-    // ANTIGRAVITY_TEST_ROOT, so the implicit `ensureGitignoreSync` call is
-    // safe — nothing escapes the temp dir.
+    // host filesystem.
     const logDir = `${process.env.ANTIGRAVITY_TEST_ROOT}/opencode-antigravity-debug-tests`
 
     initializeDebug({
@@ -276,5 +280,34 @@ describe('debug log folder', () => {
     process.env.OPENCODE_ANTIGRAVITY_LOG_DIR = value
     const fromConfig = join(base, 'from-config')
     expect(await logFolder(fromConfig)).toBe(fromConfig)
+  })
+
+  it('the default folder is logs/ in the plugin state folder, and old logs in the config folder are left alone', async () => {
+    const savedState = process.env.XDG_STATE_HOME
+    const savedConfig = process.env.XDG_CONFIG_HOME
+    process.env.XDG_STATE_HOME = join(base, 'state')
+    process.env.XDG_CONFIG_HOME = join(base, 'config')
+    try {
+      // A log an older version wrote where it used to keep them.
+      const oldLogs = join(base, 'config', 'opencode', 'antigravity-logs')
+      mkdirSync(oldLogs, { recursive: true })
+      const oldLog = join(oldLogs, 'antigravity-debug-old.log')
+      writeFileSync(oldLog, 'old\n')
+
+      expect(await logFolder('')).toBe(
+        join(base, 'state', 'cortexkit', 'antigravity-auth', 'logs'),
+      )
+      expect(readFileSync(oldLog, 'utf8')).toBe('old\n')
+      // Nothing new in the config folder: no log and no .gitignore.
+      expect(readdirSync(join(base, 'config', 'opencode'))).toEqual([
+        'antigravity-logs',
+      ])
+      expect(readdirSync(oldLogs)).toEqual(['antigravity-debug-old.log'])
+    } finally {
+      if (savedState === undefined) delete process.env.XDG_STATE_HOME
+      else process.env.XDG_STATE_HOME = savedState
+      if (savedConfig === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = savedConfig
+    }
   })
 })
