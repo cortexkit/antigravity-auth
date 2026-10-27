@@ -80,6 +80,49 @@ function describeValue(value: unknown): string {
   return JSON.stringify(value) ?? String(value)
 }
 
+const ALLOWED_JSON_SCHEMA_TYPES = new Set([
+  'string',
+  'number',
+  'integer',
+  'boolean',
+  'array',
+  'object',
+  'null',
+])
+
+function normalizeNullableTypeArray(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!Array.isArray(schema.type)) return schema
+  if (
+    schema.type.length === 0 ||
+    schema.type.some(
+      (type) =>
+        typeof type !== 'string' ||
+        !ALLOWED_JSON_SCHEMA_TYPES.has(type.toLowerCase()),
+    )
+  ) {
+    return schema
+  }
+  const types = [
+    ...new Set(schema.type.map((type: string) => type.toLowerCase())),
+  ]
+  const nonNull = types.filter((type) => type !== 'null')
+  if (nonNull.length > 1) {
+    // Leave genuine multi-type unions to the existing provider validation.
+    // Throwing here would classify a schema defect as a transport failure and
+    // penalize accounts; choosing a branch would silently narrow the tool.
+    return schema
+  }
+  return {
+    ...schema,
+    type: nonNull[0] ?? 'null',
+    ...(nonNull.length === 1 && types.includes('null')
+      ? { nullable: true }
+      : {}),
+  }
+}
+
 function sameSchemaValue(left: unknown, right: unknown): boolean {
   if (left === right) return true
   if (Array.isArray(left) && Array.isArray(right)) {
@@ -111,10 +154,19 @@ function mergeSchemaAllOf(
   const descriptions: string[] = []
   const metadata: Record<string, unknown> = {}
   let unambiguous = allOf.length > 0
+  let allBranchesNullable = true
+  const isBaseContributing =
+    base.type !== undefined ||
+    base.nullable !== undefined ||
+    base.properties !== undefined
 
-  for (const branch of branches) {
+  for (const rawBranch of branches) {
+    if (!isSchemaObject(rawBranch)) {
+      unambiguous = false
+      break
+    }
+    const branch = normalizeNullableTypeArray(rawBranch)
     if (
-      !isSchemaObject(branch) ||
       (branch.type !== undefined &&
         String(branch.type).toUpperCase() !== 'OBJECT') ||
       (branch.properties !== undefined && !isSchemaObject(branch.properties))
@@ -122,11 +174,15 @@ function mergeSchemaAllOf(
       unambiguous = false
       break
     }
+    const isContributing = rawBranch !== base || isBaseContributing
+    if (isContributing && branch.nullable !== true) {
+      allBranchesNullable = false
+    }
     // Metadata comes from the first occurrence; dropped keywords cannot make
     // otherwise compatible object intersections lose their later properties.
     for (const [key, value] of Object.entries(branch)) {
       if (
-        !['properties', 'required', 'description'].includes(key) &&
+        !['properties', 'required', 'description', 'nullable'].includes(key) &&
         !Object.hasOwn(metadata, key)
       )
         metadata[key] = value
@@ -153,6 +209,7 @@ function mergeSchemaAllOf(
       ...metadata,
       type: 'object',
       properties,
+      ...(allBranchesNullable ? { nullable: true } : {}),
       ...(required.size ? { required: [...required] } : {}),
       ...(descriptions.length ? { description: descriptions.join(' ') } : {}),
     }
@@ -255,9 +312,8 @@ export function toGeminiSchema(
   }
 
   const numericConstraintHints: string[] = []
-  const inputSchema = mergeSchemaAllOf(
-    schema as Record<string, unknown>,
-    numericConstraintHints,
+  const inputSchema = normalizeNullableTypeArray(
+    mergeSchemaAllOf(schema as Record<string, unknown>, numericConstraintHints),
   )
   const schemaType =
     typeof inputSchema.type === 'string'

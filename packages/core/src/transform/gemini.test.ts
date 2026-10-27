@@ -700,6 +700,274 @@ describe('transform/gemini', () => {
   })
 
   describe('toGeminiSchema', () => {
+    describe('nullable type arrays', () => {
+      it.each([
+        'string',
+        'number',
+        'integer',
+        'boolean',
+        'object',
+        'array',
+      ])('converts nullable %s without mutating its input', (type) => {
+        const schema = Object.freeze({
+          type: Object.freeze([type, 'null']),
+          description: 'Nullable input',
+        })
+        const expected = {
+          type: type.toUpperCase(),
+          nullable: true,
+          description: 'Nullable input',
+          ...(type === 'array' ? { items: { type: 'STRING' } } : {}),
+        }
+        const converted = toGeminiSchema(schema)
+        expect(converted).toEqual(expected)
+        expect(toGeminiSchema(converted)).toEqual(converted)
+        expect(schema.type).toEqual([type, 'null'])
+      })
+
+      it('preserves required versus optional fields and keyword-like property names', () => {
+        expect(
+          toGeminiSchema({
+            type: 'object',
+            properties: {
+              type: { type: ['string', 'null'] },
+              nullable: { type: ['boolean', 'null'] },
+            },
+            required: ['type'],
+          }),
+        ).toEqual({
+          type: 'OBJECT',
+          properties: {
+            type: { type: 'STRING', nullable: true },
+            nullable: { type: 'BOOLEAN', nullable: true },
+          },
+          required: ['type'],
+        })
+      })
+
+      it('recurses through nullable objects, array items and existing union branches', () => {
+        expect(
+          toGeminiSchema({
+            type: ['object', 'null'],
+            properties: {
+              rows: {
+                type: ['array', 'null'],
+                items: {
+                  type: ['object', 'null'],
+                  properties: { id: { type: ['integer', 'null'] } },
+                },
+              },
+              choice: {
+                anyOf: [{ type: ['string', 'null'] }, { type: 'integer' }],
+              },
+              alternative: { oneOf: [{ type: ['boolean', 'null'] }] },
+            },
+          }),
+        ).toEqual({
+          type: 'OBJECT',
+          nullable: true,
+          properties: {
+            rows: {
+              type: 'ARRAY',
+              nullable: true,
+              items: {
+                type: 'OBJECT',
+                nullable: true,
+                properties: { id: { type: 'INTEGER', nullable: true } },
+              },
+            },
+            choice: {
+              anyOf: [{ type: 'STRING', nullable: true }, { type: 'INTEGER' }],
+            },
+            alternative: { anyOf: [{ type: 'BOOLEAN', nullable: true }] },
+          },
+        })
+      })
+
+      it('normalizes before integer constraints and preserves array constraints', () => {
+        expect(
+          toGeminiSchema({ type: ['integer', 'null'], exclusiveMinimum: 0 }),
+        ).toEqual({ type: 'INTEGER', nullable: true, minimum: 1 })
+        expect(
+          toGeminiSchema({
+            type: ['array', 'null'],
+            minItems: 1,
+            maxItems: 4,
+            items: { type: ['string', 'null'] },
+          }),
+        ).toEqual({
+          type: 'ARRAY',
+          nullable: true,
+          minItems: 1,
+          maxItems: 4,
+          items: { type: 'STRING', nullable: true },
+        })
+      })
+
+      it('preserves explicit null regardless of nullable field order', () => {
+        expect(
+          toGeminiSchema({ nullable: false, type: ['null', 'string'] }),
+        ).toEqual({ type: 'STRING', nullable: true })
+        expect(
+          toGeminiSchema({ type: ['string', 'null'], nullable: false }),
+        ).toEqual({ type: 'STRING', nullable: true })
+      })
+
+      it('handles singleton, duplicate, mixed-case and null-only arrays', () => {
+        expect(toGeminiSchema({ type: ['string'] })).toEqual({ type: 'STRING' })
+        expect(toGeminiSchema({ type: ['STRING', 'string', 'NuLl'] })).toEqual({
+          type: 'STRING',
+          nullable: true,
+        })
+        expect(toGeminiSchema({ type: ['null', 'NULL'] })).toEqual({
+          type: 'NULL',
+        })
+      })
+
+      it.each([
+        [[]],
+        [[null]],
+        [['bogus']],
+        [['string', 1]],
+      ])('leaves existing invalid-array provider validation unchanged: %j', (members) => {
+        expect(toGeminiSchema({ type: members })).toEqual({ type: members })
+      })
+
+      it('passes through unsupported multi-type arrays without narrowing to a single branch', () => {
+        const schema = { type: ['string', 'number', 'null'] }
+        expect(
+          (toGeminiSchema(schema) as Record<string, unknown>).type,
+        ).not.toBe('STRING')
+        expect(
+          (toGeminiSchema(schema) as Record<string, unknown>).type,
+        ).not.toBe('NUMBER')
+      })
+
+      it.each([
+        'antigravity-gemini-3.8-flash',
+        'antigravity-gemini-4-argon',
+      ])('serializes the real knowledge-tool nullable fields for %s', (model) => {
+        const properties = {
+          kind: { type: 'string', enum: ['note', 'todo', 'plan'] },
+          id: {
+            type: 'string',
+            description: 'From list or save; omit on save to create',
+          },
+          planId: {
+            type: ['string', 'null'],
+            description:
+              'The plan a note or todo belongs to; null unlinks, omission keeps it. On list: only that plan and its notes and todos',
+          },
+          dependsOn: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Todo ids of the same plan to complete first; [] clears, omission keeps them. Deleting a todo drops it from the todos that depended on it',
+          },
+          sessionId: {
+            type: ['string', 'null'],
+            description:
+              'Existing plan, saved without body: the session linked to it; null clears. Links only, starts nothing',
+          },
+        }
+        const actions = [
+          {
+            const: 'knowledge.list',
+            description:
+              'Notes with text, todos with state and links, plans with their file paths and session. Optional planId and ready filters. List before adding, to avoid duplicates',
+          },
+          {
+            const: 'knowledge.save',
+            description:
+              'Requires kind and body; with id it replaces. A plan body is the whole markdown, and the answer gives its path. An update may send only the fields it changes: completed, planId or dependsOn; sessionId on a plan, without body',
+          },
+          { const: 'knowledge.delete', description: 'Requires kind and id' },
+          {
+            const: 'knowledge.show',
+            description:
+              'Open a plan for the user to read, comment on and send to a session; requires kind plan and id',
+          },
+        ]
+        const parametersDescription =
+          'Inputs for the action; use an empty object when none are needed'
+        const input = {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              oneOf: actions,
+              description: 'Knowledge action to perform',
+            },
+            parameters: {
+              type: 'object',
+              properties,
+              additionalProperties: false,
+              description: parametersDescription,
+            },
+          },
+          required: ['action'],
+          additionalProperties: true,
+        }
+        const before = JSON.stringify(input)
+        const payload: RequestPayload = {
+          tools: [{ function: { name: 'knowledge_tool', parameters: input } }],
+        }
+        applyGeminiTransforms(payload, { model })
+        expect(payload.tools).toEqual([
+          {
+            functionDeclarations: [
+              {
+                name: 'knowledge_tool',
+                description: '',
+                parameters: {
+                  type: 'OBJECT',
+                  properties: {
+                    action: {
+                      type: 'STRING',
+                      anyOf: actions.map(({ const: action, description }) => ({
+                        enum: [action],
+                        description,
+                      })),
+                      description: 'Knowledge action to perform',
+                    },
+                    parameters: {
+                      type: 'OBJECT',
+                      properties: {
+                        kind: { ...properties.kind, type: 'STRING' },
+                        id: { ...properties.id, type: 'STRING' },
+                        planId: {
+                          ...properties.planId,
+                          type: 'STRING',
+                          nullable: true,
+                        },
+                        dependsOn: {
+                          ...properties.dependsOn,
+                          type: 'ARRAY',
+                          items: { type: 'STRING' },
+                        },
+                        sessionId: {
+                          ...properties.sessionId,
+                          type: 'STRING',
+                          nullable: true,
+                        },
+                      },
+                      description: parametersDescription,
+                    },
+                  },
+                  required: ['action'],
+                },
+              },
+            ],
+          },
+        ])
+        const wire = JSON.stringify(payload.tools)
+        expect(wire).toContain('knowledge_tool')
+        expect(wire).not.toMatch(/"type"\s*:\s*\[/)
+        expect(wire).not.toContain('_placeholder')
+        expect(JSON.stringify(input)).toBe(before)
+      })
+    })
+
     it('omits items on a non-array schema', () => {
       expect(
         toGeminiSchema({ type: 'string', items: { type: 'string' } }),
@@ -2029,6 +2297,45 @@ describe('documented Gemini Schema compatibility', () => {
         extra: { type: 'BOOLEAN' },
       },
       required: ['shared', 'extra'],
+    })
+  })
+
+  it('preserves nullable on allOf only when every contributing branch is nullable', () => {
+    expect(
+      toGeminiSchema({
+        allOf: [
+          {
+            type: ['object', 'null'],
+            properties: { a: { type: 'string' } },
+          },
+          {
+            type: 'object',
+            properties: { b: { type: 'number' } },
+          },
+        ],
+      }),
+    ).toEqual({
+      type: 'OBJECT',
+      properties: { a: { type: 'STRING' }, b: { type: 'NUMBER' } },
+    })
+
+    expect(
+      toGeminiSchema({
+        allOf: [
+          {
+            type: ['object', 'null'],
+            properties: { a: { type: 'string' } },
+          },
+          {
+            type: ['object', 'null'],
+            properties: { b: { type: 'number' } },
+          },
+        ],
+      }),
+    ).toEqual({
+      type: 'OBJECT',
+      properties: { a: { type: 'STRING' }, b: { type: 'NUMBER' } },
+      nullable: true,
     })
   })
 })
