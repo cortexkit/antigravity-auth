@@ -44,6 +44,10 @@ const version = JSON.parse(
 ).version
 const node = Bun.which('node')!
 
+// The shared setup library types migrate as optional, for plugins with nothing
+// to migrate. The Antigravity setup plugin always provides it, so the calls
+// below assert its presence with a non-null assertion.
+
 afterEach(() => {
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
@@ -646,14 +650,14 @@ describe('setup plugin callbacks', () => {
       runCli(['migrate', '--offline', '--yes'], deps),
     )
     if (kind === 'legacy') {
-      await expect(plugin.migrate('opencode', context)).rejects.toThrow(
+      await expect(plugin.migrate!('opencode', context)).rejects.toThrow(
         'Offline Antigravity account migration failed',
       )
       expect(deps.accountStore.migrate).toHaveBeenCalledWith(
         join(p.config, 'antigravity-accounts.json'),
       )
     } else {
-      await plugin.migrate('opencode', context)
+      await plugin.migrate!('opencode', context)
       expect(deps.accountStore.migrate).not.toHaveBeenCalled()
       expect(output).toContain(
         kind === 'store'
@@ -661,7 +665,7 @@ describe('setup plugin callbacks', () => {
           : 'No accounts to migrate',
       )
     }
-    await plugin.migrate('pi', context)
+    await plugin.migrate!('pi', context)
     expect(output).toContain('Pi uses its native auth.json')
   })
 
@@ -1146,7 +1150,7 @@ describe('setup plugin callbacks', () => {
     expect(deps.performLogin).not.toHaveBeenCalled()
     expect(deps.accountStore.read).not.toHaveBeenCalled()
     expect(snapshot(p.root)).toEqual(before)
-    await plugin.migrate('opencode', context)
+    await plugin.migrate!('opencode', context)
     expect(migrate).toHaveBeenCalledTimes(1)
     expect(deps.accountStore.read).toHaveBeenCalledTimes(1)
     expect(output).toBe(
@@ -1184,7 +1188,7 @@ describe('setup plugin callbacks', () => {
     } as const
     await plugin.signInLocal('pi', context)
     await plugin.beforeRegister?.('pi', 'local', context)
-    await plugin.migrate('pi', context)
+    await plugin.migrate!('pi', context)
     expect(deps.performLogin).toHaveBeenCalledTimes(1)
     expect(migrate).not.toHaveBeenCalled()
     expect(
@@ -1244,7 +1248,7 @@ describe('setup plugin callbacks', () => {
     await expect(
       plugin.beforeRegister?.('opencode', 'local', context),
     ).rejects.toThrow('Vault enrollment excludes local sign-in')
-    await expect(plugin.migrate('opencode', context)).rejects.toThrow(
+    await expect(plugin.migrate!('opencode', context)).rejects.toThrow(
       'Vault enrollment excludes local sign-in',
     )
     await plugin.beforeRegister?.('opencode', 'claustrum', {
@@ -1259,14 +1263,14 @@ describe('setup plugin callbacks', () => {
     expect(migrate).not.toHaveBeenCalled()
     expect(snapshot(p.root)).toEqual(before)
     const vaultContext = { ...context, mode: 'claustrum' } as const
-    await plugin.migrate('opencode', vaultContext)
+    await plugin.migrate!('opencode', vaultContext)
     expect(migrate).not.toHaveBeenCalled()
     writeFileSync(claustrum.hostEnrollmentPaths(host.paths).statePath, '{')
     const unreadable = snapshot(p.root)
     await expect(
       plugin.beforeRegister?.('opencode', 'claustrum', vaultContext),
     ).rejects.toThrow('Vault access must be approved before activation')
-    await expect(plugin.migrate('opencode', vaultContext)).rejects.toThrow(
+    await expect(plugin.migrate!('opencode', vaultContext)).rejects.toThrow(
       'Vault access must remain approved during setup',
     )
     expect(snapshot(p.root)).toEqual(unreadable)

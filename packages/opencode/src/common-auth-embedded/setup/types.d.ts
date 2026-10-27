@@ -61,7 +61,13 @@ export interface SetupPlugin {
      */
     beforeSignIn?(host: SetupHost, context: SetupCallbackContext): Promise<void>;
     signInLocal(host: SetupHost, context: SetupCallbackContext): Promise<void>;
-    migrate(host: SetupHost, context: SetupCallbackContext): Promise<void>;
+    /**
+     * Moves the host's existing provider credentials into place after the host
+     * is registered. Optional: a plugin with nothing to migrate (one that only
+     * reads credentials from the vault) leaves it out, and setup then neither
+     * calls it nor mentions migration in its dry-run plan.
+     */
+    migrate?(host: SetupHost, context: SetupCallbackContext): Promise<void>;
     /** Reject mixed local/vault credentials and activate provider-specific vault access before registration. */
     beforeRegister?(host: SetupHost, mode: 'local' | 'claustrum', context: SetupCallbackContext): Promise<void>;
 }

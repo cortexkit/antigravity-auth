@@ -12,12 +12,13 @@
 // never replaces a view another process committed after this hub listed.
 import { createHash } from 'node:crypto';
 import { readdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createLogger } from '../logger/index.js';
 import { combineAbortSignals } from '../util/any-signal.js';
 import { ClaustrumUnreachableError } from './availability.js';
 import { createHubMember, DEFAULT_CONNECT_TIMEOUT_MS, } from './consumer.js';
 import { ClaustrumScopedCustody, } from './custody.js';
+import { ensureClaustrumPrivateDirectory } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
 import { DEFAULT_ROUTE_PREFIX, decodedVaultRoster, forgetPendingVaultDiscovery, isVaultRosterLockRefusal, readVaultRoster, refreshVaultRoster, vaultRosterSeed, } from './roster.js';
 import { drainShutdown, shutdownWarning } from './shutdown.js';
@@ -585,10 +586,11 @@ export class ClaustrumDiscoveryHub {
     }
     /**
      * Read each member's base view, list once, then commit each member's share
-     * of the listing to its roster, push it into the member, and retain the
-     * union. Each publication step checks first that the generation it started
-     * in is still current. A member that this list did not commit is marked
-     * pending, so a later tick lists again.
+     * of the listing to its roster (all members at once, each under its own
+     * roster's locks), push it into the member, and retain the union. Each
+     * publication step checks first that the generation it started in is
+     * still current. A member that this list did not commit is marked pending,
+     * so a later tick lists again.
      */
     async #discover(run) {
         if (!(await this.#readAuthority()))
@@ -598,12 +600,17 @@ export class ClaustrumDiscoveryHub {
         run.generation = generation;
         if (!this.#live(generation))
             return undefined;
+        // Folders that could not be made owner-only fail every member's commit,
+        // as an unreadable base fails its member's: each is marked pending.
+        const folders = await this.#ensureRosterDirectories().then(() => undefined, (error) => error instanceof Error ? error : new Error(String(error)));
         // What each member's file held before the list. Another process may
         // commit while this list runs; the base-view rule then keeps its newer
-        // roster rather than replacing it with this older listing.
-        const bases = new Map();
-        for (const entry of this.#members.values())
-            bases.set(entry, await readVaultRoster(entry.path).then((file) => (file ? { file } : {}), (error) => error instanceof Error ? error : new Error(String(error))));
+        // roster rather than replacing it with this older listing. Each file is
+        // read on its own, so the reads run together.
+        const bases = new Map(await Promise.all([...this.#members.values()].map(async (entry) => [
+            entry,
+            await readVaultRoster(entry.path).then((file) => (file ? { file } : {}), (error) => error instanceof Error ? error : new Error(String(error))),
+        ])));
         if (!this.#live(generation))
             return undefined;
         let inventory;
@@ -619,43 +626,28 @@ export class ClaustrumDiscoveryHub {
                     this.#markPending(entry);
             throw error;
         }
+        if (!this.#live(generation))
+            return undefined;
+        // Every member's commit starts at once and none waits for another: each
+        // touches only its own roster file and takes only that file's locks (its
+        // discovery lease, then its write lock, as `refreshVaultRoster` always
+        // does), so no commit ever holds two members' locks and no order between
+        // members is needed. The results are then published in member order.
+        const members = this.#open();
+        const commits = await Promise.all(members.map((entry) => entry.hooks && !entry.closed
+            ? this.#commit(entry, entry.hooks, inventory, folders ?? bases.get(entry), generation)
+            : undefined));
+        if (!this.#live(generation))
+            return undefined;
         const errors = new Map();
         let complete = true;
-        for (const entry of this.#open()) {
-            if (!this.#live(generation))
-                return undefined;
+        for (const [index, entry] of members.entries()) {
             const hooks = entry.hooks;
-            if (!hooks || entry.closed)
+            const commit = commits[index];
+            if (!hooks || !commit)
                 continue;
-            const share = {
-                ...inventory,
-                credentials: inventory.credentials.filter((credential) => credential.member === entry.provider),
-                skipped: inventory.skipped.filter((record) => record.member === entry.provider),
-            };
-            const base = bases.get(entry);
-            let roster;
-            try {
-                if (!base)
-                    throw closed('Claustrum hub member has no base view');
-                if (base instanceof Error)
-                    throw base;
-                // A member's first roster under this key carries the declines and
-                // order of its newest roster under an older key.
-                const seed = base.file ? undefined : await this.#seed(entry);
-                roster = await refreshVaultRoster({
-                    path: entry.path,
-                    custody: { discover: async () => share },
-                    // Generation g's commit checks that g is still current, not only
-                    // that vault mode is on, so off-then-on cannot let it into g+1.
-                    isActive: () => this.#live(generation) && this.#active === true,
-                    signal: generation.controller.signal,
-                    projection: () => ({ ...hooks.projection(), ...(seed && { seed }) }),
-                    listedOver: { view: base.file?.view },
-                });
-            }
-            catch (error) {
-                if (!this.#live(generation))
-                    return undefined;
+            if ('error' in commit) {
+                const { error } = commit;
                 complete = false;
                 this.#markPending(entry);
                 // Another writer holding or taking this roster's locks is not this
@@ -668,6 +660,7 @@ export class ClaustrumDiscoveryHub {
                     errors.set(entry.provider, error);
                 continue;
             }
+            const { roster } = commit;
             if (!this.#live(generation))
                 return undefined;
             // Not this list's roster: vault mode went off, the file was removed
@@ -706,6 +699,57 @@ export class ClaustrumDiscoveryHub {
             });
         this.#discoveredAt = (this.#options.now ?? Date.now)();
         return { errors };
+    }
+    /**
+     * Commit one member's share of `inventory` to its roster file over the
+     * base view read before the list. Every failure is returned, not thrown,
+     * so one member's failure leaves the other members' commits running.
+     */
+    async #commit(entry, hooks, inventory, base, generation) {
+        const share = {
+            ...inventory,
+            credentials: inventory.credentials.filter((credential) => credential.member === entry.provider),
+            skipped: inventory.skipped.filter((record) => record.member === entry.provider),
+        };
+        try {
+            if (!base)
+                throw closed('Claustrum hub member has no base view');
+            if (base instanceof Error)
+                throw base;
+            // A member's first roster under this key carries the declines and
+            // order of its newest roster under an older key.
+            const seed = base.file ? undefined : await this.#seed(entry);
+            const roster = await refreshVaultRoster({
+                path: entry.path,
+                custody: { discover: async () => share },
+                // Generation g's commit checks that g is still current, not only
+                // that vault mode is on, so off-then-on cannot let it into g+1.
+                isActive: () => this.#live(generation) && this.#active === true,
+                signal: generation.controller.signal,
+                projection: () => ({ ...hooks.projection(), ...(seed && { seed }) }),
+                listedOver: { view: base.file?.view },
+            });
+            return { roster };
+        }
+        catch (error) {
+            return { error };
+        }
+    }
+    /**
+     * Create the roster folders under the state folder (`rosters`, this host
+     * generation and this key) owner-only, as every other Claustrum private
+     * folder is: 0700 on POSIX, tightening a folder an earlier release left
+     * open, and private-files on Windows. Each is handled on its own so an
+     * existing open parent is tightened too. Without this, the first roster
+     * lock would create them with the process umask, usually 0755.
+     */
+    async #ensureRosterDirectories() {
+        for (const directory of [
+            dirname(this.#generationDirectory),
+            this.#generationDirectory,
+            join(this.#generationDirectory, this.#key),
+        ])
+            await ensureClaustrumPrivateDirectory(directory, {}, 'roster directory');
     }
     /**
      * The preferences a member's first roster under this key starts from: the

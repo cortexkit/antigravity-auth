@@ -107,6 +107,15 @@ export interface EnrollmentAncestorOptions {
  * sticky ancestors are accepted. Windows uses the shared safe-parent policy.
  */
 export declare function refuseWritableAncestor(parent: string, options?: EnrollmentAncestorOptions): Promise<void>;
+/**
+ * Create `directory` owner-only, or make an existing one owner-only. POSIX:
+ * every component it creates gets mode 0700, a directory another user owns is
+ * refused, and one that group or others can reach is tightened to 0700.
+ * Windows: private-files creates missing components owner-only and verifies
+ * existing ones without modifying them. `what` names the directory in the
+ * ownership refusal.
+ */
+export declare function ensureClaustrumPrivateDirectory(directory: string, options?: EnrollmentAncestorOptions, what?: string): Promise<void>;
 export declare function readClaustrumEnrollmentStatus(paths: ClaustrumEnrollmentPaths, proposedName: string): Promise<ClaustrumEnrollmentStatus>;
 /**
  * Resolve the host's account mode from its enrollment files. It never changes

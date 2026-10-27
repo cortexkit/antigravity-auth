@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.27.1.tgz'
-export const producerVersion = '0.27.1'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.28.0.tgz'
+export const producerVersion = '0.28.0'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: 'a74507a1f746c9d591501ab24a630fe8bab20fb305c92738770902f003edb387',
-  sri: 'sha512-k5oKV38HxXKqwVi7qU8K9fD+P0ca7kXu52TlulHJoiGO0Q8Ebv0URtW1UXKLYawOm3ZwfVwFEBzAhuj8kMh6rg==',
+  sha256: '8070e3c1882238d78ac5e955fb140484e08d9f97ed0f2d5d40f35928c60fbbc5',
+  sri: 'sha512-PRyppMdE3y8dTzF3iQHcFruo5ksPPhgSQExe7g4Ij/oPynDLbalSQqBaInKdSV/v5qyrY0iJs/D0Yu7fbWh3NQ==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -223,13 +223,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/enrollment.d.ts',
-    7976,
-    'd6b4e8561ccc0ff2f9b4386856c5fe3dc7c475e13f98314a0666d0b20458d43b',
+    8530,
+    '8e44065db1b28f930f01b9c267aacb23e2f4f9d5d7d358b815fdc8c5080450ff',
   ],
   [
     'claustrum/enrollment.js',
-    36501,
-    '0a6aa09a8927ae9ba11e4cc4fbe81cd8a3248d5f7db71e8592667bc870899078',
+    36868,
+    '7dab3edbc03542bcd75578449f6c3b92959671f0669332c62b2ad4525aa9c829',
   ],
   [
     'claustrum/errors.d.ts',
@@ -258,8 +258,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/hub.js',
-    40718,
-    '50d57557ccd6e59989424e0df63df75570d97cdb5f71da37ce865d75f76297fd',
+    43086,
+    'f156151cba0a628828a9c28cdeea757a4c959e4398a79c423001b2b2857c2ec7',
   ],
   [
     'claustrum/index.d.ts',
@@ -438,8 +438,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/refresh-file-lock.js',
-    30222,
-    '314dadbe39b9f0664b6f2f6abff674197c8d86f61ba657e2031d5a8b08ec1030',
+    30833,
+    'c0e4de79b0c0bb8fac09b13c5cf861eaa008434b336e87ce761d7f0713203a90',
   ],
   [
     'fs/with-lock.d.ts',
@@ -788,8 +788,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'setup/command.js',
-    15313,
-    '69c58fd28873929126ee975eff1d4d7de2dafb483af5ccb630f5feb2e3c9abb2',
+    13573,
+    '182db608585e2ab5d47a6c388fb46973739364d72f5df9b035875f765b7a6f79',
   ],
   [
     'setup/config-write.js',
@@ -817,14 +817,24 @@ const canonical: readonly (readonly [string, number, string])[] = [
     'dd21599c916733c327bca81c48372034a349a2840e50fac7d2d30b33668a1537',
   ],
   [
+    'setup/flags.d.ts',
+    1975,
+    '8475bfc500aaaae2ccc4f6d6a90be029911c88082e1f6fe646d9a02e24aecd3c',
+  ],
+  [
+    'setup/flags.js',
+    4610,
+    '6c424773289587568500e53a76e7a64074867bab6e97318ff9b619b93c694bfb',
+  ],
+  [
     'setup/index.d.ts',
-    970,
-    'f443b8d501334f8384878606ff19beee0241e70e7f4cc3dd0d0fd4636f8433c5',
+    1011,
+    '4a0f5a26bca035276077740d5fab9187000d15e575a6c195a0772d64d8c7e9f0',
   ],
   [
     'setup/index.js',
-    617,
-    '3ab259b0ba5e5e6d83ea9077adf11e2c561d4a7788710adbb6e8e0ed88dcd44b',
+    658,
+    '218409be186bc7e52d0606699502ccb272f024676018a1d1835a45573e2ea787',
   ],
   [
     'setup/paths.js',
@@ -858,8 +868,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'setup/types.d.ts',
-    5722,
-    'db068b3f2428734ad731c120443c7e5a432f5d568a8a61c21c7978855e613063',
+    6038,
+    'f4091b3f1f5018e9ac9b3da4329cb388302ef1c12c7c927fb43c631e1a0295f6',
   ],
   [
     'store/attribution.d.ts',
@@ -1154,7 +1164,7 @@ export function validatePublication(
     throw new Error('publication: license')
   if (
     sha256(`${[...entries.keys()].sort().join('\n')}\n`) !==
-    '7df67f61fcd36229e0626cafb161003f0311d08190a3bee3fdef4842c56e5b37'
+    '4ef4cfe6eebe9b7668fa4d33b35e39c2031364ce56cd9a6b3ebedb1d22b95c7a'
   )
     throw new Error('publication: inventory')
   for (const [path, bytes, hash] of canonical) {
@@ -1164,7 +1174,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '4e04a421f03417b815392c68aaa4c00e3f1ae4151647cf93b8c46e5266597e20'
+    '32516657e2da177df8ec1d5f8cb3a4d4aaf16729e11016af65412fda4c1e4267'
   )
     throw new Error('publication: manifest bytes')
 }
