@@ -730,12 +730,6 @@ The root `test` script first verifies embeddings and builds core, then prepares 
 
 These tests exercise source composition and deterministic seams. In particular, the V1 loader test models host auth persistence but does not execute OpenCode's native sign-in UI.
 
-### Standing mutation proofs
-
-Root `mutations.toml` pairs exact production breaks with exact named tests for silent, costly failures: leaking account identity, using a local credential during vault custody, serving a pool before offline migration, admitting retired Claude 4.6 requests, doing local quota work during vault custody or inventing a fresh quota observation time. The pinned `ckdev-mutate` runner checks anchors/test names, verifies each selected test passes unmutated, requires it to fail under the break, and restores the source bytes. Row commands rebuild core so tests importing emitted output observe core mutations; offline migration uses the root test script's public-consumer wrapper and owned temporary roots.
-
-CI's `mutations-pr` job replays rows selected by `--diff origin/main` on pull requests. `mutations-main` replays `--all` on main pushes and adds `--broad` on weekly schedule or manual dispatch. Both follow the test job, perform frozen dependency/private compiler preparation and a core build, and upload JSON replay reports. These proofs supplement rather than replace source, packed-consumer or native host gates. Windows-only migration sync access is not catalogued without a Linux-runnable behavioral catch; the existing `windows-migration.yml` workflow remains its platform gate.
-
 ### Dependency-injected E2E
 
 `bun run test:e2e` selects V1 plugin, CLI, RPC/menu, fetch-guard and mock-server tests under `packages/e2e-tests/src/`. `harness.ts` supplies loopback fetch/transport and owned filesystem roots; `setup.ts` installs a loopback-only `globalThis.fetch` guard and restores/cleans test state. This guard is an in-process fetch fence, not evidence that a spawned native host is network-contained.

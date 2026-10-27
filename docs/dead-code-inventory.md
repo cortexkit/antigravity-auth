@@ -54,11 +54,11 @@ The inventory step changes only this document, before any runtime deletion. Afte
 
 ## Mutation checks
 
-Review of the committed inventory (`ee29ddb2e457761c8b460ba5bdec79b8d257ae62`) approved removing the tests-only service and retired argument renderer, while keeping live projection, diagnostic capture and upgrade paths. Approval required the kept projection assertions to run directly and demonstrate their guards before the old service harness was removed. Those five tests were retargeted and passed (5 tests, 22 assertions), all ten projection controls listed in the catalogue then failed individually, and all five tests passed again after restoration. Only the 35 service-only tests and two retired-command tests were deleted; live dump and location-state tests were not changed.
+Review of the committed inventory (`ee29ddb2e457761c8b460ba5bdec79b8d257ae62`) approved removing the tests-only service and retired argument renderer, while keeping live projection, diagnostic capture and upgrade paths. Approval required the kept projection assertions to run directly and demonstrate their guards before the old service harness was removed. Those five tests were retargeted and passed (5 tests, 22 assertions), all ten projection controls listed below then failed individually, and all five tests passed again after restoration. Only the 35 service-only tests and two retired-command tests were deleted; live dump and location-state tests were not changed.
 
-The standing replay instructions and exact production anchors now live in the root [mutation catalogue](../mutations.toml). Its rows are checked and replayed by the pinned `ckdev-mutate` runner in CI: `mutations-pr` selects the PR diff, `mutations-main` replays all rows on main, and scheduled/manual runs add broad package coverage. Each row rebuilds imported core output and selects its exact named test; offline migration also uses the root test script's public-consumer wrapper.
+These controls were later kept as rows of a root mutation catalogue replayed in CI. That catalogue and its CI replay jobs have since been removed; git history keeps their exact production anchors and replay commands.
 
-The 14 controls recorded while removing the tests-only command service and retired dump renderer are retained under these catalogue IDs:
+The 14 controls recorded while removing the tests-only command service and retired dump renderer were:
 
 - `command-projection-ordinal-labels`
 - `command-projection-email-redaction`
@@ -75,7 +75,7 @@ The 14 controls recorded while removing the tests-only command service and retir
 - `pi-vault-placeholder-recognition`
 - `gemini-dump-project-redaction`
 
-The original isolated Linux checks reported **0 passing tests, 1 failing test** for each production mutation, with all other tests filtered rather than claimed as passing; the selected tests passed before mutation and after byte restoration. The cache-wiring break discarded canonical readings before normalization; the separate legacy-normalization break retained canonical readings but lost legacy non-Gemini keys. No OpenCode/Pi implementations were merged into core. The verification results below remain the historical cleanup results, not a claim that a later CI replay has completed.
+The original isolated Linux checks reported **0 passing tests, 1 failing test** for each production mutation, with all other tests filtered rather than claimed as passing; the selected tests passed before mutation and after byte restoration. The cache-wiring break discarded canonical readings before normalization; the separate legacy-normalization break retained canonical readings but lost legacy non-Gemini keys. No OpenCode/Pi implementations were merged into core. The verification results below remain the historical cleanup results, not a claim that any later replay has completed.
 
 ## Verification results
 
