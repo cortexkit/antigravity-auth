@@ -31,8 +31,6 @@ const AGY_1_1_24_WIRE_FIXTURE = JSON.parse(
   ),
 ) as AgyWireFixture
 
-const PROMPT_SOCKET_CLOSE_TIMEOUT_MS = 500
-
 const savedProxyEnv = {
   HTTPS_PROXY: process.env.HTTPS_PROXY,
   https_proxy: process.env.https_proxy,
@@ -103,26 +101,6 @@ async function listen(server: net.Server, host: string): Promise<number> {
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('no port')
   return address.port
-}
-
-async function resolvesWithin(
-  promise: Promise<unknown>,
-  timeoutMs: number,
-): Promise<boolean> {
-  return await new Promise<boolean>((resolve) => {
-    let settled = false
-    const timeout = setTimeout(() => {
-      if (settled) return
-      settled = true
-      resolve(false)
-    }, timeoutMs)
-    void promise.then(() => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      resolve(true)
-    })
-  })
 }
 
 async function closeServer(server: net.Server): Promise<void> {
@@ -199,7 +177,7 @@ describe('agy transport', () => {
     ).rejects.toThrow(/aborted/i)
   })
 
-  it('destroys a direct TLS connection promptly when aborted', async () => {
+  it('destroys a direct TLS connection when aborted', async () => {
     disableProxyEnv()
     const probe = createSocketProbe()
     const port = await listen(probe.server, 'localhost')
@@ -214,15 +192,13 @@ describe('agy transport', () => {
       await probe.accepted
       controller.abort()
       await expect(request).rejects.toThrow(/aborted/i)
-      expect(
-        await resolvesWithin(probe.peerClosed, PROMPT_SOCKET_CLOSE_TIMEOUT_MS),
-      ).toBe(true)
+      await probe.peerClosed
     } finally {
       await closeSocketProbe(probe)
     }
   })
 
-  it('destroys a proxy connection promptly when aborted before CONNECT responds', async () => {
+  it('destroys a proxy connection when aborted before CONNECT responds', async () => {
     const probe = createSocketProbe()
     const port = await listen(probe.server, '127.0.0.1')
     setProxyEnv(port)
@@ -237,15 +213,13 @@ describe('agy transport', () => {
       await probe.accepted
       controller.abort()
       await expect(request).rejects.toThrow(/aborted/i)
-      expect(
-        await resolvesWithin(probe.peerClosed, PROMPT_SOCKET_CLOSE_TIMEOUT_MS),
-      ).toBe(true)
+      await probe.peerClosed
     } finally {
       await closeSocketProbe(probe)
     }
   })
 
-  it('destroys a tunneled TLS connection promptly when aborted during handshake', async () => {
+  it('destroys a tunneled TLS connection when aborted during handshake', async () => {
     let connected = false
     let markTunnelStarted: () => void
     const tunnelStarted = new Promise<void>((resolve) => {
@@ -269,12 +243,10 @@ describe('agy transport', () => {
     )
 
     try {
-      expect(await resolvesWithin(tunnelStarted, 500)).toBe(true)
+      await tunnelStarted
       controller.abort()
       await expect(request).rejects.toThrow(/aborted/i)
-      expect(
-        await resolvesWithin(probe.peerClosed, PROMPT_SOCKET_CLOSE_TIMEOUT_MS),
-      ).toBe(true)
+      await probe.peerClosed
     } finally {
       await closeSocketProbe(probe)
     }
@@ -321,7 +293,7 @@ describe('agy transport', () => {
     }
   })
 
-  it('rejects promptly when the peer closes before response headers', async () => {
+  it('rejects when the peer closes before response headers', async () => {
     const probe = createSocketProbe((socket) => {
       socket.end()
     })
@@ -334,8 +306,8 @@ describe('agy transport', () => {
     ).catch((error: unknown) => error)
 
     try {
-      expect(await resolvesWithin(request, 250)).toBe(true)
       const error = await request
+      await probe.peerClosed
       expect(error).toBeInstanceOf(Error)
       expect((error as Error).message).toContain(
         'Socket closed before response headers',

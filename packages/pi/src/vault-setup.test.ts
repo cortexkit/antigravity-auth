@@ -303,15 +303,50 @@ const ACCOUNTS: PiVaultAccountChoice[] = [
   },
 ]
 
+/** Drain setup I/O and its continuations, leaving only explicitly held poll sleeps. */
+function watchWork(setup: PiVaultSetup) {
+  const pending = new Set<Promise<unknown>>()
+  let started = 0
+  let connectEntries = 0
+  async function track<T>(operation: () => Promise<T>): Promise<T> {
+    started++
+    const work = operation()
+    pending.add(work)
+    try {
+      return await work
+    } finally {
+      pending.delete(work)
+    }
+  }
+  const connect = setup.connectStep.bind(setup)
+  const status = setup.sourceStatus.bind(setup)
+  setup.connectStep = () => {
+    connectEntries++
+    return track(connect)
+  }
+  setup.sourceStatus = () => track(status)
+  const drain = async () => {
+    let before: number
+    do {
+      before = started
+      await Promise.all([...pending])
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    } while (pending.size > 0 || started !== before)
+  }
+  return Object.assign(drain, { entries: () => connectEntries })
+}
+
 function invocation() {
+  const delivered = Promise.withResolvers<void>()
   const notices: { message: string; kind?: string }[] = []
   const value: CommandInvocation = {
     sessionId: 'session-1',
     notify: (message, kind) => {
       notices.push({ message, ...(kind && { kind }) })
+      delivered.resolve()
     },
   }
-  return { value, notices }
+  return { value, notices, delivered: delivered.promise }
 }
 
 async function build(section: PluginExtraSection) {
@@ -335,6 +370,7 @@ describe('Pi vault menu section', () => {
   it('offers only request access before enrollment and reports the approval later', async () => {
     const endpoint = enrollmentEndpoint(['pending', 'approved'])
     const setup = makeSetup(endpoint)
+    const drain = watchWork(setup)
     const section = createPiVaultSection({
       setup: async () => setup,
       wait: { pollIntervalMs: 0, sleep: async () => {} },
@@ -353,7 +389,8 @@ describe('Pi vault menu section', () => {
         invocation: call.value,
       }),
     ).toMatchObject({ ok: true })
-    for (let i = 0; i < 20 && call.notices.length === 0; i++) await Bun.sleep(1)
+    await call.delivered
+    await drain()
     expect(call.notices.at(-1)).toEqual({
       message: APPROVED,
       kind: 'info',
@@ -589,10 +626,9 @@ function heldSleep() {
 }
 
 /**
- * Let background work run until `until` holds or `ms` pass. A check that
- * something does NOT happen waits out the whole period.
+ * Bound positive notification observations in tests that do not hold poll sleeps.
  */
-async function settle(until: () => boolean = () => false, ms = 300) {
+async function settle(until: () => boolean, ms: number) {
   const deadline = Date.now() + ms
   while (!until() && Date.now() < deadline) await Bun.sleep(2)
 }
@@ -605,6 +641,7 @@ describe('Pi vault enrollment guidance', () => {
     const endpoint = vaultEndpoint()
     const setup = makeSetup(endpoint)
     const held = heldSleep()
+    const drain = watchWork(setup)
     const section = createPiVaultSection({
       setup: async () => setup,
       wait: { pollIntervalMs: 0, sleep: held.sleep },
@@ -636,19 +673,22 @@ describe('Pi vault enrollment guidance', () => {
 
     // Asking again while the first request is watched starts no second
     // watch, so the operator's decision is reported once.
-    await settle(() => held.waiting() > 0, EXPECTED_MS)
+    await drain()
+    expect(held.waiting()).toBe(1)
+    expect(drain.entries()).toBe(2)
     await action(content, 'request-access').run({
       values: {},
       invocation: call.value,
     })
-    await settle(() => held.waiting() > 1)
+    await drain()
+    expect(held.waiting()).toBe(1)
+    expect(drain.entries()).toBe(3)
     endpoint.answers.poll = 'approved'
     held.release()
-    await settle(() => call.notices.length > 0, EXPECTED_MS)
-    // A second watch, had one started, may have found the first holding
-    // the enrollment lock and gone back to sleep: wake it too.
-    held.release()
-    await settle(() => call.notices.length > 1)
+    await call.delivered
+    await drain()
+    expect(drain.entries()).toBe(4)
+    expect(held.waiting()).toBe(0)
     expect(call.notices).toEqual([{ message: APPROVED, kind: 'info' }])
   })
 
@@ -837,6 +877,7 @@ describe('Pi vault enrollment guidance', () => {
     const endpoint = vaultEndpoint()
     endpoint.answers.refuse = { code: 'pending_exists', retry: false }
     const setup = makeSetup(endpoint)
+    const drain = watchWork(setup)
     const section = createPiVaultSection({
       setup: async () => setup,
       wait: { pollIntervalMs: 0, sleep: async () => {} },
@@ -851,7 +892,7 @@ describe('Pi vault enrollment guidance', () => {
       ok: false,
       text: [PENDING_EXISTS_STATE, ...PENDING_EXISTS].join('\n'),
     })
-    await settle()
+    await drain()
     expect(call.notices).toEqual([])
 
     const content = await build(section)
@@ -886,6 +927,7 @@ describe('Pi vault enrollment guidance', () => {
       connectEnrollment: endpoint.connect,
     })
     const held = heldSleep()
+    const drain = watchWork(setup)
     const section = createPiVaultSection({
       setup: async () => setup,
       wait: { pollIntervalMs: 0, sleep: held.sleep },
@@ -895,18 +937,17 @@ describe('Pi vault enrollment guidance', () => {
       values: {},
       invocation: call.value,
     })
-    await settle(() => held.waiting() > 0, EXPECTED_MS)
+    await drain()
+    expect(held.waiting()).toBe(1)
 
     // Pi's request secret is deleted while the vault still holds the
     // request, so any new proposal is refused until that request goes.
     await setup.disconnect()
     endpoint.answers.refuse = { code: 'pending_exists', retry: false }
     held.release()
-    await settle(
-      () => setup.idleReads > 0 || endpoint.calls.proposals > 1,
-      EXPECTED_MS,
-    )
-    await settle(() => call.notices.length > 0)
+    await drain()
+    expect(setup.idleReads).toBeGreaterThan(0)
+    expect(held.waiting()).toBe(0)
     expect(endpoint.calls.proposals).toBe(1)
     expect(call.notices).toEqual([])
 
@@ -920,7 +961,7 @@ describe('Pi vault enrollment guidance', () => {
       ok: false,
       text: [PENDING_EXISTS_STATE, ...PENDING_EXISTS].join('\n'),
     })
-    await settle()
+    await drain()
     expect([...call.notices, ...retry.notices]).toEqual([])
   })
 })

@@ -270,7 +270,9 @@ describe('core AccountManager', () => {
     manager.removeAccountByIndex(0)
     await manager.saveToDiskReplace()
     expect(memory.mutations()).toBe(1)
-    expect(memory.state()?.accounts).toHaveLength(1)
+    expect(
+      memory.state()?.accounts.map((account) => account.refreshToken),
+    ).toEqual(['r2'])
   })
 
   it('persists and restores the cachedQuotaAccountId stamp across save→loadFromDisk', async () => {

@@ -200,6 +200,7 @@ async function runStream(
   sessionId: string,
   onAbort?: () => void,
   reasoning?: ThinkingLevel,
+  signal?: AbortSignal,
 ) {
   fetchWithAgyCliTransportMock.mockImplementationOnce(
     async (
@@ -219,6 +220,7 @@ async function runStream(
       apiKey: 'test-token',
       sessionId,
       reasoning,
+      signal,
     }),
   )
 }
@@ -1079,15 +1081,13 @@ describe('convertGeminiToolCallPart', () => {
     expect(toolCall?.id).toMatch(/^call_[0-9a-f-]{36}$/)
   })
 
-  it('carries a preceding thought signature onto the next function call', () => {
+  it.each([
+    { text: '', thought: true, thoughtSignature: 'SIG123' },
+    { thought: true, thoughtSignature: 'SIG123' },
+  ])('carries a preceding thought signature onto only the next function call (%j)', (part) => {
     const state = {}
 
-    expect(
-      convertGeminiToolCallPart(
-        { text: '', thought: true, thoughtSignature: 'SIG123' },
-        state,
-      ),
-    ).toBeUndefined()
+    expect(convertGeminiToolCallPart(part, state)).toBeUndefined()
 
     expect(
       convertGeminiToolCallPart(
@@ -1107,26 +1107,6 @@ describe('convertGeminiToolCallPart', () => {
         state,
       ),
     ).not.toHaveProperty('thoughtSignature')
-  })
-
-  it('attaches a parallel batch signature only to the first function call', () => {
-    const state = {}
-
-    convertGeminiToolCallPart(
-      { thought: true, thoughtSignature: 'SIG1' },
-      state,
-    )
-    const first = convertGeminiToolCallPart(
-      { functionCall: { name: 'read', args: {}, id: 'c1' } },
-      state,
-    )
-    const second = convertGeminiToolCallPart(
-      { functionCall: { name: 'grep', args: {}, id: 'c2' } },
-      state,
-    )
-
-    expect(first?.thoughtSignature).toBe('SIG1')
-    expect(second).not.toHaveProperty('thoughtSignature')
   })
 })
 
@@ -1443,18 +1423,67 @@ describe('streamCortexKitAntigravity', () => {
   })
 
   it('finishes a GPT turn when trailing usage never arrives', async () => {
+    const armed = Promise.withResolvers<void>()
+    const deadline: {
+      fire?: () => void
+      handle?: ReturnType<typeof setTimeout>
+    } = {}
+    const clear = spyOn(globalThis, 'clearTimeout')
+    const realTimeout = globalThis.setTimeout
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: () => void,
+      ms?: number,
+      ...args: unknown[]
+    ) => {
+      if (ms === 1_000) {
+        deadline.fire = callback
+        deadline.handle = realTimeout(() => {}, 60_000)
+        deadline.handle.unref()
+        armed.resolve()
+        return deadline.handle
+      }
+      return realTimeout(callback, ms, ...args)
+    }) as typeof setTimeout)
     const stalled = stalledSseResponse(
       'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}]}}\n\n',
     )
-    const { result } = await runStream(
-      fakeModel('antigravity-gpt-oss-120b-medium'),
-      stalled.response,
-      'gpt-missing-trailing-usage',
-      stalled.abort,
-    )
+    let finished = false
+    let aborted = false
+    const caller = new AbortController()
+    const listeners = observeCallerListeners(caller.signal)
+    try {
+      const pending = runStream(
+        fakeModel('antigravity-gpt-oss-120b-medium'),
+        stalled.response,
+        'gpt-missing-trailing-usage',
+        () => {
+          aborted = true
+          stalled.abort()
+        },
+        undefined,
+        caller.signal,
+      ).then((result) => {
+        finished = true
+        return result
+      })
+      await armed.promise
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(finished).toBe(false)
+      expect(aborted).toBe(false)
+      deadline.fire?.()
+      const { result } = await pending
+      expect(result.stopReason).toBe('stop')
+      expect(result.content).toEqual([{ type: 'text', text: 'answer' }])
 
-    expect(result.stopReason).toBe('stop')
-    expect(result.content).toEqual([{ type: 'text', text: 'answer' }])
+      expect(aborted).toBe(true)
+      expect(listeners.size).toBe(0)
+      expect(stalled.response.body!.locked).toBe(false)
+      expect(clear).toHaveBeenCalledWith(deadline.handle)
+    } finally {
+      if (deadline.handle) clearTimeout(deadline.handle)
+      clear.mockRestore()
+      timer.mockRestore()
+    }
   })
 })
 
@@ -1642,14 +1671,6 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
       if (response?.ok && response.body)
         expect(response.body.locked).toBe(false)
     }
-  })
-
-  it('documents the stock text consumer retaining a completed body lock', async () => {
-    const response = new Response('upstream failure', { status: 503 })
-    expect(await response.text()).toBe('upstream failure')
-    expect(response.bodyUsed).toBe(true)
-    // A consumed string-backed body can stay locked despite having no source IO.
-    expect(response.body!.locked).toBe(true)
   })
 
   it('preserves a fully consumed string-backed HTTP error despite its stock body lock', async () => {

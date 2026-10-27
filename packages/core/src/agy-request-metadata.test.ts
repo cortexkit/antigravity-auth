@@ -193,7 +193,39 @@ describe('agy request metadata', () => {
   })
 
   it('matches every captured agy model enum fixture', () => {
-    for (const fixture of MODEL_METADATA_FIXTURES) {
+    const expectedKeys = [
+      [
+        'gemini-3.5-flash-extra-low',
+        'gemini-3.5-flash-low',
+        'gemini-3-flash-agent',
+        'gemini-3.1-pro-low',
+        'gemini-pro-agent',
+        'claude-sonnet-4-6',
+        'claude-opus-4-6-thinking',
+        'gemini-3.1-flash-image',
+        'gpt-oss-120b-medium',
+      ],
+      [
+        'gemini-3.6-flash-low',
+        'gemini-3.6-flash-medium',
+        'gemini-3.6-flash-high',
+      ],
+      [
+        'gemini-3.7-flash-low',
+        'gemini-3.7-flash-medium',
+        'gemini-3.7-flash-high',
+      ],
+      [
+        'gemini-3.8-flash-low',
+        'gemini-3.8-flash-medium',
+        'gemini-3.8-flash-high',
+      ],
+    ]
+    expect(MODEL_METADATA_FIXTURES).toHaveLength(4)
+    for (const [index, fixture] of MODEL_METADATA_FIXTURES.entries()) {
+      expect(Object.keys(fixture.models).sort()).toEqual(
+        expectedKeys[index]!.sort(),
+      )
       for (const [model, expected] of Object.entries(fixture.models)) {
         expect(getAgyModelEnum(model), model).toBe(expected.modelEnum)
       }

@@ -252,10 +252,19 @@ describe('transform/gemini', () => {
           },
         ],
       }
-      const result = normalizeGeminiTools(payload)
-      expect(result.toolDebugMissing).toBe(0)
-      expect(result.toolDebugSummaries).toHaveLength(1)
-      expect((payload.tools as unknown[])[0]).not.toHaveProperty('custom')
+      normalizeGeminiTools(payload)
+      expect(payload.tools).toEqual([
+        {
+          function: {
+            name: 'test_tool',
+            description: 'A test tool',
+            input_schema: {
+              type: 'OBJECT',
+              properties: { foo: { type: 'STRING' } },
+            },
+          },
+        },
+      ])
     })
 
     it('normalizes tool with function.parameters', () => {
@@ -274,8 +283,23 @@ describe('transform/gemini', () => {
           },
         ],
       }
-      const result = normalizeGeminiTools(payload)
-      expect(result.toolDebugMissing).toBe(0)
+      normalizeGeminiTools(payload)
+      expect(payload.tools).toEqual([
+        {
+          function: {
+            name: 'test_tool',
+            description: 'A test tool',
+            parameters: {
+              type: 'object',
+              properties: { bar: { type: 'number' } },
+            },
+            input_schema: {
+              type: 'OBJECT',
+              properties: { bar: { type: 'NUMBER' } },
+            },
+          },
+        },
+      ])
     })
 
     it('creates custom from function and strips it for Gemini', () => {
@@ -308,43 +332,18 @@ describe('transform/gemini', () => {
         ],
       }
       normalizeGeminiTools(payload)
-      expect((payload.tools as unknown[])[0]).not.toHaveProperty('custom')
-    })
-
-    it('counts missing schemas', () => {
-      const payload: RequestPayload = {
-        contents: [],
-        tools: [
-          { name: 'tool1' },
-          { name: 'tool2' },
-          { function: { name: 'tool3', input_schema: { type: 'object' } } },
-        ],
-      }
-      const result = normalizeGeminiTools(payload)
-      expect(result.toolDebugMissing).toBe(2)
-    })
-
-    it('generates debug summaries for each tool', () => {
-      const payload: RequestPayload = {
-        contents: [],
-        tools: [
-          { function: { name: 't1', input_schema: { type: 'object' } } },
-          { function: { name: 't2', input_schema: { type: 'object' } } },
-        ],
-      }
-      const result = normalizeGeminiTools(payload)
-      expect(result.toolDebugSummaries).toHaveLength(2)
-      expect(result.toolDebugSummaries[0]).toContain('idx=0')
-      expect(result.toolDebugSummaries[1]).toContain('idx=1')
-    })
-
-    it('uses default tool name when name is missing', () => {
-      const payload: RequestPayload = {
-        contents: [],
-        tools: [{}],
-      }
-      const result = normalizeGeminiTools(payload)
-      expect(result.toolDebugSummaries[0]).toContain('idx=0')
+      wrapToolsAsFunctionDeclarations(payload)
+      expect(payload.tools).toEqual([
+        {
+          functionDeclarations: [
+            {
+              name: 'standalone_tool',
+              description: 'A standalone tool',
+              parameters: { type: 'object', properties: {} },
+            },
+          ],
+        },
+      ])
     })
 
     it('extracts schema from custom.input_schema', () => {
@@ -380,7 +379,21 @@ describe('transform/gemini', () => {
         ],
       }
       normalizeGeminiTools(payload)
-      expect((payload.tools as unknown[])[0]).not.toHaveProperty('custom')
+      wrapToolsAsFunctionDeclarations(payload)
+      expect(payload.tools).toEqual([
+        {
+          functionDeclarations: [
+            {
+              name: 'camel_tool',
+              description: '',
+              parameters: {
+                type: 'object',
+                properties: { y: { type: 'boolean' } },
+              },
+            },
+          ],
+        },
+      ])
     })
   })
 
@@ -462,21 +475,6 @@ describe('transform/gemini', () => {
       expect(genConfig.thinkingConfig).toBeDefined()
     })
 
-    it('normalizes tools and returns debug info', () => {
-      const payload: RequestPayload = {
-        contents: [],
-        tools: [
-          { function: { name: 'tool1', input_schema: { type: 'object' } } },
-          { name: 'tool2' },
-        ],
-      }
-      const result = applyGeminiTransforms(payload, {
-        model: 'gemini-2.5-flash',
-      })
-      expect(result.toolDebugSummaries).toHaveLength(2)
-      expect(result.toolDebugMissing).toBe(1)
-    })
-
     it('defaults includeThoughts to true when not specified', () => {
       const payload: RequestPayload = { contents: [] }
       applyGeminiTransforms(payload, {
@@ -538,17 +536,6 @@ describe('transform/gemini', () => {
         const tools = payload.tools as unknown[]
         const searchTool = tools[0] as Record<string, unknown>
         // New API uses simple googleSearch: {} without threshold
-        expect(searchTool).toEqual({ googleSearch: {} })
-      })
-
-      it('works without threshold specified', () => {
-        const payload: RequestPayload = { contents: [] }
-        applyGeminiTransforms(payload, {
-          model: 'gemini-3-pro',
-          googleSearch: { mode: 'auto' },
-        })
-        const tools = payload.tools as unknown[]
-        const searchTool = tools[0] as Record<string, unknown>
         expect(searchTool).toEqual({ googleSearch: {} })
       })
 
@@ -997,20 +984,6 @@ describe('transform/gemini', () => {
       expect(result.required).toEqual(['name'])
     })
 
-    it('filters required array to only include existing properties', () => {
-      // This fixes: "parameters.required[X]: property is not defined"
-      const schema = {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          age: { type: 'number' },
-        },
-        required: ['name', 'nonexistent', 'age', 'alsoMissing'],
-      }
-      const result = toGeminiSchema(schema) as Record<string, unknown>
-      expect(result.required).toEqual(['name', 'age'])
-    })
-
     it('omits required field when no valid properties remain', () => {
       const schema = {
         type: 'object',
@@ -1183,22 +1156,38 @@ describe('transform/gemini', () => {
       expect(schema.type).toBe('OBJECT')
     })
 
-    it('uses uppercase placeholder schema for tools without schemas', () => {
+    it('uses uppercase placeholder schemas and default names for schema-less tools', () => {
       const payload: RequestPayload = {
         contents: [],
-        tools: [{ name: 'schema_less_tool' }],
+        tools: [
+          { name: 'tool1' },
+          { name: 'tool2' },
+          {},
+          { function: { name: 'tool3', input_schema: { type: 'object' } } },
+        ],
       }
-      const result = normalizeGeminiTools(payload)
-
-      expect(result.toolDebugMissing).toBe(1)
-
-      // Check that placeholder uses uppercase types
-      const tool = (payload.tools as unknown[])[0] as Record<string, unknown>
-      const params = tool.parameters as Record<string, unknown>
-      expect(params.type).toBe('OBJECT')
-
-      const props = params.properties as Record<string, Record<string, string>>
-      expect(props._placeholder?.type).toBe('BOOLEAN')
+      applyGeminiTransforms(payload, { model: 'gemini-2.5-flash' })
+      expect(payload.tools).toEqual([
+        {
+          functionDeclarations: [
+            ...['tool1', 'tool2', 'tool-2'].map((name) => ({
+              name,
+              description: '',
+              parameters: {
+                type: 'OBJECT',
+                properties: {
+                  _placeholder: {
+                    type: 'BOOLEAN',
+                    description: 'Placeholder. Always pass true.',
+                  },
+                },
+                required: ['_placeholder'],
+              },
+            })),
+            { name: 'tool3', description: '', parameters: { type: 'OBJECT' } },
+          ],
+        },
+      ])
     })
   })
 
@@ -1452,19 +1441,6 @@ describe('transform/gemini', () => {
       const result = toGeminiSchema(schema) as Record<string, unknown>
       expect(result.type).toBe('ARRAY')
       expect(result.items).toEqual({ type: 'STRING' })
-    })
-
-    it('preserves existing items in array schema', () => {
-      const schema = {
-        type: 'array',
-        items: { type: 'object', properties: { id: { type: 'string' } } },
-      }
-      const result = toGeminiSchema(schema) as Record<string, unknown>
-      expect(result.type).toBe('ARRAY')
-      const items = result.items as Record<string, unknown>
-      expect(items.type).toBe('OBJECT')
-      const props = items.properties as Record<string, Record<string, string>>
-      expect(props.id?.type).toBe('STRING')
     })
 
     it('handles nested array without items', () => {

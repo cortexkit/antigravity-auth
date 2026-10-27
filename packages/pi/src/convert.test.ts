@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  type AssistantMessage,
   type Context,
   normalizeContext,
   type SystemMessage,
@@ -11,6 +12,27 @@ import { buildGeminiRequest } from './convert.ts'
 
 function ctx(partial: Partial<Context>): Context {
   return { messages: [], ...partial }
+}
+
+function assistant(
+  fields: Pick<
+    AssistantMessage,
+    'content' | 'api' | 'provider' | 'model' | 'stopReason'
+  >,
+): AssistantMessage {
+  return {
+    role: 'assistant',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    timestamp: 0,
+    ...fields,
+  }
 }
 
 describe('buildGeminiRequest', () => {
@@ -34,8 +56,7 @@ describe('buildGeminiRequest', () => {
     const request = buildGeminiRequest(
       ctx({
         messages: [
-          {
-            role: 'assistant',
+          assistant({
             content: [
               { type: 'text', text: 'thinking out loud' },
               {
@@ -48,23 +69,8 @@ describe('buildGeminiRequest', () => {
             api: 'google-generative-ai',
             provider: 'google',
             model: 'antigravity-gemini-3.5-flash',
-            usage: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 0,
-              cost: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                total: 0,
-              },
-            },
             stopReason: 'toolUse',
-            timestamp: 0,
-          },
+          }),
         ],
       }),
     )
@@ -83,8 +89,7 @@ describe('buildGeminiRequest', () => {
     const request = buildGeminiRequest(
       ctx({
         messages: [
-          {
-            role: 'assistant',
+          assistant({
             content: [
               {
                 type: 'toolCall',
@@ -97,23 +102,8 @@ describe('buildGeminiRequest', () => {
             api: 'google-generative-ai',
             provider: 'google',
             model: 'antigravity-gemini-3.5-flash',
-            usage: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 0,
-              cost: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                total: 0,
-              },
-            },
             stopReason: 'toolUse',
-            timestamp: 0,
-          },
+          }),
         ],
       }),
     )
@@ -127,8 +117,7 @@ describe('buildGeminiRequest', () => {
     const request = buildGeminiRequest(
       ctx({
         messages: [
-          {
-            role: 'assistant',
+          assistant({
             content: [
               { type: 'thinking', thinking: 'reasoning' },
               { type: 'text', text: 'answer', textSignature: 'SIG123' },
@@ -136,23 +125,8 @@ describe('buildGeminiRequest', () => {
             api: 'google-generative-ai',
             provider: 'google',
             model: 'antigravity-claude-opus-4-6-thinking',
-            usage: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 0,
-              cost: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                total: 0,
-              },
-            },
             stopReason: 'stop',
-            timestamp: 0,
-          },
+          }),
         ],
       }),
       {
@@ -176,8 +150,7 @@ describe('buildGeminiRequest', () => {
     const request = buildGeminiRequest(
       ctx({
         messages: [
-          {
-            role: 'assistant',
+          assistant({
             content: [
               { type: 'thinking', thinking: 'claude reasoning' },
               { type: 'text', text: 'before tool', textSignature: 'TEXT_SIG' },
@@ -192,23 +165,8 @@ describe('buildGeminiRequest', () => {
             api: 'google-generative-ai',
             provider: 'google',
             model: 'antigravity-claude-opus-4-6-thinking',
-            usage: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 0,
-              cost: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                total: 0,
-              },
-            },
             stopReason: 'toolUse',
-            timestamp: 0,
-          },
+          }),
           {
             role: 'toolResult',
             toolCallId: 'c1',
@@ -298,8 +256,7 @@ describe('buildGeminiRequest', () => {
     const request = buildGeminiRequest(
       ctx({
         messages: [
-          {
-            role: 'assistant',
+          assistant({
             content: [
               {
                 type: 'toolCall',
@@ -317,23 +274,8 @@ describe('buildGeminiRequest', () => {
             api: 'google-generative-ai',
             provider: 'google',
             model: 'antigravity-claude-opus-4-6-thinking',
-            usage: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 0,
-              cost: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                total: 0,
-              },
-            },
             stopReason: 'toolUse',
-            timestamp: 0,
-          },
+          }),
           {
             role: 'toolResult',
             toolCallId: 'c1',

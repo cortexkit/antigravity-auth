@@ -14,6 +14,26 @@ import {
 } from './model-registry.ts'
 import { resolveModelWithTier } from './transform/model-resolver.ts'
 
+const EXPECTED_NATIVE_IDS = [
+  'gemini-4-argon-low',
+  'gemini-4-argon-medium',
+  'gemini-4-argon-high',
+  'gemini-3.8-flash-high',
+  'gemini-3.8-flash-medium',
+  'gemini-3.8-flash-low',
+  'claude-opus-5-5-low',
+  'claude-opus-5-5-medium',
+  'claude-opus-5-5-high',
+  'claude-sonnet-5-5-low',
+  'claude-sonnet-5-5-medium',
+  'claude-sonnet-5-5-high',
+  'gpt-oss-120b-medium',
+  'gemini-3.5-flash-extra-low',
+  'gemini-3.5-flash-low',
+  'gemini-3-flash-agent',
+  'gemini-3.1-flash-image',
+].sort()
+
 const REQUIRED_PUBLIC_MODEL_FIELDS = [
   'id',
   'name',
@@ -143,7 +163,11 @@ describe('model registry', () => {
 
   it('pins supported metadata to the server map rather than CLI picker omissions', () => {
     expect(Object.keys(capturedCatalog.models)).toHaveLength(18)
-    for (const [id, metadata] of Object.entries(AGY_NATIVE_MODEL_DEFINITIONS)) {
+    expect(Object.keys(AGY_NATIVE_MODEL_DEFINITIONS).sort()).toEqual(
+      EXPECTED_NATIVE_IDS,
+    )
+    for (const id of EXPECTED_NATIVE_IDS) {
+      const metadata = AGY_NATIVE_MODEL_DEFINITIONS[id]!
       const observed = Object.entries(serverCatalog.models).find(
         ([key]) => key === id,
       )?.[1]
@@ -159,7 +183,10 @@ describe('model registry', () => {
   })
 
   it('keeps native IDs intact except the explicit grouped Gemini 3.5 effort selector', () => {
-    for (const id of Object.keys(AGY_NATIVE_MODEL_DEFINITIONS)) {
+    expect(Object.keys(AGY_NATIVE_MODEL_DEFINITIONS).sort()).toEqual(
+      EXPECTED_NATIVE_IDS,
+    )
+    for (const id of EXPECTED_NATIVE_IDS) {
       expect(resolveModelWithTier(id).actualModel).toBe(id)
       const publicWire =
         id === 'gemini-3.5-flash-low' ? 'gemini-3.5-flash-extra-low' : id

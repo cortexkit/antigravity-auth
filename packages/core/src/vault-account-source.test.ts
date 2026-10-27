@@ -198,13 +198,11 @@ const fakeFs: AntigravityVaultStateFs = {
 }
 
 let dir: string
-let hostSlot: unknown
 let custodyActive: boolean
 let errors: unknown[]
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'agy-vault-source-'))
-  hostSlot = 'placeholder'
   custodyActive = true
   errors = []
 })
@@ -472,23 +470,14 @@ describe('served 401 reporting', () => {
 })
 
 describe('custody and decline fencing', () => {
-  it('refuses before authorizing when custody is off, but leaves dormant local logins alone', async () => {
+  it('refuses before authorizing when custody is off', async () => {
     const h = harness()
     const src = source(h)
     const [ref] = src.routes()
     if (!ref) throw new Error('no route')
     custodyActive = false
     await expect(src.admit(ref)).rejects.toMatchObject({ kind: 'not-active' })
-    custodyActive = true
-    hostSlot = 'real-login'
     expect(h.authorized).toEqual([])
-    h.receipts.push(receipt(5))
-    await expect(src.admit(ref)).resolves.toMatchObject({
-      routeId: ref.routeId,
-      accountIdentity: ref.accountIdentity,
-    })
-    expect(h.authorized).toEqual([ref.routeId])
-    expect(hostSlot).toBe('real-login')
   })
 
   it('refuses a ref whose route was declined or rebound after selection', async () => {
@@ -591,21 +580,6 @@ describe('provider-state commits through the source', () => {
         metadata: { addedAt: 1, lastUsed: 2 },
       })),
     ).rejects.toMatchObject({ kind: 'identity-contradicted' })
-  })
-
-  it('commits only vault state while an independent local login remains unchanged', async () => {
-    const h = harness()
-    const src = source(h)
-    const [ref] = src.routes()
-    if (!ref) throw new Error('no route')
-    h.receipts.push(receipt(5), receipt(5))
-    const admission = await src.admit(ref)
-    hostSlot = 'real-login'
-    await src.commitState(src.attribution(admission), () => ({
-      metadata: { addedAt: 1, lastUsed: 2 },
-    }))
-    expect(h.authorized).toHaveLength(2)
-    expect(hostSlot).toBe('real-login')
   })
 })
 
@@ -750,11 +724,9 @@ describe('genuine public common-auth modules', () => {
       accountIdentity: ACCOUNT,
       label: 'A',
     }
-    hostSlot = { type: 'oauth', access: 'a', refresh: 'host-login', expires: 1 }
     await expect(src.admit(ref)).rejects.toMatchObject({
       kind: 'route-unavailable',
     })
-    hostSlot = claustrum.custodyPlaceholder('google')
     await expect(src.admit(ref)).rejects.toMatchObject({
       kind: 'route-unavailable',
     })
@@ -869,7 +841,6 @@ async function realSource(vault: LocalVault) {
       vault.closed++
     },
   }
-  hostSlot = claustrum.custodyPlaceholder('google')
   const rosterPath = join(dir, 'roster.json')
   const src = createAntigravityVaultAccountSource({
     claustrum,
@@ -1045,21 +1016,6 @@ describe('real public consumer with a local vault transport', () => {
       kind: 'route-unavailable',
     })
     expect(vault.gets).toEqual([])
-  })
-
-  it('uses the vault receipt without changing a dormant native login', async () => {
-    const vault = localVault()
-    vault.served.push(servedCredential(1))
-    const { src, ref } = await realSource(vault)
-    hostSlot = { type: 'oauth', access: 'a', refresh: 'host-login', expires: 1 }
-    const before = JSON.stringify(hostSlot)
-    await expect(src.admit(ref)).resolves.toMatchObject({
-      routeId: ref.routeId,
-      accountIdentity: ref.accountIdentity,
-      credentialId: ref.credentialId,
-    })
-    expect(vault.gets).toHaveLength(1)
-    expect(JSON.stringify(hostSlot)).toBe(before)
   })
 
   it('abandons a credential fetch when the caller aborts and never dispatches', async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test'
+import { describe, expect, it, mock, spyOn } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -28,6 +28,7 @@ import {
   PiVaultSetup,
 } from './vault-setup.ts'
 import type { PiVaultSeams } from './vault-source.ts'
+import * as vaultSource from './vault-source.ts'
 
 describe('Pi Antigravity model catalog', () => {
   it('exposes the live GPT-OSS route but not unsupported image-output chat models', async () => {
@@ -527,6 +528,27 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
 
 it('finishes an older slot synchronization before a mode change registers its provider', async () => {
   const fixture = await recoveryFixture()
+  const admitted = Promise.withResolvers<void>()
+  let armed = false
+  let readEntries = 0
+  let readsBeforeRequest = 0
+  const createRuntime = vaultSource.createPiVaultRuntime
+  const runtimeSpy = spyOn(
+    vaultSource,
+    'createPiVaultRuntime',
+  ).mockImplementation((readHostSlot, seams, changed) =>
+    createRuntime(
+      readHostSlot,
+      seams,
+      changed &&
+        ((record) => {
+          if (armed && record.mode === 'local') readsBeforeRequest = readEntries
+          const pending = changed(record)
+          if (armed && record.mode === 'local') admitted.resolve()
+          return pending
+        }),
+    ),
+  )
   try {
     await writeFile(
       fixture.modeFile,
@@ -569,6 +591,7 @@ it('finishes an older slot synchronization before a mode change registers its pr
           typeof fixture.claustrum.readClaustrumEnrollmentStatus
         >
       ) => {
+        readEntries++
         const status = await fixture.claustrum.readClaustrumEnrollmentStatus(
           ...args,
         )
@@ -630,18 +653,31 @@ it('finishes an older slot synchronization before a mode change registers its pr
       { modelRegistry: { refresh: () => {} } },
     )
     await held.promise
+    const registrationsBeforeRequest = registerProvider.mock.calls.length
+    const authBeforeRequest = await readFile(fixture.authPath, 'utf8')
+    armed = true
     const forgetting = forget.run({
       values: {},
       invocation: { sessionId: 'race', notify: () => {} },
     })
-    // Without ordering, the synchronization started by Forget's mode change
-    // restores the native login and registers the local provider while the
-    // session_start synchronization is still held.
-    for (let tick = 0; tick < 50 && !restored; tick++) await Bun.sleep(2)
-    release()
+    const finished = Promise.allSettled([sessionStart, forgetting])
+    try {
+      // The mode-change callback has queued its synchronization before acknowledging admission.
+      await admitted.promise
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(readEntries).toBe(readsBeforeRequest)
+      expect(restored).toBe(false)
+      expect(registerProvider.mock.calls).toHaveLength(
+        registrationsBeforeRequest,
+      )
+      expect(await readFile(fixture.authPath, 'utf8')).toBe(authBeforeRequest)
+    } finally {
+      release()
+      await finished
+    }
     // The held run may fail closed once it re-reads authority (Pi reports a
     // session_start failure without stopping); the Forget itself must succeed.
-    const [, forgot] = await Promise.allSettled([sessionStart, forgetting])
+    const [, forgot] = await finished
     expect(forgot.status).toBe('fulfilled')
 
     expect(restored).toBe(true)
@@ -656,6 +692,7 @@ it('finishes an older slot synchronization before a mode change registers its pr
     expect(last.oauth).toBeDefined()
     expect(await readFile(fixture.authPath, 'utf8')).toBe(NATIVE_AUTH)
   } finally {
+    runtimeSpy.mockRestore()
     await rm(fixture.directory, { recursive: true, force: true })
   }
 })
