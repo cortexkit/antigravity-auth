@@ -117,9 +117,59 @@ export function decodeAccountStorePointer(
     )
   return { schemaVersion: 1, id, directoryBasename: basename(paths.storeDir) }
 }
-async function readPointer(
+/**
+ * Schema 2 of the pointer: the store that this anchor published as
+ * generation `id` was moved to another anchor, and `relocatedTo` names the
+ * new anchor's pool-file path and the generation that holds the accounts
+ * now. It keeps the old generation's id and directory so that the old
+ * generation stays identified. Releases up to 3.0.15 decode the pointer
+ * strictly and refuse this one (`pointer has unknown fields`), so an older
+ * build never treats a moved store as "no accounts".
+ */
+export interface AccountStoreForward {
+  schemaVersion: 2
+  id: string
+  directoryBasename: string
+  relocatedTo: { legacyPath: string; id: string }
+}
+/** Decodes either pointer schema; schema 1 keeps `decodeAccountStorePointer`'s exact rules. */
+export function decodeAccountStorePointerRecord(
+  value: unknown,
   legacyPath: string,
-): Promise<AccountStorePointer | undefined> {
+): AccountStorePointer | AccountStoreForward {
+  if (object(value, 'pointer').schemaVersion !== 2)
+    return decodeAccountStorePointer(value, legacyPath)
+  const raw = exact(
+    value,
+    ['schemaVersion', 'id', 'directoryBasename', 'relocatedTo'],
+    'forward',
+  )
+  const id = text(raw.id, UUID, 'forward source generation')
+  const paths = generationPaths(legacyPath, id)
+  if (raw.directoryBasename !== basename(paths.storeDir))
+    throw new AccountMigrationError(
+      'forward directory basename differs from its derived generation',
+    )
+  const target = exact(raw.relocatedTo, ['legacyPath', 'id'], 'forward target')
+  if (typeof target.legacyPath !== 'string')
+    throw new AccountMigrationError('forward target path is invalid')
+  const targetId = text(target.id, UUID, 'forward target generation')
+  const targetPaths = generationPaths(target.legacyPath, targetId)
+  if (sameFilesystemPath(targetPaths.legacyPath, legacyPath))
+    throw new AccountMigrationError('forward names its own anchor')
+  return {
+    schemaVersion: 2,
+    id,
+    directoryBasename: basename(paths.storeDir),
+    relocatedTo: {
+      legacyPath: targetPaths.legacyPath,
+      id: targetId,
+    },
+  }
+}
+async function readPointerRecord(
+  legacyPath: string,
+): Promise<AccountStorePointer | AccountStoreForward | undefined> {
   const logical = resolveAccountStorePaths(legacyPath)
   if (await exists(logical.storeDir))
     throw new AccountMigrationError(
@@ -127,10 +177,100 @@ async function readPointer(
     )
   const path = accountStorePointerPath(legacyPath)
   if (!(await exists(path))) return undefined
-  return decodeAccountStorePointer(
+  return decodeAccountStorePointerRecord(
     jsonBytes(await secureRead(path)),
     legacyPath,
   )
+}
+/**
+ * The schema-1 pointer for operations that work on the generation published
+ * at this anchor. A forward refuses them: this build only reads a moved
+ * store (through `readAccountStoreBinding`) and never migrates, initializes,
+ * publishes over or writes beside one.
+ */
+async function readPointer(
+  legacyPath: string,
+): Promise<AccountStorePointer | undefined> {
+  const record = await readPointerRecord(legacyPath)
+  if (record?.schemaVersion === 2)
+    throw new AccountMigrationError(
+      `the account store moved to ${record.relocatedTo.legacyPath}; this operation does not follow a moved store`,
+    )
+  return record
+}
+/**
+ * The anchor a forward leads to. The new anchor's pointer must publish
+ * exactly the generation the forward names; anything else (no pointer, a
+ * different generation, a second forward) refuses, because binding there
+ * would either serve the wrong store or report "no accounts" and let a login
+ * create a second store.
+ */
+async function forwardTarget(
+  legacyPath: string,
+  forward: AccountStoreForward,
+): Promise<string> {
+  const target = forward.relocatedTo.legacyPath
+  const published = await readPointerRecord(target)
+  if (published?.schemaVersion !== 1 || published.id !== forward.relocatedTo.id)
+    throw new AccountMigrationError(
+      `the forwarding pointer ${accountStorePointerPath(legacyPath)} names generation ${forward.relocatedTo.id}, which ${accountStorePointerPath(target)} does not publish`,
+    )
+  return target
+}
+
+/** Where the account store for a pool-file anchor lives. */
+export interface AccountStoreAnchor {
+  /** The anchor whose schema-1 pointer publishes the store, or the caller's anchor when it holds no forward. */
+  legacyPath: string
+  /** The caller's anchor, when its forwarding pointer led to `legacyPath`. */
+  forwardedFrom?: string
+}
+export interface AccountStoreAnchorOptions {
+  /**
+   * Other places a pointer could exist for the same user (on Windows, the
+   * `%APPDATA%\opencode` folder beside the config folder). They are only
+   * checked, never chosen: picking the anchor is the caller's path
+   * resolution (`getStoragePath`). A pointer at the caller's anchor and at an
+   * alternative refuses, naming both.
+   */
+  alternatives?: readonly string[]
+  /** When set, a forward must lead exactly here; otherwise the resolver refuses, naming both. */
+  relocatedAnchor?: string
+}
+/**
+ * Resolves the caller's anchor to the one that holds the store: follows a
+ * schema-2 forward one step to the anchor it names, after checking that
+ * anchor still publishes the forwarded generation. Reads only; it writes
+ * nothing at either anchor.
+ */
+export async function resolveAccountStoreAnchor(
+  legacyPath: string,
+  options: AccountStoreAnchorOptions = {},
+): Promise<AccountStoreAnchor> {
+  resolveAccountStorePaths(legacyPath)
+  const pointer = accountStorePointerPath(legacyPath)
+  for (const alternative of options.alternatives ?? []) {
+    if (sameFilesystemPath(alternative, legacyPath)) continue
+    const other = accountStorePointerPath(alternative)
+    if ((await exists(pointer)) && (await exists(other)))
+      throw new AccountMigrationError(
+        `account store pointers exist at both ${pointer} and ${other}; refusing to choose between them`,
+      )
+  }
+  const record = await readPointerRecord(legacyPath)
+  if (record?.schemaVersion !== 2) return { legacyPath }
+  const named = record.relocatedTo.legacyPath
+  if (
+    options.relocatedAnchor !== undefined &&
+    !sameFilesystemPath(options.relocatedAnchor, named)
+  )
+    throw new AccountMigrationError(
+      `the forwarding pointer ${pointer} names ${named}, but this process keeps the account store at ${options.relocatedAnchor}`,
+    )
+  return {
+    legacyPath: await forwardTarget(legacyPath, record),
+    forwardedFrom: legacyPath,
+  }
 }
 export async function resolvePublishedAccountStorePaths(
   legacyPath: string,
@@ -636,12 +776,18 @@ export type AccountMigrationPhase = (typeof ACCOUNT_MIGRATION_PHASES)[number]
 /** ACCOUNT_MIGRATION_PHASES also supplies the allowed antigravityManagement.progress.step names for migration work. */
 export const ACCOUNT_MIGRATION_MANAGEMENT_STEPS = ACCOUNT_MIGRATION_PHASES
 export const ACCOUNT_STORE_GENERATION_SETTINGS_KEY = 'antigravityGeneration'
+/**
+ * Where a generation's accounts came from: a pool file (`file`), nothing
+ * (`absent`, a fresh installation), or another store generation
+ * (`generation`, a store moved to another anchor by copying its files).
+ */
+export type AccountMigrationSourceKind = 'file' | 'absent' | 'generation'
 export interface AccountStoreGeneration {
   schemaVersion: 1
   id: string
   legacyPath: string
   storeDir: string
-  sourceKind: 'file' | 'absent'
+  sourceKind: AccountMigrationSourceKind
   initialManifestSha256: string
 }
 /** Identifies the published journal UUID in pool settings; account refresh/add/remove/reorder must preserve this generation identity. */
@@ -663,7 +809,9 @@ export function decodeAccountStoreGeneration(
   if (
     raw.schemaVersion !== 1 ||
     typeof raw.legacyPath !== 'string' ||
-    (raw.sourceKind !== 'file' && raw.sourceKind !== 'absent')
+    (raw.sourceKind !== 'file' &&
+      raw.sourceKind !== 'absent' &&
+      raw.sourceKind !== 'generation')
   )
     throw new AccountMigrationError('generation schema is invalid')
   const id = text(raw.id, UUID, 'generation id')
@@ -706,6 +854,31 @@ export interface MigrationVerification {
     | 'windows-reopened-no-directory-power-loss-guarantee'
 }
 
+/** The active generation a moved store was copied from, as captured. */
+export interface MigrationRelocationSource {
+  /** The old anchor (pool-file path) whose pointer becomes the forward. */
+  legacyPath: string
+  /** The old generation's folder, derived from `legacyPath` and `journalId`. */
+  storeDir: string
+  /** The old generation's journal id, which is also its generation id. */
+  journalId: string
+  configSha256: string
+  stateSha256?: string
+  statePresent: boolean
+}
+/**
+ * Evidence of a store move (`sourceKind: 'generation'`): what was copied,
+ * the rows it held, and whether the old generation was already blocked by
+ * a management record (`sourceTombstoned`) and its pointer replaced by a
+ * forward to this generation (`sourceForwarded`).
+ */
+export interface MigrationRelocation {
+  source: MigrationRelocationSource
+  rows: string[]
+  sourceTombstoned: boolean
+  sourceForwarded: boolean
+}
+
 export interface MigrationRollback {
   id: string
   snapshotSha256: string
@@ -722,7 +895,7 @@ export interface AccountMigrationJournal {
   status: 'pending' | 'active' | 'inactive'
   operation: 'migrate' | 'rollback'
   phase: AccountMigrationPhase
-  sourceKind: 'file' | 'absent'
+  sourceKind: AccountMigrationSourceKind
   sourceSha256?: string
   captureSha256?: string
   sourceAbsenceVerified?: true
@@ -734,6 +907,7 @@ export interface AccountMigrationJournal {
   retiredSha256?: string
   rollback?: MigrationRollback
   cancelled?: true
+  relocation?: MigrationRelocation
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -834,6 +1008,7 @@ export function decodeAccountMigrationJournal(
       'retiredSha256',
       'rollback',
       'cancelled',
+      'relocation',
     ],
     'journal',
   )
@@ -857,14 +1032,20 @@ export function decodeAccountMigrationJournal(
   if (phase === undefined)
     throw new AccountMigrationError('journal phase is invalid')
   const sourceKind = raw.sourceKind
-  if (sourceKind !== 'file' && sourceKind !== 'absent')
+  if (
+    sourceKind !== 'file' &&
+    sourceKind !== 'absent' &&
+    sourceKind !== 'generation'
+  )
     throw new AccountMigrationError('journal source kind is invalid')
+  // A moved store keeps the same two hashes as a pool-file source: its
+  // snapshot of the old generation's files and its capture file.
   const sourceSha256 =
-    sourceKind === 'file'
+    sourceKind !== 'absent'
       ? text(raw.sourceSha256, SHA256, 'journal.sourceSha256')
       : undefined
   const captureSha256 =
-    sourceKind === 'file'
+    sourceKind !== 'absent'
       ? text(raw.captureSha256, SHA256, 'journal.captureSha256')
       : undefined
   if (sourceKind === 'absent' && Object.hasOwn(raw, 'captureSha256'))
@@ -900,7 +1081,7 @@ export function decodeAccountMigrationJournal(
     throw new AccountMigrationError('manifest source version is invalid')
   if (
     (sourceKind === 'file' && sourceVersion === null) ||
-    (sourceKind === 'absent' && sourceVersion !== null)
+    (sourceKind !== 'file' && sourceVersion !== null)
   )
     throw new AccountMigrationError('manifest version differs from source kind')
   if (!finite(m.normalizationClock) || !finite(m.effectiveActiveIndex))
@@ -954,6 +1135,19 @@ export function decodeAccountMigrationJournal(
   )
     throw new AccountMigrationError(
       'absent-source manifest must be explicitly empty with no invented cursors',
+    )
+  // A move copies the store's own files; its journal carries no rows and so
+  // no refresh token. The moved rows are listed in `relocation.rows`.
+  if (
+    sourceKind === 'generation' &&
+    (accounts.length ||
+      !isDeepStrictEqual(encodeRoutingSettings(manifest.routing), {
+        schemaVersion: 1,
+      }) ||
+      manifest.effectiveActiveIndex !== 0)
+  )
+    throw new AccountMigrationError(
+      'moved-store manifest must be explicitly empty',
     )
   const effective = accounts.length
     ? Math.max(
@@ -1039,6 +1233,50 @@ export function decodeAccountMigrationJournal(
     throw new AccountMigrationError(
       'retired bytes are not associated with source',
     )
+  const relocation = decodeRelocation(raw, sourceKind, paths.legacyPath)
+  if (sourceKind === 'generation') {
+    // The moved store's retirement is the forward at the old anchor, not a
+    // retired pool-file copy or a checked absence.
+    if (retiredSha256 !== undefined)
+      throw new AccountMigrationError(
+        'moved source cannot claim retired pool-file bytes',
+      )
+    if (relocation === undefined)
+      throw new AccountMigrationError(
+        'moved source lacks its relocation evidence',
+      )
+    if (operation === 'rollback')
+      throw new AccountMigrationError(
+        'a moved account store is not rolled back; move it back first with `antigravity-auth store relocate --back --offline`',
+      )
+    if (relocation.sourceForwarded && !relocation.sourceTombstoned)
+      throw new AccountMigrationError(
+        'source forward precedes its management tombstone',
+      )
+    if (
+      (relocation.sourceTombstoned || relocation.sourceForwarded) &&
+      (!verification || (phase !== 'retire' && phase !== 'activate'))
+    )
+      throw new AccountMigrationError(
+        'source tombstone or forward precedes durable verification',
+      )
+    if (status === 'active' && !relocation.sourceForwarded)
+      throw new AccountMigrationError(
+        'active moved store lacks its source forward',
+      )
+    if (phase === 'activate' && !relocation.sourceForwarded)
+      throw new AccountMigrationError(
+        'moved-store activation lacks its source forward',
+      )
+  }
+  // What retired the source: the retired pool-file copy, the checked
+  // absence of a pool file, or the forward that replaced the old pointer.
+  const retirementRecorded =
+    sourceKind === 'file'
+      ? retiredSha256 !== undefined
+      : sourceKind === 'absent'
+        ? raw.sourceAbsenceVerified === true
+        : relocation?.sourceForwarded === true
   let rollback: MigrationRollback | undefined
   if (Object.hasOwn(raw, 'rollback')) {
     const r = exact(
@@ -1100,13 +1338,7 @@ export function decodeAccountMigrationJournal(
     throw new AccountMigrationError(
       'retirement association precedes durable verification',
     )
-  if (
-    operation === 'migrate' &&
-    phase === 'activate' &&
-    (sourceKind === 'file'
-      ? retiredSha256 === undefined
-      : raw.sourceAbsenceVerified !== true)
-  )
+  if (operation === 'migrate' && phase === 'activate' && !retirementRecorded)
     throw new AccountMigrationError(
       'activation lacks its actual source retirement association',
     )
@@ -1114,9 +1346,7 @@ export function decodeAccountMigrationJournal(
     status === 'active' &&
     (operation !== 'migrate' ||
       phase !== 'activate' ||
-      (sourceKind === 'file'
-        ? retiredSha256 === undefined
-        : raw.sourceAbsenceVerified !== true) ||
+      !retirementRecorded ||
       rollback !== undefined ||
       cancelled)
   )
@@ -1128,10 +1358,7 @@ export function decodeAccountMigrationJournal(
   if (
     operation === 'rollback' &&
     !cancelled &&
-    (verification === undefined ||
-      (sourceKind === 'file'
-        ? retiredSha256 === undefined
-        : raw.sourceAbsenceVerified !== true))
+    (verification === undefined || !retirementRecorded)
   )
     throw new AccountMigrationError(
       'rollback lacks the original verified retirement',
@@ -1174,6 +1401,78 @@ export function decodeAccountMigrationJournal(
     ...(retiredSha256 === undefined ? {} : { retiredSha256 }),
     ...(rollback === undefined ? {} : { rollback }),
     ...(cancelled ? { cancelled: true } : {}),
+    ...(relocation === undefined ? {} : { relocation }),
+  }
+}
+
+/** Decodes `relocation`, which only a moved store's journal may carry. */
+function decodeRelocation(
+  raw: Record<string, unknown>,
+  sourceKind: AccountMigrationSourceKind,
+  legacyPath: string,
+): MigrationRelocation | undefined {
+  if (!Object.hasOwn(raw, 'relocation')) return undefined
+  if (sourceKind !== 'generation')
+    throw new AccountMigrationError(
+      'only a moved store records relocation evidence',
+    )
+  const r = exact(
+    raw.relocation,
+    ['source', 'rows', 'sourceTombstoned', 'sourceForwarded'],
+    'relocation',
+  )
+  const s = exact(
+    r.source,
+    [
+      'legacyPath',
+      'storeDir',
+      'journalId',
+      'configSha256',
+      'stateSha256',
+      'statePresent',
+    ],
+    'relocation source',
+  )
+  if (typeof s.legacyPath !== 'string')
+    throw new AccountMigrationError('relocation source path is invalid')
+  const journalId = text(s.journalId, UUID, 'relocation source journal')
+  const source = generationPaths(s.legacyPath, journalId)
+  if (s.storeDir !== source.storeDir)
+    throw new AccountMigrationError('relocation source association differs')
+  if (sameFilesystemPath(source.legacyPath, legacyPath))
+    throw new AccountMigrationError(
+      'relocation source and target share one anchor',
+    )
+  if (typeof s.statePresent !== 'boolean')
+    throw new AccountMigrationError('relocation state presence is invalid')
+  if (!s.statePresent && Object.hasOwn(s, 'stateSha256'))
+    throw new AccountMigrationError(
+      'absent source state cannot claim a file hash',
+    )
+  const rows = list(r.rows, 'relocation rows').map((id) =>
+    text(id, UUID, 'relocation row id'),
+  )
+  if (new Set(rows).size !== rows.length)
+    throw new AccountMigrationError('relocation rows are duplicated')
+  if (
+    typeof r.sourceTombstoned !== 'boolean' ||
+    typeof r.sourceForwarded !== 'boolean'
+  )
+    throw new AccountMigrationError('relocation progress flags are invalid')
+  return {
+    source: {
+      legacyPath: source.legacyPath,
+      storeDir: source.storeDir,
+      journalId,
+      configSha256: text(s.configSha256, SHA256, 'relocation config hash'),
+      ...(s.statePresent
+        ? { stateSha256: text(s.stateSha256, SHA256, 'relocation state hash') }
+        : {}),
+      statePresent: s.statePresent,
+    },
+    rows,
+    sourceTombstoned: r.sourceTombstoned,
+    sourceForwarded: r.sourceForwarded,
   }
 }
 
@@ -1191,7 +1490,7 @@ export interface AccountMigrationReceipt {
   status: 'active' | 'inactive'
   legacyPath: string
   storeDir: string
-  sourceKind: 'file' | 'absent'
+  sourceKind: AccountMigrationSourceKind
   durability: MigrationVerification['durability']
   restartRequired: boolean
 }
@@ -1661,6 +1960,8 @@ async function verifyCopies(
     throw new AccountMigrationError(
       'journal differs from its exclusive capture snapshot',
     )
+  if (journal.sourceKind === 'generation')
+    return verifyRelocationSnapshot(backup, journal)
   // Original backup JSON and the captured time reproduce the expected import.
   // Compare that value with the journal without changing its selected rows, clock,
   // source positions or UUID mapping.
@@ -1692,7 +1993,99 @@ function captureJson(journal: AccountMigrationJournal) {
     sourceSha256: journal.sourceSha256,
     manifest: manifestJson(journal.manifest),
     mapping: journal.mapping,
+    ...(journal.relocation === undefined
+      ? {}
+      : { relocation: { source: journal.relocation.source } }),
   }
+}
+/**
+ * The bytes a store move copied: the old generation's `config.json`,
+ * `state.json` (when it existed) and `migration.json`, base64-encoded. Its
+ * SHA-256 is the moved journal's `sourceSha256` and it is kept as
+ * `backups/<sourceSha256>.json` in the new generation.
+ */
+export interface RelocationSnapshot {
+  config: Buffer
+  state?: Buffer
+  journal: Buffer
+}
+function base64Bytes(value: unknown, path: string): Buffer {
+  if (typeof value !== 'string')
+    throw new AccountMigrationError(`${path} is invalid`)
+  const bytes = Buffer.from(value, 'base64')
+  // Only canonical base64 round-trips; anything else could hide extra bytes.
+  if (bytes.toString('base64') !== value)
+    throw new AccountMigrationError(`${path} is not canonical base64`)
+  return bytes
+}
+export function decodeRelocationSnapshot(value: unknown): RelocationSnapshot {
+  const raw = exact(value, ['config', 'state', 'journal'], 'moved snapshot')
+  return {
+    config: base64Bytes(raw.config, 'moved snapshot config'),
+    ...(Object.hasOwn(raw, 'state')
+      ? { state: base64Bytes(raw.state, 'moved snapshot state') }
+      : {}),
+    journal: base64Bytes(raw.journal, 'moved snapshot journal'),
+  }
+}
+/**
+ * Ties a moved store's source snapshot to its journal: the copied files hash
+ * to `relocation.source`, the copied journal is the active source generation
+ * it names, and the copied config carries that generation's own settings
+ * key. The live old generation is not compared: it gains a management
+ * tombstone after the copy, and it is no longer served.
+ *
+ * Binding a copy at another anchor is sound because the store's files hold
+ * no location. The common-auth "Store portability" contract (common-auth
+ * `docs/adoption-inventory.md` at 672f6265, pinned by its
+ * `test/store/store-portability.test.ts`) states that `config.json` and
+ * `state.json` record no path, folder or file identity, or host identity,
+ * and that a byte copy of both taken under the store's save locks opens
+ * elsewhere as the same pool. Lock and sidecar files are not part of that
+ * contract, and neither is any in-memory state kept by the process that
+ * opened the old files; nothing here relies on either.
+ */
+function verifyRelocationSnapshot(
+  backup: Buffer,
+  journal: AccountMigrationJournal,
+): void {
+  const source = journal.relocation?.source
+  if (source === undefined)
+    throw new AccountMigrationError(
+      'moved source lacks its relocation evidence',
+    )
+  const snapshot = decodeRelocationSnapshot(jsonBytes(backup))
+  if (
+    digest(snapshot.config) !== source.configSha256 ||
+    (snapshot.state !== undefined) !== source.statePresent ||
+    (snapshot.state !== undefined &&
+      digest(snapshot.state) !== source.stateSha256)
+  )
+    throw new AccountMigrationError(
+      'moved source snapshot differs from its recorded hashes',
+    )
+  const copied = decodeAccountMigrationJournal(jsonBytes(snapshot.journal))
+  if (
+    copied.id !== source.journalId ||
+    copied.legacyPath !== source.legacyPath ||
+    copied.storeDir !== source.storeDir ||
+    copied.status !== 'active'
+  )
+    throw new AccountMigrationError(
+      'moved source snapshot is not the active source generation',
+    )
+  const config = object(jsonBytes(snapshot.config), 'moved source config')
+  if (
+    !isDeepStrictEqual(
+      decodeAccountStoreGeneration(
+        config[ACCOUNT_STORE_GENERATION_SETTINGS_KEY],
+      ),
+      generationJson(copied),
+    )
+  )
+    throw new AccountMigrationError(
+      'moved source snapshot belongs to another generation',
+    )
 }
 async function synchronizedSnapshot(
   paths: AccountStorePaths,
@@ -1816,7 +2209,7 @@ function receipt(journal: AccountMigrationJournal): AccountMigrationReceipt {
     durability:
       journal.verification?.durability ?? accountMigrationDurability(),
     restartRequired:
-      journal.sourceKind === 'file' || journal.operation === 'rollback',
+      journal.sourceKind !== 'absent' || journal.operation === 'rollback',
   }
 }
 async function currentSuccessor(
@@ -2008,50 +2401,28 @@ export async function readAccountStoreBinding(
   expectedGeneration?: string,
 ): Promise<AccountStoreBinding> {
   try {
-    const paths = await resolvePublishedAccountStorePaths(legacyPath)
-    if (!paths)
-      return (await exists(legacyPath))
-        ? { status: 'pending' }
-        : { status: 'initialization-required' }
-    const journal = await readJournal(paths)
-    if (!journal)
-      throw new AccountMigrationError('published binding journal missing')
-    if (expectedGeneration !== undefined && journal.id !== expectedGeneration)
-      throw new AccountMigrationError(
-        'bound repository generation differs from pointer',
-      )
-    if (journal.status === 'pending')
-      return {
-        status: 'pending',
-        phase: journal.phase,
-        operation: journal.operation,
-      }
-    if (journal.status === 'inactive')
-      return { status: 'inactive', id: journal.id }
-    if (await exists(legacyPath))
-      throw new AccountMigrationError(
-        'legacy source was recreated after activation',
-      )
-    await verifyCopies(paths, journal, true)
-    const settings = await trustedCurrentGeneration(
-      openAdmissionStore(modules, paths, now),
-      paths,
-      journal,
-    )
-    const pending = settings[MANAGEMENT_SETTINGS_KEY]
-    if (pending !== undefined) {
-      const record = object(pending, 'repository management')
-      if (record.kind === 'migration')
-        return { status: 'pending', phase: 'activate', operation: 'migrate' }
-      if (record.kind !== 'clear' && record.kind !== 'replace-pool')
+    // A forward at this anchor leads one step to the anchor the store moved
+    // to; the bound paths are then the moved generation's own.
+    const record = await readPointerRecord(legacyPath)
+    if (record?.schemaVersion === 2) {
+      if (await exists(legacyPath))
         throw new AccountMigrationError(
-          'unknown management owner prevents binding',
+          `a pool file reappeared at ${legacyPath} after the account store moved to ${record.relocatedTo.legacyPath}`,
         )
-      // Ownership permits opening these physical paths. The repository must then
-      // validate and resume its own strict clear/replace journal; this binding
-      // neither validates that operation nor grants credential-serving readiness.
+      return await bindPublishedGeneration(
+        await forwardTarget(legacyPath, record),
+        modules,
+        now,
+        expectedGeneration,
+        legacyPath,
+      )
     }
-    return { status: 'bound', receipt: receipt(journal), paths }
+    return await bindPublishedGeneration(
+      legacyPath,
+      modules,
+      now,
+      expectedGeneration,
+    )
   } catch (error) {
     return {
       status: 'error',
@@ -2061,6 +2432,125 @@ export async function readAccountStoreBinding(
           : 'journal, backup or generation binding validation failed',
     }
   }
+}
+/**
+ * A moved generation binds only while the old anchor still forwards to
+ * exactly it. A pointer set back to schema 1 there, a missing forward, or a
+ * forward to another generation refuses: either store could then be the
+ * one a build writes to, and neither is chosen by age.
+ */
+async function assertSourceForwarded(
+  journal: AccountMigrationJournal,
+  forwardedFrom: string | undefined,
+): Promise<void> {
+  const source = journal.relocation?.source
+  if (source === undefined)
+    throw new AccountMigrationError(
+      'moved source lacks its relocation evidence',
+    )
+  const pointer = accountStorePointerPath(source.legacyPath)
+  if (forwardedFrom !== undefined && forwardedFrom !== source.legacyPath)
+    throw new AccountMigrationError(
+      `the forwarding pointer ${accountStorePointerPath(forwardedFrom)} leads to a store moved from ${source.legacyPath}`,
+    )
+  if (await exists(source.legacyPath))
+    throw new AccountMigrationError(
+      `a pool file reappeared at ${source.legacyPath} after the account store moved to ${journal.legacyPath}`,
+    )
+  const record = await readPointerRecord(source.legacyPath)
+  if (record === undefined)
+    throw new AccountMigrationError(
+      `the forwarding pointer ${pointer} to the moved account store at ${journal.storeDir} is missing; restore it`,
+    )
+  if (record.schemaVersion === 1)
+    throw new AccountMigrationError(
+      `the account store in ${dirname(source.legacyPath)} was reactivated: ${pointer} publishes generation ${record.id} while the moved store at ${journal.storeDir} is active; restore the forwarding pointer, or run \`antigravity-auth store relocate\``,
+    )
+  if (
+    record.id !== source.journalId ||
+    record.relocatedTo.legacyPath !== journal.legacyPath ||
+    record.relocatedTo.id !== journal.id
+  )
+    throw new AccountMigrationError(
+      `the forwarding pointer ${pointer} names another store than the moved account store at ${journal.storeDir}`,
+    )
+}
+async function bindPublishedGeneration(
+  legacyPath: string,
+  modules: AccountStoreAdmissionModules,
+  now: () => number,
+  expectedGeneration: string | undefined,
+  forwardedFrom?: string,
+): Promise<AccountStoreBinding> {
+  const paths = await resolvePublishedAccountStorePaths(legacyPath)
+  if (!paths) {
+    if (forwardedFrom !== undefined)
+      throw new AccountMigrationError(
+        'forwarded anchor publishes no generation',
+      )
+    return (await exists(legacyPath))
+      ? { status: 'pending' }
+      : { status: 'initialization-required' }
+  }
+  const journal = await readJournal(paths)
+  if (!journal)
+    throw new AccountMigrationError('published binding journal missing')
+  if (expectedGeneration !== undefined && journal.id !== expectedGeneration)
+    throw new AccountMigrationError(
+      'bound repository generation differs from pointer',
+    )
+  if (forwardedFrom !== undefined && journal.sourceKind !== 'generation')
+    throw new AccountMigrationError(
+      `the forwarding pointer ${accountStorePointerPath(forwardedFrom)} leads to a store that was not moved there`,
+    )
+  // An unfinished move is finished by the build that started it; this build
+  // neither resumes it nor serves either store meanwhile.
+  if (journal.sourceKind === 'generation' && journal.status === 'pending')
+    throw new AccountMigrationError(
+      `a move of the account store to ${journal.storeDir} is unfinished; finish it with the version that started it`,
+    )
+  if (journal.status === 'pending')
+    return {
+      status: 'pending',
+      phase: journal.phase,
+      operation: journal.operation,
+    }
+  if (journal.status === 'inactive')
+    return { status: 'inactive', id: journal.id }
+  if (await exists(legacyPath))
+    throw new AccountMigrationError(
+      'legacy source was recreated after activation',
+    )
+  await verifyCopies(paths, journal, true)
+  if (journal.sourceKind === 'generation')
+    await assertSourceForwarded(journal, forwardedFrom)
+  const settings = await trustedCurrentGeneration(
+    openAdmissionStore(modules, paths, now),
+    paths,
+    journal,
+  )
+  const pending = settings[MANAGEMENT_SETTINGS_KEY]
+  if (pending !== undefined) {
+    const record = object(pending, 'repository management')
+    // Only a store move writes a migration record owned by another
+    // generation: it blocks the old generation once the copy is taken.
+    // Reaching it here means this anchor's pointer was set back from the
+    // forward to the old generation.
+    if (record.kind === 'migration' && record.id !== journal.id)
+      throw new AccountMigrationError(
+        `the account store at ${paths.storeDir} was moved to generation ${String(record.id)}, but ${accountStorePointerPath(legacyPath)} publishes the old store again; restore the forwarding pointer, or run \`antigravity-auth store relocate\``,
+      )
+    if (record.kind === 'migration')
+      return { status: 'pending', phase: 'activate', operation: 'migrate' }
+    if (record.kind !== 'clear' && record.kind !== 'replace-pool')
+      throw new AccountMigrationError(
+        'unknown management owner prevents binding',
+      )
+    // Ownership permits opening these physical paths. The repository must then
+    // validate and resume its own strict clear/replace journal; this binding
+    // neither validates that operation nor grants credential-serving readiness.
+  }
+  return { status: 'bound', receipt: receipt(journal), paths }
 }
 /** Serving requires healthy current rows and no repository management work. Binding alone is insufficient. */
 export async function readAccountStoreAdmission(
@@ -2579,6 +3069,10 @@ export function createAccountMigrationFactory(
               throw new AccountMigrationError(
                 'published generation journal missing',
               )
+            if (existing.sourceKind === 'generation')
+              throw new AccountMigrationError(
+                'a moved account store is finished by `antigravity-auth store relocate`, not by migrate',
+              )
             if (existing.status === 'inactive') {
               previous = existing
               await modules.fs.withLock(
@@ -2903,6 +3397,13 @@ export function createAccountRollbackFactory(modules: AccountMigrationModules) {
       )
     try {
       return await withParentTopology(modules, options.legacyPath, async () => {
+        // A moved store is rolled back from its pool file only after it was
+        // moved back to this anchor; this build never does either.
+        const record = await readPointerRecord(options.legacyPath)
+        if (record?.schemaVersion === 2)
+          throw new AccountMigrationError(
+            `the account store moved to ${record.relocatedTo.legacyPath}; move it back with \`antigravity-auth store relocate --back --offline\` before rolling it back`,
+          )
         const paths = await resolvePublishedAccountStorePaths(
           options.legacyPath,
         )
@@ -2923,6 +3424,10 @@ export function createAccountRollbackFactory(modules: AccountMigrationModules) {
             if (!initialJournal)
               throw new AccountMigrationError(
                 'rollback requires an owned migration generation',
+              )
+            if (initialJournal.sourceKind === 'generation')
+              throw new AccountMigrationError(
+                `this account store was moved here from ${initialJournal.relocation?.source.legacyPath}; move it back with \`antigravity-auth store relocate --back --offline\` before rolling it back`,
               )
             let journal = initialJournal
             const store = openMigrationStore(
