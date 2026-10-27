@@ -667,12 +667,71 @@ describe('an approved vault enrollment and older versions', () => {
     )
   })
 
-  it('a modified leftover refuses', async () => {
+  it('accepts a leftover an older version rewrote to blocked missing_token', async () => {
     seed(configDir(), oldLayout())
     await prepare()
-    // An older version rewrote the state (same phase, a newer timestamp), as
-    // its reconcile does when it finds the token missing.
+    // An older version's reconcile, run against the old folder, finds no token
+    // beside the approved state and rewrites it as blocked missing_token.
+    expect(
+      await reconcileAt(oldVault(), fakeVaultClient().client),
+    ).toMatchObject({
+      state: 'blocked',
+      proposedName: NAME,
+      code: 'missing_token',
+    })
+    const rewritten = readFileSync(join(configDir(), VAULT_STATE), 'utf8')
+    expect(rewritten).toContain('"blocked"')
+    // The marker still records the bytes the move left, not these.
+    expect(marker()?.keptVaultState).toBe(
+      sha256(oldLayout()[VAULT_STATE] as string),
+    )
+
+    resetProcess()
+    logged = []
+    expect(await prepare()).toBe('state-home')
+    expect(logged.filter((line) => line.level === 'warn')).toEqual([])
+    expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(rewritten)
+    expect(getVaultDir()).toBe(newVault())
+  })
+
+  it('accepts a leftover rewritten to approved with a newer timestamp', async () => {
+    seed(configDir(), oldLayout())
+    await prepare()
+    // Same phase, a newer timestamp: an older version wrote the state again.
     const rewritten = approvedState(2)
+    writePrivate(join(configDir(), VAULT_STATE), rewritten)
+    resetProcess()
+    expect(await prepare()).toBe('state-home')
+    expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(rewritten)
+  })
+
+  it.each([
+    [
+      'a pending state',
+      `${JSON.stringify({
+        version: 1,
+        phase: 'pending',
+        proposedName: NAME,
+        requestSecret: 'ab'.repeat(32),
+        requestId: 'request-1',
+        createdAt: 1,
+        updatedAt: 1,
+      })}\n`,
+    ],
+    ['unparseable bytes', '{ not json'],
+    [
+      "another plugin's proposedName",
+      `${JSON.stringify({
+        version: 1,
+        phase: 'approved',
+        proposedName: 'antigravity-auth-pi',
+        tokenGeneration: 1,
+        updatedAt: 1,
+      })}\n`,
+    ],
+  ])('a leftover holding %s refuses', async (_label, rewritten) => {
+    seed(configDir(), oldLayout())
+    await prepare()
     writePrivate(join(configDir(), VAULT_STATE), rewritten)
     resetProcess()
     await expect(prepare()).rejects.toMatchObject({
@@ -680,6 +739,30 @@ describe('an approved vault enrollment and older versions', () => {
       message: conflictMessage(VAULT_STATE),
     })
     expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(rewritten)
+  })
+
+  it('a token file beside an otherwise valid leftover refuses', async () => {
+    seed(configDir(), oldLayout())
+    await prepare()
+    // The old folder is enrolled again: which copy is current is unknown, even
+    // though the state there is still one the rule would accept.
+    writePrivate(
+      join(configDir(), TOKEN),
+      JSON.stringify({ token: '02'.repeat(32), token_generation: 2 }),
+    )
+    resetProcess()
+    // The start names the reappeared token file first; the refused state file
+    // there is a conflict too.
+    await expect(prepare()).rejects.toMatchObject({
+      name: 'RuntimeLayoutRefusal',
+      message: conflictMessage(TOKEN),
+    })
+    expect(existsSync(join(configDir(), TOKEN))).toBe(true)
+    expect(existsSync(join(configDir(), VAULT_STATE))).toBe(true)
+    // With the token gone again, the very same state file is accepted.
+    rmSync(join(configDir(), TOKEN))
+    resetProcess()
+    expect(await prepare()).toBe('state-home')
   })
 
   it('disconnect removes the leftover, and an older version then reads local', async () => {
@@ -698,15 +781,43 @@ describe('an approved vault enrollment and older versions', () => {
     expect(await prepare()).toBe('state-home')
   })
 
-  it('disconnect keeps a state file at the leftover path that the move did not leave', async () => {
+  it('disconnect removes a leftover an older version rewrote, and an older version then reads local', async () => {
     seed(configDir(), oldLayout())
     await prepare()
-    const other = '{"someone-elses":true}\n'
-    writePrivate(join(configDir(), VAULT_STATE), other)
+    expect(
+      await reconcileAt(oldVault(), fakeVaultClient().client),
+    ).toMatchObject({
+      state: 'blocked',
+      code: 'missing_token',
+    })
+    // Disconnect removes the new token and state, then the leftover.
+    rmSync(join(newVault(), 'opencode-enrollment.json'))
+    rmSync(join(newVault(), 'opencode-enrollment-state.json'))
     await removeMovedVaultStateLeftover(getVaultDir())
-    expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(other)
+    expect(existsSync(join(configDir(), VAULT_STATE))).toBe(false)
+    expect(existsSync(oldVault())).toBe(false)
+    expect(await oldFolderAuthority()).toBe('local')
+    expect(await authorityAt(getVaultDir())).toBe('local')
+    // A later start finds nothing left over.
+    resetProcess()
+    expect(await prepare()).toBe('state-home')
+  })
+
+  it("disconnect keeps a leftover that is not this plugin's vault state", async () => {
+    seed(configDir(), oldLayout())
+    await prepare()
+    const foreign = `${JSON.stringify({
+      version: 1,
+      phase: 'approved',
+      proposedName: 'antigravity-auth-pi',
+      tokenGeneration: 1,
+      updatedAt: 2,
+    })}\n`
+    writePrivate(join(configDir(), VAULT_STATE), foreign)
+    await removeMovedVaultStateLeftover(getVaultDir())
+    expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(foreign)
     // Called for another vault folder, it does nothing.
-    seed(configDir(), { [VAULT_STATE]: oldLayout()[VAULT_STATE] as string })
+    writePrivate(join(configDir(), VAULT_STATE), approvedState())
     await removeMovedVaultStateLeftover(join(root, 'some', 'other', 'vault'))
     expect(existsSync(join(configDir(), VAULT_STATE))).toBe(true)
   })

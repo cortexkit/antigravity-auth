@@ -60,12 +60,17 @@
 //   and only the old token is removed. Every version reads such a state
 //   without a token as vault mode with a missing token, never as local, so an
 //   older version that still looks in the config folder refuses requests
-//   instead of serving local accounts. The marker records that file's
-//   SHA-256 (`keptVaultState`); later starts accept exactly those bytes
-//   there, and anything else at that path is a conflict like any other
-//   reappeared file. Disconnect on this version removes it
-//   (`removeMovedVaultStateLeftover`). A pending or denied enrollment state
-//   protects nothing and is removed like the other files.
+//   instead of serving local accounts. Later starts accept vault mode there
+//   whether or not an older version has since rewrote that file
+//   (`isVaultShapedKeptState`): the marker's SHA-256 of it (`keptVaultState`)
+//   is kept for diagnostics but is no longer required. An older version's
+//   reconcile turns an approved state into `blocked missing_token`, and a file
+//   at that path holds no secret, so the file is re-read and accepted while it
+//   still names this plugin's enrollment, has no token beside it, and is
+//   pending in neither direction. Anything else at that path is a conflict
+//   like any other reappeared file. Disconnect on this version removes such a
+//   leftover (`removeMovedVaultStateLeftover`). A pending or denied enrollment
+//   state protects nothing and is removed like the other files.
 // - The layout lock is checked again right before every destructive step:
 //   each unlink attempt of an old file, the removal of `layout-moving.json`
 //   and of the old vault folder. `layout-moving.json` is the last thing a
@@ -87,10 +92,16 @@ import {
 } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
+  type CommonAuthClaustrumModule,
   type CommonAuthFsModule,
+  loadCommonAuthClaustrum,
   loadCommonAuthFs,
 } from '@cortexkit/antigravity-auth-core'
 import { createLogger } from './plugin/logger'
+import {
+  OPENCODE_VAULT_ENROLLMENT_NAME,
+  OPENCODE_VAULT_HOST,
+} from './plugin/vault-custody'
 import { recordProcessLayout } from './process-heartbeat'
 import {
   decidedRuntimeLayout,
@@ -124,6 +135,9 @@ export const RUNTIME_LAYOUT_MANIFEST_FILE = 'layout-moving.json'
  */
 export const VAULT_ENROLLMENT_STATE_FILE = 'opencode-enrollment-state.json'
 
+/** The enrollment token file, the one vault file a kept state must not sit beside. */
+const VAULT_ENROLLMENT_TOKEN_FILE = 'opencode-enrollment.json'
+
 /**
  * The vault files that move, and the only ones the move ever reads, copies,
  * compares or removes in either vault folder. Anything else there (Pi's
@@ -132,7 +146,7 @@ export const VAULT_ENROLLMENT_STATE_FILE = 'opencode-enrollment-state.json'
  * be added here on purpose.
  */
 export const VAULT_FILE_NAMES = [
-  'opencode-enrollment.json',
+  VAULT_ENROLLMENT_TOKEN_FILE,
   VAULT_ENROLLMENT_STATE_FILE,
   'opencode-roster.json',
   'opencode-state.json',
@@ -277,8 +291,10 @@ interface LayoutMarker {
   /** Set once the old files were removed or knowingly left in place. */
   oldFilesRemoved?: boolean
   /**
-   * SHA-256 (hex) of the approved enrollment state file the move leaves in
-   * the old vault folder; absent when the move left none there.
+   * SHA-256 (hex) of the vault-mode enrollment state file the move left in
+   * the old vault folder; absent when the move left none there. Diagnostic
+   * only: acceptance of that leftover re-reads its contents
+   * (`isVaultShapedKeptState`) instead of comparing this hash.
    */
   keptVaultState?: string
 }
@@ -404,7 +420,7 @@ async function decide(
   let marker = await readMarker(markerPath, stateDir)
   await assertOwnFolder(location, marker)
   if (marker?.oldFilesRemoved) {
-    await refuseReappearedFiles(location, files, marker)
+    await refuseReappearedFiles(location, files)
     // A move that stopped right after its last marker write left its
     // `layout-moving.json`; it is removed below, under the layout lock.
     const manifestLeft = await exists(
@@ -429,8 +445,7 @@ async function decide(
     // Only an existing marker settles the layout without the lock.
     marker = await readMarker(markerPath, stateDir)
     if (marker) {
-      if (marker.oldFilesRemoved)
-        await refuseReappearedFiles(location, files, marker)
+      if (marker.oldFilesRemoved) await refuseReappearedFiles(location, files)
       return stateHome()
     }
     if (error instanceof LayoutMoveError && error.code === 'lock-timeout')
@@ -471,7 +486,7 @@ async function decide(
           steps: options.steps,
         })
       else if (marker.oldFilesRemoved) {
-        await refuseReappearedFiles(location, files, marker)
+        await refuseReappearedFiles(location, files)
         await removeLeftoverManifest(location, lock, options.steps, log)
       }
       return await stateHome()
@@ -669,7 +684,6 @@ async function moveFiles(
     await layoutLock.assertOwned()
     await removeOldCopies(location, files, present, layoutLock, {
       log: input.log,
-      keptVaultState,
       steps: input.steps,
     })
     oldVaultEmptied = true
@@ -738,7 +752,6 @@ async function finishOldFiles(
       layoutLock,
       {
         log: input.log,
-        keptVaultState: marker.keptVaultState,
         steps: input.steps,
       },
     )
@@ -912,26 +925,62 @@ async function keepableVaultState(
   return vaultMode ? sha256(bytes) : undefined
 }
 
-/** True when `path` holds exactly the bytes whose SHA-256 is `hash`. */
-async function isKeptVaultState(
-  path: string,
-  hash: string | undefined,
-): Promise<boolean> {
-  if (!hash) return false
+/**
+ * True when the enrollment state file of the old vault folder is the leftover
+ * a move may have left there, after an older version rewrote it.
+ *
+ * The file is re-read through common-auth's
+ * `readClaustrumEnrollmentStatus` with the enrollment name this plugin
+ * proposes, so it is judged the way every version of the plugin reads it. It
+ * counts as the expected leftover when the library reads it as vault mode
+ * (approved, or blocked with `missing_token`: what a reconcile writes when it
+ * finds the token gone), names this plugin's enrollment, and no token file
+ * sits beside it. A token back in the old folder means it is enrolled again,
+ * so which copy is current is unknown. Wrong name, pending, denied,
+ * unparseable or unsafe to read is a conflict, not the leftover.
+ *
+ * The library reports the name of the state for an approved file, and of
+ * this plugin's proposal for a state that has none (an approved token file
+ * alone); both are this plugin's when the comparison passes.
+ */
+async function isVaultShapedKeptState(files: LayoutFiles): Promise<boolean> {
+  const vault = files.vault.old
+  const present = await vaultFiles(vault)
+  // A token file counts even when the library would refuse to read it: the
+  // old folder is enrolled again either way.
+  if (present.includes(VAULT_ENROLLMENT_TOKEN_FILE)) return false
+  const claustrum = await loadCommonAuthClaustrum()
+  let status: Awaited<
+    ReturnType<CommonAuthClaustrumModule['readClaustrumEnrollmentStatus']>
+  >
   try {
-    return sha256(await readFile(path)) === hash
+    status = await claustrum.readClaustrumEnrollmentStatus(
+      claustrum.hostEnrollmentPaths({
+        stateDir: vault,
+        host: OPENCODE_VAULT_HOST,
+      }),
+      OPENCODE_VAULT_ENROLLMENT_NAME,
+    )
   } catch {
+    // Unreadable, unsafe or unparseable: not the leftover this rule accepts.
     return false
   }
+  const vaultShape =
+    status.state === 'approved' ||
+    (status.state === 'blocked' && status.code === 'missing_token')
+  const proposedName =
+    'proposedName' in status ? status.proposedName : undefined
+  return vaultShape && proposedName === OPENCODE_VAULT_ENROLLMENT_NAME
 }
 
 /**
  * After Disconnect, remove the enrollment state file a move left in the old
  * vault folder, so an older version no longer reads this host as enrolled.
- * Acts only for this config folder's state-home vault folder (`vaultDir`) and
- * only on exactly the bytes the marker recorded; anything else there stays.
- * The emptied old vault folder goes too. `accountFile` is the one the move
- * was given (`RuntimeLayoutOptions.accountFile`).
+ * Acts only for this config folder's state-home vault folder (`vaultDir`), and
+ * only on a vault-shaped leftover of this plugin's enrollment
+ * (`isVaultShapedKeptState`); any other file there stays. The emptied old
+ * vault folder goes too. `accountFile` is the one the move was given
+ * (`RuntimeLayoutOptions.accountFile`).
  */
 export async function removeMovedVaultStateLeftover(
   vaultDir: string,
@@ -945,9 +994,11 @@ export async function removeMovedVaultStateLeftover(
     join(stateDir, RUNTIME_LAYOUT_MARKER_FILE),
     stateDir,
   )
-  if (!marker?.keptVaultState || marker.oldDir !== location.key) return
+  // The marker must still name this config folder's finished move; its
+  // recorded hash is not what decides.
+  if (!marker?.oldDir || marker.oldDir !== location.key) return
   const leftover = vaultStateFile(files).old
-  if (!(await isKeptVaultState(leftover, marker.keptVaultState))) return
+  if (!(await isVaultShapedKeptState(files))) return
   await unlink(leftover).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== 'ENOENT') throw error
   })
@@ -1047,8 +1098,8 @@ async function copyVerified(file: LayoutFile): Promise<void> {
  * Remove each old file whose bytes equal its new copy, comparing again right
  * before every unlink attempt. A differing old file, or one whose copy
  * cannot be read, refuses the start: it may hold the only current vault
- * credential. The vault-mode enrollment state file whose SHA-256 the marker
- * records (`keptVaultState`) stays on purpose. A file Windows will not let
+ * credential. The vault-shaped enrollment state file the move left there
+ * (`isVaultShapedKeptState`) stays on purpose. A file Windows will not let
  * go of stays too, and then the move is not finished: the next start
  * tries again. The caller holds the data locks.
  */
@@ -1059,7 +1110,6 @@ async function removeOldCopies(
   layoutLock: RefreshFileLock,
   input: {
     log: RuntimeLayoutLogger
-    keptVaultState: string | undefined
     steps?: RuntimeLayoutOptions['steps']
   },
 ): Promise<void> {
@@ -1067,10 +1117,7 @@ async function removeOldCopies(
   const keptState = vaultStateFile(files).old
   for (const file of present) {
     await layoutLock.assertOwned()
-    if (
-      file.old === keptState &&
-      (await isKeptVaultState(file.old, input.keptVaultState))
-    ) {
+    if (file.old === keptState && (await isVaultShapedKeptState(files))) {
       // Kept on purpose, but only next to a copy that is still readable.
       if (!(await readable(file.next)))
         throw credentialConflict(location.stateHomeDir, file)
@@ -1149,22 +1196,18 @@ async function unlinkIfIdentical(
  * After a finished move, an old vault file in the config folder means an
  * older version wrote it (re-enrolled, toggled the mode, synced the roster).
  * Which copy is current is unknown, so the start is refused, naming both
- * paths. The one exception is the vault-mode enrollment state file the move
- * left there on purpose, while it still holds exactly the recorded bytes.
+ * paths. The one exception is the vault-shaped enrollment state file the move
+ * left there on purpose (`isVaultShapedKeptState`), which an older version may
+ * have rewritten since.
  */
 async function refuseReappearedFiles(
   location: RuntimeLayoutLocation,
   files: LayoutFiles,
-  marker: LayoutMarker,
 ): Promise<void> {
   const keptState = vaultStateFile(files).old
   for (const name of await vaultFiles(files.vault.old)) {
     const old = join(files.vault.old, name)
-    if (
-      old === keptState &&
-      (await isKeptVaultState(old, marker.keptVaultState))
-    )
-      continue
+    if (old === keptState && (await isVaultShapedKeptState(files))) continue
     throw credentialConflict(location.stateHomeDir, {
       old,
       next: join(files.vault.next, name),
