@@ -280,6 +280,13 @@ test('embed.attribution', async () => {
 
 test('embed.archive_refusals', async () => {
   const target = await owned()
+  expect(fixtures.map((fixture) => fixture.name).sort()).toEqual([
+    'duplicate',
+    'hardlink',
+    'nonregular',
+    'symlink',
+    'unsafe',
+  ])
   for (const fixture of fixtures) {
     const input = Buffer.from(fixture.gzip, 'base64')
     // Check these Python/USTAR fixture hashes before passing the bytes to the production decoder.

@@ -359,6 +359,11 @@ describe('packed Pi extension and core share one Claustrum client', () => {
     const core = JSON.parse(
       readFileSync(join(installed, 'package.json'), 'utf8'),
     )
+    for (const manifest of [pi, core]) {
+      expect(manifest.dependencies?.[CLAUSTRUM_CLIENT]).toMatch(
+        /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/,
+      )
+    }
     expect(pi.dependencies[CLAUSTRUM_CLIENT]).toBe(
       core.dependencies[CLAUSTRUM_CLIENT],
     )

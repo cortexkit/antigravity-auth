@@ -5,8 +5,6 @@
  * guard. These tests prove that:
  *   1. Loopback URLs pass through unchanged.
  *   2. Non-loopback URLs throw `LiveNetworkDeniedError`.
- *   3. The guard is restored in `afterEach` so the next test (or the
- *      host's own fetch) sees the original globalThis.fetch.
  */
 
 import { afterAll, describe, expect, it } from 'bun:test'
@@ -15,25 +13,36 @@ import { cleanupE2eRootsForCurrentFile, LiveNetworkDeniedError } from './setup'
 afterAll(cleanupE2eRootsForCurrentFile)
 
 describe('e2e fetch guard', () => {
-  it('allows loopback fetches through to the host fetch', async () => {
-    // The loopback fetch is not blocked. We do not start a real server
-    // here — this test only proves the early-return path does NOT
-    // throw before the host fetch is invoked. A bogus port closes the
-    // connection immediately, which is enough to confirm the guard
-    // let the request through.
-    let blocked = false
-    try {
-      await fetch('http://127.0.0.1:1/no-server-listening')
-    } catch (err) {
-      // Connection refused is the EXPECTED outcome — the guard should
-      // NOT throw, so we only land here if the request actually reached
-      // the host fetch.
-      if (err instanceof LiveNetworkDeniedError) {
-        blocked = true
+  for (const hostname of ['127.0.0.1', '[::1]', 'localhost']) {
+    it(`passes ${hostname} requests and init through to the host fetch`, async () => {
+      const requests: Array<{ url: string; method: string; body: string }> = []
+      const marker = `loopback-${hostname}`
+      const server = Bun.serve({
+        hostname: hostname === '[::1]' ? '::1' : '127.0.0.1',
+        port: 0,
+        async fetch(request) {
+          requests.push({
+            url: request.url,
+            method: request.method,
+            body: await request.text(),
+          })
+          return new Response(marker)
+        },
+      })
+      try {
+        const url = `http://${hostname}:${server.port}/witness?original=yes`
+        const response = await fetch(new Request(url), {
+          method: 'POST',
+          body: marker,
+        })
+        expect(response.status).toBe(200)
+        expect(await response.text()).toBe(marker)
+        expect(requests).toEqual([{ url, method: 'POST', body: marker }])
+      } finally {
+        await server.stop(true)
       }
-    }
-    expect(blocked).toBe(false)
-  })
+    })
+  }
 
   it('blocks non-loopback URLs with LiveNetworkDeniedError', async () => {
     let thrown: unknown = null
@@ -64,25 +73,5 @@ describe('e2e fetch guard', () => {
       thrown = err
     }
     expect(thrown).toBeInstanceOf(LiveNetworkDeniedError)
-  })
-
-  it('allows ::1 loopback (IPv6)', async () => {
-    let blocked = false
-    try {
-      await fetch('http://[::1]:1/no-server')
-    } catch (err) {
-      if (err instanceof LiveNetworkDeniedError) blocked = true
-    }
-    expect(blocked).toBe(false)
-  })
-
-  it('allows localhost as an alias', async () => {
-    let blocked = false
-    try {
-      await fetch('http://localhost:1/no-server')
-    } catch (err) {
-      if (err instanceof LiveNetworkDeniedError) blocked = true
-    }
-    expect(blocked).toBe(false)
   })
 })

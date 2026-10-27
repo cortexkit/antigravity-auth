@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import {
   lstatSync,
+  mkdirSync,
   mkdtempSync,
+  readFileSync,
   readlinkSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -51,9 +54,27 @@ describe('development plugin symlink', () => {
     expect(lstatSync(paths.pluginPath).isSymbolicLink()).toBe(true)
     expect(readlinkSync(paths.pluginPath)).toBe(paths.relativeTarget)
 
-    removeDevSymlink(paths)
+    expect(removeDevSymlink(paths)).toBe(true)
 
     expect(() => lstatSync(paths.pluginPath)).toThrow()
     expect(lstatSync(unrelatedPath).isFile()).toBe(true)
+
+    const foreignTarget = join(root, 'foreign.js')
+    writeFileSync(foreignTarget, 'foreign')
+    symlinkSync(foreignTarget, paths.pluginPath)
+    expect(() => createDevSymlink(paths)).toThrow()
+    expect(removeDevSymlink(paths)).toBe(false)
+    expect(readlinkSync(paths.pluginPath)).toBe(foreignTarget)
+    expect(readFileSync(foreignTarget, 'utf8')).toBe('foreign')
+    rmSync(paths.pluginPath)
+
+    mkdirSync(paths.pluginPath)
+    const sentinel = join(paths.pluginPath, 'keep.txt')
+    writeFileSync(sentinel, 'keep')
+    expect(() => createDevSymlink(paths)).toThrow()
+    expect(removeDevSymlink(paths)).toBe(false)
+    expect(lstatSync(paths.pluginPath).isDirectory()).toBe(true)
+    expect(lstatSync(sentinel).isFile()).toBe(true)
+    expect(readFileSync(sentinel, 'utf8')).toBe('keep')
   })
 })

@@ -186,6 +186,7 @@ it('durability identifier guard recognizes representative new lock and sync test
 
 it('durability identifier guard lists every matching test on disk', () => {
   const missing: string[] = []
+  const matched: string[] = []
   for (const base of ['packages', 'test', 'scripts']) {
     for (const file of new Bun.Glob(
       '**/*.{test,spec}.{ts,tsx,js,jsx,mjs,cjs}',
@@ -201,13 +202,16 @@ it('durability identifier guard lists every matching test on disk', () => {
       )
         continue
       const name = relative(repositoryRoot, file)
-      if (
-        durabilityPattern.test(readFileSync(file, 'utf8')) &&
-        !Object.hasOwn(DISK_TEST_FILES, name)
-      )
-        missing.push(name)
+      if (durabilityPattern.test(readFileSync(file, 'utf8'))) {
+        matched.push(name)
+        if (!Object.hasOwn(DISK_TEST_FILES, name)) missing.push(name)
+      }
     }
   }
+  expect(matched.length).toBeGreaterThan(0)
+  expect(matched).toContain(
+    'test/common-auth-010-store/pointer-durability.test.ts',
+  )
   expect(missing.sort()).toEqual([])
   for (const [file, reason] of Object.entries(DISK_TEST_FILES)) {
     expect(

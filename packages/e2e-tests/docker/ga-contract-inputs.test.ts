@@ -125,24 +125,24 @@ const motorRegistered: string[] = []
 const motorExecuted: string[] = []
 // Keep the frozen release-gate list independent of registration loops so losing
 // an inert case fails completeness instead of silently shrinking expected coverage.
-const MOTOR_INERT_EXPECTED_R4 = Object.freeze([
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses pid1-mismatch before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses controller-mismatch before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses namespace-mismatch before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses cgroup-mismatch before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses psi-writable before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses psi-rw-mount before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses psi-shadow-mount before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses psi-owner before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses psi-substituted before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses psi-symlink before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses critical-owned before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses memory-limit-owned before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses pid-limit-owned before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses other-pressure-owned before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses executable-owned before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses executable-writable before every launch and signal',
-  'qualified private namespace native cleanup source and inert controls > live boundary refuses control-writable before every launch and signal',
+const MOTOR_INERT_EXPECTED = Object.freeze([
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses pid1-mismatch after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses controller-mismatch after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses namespace-mismatch after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses cgroup-mismatch after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses psi-writable after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses psi-rw-mount after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses psi-shadow-mount after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses psi-owner after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses psi-substituted after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses psi-symlink after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses critical-owned after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses memory-limit-owned after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses pid-limit-owned after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses other-pressure-owned after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses executable-owned after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses executable-writable after an unmocked precondition',
+  'qualified private namespace native cleanup source and inert controls > initial qualification refuses control-writable after an unmocked precondition',
   'qualified private namespace native cleanup source and inert controls > caller-supplied current boundary facts cannot mint cleanup or launch authority',
   'qualified private namespace native cleanup source and inert controls > qualified spawn failure preserves its error and completes bounded empty cleanup',
   'qualified private namespace native cleanup source and inert controls > preexisting listener controller and PID1 are protected from native command cleanup',
@@ -151,7 +151,7 @@ const MOTOR_INERT_EXPECTED_R4 = Object.freeze([
   'qualified private namespace native cleanup source and inert controls > foreign live PID1 process ownership refuses before launch and signal calls',
   'qualified private namespace native cleanup source and inert controls > native cleanup reaps detached pipe-holding listener on success without changing the command result',
   'qualified private namespace native cleanup source and inert controls > native cleanup reaps detached pipe-holding listener on nonzero without changing the command result',
-  'qualified private namespace native cleanup source and inert controls > native cleanup reaps detached pipe-holding listener on timeout without changing the command result',
+  'qualified private namespace native cleanup source and inert controls > native cleanup after a ready-gated timeout reaps detached pipe-holding listener without changing the command result',
   'qualified private namespace native cleanup source and inert controls > native cleanup reaps detached pipe-holding listener on output-cap without changing the command result',
   'qualified private namespace native cleanup source and inert controls > the all-root PSI fixture qualifies through the same live admission path',
   'qualified private namespace native cleanup source and inert controls > live protected private PID and cgroup facts qualify without pretending to attest unit properties',
@@ -163,99 +163,10 @@ const MOTOR_INERT_EXPECTED_R4 = Object.freeze([
   'qualified private namespace native cleanup source and inert controls > running runner inode mismatch refuses before dispatch',
   'qualified private namespace native cleanup source and inert controls > runner recheck hashes kernel-bound bytes and refuses a replaced path',
   'qualified private namespace native cleanup source and inert controls > terminal zombie snapshot without live kernel tasks remains finished',
-])
-// Keep the prior inventory and map overbroad launch/signal names to the initial
-// qualification phase they actually test. Renaming must not silently drop a case.
-const MOTOR_INERT_R5_REFUSAL_NAMES = Object.freeze([
-  [
-    'live boundary refuses pid1-mismatch before every launch and signal',
-    'initial qualification refuses pid1-mismatch after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses controller-mismatch before every launch and signal',
-    'initial qualification refuses controller-mismatch after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses namespace-mismatch before every launch and signal',
-    'initial qualification refuses namespace-mismatch after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses cgroup-mismatch before every launch and signal',
-    'initial qualification refuses cgroup-mismatch after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses psi-writable before every launch and signal',
-    'initial qualification refuses psi-writable after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses psi-rw-mount before every launch and signal',
-    'initial qualification refuses psi-rw-mount after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses psi-shadow-mount before every launch and signal',
-    'initial qualification refuses psi-shadow-mount after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses psi-owner before every launch and signal',
-    'initial qualification refuses psi-owner after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses psi-substituted before every launch and signal',
-    'initial qualification refuses psi-substituted after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses psi-symlink before every launch and signal',
-    'initial qualification refuses psi-symlink after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses critical-owned before every launch and signal',
-    'initial qualification refuses critical-owned after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses memory-limit-owned before every launch and signal',
-    'initial qualification refuses memory-limit-owned after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses pid-limit-owned before every launch and signal',
-    'initial qualification refuses pid-limit-owned after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses other-pressure-owned before every launch and signal',
-    'initial qualification refuses other-pressure-owned after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses executable-owned before every launch and signal',
-    'initial qualification refuses executable-owned after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses executable-writable before every launch and signal',
-    'initial qualification refuses executable-writable after an unmocked precondition',
-  ],
-  [
-    'live boundary refuses control-writable before every launch and signal',
-    'initial qualification refuses control-writable after an unmocked precondition',
-  ],
-] as const)
-const motorR5Renames = new Map<string, string>(
-  MOTOR_INERT_R5_REFUSAL_NAMES.map(([oldName, newName]) => [
-    `${CLEANUP_GROUP} > ${oldName}`,
-    `${CLEANUP_GROUP} > ${newName}`,
-  ]),
-)
-const MOTOR_INERT_EXPECTED_R5 = Object.freeze([
-  ...MOTOR_INERT_EXPECTED_R4.map((name) => motorR5Renames.get(name) ?? name),
   'qualified private namespace native cleanup source and inert controls > actor-free budget expiry during signal requalification forbids subsequent reads and signals',
   'qualified private namespace native cleanup source and inert controls > actor-free budget expiry during target identity read forbids subsequent reads and signals',
   'qualified private namespace native cleanup source and inert controls > actor-free budget expiry during final scoped check forbids subsequent reads and signals',
-])
-const MOTOR_INERT_EXPECTED_R6 = Object.freeze([
-  ...MOTOR_INERT_EXPECTED_R5.map((name) =>
-    name ===
-    `${CLEANUP_GROUP} > native cleanup reaps detached pipe-holding listener on timeout without changing the command result`
-      ? `${CLEANUP_GROUP} > native cleanup after a ready-gated timeout reaps detached pipe-holding listener without changing the command result`
-      : name,
-  ),
-  `${CLEANUP_GROUP} > native command real wall-clock timeout kills a sleeping owned child`,
+  'qualified private namespace native cleanup source and inert controls > native command real wall-clock timeout kills a sleeping owned child',
 ])
 function motorTest(
   group: string,
@@ -6574,7 +6485,7 @@ test('Docker bootstrap avoids Hub and verifies Bun before extraction', () => {
 test('motor-inert registration equals the independently frozen expanded inventory', () => {
   const expected =
     selectedTestProfile === 'motor-inert'
-      ? [...MOTOR_INERT_EXPECTED_R6].sort()
+      ? [...MOTOR_INERT_EXPECTED].sort()
       : []
   const registered = [...motorRegistered].sort()
   console.log(

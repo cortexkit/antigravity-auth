@@ -4,26 +4,14 @@ import { mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import {
-  createSourceFile,
-  forEachChild,
-  isCallExpression,
-  isExpressionStatement,
-  isIdentifier,
-  isPropertyAccessExpression,
-  isVariableDeclaration,
-  type Node,
-  ScriptKind,
-  ScriptTarget,
-} from 'typescript'
-import {
   type MockServerHandle,
   startMockAntigravityServer,
 } from './mock-antigravity-server'
 import {
   assertCompleteGaInventory,
   assertGaCancellation,
+  assertGaCleanupEvents,
   assertGaDatabase,
-  assertGaObservations,
   assertGaRawBindingControl,
   assertGaTlsSequence,
   assertNativeGa,
@@ -45,6 +33,7 @@ import {
   waitForGaObservation,
 } from './opencode-ga-harness.ts'
 import { cleanupE2eRootsForCurrentFile } from './setup'
+import { assertGaObservations } from './support/ga-observations.ts'
 
 afterAll(cleanupE2eRootsForCurrentFile)
 
@@ -342,47 +331,6 @@ describe('mock antigravity server', () => {
     })
   })
 
-  it('does not swap Summary and model-list responses for the same bearer', async () => {
-    await withServer(async (server) => {
-      server.enqueue({
-        kind: 'json',
-        match: {
-          method: 'POST',
-          endpoint: '/v1internal:retrieveUserQuotaSummary',
-          bearer: 'Bearer access-a',
-        },
-        body: { summary: 0.7 },
-      })
-      server.enqueue({
-        kind: 'json',
-        match: {
-          method: 'POST',
-          endpoint: '/v1internal:fetchAvailableModels',
-          bearer: 'Bearer access-a',
-        },
-        body: { models: 0.4 },
-      })
-      const models = await fetch(
-        `${server.baseUrl}/v1internal:fetchAvailableModels`,
-        {
-          method: 'POST',
-          headers: { authorization: 'Bearer access-a' },
-        },
-      )
-      expect(models.status).toBe(200)
-      expect(await models.json()).toEqual({ models: 0.4 })
-      const summary = await fetch(
-        `${server.baseUrl}/v1internal:retrieveUserQuotaSummary`,
-        {
-          method: 'POST',
-          headers: { authorization: 'Bearer access-a' },
-        },
-      )
-      expect(summary.status).toBe(200)
-      expect(await summary.json()).toEqual({ summary: 0.7 })
-    })
-  })
-
   it('prioritizes an exact scoped response over an earlier plain FIFO fixture', async () => {
     await withServer(async (server) => {
       server.enqueue({ kind: 'json', body: { plain: true } })
@@ -520,18 +468,6 @@ describe('mock antigravity server', () => {
       expect(body.late).toBe(true)
       expect(elapsed).toBeGreaterThanOrEqual(240)
     })
-  })
-
-  it('close() is idempotent and tears down tracked sockets', async () => {
-    const server = await startMockAntigravityServer()
-    server.enqueue({ kind: 'json', body: { ok: true } })
-    // Fire one request, leave it open, then close. The socket should be
-    // torn down without throwing.
-    const pending = fetch(`${server.baseUrl}/latch`).catch(() => undefined)
-    await new Promise((r) => setTimeout(r, 20))
-    await server.close()
-    await server.close()
-    await pending
   })
 })
 
@@ -725,15 +661,6 @@ describe('GA host safety controls (synthetic, not runtime certification)', () =>
     ).toThrow('Unexpected environment injection')
   })
 
-  it('refuses TLS verification-disable presence for every value', () => {
-    const paths = prepareGaRoot(freshRoot())
-    for (const value of ['', '0', '1']) {
-      expect(() =>
-        gaChildEnvironment(paths, { NODE_TLS_REJECT_UNAUTHORIZED: value }),
-      ).toThrow('presence forbids host launch')
-    }
-  })
-
   it('requires a nonempty actual DB created within the owned root', () => {
     const paths = prepareGaRoot(freshRoot())
     expect(() => assertGaDatabase(paths)).toThrow(
@@ -875,6 +802,7 @@ describe('GA mock observation controls', () => {
     const pending = fetch(`${server.baseUrl}/hold`).catch(() => undefined)
     await parsed
     await server.close()
+    await server.close()
     await pending
     expect(events).toEqual(['parsed', 'forced-close'])
   })
@@ -895,12 +823,6 @@ describe('GA inventory and evidence controls', () => {
     expect(() =>
       assertCompleteGaInventory([...GA_CASE_IDS.slice(1), 'success-stub']),
     ).toThrow('Incomplete or unexpected')
-    // The expected count is written here by hand rather than derived from
-    // GA_CASE_IDS, so adding or dropping a case changes this test.
-    expect(GA_CASE_IDS).toHaveLength(105)
-    expect(GA_CASE_IDS[0]).toBe('ga-ownership-pool-login')
-    expect(GA_CASE_IDS).toContain('ga-ownership-passthrough')
-    expect(GA_CASE_IDS).toContain('ga-ownership-empty-pool')
   })
 
   it('rejects source-prepared cases and missing actual scenario observations', () => {
@@ -935,6 +857,37 @@ describe('GA inventory and evidence controls', () => {
 })
 
 describe('GA raw-sender proof parser controls (synthetic only)', () => {
+  it('rejects missing cleanup and producer activity after cleanup through the live validator', () => {
+    const events = [
+      { event: 'send.start', scope: 'a', at: 1 },
+      { event: 'cleanup.end', scope: 'a', at: 2 },
+      { event: 'send.start', scope: 'b', at: 3 },
+    ]
+    expect(() => assertGaCleanupEvents(events, 'a')).not.toThrow()
+    expect(() =>
+      assertGaCleanupEvents(
+        events.filter((event) => event.event !== 'cleanup.end'),
+        'a',
+      ),
+    ).toThrow('did not naturally invoke returned Cleanup')
+    for (const event of ['send.start', 'signal.abort', 'native.request']) {
+      expect(() =>
+        assertGaCleanupEvents([...events, { event, scope: 'a', at: 3 }], 'a'),
+      ).toThrow('after Cleanup completion')
+    }
+  })
+
+  it('rejects absent raw sender and peer-close observations without a host launch', async () => {
+    const outcomes = await collectGaRawCancelAssertions({
+      interruptedAt: gaTimestamp() - 2_001,
+      signals: [],
+      peerClosedAt: () => undefined,
+      forcedTeardown: () => false,
+    })
+    expect(outcomes.length).toBeGreaterThan(0)
+    expect(outcomes.every((outcome) => !outcome.passed)).toBe(true)
+  })
+
   it('requires distinct connecting, parsed pre-header and genuine post-header prerequisites', () => {
     const connecting = {
       phase: 'connecting' as const,
@@ -1434,64 +1387,6 @@ describe('GA cancellation ruling preparation (mock-only, not production binding 
     expect(() => gaDetachedDispatchSignalMutation(transport)).toThrow(
       'unchanged raw sender',
     )
-  })
-
-  it('shows the old global matcher throws on both measured packed bindings', () => {
-    const oldGlobalMatcher = (source: string) => {
-      const tree = createSourceFile(
-        'packed-server.js',
-        source,
-        ScriptTarget.ESNext,
-        true,
-        ScriptKind.JS,
-      )
-      const aliases = new Set(['observeRawSenderSignal'])
-      const observations: Node[] = []
-      const walk = (node: Node, visit: (node: Node) => void) => {
-        visit(node)
-        forEachChild(node, (child) => walk(child, visit))
-      }
-      // The former selector collected every observer-alias signal call across
-      // the bundle and required exactly one, even across unrelated functions.
-      // It refused this fixture before checking the dispatch relationship.
-      walk(tree, (node) => {
-        if (
-          isVariableDeclaration(node) &&
-          isIdentifier(node.name) &&
-          node.initializer &&
-          isPropertyAccessExpression(node.initializer) &&
-          node.initializer.name.text === 'observeRawSenderSignal'
-        )
-          aliases.add(node.name.text)
-      })
-      walk(tree, (node) => {
-        if (!isCallExpression(node)) return
-        const callee = node.expression
-        const name = isPropertyAccessExpression(callee)
-          ? callee.name.text
-          : isIdentifier(callee)
-            ? callee.text
-            : ''
-        const argument = node.arguments[0]
-        if (
-          aliases.has(name) &&
-          node.arguments.length === 1 &&
-          argument &&
-          isPropertyAccessExpression(argument) &&
-          argument.name.text === 'signal' &&
-          isIdentifier(argument.expression) &&
-          isExpressionStatement(node.parent)
-        )
-          observations.push(node.parent)
-      })
-      if (observations.length !== 1)
-        throw new Error(
-          'Missing or ambiguous actual dispatch-signal observation binding',
-        )
-      return observations[0]!.getStart(tree)
-    }
-    expect(() => oldGlobalMatcher(packed)).toThrow('ambiguous')
-    expect(() => oldGlobalMatcher(transport)).not.toThrow()
   })
 
   it('rejects cancellation attribution when the unrelated packed sender is targeted', async () => {

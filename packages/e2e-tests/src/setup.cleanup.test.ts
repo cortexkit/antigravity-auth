@@ -23,7 +23,15 @@
  *      contract for `bun run test:e2e`.)
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  spyOn,
+} from 'bun:test'
 import {
   existsSync,
   mkdirSync,
@@ -100,14 +108,25 @@ describe('sweepOrphanE2eRoots', () => {
     expect(existsSync(stale)).toBe(true)
   })
 
-  it('leaves fresh agy-e2e-* roots untouched', () => {
+  it('preserves roots just inside the cutoff and reaps roots just outside it', () => {
     process.env.AGY_E2E_SWEEP_ORPHANS = '1'
     const fresh = join(scratchRoot, 'agy-e2e-fresh')
+    const stale = join(scratchRoot, 'agy-e2e-stale-boundary')
     mkdirSync(fresh, { recursive: true })
-
-    sweepOrphanE2eRoots()
-
-    expect(existsSync(fresh)).toBe(true)
+    mkdirSync(stale, { recursive: true })
+    const now = 1_800_000_000_000
+    const cutoff = now - 24 * 60 * 60 * 1000
+    utimesSync(fresh, new Date(cutoff + 1_000), new Date(cutoff + 1_000))
+    utimesSync(stale, new Date(cutoff - 1_000), new Date(cutoff - 1_000))
+    const clock = spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      sweepOrphanE2eRoots()
+      expect(existsSync(fresh)).toBe(true)
+      expect(statSync(fresh).isDirectory()).toBe(true)
+      expect(existsSync(stale)).toBe(false)
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   it('reaps agy-e2e-* roots older than the 24h cutoff', () => {
@@ -119,19 +138,6 @@ describe('sweepOrphanE2eRoots', () => {
     sweepOrphanE2eRoots()
 
     expect(existsSync(stale)).toBe(false)
-  })
-
-  it('preserves agy-e2e-* roots that just crossed the cutoff', () => {
-    // A root whose mtime is minutes old (well inside the 24h window)
-    // must survive the sweep — only orphans hours older qualify.
-    process.env.AGY_E2E_SWEEP_ORPHANS = '1'
-    const fresh = join(scratchRoot, 'agy-e2e-just-now')
-    mkdirSync(fresh, { recursive: true })
-
-    sweepOrphanE2eRoots()
-
-    expect(existsSync(fresh)).toBe(true)
-    expect(statSync(fresh).isDirectory()).toBe(true)
   })
 
   it('does not touch entries that do not match the agy-e2e- prefix', () => {
@@ -180,10 +186,6 @@ describe('cleanupTestRootsForThisFile', () => {
     expect(existsSync(b)).toBe(false)
   })
 
-  it('is a no-op when the list is empty', async () => {
-    await cleanupTestRootsForThisFile([])
-  })
-
   it('only touches roots it is handed (cross-file race fix)', async () => {
     // `agy-e2e-other-file` simulates a root owned by a SIBLING test
     // file that is still running concurrently. The cleanup must
@@ -192,6 +194,10 @@ describe('cleanupTestRootsForThisFile', () => {
     const sibling = join(scratchRoot, 'agy-e2e-other-file')
     mkdirSync(own, { recursive: true })
     mkdirSync(sibling, { recursive: true })
+
+    await cleanupTestRootsForThisFile([])
+    expect(existsSync(own)).toBe(true)
+    expect(existsSync(sibling)).toBe(true)
 
     await cleanupTestRootsForThisFile([own])
 

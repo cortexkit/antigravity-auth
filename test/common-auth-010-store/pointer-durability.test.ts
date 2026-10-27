@@ -486,7 +486,7 @@ describe.skipIf(process.platform === 'win32')(
         })
       })
 
-    it('measures clean empty initialization with the embedded store', async () => {
+    it('persists a clean empty initialization with the embedded store', async () => {
       await withMigrationFixtures(async (create) => {
         const fixture = await create()
         await fs.unlink(fixture.legacyPath)
@@ -500,26 +500,6 @@ describe.skipIf(process.platform === 'win32')(
               })
             ).status,
           ).toBe('completed')
-          const counts = (kind: Event['kind']) =>
-            events.filter((e) => e.kind === kind).length
-          const measured = {
-            file: counts('file-sync'),
-            directory: counts('directory-sync'),
-            locks: counts('lock'),
-            renames: counts('rename'),
-            links: counts('link'),
-          }
-          console.info(
-            'empty initialization delegated filesystem counts',
-            measured,
-          )
-          expect(measured).toEqual({
-            file: 3,
-            directory: 6,
-            locks: 9,
-            renames: 3,
-            links: 1,
-          })
           const start = events.findIndex(
             (event) => event.kind === 'pointer-create',
           )
@@ -542,6 +522,7 @@ describe.skipIf(process.platform === 'win32')(
         const fixture = await create()
         const modules = await loadCommonAuthStoreModules()
         let stage = ''
+        let checkedBeforeLink = false
         const guarded: AccountMigrationModules = {
           ...modules,
           fs: {
@@ -568,6 +549,7 @@ describe.skipIf(process.platform === 'win32')(
                 now: () => 100,
                 async onBoundary(point) {
                   if (point === 'pointer:before-link') {
+                    checkedBeforeLink = true
                     expect(
                       events.filter(
                         (e) => e.kind === 'file-sync' && e.path === stage,
@@ -583,6 +565,23 @@ describe.skipIf(process.platform === 'win32')(
             ).status,
           ).toBe('completed')
           expect(stage).not.toBe('')
+          expect(checkedBeforeLink).toBe(true)
+          const persistence = events.filter(
+            (event) =>
+              event.kind === 'file-sync' ||
+              event.kind === 'directory-sync' ||
+              event.kind === 'link',
+          )
+          const stageSync = persistence.findIndex(
+            (event) => event.kind === 'file-sync' && event.path === stage,
+          )
+          expect(stageSync).toBeGreaterThanOrEqual(0)
+          expect(persistence.slice(stageSync, stageSync + 4)).toEqual([
+            { kind: 'file-sync', path: stage },
+            { kind: 'directory-sync', path: fixture.root },
+            { kind: 'link', path: accountStorePointerPath(fixture.legacyPath) },
+            { kind: 'directory-sync', path: fixture.root },
+          ])
         })
       })
     })

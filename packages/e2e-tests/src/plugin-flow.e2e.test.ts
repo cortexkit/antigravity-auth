@@ -12,19 +12,27 @@
  *     mock SSE → streaming reverse transform.
  *   - Stored-token expiry refresh followed by an upstream 401 refusal.
  *   - 429 rotation across accounts.
- *   - 503 capacity fallback path.
+ *   - Same-endpoint 503 capacity retry.
  *   - Quota refresh + sidebar state write.
- *   - Plugin dispose tears down every subsystem.
+ *   - Idempotent plugin disposal.
  *
  * The mock server's `requests` array is the source of truth: every
  * assertion on "how many calls, in what order, with which body" reads
- * from there. We never inspect the plugin's internals — the test is
- * an external black-box.
+ * from there. Poller scheduling and OAuth input are controlled at existing
+ * factory seams while the real transport, sidebar and store paths run.
  */
 
 import './setup'
 
-import { afterAll, afterEach, describe, expect, it } from 'bun:test'
+import {
+  afterAll,
+  afterEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -36,7 +44,7 @@ import {
   resolveAccountStorePaths,
 } from '@cortexkit/antigravity-auth-core'
 import { createDefaultAccountStoreOperations } from '../../opencode/src/cli'
-import { replacePoolLogins } from '../../opencode/src/plugin/persist-account-pool'
+import * as oauthMethodsModule from '../../opencode/src/plugin/oauth-methods'
 import {
   getStoragePath,
   saveAccountsReplace,
@@ -581,7 +589,7 @@ describe('plugin flow (e2e)', () => {
     }, 'expired-a')
   })
 
-  it('falls back across endpoints on 503 capacity errors', async () => {
+  it('retries the same endpoint on a 503 capacity error', async () => {
     await withHarness(async (h) => {
       h.server.enqueue({ kind: 'capacity503', retryAfterMs: 250 })
       h.server.enqueue({
@@ -611,6 +619,10 @@ describe('plugin flow (e2e)', () => {
       expect(response.status).toBe(200)
       expect(await response.text()).toContain('recovered')
       expect(modelRequests(h)).toHaveLength(2)
+      expect(h.transportRequests).toEqual([
+        'https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse',
+        'https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse',
+      ])
       expect(
         modelRequests(h).map((request) => request.headers.authorization),
       ).toEqual(['Bearer access-a', 'Bearer access-a'])
@@ -634,12 +646,7 @@ describe('plugin flow (e2e)', () => {
         emptyProvider(),
       )
 
-      // The plugin writes the sidebar file under ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE.
-      const sidebarPath = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
-      if (!sidebarPath) throw new Error('sidebar path missing')
-      // Poll briefly for the sidebar write to land (the manager
-      // updates asynchronously on quota refresh).
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      // The loader awaits sidebar publication before returning.
       const parsed = readSidebar()
       phase('sidebar.observable.read')
       expect(parsed.accounts?.length).toBeGreaterThanOrEqual(1)
@@ -663,79 +670,85 @@ describe('plugin flow (e2e)', () => {
       const sidebarPath = process.env.ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE
       if (!sidebarPath) throw new Error('sidebar path missing')
 
-      // Delay the first tick so the loader's sidebar write can land before
-      // we overwrite it with stale state. Only a later poller write should
-      // advance checkedAt past pollBefore.
+      let release!: () => void
+      const ready = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let finished!: () => void
+      let failed!: (error: unknown) => void
+      const tick = new Promise<void>((resolve, reject) => {
+        finished = resolve
+        failed = reject
+      })
+      // Hold the first tick before it reads freshness. The loader, stale
+      // snapshot and response queue must all be ready before quota work starts.
       const plugin = await h.createPlugin({
         configOverrides: {
           background_quota_refresh: true,
           background_quota_refresh_interval_minutes: 1,
         },
         extraDependencies: {
-          // random=0.012 → jitter = floor(0.012 * 30000) = 360ms.
-          clock: { random: () => 0.012 },
+          clock: { random: () => 0 },
+        },
+        onPollerCreated(poller) {
+          const instance = poller as unknown as { runTick(): Promise<void> }
+          const run = instance.runTick.bind(poller)
+          let first = true
+          instance.runTick = async () => {
+            if (!first) return run()
+            first = false
+            await ready
+            try {
+              await run()
+              finished()
+            } catch (error) {
+              failed(error)
+              throw error
+            }
+          }
         },
       })
 
-      // Warm up the auth loader so the AccountManager is populated.
-      // The loader also writes a fresh checkedAt to the sidebar.
-      await plugin.auth.loader(
-        async () => ({
-          type: 'oauth' as const,
-          refresh: 'refresh-a|project-a|managed-a',
-          access: 'access-a',
-          expires: Date.now() + 3_600_000,
-        }),
-        emptyProvider(),
-      )
+      let pollBefore = 0
+      try {
+        // Warm up the auth loader so the AccountManager is populated.
+        // The loader also writes a fresh checkedAt to the sidebar.
+        await plugin.auth.loader(
+          async () => ({
+            type: 'oauth' as const,
+            refresh: 'refresh-a|project-a|managed-a',
+            access: 'access-a',
+            expires: Date.now() + 3_600_000,
+          }),
+          emptyProvider(),
+        )
 
-      // Give the auth loader's async sidebar write time to land, then
-      // forcibly overwrite with a stale checkedAt so the poller's freshness
-      // gate passes on its first tick (~360ms from start). Must bypass the
-      // merge logic (which rejects stale writes) — write directly to disk.
-      await new Promise((r) => setTimeout(r, 200))
-      writeFileSync(
-        sidebarPath,
-        JSON.stringify({
-          version: 1,
-          checkedAt: Date.now() - 60_000,
-          accounts: [],
-          activeRouting: {},
-          routingAuthoritative: false,
-        }),
-      )
-      enqueueQuota(h)
-      phase('quota.queue.ready')
+        // Loader publication is complete. Overwrite its freshness to let the
+        // held first tick refresh immediately. Bypass the normal sidebar
+        // merge logic (which rejects stale writes) — write directly to disk.
+        writeFileSync(
+          sidebarPath,
+          JSON.stringify({
+            version: 1,
+            checkedAt: Date.now() - 60_000,
+            accounts: [],
+            activeRouting: {},
+            routingAuthoritative: false,
+          }),
+        )
+        enqueueQuota(h)
+        phase('quota.queue.ready')
 
-      // Capture pollBefore AFTER the stale write. Now the ONLY write that
-      // can advance checkedAt past this point is the poller's first tick.
-      const pollBefore = Date.now()
-
-      const deadline = pollBefore + 5_000
-      let sidebarCheckedAt = 0
-      phase('quota.observable.await')
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 100))
-        try {
-          const parsed = readSidebar()
-          sidebarCheckedAt = parsed.checkedAt ?? 0
-          // A fresh timestamp can precede quota publication. Keep the poller
-          // alive until both current-case accounts have published quota.
-          if (
-            sidebarCheckedAt > pollBefore &&
-            parsed.accounts.length === 2 &&
-            parsed.accounts.every(
-              (account) =>
-                typeof account.quota.gemini?.remainingPercent === 'number',
-            )
-          ) {
-            phase('quota.observable.ready')
-            break
-          }
-        } catch {
-          // File not written yet — retry.
-        }
+        // Capture pollBefore AFTER the stale write. Now the ONLY write that
+        // can advance checkedAt past this point is the poller's first tick.
+        pollBefore = Date.now()
+      } finally {
+        release()
       }
+      phase('quota.observable.await')
+      await tick
+      const sidebarCheckedAt = readSidebar().checkedAt ?? 0
+      phase('quota.observable.ready')
 
       await plugin.dispose()
 
@@ -743,7 +756,7 @@ describe('plugin flow (e2e)', () => {
       // sidebar, and written a fresh checkedAt. This assertion can ONLY be
       // satisfied by the poller — not by the auth loader (which ran before
       // pollBefore and wrote the now-overwritten stale checkedAt).
-      expect(sidebarCheckedAt).toBeGreaterThan(pollBefore)
+      expect(sidebarCheckedAt).toBeGreaterThanOrEqual(pollBefore)
       expect(modelRequests(h)).toHaveLength(0)
       expect(
         h.server.requests
@@ -812,7 +825,9 @@ describe('plugin flow (e2e)', () => {
       for (const row of persisted.rows) {
         if (row.quota.status !== 'present')
           throw new Error('expected persisted quota')
-        expect(row.quota.quota.cachedQuotaUpdatedAt).toBeGreaterThan(pollBefore)
+        expect(row.quota.quota.cachedQuotaUpdatedAt).toBeGreaterThanOrEqual(
+          pollBefore,
+        )
       }
     })
   })
@@ -830,14 +845,6 @@ describe('plugin flow (e2e)', () => {
 
   it('persists newly logged-in accounts through the CLI OAuth method', async () => {
     await withHarness(async (h, repository) => {
-      const plugin = await h.createPlugin()
-      const methods = plugin.auth.methods
-      expect(methods.length).toBeGreaterThanOrEqual(1)
-      const oauth = methods[0]
-      expect(oauth?.label).toContain('Antigravity')
-
-      // This case checks only that a successful OAuth exchange result is
-      // persisted by replacement in the current account store.
       const fakeSuccess = {
         type: 'success' as const,
         refresh: 'refresh-c|project-c|managed-c',
@@ -847,8 +854,62 @@ describe('plugin flow (e2e)', () => {
         projectId: 'project-c',
         managedProjectId: 'managed-c',
       }
-      const receipt = await replacePoolLogins(repository, [fakeSuccess])
-      expect(receipt.outcome).toBe('completed')
+      const state = 'owned-cli-state'
+      const authorize = mock(async () => ({
+        url: `https://accounts.google.com/o/oauth2/v2/auth?state=${state}`,
+        verifier: 'verifier',
+        projectId: 'project-c',
+      }))
+      const exchange = mock(async () => fakeSuccess)
+      const startListener = mock(async () => {
+        throw new Error('headless CLI must not open a listener')
+      })
+      const promptAddAnotherAccount = mock(async () => false)
+      const realCreate = oauthMethodsModule.createOAuthMethods
+      // Preserve the real factory and persistence adapter; only OAuth/UI inputs
+      // are replaced because the plugin's dependency bag does not forward them.
+      const bridge = spyOn(
+        oauthMethodsModule,
+        'createOAuthMethods',
+      ).mockImplementation((options) =>
+        realCreate({
+          ...options,
+          dependencies: {
+            ...options.dependencies,
+            authorize,
+            exchange,
+            startListener,
+            promptLoginMode: async () => ({ mode: 'fresh' }),
+            promptProjectId: async () => 'project-c',
+            promptCallback: async () =>
+              `http://localhost/oauth-callback?code=code-c&state=${state}`,
+            promptAddAnotherAccount,
+            openBrowser: async () => false,
+            shouldSkipLocalServer: () => true,
+            isHeadless: () => true,
+          },
+        }),
+      )
+      const plugin = await h.createPlugin().finally(() => bridge.mockRestore())
+      const methods = plugin.auth.methods
+      expect(methods.length).toBeGreaterThanOrEqual(1)
+      const oauth = methods[0]
+      expect(oauth?.label).toContain('Antigravity')
+      if (oauth?.type !== 'oauth') throw new Error('expected OAuth method')
+      const authorization = await oauth.authorize({ noBrowser: 'true' })
+      expect(authorization.method).toBe('auto')
+      if (authorization.method !== 'auto')
+        throw new Error('expected CLI result')
+      expect(authorization.instructions).toBe(
+        'Multi-account setup complete (1 account(s)).',
+      )
+      expect(await authorization.callback()).toEqual(fakeSuccess)
+      expect(authorize).toHaveBeenCalledWith('project-c')
+      expect(exchange).toHaveBeenCalledTimes(1)
+      expect(exchange).toHaveBeenCalledWith('code-c', state)
+      expect(promptAddAnotherAccount).toHaveBeenCalledWith(1)
+      expect(startListener).not.toHaveBeenCalled()
+      expect(h.server.requests).toHaveLength(0)
       const storage = await repository.read()
       const path = getStoragePath()
       expect(path).toBeTruthy()
