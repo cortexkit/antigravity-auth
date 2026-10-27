@@ -505,6 +505,29 @@ function project(
   return { read, rows, overLimit: null, plan }
 }
 
+/** A stored quota reading time, or `null` when it is missing or not a usable time. */
+function readingTime(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : null
+}
+
+/**
+ * The status `checkedAt`: the newest of the rows' own quota reading times,
+ * or `null` when no row has a dated reading. It is never the time of the
+ * state read itself.
+ */
+function newestReadingTime(
+  times: Iterable<number | null | undefined>,
+): number | null {
+  let newest: number | null = null
+  for (const value of times) {
+    const at = readingTime(value)
+    if (at !== null && (newest === null || at > newest)) newest = at
+  }
+  return newest
+}
+
 function abortError(signal: AbortSignal): Error {
   return signal.reason instanceof Error
     ? signal.reason
@@ -539,6 +562,18 @@ export function createGaAccountStateSource(
 
     const retiredSelectors = projected.plan?.commit() ?? []
     readSeq = options.nextReadSeq?.() ?? readSeq + 1
+    // The rows' stored readings say when quota was last checked; the
+    // location's own status has no such time of its own.
+    const checkedAt = newestReadingTime([
+      status.checkedAt,
+      ...(read.status === 'ready'
+        ? read.rows.map((row) =>
+            row.quota.status === 'present'
+              ? row.quota.quota.cachedQuotaUpdatedAt
+              : undefined,
+          )
+        : []),
+    ])
     const answer: GaStateRead = {
       readSeq,
       accounts:
@@ -552,7 +587,7 @@ export function createGaAccountStateSource(
               })),
             },
       route,
-      status,
+      status: { ...status, checkedAt },
       settings,
     }
     if (options.observe) {
@@ -1765,14 +1800,32 @@ function createGaVaultStateSource(input: {
     if (signal.aborted) throw abortError(signal)
     readSeq = input.nextReadSeq?.() ?? readSeq + 1
     const overLimit = rows.length > ACCOUNT_LIMIT
-    const quotaOf = (row: VaultAccountRow) => {
+    // Each row's quota travels with the time that same reading was taken.
+    // A stored reading for the row's current route and credential wins over
+    // the quota the row was listed with; a reading without a time stays
+    // undated rather than borrowing the listed quota's time.
+    const quotaOf = (
+      row: VaultAccountRow,
+    ): Pick<
+      SidebarAccountRedactionInput,
+      'cachedQuota' | 'cachedQuotaUpdatedAt'
+    > => {
       const reading = stored
         ? quotaReadingForVaultRoute(row.route, stored)
         : undefined
-      const cachedQuota =
-        (reading ? cachedQuotaOf(reading) : undefined) ?? row.cachedQuota
-      return cachedQuota !== undefined ? { cachedQuota } : {}
+      const storedQuota = reading ? cachedQuotaOf(reading) : undefined
+      const [cachedQuota, updatedAt] =
+        storedQuota !== undefined
+          ? [storedQuota, reading?.cachedQuotaUpdatedAt]
+          : [row.cachedQuota, row.cachedQuotaUpdatedAt]
+      if (cachedQuota === undefined) return {}
+      const at = readingTime(updatedAt)
+      return {
+        cachedQuota,
+        ...(at !== null ? { cachedQuotaUpdatedAt: at } : {}),
+      }
     }
+    const quotas = rows.map(quotaOf)
     const answer: GaStateRead = {
       readSeq,
       accounts: overLimit
@@ -1788,13 +1841,15 @@ function createGaVaultStateSource(input: {
                 ...(row.coolingDownUntil !== undefined
                   ? { coolingDownUntil: row.coolingDownUntil }
                   : {}),
-                ...quotaOf(row),
+                ...quotas[position],
               },
             })),
           },
       route,
       status: {
-        checkedAt: null,
+        checkedAt: newestReadingTime(
+          quotas.map((quota) => quota.cachedQuotaUpdatedAt),
+        ),
         quotaBackoffUntil: null,
         routingAuthoritative: true,
       },

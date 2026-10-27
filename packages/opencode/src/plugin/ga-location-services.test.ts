@@ -56,6 +56,8 @@ import {
   rewriteGaHttpRequest,
   startGaLoopbackBridge,
 } from '../ga/server/index.ts'
+import { NO_QUOTA_READING, quotaReadingParts } from '../quota-presentation.ts'
+import { redactAccountForSidebar } from '../sidebar-state.ts'
 import { createLocalAccountCredentials } from './accounts.ts'
 import { BackgroundQuotaRefresh } from './background-quota-refresh.ts'
 import type { LocationDebug } from './debug.ts'
@@ -495,6 +497,35 @@ describe('GA account state', () => {
     const second = await source.read({ scope: sessionless, signal })
     expect(first.settings.logLevel).toBe('info')
     expect(second.settings.logLevel).toBe('debug')
+  })
+
+  it('reports the newest stored reading time as checkedAt, never the read time', async () => {
+    const quota = (at?: number): AccountRow['quota'] => ({
+      status: 'present',
+      quota: {
+        schemaVersion: 1,
+        cachedQuota: { gemini: { remainingFraction: 0.5, modelCount: 1 } },
+        ...(at !== undefined ? { cachedQuotaUpdatedAt: at } : {}),
+      },
+    })
+    const C: RowRef = { id: 'row-c', credentialEpoch: 1 }
+    const repository = new MemoryRepository([
+      row(A, { quota: quota(1_700_000_000_000) }),
+      row(B, { quota: quota(1_700_000_500_000) }),
+      row(C, { quota: quota() }),
+    ])
+    const source = stateSource(repository)
+    const signal = new AbortController().signal
+    const read = await source.read({ scope: sessionless, signal })
+    expect(read.status.checkedAt).toBe(1_700_000_500_000)
+    if (read.accounts.kind !== 'complete') throw new Error('over limit')
+    expect(
+      read.accounts.rows.map((entry) => entry.row.cachedQuotaUpdatedAt),
+    ).toEqual([1_700_000_000_000, 1_700_000_500_000, undefined])
+
+    repository.rows = [row(C, { quota: quota() })]
+    const undated = await source.read({ scope: sessionless, signal })
+    expect(undated.status.checkedAt).toBeNull()
   })
 
   it('reports an unknown access block when metadata was dropped', () => {
@@ -3393,6 +3424,152 @@ describe('GA vault custody location', () => {
       expect(localDisposals).toBe(1)
       expect(localModuleLoads).toBe(1)
     } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('dates each vault row with its own stored reading and reports the newest as checkedAt', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'ga-vault-time-')))
+    const previous = {
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
+    }
+    process.env.OPENCODE_CONFIG_DIR = join(root, 'config')
+    process.env.XDG_CONFIG_HOME = join(root, 'xdg')
+    const now = Date.now()
+    const dated = now - 20 * 60_000
+    const routes = ['a', 'b', 'c', 'd'].map((key) => ({
+      routeId: `route-${key}`,
+      credentialId: `credential-${key}`,
+      accountIdentity: `identity-${key}`,
+      label: `Vault ${key}`,
+    }))
+    const reading = (remainingFraction: number, at?: number) => ({
+      schemaVersion: 1 as const,
+      cachedQuota: { gemini: { remainingFraction, modelCount: 3 } },
+      ...(at !== undefined ? { cachedQuotaUpdatedAt: at } : {}),
+    })
+    const observed = (key: string, routeId = `route-${key}`) => ({
+      routeId,
+      credentialId: `credential-${key}`,
+      recordVersion: 1,
+    })
+    const source = {
+      refresh: async () => undefined,
+      routes: () => routes,
+      admit: async () => {
+        throw new Error('no send in this test')
+      },
+      reportServedStatus: async () => false,
+      attribution: () => {
+        throw new Error('no admission in this test')
+      },
+      commitState: async () => ({ status: 'unchanged' as const }),
+      send: async () => {
+        throw new Error('no send in this test')
+      },
+    }
+    const factory = createGaLocationServicesFactory({
+      loadStoreModules: async () => {
+        throw new Error('vault must not open a local store')
+      },
+      resolveAccountFile: (directory) => join(directory, GA_ACCOUNTS_FILE),
+      now: Date.now,
+      runtime: (input) =>
+        createGaRuntimeCollaborators({
+          ...input,
+          accounts: { current: null, quotaLogger: null },
+          now: Date.now,
+        }),
+      createPipeline: async () => {
+        throw new Error('vault must not construct a local pipeline')
+      },
+      custody: () => ({
+        readMode: async () => ({
+          ok: true,
+          record: { version: 1, mode: 'custody' },
+        }),
+        custodySource: async () => source,
+        readState: async () => ({
+          schemaVersion: 1,
+          accounts: {
+            // Dated, for the row's current route and credential.
+            'identity-a': {
+              observed: observed('a'),
+              quota: reading(0.25, dated),
+            },
+            // A reading with no time of its own.
+            'identity-b': { observed: observed('b'), quota: reading(0.5) },
+            // Newer readings, but recorded for a replaced credential and
+            // for another route: neither belongs to its row.
+            'identity-c': {
+              observed: { ...observed('c'), credentialId: 'credential-old' },
+              quota: reading(0.75, now - 60_000),
+            },
+            'identity-d': {
+              observed: observed('d', 'route-other'),
+              quota: reading(0.9, now - 30_000),
+            },
+          },
+        }),
+        menuSection: () => ({
+          id: 'vault',
+          title: 'Vault',
+          build: () => ({ lines: [], actions: [] }),
+        }),
+        dispose: async () => {},
+      }),
+    })
+    const directory = join(root, 'location')
+    mkdirSync(directory)
+    const services = await factory({ directory, overrides: {} })
+    const runtime = await createLocationRuntime({
+      ...services.runtime,
+      directory,
+      operatorSettingsRegistry: createOperatorSettingsRegistry(),
+    })
+    try {
+      const serving = await services.start({
+        runtime,
+        generation: 'g-vault-time',
+        send: async () => new Response('not used'),
+        notify: () => null,
+        isConnected: () => false,
+      })
+      const read = await serving.state.read({
+        scope: { kind: 'sessionless' },
+        signal: new AbortController().signal,
+      })
+      if (read.accounts.kind !== 'complete') throw new Error('over limit')
+      const rendered = read.accounts.rows.map(({ row }) =>
+        quotaReadingParts(
+          'Gemini',
+          redactAccountForSidebar(row).quota.gemini,
+          now,
+        ),
+      )
+      expect(rendered[0]).toMatchObject({
+        figure: '25% left',
+        remaining: 25,
+      })
+      expect(rendered[0]?.detail).toContain('checked 20m ago')
+      for (const undated of rendered.slice(1))
+        expect(undated.figure).toBe(NO_QUOTA_READING)
+      // The undated row does carry quota; only its time is missing.
+      expect(read.accounts.rows[1]?.row.cachedQuota?.gemini).toMatchObject({
+        remainingFraction: 0.5,
+      })
+      expect(
+        read.accounts.rows.map(({ row }) => row.cachedQuotaUpdatedAt),
+      ).toEqual([dated, undefined, undefined, undefined])
+      expect(read.status.checkedAt).toBe(dated)
+    } finally {
+      await runtime.dispose()
+      await services.dispose()
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) delete process.env[key]
         else process.env[key] = value
