@@ -815,12 +815,12 @@ describe('openAccountStore', () => {
 // Genuine public store
 //
 // These tests exercise the store and filesystem modules copied verbatim from
-// the pinned published common-auth archive into the core package. They run in
+// the pinned candidate common-auth archive into the core package. They run in
 // disposable directories, migrate real account files, verify the completed
 // migration owns those paths, and retire that migration during rollback.
 // Before loading the modules, the receipt must name that exact archive and
 // every embedded store/fs file must match its recorded size and SHA-256. This
-// verifies the embedded copy against the pinned published archive and fails
+// verifies the embedded copy against the pinned candidate archive and fails
 // on missing, changed, or extra files.
 // ---------------------------------------------------------------------------
 

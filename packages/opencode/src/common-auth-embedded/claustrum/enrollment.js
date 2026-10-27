@@ -358,8 +358,15 @@ export async function refuseWritableAncestor(parent, options = {}) {
         throw new ClaustrumConsumerError('unsafe-file', `Claustrum enrollment parent refused: ${error.path} (${error.reason ?? error.code}). Use a folder that other users cannot write or replace.`);
     }
 }
-/** POSIX tightens the enrollment directory to 0700; Windows verifies safe ancestry without modifying existing parents. */
-async function ensurePrivateDirectory(directory, options = {}) {
+/**
+ * Create `directory` owner-only, or make an existing one owner-only. POSIX:
+ * every component it creates gets mode 0700, a directory another user owns is
+ * refused, and one that group or others can reach is tightened to 0700.
+ * Windows: private-files creates missing components owner-only and verifies
+ * existing ones without modifying them. `what` names the directory in the
+ * ownership refusal.
+ */
+export async function ensureClaustrumPrivateDirectory(directory, options = {}, what = 'enrollment directory') {
     if (windowsPrivateFiles) {
         await ensureWindowsDirectory(directory, false, ancestorPolicyOptions(options));
         return;
@@ -368,14 +375,14 @@ async function ensurePrivateDirectory(directory, options = {}) {
     const metadata = await stat(directory);
     const uid = process.geteuid?.();
     if (uid !== undefined && metadata.uid !== uid) {
-        throw new ClaustrumConsumerError('unsafe-file', 'Claustrum enrollment directory must be owned by the current user');
+        throw new ClaustrumConsumerError('unsafe-file', `Claustrum ${what} must be owned by the current user`);
     }
     if ((metadata.mode & 0o077) !== 0)
         await chmod(directory, 0o700);
 }
 async function writeStateAtomic(path, state, ancestorOptions = {}) {
     const parent = dirname(path);
-    await ensurePrivateDirectory(parent, ancestorOptions);
+    await ensureClaustrumPrivateDirectory(parent, ancestorOptions);
     await refuseWritableAncestor(parent, ancestorOptions);
     const bytes = `${JSON.stringify(state)}\n`;
     if (Buffer.byteLength(bytes) > ENROLLMENT_FILE_MAX_BYTES) {
@@ -578,7 +585,7 @@ export class ClaustrumEnrollmentManager {
         return statusFromState(blocked);
     }
     async reconcile() {
-        await ensurePrivateDirectory(dirname(this.#paths.statePath), this.#ancestorOptions);
+        await ensureClaustrumPrivateDirectory(dirname(this.#paths.statePath), this.#ancestorOptions);
         const lock = await acquireRefreshFileLock({
             name: 'ceremony',
             path: this.#paths.statePath,
@@ -715,7 +722,7 @@ export class ClaustrumEnrollmentManager {
                 }
                 // The vault returns the token exactly once: it reaches disk before the
                 // pending metadata (and its secret) is replaced.
-                await ensurePrivateDirectory(dirname(this.#paths.tokenPath), this.#ancestorOptions);
+                await ensureClaustrumPrivateDirectory(dirname(this.#paths.tokenPath), this.#ancestorOptions);
                 await refuseWritableAncestor(dirname(this.#paths.tokenPath), this.#ancestorOptions);
                 await this.#writeTokenFile(this.#paths.tokenPath, {
                     token: outcome.token,
@@ -754,7 +761,7 @@ export class ClaustrumEnrollmentManager {
 }
 /** Reset local terminal metadata without connecting to the credential daemon. */
 export async function resetClaustrumEnrollmentState(paths, proposedName) {
-    await ensurePrivateDirectory(dirname(paths.statePath));
+    await ensureClaustrumPrivateDirectory(dirname(paths.statePath));
     const lock = await acquireRefreshFileLock({
         name: 'ceremony',
         path: paths.statePath,
@@ -817,7 +824,7 @@ async function removeIfPresent(path) {
  * wrong owner, not owner-only) refuses with `unsafe-file` and both files stay.
  */
 export async function disconnectClaustrumEnrollment(paths, proposedName) {
-    await ensurePrivateDirectory(dirname(paths.statePath));
+    await ensureClaustrumPrivateDirectory(dirname(paths.statePath));
     const lock = await acquireRefreshFileLock({
         // The same lock as the ceremony, so a token written by a concurrent
         // reconcile() can never land after this removes the files.

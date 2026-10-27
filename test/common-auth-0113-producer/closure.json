@@ -152,6 +152,7 @@
       "./availability.js",
       "./consumer.js",
       "./custody.js",
+      "./enrollment.js",
       "./errors.js",
       "./roster.js",
       "./shutdown.js",
@@ -457,6 +458,7 @@
       "./command-runner.js",
       "./detect.js",
       "./enroll.js",
+      "./flags.js",
       "./paths.js",
       "./process-fence.js",
       "./prompts.js",
@@ -487,11 +489,14 @@
       "@cortexkit/claustrum-client",
       "node:timers/promises"
     ],
+    "setup/flags.d.ts": ["./types.js"],
+    "setup/flags.js": [],
     "setup/index.d.ts": [
       "./command-error.js",
       "./command.js",
       "./detect.js",
       "./enroll.js",
+      "./flags.js",
       "./process-fence.js",
       "./register.js",
       "./types.js"
@@ -501,6 +506,7 @@
       "./command.js",
       "./detect.js",
       "./enroll.js",
+      "./flags.js",
       "./process-fence.js",
       "./register.js"
     ],
