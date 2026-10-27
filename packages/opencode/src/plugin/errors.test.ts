@@ -37,9 +37,10 @@ describe('EmptyResponseError', () => {
     expect(err.message).toBe('custom error msg')
   })
 
-  it('works with attempts = 1 (singular language check)', () => {
+  it('says "1 attempt", not "1 attempts"', () => {
     const err = new EmptyResponseError('p', 'm', 1)
-    expect(err.message).toContain('1')
+    expect(err.message).toContain('after 1 attempt.')
+    expect(err.message).not.toContain('attempts')
   })
 
   it('can be thrown and caught as an Error', () => {

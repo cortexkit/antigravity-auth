@@ -25,7 +25,7 @@ export class EmptyResponseError extends Error {
   ) {
     super(
       message ??
-        `The model returned an empty response after ${attempts} attempts. ` +
+        `The model returned an empty response after ${attempts} ${attempts === 1 ? 'attempt' : 'attempts'}. ` +
           `This may indicate a temporary service issue. Please try again.`,
     )
     this.name = 'EmptyResponseError'
