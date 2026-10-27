@@ -22,6 +22,23 @@ function loadV1() {
   return v1Root
 }
 
+// The plugin version for the OpenCode 2 sidebar header, passed to the GA
+// setup. The GA root may use no Node built-in (the TUI build refuses one),
+// so it cannot read package.json; this entry can. Read lazily on setup, so
+// importing the entry stays inert, and never fatal: without a version the
+// header just leaves it out.
+async function packageVersion() {
+  try {
+    const manifest = await import('../../package.json', {
+      with: { type: 'json' },
+    })
+    const version = manifest.default?.version
+    return typeof version === 'string' ? version : ''
+  } catch {
+    return ''
+  }
+}
+
 function loadGa() {
   gaRoot ??= loadTui({
     rawEntry: new URL('../tui-ga-raw/host-ga.tsx', import.meta.url).href,
@@ -37,6 +54,7 @@ export default {
     return (await loadV1()).tui(api, options, meta)
   },
   async setup(context) {
-    return (await loadGa()).setup(context)
+    const [root, version] = await Promise.all([loadGa(), packageVersion()])
+    return root.setup(context, { version })
   },
 }

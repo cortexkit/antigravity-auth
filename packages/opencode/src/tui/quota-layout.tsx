@@ -294,7 +294,7 @@ function WindowRow(props: {
  * right-aligned; the age moves to its own dim line when the three do not
  * fit. Below it each quota group present gets a plain-word header and one
  * row per window, or a single dim line when there is no reading at all.
- * `children` render after the quota rows (the OpenCode 2 health line).
+ * `children`, when given, render after the quota rows.
  */
 export function QuotaAccountBlock(props: {
   palette: QuotaPalette

@@ -41,9 +41,8 @@
  * server code, and nothing writes to the terminal or forces a theme.
  */
 
-import { createSignal, For, type JSX, Show } from 'solid-js'
+import { createSignal, type JSX } from 'solid-js'
 import {
-  type ProjectedSidebar,
   type ProjectionAccount,
   type ProjectionRoute,
   type ProjectionStatus,
@@ -66,12 +65,12 @@ import {
   type MenuUi,
 } from '../../tui/host-api'
 import {
-  ASSUMED_CONTENT_WIDTH,
-  DEFAULT_QUOTA_APPEARANCE,
-  QuotaAccountBlock,
-  type QuotaPalette,
-} from '../../tui/quota-layout'
-import { fitRouteParts } from '../../tui/route-layout'
+  DEFAULT_FRAME_SETTINGS,
+  type FrameColor,
+  type FrameRoute,
+  type FrameTheme,
+  SidebarFrame,
+} from '../../tui/sidebar-frame'
 
 export const GA_TUI_ID = 'cortexkit.antigravity-auth' as const
 export const GA_RPC_ID = 'antigravity-auth' as const
@@ -113,8 +112,22 @@ export interface GaSlotClaim {
   readonly render: (input: { readonly sessionID: string }) => JSX.Element
 }
 
+/**
+ * The host's durable plugin storage, as far as the sidebar uses it: one
+ * JSON store and the function that changes it.
+ */
+export interface GaStorage {
+  store<Value extends object>(
+    key: string,
+    options: { readonly initial: Value },
+  ): readonly [Value, (mutation: (draft: Value) => void) => Promise<void>]
+}
+
 /** The parts of the GA TUI `Context` this adapter uses. */
 export interface GaTuiContext {
+  /** The host's resolved theme; read on every render, so a switch shows. */
+  readonly theme?: GaTheme
+  readonly storage?: GaStorage
   readonly location: GaLocationRef | undefined
   readonly client: {
     readonly rpc: {
@@ -1484,105 +1497,141 @@ export async function pollGaOnce(options: GaPollerOptions): Promise<void> {
 
 interface SidebarView {
   readonly scope: GaScope
-  /** The snapshot's accounts; the quota layout reads their stored windows. */
-  readonly accounts: readonly ProjectionAccount[]
-  readonly projected: ProjectedSidebar
-  /** The clock reading the projection was made at; the quota rows use it too. */
+  /** The snapshot's accounts; the frame reads their state and stored windows. */
+  readonly accounts: readonly GaAccount[]
+  readonly route: ProjectionRoute | null
+  readonly quotaBackoffUntil: number | null
+  /** The clock reading the snapshot was taken at; the quota rows use it too. */
   readonly readAt: number
 }
 
-// The GA context carries no theme, so the quota layout keeps the host's
-// default text color everywhere.
-const HOST_COLORS: QuotaPalette = {
-  text: () => undefined,
-  muted: () => undefined,
-  tone: () => undefined,
+type HostColor = { readonly base?: FrameColor; readonly muted?: FrameColor }
+
+/**
+ * The OpenCode 2 host theme tokens the sidebar reads (the host's resolved
+ * theme, as far as this sidebar uses it). Any of them may be missing.
+ */
+export interface GaTheme {
+  readonly text?: HostColor & {
+    readonly action?: { readonly primary?: HostColor }
+    readonly feedback?: {
+      readonly success?: HostColor
+      readonly warning?: HostColor
+      readonly error?: HostColor
+    }
+  }
+  readonly background?: HostColor & { readonly raised?: HostColor }
+  readonly border?: HostColor
+}
+
+/**
+ * Maps the OpenCode 2 semantic theme tokens onto the frame's OpenCode 1
+ * names. A missing token falls back to a sibling token; with none at all
+ * the color stays `undefined`, so the host's default color shows and no
+ * color is ever fixed here.
+ */
+export function sidebarThemeFromHost(theme: GaTheme | undefined): FrameTheme {
+  const text =
+    theme?.text?.base ??
+    theme?.text?.muted ??
+    theme?.text?.action?.primary?.base
+  const accent = theme?.text?.action?.primary?.base ?? text
+  const feedback = theme?.text?.feedback
+  return {
+    text,
+    textMuted: theme?.text?.muted ?? text,
+    accent,
+    background: theme?.background?.base ?? theme?.background?.raised?.base,
+    borderActive: theme?.border?.base ?? accent,
+    success: feedback?.success?.base ?? feedback?.success?.muted,
+    warning: feedback?.warning?.base ?? feedback?.warning?.muted,
+    error: feedback?.error?.base ?? feedback?.error?.muted,
+  }
 }
 
 function GaSidebar(props: {
   readonly view: () => SidebarView | undefined
   readonly sessionID: string
+  readonly theme: () => GaTheme | undefined
+  readonly version: string
+  readonly collapsed: () => boolean
+  readonly toggleCollapsed: () => void
 }): JSX.Element {
-  // The route line belongs to one session; show it only in that session's
+  // The route belongs to one session; show it only in that session's
   // sidebar, never another session's.
-  const route = () => {
+  const route = (): FrameRoute | null => {
     const view = props.view()
     if (view === undefined || view.scope.kind !== 'session') return null
-    return view.scope.sessionID === props.sessionID
-      ? view.projected.route
-      : null
-  }
-  const routeLine = () => {
-    const value = route()
-    if (value === null) return null
-    return `Route ${fitRouteParts('Route', value.split(' · '), contentWidth())}`
-  }
-  // The quota rows are sized to the sidebar's width so none of them wraps.
-  // Layout reports the width during a render pass, so the signal is updated
-  // afterwards rather than rebuilding rows mid-pass.
-  const [contentWidth, setContentWidth] = createSignal(ASSUMED_CONTENT_WIDTH)
-  let titleRow: { width: number } | undefined
-  const measureContentWidth = (): void => {
-    const width = titleRow?.width
-    if (typeof width !== 'number' || width <= 0) return
-    queueMicrotask(() => {
-      if (width !== contentWidth()) setContentWidth(width)
-    })
+    if (view.scope.sessionID !== props.sessionID || view.route === null)
+      return null
+    return {
+      ...(view.route.strategy ? { strategy: view.route.strategy } : {}),
+      family: view.route.modelFamily,
+      style: view.route.headerStyle,
+    }
   }
   return (
-    <box flexDirection='column' width='100%'>
-      <box
-        ref={(element) => {
-          titleRow = element
-        }}
-        onSizeChange={measureContentWidth}
-        width='100%'
-        flexDirection='row'
-      >
-        <text>
-          <b>Antigravity</b>
-        </text>
-      </box>
-      <Show when={props.view()} fallback={<text>connecting…</text>}>
-        {(view) => (
-          <>
-            <For each={view().projected.accounts}>
-              {(account, index) => (
-                <Show when={view().accounts[index()]}>
-                  {(source) => (
-                    <QuotaAccountBlock
-                      palette={HOST_COLORS}
-                      appearance={DEFAULT_QUOTA_APPEARANCE}
-                      account={source()}
-                      status={account.status}
-                      statusTone={account.statusTone}
-                      now={() => view().readAt}
-                      width={contentWidth}
-                      marginTop={index() === 0 ? 0 : 1}
-                    >
-                      <text>{`  ${account.health}`}</text>
-                    </QuotaAccountBlock>
-                  )}
-                </Show>
-              )}
-            </For>
-            <Show when={routeLine()}>
-              {(line) => <text wrapMode='none'>{line()}</text>}
-            </Show>
-            <For each={view().projected.notices}>
-              {(notice) => <text>{notice}</text>}
-            </For>
-          </>
-        )}
-      </Show>
-    </box>
+    <SidebarFrame
+      theme={() => sidebarThemeFromHost(props.theme())}
+      settings={() => DEFAULT_FRAME_SETTINGS}
+      version={props.version}
+      collapsed={props.collapsed}
+      onToggleCollapsed={props.toggleCollapsed}
+      accounts={() => props.view()?.accounts ?? []}
+      route={route}
+      quotaBackoffUntil={() => props.view()?.quotaBackoffUntil ?? undefined}
+      lastError={() => undefined}
+      now={() => props.view()?.readAt ?? 0}
+    />
   )
+}
+
+/** Where the collapse choice is kept in the host's plugin storage. */
+export const GA_SIDEBAR_STORE_KEY = 'antigravity-auth.sidebar'
+
+/**
+ * The collapse state: the host's durable plugin storage when it has one, so
+ * the choice survives a reload; for this TUI session otherwise.
+ */
+function createGaCollapse(
+  storage: GaStorage | undefined,
+  logger: GaLogger | undefined,
+): { collapsed: () => boolean; toggle: () => void } {
+  const saved = storage?.store(GA_SIDEBAR_STORE_KEY, {
+    initial: { collapsed: false },
+  })
+  // A click updates the sidebar at once: the local choice wins while its
+  // save is pending, and once storage holds it the stored value decides
+  // again. Without storage the local choice lasts for the session.
+  const [chosen, setChosen] = createSignal<boolean | undefined>(undefined)
+  const collapsed = () => chosen() ?? saved?.[0].collapsed === true
+  const toggle = () => {
+    const next = !collapsed()
+    setChosen(next)
+    if (!saved) return
+    saved[1]((draft) => {
+      draft.collapsed = next
+    }).then(
+      () => {
+        if (chosen() === next && saved[0].collapsed === next)
+          setChosen(undefined)
+      },
+      (error: unknown) => {
+        logger?.warn('sidebar-collapse-not-saved', {
+          error: error instanceof Error ? error.name : typeof error,
+        })
+      },
+    )
+  }
+  return { collapsed, toggle }
 }
 
 // ── Plugin setup ────────────────────────────────────────────────────────────
 
 export interface GaSetupOptions {
   readonly logger?: GaLogger
+  /** The plugin version shown in the sidebar header; empty or absent hides it. */
+  readonly version?: string
   readonly now?: () => number
   /** Replaces the interval timer (tests). Returns a function that stops it. */
   readonly schedule?: (tick: () => void, intervalMs: number) => () => void
@@ -1613,10 +1662,20 @@ export function setupGaTui(
   const active = () => !client.disposed()
   const ui = createGaMenuUi(context, active)
   const [view, setView] = createSignal<SidebarView | undefined>(undefined)
+  const collapse = createGaCollapse(context.storage, logger)
 
   const releaseSlot = context.ui.slot({
     append: 'sidebar.content',
-    render: (input) => <GaSidebar view={view} sessionID={input.sessionID} />,
+    render: (input) => (
+      <GaSidebar
+        view={view}
+        sessionID={input.sessionID}
+        theme={() => context.theme}
+        version={options.version ?? ''}
+        collapsed={collapse.collapsed}
+        toggleCollapsed={collapse.toggle}
+      />
+    ),
   })
 
   // The latest snapshot per scope; the drawer's menu is built from it.
@@ -1628,12 +1687,8 @@ export function setupGaTui(
     setView({
       scope: snapshot.scope,
       accounts: snapshot.accounts,
-      projected: projectSidebar({
-        accounts: snapshot.accounts,
-        route: snapshot.route,
-        status: snapshot.status,
-        now: readAt,
-      }),
+      route: snapshot.route,
+      quotaBackoffUntil: snapshot.status.quotaBackoffUntil,
       readAt,
     })
   }
@@ -1751,11 +1806,18 @@ export function setupGaTui(
  * The GA TUI plugin definition (`{ id, setup }`, the 2.0.22 TUI plugin
  * shape). Importing this module starts nothing; `setup` binds to the
  * context's location and returns the cleanup that stops everything it
- * started.
+ * started. The host calls `setup(context)`; the package's `./tui` entry
+ * passes the plugin version as the second argument. This module's graph
+ * may use no Node built-in (the build refuses one), so it cannot read
+ * `package.json` itself.
  */
 const gaTuiPlugin = {
   id: GA_TUI_ID,
-  setup: (context: GaTuiContext): (() => Promise<void>) => setupGaTui(context),
+  setup: (
+    context: GaTuiContext,
+    options: { readonly version?: string } = {},
+  ): (() => Promise<void>) =>
+    setupGaTui(context, options.version ? { version: options.version } : {}),
 }
 
 export default gaTuiPlugin

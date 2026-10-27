@@ -2271,7 +2271,8 @@ describe('GA TUI setup', () => {
     expect(lines).toContain('Gemini')
     expect(lines.some((line) => /^[█░]+ 55% left$/.test(line))).toBe(true)
     expect(frame).not.toMatch(/\bGm\b/)
-    expect(frame).toContain('Route Account 1 · gemini · antigravity')
+    // The route reads as on OpenCode 1: strategy, then family and style.
+    expect(frame).toMatch(/Route\s+sticky · gemini: antigravity/)
     view.renderer.destroy()
 
     await cleanup()
@@ -2510,6 +2511,7 @@ describe('TUI module graph', () => {
         join(SRC, 'tui', 'host-api.ts'),
         join(SRC, 'tui', 'quota-layout.tsx'),
         join(SRC, 'tui', 'route-layout.ts'),
+        join(SRC, 'tui', 'sidebar-frame.tsx'),
       ].sort(),
     )
   })

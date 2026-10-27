@@ -712,6 +712,7 @@ test('graph.ga_roots', async () => {
     'src/tui/host-api.ts',
     'src/tui/quota-layout.tsx',
     'src/tui/route-layout.ts',
+    'src/tui/sidebar-frame.tsx',
   ])
   checkGaGraph(source, 'source', product)
   const map = JSON.parse(await readFile(join(product, GA_TUI_ROOT.map), 'utf8'))

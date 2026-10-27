@@ -8,10 +8,12 @@
  * column with a labelled header badge, a Quota section that lists one
  * `AccountBlock` per visible account, a Routing section that surfaces the
  * most recent session route, and a Health section that only appears when
- * something is wrong. The Antigravity data model is richer than the
- * Claude/Codex one (per-account Gemini + Non-Gemini quota pools, a health
- * score, and per-session routing decisions), so the fleet components are
- * adapted rather than copied verbatim:
+ * something is wrong. The frame itself lives in `tui/sidebar-frame.tsx`,
+ * shared with the OpenCode 2 sidebar; this file reads the sidebar file and
+ * the preferences and hands them to it. The Antigravity data model is
+ * richer than the Claude/Codex one (per-account Gemini + Non-Gemini quota
+ * pools, a health score, and per-session routing decisions), so the fleet
+ * components are adapted rather than copied verbatim:
  *
  * - The quota rows come from `tui/quota-layout.tsx`, shared with the
  *   OpenCode 2 sidebar: each window reads `remainingPercent + resetAt` from
@@ -48,49 +50,19 @@ import type {
   TuiThemeCurrent,
 } from '@opencode-ai/plugin/tui'
 import { createSlot } from '@opentui/solid'
-import {
-  createMemo,
-  createSignal,
-  For,
-  type JSX,
-  onCleanup,
-  onMount,
-  Show,
-} from 'solid-js'
+import { createSignal, type JSX, onCleanup, onMount } from 'solid-js'
 
-import {
-  formatQuota,
-  isQuotaStale,
-  type ProjectedLimit,
-  type ProjectedQuota,
-} from './common-auth-embedded/quota/index.js'
 import { getRpcDir } from './rpc/rpc-dir'
-import {
-  readSidebarState,
-  type SidebarAccountState,
-  type SidebarStateV1,
-} from './sidebar-state'
+import { readSidebarState, type SidebarStateV1 } from './sidebar-state'
 import { createTuiFileLogger, type TuiLogger } from './tui/file-logger'
 import {
   createV1MenuTransport,
   dispatchV1Notification,
   type V1Notification,
 } from './tui/host-v1'
-import {
-  ASSUMED_CONTENT_WIDTH,
-  accountWindows,
-  fitLabel,
-  GROUP_NAMES,
-  QUOTA_ORDER,
-  QuotaAccountBlock,
-  type QuotaPalette,
-  type QuotaTone,
-  quotaTone,
-} from './tui/quota-layout'
-import { routeLineFits } from './tui/route-layout'
+import { type FrameRoute, SidebarFrame } from './tui/sidebar-frame'
 import {
   type AntigravityAuthTuiPrefs,
-  type AppearancePrefs,
   computeEffectiveOrder,
   DEFAULT_PREFS,
   DEFAULT_SLOT_ORDER,
@@ -105,8 +77,6 @@ const ID = 'cortexkit.antigravity-auth'
 
 const POLL_INTERVAL_MS = 2000
 const RPC_POLL_MS = 500
-
-const SINGLE_BORDER = { type: 'single' } as any
 
 // Read package metadata from either the raw src/ entry or its generated
 // src/tui-compiled/ counterpart. Avoid a JSON import because package.json sits
@@ -153,8 +123,9 @@ const MAX_NOTIFICATION_CURSORS = 256
 //
 // The sidebar pulls its colors from the live host theme (`api.theme.current`
 // — a Solid-friendly getter that re-emits when the user switches theme).
-// Every render path resolves through `toneColor(theme, tone)` with a
-// sibling-style `??` fallback chain, so the sidebar always tracks the
+// `tui/sidebar-frame.tsx` reads every color from this theme: tone colors
+// through `toneColor(theme, tone)` with its sibling-token `??` fallbacks,
+// the rest straight from their theme field. So the sidebar tracks the
 // active theme and never hardcodes an ANSI literal.
 //
 // `FALLBACK_THEME` is the safety net for tests and any future host that
@@ -162,9 +133,7 @@ const MAX_NOTIFICATION_CURSORS = 256
 // uses are populated; the rest of the TuiThemeCurrent fields are left
 // undefined and the `??` chain in `toneColor` falls through cleanly.
 
-type Tone = QuotaTone
 type Theme = TuiThemeCurrent
-type ThemeColor = Theme['text']
 
 const FALLBACK_THEME = {
   primary: '#3b82f6',
@@ -221,36 +190,6 @@ const FALLBACK_THEME = {
   syntaxPunctuation: '#6b7280',
   thinkingOpacity: 0.6,
 } as unknown as Theme
-
-// Mirror the fleet siblings' tone chain: every tone falls through to a
-// sibling token, so a sparse custom theme still renders readably.
-function toneColor(theme: Theme, tone: Tone): ThemeColor {
-  switch (tone) {
-    case 'ok':
-      return theme.success ?? theme.accent
-    case 'warn':
-      return theme.warning ?? theme.accent
-    case 'err':
-      return theme.error ?? theme.accent
-    case 'muted':
-      return theme.textMuted ?? theme.text
-    case 'accent':
-      return theme.accent ?? theme.text
-    default:
-      return theme.text
-  }
-}
-
-// The shared quota layout reads its colors through this palette. Muted text
-// and the account label read `textMuted` and `text` straight from the theme,
-// without the `toneColor` fallback chain.
-function themePalette(theme: () => Theme): QuotaPalette {
-  return {
-    text: () => theme().text,
-    muted: () => theme().textMuted,
-    tone: (tone) => toneColor(theme(), tone),
-  }
-}
 
 export interface SidebarPanelProps {
   /** Override the file the TUI polls. Defaults to `getSidebarStateFile()`. */
@@ -395,28 +334,6 @@ function getSidebarController(): SidebarController {
   return sidebarController
 }
 
-// --- Shared helpers (fleet shape, antigravity data) ------------------------
-
-// Render a "reset in Nm/Nh/NdNh" string from an epoch-ms reset time.
-// Empty string when no resetAt is cached. The fleet's `formatResetIn`
-// reads ISO strings; Antigravity persists resetAt as a numeric epoch, so
-// the wrapper adapts to that without changing the shape of the output.
-function formatResetIn(resetAt: number | undefined, now: () => number): string {
-  if (!resetAt) return ''
-  const ms = resetAt - now()
-  if (ms <= 0) return 'now'
-  const mins = Math.floor(ms / 60_000)
-  if (mins < 60) return `${mins}m`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) {
-    const rm = mins % 60
-    return rm > 0 ? `${hrs}h${rm}m` : `${hrs}h`
-  }
-  const days = Math.floor(hrs / 24)
-  const rh = hrs % 24
-  return rh > 0 ? `${days}d${rh}h` : `${days}d`
-}
-
 function formatError(value: unknown): string {
   if (value instanceof Error) return value.message
   try {
@@ -424,161 +341,6 @@ function formatError(value: unknown): string {
   } catch {
     return String(value)
   }
-}
-
-// --- Fleet components (adapted to antigravity data) ------------------------
-
-// Section header — fleet pattern: bold title, themed text color, top margin
-// for vertical breathing room between sections.
-function SectionHeader(props: {
-  theme: () => Theme
-  title: string
-}): JSX.Element {
-  return (
-    <box width='100%' marginTop={1}>
-      <text fg={toneColor(props.theme(), 'text')}>
-        <b>{props.title}</b>
-      </text>
-    </box>
-  )
-}
-
-// Fleet StatRow: muted label left, value (optionally tone-tinted, bold)
-// right. Mirrors the layout the Claude/Codex sidebars use for routing
-// rows, plan rows, and "resets N" rows.
-function StatRow(props: {
-  theme: () => Theme
-  label: string
-  value: string
-  tone?: Tone
-}): JSX.Element {
-  return (
-    <box width='100%' flexDirection='row' justifyContent='space-between'>
-      <text fg={props.theme().textMuted}>{props.label}</text>
-      <text fg={toneColor(props.theme(), props.tone ?? 'text')}>
-        <b>{props.value}</b>
-      </text>
-    </box>
-  )
-}
-
-// Fleet CollapsedRow: muted label left, caller-supplied value right. The
-// collapsed view renders one row for every visible account. The caller sizes
-// both sides to the measured width, so neither side may wrap.
-function CollapsedRow(props: {
-  theme: () => Theme
-  label: string
-  children: JSX.Element
-}): JSX.Element {
-  return (
-    <box width='100%' flexDirection='row' justifyContent='space-between'>
-      <text flexShrink={0} wrapMode='none' fg={props.theme().textMuted}>
-        {props.label}
-      </text>
-      {props.children}
-    </box>
-  )
-}
-
-// One account in the Quota section: the shared quota block, with the status
-// word computed from the sidebar file's account state. Status word priorities
-// (first match wins):
-//   - `off` when the account is disabled
-//   - `cooling <wait>` when cooldownUntil is still in the future
-//   - `active` when current === true
-//   - `idle` for the fallback (current === false) case
-function AccountBlock(props: {
-  theme: () => Theme
-  appearance: AppearancePrefs
-  account: SidebarAccountState
-  now: () => number
-  width: () => number
-  active?: boolean
-  marginTop?: number
-}): JSX.Element {
-  const active = () => props.active ?? props.account.current
-  const cooldownMs = (): number => {
-    const cd = props.account.cooldownUntil
-    if (typeof cd !== 'number') return 0
-    return Math.max(0, cd - props.now())
-  }
-  const statusWord = (): string => {
-    if (!props.account.enabled) return 'off'
-    if (cooldownMs() > 0) return `cooling ${formatWait(cooldownMs())}`
-    return active() ? 'active' : 'idle'
-  }
-  const statusTone = (): Tone => {
-    if (!props.account.enabled) return 'muted'
-    if (cooldownMs() > 0) return 'warn'
-    return active() ? 'ok' : 'muted'
-  }
-  return (
-    <QuotaAccountBlock
-      palette={themePalette(props.theme)}
-      appearance={props.appearance}
-      account={props.account}
-      status={statusWord()}
-      statusTone={statusTone()}
-      now={props.now}
-      width={props.width}
-      marginTop={props.marginTop}
-    />
-  )
-}
-
-// Sidebar snapshots store quota values as percentages and epoch-millisecond
-// reset times. Adapt those values to the shared projection so common-auth, not
-// the renderer, decides how the narrow line reads.
-function sidebarQuotaProjection(
-  account: SidebarAccountState,
-  now: number,
-): ProjectedQuota | undefined {
-  const limits: ProjectedLimit[] = []
-  for (const { key, reading } of accountWindows(account, now)) {
-    const { checkedAt, remainingPercent, resetAt, window } = reading
-    if (
-      typeof checkedAt !== 'number' ||
-      !Number.isFinite(checkedAt) ||
-      checkedAt < 0 ||
-      !Number.isFinite(remainingPercent)
-    )
-      continue
-    const resetsAt =
-      typeof resetAt === 'number' &&
-      Number.isFinite(resetAt) &&
-      Math.abs(resetAt) <= 8.64e15
-        ? new Date(resetAt).toISOString()
-        : undefined
-    limits.push({
-      scope: key,
-      label: GROUP_NAMES[key],
-      kind: 'reading',
-      checkedAt,
-      remainingPercent: Math.max(0, Math.min(100, remainingPercent)),
-      ...(window
-        ? { windowMinutes: window === 'weekly' ? 7 * 24 * 60 : 5 * 60 }
-        : {}),
-      ...(resetsAt ? { resetsAt } : {}),
-    })
-  }
-  if (limits.length === 0) return undefined
-  return {
-    scope: 'all',
-    limits,
-    checkedAt: Math.min(...limits.map((limit) => limit.checkedAt)),
-    groups: QUOTA_ORDER.map((scope) => ({
-      scope,
-      label: GROUP_NAMES[scope],
-    })),
-  }
-}
-
-function formatWait(ms: number): string {
-  const seconds = Math.ceil(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const remaining = seconds % 60
-  return remaining > 0 ? `${minutes}m ${remaining}s` : `${minutes}m`
 }
 
 // --- SidebarPanel ----------------------------------------------------------
@@ -625,27 +387,9 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
     onCleanup(() => clearInterval(interval))
   })
 
-  const hasData = () => state().loaded.accounts.length > 0
-  const backoffActive = () => {
-    const until = state().loaded.quotaBackoffUntil
-    return typeof until === 'number' && until > now()
-  }
   const lastError = () => state().lastError ?? state().loaded.lastError
-  const degraded = () => backoffActive() || !!lastError()
-  // Honors sections.fallbackAccounts. Both the expanded (AccountBlock list)
-  // and the collapsed (CollapsedRow list) paths use the same filter so the
-  // user sees the same account set in either mode.
-  const visibleAccounts = () => {
-    const showFallback = prefs().sections.fallbackAccounts
-    if (showFallback) return state().loaded.accounts
-    return state().loaded.accounts.filter((account) => account.current)
-  }
 
-  const currentRoute = (): {
-    strategy?: 'sticky' | 'round-robin' | 'hybrid'
-    family: string
-    style: string
-  } | null => {
+  const currentRoute = (): FrameRoute | null => {
     const routes = state().loaded.activeRouting
     const entry = props.sessionId
       ? routes[props.sessionId]
@@ -658,261 +402,19 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
     }
   }
 
-  // The route on one `Route <value>` line when it fits, else one line per
-  // part with the strategy last.
-  const routeValue = (route: {
-    strategy?: string
-    family: string
-    style: string
-  }): string =>
-    `${route.strategy ? `${route.strategy} · ` : ''}${route.family}: ${route.style}`
-  const routeLines = (route: {
-    strategy?: string
-    family: string
-    style: string
-  }): string[] =>
-    [`${route.family}: ${route.style}`, route.strategy ?? ''].filter(
-      (line) => line !== '',
-    )
-
-  // The width available to content: the header row spans the panel inside
-  // its border and padding. Layout reports it during a render pass, so the
-  // signal is updated afterwards rather than rebuilding rows mid-pass.
-  const [contentWidth, setContentWidth] = createSignal(ASSUMED_CONTENT_WIDTH)
-  let headerRow: { width: number } | undefined
-  const measureContentWidth = (): void => {
-    const width = headerRow?.width
-    if (typeof width !== 'number' || width <= 0) return
-    queueMicrotask(() => {
-      if (width !== contentWidth()) setContentWidth(width)
-    })
-  }
-
-  // Header badge: ▼/▶ {label}. The fleet shows the version string on the
-  // right when no degraded state is present; the antigravity adapter keeps
-  // that right-alignment and surfaces `degraded` as a "LIMITED" badge
-  // instead of the "1/1 ready" count the previous revision rendered.
-  const headerLabel = () => {
-    const name = prefs().header.label
-    return !hasData() ? name : collapsed() ? `\u25b6 ${name}` : `\u25bc ${name}`
-  }
-
   return (
-    <box
-      width='100%'
-      flexDirection='column'
-      border={SINGLE_BORDER}
-      borderColor={theme().borderActive}
-      paddingTop={1}
-      paddingBottom={1}
-      paddingLeft={1}
-      paddingRight={1}
-    >
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: opentui renders to a terminal, not the DOM — ARIA roles do not apply */}
-      <box
-        ref={(element) => {
-          headerRow = element
-        }}
-        onSizeChange={measureContentWidth}
-        width='100%'
-        flexDirection='row'
-        justifyContent='space-between'
-        alignItems='center'
-        onMouseDown={() => {
-          // Mirror the fleet guard: only toggle when there is data to expand
-          // into. Without this a click on the empty-awaiting header would just
-          // toggle the affordance for nothing.
-          if (hasData()) controller.toggleCollapsed()
-        }}
-      >
-        <box paddingLeft={1} paddingRight={1} backgroundColor={theme().accent}>
-          <text fg={theme().background}>
-            <b>{headerLabel()}</b>
-          </text>
-        </box>
-        <Show
-          when={degraded()}
-          fallback={
-            <Show when={prefs().header.showVersion && PLUGIN_VERSION !== ''}>
-              <text fg={theme().textMuted}>{`v${PLUGIN_VERSION}`}</text>
-            </Show>
-          }
-        >
-          <box
-            paddingLeft={1}
-            paddingRight={1}
-            backgroundColor={theme().warning}
-          >
-            <text fg={theme().background}>
-              <b>{'LIMITED'}</b>
-            </text>
-          </box>
-        </Show>
-      </box>
-
-      {/* Collapsed: one measured, non-wrapping row for each visible account. */}
-      <Show when={collapsed() && hasData()}>
-        <For each={visibleAccounts()}>
-          {(account) => {
-            const unavailable = () =>
-              !account.enabled ||
-              (account.cooldownUntil != null && account.cooldownUntil > now())
-            const line = createMemo(() => {
-              const currentTime = now()
-              const projection = sidebarQuotaProjection(account, currentTime)
-              const text = formatQuota(projection, {
-                now: currentTime,
-                form: 'narrow',
-              })
-              const remaining = projection?.limits.length
-                ? Math.min(
-                    ...projection.limits.map(
-                      (limit) => limit.remainingPercent ?? 100,
-                    ),
-                  )
-                : undefined
-              const tone =
-                remaining === undefined
-                  ? 'muted'
-                  : quotaTone(100 - remaining, prefs().appearance)
-              const stale = isQuotaStale(projection, { now: currentTime })
-              const dot = unavailable() ? ' ⊘' : ' ●'
-              const width = contentWidth()
-              // Keep a complete shared line or omit it; a partial quota can
-              // make an account look as if it has less remaining.
-              const showQuota = text.length <= width
-              const showDot =
-                dot.length <= width &&
-                (!showQuota || text.length + dot.length <= width)
-              const rightWidth =
-                (showQuota ? text.length : 0) + (showDot ? dot.length : 0)
-              const labelWidth = Math.max(0, width - rightWidth - 1)
-              return {
-                dot,
-                label: fitLabel(account.label, labelWidth),
-                showDot,
-                showQuota,
-                stale,
-                text,
-                tone,
-              }
-            })
-            const quotaColor = () =>
-              line().stale ? theme().textMuted : toneColor(theme(), line().tone)
-            const dotColor = () =>
-              line().stale
-                ? theme().textMuted
-                : toneColor(theme(), unavailable() ? 'err' : line().tone)
-            return (
-              <CollapsedRow theme={theme} label={line().label}>
-                <box flexDirection='row' flexShrink={0}>
-                  <Show when={line().showQuota}>
-                    <text flexShrink={0} wrapMode='none' fg={quotaColor()}>
-                      <b>{line().text}</b>
-                    </text>
-                  </Show>
-                  <Show when={line().showDot}>
-                    <text flexShrink={0} wrapMode='none' fg={dotColor()}>
-                      {line().dot}
-                    </text>
-                  </Show>
-                </box>
-              </CollapsedRow>
-            )
-          }}
-        </For>
-      </Show>
-
-      {/* Expanded: full sections. Also render when there's no data so the
-          sidebar can never go blank if data clears while collapsed. */}
-      <Show when={!collapsed() || !hasData()}>
-        <Show
-          when={hasData()}
-          fallback={
-            <box marginTop={1} width='100%'>
-              <text fg={theme().textMuted}>{'Waiting for quota\u2026'}</text>
-            </box>
-          }
-        >
-          {/* Quota */}
-          <Show when={prefs().sections.quota}>
-            <SectionHeader theme={theme} title='Quota' />
-            <For each={visibleAccounts()}>
-              {(account, index) => (
-                <AccountBlock
-                  theme={theme}
-                  appearance={prefs().appearance}
-                  account={account}
-                  now={now}
-                  width={contentWidth}
-                  marginTop={index() === 0 ? 0 : 1}
-                />
-              )}
-            </For>
-          </Show>
-
-          {/* Routing: the session's route, or one dim line before its first request. */}
-          <Show when={prefs().sections.routing}>
-            <SectionHeader theme={theme} title='Routing' />
-            <Show
-              when={currentRoute()}
-              fallback={
-                <text wrapMode='none' fg={theme().textMuted}>
-                  {'No request yet'}
-                </text>
-              }
-            >
-              {(route) => (
-                <Show
-                  when={routeLineFits(
-                    'Route',
-                    routeValue(route()),
-                    contentWidth(),
-                  )}
-                  fallback={
-                    <For each={routeLines(route())}>
-                      {(line) => (
-                        <text wrapMode='none' fg={toneColor(theme(), 'accent')}>
-                          <b>{line}</b>
-                        </text>
-                      )}
-                    </For>
-                  }
-                >
-                  <StatRow
-                    theme={theme}
-                    label='Route'
-                    value={routeValue(route())}
-                    tone='accent'
-                  />
-                </Show>
-              )}
-            </Show>
-          </Show>
-
-          {/* Health — only when something is wrong AND sections.health is true */}
-          <Show when={degraded() && prefs().sections.health}>
-            <SectionHeader theme={theme} title='Health' />
-            <Show when={backoffActive()}>
-              <StatRow
-                theme={theme}
-                label='Quota API'
-                value={`backoff ${formatResetIn(state().loaded.quotaBackoffUntil, now)}`}
-                tone='warn'
-              />
-            </Show>
-            <Show when={lastError()}>
-              <StatRow
-                theme={theme}
-                label='Last error'
-                value={lastError() ?? ''}
-                tone='err'
-              />
-            </Show>
-          </Show>
-        </Show>
-      </Show>
-    </box>
+    <SidebarFrame
+      theme={theme}
+      settings={prefs}
+      version={PLUGIN_VERSION}
+      collapsed={collapsed}
+      onToggleCollapsed={controller.toggleCollapsed}
+      accounts={() => state().loaded.accounts}
+      route={currentRoute}
+      quotaBackoffUntil={() => state().loaded.quotaBackoffUntil}
+      lastError={lastError}
+      now={now}
+    />
   )
 }
 
