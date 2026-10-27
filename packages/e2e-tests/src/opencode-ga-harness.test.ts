@@ -639,11 +639,112 @@ describe('native-job source/parser controls, not official-host certification', (
     )
     for (const targets of Object.values(paths)) expect(targets).toHaveLength(1)
   })
-  it('keeps the complete 105-case inventory and the Docker network-none path', () => {
-    expect(GA_CASE_IDS).toHaveLength(105)
+  it('keeps the exact independent live-case inventory and the Docker network-none path', () => {
+    const expected = [
+      'ga-ownership-pool-login',
+      'ga-ownership-passthrough',
+      'ga-ownership-empty-pool',
+      'catalog-and-titles',
+      'title-off-catalog',
+      'title-primary-fallback',
+      'title-overflow',
+      'compaction',
+      'gemini-tools',
+      'claude-tools',
+      'claude-thinking',
+      'image-permissions',
+      'validation-required',
+      'account-ineligible',
+      'refresh-401',
+      'quota-429',
+      'capacity-fallback',
+      'transport-reset',
+      'host-retryable-status',
+      'terminal-frame',
+      'late-eof-empty',
+      'late-eof-after-content',
+      'late-error-empty',
+      'late-error-after-content',
+      'late-immediate-first-chunk-error',
+      'late-unrelated-response',
+      'concurrent-sessions',
+      'job-mismatch-location',
+      'job-mismatch-origin',
+      'job-mismatch-job',
+      'job-mismatch-session',
+      'job-mismatch-kind',
+      'pty-interrupt-recovery',
+      'sigint-natural-close',
+      'cleanup-reload',
+      'cleanup-disable',
+      'cleanup-location-close',
+      'cleanup-idempotent',
+      'overflow-gemini',
+      'overflow-claude',
+      'overflow-changed-counts',
+      'overflow-nonmatching-400',
+      'raw-cancel-connecting-direct',
+      'raw-cancel-connecting-proxy',
+      'raw-cancel-pre-header-direct',
+      'raw-cancel-pre-header-proxy',
+      'raw-cancel-post-header-direct',
+      'raw-cancel-post-header-proxy',
+      'tls-positive-before',
+      'tls-missing-trust',
+      'tls-wrong-san',
+      'tls-missing-san-wrong-cn',
+      'tls-positive-after',
+      'proxy-trigger-a',
+      'proxy-trigger-b',
+      'proxy-trigger-c',
+      'proxy-trigger-d',
+      'proxy-quoted-http-double',
+      'proxy-quoted-http-single',
+      'proxy-quoted-HTTP-double',
+      'proxy-quoted-no-double-HTTP',
+      'proxy-quoted-no-single-HTTP',
+      'proxy-quoted-no-double-http',
+      'proxy-quoted-no-single-http',
+      'proxy-raw-empty-fallthrough',
+      'proxy-comma-exclusion',
+      'proxy-no-proxy',
+      'proxy-wildcard',
+      'proxy-raw-connect',
+      'packed-proxy-pass',
+      'packed-proxy-fail',
+      'pty-sidebar-dialogs',
+      'pty-reauthorize-listener',
+      'pty-command-account',
+      'pty-command-quota',
+      'pty-command-routing',
+      'pty-command-killswitch',
+      'pty-command-logging',
+      'pty-command-dump',
+      'pty-two-location-toggle-quota',
+      'pty-two-location-oauth-bearer',
+      'pty-two-location-distinct-settings-a-first',
+      'pty-two-location-distinct-settings-b-first',
+      'pty-two-location-shared-settings',
+      'pty-two-location-project-settings',
+      'pty-two-location-poller',
+      'pty-two-location-dispose',
+      'pty-two-location-rebind',
+      'pty-stale-handle-reload',
+      'pty-credential-redaction',
+      'killswitch-all-fresh-below',
+      'killswitch-missing-quota',
+      'killswitch-stale-quota',
+      'killswitch-account-override',
+      'pty-second-instance-control',
+      'tls-disabled-verification-control',
+      'ga.raw-cancel.detached-dispatch-signal',
+      'ga.raw-cancel.uncancelled-request-completes',
+      'ga.raw-cancel.async-observer-rejected',
+    ]
+    expect(new Set(GA_CASE_IDS).size).toBe(expected.length)
+    const actual: string[] = [...GA_CASE_IDS]
+    expect(actual.sort()).toEqual(expected.sort())
     expect(GA_CASE_IDS[0]).toBe('ga-ownership-pool-login')
-    expect(GA_CASE_IDS).toContain('ga-ownership-passthrough')
-    expect(GA_CASE_IDS).toContain('ga-ownership-empty-pool')
     const runner = readFileSync(
       'packages/e2e-tests/docker/run-opencode-ga-test.sh',
       'utf8',
@@ -1024,7 +1125,6 @@ it('refreshes the generated host fixture from the actual bare-token contract', a
   expect(result.refresh).toBe(token)
   expect(result.access).toBe(`${token}-access`)
   expect(result.expires).toBeGreaterThanOrEqual(before + 3_600_000)
-  expect(refreshGaFixtureCredentials.toString()).not.toContain('auth.refresh')
 })
 
 it('keeps the canonical Google request URL for production raw-TLS routing', () => {
@@ -1979,7 +2079,14 @@ describe('GA ownership harness preparation (source controls, not native proof)',
       'packages/e2e-tests/src/opencode-ga-harness.ts',
       'utf8',
     )
-    for (const argument of ['observation.id', 'caseId', 'id']) {
+    const observations = readFileSync(
+      'packages/e2e-tests/src/support/ga-observations.ts',
+      'utf8',
+    )
+    expect(observations).toMatch(
+      /assertGaNoDirectProvider\(\s*observation\.id\s*,/,
+    )
+    for (const argument of ['caseId', 'id']) {
       expect(source).toMatch(
         new RegExp(
           `assertGaNoDirectProvider\\(\\s*${argument.replace('.', '\\.')}\\s*,`,

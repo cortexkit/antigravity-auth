@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { getUserConfigPath } from '../packages/opencode/src/plugin/config/loader.ts'
 import { getOpencodeConfigDir } from '../packages/opencode/src/plugin/config/updater.ts'
@@ -13,6 +15,7 @@ import {
   getPiAntigravityAuthFile,
   getPiConfigDir,
 } from '../packages/pi/src/paths.ts'
+import { runCommand } from './support/run-command.ts'
 
 describe('test environment isolation', () => {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
@@ -79,12 +82,8 @@ describe('test environment isolation', () => {
 /**
  * Guard: every writable-path resolver must resolve inside the test root.
  *
- * Two assertions per resolver:
- *   (a) under-test: the resolved path IS inside the test root
- *   (b) production default: the resolved path is NOT inside the test root
- *       (i.e. it would write to the real user dir in production, proving
- *       the test-env override is actually doing work — a resolver
- *       accidentally hardcoded to a temp path would pass (a) but fail (b))
+ * Positive checks use the preload's overrides. A fresh child removes those
+ * overrides and calls the real resolvers against an owned HOME/XDG tree.
  *
  * If any assertion fails the suite is silently writing to the operator's
  * live state. The error message names the offending resolver and the
@@ -93,13 +92,47 @@ describe('test environment isolation', () => {
 describe('state leak guard — every path resolver must stay inside the test root', () => {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
   if (!root) throw new Error('ANTIGRAVITY_TEST_ROOT not set by preload')
+  const parent = dirname(root)
 
-  // The operator's real home — used to assert production defaults differ.
-  // homedir() reads HOME (pinned by preload), so the production default is
-  // computed by stripping the test indirection.
-  const realHome = homedir()
-  // Production xdg-state default that the real user sees outside of tests.
-  const productionXdgState = join(realHome, '.local', 'state')
+  async function probe(mode: 'paths' | 'cache') {
+    const owned = mkdtempSync(join(parent, 'antigravity-resolver-control-'))
+    const project = join(owned, 'project')
+    mkdirSync(project)
+    try {
+      const result = await runCommand(
+        [
+          process.execPath,
+          fileURLToPath(
+            new URL('./support/environment-probe.ts', import.meta.url),
+          ),
+          mode,
+        ],
+        {
+          cwd: project,
+          env: {
+            PATH: process.env.PATH,
+            HOME: join(owned, 'home'),
+            USERPROFILE: join(owned, 'home'),
+            XDG_CONFIG_HOME: join(owned, 'config'),
+            XDG_STATE_HOME: join(owned, 'state'),
+            XDG_DATA_HOME: join(owned, 'data'),
+            XDG_CACHE_HOME: join(owned, 'cache'),
+            APPDATA: join(owned, 'config'),
+            LOCALAPPDATA: join(owned, 'cache'),
+            ANTIGRAVITY_AUTH_DEBUG: '0',
+          },
+          deadlineMs: 4_000,
+        },
+      )
+      expect(result.exitCode, result.stderr).toBe(0)
+      const output = JSON.parse(
+        result.stdout.trim().split('\n').at(-1) as string,
+      )
+      return { owned, project, output }
+    } finally {
+      rmSync(owned, { recursive: true, force: true })
+    }
+  }
 
   // ── Sidebar state ─────────────────────────────────────────────────────────
 
@@ -113,16 +146,27 @@ describe('state leak guard — every path resolver must stay inside the test roo
     ).toBe(true)
   })
 
-  it('getSidebarStateFile() production default is NOT under the test root', () => {
-    // Verifies the test-env override is doing real work: without it, the
-    // resolver would fall back to this production path.
-    const productionDefault = join(
-      productionXdgState,
-      'cortexkit',
-      'antigravity-auth',
-      'sidebar-state.json',
-    )
-    expect(productionDefault.startsWith(root)).toBe(false)
+  it('real production resolvers use the owned HOME/XDG tree without test overrides', async () => {
+    const { owned, project, output } = await probe('paths')
+    const state = join(owned, 'state', 'cortexkit', 'antigravity-auth')
+    const config = join(owned, 'config', 'opencode')
+    const hash = createHash('sha256').update(project).digest('hex').slice(0, 16)
+    expect(output).toEqual({
+      sidebar: join(state, 'sidebar-state.json'),
+      rpc: join(state, 'rpc', hash),
+      roots: {
+        projectRoot: project,
+        userConfigRoot: config,
+        sidebarStateRoot: state,
+        rpcRoot: join(state, 'rpc'),
+      },
+      log: join(state, 'tui.log'),
+      config: join(config, 'antigravity.json'),
+      updater: config,
+      storage: config,
+      userConfig: join(config, 'opencode.json'),
+    })
+    expect(JSON.stringify(output)).not.toContain(root)
   })
 
   // ── RPC dir ───────────────────────────────────────────────────────────────
@@ -138,16 +182,6 @@ describe('state leak guard — every path resolver must stay inside the test roo
         '(2119 leaked project dirs observed). Check that ANTIGRAVITY_AUTH_RPC_DIR ' +
         'is pinned in test/setup.ts.',
     ).toBe(true)
-  })
-
-  it('getRpcDir() production default is NOT under the test root', () => {
-    const productionDefault = join(
-      productionXdgState,
-      'cortexkit',
-      'antigravity-auth',
-      'rpc',
-    )
-    expect(productionDefault.startsWith(root)).toBe(false)
   })
 
   // ── defaultFilesystemRoots() — same XDG_STATE_HOME gap ───────────────────
@@ -168,22 +202,6 @@ describe('state leak guard — every path resolver must stay inside the test roo
     ).toBe(true)
   })
 
-  it('defaultFilesystemRoots() production xdg-state defaults are NOT under the test root', () => {
-    const productionSidebar = join(
-      productionXdgState,
-      'cortexkit',
-      'antigravity-auth',
-    )
-    const productionRpc = join(
-      productionXdgState,
-      'cortexkit',
-      'antigravity-auth',
-      'rpc',
-    )
-    expect(productionSidebar.startsWith(root)).toBe(false)
-    expect(productionRpc.startsWith(root)).toBe(false)
-  })
-
   // ── TUI log ───────────────────────────────────────────────────────────────
 
   it('resolveTuiLogPath() resolves under the test root', () => {
@@ -193,16 +211,6 @@ describe('state leak guard — every path resolver must stay inside the test roo
       `resolveTuiLogPath() resolved OUTSIDE test root: ${resolved}\n` +
         'Check that ANTIGRAVITY_AUTH_TUI_LOG_FILE or XDG_STATE_HOME is pinned.',
     ).toBe(true)
-  })
-
-  it('resolveTuiLogPath() production default is NOT under the test root', () => {
-    const productionDefault = join(
-      productionXdgState,
-      'cortexkit',
-      'antigravity-auth',
-      'tui.log',
-    )
-    expect(productionDefault.startsWith(root)).toBe(false)
   })
 
   // ── Plugin config (getUserConfigPath, getOpencodeConfigDir) ───────────────
@@ -225,11 +233,6 @@ describe('state leak guard — every path resolver must stay inside the test roo
     ).toBe(true)
   })
 
-  it('config resolver production defaults are NOT under the test root', () => {
-    const productionConfig = join(realHome, '.config', 'opencode')
-    expect(productionConfig.startsWith(root)).toBe(false)
-  })
-
   // ── Storage config dir ────────────────────────────────────────────────────
 
   it('storage getConfigDir() resolves under the test root', () => {
@@ -239,24 +242,6 @@ describe('state leak guard — every path resolver must stay inside the test roo
       `storage getConfigDir() resolved OUTSIDE test root: ${resolved}`,
     ).toBe(true)
   })
-
-  // ── auto-update-checker constants (module-level captures, separate class) ────
-  //
-  // auto-update-checker/constants.ts uses os.homedir() directly (not HOME
-  // env) for CACHE_DIR. Bun's os.homedir() is an OS-level call that does NOT
-  // read process.env.HOME — it returns the passwd entry. This means CACHE_DIR
-  // resolves to the real ~/.cache/opencode regardless of env pinning.
-  //
-  // This is a named finding, not a failure to fix: the test suite does NOT
-  // write to CACHE_DIR. The write paths (installPackage, invalidatePackage)
-  // only fire from the plugin's session.created event, which unit tests never
-  // trigger. The only test-time read is an existsSync check in checker.ts:149
-  // which is a no-op when the directory is absent. CACHE_DIR is therefore
-  // UNREACHABLE FOR WRITES in the unit test suite.
-  //
-  // USER_OPENCODE_CONFIG uses XDG_CONFIG_HOME (pinned) and resolves correctly.
-  // It is asserted here separately because its failure mode (import-order
-  // sensitivity) differs from the XDG_STATE_HOME gap above.
 
   it('auto-update-checker USER_OPENCODE_CONFIG resolves under the test root', async () => {
     const { USER_OPENCODE_CONFIG } = await import(
@@ -268,34 +253,18 @@ describe('state leak guard — every path resolver must stay inside the test roo
     ).toBe(true)
   })
 
-  it('auto-update-checker USER_OPENCODE_CONFIG production default is NOT under the test root', () => {
-    const productionUserConfig = join(
-      realHome,
-      '.config',
-      'opencode',
-      'opencode.json',
+  it('session.created invalidates only the owned updater cache', async () => {
+    const { output } = await probe('cache')
+    expect(output.requests).toEqual([
+      'https://registry.npmjs.org/-/package/@cortexkit/opencode-antigravity-auth/dist-tags',
+    ])
+    expect(output.toast).toMatchObject({
+      body: { message: expect.stringContaining('1.2.6') },
+    })
+    expect(output.installed).toBe(false)
+    expect(output.dependencies).toEqual({ unrelated: '9.9.9' })
+    expect(output.config).toBe(
+      JSON.stringify({ plugin: ['@cortexkit/opencode-antigravity-auth'] }),
     )
-    expect(productionUserConfig.startsWith(root)).toBe(false)
-  })
-
-  it('auto-update-checker CACHE_DIR resolves OUTSIDE the test root (write-unreachable)', async () => {
-    // CACHE_DIR uses os.homedir() (OS-level, not env-based) and resolves
-    // to the real ~/.cache/opencode even under test — env pinning cannot
-    // redirect it. This is the (b)-half guard: CACHE_DIR must be outside
-    // the test root. If it ever drifts inside, env isolation has broken
-    // and the situation must be re-evaluated.
-    const { CACHE_DIR } = await import(
-      `../packages/opencode/src/hooks/auto-update-checker/constants.ts?bust=${Date.now()}`
-    )
-    expect(
-      (CACHE_DIR as string).startsWith(root),
-      `CACHE_DIR resolved INSIDE test root: ${CACHE_DIR as string}\n` +
-        'os.homedir() now returns the test home — the isolation rationale no longer holds. ' +
-        'Audit write paths before the suite is considered safe.',
-    ).toBe(false)
-    // The real protection: none of the writing callsites are reachable from
-    // bun test. cache.ts::installPackage and invalidatePackage are only called
-    // from runBackgroundUpdateCheck which fires on session.created events that
-    // unit tests never emit. Verified by grep: no test imports cache.ts.
   })
 })

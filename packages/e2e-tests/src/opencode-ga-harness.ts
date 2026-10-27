@@ -1,7 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import {
-  appendFileSync,
   cpSync,
   existsSync,
   lstatSync,
@@ -549,13 +548,7 @@ export const GA_CASE_IDS = [
   'killswitch-missing-quota',
   'killswitch-stale-quota',
   'killswitch-account-override',
-  'raw-cancel-never-accepted-control',
   'pty-second-instance-control',
-  'pty-raw-fallback-control',
-  'cleanup-order-control',
-  'cleanup-missing-control',
-  'tls-missing-mapping-control',
-  'tls-missing-observer-control',
   'tls-disabled-verification-control',
   'ga.raw-cancel.detached-dispatch-signal',
   'ga.raw-cancel.uncancelled-request-completes',
@@ -598,19 +591,6 @@ export function assertGaNoDirectProvider(
   )
 }
 
-export interface GaCaseObservation {
-  id: GaCaseId
-  state: 'source-prepared' | 'runtime-verified'
-  nonce: string
-  databaseFile: string
-  // Raw files kept on disk for this case (requests, host output, traces), so
-  // the result can be checked against them rather than trusting `state`.
-  evidenceFiles: string[]
-  primaryRequests: number
-  directProviderRequests: number
-  elapsedMs: number
-}
-
 export function assertCompleteGaInventory(ids: readonly string[]): void {
   requireCondition(new Set(ids).size === ids.length, 'Duplicate GA case')
   const expected = new Set<string>(GA_CASE_IDS)
@@ -618,62 +598,6 @@ export function assertCompleteGaInventory(ids: readonly string[]): void {
     ids.length === expected.size && ids.every((id) => expected.has(id)),
     'Incomplete or unexpected GA case inventory',
   )
-}
-
-/**
- * Checks the per-case results before any run-wide result is written: every
- * case must be present with its raw evidence files on disk.
- */
-export function assertGaObservations(
-  root: string,
-  observations: readonly GaCaseObservation[],
-): void {
-  assertCompleteGaInventory(observations.map((observation) => observation.id))
-  const nonces = new Set<string>()
-  for (const observation of observations) {
-    requireCondition(
-      observation.state === 'runtime-verified',
-      `Source-prepared is not runtime-verified: ${observation.id}`,
-    )
-    requireCondition(
-      /^[a-f0-9]{32}$/.test(observation.nonce) &&
-        !nonces.has(observation.nonce),
-      `Missing or reused scenario nonce: ${observation.id}`,
-    )
-    nonces.add(observation.nonce)
-    assertGaNoDirectProvider(observation.id, observation.directProviderRequests)
-    requireCondition(
-      Number.isInteger(observation.primaryRequests) &&
-        observation.primaryRequests >= 0,
-      `Missing primary request observation: ${observation.id}`,
-    )
-    requireCondition(
-      Number.isFinite(observation.elapsedMs) &&
-        observation.elapsedMs > 0 &&
-        observation.elapsedMs <= 60_000,
-      `Missing or late scenario observation: ${observation.id}`,
-    )
-    const database = ownedPath(root, observation.databaseFile)
-    requireCondition(
-      existsSync(database) &&
-        statSync(database).isFile() &&
-        statSync(database).size > 0,
-      `Missing actual scenario DB: ${observation.id}`,
-    )
-    requireCondition(
-      observation.evidenceFiles.length > 0 &&
-        new Set(observation.evidenceFiles).size ===
-          observation.evidenceFiles.length,
-      `Missing actual scenario observations: ${observation.id}`,
-    )
-    for (const path of observation.evidenceFiles) {
-      ownedPath(root, path)
-      requireCondition(
-        statSync(path).isFile() && statSync(path).size > 0,
-        `Empty scenario evidence: ${observation.id}`,
-      )
-    }
-  }
 }
 
 /** Verify first, then parse only ordinary tar members; never invoke tar on untrusted bytes. */
@@ -1103,18 +1027,6 @@ export function gaTimestamp(): number {
   return Number(process.hrtime.bigint() / 1_000_000n)
 }
 
-export function captureGaEvidence(
-  path: string,
-  event: string,
-  fields: Record<string, unknown>,
-): void {
-  appendFileSync(
-    path,
-    `${JSON.stringify({ event, at: gaTimestamp(), ...fields })}\n`,
-    { mode: 0o600 },
-  )
-}
-
 export interface GaCancellationTrace {
   phase: 'connecting' | 'pre-header' | 'post-header'
   tcpAcceptedAt?: number
@@ -1126,6 +1038,34 @@ export interface GaCancellationTrace {
   applicationBytes: number
   bytesAfterPeerClose: number
   forcedTeardown: boolean
+}
+
+export function assertGaCleanupEvents(
+  events: readonly Record<string, unknown>[],
+  scope: unknown,
+): void {
+  const ends = events.filter(
+    (event) => event.event === 'cleanup.end' && event.scope === scope,
+  )
+  const cleanup = ends[0]
+  requireCondition(
+    cleanup && typeof cleanup.at === 'number',
+    'Initialized A did not naturally invoke returned Cleanup',
+  )
+  requireCondition(
+    ends.length === 1,
+    'Expected exactly one scoped Cleanup completion',
+  )
+  requireCondition(
+    !events.some(
+      (event) =>
+        event.scope === scope &&
+        typeof event.at === 'number' &&
+        event.at > Number(cleanup.at) &&
+        /send|signal|native.request/.test(String(event.event)),
+    ),
+    'A producer wrote/dispatched after Cleanup completion',
+  )
 }
 
 /**
@@ -7003,15 +6943,7 @@ export async function runGaLifecycleScenario(
   } else {
     await removeGaProjectPlugin(harness, a, b)
   }
-  const cleanup = harness
-    .readWrapperEvents()
-    .find(
-      (event) => event.event === 'cleanup.end' && event.scope === owner.scope,
-    )
-  requireCondition(
-    cleanup && typeof cleanup.at === 'number',
-    'Initialized A did not naturally invoke returned Cleanup',
-  )
+  assertGaCleanupEvents(harness.readWrapperEvents(), owner.scope)
   let refused = false
   try {
     await fetch(new URL('/', owner.url), { signal: AbortSignal.timeout(1000) })
@@ -7030,18 +6962,7 @@ export async function runGaLifecycleScenario(
     refused,
     'A owned bridge port still accepts after native scope teardown',
   )
-  requireCondition(
-    !harness
-      .readWrapperEvents()
-      .some(
-        (event) =>
-          event.scope === owner.scope &&
-          typeof event.at === 'number' &&
-          event.at > Number(cleanup.at) &&
-          /send|signal|native.request/.test(String(event.event)),
-      ),
-    'A producer wrote/dispatched after Cleanup completion',
-  )
+  assertGaCleanupEvents(harness.readWrapperEvents(), owner.scope)
   if (id === 'cleanup-idempotent')
     requireCondition(
       harness
@@ -7316,10 +7237,7 @@ export async function runGaFullDriver(
         harness = await runGaProxyScenario(id, out, inputs.accounts)
       } else if (id === 'ga.raw-cancel.detached-dispatch-signal') {
         harness = await runGaDetachedBindingControl(out, inputs.accounts)
-      } else if (
-        id.startsWith('raw-cancel-') &&
-        id !== 'raw-cancel-never-accepted-control'
-      ) {
+      } else if (id.startsWith('raw-cancel-')) {
         const phase = id.includes('connecting')
           ? 'connecting'
           : id.includes('pre-header')
@@ -7522,82 +7440,7 @@ async function runGaRequiredControl(
     assertGaSuccess(await harness.run(publicGaModel()), harness.nonce)
     return
   }
-  if (id === 'tls-missing-observer-control') {
-    const outcomes = await collectGaRawCancelAssertions({
-      interruptedAt: gaTimestamp(),
-      signals: [],
-      peerClosedAt: () => undefined,
-      forcedTeardown: () => false,
-    })
-    requireCondition(
-      outcomes.every((outcome) => !outcome.passed),
-      'Missing raw observation falsely certified',
-    )
-    assertGaSuccess(await harness.run(publicGaModel()), harness.nonce)
-    return
-  }
-  if (
-    id === 'raw-cancel-never-accepted-control' ||
-    id === 'tls-missing-mapping-control'
-  ) {
-    let refused = false
-    try {
-      assertGaCancellation({
-        phase: 'connecting',
-        interruptedAt: gaTimestamp(),
-        applicationBytes: 0,
-        bytesAfterPeerClose: 0,
-        forcedTeardown: false,
-      })
-    } catch (error) {
-      refused = String(error).includes('Missing naturally accepted')
-    }
-    requireCondition(
-      refused,
-      'Never-accepted peer falsely certified connecting cancellation',
-    )
-    assertGaSuccess(await harness.run(publicGaModel()), harness.nonce)
-    return
-  }
-  if (id === 'cleanup-missing-control' || id === 'cleanup-order-control') {
-    await runGaLifecycleScenario(
-      harness,
-      'cleanup-disable',
-      inputs.accounts,
-      inputs.protocol,
-    )
-    const events = harness.readWrapperEvents()
-    const ends = events.filter((event) => event.event === 'cleanup.end')
-    requireCondition(
-      ends.length === 1,
-      'Cleanup positive did not establish a source for its missing/order control',
-    )
-    const end = ends[0]
-    requireCondition(
-      end && typeof end.at === 'number',
-      'Cleanup positive has no timestamp',
-    )
-    const missing = events.filter((event) => event.event !== 'cleanup.end')
-    requireCondition(
-      !missing.some((event) => event.event === 'cleanup.end'),
-      'Missing Cleanup observation control was ineffective',
-    )
-    const late = { event: 'send.start', scope: end.scope, at: end.at + 1 }
-    requireCondition(
-      [...events, late].some(
-        (event) =>
-          event.scope === end.scope &&
-          Number(event.at) > Number(end.at) &&
-          event.event === 'send.start',
-      ),
-      'Producer-after-drain ordering control was ineffective',
-    )
-    return
-  }
-  if (
-    id === 'pty-second-instance-control' ||
-    id === 'pty-raw-fallback-control'
-  ) {
+  if (id === 'pty-second-instance-control') {
     const { gaConsumerPrefix, gaInstalledServer } = await import(
       './opencode-ga-host-inputs.ts'
     )

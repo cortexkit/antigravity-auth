@@ -70,14 +70,32 @@ test('logger.zero_terminal', async () => {
     expect(log).toContain('rpc-poll-failed')
     expect(log).toContain('poll diagnostic')
     expect(log).not.toContain('fake-poll-secret')
+    const tail = Array.from(
+      { length: 250 },
+      (_, i) => `tail-${i}-${'x'.repeat(100)}`,
+    )
     writeFileSync(
       environment.ANTIGRAVITY_AUTH_TUI_LOG_FILE,
-      'x'.repeat(1_000_001),
+      `${'h'.repeat(1_000_000)}\n${tail.join('\n')}\n`,
     )
     logger.info('rotation-control')
-    expect(
-      readFileSync(environment.ANTIGRAVITY_AUTH_TUI_LOG_FILE, 'utf8'),
-    ).toContain('rotation-control')
+    const rotated = readFileSync(
+      environment.ANTIGRAVITY_AUTH_TUI_LOG_FILE,
+      'utf8',
+    )
+    const lines = rotated.split('\n')
+    expect(Buffer.byteLength(rotated)).toBeLessThan(1_000_000)
+    expect(lines).toHaveLength(201)
+    expect(lines.slice(0, 199)).toEqual(tail.slice(51))
+    const prefix = '[opencode-antigravity-auth/tui] '
+    const last = lines[199]
+    expect(last).toStartWith(prefix)
+    if (!last) throw new Error('missing appended log record')
+    expect(JSON.parse(last.slice(prefix.length))).toMatchObject({
+      level: 'info',
+      message: 'rotation-control',
+    })
+    expect(lines[200]).toBe('')
     createTuiFileLogger({ filePath: '\u0000/no-file' }).error('drop-control')
     renderer.destroy()
     renderer = undefined

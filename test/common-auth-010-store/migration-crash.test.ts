@@ -1563,6 +1563,15 @@ describe('genuine public-store offline migration', () => {
         initializeFreshAccountStore(modules, request),
         initializeFreshAccountStore(modules, request),
       ])
+      for (const result of results) {
+        expect(result.status).toBe('fulfilled')
+        if (result.status === 'rejected') throw result.reason
+        expect(['completed', 'pending']).toContain(result.value.status)
+        if (result.value.status === 'pending')
+          expect(['lock-contention', 'ownership-lost']).toContain(
+            result.value.reason,
+          )
+      }
       const completed = results.flatMap((result) =>
         result.status === 'fulfilled' && result.value.status === 'completed'
           ? [result.value.receipt.id]
@@ -1570,6 +1579,35 @@ describe('genuine public-store offline migration', () => {
       )
       expect(completed.length).toBeGreaterThan(0)
       expect(new Set(completed).size).toBe(1)
+      const id = completed[0]
+      const directoryBasename = `accounts.json.store.${id}.generation`
+      expect(
+        JSON.parse(
+          await readFile(accountStorePointerPath(f.legacyPath), 'utf8'),
+        ),
+      ).toEqual({ schemaVersion: 1, id, directoryBasename })
+      const storeDir = join(f.root, directoryBasename)
+      const config = JSON.parse(
+        await readFile(join(storeDir, 'config.json'), 'utf8'),
+      )
+      expect(config.accounts).toEqual([])
+      expect(config.commonAuthPool).toEqual({ schemaVersion: 1, rows: {} })
+      expect(config.antigravityGeneration).toMatchObject({
+        id,
+        sourceKind: 'absent',
+      })
+      for (const result of results) {
+        if (
+          result.status === 'fulfilled' &&
+          result.value.status === 'completed'
+        )
+          expect(result.value.receipt).toMatchObject({
+            id,
+            storeDir,
+            sourceKind: 'absent',
+            status: 'active',
+          })
+      }
       expect(
         (await readAccountStoreAdmission(f.legacyPath, modules, Date.now))
           .status,

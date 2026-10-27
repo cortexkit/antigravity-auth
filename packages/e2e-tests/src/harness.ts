@@ -34,12 +34,17 @@ export interface E2eHarness {
   server: MockServerHandle
   /** Base URL the plugin should target for Antigravity requests. */
   antigravityBaseUrl: string
+  /** Original physical transport URLs, captured before loopback rewriting. */
+  transportRequests: string[]
   /** Build a fresh plugin instance scoped to the harness. */
   createPlugin(options?: {
     clientOverrides?: Record<string, unknown>
     extraDependencies?: Partial<PluginDependencyOverrides>
     /** Override specific fields in the project-level config written to disk. */
     configOverrides?: Record<string, unknown>
+    onPollerCreated?: NonNullable<
+      Parameters<typeof createAntigravityPlugin>[1]
+    >['_onPollerCreated']
   }): Promise<PluginResult>
   /** Tear down all built plugins + the mock server + temp dirs. */
   dispose(): Promise<void>
@@ -86,11 +91,13 @@ export async function createE2eHarness(
   installFetchRouter(createFetchRouter(server.baseUrl), globalThis.fetch)
 
   const plugins: PluginResult[] = []
+  const transportRequests: string[] = []
 
   const harness: E2eHarness = {
     testRoot,
     server,
     antigravityBaseUrl: server.baseUrl,
+    transportRequests,
     async createPlugin(pluginOptions = {}) {
       const directory = join(testRoot, `plugin-${plugins.length}`)
       mkdirSync(directory, { recursive: true })
@@ -125,7 +132,7 @@ export async function createE2eHarness(
         // deny non-loopback). The fetchImpl wrapper inspects the URL
         // host and rewrites Antigravity targets to the mock.
         fetchImpl: createLoopbackFetchImpl(server.baseUrl),
-        agyTransport: createAgyTransportMock(server.baseUrl),
+        agyTransport: createAgyTransportMock(server.baseUrl, transportRequests),
         filesystemRoots: {
           projectRoot: directory,
           userConfigRoot: join(testRoot, 'opencode-config'),
@@ -134,7 +141,10 @@ export async function createE2eHarness(
         },
         ...(pluginOptions.extraDependencies ?? {}),
       }
-      const factory = createAntigravityPlugin('google', { dependencies })
+      const factory = createAntigravityPlugin('google', {
+        dependencies,
+        _onPollerCreated: pluginOptions.onPollerCreated,
+      })
       phase('plugin.construction.start')
       const result = await factory({
         client: client as unknown as Parameters<typeof factory>[0]['client'],
@@ -330,11 +340,12 @@ function createLoopbackFetchImpl(mockBaseUrl: string) {
  * doesn't care about the long-lived socket semantics the production
  * transport implements.
  */
-function createAgyTransportMock(mockBaseUrl: string) {
+function createAgyTransportMock(mockBaseUrl: string, requests: string[]) {
   return async function agyTransport(
     url: string,
     init?: RequestInit,
   ): Promise<Response> {
+    requests.push(url)
     const rewritten = rewriteAntigravityUrl(url, mockBaseUrl)
     return await globalThis.fetch(rewritten, init)
   }
