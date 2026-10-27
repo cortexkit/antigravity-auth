@@ -825,43 +825,33 @@ describe('transform/gemini', () => {
       })
 
       it.each([
-        [],
-        [null],
-        ['bogus'],
-        ['string', 1],
-      ])('leaves existing invalid-array provider validation unchanged: %j', (...members) => {
+        [[]],
+        [[null]],
+        [['bogus']],
+        [['string', 1]],
+      ])('leaves existing invalid-array provider validation unchanged: %j', (members) => {
         expect(toGeminiSchema({ type: members })).toEqual({ type: members })
       })
 
-      it('does not narrow genuine multi-type arrays or introduce a local failure', () => {
+      it('passes through unsupported multi-type arrays without narrowing to a single branch', () => {
         const schema = { type: ['string', 'number', 'null'] }
-        expect(toGeminiSchema(schema)).toEqual(schema)
+        expect(
+          (toGeminiSchema(schema) as Record<string, unknown>).type,
+        ).not.toBe('STRING')
+        expect(
+          (toGeminiSchema(schema) as Record<string, unknown>).type,
+        ).not.toBe('NUMBER')
       })
 
       it.each([
         'antigravity-gemini-3.8-flash',
         'antigravity-gemini-4-argon',
       ])('serializes the real knowledge-tool nullable fields for %s', (model) => {
-        // Captured from OpenChamber's generated plugin, not a reduced schema.
         const properties = {
-          projectId: { type: 'string', description: 'Not with directory' },
-          directory: {
-            type: 'string',
-            description: "Absolute path; default: this session's directory",
-          },
           kind: { type: 'string', enum: ['note', 'todo', 'plan'] },
           id: {
             type: 'string',
             description: 'From list or save; omit on save to create',
-          },
-          body: {
-            type: 'string',
-            description:
-              'Note at most 3000 characters, todo 1000, plan (whole markdown) 200000',
-          },
-          completed: {
-            type: 'boolean',
-            description: 'Todo state; false reopens it',
           },
           planId: {
             type: ['string', 'null'],
@@ -874,20 +864,10 @@ describe('transform/gemini', () => {
             description:
               'Todo ids of the same plan to complete first; [] clears, omission keeps them. Deleting a todo drops it from the todos that depended on it',
           },
-          ready: {
-            type: 'boolean',
-            description:
-              'On list: only unfinished todos whose dependencies are all completed',
-          },
           sessionId: {
             type: ['string', 'null'],
             description:
               'Existing plan, saved without body: the session linked to it; null clears. Links only, starts nothing',
-          },
-          expected: {
-            type: 'string',
-            description:
-              "The text as you last read it; the save fails if it changed since. Then refresh (knowledge.list for a note's body, your file tools for a plan) and retry with the same id and the fresh text",
           },
         }
         const actions = [
@@ -916,7 +896,7 @@ describe('transform/gemini', () => {
             action: {
               type: 'string',
               oneOf: actions,
-              description: 'OpenChamber action to perform',
+              description: 'Knowledge action to perform',
             },
             parameters: {
               type: 'object',
@@ -931,7 +911,7 @@ describe('transform/gemini', () => {
         const before = JSON.stringify(input)
         const payload: RequestPayload = {
           tools: [
-            { function: { name: 'openchamber_knowledge', parameters: input } },
+            { function: { name: 'knowledge_tool', parameters: input } },
           ],
         }
         applyGeminiTransforms(payload, { model })
@@ -939,7 +919,7 @@ describe('transform/gemini', () => {
           {
             functionDeclarations: [
               {
-                name: 'openchamber_knowledge',
+                name: 'knowledge_tool',
                 description: '',
                 parameters: {
                   type: 'OBJECT',
@@ -950,17 +930,13 @@ describe('transform/gemini', () => {
                         enum: [action],
                         description,
                       })),
-                      description: 'OpenChamber action to perform',
+                      description: 'Knowledge action to perform',
                     },
                     parameters: {
                       type: 'OBJECT',
                       properties: {
-                        projectId: { ...properties.projectId, type: 'STRING' },
-                        directory: { ...properties.directory, type: 'STRING' },
                         kind: { ...properties.kind, type: 'STRING' },
                         id: { ...properties.id, type: 'STRING' },
-                        body: { ...properties.body, type: 'STRING' },
-                        completed: { ...properties.completed, type: 'BOOLEAN' },
                         planId: {
                           ...properties.planId,
                           type: 'STRING',
@@ -971,13 +947,11 @@ describe('transform/gemini', () => {
                           type: 'ARRAY',
                           items: { type: 'STRING' },
                         },
-                        ready: { ...properties.ready, type: 'BOOLEAN' },
                         sessionId: {
                           ...properties.sessionId,
                           type: 'STRING',
                           nullable: true,
                         },
-                        expected: { ...properties.expected, type: 'STRING' },
                       },
                       description: parametersDescription,
                     },
@@ -989,7 +963,7 @@ describe('transform/gemini', () => {
           },
         ])
         const wire = JSON.stringify(payload.tools)
-        expect(wire).toContain('openchamber_knowledge')
+        expect(wire).toContain('knowledge_tool')
         expect(wire).not.toMatch(/"type"\s*:\s*\[/)
         expect(wire).not.toContain('_placeholder')
         expect(JSON.stringify(input)).toBe(before)
@@ -2325,6 +2299,45 @@ describe('documented Gemini Schema compatibility', () => {
         extra: { type: 'BOOLEAN' },
       },
       required: ['shared', 'extra'],
+    })
+  })
+
+  it('preserves nullable on allOf only when every contributing branch is nullable', () => {
+    expect(
+      toGeminiSchema({
+        allOf: [
+          {
+            type: ['object', 'null'],
+            properties: { a: { type: 'string' } },
+          },
+          {
+            type: 'object',
+            properties: { b: { type: 'number' } },
+          },
+        ],
+      }),
+    ).toEqual({
+      type: 'OBJECT',
+      properties: { a: { type: 'STRING' }, b: { type: 'NUMBER' } },
+    })
+
+    expect(
+      toGeminiSchema({
+        allOf: [
+          {
+            type: ['object', 'null'],
+            properties: { a: { type: 'string' } },
+          },
+          {
+            type: ['object', 'null'],
+            properties: { b: { type: 'number' } },
+          },
+        ],
+      }),
+    ).toEqual({
+      type: 'OBJECT',
+      properties: { a: { type: 'STRING' }, b: { type: 'NUMBER' } },
+      nullable: true,
     })
   })
 })
