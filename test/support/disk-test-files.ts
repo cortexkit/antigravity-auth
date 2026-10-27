@@ -153,6 +153,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Recovery from migration temporary files and interrupted writes.',
   'test/common-auth-010-store/migration-crash.test.ts':
     'Migration crash seams, restart recovery, and permission refusals.',
+  'test/common-auth-010-store/relocation-crash.test.ts':
+    'Real-child relocation and downgrade seams, durable native clones, pointer replacement, and sync failures.',
   'test/test-root.test.ts':
     'Live preload disk-root contract and conservative durability identifier fence.',
 }

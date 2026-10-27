@@ -1,4 +1,5 @@
 import { spyOn } from 'bun:test'
+import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import * as observedFs from 'node:fs/promises'
@@ -8,6 +9,7 @@ import {
   mkdtemp,
   open,
   readdir,
+  readFile,
   realpath,
   rm,
   writeFile,
@@ -33,6 +35,7 @@ import {
   type AccountMigrationModules,
   accountStorePointerPath,
   createAccountMigrationFactory,
+  createAccountRelocationFactory,
   createAccountRollbackFactory,
   decodeAccountMigrationJournal,
   initializeFreshAccountStore,
@@ -48,6 +51,125 @@ import {
 } from '../../packages/core/src/account-repository-codecs.ts'
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+
+export const RELEASED_VERSION = '3.0.15'
+const RELEASED_CORE = '@cortexkit/antigravity-auth-core'
+const RELEASED_INTEGRITY =
+  'sha512-/W7ODhE5G12CLtFt/+iNcHlKlGwL1csvkoVWHo748XE6oD+KIq08qVuDw6DjvgdD7pQGnN4kGHrgTtnnG2e41g=='
+
+export function runReleasedCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: timeoutMs,
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk
+    })
+    child.on('error', (error) => {
+      stderr += `${error.message}\n`
+    })
+    child.on('close', (code) => resolve({ code, stdout, stderr }))
+  })
+}
+
+/** Installs the actual released core, pinned by npm's archive integrity, not a reconstructed decoder. */
+export async function installReleasedCore(): Promise<
+  { dir: string; root: string } | { unavailable: string }
+> {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), 'agy-released-core-')),
+  )
+  await writeFile(
+    join(root, 'package.json'),
+    JSON.stringify({ name: 'released-core-baseline', private: true }),
+  )
+  const installed = await runReleasedCommand(
+    'npm',
+    [
+      'install',
+      `${RELEASED_CORE}@${RELEASED_VERSION}`,
+      '--ignore-scripts',
+      '--no-audit',
+      '--no-fund',
+      '--fetch-retries=0',
+      '--fetch-timeout=20000',
+      '--cache',
+      join(root, 'npm-cache'),
+    ],
+    root,
+    120_000,
+  )
+  if (installed.code !== 0) {
+    const output = `${installed.stdout}\n${installed.stderr}`
+    await rm(root, { recursive: true, force: true })
+    if (
+      /E(NOTFOUND|AI_AGAIN|CONNREFUSED|CONNRESET|NETUNREACH|HOSTUNREACH|TIMEDOUT)|ETIMEDOUT|network request|fetch failed|ENOENT: spawn/.test(
+        output,
+      ) ||
+      installed.code === null
+    )
+      return {
+        unavailable: `npm could not reach the registry: ${output.trim().split('\n').slice(-3).join(' | ')}`,
+      }
+    throw new Error(`npm install of the released core failed:\n${output}`)
+  }
+  const lock = JSON.parse(
+    await readFile(join(root, 'package-lock.json'), 'utf8'),
+  )
+  const entry = lock.packages?.[`node_modules/${RELEASED_CORE}`]
+  if (
+    entry?.version !== RELEASED_VERSION ||
+    entry?.integrity !== RELEASED_INTEGRITY
+  )
+    throw new Error(
+      `released core identity differs: ${JSON.stringify(entry ?? null)}`,
+    )
+  return { root, dir: join(root, 'node_modules', RELEASED_CORE) }
+}
+
+/** Node, rather than Bun, runs the pinned old package against the same real store files. */
+export const RELEASED_CORE_CHILD = `
+import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
+const [dir, legacyPath, mode] = process.argv.slice(2)
+const load = (path) => import(pathToFileURL(join(dir, 'dist', path)).href)
+const core = await load('account-migration.js')
+const store = await load('common-auth-embedded/store/index.js')
+const fs = await load('common-auth-embedded/fs/index.js')
+const modules = { store, fs }
+const refusal = async (operation) => {
+  try { await operation(); return 'no refusal' }
+  catch (error) { return typeof error?.reason === 'string' ? error.reason : String(error) }
+}
+const now = () => Date.now()
+const offline = { legacyPath, offline: { processesStopped: true }, now }
+const result = { bind: await core.readAccountStoreBinding(legacyPath, { store }, now) }
+if (mode === 'rows' && result.bind.status === 'bound') {
+  const codecs = await load('account-repository-codecs.js')
+  const pool = store.openPoolStore({ provider: 'antigravity', configPath: result.bind.paths.configPath, statePath: result.bind.paths.statePath, requireCredentialStamps: true, now, quota: codecs.QUOTA_CODEC, providerState: { validate: codecs.isValidProviderState, credentialBound: codecs.providerStateCredentialBound } })
+  result.read = await pool.read()
+}
+if (mode === 'all') {
+  result.freshInit = await refusal(() => core.initializeFreshAccountStore(modules, { legacyPath, now }))
+  result.migrate = await refusal(() => core.createAccountMigrationFactory(modules)(offline))
+  result.rollback = await refusal(() => core.createAccountRollbackFactory(modules)(offline))
+  result.legacyWriteGuard = await refusal(() => core.assertLegacyAccountStorageWritable(legacyPath))
+}
+console.log(JSON.stringify(result))
+`
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function record(value: unknown): Record<string, unknown> {
@@ -634,7 +756,8 @@ async function lockClaims(root: string): Promise<ChildLockClaim[]> {
   const pending: string[] = []
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (
-      /^accounts\.json\.store\.[0-9a-f-]{36}\.generation$/.test(entry.name) &&
+      (/^accounts\.json\.store\.[0-9a-f-]{36}\.generation$/.test(entry.name) ||
+        entry.name === 'relocated') &&
       entry.isDirectory()
     )
       pending.push(join(root, entry.name))
@@ -769,6 +892,8 @@ async function runChild(): Promise<void> {
     (operation !== 'migrate' &&
       operation !== 'rollback' &&
       operation !== 'initialize' &&
+      operation !== 'relocate' &&
+      operation !== 'relocate-back' &&
       operation !== 'initialize-resume')
   )
     throw new Error('invalid migration child invocation')
@@ -776,18 +901,21 @@ async function runChild(): Promise<void> {
   await send({ kind: 'owned', nonce, pid: process.pid })
   const started = performance.now()
   let lastPhase = 'module-admission'
-  const deadline = setTimeout(() => {
-    console.error(
-      JSON.stringify({
-        kind: 'migration-child-deadline',
-        operation,
-        boundary,
-        lastPhase,
-        elapsedMs: performance.now() - started,
-      }),
-    )
-    process.exit(75)
-  }, 2500)
+  const deadline = setTimeout(
+    () => {
+      console.error(
+        JSON.stringify({
+          kind: 'migration-child-deadline',
+          operation,
+          boundary,
+          lastPhase,
+          elapsedMs: performance.now() - started,
+        }),
+      )
+      process.exit(75)
+    },
+    operation === 'relocate' || operation === 'relocate-back' ? 8_000 : 2_500,
+  )
   try {
     const inputs = migrationFixtureInputs(process.env)
     const modules = await loadPublicMigrationModules(
@@ -801,6 +929,30 @@ async function runChild(): Promise<void> {
     )
     lastPhase = 'operation-start'
     let seeded = false
+    const events: { kind: string; path: string }[] = []
+    if (operation === 'relocate' || operation === 'relocate-back') {
+      const actualOpen = observedFs.open
+      const actualRename = observedFs.rename
+      const actualLink = observedFs.link
+      spyOn(observedFs, 'open').mockImplementation(async (...args) => {
+        const handle = await actualOpen(...args)
+        const path = String(args[0])
+        const actualSync = handle.sync.bind(handle)
+        handle.sync = async () => {
+          await actualSync()
+          events.push({ kind: 'sync', path })
+        }
+        return handle
+      })
+      spyOn(observedFs, 'rename').mockImplementation(async (...args) => {
+        await actualRename(...args)
+        events.push({ kind: 'rename', path: String(args[1]) })
+      })
+      spyOn(observedFs, 'link').mockImplementation(async (...args) => {
+        await actualLink(...args)
+        events.push({ kind: 'link', path: String(args[1]) })
+      })
+    }
     const crash = async (point: string) => {
       await send({
         kind: 'crash',
@@ -808,6 +960,7 @@ async function runChild(): Promise<void> {
         pid: process.pid,
         boundary: point,
         locks: await lockClaims(root),
+        events,
       })
       // Only the owning parent may clean these leases after observing exit.
       process.exit(
@@ -915,14 +1068,28 @@ async function runChild(): Promise<void> {
     if (operation === 'initialize-resume')
       await publishPendingFreshFixture(modules, input.legacyPath, onBoundary)
     const result =
-      operation === 'initialize' || operation === 'initialize-resume'
-        ? await initializeFreshAccountStore(modules, input)
-        : await (operation === 'migrate'
-            ? createAccountMigrationFactory(modules)
-            : createAccountRollbackFactory(modules))({
+      operation === 'relocate' || operation === 'relocate-back'
+        ? await createAccountRelocationFactory(modules)({
             ...input,
+            legacyPath:
+              operation === 'relocate'
+                ? input.legacyPath
+                : join(root, 'relocated', 'accounts.json'),
+            targetPath:
+              operation === 'relocate'
+                ? join(root, 'relocated', 'accounts.json')
+                : input.legacyPath,
+            back: operation === 'relocate-back',
             offline: { processesStopped: true },
           })
+        : operation === 'initialize' || operation === 'initialize-resume'
+          ? await initializeFreshAccountStore(modules, input)
+          : await (operation === 'migrate'
+              ? createAccountMigrationFactory(modules)
+              : createAccountRollbackFactory(modules))({
+              ...input,
+              offline: { processesStopped: true },
+            })
     await send({ kind: 'completed', nonce, pid: process.pid, result })
   } finally {
     clearTimeout(deadline)

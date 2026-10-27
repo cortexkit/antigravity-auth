@@ -1,12 +1,6 @@
-// A moved account store, read by this build. Nothing in production writes
-// a forwarding pointer, a moved-store (`sourceKind: 'generation'`) journal or
-// a management tombstone yet, so the moved store here is built by hand, the
-// way the move will build it: a byte copy of the old generation's
-// `config.json` and `state.json`, with only the generation settings key
-// rewritten through the store. The stores are the genuine embedded
-// common-auth store on a real disk.
+// Read-side fixtures are deliberately hand-built independently of the writer.
+// Operation tests use the same populated genuine store, then run the relocation.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   mkdir,
@@ -19,11 +13,19 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import {
+  RELEASED_CORE_CHILD as CHILD,
+  installReleasedCore,
+  RELEASED_VERSION,
+  runReleasedCommand as run,
+} from '../../../test/common-auth-010-store/migration-child.ts'
+import {
   type AccountMigrationJournal,
+  type AccountMigrationModules,
   accountMigrationDurability,
   accountStorePointerPath,
   assertLegacyAccountStorageWritable,
   createAccountMigrationFactory,
+  createAccountRelocationFactory,
   createAccountRollbackFactory,
   decodeAccountMigrationJournal,
   decodeAccountStoreGeneration,
@@ -34,6 +36,7 @@ import {
   readAccountStoreBinding,
   resolveAccountStoreAnchor,
   resolveAccountStorePaths,
+  resolvePublishedAccountStorePaths,
 } from './account-migration.ts'
 import { createAccountRepositoryFactory } from './account-repository.ts'
 import {
@@ -46,6 +49,7 @@ import {
   type AccountStorePaths,
   type AccountTokenExchange,
   MANAGEMENT_SETTINGS_KEY,
+  refreshProviderLock,
 } from './account-repository-types.ts'
 import { loadCommonAuthStoreModules } from './common-auth-runtime.ts'
 
@@ -157,9 +161,9 @@ interface MovedStore {
   refs: { id: string; credentialEpoch: number; identity?: string }[]
   /** Raw store rows and settings of the old generation before its tombstone. */
   before: {
-    rows: unknown[]
+    rows: Awaited<ReturnType<typeof rowsOf>>
     settings: Record<string, unknown>
-    state: Buffer
+    state: Buffer<ArrayBuffer>
   }
   forward: ReturnType<typeof forwardJson>
 }
@@ -174,7 +178,9 @@ const ROTATED_ACCESS = 'synthetic-access-two'
  * the store, moved journal, management tombstone in the old generation,
  * schema-1 pointer at the new anchor and a forward at the old one.
  */
-async function movedStore(): Promise<MovedStore> {
+async function movedStore(
+  mode: 'manual' | 'source' | 'operation' = 'manual',
+): Promise<MovedStore> {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), 'agy-account-relocation-')),
   )
@@ -223,7 +229,12 @@ async function movedStore(): Promise<MovedStore> {
     const refreshed = await repository.refresh(identified.ref)
     if (refreshed.status !== 'rotated')
       throw new Error(`refresh is ${refreshed.status}`)
-    await repository.recordQuota(one.ref, {
+    const bumpedOne = await repository.replaceCredential(one.ref, {
+      refreshToken: 'synthetic-refresh-one-replaced',
+      identity: 'acct-one',
+      disabled: 'keep',
+    })
+    await repository.recordQuota(bumpedOne.ref, {
       schemaVersion: 1,
       cachedQuotaUpdatedAt: 5,
       cachedQuota: { claude: { remainingFraction: 0.25, modelCount: 1 } },
@@ -235,6 +246,34 @@ async function movedStore(): Promise<MovedStore> {
       rows: await rowsOf(oldPaths),
       settings: await settingsOf(oldPaths),
       state: await readFile(oldPaths.statePath),
+    }
+
+    if (mode !== 'manual') {
+      let newId: string = randomUUID()
+      if (mode === 'operation') {
+        const moved = await createAccountRelocationFactory(modules)({
+          legacyPath: oldAnchor,
+          targetPath: newAnchor,
+          offline: { processesStopped: true },
+          now: Date.now,
+        })
+        if (moved.status !== 'completed')
+          throw new Error(`move is ${moved.status}`)
+        newId = moved.receipt.id
+      }
+      const newPaths = resolveAccountStorePaths(newAnchor, newId)
+      return {
+        root,
+        oldAnchor,
+        newAnchor,
+        oldPaths,
+        newPaths,
+        oldId,
+        newId,
+        refs,
+        before,
+        forward: forwardJson(oldAnchor, oldId, newAnchor, newId),
+      }
     }
 
     // Snapshot of the old generation, as the move takes it.
@@ -711,6 +750,29 @@ describe('moved-store journal decoder', () => {
 
   const cases: [string, unknown, string][] = [
     [
+      'a reverse without its snapshot hash',
+      variant((j) => {
+        j.relocation.reversed = true
+      }),
+      'reverse snapshot association is incomplete',
+    ],
+    [
+      'a reverse hash without its completion marker',
+      variant((j) => {
+        j.relocation.reverseSha256 = HASH
+      }),
+      'reverse snapshot association is incomplete',
+    ],
+    [
+      'a pending reverse',
+      variant((j) => {
+        j.status = 'pending'
+        j.relocation.reversed = true
+        j.relocation.reverseSha256 = HASH
+      }),
+      'reverse lacks an active forwarded generation',
+    ],
+    [
       'a generation source without relocation evidence',
       variant((j) => {
         delete (j as Record<string, unknown>).relocation
@@ -914,89 +976,6 @@ describe('forwarding pointer decoder', () => {
 // lockfile integrity is pinned, so this runs the real old build. Without
 // registry access the suite is skipped and says so; set
 // ANTIGRAVITY_RELEASED_CORE_REQUIRED=1 to make a missing registry fail it.
-const RELEASED_CORE = '@cortexkit/antigravity-auth-core'
-const RELEASED_VERSION = '3.0.15'
-const RELEASED_INTEGRITY =
-  'sha512-/W7ODhE5G12CLtFt/+iNcHlKlGwL1csvkoVWHo748XE6oD+KIq08qVuDw6DjvgdD7pQGnN4kGHrgTtnnG2e41g=='
-const NETWORK_FAILURE =
-  /E(NOTFOUND|AI_AGAIN|CONNREFUSED|CONNRESET|NETUNREACH|HOSTUNREACH|TIMEDOUT)|ETIMEDOUT|network request|fetch failed|ENOENT: spawn/
-
-function run(
-  command: string,
-  args: string[],
-  cwd: string,
-  timeoutMs: number,
-): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: timeoutMs,
-    })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk
-    })
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk
-    })
-    child.on('error', (error) => {
-      stderr += `${error.message}\n`
-    })
-    child.on('close', (code) => resolve({ code, stdout, stderr }))
-  })
-}
-
-/** The installed released package's folder, or why it is unavailable. */
-async function installReleasedCore(): Promise<
-  { dir: string; root: string } | { unavailable: string }
-> {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), 'agy-released-core-')),
-  )
-  await writeFile(
-    join(root, 'package.json'),
-    JSON.stringify({ name: 'released-core-baseline', private: true }),
-  )
-  const installed = await run(
-    'npm',
-    [
-      'install',
-      `${RELEASED_CORE}@${RELEASED_VERSION}`,
-      '--ignore-scripts',
-      '--no-audit',
-      '--no-fund',
-      '--fetch-retries=0',
-      '--fetch-timeout=20000',
-      '--cache',
-      join(root, 'npm-cache'),
-    ],
-    root,
-    120_000,
-  )
-  if (installed.code !== 0) {
-    const output = `${installed.stdout}\n${installed.stderr}`
-    if (NETWORK_FAILURE.test(output) || installed.code === null)
-      return {
-        unavailable: `npm could not reach the registry: ${output.trim().split('\n').slice(-3).join(' | ')}`,
-      }
-    throw new Error(`npm install of the released core failed:\n${output}`)
-  }
-  const lock = JSON.parse(
-    await readFile(join(root, 'package-lock.json'), 'utf8'),
-  )
-  const entry = lock.packages?.[`node_modules/${RELEASED_CORE}`]
-  if (
-    entry?.version !== RELEASED_VERSION ||
-    entry?.integrity !== RELEASED_INTEGRITY
-  )
-    throw new Error(
-      `released core identity differs: ${JSON.stringify(entry ?? null)}`,
-    )
-  return { root, dir: join(root, 'node_modules', RELEASED_CORE) }
-}
 
 const released = await installReleasedCore()
 if ('unavailable' in released) {
@@ -1006,39 +985,6 @@ if ('unavailable' in released) {
     `account-relocation: skipping the released ${RELEASED_VERSION} checks; ${released.unavailable}`,
   )
 }
-
-/**
- * Runs every 3.0.15 entry point that reads the pointer, in `node`, against
- * one anchor; `bind-only` runs only the binding (the control).
- */
-const CHILD = `
-import { pathToFileURL } from 'node:url'
-import { join } from 'node:path'
-const [dir, legacyPath, mode] = process.argv.slice(2)
-const load = (path) => import(pathToFileURL(join(dir, 'dist', path)).href)
-const core = await load('account-migration.js')
-const store = await load('common-auth-embedded/store/index.js')
-const fs = await load('common-auth-embedded/fs/index.js')
-const modules = { store, fs }
-const refusal = async (operation) => {
-  try {
-    await operation()
-    return 'no refusal'
-  } catch (error) {
-    return typeof error?.reason === 'string' ? error.reason : String(error)
-  }
-}
-const now = () => Date.now()
-const offline = { legacyPath, offline: { processesStopped: true }, now }
-const result = { bind: await core.readAccountStoreBinding(legacyPath, { store }, now) }
-if (mode !== 'bind-only') {
-  result.freshInit = await refusal(() => core.initializeFreshAccountStore(modules, { legacyPath, now }))
-  result.migrate = await refusal(() => core.createAccountMigrationFactory(modules)(offline))
-  result.rollback = await refusal(() => core.createAccountRollbackFactory(modules)(offline))
-  result.legacyWriteGuard = await refusal(() => core.assertLegacyAccountStorageWritable(legacyPath))
-}
-console.log(JSON.stringify(result))
-`
 
 describe.skipIf('unavailable' in released)(
   `released ${RELEASED_VERSION} core`,
@@ -1093,5 +1039,394 @@ describe.skipIf('unavailable' in released)(
       const result = await runReleased(legacyPath, 'bind-only')
       expect(result.bind.status).toBe('bound')
     })
+
+    it('reverse restores the original schema-1 journal and released 3.0.15 binds deep-equal current rows', async () => {
+      const fixture = await movedStore('operation')
+      try {
+        const originalJournal = await readFile(fixture.oldPaths.migrationPath)
+        const repository = createAccountRepositoryFactory(modules)({
+          paths: fixture.newPaths,
+          now: Date.now,
+          exchange: async () => {
+            throw new Error('reverse fixture does not refresh')
+          },
+        })
+        try {
+          await repository.login({
+            id: randomUUID(),
+            refreshToken: 'added-after-move',
+            metadata: { addedAt: 3_000, lastUsed: 0 },
+          })
+        } finally {
+          await repository.dispose()
+        }
+        const expected = await rowsOf(fixture.newPaths)
+        const result = await createAccountRelocationFactory(modules)({
+          legacyPath: fixture.newAnchor,
+          targetPath: fixture.oldAnchor,
+          back: true,
+          offline: { processesStopped: true },
+          now: Date.now,
+        })
+        expect(result.status).toBe('completed')
+        expect(await readFile(fixture.oldPaths.migrationPath)).toEqual(
+          originalJournal,
+        )
+        expect(
+          (await settingsOf(fixture.oldPaths))[MANAGEMENT_SETTINGS_KEY],
+        ).toBeUndefined()
+        const releasedRows = await runReleased(fixture.oldAnchor, 'rows')
+        expect(releasedRows.bind.status).toBe('bound')
+        expect(releasedRows.read.status).toBe('ready')
+        expect(releasedRows.read.rows).toEqual(expected)
+        for (const anchor of [fixture.oldAnchor, fixture.newAnchor]) {
+          const binding = await readAccountStoreBinding(
+            anchor,
+            modules,
+            Date.now,
+          )
+          expect(binding.status).toBe('bound')
+          if (binding.status === 'bound')
+            expect(binding.paths.storeDir).toBe(fixture.oldPaths.storeDir)
+        }
+        expect(await resolveAccountStoreAnchor(fixture.newAnchor)).toEqual({
+          legacyPath: fixture.oldAnchor,
+        })
+        expect(
+          (
+            await createAccountRelocationFactory(modules)({
+              legacyPath: fixture.oldAnchor,
+              targetPath: fixture.newAnchor,
+              offline: { processesStopped: true },
+              now: Date.now,
+            })
+          ).status,
+        ).toBe('completed')
+        const movedAgain = await resolvePublishedAccountStorePaths(
+          fixture.newAnchor,
+        )
+        if (!movedAgain) throw new Error('repeated move missing')
+        expect(movedAgain.storeDir).not.toBe(fixture.newPaths.storeDir)
+        expect(await rowsOf(movedAgain)).toEqual(expected)
+      } finally {
+        await rm(fixture.root, { recursive: true, force: true })
+      }
+    })
   },
 )
+
+describe('offline relocation operation', () => {
+  const options = (store: MovedStore) => ({
+    legacyPath: store.oldAnchor,
+    targetPath: store.newAnchor,
+    offline: { processesStopped: true as const },
+    now: Date.now,
+  })
+
+  it.each([
+    'source',
+    'target',
+  ] as const)('reverse refuses a reappeared pool file at its %s', async (side) => {
+    const store = await movedStore('operation')
+    try {
+      await writePrivate(
+        side === 'source' ? store.newAnchor : store.oldAnchor,
+        '{}',
+      )
+      await expect(
+        createAccountRelocationFactory(modules)({
+          legacyPath: store.newAnchor,
+          targetPath: store.oldAnchor,
+          back: true,
+          offline: { processesStopped: true },
+          now: Date.now,
+        }),
+      ).rejects.toThrow('pool file')
+      expect(await rowsOf(store.newPaths)).toEqual(store.before.rows)
+    } finally {
+      await rm(store.root, { recursive: true, force: true })
+    }
+  })
+
+  it('relocates an empty native pool without inventing a state file', async () => {
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), 'agy-empty-relocation-')),
+    )
+    try {
+      await mkdir(join(root, 'target'), { mode: 0o700 })
+      const legacyPath = join(root, 'accounts.json')
+      const targetPath = join(root, 'target', 'accounts.json')
+      expect(
+        (
+          await initializeFreshAccountStore(modules, {
+            legacyPath,
+            now: Date.now,
+          })
+        ).status,
+      ).toBe('completed')
+      const source = await resolvePublishedAccountStorePaths(legacyPath)
+      if (!source) throw new Error('empty source missing')
+      const present = await Bun.file(source.statePath).exists()
+      expect(
+        (
+          await createAccountRelocationFactory(modules)({
+            legacyPath,
+            targetPath,
+            offline: { processesStopped: true },
+            now: Date.now,
+          })
+        ).status,
+      ).toBe('completed')
+      const target = await resolvePublishedAccountStorePaths(targetPath)
+      if (!target) throw new Error('empty target missing')
+      expect(await rowsOf(target)).toEqual([])
+      expect(await Bun.file(target.statePath).exists()).toBe(present)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('byte clones current rows, epochs, identities, stamps, tokens and settings', async () => {
+    const store = await movedStore('operation')
+    try {
+      expect(await rowsOf(store.newPaths)).toEqual(store.before.rows)
+      expect(await readFile(store.newPaths.statePath)).toEqual(
+        store.before.state,
+      )
+      expect(without(await settingsOf(store.newPaths), GENERATION_KEY)).toEqual(
+        without(store.before.settings, GENERATION_KEY),
+      )
+      expect(
+        (await readAccountStoreAdmission(store.oldAnchor, modules, Date.now))
+          .status,
+      ).toBe('active')
+      expect(
+        (await readAccountStoreAdmission(store.newAnchor, modules, Date.now))
+          .status,
+      ).toBe('active')
+    } finally {
+      await rm(store.root, { recursive: true, force: true })
+    }
+  })
+
+  it('takes the native snapshot while both source save locks are owned', async () => {
+    const store = await movedStore('source')
+    const held = new Set<string>()
+    const observed: AccountMigrationModules = {
+      store: modules.store,
+      fs: {
+        ...modules.fs,
+        withLock: (path, lockOptions, body) =>
+          modules.fs.withLock(path, lockOptions, async (lease) => {
+            if (lockOptions.name === 'save') held.add(path)
+            try {
+              return await body(lease)
+            } finally {
+              if (lockOptions.name === 'save') held.delete(path)
+            }
+          }),
+      },
+    }
+    let checked = false
+    try {
+      expect(
+        (
+          await createAccountRelocationFactory(observed)({
+            ...options(store),
+            onBoundary(point) {
+              if (checked || point !== 'before-directory-sync') return
+              checked = true
+              expect(held.has(store.oldPaths.configPath)).toBe(true)
+              expect(held.has(store.oldPaths.statePath)).toBe(true)
+            },
+          })
+        ).status,
+      ).toBe('completed')
+      expect(checked).toBe(true)
+    } finally {
+      await rm(store.root, { recursive: true, force: true })
+    }
+  })
+
+  it('cancel before the forward removes only our tombstone and leaves G serving', async () => {
+    const store = await movedStore('source')
+    const move = createAccountRelocationFactory(modules)
+    try {
+      await expect(
+        move({
+          ...options(store),
+          onBoundary(point) {
+            if (point === 'relocate:retire:after-tombstone')
+              throw new Error('stop after tombstone')
+          },
+        }),
+      ).rejects.toThrow('stop after tombstone')
+      expect(
+        (await settingsOf(store.oldPaths))[MANAGEMENT_SETTINGS_KEY],
+      ).toBeDefined()
+      expect((await move({ ...options(store), cancel: true })).status).toBe(
+        'cancelled',
+      )
+      expect(
+        (await settingsOf(store.oldPaths))[MANAGEMENT_SETTINGS_KEY],
+      ).toBeUndefined()
+      expect(await rowsOf(store.oldPaths)).toEqual(store.before.rows)
+      expect(
+        (await readAccountStoreAdmission(store.oldAnchor, modules, Date.now))
+          .status,
+      ).toBe('active')
+      expect((await move(options(store))).status).toBe('completed')
+      const target = await resolvePublishedAccountStorePaths(store.newAnchor)
+      expect(target).not.toBeNull()
+      if (!target) throw new Error('target missing')
+      expect(await rowsOf(target)).toEqual(store.before.rows)
+    } finally {
+      await rm(store.root, { recursive: true, force: true })
+    }
+  })
+
+  it("cancellation refuses another operation's tombstone", async () => {
+    const store = await movedStore('source')
+    const move = createAccountRelocationFactory(modules)
+    try {
+      await expect(
+        move({
+          ...options(store),
+          onBoundary(point) {
+            if (point === 'relocate:after-capture') throw new Error('stop')
+          },
+        }),
+      ).rejects.toThrow('stop')
+      const foreign = {
+        id: randomUUID(),
+        kind: 'migration',
+        targets: [],
+        progress: { step: 'activate', completedTargets: [] },
+      }
+      await rawStore(store.oldPaths).updateSettings((settings) => {
+        settings[MANAGEMENT_SETTINGS_KEY] = foreign
+        return settings
+      })
+      await expect(move({ ...options(store), cancel: true })).rejects.toThrow(
+        'another operation',
+      )
+      expect(
+        (await settingsOf(store.oldPaths))[MANAGEMENT_SETTINGS_KEY],
+      ).toEqual(foreign)
+    } finally {
+      await rm(store.root, { recursive: true, force: true })
+    }
+  })
+
+  it('nothing cancels after the forward, even before its journal acknowledgment', async () => {
+    const store = await movedStore('source')
+    const move = createAccountRelocationFactory(modules)
+    try {
+      await expect(
+        move({
+          ...options(store),
+          onBoundary(point) {
+            if (point === 'relocate:forward:after-rename-before-sync')
+              throw new Error('stop after rename')
+          },
+        }),
+      ).rejects.toThrow('stop after rename')
+      await expect(move({ ...options(store), cancel: true })).rejects.toThrow(
+        'nothing cancels',
+      )
+      expect((await move(options(store))).status).toBe('completed')
+    } finally {
+      await rm(store.root, { recursive: true, force: true })
+    }
+  })
+
+  it('a live bound repository refuses new operations; an exchanging refresh drains and cancels the stale snapshot', async () => {
+    const store = await movedStore('source')
+    let entered!: () => void
+    let release!: () => void
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const repository = createAccountRepositoryFactory(modules)({
+      paths: store.oldPaths,
+      now: Date.now,
+      exchange: async () => {
+        entered()
+        await gate
+        return {
+          accessToken: 'drain-access',
+          refreshToken: 'drain-refresh',
+          expiresAt: Date.now() + 3_600_000,
+          identity: 'acct-two',
+        }
+      },
+    })
+    try {
+      const ref = store.refs[1]
+      if (!ref) throw new Error('second row missing')
+      const refreshing = repository.refresh(ref)
+      await inside
+      let tombstoned = false
+      let refreshFinished = false
+      void refreshing.then(() => {
+        refreshFinished = true
+      })
+      let attemptedDrain = false
+      const observed: AccountMigrationModules = {
+        store: modules.store,
+        fs: {
+          ...modules.fs,
+          withLock: (path, lockOptions, body) => {
+            if (
+              lockOptions.name ===
+              refreshProviderLock(store.oldPaths.statePath, ref).name
+            ) {
+              attemptedDrain = true
+              release()
+            }
+            return modules.fs.withLock(path, lockOptions, body)
+          },
+        },
+      }
+      const moving = createAccountRelocationFactory(observed)({
+        ...options(store),
+        onBoundary: async (point) => {
+          if (point !== 'relocate:retire:after-tombstone') return
+          tombstoned = true
+          expect(refreshFinished).toBe(false)
+          expect((await repository.read()).status).toBe('management-pending')
+          await expect(
+            repository.recordIdentity(ref, 'acct-two'),
+          ).rejects.toThrow('migration')
+        },
+      })
+      expect((await moving).status).toBe('cancelled')
+      expect(tombstoned).toBe(true)
+      expect(attemptedDrain).toBe(true)
+      expect(refreshFinished).toBe(true)
+      expect((await refreshing).status).toBe('rotated')
+      const rows = await rowsOf(store.oldPaths)
+      expect(rows[1]?.credential).toMatchObject({
+        refresh: 'drain-refresh',
+        access: 'drain-access',
+      })
+      expect(
+        (await readAccountStoreAdmission(store.oldAnchor, modules, Date.now))
+          .status,
+      ).toBe('active')
+      expect(
+        (await createAccountRelocationFactory(modules)(options(store))).status,
+      ).toBe('completed')
+      const target = await resolvePublishedAccountStorePaths(store.newAnchor)
+      if (!target) throw new Error('target missing')
+      expect(await rowsOf(target)).toEqual(rows)
+    } finally {
+      release()
+      await repository.dispose()
+      await rm(store.root, { recursive: true, force: true })
+    }
+  })
+})

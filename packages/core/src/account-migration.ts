@@ -1,6 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { link, lstat, mkdir, open, realpath, unlink } from 'node:fs/promises'
+import {
+  link,
+  lstat,
+  mkdir,
+  open,
+  realpath,
+  rename,
+  unlink,
+} from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
@@ -34,6 +42,7 @@ import {
   MANAGEMENT_LOCK_NAME,
   MANAGEMENT_SETTINGS_KEY,
   ROUTING_SETTINGS_KEY,
+  refreshProviderLock,
 } from './account-repository-types.ts'
 
 /** Derives store paths from the caller's absolute legacy file path, not HOME or host preferences. */
@@ -258,7 +267,11 @@ export async function resolveAccountStoreAnchor(
       )
   }
   const record = await readPointerRecord(legacyPath)
-  if (record?.schemaVersion !== 2) return { legacyPath }
+  if (record?.schemaVersion !== 2)
+    return {
+      legacyPath:
+        (await restoredRelocationAnchor(legacyPath, record)) ?? legacyPath,
+    }
   const named = record.relocatedTo.legacyPath
   if (
     options.relocatedAnchor !== undefined &&
@@ -877,6 +890,9 @@ export interface MigrationRelocation {
   rows: string[]
   sourceTombstoned: boolean
   sourceForwarded: boolean
+  /** A downgrade restored the original generation; its journal stays in the released format. */
+  reversed?: true
+  reverseSha256?: string
 }
 
 export interface MigrationRollback {
@@ -1308,8 +1324,12 @@ export function decodeAccountMigrationJournal(
   if (
     cancelled &&
     (status === 'active' ||
-      operation !== 'rollback' ||
-      (status === 'inactive' && phase !== 'activate') ||
+      (sourceKind === 'generation'
+        ? operation !== 'migrate' ||
+          relocation?.sourceForwarded === true ||
+          phase === 'activate'
+        : operation !== 'rollback' ||
+          (status === 'inactive' && phase !== 'activate')) ||
       rollback !== undefined ||
       retiredSha256 !== undefined)
   )
@@ -1418,7 +1438,14 @@ function decodeRelocation(
     )
   const r = exact(
     raw.relocation,
-    ['source', 'rows', 'sourceTombstoned', 'sourceForwarded'],
+    [
+      'source',
+      'rows',
+      'sourceTombstoned',
+      'sourceForwarded',
+      'reversed',
+      'reverseSha256',
+    ],
     'relocation',
   )
   const s = exact(
@@ -1459,6 +1486,17 @@ function decodeRelocation(
     typeof r.sourceForwarded !== 'boolean'
   )
     throw new AccountMigrationError('relocation progress flags are invalid')
+  if (
+    Object.hasOwn(r, 'reversed') &&
+    (r.reversed !== true || raw.status !== 'active' || !r.sourceForwarded)
+  )
+    throw new AccountMigrationError(
+      'reverse lacks an active forwarded generation',
+    )
+  if (Object.hasOwn(r, 'reverseSha256') !== (r.reversed === true))
+    throw new AccountMigrationError(
+      'reverse snapshot association is incomplete',
+    )
   return {
     source: {
       legacyPath: source.legacyPath,
@@ -1473,6 +1511,12 @@ function decodeRelocation(
     rows,
     sourceTombstoned: r.sourceTombstoned,
     sourceForwarded: r.sourceForwarded,
+    ...(r.reversed === true
+      ? {
+          reversed: true,
+          reverseSha256: text(r.reverseSha256, SHA256, 'reverse snapshot hash'),
+        }
+      : {}),
   }
 }
 
@@ -2168,7 +2212,10 @@ async function management(
   journal: AccountMigrationJournal,
   clear = false,
 ): Promise<void> {
-  const targets = journal.rollback?.rows ?? journal.mapping.map((row) => row.id)
+  const targets =
+    journal.relocation?.rows ??
+    journal.rollback?.rows ??
+    journal.mapping.map((row) => row.id)
   await store.updateSettings((settings) => {
     const prior = settings[MANAGEMENT_SETTINGS_KEY]
     if (prior !== undefined) {
@@ -2404,6 +2451,14 @@ export async function readAccountStoreBinding(
     // A forward at this anchor leads one step to the anchor the store moved
     // to; the bound paths are then the moved generation's own.
     const record = await readPointerRecord(legacyPath)
+    const restored = await restoredRelocationAnchor(legacyPath, record)
+    if (restored !== undefined)
+      return await bindPublishedGeneration(
+        restored,
+        modules,
+        now,
+        expectedGeneration,
+      )
     if (record?.schemaVersion === 2) {
       if (await exists(legacyPath))
         throw new AccountMigrationError(
@@ -3259,6 +3314,1309 @@ export function createAccountMigrationFactory(
       throw error
     }
   }
+}
+
+export interface AccountRelocationOptions extends AccountMigrationOptions {
+  /** Destination anchor. The caller serializes store moves using the runtime-layout lock. */
+  targetPath: string
+  /** Restore the original generation for a downgrade, rather than moving forward. */
+  back?: boolean
+  /** Only an unforwarded capture can be cancelled. */
+  cancel?: boolean
+}
+export type AccountRelocationOutcome =
+  | AccountMigrationOutcome
+  | { status: 'cancelled'; id: string }
+
+function relocationOf(journal: AccountMigrationJournal): MigrationRelocation {
+  if (!journal.relocation)
+    throw new AccountMigrationError('relocation evidence missing')
+  return journal.relocation
+}
+
+function withGenerationLease<T>(
+  modules: AccountMigrationModules,
+  path: string,
+  name: string,
+  body: (lease: MigrationLease) => Promise<T>,
+): Promise<T> {
+  return modules.fs.withLock(
+    path,
+    { name, ttlMs: 10_000, timeoutMs: 2_000, renew: true },
+    body,
+  )
+}
+
+function withSaveLocks<T>(
+  modules: AccountMigrationModules,
+  paths: AccountStorePaths,
+  body: (leases: MigrationLease[]) => Promise<T>,
+): Promise<T> {
+  return withGenerationLease(
+    modules,
+    paths.configPath,
+    'save',
+    async (configLease) =>
+      withGenerationLease(
+        modules,
+        paths.statePath,
+        'save',
+        async (stateLease) => {
+          const result = await body([configLease, stateLease])
+          await configLease.assertOwned()
+          await stateLease.assertOwned()
+          return result
+        },
+      ),
+  )
+}
+
+async function relocationSnapshot(
+  paths: AccountStorePaths,
+  journal: AccountMigrationJournal,
+): Promise<RelocationSnapshot> {
+  await verifyCopies(paths, journal, false)
+  return decodeRelocationSnapshot(
+    jsonBytes(
+      await secureRead(join(paths.backupsDir, `${journal.sourceSha256}.json`)),
+    ),
+  )
+}
+
+function withoutManagement(value: Buffer): Record<string, unknown> {
+  const config = object(jsonBytes(value), 'source config')
+  delete config[MANAGEMENT_SETTINGS_KEY]
+  return config
+}
+
+async function sourceMatches(
+  modules: AccountMigrationModules,
+  source: AccountStorePaths,
+  snapshot: RelocationSnapshot,
+  journal: AccountMigrationJournal,
+): Promise<boolean> {
+  return withSaveLocks(modules, source, async () => {
+    const current = await synchronizedSnapshot(source)
+    const config = object(jsonBytes(current.config), 'source config')
+    const pending = config[MANAGEMENT_SETTINGS_KEY]
+    if (
+      pending !== undefined &&
+      !isDeepStrictEqual(pending, sourceTombstone(journal))
+    )
+      throw new AccountMigrationError(
+        'source management record belongs to another operation',
+      )
+    return (
+      isDeepStrictEqual(
+        withoutManagement(current.config),
+        withoutManagement(snapshot.config),
+      ) &&
+      (current.state === undefined
+        ? snapshot.state === undefined
+        : snapshot.state !== undefined && current.state.equals(snapshot.state))
+    )
+  })
+}
+
+function sourceTombstone(journal: AccountMigrationJournal) {
+  return {
+    id: journal.id,
+    kind: 'migration',
+    targets: relocationOf(journal).rows,
+    progress: { step: 'activate', completedTargets: [] },
+  }
+}
+
+async function captureRelocation(
+  modules: AccountMigrationModules,
+  source: AccountStorePaths,
+  paths: AccountStorePaths,
+  lease: MigrationLease,
+  options: AccountRelocationOptions,
+): Promise<AccountMigrationJournal> {
+  const captured = await withSaveLocks(modules, source, async () => {
+    const files = await synchronizedSnapshot(source, options.onBoundary)
+    return { ...files, journal: await secureRead(source.migrationPath) }
+  })
+  const sourceJournal = decodeAccountMigrationJournal(
+    jsonBytes(captured.journal),
+  )
+  if (sourceJournal.status !== 'active')
+    throw new AccountMigrationError('relocation requires an active source')
+  const config = object(jsonBytes(captured.config), 'source config')
+  if (config[MANAGEMENT_SETTINGS_KEY] !== undefined)
+    throw new AccountMigrationError('source management is pending')
+  const sourceStore = openAdmissionStore(modules, source, options.now)
+  const rows = await rowsOf(sourceStore)
+  const bytes = Buffer.from(
+    JSON.stringify({
+      config: captured.config.toString('base64'),
+      ...(captured.state === undefined
+        ? {}
+        : { state: captured.state.toString('base64') }),
+      journal: captured.journal.toString('base64'),
+    }),
+  )
+  const journal: AccountMigrationJournal = {
+    schemaVersion: 1,
+    id: pathGenerationId(paths),
+    legacyPath: paths.legacyPath,
+    storeDir: paths.storeDir,
+    status: 'pending',
+    operation: 'migrate',
+    phase: 'capture',
+    sourceKind: 'generation',
+    sourceSha256: digest(bytes),
+    manifest: {
+      sourceVersion: null,
+      normalizationClock: options.now(),
+      accounts: [],
+      routing: { schemaVersion: 1 },
+      effectiveActiveIndex: 0,
+    },
+    mapping: [],
+    completedRows: [],
+    relocation: {
+      source: {
+        legacyPath: source.legacyPath,
+        storeDir: source.storeDir,
+        journalId: sourceJournal.id,
+        configSha256: digest(captured.config),
+        statePresent: captured.state !== undefined,
+        ...(captured.state === undefined
+          ? {}
+          : { stateSha256: digest(captured.state) }),
+      },
+      rows: rows.map((row) => row.id),
+      sourceTombstoned: false,
+      sourceForwarded: false,
+    },
+  }
+  await exclusiveBytes(
+    join(paths.backupsDir, `${journal.sourceSha256}.json`),
+    bytes,
+    digest(bytes),
+    options.onBoundary,
+  )
+  await options.onBoundary?.('relocate:capture:after-backup')
+  const capture = Buffer.from(
+    `${JSON.stringify(captureJson(journal), null, 2)}\n`,
+  )
+  journal.captureSha256 = digest(capture)
+  await exclusiveBytes(
+    join(paths.transfersDir, `${journal.id}.capture.json`),
+    capture,
+    digest(capture),
+    options.onBoundary,
+  )
+  await saveJournal(modules, paths, lease, journal, true, options.onBoundary)
+  return journal
+}
+
+async function buildRelocation(
+  store: MigrationPoolStore,
+  paths: AccountStorePaths,
+  snapshot: RelocationSnapshot,
+  journal: AccountMigrationJournal,
+  options: AccountRelocationOptions,
+): Promise<void> {
+  const target = generationJson(journal)
+  const buildManagement = {
+    id: journal.id,
+    kind: 'migration',
+    targets: relocationOf(journal).rows,
+    progress: { step: 'build' },
+  }
+  const source = object(jsonBytes(snapshot.config), 'snapshot config')[
+    ACCOUNT_STORE_GENERATION_SETTINGS_KEY
+  ]
+  // A crash after updateSettings leaves a rewritten config, not the original clone.
+  // Accept it only after proving its entire native config differs solely in our two keys.
+  let rewritten = false
+  if (await exists(paths.configPath)) {
+    const current = object(
+      jsonBytes(await secureRead(paths.configPath)),
+      'build config',
+    )
+    rewritten = isDeepStrictEqual(
+      current[ACCOUNT_STORE_GENERATION_SETTINGS_KEY],
+      target,
+    )
+    if (rewritten) {
+      const expected = object(jsonBytes(snapshot.config), 'snapshot config')
+      expected[ACCOUNT_STORE_GENERATION_SETTINGS_KEY] = target
+      expected[MANAGEMENT_SETTINGS_KEY] = buildManagement
+      if (!isDeepStrictEqual(current, expected))
+        throw new AccountMigrationError(
+          'partial clone config differs from snapshot',
+        )
+    }
+  }
+  if (snapshot.state !== undefined)
+    await exclusiveBytes(
+      paths.statePath,
+      snapshot.state,
+      digest(snapshot.state),
+      options.onBoundary,
+    )
+  await options.onBoundary?.('relocate:build:after-state')
+  if (!rewritten)
+    await exclusiveBytes(
+      paths.configPath,
+      snapshot.config,
+      digest(snapshot.config),
+      options.onBoundary,
+    )
+  await options.onBoundary?.('relocate:build:after-config')
+  await store.updateSettings((settings) => {
+    const prior = settings[ACCOUNT_STORE_GENERATION_SETTINGS_KEY]
+    if (!isDeepStrictEqual(prior, source) && !isDeepStrictEqual(prior, target))
+      throw new AccountMigrationError(
+        'clone generation differs from source and target',
+      )
+    const management = settings[MANAGEMENT_SETTINGS_KEY]
+    if (
+      management !== undefined &&
+      !isDeepStrictEqual(management, buildManagement)
+    )
+      throw new AccountMigrationError(
+        'clone management belongs to another operation',
+      )
+    settings[ACCOUNT_STORE_GENERATION_SETTINGS_KEY] = target
+    settings[MANAGEMENT_SETTINGS_KEY] = buildManagement
+    return settings
+  })
+}
+
+async function cancelRelocation(
+  modules: AccountMigrationModules,
+  sourceStore: MigrationPoolStore,
+  paths: AccountStorePaths,
+  lease: MigrationLease,
+  journal: AccountMigrationJournal,
+  options: AccountRelocationOptions,
+): Promise<AccountRelocationOutcome> {
+  const relocation = relocationOf(journal)
+  const pointer = await readPointerRecord(relocation.source.legacyPath)
+  if (
+    relocation.sourceForwarded ||
+    pointer?.schemaVersion !== 1 ||
+    pointer.id !== relocation.source.journalId
+  )
+    throw new AccountMigrationError('nothing cancels after the source forward')
+  await sourceStore.updateSettings((settings) => {
+    const prior = settings[MANAGEMENT_SETTINGS_KEY]
+    if (prior !== undefined) {
+      if (!isDeepStrictEqual(prior, sourceTombstone(journal)))
+        throw new AccountMigrationError(
+          "cancellation cannot remove another operation's tombstone",
+        )
+      delete settings[MANAGEMENT_SETTINGS_KEY]
+    }
+    return settings
+  })
+  relocation.sourceTombstoned = false
+  journal.status = 'inactive'
+  journal.cancelled = true
+  await saveJournal(modules, paths, lease, journal, false, options.onBoundary)
+  return { status: 'cancelled', id: journal.id }
+}
+
+async function replaceRelocationPointer(
+  modules: AccountMigrationModules,
+  anchor: string,
+  prior: AccountStorePointer | AccountStoreForward,
+  next: AccountStorePointer | AccountStoreForward,
+  id: string,
+  leases: MigrationLease[],
+  boundary?: AccountMigrationOptions['onBoundary'],
+  prefix = 'relocate:forward',
+): Promise<void> {
+  const path = accountStorePointerPath(anchor)
+  const stage = `${path}.${id}.tmp`
+  const assertOwned = async () => {
+    for (const lease of leases) await lease.assertOwned()
+  }
+  if (await exists(stage)) {
+    if (!isDeepStrictEqual(jsonBytes(await secureRead(stage)), next))
+      throw new AccountMigrationError('foreign relocation pointer stage')
+    await assertOwned()
+    await unlink(stage)
+  }
+  const current = await readPointerRecord(anchor)
+  if (!isDeepStrictEqual(current, next)) {
+    if (!isDeepStrictEqual(current, prior))
+      throw new AccountMigrationError(
+        'source pointer changed before relocation',
+      )
+    await modules.fs.writeJsonAtomic(path, next, {
+      stageName: () => id,
+      beforeRename: async () => {
+        await assertOwned()
+        if (!isDeepStrictEqual(await readPointerRecord(anchor), prior))
+          throw new AccountMigrationError(
+            'source pointer changed before rename',
+          )
+        await syncFile(stage)
+        await boundary?.(`${prefix}:before-rename`)
+      },
+    })
+    await boundary?.(`${prefix}:after-rename-before-sync`)
+  }
+  // Also finish these barriers when recovering a rename that preceded a crash.
+  await syncFile(path)
+  await syncDirectory(dirname(anchor))
+  if (!isDeepStrictEqual(await readPointerRecord(anchor), next))
+    throw new AccountMigrationError('relocation pointer readback differs')
+  await assertOwned()
+}
+
+/** Offline relocation only. The host must prevent forward and reverse relocations from running concurrently. */
+export function createAccountRelocationFactory(
+  modules: AccountMigrationModules,
+) {
+  return async (
+    options: AccountRelocationOptions,
+  ): Promise<AccountRelocationOutcome> => {
+    if (options.offline?.processesStopped !== true)
+      throw new AccountMigrationError(
+        'stopped processes and timers must be explicitly confirmed',
+      )
+    resolveAccountStorePaths(options.legacyPath)
+    resolveAccountStorePaths(options.targetPath)
+    if (sameFilesystemPath(options.legacyPath, options.targetPath))
+      throw new AccountMigrationError('relocation requires distinct anchors')
+    try {
+      return await withParentTopology(
+        modules,
+        options.legacyPath,
+        (sourceParent) =>
+          withParentTopology(
+            modules,
+            options.targetPath,
+            async (targetParent) => {
+              if (options.back)
+                return reverseRelocation(
+                  modules,
+                  options,
+                  sourceParent,
+                  targetParent,
+                )
+              const sourceRecord = await readPointerRecord(options.legacyPath)
+              if (!sourceRecord)
+                throw new AccountMigrationError(
+                  'relocation source pointer missing',
+                )
+              if (sourceRecord.schemaVersion === 1)
+                await finishPointerPublication(
+                  options.legacyPath,
+                  sourceRecord,
+                  sourceParent,
+                )
+              const source = generationPaths(
+                options.legacyPath,
+                sourceRecord.id,
+              )
+              if (
+                (await exists(source.legacyPath)) ||
+                (await exists(options.targetPath))
+              )
+                throw new AccountMigrationError(
+                  'relocation refuses a reappeared pool file',
+                )
+              return withGenerationLease(
+                modules,
+                source.configPath,
+                MANAGEMENT_LOCK_NAME,
+                async (sourceLease) =>
+                  withGenerationLease(
+                    modules,
+                    await realpath(source.configPath),
+                    'antigravity-topology',
+                    async (topologyLease) => {
+                      const sourceJournal = await readJournal(source)
+                      if (!sourceJournal)
+                        throw new AccountMigrationError(
+                          'relocation source journal missing',
+                        )
+                      const prior = await readPointer(options.targetPath)
+                      if (prior)
+                        await finishPointerPublication(
+                          options.targetPath,
+                          prior,
+                          targetParent,
+                        )
+                      let paths = prior
+                        ? generationPaths(options.targetPath, prior.id)
+                        : undefined
+                      let existing = paths
+                        ? await readJournal(paths)
+                        : undefined
+                      if (
+                        prior &&
+                        (existing?.sourceKind !== 'generation' ||
+                          relocationOf(existing).source.legacyPath !==
+                            source.legacyPath ||
+                          relocationOf(existing).source.journalId !==
+                            sourceJournal.id)
+                      )
+                        throw new AccountMigrationError(
+                          'destination belongs to another source',
+                        )
+                      if (
+                        sourceJournal.status !== 'active' &&
+                        !(
+                          existing &&
+                          sourceJournal.operation === 'rollback' &&
+                          isDeepStrictEqual(
+                            (
+                              await settingsOf(
+                                openAdmissionStore(
+                                  modules,
+                                  source,
+                                  options.now,
+                                ),
+                              )
+                            )[MANAGEMENT_SETTINGS_KEY],
+                            sourceTombstone(existing),
+                          )
+                        )
+                      )
+                        throw new AccountMigrationError(
+                          'relocation requires an active source journal or its own tombstone',
+                        )
+                      if (
+                        existing?.relocation?.reversed &&
+                        (await restoredRelocationAnchor(
+                          options.targetPath,
+                          prior,
+                        )) !== source.legacyPath
+                      )
+                        throw new AccountMigrationError(
+                          'finish the reverse relocation before moving forward again',
+                        )
+                      if (
+                        existing?.status === 'active' &&
+                        !existing.relocation?.reversed
+                      )
+                        await assertSourceForwarded(existing, undefined)
+                      if (
+                        (existing?.cancelled &&
+                          existing.status === 'inactive') ||
+                        existing?.relocation?.reversed
+                      ) {
+                        paths = undefined
+                        existing = undefined
+                      }
+                      if (!paths) {
+                        if (sourceRecord.schemaVersion !== 1)
+                          throw new AccountMigrationError(
+                            'forwarded source has no resumable destination',
+                          )
+                        await currentSuccessor(
+                          openAdmissionStore(modules, source, options.now),
+                          source,
+                          sourceJournal,
+                        )
+                        await verifyCopies(source, sourceJournal, true)
+                        if (sourceJournal.sourceKind === 'generation')
+                          await assertSourceForwarded(sourceJournal, undefined)
+                        await options.onBoundary?.('relocate:before-capture')
+                        paths = await allocateGeneration(options.targetPath)
+                      }
+                      const physical = paths
+                      return withGenerationLease(
+                        modules,
+                        physical.configPath,
+                        MANAGEMENT_LOCK_NAME,
+                        async (lease) => {
+                          let journal = existing
+                          if (!journal) {
+                            journal = await captureRelocation(
+                              modules,
+                              source,
+                              physical,
+                              lease,
+                              options,
+                            )
+                            await publishGenerationPointer(
+                              modules,
+                              physical,
+                              journal,
+                              targetParent,
+                              lease,
+                              prior,
+                              options.onBoundary,
+                            )
+                            await options.onBoundary?.('relocate:after-capture')
+                          }
+                          const relocation = relocationOf(journal)
+                          const sourceStore = openMigrationStore(
+                            modules,
+                            source,
+                            options.now,
+                            writeObserver(source, sourceLease, (point) =>
+                              options.onBoundary?.(
+                                point.startsWith('public:')
+                                  ? `relocate:source:${point}`
+                                  : point,
+                              ),
+                            ),
+                          )
+                          const store = openMigrationStore(
+                            modules,
+                            physical,
+                            options.now,
+                            writeObserver(physical, lease, options.onBoundary),
+                          )
+                          const save = async () => {
+                            await sourceParent.assertOwned()
+                            await targetParent.assertOwned()
+                            await topologyLease.assertOwned()
+                            await saveJournal(
+                              modules,
+                              physical,
+                              lease,
+                              journal,
+                              false,
+                              options.onBoundary,
+                            )
+                          }
+                          const forward: AccountStoreForward = {
+                            schemaVersion: 2,
+                            id: sourceJournal.id,
+                            directoryBasename: basename(source.storeDir),
+                            relocatedTo: {
+                              legacyPath: physical.legacyPath,
+                              id: journal.id,
+                            },
+                          }
+                          const current = await readPointerRecord(
+                            source.legacyPath,
+                          )
+                          if (isDeepStrictEqual(current, forward)) {
+                            // The rename may have completed without its journal acknowledgment.
+                            // Finish its barriers before recording the point of no return.
+                            await replaceRelocationPointer(
+                              modules,
+                              source.legacyPath,
+                              forward,
+                              forward,
+                              journal.id,
+                              [sourceParent, sourceLease, topologyLease],
+                              options.onBoundary,
+                            )
+                            relocation.sourceForwarded = true
+                            relocation.sourceTombstoned = true
+                            journal.phase = 'activate'
+                            await save()
+                          } else if (
+                            current?.schemaVersion !== 1 ||
+                            current.id !== sourceJournal.id ||
+                            relocation.sourceForwarded
+                          ) {
+                            throw new AccountMigrationError(
+                              'source forward differs from relocation evidence',
+                            )
+                          }
+                          if (options.cancel)
+                            return cancelRelocation(
+                              modules,
+                              sourceStore,
+                              physical,
+                              lease,
+                              journal,
+                              options,
+                            )
+                          if (journal.status === 'active') {
+                            await assertSourceForwarded(journal, undefined)
+                            await verifyCopies(physical, journal, true)
+                            await currentSuccessor(store, physical, journal)
+                            await management(store, journal, true)
+                            await cleanupPointerStage(
+                              physical.legacyPath,
+                              {
+                                schemaVersion: 1,
+                                id: journal.id,
+                                directoryBasename: basename(physical.storeDir),
+                              },
+                              targetParent,
+                            )
+                            return {
+                              status: 'completed',
+                              receipt: receipt(journal),
+                            }
+                          }
+                          const snapshot = await relocationSnapshot(
+                            physical,
+                            journal,
+                          )
+                          if (
+                            !relocation.sourceForwarded &&
+                            !(await sourceMatches(
+                              modules,
+                              source,
+                              snapshot,
+                              journal,
+                            ))
+                          )
+                            return cancelRelocation(
+                              modules,
+                              sourceStore,
+                              physical,
+                              lease,
+                              journal,
+                              options,
+                            )
+                          if (
+                            journal.phase === 'capture' ||
+                            journal.phase === 'build'
+                          ) {
+                            journal.phase = 'build'
+                            await save()
+                            await buildRelocation(
+                              store,
+                              physical,
+                              snapshot,
+                              journal,
+                              options,
+                            )
+                            journal.phase = 'verify'
+                            await save()
+                            await options.onBoundary?.('relocate:after-build')
+                          }
+                          if (journal.phase === 'verify') {
+                            await options.onBoundary?.('relocate:before-verify')
+                            await currentSuccessor(store, physical, journal)
+                            const sourceRows = await rowsOf(
+                              openAdmissionStore(modules, source, options.now),
+                            )
+                            if (
+                              !isDeepStrictEqual(
+                                sourceRows,
+                                await rowsOf(store),
+                              ) ||
+                              !isDeepStrictEqual(
+                                sourceRows.map((row) => row.id),
+                                relocation.rows,
+                              )
+                            )
+                              return cancelRelocation(
+                                modules,
+                                sourceStore,
+                                physical,
+                                lease,
+                                journal,
+                                options,
+                              )
+                            const strip = (
+                              settings: Record<string, unknown>,
+                            ) => {
+                              const copy = { ...settings }
+                              delete copy[ACCOUNT_STORE_GENERATION_SETTINGS_KEY]
+                              delete copy[MANAGEMENT_SETTINGS_KEY]
+                              return copy
+                            }
+                            if (
+                              !isDeepStrictEqual(
+                                strip(await settingsOf(store)),
+                                strip(await settingsOf(sourceStore)),
+                              )
+                            )
+                              throw new AccountMigrationError(
+                                'cloned settings differ from source',
+                              )
+                            const verified = await synchronizedSnapshot(
+                              physical,
+                              options.onBoundary,
+                            )
+                            journal.verification = {
+                              manifestSha256: digest(
+                                canonical(manifestJson(journal.manifest)),
+                              ),
+                              configSha256: digest(verified.config),
+                              statePresent: verified.state !== undefined,
+                              ...(verified.state === undefined
+                                ? {}
+                                : { stateSha256: digest(verified.state) }),
+                              durability: accountMigrationDurability(),
+                            }
+                            if (
+                              !(await sourceMatches(
+                                modules,
+                                source,
+                                snapshot,
+                                journal,
+                              ))
+                            )
+                              return cancelRelocation(
+                                modules,
+                                sourceStore,
+                                physical,
+                                lease,
+                                journal,
+                                options,
+                              )
+                            journal.phase = 'retire'
+                            await save()
+                            await options.onBoundary?.('relocate:after-verify')
+                          }
+                          if (journal.phase === 'retire') {
+                            await sourceStore.updateSettings((settings) => {
+                              if (
+                                !isDeepStrictEqual(
+                                  settings[
+                                    ACCOUNT_STORE_GENERATION_SETTINGS_KEY
+                                  ],
+                                  generationJson(sourceJournal),
+                                )
+                              )
+                                throw new AccountMigrationError(
+                                  'source generation changed before tombstone',
+                                )
+                              const prior = settings[MANAGEMENT_SETTINGS_KEY]
+                              if (
+                                prior !== undefined &&
+                                !isDeepStrictEqual(
+                                  prior,
+                                  sourceTombstone(journal),
+                                )
+                              )
+                                throw new AccountMigrationError(
+                                  'source management belongs to another operation',
+                                )
+                              settings[MANAGEMENT_SETTINGS_KEY] =
+                                sourceTombstone(journal)
+                              return settings
+                            })
+                            relocation.sourceTombstoned = true
+                            await save()
+                            await options.onBoundary?.(
+                              'relocate:retire:after-tombstone',
+                            )
+                            const keys = [
+                              ...new Set(
+                                (await rowsOf(sourceStore)).map(
+                                  (row) =>
+                                    refreshProviderLock(source.statePath, row)
+                                      .name,
+                                ),
+                              ),
+                            ].sort()
+                            const drain = async (
+                              index: number,
+                            ): Promise<boolean> => {
+                              const name = keys[index]
+                              if (name === undefined)
+                                return sourceMatches(
+                                  modules,
+                                  source,
+                                  snapshot,
+                                  journal,
+                                )
+                              return modules.fs.withLock(
+                                source.statePath,
+                                {
+                                  name,
+                                  ttlMs: 10_000,
+                                  timeoutMs: 15_000,
+                                  renew: true,
+                                },
+                                async (refreshLease) => {
+                                  const matched = await drain(index + 1)
+                                  await refreshLease.assertOwned()
+                                  return matched
+                                },
+                              )
+                            }
+                            if (!(await drain(0)))
+                              return cancelRelocation(
+                                modules,
+                                sourceStore,
+                                physical,
+                                lease,
+                                journal,
+                                options,
+                              )
+                            await options.onBoundary?.(
+                              'relocate:retire:after-drain',
+                            )
+                            await withGenerationLease(
+                              modules,
+                              source.legacyPath,
+                              'accounts',
+                              (accountsLease) =>
+                                replaceRelocationPointer(
+                                  modules,
+                                  source.legacyPath,
+                                  {
+                                    schemaVersion: 1,
+                                    id: sourceJournal.id,
+                                    directoryBasename: basename(
+                                      source.storeDir,
+                                    ),
+                                  },
+                                  forward,
+                                  journal.id,
+                                  [
+                                    sourceParent,
+                                    targetParent,
+                                    sourceLease,
+                                    topologyLease,
+                                    lease,
+                                    accountsLease,
+                                  ],
+                                  options.onBoundary,
+                                ),
+                            )
+                            relocation.sourceForwarded = true
+                            journal.phase = 'activate'
+                            await save()
+                            await options.onBoundary?.('relocate:after-retire')
+                          }
+                          await options.onBoundary?.('relocate:before-activate')
+                          await assertSourceForwarded(journal, undefined)
+                          await verifyCopies(physical, journal, true)
+                          await currentSuccessor(store, physical, journal)
+                          journal.status = 'active'
+                          await save()
+                          await management(store, journal, true)
+                          await cleanupPointerStage(
+                            physical.legacyPath,
+                            {
+                              schemaVersion: 1,
+                              id: journal.id,
+                              directoryBasename: basename(physical.storeDir),
+                            },
+                            targetParent,
+                          )
+                          await options.onBoundary?.('relocate:after-activate')
+                          return {
+                            status: 'completed',
+                            receipt: receipt(journal),
+                          }
+                        },
+                      )
+                    },
+                  ),
+              )
+            },
+          ),
+      )
+    } catch (error) {
+      const pending = pendingLockFailure(modules, error)
+      if (pending) return pending
+      throw error
+    }
+  }
+}
+
+async function restoredRelocationAnchor(
+  anchor: string,
+  pointer: AccountStorePointer | AccountStoreForward | undefined,
+): Promise<string | undefined> {
+  if (pointer?.schemaVersion !== 1) return undefined
+  const paths = generationPaths(anchor, pointer.id)
+  const journal = await readJournal(paths)
+  if (!journal?.relocation?.reversed) return undefined
+  const source = journal.relocation.source
+  const restored = await readPointerRecord(source.legacyPath)
+  if (restored?.schemaVersion !== 1) return undefined
+  if (restored.id !== source.journalId)
+    throw new AccountMigrationError(
+      `the reversed store at ${paths.storeDir} expects generation ${source.journalId} at ${source.legacyPath}, but that anchor publishes ${restored.id}`,
+    )
+  await verifyCopies(paths, journal, true)
+  await reverseEvidence(paths, journal)
+  return source.legacyPath
+}
+
+async function reverseEvidence(
+  paths: AccountStorePaths,
+  journal: AccountMigrationJournal,
+): Promise<RelocationSnapshot> {
+  const relocation = relocationOf(journal)
+  const hash = relocation.reverseSha256
+  const bytes = await secureRead(
+    join(paths.transfersDir, `${hash}.reverse-snapshot.json`),
+  )
+  if (!hash || digest(bytes) !== hash)
+    throw new AccountMigrationError('reverse snapshot digest differs')
+  const evidence = exact(
+    jsonBytes(bytes),
+    ['config', 'state', 'journal', 'sourceId', 'targetId'],
+    'reverse snapshot',
+  )
+  if (
+    evidence.sourceId !== journal.id ||
+    evidence.targetId !== relocation.source.journalId
+  )
+    throw new AccountMigrationError(
+      'reverse snapshot belongs to another generation',
+    )
+  return decodeRelocationSnapshot({
+    config: evidence.config,
+    ...(evidence.state === undefined ? {} : { state: evidence.state }),
+    journal: evidence.journal,
+  })
+}
+
+async function reverseRelocation(
+  modules: AccountMigrationModules,
+  options: AccountRelocationOptions,
+  sourceParent: MigrationLease,
+  targetParent: MigrationLease,
+): Promise<AccountRelocationOutcome> {
+  if (options.cancel)
+    throw new AccountMigrationError('reverse relocation cannot be cancelled')
+  const pointer = await readPointer(options.legacyPath)
+  if (!pointer)
+    throw new AccountMigrationError('reverse source pointer missing')
+  const paths = generationPaths(options.legacyPath, pointer.id)
+  return withGenerationLease(
+    modules,
+    paths.configPath,
+    MANAGEMENT_LOCK_NAME,
+    (lease) =>
+      withGenerationLease(
+        modules,
+        paths.configPath,
+        'antigravity-topology',
+        async (topologyLease) => {
+          const journal = await readJournal(paths)
+          if (
+            journal?.status !== 'active' ||
+            journal.sourceKind !== 'generation'
+          )
+            throw new AccountMigrationError(
+              'reverse requires an active relocated store',
+            )
+          const relocation = relocationOf(journal)
+          if (options.targetPath !== relocation.source.legacyPath)
+            throw new AccountMigrationError(
+              'reverse target is not the original anchor',
+            )
+          const original = generationPaths(
+            options.targetPath,
+            relocation.source.journalId,
+          )
+          if (
+            (await exists(paths.legacyPath)) ||
+            (await exists(original.legacyPath))
+          )
+            throw new AccountMigrationError(
+              'reverse relocation refuses a reappeared pool file',
+            )
+          return withGenerationLease(
+            modules,
+            original.configPath,
+            MANAGEMENT_LOCK_NAME,
+            (originalLease) =>
+              withGenerationLease(
+                modules,
+                original.configPath,
+                'antigravity-topology',
+                async (originalTopology) => {
+                  const oldBytes = await secureRead(original.migrationPath)
+                  const oldJournal = await readJournal(original)
+                  if (
+                    oldJournal?.status !== 'active' ||
+                    oldJournal.sourceKind === 'generation'
+                  )
+                    throw new AccountMigrationError(
+                      'reverse original journal is not released-compatible',
+                    )
+                  await verifyCopies(original, oldJournal, true)
+                  const forward: AccountStoreForward = {
+                    schemaVersion: 2,
+                    id: oldJournal.id,
+                    directoryBasename: basename(original.storeDir),
+                    relocatedTo: {
+                      legacyPath: paths.legacyPath,
+                      id: journal.id,
+                    },
+                  }
+                  const restored: AccountStorePointer = {
+                    schemaVersion: 1,
+                    id: oldJournal.id,
+                    directoryBasename: basename(original.storeDir),
+                  }
+                  const current = await readPointerRecord(original.legacyPath)
+                  if (
+                    !isDeepStrictEqual(current, forward) &&
+                    !(
+                      relocation.reversed &&
+                      isDeepStrictEqual(current, restored)
+                    )
+                  )
+                    throw new AccountMigrationError(
+                      'reverse target forward changed',
+                    )
+                  const store = openMigrationStore(modules, paths, options.now)
+                  const progressPath = join(
+                    paths.transfersDir,
+                    `${journal.id}.reverse.json`,
+                  )
+                  const progress = async (
+                    phase: string,
+                    snapshotSha256: string,
+                  ) => {
+                    const record = {
+                      schemaVersion: 1,
+                      id: journal.id,
+                      sourcePath: paths.legacyPath,
+                      targetPath: original.legacyPath,
+                      targetId: oldJournal.id,
+                      snapshotSha256,
+                      phase,
+                    }
+                    const stage = `${progressPath}.${journal.id}.tmp`
+                    if (await exists(stage)) {
+                      await secureRead(stage)
+                      await lease.assertOwned()
+                      await unlink(stage)
+                    }
+                    await modules.fs.writeJsonAtomic(progressPath, record, {
+                      stageName: () => journal.id,
+                      beforeRename: async () => {
+                        await lease.assertOwned()
+                        await syncFile(stage)
+                      },
+                    })
+                    await syncFile(progressPath)
+                    await syncDirectory(paths.transfersDir)
+                    if (
+                      !isDeepStrictEqual(
+                        jsonBytes(await secureRead(progressPath)),
+                        record,
+                      )
+                    )
+                      throw new AccountMigrationError(
+                        'reverse progress readback differs',
+                      )
+                  }
+                  await verifyCopies(paths, journal, true)
+                  await currentSuccessor(store, paths, journal)
+                  if (!relocation.reversed) {
+                    const settings = await settingsOf(store)
+                    if (settings[MANAGEMENT_SETTINGS_KEY] !== undefined)
+                      throw new AccountMigrationError(
+                        'reverse source management is pending',
+                      )
+                    await options.onBoundary?.('relocate:back:before-clone')
+                    await withSaveLocks(
+                      modules,
+                      paths,
+                      async (sourceLeases) => {
+                        const snapshot = await synchronizedSnapshot(
+                          paths,
+                          options.onBoundary,
+                        )
+                        const evidence = Buffer.from(
+                          JSON.stringify({
+                            sourceId: journal.id,
+                            targetId: oldJournal.id,
+                            config: snapshot.config.toString('base64'),
+                            ...(snapshot.state === undefined
+                              ? {}
+                              : { state: snapshot.state.toString('base64') }),
+                            journal: oldBytes.toString('base64'),
+                          }),
+                        )
+                        const evidencePath = join(
+                          paths.transfersDir,
+                          `${digest(evidence)}.reverse-snapshot.json`,
+                        )
+                        await exclusiveBytes(
+                          evidencePath,
+                          evidence,
+                          digest(evidence),
+                          options.onBoundary,
+                        )
+                        await progress('clone', digest(evidence))
+                        await withSaveLocks(
+                          modules,
+                          original,
+                          async (targetLeases) => {
+                            const assertOwned = async () => {
+                              for (const held of [
+                                lease,
+                                originalLease,
+                                ...sourceLeases,
+                                ...targetLeases,
+                              ])
+                                await held.assertOwned()
+                            }
+                            const copy = async (
+                              path: string,
+                              bytes: Buffer,
+                            ) => {
+                              const stage = `${path}.${journal.id}.tmp`
+                              await exclusiveBytes(
+                                stage,
+                                bytes,
+                                digest(bytes),
+                                options.onBoundary,
+                              )
+                              await assertOwned()
+                              await rename(stage, path)
+                              await syncFile(path)
+                              await syncDirectory(original.storeDir)
+                            }
+                            // Native files are copied, never exported through the lossy V4 representation.
+                            if (snapshot.state !== undefined)
+                              await copy(original.statePath, snapshot.state)
+                            else if (await exists(original.statePath)) {
+                              await assertOwned()
+                              await unlink(original.statePath)
+                              await syncDirectory(original.storeDir)
+                            }
+                            await options.onBoundary?.(
+                              'relocate:back:after-state',
+                            )
+                            await copy(original.configPath, snapshot.config)
+                            await progress(
+                              'restore-generation',
+                              digest(evidence),
+                            )
+                            await options.onBoundary?.(
+                              'relocate:back:after-clone',
+                            )
+                          },
+                        )
+                        relocation.reverseSha256 = digest(evidence)
+                      },
+                    )
+                    // The original journal is never rewritten. Only its generation key
+                    // is restored in the current native pool.
+                    const originalStore = openMigrationStore(
+                      modules,
+                      original,
+                      options.now,
+                      async (step, info) => {
+                        await originalLease.assertOwned()
+                        if (step.startsWith('after-')) {
+                          await syncFile(
+                            step.includes('config')
+                              ? original.configPath
+                              : original.statePath,
+                          )
+                          await syncDirectory(original.storeDir)
+                        }
+                        await options.onBoundary?.(
+                          `back:public:${info.operation}:${step}`,
+                        )
+                      },
+                    )
+                    await originalStore.updateSettings((settings) => {
+                      if (
+                        !isDeepStrictEqual(
+                          settings[ACCOUNT_STORE_GENERATION_SETTINGS_KEY],
+                          generationJson(journal),
+                        )
+                      )
+                        throw new AccountMigrationError(
+                          'reverse clone generation changed',
+                        )
+                      if (settings[MANAGEMENT_SETTINGS_KEY] !== undefined)
+                        throw new AccountMigrationError(
+                          'reverse clone retained management',
+                        )
+                      settings[ACCOUNT_STORE_GENERATION_SETTINGS_KEY] =
+                        generationJson(oldJournal)
+                      return settings
+                    })
+                    await currentSuccessor(originalStore, original, oldJournal)
+                    if (
+                      !isDeepStrictEqual(
+                        await rowsOf(originalStore),
+                        await rowsOf(store),
+                      )
+                    )
+                      throw new AccountMigrationError(
+                        'reverse clone rows differ',
+                      )
+                    await options.onBoundary?.(
+                      'relocate:back:after-management-clear',
+                    )
+                    if (!relocation.reverseSha256)
+                      throw new AccountMigrationError(
+                        'reverse snapshot missing',
+                      )
+                    await progress('publish', relocation.reverseSha256)
+                    relocation.reversed = true
+                    await saveJournal(
+                      modules,
+                      paths,
+                      lease,
+                      journal,
+                      false,
+                      options.onBoundary,
+                    )
+                    await options.onBoundary?.('relocate:back:after-record')
+                  }
+                  const evidence = await reverseEvidence(paths, journal)
+                  if (!evidence.journal.equals(oldBytes))
+                    throw new AccountMigrationError(
+                      'reverse original journal differs from snapshot',
+                    )
+                  if (current?.schemaVersion === 2) {
+                    const native = object(
+                      jsonBytes(evidence.config),
+                      'reverse config',
+                    )
+                    native[ACCOUNT_STORE_GENERATION_SETTINGS_KEY] =
+                      generationJson(oldJournal)
+                    const actual = await withSaveLocks(modules, original, () =>
+                      synchronizedSnapshot(original, options.onBoundary),
+                    )
+                    if (
+                      !isDeepStrictEqual(jsonBytes(actual.config), native) ||
+                      !isDeepStrictEqual(actual.state, evidence.state)
+                    )
+                      throw new AccountMigrationError(
+                        'reverse clone differs before pointer publication',
+                      )
+                  }
+                  if (
+                    !(await secureRead(original.migrationPath)).equals(oldBytes)
+                  )
+                    throw new AccountMigrationError(
+                      'reverse changed original journal',
+                    )
+                  await withGenerationLease(
+                    modules,
+                    original.legacyPath,
+                    'accounts',
+                    (accountsLease) =>
+                      replaceRelocationPointer(
+                        modules,
+                        original.legacyPath,
+                        forward,
+                        restored,
+                        journal.id,
+                        [
+                          sourceParent,
+                          targetParent,
+                          lease,
+                          topologyLease,
+                          originalLease,
+                          originalTopology,
+                          accountsLease,
+                        ],
+                        options.onBoundary,
+                        'relocate:back:pointer',
+                      ),
+                  )
+                  await progress('complete', relocation.reverseSha256 ?? '')
+                  await options.onBoundary?.('relocate:back:after-pointer')
+                  return { status: 'completed', receipt: receipt(oldJournal) }
+                },
+              ),
+          )
+        },
+      ),
+  )
 }
 
 function refMatches(
@@ -4319,7 +5677,9 @@ async function publishGenerationPointer(
         'foreign logical store directory appeared before publication',
       )
     if (journal.sourceKind === 'absent') await assertSourceAbsent(paths)
-    else if (
+    else if (journal.sourceKind === 'generation') {
+      await assertSourceAbsent(paths)
+    } else if (
       digest(await secureRead(paths.legacyPath)) !== journal.sourceSha256
     )
       throw new AccountMigrationError(
@@ -4345,11 +5705,23 @@ async function publishGenerationPointer(
   } else {
     const oldPaths = generationPaths(paths.legacyPath, prior.id)
     const oldJournal = await readJournal(oldPaths)
-    if (oldJournal?.status !== 'inactive')
+    if (!oldJournal)
+      throw new AccountMigrationError('prior generation journal missing')
+    const reversed =
+      oldJournal?.relocation?.reversed === true &&
+      journal.sourceKind === 'generation' &&
+      isDeepStrictEqual(
+        oldJournal.relocation.source.legacyPath,
+        journal.relocation?.source.legacyPath,
+      ) &&
+      oldJournal.relocation.source.journalId ===
+        journal.relocation?.source.journalId
+    if (oldJournal?.status !== 'inactive' && !reversed)
       throw new AccountMigrationError(
         'pointer transition requires an owned inactive prior generation',
       )
     await verifyCopies(oldPaths, oldJournal, !oldJournal.cancelled)
+    if (reversed) await reverseEvidence(oldPaths, oldJournal)
     const stageName = journal.id
     await modules.fs.writeJsonAtomic(path, pointer, {
       stageName: () => stageName,
@@ -4358,7 +5730,9 @@ async function publishGenerationPointer(
         await managementLease.assertOwned()
         if (
           !isDeepStrictEqual(await readPointer(paths.legacyPath), prior) ||
-          (await readJournal(oldPaths))?.status !== 'inactive'
+          (reversed
+            ? !isDeepStrictEqual(await readJournal(oldPaths), oldJournal)
+            : (await readJournal(oldPaths))?.status !== 'inactive')
         )
           throw new AccountMigrationError(
             'inactive pointer changed before transition',
