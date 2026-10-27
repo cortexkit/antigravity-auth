@@ -43,9 +43,9 @@ import {
 } from './runtime-layout'
 import {
   __resetRuntimeLayoutsForTest,
+  decidedAccountStoreAnchor,
   readForwardedAccountStore,
   runtimeLayoutLocation,
-  setAccountStoreAnchor,
   stateHomeAccountFile,
 } from './runtime-paths'
 import { __resetVaultFoldersForTest } from './vault-folder'
@@ -259,14 +259,25 @@ describe('the start-time decision', () => {
   })
 
   it('OpenCode 1 and 2 locations in one process share one decision', async () => {
-    const first = runtimeLayoutLocation()
-    const anchor = await prepareAccountStore(options())
-    setAccountStoreAnchor(first, anchor)
-    // The state-home folder is derived from the config folder, so a second
-    // location is another process; the shared decision is what one process
-    // gives both of its locations.
-    expect(await prepareAccountStore(options())).toBe(anchor)
-    expect(await prepareAccountStore(options())).toBe(anchor)
+    // OpenCode 1 starts the plugin and OpenCode 2 starts a location; both go
+    // through the same entry point for the same config folder.
+    const first = await decide()
+    const heartbeatAfterFirst = readFileSync(processHeartbeatPath(), 'utf8')
+    // A second start in the same process decides nothing again: no new move
+    // for OpenCode 2's location.
+    let moved = 0
+    const again = await decide({
+      relocate: async () => {
+        moved += 1
+        return { status: 'completed', id: 'second' }
+      },
+    })
+    expect(again).toBe(first)
+    expect(moved).toBe(0)
+    expect(readFileSync(processHeartbeatPath(), 'utf8')).toBe(
+      heartbeatAfterFirst,
+    )
+    expect(decidedAccountStoreAnchor(runtimeLayoutLocation())).toBe(first)
   })
 
   it('a state folder whose path goes through a link defers, and says how to fix it', async () => {
@@ -415,6 +426,25 @@ describe('the CLI', () => {
     expect(existsSync(root) ? readdirSync(root).sort() : []).toEqual(before)
   })
 
+  it('a real CLI process prints help without creating anything', async () => {
+    // The whole CLI process, as a user runs it: its own heartbeat, layout
+    // decision and store decision never start for help.
+    const entry = fileURLToPath(new URL('./cli.ts', import.meta.url))
+    const child = Bun.spawn([process.execPath, entry, 'store', '--help'], {
+      env: { ...process.env, NODE_ENV: 'test' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [stdout, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      child.exited,
+    ])
+    expect(code).toBe(0)
+    expect(stdout).toContain('store relocate [--back] --offline')
+    expect(existsSync(join(root, 'state'))).toBe(false)
+    expect(existsSync(configDir())).toBe(false)
+  }, 60_000)
+
   it('refuses store relocate without --offline before any effect', async () => {
     let ran = false
     const { deps, output } = harness({
@@ -560,6 +590,42 @@ function plainTerminal(written: string[]) {
 }
 
 describe('real processes', () => {
+  it('a live 3.0.15 process keeps the store in the config folder; after it exits the next start moves it', async () => {
+    const childHome = join(root, 'child-home')
+    mkdirSync(childHome, { recursive: true, mode: 0o700 })
+    const childState = join(childHome, 'state')
+    process.env.XDG_STATE_HOME = childState
+    resetProcess()
+    await publishStore(configAnchor())
+    // The child is a real process writing the real heartbeat, with the
+    // version that predates the move and no `stores` record.
+    const older = await spawnStoreProcess('heartbeat', {
+      HOME: childHome,
+      USERPROFILE: childHome,
+      XDG_STATE_HOME: childState,
+      ACCOUNT_STORE_TEST_VERSION: '3.0.15',
+      ACCOUNT_STORE_TEST_CONFIG_KEY: processConfigFolderKey(),
+    })
+    expect(older.result.heartbeat).toContain(String(older.child.pid))
+    let moved = 0
+    const moveCount = async () => {
+      const anchor = await decide({
+        relocate: async () => {
+          moved += 1
+          return { status: 'completed', id: 'synthetic-generation' }
+        },
+      })
+      return { anchor, moved }
+    }
+    expect(await moveCount()).toEqual({ anchor: 'config', moved: 0 })
+    expect(getStoragePath()).toBe(configAnchor())
+
+    older.child.kill('SIGKILL')
+    await older.child.exited
+    resetProcess()
+    expect(await moveCount()).toEqual({ anchor: 'state-home', moved: 1 })
+  }, 60_000)
+
   it('two processes starting together settle one store anchor and one authority', async () => {
     // The children get a home of their own, so the fence they read holds no
     // heartbeat or port file of this machine's other runs. The store they
