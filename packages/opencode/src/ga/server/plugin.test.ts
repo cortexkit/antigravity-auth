@@ -34,7 +34,6 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
-
 import type * as Core from '@cortexkit/antigravity-auth-core'
 import type {
   SessionHooks,
@@ -42,6 +41,7 @@ import type {
   SessionRetry,
 } from '@opencode/plugin/promise/session'
 import { placeholderSecret } from '../../common-auth-embedded/opencode2/index.js'
+import { RELEASE_MODEL_IDS } from '../../plugin/__fixtures__/release-model-ids'
 
 type SenderCall = {
   url: string
@@ -98,15 +98,15 @@ type GaLocationServicesFactory = import('./index.ts').GaLocationServicesFactory
 // Compile-time declaration checks. `tsc` fails if either flips.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 type Assignable<A, B> = [A] extends [B] ? true : false
-const observerIsDirectProperty: Same<
+const _observerIsDirectProperty: Same<
   NonNullable<GaPluginOverrides['observeRawSenderSignal']>,
   (signal: AbortSignal) => undefined
 > = true
-const asyncObserverRejected: Assignable<
+const _asyncObserverRejected: Assignable<
   (signal: AbortSignal) => Promise<undefined>,
   ObserveRawSenderSignal
 > = false
-const syncObserverAccepted: Assignable<
+const _syncObserverAccepted: Assignable<
   (signal: AbortSignal) => undefined,
   ObserveRawSenderSignal
 > = true
@@ -127,12 +127,6 @@ function sendInput(signal: AbortSignal): GaSendInput {
     kind: 'primary',
   }
 }
-
-beforeAll(() => {
-  expect(observerIsDirectProperty).toBe(true)
-  expect(asyncObserverRejected).toBe(false)
-  expect(syncObserverAccepted).toBe(true)
-})
 
 afterEach(() => {
   senderCalls.length = 0
@@ -1782,6 +1776,7 @@ describe('model registration', () => {
     const { getPublicModelDefinitions } = realCore
     const definitions = getPublicModelDefinitions()
     expect([...catalog.keys()].sort()).toEqual(Object.keys(definitions).sort())
+    expect([...catalog.keys()].sort()).toEqual(RELEASE_MODEL_IDS)
     for (const [id, info] of catalog) {
       const definition = definitions[id]
       // Branded ids are strings at runtime; widening them to `string` keeps
@@ -1840,6 +1835,7 @@ describe('model registration', () => {
             : undefined,
         models: {
           set: (_providerID, models) => {
+            expect(_providerID).toBe('google')
             written = models
           },
         },
@@ -1849,6 +1845,21 @@ describe('model registration', () => {
     expect(written.map((model) => model.name)).toContain('Stock model')
     expect(written.map((model) => model.name)).not.toContain('stale copy')
     expect(written).toHaveLength(catalog.size + 1)
+    const serializedModels = JSON.parse(JSON.stringify(written)) as Array<{
+      id: string
+      modelID: string
+      providerID: string
+    }>
+    const expectedIds = [...RELEASE_MODEL_IDS, 'gemini-2.5-pro'].sort()
+    expect(serializedModels.map((model) => model.id).sort()).toEqual(
+      expectedIds,
+    )
+    expect(serializedModels.map((model) => model.modelID).sort()).toEqual(
+      expectedIds,
+    )
+    expect(
+      serializedModels.every((model) => model.providerID === 'google'),
+    ).toBe(true)
   })
 
   it('registers nothing when the host has no Google provider', () => {

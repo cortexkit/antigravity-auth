@@ -73,8 +73,22 @@ describe('ansi', () => {
   })
 
   describe('isTTY', () => {
-    it('returns boolean', () => {
-      expect(typeof isTTY()).toBe('boolean')
+    it.each([
+      true,
+      false,
+      undefined,
+    ])('reflects stdin terminal capability (%s)', (isTerminal) => {
+      const original = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY')
+      try {
+        Object.defineProperty(process.stdin, 'isTTY', {
+          configurable: true,
+          value: isTerminal,
+        })
+        expect(isTTY()).toBe(isTerminal === true)
+      } finally {
+        if (original) Object.defineProperty(process.stdin, 'isTTY', original)
+        else Reflect.deleteProperty(process.stdin, 'isTTY')
+      }
     })
   })
 })

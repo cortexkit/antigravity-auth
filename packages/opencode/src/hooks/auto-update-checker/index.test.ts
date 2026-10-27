@@ -65,13 +65,17 @@ describe('Auto Update Checker', () => {
   })
 
   describe('prerelease version handling', () => {
-    it('skips auto-update for beta versions', async () => {
+    it.each([
+      '1.2.7-beta.1',
+      '2.0.0-alpha.3',
+      '1.3.0-rc.1',
+    ])('skips auto-update for prerelease pinned versions (%s)', async (version) => {
       const client = createMockClient()
       ;(getLocalDevVersion as any).mockReturnValue(null)
       ;(findPluginEntry as any).mockReturnValue(
         createPluginInfo({
-          pinnedVersion: '1.2.7-beta.1',
-          entry: 'opencode-antigravity-auth@1.2.7-beta.1',
+          pinnedVersion: version,
+          entry: `opencode-antigravity-auth@${version}`,
         }),
       )
       ;(getCachedVersion as any).mockReturnValue(null)
@@ -88,48 +92,6 @@ describe('Auto Update Checker', () => {
       expect(updatePinnedVersion).not.toHaveBeenCalled()
       expect(invalidatePackage).not.toHaveBeenCalled()
       expect(client.tui.showToast).not.toHaveBeenCalled()
-    })
-
-    it('skips auto-update for alpha versions', async () => {
-      const client = createMockClient()
-      ;(getLocalDevVersion as any).mockReturnValue(null)
-      ;(findPluginEntry as any).mockReturnValue(
-        createPluginInfo({
-          pinnedVersion: '2.0.0-alpha.3',
-          entry: 'opencode-antigravity-auth@2.0.0-alpha.3',
-        }),
-      )
-      ;(getCachedVersion as any).mockReturnValue(null)
-
-      const hook = createAutoUpdateCheckerHook(client, '/test', {
-        autoUpdate: true,
-      })
-      hook.event({ event: { type: 'session.created' } })
-
-      await jest.runAllTimers()
-
-      expect(getLatestVersion).not.toHaveBeenCalled()
-    })
-
-    it('skips auto-update for rc versions', async () => {
-      const client = createMockClient()
-      ;(getLocalDevVersion as any).mockReturnValue(null)
-      ;(findPluginEntry as any).mockReturnValue(
-        createPluginInfo({
-          pinnedVersion: '1.3.0-rc.1',
-          entry: 'opencode-antigravity-auth@1.3.0-rc.1',
-        }),
-      )
-      ;(getCachedVersion as any).mockReturnValue(null)
-
-      const hook = createAutoUpdateCheckerHook(client, '/test', {
-        autoUpdate: true,
-      })
-      hook.event({ event: { type: 'session.created' } })
-
-      await jest.runAllTimers()
-
-      expect(getLatestVersion).not.toHaveBeenCalled()
     })
 
     it('skips auto-update when cached version is prerelease', async () => {

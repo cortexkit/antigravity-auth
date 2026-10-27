@@ -21,7 +21,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { testRender } from '@opentui/solid'
-import { createSignal } from 'solid-js'
+import { createEffect, createSignal } from 'solid-js'
+import * as sidebarState from './sidebar-state'
 import {
   DEFAULT_SIDEBAR_STATE,
   SIDEBAR_STATE_ENV,
@@ -425,35 +426,79 @@ describe('SidebarPanel', () => {
     const payload = writeState({
       checkedAt: Date.now(),
       routingAuthoritative: true,
-      accounts: [],
+      accounts: [
+        {
+          id: 'acc-1',
+          label: 'Before polling',
+          enabled: true,
+          health: 100,
+          current: true,
+          quota: {},
+        },
+      ],
     })
     mkdirSync(join(fixture.statePath, '..'), { recursive: true })
     writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
-
-    const logger = makeCapturingLogger()
-    const testSetup = await testRender(
-      () => (
-        <SidebarPanel
-          logger={logger}
-          stateFile={fixture.statePath}
-          pollIntervalMs={50}
-        />
-      ),
-      {
-        width: 40,
-        height: 10,
+    const realSet = globalThis.setInterval
+    const realClear = globalThis.clearInterval
+    const handle = { unref() {} } as unknown as ReturnType<typeof setInterval>
+    let active = false
+    let tick: (() => void) | undefined
+    let registrations = 0
+    const intervals = spyOn(globalThis, 'setInterval').mockImplementation(((
+      callback: () => void,
+      ms?: number,
+      ...args: unknown[]
+    ) => {
+      if (ms !== 50) return realSet(callback, ms, ...args)
+      registrations++
+      active = true
+      tick = callback
+      return handle
+    }) as typeof setInterval)
+    const cancellations = spyOn(globalThis, 'clearInterval').mockImplementation(
+      (timer) => {
+        if (timer === handle) active = false
+        else realClear(timer as Parameters<typeof realClear>[0])
       },
     )
-    await testSetup.flush()
-    // Snapshot a baseline of polls before teardown.
-    await new Promise<void>((resolve) => setTimeout(resolve, 120))
-    testSetup.renderer.destroy()
-    // If the interval leaked, the test runner's lingering timers would emit
-    // log entries or affect subsequent tests. We assert destroy returned
-    // cleanly and no extra log entries arrived after destroy.
-    const afterDestroy = logger.entries.length
-    await settle()
-    expect(logger.entries.length).toBe(afterDestroy)
+    const reads = spyOn(sidebarState, 'readSidebarState')
+    let setup: Awaited<ReturnType<typeof testRender>> | undefined
+    try {
+      setup = await testRender(
+        () => (
+          <SidebarPanel
+            logger={makeCapturingLogger()}
+            stateFile={fixture.statePath}
+            pollIntervalMs={50}
+          />
+        ),
+        { width: 40, height: 10 },
+      )
+      await setup.flush()
+      expect(registrations).toBe(1)
+      expect(reads.mock.calls.length).toBeGreaterThan(0)
+      expect(setup.captureCharFrame()).toContain('Before polling')
+      const beforeTick = reads.mock.calls.length
+      payload.accounts[0]!.label = 'After polling'
+      writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
+      if (active) tick!()
+      await setup.flush()
+      expect(reads.mock.calls.length).toBeGreaterThan(beforeTick)
+      expect(setup.captureCharFrame()).toContain('After polling')
+      expect(setup.captureCharFrame()).not.toContain('Before polling')
+      setup.renderer.destroy()
+      expect(cancellations).toHaveBeenCalledWith(handle)
+      expect(active).toBe(false)
+      const afterDestroy = reads.mock.calls.length
+      if (active) tick!()
+      expect(reads.mock.calls.length).toBe(afterDestroy)
+    } finally {
+      setup?.renderer.destroy()
+      reads.mockRestore()
+      cancellations.mockRestore()
+      intervals.mockRestore()
+    }
   })
 
   it('survives a malformed state file by rendering the awaiting fallback', async () => {
@@ -774,15 +819,26 @@ describe('SidebarPanel collapse/expand + compact row', () => {
       rememberCollapsed: true,
     })
     const queueSpy = spyOn(tuiPrefs, 'queueTuiPreferenceUpdate')
-    queueSpy.mockImplementation(async () => undefined)
+    const queued = Promise.withResolvers<void>()
+    queueSpy.mockImplementation(async () => {
+      queued.resolve()
+    })
 
     const { createSidebarController } = await import('./tui')
     const controller = createSidebarController(prefs)
 
     try {
       controller.toggleCollapsed()
-      // Yield so the controller's write promise can settle before assertions.
-      await new Promise<void>((resolve) => setTimeout(resolve, 20))
+      let watchdog: ReturnType<typeof setTimeout> | undefined
+      await Promise.race([
+        queued.promise,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(
+            () => reject(new Error('collapsed preference was not queued')),
+            20,
+          )
+        }),
+      ]).finally(() => clearTimeout(watchdog))
       expect(queueSpy).toHaveBeenCalled()
       const call = queueSpy.mock.calls[0]
       expect(call?.[0]).toBe(PLUGIN_KEY)
@@ -822,14 +878,20 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     const controller = createSidebarController(initial)
 
     const logger = makeCapturingLogger()
+    const collapsed = Promise.withResolvers<void>()
     const testSetup = await testRender(
-      () => (
-        <SidebarPanel
-          controller={controller}
-          logger={logger}
-          stateFile={fixture.statePath}
-        />
-      ),
+      () => {
+        createEffect(() => {
+          if (controller.collapsed()) collapsed.resolve()
+        })
+        return (
+          <SidebarPanel
+            controller={controller}
+            logger={logger}
+            stateFile={fixture.statePath}
+          />
+        )
+      },
       {
         width: 80,
         height: 16,
@@ -840,13 +902,21 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     expect(expandedFrame).toContain('Gemini')
     expect(expandedFrame).not.toContain('▶')
 
-    // External edit flips collapsed -> true. The watcher's debounce + poll
-    // budget is well under 500ms in tests; wait long enough for both.
+    // Wait for the controller to acknowledge the external edit before capturing its frame.
     writePrefs(fixture.prefsPath, {
       collapsed: true,
       rememberCollapsed: true,
     })
-    await new Promise<void>((resolve) => setTimeout(resolve, 600))
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      collapsed.promise,
+      new Promise<never>((_, reject) => {
+        watchdog = setTimeout(
+          () => reject(new Error('external preference was not observed')),
+          600,
+        )
+      }),
+    ]).finally(() => clearTimeout(watchdog))
     await testSetup.flush()
     const collapsedFrame = testSetup.captureCharFrame()
     expect(collapsedFrame).toContain('▶')
@@ -1067,7 +1137,10 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     testSetup.renderer.destroy()
   })
 
-  it('hides non-current (fallback) accounts when sections.fallbackAccounts is false', async () => {
+  it.each([
+    true,
+    false,
+  ])('hides non-current (fallback) accounts when sections.fallbackAccounts is false (primary current: %s)', async (primaryCurrent) => {
     const payload = writeState({
       checkedAt: Date.now(),
       routingAuthoritative: true,
@@ -1077,7 +1150,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
           label: 'Primary',
           enabled: true,
           health: 80,
-          current: true,
+          current: primaryCurrent,
           quota: {
             'non-gemini': { remainingPercent: 75, checkedAt: Date.now() },
           },
@@ -1118,12 +1191,13 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     const frame = testSetup.captureCharFrame()
     // Current account is always shown; non-current accounts are filtered out
     // when sections.fallbackAccounts is false.
-    expect(frame).toContain('Primary')
+    if (primaryCurrent) expect(frame).toContain('Primary')
+    else expect(frame).not.toContain('Primary')
     expect(frame).not.toContain('Backup')
     testSetup.renderer.destroy()
   })
 
-  it('header click toggles collapse (SHOULD-1 fix - wires onMouseDown to onToggle)', async () => {
+  it('header click toggles collapse', async () => {
     const payload = writeState({
       checkedAt: Date.now(),
       routingAuthoritative: true,
@@ -1167,32 +1241,12 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     expect(initialFrame).not.toContain('▶')
     expect(controller.collapsed()).toBe(false)
 
-    // Find the header row in the rendered frame and click somewhere inside it.
-    // The header is the first inner box after the single-character border, so
-    // locating the row that contains the ANTIGRAVITY badge title is robust.
-    // We click at the leading padding edge of the badge (one column before
-    // "ANTIGRAVITY" begins) — the box wraps the padded background and the
-    // onMouseDown lives on the row container, not on the inner text.
+    // Mouse coordinates are local to a row, not offsets into the full frame.
     const lines = initialFrame.split('\n')
     const headerRow = lines.findIndex((line) => line.includes('ANTIGRAVITY'))
     expect(headerRow).toBeGreaterThanOrEqual(0)
-    // Click on the badge box — same as the OLD test's pre-port click
-    // target. The OpenTUI test renderer's `mockMouse.click` dispatches a
-    // mousedown at the (col, row) screen coordinates; the badge text
-    // sits at the column where "ANTIGRAVITY" begins. The click handler
-    // is wired on the row container's `onMouseDown` and gates the
-    // actual toggle behind `hasData()` so the empty-state header does
-    // not toggle (which is why we use a populated fixture here).
-    const badgeStart = initialFrame.indexOf('ANTIGRAVITY')
+    const badgeStart = lines[headerRow]!.indexOf('ANTIGRAVITY')
     await testSetup.mockMouse.click(badgeStart + 2, headerRow)
-    // Belt-and-suspenders: the test renderer occasionally shifts the
-    // mouse-hit region between layout versions. The contract this test
-    // pins is the onToggle wiring, not the coordinate math, so we
-    // also drive the controller directly when the click misses — the
-    // reactive render path is the same either way.
-    if (!controller.collapsed()) {
-      controller.toggleCollapsed()
-    }
 
     // Allow the click event to drain through the reactive render cycle.
     await testSetup.flush()
@@ -1254,7 +1308,10 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     testSetup.renderer.destroy()
   })
 
-  it('hides non-current accounts from the collapsed view when sections.fallbackAccounts is false (SHOULD-3)', async () => {
+  it.each([
+    true,
+    false,
+  ])('hides non-current accounts from the collapsed view when sections.fallbackAccounts is false (primary current: %s)', async (primaryCurrent) => {
     const payload = writeState({
       checkedAt: Date.now(),
       routingAuthoritative: true,
@@ -1264,7 +1321,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
           label: 'Primary',
           enabled: true,
           health: 80,
-          current: true,
+          current: primaryCurrent,
           quota: {
             'non-gemini': { remainingPercent: 75, checkedAt: Date.now() },
           },
@@ -1307,7 +1364,8 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     const frame = testSetup.captureCharFrame()
     // The collapsed view should mirror the expanded view's
     // sections.fallbackAccounts filter: only the current account renders.
-    expect(frame).toContain('Primary')
+    if (primaryCurrent) expect(frame).toContain('Primary')
+    else expect(frame).not.toContain('Primary')
     expect(frame).not.toContain('Backup')
     testSetup.renderer.destroy()
   })

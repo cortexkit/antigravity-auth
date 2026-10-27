@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { RELEASE_MODEL_IDS } from '../__fixtures__/release-model-ids'
 import { OPENCODE_MODEL_DEFINITIONS } from './models'
 import { updateOpencodeConfig } from './updater'
 
@@ -217,6 +218,10 @@ describe('updateOpencodeConfig', () => {
     const writtenConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
     const models = writtenConfig.provider.google.models
 
+    expect(Object.keys(models).sort()).toEqual(RELEASE_MODEL_IDS)
+    expect([...writtenConfig.provider.google.whitelist].sort()).toEqual(
+      RELEASE_MODEL_IDS,
+    )
     expect(Object.keys(models).sort()).toEqual(
       Object.keys(OPENCODE_MODEL_DEFINITIONS).sort(),
     )

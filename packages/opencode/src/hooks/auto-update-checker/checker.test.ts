@@ -38,7 +38,10 @@ describe('isLocalDevMode / getLocalDevPath', () => {
     writeProjectConfig(
       projectDir,
       'opencode.json',
-      JSON.stringify({ plugin: ['some-other-plugin@1.0.0'] }),
+      JSON.stringify({
+        plugin: ['some-other-plugin@1.0.0'],
+        note: 'file:///home/user/@cortexkit/opencode-antigravity-auth/dist/plugin.js',
+      }),
     )
     expect(getLocalDevPath(projectDir)).toBeNull()
   })
@@ -55,7 +58,9 @@ describe('isLocalDevMode / getLocalDevPath', () => {
       }),
     )
     const result = getLocalDevPath(projectDir)
-    expect(result).toContain('@cortexkit/opencode-antigravity-auth')
+    expect(result).toBe(
+      '/home/user/@cortexkit/opencode-antigravity-auth/dist/plugin.js',
+    )
   })
 
   it('handles JSONC config with comments and trailing commas', async () => {
@@ -71,7 +76,9 @@ describe('isLocalDevMode / getLocalDevPath', () => {
       }`,
     )
     const result = getLocalDevPath(projectDir)
-    expect(result).toContain('@cortexkit/opencode-antigravity-auth')
+    expect(result).toBe(
+      '/home/user/@cortexkit/opencode-antigravity-auth/dist/plugin.js',
+    )
   })
 
   it('returns null and does not throw when config file is malformed JSON', async () => {

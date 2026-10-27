@@ -1,13 +1,19 @@
-import { beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 
 import { createRetryState } from './retry-state'
 
 describe('RetryState', () => {
   let state: ReturnType<typeof createRetryState>
+  let clock: ReturnType<typeof spyOn<typeof Date, 'now'>>
+  let now: number
 
   beforeEach(() => {
+    now = 1_700_000_000_000
+    clock = spyOn(Date, 'now').mockImplementation(() => now)
     state = createRetryState()
   })
+
+  afterEach(() => clock.mockRestore())
 
   describe('rate limit backoff', () => {
     it('returns attempt 1 on first 429 within the reset window', () => {
@@ -45,9 +51,20 @@ describe('RetryState', () => {
     })
 
     it('caps backoff growth at the provided max (base server hint still wins)', () => {
-      const result = state.getRateLimitBackoff(0, 'claude', 1_000, 5_000)
-      expect(result.delayMs).toBeGreaterThanOrEqual(1_000)
-      expect(result.delayMs).toBeLessThanOrEqual(5_000)
+      for (const [i, delayMs] of [
+        1_000, 2_000, 4_000, 5_000, 5_000,
+      ].entries()) {
+        now += 2_001
+        expect(state.getRateLimitBackoff(0, 'claude', 1_000, 5_000)).toEqual({
+          attempt: i + 1,
+          isDuplicate: false,
+          delayMs,
+        })
+      }
+      now += 2_001
+      expect(state.getRateLimitBackoff(0, 'claude', 8_000, 5_000).delayMs).toBe(
+        8_000,
+      )
     })
 
     it('resets a single quota key', () => {
@@ -65,6 +82,7 @@ describe('RetryState', () => {
     it('resets all quotas for an account', () => {
       state.getRateLimitBackoff(0, 'gemini:gemini-3.5-flash', 1000)
       state.getRateLimitBackoff(0, 'gemini:gemini-4-argon', 1000)
+      state.getRateLimitBackoff(1, 'gemini:gemini-3.5-flash', 1000)
       state.resetAllRateLimitStateForAccount(0)
       const afterAg = state.getRateLimitBackoff(
         0,
@@ -72,6 +90,13 @@ describe('RetryState', () => {
         1000,
       )
       expect(afterAg.isDuplicate).toBe(false)
+      expect(afterAg.attempt).toBe(1)
+      expect(
+        state.getRateLimitBackoff(0, 'gemini:gemini-4-argon', 1000),
+      ).toMatchObject({ isDuplicate: false, attempt: 1 })
+      expect(
+        state.getRateLimitBackoff(1, 'gemini:gemini-3.5-flash', 1000),
+      ).toMatchObject({ isDuplicate: true, attempt: 1 })
     })
   })
 
@@ -84,16 +109,18 @@ describe('RetryState', () => {
     })
 
     it('cools down after max consecutive failures', () => {
-      let cooldown = false
-      for (let i = 0; i < 6; i++) {
-        const result = state.trackAccountFailure(0)
-        cooldown = result.shouldCooldown
-        if (cooldown) {
-          expect(result.cooldownMs).toBeGreaterThan(0)
-          break
-        }
+      for (let failures = 1; failures < 5; failures++) {
+        expect(state.trackAccountFailure(0)).toEqual({
+          failures,
+          shouldCooldown: false,
+          cooldownMs: 0,
+        })
       }
-      expect(cooldown).toBe(true)
+      expect(state.trackAccountFailure(0)).toEqual({
+        failures: 5,
+        shouldCooldown: true,
+        cooldownMs: 30_000,
+      })
     })
 
     it('resets a single account', () => {
@@ -253,6 +280,13 @@ describe('RetryState', () => {
       expect(
         state.getRateLimitBackoff(0, 'quota-overflow', 1000).isDuplicate,
       ).toBe(true)
+      expect(state.getRateLimitBackoff(0, 'quota-1', 1000).isDuplicate).toBe(
+        true,
+      )
+      expect(state.getRateLimitBackoff(0, 'quota-0', 1000)).toMatchObject({
+        attempt: 1,
+        isDuplicate: false,
+      })
     })
 
     it('evicts the oldest entry when the account-failure map is full', () => {
@@ -263,6 +297,8 @@ describe('RetryState', () => {
       expect(state.sizes().accountFailure).toBe(MAX)
       state.trackAccountFailure(9999)
       expect(state.sizes().accountFailure).toBe(MAX)
+      expect(state.trackAccountFailure(1).failures).toBe(2)
+      expect(state.trackAccountFailure(0).failures).toBe(1)
     })
 
     it('evicts the oldest entry when the empty-response map is full', () => {
@@ -273,6 +309,8 @@ describe('RetryState', () => {
       expect(state.sizes().emptyResponse).toBe(MAX)
       state.recordEmptyResponseAttempt('key-overflow')
       expect(state.sizes().emptyResponse).toBe(MAX)
+      expect(state.recordEmptyResponseAttempt('key-1')).toBe(2)
+      expect(state.recordEmptyResponseAttempt('key-0')).toBe(1)
     })
   })
 })

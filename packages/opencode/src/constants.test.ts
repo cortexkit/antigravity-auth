@@ -36,27 +36,13 @@ describe('getRandomizedHeaders', () => {
   })
 })
 
-describe('HeaderSet type', () => {
-  it('allows omitting X-Goog-Api-Client and Client-Metadata', () => {
-    const headers: HeaderSet = {
-      'User-Agent': 'test',
-    }
-    expect(headers['User-Agent']).toBe('test')
-    expect(headers['X-Goog-Api-Client']).toBeUndefined()
-    expect(headers['Client-Metadata']).toBeUndefined()
-  })
-
-  it('allows including all three headers', () => {
-    const headers: HeaderSet = {
-      'User-Agent': 'test',
-      'X-Goog-Api-Client': 'test-client',
-      'Client-Metadata': 'test-metadata',
-    }
-    expect(headers['User-Agent']).toBe('test')
-    expect(headers['X-Goog-Api-Client']).toBe('test-client')
-    expect(headers['Client-Metadata']).toBe('test-metadata')
-  })
-})
+// Typechecking preserves optional-header assignability without runtime assertions on literals.
+void ({ 'User-Agent': 'test' } satisfies HeaderSet)
+void ({
+  'User-Agent': 'test',
+  'X-Goog-Api-Client': 'test-client',
+  'Client-Metadata': 'test-metadata',
+} satisfies HeaderSet)
 
 describe('/antigravity menu constants', () => {
   it('names one slash command, without the slash', () => {

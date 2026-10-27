@@ -164,12 +164,16 @@ describe('createStreamingTransformer', () => {
     let output = ''
     let done = false
     for (let i = 0; i < 6 && !done; i++) {
+      let watchdog: ReturnType<typeof setTimeout> | undefined
       const result = await Promise.race([
         reader.read(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('stream did not terminate')), 200),
-        ),
-      ])
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(
+            () => reject(new Error('stream did not terminate')),
+            200,
+          )
+        }),
+      ]).finally(() => clearTimeout(watchdog))
       if (result.done) {
         done = true
         break

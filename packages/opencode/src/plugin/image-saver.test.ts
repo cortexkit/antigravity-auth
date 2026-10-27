@@ -48,6 +48,12 @@ describe('generated image persistence', () => {
 
     expect(markdown).toContain('![Generated Image]')
     expect(markdown).toContain(directory)
+    const match = /^!\[Generated Image\]\((.+)\)\n/.exec(markdown ?? '')
+    expect(match).not.toBeNull()
+    expect(match![1]).toStartWith(`${directory}/`)
+    await expect(readFile(match![1]!)).resolves.toEqual(
+      Buffer.from('png-bytes'),
+    )
   })
 
   it('ignores image parts without data', () => {

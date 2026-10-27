@@ -309,11 +309,19 @@ describe('PluginLifecycle', () => {
       createAccountManager(events),
       createRefreshQueue(events),
     )
-
     await lifecycle.dispose()
+    const expected = [
+      'queue:dispose',
+      'manager:flush',
+      'manager:dispose',
+      'cache:shutdown',
+      'sessions:clear',
+      'fetch:clear',
+      'sidebar:drain',
+    ]
+    expect(events).toEqual(expected)
     await lifecycle.dispose()
-
-    expect(events).toHaveLength(7)
+    expect(events).toEqual(expected)
   })
 
   it('disposes the previous runtime before publishing its replacement', async () => {

@@ -178,25 +178,6 @@ describe('AccountManager', () => {
     jest.clearAllTimers()
   })
 
-  it('returns current account when not rate-limited for family', () => {
-    const stored: AccountStorageV4 = {
-      version: 4,
-      accounts: [
-        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
-        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
-      ],
-      activeIndex: 0,
-    }
-
-    const manager = new AccountManager(undefined, stored)
-    const family: ModelFamily = 'claude'
-
-    const account = manager.getCurrentOrNextForFamily(family)
-
-    expect(account).not.toBeNull()
-    expect(account?.index).toBe(0)
-  })
-
   it('pins round-robin selection per exact root session', () => {
     const stored: AccountStorageV4 = {
       version: 4,
@@ -351,26 +332,6 @@ describe('AccountManager', () => {
     ).toBe(1)
   })
 
-  it('switches to next account when current is rate-limited for family', () => {
-    const stored: AccountStorageV4 = {
-      version: 4,
-      accounts: [
-        { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
-        { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
-      ],
-      activeIndex: 0,
-    }
-
-    const manager = new AccountManager(undefined, stored)
-    const family: ModelFamily = 'claude'
-
-    const firstAccount = manager.getCurrentOrNextForFamily(family)
-    manager.markRateLimited(firstAccount!, 60000, family)
-
-    const secondAccount = manager.getCurrentOrNextForFamily(family)
-    expect(secondAccount?.index).toBe(1)
-  })
-
   it('returns null when all accounts are rate-limited for family', () => {
     const stored: AccountStorageV4 = {
       version: 4,
@@ -464,7 +425,10 @@ describe('AccountManager', () => {
     expect(claudeBlocked).toBeNull()
   })
 
-  it('getCurrentOrNextForFamily sticks to same account until rate-limited', () => {
+  it.each([
+    undefined,
+    'sticky',
+  ] as const)('getCurrentOrNextForFamily sticks to same account until rate-limited (%s)', (strategy) => {
     jest.useFakeTimers()
     jest.setSystemTime(new Date(0))
 
@@ -480,21 +444,23 @@ describe('AccountManager', () => {
     const manager = new AccountManager(undefined, stored)
     const family: ModelFamily = 'claude'
 
-    const first = manager.getCurrentOrNextForFamily(family)
+    const first = manager.getCurrentOrNextForFamily(family, null, strategy)
+    expect(first?.index).toBe(0)
     expect(first?.parts.refreshToken).toBe('r1')
 
-    const second = manager.getCurrentOrNextForFamily(family)
+    const second = manager.getCurrentOrNextForFamily(family, null, strategy)
     expect(second?.parts.refreshToken).toBe('r1')
 
-    const third = manager.getCurrentOrNextForFamily(family)
+    const third = manager.getCurrentOrNextForFamily(family, null, strategy)
     expect(third?.parts.refreshToken).toBe('r1')
 
     manager.markRateLimited(first!, 60_000, family)
 
-    const fourth = manager.getCurrentOrNextForFamily(family)
+    const fourth = manager.getCurrentOrNextForFamily(family, null, strategy)
+    expect(fourth?.index).toBe(1)
     expect(fourth?.parts.refreshToken).toBe('r2')
 
-    const fifth = manager.getCurrentOrNextForFamily(family)
+    const fifth = manager.getCurrentOrNextForFamily(family, null, strategy)
     expect(fifth?.parts.refreshToken).toBe('r2')
   })
 
@@ -727,30 +693,6 @@ describe('AccountManager', () => {
   })
 
   describe('per-family account tracking', () => {
-    it('tracks current account independently per model family', () => {
-      const stored: AccountStorageV4 = {
-        version: 4,
-        accounts: [
-          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
-          { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
-        ],
-        activeIndex: 0,
-      }
-
-      const manager = new AccountManager(undefined, stored)
-
-      const claudeAccount = manager.getCurrentOrNextForFamily('claude')
-      expect(claudeAccount?.parts.refreshToken).toBe('r1')
-
-      manager.markRateLimited(claudeAccount!, 60000, 'claude')
-
-      const nextClaude = manager.getCurrentOrNextForFamily('claude')
-      expect(nextClaude?.parts.refreshToken).toBe('r2')
-
-      const geminiAccount = manager.getCurrentOrNextForFamily('gemini')
-      expect(geminiAccount?.parts.refreshToken).toBe('r1')
-    })
-
     it('switching Claude account does not affect Gemini account selection', () => {
       const stored: AccountStorageV4 = {
         version: 4,
@@ -769,6 +711,8 @@ describe('AccountManager', () => {
       ).toBe('r1')
 
       const claude1 = manager.getCurrentOrNextForFamily('claude')
+      expect(claude1?.index).toBe(0)
+      expect(claude1?.parts.refreshToken).toBe('r1')
       manager.markRateLimited(claude1!, 60000, 'claude')
 
       expect(
@@ -807,6 +751,22 @@ describe('AccountManager', () => {
 
       expect(manager.getCurrentAccountForFamily('claude')?.index).toBe(1)
       expect(manager.getCurrentAccountForFamily('gemini')?.index).toBe(0)
+      await manager.saveToDisk()
+      expect(saveAccounts).toHaveBeenCalledTimes(1)
+      const saved = JSON.parse(
+        JSON.stringify(
+          (saveAccounts as ReturnType<typeof mock>).mock.calls[0]![0],
+        ),
+      ) as AccountStorageV4
+      expect(saved.activeIndex).toBe(1)
+      expect(saved.activeIndexByFamily).toEqual({ claude: 1, gemini: 0 })
+      const reloaded = new AccountManager(undefined, saved)
+      expect(
+        reloaded.getCurrentAccountForFamily('claude')?.parts.refreshToken,
+      ).toBe('r2')
+      expect(
+        reloaded.getCurrentAccountForFamily('gemini')?.parts.refreshToken,
+      ).toBe('r1')
     })
 
     it('loads per-family indices from storage', () => {
@@ -956,112 +916,27 @@ describe('AccountManager', () => {
   })
 
   describe('account selection strategies', () => {
-    describe('sticky strategy (default)', () => {
-      it('returns same account on consecutive calls', () => {
-        const stored: AccountStorageV4 = {
-          version: 4,
-          accounts: [
-            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
-            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
-          ],
-          activeIndex: 0,
-        }
-
-        const manager = new AccountManager(undefined, stored)
-
-        const first = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'sticky',
-        )
-        const second = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'sticky',
-        )
-        const third = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'sticky',
-        )
-
-        expect(first?.index).toBe(0)
-        expect(second?.index).toBe(0)
-        expect(third?.index).toBe(0)
-      })
-
-      it('switches account only when current is rate-limited', () => {
-        const stored: AccountStorageV4 = {
-          version: 4,
-          accounts: [
-            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
-            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
-          ],
-          activeIndex: 0,
-        }
-
-        const manager = new AccountManager(undefined, stored)
-
-        const first = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'sticky',
-        )
-        expect(first?.index).toBe(0)
-
-        manager.markRateLimited(first!, 60000, 'claude')
-
-        const second = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'sticky',
-        )
-        expect(second?.index).toBe(1)
-      })
-    })
-
     describe('round-robin strategy', () => {
       it('rotates to next account on each call', () => {
-        const stored: AccountStorageV4 = {
+        jest.useFakeTimers()
+        jest.setSystemTime(1_700_000_000_000)
+        const manager = new AccountManager(undefined, {
           version: 4,
-          accounts: [
-            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
-            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
-            { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
-          ],
+          accounts: [0, 1, 2].map((i) => ({
+            refreshToken: `r${i + 1}`,
+            projectId: `p${i + 1}`,
+            addedAt: 1,
+            lastUsed: 0,
+          })),
           activeIndex: 0,
-        }
-
-        const manager = new AccountManager(undefined, stored)
-
-        const first = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'round-robin',
+        })
+        const indices = Array.from(
+          { length: 6 },
+          () =>
+            manager.getCurrentOrNextForFamily('claude', null, 'round-robin')
+              ?.index,
         )
-        const second = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'round-robin',
-        )
-        const third = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'round-robin',
-        )
-        const fourth = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'round-robin',
-        )
-
-        const indices = [
-          first?.index,
-          second?.index,
-          third?.index,
-          fourth?.index,
-        ]
-        expect(new Set(indices).size).toBeGreaterThanOrEqual(2)
+        expect(indices).toEqual([0, 1, 2, 0, 1, 2])
       })
 
       it('skips rate-limited accounts', () => {
@@ -1096,39 +971,38 @@ describe('AccountManager', () => {
     })
 
     describe('hybrid strategy', () => {
-      it('returns fresh (untouched) accounts first', () => {
-        const stored: AccountStorageV4 = {
+      it('selects by last-used freshness before returning to the current account', () => {
+        const now = 1_700_000_000_000
+        jest.useFakeTimers()
+        jest.setSystemTime(now)
+        const manager = new AccountManager(undefined, {
           version: 4,
-          accounts: [
-            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
-            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
-            { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
-          ],
+          accounts: [2_000_000, 3_000_000, 3_600_000].map((rest, i) => ({
+            refreshToken: `r${i + 1}`,
+            projectId: `p${i + 1}`,
+            addedAt: 1,
+            lastUsed: now - rest,
+          })),
           activeIndex: 0,
+        })
+        const health = spyOn(manager.healthTracker, 'getScore').mockReturnValue(
+          70,
+        )
+        const tokens = spyOn(manager.tokenTracker, 'getTokens').mockReturnValue(
+          50,
+        )
+        try {
+          const indices = Array.from(
+            { length: 4 },
+            () =>
+              manager.getCurrentOrNextForFamily('claude', null, 'hybrid')
+                ?.index,
+          )
+          expect(indices).toEqual([2, 1, 0, 0])
+        } finally {
+          health.mockRestore()
+          tokens.mockRestore()
         }
-
-        const manager = new AccountManager(undefined, stored)
-
-        const first = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'hybrid',
-        )
-        const second = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'hybrid',
-        )
-        const third = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'hybrid',
-        )
-
-        const indices = [first?.index, second?.index, third?.index]
-        expect(indices).toContain(0)
-        expect(indices).toContain(1)
-        expect(indices).toContain(2)
       })
 
       it('continues to return valid accounts after all touched', () => {
@@ -1165,26 +1039,42 @@ describe('AccountManager', () => {
     })
 
     describe('hybrid strategy with token bucket', () => {
-      it('returns account based on health and token availability', () => {
-        const stored: AccountStorageV4 = {
+      it.each([
+        'health',
+        'tokens',
+      ] as const)('excludes the current account when %s is unavailable', (unavailable) => {
+        jest.useFakeTimers()
+        jest.setSystemTime(1_700_000_000_000)
+        const manager = new AccountManager(undefined, {
           version: 4,
-          accounts: [
-            { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
-            { refreshToken: 'r2', projectId: 'p2', addedAt: 1, lastUsed: 0 },
-            { refreshToken: 'r3', projectId: 'p3', addedAt: 1, lastUsed: 0 },
-          ],
+          accounts: [0, 1].map((i) => ({
+            refreshToken: `r${i + 1}`,
+            projectId: `p${i + 1}`,
+            addedAt: 1,
+            lastUsed: 1_700_000_000_000,
+          })),
           activeIndex: 0,
-        }
-
-        const manager = new AccountManager(undefined, stored)
-
-        const first = manager.getCurrentOrNextForFamily(
-          'claude',
-          null,
-          'hybrid',
+        })
+        const health = spyOn(
+          manager.healthTracker,
+          'getScore',
+        ).mockImplementation((i) =>
+          unavailable === 'health' && i === 0 ? 40 : 70,
         )
-        expect(first).not.toBeNull()
-        expect([0, 1, 2]).toContain(first?.index ?? -1)
+        const tokens = spyOn(
+          manager.tokenTracker,
+          'getTokens',
+        ).mockImplementation((i) =>
+          unavailable === 'tokens' && i === 0 ? 0 : 50,
+        )
+        try {
+          expect(
+            manager.getCurrentOrNextForFamily('claude', null, 'hybrid')?.index,
+          ).toBe(1)
+        } finally {
+          health.mockRestore()
+          tokens.mockRestore()
+        }
       })
 
       it('skips rate-limited accounts', () => {
@@ -1377,28 +1267,6 @@ describe('AccountManager', () => {
       const account = manager.getAccounts()[0]!
 
       expect(account.consecutiveFailures).toBeUndefined()
-    })
-
-    it('can increment and reset consecutiveFailures', () => {
-      const stored: AccountStorageV4 = {
-        version: 4,
-        accounts: [
-          { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
-        ],
-        activeIndex: 0,
-      }
-
-      const manager = new AccountManager(undefined, stored)
-      const account = manager.getAccounts()[0]!
-
-      account.consecutiveFailures = (account.consecutiveFailures ?? 0) + 1
-      expect(account.consecutiveFailures).toBe(1)
-
-      account.consecutiveFailures = (account.consecutiveFailures ?? 0) + 1
-      expect(account.consecutiveFailures).toBe(2)
-
-      account.consecutiveFailures = 0
-      expect(account.consecutiveFailures).toBe(0)
     })
   })
 
@@ -1917,27 +1785,37 @@ describe('AccountManager', () => {
   })
 
   describe('Fingerprint History', () => {
-    it('regenerateAccountFingerprint saves old fingerprint to history', () => {
-      const stored: AccountStorageV4 = {
+    it('regenerateAccountFingerprint saves old fingerprint to history', async () => {
+      jest.useFakeTimers()
+      jest.setSystemTime(1_000)
+      const manager = new AccountManager(undefined, {
         version: 4,
         accounts: [
           { refreshToken: 'r1', projectId: 'p1', addedAt: 1, lastUsed: 0 },
         ],
         activeIndex: 0,
-      }
-
-      const manager = new AccountManager(undefined, stored)
-      const account = manager.getCurrentOrNextForFamily('claude')
-
-      // Set initial fingerprint
-      const originalFingerprint = account?.fingerprint
-
-      // Regenerate
+      })
+      const account = manager.getCurrentOrNextForFamily('claude')!
+      expect(account.fingerprint).toBeDefined()
+      const originalFingerprint = structuredClone(account.fingerprint!)
+      jest.setSystemTime(2_000)
       const newFingerprint = manager.regenerateAccountFingerprint(0)
-
       expect(newFingerprint).not.toBeNull()
       expect(newFingerprint).not.toEqual(originalFingerprint)
-      expect(account?.fingerprintHistory?.length).toBeGreaterThanOrEqual(0)
+      const expected = [
+        {
+          fingerprint: originalFingerprint,
+          timestamp: 2_000,
+          reason: 'regenerated' as const,
+        },
+      ]
+      expect(account.fingerprintHistory).toEqual(expected)
+      await manager.saveToDisk()
+      const saved = (saveAccounts as ReturnType<typeof mock>).mock.calls.at(
+        -1,
+      )![0] as AccountStorageV4
+      expect(saved.accounts[0]?.fingerprintHistory).toEqual(expected)
+      expect(saved.accounts[0]?.fingerprint).toEqual(newFingerprint!)
     })
 
     it('restoreAccountFingerprint restores from history', () => {

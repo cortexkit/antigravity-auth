@@ -85,15 +85,38 @@ describe('createTuiFileLogger', () => {
       filePath: fixture.logPath,
       maxBytes: 1024,
     })
-    // Each line is roughly 130 bytes; 500 lines is ~65 KiB, well above
-    // the rotation threshold. After rotation we expect the file to be
-    // bounded by MAX_KEEP_LINES (200) of those lines, regardless of how
-    // many we wrote.
-    for (let i = 0; i < 500; i += 1) {
+    // Cross the 200-record retention boundary, then append one newest record.
+    for (let i = 0; i < 201; i += 1) {
       logger.info(`entry-${i.toString().padStart(4, '0')}-${'x'.repeat(40)}`)
     }
     const stat = statSync(fixture.logPath)
     expect(stat.size).toBeLessThan(1024 * 50)
+    const lines = readFileSync(fixture.logPath, 'utf8').trimEnd().split('\n')
+    expect(lines.length).toBeGreaterThan(0)
+    expect(lines.length).toBeLessThanOrEqual(200)
+    const records = lines.map((line) => {
+      expect(line).toStartWith('[opencode-antigravity-auth/tui] ')
+      return JSON.parse(line.slice('[opencode-antigravity-auth/tui] '.length))
+    })
+    expect(records[0]).toMatchObject({
+      message: `entry-0001-${'x'.repeat(40)}`,
+    })
+    expect(records.at(-1)).toMatchObject({
+      level: 'info',
+      message: `entry-0200-${'x'.repeat(40)}`,
+    })
+    expect(
+      records.some(
+        (record) => record.message === `entry-0000-${'x'.repeat(40)}`,
+      ),
+    ).toBe(false)
+    expect(
+      records.every(
+        (record) =>
+          typeof record.ts === 'number' &&
+          /^entry-\d{4}-x{40}$/.test(record.message),
+      ),
+    ).toBe(true)
   })
 
   it.skipIf(isWindows)(

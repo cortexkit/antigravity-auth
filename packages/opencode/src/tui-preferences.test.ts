@@ -401,15 +401,27 @@ describe('watchTuiPreferences', () => {
   test('fires after the file changes', async () => {
     await writeFile(file, '{}', 'utf8')
     let fired = 0
+    const changed = Promise.withResolvers<void>()
     const dispose = watchTuiPreferences(() => {
       fired += 1
+      changed.resolve()
     })
+    let watchdog: ReturnType<typeof setTimeout> | undefined
     try {
       await new Promise((resolve) => setTimeout(resolve, 50))
       await queueTuiPreferenceUpdate(PLUGIN_KEY, ['collapsed'], true)
-      await new Promise((resolve) => setTimeout(resolve, 400))
+      await Promise.race([
+        changed.promise,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(
+            () => reject(new Error('preferences change was not observed')),
+            400,
+          )
+        }),
+      ])
       expect(fired).toBeGreaterThanOrEqual(1)
     } finally {
+      clearTimeout(watchdog)
       dispose()
     }
   })

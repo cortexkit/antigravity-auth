@@ -29,7 +29,7 @@ describe('writeOperatorConfig', () => {
     fixture.cleanup()
   })
 
-  it('writes atomically with fenced lock to the project file when it exists', async () => {
+  it('persists operator settings to the project file when it exists', async () => {
     const projectPath = join(fixture.dir, 'antigravity.json')
     writeFileSync(projectPath, JSON.stringify({ debug: true }))
 
@@ -107,9 +107,11 @@ describe('writeOperatorConfig', () => {
   })
 
   it('rejects invalid log_level values', async () => {
+    const projectPath = join(fixture.dir, 'antigravity.json')
+    writeFileSync(projectPath, '{}')
     await expect(
       writeOperatorConfig({
-        projectConfigPath: join(fixture.dir, 'antigravity.json'),
+        projectConfigPath: projectPath,
         userConfigPath: join(fixture.dir, 'user.json'),
         operator: {
           killswitch: { enabled: false, minimum_remaining_percent: 5 },
@@ -117,6 +119,10 @@ describe('writeOperatorConfig', () => {
         },
       }),
     ).rejects.toThrow()
+    expect(readFileSync(projectPath, 'utf8')).toBe('{}')
+    expect([
+      ...new Bun.Glob(`${projectPath}.*.tmp`).scanSync({ cwd: fixture.dir }),
+    ]).toEqual([])
   })
 
   it('rejects killswitch minimum_remaining_percent outside 0-100', async () => {
@@ -133,26 +139,5 @@ describe('writeOperatorConfig', () => {
         },
       }),
     ).rejects.toThrow()
-  })
-
-  it('does not leave tmp files behind on failure', async () => {
-    const projectPath = join(fixture.dir, 'antigravity.json')
-    writeFileSync(projectPath, '{}')
-
-    await expect(
-      writeOperatorConfig({
-        projectConfigPath: projectPath,
-        userConfigPath: join(fixture.dir, 'user.json'),
-        operator: {
-          killswitch: { enabled: false, minimum_remaining_percent: 5 },
-          log_level: 'no-such-level' as unknown as 'info',
-        },
-      }),
-    ).rejects.toThrow()
-
-    const matches = new Bun.Glob(`${projectPath}.*.tmp`).scanSync({
-      cwd: fixture.dir,
-    })
-    expect([...matches]).toEqual([])
   })
 })

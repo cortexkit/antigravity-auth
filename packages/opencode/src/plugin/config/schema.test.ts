@@ -67,6 +67,9 @@ describe('retired header routing config', () => {
 describe('claude_prompt_auto_caching config', () => {
   it('includes claude_prompt_auto_caching default in DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG).toHaveProperty('claude_prompt_auto_caching', false)
+    expect(AntigravityConfigSchema.parse({}).claude_prompt_auto_caching).toBe(
+      false,
+    )
   })
 
   it('documents claude_prompt_auto_caching in the JSON schema', () => {

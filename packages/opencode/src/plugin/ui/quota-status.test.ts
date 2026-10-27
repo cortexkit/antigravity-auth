@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
 import type { QuotaGroupSummary } from '../quota.ts'
 import { ANSI } from './ansi.ts'
 import {
@@ -69,34 +69,27 @@ describe('classifyGroupStatus', () => {
     expect(classifyGroupStatus(group)).toEqual({ label: 'LOW' })
   })
 
-  it('returns EXHAUSTED for 0% remaining with future reset time', () => {
-    const futureTime = new Date(Date.now() + 7200000).toISOString()
+  it.each([
+    7_200_000, 3_600_000,
+  ])('returns EXHAUSTED with the exact future reset wait (%i ms)', (waitMs) => {
+    const now = Date.parse('2026-10-01T12:00:00Z')
+    const clock = spyOn(Date, 'now').mockReturnValue(now)
+    const futureTime = new Date(now + waitMs).toISOString()
     const group: QuotaGroupSummary = {
       remainingFraction: 0,
       resetTime: futureTime,
       modelCount: 1,
     }
-    const result = classifyGroupStatus(group)
-    expect(result.label).toBe('EXHAUSTED')
-    expect(result.waitMs).toBeGreaterThan(0)
+    try {
+      expect(classifyGroupStatus(group)).toEqual({ label: 'EXHAUSTED', waitMs })
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   it('returns READY for 0% remaining without reset time (stale cache)', () => {
     const group: QuotaGroupSummary = { remainingFraction: 0, modelCount: 1 }
     expect(classifyGroupStatus(group)).toEqual({ label: 'READY' })
-  })
-
-  it('returns EXHAUSTED with waitMs when reset time is in the future', () => {
-    const futureTime = new Date(Date.now() + 3600000).toISOString()
-    const group: QuotaGroupSummary = {
-      remainingFraction: 0,
-      resetTime: futureTime,
-      modelCount: 1,
-    }
-    const result = classifyGroupStatus(group)
-    expect(result.label).toBe('EXHAUSTED')
-    expect(result.waitMs).toBeGreaterThan(0)
-    expect(result.waitMs).toBeLessThanOrEqual(3600000)
   })
 
   it('returns READY when reset time is in the past (stale cache — quota already reset)', () => {

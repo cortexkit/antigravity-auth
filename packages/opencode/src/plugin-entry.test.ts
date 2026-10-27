@@ -32,8 +32,8 @@ import {
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
 import * as packageRoot from '../index'
-
 import { ANTIGRAVITY_PROVIDER_ID } from './constants.ts'
+import { RELEASE_MODEL_IDS } from './plugin/__fixtures__/release-model-ids'
 import { startMenuVaultFixture } from './plugin/__fixtures__/vault-menu-daemon.test'
 import type { BackgroundQuotaRefresh } from './plugin/background-quota-refresh'
 import { ANTIGRAVITY_MENU_COMMAND } from './plugin/commands.ts'
@@ -442,6 +442,11 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
       [...expectedModelIds].sort(),
     )
     expect(provider?.whitelist).toEqual([...expectedModelIds])
+    const serializedProvider = JSON.parse(JSON.stringify(provider))
+    expect(Object.keys(serializedProvider.models).sort()).toEqual(
+      RELEASE_MODEL_IDS,
+    )
+    expect([...serializedProvider.whitelist].sort()).toEqual(RELEASE_MODEL_IDS)
 
     // Each model definition matches the core registry values.
     for (const id of expectedModelIds) {

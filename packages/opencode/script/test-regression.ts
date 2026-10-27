@@ -1,5 +1,6 @@
 #!/usr/bin/env npx tsx
 import { spawn } from 'node:child_process'
+import { expectedToolOutput, readRunEvidence } from './test-run-evidence'
 
 type Category =
   | 'thinking-order'
@@ -25,6 +26,7 @@ interface MultiTurnTest {
 interface TurnConfig {
   prompt: string
   model?: string
+  answer?: string
 }
 
 interface TestResult {
@@ -119,9 +121,21 @@ const SANITY_TESTS: MultiTurnTest[] = [
     category: 'multi-provider',
     suite: 'sanity',
     turns: [
-      { prompt: 'What is 2+2? Answer briefly.', model: GEMINI_FLASH },
-      { prompt: 'What is 3+3? Answer briefly.', model: CLAUDE_SONNET },
-      { prompt: 'What is 4+4? Answer briefly.', model: GEMINI_FLASH },
+      {
+        prompt: 'What is 2+2? Answer with just the number.',
+        model: GEMINI_FLASH,
+        answer: '4',
+      },
+      {
+        prompt: 'What is 3+3? Answer with just the number.',
+        model: CLAUDE_SONNET,
+        answer: '6',
+      },
+      {
+        prompt: 'What is 4+4? Answer with just the number.',
+        model: GEMINI_FLASH,
+        answer: '8',
+      },
     ],
     errorPatterns: ERROR_PATTERNS,
     timeout: 180000,
@@ -357,8 +371,26 @@ async function runTurn(
 }> {
   return new Promise((resolve) => {
     const args = sessionId
-      ? ['run', prompt, '--session', sessionId, '--model', model]
-      : ['run', prompt, '--model', model, '--title', sessionTitle]
+      ? [
+          'run',
+          prompt,
+          '--session',
+          sessionId,
+          '--model',
+          model,
+          '--format',
+          'json',
+        ]
+      : [
+          'run',
+          prompt,
+          '--model',
+          model,
+          '--title',
+          sessionTitle,
+          '--format',
+          'json',
+        ]
 
     const proc = spawn('opencode', args, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -367,6 +399,7 @@ async function runTurn(
 
     let stdout = ''
     let stderr = ''
+    let timedOut = false
 
     proc.stdout?.on('data', (data) => {
       stdout += data.toString()
@@ -377,26 +410,27 @@ async function runTurn(
     })
 
     const timeoutId = setTimeout(() => {
+      timedOut = true
       proc.kill('SIGTERM')
     }, timeout)
 
     proc.on('close', (code) => {
       clearTimeout(timeoutId)
 
-      let extractedSessionId = sessionId
-      if (!extractedSessionId) {
-        const match =
-          stdout.match(/session[:\s]+([a-zA-Z0-9_-]+)/i) ||
-          stderr.match(/session[:\s]+([a-zA-Z0-9_-]+)/i)
-        if (match) {
-          extractedSessionId = match[1] ?? null
-        }
+      let extractedSessionId: string | null = null
+      try {
+        extractedSessionId = readRunEvidence(stdout, stderr, code ?? 1, {
+          sessionId,
+          prompt,
+        }).sessionId
+      } catch {
+        // The caller reports invalid captures alongside the scenario and turn number.
       }
 
       resolve({
         output: stdout,
         stderr: stderr,
-        code: code ?? 1,
+        code: timedOut ? 1 : (code ?? 1),
         sessionId: extractedSessionId,
       })
     })
@@ -457,48 +491,40 @@ async function runConcurrentTest(test: ConcurrentTest): Promise<TestResult> {
     }
   }
 
+  let successes = 0
+  const failures: string[] = []
   for (const result of results) {
-    for (const pattern of test.errorPatterns) {
-      if (result.stderr.toLowerCase().includes(pattern.toLowerCase())) {
-        for (const sid of sessionIds) {
-          await deleteSession(sid)
-        }
-        return {
-          success: false,
-          error: `Found error pattern "${pattern}" in concurrent response`,
-          duration: Date.now() - start,
-          turnsCompleted: 0,
-        }
+    try {
+      for (const pattern of test.errorPatterns) {
+        if (
+          `${result.stderr}\n${result.output}`
+            .toLowerCase()
+            .includes(pattern.toLowerCase())
+        )
+          throw new Error(`Found error pattern "${pattern}"`)
       }
+      const answer =
+        test.name === 'concurrent-5-same-model'
+          ? '4'
+          : test.name === 'concurrent-10-antigravity-heavy'
+            ? '2'
+            : undefined
+      readRunEvidence(result.output, result.stderr, result.code, { answer })
+      successes++
+    } catch (error) {
+      failures.push(String(error))
     }
   }
-
-  const failedResults = results.filter((r) => r.code !== 0)
-  const failedCount = failedResults.length
-  if (failedCount > test.concurrentRequests / 2) {
-    for (const sid of sessionIds) {
-      await deleteSession(sid)
-    }
-    const firstFailure = failedResults[0]
-    const failureDetails = firstFailure
-      ? `\n    First failure stderr: ${firstFailure.stderr.slice(0, 500)}`
-      : ''
-    return {
-      success: false,
-      error: `${failedCount}/${test.concurrentRequests} requests failed${failureDetails}`,
-      duration: Date.now() - start,
-      turnsCompleted: test.concurrentRequests - failedCount,
-    }
-  }
-
-  for (const sid of sessionIds) {
-    await deleteSession(sid)
-  }
-
+  for (const sid of new Set(sessionIds)) await deleteSession(sid)
   return {
-    success: true,
+    success: failures.length === 0,
     duration: Date.now() - start,
-    turnsCompleted: test.concurrentRequests,
+    turnsCompleted: successes,
+    ...(failures.length
+      ? {
+          error: `${failures.length}/${results.length} requests failed: ${failures[0]}`,
+        }
+      : {}),
   }
 }
 
@@ -506,13 +532,13 @@ async function runMultiTurnTest(test: MultiTurnTest): Promise<TestResult> {
   const start = Date.now()
   let sessionId: string | null = null
   let turnsCompleted = 0
+  const seenMessages = new Set<string>()
 
   for (let index = 0; index < test.turns.length; index++) {
     const turn = test.turns[index]!
     const prompt = typeof turn === 'string' ? turn : turn.prompt
     const model =
       typeof turn === 'string' ? test.model : (turn.model ?? test.model)
-    const turnStart = Date.now()
 
     process.stdout.write(
       `\r  Progress: ${index + 1}/${test.turns.length} turns...`,
@@ -539,17 +565,28 @@ async function runMultiTurnTest(test: MultiTurnTest): Promise<TestResult> {
       }
     }
 
-    if (result.code !== 0 && result.code !== null) {
-      const isTimeout = Date.now() - turnStart >= test.timeout - 1000
-      if (isTimeout) {
-        process.stdout.write(`\r${' '.repeat(50)}\r`)
-        return {
-          success: false,
-          error: `Turn ${index + 1}: Timeout after ${test.timeout}ms`,
-          duration: Date.now() - start,
-          turnsCompleted,
-          sessionId: sessionId ?? undefined,
-        }
+    try {
+      const evidence = readRunEvidence(
+        result.output,
+        result.stderr,
+        result.code,
+        {
+          sessionId,
+          prompt,
+          answer: typeof turn === 'string' ? undefined : turn.answer,
+          toolOutput: expectedToolOutput(prompt),
+        },
+      )
+      if (seenMessages.has(evidence.messageId))
+        throw new Error('Reused assistant answer')
+      seenMessages.add(evidence.messageId)
+    } catch (error) {
+      return {
+        success: false,
+        error: `Turn ${index + 1}: ${String(error)}`,
+        duration: Date.now() - start,
+        turnsCompleted,
+        sessionId: sessionId ?? undefined,
       }
     }
 
@@ -749,6 +786,9 @@ async function main(): Promise<void> {
         } else {
           console.log(`  Status: ❌ FAIL`)
           console.log(`    Error: ${result.error}`)
+          console.log(
+            `    Completed: ${result.turnsCompleted}/${test.concurrentRequests} requests`,
+          )
         }
         console.log()
       }

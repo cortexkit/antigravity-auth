@@ -620,30 +620,7 @@ describe('redaction', () => {
   })
 
   it('never serializes token, project, fingerprint, or request fields', async () => {
-    await setSidebarMachineState(
-      {
-        checkedAt: 1_000,
-        accounts: [
-          {
-            id: 'acct-0',
-            label: 'Primary',
-            enabled: true,
-            health: 100,
-            current: false,
-            quota: {
-              gemini: { remainingPercent: 80 },
-            },
-          },
-        ],
-      },
-      { stateFile: fixture.stateFile },
-    )
-
-    const fs = require('node:fs') as typeof import('node:fs')
-    const raw = fs.readFileSync(fixture.stateFile, 'utf-8')
-
-    // Hard-coded denylist of secret-shaped keys.
-    for (const key of [
+    const secretKeys = [
       'refresh',
       'access',
       'token',
@@ -655,8 +632,31 @@ describe('redaction', () => {
       'signature',
       'cookie',
       'authorization',
-    ]) {
+    ]
+    const secrets = Object.fromEntries(
+      secretKeys.map((key) => [key, `secret-sentinel-${key}`]),
+    )
+    const state = buildSidebarMachineStateFromAccounts([
+      {
+        index: 0,
+        current: false,
+        enabled: true,
+        cachedQuota: { gemini: { remainingFraction: 0.8 } },
+        ...secrets,
+      },
+    ])
+    await setSidebarMachineState(
+      { ...state, checkedAt: 1_000 },
+      { stateFile: fixture.stateFile },
+    )
+
+    const fs = require('node:fs') as typeof import('node:fs')
+    const raw = fs.readFileSync(fixture.stateFile, 'utf-8')
+
+    expect(JSON.parse(raw).accounts).toHaveLength(1)
+    for (const key of secretKeys) {
       expect(raw.toLowerCase()).not.toContain(`"${key.toLowerCase()}":`)
+      expect(raw).not.toContain(`secret-sentinel-${key}`)
     }
   })
 
@@ -1096,19 +1096,6 @@ describe('render boundary — current flag', () => {
     const disk = readSidebarState(fixture.stateFile)
     expect(disk.accounts[0]?.current).toBe(true)
     expect(disk.accounts[1]?.current).toBe(false)
-  })
-
-  it('without fallbackAccounts, current: false for all accounts → no accounts visible', () => {
-    // The filter the TUI runs is:
-    //   state.accounts.filter(account => account.current)
-    // When every account has current: false, the result is empty — that
-    // was the live bug before this fix.
-    const state = buildSidebarMachineStateFromAccounts([
-      { index: 0, current: false },
-      { index: 1, current: false },
-    ])
-    const visible = state.accounts.filter((entry) => entry.current)
-    expect(visible).toHaveLength(0)
   })
 
   it('without fallbackAccounts, current: true on one account → that account is visible', () => {

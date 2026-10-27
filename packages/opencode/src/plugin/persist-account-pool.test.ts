@@ -691,7 +691,10 @@ describe('persistAccountPool behavior (lock-held persistence)', () => {
       const err = captured as AccountStorageUnreadableError
       expect(err.details.path).toBe(storagePath)
       expect(err.details.backupPath).not.toBeNull()
+      expect(err).toBeInstanceOf(AccountStorageUnreadableError)
+      expect(err.details.reason).toBe('malformed-json')
       expect(err.message).toContain(storagePath)
+      expect(err.message.toLowerCase()).toContain('backup')
       if (err.details.backupPath) {
         expect(err.message).toContain(err.details.backupPath)
       }
@@ -776,63 +779,6 @@ describe('TUI flow integration (fail-closed contract)', () => {
         'existing@example.com',
         'new@example.com',
       ])
-    })
-
-    it('loadAccounts surfaces a typed AccountStorageUnreadableError when existing accounts cannot be loaded', async () => {
-      const storagePath = join(configDir, 'antigravity-accounts.json')
-      await mkdir(configDir, { recursive: true })
-      await writeFile(storagePath, 'definitely-not-json', 'utf8')
-
-      let captured: unknown
-      try {
-        await storageModule.loadAccounts()
-      } catch (error) {
-        captured = error
-      }
-      expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
-      expect((captured as AccountStorageUnreadableError).details.reason).toBe(
-        'malformed-json',
-      )
-    })
-
-    it('persistAccountPool propagates the unreadable error so a UI layer can prompt the user', async () => {
-      const storagePath = join(configDir, 'antigravity-accounts.json')
-      await mkdir(configDir, { recursive: true })
-      await writeFile(
-        storagePath,
-        JSON.stringify({ version: 4, notAccounts: [] }),
-        'utf8',
-      )
-
-      await expect(
-        persistAccountPool(
-          [
-            {
-              type: 'success',
-              refresh: 'new-token|new-project',
-              access: 'a',
-              expires: Date.now() + 3_600_000,
-              email: 'new@example.com',
-              projectId: 'new-project',
-            },
-          ],
-          false,
-        ),
-      ).rejects.toBeInstanceOf(AccountStorageUnreadableError)
-    })
-  })
-
-  describe('authorize flow behavior', () => {
-    it('TUI flow can load existing accounts and treat null as "no accounts yet"', async () => {
-      // No file → loadAccounts returns null (first-run, not an error).
-      const result = await storageModule.loadAccounts()
-      expect(result).toBeNull()
-    })
-
-    it('handles loadAccounts returning null gracefully (first-run UX unchanged)', async () => {
-      const result = await storageModule.loadAccounts()
-      expect(result).toBeNull()
-      // No throw → the TUI flow can proceed to OAuth login.
     })
   })
 })
@@ -942,10 +888,6 @@ describe('proposed fix validation', () => {
   })
 
   describe('loadAccounts distinguishes error types via the typed error reason', () => {
-    it('returns null when the file does not exist (ENOENT is NOT an error)', async () => {
-      expect(await storageModule.loadAccounts()).toBeNull()
-    })
-
     it('throws AccountStorageUnreadableError with reason "io-error" when the file exists but cannot be read', async () => {
       const storagePath = join(configDir, 'antigravity-accounts.json')
       await mkdir(configDir, { recursive: true })
@@ -990,6 +932,10 @@ describe('proposed fix validation', () => {
       expect((captured as AccountStorageUnreadableError).details.reason).toBe(
         'malformed-json',
       )
+      expect((captured as AccountStorageUnreadableError).details.path).toBe(
+        storagePath,
+      )
+      expect(await readFile(storagePath, 'utf8')).toBe('{ broken')
     })
 
     it('throws AccountStorageUnreadableError with reason "invalid-shape" on schema mismatch', async () => {
@@ -1014,92 +960,7 @@ describe('proposed fix validation', () => {
     })
   })
 
-  describe('persistAccountPool surfaces errors safely', () => {
-    it('throws AccountStorageUnreadableError when the file exists but cannot be parsed', async () => {
-      const storagePath = join(configDir, 'antigravity-accounts.json')
-      await mkdir(configDir, { recursive: true })
-      await writeFile(storagePath, '{ broken json', 'utf8')
-
-      await expect(
-        persistAccountPool(
-          [
-            {
-              type: 'success',
-              refresh: 'new-token|new-project',
-              access: 'a',
-              expires: Date.now() + 3_600_000,
-              email: 'new@example.com',
-              projectId: 'new-project',
-            },
-          ],
-          false,
-        ),
-      ).rejects.toBeInstanceOf(AccountStorageUnreadableError)
-    })
-
-    it('error message includes the file path and the backup path so the user knows where their data went', async () => {
-      const storagePath = join(configDir, 'antigravity-accounts.json')
-      await mkdir(configDir, { recursive: true })
-      await writeFile(storagePath, 'not json at all', 'utf8')
-
-      let captured: unknown
-      try {
-        await persistAccountPool(
-          [
-            {
-              type: 'success',
-              refresh: 'new-token|new-project',
-              access: 'a',
-              expires: Date.now() + 3_600_000,
-              email: 'new@example.com',
-              projectId: 'new-project',
-            },
-          ],
-          false,
-        )
-      } catch (error) {
-        captured = error
-      }
-      const err = captured as AccountStorageUnreadableError
-      expect(err.message).toContain(storagePath)
-      if (err.details.backupPath) {
-        expect(err.message).toContain(err.details.backupPath)
-      }
-      // Recovery hint: the error MUST point at the backup so the user
-      // (or the UI layer) can offer them a manual recovery path.
-      expect(err.message.toLowerCase()).toContain('backup')
-    })
-  })
-
   describe('backup-on-corruption', () => {
-    it('propagates a typed error so the caller (UI / CLI / RPC) can prompt the user', async () => {
-      const storagePath = join(configDir, 'antigravity-accounts.json')
-      await mkdir(configDir, { recursive: true })
-      await writeFile(storagePath, '{ broken', 'utf8')
-
-      let captured: unknown
-      try {
-        await persistAccountPool(
-          [
-            {
-              type: 'success',
-              refresh: 'new-token|new-project',
-              access: 'a',
-              expires: Date.now() + 3_600_000,
-              email: 'new@example.com',
-              projectId: 'new-project',
-            },
-          ],
-          false,
-        )
-      } catch (error) {
-        captured = error
-      }
-      // The caller gets a typed error → can branch on `name ===
-      // 'AccountStorageUnreadableError'` to show a recovery prompt.
-      expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
-    })
-
     it('writes a .corrupt-<ISO-timestamp> sidecar so the user can recover manually', async () => {
       const storagePath = join(configDir, 'antigravity-accounts.json')
       await mkdir(configDir, { recursive: true })
