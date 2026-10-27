@@ -1593,6 +1593,17 @@ async function spawnLayoutProcess(
     if (child.signalCode)
       return { child, signal: child.signalCode, result: {} as LayoutLine }
     const stderr = await new Response(child.stderr).text()
+    // Windows has no signals: a process that killed itself outright exits
+    // nonzero with no signal code. The fixture names the step on stderr
+    // first, so a deliberate kill is told apart from a crash.
+    if (
+      process.platform === 'win32' &&
+      child.exitCode !== 0 &&
+      stderr.includes(
+        `RUNTIME_LAYOUT_KILLED_AT=${extra.RUNTIME_LAYOUT_TEST_KILL_AT}`,
+      )
+    )
+      return { child, signal: 'SIGKILL' as const, result: {} as LayoutLine }
     throw new Error(`layout process printed nothing: ${stderr}`)
   }
   return {

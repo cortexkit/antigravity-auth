@@ -19,7 +19,7 @@
 //   `<path>.<pid>.ready` and waits for `<path>` to exist before it decides;
 // - RUNTIME_LAYOUT_TEST_TRACE: a path; one line `manifest <pid>` is appended
 //   each time this process has written `layout-moving.json`.
-import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, writeFileSync, writeSync } from 'node:fs'
 import {
   removeProcessHeartbeat,
   startRuntimeProcessHeartbeat,
@@ -33,8 +33,16 @@ const barrier = process.env.RUNTIME_LAYOUT_TEST_BARRIER
 const trace = process.env.RUNTIME_LAYOUT_TEST_TRACE
 const quiet = { info() {}, warn() {} }
 
+// The kill is reported on stderr first because Windows has no signals: there
+// `process.kill(pid, 'SIGKILL')` terminates the process outright (no cleanup,
+// leases left on disk, the same as POSIX SIGKILL) but the parent sees only a
+// nonzero exit code, so this line is how it knows the kill was deliberate.
+// Written synchronously: a piped stderr write can still be queued when the
+// process is terminated.
 const kill = (step: string) => () => {
-  if (killAt === step) process.kill(process.pid, 'SIGKILL')
+  if (killAt !== step) return
+  writeSync(2, `RUNTIME_LAYOUT_KILLED_AT=${step}\n`)
+  process.kill(process.pid, 'SIGKILL')
 }
 
 let line: Record<string, unknown>
