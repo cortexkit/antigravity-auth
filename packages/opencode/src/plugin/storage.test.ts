@@ -813,6 +813,234 @@ describe('openAccountStore', () => {
   })
 })
 
+describe('Windows migrated-store anchor', () => {
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
+    ?.value as string
+  const noExchange: AccountTokenExchange = async () => {
+    throw new Error('this test performs no token exchange')
+  }
+  const loginOf = (refresh: string, email: string) => ({
+    type: 'success' as const,
+    refresh,
+    access: 'never-stored',
+    expires: 1,
+    email,
+    projectId: '',
+  })
+
+  let configDir = ''
+  let appDataRoot = ''
+  let previousConfigDir: string | undefined
+  let previousAppData: string | undefined
+  const repositories: AccountRepository[] = []
+
+  const configPool = () => join(configDir, 'antigravity-accounts.json')
+  const legacyPool = () =>
+    join(appDataRoot, 'opencode', 'antigravity-accounts.json')
+
+  function openAt(legacyPath: string, modules: CommonAuthStoreModules) {
+    return openAccountStore({
+      modules,
+      createRepository: createAccountRepositoryFactory(modules),
+      exchange: noExchange,
+      legacyPath,
+    })
+  }
+
+  function openResolved(modules: CommonAuthStoreModules) {
+    return openAccountStore({
+      modules,
+      createRepository: createAccountRepositoryFactory(modules),
+      exchange: noExchange,
+    })
+  }
+
+  // The genuine store modules snapshot the platform when they first load,
+  // so every test below loads and seeds them unmocked and only then swaps
+  // the platform to Windows for the resolution under test.
+  function mockWindows() {
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
+    })
+  }
+
+  // None of the pending-store cases below may open a store or build a
+  // repository: only an active, verified generation does.
+  function stubOptions(): OpenAccountStoreOptions {
+    return {
+      modules: {
+        store: {
+          openPoolStore: () => {
+            throw new Error('admission opened a store for a non-active result')
+          },
+        },
+      },
+      createRepository: () => {
+        throw new Error('a repository was built for a non-active store')
+      },
+      exchange: noExchange,
+      now: () => 1,
+    } satisfies OpenAccountStoreOptions
+  }
+
+  beforeEach(async () => {
+    previousConfigDir = process.env.OPENCODE_CONFIG_DIR
+    previousAppData = process.env.APPDATA
+    configDir = await realpath(await mkdtemp(join(tmpdir(), 'agy-win-config-')))
+    appDataRoot = await realpath(
+      await mkdtemp(join(tmpdir(), 'agy-win-appdata-')),
+    )
+    process.env.OPENCODE_CONFIG_DIR = configDir
+    process.env.APPDATA = appDataRoot
+  })
+
+  afterEach(async () => {
+    for (const repository of repositories.splice(0)) {
+      await repository.dispose()
+    }
+    Object.defineProperty(process, 'platform', {
+      value: realPlatform,
+      configurable: true,
+    })
+    if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+    if (previousAppData === undefined) delete process.env.APPDATA
+    else process.env.APPDATA = previousAppData
+    await rm(configDir, { recursive: true, force: true })
+    await rm(appDataRoot, { recursive: true, force: true })
+  })
+
+  it('finds a store migrated at the %APPDATA% anchor after its pool file is retired', async () => {
+    const modules = await genuineModules()
+    await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
+    expect(
+      (
+        await initializeFreshAccountStoreFor(modules, {
+          legacyPath: legacyPool(),
+        })
+      ).status,
+    ).toBe('completed')
+    const seeded = await openAt(legacyPool(), modules)
+    expect(seeded.status).toBe('ready')
+    if (seeded.status !== 'ready') return
+    repositories.push(seeded.repository)
+    const [login] = await commitLogins(seeded.repository, [
+      loginOf('legacy-token|legacy-project', 'legacy@example.test'),
+    ])
+    expect(login).toMatchObject({ status: 'committed' })
+
+    // The pool file is retired and nothing lives at the config anchor, yet
+    // the migrated store must stay visible through the real resolution path.
+    mockWindows()
+    await expect(stat(legacyPool())).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+    expect(getStoragePath()).toBe(legacyPool())
+    const resolved = await openResolved(modules)
+    expect(resolved.status).toBe('ready')
+    if (resolved.status !== 'ready') return
+    repositories.push(resolved.repository)
+    const read = await resolved.repository.read()
+    expect(read.status).toBe('ready')
+    if (read.status !== 'ready') return
+    expect(read.rows.map((row) => row.credential?.refreshToken)).toEqual([
+      'legacy-token',
+    ])
+  })
+
+  it('refuses when pointers exist at both anchors, naming both', async () => {
+    const modules = await genuineModules()
+    await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
+    expect(
+      (
+        await initializeFreshAccountStoreFor(modules, {
+          legacyPath: legacyPool(),
+        })
+      ).status,
+    ).toBe('completed')
+    expect(
+      (
+        await initializeFreshAccountStoreFor(modules, {
+          legacyPath: configPool(),
+        })
+      ).status,
+    ).toBe('completed')
+    mockWindows()
+    let failure: unknown
+    try {
+      getStoragePath()
+    } catch (error) {
+      failure = error
+    }
+    expect(failure).toBeInstanceOf(Error)
+    expect(String((failure as Error)?.message)).toContain(legacyPool())
+    expect(String((failure as Error)?.message)).toContain(configPool())
+  })
+
+  it('keeps using the config anchor when only it publishes a store', async () => {
+    const modules = await genuineModules()
+    expect(
+      (
+        await initializeFreshAccountStoreFor(modules, {
+          legacyPath: configPool(),
+        })
+      ).status,
+    ).toBe('completed')
+    mockWindows()
+    expect(getStoragePath()).toBe(configPool())
+    const resolved = await openResolved(modules)
+    expect(resolved.status).toBe('ready')
+    if (resolved.status !== 'ready') return
+    repositories.push(resolved.repository)
+  })
+
+  it('falls back to the legacy pool file when the config folder cannot be created', async () => {
+    mockWindows()
+    const blocker = join(configDir, 'not-a-directory')
+    await writeFile(blocker, 'blocking the config folder\n')
+    process.env.OPENCODE_CONFIG_DIR = join(blocker, 'opencode')
+    await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
+    await writeFile(
+      legacyPool(),
+      JSON.stringify({ version: 4, accounts: [], activeIndex: 0 }),
+      { mode: 0o600 },
+    )
+    expect(getStoragePath()).toBe(legacyPool())
+    const resolved = await openAccountStore(stubOptions())
+    expect(resolved.status).toBe('migration-required')
+  })
+
+  it('still moves an unmigrated legacy pool file into the config folder', async () => {
+    mockWindows()
+    await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
+    await writeFile(
+      legacyPool(),
+      JSON.stringify({ version: 4, accounts: [], activeIndex: 0 }),
+      { mode: 0o600 },
+    )
+    expect(getStoragePath()).toBe(configPool())
+    await expect(stat(legacyPool())).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+    const resolved = await openAccountStore(stubOptions())
+    expect(resolved.status).toBe('migration-required')
+  })
+
+  it('ignores the %APPDATA% anchor outside Windows', async () => {
+    await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
+    // Pointers at both anchors: a non-Windows start still resolves the
+    // config anchor without refusing.
+    await writeFile(`${legacyPool()}.store.pointer.json`, '{}\n', {
+      mode: 0o600,
+    })
+    await writeFile(`${configPool()}.store.pointer.json`, '{}\n', {
+      mode: 0o600,
+    })
+    expect(getStoragePath()).toBe(configPool())
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Genuine public store
 //

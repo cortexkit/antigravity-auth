@@ -75,6 +75,11 @@ jobs:
         run: |
           bun test packages/opencode/src/runtime-layout.test.ts
           exit $LASTEXITCODE
+      - name: Run the Windows account-anchor tests
+        shell: pwsh
+        run: |
+          bun test packages/opencode/src/plugin/storage.test.ts -t "anchor"
+          exit $LASTEXITCODE
       - name: Verify Pi setup privacy repairs and dry-run isolation
         shell: pwsh
         run: |
