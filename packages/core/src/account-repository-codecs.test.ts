@@ -20,7 +20,6 @@ import {
   QUOTA_CODEC,
 } from './account-repository-codecs.ts'
 import {
-  CREDENTIAL_BOUND_METADATA_FIELDS,
   type JsonObject,
   legacyAccountsLock,
   type ProviderMetadata,
@@ -635,10 +634,30 @@ describe('provider-state credential-bound projection', () => {
 
     const bound = providerStateCredentialBound(wire)
     const metadata = bound.metadata as JsonObject
-    const expectedKeys = CREDENTIAL_BOUND_METADATA_FIELDS.filter(
-      (key) => key !== 'managedProjectId',
-    )
+    const expectedKeys = [
+      'email',
+      'projectId',
+      'fingerprint',
+      'fingerprintHistory',
+      'verificationRequired',
+      'verificationRequiredAt',
+      'verificationRequiredReason',
+      'verificationUrl',
+      'accountIneligible',
+      'accountIneligibleAt',
+      'accountIneligibleReason',
+      'eligibilityStateUpdatedAt',
+      'capturedTierId',
+      'capturedPaidTierId',
+      'capturedTierAt',
+      'capturedTierSchemaVersion',
+    ]
     expect(Object.keys(metadata).sort()).toEqual([...expectedKeys].sort())
+    expect(
+      Object.keys(
+        providerStateCredentialBound(fullEnvelopeWire()).metadata as JsonObject,
+      ).sort(),
+    ).toEqual([...expectedKeys, 'managedProjectId'].sort())
     expect(metadata.projectId).toBeNull()
     expect(Object.hasOwn(metadata, 'managedProjectId')).toBe(false)
     expect(bound.schemaVersion).toBe(1)

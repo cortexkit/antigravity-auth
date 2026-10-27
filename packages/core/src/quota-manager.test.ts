@@ -542,8 +542,13 @@ describe('refreshAccount', () => {
   })
 
   it('lets independent accounts fetch in parallel', async () => {
-    const fetch: FetchAccountQuota = async (account, _signal) => {
-      await new Promise((resolve) => setTimeout(resolve, 20))
+    const entered = new Set<string | undefined>()
+    const bothEntered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const fetch: FetchAccountQuota = async (account) => {
+      entered.add(account.email)
+      if (entered.size === 2) bothEntered.resolve()
+      await release.promise
       return {
         index: 0,
         status: 'ok',
@@ -551,18 +556,35 @@ describe('refreshAccount', () => {
         quota: { groups: {}, modelCount: 0 },
       }
     }
-
     const manager = track(
       createQuotaManager({ fetchAccountQuota: fetch, keyOf: keyOfAccount }),
     )
-    const a = makeAccount({ email: 'a@example.com' })
-    const b = makeAccount({ email: 'b@example.com' })
-
-    const results = await manager.refreshAccounts([a, b], { indexFor: () => 0 })
-
-    expect(results).toHaveLength(2)
-    expect(results[0]?.status).toBe('ok')
-    expect(results[1]?.status).toBe('ok')
+    const pending = ['a@example.com', 'b@example.com'].map((email, index) =>
+      manager.refreshAccount(makeAccount({ email }), { index }),
+    )
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        bothEntered.promise,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(
+            () => reject(new Error('independent fetches never overlapped')),
+            4_000,
+          )
+        }),
+      ])
+      expect([...entered]).toEqual(['a@example.com', 'b@example.com'])
+    } finally {
+      if (watchdog) clearTimeout(watchdog)
+      release.resolve()
+      await Promise.allSettled(pending)
+    }
+    const results = await Promise.all(pending)
+    expect(results.map((result) => result.email)).toEqual([
+      'a@example.com',
+      'b@example.com',
+    ])
+    expect(results.map((result) => result.status)).toEqual(['ok', 'ok'])
   })
 })
 
@@ -649,33 +671,36 @@ describe('backoff', () => {
   })
 
   it('force option bypasses backoff and triggers a fresh fetch', async () => {
-    const now = 0
+    let calls = 0
     const fetch: FetchAccountQuota = async () => {
-      throw new Error('persistent failure')
+      if (++calls === 1) throw new Error('first call fails')
+      return { index: 0, status: 'ok', quota: { groups: {}, modelCount: 7 } }
     }
-
     const manager = track(
       createQuotaManager({
         fetchAccountQuota: fetch,
         keyOf: keyOfAccount,
-        now: () => now,
+        now: () => 0,
         baseBackoffMs: 1000,
         maxBackoffMs: 8000,
       }),
     )
-
     const account = makeAccount({ email: 'a@example.com' })
-
-    await manager.refreshAccount(account, { index: 0 })
+    expect((await manager.refreshAccount(account, { index: 0 })).status).toBe(
+      'error',
+    )
     expect(manager.getBackoffUntil(account)).toBeGreaterThan(0)
-
-    // force=true should still call fetch despite backoff
+    expect((await manager.refreshAccount(account, { index: 0 })).status).toBe(
+      'error',
+    )
+    expect(calls).toBe(1)
     const result = await manager.refreshAccount(account, {
       index: 0,
       force: true,
     })
-    expect(result.status).toBe('error')
-    expect(manager.getBackoffUntil(account)).toBeGreaterThan(0)
+    expect(calls).toBe(2)
+    expect(result).toMatchObject({ status: 'ok', quota: { modelCount: 7 } })
+    expect(manager.getBackoffUntil(account)).toBe(0)
   })
 
   it('keeps backoffs independent per account key', async () => {
@@ -1233,8 +1258,14 @@ describe('fetch cancellation without AbortSignal.any', () => {
 describe('refreshAccounts', () => {
   it('runs sequentially (preserving order) and returns attributed results', async () => {
     const calls: string[] = []
-    const fetch: FetchAccountQuota = async (account, _signal) => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const fetch: FetchAccountQuota = async (account) => {
       calls.push(account.email ?? 'unknown')
+      if (calls.length === 1) {
+        entered.resolve()
+        await release.promise
+      }
       return {
         index: 0,
         status: 'ok',
@@ -1252,10 +1283,18 @@ describe('refreshAccounts', () => {
       makeAccount({ email: 'c@example.com' }),
     ]
 
-    const results = await manager.refreshAccounts(accounts, {
+    const pending = manager.refreshAccounts(accounts, {
       indexFor: (account) =>
         accounts.findIndex((acc) => acc.email === account.email),
     })
+    try {
+      await entered.promise
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(calls).toEqual(['a@example.com'])
+    } finally {
+      release.resolve()
+    }
+    const results = await pending
 
     expect(results.map((r) => r.email)).toEqual([
       'a@example.com',
@@ -1267,44 +1306,68 @@ describe('refreshAccounts', () => {
   })
 
   it('respects force to bypass backoff for every account', async () => {
-    const now = 0
-    let calls = 0
-    const fetch: FetchAccountQuota = async () => {
-      calls += 1
-      return { index: 0, status: 'ok', quota: { groups: {}, modelCount: 0 } }
+    const calls: string[] = []
+    const seen = new Set<string | undefined>()
+    const fetch: FetchAccountQuota = async (account) => {
+      calls.push(account.email!)
+      if (!seen.has(account.email)) {
+        seen.add(account.email)
+        throw new Error('first call fails')
+      }
+      return {
+        index: 0,
+        status: 'ok',
+        email: account.email,
+        quota: { groups: {}, modelCount: 7 },
+      }
     }
-
     const manager = track(
       createQuotaManager({
         fetchAccountQuota: fetch,
         keyOf: keyOfAccount,
-        now: () => now,
+        now: () => 0,
         baseBackoffMs: 1000,
         maxBackoffMs: 8000,
       }),
     )
-
-    const accounts = [makeAccount({ email: 'a@example.com' })]
-
-    // Prime backoff
-    const failFetch: FetchAccountQuota = async () => {
-      throw new Error('fail')
+    const accounts = ['a@example.com', 'b@example.com'].map((email) =>
+      makeAccount({ email }),
+    )
+    const options = {
+      indexFor: (account: AccountMetadataV3) => accounts.indexOf(account),
     }
-    const failManager = track(
-      createQuotaManager({
-        fetchAccountQuota: failFetch,
-        keyOf: keyOfAccount,
-        now: () => now,
-        baseBackoffMs: 1000,
-        maxBackoffMs: 8000,
-      }),
-    )
-    await failManager.refreshAccount(accounts[0]!, { index: 0 })
-    expect(failManager.getBackoffUntil(accounts[0]!)).toBeGreaterThan(0)
-
-    // Use the ok manager but with same backoff seed by manually forcing
-    await manager.refreshAccounts(accounts, { indexFor: () => 0, force: true })
-    expect(calls).toBe(1)
+    expect(
+      (await manager.refreshAccounts(accounts, options)).map((r) => r.status),
+    ).toEqual(['error', 'error'])
+    for (const account of accounts)
+      expect(manager.getBackoffUntil(account)).toBeGreaterThan(0)
+    expect(
+      (await manager.refreshAccounts(accounts, options)).map((r) => r.status),
+    ).toEqual(['error', 'error'])
+    expect(calls).toEqual(['a@example.com', 'b@example.com'])
+    const results = await manager.refreshAccounts(accounts, {
+      ...options,
+      force: true,
+    })
+    expect(calls).toEqual([
+      'a@example.com',
+      'b@example.com',
+      'a@example.com',
+      'b@example.com',
+    ])
+    expect(
+      results.map((r) => ({
+        email: r.email,
+        index: r.index,
+        status: r.status,
+        count: r.quota?.modelCount,
+      })),
+    ).toEqual([
+      { email: 'a@example.com', index: 0, status: 'ok', count: 7 },
+      { email: 'b@example.com', index: 1, status: 'ok', count: 7 },
+    ])
+    for (const account of accounts)
+      expect(manager.getBackoffUntil(account)).toBe(0)
   })
 })
 

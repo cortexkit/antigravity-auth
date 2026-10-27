@@ -334,9 +334,32 @@ describe('vault provider-state identity binding', () => {
 
   it('clears one account without touching another', async () => {
     await commit(() => ({ metadata: { addedAt: 1, lastUsed: 2 } }))
+    const b = {
+      ...A,
+      routeId: 'vault:b',
+      credentialId: 'cred-b',
+      accountIdentity: 'account-b',
+    }
+    currentRoster = roster([row(), row(b)])
+    await commit(
+      () => ({
+        metadata: { addedAt: 3, lastUsed: 4, label: 'Keep B' },
+        quota: { schemaVersion: 1, cachedQuotaUpdatedAt: 7 },
+      }),
+      { attribution: b },
+    )
+    const before = (await readVaultProviderState(statePath)).accounts[
+      'account-b'
+    ]
+    expect(before).toBeDefined()
     expect((await commit(() => null)).status).toBe('cleared')
-    expect((await readVaultProviderState(statePath)).accounts).toEqual({})
+    expect((await readVaultProviderState(statePath)).accounts).toEqual({
+      'account-b': before!,
+    })
     expect((await commit(() => null)).status).toBe('unchanged')
+    expect((await readVaultProviderState(statePath)).accounts).toEqual({
+      'account-b': before!,
+    })
   })
 })
 

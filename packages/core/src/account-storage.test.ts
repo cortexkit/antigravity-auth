@@ -320,15 +320,15 @@ describe('loadAccountStorage missing-vs-unreadable', () => {
     const err = captured as AccountStorageUnreadableError
     expect(err.details.path).toBe(path)
     expect(err.details.reason).toBe('malformed-json')
-    expect(err.details.backupPath).not.toBeNull()
+    expect(err.details.backupPath).toBeString()
+    expect(err.details.backupPath).not.toBe('')
     // The original file must remain on disk for the user to recover.
     const onDisk = await readFile(path, 'utf8')
     expect(onDisk).toBe('{ invalid json }')
     // The backup sidecar must hold a verbatim copy.
-    if (err.details.backupPath) {
-      const backup = await readFile(err.details.backupPath, 'utf8')
-      expect(backup).toBe('{ invalid json }')
-    }
+    expect(await readFile(err.details.backupPath!, 'utf8')).toBe(
+      '{ invalid json }',
+    )
   })
 
   it('throws AccountStorageUnreadableError when accounts is not an array', async () => {
@@ -348,7 +348,8 @@ describe('loadAccountStorage missing-vs-unreadable', () => {
     expect(captured).toBeInstanceOf(AccountStorageUnreadableError)
     const err = captured as AccountStorageUnreadableError
     expect(err.details.reason).toBe('invalid-shape')
-    expect(err.details.backupPath).not.toBeNull()
+    expect(err.details.backupPath).toBeString()
+    expect(err.details.backupPath).not.toBe('')
   })
 
   it('throws AccountStorageUnreadableError on unknown version', async () => {
@@ -369,7 +370,8 @@ describe('loadAccountStorage missing-vs-unreadable', () => {
     const err = captured as AccountStorageUnreadableError
     expect(err.details.reason).toBe('unsupported-version')
     expect(err.details.detail).toContain('999')
-    expect(err.details.backupPath).not.toBeNull()
+    expect(err.details.backupPath).toBeString()
+    expect(err.details.backupPath).not.toBe('')
   })
 
   it('throws AccountStorageUnreadableError when the file is a JSON array (not an object)', async () => {
@@ -462,13 +464,12 @@ describe('per-record shape validation (v4 records)', () => {
     const err = captured as AccountStorageUnreadableError
     expect(err.details.reason).toBe('invalid-shape')
     expect(err.details.path).toBe(path)
-    expect(err.details.backupPath).not.toBeNull()
+    expect(err.details.backupPath).toBeString()
+    expect(err.details.backupPath).not.toBe('')
     // The original file must remain byte-identical — no destructive
     // normalization that drops the malformed record.
     expect(await readFile(path, 'utf8')).toBe(raw)
-    if (err.details.backupPath) {
-      expect(await readFile(err.details.backupPath, 'utf8')).toBe(raw)
-    }
+    expect(await readFile(err.details.backupPath!, 'utf8')).toBe(raw)
   })
 
   it('throws AccountStorageUnreadableError when a v4 record is missing refreshToken (mutate path)', async () => {
@@ -493,7 +494,8 @@ describe('per-record shape validation (v4 records)', () => {
     const err = captured as AccountStorageUnreadableError
     expect(err.details.reason).toBe('invalid-shape')
     expect(await readFile(path, 'utf8')).toBe(raw)
-    expect(err.details.backupPath).not.toBeNull()
+    expect(err.details.backupPath).toBeString()
+    expect(err.details.backupPath).not.toBe('')
   })
 
   it('throws AccountStorageUnreadableError when a v4 record is not an object', async () => {
@@ -610,37 +612,59 @@ describe('clearAccountStorage', () => {
 })
 
 describe('mutateAccountStorage concurrency', () => {
+  async function contend(
+    path: string,
+    first: Parameters<typeof mutateAccountStorage>[1],
+    second: Parameters<typeof mutateAccountStorage>[1],
+  ) {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const contended = Promise.withResolvers<void>()
+    const delays: number[] = []
+    const a = mutateAccountStorage(path, async (current) => {
+      entered.resolve()
+      await release.promise
+      return first(current)
+    })
+    await entered.promise
+    const b = mutateAccountStorage(path, second, {
+      sleep: async (ms) => {
+        delays.push(ms)
+        contended.resolve()
+        await a
+      },
+    })
+    try {
+      await Promise.race([contended.promise, b.then(() => {})])
+      expect(delays).toEqual([100])
+    } finally {
+      release.resolve()
+      await Promise.all([a, b])
+    }
+  }
   it('serializes two add operations so both accounts remain', async () => {
     const path = storagePath()
     await saveAccountStorage(path, makeV4([], 0))
 
-    const delays: number[] = []
-    const start = Date.now()
-    const a = mutateAccountStorage(path, async (current) => {
-      // Pause to simulate the write window, giving B a chance to commit first.
-      await new Promise((r) => setTimeout(r, 150))
-      return {
+    await contend(
+      path,
+      (current) => ({
         version: 4,
         accounts: [
           ...current.accounts,
           { refreshToken: 'a', addedAt: 1, lastUsed: 1 },
         ],
         activeIndex: 0,
-      }
-    })
-    // Yield the event loop so A acquires the lock first.
-    await new Promise((r) => setTimeout(r, 10))
-    const b = mutateAccountStorage(path, (current) => ({
-      version: 4,
-      accounts: [
-        ...current.accounts,
-        { refreshToken: 'b', addedAt: 2, lastUsed: 2 },
-      ],
-      activeIndex: 0,
-    }))
-
-    await Promise.all([a, b])
-    delays.push(Date.now() - start)
+      }),
+      (current) => ({
+        version: 4,
+        accounts: [
+          ...current.accounts,
+          { refreshToken: 'b', addedAt: 2, lastUsed: 2 },
+        ],
+        activeIndex: 0,
+      }),
+    )
 
     const result = await loadAccountStorage(path)
     const tokens = result?.accounts.map((acc) => acc.refreshToken).sort()
@@ -657,26 +681,22 @@ describe('mutateAccountStorage concurrency', () => {
       ]),
     )
 
-    const remove = mutateAccountStorage(path, async (current) => {
-      // Pause so B can commit while we still hold the lock-less snapshot.
-      await new Promise((r) => setTimeout(r, 150))
-      return {
+    await contend(
+      path,
+      (current) => ({
         version: 4,
         accounts: current.accounts.filter((acc) => acc.refreshToken !== 'a'),
         activeIndex: 0,
-      }
-    })
-    await new Promise((r) => setTimeout(r, 10))
-    const add = mutateAccountStorage(path, (current) => ({
-      version: 4,
-      accounts: [
-        ...current.accounts,
-        { refreshToken: 'new-b', addedAt: 9, lastUsed: 9 },
-      ],
-      activeIndex: 0,
-    }))
-
-    await Promise.all([remove, add])
+      }),
+      (current) => ({
+        version: 4,
+        accounts: [
+          ...current.accounts,
+          { refreshToken: 'new-b', addedAt: 9, lastUsed: 9 },
+        ],
+        activeIndex: 0,
+      }),
+    )
 
     const result = await loadAccountStorage(path)
     const tokens = result?.accounts.map((acc) => acc.refreshToken).sort()
@@ -694,26 +714,26 @@ describe('mutateAccountStorage concurrency', () => {
     expect(held).not.toBeNull()
     const heldLock = held!
 
-    // Schedule the competing lock to release well within the
-    // legacy wait-and-retry schedule (first retry sleeps 100ms,
-    // second sleeps 200ms — by then the holder should have released).
-    setTimeout(() => {
-      heldLock.release().catch(() => {})
-    }, 150)
-
-    const startedAt = Date.now()
-    const result = await mutateAccountStorage(path, (current) => ({
-      version: 4,
-      accounts: [
-        ...current.accounts,
-        { refreshToken: 'late', addedAt: 1, lastUsed: 1 },
-      ],
-      activeIndex: 0,
-    }))
-    const elapsed = Date.now() - startedAt
-
-    expect(elapsed).toBeGreaterThanOrEqual(100)
-    expect(result.accounts.map((acc) => acc.refreshToken)).toContain('late')
+    const delays: number[] = []
+    const result = await mutateAccountStorage(
+      path,
+      (current) => ({
+        version: 4,
+        accounts: [
+          ...current.accounts,
+          { refreshToken: 'late', addedAt: 1, lastUsed: 1 },
+        ],
+        activeIndex: 0,
+      }),
+      {
+        sleep: async (ms) => {
+          delays.push(ms)
+          await heldLock.release()
+        },
+      },
+    )
+    expect(delays).toEqual([100])
+    expect(result.accounts.map((acc) => acc.refreshToken)).toEqual(['late'])
   })
 
   it('throws AccountStorageLockContentionError when the lock is held past the retry schedule', async () => {
@@ -823,16 +843,14 @@ describe('mutateAccountStorage fail-closed on unreadable file', () => {
     const err = captured as AccountStorageUnreadableError
     expect(err.details.reason).toBe('malformed-json')
     expect(err.details.path).toBe(path)
-    expect(err.details.backupPath).not.toBeNull()
+    expect(err.details.backupPath).toBeString()
+    expect(err.details.backupPath).not.toBe('')
 
     // The user's file must be byte-for-byte unchanged.
     const onDisk = await readFile(path, 'utf8')
     expect(onDisk).toBe(raw)
     // The backup must hold a verbatim copy.
-    if (err.details.backupPath) {
-      const backup = await readFile(err.details.backupPath, 'utf8')
-      expect(backup).toBe(raw)
-    }
+    expect(await readFile(err.details.backupPath!, 'utf8')).toBe(raw)
   })
 
   it('throws AccountStorageUnreadableError on invalid shape (accounts not an array)', async () => {
@@ -898,9 +916,10 @@ describe('mutateAccountStorage fail-closed on unreadable file', () => {
     }
     const err = captured as AccountStorageUnreadableError
     expect(err.message).toContain(path)
-    if (err.details.backupPath) {
-      expect(err.message).toContain(err.details.backupPath)
-    }
+    expect(err.details.backupPath).toBeString()
+    expect(err.details.backupPath).not.toBe('')
+    expect(err.message).toContain(err.details.backupPath!)
+    expect(await readFile(err.details.backupPath!, 'utf8')).toBe('{ broken')
   })
 
   it('still preserves the file when the backup itself fails', async () => {

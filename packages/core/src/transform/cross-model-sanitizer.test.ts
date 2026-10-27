@@ -14,17 +14,21 @@ describe('cross-model-sanitizer', () => {
       expect(getModelFamily('claude-opus-4-6-thinking-medium')).toBe('claude')
       expect(getModelFamily('claude-sonnet-4-6')).toBe('claude')
       expect(getModelFamily('claude-opus-4-6-thinking-low')).toBe('claude')
+      expect(getModelFamily('claude-sonnet-4')).toBe('claude')
+      expect(getModelFamily('claude-3-opus')).toBe('claude')
     })
 
     it('identifies Gemini models', () => {
       expect(getModelFamily('gemini-3-pro-low')).toBe('gemini')
       expect(getModelFamily('gemini-3-flash')).toBe('gemini')
       expect(getModelFamily('gemini-2.5-pro')).toBe('gemini')
+      expect(getModelFamily('gemini-3-pro-high')).toBe('gemini')
     })
 
     it('returns unknown for unrecognized models', () => {
       expect(getModelFamily('gpt-4')).toBe('unknown')
       expect(getModelFamily('unknown-model')).toBe('unknown')
+      expect(getModelFamily('llama-3')).toBe('unknown')
     })
   })
 
@@ -330,6 +334,22 @@ describe('cross-model-sanitizer', () => {
                 thinking: 'analyzing...',
                 signature: 'a'.repeat(60),
               },
+              {
+                type: 'tool_use',
+                id: 'tool_abc123',
+                name: 'bash',
+                input: { command: 'ls -la' },
+              },
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'tool_abc123',
+                content: 'file1.txt\nfile2.txt',
+              },
             ],
           },
         ],
@@ -341,6 +361,24 @@ describe('cross-model-sanitizer', () => {
 
       expect(result.modified).toBe(true)
       expect(result.signaturesStripped).toBe(1)
+      const sanitized = result.payload as typeof payload
+      expect(sanitized.messages[0]!.content[0] as unknown).toEqual({
+        type: 'thinking',
+        thinking: 'analyzing...',
+      })
+      expect(sanitized.messages[0]!.content[1]).toEqual({
+        type: 'tool_use',
+        id: 'tool_abc123',
+        name: 'bash',
+        input: { command: 'ls -la' },
+      })
+      expect(sanitized.messages[1]!.content).toEqual([
+        {
+          type: 'tool_result',
+          tool_use_id: 'tool_abc123',
+          content: 'file1.txt\nfile2.txt',
+        },
+      ])
     })
 
     it('skips sanitization for unknown target model', () => {
@@ -390,7 +428,10 @@ describe('cross-model-sanitizer', () => {
       expect(fc.args.command).toBe('df -h')
     })
 
-    it('preserves non-signature metadata when option is true', () => {
+    it.each([
+      'keep-me',
+      { searchQueries: ['test'] },
+    ])('preserves non-signature metadata when option is true (%j)', (grounding) => {
       const payload = {
         contents: [
           {
@@ -400,7 +441,8 @@ describe('cross-model-sanitizer', () => {
                 metadata: {
                   google: {
                     thoughtSignature: 'strip-me',
-                    groundingMetadata: 'keep-me',
+                    groundingMetadata: grounding,
+                    searchEntryPoint: { renderedContent: 'test' },
                   },
                   cache_control: { type: 'ephemeral' },
                 },
@@ -417,7 +459,8 @@ describe('cross-model-sanitizer', () => {
 
       const meta = (result.payload as any).contents[0].parts[0].metadata
       expect(meta.google.thoughtSignature).toBeUndefined()
-      expect(meta.google.groundingMetadata).toBe('keep-me')
+      expect(meta.google.groundingMetadata).toEqual(grounding)
+      expect(meta.google.searchEntryPoint).toEqual({ renderedContent: 'test' })
       expect(meta.cache_control.type).toBe('ephemeral')
     })
   })
@@ -469,14 +512,15 @@ describe('cross-model-sanitizer', () => {
   })
 
   describe('real-world reproduction scenario', () => {
-    it('handles Gemini thinking + tool call -> Claude tool call scenario', () => {
-      const geminiSessionHistory = {
+    it('handles the exact bug reproduction scenario from issue', () => {
+      const payload = {
+        model: 'claude-opus-4-6-thinking-medium',
         contents: [
           {
             role: 'user',
             parts: [
               {
-                text: 'Check disk space. Think about which filesystems are most utilized.',
+                text: 'Check how much disk space is available using df -h. Think about which filesystems are most utilized.',
               },
             ],
           },
@@ -485,18 +529,22 @@ describe('cross-model-sanitizer', () => {
             parts: [
               {
                 thought: true,
-                text: 'I need to analyze disk usage by running df -h...',
-                thoughtSignature: 'EsgQCsUQAXLI2nybuafAE150LGTo2r78fakesig123',
+                text: 'Let me analyze the disk space request. The user wants to see disk usage and understand filesystem utilization patterns...',
+                thoughtSignature:
+                  'EsgQCsUQAXLI2nybuafAE150LGTo2r78VeryLongSignatureStringThatExceeds50Characters',
               },
               {
                 functionCall: {
                   name: 'Bash',
-                  args: { command: 'df -h', description: 'Check disk space' },
+                  args: {
+                    command: 'df -h',
+                    description: 'Check disk space availability',
+                  },
                 },
                 metadata: {
                   google: {
                     thoughtSignature:
-                      'EsgQCsUQAXLI2nybuafAE150LGTo2r78fakesig123',
+                      'EsgQCsUQAXLI2nybuafAE150LGTo2r78VeryLongSignatureStringThatExceeds50Characters',
                   },
                 },
               },
@@ -509,7 +557,8 @@ describe('cross-model-sanitizer', () => {
                 functionResponse: {
                   name: 'Bash',
                   response: {
-                    output: 'Filesystem      Size  Used Avail Use%...',
+                    output:
+                      'Filesystem      Size  Used Avail Use% Mounted on\noverlay          59G   37G   20G  65% /\ntmpfs            64M     0   64M   0% /dev\n',
                   },
                 },
               },
@@ -517,7 +566,11 @@ describe('cross-model-sanitizer', () => {
           },
           {
             role: 'model',
-            parts: [{ text: 'The root filesystem is 62% utilized...' }],
+            parts: [
+              {
+                text: 'Based on the disk space analysis, the root overlay filesystem is 65% utilized with 37G used out of 59G total.',
+              },
+            ],
           },
           {
             role: 'user',
@@ -525,75 +578,34 @@ describe('cross-model-sanitizer', () => {
           },
         ],
       }
-
-      const result = sanitizeCrossModelPayload(geminiSessionHistory, {
+      const expectedTail = structuredClone(payload.contents.slice(2))
+      const result = sanitizeCrossModelPayload(payload, {
         targetModel: 'claude-opus-4-6-thinking-medium',
       })
-
+      const sanitized = result.payload as typeof payload
       expect(result.modified).toBe(true)
       expect(result.signaturesStripped).toBe(2)
-
-      const modelParts = (result.payload as any).contents[1].parts
-      expect(modelParts[0].thoughtSignature).toBeUndefined()
-      expect(modelParts[0].thought).toBe(true)
-      expect(modelParts[0].text).toContain('analyze disk usage')
-
-      expect(modelParts[1].metadata?.google?.thoughtSignature).toBeUndefined()
-      expect(modelParts[1].functionCall.name).toBe('Bash')
-      expect(modelParts[1].functionCall.args.command).toBe('df -h')
-
-      const functionResponse = (result.payload as any).contents[2].parts[0]
-        .functionResponse
-      expect(functionResponse.name).toBe('Bash')
-    })
-
-    it('handles Claude thinking + tool use -> Gemini tool call scenario', () => {
-      const claudeSessionHistory = {
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'List files' }],
-          },
-          {
-            role: 'assistant',
-            content: [
-              {
-                type: 'thinking',
-                thinking: 'I should list the files...',
-                signature: 'a'.repeat(100),
-              },
-              {
-                type: 'tool_use',
-                id: 'tool_abc123',
-                name: 'bash',
-                input: { command: 'ls -la' },
-              },
-            ],
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'tool_result',
-                tool_use_id: 'tool_abc123',
-                content: 'file1.txt\nfile2.txt',
-              },
-            ],
-          },
-        ],
-      }
-
-      const result = sanitizeCrossModelPayload(claudeSessionHistory, {
-        targetModel: 'gemini-3-flash',
+      expect(sanitized.contents[1]!.parts[0]).toEqual({
+        thought: true,
+        text: 'Let me analyze the disk space request. The user wants to see disk usage and understand filesystem utilization patterns...',
       })
-
-      expect(result.modified).toBe(true)
-      expect(result.signaturesStripped).toBe(1)
-
-      const assistantContent = (result.payload as any).messages[1].content
-      expect(assistantContent[0].signature).toBeUndefined()
-      expect(assistantContent[0].thinking).toContain('list the files')
-      expect(assistantContent[1].name).toBe('bash')
+      expect(sanitized.contents[1]!.parts[1] as unknown).toEqual({
+        functionCall: {
+          name: 'Bash',
+          args: {
+            command: 'df -h',
+            description: 'Check disk space availability',
+          },
+        },
+      })
+      expect(sanitized.contents.slice(2)).toEqual(expectedTail)
+      expect(
+        (
+          sanitized.contents[2]!.parts[0] as {
+            functionResponse: { name: string }
+          }
+        ).functionResponse.name,
+      ).toBe('Bash')
     })
   })
 })

@@ -195,7 +195,9 @@ describe('createAntigravityCommandMenu', () => {
 
   it('removes only after the library confirmation', async () => {
     const built = await menu()
-    const [first] = await accountItemIds(built)
+    const [first, second] = await accountItemIds(built)
+    if (!first || !second) throw new Error('missing account items')
+    const originalRows = await readyRows()
     const request = {
       command: 'antigravity',
       sectionId: 'accounts',
@@ -204,13 +206,18 @@ describe('createAntigravityCommandMenu', () => {
     }
     const unconfirmed = await built.apply(request, invocation)
     expect(unconfirmed.needsConfirmation).toBe(true)
-    expect(await readyRows()).toHaveLength(2)
+    expect((await readyRows()).map((row) => row.ref)).toEqual(
+      originalRows.map((row) => row.ref),
+    )
     const confirmed = await built.apply(
       { ...request, confirmed: true },
       invocation,
     )
     expect(confirmed.ok).toBe(true)
-    expect(await readyRows()).toHaveLength(1)
+    expect(await accountItemIds(built)).toEqual([second])
+    expect((await readyRows()).map((row) => row.ref)).toEqual([
+      originalRows[1]!.ref,
+    ])
   })
 
   it('shows read-only account routing without header-style controls', async () => {

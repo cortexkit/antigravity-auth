@@ -396,11 +396,10 @@ describe('resolveAntigravityModel', () => {
   })
 
   describe('no transformation needed', () => {
-    it('keeps gemini-2.5-flash unchanged for both header styles', () => {
-      const antigravity = resolveAntigravityModel('gemini-2.5-flash')
-      const cli = resolveAntigravityModel('gemini-2.5-flash')
-      expect(antigravity.actualModel).toBe('gemini-2.5-flash')
-      expect(cli.actualModel).toBe('gemini-2.5-flash')
+    it('keeps gemini-2.5-flash unchanged', () => {
+      expect(resolveAntigravityModel('gemini-2.5-flash').actualModel).toBe(
+        'gemini-2.5-flash',
+      )
     })
 
     it('keeps claude models unchanged (antigravity only)', () => {

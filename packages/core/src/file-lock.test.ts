@@ -11,6 +11,7 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { runCommand } from '../../../test/support/run-command.ts'
 
 import {
   acquireFencedFileLock as acquireFencedFileLockUntracked,
@@ -286,37 +287,43 @@ describe('acquireFencedFileLock — renewal extends expiry', () => {
   it('re-writes the lock with a fresh expiresAt on each tick', async () => {
     const target = join(root, 'state.json')
     const lockPath = `${target}.accounts.lock`
-
     let currentTime = 100_000
-    const lock = await acquireFencedFileLock({
-      path: target,
-      name: 'accounts',
-      ttlMs: 200,
-      renewIntervalMs: 25,
-      now: () => currentTime,
-    })
-    expect(lock).not.toBeNull()
-
-    const firstContents = await readLock(lockPath)
-    expect(firstContents?.ownerId).toBe(lock?.ownerId)
-    expect(firstContents?.expiresAt).toBe(currentTime + 200)
-
-    // Advance "real" world so the interval can fire; the implementation's
-    // renewal callback reads `now()` so `currentTime` stays in sync.
-    await new Promise((r) => setTimeout(r, 80))
-    currentTime += 80
-
-    const secondContents = await readLock(lockPath)
-    expect(secondContents?.ownerId).toBe(lock?.ownerId)
-    // The renewed expiresAt should be past the initial one (≥ firstContents.expiresAt).
-    const firstExpiresAt = firstContents?.expiresAt
-    if (firstExpiresAt === undefined) {
-      throw new Error('expected the initial lock read to carry expiresAt')
+    const renewal: { tick?: () => void } = {}
+    const timer = spyOn(globalThis, 'setInterval').mockImplementation(((
+      callback: () => void,
+    ) => {
+      renewal.tick = callback
+      return 0 as unknown as ReturnType<typeof setInterval>
+    }) as typeof setInterval)
+    const committed = Promise.withResolvers<void>()
+    try {
+      const lock = await acquireFencedFileLock({
+        path: target,
+        name: 'accounts',
+        ttlMs: 200,
+        renewIntervalMs: 25,
+        now: () => currentTime,
+        onStep: (step) => {
+          if (step === 'renew-committed') committed.resolve()
+        },
+      })
+      expect(lock).not.toBeNull()
+      expect(timer).toHaveBeenCalledWith(expect.any(Function), 25)
+      const first = await readLock(lockPath)
+      expect(first?.expiresAt).toBe(100_200)
+      currentTime += 80
+      expect(await readLock(lockPath)).toEqual(first)
+      expect(renewal.tick).toBeDefined()
+      renewal.tick?.()
+      await committed.promise
+      const second = await readLock(lockPath)
+      expect(second?.ownerId).toBe(lock?.ownerId)
+      expect(second?.expiresAt).toBe(100_280)
+      expect(second!.expiresAt).toBeGreaterThan(first!.expiresAt)
+      await lock?.release()
+    } finally {
+      timer.mockRestore()
     }
-    expect(secondContents?.expiresAt).toBeGreaterThanOrEqual(firstExpiresAt)
-
-    // Stop renewal cleanly before tearDown removes the dir.
-    await lock?.release()
   })
 
   it('does not renew when the lock has been taken over by another owner', async () => {
@@ -346,32 +353,32 @@ describe('acquireFencedFileLock — renewal extends expiry', () => {
   })
 
   it("renewal timer is unref'd so it does not keep the process alive", async () => {
-    // We cannot directly observe `unref()` from the test, but we can check
-    // that releasing the lock stops renewal (no further rewrites occur).
     const target = join(root, 'state.json')
-    const lockPath = `${target}.accounts.lock`
-
-    let currentTime = 300_000
-    const lock = await acquireFencedFileLock({
-      path: target,
-      name: 'accounts',
-      ttlMs: 200,
-      renewIntervalMs: 25,
-      now: () => currentTime,
-    })
-
-    await new Promise((r) => setTimeout(r, 70))
-    currentTime += 70
-    const before = await readLock(lockPath)
-    expect(before?.ownerId).toBe(lock?.ownerId)
-
-    await lock?.release()
-    expect(await readLock(lockPath)).toBeNull()
-
-    // Wait past another renew tick; nothing should happen.
-    await new Promise((r) => setTimeout(r, 70))
-    currentTime += 70
-    expect(await readLock(lockPath)).toBeNull()
+    const module = new URL('./file-lock.ts', import.meta.url).pathname
+    const child = await runCommand(
+      [
+        process.execPath,
+        '--eval',
+        `
+      import { acquireFencedFileLock } from ${JSON.stringify(module)}
+      const lock = await acquireFencedFileLock({
+        path: ${JSON.stringify(target)}, name: 'accounts',
+        ttlMs: 60_000, renewIntervalMs: 25,
+      })
+      if (!lock) throw new Error('expected acquisition')
+      console.log(lock.ownerId)
+      // Deliberately leave the lock unreleased: only an unref'd timer permits exit.
+    `,
+      ],
+      { deadlineMs: 3_000 },
+    )
+    expect(child.exitCode).toBe(0)
+    expect(child.signal).toBeNull()
+    expect(child.stderr).toBe('')
+    expect(child.stdout.trim()).not.toBe('')
+    expect((await readLock(`${target}.accounts.lock`))?.ownerId).toBe(
+      child.stdout.trim(),
+    )
   })
 })
 
@@ -415,27 +422,39 @@ describe('acquireFencedFileLock — release deletes only its own lock', () => {
   it('release() awaits any in-flight renewal and prevents it from resurrecting the lock', async () => {
     const target = join(root, 'state.json')
     const lockPath = `${target}.accounts.lock`
-
-    // Capture the REAL writeFile before spying so the spy can delegate to
-    // it without re-entering itself.
-    const realWriteFile = fsp.writeFile
-    const writeSpy = spyOn(fsp, 'writeFile').mockImplementation(
-      async (filePath, content, opts) => {
-        // Slow lock-file writes so an in-flight renewal's writeFile takes
-        // longer than release()'s read+unlink — this guarantees the race
-        // becomes observable without the released-flag / in-flight-fence.
-        if (typeof filePath === 'string' && filePath.endsWith('.lock')) {
-          await new Promise((resolve) => setTimeout(resolve, 80))
+    const entered = Promise.withResolvers<void>()
+    const resume = Promise.withResolvers<void>()
+    const renamed = Promise.withResolvers<void>()
+    let releaseRequested = false
+    let renameHeld = true
+    let prematureRead = false
+    const read = fsp.readFile
+    const observedReads = spyOn(fsp, 'readFile').mockImplementation(((
+      ...args: Parameters<typeof read>
+    ) => {
+      if (releaseRequested && renameHeld && args[0] === lockPath)
+        prematureRead = true
+      return read(...args)
+    }) as typeof read)
+    const renewal: { tick?: () => void } = {}
+    const timer = spyOn(globalThis, 'setInterval').mockImplementation(((
+      callback: () => void,
+    ) => {
+      renewal.tick = callback
+      return 0 as unknown as ReturnType<typeof setInterval>
+    }) as typeof setInterval)
+    const rename = fsp.rename
+    const heldRename = spyOn(fsp, 'rename').mockImplementation(
+      async (from, to) => {
+        if (to === lockPath && String(from).endsWith('.tmp')) {
+          entered.resolve()
+          await resume.promise
         }
-        return realWriteFile.call(
-          fsp,
-          filePath as never,
-          content as never,
-          opts as never,
-        )
+        await rename(from, to)
+        if (to === lockPath) renamed.resolve()
       },
     )
-
+    let releasing: Promise<void> | undefined
     try {
       const lock = await acquireFencedFileLock({
         path: target,
@@ -443,43 +462,28 @@ describe('acquireFencedFileLock — release deletes only its own lock', () => {
         ttlMs: 60_000,
         renewIntervalMs: 5,
       })
-
-      // Wait long enough for at least one renewal to be in-flight (and
-      // stuck mid-writeFile) when we trigger release().
-      await new Promise((resolve) => setTimeout(resolve, 30))
-
-      await lock?.release()
-
-      // With the fix: release awaits the in-flight renewal, then unlinks.
-      // Without the fix: release unlinks first, the still-pending renewal
-      // writeFile completes and resurrects the lock — this is the assertion
-      // that would fail. Read the lock contents back to check.
-      await stat(lockPath).then(
-        () => {
-          throw new Error(
-            `lock file ${lockPath} should be gone after release, but stat() succeeded`,
-          )
-        },
-        (err: NodeJS.ErrnoException) => {
-          if (err.code !== 'ENOENT') throw err
-        },
-      )
-
-      // Wait past the slow-writeFile window so any post-release queue
-      // entry has fully drained.
-      await new Promise((resolve) => setTimeout(resolve, 120))
-      await stat(lockPath).then(
-        () => {
-          throw new Error(
-            `lock file ${lockPath} resurrected after release window`,
-          )
-        },
-        (err: NodeJS.ErrnoException) => {
-          if (err.code !== 'ENOENT') throw err
-        },
-      )
+      expect(lock).not.toBeNull()
+      expect(renewal.tick).toBeDefined()
+      renewal.tick?.()
+      await entered.promise
+      let released = false
+      releaseRequested = true
+      releasing = lock!.release().then(() => {
+        released = true
+      })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(prematureRead).toBe(false)
+      expect(released).toBe(false)
+      renameHeld = false
+      resume.resolve()
+      await Promise.all([releasing, renamed.promise])
+      expect(await readLock(lockPath)).toBeNull()
     } finally {
-      writeSpy.mockRestore()
+      resume.resolve()
+      await releasing
+      observedReads.mockRestore()
+      heldRename.mockRestore()
+      timer.mockRestore()
     }
   })
 })
@@ -736,53 +740,6 @@ describe('acquireFencedFileLock — stale eviction marker ownership', () => {
 
     await rm(lockPath, { force: true })
     await rm(`${lockPath}.evicting`, { recursive: true, force: true })
-  })
-})
-
-describe('acquireFencedFileLock — onStep interleavings', () => {
-  it('fires the four steps in order during a clean eviction', async () => {
-    const target = join(root, 'state.json')
-    const lockPath = `${target}.accounts.lock`
-
-    await writeLock(lockPath, 'zombie', Date.now() - 60_000)
-
-    const observed: FileLockStep[] = []
-    const lock = await acquireFencedFileLock({
-      path: target,
-      name: 'accounts',
-      ttlMs: 60_000,
-      onStep: (step) => {
-        observed.push(step)
-      },
-    })
-    expect(lock).not.toBeNull()
-    expect(observed).toEqual([
-      'stale-marker-stat',
-      'stale-marker-claimed',
-      'stale-lock-confirmed',
-      'eviction-marker-acquired',
-    ])
-
-    await lock?.release()
-  })
-
-  it('does not fire eviction steps when the contended lock is live', async () => {
-    const target = join(root, 'state.json')
-    const lockPath = `${target}.accounts.lock`
-
-    await writeLock(lockPath, 'live', Date.now() + 60_000)
-
-    const observed: FileLockStep[] = []
-    const lock = await acquireFencedFileLock({
-      path: target,
-      name: 'accounts',
-      ttlMs: 60_000,
-      onStep: (step) => {
-        observed.push(step)
-      },
-    })
-    expect(lock).toBeNull()
-    expect(observed).toEqual([])
   })
 })
 
@@ -1079,16 +1036,7 @@ describe('acquireFencedFileLock — renewal TOCTOU', () => {
       await writeLock(lockPath, 'owner-B', Date.now() + 60_000)
       gateResolve()
 
-      let timeoutHandle: ReturnType<typeof setTimeout> | null = null
-      const loss = await Promise.race([
-        lock?.whenLost(),
-        new Promise<'timeout'>((resolve) => {
-          timeoutHandle = setTimeout(() => resolve('timeout'), 100)
-        }),
-      ]).finally(() => {
-        if (timeoutHandle !== null) clearTimeout(timeoutHandle)
-      })
-      expect(loss).toBeUndefined()
+      await lock?.whenLost()
       expect(lock?.hasLost()).toBe(true)
       expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
 

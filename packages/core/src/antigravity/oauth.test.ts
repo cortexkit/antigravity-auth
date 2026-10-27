@@ -14,7 +14,6 @@ import type { AgyTransportOptions } from '../agy-transport.ts'
 import {
   ANTIGRAVITY_CLIENT_ID,
   ANTIGRAVITY_REDIRECT_URI,
-  ANTIGRAVITY_SCOPES,
 } from '../constants.ts'
 import {
   authorizeAntigravity,
@@ -112,9 +111,15 @@ describe('Antigravity OAuth', () => {
       expect(decoded.projectId).toBe('project-1')
 
       const requestedScopes = (url.searchParams.get('scope') ?? '').split(' ')
-      for (const scope of ANTIGRAVITY_SCOPES) {
-        expect(requestedScopes).toContain(scope)
-      }
+      expect(requestedScopes.sort()).toEqual(
+        [
+          'https://www.googleapis.com/auth/cloud-platform',
+          'https://www.googleapis.com/auth/userinfo.email',
+          'https://www.googleapis.com/auth/userinfo.profile',
+          'https://www.googleapis.com/auth/cclog',
+          'https://www.googleapis.com/auth/experimentsandconfigs',
+        ].sort(),
+      )
     })
 
     it('encodes an empty projectId when none is provided', async () => {

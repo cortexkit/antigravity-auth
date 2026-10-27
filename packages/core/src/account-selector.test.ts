@@ -894,11 +894,8 @@ describe('selection oracle', () => {
   })
 
   it('a bare selector over credential-free rows reproduces them too', () => {
-    expect(runSelectorOracle().out).toEqual(ORACLE_EXPECTED)
-  })
-
-  it('moves token balances, toast debounce and request counts with surviving rows', () => {
     const output = runSelectorOracle().out
+    expect(output).toEqual(ORACLE_EXPECTED)
     const entry = (label: string) =>
       output.find(([name]) => name === label)?.[1]
     expect(entry('after removal')).toEqual([null, null, true, true])

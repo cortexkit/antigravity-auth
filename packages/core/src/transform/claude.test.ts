@@ -204,23 +204,33 @@ describe('buildClaudeThinkingConfig', () => {
 })
 
 describe('ensureClaudeMaxOutputTokens', () => {
+  it.each([
+    [8192, 32_000],
+    [16384, 32_768],
+    [32768, 64_000],
+  ])('scales the output limit for thinking budget %i', (budget, expected) => {
+    expect(computeClaudeMaxOutputTokens(budget)).toBe(expected)
+    const config: Record<string, unknown> = {}
+    ensureClaudeMaxOutputTokens(config, budget)
+    expect(config.maxOutputTokens).toBe(expected)
+  })
   it('sets maxOutputTokens when not present', () => {
     const config: Record<string, unknown> = {}
     ensureClaudeMaxOutputTokens(config, 8192)
 
-    expect(config.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192))
+    expect(config.maxOutputTokens).toBe(32_000)
   })
   it('sets maxOutputTokens when current is less than budget', () => {
     const config: Record<string, unknown> = { maxOutputTokens: 4096 }
     ensureClaudeMaxOutputTokens(config, 8192)
 
-    expect(config.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192))
+    expect(config.maxOutputTokens).toBe(32_000)
   })
   it('sets maxOutputTokens when current equals budget', () => {
     const config: Record<string, unknown> = { maxOutputTokens: 8192 }
     ensureClaudeMaxOutputTokens(config, 8192)
 
-    expect(config.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192))
+    expect(config.maxOutputTokens).toBe(32_000)
   })
   it('does not change maxOutputTokens when current is greater than budget', () => {
     const config: Record<string, unknown> = { maxOutputTokens: 100000 }
@@ -233,7 +243,7 @@ describe('ensureClaudeMaxOutputTokens', () => {
     const config: Record<string, unknown> = { max_output_tokens: 4096 }
     ensureClaudeMaxOutputTokens(config, 8192)
 
-    expect(config.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192))
+    expect(config.maxOutputTokens).toBe(32_000)
     expect(config.max_output_tokens).toBeUndefined()
   })
   it('removes max_output_tokens when setting maxOutputTokens', () => {
@@ -243,7 +253,7 @@ describe('ensureClaudeMaxOutputTokens', () => {
     }
     ensureClaudeMaxOutputTokens(config, 8192)
 
-    expect(config.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192))
+    expect(config.maxOutputTokens).toBe(32_000)
     expect(config.max_output_tokens).toBeUndefined()
   })
   it('prefers maxOutputTokens over max_output_tokens for comparison', () => {
@@ -526,14 +536,21 @@ describe('normalizeClaudeTools', () => {
         ],
       }
 
-      const result = normalizeClaudeTools(payload, identityClean)
-
-      expect(result.toolDebugSummaries).toContain(
-        'decl=search,src=function/custom,hasSchema=y',
-      )
-
-      const tools = payload.tools as any[]
-      expect(tools[0].functionDeclarations[0].name).toBe('search')
+      normalizeClaudeTools(payload, identityClean)
+      expect(payload.tools).toEqual([
+        {
+          functionDeclarations: [
+            {
+              name: 'search',
+              description: 'Search the web',
+              parameters: {
+                type: 'object',
+                properties: { query: { type: 'string' } },
+              },
+            },
+          ],
+        },
+      ])
     })
 
     it('normalizes custom-style tools', () => {
@@ -552,11 +569,21 @@ describe('normalizeClaudeTools', () => {
         ],
       }
 
-      const result = normalizeClaudeTools(payload, identityClean)
-
-      expect(result.toolDebugSummaries).toContain(
-        'decl=custom_tool,src=function/custom,hasSchema=y',
-      )
+      normalizeClaudeTools(payload, identityClean)
+      expect(payload.tools).toEqual([
+        {
+          functionDeclarations: [
+            {
+              name: 'custom_tool',
+              description: 'A custom tool',
+              parameters: {
+                type: 'object',
+                properties: { arg: { type: 'string' } },
+              },
+            },
+          ],
+        },
+      ])
     })
 
     it('normalizes tools with top-level name/parameters', () => {
@@ -825,7 +852,7 @@ describe('applyClaudeTransforms', () => {
     })
 
     const genConfig = payload.generationConfig as any
-    expect(genConfig.maxOutputTokens).toBe(computeClaudeMaxOutputTokens(8192))
+    expect(genConfig.maxOutputTokens).toBe(32_000)
   })
 
   it('does not apply thinking config for non-thinking models', () => {
@@ -909,20 +936,35 @@ describe('applyClaudeTransforms', () => {
     )
   })
 
-  it('normalizes tools and returns debug info', () => {
+  it('normalizes schema-less tools into wire declarations', () => {
     const payload: RequestPayload = {
       tools: [{ function: { name: 'my_tool' } }],
     }
 
-    const result = applyClaudeTransforms(payload, {
+    applyClaudeTransforms(payload, {
       model: 'claude-sonnet-4-6',
       cleanJSONSchema: mockCleanJSONSchema,
     })
-
-    expect(result.toolDebugMissing).toBe(1)
-    expect(result.toolDebugSummaries).toContain(
-      'decl=my_tool,src=function/custom,hasSchema=n',
-    )
+    expect(payload.tools).toEqual([
+      {
+        functionDeclarations: [
+          {
+            name: 'my_tool',
+            description: '',
+            parameters: {
+              type: 'object',
+              properties: {
+                _placeholder: {
+                  type: 'boolean',
+                  description: 'Placeholder. Always pass true.',
+                },
+              },
+              required: ['_placeholder'],
+            },
+          },
+        ],
+      },
+    ])
   })
 
   it('converts stop_sequences in generationConfig', () => {

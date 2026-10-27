@@ -261,7 +261,10 @@ describe('caller/body lifetime without AbortSignal.any', () => {
     reader.releaseLock()
   })
 
-  it('does not let the expired header deadline kill a streaming body', async () => {
+  it.each([
+    false,
+    true,
+  ])('does not let the expired header deadline kill a streaming body (caller=%s)', async (withCaller) => {
     const caller = new AbortController()
     const deadline = new AbortController()
     const callers = observeAbortListeners(caller.signal)
@@ -270,9 +273,7 @@ describe('caller/body lifetime without AbortSignal.any', () => {
     const source = controlledFetch()
     const response = await fetchWithActiveTimeout(
       'https://example.test',
-      {
-        signal: caller.signal,
-      },
+      withCaller ? { signal: caller.signal } : undefined,
       { fetchImpl: source.fetchImpl },
     )
     const reader = response.body!.getReader()
@@ -282,17 +283,17 @@ describe('caller/body lifetime without AbortSignal.any', () => {
     deadline.abort(new DOMException('late deadline', 'TimeoutError'))
     expect(deadlines.size).toBe(0)
     expect(source.signal().aborted).toBe(false)
-    expect(callers.size).toBe(1)
+    expect(callers.size).toBe(withCaller ? 1 : 0)
     const second = reader.read()
     source.controller().enqueue(new Uint8Array([1, 2]))
     expect((await second).value).toEqual(new Uint8Array([1, 2]))
     source.controller().close()
     expect((await reader.read()).done).toBe(true)
     expect(callers.size).toBe(0)
-    expect(source.original().body!.locked).toBe(false)
     caller.abort(new Error('after EOF'))
     expect(source.signal().aborted).toBe(false)
     reader.releaseLock()
+    expect(source.original().body!.locked).toBe(false)
   })
 
   it('preserves metadata, clone metadata, and unbuffered body bytes', async () => {
@@ -479,24 +480,29 @@ describe('fetchWithActiveTimeout', () => {
   })
 
   it('aborts an unresolved fetch after the configured timeout', async () => {
-    const fetchImpl = hangingFetch()
-    const start = Date.now()
-    let caught: unknown
+    const deadline = new AbortController()
+    const timeout = spyOn(AbortSignal, 'timeout').mockReturnValue(
+      deadline.signal,
+    )
+    let settled = false
+    const pending = fetchWithActiveTimeout(
+      'https://example.test/slow',
+      { method: 'GET' },
+      { timeoutMs: 50, fetchImpl: hangingFetch() },
+    )
+    const observed = pending.finally(() => {
+      settled = true
+    })
     try {
-      await fetchWithActiveTimeout(
-        'https://example.test/slow',
-        { method: 'GET' },
-        { timeoutMs: 50, fetchImpl },
-      )
-    } catch (error) {
-      caught = error
+      expect(timeout).toHaveBeenCalledWith(50)
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      const reason = new DOMException('controlled deadline', 'TimeoutError')
+      deadline.abort(reason)
+      await expect(observed).rejects.toBe(reason)
+    } finally {
+      timeout.mockRestore()
     }
-    expect(caught).toBeInstanceOf(DOMException)
-    const name = (caught as DOMException).name
-    expect(name === 'AbortError' || name === 'TimeoutError').toBe(true)
-    const elapsed = Date.now() - start
-    expect(elapsed).toBeGreaterThanOrEqual(45)
-    expect(elapsed).toBeLessThan(500)
   })
 
   it('preserves the caller-supplied abort reason when caller aborts first', async () => {
@@ -510,21 +516,6 @@ describe('fetchWithActiveTimeout', () => {
     )
     callerController.abort(callerReason)
     await expect(promise).rejects.toBe(callerReason)
-  })
-
-  it('lets a response body remain readable past the timeout window', async () => {
-    const fetchImpl = delayedResponseFetch(20, 'streamed-body')
-    const response = await fetchWithActiveTimeout(
-      'https://example.test/stream',
-      undefined,
-      { timeoutMs: 50, fetchImpl },
-    )
-    // Wait past the timeout to confirm the body stream has not been aborted
-    // along with the active-fetch deadline. Headers resolved before timeout,
-    // so the body must remain readable.
-    await new Promise((resolve) => setTimeout(resolve, 120))
-    const body = await response.text()
-    expect(body).toBe('streamed-body')
   })
 
   it('forwards headers, method, and body to the underlying fetchImpl', async () => {
@@ -555,24 +546,5 @@ describe('fetchWithActiveTimeout', () => {
     expect(headers['X-Trace']).toBe('abc')
     expect(headers['Content-Type']).toBe('text/plain')
     expect(init?.signal).toBeInstanceOf(AbortSignal)
-  })
-
-  it('uses ACTIVE_FETCH_TIMEOUT_MS when no timeoutMs override is supplied', async () => {
-    // With a hanging fetch and the default 15s timeout we cannot wait that
-    // long in tests, so override to a tiny value and assert the override is
-    // honored. The default value is locked in by the constant assertion above.
-    const fetchImpl = hangingFetch()
-    let caught: unknown
-    try {
-      await fetchWithActiveTimeout('https://example.test/slow', undefined, {
-        fetchImpl,
-        timeoutMs: 25,
-      })
-    } catch (error) {
-      caught = error
-    }
-    expect(caught).toBeInstanceOf(DOMException)
-    const name = (caught as DOMException).name
-    expect(name === 'AbortError' || name === 'TimeoutError').toBe(true)
   })
 })
