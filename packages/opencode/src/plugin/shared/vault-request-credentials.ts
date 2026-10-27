@@ -26,7 +26,9 @@ import {
   type SelectableAccount,
   type SelectionSink,
   type VaultAccountState,
+  type VaultAccountStateValue,
   type VaultProviderMetadata,
+  type VaultProviderStateBatchResult,
   type VaultProviderStateCommitResult,
   type VaultProviderStateFile,
   type VaultRouteRef,
@@ -51,11 +53,15 @@ export type VaultRequestSource = Pick<
     Pick<AntigravityVaultAccountSource, 'emptyRosterCause' | 'retryAfter401'>
   >
 
-/** The vault account source operations durable selection state uses. */
+/**
+ * The vault account source operations durable selection state uses. A source
+ * without `commitStates` records each quota reading in its own commit.
+ */
 export type VaultStateSource = Pick<
   AntigravityVaultAccountSource,
   'attribution' | 'commitState'
->
+> &
+  Partial<Pick<AntigravityVaultAccountSource, 'commitStates'>>
 
 /**
  * A vault-backed pool row: selection metadata plus the vault route it was
@@ -374,8 +380,8 @@ function stateBelongsTo(
 }
 
 export interface VaultSelectionStateOptions {
-  /** The vault source's attribution-fenced state commit. */
-  readonly source: Pick<VaultStateSource, 'commitState'>
+  /** The vault source's attribution-fenced state commits. */
+  readonly source: Pick<VaultStateSource, 'commitState' | 'commitStates'>
   /** Reads the provider-state file the source commits to. */
   readonly readState: () => Promise<VaultProviderStateFile>
   readonly now?: () => number
@@ -409,6 +415,37 @@ export interface VaultSelectionState {
     quota: QuotaState,
     signal?: AbortSignal,
   ): Promise<VaultProviderStateCommitResult>
+  /**
+   * Records several quota readings, each taken with the receipt its
+   * `attribution` names, in one provider-state commit when the source can
+   * batch them (otherwise one commit each). Each reading is attributed on its
+   * own: one the source refuses is `refused` and dropped, and the others are
+   * still written. A failure of a batch's single write leaves all of its
+   * readings `uncertain`. Results are in reading order.
+   */
+  recordQuotas(
+    readings: readonly VaultQuotaRecord[],
+    signal?: AbortSignal,
+  ): Promise<VaultProviderStateBatchResult[]>
+}
+
+/** One quota reading and the receipt attribution that binds its write. */
+export interface VaultQuotaRecord {
+  readonly attribution: VaultStateAttribution
+  readonly quota: QuotaState
+}
+
+/** Replaces an account's stored quota and keeps its other state. */
+function quotaUpdate(
+  quota: QuotaState,
+): (current: VaultAccountState | undefined) => VaultAccountStateValue {
+  return (current) => ({
+    ...(current?.metadata !== undefined ? { metadata: current.metadata } : {}),
+    quota,
+    ...(current?.extensions !== undefined
+      ? { extensions: current.extensions }
+      : {}),
+  })
 }
 
 /**
@@ -498,19 +535,30 @@ export function createVaultSelectionState(
     },
     flush,
     recordQuota(attribution, quota, signal) {
-      return options.source.commitState(
+      return options.source.commitState(attribution, quotaUpdate(quota), signal)
+    },
+    async recordQuotas(readings, signal) {
+      const entries = readings.map(({ attribution, quota }) => ({
         attribution,
-        (current) => ({
-          ...(current?.metadata !== undefined
-            ? { metadata: current.metadata }
-            : {}),
-          quota,
-          ...(current?.extensions !== undefined
-            ? { extensions: current.extensions }
-            : {}),
-        }),
-        signal,
-      )
+        update: quotaUpdate(quota),
+      }))
+      if (options.source.commitStates)
+        return options.source.commitStates(entries, signal)
+      const results: VaultProviderStateBatchResult[] = []
+      for (const { attribution, update } of entries) {
+        if (signal?.aborted) {
+          results.push({ status: 'refused', error: signal.reason })
+          continue
+        }
+        try {
+          results.push(
+            await options.source.commitState(attribution, update, signal),
+          )
+        } catch (error) {
+          results.push({ status: 'refused', error })
+        }
+      }
+      return results
     },
   }
 }
@@ -747,15 +795,18 @@ export function vaultQuotaState(quota: QuotaSummary, at: number): QuotaState {
 }
 
 /**
- * Checks quota for every row of a durable vault pool and records each
- * reading through the source's provider-state commit. Admission attribution
- * binds the write; the reading keeps its observation time. A row counts as
+ * Checks quota for every row of a durable vault pool and, once every row has
+ * been fetched, records the readings through the source's provider-state
+ * commit: all in one commit when the source can batch them, otherwise one
+ * commit each (see `VaultSelectionState.recordQuotas`). Admission attribution
+ * binds each write; the reading keeps its observation time. A row counts as
  * checked only when its reading was written; a reading with an error, without
- * an attribution, or whose
- * write the source refuses (another credential, account or a newer record
- * version) is not checked and is not shown. A written reading is also put
- * on the row that is still at that route, credential and account. An
- * aborted `signal` stops the check; the remaining rows are not checked.
+ * an attribution, or whose write the source refuses (another credential,
+ * account or a newer record version) is not checked and is not shown, and
+ * does not stop the other readings from being written. A written reading is
+ * also put on the row that is still at that route, credential and account.
+ * An aborted `signal` stops the check: the remaining rows are not fetched,
+ * and readings already fetched are not written.
  */
 export async function checkVaultQuota(input: {
   readonly pool: Pick<VaultAccountPool, 'selector' | 'state'>
@@ -773,8 +824,16 @@ export async function checkVaultQuota(input: {
   const state = input.pool.state
   const rows = [...input.pool.selector.rows]
   const now = input.now ?? (() => Date.now())
+  const reportError = (error: unknown) => {
+    try {
+      input.onError?.(error)
+    } catch {
+      // A diagnostic callback cannot change the report.
+    }
+  }
   let checked = 0
   if (state === undefined) input.onOutcome?.('state-invalid')
+  const readings: VaultQuotaRecord[] = []
   for (const row of rows) {
     if (input.signal.aborted || state === undefined) break
     try {
@@ -794,38 +853,57 @@ export async function checkVaultQuota(input: {
         input.onOutcome?.('unattributed')
         continue
       }
-      const reading = vaultQuotaState(answer.quota, answer.observedAt ?? now())
-      input.onStage?.('commit')
-      input.signal.throwIfAborted()
-      const result = await state.recordQuota(attribution, reading, input.signal)
-      if (result.status !== 'written') {
-        input.onOutcome?.(
-          result.status === 'uncertain'
-            ? 'write-uncertain'
-            : 'commit-unchanged',
-          result.status === 'uncertain' ? result.error : undefined,
-        )
-        continue
-      }
-      checked += 1
-      input.onOutcome?.('recorded')
-      const live = input.pool.selector.rows.find(
-        (candidate) =>
-          candidate.route.routeId === attribution.routeId &&
-          candidate.route.credentialId === attribution.credentialId &&
-          candidate.route.accountIdentity === attribution.accountIdentity,
-      )
-      if (live !== undefined) {
-        const cached = cachedQuotaOf(reading)
-        if (cached !== undefined) live.cachedQuota = cached
-        live.cachedQuotaUpdatedAt = reading.cachedQuotaUpdatedAt ?? undefined
-      }
+      readings.push({
+        attribution,
+        quota: vaultQuotaState(answer.quota, answer.observedAt ?? now()),
+      })
     } catch (error) {
-      try {
-        input.onError?.(error)
-      } catch {
-        // A diagnostic callback cannot change the report.
-      }
+      reportError(error)
+    }
+  }
+  if (state === undefined || readings.length === 0 || input.signal.aborted)
+    return { checked, notChecked: rows.length - checked }
+
+  let results: VaultProviderStateBatchResult[]
+  try {
+    input.onStage?.('commit')
+    input.signal.throwIfAborted()
+    results = await state.recordQuotas(readings, input.signal)
+  } catch (error) {
+    // The whole commit failed, so no reading was written; each reading is
+    // reported as it would be had its own commit failed this way.
+    for (const _ of readings) reportError(error)
+    return { checked, notChecked: rows.length - checked }
+  }
+  for (const [at, { attribution, quota: reading }] of readings.entries()) {
+    const result = results[at]
+    if (result === undefined || result.status === 'refused') {
+      reportError(
+        result === undefined
+          ? new Error('The provider-state commit returned no result')
+          : result.error,
+      )
+      continue
+    }
+    if (result.status !== 'written') {
+      input.onOutcome?.(
+        result.status === 'uncertain' ? 'write-uncertain' : 'commit-unchanged',
+        result.status === 'uncertain' ? result.error : undefined,
+      )
+      continue
+    }
+    checked += 1
+    input.onOutcome?.('recorded')
+    const live = input.pool.selector.rows.find(
+      (candidate) =>
+        candidate.route.routeId === attribution.routeId &&
+        candidate.route.credentialId === attribution.credentialId &&
+        candidate.route.accountIdentity === attribution.accountIdentity,
+    )
+    if (live !== undefined) {
+      const cached = cachedQuotaOf(reading)
+      if (cached !== undefined) live.cachedQuota = cached
+      live.cachedQuotaUpdatedAt = reading.cachedQuotaUpdatedAt ?? undefined
     }
   }
   return { checked, notChecked: rows.length - checked }

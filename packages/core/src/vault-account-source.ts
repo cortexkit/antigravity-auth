@@ -41,6 +41,9 @@ import {
   type AntigravityVaultStateFs,
   type AntigravityVaultStateUpdate,
   commitVaultProviderState,
+  commitVaultProviderStates,
+  type VaultProviderStateBatchEntry,
+  type VaultProviderStateBatchResult,
   type VaultProviderStateCommitResult,
   type VaultStateAttribution,
 } from './vault-provider-state.ts'
@@ -113,7 +116,10 @@ export type VaultClaustrumConsumer = Pick<
 export interface VaultClaustrumPort
   extends Pick<
     CommonAuthClaustrumModule,
-    'decideScopedRetryAfter401' | 'isDeclined' | 'mutateVaultRoster'
+    | 'decideScopedRetryAfter401'
+    | 'isDeclined'
+    | 'mutateVaultRoster'
+    | 'readVaultRoster'
   > {
   ClaustrumConsumer: new (
     options: VaultConsumerOptions,
@@ -310,6 +316,17 @@ export interface AntigravityVaultAccountSource {
     update: AntigravityVaultStateUpdate,
     signal?: AbortSignal,
   ): Promise<VaultProviderStateCommitResult>
+  /**
+   * Update several accounts' provider state in one write; see
+   * `commitVaultProviderStates`. Each entry is attributed and refused as
+   * `commitState` would, on its own: a refused entry is dropped and the
+   * others are still written. Only a failure of the single write itself
+   * leaves every staged entry `uncertain`. Results are in entry order.
+   */
+  commitStates(
+    entries: readonly VaultProviderStateBatchEntry[],
+    signal?: AbortSignal,
+  ): Promise<VaultProviderStateBatchResult[]>
   decline(ref: VaultRouteRef): Promise<void>
   accept(ref: VaultRouteRef): Promise<void>
   /**
@@ -749,6 +766,23 @@ export function createAntigravityVaultAccountSource(
         verify: (by) => verifyAttribution(by, signal),
         signal,
         update,
+      })
+    },
+    commitStates: async (entries, signal) => {
+      assertOpen(signal)
+      if (!options.state)
+        throw new AntigravityVaultSourceError(
+          'state-unavailable',
+          'No provider-state sidecar is configured for this vault source',
+        )
+      return commitVaultProviderStates({
+        claustrum,
+        fs: options.state.fs,
+        rosterPath: options.rosterPath,
+        statePath: options.state.path,
+        entries,
+        verify: (by) => verifyAttribution(by, signal),
+        signal,
       })
     },
     decline: async (ref) => {

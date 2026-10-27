@@ -428,7 +428,7 @@ describe('vault poller fences and lifecycle', () => {
     const resume = deferred()
     let commitSignal: AbortSignal | undefined
     if (!f.pool.state) throw new Error('missing durable pool')
-    f.pool.state.recordQuota = async (_attribution, _quota, signal) => {
+    f.pool.state.recordQuotas = async (_readings, signal) => {
       commitSignal = signal
       entered.resolve()
       await resume.promise
