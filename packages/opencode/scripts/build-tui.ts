@@ -159,11 +159,19 @@ const RUNTIME_MODULE = 'opentui:runtime-module:'
 export function checkGaGraph(
   graph: Graph,
   emitted: 'source' | 'raw' | 'runtime',
+  packageRoot: string = PACKAGE_ROOT,
 ) {
   for (const path of graph.files) {
-    const normalized = portable(path)
-    const srcIndex = normalized.lastIndexOf('/src/')
-    const candidate = srcIndex >= 0 ? normalized.slice(srcIndex) : normalized
+    const rel = relative(packageRoot, path)
+    if (
+      rel === '' ||
+      rel === '..' ||
+      rel.startsWith(`..${sep}`) ||
+      rel.startsWith('../') ||
+      isAbsolute(rel)
+    )
+      throw new Error(`graph.ga: forbidden GA source ${path}`)
+    const candidate = `/${portable(rel)}`
     if (GA_FORBIDDEN_SOURCE.test(candidate))
       throw new Error(`graph.ga: forbidden GA source ${path}`)
   }
@@ -215,6 +223,22 @@ function checkExternal(specifier: string, tui: boolean, types: boolean) {
     throw new Error(`graph: forbidden TUI external ${specifier}`)
 }
 
+function findPackageRoot(entry: string): string {
+  let current = dirname(resolve(entry))
+  if (existsSync(current)) {
+    try {
+      current = realpathSync(current)
+    } catch {}
+  }
+  while (true) {
+    if (existsSync(join(current, 'package.json'))) return current
+    const parent = dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  return dirname(resolve(entry))
+}
+
 /**
  * Independently check imports and re-exports, plus import()/require() targets
  * expressed as string literals, const aliases or string concatenations. Refuse
@@ -222,14 +246,25 @@ function checkExternal(specifier: string, tui: boolean, types: boolean) {
  */
 export async function auditGraph(
   entry: string,
-  { tui = true, types = false } = {},
+  {
+    tui = true,
+    types = false,
+    packageRoot,
+  }: { tui?: boolean; types?: boolean; packageRoot?: string } = {},
 ): Promise<Graph> {
+  const rootDir = packageRoot
+    ? existsSync(packageRoot)
+      ? realpathSync(packageRoot)
+      : resolve(packageRoot)
+    : findPackageRoot(entry)
   const files = new Set<string>()
   const externals = new Set<string>()
   async function visit(path: string): Promise<void> {
     path = realpathSync(path)
     if (files.has(path)) return
-    const embedded = portable(path).split('/common-auth-embedded/')[1]
+    const rel = relative(rootDir, path)
+    const candidate = `/${portable(rel)}`
+    const embedded = candidate.split('/common-auth-embedded/')[1]
     if (
       embedded &&
       !types &&
@@ -244,7 +279,7 @@ export async function auditGraph(
       tui &&
       !types &&
       /(?:\/rpc\/(?:index|rpc-server|server-registry)\.[jt]s$|\/plugin\/(?:storage|accounts|account-manager|account-storage|quota|rotation|logger|debug)\.|\/common-auth-embedded\/(?:fs\/(?!private-files\.js$)|store\/)|\/tools\/)/.test(
-        portable(path),
+        candidate,
       )
     )
       throw new Error(`graph: forbidden TUI source ${path}`)
