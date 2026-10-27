@@ -467,14 +467,11 @@ export async function runCli(
     // (whether vault enrollment excludes a local sign-in), so only login
     // settles the vault folder; the account-store commands leave it alone.
     if (parsed.value.command !== 'setup') {
-      // Login reads a vault file; a store command must settle the store's
-      // anchor before it names the path it works on, or it would pick one by
-      // itself. Both settle through the same layout lock.
-      if (
-        parsed.value.command === 'login' ||
-        parsed.value.command === 'store-relocate'
-      )
-        await deps.prepareVaultFolder?.()
+      // Login reads a vault file, so it settles the vault folder. The store
+      // commands move the store themselves and settle nothing: their anchor
+      // comes only from what is on disk (`localStore`), so `store relocate`
+      // can also run `--back` and finish a move a crashed start left behind.
+      if (parsed.value.command === 'login') await deps.prepareVaultFolder?.()
       await deps.processHeartbeat?.()
     }
     if (parsed.value.command === 'setup') {

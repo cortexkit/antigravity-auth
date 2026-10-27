@@ -426,6 +426,87 @@ describe('the CLI', () => {
     expect(existsSync(root) ? readdirSync(root).sort() : []).toEqual(before)
   })
 
+  it('a real CLI process moves the store forward and back offline', async () => {
+    // The whole command, as a user runs it on a real store: the offline
+    // confirmation is given with --yes, so no prompt is needed.
+    const home = join(root, 'cli-home')
+    const config = join(home, 'config', 'opencode')
+    const state = join(home, 'state')
+    for (const dir of [home, config, state])
+      mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const env = {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      XDG_CONFIG_HOME: join(home, 'config'),
+      XDG_STATE_HOME: state,
+      OPENCODE_CONFIG_DIR: config,
+      PATH: '/usr/bin:/bin',
+    }
+    const saved = {
+      config: process.env.OPENCODE_CONFIG_DIR,
+      state: process.env.XDG_STATE_HOME,
+    }
+    process.env.OPENCODE_CONFIG_DIR = config
+    process.env.XDG_STATE_HOME = state
+    resetProcess()
+    try {
+      // A store at the config anchor, as an existing installation has.
+      const configAnchor = join(config, 'antigravity-accounts.json')
+      const created = await initializeFreshAccountStore(
+        await loadCommonAuthStoreModules(),
+        { legacyPath: configAnchor, now: Date.now },
+      )
+      expect(created.status).toBe('completed')
+      const entry = fileURLToPath(new URL('./cli.ts', import.meta.url))
+      const run = async (args: string[]) => {
+        const child = Bun.spawn([process.execPath, entry, ...args], {
+          env,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        })
+        const [out, err, code] = await Promise.all([
+          new Response(child.stdout).text(),
+          new Response(child.stderr).text(),
+          child.exited,
+        ])
+        return { out, err, code }
+      }
+      const forward = await run(['store', 'relocate', '--offline', '--yes'])
+      expect({ code: forward.code, err: forward.err }).toEqual({
+        code: 0,
+        err: '',
+      })
+      expect(forward.out).toContain('Relocation completed')
+      const moved = readForwardedAccountStore(configAnchor)
+      expect(moved?.legacyPath).toContain(join(state, 'cortexkit'))
+
+      // Going back restores the config anchor's own store.
+      const back = await run([
+        'store',
+        'relocate',
+        '--back',
+        '--offline',
+        '--yes',
+      ])
+      expect({ code: back.code, err: back.err }).toEqual({ code: 0, err: '' })
+      expect(back.out).toContain('Reverse relocation completed')
+      const modules = await loadCommonAuthStoreModules()
+      const binding = await readAccountStoreBinding(
+        configAnchor,
+        modules,
+        Date.now,
+      )
+      expect(binding.status).toBe('bound')
+    } finally {
+      if (saved.config === undefined) delete process.env.OPENCODE_CONFIG_DIR
+      else process.env.OPENCODE_CONFIG_DIR = saved.config
+      if (saved.state === undefined) delete process.env.XDG_STATE_HOME
+      else process.env.XDG_STATE_HOME = saved.state
+      resetProcess()
+    }
+  }, 180_000)
+
   it('a real CLI process prints help without creating anything', async () => {
     // The whole CLI process, as a user runs it: its own heartbeat, layout
     // decision and store decision never start for help.
