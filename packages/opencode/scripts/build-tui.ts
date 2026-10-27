@@ -223,7 +223,7 @@ function checkExternal(specifier: string, tui: boolean, types: boolean) {
     throw new Error(`graph: forbidden TUI external ${specifier}`)
 }
 
-function findPackageRoot(entry: string): string {
+function findPackageRoot(entry: string): string | undefined {
   let current = dirname(resolve(entry))
   if (existsSync(current)) {
     try {
@@ -236,7 +236,7 @@ function findPackageRoot(entry: string): string {
     if (parent === current) break
     current = parent
   }
-  return dirname(resolve(entry))
+  return undefined
 }
 
 /**
@@ -262,8 +262,15 @@ export async function auditGraph(
   async function visit(path: string): Promise<void> {
     path = realpathSync(path)
     if (files.has(path)) return
-    const rel = relative(rootDir, path)
-    const candidate = `/${portable(rel)}`
+    const rel = rootDir !== undefined ? relative(rootDir, path) : undefined
+    const insideRoot =
+      rel !== undefined &&
+      rel !== '' &&
+      rel !== '..' &&
+      !rel.startsWith(`..${sep}`) &&
+      !rel.startsWith('../') &&
+      !isAbsolute(rel)
+    const candidate = insideRoot ? `/${portable(rel)}` : portable(path)
     const embedded = candidate.split('/common-auth-embedded/')[1]
     if (
       embedded &&
@@ -633,14 +640,14 @@ export async function buildTui({
       verifyPrerequisites(),
     )
     const source = await buildPhase(`buildTui.auditGraph source ${entry}`, () =>
-      auditGraph(join(packageRoot, entry)),
+      auditGraph(join(packageRoot, entry), { packageRoot }),
     )
     const types = await buildPhase(`buildTui.auditGraph types ${entry}`, () =>
-      auditGraph(join(packageRoot, entry), { types: true }),
+      auditGraph(join(packageRoot, entry), { types: true, packageRoot }),
     )
     if (ga) {
-      checkGaGraph(source, 'source')
-      checkGaGraph(types, 'source')
+      checkGaGraph(source, 'source', packageRoot)
+      checkGaGraph(types, 'source', packageRoot)
     }
     await buildPhase('buildTui.mkdir dist', () =>
       mkdir(join(packageRoot, 'dist'), { recursive: true }),
@@ -693,9 +700,14 @@ export async function buildTui({
         if (!file.output.endsWith('/selector.js')) {
           const emitted = await buildPhase(
             `buildTui.auditGraph emitted ${file.output}`,
-            () => auditGraph(join(packageRoot, file.output)),
+            () => auditGraph(join(packageRoot, file.output), { packageRoot }),
           )
-          if (ga) checkGaGraph(emitted, variant === map.raw ? 'raw' : 'runtime')
+          if (ga)
+            checkGaGraph(
+              emitted,
+              variant === map.raw ? 'raw' : 'runtime',
+              packageRoot,
+            )
         }
       }
       for (const edge of variant.externals) checkExternal(edge, true, false)
