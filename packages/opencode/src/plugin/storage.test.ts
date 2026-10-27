@@ -1037,6 +1037,12 @@ describe('Windows migrated-store anchor', () => {
     await writeFile(`${configPool()}.store.pointer.json`, '{}\n', {
       mode: 0o600,
     })
+    // Set explicitly, because this suite also runs on real Windows runners,
+    // where the unmocked platform is win32 and both pointers rightly refuse.
+    Object.defineProperty(process, 'platform', {
+      value: 'linux',
+      configurable: true,
+    })
     expect(getStoragePath()).toBe(configPool())
   })
 })
