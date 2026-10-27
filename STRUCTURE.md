@@ -24,7 +24,6 @@ antigravity-auth/
 ├── bunfig.toml                              # Bun test preload (test/setup.ts + OpenTUI preload)
 ├── bun.lock                                 # Bun lockfile (committed)
 ├── lefthook.yml                             # pre-commit Biome check
-├── mutations.toml                           # standing production-break proofs and exact test selectors
 ├── mise.toml                                # Bun 1.3 + Node 24 toolchain pin
 ├── tsconfig.scripts.json                    # tsconfig for scripts/, test/, e2e-tests
 ├── package.json                             # root monorepo (npm workspaces: packages/*)
@@ -373,7 +372,6 @@ Project-wide tsconfig used by `bun run typecheck` (root script `typecheck`) for 
 - `biome.jsonc` — formatter + linter config (`indent: 2 spaces`, `semicolons: asNeeded`, `quoteStyle: single`). Test files (`**/*.test.ts`) and `packages/opencode/src/plugin/ui/select.ts` carry override files that disable a small set of rules where the test naturally needs them.
 - `bunfig.toml` — root: `preload = ["./test/setup.ts", "@opentui/solid/preload"]`.
 - `lefthook.yml` — pre-commit: `biome check --staged --no-errors-on-unmatched` on `*.{ts,tsx,js,mjs,json,jsonc,yml,yaml}`.
-- `mutations.toml` — exact single-occurrence production breaks paired with named Bun tests, replayed by pinned `ckdev-mutate`; core is rebuilt per run and offline migration uses the public-consumer preparation wrapper.
 - `mise.toml` — pins `bun = "1.3"` and `node = "24"`.
 - `bun.lock` — committed; CI uses `bun install --frozen-lockfile`.
 - `models` — tracked JSON snapshot of the upstream model inventory (referenced by the e2e tests for drift assertions).
@@ -381,7 +379,6 @@ Project-wide tsconfig used by `bun run typecheck` (root script `typecheck`) for 
 ### `.github/`
 
 - `.github/workflows/ci.yml` — main/verify-branch push and main PR declarations: frozen install, direct embedding-coordinator check before each private compiler dependency install, root embedding check afterward, typecheck/build, TUI smoke, source/injected E2E, GA Docker smoke, format/lint; separate RPC runtime matrix.
-- Its `mutations-pr` job checks the catalogue and replays `--diff origin/main` for PRs; `mutations-main` replays `--all` for main pushes and `--all --broad` on weekly schedule/manual dispatch. Both depend on the test job, prepare frozen dependencies/private compiler/core output, install the revision-pinned cached runner and upload JSON replay artifacts.
 - `.github/workflows/release.yml` — tag/manual declarations: checks and RPC matrix precede a serial core/OpenCode/Pi npm provenance publish matrix and GitHub Release. CI, this workflow and `scripts/release.sh` run `bun packages/opencode/scripts/embed-common-auth.ts --check` immediately before every `bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts`, then retain root `bun run embed:check` afterward. They use the coordinator's current publication-qualified input contract, not versioned archive-existence guards. Independent verification of this coordinated change is not reported as complete here.
 - `.github/workflows/issue-triage.yml` — self-hosted Opencode Triage agent: parses label output, applies `bug`/`enhancement`/`documentation`/`question`/`invalid` + `area/auth`/`area/models`/`area/config`/`area/compat`, posts an automated reply, and closes duplicates.
 - `.github/FUNDING.yml`, `.github/ISSUE_TEMPLATE/bug_report.yml`, `.github/ISSUE_TEMPLATE/feature_request.yml`, `.github/ISSUE_TEMPLATE/config.yml`.
