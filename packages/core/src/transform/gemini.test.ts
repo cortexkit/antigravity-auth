@@ -910,9 +910,7 @@ describe('transform/gemini', () => {
         }
         const before = JSON.stringify(input)
         const payload: RequestPayload = {
-          tools: [
-            { function: { name: 'knowledge_tool', parameters: input } },
-          ],
+          tools: [{ function: { name: 'knowledge_tool', parameters: input } }],
         }
         applyGeminiTransforms(payload, { model })
         expect(payload.tools).toEqual([
