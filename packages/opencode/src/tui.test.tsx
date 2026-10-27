@@ -1592,6 +1592,7 @@ describe('OpenCode 1 menu transport', () => {
     handle = await startRpcServer({
       dir,
       parseApplyRequest,
+      version: '0.0.0-test',
       apply: async (request) => {
         received.push(request)
         return applyAnswer as never

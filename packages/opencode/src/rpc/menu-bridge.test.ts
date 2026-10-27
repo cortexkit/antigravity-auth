@@ -107,6 +107,7 @@ describe('RPC bridge to the shared command menu', () => {
     handle = await startRpcServer({
       dir,
       parseApplyRequest: commands.parseApplyRequest,
+      version: '0.0.0-test',
       apply: (request) => menu.apply(request, invocation(request.sessionId)),
       drain: drainNotifications,
     })

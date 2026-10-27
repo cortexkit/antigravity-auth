@@ -5,7 +5,6 @@ import {
   startRpcServer as startPublicRpcServer,
   writePortFile,
 } from '../common-auth-embedded/rpc/index.js'
-import { pluginPackageVersion } from '../process-heartbeat'
 import type {
   CommandApplyRequest,
   CommandApplyResult,
@@ -23,6 +22,14 @@ export interface StartRpcServerOptions {
    * not called.
    */
   parseApplyRequest: typeof Commands.parseApplyRequest
+  /**
+   * This plugin's package version, written into the port file. A process
+   * deciding whether it may move the vault files out of OpenCode's config
+   * folder (`version-fence.ts`) reads it; a port file without one counts as
+   * an older plugin and holds the move. The caller passes it in so this
+   * adapter imports nothing beyond the RPC library.
+   */
+  version: string
   /** Runs one parsed menu action and returns the refreshed menu. */
   apply(
     request: CommandApplyRequest,
@@ -58,6 +65,12 @@ export async function startRpcServer(
     throw new TypeError(
       'startRpcServer needs parseApplyRequest from the common-auth commands module',
     )
+  }
+  // Without a version the port file would be unversioned, and every later
+  // version check would treat this process as an older plugin. Refuse before
+  // anything is created, like the parser check above.
+  if (typeof options.version !== 'string' || options.version === '') {
+    throw new TypeError("startRpcServer needs this plugin's package version")
   }
   const parseApply = (value: unknown): CommandApplyRequest => {
     const request = options.parseApplyRequest(value)
@@ -95,7 +108,7 @@ export async function startRpcServer(
       port: server.port,
       token: server.token,
       pid: process.pid,
-      version: await pluginPackageVersion(),
+      version: options.version,
     }
     await writePortFile(options.dir, versioned, { secureDir: true })
   } catch (error) {

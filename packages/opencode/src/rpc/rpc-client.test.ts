@@ -43,6 +43,7 @@ describe('RPC client', () => {
     handle = await startRpcServer({
       dir,
       parseApplyRequest,
+      version: '0.0.0-test',
       apply: async () => result('ok'),
       drain: () => [],
       ...overrides,

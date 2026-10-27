@@ -23,8 +23,9 @@ const { parseApplyRequest } = await load(
   'common-auth-embedded/commands/index.js',
 )
 assert.equal(typeof parseApplyRequest, 'function')
+// The plugin passes its package version; any non-empty string serves here.
 const withParser = (start) => (options) =>
-  start({ parseApplyRequest, ...options })
+  start({ parseApplyRequest, version: '0.0.0-rpc-contract', ...options })
 // The adapter exactly as the plugin imports it, without the harness's parser.
 const startAdapter = (await load('rpc/rpc-server.js')).startRpcServer
 const startRpcServer = withParser(startAdapter)

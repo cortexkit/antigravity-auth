@@ -16,7 +16,10 @@ type CommandMenu = ReturnType<CommonAuthCommandsModule['createCommandMenu']>
 import { cliAccountOf } from '../cli'
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
 import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
-import { startRuntimeProcessHeartbeat } from '../process-heartbeat'
+import {
+  pluginPackageVersion,
+  startRuntimeProcessHeartbeat,
+} from '../process-heartbeat'
 import { drainNotifications, pushNotification } from '../rpc/notifications'
 import { getRpcDir } from '../rpc/rpc-dir'
 import { startRpcServer } from '../rpc/rpc-server'
@@ -945,6 +948,7 @@ export const createAntigravityPlugin =
     const rpcServer = await startRpcServer({
       dir: getRpcDir(directory),
       parseApplyRequest: commandsModule.parseApplyRequest,
+      version: await pluginPackageVersion(),
       apply: async (request) => {
         const current = await currentMenu()
         if (current.kind === 'unavailable') throw new Error(current.message)

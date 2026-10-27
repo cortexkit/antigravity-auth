@@ -40,6 +40,7 @@ function start(
   return startRpcServer({
     dir,
     parseApplyRequest,
+    version: PACKAGE_VERSION,
     apply: async () => result('ok'),
     drain: () => [],
     ...overrides,
@@ -273,6 +274,26 @@ describe('RPC server HTTP boundary', () => {
         new TypeError(
           'startRpcServer needs parseApplyRequest from the common-auth commands module',
         ),
+      )
+      // Nothing was published: the RPC directory was never created.
+      await expect(stat(dir)).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+  })
+
+  it('refuses to start without a plugin version, before anything is created', async () => {
+    const { stat } = await import('node:fs/promises')
+    for (const version of [undefined, '', 42]) {
+      // A JavaScript caller can omit the option the type requires.
+      const options = {
+        dir,
+        parseApplyRequest,
+        apply: async () => result('ok'),
+        drain: () => [],
+        ...(version === undefined ? {} : { version }),
+      } as unknown as StartRpcServerOptions
+
+      await expect(startRpcServer(options)).rejects.toThrow(
+        new TypeError("startRpcServer needs this plugin's package version"),
       )
       // Nothing was published: the RPC directory was never created.
       await expect(stat(dir)).rejects.toMatchObject({ code: 'ENOENT' })
