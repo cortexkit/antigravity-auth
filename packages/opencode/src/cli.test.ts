@@ -819,6 +819,8 @@ describe('default CLI real-store login', () => {
 
   it('pending legacy migration refuses before OAuth with unchanged bytes and metadata', async () => {
     const p = profile()
+    // The pre-store account file where this process's store path names it:
+    // the account store's anchor for a config folder in the state folder.
     writeFileSync(p.legacyPath, JSON.stringify(accountStorage()), {
       mode: 0o600,
     })
@@ -834,6 +836,8 @@ describe('default CLI real-store login', () => {
 
   it('setup --login refuses pending migration before OAuth or native activation', async () => {
     const p = profile()
+    // The pre-store account file where this process's store path names it:
+    // the account store's anchor for a config folder in the state folder.
     writeFileSync(p.legacyPath, JSON.stringify(accountStorage()), {
       mode: 0o600,
     })

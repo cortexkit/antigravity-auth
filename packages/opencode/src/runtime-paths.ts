@@ -398,23 +398,17 @@ export function readForwardedAccountStore(
 }
 
 /**
- * The anchor one folder's stores are discovered at, before this process has
- * decided: the forward left beside the pool file in the config folder, else
- * that pool file, else the state-home account file. Only a process that never
- * settled its store anchor (a tool, or a command that must not write) reads
- * this; everything that decided uses its own anchor.
+ * The anchor one folder's store is read at by a process that has not decided
+ * its own: the forward left beside the pool file in the config folder names
+ * the anchor the store moved to, and otherwise the store is where every
+ * release before the move kept it (the config folder, or the legacy Windows
+ * folder its pointer lives in).
  */
 export function discoveredAccountFile(
   location: RuntimeLayoutLocation = runtimeLayoutLocation(),
 ): string {
   const configAnchor = legacyAccountFile(location.configDir)
-  return (
-    readForwardedAccountStore(configAnchor)?.legacyPath ??
-    (existsSync(accountStorePointerPath(configAnchor)) ||
-    existsSync(configAnchor)
-      ? configAnchor
-      : stateHomeAccountFile(location))
-  )
+  return readForwardedAccountStore(configAnchor)?.legacyPath ?? configAnchor
 }
 
 /**
