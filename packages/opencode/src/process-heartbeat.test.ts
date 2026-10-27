@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import {
   existsSync,
   mkdirSync,
@@ -369,22 +369,30 @@ describe('process heartbeat owners', () => {
 })
 
 describe('recording a layout decision', () => {
-  it('writes a legacy decision at once, with every layout this process holds', async () => {
+  beforeEach(() => {
+    __resetProcessHeartbeatForTest()
+  })
+
+  it('writes the decision at once, with every layout this process holds', async () => {
     const dir = freshDir()
     await recordProcessLayout({
       key: '/config/a',
       layout: 'state-home',
       version: '9.9.9',
+      now: () => 77,
       pid: 4242,
       dir,
     })
-    // A state-home decision alone writes nothing.
-    expect(existsSync(join(dir, '4242.json'))).toBe(false)
+    // Every decision is written at once, so that a process deciding later
+    // sees this one: a store move waits for a file that names an anchor.
+    expect(readHeartbeat(join(dir, '4242.json')).layouts).toEqual({
+      '/config/a': 'state-home',
+    })
     await recordProcessLayout({
       key: '/config/b',
       layout: 'legacy',
       version: '9.9.9',
-      now: () => 77,
+      now: () => 999,
       pid: 4242,
       dir,
     })

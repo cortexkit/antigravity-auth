@@ -141,12 +141,7 @@ import {
   stateHomeAccountFile,
   stateHomeVaultDir,
 } from './runtime-paths'
-import {
-  readStoreAnchors,
-  type StoreAnchorReading,
-  type VersionFenceResult,
-  versionFenceOpen,
-} from './version-fence'
+import { type VersionFenceResult, versionFenceOpen } from './version-fence'
 
 export type { RuntimeLayout }
 
@@ -312,7 +307,14 @@ function credentialConflict(stateDir: string, file: LayoutFile) {
   )
 }
 
+/**
+ * Where this module reports what it did. `log` writes a line a user may want
+ * to see (a move happened, a deferral said why once); `info` and `warn` are
+ * the diagnostic stream. A logger that has no `log` reports information to
+ * `info`.
+ */
 export interface RuntimeLayoutLogger {
+  log?(message: string, meta?: Record<string, unknown>): unknown
   info(message: string, meta?: Record<string, unknown>): unknown
   warn(message: string, meta?: Record<string, unknown>): unknown
 }
@@ -366,11 +368,6 @@ export interface RuntimeLayoutOptions {
   relocate?: (input: StoreMoveInput) => Promise<StoreMoveResult>
   /** Test seam: the store fence; defaults to `versionFenceOpen` with `storeMove`. */
   storeFence?: () => Promise<VersionFenceResult>
-  /**
-   * Test seam: reads the other live processes' store anchors; defaults to
-   * `readStoreAnchors` for this machine.
-   */
-  storeAnchors?: (key: string) => Promise<StoreAnchorReading>
 }
 
 interface LayoutMarker {
@@ -823,6 +820,16 @@ async function decideAccountStore(
   return initializeStore(location, options, stateAnchor, log)
 }
 
+/** A line a user may want to see: `log`, or `info` when the logger has none. */
+function showLog(
+  log: RuntimeLayoutLogger,
+  message: string,
+  meta: Record<string, unknown>,
+): void {
+  if (log.log) log.log(message, meta)
+  else log.info(message, meta)
+}
+
 /** Record this process's store anchor and return it. */
 async function recordAnchor(
   location: RuntimeLayoutLocation,
@@ -840,9 +847,11 @@ async function recordAnchor(
     throw new RuntimeLayoutRefusal(location.stateHomeDir, errorClass(error))
   }
   if (anchor === 'state-home')
-    log.info('antigravity-auth keeps its account store in its state folder', {
-      accountStore: anchor,
-    })
+    showLog(
+      log,
+      'antigravity-auth keeps its account store in its state folder',
+      { accountStore: anchor },
+    )
   return anchor
 }
 
@@ -885,35 +894,8 @@ async function storeFenceOpen(
   return false
 }
 
-/**
- * Whether no other live process still says it keeps the store in the config
- * folder. Read again right before the first irreversible step of a move: a
- * process that started meanwhile has recorded its own choice by then.
- */
-async function storeAnchorsSettled(
-  location: RuntimeLayoutLocation,
-  options: RuntimeLayoutOptions,
-  log: RuntimeLayoutLogger,
-): Promise<boolean> {
-  const read: (key: string) => Promise<StoreAnchorReading> =
-    options.storeAnchors ?? defaultStoreAnchors
-  const reading: StoreAnchorReading = await read(location.key)
-  if (reading.settled) return true
-  logOnce(`${location.key}\0store-anchor-fence`, () =>
-    log.info(ACCOUNT_STORE_DEFERRED_MESSAGE, {
-      configDir: location.configDir,
-      blockers: [...reading.configFolder, ...reading.unknown],
-    }),
-  )
-  return false
-}
-
 function defaultStoreFence(version: string) {
   return () => versionFenceOpen({ currentVersion: version, storeMove: true })
-}
-
-function defaultStoreAnchors(key: string): Promise<StoreAnchorReading> {
-  return readStoreAnchors({}, key)
 }
 
 function sameSpelling(left: string, right: string): boolean {
@@ -1037,7 +1019,6 @@ async function moveStore(
 ): Promise<AccountStoreAnchor> {
   const keepConfig = () => recordAnchor(location, options, 'config', log)
   if (!(await storeFenceOpen(location, options, log))) return keepConfig()
-  if (!(await storeAnchorsSettled(location, options, log))) return keepConfig()
   try {
     const result = await (options.relocate ?? runStoreMove)({
       source,
@@ -1053,7 +1034,8 @@ async function moveStore(
       )
       return keepConfig()
     }
-    log.info(
+    showLog(
+      log,
       "antigravity-auth moved the account store out of OpenCode's config folder",
       { from: source, to: target, generation: result.id },
     )
@@ -1118,7 +1100,6 @@ async function initializeStore(
 ): Promise<AccountStoreAnchor> {
   const keepConfig = () => recordAnchor(location, options, 'config', log)
   if (!(await storeFenceOpen(location, options, log))) return keepConfig()
-  if (!(await storeAnchorsSettled(location, options, log))) return keepConfig()
   try {
     const store = await loadCommonAuthStoreModules()
     const created = await initializeFreshAccountStore(store, {
@@ -1141,9 +1122,13 @@ async function initializeStore(
     )
     return keepConfig()
   }
-  log.info('antigravity-auth created its account store in its state folder', {
-    accountStore: stateAnchor,
-  })
+  showLog(
+    log,
+    'antigravity-auth created its account store in its state folder',
+    {
+      accountStore: stateAnchor,
+    },
+  )
   return recordAnchor(location, options, 'state-home', log)
 }
 

@@ -29,11 +29,10 @@
 // refuses to run while any live process still names `config`, so a process
 // that keeps the old anchor is never bypassed.
 //
-// One write is not best-effort: `recordProcessLayout` records a `legacy`
-// decision, and `recordProcessAnchor` a `config` store anchor, while the
-// deciding process holds the layout lock, and throws when
-// that write fails, because a process on the old files that other processes
-// cannot see must not start.
+// One write is not best-effort: `recordProcessLayout` and
+// `recordProcessAnchor` record a decision while the deciding process holds
+// the layout lock, and throw when that write fails, because a process on the
+// old files that other processes cannot see must not start.
 
 import { randomUUID } from 'node:crypto'
 import { realpathSync, rmSync } from 'node:fs'
@@ -198,13 +197,35 @@ export interface ProcessHeartbeatHandle {
   release(): Promise<void>
 }
 
+/**
+ * A heartbeat write that failed before the file was written: the folder
+ * could not be created or kept private, or the file could not be renamed
+ * into place. Raised only by `recordProcessAnchor` callers, which must not
+ * run on the old paths unregistered; `startProcessHeartbeat` logs it instead.
+ * Every other version so far has left nothing behind in this case.
+ */
+class HeartbeatWriteFailure extends Error {
+  constructor(cause: unknown) {
+    super(errorText(cause))
+    this.name = 'HeartbeatWriteFailure'
+  }
+}
+
 async function writeHeartbeatFile(
   dir: string,
   heartbeat: ProcessHeartbeat,
 ): Promise<string> {
-  await mkdir(dir, { recursive: true, mode: 0o700 })
-  // mkdir's mode does not apply to a directory that already exists.
-  await chmod(dir, 0o700)
+  try {
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    // mkdir's mode does not apply to a directory that already exists.
+    await chmod(dir, 0o700)
+  } catch (error) {
+    // One heartbeat folder serves the whole plugin. A process whose
+    // heartbeat cannot be written also cannot keep its account store or
+    // vault files under that path, so nothing is recorded and the decision's
+    // caller learns it through its own write.
+    throw new HeartbeatWriteFailure(error)
+  }
   const target = processHeartbeatPath(heartbeat.pid, dir)
   // Written to a temporary name and renamed into place, so a reader never
   // sees a half-written file.
@@ -226,10 +247,10 @@ function errorText(error: unknown): string {
 }
 
 /**
- * Record this process as running `version`, with `layouts` added to the
- * layouts it already holds. Never throws: a failed write is logged at warn
- * and tried again at the next owner start. The file is written only when
- * this process has not written it yet or its layouts changed, so later
+ * Record this process as running `version`, with `layouts` and `stores`
+ * added to what it already holds. Never throws: a failed write is logged at
+ * warn and tried again at the next owner start. The file is written only
+ * when this process has not written it yet or its records changed, so later
  * owners of a process whose file is current write nothing.
  */
 export async function startProcessHeartbeat(input: {
@@ -250,29 +271,14 @@ export async function startProcessHeartbeat(input: {
   for (const [key, anchor] of Object.entries(input.stores ?? {}))
     shared.stores.set(key, anchor)
   const target = processHeartbeatPath(pid, dir)
-  const stores = storesRecord()
-  const signature = recordSignature()
   let path: string | undefined
-  if (shared.writtenPath === target && shared.writtenLayouts === signature) {
-    path = target
-  } else {
-    try {
-      path = await writeHeartbeatFile(dir, {
-        pid,
-        version: input.version,
-        startedAt: shared.startedAt,
-        layouts: layoutsRecord(),
-        ...(Object.keys(stores).length > 0 ? { stores } : {}),
-      })
-      shared.writtenPath = path
-      shared.writtenLayouts = signature
-      installExitHook()
-    } catch (error) {
-      input.logger.warn('process heartbeat not written', {
-        dir,
-        error: errorText(error),
-      })
-    }
+  try {
+    path = await writeCurrentRecords(dir, pid, input.version)
+  } catch (error) {
+    input.logger.warn('process heartbeat not written', {
+      dir,
+      error: errorText(error),
+    })
   }
   let released = false
   return {
@@ -287,6 +293,34 @@ export async function startProcessHeartbeat(input: {
       await removeHeartbeatFile(input.logger)
     },
   }
+}
+
+/**
+ * Write this process's heartbeat when the file is missing or its layouts and
+ * store anchors changed, so later owners of a current file write nothing.
+ * Returns the file's path, or undefined when it is current already.
+ */
+async function writeCurrentRecords(
+  dir: string,
+  pid: number,
+  version: string,
+): Promise<string> {
+  const target = processHeartbeatPath(pid, dir)
+  const signature = recordSignature()
+  if (shared.writtenPath === target && shared.writtenLayouts === signature)
+    return target
+  const stores = storesRecord()
+  const path = await writeHeartbeatFile(dir, {
+    pid,
+    version,
+    startedAt: shared.startedAt as number,
+    layouts: layoutsRecord(),
+    ...(Object.keys(stores).length > 0 ? { stores } : {}),
+  })
+  shared.writtenPath = path
+  shared.writtenLayouts = signature
+  installExitHook()
+  return path
 }
 
 async function removeHeartbeatFile(logger: HeartbeatLogger): Promise<void> {
@@ -314,12 +348,11 @@ export async function removeProcessHeartbeat(
 }
 
 /**
- * Record which layout this process uses for one config folder. A `legacy`
- * choice is written to the heartbeat file at once, because another process
- * deciding whether it may move the files reads it; the caller makes the
- * choice and this write while it holds the layout lock. A `state-home`
- * choice only goes into the next heartbeat write. Throws when the write
- * fails, unlike `startProcessHeartbeat`.
+ * Record which layout this process uses for one config folder and write the
+ * heartbeat at once, because another process deciding whether it may move
+ * the files reads it; the caller makes the choice and this write while it
+ * holds the layout lock. Throws when the write fails, unlike
+ * `startProcessHeartbeat`.
  */
 export async function recordProcessLayout(input: {
   key: string
@@ -330,18 +363,15 @@ export async function recordProcessLayout(input: {
   dir?: string
 }): Promise<void> {
   shared.layouts.set(input.key, input.layout)
-  if (input.layout !== 'legacy') return
-  await writeRecords(input)
+  await writeRecords(markStartedAt(input))
 }
 
 /**
  * Record where this process keeps one config folder's account store (see
- * `AccountStoreAnchor` in `runtime-paths.ts`). A `config` choice is written
- * to the heartbeat file at once, because a process deciding whether it may
- * move the store reads it; the caller makes the choice and this write while
- * it holds the layout lock. A `state-home` choice only goes into the next
- * heartbeat write. Throws when the write fails, unlike
- * `startProcessHeartbeat`.
+ * `AccountStoreAnchor` in `runtime-paths.ts`) and write the heartbeat at
+ * once, because a process deciding whether it may move the store reads it.
+ * The caller makes the choice and this write while it holds the layout lock.
+ * Throws when the write fails, unlike `startProcessHeartbeat`.
  */
 export async function recordProcessAnchor(input: {
   key: string
@@ -352,32 +382,53 @@ export async function recordProcessAnchor(input: {
   dir?: string
 }): Promise<void> {
   shared.stores.set(input.key, input.anchor)
-  if (input.anchor !== 'config') return
-  await writeRecords(input)
+  await writeRecords(markStartedAt(input))
+}
+
+/**
+ * A record write that starts the process's clock only when nothing has
+ * started it yet: the first write that finds it unset is the start time a
+ * caller's `now` reports.
+ */
+function markStartedAt(input: {
+  now?: () => number
+  version: string
+  pid?: number
+  dir?: string
+}): { startedAt: number; version: string; pid?: number; dir?: string } {
+  shared.startedAt ??= (input.now ?? Date.now)()
+  return {
+    startedAt: shared.startedAt,
+    version: input.version,
+    ...(input.pid === undefined ? {} : { pid: input.pid }),
+    ...(input.dir === undefined ? {} : { dir: input.dir }),
+  }
 }
 
 /**
  * Write the process's heartbeat now, with its layouts and store anchors. The
- * caller holds the layout lock.
+ * caller holds the layout lock, and has already claimed the start time with
+ * `markStartedAt`.
  */
 async function writeRecords(input: {
   version: string
-  now?: () => number
+  startedAt: number
   pid?: number
   dir?: string
 }): Promise<void> {
-  shared.startedAt ??= (input.now ?? Date.now)()
-  const stores = storesRecord()
-  const path = await writeHeartbeatFile(input.dir ?? processHeartbeatDir(), {
-    pid: input.pid ?? process.pid,
-    version: input.version,
-    startedAt: shared.startedAt,
-    layouts: layoutsRecord(),
-    ...(Object.keys(stores).length > 0 ? { stores } : {}),
-  })
-  shared.writtenPath = path
-  shared.writtenLayouts = recordSignature()
-  installExitHook()
+  try {
+    await writeCurrentRecords(
+      input.dir ?? processHeartbeatDir(),
+      input.pid ?? process.pid,
+      input.version,
+    )
+  } catch (error) {
+    // A later attempt retries the write; the records themselves are kept.
+    shared.writtenLayouts = undefined
+    throw error instanceof HeartbeatWriteFailure
+      ? error
+      : new HeartbeatWriteFailure(error)
+  }
 }
 
 // The plugin's own version, read from the package manifest. This module sits

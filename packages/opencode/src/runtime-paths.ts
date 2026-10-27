@@ -342,8 +342,20 @@ function realPathOrSelf(path: string): string {
  * the real path.
  */
 export function folderResolvesToItself(path: string): boolean {
-  const parent = dirname(path)
-  return realPathOrSelf(parent) === parent
+  let current = dirname(path)
+  for (;;) {
+    if (!existsSync(current)) {
+      const parent = dirname(current)
+      // Above the root, nothing is left to check: the missing part sits
+      // below the real root and no link above it exists.
+      if (parent === current) return true
+      current = parent
+      continue
+    }
+    if (realPathOrSelf(current) !== current) return false
+    // An existing folder is enough: the parts below it do not exist yet.
+    return true
+  }
 }
 
 /** What a forwarding pointer at one anchor says. */

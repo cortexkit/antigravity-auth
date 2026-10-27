@@ -107,11 +107,6 @@ function prepare(options: Partial<RuntimeLayoutOptions> = {}) {
       warn: (message, meta) => logged.push({ level: 'warn', message, meta }),
     },
     relocate: async () => ({ status: 'cancelled' }),
-    storeAnchors: async () => ({
-      configFolder: [],
-      unknown: [],
-      settled: true,
-    }),
     ...options,
   })
 }

@@ -413,8 +413,9 @@ export async function readStoreAnchors(
   const projects = await list(rpcRoot)
   if (!projects.ok)
     unknown.push({ pid: 'unknown', version: 'unknown', detail: projects.error })
-  for (const project of projects.ok ? projects.names : []) {
-    if (!isRpcProjectDir(project)) continue
+  for (const project of projects.ok
+    ? projects.names.filter(isRpcProjectDir)
+    : []) {
     const dir = join(rpcRoot, project)
     const ports = await list(dir)
     if (!ports.ok) {
