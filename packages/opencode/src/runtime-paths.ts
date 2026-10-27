@@ -29,7 +29,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { getConfigDir } from './plugin/storage'
+import { getConfigDir, resolveWindowsAccountAnchor } from './plugin/storage'
 import { defaultStateHome } from './version-fence'
 
 /** In the state-home folder: present once that folder is authoritative. */
@@ -236,14 +236,17 @@ export function stateHomeLogsDir(): string {
  * The account file a legacy-layout process uses for this config folder,
  * without changing anything on disk: `<config>/antigravity-accounts.json`,
  * except on Windows when that file is missing and one exists in
- * `%APPDATA%\opencode`. This is the choice `getStoragePath()` in
+ * `%APPDATA%\opencode`. A store migrated at the `%APPDATA%\opencode` anchor
+ * is found by its pointer there, the same choice `getStoragePath()` in
  * `plugin/storage.ts` makes, minus its attempt to move the Windows file.
  */
 export function legacyAccountFile(configDir: string = getConfigDir()): string {
   const standard = join(configDir, ACCOUNT_FILE_NAME)
-  if (process.platform !== 'win32' || existsSync(standard)) return standard
-  const windows = join(legacyWindowsConfigDir(), ACCOUNT_FILE_NAME)
-  return existsSync(windows) ? windows : standard
+  if (process.platform !== 'win32') return standard
+  return resolveWindowsAccountAnchor(
+    standard,
+    join(legacyWindowsConfigDir(), ACCOUNT_FILE_NAME),
+  )
 }
 
 /** The vault folder of the legacy layout: beside the account file. */

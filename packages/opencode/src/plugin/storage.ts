@@ -47,6 +47,7 @@ import {
   type AccountStoreAdmissionModules,
   type AccountStoreBinding,
   type AccountTokenExchange,
+  accountStorePointerPath,
   assertLegacyAccountStorageWritable,
   type CreateAccountRepository,
   clearAccountStorage as coreClearAccountStorage,
@@ -320,6 +321,43 @@ function migrateLegacyWindowsConfig(): boolean {
 }
 
 /**
+ * Picks the Windows anchor that owns the accounts, without moving anything.
+ *
+ * A migrated store is found by its pointer file at either anchor, not only
+ * by the presence of the pool file: the migration retires the pool file, so
+ * after a migration at the `%APPDATA%\opencode` anchor no pool file is left
+ * to fall back on. The `%APPDATA%\opencode` anchor wins when only it
+ * publishes a store, the config anchor wins when only it does, and pointers
+ * at both anchors refuse instead of silently picking one. When neither
+ * anchor publishes a store, the unmigrated pool file still decides, exactly
+ * as before (missing at the config anchor but present at the legacy anchor
+ * means the legacy anchor).
+ *
+ * `legacyAccountFile()` in `runtime-paths.ts` shares this resolution for
+ * read paths that must not move files.
+ */
+export function resolveWindowsAccountAnchor(
+  newPath: string,
+  legacyPath: string,
+): string {
+  const standard = resolve(newPath)
+  const legacy = resolve(legacyPath)
+  // The two spellings can name one file: OPENCODE_CONFIG_DIR may point at
+  // the legacy folder, and Windows volumes are usually case-insensitive.
+  if (standard.toLowerCase() === legacy.toLowerCase()) return newPath
+  const standardPointer = existsSync(accountStorePointerPath(standard))
+  const legacyPointer = existsSync(accountStorePointerPath(legacy))
+  if (standardPointer && legacyPointer) {
+    throw new Error(
+      `Two migrated account stores exist: one is published at ${newPath} and another at ${legacyPath}. Keep one store and remove the other, then restart OpenCode.`,
+    )
+  }
+  if (legacyPointer && !standardPointer) return legacyPath
+  if (!existsSync(standard) && existsSync(legacy)) return legacyPath
+  return newPath
+}
+
+/**
  * Gets the storage path, migrating from legacy Windows location if needed.
  * On Windows, attempts to move legacy config to new path for alignment.
  */
@@ -329,19 +367,21 @@ function getStoragePathWithMigration(): string {
   if (process.platform === 'win32') {
     migrateLegacyWindowsConfig()
 
-    if (!existsSync(newPath)) {
-      const legacyPath = join(
-        getLegacyWindowsConfigDir(),
-        'antigravity-accounts.json',
-      )
-      if (existsSync(legacyPath)) {
-        log.info('Using legacy Windows config path (migration failed)', {
-          legacyPath,
-          newPath,
-        })
-        return legacyPath
-      }
+    const legacyPath = join(
+      getLegacyWindowsConfigDir(),
+      'antigravity-accounts.json',
+    )
+    const anchored = resolveWindowsAccountAnchor(newPath, legacyPath)
+    if (
+      resolve(anchored).toLowerCase() !== resolve(newPath).toLowerCase() &&
+      !existsSync(accountStorePointerPath(resolve(anchored)))
+    ) {
+      log.info('Using legacy Windows config path (migration failed)', {
+        legacyPath,
+        newPath,
+      })
     }
+    return anchored
   }
 
   return newPath
