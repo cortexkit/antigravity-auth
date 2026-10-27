@@ -29,6 +29,7 @@ import {
 import { AccountManager, loadAccountManagerFromRepository } from './accounts'
 import { createAuthLoader } from './auth-loader'
 import { DEFAULT_CONFIG } from './config'
+import * as debug from './debug'
 import type { AgyTransport } from './dependencies'
 import {
   createFetchInterceptor,
@@ -471,19 +472,6 @@ describe('createFetchInterceptor', () => {
         await interceptor.dispose()
         await outcome
       }
-    })
-    it('clears per-instance retry/warmup state on dispose()', async () => {
-      const context = await makeContext()
-      const interceptor = createFetchInterceptor(context)
-
-      // Drive the internal state machine directly through the fetch hook's
-      // own bookkeeping: the smoke below asserts that a second instance has
-      // its own clean state, which is only possible if dispose() releases
-      // the previous instance's maps/sets.
-      interceptor.dispose()
-
-      const second = createFetchInterceptor(context)
-      second.dispose()
     })
 
     it('stops intercepting after dispose()', async () => {
@@ -2116,22 +2104,85 @@ describe('createFetchInterceptor', () => {
 
   describe('per-instance isolation', () => {
     it('two interceptors do not share rate-limit state', async () => {
-      // After dispose() on instance A, instance B should still be clean.
-      // The smoke test here just confirms both instances can be constructed
-      // and disposed without leaking state via module globals (a previous
-      // failure mode where module-level Sets kept the second instance
-      // seeing the first instance's warmup attempts).
-      const contextA = await makeContext({
-        directory: join(process.env.ANTIGRAVITY_TEST_ROOT!, 'iso-A'),
+      let now = FIXED_NOW
+      const clock = spyOn(Date, 'now').mockImplementation(() => now)
+      const reason = new Error('stop after observing backoff')
+      let caller = new AbortController()
+      const delays: number[] = []
+      const event = spyOn(debug, 'logRateLimitEvent').mockImplementation(
+        (_index, _email, _family, _status, delay) => {
+          delays.push(delay)
+          caller.abort(reason)
+        },
+      )
+      const upstream = mock(async () => new Response('unexpected passthrough'))
+      const config: typeof DEFAULT_CONFIG = {
+        ...DEFAULT_CONFIG,
+        account_selection_strategy: 'sticky',
+        soft_quota_threshold_percent: 100,
+        proactive_rotation_threshold_percent: 0,
+        quota_refresh_interval_minutes: 0,
+        cache_warmup_on_switch: false,
+        thinking_warmup: false,
+        request_jitter_max_ms: 0,
+      }
+      const root = process.env.ANTIGRAVITY_TEST_ROOT!
+      const ca = await makeContext({
+        directory: join(root, 'isolation-a'),
+        config,
+        fetchImpl: upstream,
       })
-      const contextB = await makeContext({
-        directory: join(process.env.ANTIGRAVITY_TEST_ROOT!, 'iso-B'),
+      const cb = await makeContext({
+        directory: join(root, 'isolation-b'),
+        config,
+        fetchImpl: upstream,
       })
-      await saveAccountsReplace(storedAccounts())
-      const a = createFetchInterceptor(contextA)
-      const b = createFetchInterceptor(contextB)
-      a.dispose()
-      b.dispose()
+      const a = createFetchInterceptor(ca)
+      const b = createFetchInterceptor(cb)
+      transportHandler = async () =>
+        new Response(
+          JSON.stringify({
+            error: { code: 429, message: 'rate limit exceeded' },
+          }),
+          {
+            status: 429,
+            headers: {
+              'content-type': 'application/json',
+              'retry-after-ms': '4000',
+            },
+          },
+        )
+      const limited = async (interceptor: typeof a) => {
+        caller = new AbortController()
+        await expect(
+          interceptor.fetch(GENERATIVE_URL, {
+            ...GENERATIVE_INIT,
+            signal: caller.signal,
+          }),
+        ).rejects.toBe(reason)
+      }
+      try {
+        await limited(a)
+        now += 2_001
+        await limited(b)
+        now += 2_001
+        await limited(a)
+        expect(delays).toEqual([4_000, 4_000, 8_000])
+        await a.dispose()
+        now += 2_001
+        await limited(b)
+        expect(delays).toEqual([4_000, 4_000, 8_000, 8_000])
+        expect(transportMock).toHaveBeenCalledTimes(4)
+        expect(upstream).not.toHaveBeenCalled()
+      } finally {
+        await Promise.all([a.dispose(), b.dispose()])
+        await Promise.all([
+          ca.accountManager.dispose(),
+          cb.accountManager.dispose(),
+        ])
+        event.mockRestore()
+        clock.mockRestore()
+      }
     })
   })
 })

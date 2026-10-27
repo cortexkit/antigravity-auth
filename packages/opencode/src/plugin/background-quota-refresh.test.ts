@@ -17,6 +17,7 @@ import {
   setSidebarMachineState,
   setSidebarMergeHooks,
 } from '../sidebar-state'
+import { controlTimeouts } from './__fixtures__/controlled-timeouts'
 import {
   BackgroundQuotaRefresh,
   type BackgroundQuotaRefreshOptions,
@@ -244,24 +245,39 @@ describe('BackgroundQuotaRefresh', () => {
   // ── Timer: idempotent start/stop ──────────────────────────────────────────
 
   it('start is idempotent — a second call before the first tick does not double-schedule', async () => {
-    const calls: number[] = []
-    const manager = makeAccountManager()
+    const timers = controlTimeouts()
+    const refreshed = Promise.withResolvers<void>()
     const quotaManager = makeQuotaManager({
-      onRefreshAccounts: () => calls.push(Date.now()),
+      onRefreshAccounts: () => refreshed.resolve(),
     })
     const poller = new BackgroundQuotaRefresh({
       intervalMs: 5 * 60_000,
-      sidebarStateFile: stateFile,
-      getAccountManager: () => manager,
+      snapshots: {
+        pollLockPath: null,
+        lastCheckedAt: () => 0,
+        write: async () => {},
+      },
+      getAccountManager: () => makeAccountManager(),
       quotaManager: quotaManager as unknown as import('./quota').QuotaManager,
-      // Delay the first tick past dispose so we can check nothing ran.
-      random: () => 1, // max startup jitter → no immediate tick
+      random: () => 1,
     })
-    poller.start()
-    poller.start()
-    await poller.dispose()
-    // No tick ran within the jitter window — both starts share one timer.
-    expect(calls).toHaveLength(0)
+    try {
+      poller.start()
+      poller.start()
+      expect(timers.size).toBe(1)
+      expect(await timers.next()).toBe(30_000)
+      await refreshed.promise
+      await timers.waitForTimer()
+      expect(timers.size).toBe(1)
+      await poller.dispose()
+      expect(quotaManager.refreshAccounts).toHaveBeenCalledTimes(1)
+      expect(timers.size).toBe(0)
+      poller.start()
+      expect(timers.size).toBe(0)
+    } finally {
+      await poller.dispose()
+      timers.restore()
+    }
   })
 
   it('dispose after dispose is idempotent', async () => {
@@ -281,67 +297,43 @@ describe('BackgroundQuotaRefresh', () => {
 
   // ── V4: unexpected throw before internal reschedule still reschedules ──────
 
-  it('V4 liveness: a throw escaping runTick before any scheduleNext still reschedules', async () => {
-    // runTick has three internal reschedule paths (freshness skip, lock held,
-    // lock throws). A throw that ESCAPES the function before any of those
-    // paths previously meant no next tick was queued — the poller died.
-    // The fix adds a reschedule in the outer .catch() so the poller
-    // degrades to a delayed retry rather than silently stopping.
-    //
-    // We verify this by observing that scheduleNext IS called after the throw,
-    // rather than waiting for the full ERROR_JITTER_MS delay (15 s).
-
-    await setSidebarMachineState({ checkedAt: 0, accounts: [] }, { stateFile })
-
-    const manager = makeAccountManager()
-    const quotaManager = makeQuotaManager()
-
+  it('recovers on the next scheduled tick after an authority probe throws', async () => {
+    const timers = controlTimeouts()
+    const refreshed = Promise.withResolvers<void>()
+    let firstProbe = true
+    const quotaManager = makeQuotaManager({
+      onRefreshAccounts: () => refreshed.resolve(),
+    })
     const poller = new BackgroundQuotaRefresh({
       intervalMs: 60_000,
-      sidebarStateFile: stateFile,
-      getAccountManager: () => manager,
+      snapshots: {
+        pollLockPath: null,
+        lastCheckedAt: () => 0,
+        write: async () => {},
+      },
+      getAccountManager: () => makeAccountManager(),
       quotaManager: quotaManager as unknown as import('./quota').QuotaManager,
       random: () => 0,
-      now: () => Date.now(),
+      mayRun: async () => {
+        if (firstProbe) {
+          firstProbe = false
+          throw new Error('authority unavailable')
+        }
+        return true
+      },
     })
-
-    // Intercept scheduleNext to observe calls after the catch.
-    type PollerInternals = {
-      runTick: () => Promise<void>
-      scheduleNext: (ms: number) => void
+    try {
+      poller.start()
+      await timers.next()
+      expect(await timers.next()).toBeGreaterThanOrEqual(15_000)
+      await refreshed.promise
+      await poller.dispose()
+      expect(quotaManager.refreshAccounts).toHaveBeenCalledTimes(1)
+      expect(timers.size).toBe(0)
+    } finally {
+      await poller.dispose()
+      timers.restore()
     }
-    const inner = poller as unknown as PollerInternals
-    const scheduleNextCalls: number[] = []
-    const origScheduleNext = inner.scheduleNext.bind(poller)
-    inner.scheduleNext = (ms: number) => {
-      scheduleNextCalls.push(ms)
-      origScheduleNext(ms)
-    }
-
-    // Replace runTick to throw before any internal scheduleNext can run.
-    const origRunTick = inner.runTick.bind(poller)
-    let firstCall = true
-    inner.runTick = async () => {
-      if (firstCall) {
-        firstCall = false
-        throw new Error('simulated unexpected escape from runTick')
-      }
-      return origRunTick()
-    }
-
-    poller.start()
-    // The startup scheduleNext fires synchronously with jitteredStartDelay
-    // (random=0 → 0 ms) — tick runs almost immediately, throws, outer catch
-    // queues the recovery scheduleNext. Allow a brief event-loop drain.
-    await new Promise((r) => setTimeout(r, 50))
-    await poller.dispose()
-
-    // The outer catch must have called scheduleNext (the recovery reschedule).
-    // scheduleNextCalls[0] is the startup call; [1] is from the outer catch.
-    expect(scheduleNextCalls.length).toBeGreaterThanOrEqual(2)
-    // The recovery delay includes ERROR_JITTER_MS (15_000).
-    const recoveryDelay = scheduleNextCalls[1]
-    expect(recoveryDelay).toBeGreaterThanOrEqual(15_000)
   })
 
   // ── Error in tick does not kill the timer ─────────────────────────────────
@@ -441,111 +433,60 @@ describe('BackgroundQuotaRefresh', () => {
 
   // ── Async dispose awaits in-flight tick ───────────────────────────────────
 
-  it('dispose awaits an in-flight tick before resolving', async () => {
+  it.each([
+    false,
+    true,
+  ])('dispose awaits an in-flight tick before resolving (forced re-entry: %s)', async (reenter) => {
+    const timers = controlTimeouts()
     const events: string[] = []
-
-    let tickStartedResolve!: () => void
-    const tickStartedP = new Promise<void>((r) => {
-      tickStartedResolve = r
-    })
-    let tickRelease!: () => void
-    const tickGate = new Promise<void>((r) => {
-      tickRelease = r
-    })
-
-    await setSidebarMachineState({ checkedAt: 0, accounts: [] }, { stateFile })
-
+    const started = Promise.withResolvers<void>()
+    const gate = Promise.withResolvers<void>()
     const quotaManager = {
       refreshAccounts: mock(async () => {
         events.push('tick:start')
-        tickStartedResolve()
-        await tickGate
+        started.resolve()
+        await gate.promise
         events.push('tick:finish')
         return []
       }),
-      dispose: mock(async () => {}),
     }
-    const manager = makeAccountManager()
     const poller = new BackgroundQuotaRefresh({
       intervalMs: 60_000,
-      sidebarStateFile: stateFile,
-      getAccountManager: () => manager,
+      snapshots: {
+        pollLockPath: null,
+        lastCheckedAt: () => 0,
+        write: async () => {},
+      },
+      getAccountManager: () => makeAccountManager(),
       quotaManager: quotaManager as unknown as import('./quota').QuotaManager,
       random: () => 0,
-      now: () => Date.now(),
     })
-    poller.start()
-    await tickStartedP
-    // Tick is now in flight. Dispose must wait for it.
-    const disposeP = poller.dispose().then(() => {
-      events.push('dispose:done')
-    })
-    tickRelease()
-    await disposeP
-    // dispose:done must follow tick:finish
-    expect(events).toEqual(['tick:start', 'tick:finish', 'dispose:done'])
-  })
-
-  it('S3 boundary: re-entry guard prevents inFlight overwrite when scheduleNext fires mid-tick', async () => {
-    // The natural test scenario (intervalMs < tick duration) never reaches the
-    // guard because runTick only calls scheduleNext AFTER it completes, so the
-    // second timer always fires after inFlight is already null.
-    // This test triggers the guard directly via reflection: call scheduleNext(0)
-    // while tick 1 is blocked, then assert the inFlight reference is unchanged.
-    // Without the guard the 0ms timer would overwrite inFlight; with it, the
-    // timer callback exits early and the original promise is preserved.
-    await setSidebarMachineState({ checkedAt: 0, accounts: [] }, { stateFile })
-
-    let tickStartedResolve!: () => void
-    const tickStartedP = new Promise<void>((r) => {
-      tickStartedResolve = r
-    })
-    let releaseFirstTick!: () => void
-    const firstTickGate = new Promise<void>((r) => {
-      releaseFirstTick = r
-    })
-
-    const quotaManager = {
-      refreshAccounts: mock(async () => {
-        tickStartedResolve()
-        await firstTickGate
-        return []
-      }),
-      dispose: mock(async () => {}),
+    try {
+      poller.start()
+      await timers.next()
+      await started.promise
+      if (reenter) {
+        // Force the race while the first refresh is held; observe disposal, not a private promise pointer.
+        ;(
+          poller as unknown as { scheduleNext: (ms: number) => void }
+        ).scheduleNext(0)
+        await timers.next()
+      }
+      const disposal = poller.dispose().then(() => {
+        events.push('dispose:done')
+      })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(events).toEqual(['tick:start'])
+      gate.resolve()
+      await disposal
+      expect(events).toEqual(['tick:start', 'tick:finish', 'dispose:done'])
+      expect(quotaManager.refreshAccounts).toHaveBeenCalledTimes(1)
+      expect(timers.size).toBe(0)
+    } finally {
+      gate.resolve()
+      await poller.dispose()
+      timers.restore()
     }
-    const manager = makeAccountManager()
-    const poller = new BackgroundQuotaRefresh({
-      intervalMs: 60_000,
-      sidebarStateFile: stateFile,
-      getAccountManager: () => manager,
-      quotaManager: quotaManager as unknown as import('./quota').QuotaManager,
-      random: () => 0,
-      now: () => Date.now(),
-    })
-
-    // Reach private members via cast to verify the guard's effect.
-    type PollerInternals = {
-      inFlight: Promise<void> | null
-      scheduleNext: (ms: number) => void
-    }
-    const inner = poller as unknown as PollerInternals
-
-    poller.start()
-    await tickStartedP // tick 1 is now blocked inside refreshAccounts
-
-    const originalInFlight = inner.inFlight
-    expect(originalInFlight).not.toBeNull()
-
-    // Force a 0ms timer while the tick is in flight. Without the guard, this
-    // overwrites inFlight; with it, the timer callback returns immediately.
-    inner.scheduleNext(0)
-    await new Promise((r) => setTimeout(r, 20)) // let the 0ms timer fire
-
-    // Guard must have prevented the overwrite.
-    expect(inner.inFlight).toBe(originalInFlight)
-
-    releaseFirstTick()
-    await poller.dispose()
   })
 
   // ── Freshness gate ────────────────────────────────────────────────────────
@@ -1490,7 +1431,10 @@ describe('BackgroundQuotaRefresh', () => {
     const quotaGroups = {
       gemini: { remainingFraction: 0.5, modelCount: 1 },
     }
-    const updateQuotaCache = mock(() => {})
+    const cacheUpdated = Promise.withResolvers<void>()
+    const updateQuotaCache = mock(() => {
+      cacheUpdated.resolve()
+    })
     const quotaManager = {
       refreshAccounts: mock(async () => {
         phase('refresh-start')
@@ -1536,7 +1480,7 @@ describe('BackgroundQuotaRefresh', () => {
     phase('poller-start')
     poller.start()
 
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    await cacheUpdated.promise
     await poller.dispose()
     phase('poller-stopped')
 
@@ -2140,17 +2084,9 @@ describe('BackgroundQuotaRefresh wiring through createAntigravityPlugin', () => 
     expect(pollerDisposeCalled).toBe(true)
   })
 
-  it('plugin dispose awaits the poller in the PRODUCER phase (poller stops before the sidebar drain)', async () => {
-    // Evidence that the poller is a producer (not consumer): the lifecycle
-    // disposes producers BEFORE calling drainSidebarWrites. We instrument
-    // the poller's dispose to record its completion timestamp, and confirm
-    // plugin.dispose() resolves — which requires the producer chain to have
-    // completed (poller stopped, any in-flight tick awaited).
-    //
-    // A more surgical ordering probe would require intercepting lifecycle
-    // internals; this test focuses on the externally observable guarantee:
-    // plugin.dispose() fully awaits the poller, and the poller's dispose
-    // resolves within a tight deadline.
+  it('plugin dispose awaits poller disposal', async () => {
+    // Hold poller cleanup to distinguish awaiting it from merely starting it.
+    // This probe does not claim an ordering relative to the sidebar drain.
     const pluginDir = join(tempDir, 'plugin-producer')
     const capturedPollers: BackgroundQuotaRefresh[] = []
     const plugin = await makePlugin(
@@ -2159,23 +2095,40 @@ describe('BackgroundQuotaRefresh wiring through createAntigravityPlugin', () => 
         background_quota_refresh: true,
         background_quota_refresh_interval_minutes: 60,
       },
-      (p) => capturedPollers.push(p),
+      (poller) => capturedPollers.push(poller),
     )
     expect(capturedPollers).toHaveLength(1)
-
-    // Wrap dispose to measure how long the poller took to stop.
-    let pollerDisposeResolved = false
-    const orig = capturedPollers[0]!.dispose.bind(capturedPollers[0]!)
-    capturedPollers[0]!.dispose = async () => {
-      await orig()
-      pollerDisposeResolved = true
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const events: string[] = []
+    const originalDispose = capturedPollers[0]!.dispose.bind(
+      capturedPollers[0]!,
+    )
+    let pollerDisposal: Promise<void> | undefined
+    capturedPollers[0]!.dispose = () => {
+      pollerDisposal = (async () => {
+        events.push('poller:start')
+        entered.resolve()
+        await release.promise
+        await originalDispose()
+        events.push('poller:done')
+      })()
+      return pollerDisposal
     }
-    const disposed = await Promise.race([
-      plugin.dispose().then(() => 'done'),
-      new Promise<string>((r) => setTimeout(() => r('timeout'), 5_000)),
-    ])
-    expect(disposed).toBe('done')
-    // The poller's dispose must have resolved before plugin.dispose() resolved.
-    expect(pollerDisposeResolved).toBe(true)
+    try {
+      const disposal = plugin.dispose().then(() => {
+        events.push('plugin:done')
+      })
+      await entered.promise
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(events).toEqual(['poller:start'])
+      release.resolve()
+      await disposal
+      expect(events).toEqual(['poller:start', 'poller:done', 'plugin:done'])
+    } finally {
+      release.resolve()
+      await pollerDisposal
+      await plugin.dispose()
+    }
   })
 })

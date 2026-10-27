@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { RELEASE_MODEL_IDS } from './__fixtures__/release-model-ids'
 
 import { applyAntigravityProviderCatalog } from './catalog'
 import {
@@ -34,6 +35,9 @@ describe('applyAntigravityProviderCatalog', () => {
     const provider = config.provider as Record<string, { whitelist?: string[] }>
     expect(provider['custom-provider']?.whitelist).toEqual(
       getAntigravityOpencodeModelIds(),
+    )
+    expect([...provider['custom-provider']!.whitelist!].sort()).toEqual(
+      RELEASE_MODEL_IDS,
     )
   })
 })

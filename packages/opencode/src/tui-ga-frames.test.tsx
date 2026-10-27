@@ -213,6 +213,7 @@ function snapshot(
 
 function fakeContext(answer: unknown) {
   let claim: { render: (input: { sessionID: string }) => unknown } | undefined
+  const claimed = Promise.withResolvers<NonNullable<typeof claim>>()
   const context = {
     location: { directory: '/work/a' },
     client: { rpc: { call: async () => answer } },
@@ -231,11 +232,12 @@ function fakeContext(answer: unknown) {
       },
       slot: (value: typeof claim) => {
         claim = value
+        if (value) claimed.resolve(value)
         return () => undefined
       },
     },
   }
-  return { context, claim: () => claim }
+  return { context, claimed: claimed.promise }
 }
 
 async function capture(
@@ -248,9 +250,7 @@ async function capture(
     now: () => NOW,
     schedule: () => () => undefined,
   })
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  const claim = fake.claim()
-  if (!claim) throw new Error('the sidebar was not claimed')
+  const claim = await fake.claimed
   const setup = await testRender(() => claim.render({ sessionID }) as never, {
     width,
     height: 40,

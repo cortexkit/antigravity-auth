@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { RELEASE_MODEL_IDS } from '../__fixtures__/release-model-ids'
 
 import { OPENCODE_MODEL_DEFINITIONS } from './models'
 
@@ -14,15 +15,7 @@ describe('OPENCODE_MODEL_DEFINITIONS', () => {
   it('includes the full set of configured models', () => {
     const modelNames = Object.keys(OPENCODE_MODEL_DEFINITIONS).sort()
 
-    expect(modelNames).toEqual([
-      'antigravity-claude-opus-5-5',
-      'antigravity-claude-sonnet-5-5',
-      'antigravity-gemini-3.1-flash-image',
-      'antigravity-gemini-3.5-flash',
-      'antigravity-gemini-3.8-flash',
-      'antigravity-gemini-4-argon',
-      'antigravity-gpt-oss-120b-medium',
-    ])
+    expect(modelNames).toEqual(RELEASE_MODEL_IDS)
   })
 
   it('defines Gemini variants for Antigravity models', () => {
@@ -43,11 +36,6 @@ describe('OPENCODE_MODEL_DEFINITIONS', () => {
       medium: { thinkingLevel: 'medium' },
       high: { thinkingLevel: 'high' },
     })
-  })
-  it('does not expose restricted Gemini 3.8 Flash Cyber', () => {
-    expect(OPENCODE_MODEL_DEFINITIONS).not.toHaveProperty(
-      'antigravity-gemini-3.8-flash-cyber',
-    )
   })
 
   it('exposes image output and live GPT-OSS capabilities', () => {

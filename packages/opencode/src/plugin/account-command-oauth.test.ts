@@ -34,7 +34,9 @@ describe('createAccountCommandOAuthService', () => {
     const finished = await service.finish('session-1', 'callback-code')
 
     expect(authorize).toHaveBeenCalledTimes(1)
-    expect(started.url).toContain('accounts.google.test')
+    expect(started.url).toBe(
+      'https://accounts.google.test/authorize?state=signed-state&redirect_uri=http%3A%2F%2Flocalhost%3A51121%2Foauth-callback',
+    )
     expect(started.accounts).toEqual(initialRows)
     expect(exchange).toHaveBeenCalledWith('callback-code', 'signed-state')
     // Failed-exchange response: the pending entry is consumed, the

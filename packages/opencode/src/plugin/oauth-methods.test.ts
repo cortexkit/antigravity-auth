@@ -1,18 +1,17 @@
 import { beforeEach, describe, expect, mock } from 'bun:test'
-import { createHash } from 'node:crypto'
-import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import {
   type AccountRepository,
   type CommonAuthStoreModules,
   createAccountRepositoryFactory,
-  loadCommonAuthStoreModules,
 } from '@cortexkit/antigravity-auth-core'
 import type { AuthOAuthResult } from '@opencode-ai/plugin'
 import { lifetimeHooks } from '../../../../test/fixtures/lifetime-hooks.ts'
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
 import { managedStoreModules } from './__fixtures__/managed-store.test.ts'
+import { loadVerifiedStoreModules } from './__fixtures__/verified-store'
 import {
   type AccountAccessService,
   AccountChangedDuringReauthorizationError,
@@ -446,81 +445,11 @@ describe('createOAuthMethods persistence failure handling', () => {
 // skip the admission checks that verification and re-authentication require.
 // ---------------------------------------------------------------------------
 
-const EMBEDDED_COMMON_AUTH = {
-  package: '@cortexkit/common-auth',
-  version: '0.27.1',
-  tarballSha256:
-    'a74507a1f746c9d591501ab24a630fe8bab20fb305c92738770902f003edb387',
-} as const
-
-async function embeddedFilesBelow(
-  root: string,
-  dir: string,
-): Promise<string[]> {
-  const out: string[] = []
-  for (const entry of await readdir(join(root, dir), { withFileTypes: true })) {
-    const path = `${dir}/${entry.name}`
-    if (entry.isDirectory()) out.push(...(await embeddedFilesBelow(root, path)))
-    else out.push(path)
-  }
-  return out
-}
-
 let genuine: Promise<CommonAuthStoreModules> | undefined
 
 /** Load the public store/fs files only after their recorded sizes and SHA-256 hashes match. */
 function genuineModules(): Promise<CommonAuthStoreModules> {
-  genuine ??= (async () => {
-    const root = dirname(
-      dirname(
-        Bun.resolveSync(
-          '@cortexkit/antigravity-auth-core/common-auth/store',
-          import.meta.dir,
-        ),
-      ),
-    )
-    const receipt = JSON.parse(
-      await readFile(join(root, 'source-output.json'), 'utf8'),
-    ) as {
-      package?: unknown
-      version?: unknown
-      artifactStatus?: unknown
-      tarballSha256?: unknown
-      files?: Array<{ output: string; bytes: number; outputSha256: string }>
-    }
-    if (
-      receipt.package !== EMBEDDED_COMMON_AUTH.package ||
-      receipt.version !== EMBEDDED_COMMON_AUTH.version ||
-      receipt.artifactStatus !== 'published' ||
-      receipt.tarballSha256 !== EMBEDDED_COMMON_AUTH.tarballSha256 ||
-      !Array.isArray(receipt.files)
-    ) {
-      throw new Error(
-        `the embedded common-auth receipt is not the pinned published ${EMBEDDED_COMMON_AUTH.version}`,
-      )
-    }
-    const recorded = receipt.files.filter((file) =>
-      /^(store|fs)\//.test(file.output),
-    )
-    const present = [
-      ...(await embeddedFilesBelow(root, 'store')),
-      ...(await embeddedFilesBelow(root, 'fs')),
-    ].sort()
-    if (
-      JSON.stringify(present) !==
-      JSON.stringify(recorded.map((file) => file.output).sort())
-    ) {
-      throw new Error('embedded store/fs files differ from the receipt')
-    }
-    for (const file of recorded) {
-      const bytes = await readFile(join(root, file.output))
-      const sha256 = createHash('sha256').update(bytes).digest('hex')
-      if (bytes.length !== file.bytes || sha256 !== file.outputSha256) {
-        throw new Error(`embedded ${file.output} differs from the receipt`)
-      }
-    }
-    return loadCommonAuthStoreModules()
-  })()
+  genuine ??= loadVerifiedStoreModules()
   const owner = hooks.lifetime
   return owner
     .operation(genuine)

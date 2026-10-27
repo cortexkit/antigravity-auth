@@ -1,5 +1,6 @@
 #!/usr/bin/env npx tsx
 import { spawn } from 'node:child_process'
+import { readRunEvidence } from './test-run-evidence'
 
 interface ModelTest {
   model: string
@@ -103,9 +104,13 @@ async function testModel(
   const start = Date.now()
 
   return new Promise((resolve) => {
-    const proc = spawn('opencode', ['run', TEST_PROMPT, '--model', model], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
+    const proc = spawn(
+      'opencode',
+      ['run', TEST_PROMPT, '--model', model, '--format', 'json'],
+      {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
 
     let stdout = ''
     let stderr = ''
@@ -129,14 +134,18 @@ async function testModel(
       clearTimeout(timer)
       const duration = Date.now() - start
 
-      if (code !== 0) {
+      try {
+        readRunEvidence(stdout, stderr, code ?? 1, {
+          answer: 'WORKING',
+          prompt: TEST_PROMPT,
+        })
+        resolve({ success: true, duration })
+      } catch (error) {
         resolve({
           success: false,
-          error: `Exit ${code}: ${stderr || stdout}`.slice(0, 200),
+          error: String(error).slice(0, 200),
           duration,
         })
-      } else {
-        resolve({ success: true, duration })
       }
     })
 
@@ -259,4 +268,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch(console.error)
+main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})

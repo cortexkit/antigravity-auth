@@ -46,7 +46,7 @@ describe('WarmupState', () => {
       for (let i = 0; i < 1500; i++) {
         state.markSuccess(`sess-${i}`)
       }
-      // No explicit size accessor; behavior is "no throw"
+      expect(state.trackAttempt('sess-0')).toBe(true)
       expect(state.trackAttempt('sess-1499')).toBe(false)
     })
   })
@@ -64,8 +64,10 @@ describe('WarmupState', () => {
   describe('disposal', () => {
     it('marks disposed and clears state', () => {
       state.trackAttempt('sess-5')
+      expect(state.getAttemptCount('sess-5')).toBe(1)
       state.dispose()
       expect(state.disposed).toBe(true)
+      expect(state.getAttemptCount('sess-5')).toBe(0)
       // After dispose, calls are no-ops but should not throw
       expect(state.trackAttempt('sess-5')).toBe(false)
       expect(state.markSuccess('sess-5')).toBeUndefined()

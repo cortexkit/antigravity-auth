@@ -217,6 +217,12 @@ describe('closeToolLoopForThinking', () => {
       toolResultMsg(),
     ]
     const result = closeToolLoopForThinking(contents)
+    expect(result).toHaveLength(contents.length + 2)
+    expect(result[0]).toEqual(userMsg('hello'))
+    expect(result[1]?.role).toBe('model')
+    expect(result[1]?.parts).toContainEqual({ text: 'response' })
+    expect(result[2]).toEqual(contents[2])
+    expect(JSON.stringify(result)).not.toContain('thinking...')
     const modelMessages = result.filter((m) => m.role === 'model')
     for (const msg of modelMessages) {
       const parts: any[] = msg.parts ?? []

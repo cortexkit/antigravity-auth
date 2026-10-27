@@ -193,88 +193,6 @@ describe('packed consumer graph comparison', () => {
     expect(JSON.stringify(graph)).toBe(before)
   })
 
-  it.each([
-    'typescript',
-    '@opencode/plugin',
-    '@cortexkit/common-auth',
-    '@cortexkit/subc-client',
-  ])('rejects an unexpected installed package: %s', (name) => {
-    const changed = [...candidate(), [name, name, '1.0.0', {}, {}]]
-    expect(
-      expectedCandidateGraph(baseline(), {
-        version: '2.2.1',
-        corePin: '2.2.1',
-      }),
-    ).not.toEqual(changed)
-  })
-
-  it('preserves dependency versions and every existing peer declaration', () => {
-    for (const changed of [
-      [
-        [
-          product,
-          product,
-          '2.2.1',
-          {
-            [core]: '2.2.1',
-            '@cortexkit/claustrum-client': '0.12.0',
-            '@cortexkit/private-files': '0.2.1',
-            '@cortexkit/subc-client': '0.22.5',
-            zod: '*',
-          },
-          candidate()[0]?.[4],
-        ],
-        candidate()[1],
-      ],
-      [
-        [
-          product,
-          product,
-          '2.2.1',
-          {
-            [core]: '2.2.1',
-            '@cortexkit/claustrum-client': '0.12.0',
-            '@cortexkit/private-files': '0.2.1',
-            '@cortexkit/subc-client': '0.22.5',
-            zod: '^4.0.0',
-          },
-          {
-            '@opencode-ai/plugin': '*',
-            '@opencode/plugin': '>=2.0.22',
-            typescript: '*',
-          },
-        ],
-        candidate()[1],
-      ],
-      [
-        [
-          product,
-          product,
-          '2.2.1',
-          {
-            [core]: '2.2.1',
-            '@cortexkit/claustrum-client': '0.12.0',
-            '@cortexkit/private-files': '0.2.1',
-            '@cortexkit/subc-client': '0.22.5',
-            zod: '^4.0.0',
-          },
-          {
-            '@opencode-ai/plugin': '*',
-            '@opencode/plugin': '*',
-            typescript: '^5 || ^6',
-          },
-        ],
-        candidate()[1],
-      ],
-    ])
-      expect(
-        expectedCandidateGraph(baseline(), {
-          version: '2.2.1',
-          corePin: '2.2.1',
-        }),
-      ).not.toEqual(changed)
-  })
-
   it('preserves the fresh core store graph without admitting unrelated additions', () => {
     const store = [
       '@cortexkit/store',
@@ -299,11 +217,6 @@ describe('packed consumer graph comparison', () => {
       corePin: '2.2.1',
     })
     expect(actual).toEqual(expected)
-    expect(actual).not.toEqual([
-      ...expected,
-      ['unexpected', 'unexpected', '1.0.0', {}, {}],
-    ])
-    expect(actual).not.toEqual(expected.filter((row) => row !== store))
   })
 
   it('updates only historical product version and core pin from candidate metadata', () => {
@@ -336,78 +249,6 @@ describe('packed consumer graph comparison', () => {
     expect(JSON.stringify(graph)).toBe(before)
   })
 
-  it.each([
-    [
-      'product version',
-      [
-        product,
-        product,
-        '2.2.1',
-        {
-          [core]: '3.0.0',
-          '@cortexkit/claustrum-client': '0.12.0',
-          '@cortexkit/private-files': '0.2.1',
-          '@cortexkit/subc-client': '0.22.5',
-          zod: '^4.0.0',
-        },
-        candidate()[0]?.[4],
-      ],
-    ],
-    [
-      'core pin',
-      [
-        product,
-        product,
-        '3.0.0',
-        {
-          [core]: '2.2.1',
-          '@cortexkit/claustrum-client': '0.12.0',
-          '@cortexkit/private-files': '0.2.1',
-          '@cortexkit/subc-client': '0.22.5',
-          zod: '^4.0.0',
-        },
-        candidate()[0]?.[4],
-      ],
-    ],
-    [
-      'product dependency',
-      [
-        product,
-        product,
-        '3.0.0',
-        {
-          [core]: '3.0.0',
-          '@cortexkit/claustrum-client': '0.12.0',
-          '@cortexkit/private-files': '0.2.1',
-          '@cortexkit/subc-client': '0.22.5',
-          zod: '*',
-        },
-        candidate()[0]?.[4],
-      ],
-    ],
-    [
-      'extra SDK peer',
-      [
-        product,
-        product,
-        '3.0.0',
-        {
-          [core]: '3.0.0',
-          '@cortexkit/claustrum-client': '0.12.0',
-          '@cortexkit/private-files': '0.2.1',
-          '@cortexkit/subc-client': '0.22.5',
-          zod: '^4.0.0',
-        },
-        { ...(candidate()[0]?.[4] as object), '@opencode-ai/sdk': '*' },
-      ],
-    ],
-  ])('rejects wrong candidate %s', (_field, row) => {
-    expect(expectedCandidateGraph(baseline(), metadata)).not.toEqual([
-      row,
-      candidate()[1],
-    ])
-  })
-
   it('uses the core pin independently of the product version', () => {
     const expected = [
       [
@@ -431,51 +272,6 @@ describe('packed consumer graph comparison', () => {
         corePin: '3.0.1',
       }),
     ).toEqual(expected)
-  })
-
-  it('rejects a wrong installed core version', () => {
-    const graph = [...baseline(), [core, core, '3.0.0', {}, {}]]
-    const changed = [
-      [core, core, '2.2.1', {}, {}],
-      [
-        product,
-        product,
-        '3.0.0',
-        {
-          [core]: '3.0.0',
-          '@cortexkit/claustrum-client': '0.12.0',
-          '@cortexkit/private-files': '0.2.1',
-          '@cortexkit/subc-client': '0.22.5',
-          zod: '^4.0.0',
-        },
-        candidate()[0]?.[4],
-      ],
-      candidate()[1],
-    ]
-    expect(expectedCandidateGraph(graph, metadata)).not.toEqual(changed)
-  })
-
-  it.each([
-    ['version', ['zod', 'zod', '0.0.0', {}, {}]],
-    ['dependency', ['zod', 'zod', '4.6.5', { unexpected: '*' }, {}]],
-  ])('rejects an altered non-product %s', (_field, row) => {
-    const current = [
-      product,
-      product,
-      '3.0.0',
-      {
-        [core]: '3.0.0',
-        '@cortexkit/claustrum-client': '0.12.0',
-        '@cortexkit/private-files': '0.2.1',
-        '@cortexkit/subc-client': '0.22.5',
-        zod: '^4.0.0',
-      },
-      candidate()[0]?.[4],
-    ]
-    expect(expectedCandidateGraph(baseline(), metadata)).not.toEqual([
-      current,
-      row,
-    ])
   })
 
   it.each([

@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test'
+import { beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
+import { ANSI } from './ansi'
+import type { AccountStatus } from './auth-menu'
 
 const selectMock = mock()
 
@@ -15,7 +17,7 @@ describe('showAuthMenu actions', () => {
     selectMock.mockReset()
   })
 
-  it('exposes auth doctor as a top-level action', async () => {
+  it('exposes auth doctor, repair auth, and auth current as top-level actions', async () => {
     selectMock.mockResolvedValue({ type: 'cancel' })
     const { showAuthMenu } = await import('./auth-menu.ts')
 
@@ -31,36 +33,12 @@ describe('showAuthMenu actions', () => {
         value: { type: 'doctor' },
       }),
     )
-  })
-
-  it('exposes repair auth as a top-level action', async () => {
-    selectMock.mockResolvedValue({ type: 'cancel' })
-    const { showAuthMenu } = await import('./auth-menu.ts')
-
-    await showAuthMenu([])
-
-    const items = selectMock.mock.calls[0]?.[0] as Array<{
-      label: string
-      value: { type: string }
-    }>
     expect(items).toContainEqual(
       expect.objectContaining({
         label: 'Repair auth',
         value: { type: 'repair' },
       }),
     )
-  })
-
-  it('exposes auth current as a top-level action', async () => {
-    selectMock.mockResolvedValue({ type: 'cancel' })
-    const { showAuthMenu } = await import('./auth-menu.ts')
-
-    await showAuthMenu([])
-
-    const items = selectMock.mock.calls[0]?.[0] as Array<{
-      label: string
-      value: { type: string }
-    }>
     expect(items).toContainEqual(
       expect.objectContaining({
         label: 'Auth current',
@@ -69,20 +47,15 @@ describe('showAuthMenu actions', () => {
     )
   })
 
-  it('repair auth action returns correct type when selected', async () => {
-    selectMock.mockResolvedValue({ type: 'repair' })
+  it.each([
+    'repair',
+    'current',
+  ] as const)('returns the selected %s action', async (type) => {
+    selectMock.mockResolvedValue({ type })
     const { showAuthMenu } = await import('./auth-menu.ts')
 
     const result = await showAuthMenu([])
-    expect(result).toEqual({ type: 'repair' })
-  })
-
-  it('auth current action returns correct type when selected', async () => {
-    selectMock.mockResolvedValue({ type: 'current' })
-    const { showAuthMenu } = await import('./auth-menu.ts')
-
-    const result = await showAuthMenu([])
-    expect(result).toEqual({ type: 'current' })
+    expect(result).toEqual({ type })
   })
 
   it('shows cached quota summary in account hints', async () => {
@@ -443,5 +416,98 @@ describe('showFingerprintHistory', () => {
 
     const options = selectMock.mock.calls[0]?.[1] as { message: string }
     expect(options.message).toContain('alice@example.com')
+  })
+})
+
+describe('production auth menu date and status presentation', () => {
+  beforeEach(() => {
+    selectMock.mockReset()
+    selectMock.mockResolvedValue(null)
+  })
+
+  const now = Date.parse('2026-10-01T12:00:00Z')
+  const day = 86_400_000
+  it.each([
+    [undefined, 'never'],
+    [0, 'never'],
+    [now, 'today'],
+    [now - 1_000, 'today'],
+    [now - day, 'yesterday'],
+    [now - 2 * day, '2d ago'],
+    [now - 6 * day, '6d ago'],
+    [now - 7 * day, '1w ago'],
+    [now - 14 * day, '2w ago'],
+    [now - 28 * day, '4w ago'],
+    [now - 60 * day, '8/2/2026'],
+  ] as const)('renders last-used timestamp %s as %s through account details', async (lastUsed, expected) => {
+    const clock = spyOn(Date, 'now').mockReturnValue(now)
+    const nativeDate = Date.prototype.toLocaleDateString
+    const locale = spyOn(
+      Date.prototype,
+      'toLocaleDateString',
+    ).mockImplementation(function (this: Date) {
+      return nativeDate.call(this, 'en-US', { timeZone: 'UTC' })
+    })
+    try {
+      const { showAccountDetails } = await import('./auth-menu')
+      await showAccountDetails({ index: 0, lastUsed })
+      expect(selectMock).toHaveBeenCalledTimes(1)
+      expect(selectMock.mock.calls[0]![1]).toMatchObject({
+        subtitle: `Added: unknown | Last used: ${expected}`,
+      })
+      for (const args of locale.mock.calls) expect(args).toEqual([])
+    } finally {
+      locale.mockRestore()
+      clock.mockRestore()
+    }
+  })
+
+  it('renders the added-at date through account details', async () => {
+    const nativeDate = Date.prototype.toLocaleDateString
+    const locale = spyOn(
+      Date.prototype,
+      'toLocaleDateString',
+    ).mockImplementation(function (this: Date) {
+      return nativeDate.call(this, 'en-US', { timeZone: 'UTC' })
+    })
+    try {
+      const { showAccountDetails } = await import('./auth-menu')
+      await showAccountDetails({
+        index: 0,
+        addedAt: Date.parse('2026-07-04T12:00:00Z'),
+      })
+      expect(selectMock.mock.calls[0]![1]).toMatchObject({
+        subtitle: 'Added: 7/4/2026 | Last used: never',
+      })
+      expect(locale).toHaveBeenCalledWith()
+    } finally {
+      locale.mockRestore()
+    }
+  })
+
+  it.each([
+    ['active', ` ${ANSI.green}[active]${ANSI.reset}`],
+    ['rate-limited', ` ${ANSI.yellow}[rate-limited]${ANSI.reset}`],
+    ['expired', ` ${ANSI.red}[expired]${ANSI.reset}`],
+    ['unknown', ''],
+    [undefined, ''],
+  ] as const)('renders the real %s status in menu labels and details headers', async (status:
+    | AccountStatus
+    | undefined, suffix) => {
+    const { showAuthMenu, showAccountDetails } = await import('./auth-menu')
+    const account = { email: 'presentation@example.test', index: 0, status }
+    await showAuthMenu([account])
+    const items = selectMock.mock.calls[0]![0] as Array<{
+      label: string
+      value?: { type?: string }
+    }>
+    expect(
+      items.find((item) => item.value?.type === 'select-account')?.label,
+    ).toBe(`1. presentation@example.test${suffix}`)
+    await showAccountDetails(account)
+    expect(selectMock).toHaveBeenCalledTimes(2)
+    expect(selectMock.mock.calls[1]![1]).toMatchObject({
+      message: `presentation@example.test${suffix}`,
+    })
   })
 })

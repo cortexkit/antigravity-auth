@@ -417,6 +417,16 @@ describe('OpenCode 1 sidebar in a narrow sidebar', () => {
       expect(lineWith(frame, /^Account 1\b.*\bactive$/)).toBeDefined()
       expect(frame).not.toContain('checked')
       expect(frame).not.toContain('health')
+      const windows = frame
+        .split('\n')
+        .filter((line) => /^\s*(5h|7d) /.test(line))
+      expect(windows.map((line) => line.trim().slice(0, 2))).toEqual([
+        '5h',
+        '7d',
+        '5h',
+        '7d',
+      ])
+      expect(new Set(windows.map((line) => line.search(/\S/))).size).toBe(1)
       for (const [figure, reset] of [
         ['95% left', '2h'],
         ['62% left', '3d'],
@@ -428,6 +438,27 @@ describe('OpenCode 1 sidebar in a narrow sidebar', () => {
         expect(row).toMatch(/^(5h|7d) /)
         expect(row).toMatch(new RegExp(`${reset}$`))
       }
+    })
+
+    it(`a free account shows weekly windows without inventing a 5h window at ${width} columns`, async () => {
+      const account = freshAccount()
+      account.label = 'Free Account'
+      for (const group of Object.values(account.quota)) {
+        group.windows = group.windows?.filter(
+          (window) => window.window === 'weekly',
+        )
+      }
+      const frame = await capture(
+        fixture,
+        state({ accounts: [account] }),
+        width,
+      )
+      expect(frame).toContain('Free Account')
+      expectPlainGroupNames(frame)
+      expectNoWrappedFragments(frame)
+      expect(frame).not.toContain('5h')
+      expect(lineWith(frame, /^7d .*62% left\s+3d$/)).toBeDefined()
+      expect(lineWith(frame, /^7d .*48% left\s+6d$/)).toBeDefined()
     })
 
     it(`a reading whose reset passed is not shown as current at ${width} columns`, async () => {
@@ -619,6 +650,22 @@ describe('OpenCode 1 collapsed sidebar row in a narrow sidebar', () => {
   const staleText = 'Ge 7d 9% · Ot 7d 0% left'
   const emptyText = 'no quota reading yet'
   const statusDot = ' ●'
+
+  it('combines different limiting windows for both groups in one collapsed row', async () => {
+    const account = freshAccount()
+    account.quota['non-gemini']!.windows![0]!.remainingPercent = 40
+    const frame = await capture(
+      fixture,
+      state({ accounts: [account] }),
+      80,
+      undefined,
+      collapsedPrefs,
+    )
+    expect(frame).toContain('Ge 7d 62% · Ot 5h 40% left')
+    expect(frame).toContain('●')
+    expect(frame).not.toContain('Gemini 7d 62% left')
+    expect(frame).not.toContain('Other 5h 40% left')
+  })
 
   async function collapsedRows(
     accounts: SidebarAccountState[],

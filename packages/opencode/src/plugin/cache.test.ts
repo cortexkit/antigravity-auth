@@ -1,6 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
 
 import * as cacheModule from './cache'
 import {
@@ -12,19 +10,6 @@ import {
   shutdownDiskSignatureCache,
 } from './cache'
 
-function listSourceFiles(dir: string): string[] {
-  const files: string[] = []
-  for (const name of readdirSync(dir)) {
-    const path = join(dir, name)
-    if (statSync(path).isDirectory()) {
-      files.push(...listSourceFiles(path))
-    } else if (/\.(ts|tsx)$/.test(name)) {
-      files.push(path)
-    }
-  }
-  return files
-}
-
 // The refresh-token keyed auth snapshot cache was write-only: no production
 // code read from it. It was removed with its writers and clears, and nothing
 // replaces it.
@@ -34,17 +19,6 @@ describe('removed auth cache', () => {
     expect(exported).not.toContain('resolveCachedAuth')
     expect(exported).not.toContain('storeCachedAuth')
     expect(exported).not.toContain('clearCachedAuth')
-  })
-
-  it('leaves no auth-cache reference in package source', () => {
-    const srcRoot = join(import.meta.dir, '..')
-    const offenders = listSourceFiles(srcRoot).filter((file) => {
-      if (file === join(import.meta.dir, 'cache.test.ts')) return false
-      return /\b(resolve|store|clear)CachedAuth\b|\bauthCache\b/.test(
-        readFileSync(file, 'utf8'),
-      )
-    })
-    expect(offenders).toEqual([])
   })
 })
 

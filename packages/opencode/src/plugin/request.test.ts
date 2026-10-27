@@ -29,6 +29,7 @@ import {
   prepareAntigravityRequest,
   transformAntigravityResponse,
 } from './request'
+import { transformThinkingParts } from './request-helpers'
 
 const AGY_1_1_13_WIRE_FIXTURE = JSON.parse(
   readFileSync(
@@ -508,7 +509,10 @@ describe('request.ts', () => {
   })
 
   describe('transformSseLine', () => {
-    const callTransformSseLine = (line: string) => {
+    const callTransformSseLine = (
+      line: string,
+      callbacks: StreamingCallbacks = defaultCallbacks,
+    ) => {
       const store = createMockSignatureStore()
       const buffer = createMockThoughtBuffer()
       const sentBuffer = createMockThoughtBuffer()
@@ -517,7 +521,7 @@ describe('request.ts', () => {
         store,
         buffer,
         sentBuffer,
-        defaultCallbacks,
+        callbacks,
         defaultOptions,
         { ...defaultDebugState },
       )
@@ -557,14 +561,29 @@ describe('request.ts', () => {
         candidates: [
           {
             content: {
-              parts: [{ thought: true, text: 'reasoning...' }],
+              parts: [
+                { thought: true, text: 'reasoning...' },
+                { text: 'answer' },
+              ],
             },
           },
         ],
       }
-      const line = `data: ${JSON.stringify(payload)}`
-      const result = callTransformSseLine(line)
-      expect(result).toContain('data:')
+      const line = `data: ${JSON.stringify({ response: payload })}`
+      const result = callTransformSseLine(line, { transformThinkingParts })
+      expect(JSON.parse(result.slice(5))).toEqual({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { type: 'reasoning', thought: true, text: 'reasoning...' },
+                { text: 'answer' },
+              ],
+            },
+            reasoning_content: 'reasoning...',
+          },
+        ],
+      })
     })
 
     it('does not leak placeholder text into duplicate Claude thinking output', () => {

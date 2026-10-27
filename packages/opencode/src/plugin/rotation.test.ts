@@ -614,33 +614,48 @@ describe('selectHybridAccount', () => {
   })
 
   it('returns the best candidate by score', () => {
-    const tokenTracker = new TokenBucketTracker()
+    const now = 1_700_000_000_000
+    const tokenTracker = new TokenBucketTracker(
+      { maxTokens: 50, initialTokens: 50, regenerationRatePerMinute: 0 },
+      () => now,
+    )
+    tokenTracker.consume(0, 40)
+    tokenTracker.consume(1, 10)
+    tokenTracker.consume(2, 49)
     const accounts: AccountWithMetrics[] = [
       {
         index: 0,
-        lastUsed: 1000,
-        healthScore: 70,
+        lastUsed: now,
+        healthScore: 90,
         isRateLimited: false,
         isCoolingDown: false,
       },
       {
         index: 1,
-        lastUsed: 500,
-        healthScore: 70,
+        lastUsed: now - 600_000,
+        healthScore: 60,
         isRateLimited: false,
         isCoolingDown: false,
       },
       {
         index: 2,
-        lastUsed: 2000,
-        healthScore: 70,
+        lastUsed: now - 3_600_000,
+        healthScore: 100,
         isRateLimited: false,
         isCoolingDown: false,
       },
     ]
-
-    const result = selectHybridAccount(accounts, tokenTracker)
-    expect([0, 1, 2]).toContain(result ?? -1)
+    // Scores are 280, 580, and 570; the middle account wins even against the current-account bonus.
+    expect(
+      selectHybridAccount(accounts, tokenTracker, null, 50, () => now),
+    ).toBe(1)
+    expect(selectHybridAccount(accounts, tokenTracker, 0, 50, () => now)).toBe(
+      1,
+    )
+    accounts[1]!.isRateLimited = true
+    expect(selectHybridAccount(accounts, tokenTracker, 0, 50, () => now)).toBe(
+      2,
+    )
   })
 
   it('filters out rate-limited accounts', () => {

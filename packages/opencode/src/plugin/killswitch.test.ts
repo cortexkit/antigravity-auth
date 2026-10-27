@@ -150,7 +150,11 @@ describe('evaluateKillswitchForAccount', () => {
     expect(decision.remainingPercent).toBe(90)
   })
 
-  it('scopes evaluation to gemini alone when the model is a gemini model', () => {
+  it.each([
+    'gemini-3-pro',
+    'gemini-3-flash',
+    'gemini-3-unknown-variant',
+  ])('scopes evaluation to gemini alone for %s', (model) => {
     // gemini pool is at 2% — must be DENIED because below 5% threshold.
     // The non-gemini pool sits at 90% so a regression that ignored
     // `model` (and fell back to family-max) would let this through.
@@ -166,28 +170,7 @@ describe('evaluateKillswitchForAccount', () => {
       },
       'gemini',
       enabledWith(5),
-      { now: NOW, model: 'gemini-3-pro' },
-    )
-    expect(decision.allowed).toBe(false)
-    expect(decision.reason).toBe('below-threshold')
-    expect(decision.remainingPercent).toBe(2)
-  })
-
-  it('scopes evaluation to gemini pool for gemini-flash models', () => {
-    // gemini pool is at 2% — below the 5% threshold.
-    const decision = evaluateKillswitchForAccount(
-      {
-        index: 0,
-        refreshToken: 'rt',
-        cachedQuota: {
-          gemini: { remainingFraction: 0.02, modelCount: 1 },
-          'non-gemini': { remainingFraction: 0.9, modelCount: 1 },
-        },
-        cachedQuotaUpdatedAt: NOW,
-      },
-      'gemini',
-      enabledWith(5),
-      { now: NOW, model: 'gemini-3-flash' },
+      { now: NOW, model },
     )
     expect(decision.allowed).toBe(false)
     expect(decision.reason).toBe('below-threshold')
@@ -263,16 +246,17 @@ describe('evaluateKillswitchForAccount', () => {
         refreshToken: 'rt',
         cachedQuota: {
           gemini: { remainingFraction: 0.02, modelCount: 1 },
+          'non-gemini': { remainingFraction: 0.9, modelCount: 1 },
         },
         cachedQuotaUpdatedAt: NOW,
       },
       'gemini',
       enabledWith(5),
-      { now: NOW, model: 'gemini-3-unknown-variant' },
+      { now: NOW, model: 'unrecognized-model' },
     )
-    expect(decision.allowed).toBe(false)
-    expect(decision.reason).toBe('below-threshold')
-    expect(decision.remainingPercent).toBe(2)
+    expect(decision.allowed).toBe(true)
+    expect(decision.reason).toBe('ok')
+    expect(decision.remainingPercent).toBe(90)
   })
 })
 

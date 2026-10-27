@@ -715,19 +715,24 @@ describe('vault poller fences and lifecycle', () => {
 
   it('an authority change during a reading prevents fallback and later account requests', async () => {
     const f = fixture()
-    let physical = 0
+    const requests: string[] = []
     const poller = new BackgroundVaultQuotaRefresh({
       ...f.options,
-      transport: async () => {
-        physical++
+      transport: async (url) => {
+        requests.push(String(url))
         f.authority('local')
         return new Response('{}', { status: 500 })
       },
     })
     try {
       await poller.tick()
-      expect(physical).toBeLessThanOrEqual(2)
-      expect(physical).toBeGreaterThan(0)
+      expect(requests).toEqual([
+        'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
+      ])
+      expect(f.writes).toBe(0)
+      expect(f.publishes).toBe(0)
+      await poller.tick()
+      expect(requests).toHaveLength(1)
       expect(f.writes).toBe(0)
       expect(f.publishes).toBe(0)
     } finally {
