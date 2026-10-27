@@ -93,10 +93,22 @@ function getLogsDir(customLogDir?: string): string {
 }
 
 /**
+ * The debug log folder a location asks for: `OPENCODE_ANTIGRAVITY_LOG_DIR`
+ * when it is set and not blank, then the configuration's `log_dir`.
+ * Undefined means the default folder (`getLogsDir`). The environment wins
+ * over the configuration, as the other `OPENCODE_ANTIGRAVITY_*` variables do.
+ */
+function requestedLogDir(configLogDir?: string): string | undefined {
+  const fromEnv = env.OPENCODE_ANTIGRAVITY_LOG_DIR
+  if (fromEnv && fromEnv.trim() !== '') return fromEnv
+  return configLogDir || undefined
+}
+
+/**
  * Builds a timestamped log file path that no live location already owns.
  */
 function createLogFilePath(customLogDir?: string): string {
-  const logsDir = getLogsDir(customLogDir)
+  const logsDir = getLogsDir(requestedLogDir(customLogDir))
   cleanupOldLogs(logsDir, 25)
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   let candidate = join(logsDir, `antigravity-debug-${timestamp}.log`)

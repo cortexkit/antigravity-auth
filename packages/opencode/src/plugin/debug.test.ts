@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test'
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { DEFAULT_CONFIG } from './config'
 
 describe('debug sink policy', () => {
@@ -216,5 +216,65 @@ describe('debug sink redaction', () => {
     expect(contents).not.toContain(fingerprintUA)
     // The masked form should appear instead (anchored on the long UA).
     expect(contents).toMatch(/anti\*\*\*\*_ua\)/)
+  })
+})
+
+describe('debug log folder', () => {
+  let originalDebugEnv: string | undefined
+  let originalLogDirEnv: string | undefined
+  let base: string
+
+  beforeEach(() => {
+    jest.useRealTimers()
+    originalDebugEnv = process.env.OPENCODE_ANTIGRAVITY_DEBUG
+    originalLogDirEnv = process.env.OPENCODE_ANTIGRAVITY_LOG_DIR
+    delete process.env.OPENCODE_ANTIGRAVITY_DEBUG
+    delete process.env.OPENCODE_ANTIGRAVITY_LOG_DIR
+    base = `${process.env.ANTIGRAVITY_TEST_ROOT}/log-dir-${Math.random().toString(36).slice(2)}`
+  })
+
+  afterEach(async () => {
+    const { closeDebugLog } = await import('./debug')
+    await closeDebugLog()
+    if (originalDebugEnv === undefined)
+      delete process.env.OPENCODE_ANTIGRAVITY_DEBUG
+    else process.env.OPENCODE_ANTIGRAVITY_DEBUG = originalDebugEnv
+    if (originalLogDirEnv === undefined)
+      delete process.env.OPENCODE_ANTIGRAVITY_LOG_DIR
+    else process.env.OPENCODE_ANTIGRAVITY_LOG_DIR = originalLogDirEnv
+    rmSync(base, { recursive: true, force: true })
+  })
+
+  /** The folder of the debug log file the configuration below opens. */
+  async function logFolder(configLogDir: string): Promise<string | undefined> {
+    const { initializeDebug, getLogFilePath } = await import('./debug')
+    initializeDebug({
+      ...DEFAULT_CONFIG,
+      debug: true,
+      debug_tui: false,
+      log_dir: configLogDir,
+    })
+    const path = getLogFilePath()
+    return path === undefined ? undefined : dirname(path)
+  }
+
+  it('OPENCODE_ANTIGRAVITY_LOG_DIR wins over the config log_dir', async () => {
+    const fromEnv = join(base, 'from-env')
+    process.env.OPENCODE_ANTIGRAVITY_LOG_DIR = fromEnv
+    expect(await logFolder(join(base, 'from-config'))).toBe(fromEnv)
+  })
+
+  it('the config log_dir wins over the default folder', async () => {
+    const fromConfig = join(base, 'from-config')
+    expect(await logFolder(fromConfig)).toBe(fromConfig)
+  })
+
+  it.each([
+    '',
+    '   ',
+  ])('an empty OPENCODE_ANTIGRAVITY_LOG_DIR is ignored: %j', async (value) => {
+    process.env.OPENCODE_ANTIGRAVITY_LOG_DIR = value
+    const fromConfig = join(base, 'from-config')
+    expect(await logFolder(fromConfig)).toBe(fromConfig)
   })
 })
