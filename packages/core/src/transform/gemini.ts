@@ -155,10 +155,7 @@ function mergeSchemaAllOf(
   const metadata: Record<string, unknown> = {}
   let unambiguous = allOf.length > 0
   let allBranchesNullable = true
-  const isBaseContributing =
-    base.type !== undefined ||
-    base.nullable !== undefined ||
-    base.properties !== undefined
+  let hasContributingBranch = false
 
   for (const rawBranch of branches) {
     if (!isSchemaObject(rawBranch)) {
@@ -174,9 +171,15 @@ function mergeSchemaAllOf(
       unambiguous = false
       break
     }
-    const isContributing = rawBranch !== base || isBaseContributing
-    if (isContributing && branch.nullable !== true) {
-      allBranchesNullable = false
+    const isContributing =
+      branch.type !== undefined ||
+      branch.nullable !== undefined ||
+      branch.properties !== undefined
+    if (isContributing) {
+      hasContributingBranch = true
+      if (branch.nullable !== true) {
+        allBranchesNullable = false
+      }
     }
     // Metadata comes from the first occurrence; dropped keywords cannot make
     // otherwise compatible object intersections lose their later properties.
@@ -209,7 +212,9 @@ function mergeSchemaAllOf(
       ...metadata,
       type: 'object',
       properties,
-      ...(allBranchesNullable ? { nullable: true } : {}),
+      ...(hasContributingBranch && allBranchesNullable
+        ? { nullable: true }
+        : {}),
       ...(required.size ? { required: [...required] } : {}),
       ...(descriptions.length ? { description: descriptions.join(' ') } : {}),
     }

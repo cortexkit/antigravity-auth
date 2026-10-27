@@ -2332,11 +2332,15 @@ describe('documented Gemini Schema compatibility', () => {
             type: ['object', 'null'],
             properties: { b: { type: 'number' } },
           },
+          {
+            description: 'Annotation-only branch',
+          },
         ],
       }),
     ).toEqual({
       type: 'OBJECT',
       properties: { a: { type: 'STRING' }, b: { type: 'NUMBER' } },
+      description: 'Annotation-only branch',
       nullable: true,
     })
   })
