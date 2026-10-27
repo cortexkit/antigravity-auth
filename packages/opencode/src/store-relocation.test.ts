@@ -14,14 +14,14 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   type AccountMigrationOutcome,
-  accountStorePointerPath,
   initializeFreshAccountStore,
   loadCommonAuthStoreModules,
   readAccountStoreBinding,
@@ -625,31 +625,80 @@ describe('the default account-store operations', () => {
 
 describe('setup', () => {
   it('a dry run writes nothing, wherever the forward says the store is', async () => {
-    const before = readdirSync(root).sort()
-    const { runPluginSetup } = await import('./setup')
-    const written: string[] = []
-    await runPluginSetup(
-      ['--dry-run', '--yes', '--no-claustrum', '--opencode=1'],
-      {
-        stdout: { write: (value: string) => written.push(value) },
-        stderr: { write: (value: string) => written.push(value) },
-        prompt: async () => 'yes',
-        openBrowser: async () => {},
-        performLogin: async () => {
-          throw new Error('not expected')
+    // A config folder, an installed OpenCode and a store the forward says is
+    // at the state-home anchor. A dry run reads that position and changes no
+    // file in either place.
+    const home = join(root, 'setup-home')
+    const config = join(home, 'config', 'opencode')
+    const binary = join(home, 'bin', 'opencode')
+    for (const dir of [config, dirname(binary)])
+      mkdirSync(dir, { recursive: true, mode: 0o700 })
+    writeFileSync(binary, '#!/bin/sh\necho 1.19.4\n', { mode: 0o700 })
+    const saved = {
+      config: process.env.OPENCODE_CONFIG_DIR,
+      state: process.env.XDG_STATE_HOME,
+    }
+    process.env.OPENCODE_CONFIG_DIR = config
+    process.env.XDG_STATE_HOME = join(home, 'state')
+    resetProcess()
+    try {
+      await publishStore(join(home, 'state', 'antigravity-accounts.json'))
+      const before = snapshotOf(home)
+      const written: string[] = []
+      const { runPluginSetup } = await import('./setup')
+      await runPluginSetup(
+        ['--dry-run', '--yes', '--no-claustrum', '--opencode=1'],
+        {
+          stdout: { write: (value: string) => written.push(value) },
+          stderr: { write: (value: string) => written.push(value) },
+          prompt: async () => 'yes',
+          openBrowser: async () => {},
+          performLogin: async () => {
+            throw new Error('not expected')
+          },
+          loadAccounts: async () => null,
+          getQuota: async () => [],
+          accountStore: createDefaultAccountStoreOperations(),
+          prepareVaultFolder: async () => {},
+          processHeartbeat: async () => {},
         },
-        loadAccounts: async () => null,
-        getQuota: async () => [],
-        accountStore: createDefaultAccountStoreOperations(),
-        prepareVaultFolder: async () => {},
-        processHeartbeat: async () => {},
-      },
-      async () => 0,
-      { terminal: plainTerminal(written) },
-    )
-    expect(written.join('')).toContain('Dry run')
-    expect(readdirSync(root).sort()).toEqual(before)
+        async () => 0,
+        {
+          terminal: plainTerminal(written),
+          env: { ...process.env, PATH: dirname(binary) },
+          // Nothing is running: this test is about what a preview writes.
+          fence: {
+            listRunningHosts: async () => [],
+            previewRunningHosts: async () => ({
+              hosts: [],
+              uncheckedRuntimes: 0,
+            }),
+          },
+        },
+      )
+      expect(written.join('')).toContain('Dry run')
+      expect(snapshotOf(home)).toEqual(before)
+    } finally {
+      if (saved.config === undefined) delete process.env.OPENCODE_CONFIG_DIR
+      else process.env.OPENCODE_CONFIG_DIR = saved.config
+      if (saved.state === undefined) delete process.env.XDG_STATE_HOME
+      else process.env.XDG_STATE_HOME = saved.state
+      resetProcess()
+    }
   })
+
+  /** Every file under `dir` with its bytes, to compare before and after. */
+  function snapshotOf(dir: string, prefix = ''): [string, string][] {
+    return readdirSync(join(dir, prefix))
+      .sort()
+      .flatMap((name): [string, string][] => {
+        const path = join(prefix, name)
+        const info = statSync(join(dir, path))
+        return info.isDirectory()
+          ? snapshotOf(dir, path)
+          : [[path, readFileSync(join(dir, path)).toString('base64')]]
+      })
+  }
 })
 
 /**
