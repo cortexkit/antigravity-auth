@@ -713,7 +713,7 @@ test('graph.ga_roots', async () => {
     'src/tui/quota-layout.tsx',
     'src/tui/route-layout.ts',
   ])
-  checkGaGraph(source, 'source')
+  checkGaGraph(source, 'source', product)
   const map = JSON.parse(await readFile(join(product, GA_TUI_ROOT.map), 'utf8'))
   expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.27.1')
   for (const [variant, tree, entry, kind] of [
@@ -721,7 +721,7 @@ test('graph.ga_roots', async () => {
     [map.runtime, GA_TUI_ROOT.runtime, GA_TUI_ROOT.runtimeEntry, 'runtime'],
   ] as const) {
     const graph = await auditGraph(join(product, tree, entry))
-    checkGaGraph(graph, kind)
+    checkGaGraph(graph, kind, product)
     expect(graph.files.length).toBe(source.files.length)
     expect(
       variant.files
@@ -742,25 +742,92 @@ test('graph.ga_roots', async () => {
 })
 
 test('graph.ga_policy_refusals', async () => {
-  const ok = { files: ['/x/src/ga/tui/host-ga.tsx'], externals: ['solid-js'] }
-  checkGaGraph(ok, 'source')
+  const pkgRoot = '/x'
+  const antigravityPkgRoot = '/work/antigravity/packages/opencode'
+  checkGaGraph(
+    {
+      files: ['/x/src/ga/tui/host-ga.tsx'],
+      externals: ['solid-js'],
+    },
+    'source',
+    pkgRoot,
+  )
+  checkGaGraph(
+    {
+      files: [
+        '/work/antigravity/packages/opencode/src/ga/tui/host-ga.tsx',
+        '/work/antigravity/packages/opencode/src/common-auth-embedded/quota/codec.js',
+      ],
+      externals: ['solid-js'],
+    },
+    'source',
+    antigravityPkgRoot,
+  )
   const refusals: Array<
-    [Parameters<typeof checkGaGraph>[0], 'source' | 'runtime', string]
+    [
+      Parameters<typeof checkGaGraph>[0],
+      'source' | 'runtime',
+      string,
+      string | undefined,
+    ]
   > = [
     [
       { files: ['/x/src/rpc/port-file.ts'], externals: [] },
       'source',
       'forbidden GA source',
+      pkgRoot,
+    ],
+    [
+      {
+        files: ['/work/antigravity/packages/opencode/src/rpc/port-file.ts'],
+        externals: [],
+      },
+      'source',
+      'forbidden GA source',
+      antigravityPkgRoot,
+    ],
+    [
+      {
+        files: [
+          '/work/antigravity/packages/opencode/src/plugin/src/storage.ts',
+        ],
+        externals: [],
+      },
+      'source',
+      'forbidden GA source',
+      antigravityPkgRoot,
+    ],
+    [
+      {
+        files: [
+          '/work/antigravity/packages/opencode/src/antigravity/src/client.ts',
+        ],
+        externals: [],
+      },
+      'source',
+      'forbidden GA source',
+      antigravityPkgRoot,
+    ],
+    [
+      {
+        files: ['/work/other/src/ga/tui/host-ga.tsx'],
+        externals: [],
+      },
+      'source',
+      'forbidden GA source',
+      antigravityPkgRoot,
     ],
     [
       { files: ['/x/src/tui/host-v1.tsx'], externals: [] },
       'source',
       'forbidden GA source',
+      pkgRoot,
     ],
     [
       { files: ['/x/src/sidebar-state.ts'], externals: [] },
       'source',
       'forbidden GA source',
+      pkgRoot,
     ],
     [
       {
@@ -769,16 +836,19 @@ test('graph.ga_policy_refusals', async () => {
       },
       'source',
       'forbidden GA source',
+      pkgRoot,
     ],
     [
       { files: ['/x/src/plugin/storage.ts'], externals: [] },
       'source',
       'forbidden GA source',
+      pkgRoot,
     ],
     [
       { files: [], externals: ['@opencode-ai/plugin/tui'] },
       'source',
       'forbidden GA external',
+      pkgRoot,
     ],
     [
       {
@@ -787,21 +857,29 @@ test('graph.ga_policy_refusals', async () => {
       },
       'source',
       'forbidden GA external',
+      pkgRoot,
     ],
     [
       { files: [], externals: ['@opentui/solid-ga'] },
       'source',
       'forbidden GA external',
+      pkgRoot,
     ],
-    [{ files: [], externals: ['solid-js'] }, 'runtime', 'not a host module'],
+    [
+      { files: [], externals: ['solid-js'] },
+      'runtime',
+      'not a host module',
+      pkgRoot,
+    ],
     [
       { files: [], externals: ['opentui:runtime-module:solid-js-ga'] },
       'runtime',
       'not a host module',
+      pkgRoot,
     ],
   ]
-  for (const [graph, kind, message] of refusals)
-    expect(() => checkGaGraph(graph, kind)).toThrow(message)
+  for (const [graph, kind, message, root] of refusals)
+    expect(() => checkGaGraph(graph, kind, root)).toThrow(message)
 })
 
 test('build.roots_failure_removes_every_root', async () => {

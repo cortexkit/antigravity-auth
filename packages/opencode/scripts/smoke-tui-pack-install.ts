@@ -202,8 +202,13 @@ export async function inspectPack(tar: string, target: string) {
           `pack.paths: ${file.output}`,
         )
       }
-      const graph = await auditGraph(join(root, prefix, entry))
-      if (tuiRoot.name === 'ga') checkGaGraph(graph, kind)
+      // The packed copy is extracted outside the repository, so the GA
+      // policy is anchored on that copy's own package root.
+      const packedRoot = await realpath(root)
+      const graph = await auditGraph(join(root, prefix, entry), {
+        packageRoot: packedRoot,
+      })
+      if (tuiRoot.name === 'ga') checkGaGraph(graph, kind, packedRoot)
       requireEqual(
         await readFile(join(root, prefix, 'selector.js'), 'utf8'),
         await readFile(

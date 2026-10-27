@@ -159,10 +159,22 @@ const RUNTIME_MODULE = 'opentui:runtime-module:'
 export function checkGaGraph(
   graph: Graph,
   emitted: 'source' | 'raw' | 'runtime',
+  packageRoot: string = PACKAGE_ROOT,
 ) {
-  for (const path of graph.files)
-    if (GA_FORBIDDEN_SOURCE.test(portable(path)))
+  for (const path of graph.files) {
+    const rel = relative(packageRoot, path)
+    if (
+      rel === '' ||
+      rel === '..' ||
+      rel.startsWith(`..${sep}`) ||
+      rel.startsWith('../') ||
+      isAbsolute(rel)
+    )
       throw new Error(`graph.ga: forbidden GA source ${path}`)
+    const candidate = `/${portable(rel)}`
+    if (GA_FORBIDDEN_SOURCE.test(candidate))
+      throw new Error(`graph.ga: forbidden GA source ${path}`)
+  }
   for (const edge of graph.externals) {
     if (emitted === 'runtime') {
       // Emitted runtime code must name host runtime modules, never a package
@@ -211,6 +223,22 @@ function checkExternal(specifier: string, tui: boolean, types: boolean) {
     throw new Error(`graph: forbidden TUI external ${specifier}`)
 }
 
+function findPackageRoot(entry: string): string {
+  let current = dirname(resolve(entry))
+  if (existsSync(current)) {
+    try {
+      current = realpathSync(current)
+    } catch {}
+  }
+  while (true) {
+    if (existsSync(join(current, 'package.json'))) return current
+    const parent = dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  return dirname(resolve(entry))
+}
+
 /**
  * Independently check imports and re-exports, plus import()/require() targets
  * expressed as string literals, const aliases or string concatenations. Refuse
@@ -218,14 +246,25 @@ function checkExternal(specifier: string, tui: boolean, types: boolean) {
  */
 export async function auditGraph(
   entry: string,
-  { tui = true, types = false } = {},
+  {
+    tui = true,
+    types = false,
+    packageRoot,
+  }: { tui?: boolean; types?: boolean; packageRoot?: string } = {},
 ): Promise<Graph> {
+  const rootDir = packageRoot
+    ? existsSync(packageRoot)
+      ? realpathSync(packageRoot)
+      : resolve(packageRoot)
+    : findPackageRoot(entry)
   const files = new Set<string>()
   const externals = new Set<string>()
   async function visit(path: string): Promise<void> {
     path = realpathSync(path)
     if (files.has(path)) return
-    const embedded = portable(path).split('/common-auth-embedded/')[1]
+    const rel = relative(rootDir, path)
+    const candidate = `/${portable(rel)}`
+    const embedded = candidate.split('/common-auth-embedded/')[1]
     if (
       embedded &&
       !types &&
@@ -240,7 +279,7 @@ export async function auditGraph(
       tui &&
       !types &&
       /(?:\/rpc\/(?:index|rpc-server|server-registry)\.[jt]s$|\/plugin\/(?:storage|accounts|account-manager|account-storage|quota|rotation|logger|debug)\.|\/common-auth-embedded\/(?:fs\/(?!private-files\.js$)|store\/)|\/tools\/)/.test(
-        portable(path),
+        candidate,
       )
     )
       throw new Error(`graph: forbidden TUI source ${path}`)
@@ -593,15 +632,17 @@ export async function buildTui({
     await buildPhase('buildTui.verifyPrerequisites', () =>
       verifyPrerequisites(),
     )
+    // The admitted package root anchors every GA check, so the policy holds
+    // for whichever package is being built, not only the default checkout.
     const source = await buildPhase(`buildTui.auditGraph source ${entry}`, () =>
-      auditGraph(join(packageRoot, entry)),
+      auditGraph(join(packageRoot, entry), { packageRoot }),
     )
     const types = await buildPhase(`buildTui.auditGraph types ${entry}`, () =>
-      auditGraph(join(packageRoot, entry), { types: true }),
+      auditGraph(join(packageRoot, entry), { types: true, packageRoot }),
     )
     if (ga) {
-      checkGaGraph(source, 'source')
-      checkGaGraph(types, 'source')
+      checkGaGraph(source, 'source', packageRoot)
+      checkGaGraph(types, 'source', packageRoot)
     }
     await buildPhase('buildTui.mkdir dist', () =>
       mkdir(join(packageRoot, 'dist'), { recursive: true }),
@@ -654,9 +695,14 @@ export async function buildTui({
         if (!file.output.endsWith('/selector.js')) {
           const emitted = await buildPhase(
             `buildTui.auditGraph emitted ${file.output}`,
-            () => auditGraph(join(packageRoot, file.output)),
+            () => auditGraph(join(packageRoot, file.output), { packageRoot }),
           )
-          if (ga) checkGaGraph(emitted, variant === map.raw ? 'raw' : 'runtime')
+          if (ga)
+            checkGaGraph(
+              emitted,
+              variant === map.raw ? 'raw' : 'runtime',
+              packageRoot,
+            )
         }
       }
       for (const edge of variant.externals) checkExternal(edge, true, false)
