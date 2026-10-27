@@ -2,6 +2,7 @@
 // provider state, mode) out of OpenCode's config folder into the state home,
 // and the resolver that follows it. Real files in temporary folders
 // throughout; the real-process tests run `__fixtures__/runtime-layout-process.ts`.
+import { dlopen, FFIType, ptr } from 'bun:ffi'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
 import {
@@ -17,7 +18,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   enrollmentAuthority,
@@ -117,8 +118,76 @@ function writePrivate(path: string, text: string) {
   chmodSync(path, 0o600)
 }
 
+/**
+ * Windows only: open `path` the way an antivirus scan or another program can,
+ * sharing nothing, so every other attempt to read or remove it fails with a
+ * sharing violation (EBUSY) until the returned function closes it.
+ */
+function holdWithoutSharing(path: string): () => void {
+  const kernel32 = dlopen('kernel32.dll', {
+    CreateFileW: {
+      args: [
+        FFIType.ptr,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.ptr,
+        FFIType.u32,
+        FFIType.u32,
+        FFIType.ptr,
+      ],
+      returns: FFIType.i64,
+    },
+    CloseHandle: { args: [FFIType.i64], returns: FFIType.i32 },
+  })
+  const GENERIC_READ = 0x80000000
+  const NO_SHARING = 0
+  const OPEN_EXISTING = 3
+  const FILE_ATTRIBUTE_NORMAL = 0x80
+  const name = Buffer.from(`${path}\0`, 'utf16le')
+  const handle = kernel32.symbols.CreateFileW(
+    ptr(name),
+    GENERIC_READ,
+    NO_SHARING,
+    null,
+    OPEN_EXISTING,
+    FILE_ATTRIBUTE_NORMAL,
+    null,
+  )
+  // INVALID_HANDLE_VALUE
+  if (BigInt(handle) === -1n) {
+    kernel32.close()
+    throw new Error(`could not open ${path} without sharing`)
+  }
+  return () => {
+    kernel32.symbols.CloseHandle(handle)
+    kernel32.close()
+  }
+}
+
+/** The start of the one warning a clean-up that left old vault files logs. */
+const CLEANUP_FAILED =
+  'antigravity-auth could not finish removing its old vault files'
+
+/** Every warning logged so far that says the clean-up left old files. */
+const cleanupWarnings = () =>
+  logged.filter(
+    (line) => line.level === 'warn' && line.message.startsWith(CLEANUP_FAILED),
+  )
+
+/** Exactly one clean-up warning, naming the step and the kept file. */
+const oneCleanupWarning = (relative: string) => [
+  expect.objectContaining({
+    level: 'warn',
+    meta: expect.objectContaining({
+      step: 'remove-old-copies',
+      errorClass: 'old-files-kept',
+      file: basename(relative),
+    }),
+  }),
+]
 const TOKEN = 'antigravity-auth-vault/opencode-enrollment.json'
 const VAULT_STATE = 'antigravity-auth-vault/opencode-enrollment-state.json'
+const ROSTER = 'antigravity-auth-vault/opencode-roster.json'
 const VAULT_RELATIVE = VAULT_FILE_NAMES.map(
   (name) => `antigravity-auth-vault/${name}`,
 )
@@ -589,6 +658,156 @@ describe('moving an existing vault folder', () => {
     expect(marker()?.oldFilesRemoved).not.toBe(true)
   })
 
+  // An old vault file identical to its copy that cannot be removed, as when
+  // Windows holds it open, stands in here as the old vault folder made
+  // read-only right before that removal. Root ignores folder permissions, so
+  // the test needs an ordinary user.
+  it.skipIf(!POSIX || process.getuid?.() === 0).each([TOKEN, ROSTER])(
+    'an old vault file that cannot be removed is retried at the next start, not refused: %s',
+    async (relative) => {
+      const files = oldLayout()
+      seed(configDir(), files)
+      const oldPath = join(configDir(), relative)
+      try {
+        expect(
+          await prepare({
+            steps: {
+              // Writable again before the next removal, so the lock files in
+              // that folder can go when the move releases them.
+              beforeRemove: (path) => {
+                chmodSync(oldVault(), path === oldPath ? 0o500 : 0o700)
+              },
+            },
+          }),
+        ).toBe('state-home')
+      } finally {
+        chmodSync(oldVault(), 0o700)
+      }
+      expect(readFileSync(oldPath, 'utf8')).toBe(files[relative] as string)
+      // The enrollment state stays. When the token is the file that could not
+      // be removed, keeping the state beside it means an older version never
+      // finds the token alone.
+      expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(
+        files[VAULT_STATE] as string,
+      )
+      expect(marker()?.oldFilesRemoved).not.toBe(true)
+      expect(cleanupWarnings()).toEqual(oneCleanupWarning(relative))
+
+      // The file can be removed again: the next start finishes the clean-up
+      // instead of finding a reappeared vault file.
+      resetProcess()
+      logged = []
+      expect(await prepare()).toBe('state-home')
+      expect(existsSync(oldPath)).toBe(false)
+      expect(present(configDir(), files)).toEqual(leftAfterMove(files))
+      expect(present(runtimeDir(), files)).toEqual(files)
+      expect(marker()?.oldFilesRemoved).toBe(true)
+      expect(logged.filter((line) => line.level === 'warn')).toEqual([])
+      resetProcess()
+      expect(await prepare()).toBe('state-home')
+    },
+  )
+
+  it.skipIf(!POSIX || process.getuid?.() === 0)(
+    'an old vault file that a later start cannot remove is logged once and retried again',
+    async () => {
+      const files = oldLayout()
+      seed(configDir(), files)
+      await prepare({
+        steps: {
+          afterMarker: () => {
+            throw new Error('crash')
+          },
+        },
+      })
+      const oldPath = join(configDir(), ROSTER)
+      resetProcess()
+      logged = []
+      try {
+        expect(
+          await prepare({
+            steps: {
+              beforeRemove: (path) => {
+                chmodSync(oldVault(), path === oldPath ? 0o500 : 0o700)
+              },
+            },
+          }),
+        ).toBe('state-home')
+      } finally {
+        chmodSync(oldVault(), 0o700)
+      }
+      expect(existsSync(oldPath)).toBe(true)
+      expect(marker()?.oldFilesRemoved).not.toBe(true)
+      expect(logged.filter((line) => line.level === 'warn')).toEqual(
+        oneCleanupWarning(ROSTER),
+      )
+
+      resetProcess()
+      expect(await prepare()).toBe('state-home')
+      expect(present(configDir(), files)).toEqual(leftAfterMove(files))
+      expect(marker()?.oldFilesRemoved).toBe(true)
+    },
+  )
+
+  // Windows refuses to read or remove a file that another program (an
+  // antivirus scan, an indexer) holds open without sharing. Such an old vault
+  // file cannot be compared, which says nothing about its bytes: the clean-up
+  // keeps it and tries again at the next start instead of reporting a
+  // conflict between two copies that may be identical.
+  it.skipIf(POSIX).each([
+    ['during the move', ROSTER],
+    ['after a crash', ROSTER],
+    ['after a crash', TOKEN],
+  ] as const)(
+    'an old vault file Windows holds open during clean-up %s is retried at the next start, not refused: %s',
+    async (when, relative) => {
+      const files = oldLayout()
+      seed(configDir(), files)
+      const oldPath = join(configDir(), relative)
+      let release: (() => void) | undefined
+      try {
+        if (when === 'after a crash') {
+          await prepare({
+            steps: {
+              afterMarker: () => {
+                throw new Error('crash')
+              },
+            },
+          })
+          release = holdWithoutSharing(oldPath)
+          resetProcess()
+          expect(await prepare()).toBe('state-home')
+        } else {
+          expect(
+            await prepare({
+              steps: {
+                afterMarker: () => {
+                  release = holdWithoutSharing(oldPath)
+                },
+              },
+            }),
+          ).toBe('state-home')
+        }
+      } finally {
+        release?.()
+      }
+      expect(readFileSync(oldPath, 'utf8')).toBe(files[relative] as string)
+      expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(
+        files[VAULT_STATE] as string,
+      )
+      expect(marker()?.oldFilesRemoved).not.toBe(true)
+      expect(cleanupWarnings()).toEqual(oneCleanupWarning(relative))
+
+      resetProcess()
+      logged = []
+      expect(await prepare()).toBe('state-home')
+      expect(present(configDir(), files)).toEqual(leftAfterMove(files))
+      expect(present(runtimeDir(), files)).toEqual(files)
+      expect(marker()?.oldFilesRemoved).toBe(true)
+      expect(logged.filter((line) => line.level === 'warn')).toEqual([])
+    },
+  )
+
   it.each([
     '{ not json',
     'null',
@@ -763,6 +982,33 @@ describe('an approved vault enrollment and older versions', () => {
     rmSync(join(configDir(), TOKEN))
     resetProcess()
     expect(await prepare()).toBe('state-home')
+  })
+
+  // A failed read can make the leftover check reject the old enrollment state
+  // for a moment. This test makes that check reject it without a failed read,
+  // through a pending state (never accepted as a leftover) and a marker that
+  // records a kept state. The old state file, byte for byte its state-home
+  // copy, must still stay.
+  it('clean-up after a crash keeps an old enrollment state identical to its copy when the leftover check rejects it', async () => {
+    const files = pendingLayout()
+    seed(configDir(), files)
+    await prepare({
+      steps: {
+        afterMarker: () => {
+          throw new Error('crash')
+        },
+      },
+    })
+    writePrivate(
+      join(runtimeDir(), 'layout.json'),
+      JSON.stringify({ ...marker(), keptVaultState: sha256('other bytes') }),
+    )
+    resetProcess()
+    expect(await prepare()).toBe('state-home')
+    expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(
+      files[VAULT_STATE] as string,
+    )
+    expect(existsSync(join(configDir(), ROSTER))).toBe(false)
   })
 
   it('disconnect removes the leftover, and an older version then reads local', async () => {

@@ -52,8 +52,12 @@
 //   start takes the same locks, reads the heartbeats again under them, and
 //   removes old copies identical to the new ones. A differing old file, or a
 //   copy that cannot be read, refuses the start: every vault file counts as a
-//   credential. The marker then records that the old files are dealt with,
-//   and old vault files that reappear later also refuse the start.
+//   credential. An identical old file that cannot be removed (Windows may
+//   hold a file open), or that Windows keeps open so it cannot be compared,
+//   is logged once as a clean-up failure, not refused: the marker then does
+//   not record the old files as dealt with, so the next start tries the
+//   removal again. Once the marker records that the old files are dealt
+//   with, old vault files that reappear later refuse the start.
 // - An enrollment that keeps the host in vault mode (approved, or blocked
 //   because its token is missing) keeps one old file: the enrollment state
 //   file stays in the old vault folder, byte for byte the copy that moved,
@@ -62,15 +66,19 @@
 //   older version that still looks in the config folder refuses requests
 //   instead of serving local accounts. Later starts accept vault mode there
 //   whether or not an older version has since rewrote that file
-//   (`isVaultShapedKeptState`): the marker's SHA-256 of it (`keptVaultState`)
-//   is kept for diagnostics but is no longer required. An older version's
-//   reconcile turns an approved state into `blocked missing_token`, and a file
-//   at that path holds no secret, so the file is re-read and accepted while it
-//   still names this plugin's enrollment, has no token beside it, and is
-//   pending in neither direction. Anything else at that path is a conflict
-//   like any other reappeared file. Disconnect on this version removes such a
-//   leftover (`removeMovedVaultStateLeftover`). A pending or denied enrollment
-//   state protects nothing and is removed like the other files.
+//   (`isVaultShapedKeptState`); the marker's SHA-256 of it (`keptVaultState`)
+//   is no longer compared. An older version's reconcile turns an approved
+//   state into `blocked missing_token`, and a file at that path holds no
+//   secret, so the file is re-read and accepted while it still names this
+//   plugin's enrollment, has no token beside it, and is pending in neither
+//   direction. Anything else at that path is a conflict like any other
+//   reappeared file. Disconnect on this version removes such a leftover
+//   (`removeMovedVaultStateLeftover`). A pending or denied enrollment state
+//   protects nothing and is removed like the other files. Until the old
+//   files are dealt with, though, a marker that records `keptVaultState`
+//   says the move left that file on purpose: an old state file identical to
+//   its state-home copy then stays even when the re-read rejects it, since
+//   removing it would let an older version read this host as local.
 // - The layout lock is checked again right before every destructive step:
 //   each unlink attempt of an old file, the removal of `layout-moving.json`
 //   and of the old vault folder. `layout-moving.json` is the last thing a
@@ -292,9 +300,10 @@ interface LayoutMarker {
   oldFilesRemoved?: boolean
   /**
    * SHA-256 (hex) of the vault-mode enrollment state file the move left in
-   * the old vault folder; absent when the move left none there. Diagnostic
-   * only: acceptance of that leftover re-reads its contents
-   * (`isVaultShapedKeptState`) instead of comparing this hash.
+   * the old vault folder; absent when the move left none there. The hash is
+   * not compared: acceptance of that leftover re-reads its contents
+   * (`isVaultShapedKeptState`). Whether it is set still matters to the
+   * clean-up before `oldFilesRemoved` (`removeOldCopies`).
    */
   keptVaultState?: string
 }
@@ -364,6 +373,39 @@ class LayoutMoveError extends Error {
     super(message)
     this.name = 'LayoutMoveError'
   }
+}
+
+/**
+ * An old vault file identical to its new copy that could not be removed, or
+ * that Windows kept open so it could not be compared. Not a refusal: the
+ * start goes on in the state home, and the marker is left without
+ * `oldFilesRemoved` so the next start removes it. `path` is the first such
+ * file, for the log line.
+ */
+class OldVaultFileKeptError extends LayoutMoveError {
+  constructor(readonly path: string) {
+    super('old-files-kept', `${path} could not be removed`)
+  }
+}
+
+/** The one warning for old files a move or a later start failed to remove. */
+function logCleanupFailure(
+  location: RuntimeLayoutLocation,
+  log: RuntimeLayoutLogger,
+  step: string,
+  error: unknown,
+): void {
+  logOnce(`${location.key}\0cleanup`, () =>
+    log.warn(
+      "antigravity-auth could not finish removing its old vault files from OpenCode's config folder; it tries again at the next start",
+      {
+        configDir: location.configDir,
+        step,
+        errorClass: errorClass(error),
+        ...errorFile(error),
+      },
+    ),
+  )
 }
 
 /**
@@ -682,10 +724,20 @@ async function moveFiles(
     await input.steps?.afterMarker?.()
 
     await layoutLock.assertOwned()
-    await removeOldCopies(location, files, present, layoutLock, {
-      log: input.log,
-      steps: input.steps,
-    })
+    try {
+      await removeOldCopies(location, files, present, layoutLock, {
+        log: input.log,
+        keptVaultState,
+        steps: input.steps,
+      })
+    } catch (error) {
+      if (!(error instanceof OldVaultFileKeptError)) throw error
+      // The copies are verified and the marker is written, so this process
+      // runs on the new files; the marker stays without `oldFilesRemoved` and
+      // the next start removes what is left.
+      logCleanupFailure(location, input.log, 'remove-old-copies', error)
+      return { kind: 'moved', moved: present.length > 0 }
+    }
     oldVaultEmptied = true
     await layoutLock.assertOwned()
     await writeMarker(markerPath, { ...marker, oldFilesRemoved: true })
@@ -752,6 +804,7 @@ async function finishOldFiles(
       layoutLock,
       {
         log: input.log,
+        keptVaultState: marker.keptVaultState,
         steps: input.steps,
       },
     )
@@ -763,17 +816,7 @@ async function finishOldFiles(
     await removeManifestOwned(location.stateHomeDir, layoutLock, input.steps)
   } catch (error) {
     if (error instanceof RuntimeLayoutRefusal) throw error
-    logOnce(`${location.key}\0cleanup`, () =>
-      input.log.warn(
-        "antigravity-auth could not finish removing its old vault files from OpenCode's config folder; it tries again at the next start",
-        {
-          configDir: location.configDir,
-          step,
-          errorClass: errorClass(error),
-          ...errorFile(error),
-        },
-      ),
-    )
+    logCleanupFailure(location, input.log, step, error)
   } finally {
     for (const lock of locks.reverse()) await lock.release().catch(() => {})
     if (done) await removeOldVaultFolder(files, layoutLock, input.steps)
@@ -1097,11 +1140,16 @@ async function copyVerified(file: LayoutFile): Promise<void> {
 /**
  * Remove each old file whose bytes equal its new copy, comparing again right
  * before every unlink attempt. A differing old file, or one whose copy
- * cannot be read, refuses the start: it may hold the only current vault
- * credential. The vault-shaped enrollment state file the move left there
- * (`isVaultShapedKeptState`) stays on purpose. A file Windows will not let
- * go of stays too, and then the move is not finished: the next start
- * tries again. The caller holds the data locks.
+ * cannot be read for a reason other than Windows holding it open, refuses
+ * the start: it may hold the only current vault credential. The vault-shaped
+ * enrollment state file the move left there (`isVaultShapedKeptState`) stays
+ * on purpose. An identical file that cannot be removed, or one Windows keeps
+ * open so it cannot be compared, throws `OldVaultFileKeptError` once every
+ * other file was tried: the caller logs it once and leaves the marker without
+ * `oldFilesRemoved`, so the next start tries again. When the marker records a
+ * kept enrollment state (`keptVaultState`), an old state file whose bytes
+ * equal its state-home copy stays too, even when the leftover check rejects
+ * it. The caller holds the data locks.
  */
 async function removeOldCopies(
   location: RuntimeLayoutLocation,
@@ -1110,18 +1158,39 @@ async function removeOldCopies(
   layoutLock: RefreshFileLock,
   input: {
     log: RuntimeLayoutLogger
+    /** The marker's `keptVaultState`: set when the move left the state file. */
+    keptVaultState: string | undefined
     steps?: RuntimeLayoutOptions['steps']
   },
 ): Promise<void> {
   const kept: string[] = []
   const keptState = vaultStateFile(files).old
-  for (const file of present) {
+  // The enrollment state file comes last: whether it may stay depends on the
+  // old token being gone, and the token is one of the files removed here.
+  const ordered = [
+    ...present.filter((file) => file.old !== keptState),
+    ...present.filter((file) => file.old === keptState),
+  ]
+  for (const file of ordered) {
     await layoutLock.assertOwned()
-    if (file.old === keptState && (await isVaultShapedKeptState(files))) {
-      // Kept on purpose, but only next to a copy that is still readable.
-      if (!(await readable(file.next)))
-        throw credentialConflict(location.stateHomeDir, file)
-      continue
+    if (file.old === keptState) {
+      if (await isVaultShapedKeptState(files)) {
+        // Kept on purpose, but only next to a copy that is still readable.
+        if (!(await readable(file.next)))
+          throw credentialConflict(location.stateHomeDir, file)
+        continue
+      }
+      // An old vault file still in place (the token, say) means another try
+      // at the next start; the state file is judged then, beside whatever is
+      // left by then.
+      if (kept.length > 0) continue
+      // The move left a state file here on purpose. Whenever the leftover
+      // check above rejects it (a read that failed for a moment is enough),
+      // a copy identical to the state-home one must still stay: removing it
+      // would make an older version read this host as local. Differing bytes
+      // are judged below.
+      if (input.keptVaultState && (await sameBytes(file.old, file.next)))
+        continue
     }
     if (
       !(await unlinkIfIdentical(file, location.stateHomeDir, () =>
@@ -1130,13 +1199,8 @@ async function removeOldCopies(
     )
       kept.push(file.old)
   }
-  if (kept.length > 0) {
-    input.log.warn(
-      "antigravity-auth could not remove old vault files from OpenCode's config folder; it tries again at the next start",
-      { configDir: location.configDir, kept },
-    )
-    throw new LayoutMoveError('old-files-kept', kept.join(', '))
-  }
+  const [first] = kept
+  if (first !== undefined) throw new OldVaultFileKeptError(first)
 }
 
 async function readable(path: string): Promise<boolean> {
@@ -1148,11 +1212,36 @@ async function readable(path: string): Promise<boolean> {
   }
 }
 
+/** True when both files can be read and hold the same bytes. */
+async function sameBytes(a: string, b: string): Promise<boolean> {
+  try {
+    return (await readFile(a)).equals(await readFile(b))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * On Windows, a file another process has open (an antivirus scan, an indexer,
+ * a writer that has not closed it yet) can refuse to be read or removed for a
+ * moment. These codes do not say whether the file exists or what it holds.
+ */
+function isWindowsSharingError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code
+  return (
+    process.platform === 'win32' &&
+    (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES')
+  )
+}
+
 /**
  * Unlink `file.old` only while its bytes equal `file.next`, retrying on
- * Windows while another process has it open. `guard` runs right before every
- * unlink attempt and throws when the removal must not happen. True when the
- * file is gone.
+ * Windows while another process has either file open. `guard` runs right
+ * before every unlink attempt and throws when the removal must not happen.
+ * True when the file is gone. False when it stays because Windows kept it
+ * open past the retry budget, whether for the comparison or for the removal,
+ * or because the removal failed for another reason. Differing files, or
+ * files unreadable for any other reason, throw `credentialConflict`.
  */
 async function unlinkIfIdentical(
   file: LayoutFile,
@@ -1171,7 +1260,15 @@ async function unlinkIfIdentical(
         !(await exists(file.old))
       )
         return true
-      // Unreadable on either side: which copy is current is unknown.
+      // A file Windows holds open is not evidence that the two copies differ:
+      // compare again shortly, and past the budget leave the old file for the
+      // next start, as when the unlink itself is refused.
+      if (isWindowsSharingError(error)) {
+        if (performance.now() - started >= SHARING_RETRY_BUDGET_MS) return false
+        continue
+      }
+      // Unreadable on either side for another reason: which copy is current
+      // is unknown.
       throw credentialConflict(stateDir, file)
     }
     if (!same) throw credentialConflict(stateDir, file)
@@ -1180,12 +1277,11 @@ async function unlinkIfIdentical(
       await unlink(file.old)
       return true
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT') return true
-      const sharing =
-        process.platform === 'win32' &&
-        (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES')
-      if (!sharing || performance.now() - started >= SHARING_RETRY_BUDGET_MS)
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true
+      if (
+        !isWindowsSharingError(error) ||
+        performance.now() - started >= SHARING_RETRY_BUDGET_MS
+      )
         return false
     }
   }
