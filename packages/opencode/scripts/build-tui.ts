@@ -223,22 +223,6 @@ function checkExternal(specifier: string, tui: boolean, types: boolean) {
     throw new Error(`graph: forbidden TUI external ${specifier}`)
 }
 
-function findPackageRoot(entry: string): string | undefined {
-  let current = dirname(resolve(entry))
-  if (existsSync(current)) {
-    try {
-      current = realpathSync(current)
-    } catch {}
-  }
-  while (true) {
-    if (existsSync(join(current, 'package.json'))) return current
-    const parent = dirname(current)
-    if (parent === current) break
-    current = parent
-  }
-  return undefined
-}
-
 /**
  * Independently check imports and re-exports, plus import()/require() targets
  * expressed as string literals, const aliases or string concatenations. Refuse
@@ -249,28 +233,20 @@ export async function auditGraph(
   {
     tui = true,
     types = false,
-    packageRoot,
+    packageRoot = PACKAGE_ROOT,
   }: { tui?: boolean; types?: boolean; packageRoot?: string } = {},
 ): Promise<Graph> {
-  const rootDir = packageRoot
-    ? existsSync(packageRoot)
-      ? realpathSync(packageRoot)
-      : resolve(packageRoot)
-    : findPackageRoot(entry)
+  const rootDir = existsSync(packageRoot)
+    ? realpathSync(packageRoot)
+    : resolve(packageRoot)
   const files = new Set<string>()
   const externals = new Set<string>()
   async function visit(path: string): Promise<void> {
     path = realpathSync(path)
     if (files.has(path)) return
-    const rel = rootDir !== undefined ? relative(rootDir, path) : undefined
-    const insideRoot =
-      rel !== undefined &&
-      rel !== '' &&
-      rel !== '..' &&
-      !rel.startsWith(`..${sep}`) &&
-      !rel.startsWith('../') &&
-      !isAbsolute(rel)
-    const candidate = insideRoot ? `/${portable(rel)}` : portable(path)
+    const candidate = isInsideDirectory(rootDir, path)
+      ? `/${portable(relative(rootDir, path))}`
+      : portable(path)
     const embedded = candidate.split('/common-auth-embedded/')[1]
     if (
       embedded &&
@@ -586,7 +562,7 @@ export async function verifySelectors(
       )
     const graph = await buildPhase(
       `selectors.auditGraph ${tree}/${entry}`,
-      () => auditGraph(join(packageRoot, tree, entry)),
+      () => auditGraph(join(packageRoot, tree, entry), { packageRoot }),
     )
     if (graph.files.some((path) => path.endsWith('/selector.js')))
       throw new Error('build.selector_inert: imported selector copy')

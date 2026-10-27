@@ -788,7 +788,9 @@ test('graph.ga_policy_refusals', async () => {
     ],
     [
       {
-        files: ['/work/antigravity/packages/opencode/src/plugin/src/storage.ts'],
+        files: [
+          '/work/antigravity/packages/opencode/src/plugin/src/storage.ts',
+        ],
         externals: [],
       },
       'source',
