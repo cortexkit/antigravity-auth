@@ -20,6 +20,7 @@ import {
   createAccountRepositoryFactory,
 } from '@cortexkit/antigravity-auth-core'
 import { lifetimeHooks } from '../../../../test/fixtures/lifetime-hooks.ts'
+import { AnchorLockTrace } from './__fixtures__/anchor-lock-trace'
 import { managedStoreModules } from './__fixtures__/managed-store.test.ts'
 import { loadVerifiedStoreModules } from './__fixtures__/verified-store'
 import { createRepositoryAccountAccessService } from './account-access'
@@ -835,6 +836,19 @@ describe('Windows migrated-store anchor', () => {
   let previousConfigDir: string | undefined
   let previousAppData: string | undefined
   const repositories: AccountRepository[] = []
+  let anchorTrace: AnchorLockTrace | undefined
+
+  async function traceAnchor(
+    name: string,
+    work: (trace: AnchorLockTrace) => Promise<void>,
+  ) {
+    const trace = new AnchorLockTrace(name)
+    anchorTrace = trace
+    await trace.run(async () => {
+      await trace.install()
+      await work(trace)
+    })
+  }
 
   const configPool = () => join(configDir, 'antigravity-accounts.json')
   const legacyPool = () =>
@@ -918,86 +932,124 @@ describe('Windows migrated-store anchor', () => {
   })
 
   afterEach(async () => {
-    for (const repository of repositories.splice(0)) {
-      await repository.dispose()
+    try {
+      for (const repository of repositories.splice(0)) {
+        await repository.dispose()
+      }
+      Object.defineProperty(process, 'platform', {
+        value: realPlatform,
+        configurable: true,
+      })
+      if (previousConfigDir === undefined)
+        delete process.env.OPENCODE_CONFIG_DIR
+      else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
+      if (previousAppData === undefined) delete process.env.APPDATA
+      else process.env.APPDATA = previousAppData
+      await rm(configDir, { recursive: true, force: true })
+      await rm(appDataRoot, { recursive: true, force: true })
+    } finally {
+      anchorTrace?.stop()
+      anchorTrace = undefined
     }
-    Object.defineProperty(process, 'platform', {
-      value: realPlatform,
-      configurable: true,
-    })
-    if (previousConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
-    else process.env.OPENCODE_CONFIG_DIR = previousConfigDir
-    if (previousAppData === undefined) delete process.env.APPDATA
-    else process.env.APPDATA = previousAppData
-    await rm(configDir, { recursive: true, force: true })
-    await rm(appDataRoot, { recursive: true, force: true })
   })
 
   it('finds a store migrated at the %APPDATA% anchor after its pool file is retired', async () => {
-    const modules = await genuineModules()
-    await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
-    expect(
-      (
-        await initializeFreshAccountStoreFor(modules, {
-          legacyPath: legacyPool(),
-        })
-      ).status,
-    ).toBe('completed')
-    const seeded = await openAt(legacyPool(), modules)
-    expect(seeded.status).toBe('ready')
-    if (seeded.status !== 'ready') return
-    repositories.push(seeded.repository)
-    const [login] = await commitLogins(seeded.repository, [
-      loginOf('legacy-token|legacy-project', 'legacy@example.test'),
-    ])
-    expect(login).toMatchObject({ status: 'committed' })
+    await traceAnchor(
+      'finds a store migrated at the %APPDATA% anchor after its pool file is retired',
+      async (trace) => {
+        const modules = await trace.phase(
+          'load:verified-modules',
+          genuineModules,
+        )
+        await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
+        expect(
+          (
+            await trace.phase('seed:initialize:appdata', () =>
+              initializeFreshAccountStoreFor(modules, {
+                legacyPath: legacyPool(),
+              }),
+            )
+          ).status,
+        ).toBe('completed')
+        const seeded = await trace.phase('seed:open:appdata', () =>
+          openAt(legacyPool(), modules),
+        )
+        expect(seeded.status).toBe('ready')
+        if (seeded.status !== 'ready') return
+        repositories.push(seeded.repository)
+        const [login] = await trace.phase('seed:commit-login', () =>
+          commitLogins(seeded.repository, [
+            loginOf('legacy-token|legacy-project', 'legacy@example.test'),
+          ]),
+        )
+        expect(login).toMatchObject({ status: 'committed' })
 
-    // The pool file is retired and nothing lives at the config anchor, yet
-    // the migrated store must stay visible through the real resolution path.
-    mockWindows()
-    await expect(stat(legacyPool())).rejects.toMatchObject({
-      code: 'ENOENT',
-    })
-    expect(getStoragePath()).toBe(legacyPool())
-    const resolved = await openResolved(modules)
-    expect(resolved.status).toBe('ready')
-    if (resolved.status !== 'ready') return
-    repositories.push(resolved.repository)
-    const read = await resolved.repository.read()
-    expect(read.status).toBe('ready')
-    if (read.status !== 'ready') return
-    expect(read.rows.map((row) => row.credential?.refreshToken)).toEqual([
-      'legacy-token',
-    ])
+        // The pool file is retired and OPENCODE_CONFIG_DIR has no store, yet
+        // the migrated store must stay visible through the real resolution path.
+        mockWindows()
+        await expect(stat(legacyPool())).rejects.toMatchObject({
+          code: 'ENOENT',
+        })
+        expect(getStoragePath()).toBe(legacyPool())
+        const resolved = await trace.phase('resolve:open', () =>
+          openResolved(modules),
+        )
+        expect(resolved.status).toBe('ready')
+        if (resolved.status !== 'ready') return
+        repositories.push(resolved.repository)
+        const read = await trace.phase('resolve:read', () =>
+          resolved.repository.read(),
+        )
+        expect(read.status).toBe('ready')
+        if (read.status !== 'ready') return
+        expect(read.rows.map((row) => row.credential?.refreshToken)).toEqual([
+          'legacy-token',
+        ])
+        expect(trace.locks.some((lock) => lock.name === 'save')).toBe(true)
+      },
+    )
   })
 
   it('refuses when pointers exist at both anchors, naming both', async () => {
-    const modules = await genuineModules()
-    await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
-    expect(
-      (
-        await initializeFreshAccountStoreFor(modules, {
-          legacyPath: legacyPool(),
-        })
-      ).status,
-    ).toBe('completed')
-    expect(
-      (
-        await initializeFreshAccountStoreFor(modules, {
-          legacyPath: configPool(),
-        })
-      ).status,
-    ).toBe('completed')
-    mockWindows()
-    let failure: unknown
-    try {
-      getStoragePath()
-    } catch (error) {
-      failure = error
-    }
-    expect(failure).toBeInstanceOf(Error)
-    expect(String((failure as Error)?.message)).toContain(legacyPool())
-    expect(String((failure as Error)?.message)).toContain(configPool())
+    await traceAnchor(
+      'refuses when pointers exist at both anchors, naming both',
+      async (trace) => {
+        const modules = await trace.phase(
+          'load:verified-modules',
+          genuineModules,
+        )
+        await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
+        expect(
+          (
+            await trace.phase('seed:initialize:appdata', () =>
+              initializeFreshAccountStoreFor(modules, {
+                legacyPath: legacyPool(),
+              }),
+            )
+          ).status,
+        ).toBe('completed')
+        expect(
+          (
+            await trace.phase('seed:initialize:config', () =>
+              initializeFreshAccountStoreFor(modules, {
+                legacyPath: configPool(),
+              }),
+            )
+          ).status,
+        ).toBe('completed')
+        mockWindows()
+        let failure: unknown
+        try {
+          getStoragePath()
+        } catch (error) {
+          failure = error
+        }
+        expect(failure).toBeInstanceOf(Error)
+        expect(String((failure as Error)?.message)).toContain(legacyPool())
+        expect(String((failure as Error)?.message)).toContain(configPool())
+        expect(trace.locks.some((lock) => lock.name === 'save')).toBe(true)
+      },
+    )
   })
 
   it('keeps using the config anchor when only it publishes a store', async () => {
