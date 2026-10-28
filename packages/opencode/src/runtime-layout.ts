@@ -705,11 +705,12 @@ function defaultFence(version: string) {
 
 /**
  * Record and fix this process's vault layout, then decide where its account
- * store lives and move it there when that is safe. Runs under the layout
- * lock. The vault layout comes first because the store's new anchor is the
- * folder the state-home layout names, and because a store move must never
- * run before every other process has been told where this one's vault files
- * are.
+ * store lives and move it there when that is safe. The normal path runs while
+ * the caller holds the layout lock; a start that found the vault move already
+ * finished records itself without taking that lock again. The vault layout
+ * comes first because the store's new anchor is the folder the state-home
+ * layout names, and because a store move must never run before every other
+ * process has been told where this one's vault files are.
  */
 async function settleVault(
   location: RuntimeLayoutLocation,
@@ -729,16 +730,21 @@ async function settleVault(
 /**
  * Decides, once per process, where this config folder's account store
  * lives, and moves it into the state-home folder when that is safe. Call at
- * plugin start after `prepareRuntimeLayout`, which calls it while it holds
- * the layout lock; a process that already settled its anchor keeps it.
- * Resolves to the anchor `getStoragePath()` in `plugin/storage.ts` now uses.
+ * plugin start: `prepareRuntimeLayout` settles it inside the layout lock on
+ * its normal path, and `vault-folder.ts` calls this after it for the path
+ * where the vault files had already moved (which settles nothing again). A
+ * process that already settled its anchor keeps it. Resolves to the anchor
+ * `getStoragePath()` in `plugin/storage.ts` now uses.
  *
- * A store move runs only when every account store of this config folder is
- * at the config folder anchor, no other live process could still be using it
- * there (the `storeMove` fence, which also reads each heartbeat's `stores`),
- * the state-home folder's path resolves through no link, and the store's own
- * locks are free. Otherwise this process keeps the config folder for its
- * whole life and says why once: a deferral is never a refusal.
+ * An initial move runs only when every account store of this config folder
+ * is at the config folder anchor, no other live process could still be using
+ * it there (the `storeMove` fence, which also reads each heartbeat's
+ * `stores`), the state-home folder's path resolves through no link, and the
+ * store's own locks are free. Otherwise this process keeps the config folder
+ * for its whole life and says why once: a deferral is never a refusal. When
+ * a forwarding pointer already exists, its anchor is the answer whatever
+ * happens next, and an unfinished move there reports the store as unusable
+ * until a later start resumes it.
  */
 export async function prepareAccountStore(
   options: RuntimeLayoutOptions,
@@ -994,8 +1000,9 @@ export type StoreMoveResult =
 
 /**
  * One offline store move with the stopped-process confirmation `migrate`
- * takes: the start-time move, setup, and `antigravity-auth store relocate`
- * all use it, and the caller holds the layout lock.
+ * takes. The start-time move and setup call it while they hold the layout
+ * lock; `antigravity-auth store relocate` takes no lock and relies on that
+ * confirmation alone, because every OpenCode is stopped.
  */
 export async function runStoreMove(
   input: StoreMoveInput,
@@ -1017,12 +1024,14 @@ export async function runStoreMove(
 }
 
 /**
- * Runs one store move while the caller holds the layout lock. The fence is
- * read once more right before it, so a process that started meanwhile and
- * kept the config folder stops this one. A move that cannot finish (another
- * process holds a store lock, an unfinished move of another source) keeps
- * this process at the config folder for its life; the next start with an
- * open fence finishes it.
+ * Runs one store move for the start-time decision. The fence is read right
+ * before it, so a process that started meanwhile and kept the config folder
+ * stops this one. An initial move that cannot finish (another process holds
+ * a store lock, an unfinished move of another source) keeps this process at
+ * the config folder for its life, and the next start with an open fence
+ * finishes it. When an existing forward sent us here, the caller keeps that
+ * forward's anchor either way and the store reports itself unusable until a
+ * later attempt succeeds.
  */
 async function moveStore(
   location: RuntimeLayoutLocation,

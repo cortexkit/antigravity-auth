@@ -52,8 +52,9 @@ async function storePresent(anchor: string): Promise<boolean> {
 
 /**
  * The generation the state-home anchor publishes, for the forward `init`'s
- * fresh store leaves at the config anchor. A store that does not bind here
- * is not forwarded: nothing then tells an older version that it moved.
+ * fresh store leaves at the config anchor. An empty string when no store
+ * binds there; such a store was never created, so setup writes no forward
+ * for it either.
  */
 async function publishedGeneration(anchor: string): Promise<string> {
   const modules = await loadCommonAuthStoreModules()

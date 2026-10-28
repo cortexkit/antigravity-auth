@@ -198,11 +198,11 @@ export interface ProcessHeartbeatHandle {
 }
 
 /**
- * A heartbeat write that failed before the file was written: the folder
- * could not be created or kept private, or the file could not be renamed
- * into place. Raised only by `recordProcessAnchor` callers, which must not
- * run on the old paths unregistered; `startProcessHeartbeat` logs it instead.
- * Every other version so far has left nothing behind in this case.
+ * A heartbeat write that failed: the folder could not be created or kept
+ * private, or the temporary file could not be written or renamed into place.
+ * Raised by `recordProcessLayout` and `recordProcessAnchor` callers, which
+ * must not run on the old paths unregistered; `startProcessHeartbeat` logs a
+ * failed write instead. A failed attempt publishes no heartbeat file.
  */
 class HeartbeatWriteFailure extends Error {
   constructor(cause: unknown) {
@@ -349,9 +349,10 @@ export async function removeProcessHeartbeat(
 /**
  * Record which layout this process uses for one config folder and write the
  * heartbeat at once, because another process deciding whether it may move
- * the files reads it; the caller makes the choice and this write while it
- * holds the layout lock. Throws when the write fails, unlike
- * `startProcessHeartbeat`.
+ * the files reads it. A start makes the choice and this write while it holds
+ * the layout lock, so a process deciding later sees it; a start whose vault
+ * files moved long ago records it without that lock. Throws when the write
+ * fails, unlike `startProcessHeartbeat`.
  */
 export async function recordProcessLayout(input: {
   key: string
@@ -369,8 +370,9 @@ export async function recordProcessLayout(input: {
  * Record where this process keeps one config folder's account store (see
  * `AccountStoreAnchor` in `runtime-paths.ts`) and write the heartbeat at
  * once, because a process deciding whether it may move the store reads it.
- * The caller makes the choice and this write while it holds the layout lock.
- * Throws when the write fails, unlike `startProcessHeartbeat`.
+ * A start makes the choice and this write while it holds the layout lock, so
+ * a process deciding later sees it. Throws when the write fails, unlike
+ * `startProcessHeartbeat`.
  */
 export async function recordProcessAnchor(input: {
   key: string
