@@ -2519,7 +2519,7 @@ async function assertSourceForwarded(
     )
   if (record.schemaVersion === 1)
     throw new AccountMigrationError(
-      `the account store in ${dirname(source.legacyPath)} was reactivated: ${pointer} publishes generation ${record.id} while the moved store at ${journal.storeDir} is active; restore the forwarding pointer, or run \`antigravity-auth store relocate\``,
+      `the account store in ${dirname(source.legacyPath)} was reactivated: ${pointer} publishes generation ${record.id} while the moved store at ${journal.storeDir} is active; restore the forwarding pointer`,
     )
   if (
     record.id !== source.journalId ||
@@ -2593,7 +2593,7 @@ async function bindPublishedGeneration(
     // forward to the old generation.
     if (record.kind === 'migration' && record.id !== journal.id)
       throw new AccountMigrationError(
-        `the account store at ${paths.storeDir} was moved to generation ${String(record.id)}, but ${accountStorePointerPath(legacyPath)} publishes the old store again; restore the forwarding pointer, or run \`antigravity-auth store relocate\``,
+        `the account store at ${paths.storeDir} was moved to generation ${String(record.id)}, but ${accountStorePointerPath(legacyPath)} publishes the old store again; restore the forwarding pointer`,
       )
     if (record.kind === 'migration')
       return { status: 'pending', phase: 'activate', operation: 'migrate' }
