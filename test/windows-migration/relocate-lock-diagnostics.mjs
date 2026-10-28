@@ -76,7 +76,7 @@ export async function relocationLockDiagnostics(profile, anchors) {
   const snapshot = {
     capturedAt: Date.now(),
     profile: longPath(profile),
-    anchorParents: anchors.map((anchor) => longPath(dirname(anchor))),
+    anchorParents: [...anchors].map((anchor) => longPath(dirname(anchor))),
     generations: [],
   }
   for (const anchor of anchors) {
