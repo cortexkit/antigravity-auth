@@ -2,7 +2,7 @@
 
 /**
  * The Antigravity sidebar frame, shared by the OpenCode 1 sidebar (`tui.tsx`)
- * and the OpenCode 2 sidebar (`ga/tui/host-ga.tsx`): the bordered, padded
+ * and the OpenCode 2 sidebar (`ga/tui/host-ga.tsx`): the padded
  * panel, the clickable `▼`/`▶` header badge with the plugin version (or a
  * `LIMITED` badge) at the right, one line per account when collapsed, and the
  * `Quota`, `Routing` and `Health` sections when expanded.
@@ -63,7 +63,6 @@ export interface FrameTheme {
   readonly textMuted: FrameColor
   readonly accent: FrameColor
   readonly background: FrameColor
-  readonly borderActive: FrameColor
   readonly success: FrameColor
   readonly warning: FrameColor
   readonly error: FrameColor
@@ -370,9 +369,6 @@ function CollapsedAccount(props: {
 
 // --- Frame -----------------------------------------------------------------
 
-// The opentui border prop is not typed in the plugin TUI surface.
-const SINGLE_BORDER = { type: 'single' } as any
-
 export interface SidebarFrameProps {
   readonly theme: () => FrameTheme
   readonly settings: () => FrameSettings
@@ -422,7 +418,7 @@ export function SidebarFrame(props: SidebarFrameProps): JSX.Element {
     )
 
   // The width available to content: the header row spans the panel inside
-  // its border and padding. Layout reports it during a render pass, so the
+  // its padding. Layout reports it during a render pass, so the
   // signal is updated afterwards rather than rebuilding rows mid-pass.
   const [contentWidth, setContentWidth] = createSignal(ASSUMED_CONTENT_WIDTH)
   let headerRow: { width: number } | undefined
@@ -445,8 +441,6 @@ export function SidebarFrame(props: SidebarFrameProps): JSX.Element {
     <box
       width='100%'
       flexDirection='column'
-      border={SINGLE_BORDER}
-      borderColor={theme().borderActive}
       paddingTop={1}
       paddingBottom={1}
       paddingLeft={1}

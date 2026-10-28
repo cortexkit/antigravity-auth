@@ -1542,7 +1542,6 @@ export function sidebarThemeFromHost(theme: GaTheme | undefined): FrameTheme {
     textMuted: theme?.text?.muted ?? text,
     accent,
     background: theme?.background?.base ?? theme?.background?.raised?.base,
-    borderActive: theme?.border?.base ?? accent,
     success: feedback?.success?.base ?? feedback?.success?.muted,
     warning: feedback?.warning?.base ?? feedback?.warning?.muted,
     error: feedback?.error?.base ?? feedback?.error?.muted,

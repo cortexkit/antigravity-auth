@@ -4,7 +4,7 @@
  * Read-only OpenTUI sidebar for the Antigravity plugin.
  *
  * Mirrors the fleet sibling layout (see `anthropic-auth-live` /
- * `openai-auth-live` `packages/opencode/src/tui.tsx`): a single bordered
+ * `openai-auth-live` `packages/opencode/src/tui.tsx`): a single
  * column with a labelled header badge, a Quota section that lists one
  * `AccountBlock` per visible account, a Routing section that surfaces the
  * most recent session route, and a Health section that only appears when
