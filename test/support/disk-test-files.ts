@@ -17,6 +17,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Recovery adapter requires file and directory sync capabilities.',
   'packages/core/src/account-relocation.test.ts':
     'Moved-store fixtures on real store locks with private modes (0600/0700); released-core child against the same files.',
+  'packages/core/src/account-relocation-private-files.test.ts':
+    'Injected Windows private-files backend checks real relocation creation, locks, and native byte clones.',
   'packages/core/src/common-auth-runtime.test.ts':
     'Real embedded atomic file writes and owned filesystem locks.',
   'packages/core/src/vault-provider-state.test.ts':

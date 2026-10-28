@@ -44,6 +44,12 @@ import {
   ROUTING_SETTINGS_KEY,
   refreshProviderLock,
 } from './account-repository-types.ts'
+import {
+  createPrivateBytes,
+  createPrivateDirectoryExclusive,
+  verifySafeDirectory,
+  windowsPrivateFiles,
+} from './common-auth-embedded/fs/private-files.js'
 
 /** Derives store paths from the caller's absolute legacy file path, not HOME or host preferences. */
 export function resolveAccountStorePaths(
@@ -1591,7 +1597,8 @@ function privateMode(mode: number, expected: number): void {
 }
 async function privateDirectory(path: string): Promise<void> {
   try {
-    await mkdir(path, { mode: 0o700 })
+    if (windowsPrivateFiles) await createPrivateDirectoryExclusive(path)
+    else await mkdir(path, { mode: 0o700 })
   } catch (error) {
     if (errno(error) !== 'EEXIST') throw error
   }
@@ -1601,6 +1608,7 @@ async function privateDirectory(path: string): Promise<void> {
       'successor directory is not a regular directory',
     )
   privateMode(stat.mode, 0o700)
+  if (windowsPrivateFiles) await verifySafeDirectory(path)
   if (!sameFilesystemPath(await realpath(path), path))
     throw new AccountMigrationError(
       'successor directory traverses a symbolic link',
@@ -1702,8 +1710,18 @@ async function exclusiveBytes(
   pointerStage = false,
 ): Promise<void> {
   let handle: Awaited<ReturnType<typeof open>> | undefined
+  let created = false
   try {
-    handle = await open(path, 'wx', 0o600)
+    if (windowsPrivateFiles) {
+      // The backend accepts Uint8Array, although the embedded declaration only
+      // lists strings. Preserve native JSON bytes without a UTF-8 round trip.
+      const createBytes = createPrivateBytes as (
+        path: string,
+        bytes: string | Uint8Array,
+      ) => Promise<void>
+      await createBytes(path, bytes)
+      created = true
+    } else handle = await open(path, 'wx', 0o600)
   } catch (error) {
     if (errno(error) !== 'EEXIST') throw error
   }
@@ -1720,9 +1738,9 @@ async function exclusiveBytes(
   const reopened = await secureRead(path)
   if (digest(reopened) !== expectedHash || !reopened.equals(bytes))
     throw new AccountMigrationError('exclusive backup or recovery copy differs')
-  // A new pointer stage was synced through its write handle. Reused stages and
+  // New pointer stages are flushed by their creation writer. Reused stages and
   // all backup, bootstrap, retired and export copies retain the reopened barrier.
-  if (handle === undefined || !pointerStage) await syncFile(path)
+  if ((!created && handle === undefined) || !pointerStage) await syncFile(path)
   await syncDirectory(dirname(path), boundary)
 }
 async function readJournal(
@@ -5628,7 +5646,8 @@ async function allocateGeneration(
       'foreign logical directory refuses generation allocation',
     )
   const paths = generationPaths(legacyPath, randomUUID())
-  await mkdir(paths.storeDir, { mode: 0o700 })
+  if (windowsPrivateFiles) await createPrivateDirectoryExclusive(paths.storeDir)
+  else await mkdir(paths.storeDir, { mode: 0o700 })
   await prepareDirectories(paths)
   return paths
 }
