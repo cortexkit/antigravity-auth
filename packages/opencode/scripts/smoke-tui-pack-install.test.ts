@@ -165,7 +165,7 @@ const candidate = () => [
     {
       [core]: '2.2.1',
       '@cortexkit/claustrum-client': '0.12.0',
-      '@cortexkit/private-files': '0.2.1',
+      '@cortexkit/private-files': '0.2.2',
       '@cortexkit/subc-client': '0.22.5',
       zod: '^4.0.0',
     },
@@ -230,7 +230,7 @@ describe('packed consumer graph comparison', () => {
         {
           [core]: '3.0.0',
           '@cortexkit/claustrum-client': '0.12.0',
-          '@cortexkit/private-files': '0.2.1',
+          '@cortexkit/private-files': '0.2.2',
           '@cortexkit/subc-client': '0.22.5',
           zod: '^4.0.0',
         },
@@ -258,7 +258,7 @@ describe('packed consumer graph comparison', () => {
         {
           [core]: '3.0.1',
           '@cortexkit/claustrum-client': '0.12.0',
-          '@cortexkit/private-files': '0.2.1',
+          '@cortexkit/private-files': '0.2.2',
           '@cortexkit/subc-client': '0.22.5',
           zod: '^4.0.0',
         },
@@ -291,7 +291,7 @@ describe('packed consumer graph comparison', () => {
         '2.2.1',
         {
           '@cortexkit/claustrum-client': '0.12.0',
-          '@cortexkit/private-files': '0.2.1',
+          '@cortexkit/private-files': '0.2.2',
           '@cortexkit/subc-client': '0.22.5',
           zod: '^4.0.0',
         },

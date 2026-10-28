@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, rename, rm, stat, } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createPrivateBytes, createPrivateDirectoryExclusive, ensurePrivateDirectory, PrivateFileError, privateOperation, readPrivateText, verifyPrivate, windowsPrivateFiles, writePrivateAtomic, } from './private-files.js';
 import { LockOwnershipError, lockPathFor } from './with-lock.js';
@@ -13,8 +13,34 @@ import { LockOwnershipError, lockPathFor } from './with-lock.js';
  */
 async function createExclusiveText(path, text) {
     const handle = await open(path, 'wx', 0o600);
+    let createdStat;
+    try {
+        createdStat = await handle.stat();
+    }
+    catch {
+        createdStat = undefined;
+    }
     try {
         await handle.writeFile(text, 'utf8');
+    }
+    catch (error) {
+        // A failed write after an exclusive create leaves a partial file behind.
+        // Remove only the file just created: when a contender has meanwhile
+        // replaced the path, the identities differ and the successor is left
+        // alone. Removal failures must never mask the original write error.
+        try {
+            const current = await lstat(path).catch(() => undefined);
+            if (createdStat &&
+                current &&
+                current.dev === createdStat.dev &&
+                current.ino === createdStat.ino) {
+                await rm(path, { force: true }).catch(() => { });
+            }
+        }
+        catch {
+            // Best effort only; the original error below explains the failure.
+        }
+        throw error;
     }
     finally {
         await handle.close();
@@ -31,6 +57,31 @@ export function isLostMarkerRaceError(error) {
     return (code === 'ENOENT' ||
         (!windowsPrivateFiles && (code === 'EINVAL' || code === 'ENOTDIR')));
 }
+let evictionMarkerTestHooks;
+/**
+ * Tests only: inject a failure or a directory replacement between the
+ * eviction-marker mkdir and its owner.json write. Production never sets this.
+ * Not exported from the fs entry point, so it is not part of the public API.
+ */
+export function setEvictionMarkerTestHooksForTest(hooks) {
+    evictionMarkerTestHooks = hooks;
+}
+function sameMarkerDirectory(created, current) {
+    if (created.dev !== current.dev || created.ino !== current.ino)
+        return false;
+    // Windows reports the directory identity as a file id that can be 0; fall
+    // back to creation time so a reused id does not look like the same directory.
+    if (created.ino === 0 && created.birthtimeMs !== current.birthtimeMs)
+        return false;
+    return true;
+}
+/**
+ * An ownerless marker older than this is recoverable without waiting for the
+ * full eviction TTL. Honest holders write owner.json within tens of
+ * milliseconds of the mkdir, so one second leaves wide margin for slow Windows
+ * filesystems while still bounding the stall from a crashed holder.
+ */
+const OWNERLESS_MARKER_GRACE_MS = 1_000;
 /** Filesystem leases share wall time across all callers and processes. */
 export function acquireRefreshFileLock(options) {
     return acquireRefreshFileLockWithClock({ ...options, now: Date.now });
@@ -321,12 +372,66 @@ export async function acquireRefreshFileLockWithClock(options) {
             await removeLeaseObject(evictPath);
         }
     }
+    // Returns whether the directory at the marker path was still the one this
+    // process created when its owner write failed. Only then is the failure ours
+    // to report: a gone or replaced directory is a lost race.
+    async function removeOwnMarkerAfterFailedOwnerWrite(created) {
+        // Best effort only: never throws, so the original owner-write error below
+        // keeps explaining the failure. Removes the directory this process just
+        // created when its owner write failed, and leaves a contender's
+        // replacement alone when the identities differ.
+        if (!created)
+            return false;
+        let current;
+        try {
+            const st = await lstat(evictPath);
+            current = { dev: st.dev, ino: st.ino, birthtimeMs: st.birthtimeMs };
+        }
+        catch {
+            // Renamed away by a contender's steal: nothing of ours left to clean.
+            return false;
+        }
+        if (!sameMarkerDirectory(created, current))
+            return false;
+        // Remove only an ownerless directory. An owner file that appeared after
+        // our failed write belongs to someone: ours goes through
+        // releaseEvictionMarker in the caller, and a contender's must stay, since
+        // it may be holding the marker right now.
+        try {
+            await stat(evictOwnerPath);
+            return true;
+        }
+        catch (error) {
+            if (error.code !== 'ENOENT')
+                return true;
+        }
+        try {
+            await removeLeaseObject(evictPath);
+        }
+        catch {
+            // A removal failure keeps the stale marker recoverable later; it must
+            // never mask the original owner-write error.
+        }
+        return true;
+    }
     async function tryAcquireEvictionMarker() {
         if (windowsPrivateFiles)
             await createPrivateDirectoryExclusive(evictPath);
         else
             await mkdir(evictPath);
+        let created;
         try {
+            const st = await lstat(evictPath);
+            created = { dev: st.dev, ino: st.ino, birthtimeMs: st.birthtimeMs };
+        }
+        catch {
+            created = undefined;
+        }
+        try {
+            await evictionMarkerTestHooks?.beforeOwnerWrite?.(evictPath, evictOwnerPath);
+            const injected = await evictionMarkerTestHooks?.failOwnerWrite?.(evictPath, evictOwnerPath);
+            if (injected !== undefined)
+                throw injected;
             const bytes = `${JSON.stringify({ ownerId: evictOwnerId, createdAt: now() })}\n`;
             if (windowsPrivateFiles)
                 await createPrivateBytes(evictOwnerPath, bytes);
@@ -339,9 +444,26 @@ export async function acquireRefreshFileLockWithClock(options) {
             // path below does exactly that). That is a lost race, not a failure, so
             // report it as such and let the caller back off and retry rather than
             // failing the whole lock acquisition.
-            if (isLostMarkerRaceError(error))
+            //
+            // The race codes alone cannot prove the directory is gone: the same
+            // codes can surface while our directory is still in place (for example
+            // a permission failure while writing the owner file, which used to
+            // leave an ownerless marker behind). The identity fence
+            // above removes only the directory this process created, and is a no-op
+            // when the contender renamed it away or replaced it, so run it on both
+            // branches before deciding between a retry and a failure.
+            // A race code while our own directory is still in place is not a lost
+            // race but a write that fails here every time: report it, rather than
+            // retrying the same failure until a deadline hides the cause.
+            const stillOurs = await removeOwnMarkerAfterFailedOwnerWrite(created);
+            if (isLostMarkerRaceError(error) && !stillOurs)
                 return false;
-            await releaseEvictionMarker();
+            try {
+                await releaseEvictionMarker();
+            }
+            catch {
+                // Removal must never mask the original owner-write error.
+            }
             throw error;
         }
         if (options.onStep)
@@ -371,8 +493,29 @@ export async function acquireRefreshFileLockWithClock(options) {
                 throw error;
             }
         }
-        if (evictStat.mtimeMs + EVICT_TTL > now())
-            return 'fresh';
+        if (evictStat.mtimeMs + EVICT_TTL > now()) {
+            // A fresh marker with no owner is either this process's orphan (its
+            // owner write just failed) or a holder that crashed between mkdir and
+            // owner write. Honest holders publish owner.json within tens of
+            // milliseconds, so recover ownerless markers after a short grace instead
+            // of stalling for the full TTL. Stealing one is safe: a live holder
+            // stalled past the grace sees its pending owner write fail with ENOENT
+            // (a lost race) and retries, rather than acting on a stolen marker.
+            let hasOwner = true;
+            try {
+                await stat(evictOwnerPath);
+            }
+            catch (error) {
+                if (error.code === 'ENOENT')
+                    hasOwner = false;
+                else
+                    return 'fresh';
+            }
+            if (hasOwner)
+                return 'fresh';
+            if (evictStat.mtimeMs + OWNERLESS_MARKER_GRACE_MS > now())
+                return 'fresh';
+        }
         if (options.onStep)
             await options.onStep('stale-marker-stat');
         const claimedPath = `${evictPath}.${randomUUID()}`;
@@ -699,7 +842,12 @@ export async function acquireRefreshFileLockWithClock(options) {
             released = true;
             cancelRenewalTimer();
             await renewalInFlight;
-            for (let attempt = 0; attempt < MAX_STEAL_ATTEMPTS; attempt++) {
+            // A fresh marker may outlive a few quick retries, especially on Windows.
+            // Allow its full TTL plus recovery time, using a monotonic deadline so
+            // wall-clock adjustments cannot extend the retry deadline.
+            const deadline = performance.now() + EVICT_TTL + 1_000;
+            let delayMs = 5;
+            for (;;) {
                 try {
                     let removalConfirmed = false;
                     const markerAcquired = await withEvictionMarker(async () => {
@@ -741,7 +889,11 @@ export async function acquireRefreshFileLockWithClock(options) {
                         throw error;
                     return;
                 }
-                await backoff();
+                const remainingMs = deadline - performance.now();
+                if (remainingMs <= 0)
+                    break;
+                await new Promise((resolve) => setTimeout(resolve, Math.min(delayMs, remainingMs)));
+                delayMs = Math.min(delayMs * 2, 50);
             }
             // Do not delete by pathname without the marker: bounded retries leave the
             // lease to expire rather than risking removal of a successor's lock.

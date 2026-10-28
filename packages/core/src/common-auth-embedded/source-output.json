@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.28.0",
-  "artifactStatus": "published",
+  "version": "0.29.0",
+  "artifactStatus": "candidate",
   "publicRoots": {
     "./store": {
       "types": "./dist/store/index.d.ts",
@@ -37,15 +37,15 @@
       "import": "./dist/pi-slot/index.js"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.28.0.tgz",
-  "tarballSha256": "8070e3c1882238d78ac5e955fb140484e08d9f97ed0f2d5d40f35928c60fbbc5",
-  "sri": "sha512-PRyppMdE3y8dTzF3iQHcFruo5ksPPhgSQExe7g4Ij/oPynDLbalSQqBaInKdSV/v5qyrY0iJs/D0Yu7fbWh3NQ==",
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.29.0.tgz",
+  "tarballSha256": "8f79a9a6bf96d0b28dabc615eaf124aaa09241549b399d742e0b2c97fc8e6cea",
+  "sri": "sha512-nOMzdlveEad1sx/Oy95zufZXJaatrGUpXirl6Z+c1+n7prMlCyiKzbaE894u1LkX1feNABAZji7rFyPFjEdQDQ==",
   "canonicalFiles": 147,
-  "canonicalBytes": 985409,
+  "canonicalBytes": 994153,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 3,
-    "sha256": "32e05acc65fbec2114dce8a43e29e3eca2d6f02594f20e3f6e7bc3b1ec9b8aa3"
+    "sha256": "ea086d1b7a3ddbadc428a114c861c3db64ddd54e01d7db1caf8097bb51d891a0"
   },
   "files": [
     {
@@ -595,17 +595,17 @@
     {
       "source": "package/dist/fs/refresh-file-lock.d.ts",
       "output": "fs/refresh-file-lock.d.ts",
-      "bytes": 2157,
-      "sourceSha256": "cbce15eb313d425501780dd4be657cbbaa7e41064bab4ae64fea91fbd54918e9",
-      "outputSha256": "cbce15eb313d425501780dd4be657cbbaa7e41064bab4ae64fea91fbd54918e9",
+      "bytes": 2946,
+      "sourceSha256": "b649e67813eb4086ca5642c99d318f90ccccae9702b23ad8fb0616f8d62f5a06",
+      "outputSha256": "b649e67813eb4086ca5642c99d318f90ccccae9702b23ad8fb0616f8d62f5a06",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/fs/refresh-file-lock.js",
       "output": "fs/refresh-file-lock.js",
-      "bytes": 30833,
-      "sourceSha256": "c0e4de79b0c0bb8fac09b13c5cf861eaa008434b336e87ce761d7f0713203a90",
-      "outputSha256": "c0e4de79b0c0bb8fac09b13c5cf861eaa008434b336e87ce761d7f0713203a90",
+      "bytes": 37753,
+      "sourceSha256": "38bc20ae71a195818f9cf7e42954e8305f92a55ff15dd855da33ccdec6b34fa1",
+      "outputSha256": "38bc20ae71a195818f9cf7e42954e8305f92a55ff15dd855da33ccdec6b34fa1",
       "transform": "verbatim"
     },
     {
@@ -707,9 +707,9 @@
     {
       "source": "package/dist/pi-slot/lock.js",
       "output": "pi-slot/lock.js",
-      "bytes": 7385,
-      "sourceSha256": "68b0c7c764b88391e466f3b9fa172df176bf21529399606bf84475f3b920db8b",
-      "outputSha256": "68b0c7c764b88391e466f3b9fa172df176bf21529399606bf84475f3b920db8b",
+      "bytes": 8420,
+      "sourceSha256": "533de03f6b53624301e75565b7d677382acec3c9eda9cfdb7265a0e868aaeb82",
+      "outputSha256": "533de03f6b53624301e75565b7d677382acec3c9eda9cfdb7265a0e868aaeb82",
       "transform": "verbatim"
     },
     {

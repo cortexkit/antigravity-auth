@@ -5,7 +5,7 @@
     "": {
       "name": "common-auth-build-private",
       "dependencies": {
-        "@cortexkit/common-auth": "file:inputs/cortexkit-common-auth-0.28.0.tgz",
+        "@cortexkit/common-auth": "file:inputs/cortexkit-common-auth-0.29.0.tgz",
         "@opentui/core": "0.5.14",
         "@opentui/solid": "0.5.14",
         "solid-js": "1.9.12",
@@ -72,9 +72,9 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
-    "@cortexkit/common-auth": ["@cortexkit/common-auth@inputs/cortexkit-common-auth-0.28.0.tgz", { "dependencies": { "@cortexkit/private-files": "^0.2.1", "jsonc-parser": "^3.3.1" }, "peerDependencies": { "@cortexkit/claustrum-client": ">=0.6.2", "@cortexkit/subc-client": "^0.16.0 || ^0.22.0", "@opencode/plugin": ">=2.0.21", "@opentui/core": ">=0.5.11", "@opentui/solid": ">=0.5.11", "solid-js": "1.9.12" }, "optionalPeers": ["@cortexkit/claustrum-client", "@cortexkit/subc-client", "@opencode/plugin", "@opentui/core", "@opentui/solid", "solid-js"] }, "sha512-PRyppMdE3y8dTzF3iQHcFruo5ksPPhgSQExe7g4Ij/oPynDLbalSQqBaInKdSV/v5qyrY0iJs/D0Yu7fbWh3NQ=="],
+    "@cortexkit/common-auth": ["@cortexkit/common-auth@inputs/cortexkit-common-auth-0.29.0.tgz", { "dependencies": { "@cortexkit/private-files": "^0.2.2", "jsonc-parser": "^3.3.1" }, "peerDependencies": { "@cortexkit/claustrum-client": ">=0.6.2", "@cortexkit/subc-client": "^0.16.0 || ^0.22.0", "@opencode/plugin": ">=2.0.21", "@opentui/core": ">=0.5.11", "@opentui/solid": ">=0.5.11", "solid-js": "1.9.12" }, "optionalPeers": ["@cortexkit/claustrum-client", "@cortexkit/subc-client", "@opencode/plugin", "@opentui/core", "@opentui/solid", "solid-js"] }, "sha512-nOMzdlveEad1sx/Oy95zufZXJaatrGUpXirl6Z+c1+n7prMlCyiKzbaE894u1LkX1feNABAZji7rFyPFjEdQDQ=="],
 
-    "@cortexkit/private-files": ["@cortexkit/private-files@0.2.1", "", {}, "sha512-U7ofFl45DDYScXo7vSV/4OPxn0xC1mflKpW8tbK8/3OaRd9q+TDEY25UWO8itXtSAlhBMqhZBZ3NxZNL5IyrSg=="],
+    "@cortexkit/private-files": ["@cortexkit/private-files@0.2.2", "", {}, "sha512-BdRxi4mzPkTUiZxKTlQV/RsESk5f34+sLk0qQLv1QlBQdkq2zw8yc0b3dm1qmZ5RfeChiBKEGgL6Qw31RCSaeA=="],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 

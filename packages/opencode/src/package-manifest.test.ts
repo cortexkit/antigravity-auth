@@ -207,7 +207,7 @@ describe('published dependency ranges', () => {
       '@cortexkit/antigravity-auth-core': coreManifest.version,
       '@cortexkit/claustrum-client': '0.12.0',
       '@cortexkit/subc-client': '0.22.5',
-      '@cortexkit/private-files': '0.2.1',
+      '@cortexkit/private-files': '0.2.2',
       'jsonc-parser': '^3.3.1',
       'xdg-basedir': '^5.1.0',
       zod: '^4.0.0',

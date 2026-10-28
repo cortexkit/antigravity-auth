@@ -6,7 +6,7 @@
       "name": "opencode-ga-offline-host-fixture",
       "dependencies": {
         "@cortexkit/claustrum-client": "0.12.0",
-        "@cortexkit/private-files": "0.2.1",
+        "@cortexkit/private-files": "0.2.2",
         "@cortexkit/subc-client": "0.22.5",
         "@opencode/cli-linux-x64": "2.0.22",
         "jsonc-parser": "3.3.1",
@@ -18,11 +18,9 @@
   "packages": {
     "@cortexkit/claustrum-client": ["@cortexkit/claustrum-client@0.12.0", "", { "dependencies": { "@cortexkit/store": "^0.2.1", "@cortexkit/subc-client": "^0.22.0" } }, "sha512-Eqo2V8XgVzbZvolFYn11HX0TMRt21pnc9bWLYkcT4KW6kJ2fFLkzvXGzQ++MOmQpq8Bd3Jl5xA6yKkXTnimDOw=="],
 
-    "@cortexkit/private-files": ["@cortexkit/private-files@0.2.1", "", {}, "sha512-U7ofFl45DDYScXo7vSV/4OPxn0xC1mflKpW8tbK8/3OaRd9q+TDEY25UWO8itXtSAlhBMqhZBZ3NxZNL5IyrSg=="],
+    "@cortexkit/private-files": ["@cortexkit/private-files@0.2.2", "", {}, "sha512-BdRxi4mzPkTUiZxKTlQV/RsESk5f34+sLk0qQLv1QlBQdkq2zw8yc0b3dm1qmZ5RfeChiBKEGgL6Qw31RCSaeA=="],
 
     "@cortexkit/store": ["@cortexkit/store@0.2.2", "", { "dependencies": { "@cortexkit/private-files": "^0.1.0" } }, "sha512-mUeclFaZkdxS5YVsGvBUJTy3uulK1IywZAPAg5Wh1+lrrk+8ByXLgDKYC64igu/84tpIFY5mmZwa3ol2ErxnHA=="],
-
-    "@cortexkit/store/@cortexkit/private-files": ["@cortexkit/private-files@0.1.0", "", {}, "sha512-gQ3Ad0UohqGxA92CM64+UWWap8deP+uYA0cW0RV5owLWHG+S9sHci0HHr9ZYEZiyPsgF0wj/zbznqBXz1+GAPQ=="],
 
     "@cortexkit/subc-client": ["@cortexkit/subc-client@0.22.5", "", {}, "sha512-C3yw60RtmWDsG6wXtEBRA+T2ybUFbIjfaAnQmuf3HIlWniLOBWoYNwMVdcUORc3wxegE5vC58DFhA3VPJ9+aAw=="],
 
@@ -33,5 +31,7 @@
     "xdg-basedir": ["xdg-basedir@5.1.0", "", {}, "sha512-GCPAHLvrIH13+c0SuacwvRYj2SxJXQ4kaVTT5xgL3kPrz56XxkF21IGhjSE1+W0aw7gpBWRGXLCPnPby6lSpmQ=="],
 
     "zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
+
+    "@cortexkit/store/@cortexkit/private-files": ["@cortexkit/private-files@0.1.0", "", {}, "sha512-gQ3Ad0UohqGxA92CM64+UWWap8deP+uYA0cW0RV5owLWHG+S9sHci0HHr9ZYEZiyPsgF0wj/zbznqBXz1+GAPQ=="],
   }
 }

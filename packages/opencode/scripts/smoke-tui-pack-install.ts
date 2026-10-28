@@ -294,7 +294,7 @@ export function expectedCandidateGraph(
       orderedMap({
         ...dependencies,
         [coreName]: candidateMetadata.corePin,
-        '@cortexkit/private-files': '0.2.1',
+        '@cortexkit/private-files': '0.2.2',
         '@cortexkit/claustrum-client': '0.12.0',
         '@cortexkit/subc-client': '0.22.5',
       }),
