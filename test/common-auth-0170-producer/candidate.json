@@ -1,9 +1,9 @@
 {
   "version": "0.29.0",
-  "artifactStatus": "candidate",
-  "archiveBytes": 368689,
-  "sha256": "8f79a9a6bf96d0b28dabc615eaf124aaa09241549b399d742e0b2c97fc8e6cea",
-  "sri": "sha512-nOMzdlveEad1sx/Oy95zufZXJaatrGUpXirl6Z+c1+n7prMlCyiKzbaE894u1LkX1feNABAZji7rFyPFjEdQDQ==",
+  "artifactStatus": "published",
+  "archiveBytes": 368632,
+  "sha256": "6d8795d0672353ab897f938cad86c63556ceab7704bd60498a8c8e1a62dbc207",
+  "sri": "sha512-XnNFY5ppNQRDP09lUTDDONGHwiJ8Z93w8/NP16pmWpC6lzBPkC7XJcHhld+B6iLATaNvbcenfhecitB8fS9nbQ==",
   "manifestSha256": "11daa561f63e425a42d81fe59d6dbf7d1ee18e99e41fc5cdb2af34a9740fbbfa",
   "inventorySha256": "4ef4cfe6eebe9b7668fa4d33b35e39c2031364ce56cd9a6b3ebedb1d22b95c7a",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
