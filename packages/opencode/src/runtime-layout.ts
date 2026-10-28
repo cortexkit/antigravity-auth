@@ -4,9 +4,21 @@
 // files there every few seconds: the vault roster, the vault provider state
 // and the enrollment files, each with lock files, eviction markers and staged
 // temporary files. They move to the state home (`runtime-paths.ts` names both
-// folders). The account store, `antigravity.json` and the TUI preferences stay
-// in OpenCode's config folder: the account store records its own absolute
-// paths and refuses to open anywhere else.
+// folders). `antigravity.json` and the TUI preferences stay in OpenCode's
+// config folder.
+//
+// The account store (`antigravity-accounts.json`, its pointer and its
+// generation folders) moves to the state home as well, but as a separate,
+// offline operation: `prepareRuntimeLayout` decides once per process where
+// this config folder keeps it (`prepareAccountStore`), moving it only while
+// no other live process could still be using it in the config folder (the
+// `storeMove` fence of `version-fence.ts`, which reads each process's
+// heartbeat `stores` record). When that is not safe the process keeps the
+// config folder for its whole life and logs why once. Setup and
+// `antigravity-auth store relocate [--back] --offline` run the same move
+// outside a start. The store's own operation is core's relocation
+// (`createAccountRelocationFactory`); this module only decides when and
+// between which two anchors.
 //
 // This is a port of openai-auth's `runtime-layout.ts`, with these changes:
 // only the five `opencode-*` vault files below move (Pi's files can share the
@@ -30,6 +42,9 @@
 //   A process that starts while one of those is alive takes the legacy layout
 //   too. So the move happens at the first start after every OpenCode using
 //   that config folder has been closed or restarted on this version.
+// - The account store's anchor is settled after the vault layout, in the same
+//   call and under the same lock, and recorded in the heartbeat before this
+//   process uses it, so a store move elsewhere waits for this process too.
 // - Every decision is made holding the layout lock in the state-home folder.
 //   A legacy choice is allowed only once it is in this process's heartbeat,
 //   written while that lock is held, so a process deciding later sees it. A
