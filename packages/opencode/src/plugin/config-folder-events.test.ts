@@ -1,7 +1,7 @@
 /**
  * OpenCode 2 watches its config folder, so the plugin must not write there
- * while it runs in vault mode: no vault files, locks or staged files, no
- * signature cache, no debug log, no `.gitignore`, and no local account store.
+ * while it runs after the vault files or local account store have moved:
+ * no locks or staged files, signature cache, debug log or `.gitignore`.
  *
  * A vault-mode host whose vault files an earlier start already moved into
  * the state home starts one location through the real OpenCode 2 entry point
@@ -29,10 +29,22 @@ import * as fsp from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
-import type { GaHostContext } from '../ga/server/index.ts'
+import {
+  createAccountRepositoryFactory,
+  initializeFreshAccountStore,
+  loadCommonAuthStoreModules,
+  readAccountStoreBinding,
+} from '@cortexkit/antigravity-auth-core'
+import type { GaHostContext, GaServingServices } from '../ga/server/index.ts'
 import { setupGaActivation } from '../ga/server/index.ts'
-import { __resetProcessHeartbeatForTest } from '../process-heartbeat.ts'
-import { __resetRuntimeLayoutRunsForTest } from '../runtime-layout.ts'
+import {
+  __resetProcessHeartbeatForTest,
+  pluginPackageVersion,
+} from '../process-heartbeat.ts'
+import {
+  __resetRuntimeLayoutRunsForTest,
+  prepareAccountStore,
+} from '../runtime-layout.ts'
 import {
   __resetRuntimeLayoutsForTest,
   legacyVaultDir,
@@ -43,6 +55,7 @@ import {
   prepareVaultFolder,
 } from '../vault-folder.ts'
 import { createGaLocationServicesForHost } from './ga-location-services.ts'
+import { getStoragePath } from './storage.ts'
 import {
   createOpenCodeVaultCustody,
   OPENCODE_VAULT_ENROLLMENT_NAME,
@@ -428,4 +441,162 @@ it('a vault-mode OpenCode 2 start and its roster polls cause no file events in t
       join(configDir(), 'antigravity-accounts.json.store.pointer.json'),
     ),
   ).toBe(false)
+}, 60_000)
+
+it('a local-mode OpenCode 2 start, request and quota check cause no file events in the config folder after the store moves', async () => {
+  const modules = await loadCommonAuthStoreModules()
+  expect(
+    (
+      await initializeFreshAccountStore(modules, {
+        legacyPath: accountFile(),
+        now: Date.now,
+      })
+    ).status,
+  ).toBe('completed')
+  const binding = await readAccountStoreBinding(
+    accountFile(),
+    modules,
+    Date.now,
+  )
+  if (binding.status !== 'bound')
+    throw new Error(`seed store is ${binding.status}`)
+  const seed = createAccountRepositoryFactory(modules)({
+    paths: binding.paths,
+    now: Date.now,
+    exchange: async () => {
+      throw new Error('seeding must not refresh credentials')
+    },
+  })
+  try {
+    await seed.login({
+      id: '00000000-0000-4000-8000-000000000001',
+      refreshToken: 'synthetic-local-events-refresh',
+      metadata: {
+        addedAt: 1,
+        lastUsed: 0,
+        managedProjectId: 'synthetic-local-project',
+      },
+    })
+  } finally {
+    await seed.dispose()
+  }
+  // Count the next start's activity, not the one-time move itself.
+  await prepareVaultFolder({
+    accountFile: accountFile(),
+    log: { info() {}, warn() {} },
+  })
+  await prepareAccountStore({
+    version: await pluginPackageVersion(),
+    log: { info() {}, warn() {} },
+  })
+  resetProcess()
+
+  const directory = join(root, 'project')
+  mkdirSync(join(directory, '.opencode'), { recursive: true, mode: 0o700 })
+  writeFileSync(
+    join(directory, '.opencode', 'antigravity.json'),
+    JSON.stringify({
+      debug: true,
+      keep_thinking: true,
+      background_quota_refresh: false,
+      proactive_token_refresh: false,
+      auto_update: false,
+    }),
+  )
+  const watched = watchFolder(configDir())
+  cleanups.push(watched.close)
+  await probe(watched, 'before')
+  const before = watched.events.length
+
+  let serving: GaServingServices | undefined
+  let sends = 0
+  let quotaChecks = 0
+  const send = async () => {
+    sends++
+    return new Response(
+      'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"synthetic reply"}]},"finishReason":"STOP"}]}}\n\n',
+      { headers: { 'content-type': 'text/event-stream' } },
+    )
+  }
+  const factory = createGaLocationServicesForHost()
+  const cleanup = await setupGaActivation(
+    fakeHost(directory),
+    async (input) => {
+      const services = await factory(input)
+      return {
+        ...services,
+        start: async (input) => {
+          serving = await services.start(input)
+          return serving
+        },
+      }
+    },
+    {
+      send,
+      refreshAccessToken: async () => ({
+        type: 'success',
+        access: 'synthetic-local-events-access',
+        refresh: 'synthetic-local-events-refresh',
+        expires: Date.now() + 3_600_000,
+      }),
+      quotaFetch: async () => {
+        quotaChecks++
+        return new Response(
+          JSON.stringify({
+            models: {
+              'claude-sonnet-4-6': {
+                quotaInfo: {
+                  remainingFraction: 0.75,
+                  resetTime: '2099-01-01T00:00:00Z',
+                },
+              },
+            },
+          }),
+        )
+      },
+    },
+  )
+  cleanups.push(() => cleanup?.())
+  expect(cleanup).toBeFunction()
+  if (!serving) throw new Error('the local location did not start')
+  const signal = new AbortController().signal
+  const response = await serving.execute(
+    {
+      sessionID: 'local-events-session',
+      parentSessionID: null,
+      kind: 'primary',
+      modelID: 'antigravity-gemini-3.8-flash',
+      variant: null,
+      url: 'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.8-flash:streamGenerateContent?alt=sse',
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
+      }),
+    },
+    { signal, send },
+  )
+  expect(response.status).toBe(200)
+  expect(await response.text()).toContain('synthetic reply')
+  expect(sends).toBe(1)
+  const checked = await serving.commands.apply({
+    request: {
+      command: 'antigravity',
+      sectionId: 'quota',
+      actionId: 'refresh',
+    },
+    scope: { kind: 'sessionless' },
+    signal,
+  })
+  expect(checked.ok).toBe(true)
+  expect(checked.text).toBe('Quota checked for 1 of 1 accounts')
+  expect(quotaChecks).toBeGreaterThan(0)
+  await sleep(2_500)
+  await cleanup?.()
+  await sleep(300)
+
+  const during = watched.events.slice(before)
+  await probe(watched, 'after')
+  expect(during).toEqual([])
+  expect(getStoragePath()).toBe(
+    join(runtimeLayoutLocation().stateHomeDir, 'antigravity-accounts.json'),
+  )
 }, 60_000)

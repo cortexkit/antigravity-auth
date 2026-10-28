@@ -195,7 +195,7 @@ Claude rejects unsupported JSON Schema features. The plugin uses an **allowlist 
 
 ### Account Storage
 
-Location: `~/.config/opencode/antigravity-accounts.json`
+Location after the account-store move: the runtime folder under `~/.local/state/cortexkit/antigravity-auth/opencode/` (`opencode-<16 hex>/` for a non-default config folder, with `XDG_STATE_HOME` overriding `~/.local/state`). A pointer selects a generation containing `config.json` and `state.json`. The forwarding pointer in OpenCode's config folder must never be deleted; see [where the files live](CONFIGURATION.md#where-the-files-live) for the move, deferrals and downgrade steps. Legacy `antigravity-accounts.json` is import/export only.
 
 Contains OAuth refresh tokens - treat as sensitive.
 

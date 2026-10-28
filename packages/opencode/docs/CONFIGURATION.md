@@ -282,18 +282,28 @@ Use `OPENCODE_ANTIGRAVITY_QUIET=1`, `OPENCODE_ANTIGRAVITY_DEBUG=1`, and `OPENCOD
 
 ## Where the files live
 
-OpenCode watches its config folder (`~/.config/opencode`, or `OPENCODE_CONFIG_DIR`). The plugin therefore keeps its vault files, signature cache and default debug logs in its own state folder instead; the account store stays in the config folder (see below).
+OpenCode watches its config folder (`~/.config/opencode`, or `OPENCODE_CONFIG_DIR`). The plugin therefore keeps its account store, vault files, signature cache and default debug logs in its own state folder instead. Existing account stores move there once every OpenCode using them has closed or restarted on this version (see below).
 
 | What | Where |
 | --- | --- |
-| Vault files: `antigravity-auth-vault/` (enrollment token and state, vault roster, vault provider state, mode) | The runtime folder: `~/.local/state/cortexkit/antigravity-auth/opencode/` for the config folder `~/.config/opencode`. Any other config folder gets `~/.local/state/cortexkit/antigravity-auth/opencode-<16 hex digits>/`, whose `config-dir.json` names the config folder it belongs to. |
+| Account store (`antigravity-accounts.json.store.pointer.json` and its `…generation/` folder), vault files (`antigravity-auth-vault/`) | The runtime folder: `~/.local/state/cortexkit/antigravity-auth/opencode/` for the config folder `~/.config/opencode`. Any other config folder gets `~/.local/state/cortexkit/antigravity-auth/opencode-<16 hex digits>/`, whose `config-dir.json` names the config folder it belongs to. |
 | Signature cache | `~/.local/state/cortexkit/antigravity-auth/antigravity-signature-cache.json`, one per state folder, shared by every config folder |
 | Debug logs | `~/.local/state/cortexkit/antigravity-auth/logs/`, unless `OPENCODE_ANTIGRAVITY_LOG_DIR` or `log_dir` names a folder (the variable wins) |
-| Account store (`antigravity-accounts.json` and its `.store` files), `antigravity.json`, `tui-preferences.jsonc` | OpenCode's config folder, as before |
+| `antigravity.json`, `tui-preferences.jsonc`, account-store forwarding pointer and kept old store | OpenCode's config folder |
 
 `~/.local/state` means `$XDG_STATE_HOME` when that is set, on every OS; on Windows it is `%USERPROFILE%\.local\state`. Runtime folders are private to your user: `0700` folders and `0600` files, or an owner-only ACL on Windows. Pi's files do not move.
 
-**The account store still lives in OpenCode's config folder.** It records its own location and refuses to open anywhere else, so it cannot be moved by copying. Moving it is planned for a later release. Until then, requests in local mode still create short-lived lock and temporary files next to it. Vault mode no longer writes in OpenCode's config folder while it runs.
+### When the account store moves
+
+The account store moves at the first local-account start after every OpenCode using that config folder has closed or restarted on this version. Setup and `antigravity-auth store relocate --offline` can also move an existing store, with every OpenCode closed. Accounts, logins and quota come along; nothing needs to be re-entered. Vault-only starts leave the local account store alone until you disconnect to local accounts.
+
+While another OpenCode still uses the config-folder store, the plugin keeps it there and logs once that it is waiting for every running OpenCode using it to restart on this version. After the move, local-account requests no longer create lock and temporary files in OpenCode's config folder.
+
+If the state folder's path goes through a symbolic link (or a junction on Windows), the store stays put. Set `XDG_STATE_HOME` to the real path, then close every OpenCode and restart. Do not move the store by copying its files: it records and checks its own location.
+
+The old `antigravity-accounts.json.store.<id>.generation/` folder is kept in OpenCode's config folder as a pre-move backup. Once the moved store opens successfully and you have checked that your accounts are present, you can delete that old generation folder if you do not need the backup or the ability to move back. Keep the whole old generation if you may use `store relocate --back`: that command needs its original journal and migration evidence, and replaces its account data with your current accounts. Never delete the moved generation or its own backups and transfer files.
+
+**Never delete or edit `antigravity-accounts.json.store.pointer.json` in OpenCode's config folder.** It is the forwarding pointer, not an unused backup. It keeps older versions from starting with no accounts. Without it, logging in on an older version can create a second, separate store.
 
 ### When the vault files move
 
@@ -307,7 +317,7 @@ The old signature cache in OpenCode's config folder is deleted at the move, not 
 
 ### What the move cannot see
 
-The plugin waits for running OpenCodes it can see. It cannot see an OpenCode 2 running 3.0.12 or earlier, or a short CLI command from a version before 3.0.13. **Close every OpenCode before upgrading.** If such a process writes vault files into the old folder after the move, the next start refuses until one copy is removed.
+The plugin waits for running OpenCodes it can see. It cannot see an OpenCode 2 running 3.0.12 or earlier, or a short CLI command from a version before 3.0.13. **Close every OpenCode before upgrading.** If such a process writes vault files into the old folder after the move, the next start refuses until one copy is removed. An unseen process using the old account store starts refusing account operations after the move and must be restarted.
 
 ### Refusals and recovery
 
@@ -318,10 +328,22 @@ When the plugin cannot tell where its vault files are, it serves neither vault n
 - **Vault files conflict between the old and the new folder.** The message names both paths; the plugin leaves both in place. Keep the newer one, which is the copy from your most recent approval or re-enrollment, delete the other, and restart OpenCode. Do not merge them or choose by file date.
 - **`config-dir.json` names another config folder.** That runtime folder belongs to another OpenCode setup. It is left untouched; move it aside and restart OpenCode.
 - **The runtime folder is not private to your user, or is a link.** Replace it with a plain folder of your own and restart OpenCode.
+- **A store move is in progress.** Close the other OpenCodes using that store, then restart on this version to finish the move.
+- **The account store in OpenCode's config folder was reactivated.** The forwarding pointer was changed. Close every OpenCode and restore the original forwarding pointer that names the active moved store. Do not choose a store by file date, delete the pointer, or replace it with the old pre-move pointer. Rerunning `store relocate` cannot repair that manual pointer change.
 
 ### Downgrading
 
-Close every OpenCode. Move the files in `antigravity-auth-vault/` from the runtime folder back into `antigravity-auth-vault/` in OpenCode's config folder, next to `antigravity-accounts.json`, replacing the `opencode-enrollment-state.json` the move left there. Then delete `layout.json` from the runtime folder, so that a later upgrade moves the files again.
+**Going back to 3.0.16 needs no account-store step:** that version reads a moved store. To go back to 3.0.15 or earlier, close every OpenCode and run this command on the current version **before** installing the older one:
+
+```bash
+antigravity-auth store relocate --back --offline
+```
+
+This restores the account store and its original pointer in OpenCode's config folder. **It replaces the kept pre-move backup with your current accounts.** Keep the old generation folder until the command has finished. A later upgrade respects the move back; use `antigravity-auth store relocate --offline` to move to the state folder again.
+
+Without the move back, 3.0.15 refuses with `The account store cannot be admitted: pointer has unknown fields`. Reinstall the current version, run the command with every OpenCode closed, then downgrade. Never delete the forwarding pointer to get past the refusal.
+
+If you are also going back to a version from before the vault-file move, move the files in `antigravity-auth-vault/` from the runtime folder back into `antigravity-auth-vault/` in OpenCode's config folder, replacing the `opencode-enrollment-state.json` the move left there. Then delete `layout.json` from the runtime folder, so that a later upgrade moves the vault files again.
 
 Until you do, an older version finds the enrollment state without its token: it stays in vault mode and refuses requests rather than serving local accounts. Do not run an older version on an old copy while a newer one uses the moved files. Delete `layout.json` only for this move back, or to recover from a damaged `layout.json` as described above.
 
@@ -329,7 +351,7 @@ Until you do, an older version finds the enrollment state without its token: it 
 
 | Purpose | Location | Notes |
 | --- | --- | --- |
-| Local account store | In the directory containing `antigravity-accounts.json` (default `~/.config/opencode`, or `OPENCODE_CONFIG_DIR`); `antigravity-accounts.json.store.pointer.json` selects the sibling `antigravity-accounts.json.store.<id>.generation/` directory | Owner-only `config.json` / `state.json`, journals, protected backups/transfers |
+| Local account store | In the runtime folder after the move; `antigravity-accounts.json.store.pointer.json` selects the sibling `antigravity-accounts.json.store.<id>.generation/` directory | Owner-only `config.json` / `state.json`, journals, protected backups/transfers; see [where the files live](#where-the-files-live) for deferral and downgrade rules |
 | Legacy pool | `$OPENCODE_CONFIG_DIR/antigravity-accounts.json` (default `~/.config/opencode/…`) | Migration input / successful V4 rollback output, not the active writer |
 | Plugin config | Project `.opencode/antigravity.json`, then user config | Zod-validated settings |
 | Debug logs | `~/.local/state/cortexkit/antigravity-auth/logs/`, or `OPENCODE_ANTIGRAVITY_LOG_DIR`, then `log_dir` | Sensitive request/response data; owner-only |

@@ -16,11 +16,17 @@ The published v2.2.1 default is `true`; its update check on host restart can adv
 
 ## Initialize or migrate before starting the host
 
-The local OpenCode pool uses a shared account store. `antigravity-accounts.json.store.pointer.json`, beside the resolved legacy account path, selects the active generation directory containing `config.json` and `state.json`; legacy `antigravity-accounts.json` is no longer the active writer target. Both OpenCode host generations share that repository, not one pool per project.
+The local OpenCode pool uses a shared account store. `antigravity-accounts.json.store.pointer.json` selects the active generation directory containing `config.json` and `state.json`; legacy `antigravity-accounts.json` is no longer the active writer target. The store now moves from OpenCode's config folder to the state-home runtime folder once every OpenCode using it has closed or restarted on this version. Both OpenCode host generations share that repository, not one pool per project. See [where the files live](CONFIGURATION.md#where-the-files-live) for the wait, linked state folders and the kept old store.
 
 - **Fresh installation:** run `antigravity-auth init` before CLI/OpenCode 1 login. Initialization refuses an existing legacy pool; migrate it instead. Standalone `login` starts or replaces the pool; use setup login or the host account menu to add accounts, as explained in [commands](COMMANDS.md#standalone-cli). OpenCode 2's pool browser method can initialize a truly fresh store during login; it refuses a pending legacy migration.
 - **Upgrade an existing legacy pool:** stop **every OpenCode and Antigravity process and timer** using the pool, then run `antigravity-auth migrate --offline`. Type `yes` at the stopped-process confirmation prompt. Optional `--yes` skips the prompt but does not make concurrent use safe.
-- **Downgrade after migration:** stop every pool user again, run `antigravity-auth rollback --offline` with the **new CLI**, confirm and wait for success, then install/start the older build. Never run old and new builds concurrently.
+- **Downgrade to a version before the shared store (2.x):** stop every pool user again, move the store back as described below if it has relocated, then run `antigravity-auth rollback --offline` with the **new CLI**, confirm and wait for success, then install/start the older build. Never run old and new builds concurrently.
+
+## Move back before downgrading
+
+Going back to **3.0.16 needs no account-store step**: it reads a moved store. Before installing 3.0.15 or earlier, close every OpenCode and run `antigravity-auth store relocate --back --offline` on the current version. The command restores the original config-folder pointer and **replaces the kept pre-move backup with your current accounts**. Keep the old generation until it finishes. A later upgrade respects the move back; `antigravity-auth store relocate --offline` moves it to the state folder again.
+
+**Never delete or edit `antigravity-accounts.json.store.pointer.json` in OpenCode's config folder.** It forwards to the moved store and keeps older versions from starting with no accounts or creating a separate store at login. If an older version refuses with `pointer has unknown fields`, reinstall the current version, run the move-back command with every OpenCode closed, then downgrade. See [downgrading](CONFIGURATION.md#downgrading) for the separate vault-file steps.
 
 ## Rollback exports current credentials
 

@@ -13,13 +13,15 @@ OpenCode uses `~/.config/opencode/` on **all platforms** including Windows.
 | File | Path |
 |------|------|
 | Main config | `~/.config/opencode/opencode.json` |
-| Accounts | `~/.config/opencode/antigravity-accounts.json.store.pointer.json` selects the sibling `antigravity-accounts.json.store.<id>.generation/` directory containing `config.json` / `state.json`; legacy `antigravity-accounts.json` is import/export only. `OPENCODE_CONFIG_DIR` overrides that directory. |
+| Accounts | After the move, `~/.local/state/cortexkit/antigravity-auth/opencode/antigravity-accounts.json.store.pointer.json` selects the sibling `antigravity-accounts.json.store.<id>.generation/` directory containing `config.json` / `state.json` (`opencode-<16 hex>/` for another config folder). The config-folder pointer forwards to it; legacy `antigravity-accounts.json` is import/export only. |
 | Plugin config | `~/.config/opencode/antigravity.json` |
 | Vault files | `~/.local/state/cortexkit/antigravity-auth/opencode/antigravity-auth-vault/` (`opencode-<16 hex>/` for another config folder). See [where the files live](CONFIGURATION.md#where-the-files-live). |
 | Signature cache | `~/.local/state/cortexkit/antigravity-auth/antigravity-signature-cache.json` |
 | Debug logs | `~/.local/state/cortexkit/antigravity-auth/logs/`, or `OPENCODE_ANTIGRAVITY_LOG_DIR`, then `log_dir` |
 
-`~/.local/state` is `$XDG_STATE_HOME` when that is set. The account store still lives in OpenCode's config folder; moving it is planned for a later release.
+`~/.local/state` is `$XDG_STATE_HOME` when that is set. The account store moves at the first local-account start after every OpenCode using it has closed or restarted on this version. If the state path goes through a link, it stays put; set `XDG_STATE_HOME` to the real path and restart with every other OpenCode closed. See [where the files live](CONFIGURATION.md#where-the-files-live) for the retained backup and move refusals.
+
+**Never delete `antigravity-accounts.json.store.pointer.json` in OpenCode's config folder.** That forwarding pointer keeps older versions from starting with no accounts. Before downgrading to 3.0.15 or earlier, close every OpenCode and run `antigravity-auth store relocate --back --offline` on the current version; it replaces the old pre-move backup with your current accounts. If an older version refuses with `pointer has unknown fields`, reinstall the current version to run the command, then downgrade. Going back to 3.0.16 needs no account-store step. See [downgrading](CONFIGURATION.md#downgrading).
 
 > **Windows users**: `~` resolves to your user home directory (e.g., `C:\Users\YourName`). Do NOT use `%APPDATA%`.
 
