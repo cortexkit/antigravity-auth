@@ -178,7 +178,7 @@ test('embed.inventory', async () => {
     expect(hash(data)).toBe(String(digest))
     total += data.length
   }
-  expect(total).toBe(1220682)
+  expect(total).toBe(1229426)
   for (const [property, value, message] of [
     ['name', 'wrong', 'identity'],
     ['version', '0.9.4', 'version'],
@@ -255,12 +255,12 @@ test('embed.attribution', async () => {
   )
   expect(manifest.package).toBe('@cortexkit/common-auth')
   expect(manifest.version).toBe('0.28.0')
-  expect(manifest.artifactStatus).toBe('published')
+  expect(manifest.artifactStatus).toBe('candidate')
   expect(manifest.tarballSha256).toBe(publication.sha256)
   expect(manifest.sri).toBe(publication.sri)
   expect(manifest.publicRoots).toEqual(publication.publicRoots)
   expect(manifest.canonicalFiles).toBe(195)
-  expect(manifest.canonicalBytes).toBe(1220682)
+  expect(manifest.canonicalBytes).toBe(1229426)
   expect(manifest.generator.version).toBe(3)
   expect(manifest.files).toEqual(
     publication.files.map(([path, bytes, digest]) => ({
@@ -345,7 +345,7 @@ test('embed.clean_input', async () => {
       )
     ).trim(),
   ).toBe('tools/common-auth-build/inputs/other.tgz')
-  // Keep unrelated archives ignored while tracking this exact published input.
+  // Keep unrelated archives ignored while tracking this exact candidate input.
   await git(
     target,
     'add',

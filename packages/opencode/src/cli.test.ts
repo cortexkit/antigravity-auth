@@ -264,6 +264,37 @@ describe('runCli commands', () => {
     expect(harness.stderr).toBe('callback failed\n')
   })
 
+  it('prints stage and code with a store relocate failure', async () => {
+    const harness = createHarness()
+    harness.deps.accountStore.relocate = async () => {
+      throw Object.assign(new Error('owner write failed'), {
+        stage: 'owner-write',
+        code: 'ENOENT',
+      })
+    }
+
+    expect(
+      await runCli(['store', 'relocate', '--offline', '--yes'], harness.deps),
+    ).toBe(1)
+    expect(harness.stdout).toBe('')
+    expect(harness.stderr).toBe(
+      'owner write failed (stage: owner-write, code: ENOENT)\n',
+    )
+  })
+
+  it('keeps a stageless store relocate failure to its message', async () => {
+    const harness = createHarness()
+    harness.deps.accountStore.relocate = async () => {
+      throw new Error('relocation unavailable')
+    }
+
+    expect(
+      await runCli(['store', 'relocate', '--offline', '--yes'], harness.deps),
+    ).toBe(1)
+    expect(harness.stdout).toBe('')
+    expect(harness.stderr).toBe('relocation unavailable\n')
+  })
+
   it('prints redacted parseable account JSON without prose', async () => {
     const harness = createHarness()
 

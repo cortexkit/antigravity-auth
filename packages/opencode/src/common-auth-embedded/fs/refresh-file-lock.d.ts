@@ -1,4 +1,17 @@
 export declare function isLostMarkerRaceError(error: unknown): boolean;
+/** Test-only fault injection between marker mkdir and owner.json write. */
+export interface EvictionMarkerTestHooks {
+    /** Runs after the exclusive mkdir (and identity capture) before owner write. */
+    beforeOwnerWrite?: (evictPath: string, ownerPath: string) => Promise<void> | void;
+    /** Throw to fail the owner write; return an error to throw it. */
+    failOwnerWrite?: (evictPath: string, ownerPath: string) => Promise<unknown> | unknown;
+}
+/**
+ * Tests only: inject a failure or a directory replacement between the
+ * eviction-marker mkdir and its owner.json write. Production never sets this.
+ * Not exported from the fs entry point, so it is not part of the public API.
+ */
+export declare function setEvictionMarkerTestHooksForTest(hooks?: EvictionMarkerTestHooks): void;
 export interface LockLoss {
     readonly reason: 'taken-over' | 'expired' | 'unreadable' | 'renewal-failed' | 'marker-lost';
     readonly expectedOwnerId: string;

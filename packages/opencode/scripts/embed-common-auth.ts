@@ -14,11 +14,11 @@ import { gunzipSync } from 'node:zlib'
 export const inputPath =
   'tools/common-auth-build/inputs/cortexkit-common-auth-0.28.0.tgz'
 export const producerVersion = '0.28.0'
-export const artifactStatus = 'published'
+export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '8070e3c1882238d78ac5e955fb140484e08d9f97ed0f2d5d40f35928c60fbbc5',
-  sri: 'sha512-PRyppMdE3y8dTzF3iQHcFruo5ksPPhgSQExe7g4Ij/oPynDLbalSQqBaInKdSV/v5qyrY0iJs/D0Yu7fbWh3NQ==',
+  sha256: '764354dce381a7b0b33fe56b8f7c3598ef58b5bc5665199750fb6ec9bbed59a0',
+  sri: 'sha512-g6nbS5a6DrIJlKXMw33j5j4O6RUnc8TkaUizE2VIitVdR5UeeY3cOAyEcqe8kMrtqh9NJJMte6JJClJ8vhAX5Q==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -433,13 +433,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/refresh-file-lock.d.ts',
-    2157,
-    'cbce15eb313d425501780dd4be657cbbaa7e41064bab4ae64fea91fbd54918e9',
+    2946,
+    'b649e67813eb4086ca5642c99d318f90ccccae9702b23ad8fb0616f8d62f5a06',
   ],
   [
     'fs/refresh-file-lock.js',
-    30833,
-    'c0e4de79b0c0bb8fac09b13c5cf861eaa008434b336e87ce761d7f0713203a90',
+    37753,
+    '38bc20ae71a195818f9cf7e42954e8305f92a55ff15dd855da33ccdec6b34fa1',
   ],
   [
     'fs/with-lock.d.ts',
@@ -558,8 +558,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'pi-slot/lock.js',
-    7385,
-    '68b0c7c764b88391e466f3b9fa172df176bf21529399606bf84475f3b920db8b',
+    8420,
+    '533de03f6b53624301e75565b7d677382acec3c9eda9cfdb7265a0e868aaeb82',
   ],
   [
     'pi-slot/slot.d.ts',

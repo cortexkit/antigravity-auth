@@ -75,6 +75,16 @@ async function acquire(path, stale) {
         await remove(path);
         return acquire(path, 0);
     }
+    // The exclusive mkdir above succeeded: capture this directory's identity
+    // before any further step, so cleanup below removes only what we created.
+    let created;
+    try {
+        const st = await stat(path);
+        created = { dev: st.dev, ino: st.ino };
+    }
+    catch {
+        created = undefined;
+    }
     try {
         if (!precision) {
             const probe = new Date(Math.ceil(Date.now() / 1_000) * 1_000 + 5);
@@ -86,7 +96,22 @@ async function acquire(path, stale) {
         return { dev: observed.dev, ino: observed.ino, mtime };
     }
     catch (error) {
-        await remove(path).catch(() => { });
+        // Only remove the directory this call created. A contender can rename it
+        // away and publish its own lock between the mkdir above and this failure;
+        // an unfenced rmdir would then delete the successor. The directory holds
+        // no owner file (mtime is the lease), so identity alone is the fence.
+        try {
+            if (created) {
+                const current = await stat(path).catch(() => undefined);
+                if (current &&
+                    current.dev === created.dev &&
+                    current.ino === created.ino)
+                    await remove(path).catch(() => { });
+            }
+        }
+        catch {
+            // Best effort only; the original error below explains the failure.
+        }
         throw error;
     }
 }
