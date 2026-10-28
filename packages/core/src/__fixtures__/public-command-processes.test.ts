@@ -52,16 +52,30 @@ export interface PublicCommandScope {
 const MAX_PROCESSES = 16_384
 const MAX_DISCOVERY_CHILDREN = 32
 const MAX_ARGV_BYTES = 4096
+const MAX_STAT_PREVIEW_BYTES = 256
 
 function missing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
 }
 
-function linuxIdentity(pid: number): PublicCommandIdentity | undefined {
-  // Linux v6.19 fs/proc/array.c emits fields 3-6 and 22 after the unescaped comm.
-  // https://github.com/torvalds/linux/blob/v6.19/fs/proc/array.c#L582-L605
-  if (!Number.isSafeInteger(pid) || pid <= 0)
-    throw new Error('invalid process identity PID')
+function linuxStatRefusal(reason: string, pid: number, text: string): Error {
+  let preview = ''
+  for (const byte of Buffer.from(text)) {
+    let escaped = String.fromCharCode(byte)
+    if (escaped === '"' || escaped === '\\') escaped = `\\${escaped}`
+    else if (byte < 0x20 || byte >= 0x7f)
+      escaped = `\\x${byte.toString(16).padStart(2, '0')}`
+    // Reserve the quotes and truncation marker within the displayed byte bound.
+    if (preview.length + escaped.length > MAX_STAT_PREVIEW_BYTES - 5) {
+      preview += '...'
+      break
+    }
+    preview += escaped
+  }
+  return new Error(`${reason}: pid=${pid}, stat="${preview}"`)
+}
+
+function readLinuxStat(pid: number): string | undefined {
   let fd: number
   try {
     fd = openSync(
@@ -77,7 +91,11 @@ function linuxIdentity(pid: number): PublicCommandIdentity | undefined {
     const buffer = Buffer.alloc(4096)
     const bytes = readSync(fd, buffer, 0, buffer.length, 0)
     if (bytes === buffer.length)
-      throw new Error('process stat read exceeded bound')
+      throw linuxStatRefusal(
+        'process stat read exceeded bound',
+        pid,
+        buffer.toString(),
+      )
     text = buffer.subarray(0, bytes).toString()
   } catch (error) {
     if (
@@ -89,25 +107,55 @@ function linuxIdentity(pid: number): PublicCommandIdentity | undefined {
   } finally {
     closeSync(fd)
   }
-  if (!text.startsWith(`${pid} (`)) throw new Error('process stat PID differs')
-  const fields = text
-    .slice(text.lastIndexOf(')') + 2)
-    .trim()
-    .split(/\s+/)
-  if (fields.length < 20 || !/^\d+$/.test(fields[19] ?? ''))
-    throw new Error('process stat identity missing')
-  const ppid = Number(fields[1]),
-    pgid = Number(fields[2]),
-    sid = Number(fields[3])
-  if (![ppid, pgid, sid].every((n) => Number.isSafeInteger(n) && n >= 0))
-    throw new Error('process stat scope missing')
-  return {
-    pid,
-    ppid,
-    pgid,
-    sid,
-    start: BigInt(fields[19] ?? ''),
-    zombie: fields[0] === 'Z' || fields[0] === 'X',
+  return text
+}
+
+export function linuxIdentity(
+  pid: number,
+  readStat: (pid: number) => string | undefined = readLinuxStat,
+): PublicCommandIdentity | undefined {
+  // Linux v6.19 fs/proc/array.c emits fields 3-6 and 22 after the unescaped comm.
+  // https://github.com/torvalds/linux/blob/v6.19/fs/proc/array.c#L582-L605
+  if (!Number.isSafeInteger(pid) || pid <= 0)
+    throw new Error('invalid process identity PID')
+  let retryTeardown = true
+  for (;;) {
+    const text = readStat(pid)
+    if (text === undefined) return undefined
+    if (!text.startsWith(`${pid} (`))
+      throw linuxStatRefusal('process stat PID differs', pid, text)
+    const fields = text
+      .slice(text.lastIndexOf(')') + 2)
+      .trim()
+      .split(/\s+/)
+    if (fields.length < 20 || !/^\d+$/.test(fields[19] ?? ''))
+      throw linuxStatRefusal('process stat identity missing', pid, text)
+    // do_task_stat() leaves this tuple when lock_task_sighand() fails during
+    // teardown. Reopen once: a fresh lookup may be gone or have usable scope.
+    // Persistent unavailability must still refuse, not exclude a session member.
+    // https://github.com/torvalds/linux/blob/v6.19/fs/proc/array.c#L473-L535
+    if (
+      retryTeardown &&
+      fields[1] === '0' &&
+      fields[2] === '-1' &&
+      fields[3] === '-1'
+    ) {
+      retryTeardown = false
+      continue
+    }
+    const ppid = Number(fields[1]),
+      pgid = Number(fields[2]),
+      sid = Number(fields[3])
+    if (![ppid, pgid, sid].every((n) => Number.isSafeInteger(n) && n >= 0))
+      throw linuxStatRefusal('process stat scope missing', pid, text)
+    return {
+      pid,
+      ppid,
+      pgid,
+      sid,
+      start: BigInt(fields[19] ?? ''),
+      zombie: fields[0] === 'Z' || fields[0] === 'X',
+    }
   }
 }
 
