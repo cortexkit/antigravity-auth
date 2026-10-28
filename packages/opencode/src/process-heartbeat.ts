@@ -17,10 +17,10 @@
 // folder itself (`legacy`) or in the state home (`state-home`), see
 // `runtime-paths.ts`. A process that has not decided records `legacy` (or
 // no layout at all when it cannot read its own package manifest, which the
-// move also treats as blocking). A
-// process that runs on the legacy layout keeps its file until it exits, even
-// after its last owner released it, because its paths stay fixed for its
-// whole life and the move must wait for it.
+// move also treats as blocking). A process that runs on the legacy layout
+// keeps its file until it exits, even after its last owner released it,
+// because its paths stay fixed for its whole life and the move must wait for
+// it.
 //
 // `stores` sits beside `layouts` and records, per config folder, where the
 // account store is kept: `config` (OpenCode's config folder) or `state-home`
@@ -270,7 +270,6 @@ export async function startProcessHeartbeat(input: {
     shared.layouts.set(key, layout)
   for (const [key, anchor] of Object.entries(input.stores ?? {}))
     shared.stores.set(key, anchor)
-  const target = processHeartbeatPath(pid, dir)
   let path: string | undefined
   try {
     path = await writeCurrentRecords(dir, pid, input.version)

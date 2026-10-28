@@ -5,8 +5,9 @@
 // A process is found through either of two files it leaves on disk:
 //
 // - a heartbeat, `<state>/cortexkit/antigravity-auth/processes/<pid>.json`
-//   holding `{ "pid", "version", "startedAt", "layouts" }`
-//   (`process-heartbeat.ts`), which versions from 3.0.13 on write;
+//   holding `{ "pid", "version", "startedAt", "layouts" }` (and, from the
+//   release that moves the account store, `stores`), which versions from
+//   3.0.13 on write (`process-heartbeat.ts`);
 // - an RPC port file,
 //   `<state>/cortexkit/antigravity-auth/rpc/<16 hex>/port-<pid>.json`, which
 //   OpenCode 1 plugin instances write. Versions before the move wrote it
