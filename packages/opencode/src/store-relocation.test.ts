@@ -23,34 +23,43 @@ import { fileURLToPath } from 'node:url'
 import {
   type AccountMigrationOutcome,
   createAccountMigrationFactory,
+  createAccountRelocationFactory,
   createAccountRepositoryFactory,
   initializeFreshAccountStore,
+  loadCommonAuthFs,
   loadCommonAuthStoreModules,
   readAccountStoreBinding,
 } from '@cortexkit/antigravity-auth-core'
 
 import { createDefaultAccountStoreOperations, runCli } from './cli'
-import { getStoragePath } from './plugin/storage'
+import { getStoragePath, openAccountStore } from './plugin/storage'
+import { createOpenCodeVaultCustody } from './plugin/vault-custody'
 import {
   __resetProcessHeartbeatForTest,
   processConfigFolderKey,
   processHeartbeatPath,
+  startRuntimeProcessHeartbeat,
 } from './process-heartbeat'
 import {
   __resetRuntimeLayoutRunsForTest,
   ACCOUNT_STORE_DEFERRED_MESSAGE,
   ACCOUNT_STORE_LINKED_PATH_MESSAGE,
   prepareAccountStore,
+  prepareRuntimeLayout,
+  RUNTIME_LAYOUT_LOCK_NAME,
   type RuntimeLayoutOptions,
 } from './runtime-layout'
 import {
   __resetRuntimeLayoutsForTest,
   decidedAccountStoreAnchor,
+  legacyVaultDir,
   readForwardedAccountStore,
   runtimeLayoutLocation,
+  setRuntimeLayout,
   stateHomeAccountFile,
+  stateHomeVaultDir,
 } from './runtime-paths'
-import { __resetVaultFoldersForTest } from './vault-folder'
+import { __resetVaultFoldersForTest, prepareVaultFolder } from './vault-folder'
 import { processHeartbeatDir } from './version-fence'
 
 const VERSION = '3.0.16'
@@ -168,6 +177,14 @@ function heartbeat(
 }
 
 describe('the start-time decision', () => {
+  it('a deferred vault layout keeps its store in the config folder', async () => {
+    await publishStore(configAnchor())
+    setRuntimeLayout(runtimeLayoutLocation(), 'legacy')
+    expect(await decide()).toBe('config')
+    expect(getStoragePath()).toBe(configAnchor())
+    expect(existsSync(`${stateAnchor()}.store.pointer.json`)).toBe(false)
+  })
+
   it('a fresh install initializes at the state-home anchor and leaves a forward at the config anchor', async () => {
     expect(await decide()).toBe('state-home')
     const id = await publishedId(stateAnchor())
@@ -258,6 +275,108 @@ describe('the start-time decision', () => {
       stores: { [processConfigFolderKey()]: 'state-home' },
     })
     expect(await decide()).toBe('state-home')
+  })
+
+  it('a live undecided vault process does not block another process moving the store', async () => {
+    await publishStore(configAnchor())
+    heartbeat(process.ppid, {
+      version: VERSION,
+      stores: { [processConfigFolderKey()]: 'undecided' },
+    })
+    expect(await decide()).toBe('state-home')
+    expect(readForwardedAccountStore(configAnchor())?.legacyPath).toBe(
+      stateAnchor(),
+    )
+  })
+
+  it('an undecided store waits for the layout lock even after the vault layout finished', async () => {
+    await prepareRuntimeLayout(options())
+    const location = runtimeLayoutLocation()
+    const lock = await (await loadCommonAuthFs()).acquireRefreshFileLock({
+      name: RUNTIME_LAYOUT_LOCK_NAME,
+      path: join(location.stateHomeDir, 'layout.json'),
+      ttlMs: 30_000,
+      renew: true,
+    })
+    if (!lock) throw new Error('could not hold the layout lock')
+    try {
+      await expect(decide({ layoutLockWaitMs: 1 })).rejects.toThrow(
+        'runtime-layout lock',
+      )
+      expect(decidedAccountStoreAnchor(location)).toBeUndefined()
+      expect(existsSync(`${configAnchor()}.store.pointer.json`)).toBe(false)
+      expect(existsSync(`${stateAnchor()}.store.pointer.json`)).toBe(false)
+    } finally {
+      await lock.release()
+    }
+    expect(await decide()).toBe('state-home')
+  })
+
+  it('after a vault disconnect the first local opening follows an existing forward', async () => {
+    await publishStore(configAnchor())
+    const custody = createOpenCodeVaultCustody({
+      vaultDir: legacyVaultDir(configAnchor()),
+      accountFile: configAnchor(),
+      readHostSlot: async () => undefined,
+      reporterSource: 'direct',
+      connectionFile: () => join(root, 'connection.json'),
+      connectEnrollment: async () =>
+        ({
+          enrollPropose: async () => ({ requestId: 'request-1' }),
+          enrollPoll: async () => ({
+            status: 'approved',
+            name: 'antigravity-auth-opencode',
+            token: 'ab'.repeat(32),
+            tokenGeneration: 1,
+          }),
+          close() {},
+        }) as never,
+    })
+    expect((await custody.requestAccess()).state).toBe('approved')
+    await custody.dispose()
+    const folder = await prepareVaultFolder({
+      accountFile: configAnchor(),
+      ...options(),
+    })
+    expect(folder.refusal).toBeUndefined()
+    expect(decidedAccountStoreAnchor(runtimeLayoutLocation())).toBeUndefined()
+    const heartbeatHandle = await startRuntimeProcessHeartbeat({ warn() {} })
+    expect(
+      JSON.parse(readFileSync(processHeartbeatPath(), 'utf8')).stores,
+    ).toEqual({
+      [processConfigFolderKey()]: 'undecided',
+    })
+
+    // Another process can publish the move while this vault process has no
+    // bound store. Disconnecting later must not resurrect its old anchor.
+    const modules = await loadCommonAuthStoreModules()
+    const moved = await createAccountRelocationFactory(modules)({
+      legacyPath: configAnchor(),
+      targetPath: stateAnchor(),
+      offline: { processesStopped: true },
+      now: Date.now,
+    })
+    expect(moved.status).toBe('completed')
+    rmSync(stateHomeVaultDir(runtimeLayoutLocation()), {
+      recursive: true,
+      force: true,
+    })
+    const opening = await openAccountStore({
+      modules,
+      createRepository: createAccountRepositoryFactory(modules),
+      exchange: async () => {
+        throw new Error('an empty store never refreshes')
+      },
+    })
+    expect(opening.status).toBe('ready')
+    expect(getStoragePath()).toBe(stateAnchor())
+    expect(
+      JSON.parse(readFileSync(processHeartbeatPath(), 'utf8')).stores,
+    ).toEqual({
+      [processConfigFolderKey()]: 'state-home',
+    })
+    if (opening.status === 'ready') await opening.repository.dispose()
+    await heartbeatHandle.release()
   })
 
   it('OpenCode 1 and 2 locations in one process share one decision', async () => {

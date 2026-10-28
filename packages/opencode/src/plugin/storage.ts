@@ -64,7 +64,8 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 import {
   decidedAccountStoreAnchor,
-  discoveredAccountFile,
+  decidedRuntimeLayout,
+  readForwardedAccountStore,
   runtimeLayoutLocation,
   stateHomeAccountFile,
 } from '../runtime-paths'
@@ -403,16 +404,55 @@ function stateHomeStoragePath(): string {
   return stateHomeAccountFile(runtimeLayoutLocation())
 }
 
+/** Locate vault files without inspecting a possibly unauthorized account store. */
+export function accountFileForVault(
+  configDir: string = getConfigDir(),
+): string {
+  const configured = join(configDir, 'antigravity-accounts.json')
+  if (process.platform !== 'win32') return configured
+  const legacyDir = getLegacyWindowsConfigDir()
+  if (resolve(configDir).toLowerCase() === resolve(legacyDir).toLowerCase())
+    return configured
+  const configuredVault = join(configDir, 'antigravity-auth-vault')
+  const legacyVault = join(legacyDir, 'antigravity-auth-vault')
+  const configuredPresent = existsSync(configuredVault)
+  const legacyPresent = existsSync(legacyVault)
+  if (configuredPresent && legacyPresent)
+    throw new Error(
+      `Two vault folders exist: ${configuredVault} and ${legacyVault}. Keep one vault enrollment before restarting OpenCode.`,
+    )
+  return legacyPresent
+    ? join(legacyDir, 'antigravity-accounts.json')
+    : configured
+}
+
+/** Finish a vault-only start's store decision before its first local opening. */
+export async function prepareLocalAccountStore(): Promise<void> {
+  if (!decidedRuntimeLayout(runtimeLayoutLocation())) return
+  const { prepareAccountStore } = await import('../runtime-layout')
+  const { pluginPackageVersion } = await import('../process-heartbeat')
+  if (
+    (await prepareAccountStore({ version: await pluginPackageVersion() })) ===
+    undefined
+  )
+    throw new Error('Vault enrollment does not authorize local account access')
+}
+
 export function getStoragePath(): string {
-  // Settled once, by the entry point that holds the layout lock
-  // (`prepareRuntimeLayout`), and never switched while the process runs.
+  // `prepareAccountStore` settles the anchor under the layout lock after
+  // checking local authority. A decided anchor never switches in this process.
   const anchor = decidedAccountStoreAnchor(runtimeLayoutLocation())
   if (anchor === 'state-home') return stateHomeStoragePath()
   if (anchor === 'config') return getStoragePathWithMigration()
-  // Nothing settled this process's anchor (a tool, or a command that must
-  // write nothing): a forwarding pointer left in the config folder names the
-  // store's own anchor, and without one the store is where it always was.
-  return discoveredAccountFile()
+  const location = runtimeLayoutLocation()
+  // A prepared vault-only process has not authorized any store inspection.
+  // Its first local opening prepares the store before resolving the path.
+  if (decidedRuntimeLayout(location))
+    return join(location.configDir, 'antigravity-accounts.json')
+  // Standalone callers follow a published forward. Unmigrated Windows pool
+  // files retain their existing move into the configured config folder.
+  const configPath = getStoragePathWithMigration()
+  return readForwardedAccountStore(configPath)?.legacyPath ?? configPath
 }
 
 /**
@@ -539,6 +579,7 @@ async function bindingOf(options: OpenAccountStoreOptions): Promise<{
   now: () => number
   binding: AccountStoreBinding
 }> {
+  if (options.legacyPath === undefined) await prepareLocalAccountStore()
   const now = options.now ?? (() => Date.now())
   const legacyPath = resolve(options.legacyPath ?? getStoragePath())
   return {
@@ -669,10 +710,11 @@ export async function openAccountStoreForRecovery(
  * `initializeFreshAccountStore` refuses
  * when a pool file exists or appears, or when unrelated store files exist.
  */
-export function initializeFreshAccountStoreFor(
+export async function initializeFreshAccountStoreFor(
   modules: AccountMigrationModules,
   options: { legacyPath?: string; now?: () => number } = {},
 ): Promise<AccountMigrationOutcome> {
+  if (options.legacyPath === undefined) await prepareLocalAccountStore()
   return initializeFreshAccountStore(modules, {
     legacyPath: resolve(options.legacyPath ?? getStoragePath()),
     now: options.now ?? (() => Date.now()),

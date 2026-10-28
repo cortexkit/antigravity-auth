@@ -147,7 +147,11 @@ import {
   type VaultStateSource,
   vaultAccountRowKey,
 } from './shared/vault-request-credentials.ts'
-import { getStoragePath, initializeFreshAccountStoreFor } from './storage'
+import {
+  getStoragePath,
+  initializeFreshAccountStoreFor,
+  prepareLocalAccountStore,
+} from './storage'
 import {
   createOpenCodeVaultAccountPool,
   createOpenCodeVaultCustody,
@@ -1024,6 +1028,8 @@ export interface GaLocationServicesBindings {
   >
   /** Resolve the shared pool; a new workspace must not create a separate account store. */
   readonly resolveAccountFile: (directory: string) => string
+  /** A deferred start chooses its store only after local authority is checked. */
+  readonly prepareAccountStore?: () => Promise<void>
   readonly now: () => number
   readonly createSelector?: () => string
   /** The location runtime's collaborators (sidebar file, quota, refresh). */
@@ -1136,6 +1142,7 @@ async function openLocationRepository(
   overrides: GaPluginOverrides,
   login?: { readonly admit: () => Promise<void> },
 ): Promise<LocationRepository> {
+  await bindings.prepareAccountStore?.()
   const legacyPath = bindings.resolveAccountFile(directory)
   const modules = await bindings.loadStoreModules()
   await login?.admit()
@@ -2685,6 +2692,7 @@ export function createGaLocationServicesForHost(
     return createGaLocationServicesFactory({
       loadStoreModules: loadCommonAuthStoreModules,
       resolveAccountFile: getStoragePath,
+      prepareAccountStore: prepareLocalAccountStore,
       now: Date.now,
       runtime: ({ getRepository, assertAdmission, overrides }) =>
         createGaRuntimeCollaborators({

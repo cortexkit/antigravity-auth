@@ -1578,6 +1578,7 @@ describe('setup against a host context', () => {
       version: manifest.version,
       startedAt: expect.any(Number),
       layouts: { [realpathSync.native(configDir)]: 'state-home' },
+      stores: { [realpathSync.native(configDir)]: 'state-home' },
     })
     await cleanup?.()
     expect(existsSync(target)).toBe(false)

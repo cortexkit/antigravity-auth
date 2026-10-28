@@ -12,7 +12,8 @@
  * roster on every poll. Every file event in OpenCode's config folder is
  * recorded, through the location's start, its polls and its cleanup.
  */
-import { afterEach, beforeEach, expect, it } from 'bun:test'
+import { afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
+import * as fs from 'node:fs'
 import {
   existsSync,
   type FSWatcher,
@@ -24,6 +25,8 @@ import {
   watch,
   writeFileSync,
 } from 'node:fs'
+import * as fsp from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import type { GaHostContext } from '../ga/server/index.ts'
@@ -306,6 +309,55 @@ async function probe(
     )
   }
 }
+
+it('a vault-mode start and its roster polls never inspect any account-store path', async () => {
+  writeDormantLocalAccount()
+  await approveInConfigFolder()
+  const reads = [
+    spyOn(fs, 'readFileSync'),
+    spyOn(fs, 'readFile'),
+    spyOn(fs, 'openSync'),
+    spyOn(fs, 'open'),
+    spyOn(fs, 'existsSync'),
+    spyOn(fs, 'statSync'),
+    spyOn(fs, 'lstatSync'),
+    spyOn(fs.realpathSync, 'native'),
+    spyOn(fs, 'readdirSync'),
+    spyOn(fs, 'createReadStream'),
+    spyOn(fsp, 'readFile'),
+    spyOn(fsp, 'open'),
+    spyOn(fsp, 'stat'),
+    spyOn(fsp, 'lstat'),
+    spyOn(fsp, 'access'),
+    spyOn(fsp, 'realpath'),
+    spyOn(fsp, 'readdir'),
+  ]
+  syncBuiltinESMExports()
+  let inspected: string[] = []
+  try {
+    const vault = fakeVault()
+    const cleanup = await setupGaActivation(
+      fakeHost(join(root, 'project')),
+      createGaLocationServicesForHost({
+        readHostSlot: async () => undefined,
+        connectionFile: () => join(root, 'vault-connection.json'),
+        custody: { connect: vault.connect, pollIntervalMs: 50 },
+      }),
+    )
+    cleanups.push(() => cleanup?.())
+    await waitUntil(() => vault.counts.lists >= POLLS, `${POLLS} roster polls`)
+    await cleanup?.()
+    inspected = reads.flatMap((read) =>
+      read.mock.calls
+        .map((args) => String(args[0]))
+        .filter((path) => path.includes('antigravity-accounts.json')),
+    )
+  } finally {
+    for (const read of reads) read.mockRestore()
+    syncBuiltinESMExports()
+  }
+  expect(inspected).toEqual([])
+}, 60_000)
 
 it('a vault-mode OpenCode 2 start and its roster polls cause no file events in the config folder', async () => {
   writeDormantLocalAccount()

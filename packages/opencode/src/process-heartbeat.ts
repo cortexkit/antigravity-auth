@@ -162,10 +162,8 @@ function holdsLegacyLayout(): boolean {
  */
 function holdsFixedOldPaths(): boolean {
   if (holdsLegacyLayout()) return true
-  // `undecided` keeps the heartbeat too: this process opened no store, and
-  // a later move must not pass a file that could still name the old anchor.
   for (const anchor of shared.stores.values())
-    if (anchor === 'config' || anchor === 'undecided') return true
+    if (anchor === 'config') return true
   return false
 }
 
@@ -471,9 +469,8 @@ export async function startRuntimeProcessHeartbeat(
     const location = runtimeLayoutLocation()
     const key = processConfigFolderKey()
     layouts = { [key]: decidedRuntimeLayout(location) ?? 'legacy' }
-    // A decided anchor is recorded as it is; a process that has not decided
-    // (a vault-mode start never opens the store) says so, which keeps a store
-    // move from happening under it while letting other processes move.
+    // Vault-only starts open no store. Before their first local use they
+    // decide under the layout lock, following any forward published meanwhile.
     stores = { [key]: decidedAccountStoreAnchor(location) ?? 'undecided' }
   } catch (error) {
     logger.warn('process heartbeat details unavailable', {

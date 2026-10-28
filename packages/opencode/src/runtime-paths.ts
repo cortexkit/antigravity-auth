@@ -36,7 +36,11 @@ import { createHash } from 'node:crypto'
 import { existsSync, promises as fs, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { getConfigDir, resolveWindowsAccountAnchor } from './plugin/storage'
+import {
+  accountFileForVault,
+  getConfigDir,
+  resolveWindowsAccountAnchor,
+} from './plugin/storage'
 import { defaultStateHome } from './version-fence'
 
 /** In the state-home folder: present once that folder is authoritative. */
@@ -96,6 +100,9 @@ export type RuntimeLayout = 'legacy' | 'state-home'
  * store move waits while any live process still uses the config folder.
  */
 export type AccountStoreAnchor = 'config' | 'state-home'
+
+/** A vault-only process has not opened or chosen a local account store. */
+export type HeartbeatStoreRecord = AccountStoreAnchor | 'undecided'
 
 // The layout each config folder got in this process, once decided, and the
 // locations computed so far. Kept on the global object because OpenCode 2 may
@@ -438,5 +445,5 @@ export function getVaultDir(
   const location = runtimeLayoutLocation(configDir)
   return currentRuntimeLayout(location) === 'state-home'
     ? stateHomeVaultDir(location)
-    : legacyVaultDir(accountFile ?? legacyAccountFile(configDir))
+    : legacyVaultDir(accountFile ?? accountFileForVault(configDir))
 }

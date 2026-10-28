@@ -287,8 +287,7 @@ export async function versionFenceOpen(
     if (
       options.storeMove === true &&
       (heartbeat.stores === undefined ||
-        Object.values(heartbeat.stores).includes('config') ||
-        Object.values(heartbeat.stores).includes('undecided'))
+        Object.values(heartbeat.stores).includes('config'))
     )
       block({ pid, version: heartbeat.version, detail: path })
   }

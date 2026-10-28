@@ -11,6 +11,7 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 
 import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET } from '../constants'
+import { prepareVaultFolder } from '../vault-folder'
 import type { AgyTransport } from './dependencies'
 import { getStoragePath, openAccountStore } from './storage'
 import type { PluginInput, Provider } from './types'
@@ -179,12 +180,15 @@ it('preserves the plugin hook mutation sequence across extraction', async () => 
       }),
     )
     const modules = await loadCommonAuthStoreModules()
-    const legacyPath = getStoragePath()
+    let legacyPath = getStoragePath()
     const initialized = await initializeFreshAccountStore(modules, {
       legacyPath,
       now: Date.now,
     })
     expect(initialized.status).toBe('completed')
+    // The harness must bind after startup relocation, just like the plugin.
+    await prepareVaultFolder({ accountFile: legacyPath })
+    legacyPath = getStoragePath()
     const exchange: AccountTokenExchange = async ({ refreshToken, row }) => {
       expect(refreshToken).toBe('refresh-a')
       expect(row.credential?.refreshToken).toBe(refreshToken)

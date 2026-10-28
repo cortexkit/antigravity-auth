@@ -26,7 +26,10 @@ import {
   type SetupPlugin,
 } from './common-auth-embedded/setup/index.js'
 import type { AntigravityTokenExchangeSuccess } from './plugin/oauth-login.ts'
-import { getStoragePath, UNMIGRATED_ACCOUNT_MESSAGE } from './plugin/storage.ts'
+import {
+  accountFileForVault,
+  UNMIGRATED_ACCOUNT_MESSAGE,
+} from './plugin/storage.ts'
 import { nativeOpenCodeAuthPath } from './plugin/vault-activation.ts'
 import {
   OPENCODE_VAULT_ENROLLMENT_NAME,
@@ -51,10 +54,8 @@ async function storePresent(anchor: string): Promise<boolean> {
 }
 
 /**
- * The generation the state-home anchor publishes, for the forward `init`'s
- * fresh store leaves at the config anchor. An empty string when no store
- * binds there; such a store was never created, so setup writes no forward
- * for it either.
+ * The generation id published at the state-home anchor, for setup's forward
+ * at the config anchor. If no store binds there, setup writes no forward.
  */
 async function publishedGeneration(anchor: string): Promise<string> {
   const modules = await loadCommonAuthStoreModules()
@@ -166,7 +167,7 @@ async function writeNativeSlot(
         const claustrum = await loadCommonAuthClaustrum()
         const stateDir =
           host === 'opencode'
-            ? openCodeVaultDir(resolve(getStoragePath()))
+            ? openCodeVaultDir(resolve(accountFileForVault()))
             : getPiAntigravityVaultDir()
         if (
           (await claustrum.enrollmentAuthority(
@@ -220,7 +221,7 @@ export async function createSetupPlugin(
       // `beforeSignIn`, which may move it after this plugin is built.
       paths: {
         get stateDir() {
-          return openCodeVaultDir(resolve(getStoragePath()))
+          return openCodeVaultDir(resolve(accountFileForVault()))
         },
         host: 'opencode',
       },
@@ -241,7 +242,7 @@ export async function createSetupPlugin(
   ) => {
     if (host === 'opencode')
       return assertLocalOpenCodeLogin(
-        resolve(getStoragePath()),
+        resolve(accountFileForVault()),
         context.opencodeGeneration,
       )
     if ((await authority(host)) !== 'local')
@@ -285,13 +286,15 @@ export async function createSetupPlugin(
     vault: { connectionFile: await resolveClaustrumConnectionPath(), hosts },
     beforeSignIn: async (_host, context) => {
       // Validate every selected host before the first can change credentials or enrollment.
-      // Public Windows readers may tighten owned file DACLs; never run them on a preview.
+      // The vault enrollment readers may restrict Windows file permissions to
+      // the current user; never run those readers on a preview.
       await assertSetupHostsStopped()
       // A real run is about to use the plugin's data: settle where OpenCode's
       // vault files live (every host is stopped, so moving them is usually
       // safe now), then put this process's heartbeat on disk. A preview never
       // reaches this callback. Pi's files never move.
-      if (context.hosts.includes('opencode')) await deps.prepareVaultFolder?.()
+      if (context.hosts.includes('opencode'))
+        await deps.prepareVaultFolder?.({ accountStore: false })
       await deps.processHeartbeat?.()
       for (const selected of context.hosts) {
         if (context.mode === 'local') {
@@ -495,6 +498,7 @@ export async function createSetupPlugin(
               ? 'Accounts already migrated.\n'
               : 'No accounts to migrate.\n',
           )
+          if (source.kind === 'store') await deps.prepareVaultFolder?.()
           // Setup runs with every host stopped. A store this version created
           // at the state-home anchor gets the forward that keeps an older
           // version from starting a second one in OpenCode's config folder.
@@ -511,6 +515,7 @@ export async function createSetupPlugin(
         }
         if ((await migrateOpenCode()) !== 0)
           throw new Error('Offline Antigravity account migration failed.')
+        await deps.prepareVaultFolder?.()
       } else {
         deps.stdout.write(
           'Pi uses its native auth.json; no Antigravity account-pool migration is needed.\n',

@@ -16,9 +16,8 @@
 // plugin instances or OpenCode 2 locations in the same process get the same
 // answer at once instead of waiting for the layout lock again.
 //
-// The same call decides where this process keeps its account store and moves
-// it into the state-home folder when that is safe (`prepareAccountStore`), so
-// every entry point that settles the vault folder also settles the store.
+// Only locally authorized starts also prepare the account store. A vault-only
+// start leaves it undecided until its first local use after a disconnect.
 
 import { createLogger } from './plugin/logger'
 import { pluginPackageVersion } from './process-heartbeat'
@@ -80,6 +79,8 @@ export async function prepareVaultFolder(options: {
   log?: RuntimeLayoutLogger
   /** Test seam: how long to wait for the layout lock. */
   layoutLockWaitMs?: number
+  /** Setup may inspect/migrate an existing store before preparing its anchor. */
+  accountStore?: boolean
 }): Promise<VaultFolder> {
   const { accountFile } = options
   const key = locationKey()
@@ -97,10 +98,10 @@ export async function prepareVaultFolder(options: {
         ? {}
         : { layoutLockWaitMs: options.layoutLockWaitMs }),
     })
-    // `prepareRuntimeLayout` decides the account store's anchor while it
-    // holds the layout lock, so `getStoragePath()` (`accountFile` above) names
-    // the settled anchor from here on.
-    await prepareAccountStore({ version, log })
+    // Preparation re-reads authority before inspecting any store path, and
+    // serializes the local decision with other starts under the layout lock.
+    if (options.accountStore !== false)
+      await prepareAccountStore({ version, log })
   } catch (error) {
     const refusal =
       error instanceof RuntimeLayoutRefusal

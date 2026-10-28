@@ -51,7 +51,7 @@ import {
   type LocationRuntime,
   type LocationRuntimeOptions,
 } from '../../plugin/shared/runtime.ts'
-import { getStoragePath } from '../../plugin/storage.ts'
+import { accountFileForVault } from '../../plugin/storage.ts'
 import { startRuntimeProcessHeartbeat } from '../../process-heartbeat.ts'
 import type {
   CommandApplyRequest,
@@ -1802,7 +1802,7 @@ export async function setupGaActivation(
   // the vault folder, or the refusal that custody then shows in the Vault
   // section while it serves neither vault nor local accounts.
   await prepareVaultFolder({
-    accountFile: getStoragePath(),
+    accountFile: accountFileForVault(),
     log: {
       info: (message) =>
         stderrLogSink({ service: 'runtime-layout', level: 'info', message }),

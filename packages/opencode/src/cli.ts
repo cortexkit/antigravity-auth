@@ -36,6 +36,7 @@ import { commitLogins, replacePoolLogins } from './plugin/persist-account-pool'
 import { checkAccountsQuotaStandalone } from './plugin/quota'
 import { startOAuthListener } from './plugin/server'
 import {
+  accountFileForVault,
   getStoragePath,
   initializeFreshAccountStoreFor,
   loadAccounts,
@@ -51,6 +52,8 @@ import {
   writeStateHomeStoreForward,
 } from './runtime-layout'
 import {
+  decidedAccountStoreAnchor,
+  discoveredAccountFile,
   legacyAccountFile,
   readForwardedAccountStore,
   runtimeLayoutLocation,
@@ -87,7 +90,7 @@ export interface CliDependencies {
    * files where the layout marker says and the account store where a
    * forwarding pointer says, without moving anything.
    */
-  prepareVaultFolder?: () => Promise<void>
+  prepareVaultFolder?: (options?: { accountStore?: boolean }) => Promise<void>
   prompt(message: string): Promise<string>
   openBrowser(url: string): Promise<void>
   isHeadless?(): boolean
@@ -625,9 +628,10 @@ export async function runCliProcess(
       ...deps,
       prepareVaultFolder:
         deps.prepareVaultFolder ??
-        (async () => {
+        (async (options) => {
           const folder = await prepareVaultFolder({
-            accountFile: resolve(getStoragePath()),
+            accountFile: resolve(accountFileForVault()),
+            ...options,
           })
           if (folder.refusal) throw folder.refusal
         }),
@@ -677,11 +681,18 @@ export function createDefaultCliDependencies(): CliDependencies {
         throw new Error(
           'Pi setup requires its detected native agent directory.',
         )
-      const legacyPath = resolve(getStoragePath())
+      if (host !== 'pi')
+        await assertLocalOpenCodeLogin(
+          resolve(accountFileForVault()),
+          context?.opencodeGeneration,
+        )
       const repository =
         host === 'pi'
           ? undefined
-          : await prepareCliLoginStore(legacyPath, context?.opencodeGeneration)
+          : await prepareCliLoginStore(
+              resolve(getStoragePath()),
+              context?.opencodeGeneration,
+            )
       try {
         return await performOAuthLogin(request, {
           authorize: authorizeAntigravity,
@@ -695,7 +706,7 @@ export function createDefaultCliDependencies(): CliDependencies {
             }
             if (host === 'opencode') await assertSetupHostsStopped()
             await assertLocalOpenCodeLogin(
-              legacyPath,
+              resolve(accountFileForVault()),
               context?.opencodeGeneration,
             )
             await persistCliStoreLogin(
@@ -720,7 +731,7 @@ async function prepareCliLoginStore(
   legacyPath: string,
   generation?: SetupCallbackContext['opencodeGeneration'],
 ): Promise<AccountRepository> {
-  await assertLocalOpenCodeLogin(legacyPath, generation)
+  await assertLocalOpenCodeLogin(resolve(accountFileForVault()), generation)
   const modules = await loadCommonAuthStoreModules()
   const options = {
     legacyPath,
@@ -883,7 +894,12 @@ async function readAccountStore(legacyPath: string): Promise<CliAccountsRead> {
 export function createDefaultAccountStoreOperations(): AccountStoreOperations {
   const offline = { processesStopped: true } as const
   return {
-    legacyPath: () => resolve(getStoragePath()),
+    legacyPath: () =>
+      resolve(
+        decidedAccountStoreAnchor(runtimeLayoutLocation())
+          ? getStoragePath()
+          : discoveredAccountFile(),
+      ),
     migrate: async (legacyPath) =>
       createAccountMigrationFactory(await loadCommonAuthStoreModules())({
         legacyPath,

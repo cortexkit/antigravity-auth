@@ -462,6 +462,9 @@ describe('runtime heartbeat layouts', () => {
     expect(readHeartbeat(processHeartbeatPath()).layouts).toEqual({
       [processConfigFolderKey()]: 'state-home',
     })
+    expect(readHeartbeat(processHeartbeatPath()).stores).toEqual({
+      [processConfigFolderKey()]: 'undecided',
+    })
     // Holding no legacy layout, the last owner's release removes the file.
     await handle.release()
     expect(existsSync(processHeartbeatPath())).toBe(false)
@@ -491,6 +494,7 @@ describe('CLI process heartbeat', () => {
       version: packageVersion,
       startedAt: expect.any(Number),
       layouts: { [processConfigFolderKey()]: 'legacy' },
+      stores: { [processConfigFolderKey()]: 'undecided' },
     })
     expect(existsSync(target)).toBe(false)
   })

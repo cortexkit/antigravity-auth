@@ -115,6 +115,7 @@ import {
   vaultAccountRowKey,
 } from './shared/vault-request-credentials'
 import {
+  accountFileForVault,
   clearAccounts,
   getStoragePath,
   loadAccounts,
@@ -252,7 +253,7 @@ export const createAntigravityPlugin =
     // Settle that folder first, moving it out of OpenCode's config folder when
     // that is safe; nothing above reads or writes a vault file. A start that
     // cannot settle it serves neither vault nor local accounts and says why.
-    const accountFile = resolve(getStoragePath())
+    const accountFile = resolve(accountFileForVault())
     const vaultFolder = await prepareVaultFolder({ accountFile })
     // What a request, the menu and the sidebar say while no account source
     // may serve. With an unsettled vault folder that is the refusal's own

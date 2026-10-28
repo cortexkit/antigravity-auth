@@ -24,6 +24,7 @@ import type { CommandApplyResult } from '../rpc/protocol.ts'
 import { createRpcClient } from '../rpc/rpc-client.ts'
 import * as rpcServer from '../rpc/rpc-server.ts'
 import { getVaultDir } from '../runtime-paths.ts'
+import { prepareVaultFolder } from '../vault-folder'
 import { startMenuVaultFixture } from './__fixtures__/vault-menu-daemon.test.ts'
 import { createGaLocationServicesForHost } from './ga-location-services.ts'
 import { createAntigravityPlugin } from './index.ts'
@@ -127,12 +128,15 @@ async function fixture() {
       { preconnect: realFetch.preconnect },
     ),
   )
-  const accountFile = getStoragePath()
+  let accountFile = getStoragePath()
   const modules = await loadCommonAuthStoreModules()
   await initializeFreshAccountStore(modules, {
     legacyPath: accountFile,
     now: Date.now,
   })
+  // Keep the observer repository on the anchor a real local start chooses.
+  await prepareVaultFolder({ accountFile })
+  accountFile = getStoragePath()
   const admission = await readAccountStoreAdmission(
     accountFile,
     modules,

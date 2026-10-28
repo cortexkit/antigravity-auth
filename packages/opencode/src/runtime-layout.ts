@@ -9,8 +9,8 @@
 //
 // The account store (`antigravity-accounts.json`, its pointer and its
 // generation folders) moves to the state home as well, but as a separate,
-// offline operation: `prepareRuntimeLayout` decides once per process where
-// this config folder keeps it (`prepareAccountStore`), moving it only while
+// offline operation: `prepareAccountStore` decides once per process where
+// this config folder keeps it, moving it only while
 // no other live process could still be using it in the config folder (the
 // `storeMove` fence of `version-fence.ts`, which reads each process's
 // heartbeat `stores` record). When that is not safe the process keeps the
@@ -42,9 +42,10 @@
 //   A process that starts while one of those is alive takes the legacy layout
 //   too. So the move happens at the first start after every OpenCode using
 //   that config folder has been closed or restarted on this version.
-// - The account store's anchor is settled after the vault layout, in the same
-//   call and under the same lock, and recorded in the heartbeat before this
-//   process uses it, so a store move elsewhere waits for this process too.
+// - A locally authorized start settles the account store after the vault
+//   layout, under the layout lock, and records its anchor before using it.
+//   Vault-only starts inspect no store path and report `stores: undecided`;
+//   after disconnecting, their first local use decides under that same lock.
 // - Every decision is made holding the layout lock in the state-home folder.
 //   A legacy choice is allowed only once it is in this process's heartbeat,
 //   written while that lock is held, so a process deciding later sees it. A
@@ -124,6 +125,7 @@ import {
   type CommonAuthClaustrumModule,
   type CommonAuthFsModule,
   createAccountRelocationFactory,
+  enrollmentAuthority,
   initializeFreshAccountStore,
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
@@ -131,6 +133,7 @@ import {
   readAccountStoreBinding,
 } from '@cortexkit/antigravity-auth-core'
 import { createLogger } from './plugin/logger'
+import { accountFileForVault } from './plugin/storage'
 import {
   OPENCODE_VAULT_ENROLLMENT_NAME,
   OPENCODE_VAULT_HOST,
@@ -418,13 +421,13 @@ const stateKey = Symbol.for('@cortexkit/antigravity-auth/runtime-layout-runs')
 const globalState = globalThis as typeof globalThis & {
   [stateKey]?: {
     runs: Map<string, Promise<RuntimeLayout>>
-    storeRuns: Map<string, Promise<AccountStoreAnchor>>
+    storeRuns: Map<string, Promise<AccountStoreAnchor | undefined>>
     logged: Set<string>
   }
 }
 const processState = globalState[stateKey] ?? {
   runs: new Map<string, Promise<RuntimeLayout>>(),
-  storeRuns: new Map<string, Promise<AccountStoreAnchor>>(),
+  storeRuns: new Map<string, Promise<AccountStoreAnchor | undefined>>(),
   logged: new Set<string>(),
 }
 globalState[stateKey] = processState
@@ -704,19 +707,14 @@ function defaultFence(version: string) {
 }
 
 /**
- * Record and fix this process's vault layout, then decide where its account
- * store lives and move it there when that is safe. The normal path runs while
- * the caller holds the layout lock; a start that found the vault move already
- * finished records itself without taking that lock again. The vault layout
- * comes first because the store's new anchor is the folder the state-home
- * layout names, and because a store move must never run before every other
- * process has been told where this one's vault files are.
+ * Record and fix this process's vault layout. Store preparation is separate:
+ * vault authority must be known before any account-store path is inspected.
  */
 async function settleVault(
   location: RuntimeLayoutLocation,
   options: RuntimeLayoutOptions,
   layout: RuntimeLayout,
-  log: RuntimeLayoutLogger,
+  _log: RuntimeLayoutLogger,
 ): Promise<void> {
   await recordProcessLayout({
     key: location.key,
@@ -724,15 +722,34 @@ async function settleVault(
     version: options.version,
   })
   setRuntimeLayout(location, layout)
-  await settleAccountStore(location, options, log)
+}
+
+/** Read enrollment afresh; unreadable enrollment never authorizes local work. */
+export async function localAccountStoreAuthorized(): Promise<boolean> {
+  const location = runtimeLayoutLocation()
+  const claustrum = await loadCommonAuthClaustrum()
+  const vaultDir =
+    decidedRuntimeLayout(location) === 'state-home'
+      ? stateHomeVaultDir(location)
+      : legacyVaultDir(accountFileForVault(location.configDir))
+  return (
+    (await enrollmentAuthority(
+      claustrum.hostEnrollmentPaths({
+        stateDir: vaultDir,
+        host: OPENCODE_VAULT_HOST,
+      }),
+      OPENCODE_VAULT_ENROLLMENT_NAME,
+      claustrum,
+    )) === 'local'
+  )
 }
 
 /**
  * Decides, once per process, where this config folder's account store
  * lives, and moves it into the state-home folder when that is safe. Call at
- * plugin start: `prepareRuntimeLayout` settles it inside the layout lock on
- * its normal path, and `vault-folder.ts` calls this after it for the path
- * where the vault files had already moved (which settles nothing again). A
+ * a locally authorized start, or the first local use after disconnecting
+ * from the vault. The full decision and its heartbeat write hold the layout
+ * lock, including when an earlier start already moved the vault files. A
  * process that already settled its anchor keeps it. Resolves to the anchor
  * `getStoragePath()` in `plugin/storage.ts` now uses.
  *
@@ -748,13 +765,33 @@ async function settleVault(
  */
 export async function prepareAccountStore(
   options: RuntimeLayoutOptions,
-): Promise<AccountStoreAnchor> {
+): Promise<AccountStoreAnchor | undefined> {
   const location = runtimeLayoutLocation()
+  if (!(await localAccountStoreAuthorized())) return undefined
+  const decided = decidedAccountStoreAnchor(location)
+  if (decided) return decided
   const log = options.log ?? createLogger('runtime-layout')
   const runKey = `${location.stateHomeDir}\0${location.key}`
   let run = processState.storeRuns.get(runKey)
   if (!run) {
-    run = settleAccountStore(location, options, log).finally(() => {
+    run = (async () => {
+      if (!(await samePhysical(location.configDir, location.stateHomeDir)))
+        await ensureOwnerOnlyDir(location.stateHomeDir)
+      const lock = await takeLock(
+        RUNTIME_LAYOUT_LOCK_NAME,
+        join(location.stateHomeDir, RUNTIME_LAYOUT_MARKER_FILE),
+        options.layoutLockWaitMs ?? LAYOUT_LOCK_WAIT_MS,
+        log,
+      )
+      try {
+        await lock.assertOwned()
+        // Enrollment may have changed while this start waited for the layout lock.
+        if (!(await localAccountStoreAuthorized())) return undefined
+        return await settleAccountStore(location, options, log)
+      } finally {
+        await lock.release()
+      }
+    })().finally(() => {
       processState.storeRuns.delete(runKey)
     })
     processState.storeRuns.set(runKey, run)
@@ -807,6 +844,9 @@ async function decideAccountStore(
     )
     return recordAnchor(location, options, 'state-home', log)
   }
+
+  // A deferred vault layout has not admitted the state-home destination.
+  if (decidedRuntimeLayout(location) === 'legacy') return keepConfig()
 
   const configStore = await presentAccountStore(configAnchor)
   const stateStore = await presentAccountStore(stateAnchor)
@@ -894,7 +934,12 @@ async function storeMovePathResolves(
   location: RuntimeLayoutLocation,
   log: RuntimeLayoutLogger,
 ): Promise<boolean> {
-  if (folderResolvesToItself(stateAnchor)) return true
+  if (
+    folderResolvesToItself(
+      join(location.stateHomeDir, 'antigravity-accounts.json'),
+    )
+  )
+    return true
   logOnce(`${location.key}\0store-linked-path`, () =>
     log.warn(ACCOUNT_STORE_LINKED_PATH_MESSAGE, {
       accountStore: stateAnchor,
@@ -1564,7 +1609,9 @@ function layoutFiles(
 ): LayoutFiles {
   return {
     vault: {
-      old: legacyVaultDir(accountFile ?? legacyAccountFile(location.configDir)),
+      old: legacyVaultDir(
+        accountFile ?? accountFileForVault(location.configDir),
+      ),
       next: stateHomeVaultDir(location),
     },
   }

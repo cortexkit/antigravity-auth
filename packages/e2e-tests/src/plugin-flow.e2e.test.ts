@@ -22,6 +22,7 @@
  * factory seams while the real transport, sidebar and store paths run.
  */
 
+import { prepareVaultFolder } from '../../opencode/src/vault-folder.ts'
 import './setup'
 
 import {
@@ -142,18 +143,26 @@ async function withHarnessBody(
         expect(outcome.status).toBe('completed')
       }
     }
+    // Bind the harness observer after the same startup move the plugin uses;
+    // an already-bound repository intentionally never changes generations.
+    await prepareVaultFolder({ accountFile: path })
+    const servingPath = getStoragePath()
     phase('store.modules.start')
     const modules = await loadCommonAuthStoreModules()
     phase('store.modules.end')
     phase('repository.binding.start')
-    const binding = await readAccountStoreBinding(path, modules, Date.now)
+    const binding = await readAccountStoreBinding(
+      servingPath,
+      modules,
+      Date.now,
+    )
     phase('repository.binding.end')
     if (mode !== 'legacy') expect(binding.status).toBe('bound')
     repository = createAccountRepositoryFactory(modules)({
       paths:
         binding.status === 'bound'
           ? binding.paths
-          : resolveAccountStorePaths(path),
+          : resolveAccountStorePaths(servingPath),
       now: Date.now,
       // Prepare persistent bearers without using the model-response queue.
       exchange: async ({ refreshToken }) => {

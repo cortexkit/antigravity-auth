@@ -379,12 +379,8 @@ describe('the vault layout on a fresh install', () => {
       JSON.parse(readFileSync(join(runtimeDir(), 'config-dir.json'), 'utf8')),
     ).toEqual({ version: 1, configDir: runtimeLayoutLocation().key })
     if (POSIX) expect(statSync(runtimeDir()).mode & 0o777).toBe(0o700)
-    // Nothing but the forwarding pointer a version without the store move
-    // reads was created in OpenCode's config folder. Which is there depends on
-    // whether this machine had other live plugin processes, which the account
-    // store's own suites cover.
-    for (const name of readdirSync(configDir()))
-      expect(name).toBe('antigravity-accounts.json.store.pointer.json')
+    // Choosing the vault layout alone never authorizes account-store work.
+    expect(existsSync(configDir()) ? readdirSync(configDir()) : []).toEqual([])
   })
 
   it('a tool that never prepared follows the marker alone', async () => {

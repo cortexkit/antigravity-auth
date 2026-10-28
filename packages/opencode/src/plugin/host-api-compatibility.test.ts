@@ -170,6 +170,7 @@ describe('v1 process heartbeat', () => {
       version: manifest.version,
       startedAt: expect.any(Number),
       layouts: { [processConfigFolderKey()]: 'state-home' },
+      stores: { [processConfigFolderKey()]: 'state-home' },
     })
     await hooks.dispose?.()
     expect(existsSync(target)).toBe(false)

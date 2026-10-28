@@ -2,7 +2,8 @@
 // anchor, for the store-relocation tests.
 //
 // Modes (first argument):
-// - `once`: run `prepareRuntimeLayout` with the inherited environment, print
+// - `once`: prepare the vault layout and, when locally authorized, the store;
+//   print
 //   one JSON line with the layout, the vault folder, the account file it
 //   resolved and the store move the process ran (if any), and exit;
 // - `hold`: the same, then stay alive until killed (a live process on that
@@ -47,6 +48,7 @@ import {
   startProcessHeartbeat,
 } from '../process-heartbeat'
 import {
+  prepareAccountStore,
   prepareRuntimeLayout,
   runStoreMove,
   type StoreMoveInput,
@@ -158,6 +160,11 @@ if (mode === 'heartbeat') {
   }
   try {
     const layout = await prepareRuntimeLayout({
+      version: process.env.ACCOUNT_STORE_TEST_VERSION ?? '3.0.16',
+      log: quiet,
+      relocate: move,
+    })
+    await prepareAccountStore({
       version: process.env.ACCOUNT_STORE_TEST_VERSION ?? '3.0.16',
       log: quiet,
       relocate: move,

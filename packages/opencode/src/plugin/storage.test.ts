@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect } from 'bun:test'
+import { beforeEach, describe, expect, spyOn } from 'bun:test'
+import * as fs from 'node:fs'
 import {
   mkdir,
   mkdtemp,
@@ -31,6 +32,7 @@ import {
   type AccountMetadataV2 as AccountMetadata,
   type AccountStorageV2 as AccountStorage,
   type AccountStorageV4,
+  accountFileForVault,
   assertLegacyPoolInUse,
   clearAccounts,
   deduplicateAccountsByEmail,
@@ -837,6 +839,26 @@ describe('Windows migrated-store anchor', () => {
   const configPool = () => join(configDir, 'antigravity-accounts.json')
   const legacyPool = () =>
     join(appDataRoot, 'opencode', 'antigravity-accounts.json')
+
+  it('finds the legacy Windows vault without inspecting any account-store path', async () => {
+    await mkdir(join(appDataRoot, 'opencode', 'antigravity-auth-vault'), {
+      recursive: true,
+    })
+    mockWindows()
+    const exists = spyOn(fs, 'existsSync')
+    const reads = spyOn(fs, 'readFileSync')
+    try {
+      expect(accountFileForVault()).toBe(legacyPool())
+      expect(exists.mock.calls.map(([path]) => String(path))).toEqual([
+        join(configDir, 'antigravity-auth-vault'),
+        join(appDataRoot, 'opencode', 'antigravity-auth-vault'),
+      ])
+      expect(reads.mock.calls).toEqual([])
+    } finally {
+      exists.mockRestore()
+      reads.mockRestore()
+    }
+  })
 
   function openAt(legacyPath: string, modules: CommonAuthStoreModules) {
     return openAccountStore({
