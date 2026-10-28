@@ -3,12 +3,13 @@
 // An assertion failure may include synthetic fixture data in its error.
 // Usage: node --experimental-import-meta-resolve relocate.mjs ROOT EVIDENCE CLI
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { collectRelocationCommand } from './relocate-command.mjs'
+import { relocationLockDiagnostics } from './relocate-lock-diagnostics.mjs'
 
 assert.equal(process.platform, 'win32', 'Store relocation proof needs Windows')
 assert.equal(process.argv.length, 5, 'Expected ROOT EVIDENCE CLI')
@@ -28,7 +29,14 @@ const config = join(profile, 'config', 'opencode')
 const anchor = join(config, 'antigravity-accounts.json')
 const pointer = `${anchor}.store.pointer.json`
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex')
-const result = { node: process.version, stages: [], attempts: [] }
+const result = {
+  node: process.version,
+  harnessPid: process.pid,
+  parentPid: process.ppid,
+  stages: [],
+  attempts: [],
+}
+const diagnosticAnchors = new Set([anchor])
 let stage = 'setup'
 const check = async (name, run) => {
   stage = name
@@ -38,21 +46,33 @@ const check = async (name, run) => {
 const json = async (path) => JSON.parse(await readFile(path, 'utf8'))
 
 async function command(label, args) {
-  const attempt = spawnSync(process.execPath, [cli, ...args], {
-    cwd: profile,
-    env: process.env,
-    encoding: 'utf8',
-    timeout: 120000,
-    maxBuffer: 4 * 1024 * 1024,
-  })
+  const attempt = await collectRelocationCommand(
+    label,
+    process.execPath,
+    [cli, ...args],
+    {
+      cwd: profile,
+      env: process.env,
+      deadlineMs: 120000,
+      maxBuffer: 4 * 1024 * 1024,
+    },
+  )
+  // Capture a failed child's short-lived lock eviction marker before other awaited IO.
+  if (attempt.error || attempt.signal || attempt.status !== 0)
+    result.lockDiagnostics = await relocationLockDiagnostics(
+      profile,
+      diagnosticAnchors,
+    )
   await writeFile(join(evidence, `${label}.stdout`), attempt.stdout ?? '')
   await writeFile(join(evidence, `${label}.stderr`), attempt.stderr ?? '')
   result.attempts.push({
     label,
+    pid: attempt.pid,
     status: attempt.status,
     signal: attempt.signal,
     error: attempt.error?.message,
   })
+  if (attempt.timedOut) throw attempt.error
   assert.equal(attempt.error, undefined, `${label} did not run`)
   assert.equal(attempt.signal, null, `${label} was interrupted`)
   assert.equal(attempt.status, 0, `${label} failed: ${attempt.stderr}`)
@@ -88,6 +108,7 @@ try {
     product.runtimeLayoutLocation().stateHomeDir,
     'antigravity-accounts.json',
   )
+  diagnosticAnchors.add(stateAnchor)
   result.cliSha256 = digest(await readFile(cli))
 
   const repository = (paths) =>
@@ -254,6 +275,10 @@ try {
   result.outcome = 'failed'
   result.failedStage = stage
   result.error = error instanceof Error ? error.stack : String(error)
+  result.lockDiagnostics ??= await relocationLockDiagnostics(
+    profile,
+    diagnosticAnchors,
+  )
   console.error(`Windows account-store relocation failed at ${stage}`)
   console.error(result.error)
   process.exitCode = 1

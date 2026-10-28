@@ -48,6 +48,7 @@ import {
   ACCOUNT_STORE_PROVIDER,
   type AccountStorePaths,
   type AccountTokenExchange,
+  MANAGEMENT_LOCK_NAME,
   MANAGEMENT_SETTINGS_KEY,
   refreshProviderLock,
 } from './account-repository-types.ts'
@@ -1243,6 +1244,104 @@ describe('offline relocation operation', () => {
         ).status,
       ).toBe('completed')
       expect(checked).toBe(true)
+    } finally {
+      await rm(store.root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not reacquire a held lease during relocation or active recovery', async () => {
+    const store = await movedStore('source')
+    const held = new Set<string>()
+    const overlaps: string[] = []
+    const contentions: string[] = []
+    const acquisitions: string[] = []
+    const phases: string[] = []
+    let targetConfig: string | undefined
+    const key = (path: string, name: string) =>
+      modules.fs.lockPathFor(path, name)
+    const enter = (lock: string) => {
+      if (held.has(lock)) overlaps.push(lock)
+      held.add(lock)
+      acquisitions.push(lock)
+    }
+    const observed: AccountMigrationModules = {
+      store: {
+        ...modules.store,
+        openPoolStore: (storeOptions) =>
+          modules.store.openPoolStore({
+            ...storeOptions,
+            onLockEvent(event) {
+              const lock = key(event.path, event.name)
+              if (event.type === 'acquired') enter(lock)
+              if (event.type === 'released') held.delete(lock)
+              if (event.type === 'contended') {
+                contentions.push(lock)
+                if (held.has(lock)) overlaps.push(lock)
+              }
+            },
+          }),
+      },
+      fs: {
+        ...modules.fs,
+        withLock: async (path, lockOptions, body) => {
+          if (
+            lockOptions.name === MANAGEMENT_LOCK_NAME &&
+            basename(path) === 'config.json' &&
+            path !== store.oldPaths.configPath
+          )
+            targetConfig = path
+          const lock = key(path, lockOptions.name)
+          enter(lock)
+          try {
+            return await modules.fs.withLock(path, lockOptions, body)
+          } finally {
+            // Keep the outer lease visible until its awaited release finishes.
+            held.delete(lock)
+          }
+        },
+      },
+    }
+    const move = createAccountRelocationFactory(observed)
+    try {
+      const moved = await move({
+        ...options(store),
+        onBoundary(point) {
+          if (
+            ![
+              'relocate:build:after-config',
+              'relocate:before-verify',
+              'relocate:before-activate',
+              'relocate:after-activate',
+            ].includes(point)
+          )
+            return
+          phases.push(point)
+          expect(targetConfig).toBeDefined()
+          expect(held.has(key(targetConfig!, MANAGEMENT_LOCK_NAME))).toBe(true)
+        },
+      })
+      expect(moved.status).toBe('completed')
+      const target = await resolvePublishedAccountStorePaths(store.newAnchor)
+      if (!target) throw new Error('target missing')
+      expect(targetConfig).toBe(target.configPath)
+      expect((await move(options(store))).status).toBe('completed')
+      expect(phases).toEqual([
+        'relocate:build:after-config',
+        'relocate:before-verify',
+        'relocate:before-activate',
+        'relocate:after-activate',
+      ])
+      expect(
+        acquisitions.filter(
+          (lock) => lock === key(target.configPath, MANAGEMENT_LOCK_NAME),
+        ),
+      ).toHaveLength(2)
+      expect(
+        acquisitions.filter((lock) => lock === key(target.configPath, 'save')),
+      ).toHaveLength(3)
+      expect(overlaps).toEqual([])
+      expect(contentions).toEqual([])
+      expect(held.size).toBe(0)
     } finally {
       await rm(store.root, { recursive: true, force: true })
     }
