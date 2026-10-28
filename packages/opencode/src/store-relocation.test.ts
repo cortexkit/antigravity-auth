@@ -18,10 +18,12 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   type AccountMigrationOutcome,
+  createAccountMigrationFactory,
+  createAccountRepositoryFactory,
   initializeFreshAccountStore,
   loadCommonAuthStoreModules,
   readAccountStoreBinding,
@@ -756,27 +758,32 @@ describe('real processes', () => {
     expect(await moveCount()).toEqual({ anchor: 'state-home', moved: 1 })
   }, 60_000)
 
-  it('two processes starting together settle one store anchor and one authority', async () => {
+  it('two processes starting together produce exactly one store move', async () => {
     // The children get a home of their own, so the fence they read holds no
     // heartbeat or port file of this machine's other runs. The store they
-    // share is therefore seeded from inside that home.
+    // share is therefore seeded from inside that home, as an existing
+    // installation has it: a published generation at the config anchor whose
+    // rows the move carries over.
     const childHome = join(root, 'child-home')
     mkdirSync(childHome, { recursive: true, mode: 0o700 })
     const childState = join(childHome, 'state')
     process.env.XDG_STATE_HOME = childState
     resetProcess()
-    // A store that lives at the config anchor, which is what an existing
-    // installation has before any move.
-    await publishStore(configAnchor())
+    const seeded = await seedMigratedStore()
     const barrier = join(root, 'barrier')
     const trace = join(root, 'trace')
+    const journal = join(root, 'journal')
     const extra = {
       HOME: childHome,
       USERPROFILE: childHome,
       XDG_STATE_HOME: childState,
+      ACCOUNT_STORE_TEST_REAL_MOVE: '1',
+      ACCOUNT_STORE_TEST_JOURNAL: journal,
       ACCOUNT_STORE_TEST_BARRIER: barrier,
       ACCOUNT_STORE_TEST_TRACE: trace,
     }
+    // Both children start together and wait on the barrier, so both are
+    // inside the decision when it opens.
     const both = Promise.all([
       spawnStoreProcess('once', extra),
       spawnStoreProcess('once', extra),
@@ -787,24 +794,154 @@ describe('real processes', () => {
       await Bun.sleep(10)
     writeFileSync(barrier, '')
     const [one, two] = await both
+    // The journal this process left, read right after it exited.
+    const digests = [one, two].map((child) => ({
+      pid: child.result.pid,
+      journal: readFileSync(journal, 'utf8').trim(),
+    }))
 
-    // Both settled the new anchor. A process may still report the config
-    // anchor when the two were in flight together: at that moment the other
-    // one's heartbeat named the older anchor, which this release reads as
-    // blocking.
-    expect([one.result.layout, two.result.layout]).toEqual([
-      'state-home',
-      'state-home',
-    ])
-    for (const result of [one.result, two.result])
-      expect(result.accountFile).toBeString()
-    // The store keeps one authority: both processes settled the same new
-    // anchor, and the relocation factory only ever publishes one store per
-    // anchor, so a second, concurrent process joins the same move rather than
-    // starting another. The trace names the processes that reached a move.
+    // (a) Exactly one generation was published at the state-home anchor, and
+    // the config anchor still holds the original one.
+    const forward = readForwardedAccountStore(configAnchor())
+    expect(forward?.legacyPath).toBe(stateAnchor())
+    const movedId = forward?.id as string
+    expect(movedId).toBeString()
+    expect(movedId).not.toBe(seeded.id)
+    expect(generationsAt(stateAnchor())).toEqual([movedId])
+    expect(generationsAt(configAnchor())).toEqual([seeded.id])
+
+    // (b) The forward at the config anchor names that one generation, and the
+    // state-home anchor publishes it.
+    expect(await publishedId(stateAnchor())).toBe(movedId)
+
+    // (c) The rows read back deep-equal the seeded store.
+    const modules = await loadCommonAuthStoreModules()
+    const binding = await readAccountStoreBinding(
+      stateAnchor(),
+      modules,
+      Date.now,
+    )
+    expect(binding.status).toBe('bound')
+    if (binding.status !== 'bound') return
+    expect(await rowsOf(binding.paths)).toEqual(seeded.rows)
+
+    // (d) A process that finds a finished move reads it and leaves it alone:
+    // the journal is the same bytes after both exits, and the moved
+    // generation's files were not rewritten.
+    expect(new Set(digests.map((entry) => entry.journal)).size).toBe(1)
+    expect(digests[0]?.journal).not.toBe('missing')
+    const files = storeFiles(stateAnchor(), movedId)
+    expect(readFileSync(journal, 'utf8').trim()).toBe(
+      String(digests[1]?.journal),
+    )
+    expect(files['state.json']).toBeString()
+    expect(files['config.json']).toBeString()
     expect(relocations(trace).length).toBeGreaterThanOrEqual(1)
-  }, 60_000)
+  }, 120_000)
 })
+
+/** The generation ids published at one anchor, by its generation folders. */
+function generationsAt(anchor: string): string[] {
+  const prefix = `${basename(anchor)}.store.`
+  return readdirSync(dirname(anchor))
+    .filter((name) => name.startsWith(prefix) && name.endsWith('.generation'))
+    .map((name) => name.slice(prefix.length, -'.generation'.length))
+    .sort()
+}
+
+/**
+ * The bytes of a generation's config, state and journal, keyed by file name,
+ * to compare across processes.
+ */
+function storeFiles(anchor: string, id: string): Record<string, string> {
+  const dir = join(
+    dirname(anchor),
+    `${basename(anchor)}.store.${id}.generation`,
+  )
+  const files: Record<string, string> = {}
+  for (const name of ['config.json', 'state.json'])
+    files[name] = readFileSync(join(dir, name)).toString('base64')
+  return files
+}
+
+/**
+ * A migrated store at the config anchor, the way an existing installation
+ * has it: two accounts in a published generation. Returns its generation and
+ * the rows a repository reads from it.
+ */
+async function seedMigratedStore(): Promise<{
+  id: string
+  rows: unknown
+}> {
+  const modules = await loadCommonAuthStoreModules()
+  const legacy = configAnchor()
+  mkdirSync(dirname(legacy), { recursive: true, mode: 0o700 })
+  writeFileSync(
+    legacy,
+    JSON.stringify({
+      version: 4,
+      activeIndex: 0,
+      accounts: [
+        {
+          email: 'one@example.test',
+          refreshToken: 'synthetic-refresh-one',
+          projectId: 'project-one',
+          addedAt: 1_000,
+          lastUsed: 1_000,
+        },
+        {
+          email: 'two@example.test',
+          refreshToken: 'synthetic-refresh-two',
+          projectId: 'project-two',
+          addedAt: 2_000,
+          lastUsed: 2_000,
+        },
+      ],
+    }),
+    { mode: 0o600 },
+  )
+  const migrated = await createAccountMigrationFactory(modules)({
+    legacyPath: legacy,
+    offline: { processesStopped: true },
+    now: Date.now,
+  })
+  if (migrated.status !== 'completed')
+    throw new Error(`seed migration is ${migrated.status}`)
+  const binding = await readAccountStoreBinding(legacy, modules, Date.now)
+  if (binding.status !== 'bound')
+    throw new Error(`seed store is ${binding.status}`)
+  return { id: migrated.receipt.id, rows: await rowsOf(binding.paths) }
+}
+
+/** The rows one generation's repository reads, in store order. */
+async function rowsOf(paths: {
+  configPath: string
+  statePath: string
+}): Promise<unknown> {
+  const modules = await loadCommonAuthStoreModules()
+  const repository = createAccountRepositoryFactory(modules)({
+    paths: paths as never,
+    now: Date.now,
+    exchange: async () => {
+      throw new Error('the test reads rows; it never refreshes one')
+    },
+  })
+  try {
+    const read = await repository.read()
+    if (read.status !== 'ready') throw new Error(`store is ${read.status}`)
+    return read.rows.map((row) => ({
+      id: row.ref.id,
+      refreshToken: row.credential?.refreshToken,
+      addedAt: row.storeAddedAt,
+      email:
+        row.metadata.status === 'present'
+          ? row.metadata.metadata.email
+          : undefined,
+    }))
+  } finally {
+    await repository.dispose()
+  }
+}
 
 /** The `<pid>` of every `relocate <pid>` line in a trace. */
 function relocations(trace: string): string[] {

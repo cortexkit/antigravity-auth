@@ -823,7 +823,15 @@ async function decideAccountStore(
   if (configStore) {
     if (!(await storeMovePathResolves(stateAnchor, location, log)))
       return keepConfig()
-    return moveStore(location, options, configAnchor, stateAnchor, false, log)
+    return moveStore(
+      location,
+      options,
+      configAnchor,
+      stateAnchor,
+      false,
+      log,
+      false,
+    )
   }
 
   // Nothing published at either anchor: a fresh installation initializes at
@@ -1040,6 +1048,7 @@ async function moveStore(
   target: string,
   back: boolean,
   log: RuntimeLayoutLogger,
+  forwarded: boolean,
 ): Promise<AccountStoreAnchor> {
   const keepConfig = () => recordAnchor(location, options, 'config', log)
   if (!(await storeFenceOpen(location, options, log))) return keepConfig()
@@ -1056,7 +1065,9 @@ async function moveStore(
           reason: result.status === 'pending' ? result.reason : result.status,
         }),
       )
-      return keepConfig()
+      // A forwarded store has no config-folder copy to fall back on: every
+      // reader must report the store as unusable, not serve the old one.
+      return forwarded ? 'state-home' : keepConfig()
     }
     showLog(
       log,
@@ -1074,7 +1085,7 @@ async function moveStore(
         },
       ),
     )
-    return keepConfig()
+    return forwarded ? 'state-home' : keepConfig()
   }
   return recordAnchor(location, options, 'state-home', log)
 }
@@ -1093,8 +1104,21 @@ async function resumeForwardedStore(
   stateAnchor: string,
   log: RuntimeLayoutLogger,
 ): Promise<void> {
+  // A store that already binds there holds the finished move, and reading
+  // that is all this needs: a finished move is never rewritten.
+  const store = await loadCommonAuthStoreModules()
+  const binding = await readAccountStoreBinding(stateAnchor, store, Date.now)
+  if (binding.status === 'bound') return
   try {
-    await moveStore(location, options, configAnchor, stateAnchor, false, log)
+    await moveStore(
+      location,
+      options,
+      configAnchor,
+      stateAnchor,
+      false,
+      log,
+      true,
+    )
   } catch (error) {
     logOnce(`${location.key}\0store-resume-failed`, () =>
       log.warn(
