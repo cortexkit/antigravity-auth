@@ -1710,7 +1710,6 @@ async function exclusiveBytes(
   pointerStage = false,
 ): Promise<void> {
   let handle: Awaited<ReturnType<typeof open>> | undefined
-  let created = false
   try {
     if (windowsPrivateFiles) {
       // The backend accepts Uint8Array, although the embedded declaration only
@@ -1720,7 +1719,6 @@ async function exclusiveBytes(
         bytes: string | Uint8Array,
       ) => Promise<void>
       await createBytes(path, bytes)
-      created = true
     } else handle = await open(path, 'wx', 0o600)
   } catch (error) {
     if (errno(error) !== 'EEXIST') throw error
@@ -1738,9 +1736,10 @@ async function exclusiveBytes(
   const reopened = await secureRead(path)
   if (digest(reopened) !== expectedHash || !reopened.equals(bytes))
     throw new AccountMigrationError('exclusive backup or recovery copy differs')
-  // New pointer stages are flushed by their creation writer. Reused stages and
-  // all backup, bootstrap, retired and export copies retain the reopened barrier.
-  if ((!created && handle === undefined) || !pointerStage) await syncFile(path)
+  // A new POSIX pointer stage was synced through its write handle. A stage the
+  // Windows private writer created has no handle here, so it is synced like
+  // reused stages and every backup, bootstrap, retired and export copy.
+  if (handle === undefined || !pointerStage) await syncFile(path)
   await syncDirectory(dirname(path), boundary)
 }
 async function readJournal(
