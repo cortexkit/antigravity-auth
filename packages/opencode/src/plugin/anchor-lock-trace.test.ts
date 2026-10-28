@@ -3,7 +3,7 @@ import * as promises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { AnchorLockTrace } from './__fixtures__/anchor-lock-trace'
+import { AnchorLockTrace } from './__fixtures__/anchor-lock-trace.test'
 
 let trace: AnchorLockTrace | undefined
 let root: string | undefined

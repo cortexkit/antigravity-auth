@@ -20,7 +20,7 @@ import {
   createAccountRepositoryFactory,
 } from '@cortexkit/antigravity-auth-core'
 import { lifetimeHooks } from '../../../../test/fixtures/lifetime-hooks.ts'
-import { AnchorLockTrace } from './__fixtures__/anchor-lock-trace'
+import { AnchorLockTrace } from './__fixtures__/anchor-lock-trace.test'
 import { managedStoreModules } from './__fixtures__/managed-store.test.ts'
 import { loadVerifiedStoreModules } from './__fixtures__/verified-store'
 import { createRepositoryAccountAccessService } from './account-access'

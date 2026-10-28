@@ -111,6 +111,10 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Conservative: private-mode native credential fixtures.',
   'packages/opencode/src/ga/server/pool-login.test.ts':
     'Conservative: private resolved-directory and credential-file fixtures.',
+  'packages/opencode/src/plugin/anchor-lock-trace.test.ts':
+    'Real lock leases, eviction markers and a slow real fsync to prove the store lock trace attributes time correctly.',
+  'packages/opencode/src/plugin/__fixtures__/anchor-lock-trace.test.ts':
+    'Store lock trace fixture that observes real lock, private-file and fsync calls.',
   'packages/opencode/src/plugin/__fixtures__/managed-store.test.ts':
     'Real store helper delegates filesystem lock acquisition.',
   'packages/opencode/src/plugin/__fixtures__/vault-menu-daemon.test.ts':
