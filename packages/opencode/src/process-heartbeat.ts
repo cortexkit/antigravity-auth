@@ -41,9 +41,9 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { getConfigDir } from './plugin/storage'
 import {
-  type AccountStoreAnchor,
   decidedAccountStoreAnchor,
   decidedRuntimeLayout,
+  type HeartbeatStoreRecord,
   runtimeLayoutLocation,
 } from './runtime-paths'
 
@@ -61,7 +61,7 @@ export interface ProcessHeartbeat {
    * process that decided. Absent from a heartbeat of a version that predates
    * the store move.
    */
-  stores?: Record<string, AccountStoreAnchor>
+  stores?: Record<string, HeartbeatStoreRecord>
 }
 
 /**
@@ -108,7 +108,7 @@ interface SharedHeartbeatState {
   owners: number
   startedAt: number | undefined
   layouts: Map<string, ProcessLayout>
-  stores: Map<string, AccountStoreAnchor>
+  stores: Map<string, HeartbeatStoreRecord>
   /** The file this process last wrote and has not removed. */
   writtenPath: string | undefined
   /** `layouts` and `stores` as last written, to tell whether the file is current. */
@@ -140,7 +140,7 @@ function layoutsRecord(): Record<string, ProcessLayout> {
  * with no `stores` is what a version before the store move writes, and a
  * store move treats a live one as still using the config folder.
  */
-function storesRecord(): Record<string, AccountStoreAnchor> {
+function storesRecord(): Record<string, HeartbeatStoreRecord> {
   return Object.fromEntries(shared.stores)
 }
 
@@ -162,8 +162,10 @@ function holdsLegacyLayout(): boolean {
  */
 function holdsFixedOldPaths(): boolean {
   if (holdsLegacyLayout()) return true
+  // `undecided` keeps the heartbeat too: this process opened no store, and
+  // a later move must not pass a file that could still name the old anchor.
   for (const anchor of shared.stores.values())
-    if (anchor === 'config') return true
+    if (anchor === 'config' || anchor === 'undecided') return true
   return false
 }
 
@@ -257,7 +259,7 @@ export async function startProcessHeartbeat(input: {
   version: string
   logger: HeartbeatLogger
   layouts?: Record<string, ProcessLayout>
-  stores?: Record<string, AccountStoreAnchor>
+  stores?: Record<string, HeartbeatStoreRecord>
   now?: () => number
   pid?: number
   dir?: string
@@ -368,7 +370,7 @@ export async function recordProcessLayout(input: {
 
 /**
  * Record where this process keeps one config folder's account store (see
- * `AccountStoreAnchor` in `runtime-paths.ts`) and write the heartbeat at
+ * `HeartbeatStoreRecord` in `runtime-paths.ts`) and write the heartbeat at
  * once, because a process deciding whether it may move the store reads it.
  * A start makes the choice and this write while it holds the layout lock, so
  * a process deciding later sees it. Throws when the write fails, unlike
@@ -376,7 +378,7 @@ export async function recordProcessLayout(input: {
  */
 export async function recordProcessAnchor(input: {
   key: string
-  anchor: AccountStoreAnchor
+  anchor: HeartbeatStoreRecord
   version: string
   now?: () => number
   pid?: number
@@ -463,16 +465,16 @@ export async function startRuntimeProcessHeartbeat(
 ): Promise<ProcessHeartbeatHandle> {
   let version = 'unknown'
   let layouts: Record<string, ProcessLayout> = {}
-  let stores: Record<string, AccountStoreAnchor> = {}
+  let stores: Record<string, HeartbeatStoreRecord> = {}
   try {
     version = await pluginPackageVersion()
     const location = runtimeLayoutLocation()
     const key = processConfigFolderKey()
     layouts = { [key]: decidedRuntimeLayout(location) ?? 'legacy' }
-    // Only a decided anchor is recorded: an empty `stores` is what a version
-    // without the store move writes, and a store move keeps waiting for it.
-    const anchor = decidedAccountStoreAnchor(location)
-    if (anchor) stores = { [key]: anchor }
+    // A decided anchor is recorded as it is; a process that has not decided
+    // (a vault-mode start never opens the store) says so, which keeps a store
+    // move from happening under it while letting other processes move.
+    stores = { [key]: decidedAccountStoreAnchor(location) ?? 'undecided' }
   } catch (error) {
     logger.warn('process heartbeat details unavailable', {
       error: errorText(error),

@@ -31,8 +31,11 @@
 // moves the store, and on any record it cannot read. It also blocks on a live
 // heartbeat that names no `stores`, or that keeps the store in the config
 // folder (`config`) for any config folder: such a process holds paths that the
-// move would take away from it. It never decides by `layouts`: a `state-home`
-// heartbeat says where the vault files are, not where the account store is.
+// move would take away from it. A heartbeat that says `undecided` (a vault-mode
+// start that never opened the store) does not block: that process follows
+// whatever the move publishes before its first local use. It never decides by
+// `layouts`: a `state-home` heartbeat says where the vault files are, not
+// where the account store is.
 //
 // What this cannot see: an OpenCode 2 location or a CLI run of a version
 // before 3.0.13 writes neither file. Port files written under a custom
@@ -284,7 +287,8 @@ export async function versionFenceOpen(
     if (
       options.storeMove === true &&
       (heartbeat.stores === undefined ||
-        Object.values(heartbeat.stores).includes('config'))
+        Object.values(heartbeat.stores).includes('config') ||
+        Object.values(heartbeat.stores).includes('undecided'))
     )
       block({ pid, version: heartbeat.version, detail: path })
   }
@@ -339,9 +343,11 @@ export async function versionFenceOpen(
 export function heartbeatStoreAnchor(
   stores: Record<string, unknown> | undefined,
   key: string,
-): 'config' | 'state-home' | 'unknown' {
+): 'config' | 'state-home' | 'undecided' | 'unknown' {
   const value = stores?.[key]
-  return value === 'config' || value === 'state-home' ? value : 'unknown'
+  return value === 'config' || value === 'state-home' || value === 'undecided'
+    ? value
+    : 'unknown'
 }
 
 /** What the other live processes say about one config folder's store. */
@@ -404,7 +410,7 @@ export async function readStoreAnchors(
       continue
     }
     const anchor = heartbeatStoreAnchor(heartbeat.stores, key)
-    if (anchor === 'state-home') continue
+    if (anchor === 'state-home' || anchor === 'undecided') continue
     const blocker = { pid, version: heartbeat.version, detail: path }
     if (anchor === 'config') configFolder.push(blocker)
     else unknown.push(blocker)
