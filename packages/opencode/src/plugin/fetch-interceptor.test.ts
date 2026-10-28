@@ -28,7 +28,7 @@ import {
 } from '../../../core/src/__fixtures__/vault-outage.ts'
 import { AccountManager, loadAccountManagerFromRepository } from './accounts'
 import { createAuthLoader } from './auth-loader'
-import { DEFAULT_CONFIG } from './config'
+import { AntigravityConfigSchema, DEFAULT_CONFIG } from './config'
 import * as debug from './debug'
 import type { AgyTransport } from './dependencies'
 import {
@@ -822,6 +822,80 @@ describe('createFetchInterceptor', () => {
       cache_warmup_on_switch: false,
       empty_response_max_attempts: 2,
       empty_response_retry_delay_ms: 0,
+    }
+
+    for (const { name, stored, settings, refused } of [
+      {
+        name: 'serves a multi-account pool at 19% remaining with no soft quota setting',
+        stored: twoStoredAccounts,
+        settings: {},
+        refused: false,
+      },
+      {
+        name: 'refuses a multi-account pool at 19% remaining with an explicit 80% threshold',
+        stored: twoStoredAccounts,
+        settings: { soft_quota_threshold_percent: 80 },
+        refused: true,
+      },
+      {
+        name: 'preserves the single-account exemption at 19% remaining with an explicit 80% threshold',
+        stored: storedAccounts,
+        settings: { soft_quota_threshold_percent: 80 },
+        refused: false,
+      },
+    ]) {
+      it(name, async () => {
+        const accountManager = new AccountManager(undefined, stored())
+        for (const account of accountManager.getAccounts()) {
+          account.access = `access-${account.index}`
+          account.expires = Date.now() + 3_600_000
+          accountManager.updateQuotaCache(account.index, {
+            gemini: { remainingFraction: 0.19, modelCount: 1 },
+          })
+        }
+        transportHandler = async () =>
+          new Response(
+            'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]}}]}}\n\n',
+            { headers: { 'content-type': 'text/event-stream' } },
+          )
+        const context = await makeContext({
+          accountManager,
+          config: AntigravityConfigSchema.parse({
+            account_selection_strategy: 'sticky',
+            max_rate_limit_wait_seconds: 1,
+            quota_refresh_interval_minutes: 0,
+            proactive_rotation_threshold_percent: 0,
+            cache_warmup_on_switch: false,
+            ...settings,
+          }),
+        })
+        const interceptor = createFetchInterceptor(context)
+        try {
+          const response = await interceptor.fetch(
+            GENERATIVE_URL,
+            GENERATIVE_INIT,
+          )
+          if (refused) {
+            const text = await expectNativeFailure(
+              response,
+              412,
+              'FAILED_PRECONDITION',
+            )
+            expect(JSON.parse(text).error.message).toBe(
+              'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or turn off soft quota protection with `"soft_quota_threshold_percent": 100` in antigravity.json.',
+            )
+            expectFailFastBody(text)
+            expect(transportMock).not.toHaveBeenCalled()
+          } else {
+            expect(response.status).toBe(200)
+            expect(await response.text()).toContain('done')
+            expect(transportMock).toHaveBeenCalledTimes(1)
+          }
+        } finally {
+          interceptor.dispose()
+          await accountManager.dispose()
+        }
+      })
     }
 
     it('returns a fail-fast 412 when the killswitch excludes the entire pool', async () => {

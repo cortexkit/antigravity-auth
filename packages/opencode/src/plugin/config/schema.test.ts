@@ -3,6 +3,38 @@ import { readFileSync } from 'node:fs'
 
 import { AntigravityConfigSchema, DEFAULT_CONFIG } from './schema'
 
+describe('soft_quota_threshold_percent config', () => {
+  it('disables the reserve by default in both config defaults', () => {
+    expect(DEFAULT_CONFIG.soft_quota_threshold_percent).toBe(100)
+    expect(AntigravityConfigSchema.parse({}).soft_quota_threshold_percent).toBe(
+      100,
+    )
+  })
+
+  for (const threshold of [1, 80, 100]) {
+    it(`preserves an explicit threshold of ${threshold}`, () => {
+      expect(
+        AntigravityConfigSchema.parse({
+          soft_quota_threshold_percent: threshold,
+        }).soft_quota_threshold_percent,
+      ).toBe(threshold)
+    })
+  }
+
+  it('publishes the disabled default in the generated JSON schema', () => {
+    const schema = JSON.parse(
+      readFileSync(
+        new URL('../../../assets/antigravity.schema.json', import.meta.url),
+        'utf8',
+      ),
+    )
+    expect(schema.properties.soft_quota_threshold_percent).toMatchObject({
+      type: 'number',
+      default: 100,
+    })
+  })
+})
+
 describe('auto_resume config', () => {
   it('uses the same default in the schema and DEFAULT_CONFIG', () => {
     const parsed = AntigravityConfigSchema.parse({})

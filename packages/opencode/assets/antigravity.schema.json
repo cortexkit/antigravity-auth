@@ -226,11 +226,11 @@
       "maximum": 10000
     },
     "soft_quota_threshold_percent": {
-      "default": 80,
+      "default": 100,
       "type": "number",
       "minimum": 1,
       "maximum": 100,
-      "description": "Percentage of quota usage that triggers soft quota warnings and preemptive account switching."
+      "description": "Quota usage percentage at which accounts are skipped during selection. Disabled by default (100); set a lower threshold such as 80 to keep a reserve."
     },
     "quota_refresh_interval_minutes": {
       "default": 30,

@@ -1836,11 +1836,35 @@ describe('createNativeGoogleErrorResponse', () => {
           code: 412,
           status: 'FAILED_PRECONDITION',
           message:
-            'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or disable soft quota protection.',
+            'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or turn off soft quota protection with `"soft_quota_threshold_percent": 100` in antigravity.json.',
         },
       })
     })
   }
+
+  it('names the soft quota setting while retaining reset metadata', async () => {
+    const response = createNativeGoogleErrorResponse({
+      status: 412,
+      reason: 'soft_quota',
+      resetAfterMs: 5_700_000,
+    })
+    expect(response.status).toBe(412)
+    expect(response.ok).toBe(false)
+    expect([...response.headers]).toEqual([
+      ['content-type', 'application/json'],
+      ['retry-after', '5700'],
+    ])
+    const text = await response.text()
+    expect(text).not.toMatch(/429|500|502|503|504|524/)
+    expect(JSON.parse(text)).toEqual({
+      error: {
+        code: 412,
+        status: 'FAILED_PRECONDITION',
+        message:
+          'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or turn off soft quota protection with `"soft_quota_threshold_percent": 100` in antigravity.json. Quota resets in 1h 35m.',
+      },
+    })
+  })
 
   for (const { inputDescription, resetAfterMs, seconds, resetClause } of [
     {
@@ -1994,6 +2018,7 @@ describe('createNativeGoogleErrorResponse', () => {
       ['content-type', 'application/json'],
     ])
     const text = await response.text()
+    expect(text).not.toContain('soft_quota_threshold_percent')
     expect(text).not.toMatch(
       /429|500|502|503|504|524|rate limited|rate_limit|resource_exhausted|try again later/i,
     )

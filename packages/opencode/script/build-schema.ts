@@ -55,7 +55,7 @@ const optionDescriptions: Record<string, string> = {
   request_jitter_max_ms:
     'Maximum random jitter in milliseconds added to outgoing requests to avoid thundering herd.',
   soft_quota_threshold_percent:
-    'Percentage of quota usage that triggers soft quota warnings and preemptive account switching.',
+    'Quota usage percentage at which accounts are skipped during selection. Disabled by default (100); set a lower threshold such as 80 to keep a reserve.',
   quota_refresh_interval_minutes:
     'Interval in minutes between quota usage checks. Set to 0 to disable periodic checks.',
   soft_quota_cache_ttl_minutes:

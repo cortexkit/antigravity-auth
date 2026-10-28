@@ -269,7 +269,7 @@ The [schema](../src/plugin/config/schema.ts) is the source of truth for complete
 | `max_backoff_seconds` | `60` | Exponential backoff cap |
 | `request_jitter_max_ms` | `0` | Spread concurrent requests |
 | `switch_account_delay_ms` | `500` | Delay before switching accounts |
-| `soft_quota_threshold_percent` | `80` | Exclude accounts at this usage threshold; `100` disables |
+| `soft_quota_threshold_percent` | `100` (off) | Opt in to a reserve with a lower usage threshold, for example `80` to keep 20% remaining |
 | `quota_refresh_interval_minutes` | `30` | Opportunistic quota refresh cadence; `0` disables |
 | `soft_quota_cache_ttl_minutes` | `auto` | `max(2 × refresh, 10)` minutes or an explicit TTL |
 | `proactive_rotation_threshold_percent` | `20` | Remaining quota trigger; `OPENCODE_ANTIGRAVITY_PROACTIVE_ROTATION_THRESHOLD` |
@@ -277,6 +277,8 @@ The [schema](../src/plugin/config/schema.ts) is the source of truth for complete
 | `operator.killswitch.minimum_remaining_percent` | `5` | Global remaining-quota floor |
 | `operator.killswitch.accounts` | unset | Per-account floors, keyed by a short token hash, never a raw token |
 | `operator.log_level` | `info` | `error`, `warn`, `info`, `debug`, `trace`; mutable via Diagnostics |
+
+The soft quota reserve is off by default. Set `"soft_quota_threshold_percent": 80` in `antigravity.json` to opt in; existing explicit values are preserved. Set it to `100` to turn the reserve off. This setting is not available in the `/antigravity` menu; Limits controls the separate operator killswitch.
 
 Use `OPENCODE_ANTIGRAVITY_QUIET=1`, `OPENCODE_ANTIGRAVITY_DEBUG=1`, and `OPENCODE_ANTIGRAVITY_LOG_DIR=/secure/path` for quiet mode, file logging, and log location respectively. Account strategy and PID offset also have `OPENCODE_ANTIGRAVITY_ACCOUNT_SELECTION_STRATEGY` and `OPENCODE_ANTIGRAVITY_PID_OFFSET_ENABLED` overrides. See [account and quota semantics](MULTI-ACCOUNT.md) rather than treating thresholds as live entitlement guarantees.
 

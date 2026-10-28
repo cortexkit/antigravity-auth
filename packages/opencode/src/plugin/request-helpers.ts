@@ -2626,7 +2626,7 @@ const NATIVE_GOOGLE_ERROR_MESSAGES = {
   operator_policy:
     'Antigravity account pool is unavailable under the operator quota policy. Adjust /antigravity-killswitch or refresh quota.',
   soft_quota:
-    'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or disable soft quota protection.',
+    'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or turn off soft quota protection with `"soft_quota_threshold_percent": 100` in antigravity.json.',
   pool_unavailable:
     'Antigravity account pool has no account available within the configured wait limit. Add accounts with `opencode auth login` or wait for quota reset.',
   model_unavailable:

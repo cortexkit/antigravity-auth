@@ -40,7 +40,7 @@ Each cached quota entry carries `{ remainingFraction, resetTime }` per quota gro
 
 - **Refresh:** the quota manager refreshes opportunistically after successful requests according to `quota_refresh_interval_minutes` (default `30`, `0` disables that cadence).
 - **TTL:** `soft_quota_cache_ttl_minutes = "auto"` resolves to `max(2 × refresh_interval, 10)` minutes.
-- **Soft threshold:** `soft_quota_threshold_percent` (default `80`) skips accounts at or above the usage threshold as if rate-limited; `100` disables this filter.
+- **Soft threshold (opt-in):** `soft_quota_threshold_percent` defaults to `100` (off). Set `"soft_quota_threshold_percent": 80` in `antigravity.json` to skip accounts at 80% usage and keep a 20% reserve. Existing explicit thresholds are preserved, and a single-account pool remains exempt. Set the threshold back to `100` to disable the filter; it is not a `/antigravity` menu setting.
 - **Stale/missing fail-open:** readings older than TTL, or never refreshed, are unknown and allowed through the soft check so cold starts cannot deadlock.
 - **All exhausted:** wait for eligible quota/reset/cooldown. `max_rate_limit_wait_seconds` (default `300`, `0` removes the cap) is one cumulative budget for a continuous period with no eligible account, shared by rate-limit and soft-quota waits. Each sleep is capped at the remaining budget; selecting an eligible account resets it. A proposed wait above the full cap still fails fast, and an exhausted budget ends with a native error rather than inventing success.
 - **Proactive rotation:** below `proactive_rotation_threshold_percent` remaining (default `20`), the next request selects a warm-cache account.
