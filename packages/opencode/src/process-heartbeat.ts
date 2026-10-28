@@ -109,6 +109,8 @@ interface SharedHeartbeatState {
   startedAt: number | undefined
   layouts: Map<string, ProcessLayout>
   stores: Map<string, HeartbeatStoreRecord>
+  /** An older bundle may still use config-folder stores until process exit. */
+  olderGeneration: boolean
   /** The file this process last wrote and has not removed. */
   writtenPath: string | undefined
   /** `layouts` and `stores` as last written, to tell whether the file is current. */
@@ -120,16 +122,24 @@ const stateKey = Symbol.for('cortexkit.antigravity-auth.process-heartbeat')
 const globalState = globalThis as typeof globalThis & {
   [stateKey]?: SharedHeartbeatState
 }
-const shared: SharedHeartbeatState = globalState[stateKey] ?? {
-  owners: 0,
-  startedAt: undefined,
-  layouts: new Map(),
-  stores: new Map(),
-  writtenPath: undefined,
-  writtenLayouts: undefined,
-  exitHookInstalled: false,
-}
+const olderGeneration =
+  globalState[stateKey] !== undefined && globalState[stateKey].stores == null
+const shared = globalState[stateKey] ?? ({} as SharedHeartbeatState)
+// Repair in place: live bundle copies still hold this object and its owners.
+shared.owners ??= 0
+shared.startedAt ??= undefined
+shared.layouts ??= new Map()
+shared.olderGeneration ??= olderGeneration
+shared.stores ??= new Map()
+shared.writtenPath ??= undefined
+shared.writtenLayouts ??= undefined
+shared.exitHookInstalled ??= false
 globalState[stateKey] = shared
+
+/** Whether account code from before the store move may still run here. */
+export function processHasOlderGeneration(): boolean {
+  return shared.olderGeneration
+}
 
 function layoutsRecord(): Record<string, ProcessLayout> {
   return Object.fromEntries(shared.layouts)
@@ -141,6 +151,13 @@ function layoutsRecord(): Record<string, ProcessLayout> {
  * store move treats a live one as still using the config folder.
  */
 function storesRecord(): Record<string, HeartbeatStoreRecord> {
+  // Include layouts added by old bundles, which know nothing about stores.
+  if (shared.olderGeneration)
+    return Object.fromEntries(
+      [...new Set([...shared.layouts.keys(), ...shared.stores.keys()])].map(
+        (key) => [key, 'config'],
+      ),
+    )
   return Object.fromEntries(shared.stores)
 }
 
@@ -162,6 +179,7 @@ function holdsLegacyLayout(): boolean {
  */
 function holdsFixedOldPaths(): boolean {
   if (holdsLegacyLayout()) return true
+  if (shared.olderGeneration) return true
   for (const anchor of shared.stores.values())
     if (anchor === 'config') return true
   return false
@@ -262,16 +280,17 @@ export async function startProcessHeartbeat(input: {
   pid?: number
   dir?: string
 }): Promise<ProcessHeartbeatHandle> {
-  const pid = input.pid ?? process.pid
-  const dir = input.dir ?? processHeartbeatDir()
-  shared.startedAt ??= (input.now ?? Date.now)()
-  shared.owners++
-  for (const [key, layout] of Object.entries(input.layouts ?? {}))
-    shared.layouts.set(key, layout)
-  for (const [key, anchor] of Object.entries(input.stores ?? {}))
-    shared.stores.set(key, anchor)
+  let dir: string | undefined
   let path: string | undefined
   try {
+    const pid = input.pid ?? process.pid
+    dir = input.dir ?? processHeartbeatDir()
+    shared.startedAt ??= (input.now ?? Date.now)()
+    shared.owners++
+    for (const [key, layout] of Object.entries(input.layouts ?? {}))
+      shared.layouts.set(key, layout)
+    for (const [key, anchor] of Object.entries(input.stores ?? {}))
+      shared.stores.set(key, shared.olderGeneration ? 'config' : anchor)
     path = await writeCurrentRecords(dir, pid, input.version)
   } catch (error) {
     input.logger.warn('process heartbeat not written', {
@@ -285,11 +304,17 @@ export async function startProcessHeartbeat(input: {
     async release() {
       if (released) return
       released = true
-      shared.owners = Math.max(0, shared.owners - 1)
-      if (shared.owners > 0) return
-      // A process whose paths stay fixed until it exits keeps using them.
-      if (holdsFixedOldPaths()) return
-      await removeHeartbeatFile(input.logger)
+      try {
+        shared.owners = Math.max(0, shared.owners - 1)
+        if (shared.owners > 0) return
+        // A process whose paths stay fixed until it exits keeps using them.
+        if (holdsFixedOldPaths()) return
+        await removeHeartbeatFile(input.logger)
+      } catch (error) {
+        input.logger.warn('process heartbeat not released', {
+          error: errorText(error),
+        })
+      }
     },
   }
 }
@@ -382,7 +407,7 @@ export async function recordProcessAnchor(input: {
   pid?: number
   dir?: string
 }): Promise<void> {
-  shared.stores.set(input.key, input.anchor)
+  shared.stores.set(input.key, shared.olderGeneration ? 'config' : input.anchor)
   await writeRecords(markStartedAt(input))
 }
 

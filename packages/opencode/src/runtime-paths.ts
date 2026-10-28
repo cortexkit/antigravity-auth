@@ -121,6 +121,9 @@ const shared = decisionState[decisionsKey] ?? {
   locations: new Map<string, RuntimeLayoutLocation>(),
   storeAnchors: new Map<string, AccountStoreAnchor>(),
 }
+shared.decisions ??= new Map()
+shared.locations ??= new Map()
+shared.storeAnchors ??= new Map()
 decisionState[decisionsKey] = shared
 
 function decisionKey(location: RuntimeLayoutLocation): string {

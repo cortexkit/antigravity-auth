@@ -138,7 +138,11 @@ import {
   OPENCODE_VAULT_ENROLLMENT_NAME,
   OPENCODE_VAULT_HOST,
 } from './plugin/vault-custody'
-import { recordProcessAnchor, recordProcessLayout } from './process-heartbeat'
+import {
+  processHasOlderGeneration,
+  recordProcessAnchor,
+  recordProcessLayout,
+} from './process-heartbeat'
 import {
   type AccountStoreAnchor,
   decidedAccountStoreAnchor,
@@ -430,6 +434,9 @@ const processState = globalState[stateKey] ?? {
   storeRuns: new Map<string, Promise<AccountStoreAnchor | undefined>>(),
   logged: new Set<string>(),
 }
+processState.runs ??= new Map()
+processState.storeRuns ??= new Map()
+processState.logged ??= new Set()
 globalState[stateKey] = processState
 
 /** Test seam: forget this process's runs and log lines. */
@@ -817,6 +824,16 @@ async function decideAccountStore(
   log: RuntimeLayoutLogger,
 ): Promise<AccountStoreAnchor> {
   const keepConfig = () => recordAnchor(location, options, 'config', log)
+  if (processHasOlderGeneration()) {
+    logOnce('older-generation-account-store', () =>
+      showLog(
+        log,
+        "antigravity-auth keeps the account store in OpenCode's config folder until OpenCode restarts, because an older version of the plugin ran in this process.",
+        { accountStore: 'config' },
+      ),
+    )
+    return keepConfig()
+  }
   const configAnchor = legacyAccountFile(location.configDir)
   const stateAnchor = stateHomeAccountFile(location)
   const forward = readForwardedAccountStore(configAnchor)
