@@ -115,6 +115,40 @@ function expectAncestryRefusal(action: () => unknown): void {
   )
 }
 
+async function waitForLinuxChildExec(
+  native: PublicCommandInspector,
+  pid: number,
+  marker: string,
+): Promise<PublicCommandIdentity> {
+  const deadline = performance.now() + 2000
+  let lastState = 'not sampled'
+  do {
+    const sampled = native.read(pid)
+    const birth = sampled
+      ? `${sampled.start} (zombie=${sampled.zombie})`
+      : 'unavailable'
+    try {
+      const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`)
+      const hasMarker = cmdline.toString('utf8').split('\0').includes(marker)
+      lastState = `birth=${birth}, cmdline bytes=${cmdline.length}, marker present=${hasMarker}`
+      if (sampled && !sampled.zombie && hasMarker) {
+        // Sample the observed identity only after the child's exec marker is visible.
+        const identity = native.read(pid)
+        if (identity && !identity.zombie && identity.start === sampled.start)
+          return identity
+        lastState += ', birth unavailable or changed after marker read'
+      }
+    } catch (error) {
+      lastState = `birth=${birth}, cmdline read failed: ${String(error)}`
+    }
+    if (performance.now() >= deadline) break
+    await Bun.sleep(10)
+  } while (performance.now() < deadline)
+  throw new Error(
+    `Timed out waiting for child ${pid} to exec with argv marker ${JSON.stringify(marker)}; last state: ${lastState}`,
+  )
+}
+
 it('admits a separately grouped child only through fresh parent/birth ancestry', () => {
   const owned = scope()
   // Deliberately enumerate the child first, before its uncaptured parent.
@@ -699,7 +733,11 @@ it.skipIf(process.platform !== 'linux')(
     // Supervise runtime startup and exit independently of the child's own timer.
     const supervisedExit = exitWithin(2000)
     try {
-      const identity = native.read(subprocess.pid)
+      const identity = await waitForLinuxChildExec(
+        native,
+        subprocess.pid,
+        marker,
+      )
       expect(identity).toBeDefined()
       if (!identity || !native.observeArgv)
         throw new Error('Linux observer unavailable')
