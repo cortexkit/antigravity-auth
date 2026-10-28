@@ -448,6 +448,32 @@ function formatQuotaTable(results: AccountQuotaResult[]): string {
   return formatTable(['ACCOUNT', 'STATUS', 'GROUP', 'REMAINING', 'RESET'], rows)
 }
 
+/**
+ * Extra `stage`/`code` fields a failed `store relocate` carries, if any. The
+ * Windows relocation proof reads them from the CLI's stderr next to the
+ * message: an owner write that fails the same way on every attempt and a
+ * genuinely lost lock race fail the same move, and only stage and code tell
+ * them apart. Other commands keep their exact output.
+ */
+function storeRelocateFailureDetail(
+  parsed: ParseResult,
+  error: unknown,
+): string {
+  if (
+    !parsed.ok ||
+    parsed.value.command !== 'store-relocate' ||
+    !(error instanceof Error)
+  )
+    return ''
+  const stage = (error as { stage?: unknown }).stage
+  const code = (error as { code?: unknown }).code
+  const fields = [
+    ...(typeof stage === 'string' && stage ? [`stage: ${stage}`] : []),
+    ...(typeof code === 'string' && code ? [`code: ${code}`] : []),
+  ]
+  return fields.length ? ` (${fields.join(', ')})` : ''
+}
+
 export async function runCli(
   argv: string[],
   deps: CliDependencies,
@@ -600,7 +626,7 @@ export async function runCli(
     return 0
   } catch (error) {
     deps.stderr.write(
-      `${error instanceof Error ? error.message : String(error)}\n`,
+      `${error instanceof Error ? error.message : String(error)}${storeRelocateFailureDetail(parsed, error)}\n`,
     )
     return 1
   }
