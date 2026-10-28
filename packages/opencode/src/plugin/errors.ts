@@ -83,7 +83,7 @@ export class AntigravityKillswitchError extends Error {
     super(
       input.message ??
         `Antigravity killswitch: all ${input.summaries.length} account(s) under ${input.thresholdPercent}% quota for ${input.family}. ` +
-          `Refresh quota or raise the threshold via /antigravity-killswitch.`,
+          `Refresh quota or adjust the quota floor in /antigravity → Limits.`,
     )
     this.name = 'AntigravityKillswitchError'
     this.family = input.family

@@ -288,6 +288,21 @@ describe('summarizeKillswitchOutcomes', () => {
 })
 
 describe('throwIfAllKilled', () => {
+  it('names the current Limits menu in killswitch guidance', () => {
+    const error = new AntigravityKillswitchError({
+      family: 'gemini',
+      model: 'gemini-3-flash',
+      thresholdPercent: 5,
+      summaries: [
+        { accountKey: 'redacted', remainingPercent: 2, thresholdPercent: 5 },
+      ],
+    })
+    expect(error.message).toBe(
+      'Antigravity killswitch: all 1 account(s) under 5% quota for gemini. Refresh quota or adjust the quota floor in /antigravity → Limits.',
+    )
+    expect(error.message).not.toMatch(/429|500|502|503|504|524/)
+  })
+
   it('throws AntigravityKillswitchError when every candidate is below threshold', () => {
     const accounts = [
       {

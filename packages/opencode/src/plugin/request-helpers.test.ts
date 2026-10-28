@@ -2027,7 +2027,7 @@ describe('createNativeGoogleErrorResponse', () => {
         code: 412,
         status: 'FAILED_PRECONDITION',
         message:
-          'Antigravity account pool is unavailable under the operator quota policy. Adjust /antigravity-killswitch or refresh quota.',
+          'Antigravity account pool is unavailable under the operator quota policy. Adjust the quota floor in /antigravity → Limits or refresh quota.',
       },
     })
   })

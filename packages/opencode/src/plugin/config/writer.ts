@@ -1,17 +1,16 @@
 /**
  * Lock-held config writer for operator-controlled settings.
  *
- * The /antigravity-quota, /antigravity-account,
- * /antigravity-killswitch, /antigravity-dump, and /antigravity-logging
- * slash commands all mutate a small slice of the persisted
+ * The /antigravity menu persists operator settings, including the
+ * quota floor configured in its Limits section, in a small slice of
  * `antigravity.json`. This writer:
  *
  *   1. Selects the existing project config (if present) — never the
  *      user one — so a multi-workspace OpenCode install gets per-project
  *      overrides. When no project config exists, the user config is the
  *      fallback.
- *   2. Holds the same fenced file lock Task 7's core uses for the
- *      account pool so two slash commands fired in quick succession
+ *   2. Holds the same fenced file lock used for the account pool
+ *      so two menu actions fired in quick succession
  *      cannot race.
  *   3. Serializes through `writeJsonAtomic` — staged tmp + rename —
  *      so a crash mid-write leaves the previous file intact.
