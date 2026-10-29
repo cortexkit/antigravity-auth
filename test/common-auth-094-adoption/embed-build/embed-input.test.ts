@@ -306,6 +306,10 @@ test('embed.archive_refusals', async () => {
 // other runners skip this one test instead of failing the whole suite.
 const dockerExecutable = Bun.which('docker')
 const requireDocker = process.env.ANTIGRAVITY_TEST_REQUIRE_DOCKER === '1'
+if (!dockerExecutable && !requireDocker)
+  console.info(
+    'Skipping embed.clean_input: Docker CLI is missing from PATH; the offline scratch-image export needs Docker.',
+  )
 
 test.skipIf(!dockerExecutable && !requireDocker)(
   'embed.clean_input',

@@ -198,6 +198,9 @@ export async function runPublicConsumerCommand(
       ...(process.env.AGY_TRACE_SIDEBAR_WINDOWS === '1'
         ? { AGY_TRACE_SIDEBAR_WINDOWS: '1' }
         : {}),
+      ...(process.env.ANTIGRAVITY_TEST_REQUIRE_DOCKER === '1'
+        ? { ANTIGRAVITY_TEST_REQUIRE_DOCKER: '1' }
+        : {}),
     }
     child = spawn(command === 'bun' ? process.execPath : command, args, {
       cwd: process.cwd(),

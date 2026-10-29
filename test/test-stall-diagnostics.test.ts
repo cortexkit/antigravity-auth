@@ -96,11 +96,11 @@ test.skipIf(!linux)(
         expect(row.command).not.toHaveProperty('argv')
       }
       expect(snapshot.host.loadavg).toMatch(/^\d/)
-      // The sampler reports 'unavailable' when the machine denies PSI reads
+      // The sampler reports 'unavailable' when pressure files cannot be read
       // (for example a container without /proc/pressure/cpu). Read the file
       // here, independently of the code under test, and assert whichever
       // branch this machine actually has, so the regression still fails
-      // where PSI exists.
+      // where CPU pressure readings exist.
       let cpuPressure: string | undefined
       try {
         cpuPressure = readFileSync('/proc/pressure/cpu', 'utf8')
@@ -185,6 +185,8 @@ test('file boundary observer retains only the last 64 records until a failure fl
 test.skipIf(!linux)(
   'green supervisor command prints no file boundaries',
   async () => {
+    const previousRequireDocker = process.env.ANTIGRAVITY_TEST_REQUIRE_DOCKER
+    process.env.ANTIGRAVITY_TEST_REQUIRE_DOCKER = '1'
     const output: string[] = []
     const error = spyOn(console, 'error').mockImplementation((line) => {
       output.push(String(line))
@@ -201,7 +203,7 @@ test.skipIf(!linux)(
         [
           process.execPath,
           '-e',
-          `process.stderr.write('test/green-first.test.ts:\\ntest/green-final.test.ts:\\n');`,
+          `process.stderr.write('test/green-first.test.ts:\\ntest/green-final.test.ts:\\n'); process.stderr.write('require-docker=' + process.env.ANTIGRAVITY_TEST_REQUIRE_DOCKER + '\\n');`,
         ],
         {
           executionMs: 3_000,
@@ -212,9 +214,13 @@ test.skipIf(!linux)(
       )
       expect(status).toBe(0)
       expect(output.join('')).toContain('test/green-final.test.ts:')
+      expect(output.join('')).toContain('require-docker=1\n')
       expect(output.join('')).not.toContain('[test-file-boundary]')
       expect(output.join('')).not.toContain('[test-stall-snapshot]')
     } finally {
+      if (previousRequireDocker === undefined)
+        delete process.env.ANTIGRAVITY_TEST_REQUIRE_DOCKER
+      else process.env.ANTIGRAVITY_TEST_REQUIRE_DOCKER = previousRequireDocker
       error.mockRestore()
       log.mockRestore()
       stderr.mockRestore()

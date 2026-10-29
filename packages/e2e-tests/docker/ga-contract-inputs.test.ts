@@ -447,7 +447,7 @@ function rawMotorJobPlacement() {
     /^0::\/motor\.slice\/motor-jobs\.slice\/motor-job-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.service\n$/.test(
       facts.cgroup ?? '',
     )
-  // The guard fails closed without the job cgroup's PSI file, so this
+  // The guard fails closed without the job cgroup's memory.pressure file, so this
   // independent classifier must require it too. Gate jobs (ck motor run and
   // the native-inert gate) run on the build server, which provides
   // memory.pressure.
@@ -4890,13 +4890,13 @@ describe(CLEANUP_GROUP, () => {
         uid: process.getuid?.(),
       })
     else if (raw.motor) {
-      // MOTOR-shaped placement without the PSI file: the guard must fail
+      // MOTOR-shaped placement without memory.pressure: the guard must fail
       // closed naming that file, without delivering any signal.
       expect(outcome.qualified, JSON.stringify(raw.facts)).toBe(false)
       expect(
         String(outcome.error),
         JSON.stringify({ facts: raw.facts, pressurePath: raw.pressurePath }),
-      ).toContain('memory.pressure')
+      ).toContain(raw.pressurePath!)
     } else {
       expect(outcome.qualified, JSON.stringify(raw.facts)).toBe(false)
       expect(outcome.error).toStartWith(
