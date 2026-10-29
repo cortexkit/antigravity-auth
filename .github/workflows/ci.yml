@@ -51,6 +51,8 @@ jobs:
         # Just above the test supervisor's 20-minute execution deadline, so the
         # supervisor reports a stall first and a wedged step cannot hold the runner for hours.
         timeout-minutes: 23
+        env:
+          ANTIGRAVITY_TEST_REQUIRE_DOCKER: '1'
         run: bun run test
 
       - name: Run E2E tests

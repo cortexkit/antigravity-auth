@@ -301,116 +301,134 @@ test('embed.archive_refusals', async () => {
   }
 })
 
-test('embed.clean_input', async () => {
-  const target = await owned()
-  await copy(target, [
-    ...protectedPaths,
-    '.gitattributes',
-    '.gitignore',
-    '.dockerignore',
-  ])
-  await init(target)
-  await git(target, 'config', 'core.autocrlf', 'true')
-  const attr = (
-    await git(
-      target,
-      'check-attr',
-      'text',
-      'eol',
-      'filter',
-      'working-tree-encoding',
-      '--',
+// Docker is available only where the runner provides it. CI sets
+// ANTIGRAVITY_TEST_REQUIRE_DOCKER=1 so a missing Docker CLI fails there;
+// other runners skip this one test instead of failing the whole suite.
+const dockerExecutable = Bun.which('docker')
+const requireDocker = process.env.ANTIGRAVITY_TEST_REQUIRE_DOCKER === '1'
+
+test.skipIf(!dockerExecutable && !requireDocker)(
+  'embed.clean_input',
+  async () => {
+    if (!dockerExecutable)
+      throw new Error(
+        'ANTIGRAVITY_TEST_REQUIRE_DOCKER=1 requires docker on PATH, but no docker executable was found',
+      )
+    const target = await owned()
+    await copy(target, [
       ...protectedPaths,
-    )
-  )
-    .trim()
-    .split('\n')
-  expect(attr.length).toBe(protectedPaths.length * 4)
-  for (const line of attr) expect(line.endsWith(': unset')).toBe(true)
-  expect(await git(target, 'check-ignore', '-v', '--', inputPath)).toContain(
-    `!/${inputPath}`,
-  )
-  await put(
-    target,
-    'tools/common-auth-build/inputs/other.tgz',
-    'must be ignored',
-  )
-  expect(
-    (
+      '.gitattributes',
+      '.gitignore',
+      '.dockerignore',
+    ])
+    await init(target)
+    await git(target, 'config', 'core.autocrlf', 'true')
+    const attr = (
       await git(
         target,
-        'check-ignore',
+        'check-attr',
+        'text',
+        'eol',
+        'filter',
+        'working-tree-encoding',
         '--',
-        'tools/common-auth-build/inputs/other.tgz',
+        ...protectedPaths,
       )
-    ).trim(),
-  ).toBe('tools/common-auth-build/inputs/other.tgz')
-  // Keep unrelated archives ignored while tracking this exact published archive input.
-  await git(
-    target,
-    'add',
-    '.gitattributes',
-    '.gitignore',
-    '.dockerignore',
-    ...protectedPaths.filter((path) => path !== inputPath),
-  )
-  await git(target, 'add', inputPath)
-  expect((await git(target, 'ls-files', '*.tgz')).trim()).toBe(inputPath)
-  await git(target, 'commit', '-qm', 'Owned byte-preservation fixture')
-  const checkout = join(await owned(), 'checkout')
-  await git(
-    target,
-    '-c',
-    'core.autocrlf=true',
-    'clone',
-    '--no-hardlinks',
-    '--quiet',
-    target,
-    checkout,
-  )
-  expect(await hashes(checkout, protectedPaths)).toEqual(
-    await hashes(root, protectedPaths),
-  )
-  const dockerignore = await readFile(join(target, '.dockerignore'), 'utf8')
-  expect(
-    dockerignore.indexOf(
-      '!tools/common-auth-build/inputs/cortexkit-common-auth-0.29.0.tgz',
-    ),
-  ).toBeGreaterThan(dockerignore.indexOf('**/*.tgz'))
-  expect(dockerignore).not.toMatch(/^!.*\*.*tgz/m)
-  // A real scratch-image context export exercises Docker's ignore implementation, offline.
-  await put(
-    target,
-    'Dockerfile',
-    'FROM scratch\nCOPY tools/common-auth-build/inputs/ /inputs/\n',
-  )
-  const exported = await owned()
-  const tag = `common-auth-input-${target.split('/').at(-1)!.replaceAll('.', '').toLowerCase()}`
-  let container = ''
-  let built = false
-  try {
-    await command(target, 'docker', [
-      'build',
-      '--network=none',
-      '--pull=false',
-      '-t',
-      tag,
-      '.',
-    ])
-    built = true
-    container = (
-      await command(target, 'docker', ['create', tag, '/never-executed'])
-    ).trim()
-    await command(target, 'docker', ['cp', `${container}:/inputs/.`, exported])
-  } finally {
-    if (container) await command(target, 'docker', ['rm', container])
-    if (built) await command(target, 'docker', ['image', 'rm', tag])
-  }
-  expect(await names(exported)).toEqual(['cortexkit-common-auth-0.29.0.tgz'])
-  expect(
-    hash(await readFile(join(exported, 'cortexkit-common-auth-0.29.0.tgz'))),
-  ).toBe(publication.sha256)
-}, 120000)
+    )
+      .trim()
+      .split('\n')
+    expect(attr.length).toBe(protectedPaths.length * 4)
+    for (const line of attr) expect(line.endsWith(': unset')).toBe(true)
+    expect(await git(target, 'check-ignore', '-v', '--', inputPath)).toContain(
+      `!/${inputPath}`,
+    )
+    await put(
+      target,
+      'tools/common-auth-build/inputs/other.tgz',
+      'must be ignored',
+    )
+    expect(
+      (
+        await git(
+          target,
+          'check-ignore',
+          '--',
+          'tools/common-auth-build/inputs/other.tgz',
+        )
+      ).trim(),
+    ).toBe('tools/common-auth-build/inputs/other.tgz')
+    // Keep unrelated archives ignored while tracking this exact published archive input.
+    await git(
+      target,
+      'add',
+      '.gitattributes',
+      '.gitignore',
+      '.dockerignore',
+      ...protectedPaths.filter((path) => path !== inputPath),
+    )
+    await git(target, 'add', inputPath)
+    expect((await git(target, 'ls-files', '*.tgz')).trim()).toBe(inputPath)
+    await git(target, 'commit', '-qm', 'Owned byte-preservation fixture')
+    const checkout = join(await owned(), 'checkout')
+    await git(
+      target,
+      '-c',
+      'core.autocrlf=true',
+      'clone',
+      '--no-hardlinks',
+      '--quiet',
+      target,
+      checkout,
+    )
+    expect(await hashes(checkout, protectedPaths)).toEqual(
+      await hashes(root, protectedPaths),
+    )
+    const dockerignore = await readFile(join(target, '.dockerignore'), 'utf8')
+    expect(
+      dockerignore.indexOf(
+        '!tools/common-auth-build/inputs/cortexkit-common-auth-0.29.0.tgz',
+      ),
+    ).toBeGreaterThan(dockerignore.indexOf('**/*.tgz'))
+    expect(dockerignore).not.toMatch(/^!.*\*.*tgz/m)
+    // A real scratch-image context export exercises Docker's ignore implementation, offline.
+    await put(
+      target,
+      'Dockerfile',
+      'FROM scratch\nCOPY tools/common-auth-build/inputs/ /inputs/\n',
+    )
+    const exported = await owned()
+    const tag = `common-auth-input-${target.split('/').at(-1)!.replaceAll('.', '').toLowerCase()}`
+    let container = ''
+    let built = false
+    try {
+      await command(target, 'docker', [
+        'build',
+        '--network=none',
+        '--pull=false',
+        '-t',
+        tag,
+        '.',
+      ])
+      built = true
+      container = (
+        await command(target, 'docker', ['create', tag, '/never-executed'])
+      ).trim()
+      await command(target, 'docker', [
+        'cp',
+        `${container}:/inputs/.`,
+        exported,
+      ])
+    } finally {
+      if (container) await command(target, 'docker', ['rm', container])
+      if (built) await command(target, 'docker', ['image', 'rm', tag])
+    }
+    expect(await names(exported)).toEqual(['cortexkit-common-auth-0.29.0.tgz'])
+    expect(
+      hash(await readFile(join(exported, 'cortexkit-common-auth-0.29.0.tgz'))),
+    ).toBe(publication.sha256)
+  },
+  120000,
+)
 
 test('build.repo_hygiene', async () => {
   const target = await owned()

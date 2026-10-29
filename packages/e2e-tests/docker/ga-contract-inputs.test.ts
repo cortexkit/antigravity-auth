@@ -447,7 +447,23 @@ function rawMotorJobPlacement() {
     /^0::\/motor\.slice\/motor-jobs\.slice\/motor-job-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.service\n$/.test(
       facts.cgroup ?? '',
     )
-  return { motor, facts }
+  // The guard fails closed without the job cgroup's PSI file, so this
+  // independent classifier must require it too. Gate jobs (ck motor run and
+  // the native-inert gate) run on the build server, which provides
+  // memory.pressure.
+  const unit = /^0::([^\n]+)\n$/.exec(facts.cgroup ?? '')?.[1]
+  let pressurePath: string | undefined
+  let pressurePresent = false
+  if (motor && unit) {
+    pressurePath = `/sys/fs/cgroup${unit}/memory.pressure`
+    try {
+      readFileSync(pressurePath)
+      pressurePresent = true
+    } catch {
+      pressurePresent = false
+    }
+  }
+  return { motor, facts, pressurePath, pressurePresent }
 }
 
 // Keep each built-in's overloads and properties while changing a test observation.
@@ -4867,13 +4883,21 @@ describe(CLEANUP_GROUP, () => {
     expect(line, `${ran.stdout}\n${ran.stderr}`).toBeDefined()
     const outcome = JSON.parse((line ?? '').slice('GUARD_OUTCOME='.length))
     expect(outcome.signals).toBe(0)
-    if (raw.motor)
+    if (raw.motor && raw.pressurePresent)
       expect(outcome, JSON.stringify(raw.facts)).toMatchObject({
         qualified: true,
         jobUid: process.getuid?.(),
         uid: process.getuid?.(),
       })
-    else {
+    else if (raw.motor) {
+      // MOTOR-shaped placement without the PSI file: the guard must fail
+      // closed naming that file, without delivering any signal.
+      expect(outcome.qualified, JSON.stringify(raw.facts)).toBe(false)
+      expect(
+        String(outcome.error),
+        JSON.stringify({ facts: raw.facts, pressurePath: raw.pressurePath }),
+      ).toContain('memory.pressure')
+    } else {
       expect(outcome.qualified, JSON.stringify(raw.facts)).toBe(false)
       expect(outcome.error).toStartWith(
         'native cleanup requires the unprivileged Linux x64 MOTOR job (',

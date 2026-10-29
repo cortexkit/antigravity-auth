@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import {
   createPublicCommandDiagnostic,
   PUBLIC_COMMAND_BOUNDS,
@@ -95,7 +96,20 @@ test.skipIf(!linux)(
         expect(row.command).not.toHaveProperty('argv')
       }
       expect(snapshot.host.loadavg).toMatch(/^\d/)
-      expect(snapshot.host.cpu).toContain('some avg10=')
+      // The sampler reports 'unavailable' when the machine denies PSI reads
+      // (for example a container without /proc/pressure/cpu). Read the file
+      // here, independently of the code under test, and assert whichever
+      // branch this machine actually has, so the regression still fails
+      // where PSI exists.
+      let cpuPressure: string | undefined
+      try {
+        cpuPressure = readFileSync('/proc/pressure/cpu', 'utf8')
+      } catch {
+        cpuPressure = undefined
+      }
+      if (cpuPressure !== undefined)
+        expect(snapshot.host.cpu).toContain('some avg10=')
+      else expect(snapshot.host.cpu).toBe('unavailable')
       expect(diagnostic.completion).toMatchObject({
         leaderExited: true,
         pipesClosed: true,

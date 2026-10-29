@@ -37,6 +37,7 @@ same_commit() {
 
 ci_only() {
   echo 'Covered by GitHub CI only: OpenCode 2 Docker smoke (MOTOR has no Docker).'
+  echo 'Covered by GitHub CI only: embed.clean_input Docker scratch-image export (MOTOR has no Docker; CI sets ANTIGRAVITY_TEST_REQUIRE_DOCKER=1).'
   echo 'Covered by GitHub CI only: four-runtime RPC matrix (Node 20.0.0, Node 24.16.0, Bun 1.3.14, Bun 1.4.2 are not provisioned together by this job).'
   echo 'Covered by GitHub CI only: Windows vault, account migration and Pi privacy jobs (windows-latest and windows-2022).'
 }
