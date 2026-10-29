@@ -118,8 +118,12 @@ tracked_ignored=$(git ls-files -ci --exclude-standard -- .cortexkit)
 [[ -z "$tracked_ignored" ]] || fail "ignored .cortexkit files are tracked:
 $tracked_ignored"
 echo 'PREPUSH_EXIT phase=fast step=cortexkit-tracking exit=0'
-run_step lockfile bun install --frozen-lockfile --dry-run
-run_step compiler-lockfile bun install --cwd tools/common-auth-build --frozen-lockfile --dry-run --ignore-scripts
+# Real frozen installs: they refuse lockfile drift as the dry runs did, and
+# give a fresh checkout the dependencies the embed check, formatter and
+# linter need. CI checks the embedding input before every compiler install.
+run_step lockfile bun install --frozen-lockfile
+run_step embed-input bun packages/opencode/scripts/embed-common-auth.ts --check
+run_step compiler-lockfile bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
 run_step embed bun run embed:check
 run_step format bun run format:check
 # Both root scripts already include lint:native-inert.

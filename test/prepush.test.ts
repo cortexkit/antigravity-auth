@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -34,7 +35,9 @@ async function git(root: string, ...args: string[]) {
 }
 
 async function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'prepush-'))
+  // The gate passes its own working directory, which is the real path (on
+  // macOS the temp folder is a link under /private).
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'prepush-')))
   roots.push(root)
   mkdirSync(join(root, 'scripts'))
   mkdirSync(join(root, 'bin'))
@@ -90,8 +93,9 @@ test('prepush --fast runs static guards without a build or remote submission', a
   expect(result.stdout).toContain(`PREPUSH_FAST_OK ${commit}`)
   expect(result.stdout).not.toContain(`PREPUSH_OK ${commit}`)
   expect(readFileSync(join(root, 'calls'), 'utf8').trim().split('\n')).toEqual([
-    'bun install --frozen-lockfile --dry-run',
-    'bun install --cwd tools/common-auth-build --frozen-lockfile --dry-run --ignore-scripts',
+    'bun install --frozen-lockfile',
+    'bun packages/opencode/scripts/embed-common-auth.ts --check',
+    'bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts',
     'bun run embed:check',
     'bun run format:check',
     'bun run lint',
@@ -107,7 +111,8 @@ test('prepush --fast runs static guards without a build or remote submission', a
 for (const [step, failing] of [
   ['format', 'run format:check'],
   ['disk-test-list', 'test --isolate ./test/test-root.test.ts'],
-  ['lockfile', 'install --frozen-lockfile --dry-run'],
+  ['lockfile', 'install --frozen-lockfile'],
+  ['embed-input', 'packages/opencode/scripts/embed-common-auth.ts --check'],
 ]) {
   test(`prepush fails fast and names ${step}`, async () => {
     const { root, env } = await fixture()
@@ -158,7 +163,7 @@ test('prepush submits exactly one sequential Linux job and certifies the commit'
   expect(calls.filter((line) => line.startsWith('ck '))).toEqual([
     `ck motor run --vcpus 16 --net --cwd ${root} -- bash scripts/prepush.sh --full-here ${commit}`,
   ])
-  expect(calls.slice(9)).toEqual([
+  expect(calls.slice(10)).toEqual([
     'bun install --frozen-lockfile',
     'bun packages/opencode/scripts/embed-common-auth.ts --check',
     'bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts',
