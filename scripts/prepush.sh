@@ -41,6 +41,42 @@ ci_only() {
   echo 'Covered by GitHub CI only: Windows vault, account migration and Pi privacy jobs (windows-latest and windows-2022).'
 }
 
+prepare_full_dependencies() {
+  run_step install bun install --frozen-lockfile
+  run_step embed-input bun packages/opencode/scripts/embed-common-auth.ts --check
+  run_step tui-compiler bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
+  if [[ -d node_modules ]]; then
+    # Preinstalled dependencies may belong to the build server, not the job user.
+    # Keep that input intact and give the job an owned copy before tightening it.
+    if [[ ! -O node_modules ]]; then
+      local dependencies
+      dependencies=$(mktemp -d "$PWD/.prepush-dependencies.XXXXXX")
+      run_step dependency-copy cp -R --no-preserve=ownership node_modules "$dependencies/owned"
+      run_step dependency-input mv node_modules "$dependencies/input"
+      run_step dependency-owned mv "$dependencies/owned" node_modules
+    fi
+    # Enrollment fixtures refuse group- or world-writable dependency ancestors.
+    run_step dependency-permissions chmod go-w node_modules
+  fi
+  if [[ -d tools/common-auth-build/node_modules ]]; then
+    # CI's fresh compiler install fills Bun's cache (ci.yml:38). The test supervisor
+    # clears cache overrides, so its executable-relative default must be primed too.
+    # An owned Bun prefix avoids the build server's read-only installation prefix.
+    local bun_executable runtime_root compiler_cache
+    bun_executable=$(bun -e 'process.stdout.write(process.execPath)')
+    runtime_root="$PWD/node_modules/.cache/prepush-bun"
+    compiler_cache="$runtime_root/install/cache"
+    run_step runtime-directories mkdir -p "$runtime_root/bin" "$compiler_cache"
+    if [[ "$bun_executable" != "$runtime_root/bin/bun" ]]; then
+      run_step runtime-copy cp "$bun_executable" "$runtime_root/bin/bun"
+    fi
+    # Staged-file hooks use the standard bunx alias alongside the Bun executable.
+    run_step runtime-bunx ln -sf bun "$runtime_root/bin/bunx"
+    export PATH="$runtime_root/bin:$PATH"
+    run_step compiler-cache env BUN_INSTALL_CACHE_DIR="$compiler_cache" "$runtime_root/bin/bun" install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts --force --cache-dir "$compiler_cache"
+  fi
+}
+
 mode=${1:-}
 case "$mode" in
   ''|--fast) [[ $# -le 1 ]] || fail 'usage: bun run prepush [--fast]' ;;
@@ -60,9 +96,7 @@ if [[ "$mode" == --full-here ]]; then
   step=linux-identity
   [[ $(uname -s) == Linux ]] || fail 'full phase requires MOTOR Linux'
   [[ "$commit" == "${2:-$commit}" ]] || fail 'MOTOR checkout does not match submitted commit'
-  run_step install bun install --frozen-lockfile
-  run_step embed-input bun packages/opencode/scripts/embed-common-auth.ts --check
-  run_step tui-compiler bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
+  prepare_full_dependencies
   run_step embed bun run embed:check
   # The core build deletes dist; keep every dependent step sequential.
   run_step core-build bun run --cwd packages/core build
