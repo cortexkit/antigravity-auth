@@ -43,7 +43,8 @@ antigravity-debug-*.log
 
 # Agent working directories (session state, historian dumps, run continuation)
 .alfonso/
-.cortexkit/
+.cortexkit/*
+!.cortexkit/WORKER.md
 .hive/
 .omo/
 .opencode/
