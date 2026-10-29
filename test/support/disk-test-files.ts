@@ -151,6 +151,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Conservative: private-mode harness executable and connection-file fixtures.',
   'test/build-phase-clock.test.ts':
     'Phase-clock file publication through sibling rename.',
+  'test/prepush.test.ts':
+    'Executable stub permissions and committed Git checkout fixtures for the pre-push gate.',
   'test/native-inert-gate.test.ts':
     'Native-inert release-record publication and failed-record cleanup.',
   'test/native-inert-inventory.test.ts':

@@ -11,9 +11,9 @@ These are standing rules for workers in this repository. They answer the questio
 
 ## Before you deliver
 
-1. **Fast checks, seconds:** `bun packages/opencode/scripts/embed-common-auth.ts --check`, `bun run typecheck`, `bun run format:check`, `bun run lint`.
+1. **Pre-push gate:** on the committed, clean tracked tree, run `bun run prepush` with Bun 1.4.2 and configured `ck` MOTOR access. It runs fast local checks, then one 16-vCPU Linux job for frozen installs, typecheck, builds, TUI smoke and both root suites. Record `PREPUSH_OK <full commit>`, timings and test counts. `bun run prepush --fast` is useful while iterating but is not the full gate.
 2. **Tests for what you changed:** run the test files that cover your change. For a bug fix, show once that a new test fails without the fix, and say how you showed it.
-3. **The full root suite:** `bun run test` and `bun run test:e2e`, once, in one `linux,16c` job. Report the counts. For each failure, say whether it also fails on your base commit on the same runner. "Same at base" is a claim to prove, not to assume.
+3. For each failure, say whether it also fails on your base commit on the same runner. "Same at base" is a claim to prove, not to assume.
 4. Run a comment review on your diff with sidekick, and fix what it flags.
 
 Two things CI runs that the Linux runner can't: the OpenCode 2 Docker smoke (no Docker there) and the four-runtime status-server matrix. The parent covers those on GitHub CI. Windows runs only on GitHub CI too.

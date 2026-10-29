@@ -1,5 +1,23 @@
 # Maintainer releases
 
+## Before you push
+
+On a clean tracked tree with Bun 1.4.2 and the frozen root/private TUI compiler
+dependencies installed, run `bun run prepush`. The local fast phase checks locks,
+embeddings, format/lint and static test guards, then `ck motor run --vcpus 16`
+submits one Linux job for frozen installs, builds, typecheck, TUI smoke and both
+root test suites. `ck` must be configured for MOTOR; the job needs network access
+for installs. Each step prints its exit code and elapsed phase timings; only a
+complete pass prints `PREPUSH_OK <full commit>`. `bun run prepush --fast` runs just
+the local checks and does not certify the full gate.
+
+The OpenCode 2 Docker smoke, exact four-runtime RPC matrix and Windows jobs are
+covered by GitHub CI only. The gate does not install the four RPC runtimes or
+publish packages. The command inventory lives in `.github/workflows/ci.yml`,
+`windows-migration.yml` and `release.yml`.
+
+## Release preparation
+
 Use Bun 1.4.2 and a clean checkout. Release preparation and tagging are separate:
 
 1. Run `./scripts/release.sh --prepare <version>`. This syncs the three published
