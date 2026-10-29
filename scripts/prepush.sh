@@ -44,8 +44,8 @@ ci_only() {
 mode=${1:-}
 case "$mode" in
   ''|--fast) [[ $# -le 1 ]] || fail 'usage: bun run prepush [--fast]' ;;
-  --linux-full) [[ $# == 2 ]] || fail 'internal Linux phase requires a commit' ;;
-  *) fail 'usage: bun run prepush [--fast]' ;;
+  --full-here) [[ $# -le 2 ]] || fail 'usage: bash scripts/prepush.sh --full-here [commit]' ;;
+  *) fail 'usage: bun run prepush [--fast] or bash scripts/prepush.sh --full-here' ;;
 esac
 
 step=clean-tree
@@ -54,11 +54,12 @@ commit=$(git rev-parse HEAD)
 step=bun-version
 [[ $(bun --version) == 1.4.2 ]] || fail 'requires Bun 1.4.2 exactly'
 
-if [[ "$mode" == --linux-full ]]; then
+ci_only
+if [[ "$mode" == --full-here ]]; then
   phase=full
   step=linux-identity
   [[ $(uname -s) == Linux ]] || fail 'full phase requires MOTOR Linux'
-  [[ "$commit" == "$2" ]] || fail 'MOTOR checkout does not match submitted commit'
+  [[ "$commit" == "${2:-$commit}" ]] || fail 'MOTOR checkout does not match submitted commit'
   run_step install bun install --frozen-lockfile
   run_step embed-input bun packages/opencode/scripts/embed-common-auth.ts --check
   run_step tui-compiler bun install --cwd tools/common-auth-build --frozen-lockfile --ignore-scripts
@@ -73,10 +74,10 @@ if [[ "$mode" == --linux-full ]]; then
   step=final-identity
   same_commit
   echo "PREPUSH_FULL_OK $commit elapsed=$((SECONDS - started))s"
+  echo "PREPUSH_OK $commit"
   exit 0
 fi
 
-ci_only
 phase=fast
 step=cortexkit-tracking
 tracked_ignored=$(git ls-files -ci --exclude-standard -- .cortexkit)
@@ -105,7 +106,7 @@ step=submit
 command -v ck >/dev/null || fail 'ck is required to submit the MOTOR Linux job'
 # Use the same qualified 16-vCPU MOTOR placement as test:native-inert.
 # Network access is needed for the frozen installs, not for a different runner.
-run_step linux-job ck motor run --vcpus 16 --net --cwd "$PWD" -- bash scripts/prepush.sh --linux-full "$commit"
+run_step linux-job ck motor run --vcpus 16 --net --cwd "$PWD" -- bash scripts/prepush.sh --full-here "$commit"
 step=final-identity
 same_commit
 echo "PREPUSH_OK $commit elapsed=$((SECONDS - started))s"

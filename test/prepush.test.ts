@@ -156,7 +156,7 @@ test('prepush submits exactly one sequential Linux job and certifies the commit'
   expect(result.stdout).toContain(`PREPUSH_OK ${commit}`)
   const calls = readFileSync(join(root, 'calls'), 'utf8').trim().split('\n')
   expect(calls.filter((line) => line.startsWith('ck '))).toEqual([
-    `ck motor run --vcpus 16 --net --cwd ${root} -- bash scripts/prepush.sh --linux-full ${commit}`,
+    `ck motor run --vcpus 16 --net --cwd ${root} -- bash scripts/prepush.sh --full-here ${commit}`,
   ])
   expect(calls.slice(9)).toEqual([
     'bun install --frozen-lockfile',
@@ -185,6 +185,25 @@ test('prepush reports a full-phase failure without certifying the commit', async
   expect(result.stdout).not.toContain('PREPUSH_OK')
 })
 
+test('prepush --full-here runs the full phase without contacting ck', async () => {
+  const { root, commit, env } = await fixture()
+  const result = await command(
+    root,
+    ['bash', 'scripts/prepush.sh', '--full-here'],
+    env,
+  )
+  expect(result.exitCode, result.stderr).toBe(0)
+  expect(result.stdout).toContain(`PREPUSH_OK ${commit}`)
+  expect(result.stdout).toContain(
+    'PREPUSH_EXIT phase=full step=test-e2e exit=0',
+  )
+  expect(result.stdout).not.toContain('PREPUSH_FAST_OK')
+  const calls = readFileSync(join(root, 'calls'), 'utf8').trim().split('\n')
+  expect(calls).toHaveLength(10)
+  expect(calls[0]).toBe('bun install --frozen-lockfile')
+  expect(calls.some((line) => line.startsWith('ck '))).toBe(false)
+})
+
 test('prepush checks Bun, remote commit identity and post-check tree identity', async () => {
   const { root, env } = await fixture()
   let result = await command(root, ['bash', 'scripts/prepush.sh', '--fast'], {
@@ -195,7 +214,7 @@ test('prepush checks Bun, remote commit identity and post-check tree identity', 
   expect(result.exitCode).toBe(1)
   result = await command(
     root,
-    ['bash', 'scripts/prepush.sh', '--linux-full', 'wrong-commit'],
+    ['bash', 'scripts/prepush.sh', '--full-here', 'wrong-commit'],
     env,
   )
   expect(result.stderr).toContain(

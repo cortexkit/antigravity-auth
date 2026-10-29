@@ -11,6 +11,12 @@ for installs. Each step prints its exit code and elapsed phase timings; only a
 complete pass prints `PREPUSH_OK <full commit>`. `bun run prepush --fast` runs just
 the local checks and does not certify the full gate.
 
+Inside an AFT worker sandbox (the agent tool environment), run the fast phase
+locally and submit
+`bash scripts/prepush.sh --full-here` through AFT `runon: "linux,16c,net"` on the
+same clean commit. `--full-here` runs the full phase on the current Linux machine
+without trying to contact `ck`; it assumes the fast phase has already passed.
+
 The OpenCode 2 Docker smoke, exact four-runtime RPC matrix and Windows jobs are
 covered by GitHub CI only. The gate does not install the four RPC runtimes or
 publish packages. The command inventory lives in `.github/workflows/ci.yml`,

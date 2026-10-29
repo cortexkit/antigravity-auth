@@ -11,7 +11,9 @@ These are standing rules for workers in this repository. They answer the questio
 
 ## Before you deliver
 
-1. **Pre-push gate:** on the committed, clean tracked tree, run `bun run prepush` with Bun 1.4.2 and configured `ck` MOTOR access. It runs fast local checks, then one 16-vCPU Linux job for frozen installs, typecheck, builds, TUI smoke and both root suites. Record `PREPUSH_OK <full commit>`, timings and test counts. `bun run prepush --fast` is useful while iterating but is not the full gate.
+AFT is the agent tool interface; its `functions.bash` tool submits shell commands to MOTOR using `runon`.
+
+1. **Pre-push gate:** on the committed, clean tracked tree with Bun 1.4.2, workers run `bun run prepush --fast` locally, then run `bash scripts/prepush.sh --full-here` through AFT `runon: "linux,16c,net"`. For example: `functions.bash({command: "bash scripts/prepush.sh --full-here", runon: "linux,16c,net", timeout: 1800000, wait: true})`. The full phase runs frozen installs, typecheck, builds, TUI smoke and both root suites. Record all step exit codes, `PREPUSH_OK <full commit>`, timings and test counts. Outside the worker sandbox, `bun run prepush` runs the fast phase locally and submits the same full phase through `ck motor run --vcpus 16 --net`; workers cannot access the `ck` daemon connection file. A fast-only pass is not the full gate.
 2. **Tests for what you changed:** run the test files that cover your change. For a bug fix, show once that a new test fails without the fix, and say how you showed it.
 3. For each failure, say whether it also fails on your base commit on the same runner. "Same at base" is a claim to prove, not to assume.
 4. Run a comment review on your diff with sidekick, and fix what it flags.
