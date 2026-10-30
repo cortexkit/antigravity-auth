@@ -69,6 +69,7 @@ async function fixture(
     wrongReadingAccount?: boolean
   } = {},
 ) {
+  let now = NOW
   const dir = await mkdtemp(join(tmpdir(), 'insula-vault-quota-'))
   const claustrum = await loadCommonAuthClaustrum()
   const fs = await loadCommonAuthFs()
@@ -142,7 +143,7 @@ async function fixture(
     isCustodyActive: () => true,
     reporterSource: 'direct',
     state: { path: statePath, fs },
-    now: () => NOW,
+    now: () => now,
     insula: {
       provider: 'antigravity',
       normalize: (entry, context) => {
@@ -161,7 +162,7 @@ async function fixture(
   })
   const shared = claustrum.acquireInsulaQuotaSource(insula, tokenPath)
   await source.refresh()
-  await shared.source.refresh(NOW)
+  await shared.source.refresh(now)
   const readState = () => readVaultProviderState(statePath)
   const pool = createVaultAccountPool({
     source,
@@ -198,7 +199,7 @@ async function fixture(
     },
     transport,
     logger: { debug() {} },
-    now: () => NOW,
+    now: () => now,
     onOutcome: (_level, outcome) => outcomes.push(outcome),
   })
   return {
@@ -210,6 +211,12 @@ async function fixture(
     skips,
     readState,
     transport,
+    advanceTime(ms: number) {
+      now += ms
+    },
+    refreshUsage() {
+      return shared.source.refresh(now)
+    },
     get admissions() {
       return admissions
     },
@@ -286,6 +293,62 @@ describe('insula vault quota', () => {
         (await f.readState()).accounts['account-a']?.quota?.cachedQuota?.gemini
           ?.remainingFraction,
       ).toBe(0.33)
+    } finally {
+      await f.close()
+    }
+  })
+
+  it('local_source_unavailable stale entry runs our daily poll', async () => {
+    const f = await fixture([
+      entry({ stale: { class: 'local_source_unavailable' } }),
+    ])
+    try {
+      await f.poller.tick()
+      expect(f.requests).toEqual([
+        'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
+      ])
+      const quota = (await f.readState()).accounts['account-a']?.quota
+      expect(quota?.cachedQuota?.gemini?.remainingFraction).toBe(0.33)
+      expect(quota?.cachedQuotaUpdatedAt).toBe(NOW)
+      expect(f.outcomes[0]?.reason).toBe('recorded')
+      expect(f.publishes).toBe(1)
+      expect(f.skips).toEqual([])
+    } finally {
+      await f.close()
+    }
+  })
+
+  it.each([
+    ['upstream_failed', { class: 'upstream_failed' }],
+    ['unclassified', {}],
+  ] as const)('%s stale entry skips our poll, logs once and preserves the stored reading', async (_name, stale) => {
+    const entries = [entry()]
+    const f = await fixture(entries)
+    try {
+      await f.poller.tick()
+      const before = await f.readState()
+      expect(
+        before.accounts['account-a']?.quota?.cachedQuota?.gemini
+          ?.remainingFraction,
+      ).toBe(0.6)
+      const admissions = f.admissions
+      f.advanceTime(300_000)
+      entries[0] = entry({
+        stale,
+        fetchedAt: new Date(FETCHED + 300_000).toISOString(),
+      })
+      await f.refreshUsage()
+      await f.poller.tick()
+      await f.poller.tick()
+      expect(f.requests).toEqual([])
+      expect(f.skips).toEqual([{ reason: 'upstream-failed' }])
+      expect(f.admissions).toBe(admissions)
+      expect(await f.readState()).toEqual(before)
+      expect(f.publishes).toBe(1)
+      expect(f.outcomes.slice(1).map((outcome) => outcome.reasons)).toEqual([
+        { 'insula-upstream-failed': 1 },
+        { 'insula-upstream-failed': 1 },
+      ])
     } finally {
       await f.close()
     }
