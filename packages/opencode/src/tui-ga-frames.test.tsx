@@ -324,7 +324,14 @@ function fakeContext(
   const context = {
     ...extra,
     location: { directory: '/work/a' },
-    client: { rpc: { call: async () => answer } },
+    client: {
+      rpc: {
+        call: async () => {
+          if (answer instanceof Error) throw answer
+          return answer
+        },
+      },
+    },
     ui: {
       dialog: {
         set: () => undefined,
@@ -708,17 +715,26 @@ describe('OpenCode 2 sidebar frame', () => {
     expect(contentLines(bare)[0]).toBe('▼ ANTIGRAVITY')
   })
 
-  it('shows LIMITED in place of the version while quota checks are paused', async () => {
+  it('keeps the plugin version while quota checks are paused', async () => {
     const frame = await capture(
       snapshot([freshAccount()], { quotaBackoffUntil: NOW + 5 * MINUTE }),
       38,
       { version: '9.8.7' },
     )
     show('quota backoff', 38, frame)
-    expect(contentLines(frame)[0]).toMatch(/^▼ ANTIGRAVITY\s+LIMITED$/)
-    expect(frame).not.toContain('v9.8.7')
+    expect(contentLines(frame)[0]).toMatch(/^▼ ANTIGRAVITY\s+v9\.8\.7$/)
+    expect(frame).not.toContain('LIMITED')
     expect(contentLines(frame)).toContain('Health')
     expect(lineWith(frame, /^Quota API\s+backoff 5m$/)).toBeDefined()
+  })
+
+  it('keeps the plugin version when the location state read fails', async () => {
+    const frame = await capture(new Error('state read failed'), 38, {
+      version: '9.8.7',
+    })
+    expect(contentLines(frame)[0]).toMatch(/^ANTIGRAVITY\s+v9\.8\.7$/)
+    expect(frame).not.toContain('LIMITED')
+    expect(frame).toContain('Waiting for quota…')
   })
 
   it('shortens long account labels at whole-word boundaries', () => {

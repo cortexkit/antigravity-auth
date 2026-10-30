@@ -3,8 +3,8 @@
 /**
  * The Antigravity sidebar frame, shared by the OpenCode 1 sidebar (`tui.tsx`)
  * and the OpenCode 2 sidebar (`ga/tui/host-ga.tsx`): the padded
- * panel, the clickable `▼`/`▶` header badge with the plugin version (or a
- * `LIMITED` badge) at the right, one line per account when collapsed, and the
+ * panel, the clickable `▼`/`▶` header badge with the optional plugin version
+ * at the right, one line per account when collapsed, and the
  * `Quota`, `Routing` and `Health` sections when expanded.
  *
  * Each renderer reads its own data source (the sidebar file, or the
@@ -430,8 +430,7 @@ export function SidebarFrame(props: SidebarFrameProps): JSX.Element {
     })
   }
 
-  // Header badge: ▼/▶ {label}, with the version at the right when nothing is
-  // degraded and a `LIMITED` badge in its place when something is.
+  // Header badge: ▼/▶ {label}, with the optional version at the right.
   const headerLabel = () => {
     const name = prefs().header.label
     return !hasData() ? name : collapsed() ? `\u25b6 ${name}` : `\u25bc ${name}`
@@ -468,23 +467,8 @@ export function SidebarFrame(props: SidebarFrameProps): JSX.Element {
             <b>{headerLabel()}</b>
           </text>
         </box>
-        <Show
-          when={degraded()}
-          fallback={
-            <Show when={prefs().header.showVersion && props.version !== ''}>
-              <text fg={theme().textMuted}>{`v${props.version}`}</text>
-            </Show>
-          }
-        >
-          <box
-            paddingLeft={1}
-            paddingRight={1}
-            backgroundColor={theme().warning}
-          >
-            <text fg={theme().background}>
-              <b>{'LIMITED'}</b>
-            </text>
-          </box>
+        <Show when={prefs().header.showVersion && props.version !== ''}>
+          <text fg={theme().textMuted}>{`v${props.version}`}</text>
         </Show>
       </box>
 
