@@ -1,3 +1,4 @@
+import { channel } from 'node:diagnostics_channel';
 import { ClaustrumCredentialError, } from '@cortexkit/claustrum-client';
 import { createLogger } from '../logger/index.js';
 import { ClaustrumUnreachableError, classifyVaultFailure, } from './availability.js';
@@ -27,6 +28,8 @@ function scopedRetryReason(served, current) {
     return 'rotated';
 }
 const defaultLogger = createLogger('claustrum');
+// Opt-in diagnostics let tests retain wait phases without logging each vault read.
+const phaseDiagnostics = channel('common-auth.claustrum.phases');
 /**
  * Decide whether a request that got a 401 should retry with the freshly
  * re-authorized receipt, and log the decision. The vault can refresh a
@@ -280,6 +283,11 @@ export class ClaustrumScopedCustody {
     }
     async #token(signal) {
         this.#check(signal);
+        if (phaseDiagnostics.hasSubscribers)
+            phaseDiagnostics.publish({
+                logger: this.#logger,
+                phase: 'token read begin',
+            });
         const pending = this.#readToken();
         this.#tokenReads.add(pending);
         let value;
@@ -288,6 +296,11 @@ export class ClaustrumScopedCustody {
         }
         finally {
             this.#tokenReads.delete(pending);
+            if (phaseDiagnostics.hasSubscribers)
+                phaseDiagnostics.publish({
+                    logger: this.#logger,
+                    phase: 'token read end',
+                });
         }
         this.#check(signal);
         if (!/^[0-9a-f]{64}$/.test(value.token) ||
@@ -359,12 +372,24 @@ export class ClaustrumScopedCustody {
             this.#kept.clear();
             throw error;
         }
+        if (phaseDiagnostics.hasSubscribers)
+            phaseDiagnostics.publish({
+                logger: this.#logger,
+                phase: 'list scoped begin',
+            });
         try {
             inventory = await this.#call(() => this.#client.listScoped(token), signal);
         }
         catch (error) {
             this.listFailed(error);
             throw error;
+        }
+        finally {
+            if (phaseDiagnostics.hasSubscribers)
+                phaseDiagnostics.publish({
+                    logger: this.#logger,
+                    phase: 'list scoped end',
+                });
         }
         const skipped = [];
         const refused = [];

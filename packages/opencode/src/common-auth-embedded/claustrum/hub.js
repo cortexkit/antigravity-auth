@@ -11,6 +11,7 @@
 // different processes already share, plus the base-view rule, so a commit
 // never replaces a view another process committed after this hub listed.
 import { createHash } from 'node:crypto';
+import { channel } from 'node:diagnostics_channel';
 import { readdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { createLogger } from '../logger/index.js';
@@ -766,7 +767,25 @@ export class ClaustrumDiscoveryHub {
                 throw base;
             // A member's first roster under this key carries the declines and
             // order of its newest roster under an older key.
-            const seed = base.file ? undefined : await this.#seed(entry);
+            let seed;
+            if (!base.file) {
+                const phaseDiagnostics = channel('common-auth.claustrum.phases');
+                if (phaseDiagnostics.hasSubscribers)
+                    phaseDiagnostics.publish({
+                        logger: this.#logger,
+                        phase: `seed read ${entry.provider} begin`,
+                    });
+                try {
+                    seed = await this.#seed(entry);
+                }
+                finally {
+                    if (phaseDiagnostics.hasSubscribers)
+                        phaseDiagnostics.publish({
+                            logger: this.#logger,
+                            phase: `seed read ${entry.provider} end`,
+                        });
+                }
+            }
             const roster = await refreshVaultRoster({
                 path: entry.path,
                 custody: { discover: async () => share },

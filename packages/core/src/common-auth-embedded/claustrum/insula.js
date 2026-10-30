@@ -443,6 +443,12 @@ export class InsulaQuotaSource {
                     ...(typeof entry.source === 'string' && { source: entry.source }),
                 },
             };
+            // Kept usage must not trigger a provider poll after a non-local failure.
+            // Only an explicitly local failure permits fallback; unknown causes do not.
+            if (entry.stale !== undefined &&
+                (!record(entry.stale) ||
+                    entry.stale.class !== 'local_source_unavailable'))
+                return { miss: 'upstream-failed', reading };
             return now >= fetchedAt + MAX_AGE || entry.stale !== undefined
                 ? { miss: 'stale', reading }
                 : { reading };

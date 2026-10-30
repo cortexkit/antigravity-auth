@@ -123,7 +123,8 @@
       "./host-slot.js",
       "./shutdown.js",
       "./watch.js",
-      "@cortexkit/claustrum-client"
+      "@cortexkit/claustrum-client",
+      "node:diagnostics_channel"
     ],
     "claustrum/enrollment.d.ts": ["@cortexkit/claustrum-client"],
     "claustrum/enrollment.js": [
@@ -158,6 +159,7 @@
       "./shutdown.js",
       "./watch.js",
       "node:crypto",
+      "node:diagnostics_channel",
       "node:fs/promises",
       "node:path"
     ],
@@ -746,6 +748,7 @@
     "node:async_hooks",
     "node:child_process",
     "node:crypto",
+    "node:diagnostics_channel",
     "node:fs",
     "node:fs/promises",
     "node:http",
