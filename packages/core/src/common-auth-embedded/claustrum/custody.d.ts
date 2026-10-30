@@ -25,7 +25,8 @@ export interface ClaustrumFamily {
 /** Non-secret classification facts, including rows decoded by older clients. */
 export interface VaultRowFacts {
     readonly credentialId: string;
-    readonly credentialType: string;
+    /** Internal serving type derived from `authMethod`, not the id's type hint. */
+    readonly credentialType: VaultCredentialType;
     readonly authMethod?: string;
     readonly refreshAdapter?: string;
     readonly providerIds?: readonly string[];
@@ -108,7 +109,10 @@ export interface VaultInventory {
     readonly view: string;
     readonly credentials: readonly VaultCredential[];
     readonly skipped: readonly SkippedVaultRecord[];
-    /** Classifying families only: fixed refusal codes, never classifier errors. */
+    /**
+     * Classifying families only: declared policy codes or the fixed library codes
+     * `unknown-auth-method`, `unmapped` and `unclassified`, never classifier errors.
+     */
     readonly refused?: readonly {
         credentialId?: string;
         code: string;

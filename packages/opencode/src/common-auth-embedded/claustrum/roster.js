@@ -810,7 +810,7 @@ export async function refreshVaultRoster(options) {
         throw error;
     }
     finally {
-        await lease.release();
+        await lease.release(options.signal);
     }
 }
 /**

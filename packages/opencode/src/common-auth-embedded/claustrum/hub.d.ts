@@ -1,5 +1,5 @@
 import type { QuotaObservation } from '../quota/index.js';
-import { type ClaustrumConsumer } from './consumer.js';
+import { type ClaustrumConsumer, type ClaustrumConsumerOptions } from './consumer.js';
 import { type ClassifyingClaustrumFamily, type ClaustrumScopedClient, ClaustrumScopedCustody, type IdentityParser, type KeptReceiptState, type VaultGrantReach } from './custody.js';
 import { type ClaustrumLogger } from './errors.js';
 import { type AccountMapper, type VaultRosterFile } from './roster.js';
@@ -100,6 +100,8 @@ export interface ClaustrumHubMemberOptions<_Q = QuotaObservation> {
     reservedRouteIds?: () => Iterable<string>;
     /** As `ClaustrumConsumerOptions.onRoster`: once per change of view. */
     onRoster?: (roster: VaultRosterFile) => void;
+    /** Observe every hub discovery's member result, including background work. */
+    onDiscovery?: ClaustrumConsumerOptions<_Q>['onDiscovery'];
     /** This member's own failures, such as a roster commit that failed. */
     onError?: (error: unknown) => void;
     logger?: ClaustrumLogger;

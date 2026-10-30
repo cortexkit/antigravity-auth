@@ -314,7 +314,16 @@ export class ClaustrumConsumer {
             this.#refreshing = undefined;
         });
         this.#track(this.#refreshing);
+        this.#notifyDiscovery(this.#refreshing);
         return this.#refreshing;
+    }
+    #notifyDiscovery(promise) {
+        try {
+            this.#options.onDiscovery?.(promise);
+        }
+        catch (error) {
+            this.#options.onError?.(error);
+        }
     }
     /**
      * Poll in the background and open the vault and insula watches. Until the
@@ -571,6 +580,13 @@ export class ClaustrumConsumer {
     /** The hub's handle on this member's memory. */
     #hubHooks() {
         return {
+            discovery: (promise) => {
+                const hub = this.#hub;
+                if (!hub || !this.#options.onDiscovery || this.#shutdown.signal.aborted)
+                    return;
+                const discovery = this.#track(promise.then((outcome) => this.#hubOutcome(hub, outcome)));
+                this.#notifyDiscovery(discovery);
+            },
             install: (roster) => {
                 if (this.#shutdown.signal.aborted)
                     return;
@@ -607,6 +623,9 @@ export class ClaustrumConsumer {
      */
     async #hubRefresh(hub) {
         const outcome = await hub.refresh();
+        return this.#hubOutcome(hub, outcome);
+    }
+    #hubOutcome(hub, outcome) {
         this.#assertOpen();
         if (!outcome)
             return undefined;
@@ -788,6 +807,8 @@ export class ClaustrumConsumer {
         this.#assertOpen();
         await declineVaultRoute(this.#options.rosterPath, routeId);
         this.#roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
+        if (this.#roster)
+            this.#hub?.publishRoster(this.#roster);
         // A hub member shares kept receipts with every other member, so they are
         // retained against all members' rosters, never against this one alone.
         if (this.#hub)
@@ -799,6 +820,8 @@ export class ClaustrumConsumer {
         this.#assertOpen();
         await acceptVaultRoute(this.#options.rosterPath, routeId);
         this.#roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
+        if (this.#roster)
+            this.#hub?.publishRoster(this.#roster);
     }
     /**
      * Set the order vault accounts are tried in (`reorderVaultRoster`), then
@@ -809,6 +832,8 @@ export class ClaustrumConsumer {
         this.#assertOpen();
         const result = await reorderVaultRoster(this.#options.rosterPath, routeIds);
         this.#roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
+        if (this.#roster)
+            this.#hub?.publishRoster(this.#roster);
         return result;
     }
     /**

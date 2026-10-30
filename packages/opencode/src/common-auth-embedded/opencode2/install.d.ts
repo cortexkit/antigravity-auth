@@ -51,8 +51,9 @@ export declare function applyHeaderEdits(target: Record<string, string>, edits: 
  * compares the host-prepared secret exactly, then selects a fresh attempt only
  * for an owned send. Request-object attribution therefore needs no attempt
  * header. Frames are owned by the latest handshake of their session and kind;
- * retry runs only when the session's latest transport was owned and the session
- * has never mixed owned and foreign transports. The host's retry hook has no
- * request identity, so a mixed session must keep the host's retry decision.
+ * retry runs only when the session's latest transport was owned. The host's
+ * retry hook has no request identity, so a session that has mixed owned and
+ * foreign transports leaves failover and holds to the host. Identity-preserving
+ * retries through `retrySameAccount` do not select an account and remain allowed.
  */
 export declare function installOpenCode2Auth<Q, A = unknown>(ctx: OpenCode2HookContext, adapter: OpenCode2AuthAdapter<Q, A, ChooseAccountResult>, options?: InstallOpenCode2AuthOptions): Promise<OpenCode2AuthInstallation<Q, A>>;

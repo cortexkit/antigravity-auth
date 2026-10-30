@@ -50,6 +50,12 @@ export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
      * routine token refresh, which never moves the view.
      */
     onRoster?: (roster: VaultRosterFile) => void;
+    /**
+     * Called once when a coalesced discovery starts, with its completion promise.
+     * Covers explicit refresh, poll, watch and send-triggered discovery, even when
+     * the view does not change. Observe rejection when attaching async work.
+     */
+    onDiscovery?: (promise: Promise<VaultRosterFile | undefined>) => void;
     onError?: (error: unknown) => void;
     /**
      * How often `start()` ticks. A tick lists the vault when no vault watch is
@@ -104,6 +110,8 @@ export interface HubMemberPort {
     keptReceiptState(): KeptReceiptState;
     /** Apply the union of every member's roster in memory to kept receipts. */
     retainUnion(): void;
+    /** Share a committed preference change with live members using this roster file. */
+    publishRoster(roster: VaultRosterFile): void;
     forget(credentialId: string): void;
     /** The member closed: the hub stops committing and pushing to it. */
     detach(): void;
@@ -113,6 +121,8 @@ export interface HubRefreshOutcome {
 }
 /** What the hub may do to one member's memory. Package-internal. */
 export interface HubMemberHooks {
+    /** Observe a hub discovery without relying on member refresh overrides. */
+    discovery(promise: Promise<HubRefreshOutcome | undefined>): void;
     /**
      * Set the roster in memory as a consumer's own refresh does (pending quota
      * readings included) and notify `onRoster` when its view changed.

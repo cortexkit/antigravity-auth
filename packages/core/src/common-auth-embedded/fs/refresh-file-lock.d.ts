@@ -21,7 +21,8 @@ export interface LockLoss {
 export interface RefreshFileLock {
     readonly ownerId: string;
     assertOwned(): Promise<void>;
-    release(): Promise<void>;
+    /** Abort stops release retries; the unrenewed lease is left to expire by TTL. */
+    release(signal?: AbortSignal): Promise<void>;
     /** Resolves once on detected loss; remains pending after an owner's release. */
     whenLost(): Promise<LockLoss>;
     hasLost(): boolean;

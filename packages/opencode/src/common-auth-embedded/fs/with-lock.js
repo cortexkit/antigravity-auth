@@ -38,7 +38,7 @@ export async function withLock(target, options, fn) {
                 return await fn(lock);
             }
             finally {
-                await lock.release();
+                await lock.release(options.signal);
             }
         }
         const remaining = options.timeoutMs - (performance.now() - started);

@@ -836,7 +836,7 @@ export async function acquireRefreshFileLockWithClock(options) {
                     : {}),
             });
         },
-        release: async () => {
+        release: async (signal) => {
             if (windowsPrivateFiles && releaseConfirmed)
                 return;
             released = true;
@@ -882,6 +882,8 @@ export async function acquireRefreshFileLockWithClock(options) {
                         releaseConfirmed = removalConfirmed;
                         return;
                     }
+                    if (signal?.aborted)
+                        return;
                     await recoverStaleEvictionMarker();
                 }
                 catch (error) {

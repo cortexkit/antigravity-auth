@@ -173,6 +173,22 @@ export interface HostError {
     readonly message: string;
     readonly status?: number;
 }
+/** The known route and host error for an identity-preserving retry. */
+export interface SameAccountRetryInput extends AccountRequest {
+    readonly error: HostError;
+    /** The host's retry attempt count. */
+    readonly attempt: number;
+    /**
+     * The signal already recorded by a response/frame trigger, if any. Its reason
+     * can key prepared credentials, so recovery need not refresh them twice.
+     * limitFromError is not called before this callback in a mixed session.
+     */
+    readonly limit?: LimitSignal;
+}
+/** Request an immediate retry; a different account ID is ignored. */
+export interface SameAccountRetryResult {
+    readonly accountId: string;
+}
 /**
  * Everything provider-specific the installer needs. `Q` is the plugin's own
  * quota reading type; the installer only carries it to the `quota` event.
@@ -346,6 +362,39 @@ export interface OpenCode2AuthAdapter<Q = unknown, A = unknown, Choice extends C
      */
     limitFromError?(error: HostError, attempt: Attempt<A>): LimitSignal | undefined;
     /**
+     * Optional recovery on the same route before account failover is considered.
+     * May only use a newer record version of the same credentialId and accountIdentity,
+     * a different local access token for the same subject, or another path to the
+     * same provider with the same credential. The adapter must
+     * preserve those identities; opaque credential material is not inspected here.
+     * Return {accountId: input.accountId} to retry immediately, or undefined to decline.
+     * A different accountId is ignored. Never move a routing pin or select another
+     * account here: use chooseAccount for failover and holds.
+     *
+     * Runs only for an attributable attempt before output, and, when gated, only
+     * while the latest transport is owned. Unlike failover and holds, it also runs
+     * in mixed-ownership sessions. The next matching owned request skips selection
+     * and calls accountHeaders again for this account, so newer credentials or a
+     * changed transport path can take effect without changing accounts. Runs at
+     * most once per attempt, never on the attempt sent by this recovery, so retries
+     * cannot chain. Use input.limit to consume state prepared by a response/frame
+     * trigger; without one, the callback may handle input.error itself. Do not
+     * refresh again when the trigger has already prepared the new credential.
+     * No choice was committed through chooseAccount; unused recovery state is
+     * released through dropSameAccountRetry instead of dropChoice.
+     * Errors are logged and treated as declining the retry.
+     */
+    retrySameAccount?(input: SameAccountRetryInput): Promise<SameAccountRetryResult | undefined> | SameAccountRetryResult | undefined;
+    /**
+     * Releases a returned same-account recovery that will not be sent: a rejected
+     * account ID, selection revocation, changed model/agent, cancellation (session
+     * idle), forgetting/deletion, disposal or eviction. Receives the original
+     * callback input and returned accountId, once, never for a consumed recovery.
+     * Awaited before later selection for the session; errors are logged and swallowed.
+     * A callback that declines or throws must clean up its own uncommitted state.
+     */
+    dropSameAccountRetry?(input: SameAccountRetryInput & SameAccountRetryResult): Promise<void> | void;
+    /**
      * Called once per attempt when it ends: an HTTP response body finished,
      * errored or was cancelled; an HTTP response with an error status or no
      * body arrived; an event's verdict said `done` or `error`; or the attempt
@@ -400,11 +449,13 @@ export interface InstallOpenCode2AuthOptions {
  *   (its wait, or its refusal to retry) stands and the next attempt may go
  *   to the refused account again;
  * - `hold`: an explicit adapter wait on the refused account, before output;
+ * - `same-account`: the adapter requested immediate recovery on the same route,
+ *   without account selection, before output;
  * - `host-decides`: no limit was recognised, or the failing call cannot be
  *   attributed safely (ambiguous attempts or mixed ownership in a gated
  *   session), so the host's decision stands.
  */
-export type RetryReason = 'reroute' | 'hold' | 'output-started' | 'no-account' | 'host-decides-last-account' | 'host-decides';
+export type RetryReason = 'reroute' | 'hold' | 'same-account' | 'output-started' | 'no-account' | 'host-decides-last-account' | 'host-decides';
 /**
  * The hook that picked an account. Normally `model.request`; a transport hook
  * picks only when the host skipped `model.request` for that request, which a

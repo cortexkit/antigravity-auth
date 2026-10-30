@@ -85,16 +85,28 @@ function credentialTypeOf(row, family) {
         return notMine;
     if (!row.categories.includes(family.category))
         return notMine;
-    if (row.credentialType !== 'oauth' && row.credentialType !== 'api_key')
-        return notMine;
     if ('classify' in family) {
-        // Older clients omit these facts entirely; do not call a policy that needs them.
+        const metadata = rowFactsOf(row);
+        let type;
+        // The id's type is only a hint; the vault's auth method determines serving.
+        switch (metadata.authMethod) {
+            case 'apikey':
+                type = 'api_key';
+                break;
+            case 'chatgpt':
+            case 'antigravity':
+            case 'oauth':
+                type = 'oauth';
+                break;
+            default:
+                return { kind: 'refused', code: 'unknown-auth-method' };
+        }
         const facts = {
             credentialId: row.id,
-            credentialType: row.credentialType,
+            credentialType: type,
             categories: row.categories,
             refreshAdapter: row.refreshAdapter,
-            ...rowFactsOf(row),
+            ...metadata,
         };
         if (facts.providerIds === undefined)
             return { kind: 'refused', code: 'unmapped' };
@@ -103,7 +115,7 @@ function credentialTypeOf(row, family) {
             if (result.kind === 'not-mine')
                 return notMine;
             if (result.kind === 'mine' && typeof result.member === 'string')
-                return { kind: 'mine', type: row.credentialType, member: result.member };
+                return { kind: 'mine', type, member: result.member };
             if (result.kind === 'refused' &&
                 typeof result.code === 'string' &&
                 /^[a-z][a-z0-9-]{0,31}$/.test(result.code) &&
@@ -116,6 +128,8 @@ function credentialTypeOf(row, family) {
         }
         return { kind: 'refused', code: 'unclassified' };
     }
+    if (row.credentialType !== 'oauth' && row.credentialType !== 'api_key')
+        return notMine;
     if (row.credentialType === 'oauth')
         return row.refreshAdapter === family.refreshAdapter
             ? { kind: 'mine', type: 'oauth' }
