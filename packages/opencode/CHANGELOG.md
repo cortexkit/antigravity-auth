@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- The sidebar header always shows the plugin version; it no longer switches to LIMITED during quota backoff.
+
 ## [2.3.0] - 2026-09-17
 
 ### Added

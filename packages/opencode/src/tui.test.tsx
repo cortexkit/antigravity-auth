@@ -384,7 +384,7 @@ describe('SidebarPanel', () => {
     testSetup.renderer.destroy()
   })
 
-  it('renders the backoff footer when quotaBackoffUntil is in the future', async () => {
+  it('keeps the plugin version and Health backoff when quotaBackoffUntil is in the future', async () => {
     const payload = writeState({
       checkedAt: Date.now(),
       routingAuthoritative: true,
@@ -407,15 +407,14 @@ describe('SidebarPanel', () => {
     const testSetup = await testRender(
       () => <SidebarPanel logger={logger} stateFile={fixture.statePath} />,
       {
-        width: 80,
+        width: 38,
         height: 24,
       },
     )
     await testSetup.flush()
     const frame = testSetup.captureCharFrame()
-    // Fleet parity: the Health section surfaces the quota API backoff
-    // via a "Quota API / backoff until <iso>" StatRow (was "quota
-    // backoff <iso>" in the pre-port implementation).
+    expect(frame).toContain(`v${PACKAGE_VERSION}`)
+    expect(frame).not.toContain('LIMITED')
     expect(frame).toContain('Health')
     expect(frame).toContain('Quota API')
     expect(frame).toContain('backoff')
@@ -501,14 +500,14 @@ describe('SidebarPanel', () => {
     }
   })
 
-  it('survives a malformed state file by rendering the awaiting fallback', async () => {
+  it('keeps the plugin version and awaiting fallback after a state read error', async () => {
     mkdirSync(join(fixture.statePath, '..'), { recursive: true })
     writeFileSync(fixture.statePath, '{not-valid-json', 'utf-8')
     const logger = makeCapturingLogger()
     const testSetup = await testRender(
       () => <SidebarPanel logger={logger} stateFile={fixture.statePath} />,
       {
-        width: 60,
+        width: 38,
         height: 12,
       },
     )
@@ -518,6 +517,8 @@ describe('SidebarPanel', () => {
     // body — the original "Awaiting Antigravity state" wording is
     // replaced by the fleet's "Waiting for quota…" prompt.
     expect(frame).toContain('ANTIGRAVITY')
+    expect(frame).toContain(`v${PACKAGE_VERSION}`)
+    expect(frame).not.toContain('LIMITED')
     expect(frame).toContain('Waiting for quota')
     expect(existsSync(fixture.logPath)).toBe(false)
     testSetup.renderer.destroy()
