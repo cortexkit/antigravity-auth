@@ -228,9 +228,16 @@ export { ga }
       readFileSync(join(installed, 'package.json'), 'utf8'),
     )
     const range: string = manifest.engines.opencode
-    for (const version of ['1.17.13', '1.99.0', '2.0.22', '2.5.0'])
+    for (const version of ['1.18.4', '1.99.0', '2.0.22', '2.5.0'])
       expect(Bun.semver.satisfies(version, range)).toBe(true)
-    for (const version of ['1.17.12', '2.0.0', '2.0.21'])
+    for (const version of [
+      '1.17.12',
+      '1.17.13',
+      '1.17.14',
+      '1.18.3',
+      '2.0.0',
+      '2.0.21',
+    ])
       expect(Bun.semver.satisfies(version, range)).toBe(false)
   })
 })

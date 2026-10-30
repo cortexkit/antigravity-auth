@@ -1,5 +1,7 @@
 # OpenCode 2.0.22 released-host contract
 
+For current supported host versions, see the [host requirements](../README.md#host-requirements-and-entries). The 1.17.13 references below identify retained source and artifact evidence, not the supported OpenCode 1 floor.
+
 This is a **source/API contract**, not an adapter acceptance report. OpenCode 2's
 HTTP client dispatches native Google model requests. The selected transport keeps
 the stock Google HTTP driver and rewrites matching requests to our owned IPv4

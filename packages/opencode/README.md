@@ -8,9 +8,11 @@ This guide describes the current source tree, not an announcement that an unrele
 
 ## Host requirements and entries
 
+OpenCode 1 from 1.18.4 (the first release with OpenTUI 0.4.5), or OpenCode 2 from 2.0.22.
+
 | Host field | Required range |
 | --- | --- |
-| OpenCode engine | `>=1.17.13 <2` or `>=2.0.22` |
+| OpenCode engine | `>=1.18.4 <2` or `>=2.0.22` |
 | V1 SDK peer (`@opencode-ai/plugin`) | `*` (checkout pin `1.17.13`) |
 | GA SDK peer (`@opencode/plugin`) | `>=2.0.22` (checkout pin `2.0.22`) |
 | OpenTUI core/keymap/solid peers | `>=0.4.5` each |

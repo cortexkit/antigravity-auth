@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- The minimum OpenCode 1 version is now 1.18.4, the first release that ships the terminal UI library the sidebar is built for.
+
 ## [2.3.0] - 2026-09-17
 
 ### Added

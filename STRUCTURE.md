@@ -116,7 +116,7 @@ Focused tests sit beside account/selector/repository/migration, transport, quota
 
 ## `packages/opencode` inventory
 
-`@cortexkit/opencode-antigravity-auth` exports `.`, `./server` and `./tui`. Its manifest declares `engines.opencode: '>=1.17.13 <2 || >=2.0.22'`. That declared range is not a measured host matrix. There is no inert TUI or public RPC compatibility subpath. Layout:
+`@cortexkit/opencode-antigravity-auth` exports `.`, `./server` and `./tui`. Its manifest declares `engines.opencode: '>=1.18.4 <2 || >=2.0.22'`. That declared range is not a measured host matrix. There is no inert TUI or public RPC compatibility subpath. Layout:
 
 ```
 packages/opencode/

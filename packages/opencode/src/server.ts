@@ -1,10 +1,10 @@
 /**
  * The package's `./server` entry, loaded by both OpenCode host lines.
  *
- * - OpenCode 1 (1.17.13 and later 1.x) prefers a package's `./server` export
- *   over `main`. Its loader reads the default export as a plugin object and,
- *   because the object has a `server` function, runs that function as the
- *   plugin. It does not go on to call the named exports, so the named
+ * - Supported OpenCode 1 hosts (1.18.4 and later 1.x) prefer a package's
+ *   `./server` export over `main`. Their loader reads the default export as a
+ *   plugin object and, because the object has a `server` function, runs that
+ *   function as the plugin. It does not go on to call the named exports, so
  *   `createGaAntigravityPlugin` below is never loaded as a second plugin.
  * - OpenCode 2 (2.0.22 and later) resolves `./server` through its host
  *   resolver and accepts a default export with a string `id` and a `setup`
