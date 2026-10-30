@@ -247,13 +247,16 @@ test('producer.verbatim_map', async () => {
   )
   expect(map.version).toBe('0.32.0')
   expect(map.artifactStatus).toBe('published')
-  expect(map.publicRoots).toEqual(publication.publicRoots)
-  expect(map.canonicalFiles).toBe(195)
-  expect(map.canonicalBytes).toBe(1245041)
+  expect(map.publicRoots).toEqual({
+    ...publication.publicRoots,
+    './quota-sidebar': publication.sidebarRoot,
+  })
+  expect(map.canonicalFiles).toBe(197)
+  expect(map.canonicalBytes).toBe(1266041)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])
-  expect(map.generator.version).toBe(3)
+  expect(map.generator.version).toBe(4)
   expect(map.generator.sha256).toBe(
     digest(await readFile(join(root, map.generator.path))),
   )
@@ -262,8 +265,8 @@ test('producer.verbatim_map', async () => {
     output: 'NOTICE.txt',
     sha256: publication.licenseSha256,
   })
-  expect(map.files).toEqual(
-    publication.files.map(([file, bytes, hash]) => ({
+  expect(map.files).toEqual([
+    ...publication.files.map(([file, bytes, hash]) => ({
       source: `package/dist/${file}`,
       output: file,
       bytes,
@@ -271,7 +274,15 @@ test('producer.verbatim_map', async () => {
       outputSha256: hash,
       transform: 'verbatim',
     })),
-  )
+    ...publication.sidebarFiles.map(({ source, output, bytes, hash }) => ({
+      source,
+      output,
+      bytes,
+      sourceSha256: hash,
+      outputSha256: hash,
+      transform: 'verbatim',
+    })),
+  ])
   for (const [file, bytes, hash] of publication.files) {
     const output = await readFile(join(target, outputPath, String(file)))
     expect(output.equals(entries.get(`package/dist/${file}`)!)).toBe(true)
@@ -283,6 +294,40 @@ test('producer.verbatim_map', async () => {
       entries.get('package/LICENSE')!,
     ),
   ).toBe(true)
+})
+
+test('producer.authored_sidebar_is_opencode_only_and_verbatim', async () => {
+  const entries = await archive()
+  const target = await owned()
+  await embedCommonAuthPackages(['opencode', 'core'], target)
+  const core = JSON.parse(
+    await readFile(
+      join(target, embeddingProfiles.core.outputPath, 'source-output.json'),
+      'utf8',
+    ),
+  )
+  expect(
+    core.files.some(
+      (file: { source: string; output: string }) =>
+        file.source.startsWith('package/src/') ||
+        file.output.startsWith('quota-sidebar/'),
+    ),
+  ).toBe(false)
+  expect(core.publicRoots['./quota-sidebar']).toBeUndefined()
+  for (const file of publication.sidebarFiles) {
+    const output = await readFile(join(target, outputPath, file.output))
+    expect(output.equals(entries.get(file.source)!)).toBe(true)
+    expect(output.length).toBe(file.bytes)
+    expect(digest(output)).toBe(file.hash)
+    const changed = new Map(entries)
+    changed.set(
+      file.source,
+      Buffer.concat([entries.get(file.source)!, Buffer.from('\n')]),
+    )
+    expect(() => validatePublication(changed)).toThrow(
+      `publication: bytes ${file.output}`,
+    )
+  }
 })
 
 test('producer.symlink_refusal_preserves_bytes', async () => {

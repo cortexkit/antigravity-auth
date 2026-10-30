@@ -67,6 +67,24 @@
       "import": "./dist/opencode2/index.js"
     }
   },
+  "sidebarRoot": {
+    "types": "./dist/quota-sidebar/index.d.ts",
+    "import": "./src/quota-sidebar/index.tsx"
+  },
+  "sidebarFiles": [
+    {
+      "source": "package/dist/quota-sidebar/index.d.ts",
+      "output": "quota-sidebar/index.d.ts",
+      "bytes": 2658,
+      "hash": "a2f94067970c25ce042febadc87a1afdd5c43c75a5100fa8446a783a53ce2815"
+    },
+    {
+      "source": "package/src/quota-sidebar/index.tsx",
+      "output": "quota-sidebar/index.tsx",
+      "bytes": 18342,
+      "hash": "081280080f732917933dc578595e8dcfb8beacda5a27bb930da63a2a5bb6f1cf"
+    }
+  ],
   "files": [
     [
       "auth-menu/accounts.d.ts",

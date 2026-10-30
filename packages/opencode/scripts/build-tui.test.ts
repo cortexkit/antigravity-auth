@@ -700,6 +700,64 @@ test('build.selector_inert', async () => {
   }
 })
 
+test('graph.authored_sidebar_both_roots_keep_host_externals', async () => {
+  const root = await fixture(true)
+  for (const profile of TUI_ROOTS) {
+    const entry = join(root, profile.entry)
+    const specifier = relative(
+      dirname(entry),
+      join(root, 'src/common-auth-embedded/quota-sidebar/index.tsx'),
+    ).replaceAll('\\', '/')
+    await writeFile(
+      entry,
+      `${await readFile(entry, 'utf8')}\nexport { SidebarFrame } from './${specifier}'\n`,
+    )
+    const graph = await auditGraph(entry)
+    expect(graph.files).toContain(
+      join(root, 'src/common-auth-embedded/quota-sidebar/index.tsx'),
+    )
+    if (profile.name === 'ga') checkGaGraph(graph, 'source', root)
+  }
+  await buildTuiRoots({ packageRoot: root })
+  for (const profile of TUI_ROOTS) {
+    const baseline = JSON.parse(
+      await readFile(join(product, profile.map), 'utf8'),
+    )
+    const admitted = JSON.parse(await readFile(join(root, profile.map), 'utf8'))
+    for (const variant of ['raw', 'runtime'] as const) {
+      const tree = profile[variant]
+      const entry = variant === 'raw' ? profile.rawEntry : profile.runtimeEntry
+      const before = await auditGraph(join(product, tree, entry))
+      const after = await auditGraph(join(root, tree, entry))
+      expect(after.externals).toEqual(before.externals)
+      // The public raw map also records erased type imports, including the sidebar's JSX type.
+      expect(admitted[variant].externals).toEqual(
+        variant === 'raw'
+          ? [...new Set([...baseline.raw.externals, '@opentui/solid'])].sort()
+          : baseline.runtime.externals,
+      )
+      const sidebar = admitted[variant].files.find((file: { source: string }) =>
+        file.source.endsWith('/common-auth-embedded/quota-sidebar/index.tsx'),
+      )
+      expect(sidebar).toBeDefined()
+      expect(after.files).toContain(join(root, sidebar.output))
+      expect(
+        admitted[variant].files
+          .filter((file: { source: string }) =>
+            file.source.includes('node_modules/'),
+          )
+          .map((file: { source: string }) => file.source),
+      ).toEqual(
+        baseline[variant].files
+          .filter((file: { source: string }) =>
+            file.source.includes('node_modules/'),
+          )
+          .map((file: { source: string }) => file.source),
+      )
+    }
+  }
+}, 120000)
+
 test('graph.ga_roots', async () => {
   const source = await auditGraph(join(product, GA_TUI_ROOT.entry))
   expect(source.files.map((path) => relative(product, path)).sort()).toEqual([

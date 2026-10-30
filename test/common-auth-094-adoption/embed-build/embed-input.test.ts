@@ -35,6 +35,7 @@ const sri = (bytes: Uint8Array) =>
 const protectedPaths = [
   inputPath,
   ...publication.files.map(([path]) => `${outputPath}/${path}`),
+  ...publication.sidebarFiles.map(({ output }) => `${outputPath}/${output}`),
   `${outputPath}/source-output.json`,
   `${outputPath}/NOTICE.txt`,
 ]
@@ -167,6 +168,7 @@ test('embed.inventory', async () => {
   expect(actual).toEqual(
     [
       ...publication.files.map(([path]) => String(path)),
+      ...publication.sidebarFiles.map(({ output }) => output),
       'NOTICE.txt',
       'source-output.json',
     ].sort(),
@@ -258,12 +260,15 @@ test('embed.attribution', async () => {
   expect(manifest.artifactStatus).toBe('published')
   expect(manifest.tarballSha256).toBe(publication.sha256)
   expect(manifest.sri).toBe(publication.sri)
-  expect(manifest.publicRoots).toEqual(publication.publicRoots)
-  expect(manifest.canonicalFiles).toBe(195)
-  expect(manifest.canonicalBytes).toBe(1245041)
-  expect(manifest.generator.version).toBe(3)
-  expect(manifest.files).toEqual(
-    publication.files.map(([path, bytes, digest]) => ({
+  expect(manifest.publicRoots).toEqual({
+    ...publication.publicRoots,
+    './quota-sidebar': publication.sidebarRoot,
+  })
+  expect(manifest.canonicalFiles).toBe(197)
+  expect(manifest.canonicalBytes).toBe(1266041)
+  expect(manifest.generator.version).toBe(4)
+  expect(manifest.files).toEqual([
+    ...publication.files.map(([path, bytes, digest]) => ({
       source: `package/dist/${path}`,
       output: path,
       bytes,
@@ -271,7 +276,15 @@ test('embed.attribution', async () => {
       outputSha256: digest,
       transform: 'verbatim',
     })),
-  )
+    ...publication.sidebarFiles.map(({ source, output, bytes, hash }) => ({
+      source,
+      output,
+      bytes,
+      sourceSha256: hash,
+      outputSha256: hash,
+      transform: 'verbatim',
+    })),
+  ])
   expect(manifest.generator.sha256).toBe(
     hash(await readFile(join(root, manifest.generator.path))),
   )

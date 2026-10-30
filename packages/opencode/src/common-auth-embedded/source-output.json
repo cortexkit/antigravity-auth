@@ -59,17 +59,21 @@
     "./opencode2": {
       "types": "./dist/opencode2/index.d.ts",
       "import": "./dist/opencode2/index.js"
+    },
+    "./quota-sidebar": {
+      "types": "./dist/quota-sidebar/index.d.ts",
+      "import": "./src/quota-sidebar/index.tsx"
     }
   },
   "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.32.0.tgz",
   "tarballSha256": "1d27ba5ee17b6436e829bb0701399fc81203b0a050c076476d59cd9be5bead00",
   "sri": "sha512-v/NgLrxGmhn+SbzDej5Gr0sbApWbogENc8GbX06mCDkX0FXnaiiT6xhe5h96M1o6evDvJ/MB1v1xMCKVaxscrA==",
-  "canonicalFiles": 195,
-  "canonicalBytes": 1245041,
+  "canonicalFiles": 197,
+  "canonicalBytes": 1266041,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
-    "version": 3,
-    "sha256": "440f57a7e88fdba9e2b56bfbd31783ed9a7c323a9fed0b00324078e5d8c3e497"
+    "version": 4,
+    "sha256": "d03666c13509dcf88ce0ccd91c22ced022a689ef38e81e947262c2b76bf8f758"
   },
   "files": [
     {
@@ -1630,6 +1634,22 @@
       "bytes": 1508,
       "sourceSha256": "454adc21f90c42f5caa2c6b8374c1a7532623a1b954fe06a030afbc9248c10fe",
       "outputSha256": "454adc21f90c42f5caa2c6b8374c1a7532623a1b954fe06a030afbc9248c10fe",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/quota-sidebar/index.d.ts",
+      "output": "quota-sidebar/index.d.ts",
+      "bytes": 2658,
+      "sourceSha256": "a2f94067970c25ce042febadc87a1afdd5c43c75a5100fa8446a783a53ce2815",
+      "outputSha256": "a2f94067970c25ce042febadc87a1afdd5c43c75a5100fa8446a783a53ce2815",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/src/quota-sidebar/index.tsx",
+      "output": "quota-sidebar/index.tsx",
+      "bytes": 18342,
+      "sourceSha256": "081280080f732917933dc578595e8dcfb8beacda5a27bb930da63a2a5bb6f1cf",
+      "outputSha256": "081280080f732917933dc578595e8dcfb8beacda5a27bb930da63a2a5bb6f1cf",
       "transform": "verbatim"
     }
   ],

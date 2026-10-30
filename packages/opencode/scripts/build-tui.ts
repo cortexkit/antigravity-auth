@@ -139,10 +139,10 @@ export const TUI_ROOTS: readonly TuiRoot[] = [V1_TUI_ROOT, GA_TUI_ROOT]
  * The GA root reaches only the shared drawer, the host-neutral menu types,
  * the sidebar projection and the shared quota layout: no OpenCode 1 RPC, port
  * file, sidebar file, preferences, file logger, OpenCode 1 adapter or
- * embedded library module.
+ * embedded library module outside the pure quota and sidebar closure.
  */
 const GA_FORBIDDEN_SOURCE =
-  /\/(?:rpc|plugin|antigravity|hooks)\/|\/ga\/(?:server|rpc)\/|\/common-auth-embedded\/(?!quota\/(?:index|codec|format|map|merge|projection)(?:\.d)?\.[jt]s$)|\/(?:sidebar-state|tui-preferences|constants)\.ts$|\/tui\/(?:file-logger|host-v1)\.tsx?$/
+  /\/(?:rpc|plugin|antigravity|hooks)\/|\/ga\/(?:server|rpc)\/|\/common-auth-embedded\/(?!(?:quota\/(?:index|codec|format|map|merge|projection)(?:\.d)?\.[jt]s|quota-sidebar\/index\.(?:tsx|js|d\.ts))$)|\/(?:sidebar-state|tui-preferences|constants)\.ts$|\/tui\/(?:file-logger|host-v1)\.tsx?$/
 /** The only bare packages GA source may import; the host supplies each one. */
 const GA_EXTERNALS = new Set([
   'solid-js',
@@ -270,7 +270,7 @@ export async function auditGraph(
       !types &&
       !(
         tui
-          ? /^(?:rpc\/(?:client|port-file|rpc-client)|logger\/(?:index|engine|capture-sink|redact)|fs\/private-files|quota\/(?:index|codec|format|map|merge|projection))\.js$/
+          ? /^(?:(?:rpc\/(?:client|port-file|rpc-client)|logger\/(?:index|engine|capture-sink|redact)|fs\/private-files|quota\/(?:index|codec|format|map|merge|projection))\.js|quota-sidebar\/index\.(?:tsx|js))$/
           : /^(?:rpc\/(?:index|client|port-file|rpc-client|rpc-server|server-registry|notifications)|logger\/(?:index|engine|capture-sink|redact)|quota\/(?:index|codec|format|map|merge|projection)|(?:auth-menu|claustrum|commands|fs|routing|setup|store)\/[a-z-]+|util\/any-signal)\.js$/
       ).test(embedded)
     )
@@ -872,6 +872,12 @@ export async function buildLibrary(packageRoot = PACKAGE_ROOT) {
       packageRoot,
     )
     // tsc must finish before copying supplied declarations: it must not emit inferred JS facades over them.
+    // A TUI import can make tsc emit the authored sidebar despite its build exclusion.
+    // Keep only the pinned source/declaration here; the TUI compiler owns its JavaScript.
+    await rm(join(packageRoot, 'dist/src/common-auth-embedded/quota-sidebar'), {
+      recursive: true,
+      force: true,
+    })
     await cp(
       join(packageRoot, 'src/common-auth-embedded'),
       join(packageRoot, 'dist/src/common-auth-embedded'),

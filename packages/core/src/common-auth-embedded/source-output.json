@@ -44,8 +44,8 @@
   "canonicalBytes": 1000963,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
-    "version": 3,
-    "sha256": "440f57a7e88fdba9e2b56bfbd31783ed9a7c323a9fed0b00324078e5d8c3e497"
+    "version": 4,
+    "sha256": "d03666c13509dcf88ce0ccd91c22ced022a689ef38e81e947262c2b76bf8f758"
   },
   "files": [
     {

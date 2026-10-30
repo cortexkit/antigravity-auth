@@ -72,7 +72,16 @@ export const publicRoots = {
 
 // Build-only destinations share one producer authority. Consumers cannot choose arbitrary payloads or paths.
 export const embeddingProfiles = {
-  opencode: { outputPath, publicRoots },
+  opencode: {
+    outputPath,
+    publicRoots: {
+      ...publicRoots,
+      './quota-sidebar': {
+        types: './dist/quota-sidebar/index.d.ts',
+        import: './src/quota-sidebar/index.tsx',
+      },
+    },
+  },
   core: {
     outputPath: 'packages/core/src/common-auth-embedded',
     publicRoots: {
@@ -1068,6 +1077,57 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
 ]
 
+type CanonicalEntry = {
+  output: string
+  bytes: number
+  hash: string
+} & (
+  | { kind: 'dist'; source: `package/dist/${string}` }
+  | { kind: 'source'; source: `package/src/${string}` }
+)
+
+// Compile the public TSX with the host renderer, reusing the adjacent quota modules.
+// Authored source and its declaration belong to OpenCode, never the core profile.
+const sidebarCanonical: readonly CanonicalEntry[] = [
+  {
+    kind: 'dist',
+    source: 'package/dist/quota-sidebar/index.d.ts',
+    output: 'quota-sidebar/index.d.ts',
+    bytes: 2658,
+    hash: 'a2f94067970c25ce042febadc87a1afdd5c43c75a5100fa8446a783a53ce2815',
+  },
+  {
+    kind: 'source',
+    source: 'package/src/quota-sidebar/index.tsx',
+    output: 'quota-sidebar/index.tsx',
+    bytes: 18342,
+    hash: '081280080f732917933dc578595e8dcfb8beacda5a27bb930da63a2a5bb6f1cf',
+  },
+]
+
+function canonicalEntries(
+  consumer: CommonAuthEmbeddingPackage,
+): CanonicalEntry[] {
+  return [
+    ...canonical
+      .filter(
+        ([path]) =>
+          consumer === 'opencode' ||
+          !/^(?:rpc|tui|opencode2|setup)\//.test(path),
+      )
+      .map(
+        ([output, bytes, hash]): CanonicalEntry => ({
+          kind: 'dist',
+          source: `package/dist/${output}`,
+          output,
+          bytes,
+          hash,
+        }),
+      ),
+    ...(consumer === 'opencode' ? sidebarCanonical : []),
+  ]
+}
+
 export const sha256 = (bytes: Uint8Array | string) =>
   createHash('sha256').update(bytes).digest('hex')
 
@@ -1152,7 +1212,9 @@ export function validatePublication(
   if (pkg?.name !== '@cortexkit/common-auth')
     throw new Error('publication: identity')
   if (pkg.version !== producerVersion) throw new Error('publication: version')
-  for (const [root, targets] of Object.entries(publicRoots)) {
+  for (const [root, targets] of Object.entries(
+    embeddingProfiles.opencode.publicRoots,
+  )) {
     if (JSON.stringify(pkg.exports?.[root]) !== JSON.stringify(targets))
       throw new Error(`publication: exports ${root}`)
   }
@@ -1167,10 +1229,10 @@ export function validatePublication(
     '77017404c8016f92d6fd7f658b1da29cfc835e790cb830ce56baf1943724baa4'
   )
     throw new Error('publication: inventory')
-  for (const [path, bytes, hash] of canonical) {
-    const data = entries.get(`package/dist/${path}`)
+  for (const { source, output, bytes, hash } of canonicalEntries('opencode')) {
+    const data = entries.get(source)
     if (!data || data.length !== bytes || sha256(data) !== hash)
-      throw new Error(`publication: bytes ${path}`)
+      throw new Error(`publication: bytes ${output}`)
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
@@ -1217,12 +1279,9 @@ function profileOutputs(
 ): Map<string, Buffer> {
   const profile = embeddingProfiles[consumer]
   // Core's public roots need the menu, store, vault and routing closures, but never RPC or TUI.
-  const selected = canonical.filter(
-    ([path]) =>
-      consumer === 'opencode' || !/^(?:rpc|tui|opencode2|setup)\//.test(path),
-  )
-  const files = selected.map(([output, bytes, hash]) => ({
-    source: `package/dist/${output}`,
+  const selected = canonicalEntries(consumer)
+  const files = selected.map(({ source, output, bytes, hash }) => ({
+    source,
     output,
     bytes,
     sourceSha256: hash,
@@ -1242,7 +1301,7 @@ function profileOutputs(
     canonicalBytes: files.reduce((total, file) => total + file.bytes, 0),
     generator: {
       path: 'packages/opencode/scripts/embed-common-auth.ts',
-      version: 3,
+      version: 4,
       sha256: generatorSha256,
     },
     files,
@@ -1326,6 +1385,6 @@ if (import.meta.main) {
     throw new Error('Usage: bun embed-common-auth.ts [--check]')
   await embedCommonAuth(undefined, process.argv.includes('--check'))
   console.log(
-    `common-auth ${producerVersion} (${artifactStatus}): verified ${canonical.length} canonical files (${canonical.reduce((total, [, bytes]) => total + bytes, 0)} bytes) and MIT notice`,
+    `common-auth ${producerVersion} (${artifactStatus}): verified ${canonicalEntries('opencode').length} canonical files (${canonicalEntries('opencode').reduce((total, { bytes }) => total + bytes, 0)} bytes) and MIT notice`,
   )
 }

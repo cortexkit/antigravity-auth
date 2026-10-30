@@ -23,6 +23,8 @@
     "src/tui-raw",
     "src/tui-ga-raw",
     "src/tui-ga-compiled",
-    "src/common-auth-embedded/**/*.js"
+    "src/common-auth-embedded/**/*.js",
+    // Only the TUI compiler emits the authored sidebar; the library copy stays verbatim.
+    "src/common-auth-embedded/quota-sidebar/index.tsx"
   ]
 }
