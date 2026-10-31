@@ -14,11 +14,11 @@ import { gunzipSync } from 'node:zlib'
 export const inputPath =
   'tools/common-auth-build/inputs/cortexkit-common-auth-0.33.0.tgz'
 export const producerVersion = '0.33.0'
-export const artifactStatus = 'candidate'
+export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '495996247a4d2a6dea8388998d0a09c01a9d49346aac7cb983f11955490c72dd',
-  sri: 'sha512-tw27lZUISFUGQ+CYk4miJ8pt8ZhzfqAzDtyjyFqOIO71wMydu3zNf0+xbLvG0S2HHWFvGvqnEJDNZQOlXcu0zQ==',
+  sha256: 'bba9f56f7fb353c9c712113722c7c9361f0e13e930c73f57314185b13032a24c',
+  sri: 'sha512-cbbyqXTK1TYQZNHb2xA/ueZGQsBvAX6H9hTlQcZZxM7SR/u7tsscyBAWw38ViXl1n/gwkqgsvs2Vbs6cZ0hOrw==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },

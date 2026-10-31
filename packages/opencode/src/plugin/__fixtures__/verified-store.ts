@@ -7,7 +7,7 @@ const PIN = {
   package: '@cortexkit/common-auth',
   version: '0.33.0',
   tarballSha256:
-    '495996247a4d2a6dea8388998d0a09c01a9d49346aac7cb983f11955490c72dd',
+    'bba9f56f7fb353c9c712113722c7c9361f0e13e930c73f57314185b13032a24c',
 } as const
 
 async function filesBelow(root: string, dir: string): Promise<string[]> {
@@ -42,7 +42,7 @@ export async function loadVerifiedStoreModules() {
   if (
     receipt.package !== PIN.package ||
     receipt.version !== PIN.version ||
-    receipt.artifactStatus !== 'candidate' ||
+    receipt.artifactStatus !== 'published' ||
     receipt.tarballSha256 !== PIN.tarballSha256 ||
     !Array.isArray(receipt.files)
   ) {
