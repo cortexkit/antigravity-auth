@@ -376,7 +376,7 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
     rmSync(tempProjectDir, { recursive: true, force: true })
   })
 
-  it('exposes the host-visible hook contract (config, command.execute.before, event, tool.google_search, auth)', async () => {
+  it('exposes the host-visible hook contract (config, command.execute.before, chat.headers, event, tool.google_search, auth)', async () => {
     const client = createMinimalClient()
     const ctx = createPluginInput(client, tempProjectDir)
 
@@ -385,6 +385,7 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
     expect(typeof plugin.dispose).toBe('function')
     expect(typeof plugin.config).toBe('function')
     expect(typeof plugin['command.execute.before']).toBe('function')
+    expect(typeof plugin['chat.headers']).toBe('function')
     expect(typeof plugin.event).toBe('function')
     expect(plugin.tool).toBeDefined()
     expect(plugin.tool?.google_search).toBeDefined()

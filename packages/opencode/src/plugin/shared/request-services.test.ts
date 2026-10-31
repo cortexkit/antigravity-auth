@@ -2851,6 +2851,10 @@ function vaultDeps(
     ...h.deps,
     credentials: {
       domain: 'vault',
+      routingCandidate: (account) => ({
+        accountId: `identity-${account.index}`,
+        credentialId: `credential-${account.index}`,
+      }),
       admit: async ({ account }) => admit(account),
     },
   }
@@ -4903,5 +4907,556 @@ describe('single Antigravity request path', () => {
     } finally {
       await executor.dispose()
     }
+  })
+})
+
+describe('createRequestExecutor optional vault routing', () => {
+  const symbol = Symbol.for('cortexkit.routing')
+  const session = (id: string) => ({
+    session: { sessionId: id, parentSessionId: null },
+    kind: 'primary' as const,
+  })
+  const admission = (account: ManagedAccount): RequestSendAdmission => ({
+    accountIdentity: `identity-${account.index}`,
+    credentialId: `credential-${account.index}`,
+    recordVersion: 1,
+    accessToken: `vault-token-${account.index}`,
+    projectId: 'vault-project',
+    report401: async () => {},
+  })
+  async function routing(
+    run: (state: { asks: unknown[][]; reports: unknown[] }) => Promise<void>,
+    answer: () => Promise<unknown> = async () => undefined,
+  ) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, symbol)
+    const state = { asks: [] as unknown[][], reports: [] as unknown[] }
+    Object.defineProperty(globalThis, symbol, {
+      configurable: true,
+      value: () => ({
+        accountFor: (...args: unknown[]) => {
+          state.asks.push(args)
+          return answer()
+        },
+        report: (input: unknown) => {
+          state.reports.push(input)
+        },
+      }),
+    })
+    try {
+      await run(state)
+    } finally {
+      if (previous) Object.defineProperty(globalThis, symbol, previous)
+      else Reflect.deleteProperty(globalThis, symbol)
+    }
+  }
+
+  it('vault primary first placement asks once with eligible roster identities and uses the named candidate', async () =>
+    routing(
+      async (state) => {
+        const pool = makePool(6)
+        pool.markRateLimited(
+          pool.getAccounts()[1]!,
+          60_000,
+          'gemini',
+          'gemini-3-flash',
+        )
+        pool.markAccountCoolingDown(
+          pool.getAccounts()[2]!,
+          60_000,
+          'network-error',
+        )
+        pool.getAccounts()[3]!.cachedQuota = {
+          gemini: { modelCount: 1, remainingFraction: 0.01 },
+        }
+        pool.getAccounts()[3]!.cachedQuotaUpdatedAt = Date.now()
+        pool.getAccounts()[4]!.enabled = false
+        const h = harness({
+          pool,
+          config: { soft_quota_threshold_percent: 90 },
+          respond: async () => okJson(),
+        })
+        const deps = vaultDeps(h, async (account) => admission(account))
+        const candidates: unknown[] = []
+        if (deps.credentials.domain !== 'vault')
+          throw new Error('expected vault')
+        const candidate = deps.credentials.routingCandidate!
+        deps.credentials.routingCandidate = (account) => {
+          const value = candidate(account)
+          candidates.push(value)
+          return value
+        }
+        const executor = createRequestExecutor(deps)
+        try {
+          await (
+            await executor.execute(
+              NON_STREAM_URL,
+              CHAT_INIT(),
+              session('first'),
+            )
+          ).text()
+          expect(candidates).toEqual([
+            { accountId: 'identity-0', credentialId: 'credential-0' },
+            { accountId: 'identity-5', credentialId: 'credential-5' },
+          ])
+          expect(state.asks).toEqual([
+            [
+              { provider: 'antigravity', modelId: 'gemini-3-flash' },
+              { deadlineMs: 500 },
+            ],
+          ])
+          expect(
+            new Headers(h.calls[0]!.init?.headers).get('authorization'),
+          ).toBe('Bearer vault-token-5')
+          await (
+            await executor.execute(
+              NON_STREAM_URL,
+              CHAT_INIT(),
+              session('first'),
+            )
+          ).text()
+          expect(state.asks).toHaveLength(1)
+          expect(
+            new Headers(h.calls[1]!.init?.headers).get('authorization'),
+          ).toBe('Bearer vault-token-5')
+          expect(state.reports).toHaveLength(2)
+          expect(state.reports[0]).toMatchObject({
+            account_id: 'identity-5',
+            credential_id: 'credential-5',
+            outcome: 'served',
+          })
+        } finally {
+          await executor.dispose()
+        }
+      },
+      async () => ({ account_id: 'identity-5', credential_id: 'credential-5' }),
+    ))
+
+  it('routing candidates exclude the operator killswitch mask', async () =>
+    routing(
+      async (state) => {
+        const pool = makePool(2)
+        pool.getAccounts()[1]!.cachedQuota = {
+          gemini: { modelCount: 1, remainingFraction: 0.25 },
+        }
+        pool.getAccounts()[1]!.cachedQuotaUpdatedAt = Date.now()
+        const h = harness({ pool, respond: async () => okJson() })
+        const deps = vaultDeps(h, async (account) => admission(account))
+        const candidates: unknown[] = []
+        if (deps.credentials.domain !== 'vault')
+          throw new Error('expected vault')
+        deps.credentials.routingCandidate = (account) => {
+          const value = {
+            accountId: `identity-${account.index}`,
+            credentialId: `credential-${account.index}`,
+          }
+          candidates.push(value)
+          return value
+        }
+        const executor = createRequestExecutor({
+          ...deps,
+          operatorSettings: {
+            get: () => ({
+              killswitch: { enabled: true, minimum_remaining_percent: 50 },
+              log_level: 'info' as const,
+            }),
+          },
+        })
+        try {
+          await (
+            await executor.execute(
+              NON_STREAM_URL,
+              CHAT_INIT(),
+              session('killswitch'),
+            )
+          ).text()
+          expect(candidates).toEqual([
+            { accountId: 'identity-0', credentialId: 'credential-0' },
+          ])
+          expect(state.asks).toHaveLength(1)
+          expect(
+            new Headers(h.calls[0]!.init?.headers).get('authorization'),
+          ).toBe('Bearer vault-token-0')
+        } finally {
+          await executor.dispose()
+        }
+      },
+      async () => ({ account_id: 'identity-1' }),
+    ))
+
+  it('routing absent takes only two presence gates and passes the transport body untouched to the wire', async () => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, symbol)
+    let lookups = 0
+    Object.defineProperty(globalThis, symbol, {
+      configurable: true,
+      get: () => {
+        lookups++
+        return undefined
+      },
+    })
+    const original = new Response('data: {"text":"hi"}\n\n', {
+      headers: { 'content-type': 'text/event-stream' },
+    })
+    const body = original.body
+    const h = harness({ respond: async () => original })
+    const executor = createRequestExecutor({
+      ...vaultDeps(h, async (account) => admission(account)),
+      wire: {
+        ...WIRE,
+        transformResponse: async (response) => {
+          expect(response.body).toBe(body)
+          return response
+        },
+      },
+    })
+    try {
+      const response = await executor.execute(
+        STREAM_URL,
+        CHAT_INIT(),
+        session('absent'),
+      )
+      await response.text()
+      expect(lookups).toBe(2)
+    } finally {
+      await executor.dispose()
+      if (previous) Object.defineProperty(globalThis, symbol, previous)
+      else Reflect.deleteProperty(globalThis, symbol)
+    }
+  })
+
+  for (const failure of [
+    'wrapped-error',
+    'finish-before-eof',
+    'json-error',
+  ] as const) {
+    it(`routing never reports served when transformation hides ${failure}`, async () =>
+      routing(async (state) => {
+        const response =
+          failure === 'json-error'
+            ? new Response('{"response":{},"error":{"message":"failed"}}', {
+                headers: { 'content-type': 'application/json' },
+              })
+            : new Response(
+                failure === 'wrapped-error'
+                  ? 'data: {"response":{"candidates":[]},"error":{"message":"failed"}}\n\n'
+                  : new ReadableStream<Uint8Array>({
+                      start(controller) {
+                        controller.enqueue(
+                          new TextEncoder().encode(
+                            'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"hi"}]},"finishReason":"STOP"}]}}\n\n',
+                          ),
+                        )
+                      },
+                    }),
+                { headers: { 'content-type': 'text/event-stream' } },
+              )
+        const h = harness({ respond: async () => response })
+        const executor = createRequestExecutor(
+          vaultDeps(h, async (account) => admission(account)),
+        )
+        try {
+          await (
+            await executor.execute(
+              failure === 'json-error' ? NON_STREAM_URL : STREAM_URL,
+              CHAT_INIT(),
+              session(failure),
+            )
+          ).text()
+          expect(state.reports).toEqual([])
+        } finally {
+          await executor.dispose()
+        }
+      }))
+  }
+
+  for (const answer of ['unknown', 'undefined', 'timeout'] as const) {
+    it(`vault routing ${answer} answer falls back to the selector`, async () =>
+      routing(
+        async (state) => {
+          const h = harness({
+            pool: makePool(2),
+            respond: async () => okJson(),
+          })
+          const executor = createRequestExecutor(
+            vaultDeps(h, async (account) => admission(account)),
+          )
+          try {
+            await (
+              await executor.execute(
+                NON_STREAM_URL,
+                CHAT_INIT(),
+                session(answer),
+              )
+            ).text()
+            expect(state.asks).toHaveLength(1)
+            expect(
+              new Headers(h.calls[0]!.init?.headers).get('authorization'),
+            ).toBe('Bearer vault-token-0')
+          } finally {
+            await executor.dispose()
+          }
+        },
+        () =>
+          answer === 'timeout'
+            ? new Promise(() => {})
+            : Promise.resolve(
+                answer === 'unknown'
+                  ? { account_id: 'not-eligible' }
+                  : undefined,
+              ),
+      ))
+  }
+
+  it('does not ask for local mode, unclassified legacy requests or any OpenCode 2 non-primary kind', async () =>
+    routing(async (state) => {
+      const h = harness({ respond: async () => okJson() })
+      const local = createRequestExecutor(h.deps)
+      const vault = createRequestExecutor(
+        vaultDeps(h, async (account) => admission(account)),
+      )
+      try {
+        await (
+          await local.execute(NON_STREAM_URL, CHAT_INIT(), session('local'))
+        ).text()
+        for (const kind of [
+          undefined,
+          'title',
+          'compaction',
+          'generate',
+        ] as const) {
+          await (
+            await vault.execute(NON_STREAM_URL, CHAT_INIT(), {
+              session: { sessionId: `kind-${kind}`, parentSessionId: null },
+              ...(kind ? { kind } : {}),
+            })
+          ).text()
+        }
+        expect(state.asks).toEqual([])
+      } finally {
+        await local.dispose()
+        await vault.dispose()
+      }
+    }))
+
+  it('legacy positive primary header asks, is stripped from wire, and auxiliary or unknown agents do not ask', async () =>
+    routing(async (state) => {
+      const { createVaultRoutingHeaders, VAULT_ROUTING_PURPOSE_HEADER } =
+        await import('./vault-routing-purpose')
+      const hook = createVaultRoutingHeaders('google')
+      const h = harness({ pool: makePool(2), respond: async () => okJson() })
+      const executor = createRequestExecutor(
+        vaultDeps(h, async (account) => admission(account)),
+      )
+      try {
+        for (const agent of [
+          'build',
+          'title',
+          'compaction',
+          'summary',
+          'custom-unknown',
+        ]) {
+          const output = {
+            headers: { 'x-session-affinity': `legacy-${agent}` } as Record<
+              string,
+              string
+            >,
+          }
+          await hook(
+            { agent, model: { providerID: 'google' } } as Parameters<
+              typeof hook
+            >[0],
+            output,
+          )
+          await (
+            await executor.execute(NON_STREAM_URL, {
+              ...CHAT_INIT(),
+              headers: output.headers,
+            })
+          ).text()
+          expect(
+            new Headers(h.calls.at(-1)!.init?.headers).has(
+              VAULT_ROUTING_PURPOSE_HEADER,
+            ),
+          ).toBe(false)
+        }
+        expect(state.asks).toHaveLength(1)
+      } finally {
+        await executor.dispose()
+      }
+    }))
+
+  for (const strategy of ['sticky', 'round-robin', 'hybrid'] as const) {
+    it(`concurrent cold ${strategy} sessions reserve the selector placement before slow advice`, async () => {
+      const gate = Promise.withResolvers<unknown>()
+      await routing(
+        async (state) => {
+          const h = harness({
+            pool: makePool(3),
+            config: { account_selection_strategy: strategy },
+            respond: async () => okJson(),
+          })
+          const executor = createRequestExecutor(
+            vaultDeps(h, async (account) => admission(account)),
+          )
+          try {
+            const requests = ['a', 'b', 'c'].map((id) =>
+              executor.execute(NON_STREAM_URL, CHAT_INIT(), session(id)),
+            )
+            while (state.asks.length < 3)
+              await new Promise((resolve) => setTimeout(resolve, 1))
+            expect(h.calls).toHaveLength(0)
+            gate.resolve(undefined)
+            await Promise.all(
+              (await Promise.all(requests)).map((response) => response.text()),
+            )
+            const tokens = h.calls.map((call) =>
+              new Headers(call.init?.headers).get('authorization'),
+            )
+            expect(new Set(tokens).size).toBe(3)
+            const pin = h.pool.getCurrentAccountForFamily('gemini', { id: 'a' })
+            await (
+              await executor.execute(NON_STREAM_URL, CHAT_INIT(), session('a'))
+            ).text()
+            expect(
+              new Headers(h.calls.at(-1)!.init?.headers).get('authorization'),
+            ).toBe(`Bearer vault-token-${pin!.index}`)
+            expect(state.asks).toHaveLength(3)
+          } finally {
+            gate.resolve(undefined)
+            await executor.dispose()
+          }
+        },
+        () => gate.promise,
+      )
+    })
+  }
+
+  for (const scenario of [
+    'endpoint-fallback',
+    'empty-resend',
+    'rotation',
+    'warmup',
+  ] as const) {
+    it(`does not ask again for ${scenario}`, async () =>
+      routing(async (state) => {
+        const h = harness({
+          pool: makePool(2),
+          config: {
+            switch_on_first_rate_limit: true,
+            max_rate_limit_wait_seconds: 0,
+            empty_response_retry_delay_ms: 0,
+            empty_response_max_attempts: 2,
+            thinking_warmup: scenario === 'warmup',
+          },
+          respond: async (_call, index) => {
+            if (index === 0 && scenario === 'endpoint-fallback')
+              return new Response('missing endpoint', { status: 404 })
+            if (index === 0 && scenario === 'empty-resend')
+              return new Response('{"response":{"candidates":[]}}', {
+                headers: { 'content-type': 'application/json' },
+              })
+            if (index === 0 && scenario === 'rotation')
+              return new Response(
+                JSON.stringify({
+                  error: {
+                    status: 'RESOURCE_EXHAUSTED',
+                    message: 'rate limit exceeded',
+                  },
+                }),
+                { status: 429, headers: { 'retry-after': '3600' } },
+              )
+            return okJson()
+          },
+        })
+        const deps = vaultDeps(h, async (account) => admission(account))
+        const executor = createRequestExecutor({
+          ...deps,
+          ...(scenario === 'warmup'
+            ? {
+                wire: {
+                  ...WIRE,
+                  prepare: (...args: Parameters<RequestWire['prepare']>) => ({
+                    ...WIRE.prepare(...args),
+                    needsSignedThinkingWarmup: true,
+                    sessionId: 'warmup-session',
+                  }),
+                  buildThinkingWarmupBody: () => 'warmup',
+                },
+              }
+            : {}),
+        })
+        try {
+          await (
+            await executor.execute(
+              NON_STREAM_URL,
+              CHAT_INIT(),
+              session(scenario),
+            )
+          ).text()
+          expect(h.calls.length).toBeGreaterThan(1)
+          expect(state.asks).toHaveLength(1)
+        } finally {
+          await executor.dispose()
+        }
+      }))
+  }
+
+  for (const status of [401, 403, 404, 503, 429]) {
+    it(`does not report a terminal ${status} refusal`, async () =>
+      routing(async (state) => {
+        const h = harness({
+          config: { max_account_switches: 0, max_rate_limit_wait_seconds: 0 },
+          respond: async () =>
+            new Response(
+              JSON.stringify({ error: { code: status, message: 'refused' } }),
+              { status, headers: { 'retry-after': '1' } },
+            ),
+        })
+        const executor = createRequestExecutor(
+          vaultDeps(h, async (account) => admission(account)),
+        )
+        try {
+          await (
+            await executor.execute(
+              NON_STREAM_URL,
+              CHAT_INIT(),
+              session(`refusal-${status}`),
+            )
+          ).text()
+          expect(state.reports).toEqual([])
+        } finally {
+          await executor.dispose()
+        }
+      }))
+  }
+
+  it('routing advice is cancelled by the pre-response deadline without a transport or report', async () => {
+    const clock = deadlineClock()
+    await routing(
+      async (state) => {
+        const h = harness({ respond: async () => okJson() })
+        const executor = createRequestExecutor({
+          ...vaultDeps(h, async (account) => admission(account)),
+          preResponseClock: clock,
+        })
+        try {
+          const request = executor.execute(
+            NON_STREAM_URL,
+            CHAT_INIT(),
+            session('deadline-routing'),
+          )
+          while (state.asks.length === 0)
+            await new Promise((resolve) => setTimeout(resolve, 1))
+          clock.advance(PRE_RESPONSE_DEADLINE_MS)
+          const response = await request
+          expect(response.status).toBe(412)
+          expect(await response.text()).toContain(PRE_RESPONSE_TIMEOUT_MESSAGE)
+          expect(h.calls).toEqual([])
+          expect(state.reports).toEqual([])
+        } finally {
+          await executor.dispose()
+        }
+      },
+      () => new Promise(() => {}),
+    )
   })
 })

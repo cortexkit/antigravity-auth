@@ -380,6 +380,24 @@ test('graph.renderer_private_files_external_dynamic_import', async () => {
   }
 })
 
+test('graph.routing_accessor_server_only', async () => {
+  const accessor = join(
+    PACKAGE_ROOT,
+    'src/common-auth-embedded/routing-accessor/index.js',
+  )
+  expect((await auditGraph(accessor, { tui: false })).files).toEqual([accessor])
+  const library = await auditGraph(join(PACKAGE_ROOT, 'index.ts'), {
+    tui: false,
+  })
+  expect(library.files).toContain(accessor)
+  await expect(auditGraph(accessor)).rejects.toThrow('forbidden TUI source')
+  for (const root of TUI_ROOTS) {
+    expect(
+      (await auditGraph(join(PACKAGE_ROOT, root.entry))).files,
+    ).not.toContain(accessor)
+  }
+})
+
 test('graph.server_cli', async () => {
   const manifest = JSON.parse(
     await readFile(join(PACKAGE_ROOT, 'package.json'), 'utf8'),

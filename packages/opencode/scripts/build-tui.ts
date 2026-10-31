@@ -271,7 +271,7 @@ export async function auditGraph(
       !(
         tui
           ? /^(?:(?:rpc\/(?:client|port-file|rpc-client)|logger\/(?:index|engine|capture-sink|redact)|fs\/private-files|quota\/(?:index|codec|format|map|merge|projection))\.js|quota-sidebar\/index\.(?:tsx|js))$/
-          : /^(?:rpc\/(?:index|client|port-file|rpc-client|rpc-server|server-registry|notifications)|logger\/(?:index|engine|capture-sink|redact)|quota\/(?:index|codec|format|map|merge|projection)|(?:auth-menu|claustrum|commands|fs|routing|setup|store)\/[a-z-]+|util\/any-signal)\.js$/
+          : /^(?:rpc\/(?:index|client|port-file|rpc-client|rpc-server|server-registry|notifications)|logger\/(?:index|engine|capture-sink|redact)|quota\/(?:index|codec|format|map|merge|projection)|(?:auth-menu|claustrum|commands|fs|routing|setup|store)\/[a-z-]+|routing-accessor\/index|util\/any-signal)\.js$/
       ).test(embedded)
     )
       throw new Error(`graph: forbidden TUI source ${path}`)

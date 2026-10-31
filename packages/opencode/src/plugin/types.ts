@@ -59,4 +59,5 @@ export type PluginResult = {
   event: NonNullable<Hooks['event']>
   dispose: NonNullable<Hooks['dispose']>
   'command.execute.before': NonNullable<Hooks['command.execute.before']>
+  'chat.headers'?: Hooks['chat.headers']
 }

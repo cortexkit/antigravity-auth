@@ -1517,6 +1517,7 @@ function prepareAntigravityRequestIn(
   headers.delete('x-parent-session-id')
   headers.delete('x-opencode-session-id')
   headers.delete('x-opencode-parent-session-id')
+  headers.delete('x-antigravity-internal-request-purpose')
   // Strip x-goog-user-project header to prevent 403 auth/license conflicts.
   // This header is added by OpenCode/AI SDK and can force project-level checks
   // that are not required for Antigravity OAuth requests.

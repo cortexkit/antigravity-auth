@@ -114,6 +114,7 @@ import {
   type VaultAccountPool,
   vaultAccountRowKey,
 } from './shared/vault-request-credentials'
+import { createVaultRoutingHeaders } from './shared/vault-routing-purpose'
 import {
   accountFileForVault,
   clearAccounts,
@@ -1039,6 +1040,7 @@ export const createAntigravityPlugin =
         )
       },
       'command.execute.before': commandExecuteBefore,
+      'chat.headers': createVaultRoutingHeaders(providerId),
       event,
       tool: { google_search: googleSearchTool },
       auth: {

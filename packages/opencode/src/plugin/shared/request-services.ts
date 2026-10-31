@@ -52,7 +52,10 @@ import {
   type TokenBucketTracker,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
-
+import {
+  askRouting,
+  type RoutingCandidate,
+} from '../../common-auth-embedded/routing-accessor/index.js'
 import {
   ANTIGRAVITY_ENDPOINT_DAILY,
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
@@ -109,6 +112,13 @@ import {
   createRequestCancellation,
   retainResponseLifetime,
 } from './request-cancellation'
+import {
+  hasVaultRoutingAccessor,
+  observeVaultServed,
+  observeVaultUpstream,
+  reportVaultExhaustion,
+} from './vault-routing'
+import { isPrimaryVaultRequest } from './vault-routing-purpose'
 
 /**
  * Wait before retrying the same selection after its first 429.
@@ -184,6 +194,14 @@ export interface RequestAccountPool<A extends RequestAccountRow> {
   getAccounts(): A[]
   getAccountsSnapshot(): A[]
   getEnabledAccounts(): A[]
+  getCurrentAccountForFamily(
+    ...args: CoreArgs<'getCurrentAccountForFamily'>
+  ): A | null
+  isAccountCoolingDown(account: A): boolean
+  isAccountOverSoftQuota(
+    account: A,
+    ...rest: CoreArgsAfterAccount<'isAccountOverSoftQuota'>
+  ): boolean
 
   getCurrentOrNextForFamily(
     ...args: CoreArgs<'getCurrentOrNextForFamily'>
@@ -305,6 +323,8 @@ export interface LocalRequestCredentials<A extends RequestAccountRow> {
  */
 export interface VaultRequestCredentials<A extends RequestAccountRow> {
   readonly domain: 'vault'
+  /** Non-secret roster identity; this never admits a credential or refreshes a token. */
+  routingCandidate?(account: A): RoutingCandidate
   /** Decide whether a fresh admission may retry a 401 from the served admission. */
   retryAfter401?(
     served: RequestSendAdmission,
@@ -1092,6 +1112,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     // not exist for them. They are left out of selection for the rest of
     // this request only; no rate limit, cooldown or failure is recorded.
     const modelUnavailableIndexes = new Set<number>()
+    let routingPlacementConsidered = false
 
     while (true) {
       await assertAdmission()
@@ -1220,6 +1241,17 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           ? killedIndexes
           : new Set([...(killedIndexes ?? []), ...modelUnavailableIndexes])
 
+      const routingPresent =
+        credentials.domain === 'vault' && hasVaultRoutingAccessor()
+      const firstPlacement =
+        routingPresent &&
+        !routingPlacementConsidered &&
+        accountSessionIdentity &&
+        !accountManager.getCurrentAccountForFamily(
+          family,
+          accountSessionIdentity,
+        )
+      // Select before awaiting routing so concurrent sessions see the updated account choice and selection order.
       let account = accountManager.getCurrentOrNextForFamily(
         family,
         model,
@@ -1230,6 +1262,69 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         accountSessionIdentity,
         excludedIndexes,
       )
+
+      if (account) {
+        routingPlacementConsidered = true
+        if (
+          firstPlacement &&
+          credentials.domain === 'vault' &&
+          credentials.routingCandidate &&
+          model &&
+          isPrimaryVaultRequest(kind, init?.headers)
+        ) {
+          const candidates = accountManager
+            .getEnabledAccounts()
+            .filter(
+              (row) =>
+                !excludedIndexes?.has(row.index) &&
+                !accountManager.isRateLimited(row, family, model) &&
+                !accountManager.isAccountCoolingDown(row) &&
+                !accountManager.isAccountOverSoftQuota(
+                  row,
+                  family,
+                  config.soft_quota_threshold_percent,
+                  softQuotaCacheTtlMs,
+                  model,
+                ),
+            )
+            .map((row) => ({
+              ...credentials.routingCandidate!(row),
+              index: row.index,
+            }))
+          if (candidates.length > 0) {
+            const answer = await deadline.wait(() =>
+              askRouting({
+                sessionId: accountSessionIdentity.id,
+                provider: 'antigravity',
+                modelId: model,
+                candidates,
+                deadlineMs: Math.min(500, deadline.remainingMs()),
+              }),
+            )
+            checkAborted()
+            if (answer && answer.candidate.index !== account.index) {
+              // Re-run the selector to validate routing's choice and update the session's selected account.
+              account =
+                accountManager.getCurrentOrNextForFamily(
+                  family,
+                  model,
+                  config.account_selection_strategy,
+                  config.pid_offset_enabled,
+                  config.soft_quota_threshold_percent,
+                  softQuotaCacheTtlMs,
+                  accountSessionIdentity,
+                  new Set([
+                    ...(excludedIndexes ?? []),
+                    ...accountManager
+                      .getAccounts()
+                      .filter((row) => row.index !== answer.candidate.index)
+                      .map((row) => row.index),
+                  ]),
+                ) ?? account
+            }
+          }
+        }
+      }
 
       // The selected account must be inside the eligibility mask.
       if (
@@ -2118,6 +2213,32 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               )
 
               if (
+                credentials.domain === 'vault' &&
+                sendAdmission &&
+                sessionKey &&
+                hasVaultRoutingAccessor()
+              ) {
+                const group = resolveQuotaGroup(
+                  family,
+                  model,
+                  account.cachedQuota,
+                )
+                reportVaultExhaustion({
+                  identity: {
+                    sessionId: sessionKey,
+                    accountId: sendAdmission.accountIdentity,
+                    credentialId: sendAdmission.credentialId,
+                  },
+                  status: response.status,
+                  reason: rateLimitReason,
+                  group,
+                  quota: account.cachedQuota?.[group],
+                  observedAt: account.cachedQuotaUpdatedAt,
+                  signal: abortSignal,
+                })
+              }
+
+              if (
                 rateLimitReason === 'MODEL_CAPACITY_EXHAUSTED' ||
                 rateLimitReason === 'SERVER_ERROR'
               ) {
@@ -2559,9 +2680,17 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               retryState.clearEmptyResponseAttempts()
             }
 
+            const routingObservation =
+              credentials.domain === 'vault' &&
+              sendAdmission &&
+              sessionKey &&
+              response.ok &&
+              hasVaultRoutingAccessor()
+                ? observeVaultUpstream(response, abortSignal)
+                : undefined
             const transformedResponse = await deadline.wait(() =>
               wire.transformResponse(
-                response,
+                routingObservation?.response ?? response,
                 prepared.streaming,
                 debugContext,
                 prepared.requestedModel,
@@ -2648,7 +2777,23 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               waitPolicy.quota = (signal) =>
                 refresh(account, config.quota_refresh_interval_minutes, signal)
             }
-            return transformedResponse
+            return routingObservation &&
+              credentials.domain === 'vault' &&
+              sendAdmission &&
+              sessionKey &&
+              hasVaultRoutingAccessor() &&
+              response.ok
+              ? observeVaultServed(
+                  {
+                    sessionId: sessionKey,
+                    accountId: sendAdmission.accountIdentity,
+                    credentialId: sendAdmission.credentialId,
+                  },
+                  transformedResponse,
+                  abortSignal,
+                  routingObservation,
+                )
+              : transformedResponse
           } catch (error) {
             if (error instanceof PreResponseTimeoutError) throw error
             checkAborted()

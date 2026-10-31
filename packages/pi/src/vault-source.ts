@@ -147,6 +147,7 @@ export function createPiVaultSend(
       routes.length === 0 ? await options.grantPrincipal?.() : undefined
     // Capture the route before any further await, so the send is bound to
     // the account the roster named now, not to whatever later sits there.
+    // Pi does not ask fleet routing: its stream supplies no reliable request purpose.
     const ref = selectRoute(
       routes,
       record.routeId,

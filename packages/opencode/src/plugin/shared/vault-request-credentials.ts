@@ -170,6 +170,10 @@ export function createVaultRequestCredentials(
   >()
   return {
     domain: 'vault',
+    routingCandidate: (row) => ({
+      accountId: row.route.accountIdentity,
+      credentialId: row.route.credentialId,
+    }),
     ...(source.retryAfter401 && {
       retryAfter401(
         served: RequestSendAdmission,

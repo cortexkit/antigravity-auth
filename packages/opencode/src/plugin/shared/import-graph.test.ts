@@ -172,6 +172,17 @@ describe('shared request engine import graph', () => {
         'createRequestCancellation',
         'retainResponseLifetime',
       ],
+      '../../common-auth-embedded/routing-accessor/index.js': [
+        'askRouting',
+        'type RoutingCandidate',
+      ],
+      './vault-routing': [
+        'hasVaultRoutingAccessor',
+        'observeVaultServed',
+        'observeVaultUpstream',
+        'reportVaultExhaustion',
+      ],
+      './vault-routing-purpose': ['isPrimaryVaultRequest'],
       '@cortexkit/antigravity-auth-core': [
         'PRE_RESPONSE_DEADLINE_MS',
         'PreResponseDeadline',
