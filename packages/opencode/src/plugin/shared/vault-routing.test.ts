@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { reportRouting } from '../../common-auth-embedded/routing-accessor/index.js'
 import {
   hasVaultRoutingAccessor,
   observeVaultServed,
@@ -138,7 +139,7 @@ test('routing served: no report for thrown stream errors, SSE errors, cancellati
     expect(reports).toEqual([])
   }))
 
-test('routing quota scope maps every pool and known window to the next accessor shape', () => {
+test('routing quota scope maps every pool and known window to the accessor shape', () => {
   for (const [group, pool] of [
     ['gemini', 'gemini'],
     ['non-gemini', '3p'],
@@ -178,9 +179,9 @@ test('routing exhausted: switch off sends nothing even for a dated zero window',
     expect(reports).toEqual([])
   }))
 
-test('routing exhausted: test-only enablement prepares separate pool/window and reading reset', async () =>
+test('routing exhausted: test-only enablement passes exact structured fields to reportRouting', async () =>
   bridge(async (reports) => {
-    const nextAccessor: unknown[] = []
+    const accessorCalls: unknown[] = []
     const reset = Date.now() + 3_600_000
     for (const group of ['gemini', 'non-gemini', 'gemini-argon'] as const) {
       reportVaultExhaustion(
@@ -203,11 +204,12 @@ test('routing exhausted: test-only enablement prepares separate pool/window and 
         },
         true,
         (input) => {
-          nextAccessor.push(input)
+          accessorCalls.push(input)
+          reportRouting(input)
         },
       )
     }
-    expect(nextAccessor).toEqual(
+    expect(accessorCalls).toEqual(
       ['gemini', '3p', 'gemini-argon'].map((pool) => ({
         ...identity,
         outcome: 'exhausted',
@@ -216,7 +218,16 @@ test('routing exhausted: test-only enablement prepares separate pool/window and 
         resetsAt: reset,
       })),
     )
-    expect(reports).toEqual([])
+    expect(reports).toEqual(
+      ['gemini', '3p', 'gemini-argon'].map((pool) => ({
+        account_id: identity.accountId,
+        credential_id: identity.credentialId,
+        outcome: 'exhausted',
+        window: '7d',
+        pool,
+        resets_at: reset,
+      })),
+    )
   }))
 
 test('routing exhausted: strict classification rejects quota left, unknown or stale windows and other refusals', async () =>

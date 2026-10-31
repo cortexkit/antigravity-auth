@@ -421,26 +421,49 @@ describe('OpenCode 1 sidebar in a narrow sidebar', () => {
   })
 
   for (const mixed of [false, true]) {
-    it(`undated V1 windows are omitted in the ${mixed ? 'mixed' : 'all-undated'} account`, async () => {
+    it(`undated V1 windows show muted no reading rows in the ${mixed ? 'mixed' : 'all-undated'} account`, async () => {
       const account = freshAccount()
       for (const group of Object.values(account.quota)) {
         group.checkedAt = undefined
         for (const window of group.windows ?? []) window.checkedAt = undefined
       }
       if (mixed) account.quota.gemini!.windows![0]!.checkedAt = NOW
-      const frame = await capture(fixture, state({ accounts: [account] }), 48)
+      const { frame, spans } = await captureWithSpans(
+        fixture,
+        state({ accounts: [account] }),
+        48,
+      )
       show(`undated ${mixed ? 'mixed' : 'all-undated'}`, 48, frame)
       const rows = frame.split('\n').filter((line) => /[█░]/.test(line))
       expect(rows).toHaveLength(mixed ? 1 : 0)
-      expect(frame).not.toContain('Other models')
-      expect(frame).not.toContain('7d ')
+      expect(frame).toContain('Gemini')
+      expect(frame).toContain('Other models')
+      const unknownRows = frame
+        .split('\n')
+        .filter((line) => line.includes('no reading'))
+      expect(unknownRows.map((line) => line.trim())).toEqual(
+        mixed
+          ? ['7d no reading', '5h no reading', '7d no reading']
+          : [
+              '5h no reading',
+              '7d no reading',
+              '5h no reading',
+              '7d no reading',
+            ],
+      )
+      for (const row of unknownRows) expect(row).not.toMatch(/[█░]|% left/)
+      const allSpans = spans.lines.flatMap((line) => line.spans)
+      const unknownSpans = allSpans.filter((span) =>
+        span.text.includes('no reading'),
+      )
+      expect(unknownSpans).toHaveLength(mixed ? 3 : 4)
+      for (const span of unknownSpans)
+        expect(String(span.fg)).toBe('rgba(0.42, 0.45, 0.50, 1.00)')
+      expect(frame).not.toContain('no quota reading yet')
       if (mixed) {
         expect(frame).toContain('95% left')
-        expect(frame).not.toContain('no quota reading yet')
       } else {
         expect(frame).not.toContain('% left')
-        expect(frame).not.toContain('Gemini')
-        expect(frame).toContain('no quota reading yet')
       }
     })
   }

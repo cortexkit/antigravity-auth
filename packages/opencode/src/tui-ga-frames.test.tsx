@@ -922,7 +922,7 @@ function spanWith(spans: SpanFrame, text: string) {
 
 describe('OpenCode 2 sidebar theme', () => {
   for (const mixed of [false, true]) {
-    it(`undated GA windows are omitted in the ${mixed ? 'mixed' : 'all-undated'} account`, async () => {
+    it(`undated GA windows show muted no reading rows in the ${mixed ? 'mixed' : 'all-undated'} account`, async () => {
       const original = freshAccount()
       const row = {
         ...original,
@@ -950,19 +950,45 @@ describe('OpenCode 2 sidebar theme', () => {
           ),
         ),
       }
-      const frame = await capture(snapshot([row]), 48)
+      const view = await render(snapshot([row]), 48, { theme: FULL_THEME })
+      let frame: string
+      let spans: SpanFrame
+      try {
+        frame = view.frame()
+        spans = view.setup.captureSpans()
+      } finally {
+        await view.close()
+      }
       show(`undated ${mixed ? 'mixed' : 'all-undated'}`, 48, frame)
       const rows = frame.split('\n').filter((line) => /[█░]/.test(line))
       expect(rows).toHaveLength(mixed ? 1 : 0)
-      expect(frame).not.toContain('Other models')
-      expect(frame).not.toContain('7d ')
+      expect(frame).toContain('Gemini')
+      expect(frame).toContain('Other models')
+      const unknownRows = frame
+        .split('\n')
+        .filter((line) => line.includes('no reading'))
+      expect(unknownRows.map((line) => line.trim())).toEqual(
+        mixed
+          ? ['7d no reading', '5h no reading', '7d no reading']
+          : [
+              '5h no reading',
+              '7d no reading',
+              '5h no reading',
+              '7d no reading',
+            ],
+      )
+      for (const row of unknownRows) expect(row).not.toMatch(/[█░]|% left/)
+      const unknownSpans = spans.lines
+        .flatMap((line) => line.spans)
+        .filter((span) => span.text.includes('no reading'))
+      expect(unknownSpans).toHaveLength(mixed ? 3 : 4)
+      for (const span of unknownSpans)
+        expect(String(span.fg)).toBe(rgba('#808080'))
+      expect(frame).not.toContain('no quota reading yet')
       if (mixed) {
         expect(frame).toContain('95% left')
-        expect(frame).not.toContain('no quota reading yet')
       } else {
         expect(frame).not.toContain('% left')
-        expect(frame).not.toContain('Gemini')
-        expect(frame).toContain('no quota reading yet')
       }
     })
   }

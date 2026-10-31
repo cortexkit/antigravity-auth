@@ -10,6 +10,7 @@ import {
   NO_QUOTA_READING,
   type ProjectedLimit,
   type ProjectedQuota,
+  type QuotaWindowPart,
 } from '../common-auth-embedded/quota/index.js'
 import {
   type AccountView,
@@ -171,13 +172,7 @@ function accountView(
       ? 'textMuted'
       : quotaTone(100 - remaining, appearance)
   const blocked = !account.enabled || cooldown > 0
-  const windows = accountWindows(account, now).filter(
-    ({ reading, text }) =>
-      typeof reading.checkedAt === 'number' &&
-      Number.isFinite(reading.checkedAt) &&
-      reading.checkedAt >= 0 &&
-      text.remaining !== null,
-  )
+  const windows = accountWindows(account, now)
   return {
     id: account.id,
     label: account.label,
@@ -193,18 +188,25 @@ function accountView(
     groups: QUOTA_ORDER.flatMap((key) => {
       const rows = windows
         .filter((window) => window.key === key)
-        .map(({ reading, text }) => ({
-          part: {
-            kind: 'window' as const,
-            name: text.name,
-            short: text.name,
-            figure: text.figure,
-            remainingPercent: text.remaining ?? undefined,
-            resetIn: text.reset || undefined,
-            checkedAt: reading.checkedAt ?? now,
-            resetSinceReading: text.resetSinceReading,
-          },
-        }))
+        .map(({ reading, text }) => {
+          const name =
+            text.name ||
+            (reading.window === 'weekly' ? '7d' : (reading.window ?? ''))
+          return {
+            part: {
+              kind: 'window',
+              reading: text.remaining === null ? 'unknown' : 'known',
+              name,
+              short: name,
+              figure: text.remaining === null ? 'no reading' : text.figure,
+              remainingPercent: text.remaining ?? undefined,
+              resetIn: text.reset || undefined,
+              checkedAt:
+                text.remaining === null ? undefined : reading.checkedAt,
+              resetSinceReading: text.resetSinceReading,
+            } satisfies QuotaWindowPart,
+          }
+        })
       return rows.length ? [{ title: GROUP_NAMES[key], rows }] : []
     }),
   }

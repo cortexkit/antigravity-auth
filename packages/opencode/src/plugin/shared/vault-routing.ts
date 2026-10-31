@@ -7,7 +7,8 @@ import {
   reportRouting,
 } from '../../common-auth-embedded/routing-accessor/index.js'
 
-// Enable only after adopting common-auth 0.33.0 and confirming routing's relay forwards pool scope.
+// The external routing relay (THALAMUS) must forward the quota-group pool field
+// before scoped exhaustion is enabled; losing it would block the whole account.
 export const ROUTING_GROUP_SCOPED_EXHAUSTION = false
 
 /** The bridge may arrive or disappear after plugin load; never cache its presence. */
@@ -71,14 +72,7 @@ export function reportVaultExhaustion(
     signal?: AbortSignal | null
   },
   groupScopedExhaustion = ROUTING_GROUP_SCOPED_EXHAUSTION,
-  report: (
-    input: RoutingIdentity & {
-      outcome: 'exhausted'
-      pool: string
-      window: '5h' | '7d'
-      resetsAt: number
-    },
-  ) => void = reportRouting,
+  report: typeof reportRouting = reportRouting,
 ): void {
   if (
     !hasVaultRoutingAccessor() ||
