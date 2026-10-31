@@ -3,7 +3,7 @@
 /packages/opencode/scripts/embed-common-auth.ts -text -eol -filter -working-tree-encoding
 # The build verifies the private compiler lock by its exact bytes.
 /tools/common-auth-build/bun.lock -text -eol -filter -working-tree-encoding
-/tools/common-auth-build/inputs/cortexkit-common-auth-0.32.0.tgz -text -eol -filter -working-tree-encoding
+/tools/common-auth-build/inputs/cortexkit-common-auth-0.32.1.tgz -text -eol -filter -working-tree-encoding
 /packages/opencode/src/common-auth-embedded/*/*.js -text -eol -filter -working-tree-encoding
 /packages/opencode/src/common-auth-embedded/*/*.d.ts -text -eol -filter -working-tree-encoding
 /packages/opencode/src/common-auth-embedded/quota-sidebar/index.tsx -text -eol -filter -working-tree-encoding

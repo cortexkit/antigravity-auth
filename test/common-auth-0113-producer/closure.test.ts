@@ -54,7 +54,7 @@ test('producer.native_windows_archive_pin', async () => {
 
 async function archive() {
   const bytes = await readFile(join(root, inputPath))
-  expect(bytes.length).toBe(392428)
+  expect(bytes.length).toBe(393039)
   expect(digest(bytes)).toBe(publication.sha256)
   const entries = readVerifiedArchive(bytes, publication)
   validatePublication(entries)
@@ -245,14 +245,14 @@ test('producer.verbatim_map', async () => {
   const map = JSON.parse(
     await readFile(join(target, outputPath, 'source-output.json'), 'utf8'),
   )
-  expect(map.version).toBe('0.32.0')
+  expect(map.version).toBe('0.32.1')
   expect(map.artifactStatus).toBe('published')
   expect(map.publicRoots).toEqual({
     ...publication.publicRoots,
     './quota-sidebar': publication.sidebarRoot,
   })
   expect(map.canonicalFiles).toBe(197)
-  expect(map.canonicalBytes).toBe(1266041)
+  expect(map.canonicalBytes).toBe(1266827)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])

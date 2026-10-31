@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.32.0.tgz'
-export const producerVersion = '0.32.0'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.32.1.tgz'
+export const producerVersion = '0.32.1'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '1d27ba5ee17b6436e829bb0701399fc81203b0a050c076476d59cd9be5bead00',
-  sri: 'sha512-v/NgLrxGmhn+SbzDej5Gr0sbApWbogENc8GbX06mCDkX0FXnaiiT6xhe5h96M1o6evDvJ/MB1v1xMCKVaxscrA==',
+  sha256: 'd25d2eb670bc5ac48e75bf31cd633bb8b56fd807bf4467d69dbf62a00e1e6717',
+  sri: 'sha512-Y3SmHTnkDjdvo8d6MsQTVr+GlR3q6Ro8HYDqEFuotSUbrv8GwJvjRkYraN8ahEAT8uRHFmfyWGuogfYLzz65DA==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -1100,8 +1100,8 @@ const sidebarCanonical: readonly CanonicalEntry[] = [
     kind: 'source',
     source: 'package/src/quota-sidebar/index.tsx',
     output: 'quota-sidebar/index.tsx',
-    bytes: 18342,
-    hash: '081280080f732917933dc578595e8dcfb8beacda5a27bb930da63a2a5bb6f1cf',
+    bytes: 19128,
+    hash: '25d1cbf74dc395e1b12ddcf3596a8a2d7ddad86e90212c7b3d5abde0a8f7f7c4',
   },
 ]
 
@@ -1236,7 +1236,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '586df3b9abbb0f7584b0d57a0b13dd6916526806195a82af3919ce97c7b3e5cb'
+    '3a01b5f9d572e81c7f0ede86882e7cf6d7d8d87dbbb13ad05a6431b46d05ecb2'
   )
     throw new Error('publication: manifest bytes')
 }

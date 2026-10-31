@@ -5,6 +5,7 @@ import {
   createMemo,
   createSignal,
   For,
+  Index,
   mergeProps,
   Show,
   useContext,
@@ -198,16 +199,18 @@ function barSegments(
     Math.max(0, Math.min(Math.round((pct / 100) * width), width))
   const usedCells = cells(used)
   const tone = usageTone(used, appearance)
+  // Keep the overlay's slot even when empty so live pacing changes reuse nodes.
   const plain = [
     { text: appearance.barFilledChar.repeat(usedCells), tone },
+    { text: '', tone },
     { text: appearance.barEmptyChar.repeat(width - usedCells), tone },
   ]
   const overlay = pace?.overlay
-  if (!overlay) return plain.filter((segment) => segment.text.length > 0)
+  if (!overlay) return plain
   const paceCells = cells(overlay.percent)
   const lo = Math.min(usedCells, paceCells)
   const hi = Math.max(usedCells, paceCells)
-  if (lo === hi) return plain.filter((segment) => segment.text.length > 0)
+  if (lo === hi) return plain
   return [
     { text: appearance.barFilledChar.repeat(lo), tone },
     {
@@ -216,7 +219,7 @@ function barSegments(
         overlay.kind === 'deficit' ? ('error' as const) : ('success' as const),
     },
     { text: appearance.barEmptyChar.repeat(width - hi), tone },
-  ].filter((segment) => segment.text.length > 0)
+  ]
 }
 
 function QuotaRow(props: {
@@ -236,6 +239,27 @@ function QuotaRow(props: {
   const figure = () =>
     ` ${props.part.kind === 'budget' && props.part.figure.startsWith(`${props.part.name} `) ? props.part.figure.slice(props.part.name.length + 1) : props.part.figure}`
   const used = () => 100 - (props.part.remainingPercent ?? 100)
+  // Size notifications can recompute an unchanged fit after text has been flushed
+  // for the frame. Keep equal segments, and update fixed slots in place when the
+  // bar changes, rather than replacing text nodes during layout.
+  const segments = createMemo(
+    () =>
+      barSegments(
+        used(),
+        { ...context.appearance, barWidth: props.barCells },
+        props.pace,
+      ),
+    undefined,
+    {
+      equals: (previous, next) =>
+        previous.length === next.length &&
+        previous.every(
+          (segment, index) =>
+            segment.text === next[index]?.text &&
+            segment.tone === next[index]?.tone,
+        ),
+    },
+  )
   const paceLine = () => {
     const text = props.pace?.text
     if (!text || columns() <= 0) return text
@@ -269,19 +293,20 @@ function QuotaRow(props: {
               </text>
             }
           >
-            <For
-              each={barSegments(
-                used(),
-                { ...context.appearance, barWidth: props.barCells },
-                props.pace,
-              )}
-            >
-              {(segment) => (
-                <text fg={context.theme[segment.tone]} wrapMode='none'>
-                  {segment.text}
-                </text>
-              )}
-            </For>
+            <Show when={props.barCells > 0}>
+              {/* Text nodes clear omitted theme colours; empty slots must not reserve a cell. */}
+              <Index each={segments()}>
+                {(segment) => (
+                  <text
+                    fg={context.theme[segment().tone]}
+                    wrapMode='none'
+                    width={segment().text ? undefined : 0}
+                  >
+                    {segment().text}
+                  </text>
+                )}
+              </Index>
+            </Show>
             <text
               fg={context.theme[usageTone(used(), context.appearance)]}
               wrapMode='none'

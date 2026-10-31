@@ -1,10 +1,10 @@
 {
-  "version": "0.32.0",
+  "version": "0.32.1",
   "artifactStatus": "published",
-  "archiveBytes": 392428,
-  "sha256": "1d27ba5ee17b6436e829bb0701399fc81203b0a050c076476d59cd9be5bead00",
-  "sri": "sha512-v/NgLrxGmhn+SbzDej5Gr0sbApWbogENc8GbX06mCDkX0FXnaiiT6xhe5h96M1o6evDvJ/MB1v1xMCKVaxscrA==",
-  "manifestSha256": "586df3b9abbb0f7584b0d57a0b13dd6916526806195a82af3919ce97c7b3e5cb",
+  "archiveBytes": 393039,
+  "sha256": "d25d2eb670bc5ac48e75bf31cd633bb8b56fd807bf4467d69dbf62a00e1e6717",
+  "sri": "sha512-Y3SmHTnkDjdvo8d6MsQTVr+GlR3q6Ro8HYDqEFuotSUbrv8GwJvjRkYraN8ahEAT8uRHFmfyWGuogfYLzz65DA==",
+  "manifestSha256": "3a01b5f9d572e81c7f0ede86882e7cf6d7d8d87dbbb13ad05a6431b46d05ecb2",
   "inventorySha256": "77017404c8016f92d6fd7f658b1da29cfc835e790cb830ce56baf1943724baa4",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
   "canonicalFiles": 195,
@@ -81,8 +81,8 @@
     {
       "source": "package/src/quota-sidebar/index.tsx",
       "output": "quota-sidebar/index.tsx",
-      "bytes": 18342,
-      "hash": "081280080f732917933dc578595e8dcfb8beacda5a27bb930da63a2a5bb6f1cf"
+      "bytes": 19128,
+      "hash": "25d1cbf74dc395e1b12ddcf3596a8a2d7ddad86e90212c7b3d5abde0a8f7f7c4"
     }
   ],
   "files": [

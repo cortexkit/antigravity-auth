@@ -256,7 +256,7 @@ test('embed.attribution', async () => {
     await readFile(join(root, outputPath, 'source-output.json'), 'utf8'),
   )
   expect(manifest.package).toBe('@cortexkit/common-auth')
-  expect(manifest.version).toBe('0.32.0')
+  expect(manifest.version).toBe('0.32.1')
   expect(manifest.artifactStatus).toBe('published')
   expect(manifest.tarballSha256).toBe(publication.sha256)
   expect(manifest.sri).toBe(publication.sri)
@@ -265,7 +265,7 @@ test('embed.attribution', async () => {
     './quota-sidebar': publication.sidebarRoot,
   })
   expect(manifest.canonicalFiles).toBe(197)
-  expect(manifest.canonicalBytes).toBe(1266041)
+  expect(manifest.canonicalBytes).toBe(1266827)
   expect(manifest.generator.version).toBe(4)
   expect(manifest.files).toEqual([
     ...publication.files.map(([path, bytes, digest]) => ({
@@ -403,7 +403,7 @@ test.skipIf(!dockerExecutable && !requireDocker)(
     const dockerignore = await readFile(join(target, '.dockerignore'), 'utf8')
     expect(
       dockerignore.indexOf(
-        '!tools/common-auth-build/inputs/cortexkit-common-auth-0.32.0.tgz',
+        '!tools/common-auth-build/inputs/cortexkit-common-auth-0.32.1.tgz',
       ),
     ).toBeGreaterThan(dockerignore.indexOf('**/*.tgz'))
     expect(dockerignore).not.toMatch(/^!.*\*.*tgz/m)
@@ -439,9 +439,9 @@ test.skipIf(!dockerExecutable && !requireDocker)(
       if (container) await command(target, 'docker', ['rm', container])
       if (built) await command(target, 'docker', ['image', 'rm', tag])
     }
-    expect(await names(exported)).toEqual(['cortexkit-common-auth-0.32.0.tgz'])
+    expect(await names(exported)).toEqual(['cortexkit-common-auth-0.32.1.tgz'])
     expect(
-      hash(await readFile(join(exported, 'cortexkit-common-auth-0.32.0.tgz'))),
+      hash(await readFile(join(exported, 'cortexkit-common-auth-0.32.1.tgz'))),
     ).toBe(publication.sha256)
   },
   120000,

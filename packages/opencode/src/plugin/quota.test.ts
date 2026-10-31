@@ -977,10 +977,10 @@ describe('OpenCode local quota manager', () => {
 // Account-store quota checks over the genuine public store
 //
 // Use the store and filesystem code copied into core from the pinned
-// @cortexkit/common-auth 0.32.0 published archive.
+// @cortexkit/common-auth 0.32.1 published archive.
 // Its common-auth-embedded/source-output.json records each file's size and
 // SHA-256 from the pinned published archive at
-// `tools/common-auth-build/inputs/cortexkit-common-auth-0.32.0.tgz`. Verify each file against that
+// `tools/common-auth-build/inputs/cortexkit-common-auth-0.32.1.tgz`. Verify each file against that
 // record before loading it with loadCommonAuthStoreModules; any difference
 // fails the test. Account files live in a separate disposable directory.
 // ---------------------------------------------------------------------------
