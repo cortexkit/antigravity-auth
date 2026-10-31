@@ -94,16 +94,25 @@ export function reportRouting(input) {
             case 'served':
                 payload = { ...identity, outcome: 'served', headers: input.headers };
                 break;
-            case 'exhausted':
+            case 'exhausted': {
+                const { window, pool } = input;
+                if (window !== '5h' && window !== '7d')
+                    return;
+                // An undefined pool means the whole account, as an omitted one does.
+                if (pool !== undefined &&
+                    (typeof pool !== 'string' || pool.length === 0 || pool.includes(':')))
+                    return;
                 payload = {
                     ...identity,
                     outcome: 'exhausted',
-                    window: input.window,
+                    window,
+                    ...(pool ? { pool } : {}),
                     ...(input.resetsAt !== undefined
                         ? { resets_at: input.resetsAt }
                         : {}),
                 };
                 break;
+            }
             default:
                 return;
         }

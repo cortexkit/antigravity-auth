@@ -1,14 +1,14 @@
 {
-  "version": "0.32.1",
-  "artifactStatus": "published",
-  "archiveBytes": 393039,
-  "sha256": "d25d2eb670bc5ac48e75bf31cd633bb8b56fd807bf4467d69dbf62a00e1e6717",
-  "sri": "sha512-Y3SmHTnkDjdvo8d6MsQTVr+GlR3q6Ro8HYDqEFuotSUbrv8GwJvjRkYraN8ahEAT8uRHFmfyWGuogfYLzz65DA==",
-  "manifestSha256": "3a01b5f9d572e81c7f0ede86882e7cf6d7d8d87dbbb13ad05a6431b46d05ecb2",
+  "version": "0.33.0",
+  "artifactStatus": "candidate",
+  "archiveBytes": 394123,
+  "sha256": "495996247a4d2a6dea8388998d0a09c01a9d49346aac7cb983f11955490c72dd",
+  "sri": "sha512-tw27lZUISFUGQ+CYk4miJ8pt8ZhzfqAzDtyjyFqOIO71wMydu3zNf0+xbLvG0S2HHWFvGvqnEJDNZQOlXcu0zQ==",
+  "manifestSha256": "9e3b35d140b7b532b1879020a5c1397c9a41ee3fdd43b1c7a43f06a4bb3fd4aa",
   "inventorySha256": "77017404c8016f92d6fd7f658b1da29cfc835e790cb830ce56baf1943724baa4",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
   "canonicalFiles": 195,
-  "canonicalBytes": 1245041,
+  "canonicalBytes": 1247287,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -75,14 +75,14 @@
     {
       "source": "package/dist/routing-accessor/index.d.ts",
       "output": "routing-accessor/index.d.ts",
-      "bytes": 2270,
-      "hash": "f938266c646a5edfcd93fb6135ce05c32f25b738a85bde1727639b31ae1fff05"
+      "bytes": 2486,
+      "hash": "8bc146aea3903fad91ece61f0022251e8a45086ac11afa86ce93ec7bb2c05436"
     },
     {
       "source": "package/dist/routing-accessor/index.js",
       "output": "routing-accessor/index.js",
-      "bytes": 4539,
-      "hash": "83cbaf2fdc44bf80656576122a418901128bc3bbf3062f1e7d1d68665d6ab731"
+      "bytes": 4967,
+      "hash": "ff1fb189de19874df1edf25a64425bad2ca23013a6e392ab3247138cdd57b240"
     }
   ],
   "sidebarRoot": {
@@ -99,8 +99,8 @@
     {
       "source": "package/src/quota-sidebar/index.tsx",
       "output": "quota-sidebar/index.tsx",
-      "bytes": 19128,
-      "hash": "25d1cbf74dc395e1b12ddcf3596a8a2d7ddad86e90212c7b3d5abde0a8f7f7c4"
+      "bytes": 19762,
+      "hash": "f35e4fd7b218110756bd04357c5b8c4bbb64be5012aefc7d7a7c1ab303d483ae"
     }
   ],
   "files": [
@@ -451,8 +451,8 @@
     ],
     [
       "fs/refresh-file-lock.js",
-      37832,
-      "07b261b409c5c6cc9b35cb732df44486d372413ce6ae078be4b211b9b5a5c1c7"
+      37831,
+      "e0fdcc7a45548f3c88ea49bbe000f6e4022fb9c219f0510aa934492adb72a505"
     ],
     [
       "fs/with-lock.d.ts",
@@ -461,8 +461,8 @@
     ],
     [
       "fs/with-lock.js",
-      1803,
-      "f31ff1935e18563e465ab235202de3932255d3b1fc72b5d0baf6d3502931fc8e"
+      3003,
+      "690fb43c6a0eb6a02eac024b8b58caa39775a37d0064118dab879a0e5ac8c996"
     ],
     [
       "logger/capture-sink.d.ts",
@@ -606,13 +606,13 @@
     ],
     [
       "quota/format.d.ts",
-      5507,
-      "7df60af3e135f34e157bf41c05b59052047f1a583ff3f1dabb3ca4e525b8089a"
+      5816,
+      "1865f4a06b8bd06b3dda73b59a7becc3eb2d13036134c1a34b8b6dce12678f21"
     ],
     [
       "quota/format.js",
-      18143,
-      "e00f3bb6d9da8b13522f02f953387e218f9cc6b62b80821ca081aa06f76d27c6"
+      18881,
+      "ffd69317391a225fb8e75550c22ea401480626cde762c52e61001955952ee013"
     ],
     [
       "quota/index.d.ts",

@@ -30,6 +30,8 @@ export interface QuotaTextOptions {
 }
 export interface QuotaWindowPart {
     kind: 'window' | 'budget';
+    /** Unknown windows have no dated percentage; budgets retain their own wording. */
+    reading: 'known' | 'unknown';
     /** The display name of a quota window, or `credits` for the budget. */
     name: string;
     /**
@@ -45,7 +47,8 @@ export interface QuotaWindowPart {
     remainingPercent?: number;
     /** A bare relative reset span such as `4d`, only when the reset is future. */
     resetIn?: string;
-    checkedAt: number;
+    /** The reading time, omitted for a window with no reading. */
+    checkedAt?: number;
     /** Whether the reset followed this reading and has arrived by `now`. */
     resetSinceReading: boolean;
 }
@@ -64,9 +67,11 @@ export interface QuotaParts {
  */
 export declare function quotaWindowName(limit: Pick<ProjectedLimit, 'scope' | 'label' | 'windowMinutes'>): string;
 /**
- * Structured quota wording for layouts that need one row per window. The
- * windows use the same filtering and order as `quotaTextParts`; future resets
- * and the optional age keep the shared formatter's wording.
+ * Structured quota wording for layouts that need one row per window.
+ * Windows without a dated percentage remain as explicit unknown parts. Limits
+ * marked absent (not reported) or retired (no longer tracked) remain omitted.
+ * Reported windows, future resets and the optional age keep the shared
+ * formatter's wording and order.
  */
 export declare function quotaWindowParts(quota: ProjectedQuota | undefined, options: QuotaTextOptions): QuotaParts;
 /**

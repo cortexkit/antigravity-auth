@@ -244,8 +244,8 @@ export async function acquireRefreshFileLockWithClock(options) {
             }
             catch (readError) {
                 // The holder can release after exclusive creation reports a collision.
-                // Only absence permits another acquisition attempt; security and sharing
-                // refusals must still escape rather than being treated as contention.
+                // Only absence permits acquisition to continue here. Sharing failures
+                // escape to withLock's deadline-bounded retry, never to stale eviction.
                 if (readError.code !== 'ENOENT')
                     throw readError;
             }

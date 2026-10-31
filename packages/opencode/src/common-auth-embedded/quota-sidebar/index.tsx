@@ -238,17 +238,20 @@ function QuotaRow(props: {
     ' '.repeat(Math.max(0, props.labelWidth - displayWidth(props.part.name)))
   const figure = () =>
     ` ${props.part.kind === 'budget' && props.part.figure.startsWith(`${props.part.name} `) ? props.part.figure.slice(props.part.name.length + 1) : props.part.figure}`
+  const hasReading = () => props.part.reading === 'known'
   const used = () => 100 - (props.part.remainingPercent ?? 100)
   // Size notifications can recompute an unchanged fit after text has been flushed
   // for the frame. Keep equal segments, and update fixed slots in place when the
   // bar changes, rather than replacing text nodes during layout.
   const segments = createMemo(
     () =>
-      barSegments(
-        used(),
-        { ...context.appearance, barWidth: props.barCells },
-        props.pace,
-      ),
+      hasReading()
+        ? barSegments(
+            used(),
+            { ...context.appearance, barWidth: props.barCells },
+            props.pace,
+          )
+        : [],
     undefined,
     {
       equals: (previous, next) =>
@@ -286,36 +289,49 @@ function QuotaRow(props: {
             </text>
           </Show>
           <Show
-            when={!props.part.resetSinceReading}
+            when={hasReading()}
             fallback={
               <text fg={context.theme.textMuted} wrapMode='none'>
-                reset since last check
+                no reading
               </text>
             }
           >
-            <Show when={props.barCells > 0}>
-              {/* Text nodes clear omitted theme colours; empty slots must not reserve a cell. */}
-              <Index each={segments()}>
-                {(segment) => (
-                  <text
-                    fg={context.theme[segment().tone]}
-                    wrapMode='none'
-                    width={segment().text ? undefined : 0}
-                  >
-                    {segment().text}
-                  </text>
-                )}
-              </Index>
-            </Show>
-            <text
-              fg={context.theme[usageTone(used(), context.appearance)]}
-              wrapMode='none'
+            <Show
+              when={!props.part.resetSinceReading}
+              fallback={
+                <text fg={context.theme.textMuted} wrapMode='none'>
+                  reset since last check
+                </text>
+              }
             >
-              {figure()}
-            </text>
+              <Show when={props.barCells > 0}>
+                {/* Text nodes clear omitted theme colours; empty slots must not reserve a cell. */}
+                <Index each={segments()}>
+                  {(segment) => (
+                    <text
+                      fg={context.theme[segment().tone]}
+                      wrapMode='none'
+                      width={segment().text ? undefined : 0}
+                    >
+                      {segment().text}
+                    </text>
+                  )}
+                </Index>
+              </Show>
+              <text
+                fg={context.theme[usageTone(used(), context.appearance)]}
+                wrapMode='none'
+              >
+                {figure()}
+              </text>
+            </Show>
           </Show>
         </box>
-        <Show when={props.showReset && !props.part.resetSinceReading}>
+        <Show
+          when={
+            hasReading() && props.showReset && !props.part.resetSinceReading
+          }
+        >
           <box
             width={props.resetWidth}
             flexShrink={0}
@@ -331,7 +347,10 @@ function QuotaRow(props: {
         </Show>
       </box>
       {/* A changed fitted line needs a fresh text node to draw at its new width. */}
-      <Show when={!props.part.resetSinceReading && paceLine()} keyed>
+      <Show
+        when={hasReading() && !props.part.resetSinceReading && paceLine()}
+        keyed
+      >
         {(line: string) => (
           <box width='100%' flexDirection='row'>
             <Show when={props.labelWidth > 0}>
@@ -357,8 +376,9 @@ function CollapsedAccountRow(props: { account: AccountView }) {
   const [width, setWidth] = createSignal(0)
   let row: { width: number } | undefined
   const hasQuota = () =>
-    quotaWindowParts(props.account.quota, { now: context.now }).windows.length >
-    0
+    quotaWindowParts(props.account.quota, { now: context.now }).windows.some(
+      (part) => part.reading === 'known',
+    )
   const text = () =>
     hasQuota()
       ? formatQuota(props.account.quota, { now: context.now, form: 'narrow' })
@@ -431,14 +451,18 @@ function AccountBlock(props: { account: AccountView; marginTop: number }) {
     Math.max(
       0,
       ...rows().map(({ part }) =>
-        part.resetSinceReading ? 0 : displayWidth(part.resetIn ?? ''),
+        part.reading === 'unknown' || part.resetSinceReading
+          ? 0
+          : displayWidth(part.resetIn ?? ''),
       ),
     )
   const figureWidth = createMemo(() =>
     Math.max(
       10,
       ...rows()
-        .filter(({ part }) => !part.resetSinceReading)
+        .filter(
+          ({ part }) => part.reading === 'known' && !part.resetSinceReading,
+        )
         .map(({ part }) =>
           displayWidth(
             ` ${part.kind === 'budget' && part.figure.startsWith(`${part.name} `) ? part.figure.slice(part.name.length + 1) : part.figure}`,

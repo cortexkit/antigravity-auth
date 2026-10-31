@@ -303,7 +303,11 @@
       "node:path"
     ],
     "fs/with-lock.d.ts": ["./refresh-file-lock.js"],
-    "fs/with-lock.js": ["./refresh-file-lock.js"],
+    "fs/with-lock.js": [
+      "./private-files.js",
+      "./refresh-file-lock.js",
+      "node:path"
+    ],
     "logger/capture-sink.d.ts": ["./engine.js"],
     "logger/engine.d.ts": ["./capture-sink.js", "./redact.js"],
     "logger/engine.js": [

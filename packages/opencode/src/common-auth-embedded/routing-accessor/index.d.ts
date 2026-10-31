@@ -36,8 +36,14 @@ export type ReportRoutingInput = RoutingReportIdentity & ({
     headers: Readonly<Record<string, string>>;
 } | {
     outcome: 'exhausted';
-    /** A quota window such as `5h`, `7d` or a scoped window id. */
-    window: string;
+    /** The exhausted quota window; keep scoped quota groups in `pool`. */
+    window: '5h' | '7d';
+    /**
+     * Scoped quota group, such as `non-gemini`.
+     * Must be a non-empty string without `:`. Omit to block the whole
+     * account; include to block only this pool.
+     */
+    pool?: string;
     /** Optional reset time in epoch milliseconds. */
     resetsAt?: number;
 });
