@@ -109,6 +109,8 @@ import {
 } from './measure-ga-proxy-matrix.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+// Linux caps pid_max at 2^22; synthetic identities must never alias the runner.
+const modeledPid = (id: number) => 5_000_000 + id
 function nativeTestProfile(env: NodeJS.ProcessEnv): 'portable' | 'motor-inert' {
   if (!('GA_NATIVE_JOB_TEST_PROFILE' in env)) return 'portable'
   if (env.GA_NATIVE_JOB_TEST_PROFILE !== 'motor-inert')
@@ -1187,15 +1189,16 @@ test('runner-held actor handles retain birth and require close rather than exit'
     errors: [],
   }
   const child = new childProcess.ChildProcess()
-  Object.defineProperty(child, 'pid', { value: 100 })
+  Object.defineProperty(child, 'pid', { value: modeledPid(100) })
   const original = fs.readFileSync
   const originalLink = fs.readlinkSync
   const reads = spyOn(fs, 'readFileSync').mockImplementation(
     new Proxy(original, {
       apply(target, receiver, args: unknown[]) {
-        if (String(args[0]) === '/proc/100/stat')
-          return `100 (child) S ${Array(18).fill('0').join(' ')} 123 0\n`
-        if (String(args[0]) === '/proc/100/cgroup') return '0::/modeled\n'
+        if (String(args[0]) === `/proc/${modeledPid(100)}/stat`)
+          return `${modeledPid(100)} (child) S ${Array(18).fill('0').join(' ')} 123 0\n`
+        if (String(args[0]) === `/proc/${modeledPid(100)}/cgroup`)
+          return '0::/modeled\n'
         return Reflect.apply(target, receiver, args)
       },
     }),
@@ -1203,7 +1206,7 @@ test('runner-held actor handles retain birth and require close rather than exit'
   const links = spyOn(fs, 'readlinkSync').mockImplementation(
     new Proxy(originalLink, {
       apply(target, receiver, args: unknown[]) {
-        return String(args[0]) === '/proc/100/ns/pid'
+        return String(args[0]) === `/proc/${modeledPid(100)}/ns/pid`
           ? 'pid:[1]'
           : Reflect.apply(target, receiver, args)
       },
@@ -1214,7 +1217,12 @@ test('runner-held actor handles retain birth and require close rather than exit'
     retainStartedInertChild(child)
     expect(run.errors).toEqual([])
     expect(run.identities).toMatchObject([
-      { pid: 100, start: '123', namespace: 'pid:[1]', cgroup: '0::/modeled\n' },
+      {
+        pid: modeledPid(100),
+        start: '123',
+        namespace: 'pid:[1]',
+        cgroup: '0::/modeled\n',
+      },
     ])
     expect(run.children[0]?.handle).toBe(child)
     child.emit('exit', 0, null)
@@ -1230,12 +1238,12 @@ test('runner-held actor handles retain birth and require close rather than exit'
 
 function modeledInertActor(state = 'Z', start = '123') {
   const identity: InertIdentity = {
-    pid: 100,
+    pid: modeledPid(100),
     start: '123',
     namespace: 'pid:[1]',
     cgroup: '0::/modeled\n',
-    pgid: 100,
-    sid: 100,
+    pgid: modeledPid(100),
+    sid: modeledPid(100),
   }
   const model = { state, start, elapsed: 0, sibling: false }
   const lines: string[] = []
@@ -1249,11 +1257,17 @@ function modeledInertActor(state = 'Z', start = '123') {
     new Proxy(read, {
       apply(target, receiver, args: unknown[]) {
         const path = String(args[0])
-        if (path === '/proc/100/stat' || path === '/proc/100/task/100/stat')
-          return stat(100, model.state, model.start)
-        if (path === '/proc/100/task/101/stat' && model.sibling)
-          return stat(101, 'S', '124')
-        if (path === '/proc/100/cgroup') return identity.cgroup
+        if (
+          path === `/proc/${modeledPid(100)}/stat` ||
+          path === `/proc/${modeledPid(100)}/task/${modeledPid(100)}/stat`
+        )
+          return stat(modeledPid(100), model.state, model.start)
+        if (
+          path === `/proc/${modeledPid(100)}/task/${modeledPid(101)}/stat` &&
+          model.sibling
+        )
+          return stat(modeledPid(101), 'S', '124')
+        if (path === `/proc/${modeledPid(100)}/cgroup`) return identity.cgroup
         if (path.startsWith('/proc/') || path.includes('cgroup.threads'))
           throw new Error(`forbidden non-owned observation: ${path}`)
         return Reflect.apply(target, receiver, args)
@@ -1265,8 +1279,12 @@ function modeledInertActor(state = 'Z', start = '123') {
     new Proxy(directory, {
       apply(target, receiver, args: unknown[]) {
         const path = String(args[0])
-        if (path === '/proc/100/task')
-          return model.sibling ? ['100', '101'] : ['100']
+        if (path === `/proc/${modeledPid(100)}/task`)
+          return (
+            model.sibling
+              ? [modeledPid(100), modeledPid(101)]
+              : [modeledPid(100)]
+          ).map(String)
         if (path.startsWith('/proc/') || path.includes('cgroup'))
           throw new Error(`forbidden non-owned inventory: ${path}`)
         return Reflect.apply(target, receiver, args)
@@ -1277,7 +1295,8 @@ function modeledInertActor(state = 'Z', start = '123') {
   const links = spyOn(fs, 'readlinkSync').mockImplementation(
     new Proxy(link, {
       apply(target, receiver, args: unknown[]) {
-        if (String(args[0]) === '/proc/100/ns/pid') return identity.namespace
+        if (String(args[0]) === `/proc/${modeledPid(100)}/ns/pid`)
+          return identity.namespace
         return Reflect.apply(target, receiver, args)
       },
     }),
@@ -1364,7 +1383,7 @@ test('owned live or stopped actor blocks fixture departure', async () => {
         elapsedMs: 500,
         identities: [
           {
-            pid: 100,
+            pid: modeledPid(100),
             start: '123',
             observedStart: '123',
             state,
@@ -1402,7 +1421,13 @@ test('deadline snapshot is emitted on departure timeout and does not change the 
       elapsedMs: 500,
       budgetMs: 500,
       identities: [
-        { pid: 100, start: '123', state: 'T', ppid: 1, matched: true },
+        {
+          pid: modeledPid(100),
+          start: '123',
+          state: 'T',
+          ppid: 1,
+          matched: true,
+        },
       ],
     })
     await expect(
@@ -1455,7 +1480,13 @@ test('readiness and completion deadline snapshots retain the missing record and 
       elapsedMs: 500,
       missingReady: '/missing-ready-record.json',
       identities: [
-        { pid: 100, start: '123', state: 'S', ppid: 1, matched: true },
+        {
+          pid: modeledPid(100),
+          start: '123',
+          state: 'S',
+          ppid: 1,
+          matched: true,
+        },
       ],
     })
     expect(snapshots[1]).toMatchObject({
@@ -1464,8 +1495,18 @@ test('readiness and completion deadline snapshots retain the missing record and 
       budgetMs: 500,
       elapsedMs: 500,
       identities: [
-        { pid: 100, start: '123', observedStart: '123', matched: true },
-        { pid: 100, start: '999', observedStart: '123', matched: false },
+        {
+          pid: modeledPid(100),
+          start: '123',
+          observedStart: '123',
+          matched: true,
+        },
+        {
+          pid: modeledPid(100),
+          start: '999',
+          observedStart: '123',
+          matched: false,
+        },
       ],
     })
     expect(snapshots[1]).not.toHaveProperty('missingReady')
@@ -1596,7 +1637,7 @@ test('teardown budget starts at teardown, not at first child', async () => {
     errors: [],
   }
   const child = new childProcess.ChildProcess()
-  Object.defineProperty(child, 'pid', { value: 100 })
+  Object.defineProperty(child, 'pid', { value: modeledPid(100) })
   activeInertRun = run
   try {
     retainStartedInertChild(child)
@@ -2091,25 +2132,29 @@ function modeledAdmissionTasks(
 describe(CLEANUP_GROUP, () => {
   test('modeled runner thread spawn preserves inspected group admission', () => {
     const model = modeledAdmissionTasks(
-      [{ tid: 100, tgid: 100 }],
+      [{ tid: modeledPid(100), tgid: modeledPid(100) }],
       [
-        { tid: 100, tgid: 100 },
-        { tid: 101, tgid: 100 },
+        { tid: modeledPid(100), tgid: modeledPid(100) },
+        { tid: modeledPid(101), tgid: modeledPid(100) },
       ],
     )
     const lines: string[] = []
     const stop = enableNativeTaskDiagnostic({
-      runnerPid: 100,
+      runnerPid: modeledPid(100),
       actorPids: () => [],
       emit: (line) => lines.push(line),
     })
     try {
       expect(scopedProcesses(model.summary, true)).toMatchObject([
-        { pid: 100, start: '123', namespace: model.summary.namespace.self },
+        {
+          pid: modeledPid(100),
+          start: '123',
+          namespace: model.summary.namespace.self,
+        },
       ])
       expect(model.inventories()).toBe(2)
-      expect(model.paths).toContain('/proc/101/status')
-      expect(model.paths).toContain('/proc/101/stat')
+      expect(model.paths).toContain(`/proc/${modeledPid(101)}/status`)
+      expect(model.paths).toContain(`/proc/${modeledPid(101)}/stat`)
       expect(lines).toEqual([])
     } finally {
       stop()
@@ -2120,7 +2165,7 @@ describe(CLEANUP_GROUP, () => {
     // The hosted tenant listed cgroup.procs as "0 1 2 29 30": the runner process
     // that unshared the job's PID namespace stays in the unit and reads as 0.
     const model = modeledAdmissionTasks(
-      [{ tid: 100, tgid: 100 }],
+      [{ tid: modeledPid(100), tgid: modeledPid(100) }],
       undefined,
       undefined,
       1,
@@ -2132,7 +2177,11 @@ describe(CLEANUP_GROUP, () => {
     })
     try {
       expect(scopedProcesses(model.summary, true)).toMatchObject([
-        { pid: 100, start: '123', namespace: model.summary.namespace.self },
+        {
+          pid: modeledPid(100),
+          start: '123',
+          namespace: model.summary.namespace.self,
+        },
       ])
       expect(model.paths.filter((path) => path.startsWith('/proc/0/'))).toEqual(
         [],
@@ -2213,38 +2262,46 @@ describe(CLEANUP_GROUP, () => {
         `unqualifiable cgroup.procs entry ${JSON.stringify(entry)}`,
       )
   })
-  for (const control of [
+  const admissionControls = [
     'new thread group',
     'thread in uninspected group',
     'changed leader birth',
     'departed group',
-  ] as const)
+  ] as const
+  function admissionInventoryRefusal(
+    control: (typeof admissionControls)[number],
+  ) {
+    const before = [
+      { tid: modeledPid(100), tgid: modeledPid(100) },
+      ...(control === 'departed group'
+        ? [{ tid: modeledPid(300), tgid: modeledPid(300) }]
+        : []),
+    ]
+    const after =
+      control === 'departed group'
+        ? [{ tid: modeledPid(300), tgid: modeledPid(300) }]
+        : control === 'new thread group'
+          ? [...before, { tid: modeledPid(200), tgid: modeledPid(200) }]
+          : control === 'thread in uninspected group'
+            ? [...before, { tid: modeledPid(201), tgid: modeledPid(200) }]
+            : before
+    const model = modeledAdmissionTasks(
+      before,
+      after,
+      control === 'changed leader birth' ? modeledPid(100) : undefined,
+    )
+    try {
+      expect(() =>
+        threadGroupHasLiveTasks(modeledPid(100), model.summary),
+      ).toThrow('UNKNOWN cgroup task inventory changed during admission')
+      expect(model.inventories()).toBe(2)
+    } finally {
+      model.restore()
+    }
+  }
+  for (const control of admissionControls)
     test(`modeled admission refuses ${control} between task inventories`, () => {
-      const before = [
-        { tid: 100, tgid: 100 },
-        ...(control === 'departed group' ? [{ tid: 300, tgid: 300 }] : []),
-      ]
-      const after =
-        control === 'departed group'
-          ? [{ tid: 300, tgid: 300 }]
-          : control === 'new thread group'
-            ? [...before, { tid: 200, tgid: 200 }]
-            : control === 'thread in uninspected group'
-              ? [...before, { tid: 201, tgid: 200 }]
-              : before
-      const model = modeledAdmissionTasks(
-        before,
-        after,
-        control === 'changed leader birth' ? 100 : undefined,
-      )
-      try {
-        expect(() => threadGroupHasLiveTasks(100, model.summary)).toThrow(
-          'UNKNOWN cgroup task inventory changed during admission',
-        )
-        expect(model.inventories()).toBe(2)
-      } finally {
-        model.restore()
-      }
+      admissionInventoryRefusal(control)
     })
   test('modeled partial namespace ENOENT reaches the extant thread group refusal without launch or signal', () => {
     const summary = nativeBoundarySummary()
@@ -2259,14 +2316,18 @@ describe(CLEANUP_GROUP, () => {
       new Proxy(original, {
         apply(target, receiver, args: unknown[]) {
           const path = String(args[0])
-          if (path === threads) return '101\n'
+          if (path === threads) return `${modeledPid(101)}\n`
           if (path === threads.replace('cgroup.threads', 'cgroup.procs'))
-            return '100\n'
-          if (path === '/proc/101/status') return 'Pid:\t101\nTgid:\t100\n'
-          if (path === '/proc/100/status')
-            return 'Pid:\t100\nTgid:\t100\nUid:\t999 999 999 999\n'
-          if (path === '/proc/100/stat' || path === '/proc/101/stat')
-            return `${path.includes('/100/') ? '100 (leader) Z' : '101 (task) S'} ${Array(18).fill('0').join(' ')} 123 0\n`
+            return `${modeledPid(100)}\n`
+          if (path === `/proc/${modeledPid(101)}/status`)
+            return `Pid:\t${modeledPid(101)}\nTgid:\t${modeledPid(100)}\n`
+          if (path === `/proc/${modeledPid(100)}/status`)
+            return `Pid:\t${modeledPid(100)}\nTgid:\t${modeledPid(100)}\nUid:\t999 999 999 999\n`
+          if (
+            path === `/proc/${modeledPid(100)}/stat` ||
+            path === `/proc/${modeledPid(101)}/stat`
+          )
+            return `${path.includes(`/${modeledPid(100)}/`) ? `${modeledPid(100)} (leader) Z` : `${modeledPid(101)} (task) S`} ${Array(18).fill('0').join(' ')} 123 0\n`
           return Reflect.apply(target, receiver, args)
         },
       }),
@@ -2274,7 +2335,7 @@ describe(CLEANUP_GROUP, () => {
     const links = spyOn(fs, 'readlinkSync').mockImplementation(
       new Proxy(originalLink, {
         apply(target, receiver, args: unknown[]) {
-          if (String(args[0]) === '/proc/100/ns/pid') {
+          if (String(args[0]) === `/proc/${modeledPid(100)}/ns/pid`) {
             injected++
             throw Object.assign(new Error('modeled namespace ENOENT'), {
               code: 'ENOENT',
@@ -2288,7 +2349,7 @@ describe(CLEANUP_GROUP, () => {
       new Proxy(originalDirectory, {
         apply(target, receiver, args: unknown[]) {
           return String(args[0]) === '/proc'
-            ? ['100']
+            ? [String(modeledPid(100))]
             : Reflect.apply(target, receiver, args)
         },
       }),
@@ -2309,7 +2370,7 @@ describe(CLEANUP_GROUP, () => {
         reason = (error as Error).message
       }
       expect(reason).toBe(
-        'UNKNOWN extant thread group 100 has a dead or unqualifiable leader: Error: UNKNOWN partial identity for thread group 100: Error: modeled namespace ENOENT',
+        `UNKNOWN extant thread group ${modeledPid(100)} has a dead or unqualifiable leader: Error: UNKNOWN partial identity for thread group ${modeledPid(100)}: Error: modeled namespace ENOENT`,
       )
       expect(injected).toBe(1)
       expect(launches).toBe(0)
@@ -2322,17 +2383,17 @@ describe(CLEANUP_GROUP, () => {
       reads.mockRestore()
     }
   })
-  test('admission task diagnostic retains first identities without changing the exact refusal', () => {
+  function admissionTaskDiagnosticRefusal() {
     const model = modeledAdmissionTasks(
       [
-        { tid: 101, tgid: 100 },
-        { tid: 102, tgid: process.pid },
-        { tid: 103, tgid: 300 },
+        { tid: modeledPid(101), tgid: modeledPid(100) },
+        { tid: modeledPid(102), tgid: process.pid },
+        { tid: modeledPid(103), tgid: modeledPid(300) },
       ],
       [
-        { tid: 102, tgid: process.pid },
-        { tid: 103, tgid: 300 },
-        { tid: 104, tgid: 300 },
+        { tid: modeledPid(102), tgid: process.pid },
+        { tid: modeledPid(103), tgid: modeledPid(300) },
+        { tid: modeledPid(104), tgid: modeledPid(300) },
       ],
     )
     const { summary } = model
@@ -2343,13 +2404,13 @@ describe(CLEANUP_GROUP, () => {
       new Proxy(original, {
         apply(target, receiver, args: unknown[]) {
           const path = String(args[0])
-          const match = /^\/proc\/(10[1-4])\/(status|stat)$/.exec(path)
+          const match = /^\/proc\/(500010[1-4])\/(status|stat)$/.exec(path)
           if (match) {
             const tid = Number(match[1])
-            if (tid === 101 && ++vanishedReads > 2)
+            if (tid === modeledPid(101) && ++vanishedReads > 2)
               throw Object.assign(new Error('vanished'), { code: 'ENOENT' })
             return match[2] === 'status'
-              ? `Pid:\t${tid}\nTgid:\t${tid === 101 ? 100 : tid === 102 ? process.pid : 300}\n`
+              ? `Pid:\t${tid}\nTgid:\t${tid === modeledPid(101) ? modeledPid(100) : tid === modeledPid(102) ? process.pid : modeledPid(300)}\n`
               : `${tid} (task) S ${Array(18).fill('0').join(' ')} ${tid * 10} 0\n`
           }
           return Reflect.apply(target, receiver, args)
@@ -2360,7 +2421,7 @@ describe(CLEANUP_GROUP, () => {
       const refusal = () => {
         let message: string | undefined
         try {
-          threadGroupHasLiveTasks(100, summary)
+          threadGroupHasLiveTasks(modeledPid(100), summary)
         } catch (error) {
           message = (error as Error).message
         }
@@ -2374,7 +2435,7 @@ describe(CLEANUP_GROUP, () => {
       vanishedReads = 0
       const stop = enableNativeTaskDiagnostic({
         runnerPid: process.pid,
-        actorPids: () => [100],
+        actorPids: () => [modeledPid(100)],
         emit: (line) => {
           lines.push(line)
         },
@@ -2387,19 +2448,37 @@ describe(CLEANUP_GROUP, () => {
       expect(vanishedReads).toBe(2)
       expect(lines).toHaveLength(1)
       expect(JSON.parse(lines[0]!.split('=')[1]!)).toEqual({
-        before: [101, 102, 103],
-        after: [102, 103, 104],
+        before: [modeledPid(101), modeledPid(102), modeledPid(103)],
+        after: [modeledPid(102), modeledPid(103), modeledPid(104)],
         tasks: [
-          { tid: 101, tgid: 100, start: '1010', state: 'S', group: 'actor' },
           {
-            tid: 102,
+            tid: modeledPid(101),
+            tgid: modeledPid(100),
+            start: '50001010',
+            state: 'S',
+            group: 'actor',
+          },
+          {
+            tid: modeledPid(102),
             tgid: process.pid,
-            start: '1020',
+            start: '50001020',
             state: 'S',
             group: 'runner',
           },
-          { tid: 103, tgid: 300, start: '1030', state: 'S', group: 'unknown' },
-          { tid: 104, tgid: 300, start: '1040', state: 'S', group: 'unknown' },
+          {
+            tid: modeledPid(103),
+            tgid: modeledPid(300),
+            start: '50001030',
+            state: 'S',
+            group: 'unknown',
+          },
+          {
+            tid: modeledPid(104),
+            tgid: modeledPid(300),
+            start: '50001040',
+            state: 'S',
+            group: 'unknown',
+          },
         ],
       })
       model.reset()
@@ -2440,7 +2519,25 @@ describe(CLEANUP_GROUP, () => {
       reads.mockRestore()
       model.restore()
     }
-  })
+  }
+  test(
+    'admission task diagnostic retains first identities without changing the exact refusal',
+    admissionTaskDiagnosticRefusal,
+  )
+  for (const runnerPid of [100, 101, 102, 103, 104, 300])
+    for (const [scenario, run] of [
+      ['diagnostic', admissionTaskDiagnosticRefusal],
+      ['departed group', () => admissionInventoryRefusal('departed group')],
+    ] as const)
+      test(`modeled admission PID collision guard ${scenario} with runner PID ${runnerPid}`, () => {
+        const original = Object.getOwnPropertyDescriptor(process, 'pid')!
+        try {
+          Object.defineProperty(process, 'pid', { value: runnerPid })
+          run()
+        } finally {
+          Object.defineProperty(process, 'pid', original)
+        }
+      })
   for (const control of [
     'duplicate inventory',
     'listed unavailable task',
@@ -2448,10 +2545,10 @@ describe(CLEANUP_GROUP, () => {
   ] as const)
     test(`source-modeled ${control} refuses unresolved task coverage in the real helper`, () => {
       const model = modeledAdmissionTasks(
-        [{ tid: 101, tgid: 100 }],
+        [{ tid: modeledPid(101), tgid: modeledPid(100) }],
         control === 'admission turnover'
-          ? [{ tid: 102, tgid: 200 }]
-          : [{ tid: 101, tgid: 100 }],
+          ? [{ tid: modeledPid(102), tgid: modeledPid(200) }]
+          : [{ tid: modeledPid(101), tgid: modeledPid(100) }],
       )
       const { summary } = model
       const threads = `/sys/fs/cgroup${summary.cgroup.self}/cgroup.threads`
@@ -2465,19 +2562,20 @@ describe(CLEANUP_GROUP, () => {
             if (path === threads) {
               inventories++
               return control === 'duplicate inventory'
-                ? '101\n101\n'
+                ? `${modeledPid(101)}\n${modeledPid(101)}\n`
                 : Reflect.apply(target, receiver, args)
             }
-            if (path === '/proc/101/status') {
+            if (path === `/proc/${modeledPid(101)}/status`) {
               taskReads++
               if (control === 'listed unavailable task')
                 throw Object.assign(
                   new Error('modeled listed task unavailable'),
                   { code: 'ENOENT' },
                 )
-              return 'Pid:\t101\nTgid:\t100\n'
+              return `Pid:\t${modeledPid(101)}\nTgid:\t${modeledPid(100)}\n`
             }
-            if (path === '/proc/101/stat') return '101 (terminal-model) Z 0\n'
+            if (path === `/proc/${modeledPid(101)}/stat`)
+              return `${modeledPid(101)} (terminal-model) Z 0\n`
             return Reflect.apply(target, receiver, args)
           },
         }),
@@ -2490,7 +2588,9 @@ describe(CLEANUP_GROUP, () => {
           'admission turnover':
             'UNKNOWN cgroup task inventory changed during admission',
         }[control]
-        expect(() => threadGroupHasLiveTasks(100, summary)).toThrow(expected)
+        expect(() => threadGroupHasLiveTasks(modeledPid(100), summary)).toThrow(
+          expected,
+        )
         expect(inventories).toBe(control === 'duplicate inventory' ? 1 : 2)
         expect(taskReads).toBe(control === 'duplicate inventory' ? 0 : 1)
       } finally {
@@ -2509,27 +2609,32 @@ describe(CLEANUP_GROUP, () => {
         apply(target, receiver, args: unknown[]) {
           const path = String(args[0])
           paths.push(path)
-          if (path === threads) return ++inventories === 1 ? '101\n' : '102\n'
-          if (path === '/proc/101/status')
+          if (path === threads)
+            return ++inventories === 1
+              ? `${modeledPid(101)}\n`
+              : `${modeledPid(102)}\n`
+          if (path === `/proc/${modeledPid(101)}/status`)
             throw Object.assign(new Error('modeled old task exited'), {
               code: 'ENOENT',
             })
-          if (path === '/proc/102/status') return 'Pid:\t102\nTgid:\t100\n'
-          if (path === '/proc/102/stat') return '102 (replacement-model) S 0\n'
+          if (path === `/proc/${modeledPid(102)}/status`)
+            return `Pid:\t${modeledPid(102)}\nTgid:\t${modeledPid(100)}\n`
+          if (path === `/proc/${modeledPid(102)}/stat`)
+            return `${modeledPid(102)} (replacement-model) S 0\n`
           return Reflect.apply(target, receiver, args)
         },
       }),
     )
     try {
       expect(
-        threadGroupHasLiveTasks(100, summary, {
+        threadGroupHasLiveTasks(modeledPid(100), summary, {
           deadline: performance.now() + 3000,
         }),
       ).toBe(true)
       expect(inventories).toBe(3)
-      expect(paths).toContain('/proc/101/status')
-      expect(paths).toContain('/proc/102/status')
-      expect(paths).toContain('/proc/102/stat')
+      expect(paths).toContain(`/proc/${modeledPid(101)}/status`)
+      expect(paths).toContain(`/proc/${modeledPid(102)}/status`)
+      expect(paths).toContain(`/proc/${modeledPid(102)}/stat`)
     } finally {
       reads.mockRestore()
     }
@@ -2548,9 +2653,9 @@ describe(CLEANUP_GROUP, () => {
           const path = String(args[0])
           if (path === threads) {
             elapsed += 1000
-            return `${100 + ++inventories}\n`
+            return `${modeledPid(100 + ++inventories)}\n`
           }
-          if (/^\/proc\/10\d\/status$/.test(path)) {
+          if (/^\/proc\/500010\d\/status$/.test(path)) {
             taskReads++
             throw Object.assign(new Error('modeled task turnover'), {
               code: 'ENOENT',
@@ -2562,7 +2667,7 @@ describe(CLEANUP_GROUP, () => {
     )
     try {
       expect(() =>
-        threadGroupHasLiveTasks(100, summary, { deadline: 3000 }),
+        threadGroupHasLiveTasks(modeledPid(100), summary, { deadline: 3000 }),
       ).toThrow('native cleanup budget exhausted')
       expect(inventories).toBe(3)
       expect(taskReads).toBe(2)
@@ -2572,7 +2677,9 @@ describe(CLEANUP_GROUP, () => {
     }
   })
   test('source-modeled stable terminal task inventory certifies only finished groups', () => {
-    const model = modeledAdmissionTasks([{ tid: 101, tgid: 100 }])
+    const model = modeledAdmissionTasks([
+      { tid: modeledPid(101), tgid: modeledPid(100) },
+    ])
     const { summary } = model
     const threads = `/sys/fs/cgroup${summary.cgroup.self}/cgroup.threads`
     const original = model.read
@@ -2584,19 +2691,20 @@ describe(CLEANUP_GROUP, () => {
           const path = String(args[0])
           if (path === threads) {
             inventories++
-            return '101\n'
+            return `${modeledPid(101)}\n`
           }
-          if (path === '/proc/101/status') return 'Pid:\t101\nTgid:\t100\n'
-          if (path === '/proc/101/stat') {
+          if (path === `/proc/${modeledPid(101)}/status`)
+            return `Pid:\t${modeledPid(101)}\nTgid:\t${modeledPid(100)}\n`
+          if (path === `/proc/${modeledPid(101)}/stat`) {
             terminalReads++
-            return '101 (terminal-model) Z 0\n'
+            return `${modeledPid(101)} (terminal-model) Z 0\n`
           }
           return Reflect.apply(target, receiver, args)
         },
       }),
     )
     try {
-      expect(threadGroupHasLiveTasks(100, summary)).toBe(false)
+      expect(threadGroupHasLiveTasks(modeledPid(100), summary)).toBe(false)
       expect(inventories).toBe(2)
       expect(terminalReads).toBe(2)
     } finally {
@@ -2616,11 +2724,16 @@ describe(CLEANUP_GROUP, () => {
         apply(target, receiver, args: unknown[]) {
           const path = String(args[0])
           paths.push(path)
-          if (path === `${cgroup}/cgroup.procs`) return '99\n'
-          if (path === `${cgroup}/cgroup.threads`) return '102\n'
-          if (path === '/proc/102/status') return 'Pid:\t102\nTgid:\t100\n'
-          if (path === '/proc/102/stat') return '102 (hidden-group-model) S 0\n'
-          if (path === '/proc/100/stat' || path === '/proc/99/stat')
+          if (path === `${cgroup}/cgroup.procs`) return `${modeledPid(99)}\n`
+          if (path === `${cgroup}/cgroup.threads`) return `${modeledPid(102)}\n`
+          if (path === `/proc/${modeledPid(102)}/status`)
+            return `Pid:\t${modeledPid(102)}\nTgid:\t${modeledPid(100)}\n`
+          if (path === `/proc/${modeledPid(102)}/stat`)
+            return `${modeledPid(102)} (hidden-group-model) S 0\n`
+          if (
+            path === `/proc/${modeledPid(100)}/stat` ||
+            path === `/proc/${modeledPid(99)}/stat`
+          )
             throw Object.assign(new Error('modeled absent leader'), {
               code: 'ENOENT',
             })
@@ -2639,10 +2752,10 @@ describe(CLEANUP_GROUP, () => {
     })
     try {
       expect(() => scopedProcesses(summary)).toThrow(
-        'UNKNOWN extant thread group 100',
+        `UNKNOWN extant thread group ${modeledPid(100)}`,
       )
-      expect(paths).toContain('/proc/100/stat')
-      expect(paths).toContain('/proc/102/status')
+      expect(paths).toContain(`/proc/${modeledPid(100)}/stat`)
+      expect(paths).toContain(`/proc/${modeledPid(102)}/status`)
       expect(signals).toBe(0)
     } finally {
       signal.mockRestore()
