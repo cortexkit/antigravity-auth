@@ -134,25 +134,13 @@ function writePrefs(
   return merged
 }
 
-// Walk the captured spans and return the background color of the header
-// badge (the "▼ ANTIGRAVITY" pill). The test renderer resolves the theme's
-// `accent` field into a literal color on every render, so flipping the
-// theme must show up here. Border characters are not consistently captured
-// by the test renderer's span API, so the badge bg is the reliable probe.
-function collectBadgeBackground(spans: {
+// The badge's foreground and background distinguish sparse and inverted palettes.
+function collectBadgeColors(spans: {
   lines: Array<{ spans: Array<{ fg: unknown; bg: unknown; text: string }> }>
-}): unknown {
-  for (const line of spans.lines) {
-    for (const span of line.spans) {
-      if (
-        /[▼▶]/.test(span.text) &&
-        span.bg &&
-        span.bg !== 'rgba(0.00, 0.00, 0.00, 0.00)'
-      ) {
-        return span.bg
-      }
-    }
-  }
+}): { fg: unknown; bg: unknown } | undefined {
+  for (const line of spans.lines)
+    for (const span of line.spans)
+      if (span.text.includes('ANTIGRAVITY')) return { fg: span.fg, bg: span.bg }
   return undefined
 }
 
@@ -181,6 +169,60 @@ describe('SidebarPanel', () => {
   afterEach(() => {
     fixture.cleanup()
   })
+
+  for (const scenario of [
+    {
+      name: 'custom badge',
+      header: { label: 'CUSTOM BADGE', showVersion: true },
+      expectedBadge: 'CUSTOM BADGE',
+      expectVersion: true,
+    },
+    {
+      name: 'hidden version',
+      header: { label: 'ANTIGRAVITY', showVersion: false },
+      expectedBadge: 'ANTIGRAVITY',
+      expectVersion: false,
+    },
+    {
+      name: 'defaults',
+      header: undefined,
+      expectedBadge: 'ANTIGRAVITY',
+      expectVersion: true,
+    },
+  ]) {
+    it(`honors header preferences: ${scenario.name}`, async () => {
+      const prefs = writePrefs(
+        fixture.prefsPath,
+        scenario.header ? { header: scenario.header } : {},
+      )
+      const { createSidebarController } = await import('./tui')
+      const controller = createSidebarController(prefs)
+      const setup = await testRender(
+        () => (
+          <SidebarPanel
+            controller={controller}
+            logger={makeCapturingLogger()}
+            stateFile={fixture.statePath}
+          />
+        ),
+        { width: 60, height: 12 },
+      )
+      try {
+        await setup.flush()
+        await setup.flush()
+        const frame = setup.captureCharFrame()
+        const header = frame.split('\n').find((line) => line.trim()) ?? ''
+        expect(header).toContain(scenario.expectedBadge)
+        if (scenario.expectedBadge === 'CUSTOM BADGE')
+          expect(header).not.toContain('ANTIGRAVITY')
+        if (scenario.expectVersion)
+          expect(header).toContain(`v${PACKAGE_VERSION}`)
+        else expect(frame).not.toContain(`v${PACKAGE_VERSION}`)
+      } finally {
+        setup.renderer.destroy()
+      }
+    })
+  }
 
   it('renders the awaiting-state fallback when no state file exists', async () => {
     const logger = makeCapturingLogger()
@@ -235,7 +277,7 @@ describe('SidebarPanel', () => {
     }
   })
 
-  it('renders remaining-quota bars and shared figures in short fixed gutters', async () => {
+  it('renders used-quota bars and shared figures in short fixed gutters', async () => {
     const future = Date.now() + 5 * 60 * 1000
     const payload = writeState({
       checkedAt: Date.now(),
@@ -295,7 +337,7 @@ describe('SidebarPanel', () => {
     expect(frame).toContain('75% left')
     expect(frame).toContain('10% left')
     expect(frame).toContain('60% left')
-    expect(frame).toContain('████████░░')
+    expect(frame).toContain('███░░░░░░░')
     testSetup.renderer.destroy()
   })
 
@@ -1304,7 +1346,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     await testSetup.flush()
     const frame = testSetup.captureCharFrame()
     // 75% left of width 8 fills six cells and leaves two empty cells.
-    expect(frame).toContain('######--')
+    expect(frame).toContain('##------')
     expect(frame).toContain('75% left')
     testSetup.renderer.destroy()
   })
@@ -1391,11 +1433,8 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     mkdirSync(join(fixture.statePath, '..'), { recursive: true })
     writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
 
-    // Two theme snapshots that differ unmistakably on `accent` (the badge
-    // background). The accessor returns whichever value is current; tests
-    // flip the value and verify the badge re-renders with the new color.
-    // The accessor must be a Solid signal so the live-theme contract
-    // re-renders on flip — a plain JS closure wouldn't subscribe.
+    // Without a background, the current accent colors the transparent badge's text.
+    // The accessor must be a Solid signal so the badge re-renders on a theme change.
     const initialAccent = '#aa00aa'
     const flippedAccent = '#00aaaa'
     const [theme, setTheme] = createSignal({
@@ -1422,15 +1461,11 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     )
     await testSetup.flush()
     const spans1 = testSetup.captureSpans()
-    const badgeBefore = collectBadgeBackground(spans1)
-    // The accessor must win over the FALLBACK_THEME accent. We assert
-    // "the rendered color is the test's initial accent" — the live-theme
-    // contract this test pins. The renderer resolves hex through RGBA,
-    // so we compare on the post-conversion string.
-    expect(String(badgeBefore)).toBe(hexToRgbaString(initialAccent))
+    const badgeBefore = collectBadgeColors(spans1)
+    expect(String(badgeBefore?.fg)).toBe(hexToRgbaString(initialAccent))
+    expect(String(badgeBefore?.bg)).toBe('rgba(0.00, 0.00, 0.00, 0.00)')
 
-    // Flip the live theme: the badge background must re-render with the
-    // new accent.
+    // A partial palette must keep tracking the live accent without inventing a background.
     setTheme({
       accent: flippedAccent,
       text: '#e5e7eb',
@@ -1438,9 +1473,16 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     } as Record<string, string>)
     await testSetup.flush()
     const spans2 = testSetup.captureSpans()
-    const badgeAfter = collectBadgeBackground(spans2)
-    expect(String(badgeAfter)).toBe(hexToRgbaString(flippedAccent))
-    expect(String(badgeAfter)).not.toBe(String(badgeBefore))
+    const badgeAfter = collectBadgeColors(spans2)
+    expect(String(badgeAfter?.fg)).toBe(hexToRgbaString(flippedAccent))
+    expect(String(badgeAfter?.fg)).not.toBe(String(badgeBefore?.fg))
+    expect(String(badgeAfter?.bg)).toBe('rgba(0.00, 0.00, 0.00, 0.00)')
+
+    setTheme({ ...theme(), background: '#101010' })
+    await testSetup.flush()
+    const inverted = collectBadgeColors(testSetup.captureSpans())
+    expect(String(inverted?.fg)).toBe(hexToRgbaString('#101010'))
+    expect(String(inverted?.bg)).toBe(hexToRgbaString(flippedAccent))
     testSetup.renderer.destroy()
   })
 })
@@ -2504,6 +2546,7 @@ describe('TUI module graph', () => {
       [
         join(SRC, 'ga', 'tui', 'host-ga.tsx'),
         join(SRC, 'quota-presentation.ts'),
+        join(SRC, 'common-auth-embedded', 'quota-sidebar', 'index.tsx'),
         ...['codec', 'format', 'index', 'map', 'merge', 'projection'].map(
           (name) => join(SRC, 'common-auth-embedded', 'quota', `${name}.js`),
         ),

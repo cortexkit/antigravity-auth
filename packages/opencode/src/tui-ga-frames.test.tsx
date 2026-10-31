@@ -22,6 +22,11 @@
 
 import { describe, expect, it } from 'bun:test'
 import { testRender } from '@opentui/solid'
+import { createSignal } from 'solid-js'
+import {
+  COLLAPSED_ROWS,
+  sidebarVisual,
+} from './__fixtures__/sidebar-visual.test'
 
 import {
   type GaTheme,
@@ -30,7 +35,7 @@ import {
 } from './ga/tui/host-ga'
 import { DEFAULT_QUOTA_APPEARANCE } from './tui/quota-layout'
 import { fitRouteParts, routeLineFits } from './tui/route-layout'
-import { DEFAULT_FRAME_SETTINGS } from './tui/sidebar-frame'
+import { DEFAULT_FRAME_SETTINGS, type FrameAccount } from './tui/sidebar-frame'
 import { DEFAULT_PREFS } from './tui-preferences'
 
 const MINUTE = 60_000
@@ -365,7 +370,11 @@ interface CaptureOptions {
 async function render(
   answer: unknown,
   width: number,
-  options: CaptureOptions & { storage?: unknown } = {},
+  options: CaptureOptions & {
+    storage?: unknown
+    firstRenderOnly?: boolean
+    themeSource?: () => GaTheme
+  } = {},
 ) {
   const fake = fakeContext(answer, {
     ...(options.theme ? { theme: options.theme } : {}),
@@ -377,20 +386,33 @@ async function render(
           : {},
       ),
   })
+  if (options.themeSource)
+    Object.defineProperty(fake.context, 'theme', { get: options.themeSource })
   const cleanup = setupGaTui(fake.context as never, {
     now: () => NOW,
     schedule: () => () => undefined,
     ...(options.version !== undefined ? { version: options.version } : {}),
   })
   const claim = await fake.claimed
+  let mounts = 0
   const setup = await testRender(
-    () => claim.render({ sessionID: options.sessionID ?? 'ses_a' }) as never,
+    () => {
+      mounts++
+      return claim.render({ sessionID: options.sessionID ?? 'ses_a' }) as never
+    },
     { width, height: 40 },
   )
-  await setup.flush()
-  await setup.flush()
+  if (options.firstRenderOnly) {
+    expect(setup.renderer.frameId).toBe(0)
+    await setup.renderOnce()
+    expect(setup.renderer.frameId).toBe(1)
+  } else {
+    await setup.flush()
+    await setup.flush()
+  }
   return {
     setup,
+    mounts: () => mounts,
     frame: () => trimFrame(setup.captureCharFrame()),
     async close() {
       setup.renderer.destroy()
@@ -434,13 +456,12 @@ function lineWith(frame: string, pattern: RegExp): string | undefined {
   return contentLines(frame).find((line) => pattern.test(line))
 }
 
-// Every real line starts at the panel's padding, one or two cells in, like
-// the OpenCode 1 sidebar's. A quota row that wrapped leaves a fragment of
-// its figure ("left", "%"), reset or age ("ago") alone on the next line.
+// Ordinary rows use the full panel width; only the badge has an inset.
+// A quota row that wrapped leaves a fragment of its figure or age alone.
 function expectFramedLines(frame: string, width: number): void {
   for (const line of frame.split('\n')) {
     if (line.trim().length === 0) continue
-    expect(line).toMatch(/^ {1,2}\S/)
+    expect(line).toMatch(/^ ?\S/)
     expect(line.length).toBeLessThanOrEqual(width)
   }
   for (const line of contentLines(frame))
@@ -465,31 +486,72 @@ function expectExpandedFrame(frame: string): void {
 
 const FRESH_TEXT = 'Ge 7d 62% · Ot 7d 48% left'
 const SECOND_TEXT = 'Ge 7d 71% · Ot 7d 40% left'
-const STATUS_DOT = ' ●'
 
-// One collapsed account row within the padded width. When the shared narrow
-// form fits, the row holds it, followed by the status dot when that fits
-// too; when it does not fit, the row is the label and the dot.
+// Frozen collapsed rows keep the full quota or omit it, with the indicator last.
 function expectCollapsedRow(
   row: string | undefined,
   label: string,
   text: string,
   width: number,
 ): void {
-  const inner = width - 2
   expect(row).toBeDefined()
-  expect((row ?? '').length).toBeLessThanOrEqual(inner)
-  if (text.length > inner) {
-    expect(row).toMatch(new RegExp(`^${label}\\s+●$`))
-    return
-  }
-  expect(row).toContain(text)
-  if (text.length + STATUS_DOT.length <= inner)
-    expect(row?.endsWith('●')).toBe(true)
-  else expect(row).toBe(text)
+  expect((row ?? '').length).toBeLessThanOrEqual(width)
+  const kind = text === 'no quota reading yet' ? 'empty' : 'fresh'
+  expect(row).toBe(
+    COLLAPSED_ROWS[kind]
+      [width]!.replace('Account 1', label)
+      .replace(FRESH_TEXT, text),
+  )
 }
 
 describe('OpenCode 2 sidebar frame', () => {
+  for (const scenario of [
+    {
+      name: 'custom badge',
+      header: { label: 'CUSTOM BADGE', showVersion: true },
+      expectedBadge: 'CUSTOM BADGE',
+      expectVersion: true,
+    },
+    {
+      name: 'hidden version',
+      header: { label: 'ANTIGRAVITY', showVersion: false },
+      expectedBadge: 'ANTIGRAVITY',
+      expectVersion: false,
+    },
+    {
+      name: 'defaults',
+      header: undefined,
+      expectedBadge: 'ANTIGRAVITY',
+      expectVersion: true,
+    },
+  ]) {
+    it(`honors header preferences: ${scenario.name}`, async () => {
+      const descriptor = Object.getOwnPropertyDescriptor(
+        DEFAULT_FRAME_SETTINGS,
+        'header',
+      )!
+      // OpenCode 2 supplies frame defaults rather than a preferences file.
+      if (scenario.header)
+        Object.defineProperty(DEFAULT_FRAME_SETTINGS, 'header', {
+          configurable: true,
+          value: scenario.header,
+        })
+      try {
+        const frame = await capture(snapshot([freshAccount()]), 48, {
+          version: '9.8.7',
+        })
+        const header = contentLines(frame)[0] ?? ''
+        expect(header).toContain(scenario.expectedBadge)
+        if (scenario.expectedBadge === 'CUSTOM BADGE')
+          expect(header).not.toContain('ANTIGRAVITY')
+        if (scenario.expectVersion) expect(header).toContain('v9.8.7')
+        else expect(frame).not.toContain('v9.8.7')
+      } finally {
+        Object.defineProperty(DEFAULT_FRAME_SETTINGS, 'header', descriptor)
+      }
+    })
+  }
+
   it('draws bars and the header with the OpenCode 1 defaults', () => {
     // The GA sidebar has no preferences file, so it draws with a copy of the
     // OpenCode 1 defaults; the copy must not drift.
@@ -581,9 +643,8 @@ describe('OpenCode 2 sidebar frame', () => {
       show('no quota yet', width, frame)
       expectFramedLines(frame, width)
       expectExpandedFrame(frame)
-      // OpenCode 1 clips this one dim line at the padded width rather than
-      // wrapping it; the shared frame does the same.
-      const empty = 'no quota reading yet'.slice(0, width - 2)
+      // The no-reading line is clipped to the full width rather than wrapped.
+      const empty = 'no quota reading yet'.slice(0, width)
       expect(contentLines(frame).filter((line) => line === empty)).toHaveLength(
         1,
       )
@@ -627,15 +688,15 @@ describe('OpenCode 2 sidebar frame', () => {
       expectFramedLines(frame, width)
       expectExpandedFrame(frame)
       const value = 'round-robin · claude: antigravity'
-      if (routeLineFits('Route', value, width - 2))
+      if (routeLineFits('Route', value, width))
         expect(lineWith(frame, /^Route\s/)).toMatch(
           new RegExp(`^Route\\s+${value}$`),
         )
       else {
         // One line per part, the strategy last; like OpenCode 1, a part
-        // wider than the padded width is clipped there.
+        // wider than the panel is clipped there.
         const lines = contentLines(frame)
-        const at = lines.indexOf('claude: antigravity'.slice(0, width - 2))
+        const at = lines.indexOf('claude: antigravity'.slice(0, width))
         expect(at).toBeGreaterThan(lines.indexOf('Routing'))
         expect(lines[at + 1]).toBe('round-robin')
       }
@@ -860,6 +921,113 @@ function spanWith(spans: SpanFrame, text: string) {
 }
 
 describe('OpenCode 2 sidebar theme', () => {
+  for (const mixed of [false, true]) {
+    it(`undated GA windows are omitted in the ${mixed ? 'mixed' : 'all-undated'} account`, async () => {
+      const original = freshAccount()
+      const row = {
+        ...original,
+        quota: Object.fromEntries(
+          Object.entries(original.quota as FrameAccount['quota']).flatMap(
+            ([key, group]) =>
+              group
+                ? [
+                    [
+                      key,
+                      {
+                        ...group,
+                        checkedAt: undefined,
+                        windows: group.windows?.map((window, index) => ({
+                          ...window,
+                          checkedAt:
+                            mixed && key === 'gemini' && index === 0
+                              ? NOW
+                              : undefined,
+                        })),
+                      },
+                    ],
+                  ]
+                : [],
+          ),
+        ),
+      }
+      const frame = await capture(snapshot([row]), 48)
+      show(`undated ${mixed ? 'mixed' : 'all-undated'}`, 48, frame)
+      const rows = frame.split('\n').filter((line) => /[█░]/.test(line))
+      expect(rows).toHaveLength(mixed ? 1 : 0)
+      expect(frame).not.toContain('Other models')
+      expect(frame).not.toContain('7d ')
+      if (mixed) {
+        expect(frame).toContain('95% left')
+        expect(frame).not.toContain('no quota reading yet')
+      } else {
+        expect(frame).not.toContain('% left')
+        expect(frame).not.toContain('Gemini')
+        expect(frame).toContain('no quota reading yet')
+      }
+    })
+  }
+
+  it('first-render draws every expanded GA window bar without a flush', async () => {
+    const view = await render(snapshot([freshAccount()]), 48, {
+      firstRenderOnly: true,
+      theme: FULL_THEME,
+    })
+    try {
+      const rows = view
+        .frame()
+        .split('\n')
+        .filter((line) => /^\s*(5h|7d) /.test(line))
+      expect(rows).toHaveLength(4)
+      for (const row of rows) expect(row).toMatch(/[█░]/)
+    } finally {
+      await view.close()
+    }
+  })
+
+  it('live-change GA theme and bar width match fresh text and colour on one mount', async () => {
+    const [theme, setTheme] = createSignal<GaTheme>(FULL_THEME)
+    const [appearance, setAppearance] = createSignal({
+      ...DEFAULT_QUOTA_APPEARANCE,
+    })
+    const descriptor = Object.getOwnPropertyDescriptor(
+      DEFAULT_FRAME_SETTINGS,
+      'appearance',
+    )!
+    // OpenCode 2 has no appearance preferences; a reactive default exercises its settings accessor.
+    Object.defineProperty(DEFAULT_FRAME_SETTINGS, 'appearance', {
+      configurable: true,
+      get: appearance,
+    })
+    let view: Awaited<ReturnType<typeof render>> | undefined
+    try {
+      view = await render(snapshot([freshAccount()]), 48, {
+        themeSource: theme,
+      })
+      for (const barWidth of [10, 40]) {
+        if (barWidth !== 10)
+          setAppearance({ ...DEFAULT_QUOTA_APPEARANCE, barWidth })
+        for (const value of [FULL_THEME, {}, FULL_THEME]) {
+          setTheme(value)
+          await view.setup.flush()
+          await view.setup.flush()
+          const changed = sidebarVisual(view.setup)
+          const reference = await render(snapshot([freshAccount()]), 48, {
+            theme: value,
+          })
+          try {
+            expect(changed).toEqual(sidebarVisual(reference.setup))
+          } finally {
+            await reference.close()
+          }
+        }
+      }
+      expect(view.mounts()).toBe(1)
+    } finally {
+      await view?.close()
+      Object.defineProperty(DEFAULT_FRAME_SETTINGS, 'appearance', descriptor)
+    }
+  })
+
   it('maps a full host theme onto the OpenCode 1 palette names', () => {
     expect(sidebarThemeFromHost(FULL_THEME)).toEqual({
       text: '#e0e0e0',
@@ -905,7 +1073,7 @@ describe('OpenCode 2 sidebar theme', () => {
       expect(String(spanWith(spans, 'active')?.fg)).toBe(rgba('#00c000'))
       expect(String(spanWith(spans, 'Account 1')?.fg)).toBe(rgba('#e0e0e0'))
       expect(String(spanWith(spans, 'Quota')?.fg)).toBe(rgba('#e0e0e0'))
-      expect(String(spanWith(spans, 'Other models')?.fg)).toBe(rgba('#808080'))
+      expect(String(spanWith(spans, 'Other models')?.fg)).toBe(rgba('#e0e0e0'))
       expect(String(spanWith(spans, 'No request yet')?.fg)).toBe(
         rgba('#808080'),
       )

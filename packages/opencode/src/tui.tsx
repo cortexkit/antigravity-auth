@@ -60,7 +60,7 @@ import {
   dispatchV1Notification,
   type V1Notification,
 } from './tui/host-v1'
-import { type FrameRoute, SidebarFrame } from './tui/sidebar-frame'
+import { AntigravitySidebar, type FrameRoute } from './tui/sidebar-frame'
 import {
   type AntigravityAuthTuiPrefs,
   computeEffectiveOrder,
@@ -403,7 +403,7 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
   }
 
   return (
-    <SidebarFrame
+    <AntigravitySidebar
       theme={theme}
       settings={prefs}
       version={PLUGIN_VERSION}

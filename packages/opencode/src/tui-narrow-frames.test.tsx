@@ -18,6 +18,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { testRender } from '@opentui/solid'
+import { createSignal } from 'solid-js'
+import {
+  COLLAPSED_ROWS,
+  sidebarVisual,
+} from './__fixtures__/sidebar-visual.test'
 import {
   DEFAULT_SIDEBAR_STATE,
   SIDEBAR_STATE_ENV,
@@ -27,6 +32,7 @@ import {
 } from './sidebar-state'
 import { createSidebarController, SidebarPanel } from './tui'
 import type { TuiLogger } from './tui/file-logger'
+import type { FrameTheme } from './tui/sidebar-frame'
 import {
   type AntigravityAuthTuiPrefs,
   DEFAULT_PREFS,
@@ -40,6 +46,16 @@ const DAY = 24 * HOUR
 const NOW = Date.UTC(2026, 0, 10, 12, 0, 0)
 const WIDTHS = [32, 38, 48] as const
 const COLLAPSED_WIDTHS = [20, 26, 27, 28, 29, 30, 31, 32, 38, 48] as const
+
+const HOST_THEME: FrameTheme = {
+  text: '#e5e7eb',
+  textMuted: '#6b7280',
+  accent: '#7c3aed',
+  success: '#22c55e',
+  warning: '#eab308',
+  error: '#ef4444',
+  background: '#0b0d12',
+}
 
 const NOOP_LOGGER: TuiLogger = {
   debug: () => undefined,
@@ -359,8 +375,8 @@ function show(label: string, width: number, frame: string): void {
   console.log(`\n=== ${label} @ ${width} cols ===\n${frame}\n`)
 }
 
-// The test renderer leaves the panel border out of the character frame, so
-// each frame line is the panel's text with its padding.
+// The shared frame has no outer padding; only the badge has an inset.
+// Wrapped figure/reset fragments must still never appear on their own line.
 function contentLines(frame: string): string[] {
   return frame
     .split('\n')
@@ -371,11 +387,11 @@ function contentLines(frame: string): string[] {
 // A window row is one line holding its name, its bar and its figure. A row
 // that wrapped leaves a fragment of the figure ("left", "%", "le") or of a
 // reset or age ("ago") on a following line, indented to the column where the
-// wrapped text started. Every real line starts at the panel's padding.
+// wrapped text started. Ordinary rows start at column zero; the badge is inset.
 function expectNoWrappedFragments(frame: string): void {
   for (const line of frame.split('\n')) {
     if (line.trim().length === 0) continue
-    expect(line).toMatch(/^ {1,2}\S/)
+    expect(line).toMatch(/^ ?\S/)
   }
   for (const line of contentLines(frame)) {
     expect(line).not.toMatch(/^(left|le|ft|%|\d+%?|ago|resets.*)$/)
@@ -402,6 +418,157 @@ describe('OpenCode 1 sidebar in a narrow sidebar', () => {
 
   afterEach(() => {
     fixture.cleanup()
+  })
+
+  for (const mixed of [false, true]) {
+    it(`undated V1 windows are omitted in the ${mixed ? 'mixed' : 'all-undated'} account`, async () => {
+      const account = freshAccount()
+      for (const group of Object.values(account.quota)) {
+        group.checkedAt = undefined
+        for (const window of group.windows ?? []) window.checkedAt = undefined
+      }
+      if (mixed) account.quota.gemini!.windows![0]!.checkedAt = NOW
+      const frame = await capture(fixture, state({ accounts: [account] }), 48)
+      show(`undated ${mixed ? 'mixed' : 'all-undated'}`, 48, frame)
+      const rows = frame.split('\n').filter((line) => /[█░]/.test(line))
+      expect(rows).toHaveLength(mixed ? 1 : 0)
+      expect(frame).not.toContain('Other models')
+      expect(frame).not.toContain('7d ')
+      if (mixed) {
+        expect(frame).toContain('95% left')
+        expect(frame).not.toContain('no quota reading yet')
+      } else {
+        expect(frame).not.toContain('% left')
+        expect(frame).not.toContain('Gemini')
+        expect(frame).toContain('no quota reading yet')
+      }
+    })
+  }
+
+  it('the header follows visible accounts when fallback accounts are hidden', async () => {
+    const account = freshAccount()
+    account.current = false
+    writeFileSync(
+      fixture.statePath,
+      JSON.stringify(state({ accounts: [account] })),
+    )
+    const controller = createSidebarController({
+      ...DEFAULT_PREFS,
+      sections: { ...DEFAULT_PREFS.sections, fallbackAccounts: false },
+    })
+    let toggles = 0
+    const setup = await testRender(
+      () => (
+        <SidebarPanel
+          controller={{
+            ...controller,
+            toggleCollapsed: () => {
+              toggles++
+            },
+          }}
+          logger={NOOP_LOGGER}
+          stateFile={fixture.statePath}
+          now={() => NOW}
+        />
+      ),
+      { width: 38, height: 32 },
+    )
+    try {
+      await setup.flush()
+      const frame = trimFrame(setup.captureCharFrame())
+      show('visible-account header', 38, frame)
+      expect(frame).toContain('ANTIGRAVITY')
+      expect(frame).not.toMatch(/[▼▶]/)
+      expect(frame).not.toContain('Account 1')
+      const lines = frame.split('\n')
+      const row = lines.findIndex((line) => line.includes('ANTIGRAVITY'))
+      await setup.mockMouse.click(lines[row]!.indexOf('ANTIGRAVITY'), row)
+      expect(toggles).toBe(0)
+    } finally {
+      setup.renderer.destroy()
+    }
+  })
+
+  async function mountLive(
+    themeValue: Partial<FrameTheme> = HOST_THEME,
+    barWidth = 10,
+  ) {
+    writeFileSync(
+      fixture.statePath,
+      JSON.stringify(state({ accounts: [freshAccount()] })),
+    )
+    const [theme, setTheme] = createSignal(themeValue)
+    const [appearance, setAppearance] = createSignal({
+      ...DEFAULT_PREFS.appearance,
+      barWidth,
+    })
+    const controller = createSidebarController(DEFAULT_PREFS)
+    let mounts = 0
+    const setup = await testRender(
+      () => {
+        mounts++
+        return (
+          <SidebarPanel
+            controller={{
+              ...controller,
+              prefs: () => ({ ...DEFAULT_PREFS, appearance: appearance() }),
+            }}
+            logger={NOOP_LOGGER}
+            stateFile={fixture.statePath}
+            now={() => NOW}
+            theme={() => theme() as never}
+          />
+        )
+      },
+      { width: 48, height: 32 },
+    )
+    return { setup, setTheme, setAppearance, mounts: () => mounts }
+  }
+
+  it('first-render draws every expanded V1 window bar without a flush', async () => {
+    const view = await mountLive()
+    try {
+      expect(view.setup.renderer.frameId).toBe(0)
+      await view.setup.renderOnce()
+      expect(view.setup.renderer.frameId).toBe(1)
+      const rows = view.setup
+        .captureCharFrame()
+        .split('\n')
+        .filter((line) => /^\s*(5h|7d) /.test(line))
+      expect(rows).toHaveLength(4)
+      for (const row of rows) expect(row).toMatch(/[█░]/)
+    } finally {
+      view.setup.renderer.destroy()
+    }
+  })
+
+  it('live-change V1 theme and bar width match fresh text and colour on one mount', async () => {
+    const view = await mountLive()
+    const settle = async (setup: typeof view.setup) => {
+      await setup.flush()
+      await setup.flush()
+      return sidebarVisual(setup)
+    }
+    try {
+      await settle(view.setup)
+      for (const barWidth of [10, 40]) {
+        if (barWidth !== 10)
+          view.setAppearance({ ...DEFAULT_PREFS.appearance, barWidth })
+        for (const theme of [HOST_THEME, {}, HOST_THEME]) {
+          view.setTheme(theme)
+          const changed = await settle(view.setup)
+          const reference = await mountLive(theme, barWidth)
+          try {
+            expect(changed).toEqual(await settle(reference.setup))
+          } finally {
+            reference.setup.renderer.destroy()
+          }
+        }
+      }
+      expect(view.mounts()).toBe(1)
+    } finally {
+      view.setup.renderer.destroy()
+    }
   })
 
   for (const width of WIDTHS) {
@@ -600,20 +767,21 @@ describe('OpenCode 1 sidebar in a narrow sidebar', () => {
   it('shrinks the bar to fit before dropping the reset column', async () => {
     const wide = { appearance: { ...DEFAULT_PREFS.appearance, barWidth: 40 } }
     const payload = state({ accounts: [freshAccount()] })
-    // The panel pads its content by one cell on each side, so 32 columns
-    // leave 30: `5h `, a 14-cell bar and a space, `95% left`, then the
-    // right-aligned `2h`.
+    // The unpadded 32-cell panel retains the reset beside a 16-cell used bar.
     const roomy = await capture(fixture, payload, 32, undefined, wide)
     show('fresh, bar width 40', 32, roomy)
     const roomyRow = lineWith(roomy, /^5h .*95% left/)
-    expect(roomyRow).toMatch(/^5h █{13}░ 95% left\s+2h$/)
-    // 20 columns leave 18: a bar of at least four cells no longer fits next
-    // to the reset, so the reset goes and the bar takes the room.
+    expect(roomyRow).toMatch(/^5h █░{15} 95% left\s+2h$/)
+    // At 20 cells the bar shrinks to four before dropping the reset.
     const narrow = await capture(fixture, payload, 20, undefined, wide)
     show('fresh, bar width 40', 20, narrow)
     expectNoWrappedFragments(narrow)
-    expect(lineWith(narrow, /^5h .*95% left/)).toMatch(/^5h █{5} 95% left$/)
-    expect(lineWith(narrow, /^7d .*62% left/)).toMatch(/^7d █{3}░{2} 62% left$/)
+    expect(lineWith(narrow, /^5h .*95% left/)).toMatch(
+      /^5h ░{4} 95% left\s+2h$/,
+    )
+    expect(lineWith(narrow, /^7d .*62% left/)).toMatch(
+      /^7d ██░░ 62% left\s+3d$/,
+    )
   })
 })
 
@@ -687,7 +855,7 @@ describe('OpenCode 1 collapsed sidebar row in a narrow sidebar', () => {
         line.startsWith('… '),
     )
     expect(rows).toHaveLength(accounts.length)
-    for (const row of rows) expect(row.length).toBeLessThanOrEqual(width - 2)
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(width)
     return rows
   }
 
@@ -697,20 +865,12 @@ describe('OpenCode 1 collapsed sidebar row in a narrow sidebar', () => {
     text: string,
     width: number,
   ): void {
-    const innerWidth = width - 2
-    if (text.length > innerWidth) {
-      expect(row).toMatch(new RegExp(`^${label}\\s+●$`))
-      return
-    }
-    expect(row).toContain(text)
-    if (text.length + statusDot.length <= innerWidth)
-      expect(row.endsWith('●')).toBe(true)
-    else expect(row).toBe(text)
-    if (text === freshText || text === secondText) {
-      if (width === 32) expect(row).toMatch(/^…\s/)
-      if (width === 38) expect(row).toMatch(/^Accoun…\s/)
-      if (width === 48) expect(row).toMatch(/^Account \d+\s/)
-    }
+    const kind =
+      text === staleText ? 'stale' : text === emptyText ? 'empty' : 'fresh'
+    const expected = COLLAPSED_ROWS[kind]
+      [width]!.replace('Account 1', label)
+      .replace(freshText, text)
+    expect(row).toBe(expected)
   }
 
   for (const width of COLLAPSED_WIDTHS) {
@@ -749,36 +909,36 @@ describe('OpenCode 1 collapsed sidebar row in a narrow sidebar', () => {
     })
   }
 
-  it('shows the shared line at its 26-cell boundary and only the label just below', async () => {
+  it('keeps the full quota only when its minimum label and trailing dot fit', async () => {
     const tooNarrow = await collapsedRows(
       [freshAccount()],
-      27,
+      29,
       'below shared-line boundary',
     )
     expect(tooNarrow[0]).toMatch(/^Account 1\s+●$/)
 
     const justFits = await collapsedRows(
       [freshAccount()],
-      28,
+      30,
       'shared-line boundary',
     )
-    expect(justFits[0]).toBe(freshText)
+    expect(justFits[0]).toBe(`… ${freshText}${statusDot}`)
   })
 
-  it('keeps the status dot and the minimum label only when the measured width allows both', async () => {
-    const withoutLabel = await collapsedRows(
+  it('keeps the trailing status dot and grows the ellipsized label with the width', async () => {
+    const shortLabel = await collapsedRows(
       [freshAccount()],
       31,
-      'quota and status dot without label',
+      'two-cell label with quota and status dot',
     )
-    expect(withoutLabel[0]).toBe(`${freshText}${statusDot}`)
+    expect(shortLabel[0]).toBe(`A… ${freshText}${statusDot}`)
 
-    const minimumLabel = await collapsedRows(
+    const longerLabel = await collapsedRows(
       [freshAccount()],
       32,
-      'minimum label with quota and status dot',
+      'three-cell label with quota and status dot',
     )
-    expect(minimumLabel[0]).toBe(`… ${freshText}${statusDot}`)
+    expect(longerLabel[0]).toBe(`Ac… ${freshText}${statusDot}`)
   })
 
   it('dims the entire shared line when the shared stale helper marks it old', async () => {

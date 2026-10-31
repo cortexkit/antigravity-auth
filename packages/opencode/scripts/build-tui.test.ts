@@ -789,6 +789,7 @@ test('graph.authored_sidebar_both_roots_keep_host_externals', async () => {
 test('graph.ga_roots', async () => {
   const source = await auditGraph(join(product, GA_TUI_ROOT.entry))
   expect(source.files.map((path) => relative(product, path)).sort()).toEqual([
+    'src/common-auth-embedded/quota-sidebar/index.tsx',
     ...['codec', 'format', 'index', 'map', 'merge', 'projection'].map(
       (name) => `src/common-auth-embedded/quota/${name}.js`,
     ),

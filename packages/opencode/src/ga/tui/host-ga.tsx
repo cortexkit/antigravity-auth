@@ -65,11 +65,11 @@ import {
   type MenuUi,
 } from '../../tui/host-api'
 import {
+  AntigravitySidebar,
   DEFAULT_FRAME_SETTINGS,
   type FrameColor,
   type FrameRoute,
   type FrameTheme,
-  SidebarFrame,
 } from '../../tui/sidebar-frame'
 
 export const GA_TUI_ID = 'cortexkit.antigravity-auth' as const
@@ -1570,7 +1570,7 @@ function GaSidebar(props: {
     }
   }
   return (
-    <SidebarFrame
+    <AntigravitySidebar
       theme={() => sidebarThemeFromHost(props.theme())}
       settings={() => DEFAULT_FRAME_SETTINGS}
       version={props.version}
