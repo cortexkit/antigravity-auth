@@ -36,6 +36,9 @@ const protectedPaths = [
   inputPath,
   ...publication.files.map(([path]) => `${outputPath}/${path}`),
   ...publication.sidebarFiles.map(({ output }) => `${outputPath}/${output}`),
+  ...publication.routingAccessorFiles.map(
+    ({ output }) => `${outputPath}/${output}`,
+  ),
   `${outputPath}/source-output.json`,
   `${outputPath}/NOTICE.txt`,
 ]
@@ -169,6 +172,7 @@ test('embed.inventory', async () => {
     [
       ...publication.files.map(([path]) => String(path)),
       ...publication.sidebarFiles.map(({ output }) => output),
+      ...publication.routingAccessorFiles.map(({ output }) => output),
       'NOTICE.txt',
       'source-output.json',
     ].sort(),
@@ -263,9 +267,10 @@ test('embed.attribution', async () => {
   expect(manifest.publicRoots).toEqual({
     ...publication.publicRoots,
     './quota-sidebar': publication.sidebarRoot,
+    './routing-accessor': publication.routingAccessorRoot,
   })
-  expect(manifest.canonicalFiles).toBe(197)
-  expect(manifest.canonicalBytes).toBe(1266827)
+  expect(manifest.canonicalFiles).toBe(199)
+  expect(manifest.canonicalBytes).toBe(1273636)
   expect(manifest.generator.version).toBe(4)
   expect(manifest.files).toEqual([
     ...publication.files.map(([path, bytes, digest]) => ({
@@ -276,14 +281,16 @@ test('embed.attribution', async () => {
       outputSha256: digest,
       transform: 'verbatim',
     })),
-    ...publication.sidebarFiles.map(({ source, output, bytes, hash }) => ({
-      source,
-      output,
-      bytes,
-      sourceSha256: hash,
-      outputSha256: hash,
-      transform: 'verbatim',
-    })),
+    ...[...publication.sidebarFiles, ...publication.routingAccessorFiles].map(
+      ({ source, output, bytes, hash }) => ({
+        source,
+        output,
+        bytes,
+        sourceSha256: hash,
+        outputSha256: hash,
+        transform: 'verbatim',
+      }),
+    ),
   ])
   expect(manifest.generator.sha256).toBe(
     hash(await readFile(join(root, manifest.generator.path))),

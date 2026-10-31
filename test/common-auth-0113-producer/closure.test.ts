@@ -250,9 +250,10 @@ test('producer.verbatim_map', async () => {
   expect(map.publicRoots).toEqual({
     ...publication.publicRoots,
     './quota-sidebar': publication.sidebarRoot,
+    './routing-accessor': publication.routingAccessorRoot,
   })
-  expect(map.canonicalFiles).toBe(197)
-  expect(map.canonicalBytes).toBe(1266827)
+  expect(map.canonicalFiles).toBe(199)
+  expect(map.canonicalBytes).toBe(1273636)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])
@@ -274,20 +275,28 @@ test('producer.verbatim_map', async () => {
       outputSha256: hash,
       transform: 'verbatim',
     })),
-    ...publication.sidebarFiles.map(({ source, output, bytes, hash }) => ({
-      source,
-      output,
-      bytes,
-      sourceSha256: hash,
-      outputSha256: hash,
-      transform: 'verbatim',
-    })),
+    ...[...publication.sidebarFiles, ...publication.routingAccessorFiles].map(
+      ({ source, output, bytes, hash }) => ({
+        source,
+        output,
+        bytes,
+        sourceSha256: hash,
+        outputSha256: hash,
+        transform: 'verbatim',
+      }),
+    ),
   ])
   for (const [file, bytes, hash] of publication.files) {
     const output = await readFile(join(target, outputPath, String(file)))
     expect(output.equals(entries.get(`package/dist/${file}`)!)).toBe(true)
     expect(output.length).toBe(Number(bytes))
     expect(digest(output)).toBe(String(hash))
+  }
+  for (const file of publication.routingAccessorFiles) {
+    const output = await readFile(join(target, outputPath, file.output))
+    expect(output.equals(entries.get(file.source)!)).toBe(true)
+    expect(output.length).toBe(file.bytes)
+    expect(digest(output)).toBe(file.hash)
   }
   expect(
     (await readFile(join(target, outputPath, 'NOTICE.txt'))).equals(

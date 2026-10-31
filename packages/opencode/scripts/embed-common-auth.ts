@@ -76,6 +76,10 @@ export const embeddingProfiles = {
     outputPath,
     publicRoots: {
       ...publicRoots,
+      './routing-accessor': {
+        types: './dist/routing-accessor/index.d.ts',
+        import: './dist/routing-accessor/index.js',
+      },
       './quota-sidebar': {
         types: './dist/quota-sidebar/index.d.ts',
         import: './src/quota-sidebar/index.tsx',
@@ -1105,6 +1109,23 @@ const sidebarCanonical: readonly CanonicalEntry[] = [
   },
 ]
 
+const routingAccessorCanonical: readonly CanonicalEntry[] = [
+  {
+    kind: 'dist',
+    source: 'package/dist/routing-accessor/index.d.ts',
+    output: 'routing-accessor/index.d.ts',
+    bytes: 2270,
+    hash: 'f938266c646a5edfcd93fb6135ce05c32f25b738a85bde1727639b31ae1fff05',
+  },
+  {
+    kind: 'dist',
+    source: 'package/dist/routing-accessor/index.js',
+    output: 'routing-accessor/index.js',
+    bytes: 4539,
+    hash: '83cbaf2fdc44bf80656576122a418901128bc3bbf3062f1e7d1d68665d6ab731',
+  },
+]
+
 function canonicalEntries(
   consumer: CommonAuthEmbeddingPackage,
 ): CanonicalEntry[] {
@@ -1124,7 +1145,9 @@ function canonicalEntries(
           hash,
         }),
       ),
-    ...(consumer === 'opencode' ? sidebarCanonical : []),
+    ...(consumer === 'opencode'
+      ? [...sidebarCanonical, ...routingAccessorCanonical]
+      : []),
   ]
 }
 
