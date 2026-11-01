@@ -3445,6 +3445,107 @@ describe('Antigravity-owned selection policy', () => {
   })
 })
 
+describe('createRequestExecutor eligible-pool soft quota', () => {
+  const killswitch10 = {
+    get: () => ({
+      killswitch: { enabled: true, minimum_remaining_percent: 10 },
+      log_level: 'info' as const,
+    }),
+  }
+
+  it('keeps the single-account soft-quota exemption with a killswitched alternative', async () => {
+    const date = spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
+    const pool = makePool(2)
+    for (const [index, remainingFraction] of [0.15, 0.05].entries()) {
+      pool.updateQuotaCache(
+        index,
+        {
+          gemini: {
+            remainingFraction,
+            resetTime: new Date(FIXED_NOW + 8_000).toISOString(),
+            modelCount: 1,
+          },
+        },
+        pool.getAccounts()[index]?.parts.refreshToken,
+      )
+    }
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: {
+        soft_quota_threshold_percent: 80,
+        max_rate_limit_wait_seconds: 1,
+      },
+    })
+    const executor = createRequestExecutor({
+      ...h.deps,
+      operatorSettings: killswitch10,
+    })
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(h.calls).toHaveLength(1)
+      expect(h.refreshedAccounts.map((account) => account.index)).toEqual([0])
+    } finally {
+      await executor.dispose()
+      date.mockRestore()
+    }
+  })
+
+  it('blocks two permitted over-threshold accounts and reports only the eligible pool reset', async () => {
+    const date = spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
+    const pool = makePool(3)
+    const readings = [
+      { remainingFraction: 0.15, resetAfterMs: 8_000 },
+      { remainingFraction: 0.12, resetAfterMs: 10_000 },
+      { remainingFraction: 0.05, resetAfterMs: 2_000 },
+    ]
+    for (const [index, reading] of readings.entries()) {
+      pool.updateQuotaCache(
+        index,
+        {
+          gemini: {
+            remainingFraction: reading.remainingFraction,
+            resetTime: new Date(FIXED_NOW + reading.resetAfterMs).toISOString(),
+            modelCount: 1,
+          },
+        },
+        pool.getAccounts()[index]?.parts.refreshToken,
+      )
+    }
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: {
+        soft_quota_threshold_percent: 80,
+        max_rate_limit_wait_seconds: 1,
+      },
+    })
+    const executor = createRequestExecutor({
+      ...h.deps,
+      operatorSettings: killswitch10,
+    })
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(412)
+      expect(response.headers.get('Retry-After')).toBe('8')
+      expect(await response.json()).toEqual({
+        error: {
+          code: 412,
+          status: 'FAILED_PRECONDITION',
+          message:
+            'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or turn off soft quota protection with `"soft_quota_threshold_percent": 100` in antigravity.json. Quota resets in 8s.',
+        },
+      })
+      expect(h.calls).toHaveLength(0)
+      expect(h.refreshedAccounts).toHaveLength(0)
+    } finally {
+      await executor.dispose()
+      date.mockRestore()
+    }
+  })
+})
+
 describe('createRequestExecutor eligible-pool wait calculation', () => {
   const killswitch50 = {
     get: () => ({

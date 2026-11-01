@@ -16,6 +16,7 @@ import { parseConfigFileTextToJson } from 'typescript'
 import { getAgyModelEnum } from '../../core/src/agy-request-metadata.ts'
 import { getPublicModelDefinitions } from '../../core/src/model-registry.ts'
 import { resolveAntigravityModel } from '../../core/src/transform/model-resolver.ts'
+import { placeholderCredential } from '../../opencode/src/common-auth-embedded/opencode2/index.js'
 import {
   assertMeasuredNativeJob,
   assertNativeBoundary,
@@ -1783,13 +1784,11 @@ describe('GA ownership harness preparation (source controls, not native proof)',
 
   it('reconnects an existing local pool through the native integration OAuth API without browser callback or token exchange', async () => {
     const paths = prepareGaRoot(root())
-    const reconnectValue = {
-      type: 'oauth',
+    const reconnectValue = placeholderCredential({
+      integrationID: 'google',
       methodID: 'antigravity-auth-pool-reconnect',
-      access: 'common-auth-placeholder.google.access',
-      refresh: 'common-auth-placeholder.google.refresh',
-      expires: 4102444800000,
-    }
+      now: Date.parse('2026-07-22T12:00:00.000Z'),
+    })
     const entries: Array<Record<string, unknown>> = []
     let browserCallbacks = 0
     const listener = Bun.serve({

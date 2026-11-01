@@ -346,7 +346,7 @@ describe('GA existing local pool reconnect', () => {
     }
   })
 
-  it('saves the Antigravity connection on reconnect and the next request uses the Google placeholder without browser consent or account refresh', async () => {
+  it('returns the public marker and directly serves a request from the existing pool without account refresh', async () => {
     const f = await fixture()
     try {
       await f.login()

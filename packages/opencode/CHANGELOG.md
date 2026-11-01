@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- OpenCode 2 can reconnect an existing local Antigravity pool without browser consent, adding accounts, or refreshing their credentials.
+
+### Fixed
+
+- Request waits and soft-quota protection now use only the accounts eligible for that request, including operator and model exclusions, and honor account cooldowns.
+
 ### Changed
 
 - `OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR` sets one vault folder for several OpenCode hosts, so a runner that starts many hosts needs one approved enrollment instead of one per host.
