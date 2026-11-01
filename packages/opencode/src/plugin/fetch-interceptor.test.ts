@@ -1041,10 +1041,17 @@ describe('createFetchInterceptor', () => {
 
     it('does not invent a quota reset from the fallback sleep duration', async () => {
       const context = await makeContext({ config })
+      for (const account of context.accountManager.getAccounts()) {
+        context.accountManager.markAccountCoolingDown(
+          account,
+          60_000,
+          'auth-failure',
+        )
+      }
       spyOn(
         context.accountManager,
-        'getCurrentOrNextForFamily',
-      ).mockReturnValue(null)
+        'getMinSelectableWaitTimeForFamily',
+      ).mockReturnValue(0)
       const interceptor = createFetchInterceptor(context)
       try {
         const response = await interceptor.fetch(
@@ -1062,6 +1069,42 @@ describe('createFetchInterceptor', () => {
         expect(transportMock).not.toHaveBeenCalled()
       } finally {
         interceptor.dispose()
+        await context.accountManager.dispose()
+      }
+    })
+
+    it('demonstrates finite real cooldown metadata separately from quota resets', async () => {
+      const accountManager = new AccountManager(undefined, storedAccounts(), {
+        now: () => FIXED_NOW,
+      })
+      const context = await makeContext({ accountManager, config })
+      try {
+        for (const account of context.accountManager.getAccounts()) {
+          context.accountManager.markAccountCoolingDown(
+            account,
+            60_000,
+            'auth-failure',
+          )
+        }
+        // Cooldown is reported when opted in to cooldown-aware wait inspection:
+        expect(
+          context.accountManager.getMinWaitTimeForFamily(
+            'gemini',
+            'gemini-3-flash',
+            null,
+            true,
+          ),
+        ).toBe(60_000)
+        // Pure quota rate limits helper without cooldown opt-in reports 0 (no quota reset):
+        expect(
+          context.accountManager.getMinWaitTimeForFamily(
+            'gemini',
+            'gemini-3-flash',
+            null,
+            false,
+          ),
+        ).toBe(0)
+      } finally {
         await context.accountManager.dispose()
       }
     })

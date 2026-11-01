@@ -1686,3 +1686,605 @@ describe('AccountSelector getMinWaitTimeForFamily regression tests', () => {
     ).toBe(0)
   })
 })
+
+describe('AccountSelector soft-quota scoping and selectable wait tests', () => {
+  const NOW = 1_700_000_000_000
+  const TTL = 10 * 60 * 1000
+
+  it('exempts sole eligible account from soft quota under killswitch / ineligible / verification / disabled exclusions across all selection strategies', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    const makeAccounts = (): SelectableAccount[] => [
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1, // 90% used >= 80% threshold
+            modelCount: 1,
+          },
+        },
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1,
+            modelCount: 1,
+          },
+        },
+      },
+    ]
+
+    // 1. Killswitch / excludedIndexes excludes account 1:
+    selector.resetAccounts(makeAccounts())
+    const killed1 = new Set([1])
+    // isAccountOverSoftQuota with excludeIndexes sees only 1 eligible account -> exempt (returns false)
+    expect(
+      selector.isAccountOverSoftQuota(
+        selector.getAccounts()[0]!,
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+        killed1,
+      ),
+    ).toBe(false)
+    // Selection strategies select account 0 despite high quota:
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3-flash',
+        'sticky',
+        false,
+        80,
+        TTL,
+        undefined,
+        killed1,
+      )?.index,
+    ).toBe(0)
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3-flash',
+        'round-robin',
+        false,
+        80,
+        TTL,
+        undefined,
+        killed1,
+      )?.index,
+    ).toBe(0)
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3-flash',
+        'hybrid',
+        false,
+        80,
+        TTL,
+        undefined,
+        killed1,
+      )?.index,
+    ).toBe(0)
+    // areAllAccountsOverSoftQuota and getMinWaitTimeForSoftQuota reflect sole-eligible exemption:
+    expect(
+      selector.areAllAccountsOverSoftQuota(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+        new Set([0]),
+      ),
+    ).toBe(false)
+    expect(
+      selector.getMinWaitTimeForSoftQuota(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+        new Set([0]),
+      ),
+    ).toBe(0)
+
+    // 2. accountIneligible on account 1:
+    const accsIneligible = makeAccounts()
+    accsIneligible[1]!.accountIneligible = true
+    selector.resetAccounts(accsIneligible)
+    expect(
+      selector.isAccountOverSoftQuota(
+        selector.getAccounts()[0]!,
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+      ),
+    ).toBe(false)
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3-flash',
+        'sticky',
+        false,
+        80,
+        TTL,
+      )?.index,
+    ).toBe(0)
+
+    // 3. verificationRequired on account 1:
+    const accsVerification = makeAccounts()
+    accsVerification[1]!.verificationRequired = true
+    selector.resetAccounts(accsVerification)
+    expect(
+      selector.isAccountOverSoftQuota(
+        selector.getAccounts()[0]!,
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+      ),
+    ).toBe(false)
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3-flash',
+        'sticky',
+        false,
+        80,
+        TTL,
+      )?.index,
+    ).toBe(0)
+
+    // 4. disabled on account 1:
+    const accsDisabled = makeAccounts()
+    accsDisabled[1]!.enabled = false
+    selector.resetAccounts(accsDisabled)
+    expect(
+      selector.isAccountOverSoftQuota(
+        selector.getAccounts()[0]!,
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+      ),
+    ).toBe(false)
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3-flash',
+        'sticky',
+        false,
+        80,
+        TTL,
+      )?.index,
+    ).toBe(0)
+  })
+
+  it('ignores excluded accounts with short resets or under-threshold quotas in getMinWaitTimeForSoftQuota and getMinSelectableWaitTimeForFamily', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1,
+            resetTime: new Date(NOW + 500).toISOString(), // short 500ms reset on excluded account
+            modelCount: 1,
+          },
+        },
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1,
+            resetTime: new Date(NOW + 5_000).toISOString(), // 5s reset on eligible account
+            modelCount: 1,
+          },
+        },
+      },
+      {
+        index: 2,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1,
+            resetTime: new Date(NOW + 10_000).toISOString(), // 10s reset on eligible account
+            modelCount: 1,
+          },
+        },
+      },
+    ])
+
+    const eligible1And2 = new Set([1, 2])
+    // Helper ignores account 0 and returns min between 1 and 2 (5000ms, not 500ms):
+    expect(
+      selector.getMinWaitTimeForSoftQuota(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+        eligible1And2,
+      ),
+    ).toBe(5_000)
+    expect(
+      selector.getMinSelectableWaitTimeForFamily(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+        eligible1And2,
+      ),
+    ).toBe(5_000)
+  })
+
+  it('computes earliest true selectable wait in mixed blocked pool', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        coolingDownUntil: NOW + 2_000,
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.5, // 50% used < 80% threshold -> under soft quota
+            modelCount: 1,
+          },
+        },
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1, // 90% used >= 80% threshold -> over soft quota
+            resetTime: new Date(NOW + 3_600_000).toISOString(), // 1h reset
+            modelCount: 1,
+          },
+        },
+      },
+    ])
+
+    // Account 0 selectable wait: max(hard: 0, cooldown: 2000, soft: 0) = 2000
+    // Account 1 selectable wait: max(hard: 0, cooldown: 0, soft: 3600000) = 3600000
+    // True earliest selectable wait is 2000ms:
+    expect(
+      selector.getMinSelectableWaitTimeForFamily(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+      ),
+    ).toBe(2_000)
+  })
+
+  it('handles 10s hard rate-limit with 1h soft reset vs 1s soft reset correctly', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {
+          gemini: NOW + 10_000,
+          'gemini:gemini-3-flash': NOW + 10_000,
+        },
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1,
+            resetTime: new Date(NOW + 3_600_000).toISOString(), // 1h soft reset
+            modelCount: 1,
+          },
+        },
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1,
+            resetTime: new Date(NOW + 1_000).toISOString(), // 1s soft reset
+            modelCount: 1,
+          },
+        },
+      },
+    ])
+
+    // Account 0 wait: max(hard: 10000, soft: 3600000) = 3600000
+    // Account 1 wait: max(hard: 0, soft: 1000) = 1000
+    // Earliest selectable wait is 1000ms:
+    expect(
+      selector.getMinSelectableWaitTimeForFamily(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+      ),
+    ).toBe(1_000)
+  })
+
+  it('distinguishes empty / ready / sole / unknown / stale cases in getMinSelectableWaitTimeForFamily', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+
+    // 1. empty: 0 eligible accounts
+    selector.resetAccounts([])
+    expect(
+      selector.getMinSelectableWaitTimeForFamily(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+      ),
+    ).toBeNull()
+
+    // 2. ready: eligible account usable immediately (0 wait)
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+      },
+    ])
+    expect(
+      selector.getMinSelectableWaitTimeForFamily(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+      ),
+    ).toBe(0)
+
+    // 3. sole: sole eligible account over soft quota threshold is exempt, returns its hard wait
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { gemini: NOW + 4_000 },
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1, // >80% used, but sole eligible
+            resetTime: new Date(NOW + 3_600_000).toISOString(),
+            modelCount: 1,
+          },
+        },
+      },
+      {
+        index: 1,
+        enabled: false,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+      },
+    ])
+    expect(
+      selector.getMinSelectableWaitTimeForFamily(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+      ),
+    ).toBe(4_000)
+
+    // 4. unknown: multi-account pool over soft quota with no resetTime data
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1,
+            // no resetTime
+            modelCount: 1,
+          },
+        },
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1,
+            // no resetTime
+            modelCount: 1,
+          },
+        },
+      },
+    ])
+    expect(
+      selector.getMinSelectableWaitTimeForFamily(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+      ),
+    ).toBeNull()
+
+    // 5. stale: multi-account pool over soft quota with resetTime in the past
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1,
+            resetTime: new Date(NOW - 1_000).toISOString(), // in the past
+            modelCount: 1,
+          },
+        },
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+        cachedQuotaUpdatedAt: NOW,
+        cachedQuota: {
+          gemini: {
+            remainingFraction: 0.1,
+            resetTime: new Date(NOW - 5_000).toISOString(), // in the past
+            modelCount: 1,
+          },
+        },
+      },
+    ])
+    expect(
+      selector.getMinSelectableWaitTimeForFamily(
+        'gemini',
+        80,
+        TTL,
+        'gemini-3-flash',
+      ),
+    ).toBeNull()
+  })
+
+  it('strictly excludes accountIneligible and verificationRequired accounts across sticky / roundrobin / hybrid / pinned / proactive selection', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    const sessionIdentity = { id: 'test-session' }
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        accountIneligible: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+      },
+      {
+        index: 1,
+        enabled: true,
+        verificationRequired: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+      },
+      {
+        index: 2,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+      },
+    ])
+
+    // Pinned session check:
+    selector.markSwitched(
+      selector.getAccounts()[0]!,
+      'rotation',
+      'gemini',
+      sessionIdentity,
+    )
+    expect(
+      selector.getCurrentAccountForFamily('gemini', sessionIdentity),
+    ).toBeNull()
+
+    // Sticky selection falls through past ineligible 0 and verification 1 to account 2:
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3-flash',
+        'sticky',
+        false,
+        100,
+        TTL,
+        sessionIdentity,
+      )?.index,
+    ).toBe(2)
+
+    // Round-robin selection selects account 2:
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3-flash',
+        'round-robin',
+        false,
+        100,
+        TTL,
+        sessionIdentity,
+      )?.index,
+    ).toBe(2)
+
+    // Hybrid selection selects account 2:
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        'gemini-3-flash',
+        'hybrid',
+        false,
+        100,
+        TTL,
+        sessionIdentity,
+      )?.index,
+    ).toBe(2)
+
+    // Proactive rotation skips accounts 0 and 1:
+    selector.markSwitched(
+      selector.getAccounts()[2]!,
+      'rotation',
+      'gemini',
+      sessionIdentity,
+    )
+    expect(
+      selector.proactivelyRotateForFamily(
+        'gemini',
+        'gemini-3-flash',
+        100,
+        TTL,
+        sessionIdentity,
+      ),
+    ).toBeNull()
+  })
+})

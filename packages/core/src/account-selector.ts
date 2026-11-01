@@ -1263,6 +1263,12 @@ export class AccountSelector<A extends SelectableAccount> {
     const candidates = this.preferAccountOutsideParent(
       this.accounts.filter((acc) => {
         if (acc.enabled === false) return false
+        if (
+          acc.accountIneligible === true ||
+          acc.verificationRequired === true
+        ) {
+          return false
+        }
         if (acc.index === currentIndex) return false
         clearExpiredRateLimits(acc, this.now)
         if (isRateLimitedForFamily(acc, family, this.now, model)) return false
@@ -1641,7 +1647,9 @@ export class AccountSelector<A extends SelectableAccount> {
    *
    * Note: Returning `0` can mean either:
    * 1. No eligible candidates exist in the pool, OR
-   * 2. At least one eligible candidate is immediately usable without waiting.
+   * 2. At least one eligible candidate is hard/cooldown-ready without waiting
+   *    (this does not imply the candidate is fully selectable, as soft quota
+   *    or session-level policies may still apply).
    * Callers must distinguish "no eligible candidates" from "zero wait time"
    * by inspecting candidate pool availability / eligibility directly.
    *
@@ -1649,7 +1657,7 @@ export class AccountSelector<A extends SelectableAccount> {
    * @param model Optional model name for per-model rate limits
    * @param eligibleIndexes Optional set of account indexes permitted for this request
    * @param includeCooldown Whether to factor in `coolingDownUntil` alongside quota rate limits
-   * @returns Minimum wait duration in milliseconds, or 0 if immediately usable or no candidates
+   * @returns Minimum wait duration in milliseconds, or 0 if hard/cooldown-ready or no candidates
    */
   getMinWaitTimeForFamily(
     family: ModelFamily,
@@ -1951,15 +1959,90 @@ export class AccountSelector<A extends SelectableAccount> {
     thresholdPercent: number,
     cacheTtlMs: number,
     model?: string | null,
+    excludeIndexes?: Set<number>,
   ): boolean {
     return isOverSoftQuotaThreshold(
       account,
       family,
-      this.getEffectiveSoftQuotaThreshold(thresholdPercent),
+      this.getEffectiveSoftQuotaThreshold(thresholdPercent, excludeIndexes),
       cacheTtlMs,
       this.now,
       model,
     )
+  }
+
+  /**
+   * Calculates the minimum wait duration across eligible accounts until at least
+   * one candidate becomes selectable.
+   *
+   * For each eligible account:
+   *   accountWait = max(hardCooldownWait, applicableSoftResetDelay)
+   * where hardCooldownWait uses getMinWaitTimeForFamily(..., includeCooldown=true).
+   * Soft quota is applicable if and only if eligible.length > 1 and thresholdPercent < 100.
+   * Unknown soft reset renders that account an unknown candidate.
+   * Returns minimum known accountWait, or null if no eligible candidates or all unknown.
+   */
+  getMinSelectableWaitTimeForFamily(
+    family: ModelFamily,
+    thresholdPercent: number,
+    cacheTtlMs: number,
+    model?: string | null,
+    eligibleIndexes?: Set<number> | null,
+  ): number | null {
+    const eligible = this.accounts.filter(
+      (a) =>
+        a.enabled !== false &&
+        a.accountIneligible !== true &&
+        a.verificationRequired !== true &&
+        (eligibleIndexes == null || eligibleIndexes.has(a.index)),
+    )
+    if (eligible.length === 0) return null
+
+    const now = this.now()
+    const applySoftQuota = eligible.length > 1 && thresholdPercent < 100
+
+    const knownWaits: number[] = []
+
+    for (const acc of eligible) {
+      const hardCooldownWait = this.getMinWaitTimeForFamily(
+        family,
+        model,
+        new Set([acc.index]),
+        true,
+      )
+
+      if (
+        applySoftQuota &&
+        isOverSoftQuotaThreshold(
+          acc,
+          family,
+          thresholdPercent,
+          cacheTtlMs,
+          this.now,
+          model,
+        )
+      ) {
+        if (!model && family !== 'claude') {
+          continue
+        }
+        const quotaGroup = resolveQuotaGroup(family, model, acc.cachedQuota)
+        const groupData = acc.cachedQuota?.[quotaGroup]
+        if (!groupData?.resetTime) {
+          continue
+        }
+        const resetTimestamp = Date.parse(groupData.resetTime)
+        if (!Number.isFinite(resetTimestamp) || resetTimestamp <= now) {
+          continue
+        }
+        const softResetDelay = resetTimestamp - now
+        knownWaits.push(Math.max(hardCooldownWait, softResetDelay))
+      } else {
+        knownWaits.push(hardCooldownWait)
+      }
+    }
+
+    if (knownWaits.length === 0) return null
+    return Math.min(...knownWaits)
   }
 
   getOldestQuotaCacheAge(): number | null {
