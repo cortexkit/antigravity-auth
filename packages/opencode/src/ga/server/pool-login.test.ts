@@ -297,6 +297,31 @@ describe('GA existing local pool reconnect', () => {
     }
   })
 
+  it('allows concurrent login on a fresh store while reconnect refuses without poisoning initialization', async () => {
+    const f = await fixture()
+    try {
+      const reconnecting = f.reconnect()
+      const loggingIn = f.login()
+      const [reconnectResult, loginResult] = await Promise.allSettled([
+        reconnecting,
+        loggingIn,
+      ])
+      expect(reconnectResult.status).toBe('rejected')
+      if (reconnectResult.status === 'rejected') {
+        expect(reconnectResult.reason.message).toContain(FAILED)
+      }
+      expect(loginResult.status).toBe('fulfilled')
+      if (loginResult.status === 'fulfilled') {
+        expect(isPlaceholderCredential(loginResult.value, 'google')).toBe(true)
+      }
+      const accountRows = await rows(f)
+      expect(accountRows).toHaveLength(1)
+      expect(accountRows[0]?.credential?.refreshToken).toBe('pool-refresh')
+    } finally {
+      await f.cleanup()
+    }
+  })
+
   for (const mode of ['custody', 'unreadable'] as const) {
     it(`refuses ${mode} after seeding without writes`, async () => {
       const f = await fixture()

@@ -36,7 +36,7 @@ Pool login persists credentials in the plugin's local repository before returnin
 
 ### Reconnect an existing local pool
 
-After offline migration, use **Use existing local Antigravity pool** (`antigravity-auth-pool-reconnect`) to establish the host's **Antigravity** connection without adding or replacing an account. No browser consent is needed: the method returns only a non-secret host marker after checking the existing local store. It never initializes, migrates, exchanges or refreshes account credentials. A fresh, empty, unavailable or pending store, an entirely disabled or blocked pool, and vault or unreadable custody are refused. Browser pool-add still deliberately rejects duplicate identities; reconnect is not reauthorization.
+After offline migration, use **Use existing local Antigravity pool** (`antigravity-auth-pool-reconnect`) to establish the host's **Antigravity** connection without adding or replacing an account. No browser consent is needed: the method returns only a non-secret host marker after checking the existing local store. It never initializes, migrates, exchanges or refreshes account credentials. A fresh, empty, unreadable, damaged, or unavailable store, a pool with no enabled, usable, unblocked, active account (including ineligible or verification-blocked accounts), and vault or custody-protected state are refused. Browser pool-add still deliberately rejects duplicate identities; reconnect is not reauthorization.
 
 This is an automatic OAuth method with an empty URL because the native SDK has no no-browser method kind. Invoke it through the native integration OAuth API; a frontend that insists on opening a browser for every OAuth method may report an empty-URL browser error.
 
