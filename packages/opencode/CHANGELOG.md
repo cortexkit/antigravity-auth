@@ -9,6 +9,7 @@
 ### Fixed
 
 - Request waits and soft-quota protection now use only the accounts eligible for that request, including operator and model exclusions, and honor account cooldowns.
+- Waits for a pool that mixes rate-limited, cooling-down and low-quota accounts now use one estimate for the next usable account, and refusals no longer show a reset time that has already partly passed.
 
 ### Changed
 

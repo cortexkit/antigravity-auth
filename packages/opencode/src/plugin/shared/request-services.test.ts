@@ -3557,6 +3557,58 @@ describe('createRequestExecutor eligible-pool soft quota', () => {
   })
 })
 
+describe('createRequestExecutor refusal reset countdown', () => {
+  for (const blocker of ['hard', 'soft'] as const) {
+    it(`${blocker}-quota refusals count the reset down across a three-second notification`, async () => {
+      let wall = FIXED_NOW
+      const date = spyOn(Date, 'now').mockImplementation(() => wall)
+      const pool = makePool(2)
+      for (const account of pool.getAccounts()) {
+        if (blocker === 'hard') {
+          pool.markRateLimited(account, 10_000, 'gemini', 'gemini-3-flash')
+        } else {
+          pool.updateQuotaCache(
+            account.index,
+            {
+              gemini: {
+                remainingFraction: 0.1,
+                resetTime: new Date(wall + 10_000).toISOString(),
+                modelCount: 1,
+              },
+            },
+            account.parts.refreshToken,
+          )
+        }
+      }
+      const h = harness({
+        pool,
+        respond: async () => okJson(),
+        config: {
+          quiet_mode: false,
+          max_rate_limit_wait_seconds: 1,
+          soft_quota_threshold_percent: 80,
+        },
+        notify: async () => {
+          wall += 3_000
+        },
+      })
+      const executor = createRequestExecutor(h.deps)
+      try {
+        const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+        expect(response.status).toBe(412)
+        expect(h.calls).toHaveLength(0)
+        expect(wall).toBe(FIXED_NOW + 3_000)
+        expect(response.headers.get('Retry-After')).toBe('7')
+        const body = (await response.json()) as { error: { message: string } }
+        expect(body.error.message).toContain('Quota resets in 7s.')
+      } finally {
+        await executor.dispose()
+        date.mockRestore()
+      }
+    })
+  }
+})
+
 describe('createRequestExecutor eligible-pool wait calculation', () => {
   const killswitch50 = {
     get: () => ({
@@ -3940,7 +3992,7 @@ describe('createRequestExecutor eligible-pool wait calculation', () => {
     }
   })
 
-  it('allsoft A soft2+cooldown8 B soft20 => 8s scheduling/toast and max4 refusal with NO metadata', async () => {
+  it('immediately refuses an all-soft-quota pool with cooldown beyond max wait, shows an unknown-reset error notice, and omits reset metadata', async () => {
     const wall = FIXED_NOW
     const date = spyOn(Date, 'now').mockImplementation(() => wall)
     const pool = makePool(2)

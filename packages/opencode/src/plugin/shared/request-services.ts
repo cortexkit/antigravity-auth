@@ -1476,7 +1476,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             return createNativeGoogleErrorResponse({
               status: 412,
               reason: 'soft_quota',
-              resetAfterMs,
+              resetAfterMs: remainingResetAfterMs(),
             })
           }
 
