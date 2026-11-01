@@ -2295,6 +2295,16 @@ export class AccountStoreBusyError extends Error {
   }
 }
 
+async function readAdmissionState(path: string) {
+  try {
+    const bytes = await secureRead(path)
+    return { bytes, stamp: digest(bytes) }
+  } catch (error) {
+    if (errno(error) === 'ENOENT') return { bytes: undefined, stamp: undefined }
+    throw error
+  }
+}
+
 async function currentSuccessor(
   store: Pick<MigrationPoolStore, 'read' | 'readSettings'>,
   paths: AccountStorePaths,
@@ -2304,6 +2314,7 @@ async function currentSuccessor(
     // The config's version is a schema version, not a write counter. Hash the exact
     // config bytes so quota-only saves also invalidate a mixed snapshot.
     const configBytes = await secureRead(paths.configPath)
+    let state: Awaited<ReturnType<typeof readAdmissionState>> | undefined
     let snapshot:
       | {
           stateBytes: Uint8Array | undefined
@@ -2313,10 +2324,9 @@ async function currentSuccessor(
       | undefined
     let failure: { error: unknown } | undefined
     try {
+      state = await readAdmissionState(paths.statePath)
       snapshot = {
-        stateBytes: (await exists(paths.statePath))
-          ? await secureRead(paths.statePath)
-          : undefined,
+        stateBytes: state.bytes,
         rows: await rowsOf(store),
         settings: await settingsOf(store),
       }
@@ -2325,7 +2335,13 @@ async function currentSuccessor(
     }
     // Defer even read failures until the stamp agrees: a writer can
     // make individually valid reads disagree without damaging the store.
-    if (digest(configBytes) !== digest(await secureRead(paths.configPath)))
+    const checkedConfigBytes = await secureRead(paths.configPath)
+    // Credential refresh can change state without publishing a new config.
+    const checkedState = await readAdmissionState(paths.statePath)
+    if (
+      digest(configBytes) !== digest(checkedConfigBytes) ||
+      (state !== undefined && state.stamp !== checkedState.stamp)
+    )
       continue
     if (failure) throw failure.error
     if (!snapshot) throw new AccountMigrationError('active snapshot missing')
