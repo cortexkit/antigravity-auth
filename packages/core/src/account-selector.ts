@@ -836,8 +836,13 @@ export class AccountSelector<A extends SelectableAccount> {
     const currentIndex = this.getActiveIndex(family, identity)
     if (currentIndex >= 0 && currentIndex < this.accounts.length) {
       const account = this.accounts[currentIndex] ?? null
-      // Only return account if it's enabled - disabled accounts should not be selected
-      if (account && account.enabled !== false) {
+      // Only return account if it's enabled and eligible - disabled/ineligible accounts should not be selected
+      if (
+        account &&
+        account.enabled !== false &&
+        account.accountIneligible !== true &&
+        account.verificationRequired !== true
+      ) {
         return account
       }
     }
@@ -962,7 +967,11 @@ export class AccountSelector<A extends SelectableAccount> {
 
       const eligibleAccounts = this.preferAccountOutsideParent(
         this.accounts.filter(
-          (acc) => acc.enabled !== false && !excludeIndexes?.has(acc.index),
+          (acc) =>
+            acc.enabled !== false &&
+            acc.accountIneligible !== true &&
+            acc.verificationRequired !== true &&
+            !excludeIndexes?.has(acc.index),
         ),
         family,
         identity,
@@ -1097,6 +1106,8 @@ export class AccountSelector<A extends SelectableAccount> {
       clearExpiredRateLimits(account, this.now)
       return (
         account.enabled !== false &&
+        account.accountIneligible !== true &&
+        account.verificationRequired !== true &&
         !excludeIndexes?.has(account.index) &&
         !isRateLimitedForFamily(account, family, this.now, model) &&
         !isOverSoftQuotaThreshold(
@@ -1413,6 +1424,8 @@ export class AccountSelector<A extends SelectableAccount> {
       clearExpiredRateLimits(acc, this.now)
       return (
         acc.enabled !== false &&
+        acc.accountIneligible !== true &&
+        acc.verificationRequired !== true &&
         this.isFreshForQuota(acc, quotaKey) &&
         !isRateLimitedForFamily(acc, family, this.now, model) &&
         !this.isAccountCoolingDown(acc)
@@ -1605,6 +1618,22 @@ export class AccountSelector<A extends SelectableAccount> {
     return true
   }
 
+  /**
+   * Calculates the minimum wait time in milliseconds across eligible accounts
+   * for a given model family (and optional model).
+   *
+   * Note: Returning `0` can mean either:
+   * 1. No eligible candidates exist in the pool, OR
+   * 2. At least one eligible candidate is immediately usable without waiting.
+   * Callers must distinguish "no eligible candidates" from "zero wait time"
+   * by inspecting candidate pool availability / eligibility directly.
+   *
+   * @param family Model family (e.g., 'claude', 'gemini')
+   * @param model Optional model name for per-model rate limits
+   * @param eligibleIndexes Optional set of account indexes permitted for this request
+   * @param includeCooldown Whether to factor in `coolingDownUntil` alongside quota rate limits
+   * @returns Minimum wait duration in milliseconds, or 0 if immediately usable or no candidates
+   */
   getMinWaitTimeForFamily(
     family: ModelFamily,
     model?: string | null,
@@ -1615,10 +1644,10 @@ export class AccountSelector<A extends SelectableAccount> {
     const waits = this.accounts
       .filter((a) => {
         if (a.enabled === false) return false
+        if (a.accountIneligible === true || a.verificationRequired === true) {
+          return false
+        }
         if (eligibleIndexes !== undefined && eligibleIndexes !== null) {
-          if (a.accountIneligible === true || a.verificationRequired === true) {
-            return false
-          }
           if (!eligibleIndexes.has(a.index)) return false
         }
         return true

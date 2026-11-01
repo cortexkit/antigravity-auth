@@ -3445,6 +3445,282 @@ describe('Antigravity-owned selection policy', () => {
   })
 })
 
+describe('createRequestExecutor eligible-pool wait calculation', () => {
+  const killswitch50 = {
+    get: () => ({
+      killswitch: { enabled: true, minimum_remaining_percent: 50 },
+      log_level: 'info' as const,
+    }),
+  }
+
+  it('excludes killswitched short-timer account and refuses based on allowed longer-timer exceeding max_rate_limit_wait_seconds', async () => {
+    const wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const pool = makePool(2)
+    const [account0, account1] = pool.getAccounts() as [
+      ManagedAccount,
+      ManagedAccount,
+    ]
+    // Account 0: short wait (2s), but killswitched (10% remaining vs 50% threshold)
+    pool.markRateLimited(account0, 2_000, 'gemini', 'gemini-3-flash')
+    pool.updateQuotaCache(
+      0,
+      {
+        gemini: {
+          remainingFraction: 0.1,
+          resetTime: new Date(wall + 3_600_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account0.parts.refreshToken,
+    )
+    // Account 1: longer wait (10s), allowed by killswitch (80% remaining)
+    pool.markRateLimited(account1, 10_000, 'gemini', 'gemini-3-flash')
+    pool.updateQuotaCache(
+      1,
+      {
+        gemini: {
+          remainingFraction: 0.8,
+          resetTime: new Date(wall + 3_600_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account1.parts.refreshToken,
+    )
+
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: { max_rate_limit_wait_seconds: 5 },
+    })
+    const executor = createRequestExecutor({
+      ...h.deps,
+      operatorSettings: killswitch50,
+    })
+    try {
+      // If account 0 were considered, wait would be 2s <= 5s (wait permitted).
+      // Since account 0 is killswitch-excluded, eligible pool wait is 10s > 5s (refused).
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(412)
+      expect(response.headers.get('Retry-After')).toBe('10')
+      const body = (await response.json()) as {
+        error: { message: string; status: string }
+      }
+      expect(body.error.status).toBe('FAILED_PRECONDITION')
+      expect(body.error.message).toContain('Quota resets in 10s.')
+      expect(h.calls).toHaveLength(0)
+    } finally {
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
+  it('excludes killswitched short-timer account and performs actual wait for allowed longer-timer', async () => {
+    let wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const clock = deadlineClock()
+    const pool = makePool(2)
+    const [account0, account1] = pool.getAccounts() as [
+      ManagedAccount,
+      ManagedAccount,
+    ]
+    pool.markRateLimited(account0, 2_000, 'gemini', 'gemini-3-flash')
+    pool.updateQuotaCache(
+      0,
+      {
+        gemini: {
+          remainingFraction: 0.1,
+          resetTime: new Date(wall + 3_600_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account0.parts.refreshToken,
+    )
+    pool.markRateLimited(account1, 6_000, 'gemini', 'gemini-3-flash')
+
+    const delays: number[] = []
+    const real = globalThis.setTimeout
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: () => void,
+      delay: number,
+    ) => {
+      const handle = real(() => {}, 2 ** 30)
+      handle.unref()
+      queueMicrotask(() => {
+        clearTimeout(handle)
+        delays.push(delay)
+        wall += delay
+        clock.advance(delay)
+        callback()
+      })
+      return handle
+    }) as typeof setTimeout)
+
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: { max_rate_limit_wait_seconds: 10 },
+    })
+    Object.assign(h.deps, { preResponseClock: clock })
+    const save = spyOn(h.pool, 'requestSaveToDisk').mockImplementation(() => {})
+    const executor = createRequestExecutor({
+      ...h.deps,
+      operatorSettings: killswitch50,
+    })
+    try {
+      // Waiting is allowed (6s <= 10s). The actual wait performed must be 6s, not 2s.
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(delays).toEqual([6_000])
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      save.mockRestore()
+      timer.mockRestore()
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
+  it('excludes model-unavailable short-timer account from pool wait and refuses on allowed longer-timer', async () => {
+    const wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const pool = makePool(2)
+    const [account0, account1] = pool.getAccounts() as [
+      ManagedAccount,
+      ManagedAccount,
+    ]
+    // Account 1 rate limited for 10s
+    pool.markRateLimited(account1, 10_000, 'gemini', 'gemini-3-flash')
+
+    const h = harness({
+      pool,
+      respond: async (_call, index) => {
+        if (index === 0) {
+          // Account 0 returns model unavailable (NOT_FOUND 404) on its first attempt,
+          // then gets marked with a short 2s rate limit
+          pool.markRateLimited(account0, 2_000, 'gemini', 'gemini-3-flash')
+          return new Response(
+            JSON.stringify({ error: { status: 'NOT_FOUND' } }),
+            { status: 404, headers: { 'Content-Type': 'application/json' } },
+          )
+        }
+        return okJson()
+      },
+      config: { max_rate_limit_wait_seconds: 5 },
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      // First attempt on account 0 marks it model-unavailable for this request.
+      // Account 0 also has a 2s rate-limit. Account 1 has a 10s rate-limit.
+      // The pool wait calculation must exclude account 0 (model-unavailable for this request)
+      // and base min wait on account 1 (10s > 5s max wait -> 412 refusal).
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(412)
+      expect(response.headers.get('Retry-After')).toBe('10')
+      const body = (await response.json()) as { error: { message: string } }
+      expect(body.error.message).toContain('Quota resets in 10s.')
+    } finally {
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
+  it('factors in cooldown originating from another family or model into pool wait and refusal metadata', async () => {
+    const wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const pool = makePool(1)
+    const [account] = pool.getAccounts() as [ManagedAccount]
+    // Account has no quota rate limits on gemini, but is cooling down from a previous network error / Claude failure
+    pool.markAccountCoolingDown(account, 8_000, 'network-error')
+
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: { max_rate_limit_wait_seconds: 4 },
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      // Request for gemini: with includeCooldown = true, wait is 8s > 4s max wait -> refused
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(412)
+      expect(response.headers.get('Retry-After')).toBe('8')
+      const body = (await response.json()) as {
+        error: { message: string; status: string }
+      }
+      expect(body.error.status).toBe('FAILED_PRECONDITION')
+      expect(body.error.message).toContain('Quota resets in 8s.')
+    } finally {
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
+  it('performs actual wait for cooldown originating from another model or family when within max_rate_limit_wait_seconds', async () => {
+    let wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const clock = deadlineClock()
+    const pool = makePool(1)
+    const [account] = pool.getAccounts() as [ManagedAccount]
+    // Account has a 2s rate-limit on claude (another family) and a 6s cooldown
+    pool.markRateLimited(account, 2_000, 'claude', 'claude-sonnet-4-5')
+    pool.markAccountCoolingDown(account, 6_000, 'network-error')
+
+    const delays: number[] = []
+    const real = globalThis.setTimeout
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: () => void,
+      delay: number,
+    ) => {
+      const handle = real(() => {}, 2 ** 30)
+      handle.unref()
+      queueMicrotask(() => {
+        clearTimeout(handle)
+        delays.push(delay)
+        wall += delay
+        clock.advance(delay)
+        callback()
+      })
+      return handle
+    }) as typeof setTimeout)
+
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: { max_rate_limit_wait_seconds: 10 },
+    })
+    Object.assign(h.deps, { preResponseClock: clock })
+    const save = spyOn(h.pool, 'requestSaveToDisk').mockImplementation(() => {})
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(delays).toEqual([6_000])
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      save.mockRestore()
+      timer.mockRestore()
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
+  it('immediately refuses with 412 when all accounts in pool are excluded (empty eligible set)', async () => {
+    const pool = makePool(1)
+    const [account] = pool.getAccounts() as [ManagedAccount]
+    account.accountIneligible = true
+
+    const h = harness({ pool, respond: async () => okJson() })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(412)
+      expect(h.calls).toHaveLength(0)
+    } finally {
+      await executor.dispose()
+    }
+  })
+})
+
 describe('createRequestExecutor per-request sender', () => {
   it("sends through the request's own raw sender with request-specific cancellation", async () => {
     const controller = new AbortController()

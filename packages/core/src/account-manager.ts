@@ -1657,6 +1657,22 @@ export class AccountManager {
     }
   }
 
+  /**
+   * Calculates the minimum wait time in milliseconds across eligible accounts
+   * for a given model family (and optional model).
+   *
+   * Note: Returning `0` can mean either:
+   * 1. No eligible candidates exist in the pool, OR
+   * 2. At least one eligible candidate is immediately usable without waiting.
+   * Callers must distinguish "no eligible candidates" from "zero wait time"
+   * by inspecting candidate pool availability / eligibility directly.
+   *
+   * @param family Model family (e.g., 'claude', 'gemini')
+   * @param model Optional model name for per-model rate limits
+   * @param eligibleIndexes Optional set of account indexes permitted for this request
+   * @param includeCooldown Whether to factor in `coolingDownUntil` alongside quota rate limits
+   * @returns Minimum wait duration in milliseconds, or 0 if immediately usable or no candidates
+   */
   getMinWaitTimeForFamily(
     family: ModelFamily,
     model?: string | null,

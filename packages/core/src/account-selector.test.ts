@@ -1544,12 +1544,12 @@ describe('AccountSelector getMinWaitTimeForFamily regression tests', () => {
       expect(manager.getMinWaitTimeForFamily('claude')).toBe(1_000)
 
       // 2. includeCooldown = true (no eligibleIndexes):
+      // Account 2 has accountIneligible: true and is excluded consistently.
       // Account 0: max(rateLimit: 1000, cooldown: 4000) = 4000
       // Account 1: max(rateLimit: 8000, cooldown: 6000) = 8000
-      // Account 2: max(rateLimit: 2000, cooldown: 2000) = 2000
-      // Pool min: min(4000, 8000, 2000) = 2000
+      // Pool min: min(4000, 8000) = 4000
       expect(manager.getMinWaitTimeForFamily('claude', null, null, true)).toBe(
-        2_000,
+        4_000,
       )
 
       // 3. eligibleIndexes provided (Set([0, 1, 2])):
@@ -1572,5 +1572,117 @@ describe('AccountSelector getMinWaitTimeForFamily regression tests', () => {
     } finally {
       await manager.dispose()
     }
+  })
+
+  it('reports zero wait when an explicit empty eligibility set is passed', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 5_000 },
+        coolingDownUntil: NOW + 5_000,
+        touchedForQuota: {},
+      },
+    ])
+    expect(
+      selector.getMinWaitTimeForFamily('claude', null, new Set(), true),
+    ).toBe(0)
+  })
+
+  it('treats null and undefined eligibleIndexes equivalently and excludes ineligible/verificationRequired rows in both', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        accountIneligible: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 1_000 },
+        coolingDownUntil: NOW + 1_000,
+        touchedForQuota: {},
+      },
+      {
+        index: 1,
+        enabled: true,
+        verificationRequired: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 2_000 },
+        coolingDownUntil: NOW + 2_000,
+        touchedForQuota: {},
+      },
+      {
+        index: 2,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 5_000 },
+        coolingDownUntil: NOW + 7_000,
+        touchedForQuota: {},
+      },
+    ])
+    // With undefined: ineligible rows (0 and 1) excluded, leaving index 2
+    expect(
+      selector.getMinWaitTimeForFamily('claude', null, undefined, false),
+    ).toBe(5_000)
+    expect(
+      selector.getMinWaitTimeForFamily('claude', null, undefined, true),
+    ).toBe(7_000)
+
+    // With null: identical behavior
+    expect(selector.getMinWaitTimeForFamily('claude', null, null, false)).toBe(
+      5_000,
+    )
+    expect(selector.getMinWaitTimeForFamily('claude', null, null, true)).toBe(
+      7_000,
+    )
+  })
+
+  it('ignores expired cooldowns where coolingDownUntil <= now', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        coolingDownUntil: NOW - 5_000,
+        touchedForQuota: {},
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        coolingDownUntil: NOW,
+        touchedForQuota: {},
+      },
+    ])
+    expect(selector.getMinWaitTimeForFamily('claude', null, null, true)).toBe(0)
+  })
+
+  it('reports zero wait for immediately usable account with filtering and cooldowns enabled', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 10_000 },
+        coolingDownUntil: NOW + 10_000,
+        touchedForQuota: {},
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+      },
+    ])
+    const eligible = new Set([0, 1])
+    expect(
+      selector.getMinWaitTimeForFamily('claude', null, eligible, true),
+    ).toBe(0)
   })
 })
