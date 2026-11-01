@@ -166,6 +166,8 @@ interface ContextOverrides {
   fetchImpl?: Parameters<typeof createFetchInterceptor>[0]['fetchImpl']
 }
 
+const contextManagers = new Set<AccountManager>()
+
 async function makeContext(overrides: ContextOverrides = {}) {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
   if (!root) throw new Error('ANTIGRAVITY_TEST_ROOT not set by preload')
@@ -199,6 +201,7 @@ async function makeContext(overrides: ContextOverrides = {}) {
       },
       storedAccounts(),
     )
+  contextManagers.add(accountManager)
 
   return {
     assertAdmission: overrides.assertAdmission,
@@ -239,9 +242,14 @@ beforeEach(async () => {
   await saveAccountsReplace(storedAccounts())
 })
 
-afterEach(() => {
+afterEach(async () => {
   globalThis.unstubAllGlobals()
   mock.restore()
+  // Interceptors do not own their injected managers. Drain each test's saves
+  // with the real methods restored, before the next test installs storage spies.
+  const managers = [...contextManagers]
+  contextManagers.clear()
+  await Promise.all(managers.map((manager) => manager.dispose()))
 })
 
 describe('createFetchInterceptor', () => {
