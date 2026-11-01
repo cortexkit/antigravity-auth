@@ -4,7 +4,7 @@ These are standing rules for workers in this repository. They answer the questio
 
 ## Where to build and test
 
-- Build and test on Linux with `runon: "linux,16c"`. Add `,net` only when a step installs packages or runs a released npm package. The project needs **Bun 1.4.2** exactly. A local Mac preparation step that fails with "Bun 1.4.4" is expected: ignore it and use the Linux job.
+- Build and test on Linux with `runon: "linux,8c"`. Add `,net` only when a step installs packages or runs a released npm package. The project needs **Bun 1.4.2** exactly. A local Mac preparation step that fails with "Bun 1.4.4" is expected: ignore it and use the Linux job.
 - Build core before anything that imports it: `bun run --cwd packages/core build`. Never run that build in parallel with another check, because it deletes `packages/core/dist` while it runs.
 - Submit one combined Linux job rather than many small ones. If the runner refuses a job before it starts (capacity or drain), resubmit the same job. Stop after three refusals in a row and report.
 - A file a remote job creates is **not** copied back. To bring generated files back, print them as described under "Regenerated files".
@@ -13,12 +13,14 @@ These are standing rules for workers in this repository. They answer the questio
 
 AFT is the agent tool interface; its `functions.bash` tool submits shell commands to MOTOR using `runon`.
 
-1. **Pre-push gate:** on the committed, clean tracked tree with Bun 1.4.2, workers run `bun run prepush --fast` locally, then run `bash scripts/prepush.sh --full-here` through AFT `runon: "linux,16c,net"`. For example: `functions.bash({command: "bash scripts/prepush.sh --full-here", runon: "linux,16c,net", timeout: 1800000, wait: true})`. The full phase runs frozen installs, typecheck, builds, TUI smoke and both root suites. Record all step exit codes, `PREPUSH_OK <full commit>`, timings and test counts. Outside the worker sandbox, `bun run prepush` runs the fast phase locally and submits the same full phase through `ck motor run --vcpus 16 --net`; workers cannot access the `ck` daemon connection file. A fast-only pass is not the full gate.
-2. **Tests for what you changed:** run the test files that cover your change. For a bug fix, show once that a new test fails without the fix, and say how you showed it.
-3. For each failure, say whether it also fails on your base commit on the same runner. "Same at base" is a claim to prove, not to assume.
-4. Run a comment review on your diff with sidekick, and fix what it flags.
+1. **Fast checks:** on the committed, clean tracked tree with Bun 1.4.2, run `bun run prepush --fast` locally.
+2. **Tests for what you changed, and only those:** in one Linux job, build core, typecheck the packages you touched, and run the test files that cover your change. For a bug fix, show once that a new test fails without the fix, and say how you showed it. A filtered run that takes more than about 15 minutes means the filter is too broad: narrow it.
+3. **Never run a whole suite or the full gate.** Don't run the root `bun run test` or `bun run test:e2e`, a whole package's tests, or `scripts/prepush.sh --full-here`. The parent runs the full suite once on GitHub CI for each batch of merged deliveries.
+4. **A failure that looks unrelated:** rerun that one test by name on your base commit on the same runner, never the suite, and report both results. "Same at base" is a claim to prove, not to assume.
+5. **Don't wait in long watch loops.** Submit the job with `wait: true` and a timeout that fits a filtered run.
+6. Run a comment review on your diff with sidekick, and fix what it flags.
 
-Two things CI runs that the Linux runner can't: the OpenCode 2 Docker smoke (no Docker there) and the four-runtime status-server matrix. The parent covers those on GitHub CI. Windows runs only on GitHub CI too.
+The parent's GitHub CI covers what workers no longer run: both root suites, the OpenCode 2 Docker smoke, the four-runtime status-server matrix and Windows.
 
 ## Routine fixes you may make without asking
 
