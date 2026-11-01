@@ -12,9 +12,11 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -40,12 +42,21 @@ import {
   processHeartbeatPath,
 } from './process-heartbeat'
 import { drainNotifications } from './rpc/notifications'
-import { __resetRuntimeLayoutRunsForTest } from './runtime-layout'
+import {
+  __resetRuntimeLayoutRunsForTest,
+  localAccountStoreAuthorized,
+} from './runtime-layout'
 import {
   __resetRuntimeLayoutsForTest,
   runtimeLayoutLocation,
 } from './runtime-paths'
-import { __resetVaultFoldersForTest, prepareVaultFolder } from './vault-folder'
+import { createSetupPlugin } from './setup'
+import {
+  __resetVaultFoldersForTest,
+  currentVaultFolder,
+  prepareVaultFolder,
+} from './vault-folder'
+import * as fence from './version-fence'
 import { processHeartbeatDir } from './version-fence'
 
 const ENV = [
@@ -54,6 +65,7 @@ const ENV = [
   'ANTIGRAVITY_AUTH_RPC_DIR',
   'ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE',
   'SUBC_CONNECTION_FILE',
+  'OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR',
 ] as const
 const TOKEN_FILE = 'opencode-enrollment.json'
 const STATE_FILE = 'opencode-enrollment-state.json'
@@ -90,6 +102,7 @@ beforeEach(() => {
     ANTIGRAVITY_AUTH_RPC_DIR: join(root, 'rpc'),
     ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE: join(root, 'sidebar.json'),
   })
+  delete process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR
   resetProcess()
   const realFetch = globalThis.fetch
   fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
@@ -159,9 +172,11 @@ function writeDormantLocalAccount() {
  */
 async function enrollInConfigFolder(
   daemon?: Awaited<ReturnType<typeof startMenuVaultFixture>>,
+  vaultDir = legacyVault(),
+  approvedName: string = OPENCODE_VAULT_ENROLLMENT_NAME,
 ) {
   const custody = createOpenCodeVaultCustody({
-    vaultDir: legacyVault(),
+    vaultDir,
     accountFile: accountFile(),
     reporterSource: 'direct',
     readHostSlot: async () => undefined,
@@ -172,7 +187,7 @@ async function enrollInConfigFolder(
             enrollPropose: async () => ({ requestId: 'request-1' }),
             enrollPoll: async () => ({
               status: 'approved' as const,
-              name: OPENCODE_VAULT_ENROLLMENT_NAME,
+              name: approvedName,
               token: 'ab'.repeat(32),
               tokenGeneration: 1,
             }),
@@ -190,7 +205,7 @@ async function enrollInConfigFolder(
   } finally {
     await custody.dispose()
   }
-  expect(existsSync(join(legacyVault(), TOKEN_FILE))).toBe(true)
+  expect(existsSync(join(vaultDir, TOKEN_FILE))).toBe(true)
 }
 
 async function authorityAt(vaultDir: string) {
@@ -536,4 +551,234 @@ it('CLI login moves the vault files first and still refuses a local sign-in for 
   expect(marker()).toMatchObject({ oldFilesRemoved: true })
   // The CLI's heartbeat goes with the command.
   expect(existsSync(processHeartbeatPath(process.pid))).toBe(false)
+})
+
+/** Read the approved identity in a fresh host with wholly separate roots. */
+async function sharedEnrollmentInChild(home: string, vaultDir: string) {
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      '-e',
+      `const {prepareVaultFolder} = await import('./vault-folder.ts');
+       const {accountFileForVault} = await import('./plugin/storage.ts');
+       const {createOpenCodeVaultCustody} = await import('./plugin/vault-custody.ts');
+       const folder = await prepareVaultFolder({accountFile: accountFileForVault()});
+       if (folder.refusal) throw folder.refusal;
+       const custody = createOpenCodeVaultCustody({...folder, reporterSource: 'direct', readHostSlot: async () => undefined});
+       try { console.log(JSON.stringify({folder, status: await custody.status(), principal: custody.grantPrincipal()})); }
+       finally { await custody.dispose(); }`,
+    ],
+    {
+      cwd: import.meta.dir,
+      env: {
+        ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+        XDG_CONFIG_HOME: join(home, 'config'),
+        XDG_DATA_HOME: join(home, 'data'),
+        XDG_STATE_HOME: join(home, 'state'),
+        OPENCODE_CONFIG_DIR: join(home, 'config', 'opencode'),
+        OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR: vaultDir,
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  )
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ])
+  if (code !== 0) throw new Error(`shared enrollment child failed: ${stderr}`)
+  return JSON.parse(stdout)
+}
+
+it('two real processes with different HOME and XDG roots read one approved override enrollment', async () => {
+  const vaultDir = join(root, 'shared-vault')
+  const approvedName = 'antigravity-auth-opencode-runner'
+  await enrollInConfigFolder(undefined, vaultDir, approvedName)
+  const token = readFileSync(join(vaultDir, TOKEN_FILE))
+  const first = await sharedEnrollmentInChild(join(root, 'host-a'), vaultDir)
+  const second = await sharedEnrollmentInChild(join(root, 'host-b'), vaultDir)
+  for (const host of [first, second]) {
+    expect(host.folder.vaultDir).toBe(vaultDir)
+    expect(host.status.enrollment).toMatchObject({
+      state: 'approved',
+      approvedName,
+    })
+    expect(host.principal).toBe(approvedName)
+  }
+  expect(first.folder.accountFile).not.toBe(second.folder.accountFile)
+  expect(readFileSync(join(vaultDir, TOKEN_FILE))).toEqual(token)
+  expect(existsSync(join(root, 'host-a', 'state'))).toBe(false)
+  expect(existsSync(join(root, 'host-b', 'state'))).toBe(false)
+}, 30_000)
+
+it('OpenCode 1 startup serves the approved override instead of a config-folder enrollment', async () => {
+  const daemon = await startMenuVaultFixture(root, {
+    accessToken: ACCESS_TOKEN,
+    projectId: PROJECT_ID,
+  })
+  cleanups.push(() => daemon.close())
+  process.env.SUBC_CONNECTION_FILE = daemon.connectionFile
+  const vaultDir = join(root, 'shared-vault')
+  await enrollInConfigFolder(daemon, vaultDir)
+  process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR = vaultDir
+  writeDormantLocalAccount()
+  const transport = recordingTransport()
+  const plugin = await startOpenCode1(transport)
+  expect((await request(plugin)).status).toBe(200)
+  expect(await localAccountStoreAuthorized()).toBe(false)
+  expect(transport.bearers).toEqual([`Bearer ${ACCESS_TOKEN}`])
+  expect(marker()).toBeUndefined()
+  expect(existsSync(legacyVault())).toBe(false)
+}, 30_000)
+
+it('a relative override refuses OpenCode 1 for the process lifetime without creating files', async () => {
+  process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR = 'relative-vault'
+  const initial = readdirSync(root)
+  const folder = await prepareVaultFolder({
+    accountFile: accountFile(),
+    log: quiet,
+  })
+  expect(folder.refusal?.message).toContain(
+    'OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR must be an absolute path',
+  )
+  expect(readdirSync(root)).toEqual(initial)
+  expect(readdirSync(join(root, 'config'))).toEqual([])
+  delete process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR
+  expect(currentVaultFolder(accountFile()).refusal).toBe(folder.refusal)
+  expect(
+    (await prepareVaultFolder({ accountFile: accountFile(), log: quiet }))
+      .refusal,
+  ).toBe(folder.refusal)
+  const transport = recordingTransport()
+  const plugin = await startOpenCode1(transport)
+  await expect(request(plugin)).rejects.toThrow(
+    'OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR must be an absolute path',
+  )
+  expect(transport.bearers).toEqual([])
+  expect(existsSync(legacyVault())).toBe(false)
+  expect(marker()).toBeUndefined()
+}, 30_000)
+
+it('an empty override behaves exactly as unset', async () => {
+  const unset = currentVaultFolder(accountFile())
+  process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR = ''
+  expect(currentVaultFolder(accountFile())).toEqual(unset)
+  const preparedEmpty = await prepareVaultFolder({
+    accountFile: accountFile(),
+    log: quiet,
+  })
+  delete process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR
+  expect(
+    await prepareVaultFolder({ accountFile: accountFile(), log: quiet }),
+  ).toEqual(preparedEmpty)
+  expect(preparedEmpty.refusal).toBeUndefined()
+  expect(preparedEmpty.vaultDir).toBe(stateVault())
+})
+
+it('an override leaves old vault bytes alone, bypasses the layout fence and creates a private folder', async () => {
+  await enrollInConfigFolder()
+  const old = Object.fromEntries(
+    readdirSync(legacyVault()).map((name) => [
+      name,
+      readFileSync(join(legacyVault(), name)),
+    ]),
+  )
+  const vaultDir = join(root, 'nested', 'shared-vault')
+  process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR = vaultDir
+  const gate = spyOn(fence, 'versionFenceOpen').mockImplementation(async () => {
+    throw new Error('vault layout fence must not run')
+  })
+  try {
+    expect(currentVaultFolder(accountFile()).vaultDir).toBe(vaultDir)
+    expect(existsSync(vaultDir)).toBe(false)
+    const folder = await prepareVaultFolder({
+      accountFile: accountFile(),
+      log: quiet,
+      accountStore: false,
+    })
+    expect(folder).toEqual({ accountFile: accountFile(), vaultDir })
+    expect(await localAccountStoreAuthorized()).toBe(true)
+    expect(gate).not.toHaveBeenCalled()
+    expect(marker()).toBeUndefined()
+    expect(existsSync(join(vaultDir, 'layout.json'))).toBe(false)
+    expect(readdirSync(legacyVault()).sort()).toEqual(Object.keys(old).sort())
+    for (const [name, bytes] of Object.entries(old))
+      expect(readFileSync(join(legacyVault(), name))).toEqual(bytes)
+    if (process.platform !== 'win32')
+      expect(statSync(vaultDir).mode & 0o777).toBe(0o700)
+  } finally {
+    gate.mockRestore()
+  }
+})
+
+it('CLI login and setup real-run callbacks use the override while setup preview does not create it', async () => {
+  const vaultDir = join(root, 'shared-vault')
+  process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR = vaultDir
+  const deps = createDefaultCliDependencies()
+  deps.prepareVaultFolder = async (options) => {
+    const folder = await prepareVaultFolder({
+      accountFile: accountFile(),
+      log: quiet,
+      ...options,
+    })
+    if (folder.refusal) throw folder.refusal
+  }
+  let output = ''
+  deps.stderr = {
+    write: (value) => {
+      output += value
+    },
+  }
+  deps.stdout = { write() {} }
+  const plugin = await createSetupPlugin(deps, async () => 0)
+  expect(plugin.vault.hosts.opencode.paths.stateDir).toBe(vaultDir)
+  expect(existsSync(vaultDir)).toBe(false)
+  await plugin.beforeSignIn?.('opencode', {
+    hosts: ['opencode'],
+    mode: 'claustrum',
+    opencodeGeneration: '2',
+    piAgentDir: join(root, 'pi'),
+  })
+  expect(existsSync(vaultDir)).toBe(true)
+  await enrollInConfigFolder(
+    undefined,
+    vaultDir,
+    'antigravity-auth-opencode-runner',
+  )
+  await plugin.beforeRegister?.('opencode', 'claustrum', {
+    hosts: ['opencode'],
+    mode: 'claustrum',
+    opencodeGeneration: '2',
+    piAgentDir: join(root, 'pi'),
+  })
+  expect(await runCliProcess(['login', '--no-browser'], deps)).toBe(1)
+  expect(output).toContain('Vault enrollment excludes local sign-in')
+  expect(marker()).toBeUndefined()
+  expect(existsSync(legacyVault())).toBe(false)
+}, 30_000)
+
+it('disconnect with an override at the old move destination never deletes config-folder vault files', async () => {
+  await enrollInConfigFolder()
+  const moved = await prepareVaultFolder({
+    accountFile: accountFile(),
+    log: quiet,
+  })
+  expect(moved.refusal).toBeUndefined()
+  const keptState = readFileSync(join(legacyVault(), STATE_FILE))
+  process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR = moved.vaultDir
+  const custody = createOpenCodeVaultCustody({
+    vaultDir: moved.vaultDir,
+    accountFile: accountFile(),
+    reporterSource: 'direct',
+    readHostSlot: async () => undefined,
+  })
+  try {
+    await custody.useLocal()
+  } finally {
+    await custody.dispose()
+  }
+  expect(readFileSync(join(legacyVault(), STATE_FILE))).toEqual(keptState)
 })

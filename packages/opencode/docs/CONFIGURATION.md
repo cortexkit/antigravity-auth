@@ -295,6 +295,8 @@ OpenCode watches its config folder (`~/.config/opencode`, or `OPENCODE_CONFIG_DI
 
 `~/.local/state` means `$XDG_STATE_HOME` when that is set, on every OS; on Windows it is `%USERPROFILE%\.local\state`. Runtime folders are private to your user: `0700` folders and `0600` files, or an owner-only ACL on Windows. Pi's files do not move.
 
+For many OpenCode hosts that should share one approved enrollment, set `OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR` to the same absolute vault-folder path in each host. The path is used as-is and never moved; an empty value is ignored, and a relative path refuses startup. Each host still needs its own config and `google` auth record; its account store, heartbeat, sidebar file and status-server folder remain per host.
+
 ### When the account store moves
 
 The account store moves at the first local-account start after every OpenCode using that config folder has closed or restarted on this version. Setup and `antigravity-auth store relocate --offline` can also move an existing store, with every OpenCode closed. Accounts, logins and quota come along; nothing needs to be re-entered. Vault-only starts leave the local account store alone until you disconnect to local accounts.

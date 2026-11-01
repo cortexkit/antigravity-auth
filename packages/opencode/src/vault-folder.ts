@@ -10,6 +10,9 @@
 // returns the refusal instead. The caller must then serve neither vault nor
 // local accounts: which folder holds this host's vault enrollment is unknown,
 // and serving local accounts could bypass a vault the user chose.
+// An explicit absolute vault folder bypasses that move, so it need not wait
+// for older OpenCodes using the config folder to close or restart. A relative
+// override keeps a refusal instead of reading another enrollment.
 //
 // A refusal is kept for the life of the process, like a decided layout: its
 // message tells the user to restart OpenCode once it is resolved, and later
@@ -19,6 +22,8 @@
 // Only locally authorized starts also prepare the account store. A vault-only
 // start leaves it undecided until its first local use after a disconnect.
 
+import { isAbsolute } from 'node:path'
+import { ensurePrivateDirectory } from './common-auth-embedded/fs/private-files.js'
 import { createLogger } from './plugin/logger'
 import { pluginPackageVersion } from './process-heartbeat'
 import {
@@ -55,6 +60,25 @@ const refusals =
   globalState[refusalsKey] ?? new Map<string, RuntimeLayoutRefusal>()
 globalState[refusalsKey] = refusals
 
+const OVERRIDE = 'OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR'
+const overrideRefusalKey = 'invalid-vault-dir-override'
+
+/** Explicit paths never consult the old vault folder or its layout marker. */
+function vaultOverride(accountFile: string): VaultFolder | undefined {
+  const kept = refusals.get(overrideRefusalKey)
+  if (kept) return { accountFile, vaultDir: kept.stateDir, refusal: kept }
+  const vaultDir = process.env[OVERRIDE]
+  if (!vaultDir) return undefined
+  if (isAbsolute(vaultDir)) return { accountFile, vaultDir }
+  const refusal = new RuntimeLayoutRefusal(
+    vaultDir,
+    'relative-vault-dir',
+    `antigravity-auth cannot start: ${OVERRIDE} must be an absolute path. Correct it and restart OpenCode.`,
+  )
+  refusals.set(overrideRefusalKey, refusal)
+  return { accountFile, vaultDir, refusal }
+}
+
 function locationKey(): string {
   const location = runtimeLayoutLocation()
   return `${location.stateHomeDir}\0${location.key}`
@@ -83,21 +107,29 @@ export async function prepareVaultFolder(options: {
   accountStore?: boolean
 }): Promise<VaultFolder> {
   const { accountFile } = options
+  const override = vaultOverride(accountFile)
+  if (override?.refusal) return override
   const key = locationKey()
   const kept = refusals.get(key)
-  if (kept) return refused(accountFile, kept)
+  if (kept)
+    return override
+      ? { ...override, refusal: kept }
+      : refused(accountFile, kept)
   const log = options.log ?? createLogger('runtime-layout')
   const version =
     options.version ?? (await pluginPackageVersion().catch(() => 'unknown'))
   try {
-    await prepareRuntimeLayout({
-      version,
-      accountFile,
-      log,
-      ...(options.layoutLockWaitMs === undefined
-        ? {}
-        : { layoutLockWaitMs: options.layoutLockWaitMs }),
-    })
+    if (override) {
+      await ensurePrivateDirectory(override.vaultDir)
+    } else
+      await prepareRuntimeLayout({
+        version,
+        accountFile,
+        log,
+        ...(options.layoutLockWaitMs === undefined
+          ? {}
+          : { layoutLockWaitMs: options.layoutLockWaitMs }),
+      })
     // Preparation re-reads authority before inspecting any store path, and
     // serializes the local decision with other starts under the layout lock.
     if (options.accountStore !== false)
@@ -107,7 +139,7 @@ export async function prepareVaultFolder(options: {
       error instanceof RuntimeLayoutRefusal
         ? error
         : new RuntimeLayoutRefusal(
-            runtimeLayoutLocation().stateHomeDir,
+            override?.vaultDir ?? runtimeLayoutLocation().stateHomeDir,
             error instanceof Error ? error.name : typeof error,
           )
     if (!refusals.has(key)) {
@@ -117,9 +149,11 @@ export async function prepareVaultFolder(options: {
         errorClass: refusal.errorClass,
       })
     }
-    return refused(accountFile, refusals.get(key) ?? refusal)
+    return override
+      ? { ...override, refusal: refusals.get(key) ?? refusal }
+      : refused(accountFile, refusals.get(key) ?? refusal)
   }
-  return { accountFile, vaultDir: getVaultDir(accountFile) }
+  return override ?? { accountFile, vaultDir: getVaultDir(accountFile) }
 }
 
 /**
@@ -128,10 +162,14 @@ export async function prepareVaultFolder(options: {
  * prepared follows the layout marker without taking a lock.
  */
 export function currentVaultFolder(accountFile: string): VaultFolder {
+  const override = vaultOverride(accountFile)
+  if (override?.refusal) return override
   const kept = refusals.get(locationKey())
   return kept
-    ? refused(accountFile, kept)
-    : { accountFile, vaultDir: getVaultDir(accountFile) }
+    ? override
+      ? { ...override, refusal: kept }
+      : refused(accountFile, kept)
+    : (override ?? { accountFile, vaultDir: getVaultDir(accountFile) })
 }
 
 function refused(

@@ -4,6 +4,8 @@ Vault custody uses approved Claustrum credentials instead of the local OpenCode 
 
 ## Enroll and activate
 
+OpenCode and Pi are different host kinds. A second host of the same kind is approved with its own `--name`, and the grant names that same name.
+
 Use `/antigravity` → Vault to request enrollment, choose approved accounts, or disconnect. Alternatively, [guided setup](CONFIGURATION.md#guided-setup) can request enrollment with `--claustrum`. The running vault's operator approves the request using the request ID and `ck auth enroll approve` command printed by setup. `--yes` does not grant approval. `--no-claustrum` selects local setup instead.
 
 Activation is host-specific:
@@ -31,6 +33,8 @@ Those metadata effects never change file contents, ownership, permissions on exi
 Pi's native folder follows `PI_CODING_AGENT_DIR` (including `~` expansion), or `~/.pi/agent`. `PI_AGENT_DIR` and `PI_ANTIGRAVITY_AUTH_FILE` retain plugin account/vault-state roles and do not redirect the native login. See [setup](CONFIGURATION.md#guided-setup).
 
 ## Where the vault files live
+
+For many OpenCode hosts that should share one approved enrollment, set `OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR` to the same absolute vault-folder path in each host. The path is used as-is and never moved; an empty value is ignored, and a relative path refuses startup. Each host still needs its own config and `google` auth record; other runtime files remain per host.
 
 OpenCode's vault files (`antigravity-auth-vault/`: enrollment token and state, vault roster, vault provider state and mode) live in the plugin's runtime folder, `~/.local/state/cortexkit/antigravity-auth/opencode/` (`opencode-<16 hex>/` for a config folder other than `~/.config/opencode`), not in OpenCode's config folder. Versions before the move kept them beside `antigravity-accounts.json`; the first start after every OpenCode using that config folder has restarted on a newer version moves them, and an approved enrollment survives the move without enrolling again. The local account store also moves to the runtime folder once every OpenCode using it has closed or restarted on this version; vault-only starts leave it untouched until you disconnect to local accounts. Never delete the account-store forwarding pointer in OpenCode's config folder. Close every OpenCode before upgrading. See [where the files live](CONFIGURATION.md#where-the-files-live) for both moves, their refusals and how to downgrade.
 

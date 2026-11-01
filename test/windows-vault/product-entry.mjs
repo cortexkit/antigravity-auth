@@ -10,3 +10,4 @@ export {
   getVaultDir,
   runtimeLayoutLocation,
 } from '../../packages/opencode/src/runtime-paths.ts'
+export { prepareVaultFolder } from '../../packages/opencode/src/vault-folder.ts'

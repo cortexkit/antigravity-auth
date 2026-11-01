@@ -150,12 +150,12 @@ function fakeVault() {
 }
 
 /** Approves this host's enrollment, which selects vault mode. */
-async function approveHost() {
+async function approveHost(vaultDir = legacyVaultDir(accountFile())) {
   let approve = false
   const custody = createOpenCodeVaultCustody({
     // No entry point settled a layout here, so the locations read the
     // vault files beside the account file, as this seeding does.
-    vaultDir: legacyVaultDir(accountFile()),
+    vaultDir,
     accountFile: accountFile(),
     readHostSlot: async () => undefined,
     reporterSource: 'direct',
@@ -475,6 +475,34 @@ describe('the shared custody lease', () => {
 })
 
 describe('one shared custody per process and account file', () => {
+  it('locations resolve the override and share one custody connection', async () => {
+    const name = 'OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR'
+    env[name] = process.env[name]
+    const vaultDir = join(root, 'shared-vault')
+    process.env[name] = vaultDir
+    cleanups.push(async () => {
+      __resetVaultFoldersForTest()
+      __resetRuntimeLayoutsForTest()
+      __resetRuntimeLayoutRunsForTest()
+      __resetProcessHeartbeatForTest()
+    })
+    await approveHost(vaultDir)
+    expect(await prepareVaultFolder({ accountFile: accountFile() })).toEqual({
+      accountFile: accountFile(),
+      vaultDir,
+    })
+    const vault = fakeVault()
+    const factory = hostFactory(vault)
+    const one = await openLocation(factory, 'override-one')
+    const two = await openLocation(factory, 'override-two')
+    await waitUntil(() => vault.counts.lists >= 1, 'the shared override roster')
+    expect(await request(one.serving)).toBe('status 200')
+    expect(await request(two.serving)).toBe('status 200')
+    expect(vault.counts.opened).toBe(1)
+    expect(existsSync(legacyVaultDir(accountFile()))).toBe(false)
+    expect(existsSync(join(vaultDir, 'layout.json'))).toBe(false)
+  }, 20_000)
+
   // `setupGaActivation` settles the vault folder before it builds a
   // location's services; the production factory then binds custody to the
   // folder it settled. A custody still reading the config folder would find

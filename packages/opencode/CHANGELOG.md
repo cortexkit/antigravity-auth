@@ -4,6 +4,7 @@
 
 ### Changed
 
+- `OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR` sets one vault folder for several OpenCode hosts, so a runner that starts many hosts needs one approved enrollment instead of one per host.
 - After a crash or power loss, an old plugin's leftover process record no longer blocks the vault or account-store move until an unrelated program with the same process number exits.
 - The minimum OpenCode 1 version is now 1.18.4, the first release that ships the terminal UI library the sidebar is built for.
 - The sidebar header always shows the plugin version; it no longer switches to LIMITED during quota backoff.

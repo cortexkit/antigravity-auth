@@ -65,7 +65,7 @@ jobs:
       # The one-time move of the vault files out of OpenCode's config folder:
       # the moved token's folder must pass the private-path check the token
       # writer runs, and a non-private destination must keep the old layout.
-      - name: Move the vault files to the state home and check the moved token's folder is private
+      - name: Check moved vault files and the override folder are private
         shell: pwsh
         run: |
           $root = Join-Path $env:USERPROFILE "agy-layout-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"

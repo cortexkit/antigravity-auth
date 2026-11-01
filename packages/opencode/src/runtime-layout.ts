@@ -734,9 +734,16 @@ async function settleVault(
 /** Read enrollment afresh; unreadable enrollment never authorizes local work. */
 export async function localAccountStoreAuthorized(): Promise<boolean> {
   const location = runtimeLayoutLocation()
+  const folder = process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR
+    ? (await import('./vault-folder')).currentVaultFolder(
+        accountFileForVault(location.configDir),
+      )
+    : undefined
+  if (folder?.refusal) return false
   const claustrum = await loadCommonAuthClaustrum()
-  const vaultDir =
-    decidedRuntimeLayout(location) === 'state-home'
+  const vaultDir = folder
+    ? folder.vaultDir
+    : decidedRuntimeLayout(location) === 'state-home'
       ? stateHomeVaultDir(location)
       : legacyVaultDir(accountFileForVault(location.configDir))
   return (
@@ -1737,6 +1744,9 @@ export async function removeMovedVaultStateLeftover(
   vaultDir: string,
   accountFile?: string,
 ): Promise<void> {
+  // An explicit vault folder has no move to clean up, even when it happens
+  // to name the default destination of an earlier move.
+  if (process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR) return
   const location = runtimeLayoutLocation()
   const files = layoutFiles(location, accountFile)
   if (resolve(vaultDir) !== resolve(files.vault.next)) return

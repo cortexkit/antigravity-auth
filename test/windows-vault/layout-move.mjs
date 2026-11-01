@@ -189,6 +189,23 @@ try {
     assert.deepEqual(fs.readFileSync(join(otherLegacy, TOKEN)), before)
     assert.equal(fs.existsSync(join(destination, TOKEN)), false)
   })
+  await check('missing-override-folder-passes-private-path-check', async () => {
+    const vaultDir = join(profile, 'shared-vault')
+    process.env.OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR = vaultDir
+    const folder = await product.prepareVaultFolder({
+      version,
+      accountFile: join(
+        process.env.OPENCODE_CONFIG_DIR,
+        'antigravity-accounts.json',
+      ),
+      accountStore: false,
+      log: quiet,
+    })
+    assert.equal(folder.refusal, undefined)
+    assert.equal(folder.vaultDir, vaultDir)
+    await verifyPrivatePath(vaultDir, 'directory')
+    assert.equal(fs.existsSync(join(vaultDir, 'layout.json')), false)
+  })
   console.log(`Windows vault layout move: passed; ${stages.length} stages`)
 } catch (error) {
   console.error(`Windows vault layout move failed at ${stage}`)
