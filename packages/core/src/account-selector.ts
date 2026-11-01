@@ -681,10 +681,25 @@ export class AccountSelector<A extends SelectableAccount> {
     }))
   }
 
-  private getEffectiveSoftQuotaThreshold(thresholdPercent: number): number {
-    // Soft-quota protection only has a purpose when another enabled account
+  private getEligibleAccounts(excludeIndexes?: Set<number>): A[] {
+    return this.accounts.filter(
+      (a) =>
+        a.enabled !== false &&
+        a.accountIneligible !== true &&
+        a.verificationRequired !== true &&
+        !excludeIndexes?.has(a.index),
+    )
+  }
+
+  private getEffectiveSoftQuotaThreshold(
+    thresholdPercent: number,
+    excludeIndexes?: Set<number>,
+  ): number {
+    // Soft-quota protection only has a purpose when another eligible account
     // exists to rotate to. Never block the sole usable account.
-    return this.getEnabledAccounts().length > 1 ? thresholdPercent : 100
+    return this.getEligibleAccounts(excludeIndexes).length > 1
+      ? thresholdPercent
+      : 100
   }
 
   private getRequestSessionState(
@@ -836,8 +851,13 @@ export class AccountSelector<A extends SelectableAccount> {
     const currentIndex = this.getActiveIndex(family, identity)
     if (currentIndex >= 0 && currentIndex < this.accounts.length) {
       const account = this.accounts[currentIndex] ?? null
-      // Only return account if it's enabled - disabled accounts should not be selected
-      if (account && account.enabled !== false) {
+      // Only return account if it's enabled and eligible - disabled/ineligible accounts should not be selected
+      if (
+        account &&
+        account.enabled !== false &&
+        account.accountIneligible !== true &&
+        account.verificationRequired !== true
+      ) {
         return account
       }
     }
@@ -913,6 +933,7 @@ export class AccountSelector<A extends SelectableAccount> {
     const quotaKey = getQuotaKey(family, model)
     const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(
       softQuotaThresholdPercent,
+      excludeIndexes,
     )
 
     // OpenCode may run many root and child sessions concurrently in one plugin
@@ -962,7 +983,11 @@ export class AccountSelector<A extends SelectableAccount> {
 
       const eligibleAccounts = this.preferAccountOutsideParent(
         this.accounts.filter(
-          (acc) => acc.enabled !== false && !excludeIndexes?.has(acc.index),
+          (acc) =>
+            acc.enabled !== false &&
+            acc.accountIneligible !== true &&
+            acc.verificationRequired !== true &&
+            !excludeIndexes?.has(acc.index),
         ),
         family,
         identity,
@@ -1092,11 +1117,14 @@ export class AccountSelector<A extends SelectableAccount> {
   ): A | null {
     const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(
       softQuotaThresholdPercent,
+      excludeIndexes,
     )
     const allAvailable = this.accounts.filter((account) => {
       clearExpiredRateLimits(account, this.now)
       return (
         account.enabled !== false &&
+        account.accountIneligible !== true &&
+        account.verificationRequired !== true &&
         !excludeIndexes?.has(account.index) &&
         !isRateLimitedForFamily(account, family, this.now, model) &&
         !isOverSoftQuotaThreshold(
@@ -1413,6 +1441,8 @@ export class AccountSelector<A extends SelectableAccount> {
       clearExpiredRateLimits(acc, this.now)
       return (
         acc.enabled !== false &&
+        acc.accountIneligible !== true &&
+        acc.verificationRequired !== true &&
         this.isFreshForQuota(acc, quotaKey) &&
         !isRateLimitedForFamily(acc, family, this.now, model) &&
         !this.isAccountCoolingDown(acc)
@@ -1605,19 +1635,56 @@ export class AccountSelector<A extends SelectableAccount> {
     return true
   }
 
-  getMinWaitTimeForFamily(family: ModelFamily, model?: string | null): number {
+  /**
+   * Calculates the minimum wait time in milliseconds across eligible accounts
+   * for a given model family (and optional model).
+   *
+   * Note: Returning `0` can mean either:
+   * 1. No eligible candidates exist in the pool, OR
+   * 2. At least one eligible candidate is immediately usable without waiting.
+   * Callers must distinguish "no eligible candidates" from "zero wait time"
+   * by inspecting candidate pool availability / eligibility directly.
+   *
+   * @param family Model family (e.g., 'claude', 'gemini')
+   * @param model Optional model name for per-model rate limits
+   * @param eligibleIndexes Optional set of account indexes permitted for this request
+   * @param includeCooldown Whether to factor in `coolingDownUntil` alongside quota rate limits
+   * @returns Minimum wait duration in milliseconds, or 0 if immediately usable or no candidates
+   */
+  getMinWaitTimeForFamily(
+    family: ModelFamily,
+    model?: string | null,
+    eligibleIndexes?: Set<number> | null,
+    includeCooldown: boolean = false,
+  ): number {
     const now = this.now()
     const waits = this.accounts
-      .filter((a) => a.enabled !== false)
+      .filter((a) => {
+        if (a.enabled === false) return false
+        if (a.accountIneligible === true || a.verificationRequired === true) {
+          return false
+        }
+        if (eligibleIndexes !== undefined && eligibleIndexes !== null) {
+          if (!eligibleIndexes.has(a.index)) return false
+        }
+        return true
+      })
       .map((a) => {
         clearExpiredRateLimits(a, this.now)
         const modelReset = model
           ? a.rateLimitResetTimes[getQuotaKey(family, model)]
           : undefined
+        const cooldownWait =
+          includeCooldown &&
+          a.coolingDownUntil !== undefined &&
+          a.coolingDownUntil > now
+            ? a.coolingDownUntil - now
+            : 0
         return Math.max(
           0,
           (a.rateLimitResetTimes[family] ?? now) - now,
           (modelReset ?? now) - now,
+          cooldownWait,
         )
       })
     return waits.length > 0 ? Math.min(...waits) : 0
@@ -1906,16 +1973,27 @@ export class AccountSelector<A extends SelectableAccount> {
     return oldest
   }
 
+  /**
+   * Check whether all eligible accounts (more than 1) are currently over the soft-quota threshold.
+   * Returns false if thresholdPercent >= 100 or if <= 1 eligible account remains.
+   */
   areAllAccountsOverSoftQuota(
     family: ModelFamily,
     thresholdPercent: number,
     cacheTtlMs: number,
     model?: string | null,
+    eligibleIndexes?: Set<number> | null,
   ): boolean {
     if (thresholdPercent >= 100) return false
-    const enabled = this.accounts.filter((a) => a.enabled !== false)
-    if (enabled.length <= 1) return false
-    return enabled.every((a) =>
+    const eligible = this.accounts.filter(
+      (a) =>
+        a.enabled !== false &&
+        a.accountIneligible !== true &&
+        a.verificationRequired !== true &&
+        (eligibleIndexes == null || eligibleIndexes.has(a.index)),
+    )
+    if (eligible.length <= 1) return false
+    return eligible.every((a) =>
       isOverSoftQuotaThreshold(
         a,
         family,
@@ -1928,25 +2006,34 @@ export class AccountSelector<A extends SelectableAccount> {
   }
 
   /**
-   * Get minimum wait time until any account's soft quota resets.
-   * Returns 0 if any account is available (not over threshold).
-   * Returns the minimum resetTime across all over-threshold accounts.
-   * Returns null if no resetTime data is available.
+   * Get minimum wait time until any eligible account's soft quota resets.
+   * Operates over the eligible subset (enabled, non-ineligible, non-verification-required,
+   * and present in `eligibleIndexes` when provided).
+   * Returns null if no eligible accounts remain or no resetTime data is available.
+   * Returns 0 if only 1 eligible account exists or any eligible account is below threshold.
+   * Returns the minimum resetTime across all over-threshold eligible accounts.
    */
   getMinWaitTimeForSoftQuota(
     family: ModelFamily,
     thresholdPercent: number,
     cacheTtlMs: number,
     model?: string | null,
+    eligibleIndexes?: Set<number> | null,
   ): number | null {
     if (thresholdPercent >= 100) return 0
 
-    const enabled = this.accounts.filter((a) => a.enabled !== false)
-    if (enabled.length === 0) return null
-    if (enabled.length === 1) return 0
+    const eligible = this.accounts.filter(
+      (a) =>
+        a.enabled !== false &&
+        a.accountIneligible !== true &&
+        a.verificationRequired !== true &&
+        (eligibleIndexes == null || eligibleIndexes.has(a.index)),
+    )
+    if (eligible.length === 0) return null
+    if (eligible.length === 1) return 0
 
     // If any account is available (not over threshold), no wait needed
-    const available = enabled.filter(
+    const available = eligible.filter(
       (a) =>
         !isOverSoftQuotaThreshold(
           a,
@@ -1966,7 +2053,7 @@ export class AccountSelector<A extends SelectableAccount> {
     const now = this.now()
     const waitTimes: number[] = []
 
-    for (const acc of enabled) {
+    for (const acc of eligible) {
       // Each account waits on the pool the model maps to on that account:
       // an Argon request waits on Argon resets where reported, Gemini
       // resets elsewhere.

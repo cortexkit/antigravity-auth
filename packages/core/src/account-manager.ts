@@ -1657,8 +1657,34 @@ export class AccountManager {
     }
   }
 
-  getMinWaitTimeForFamily(family: ModelFamily, model?: string | null): number {
-    return this.selection.getMinWaitTimeForFamily(family, model)
+  /**
+   * Calculates the minimum wait time in milliseconds across eligible accounts
+   * for a given model family (and optional model).
+   *
+   * Note: Returning `0` can mean either:
+   * 1. No eligible candidates exist in the pool, OR
+   * 2. At least one eligible candidate is immediately usable without waiting.
+   * Callers must distinguish "no eligible candidates" from "zero wait time"
+   * by inspecting candidate pool availability / eligibility directly.
+   *
+   * @param family Model family (e.g., 'claude', 'gemini')
+   * @param model Optional model name for per-model rate limits
+   * @param eligibleIndexes Optional set of account indexes permitted for this request
+   * @param includeCooldown Whether to factor in `coolingDownUntil` alongside quota rate limits
+   * @returns Minimum wait duration in milliseconds, or 0 if immediately usable or no candidates
+   */
+  getMinWaitTimeForFamily(
+    family: ModelFamily,
+    model?: string | null,
+    eligibleIndexes?: Set<number> | null,
+    includeCooldown: boolean = false,
+  ): number {
+    return this.selection.getMinWaitTimeForFamily(
+      family,
+      model,
+      eligibleIndexes,
+      includeCooldown,
+    )
   }
 
   getAccounts(): ManagedAccount[] {
@@ -2119,37 +2145,47 @@ export class AccountManager {
     return this.selection.getOldestQuotaCacheAge()
   }
 
+  /**
+   * Check whether all eligible accounts (more than 1) are currently over the soft-quota threshold.
+   * Returns false if thresholdPercent >= 100 or if <= 1 eligible account remains.
+   */
   areAllAccountsOverSoftQuota(
     family: ModelFamily,
     thresholdPercent: number,
     cacheTtlMs: number,
     model?: string | null,
+    eligibleIndexes?: Set<number> | null,
   ): boolean {
     return this.selection.areAllAccountsOverSoftQuota(
       family,
       thresholdPercent,
       cacheTtlMs,
       model,
+      eligibleIndexes,
     )
   }
 
   /**
-   * Get minimum wait time until any account's soft quota resets.
-   * Returns 0 if any account is available (not over threshold).
-   * Returns the minimum resetTime across all over-threshold accounts.
-   * Returns null if no resetTime data is available.
+   * Get minimum wait time until any eligible account's soft quota resets.
+   * Operates over the eligible subset (enabled, non-ineligible, non-verification-required,
+   * and present in `eligibleIndexes` when provided).
+   * Returns null if no eligible accounts remain or no resetTime data is available.
+   * Returns 0 if only 1 eligible account exists or any eligible account is below threshold.
+   * Returns the minimum resetTime across all over-threshold eligible accounts.
    */
   getMinWaitTimeForSoftQuota(
     family: ModelFamily,
     thresholdPercent: number,
     cacheTtlMs: number,
     model?: string | null,
+    eligibleIndexes?: Set<number> | null,
   ): number | null {
     return this.selection.getMinWaitTimeForSoftQuota(
       family,
       thresholdPercent,
       cacheTtlMs,
       model,
+      eligibleIndexes,
     )
   }
 }

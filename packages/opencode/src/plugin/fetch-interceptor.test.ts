@@ -1041,13 +1041,10 @@ describe('createFetchInterceptor', () => {
 
     it('does not invent a quota reset from the fallback sleep duration', async () => {
       const context = await makeContext({ config })
-      for (const account of context.accountManager.getAccounts()) {
-        context.accountManager.markAccountCoolingDown(
-          account,
-          60_000,
-          'auth-failure',
-        )
-      }
+      spyOn(
+        context.accountManager,
+        'getCurrentOrNextForFamily',
+      ).mockReturnValue(null)
       const interceptor = createFetchInterceptor(context)
       try {
         const response = await interceptor.fetch(

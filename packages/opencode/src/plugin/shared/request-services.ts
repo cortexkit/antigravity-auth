@@ -135,6 +135,9 @@ export type RequestTransport = (
 export interface RequestAccountRow {
   readonly index: number
   readonly email?: string
+  readonly enabled?: boolean
+  readonly accountIneligible?: boolean
+  readonly verificationRequired?: boolean
   readonly fingerprint?: Fingerprint
   /** Reset to 0 by the engine after a successful send. */
   consecutiveFailures?: number
@@ -1351,12 +1354,35 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         // This priority never changes either clock or replenishes the request.
         const quotaWins = remainingWaitMs() <= deadline.remainingMs()
 
+        const eligibleCandidateIndexes = new Set(
+          accountManager
+            .getAccounts()
+            .filter(
+              (entry) =>
+                entry.enabled !== false &&
+                !entry.accountIneligible &&
+                !entry.verificationRequired &&
+                !excludedIndexes?.has(entry.index),
+            )
+            .map((entry) => entry.index),
+        )
+
+        if (eligibleCandidateIndexes.size === 0) {
+          waitPolicy.refusal = () =>
+            createNativeGoogleErrorResponse({
+              status: 412,
+              reason: 'pool_unavailable',
+            })
+          return waitPolicy.refusal()
+        }
+
         if (
           accountManager.areAllAccountsOverSoftQuota(
             family,
             config.soft_quota_threshold_percent,
             softQuotaCacheTtlMs,
             model,
+            eligibleCandidateIndexes,
           )
         ) {
           const threshold = config.soft_quota_threshold_percent
@@ -1365,6 +1391,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             threshold,
             softQuotaCacheTtlMs,
             model,
+            eligibleCandidateIndexes,
           )
           waitPolicy.refusal = quotaWins
             ? () =>
@@ -1409,7 +1436,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           continue
         }
 
-        const minWaitMs = accountManager.getMinWaitTimeForFamily(family, model)
+        const minWaitMs = accountManager.getMinWaitTimeForFamily(
+          family,
+          model,
+          eligibleCandidateIndexes,
+          true,
+        )
         const waitMs = minWaitMs || 60_000
         waitPolicy.refusal = quotaWins
           ? () =>
