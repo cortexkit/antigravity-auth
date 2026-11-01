@@ -5391,6 +5391,7 @@ export async function runGaOwnershipPoolLogin(
   await assertGaActivePlaceholder(harness.host.url, placeholder)
   console.error('step=pool-login.reconnect')
   const reconnectEventOffset = harness.readWrapperEvents().length
+  const reconnectPrimaryOffset = gaPrimaryRequests(harness).length
   const reconnected = await reconnectGaPool(harness)
   requireCondition(
     reconnected.id !== placeholder.id &&
@@ -5405,6 +5406,25 @@ export async function runGaOwnershipPoolLogin(
     session,
   )
   assertGaSuccess(reconnectResult, reconnectNonce)
+  const reconnectPrimary = gaPrimaryRequests(harness).slice(
+    reconnectPrimaryOffset,
+  )
+  requireCondition(
+    reconnectPrimary.length === 1 &&
+      reconnectPrimary[0]?.authorization ===
+        'Bearer synthetic-ga-reauthorized-access' &&
+      record(JSON.parse(reconnectPrimary[0].body)).project ===
+        'synthetic-ga-project',
+    'GA_POOL_RECONNECT_WRONG_UPSTREAM_CREDENTIAL',
+  )
+  requireCondition(
+    reconnectPrimary.every(
+      (request) =>
+        !JSON.stringify(request).includes('common-auth-placeholder.') &&
+        !JSON.stringify(request).includes('synthetic-ga-key'),
+    ),
+    'GA_POOL_RECONNECT_HOST_CREDENTIAL_EGRESS',
+  )
   requireCondition(
     !harness
       .readWrapperEvents()

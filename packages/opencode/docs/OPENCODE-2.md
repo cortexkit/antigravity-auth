@@ -38,7 +38,7 @@ Pool login persists credentials in the plugin's local repository before returnin
 
 After offline migration or a host database reset, reconnect the host's **Antigravity** connection using **Use existing local Antigravity pool** (`antigravity-auth-pool-reconnect`):
 
-1. In OpenCode 2 (tested with pinned official release `@opencode/cli-linux-x64@2.0.22`), run `opencode auth login`.
+1. In OpenCode 2 (pinned host `@opencode/cli-linux-x64@2.0.22`), run `opencode auth login`.
 2. Select **Google**, then select **Use existing local Antigravity pool** (`antigravity-auth-pool-reconnect`).
 3. Select the saved **Antigravity** connection.
 
@@ -46,11 +46,11 @@ No browser sign-in or consent is required. Both **Use approved Antigravity vault
 
 For headless or automated setups on OpenCode 2 (`@opencode/cli-linux-x64@2.0.22`), invoke the native integration OAuth API directly against the running host:
 
-1. Start the attempt: `POST /api/integration/google/connect/oauth?directory=<urlencoded-project-dir>` with JSON body `{"methodID":"antigravity-auth-pool-reconnect"}` (returns `{"data":{"attemptID":"<id>","url":""}}`).
-2. Poll `GET /api/integration/google/connect/oauth/<attemptID>?directory=<urlencoded-project-dir>` until `{"data":{"status":"complete"}}`.
+1. Start the attempt: `POST /api/integration/google/connect/oauth?location%5Bdirectory%5D=<urlencoded-project-dir>` with JSON body `{"methodID":"antigravity-auth-pool-reconnect"}` (returns `{"data":{"attemptID":"<id>","url":""}}`).
+2. Poll `GET /api/integration/google/connect/oauth/<attemptID>?location%5Bdirectory%5D=<urlencoded-project-dir>` until `{"data":{"status":"complete"}}`.
 3. Find the new `integrationID: "google"`, `label: "Antigravity"`, `value.methodID: "antigravity-auth-pool-reconnect"` row from `GET /api/credential` and activate it with `POST /api/credential/<credentialID>/activate`.
 
-It never initializes, migrates, exchanges, or refreshes account credentials. A fresh, empty, unreadable, damaged, or unavailable store, a pool with no enabled, usable, unblocked, active account (including ineligible or verification-blocked accounts), and vault or custody-protected state are strictly refused before opening or reading credentials. Browser pool-add still deliberately rejects duplicate identities; reconnect is not reauthorization.
+It never initializes, migrates, exchanges, or refreshes account credentials. A fresh, empty, unreadable, damaged, or unavailable store, a pool with no enabled, usable, unblocked, active account (including ineligible or verification-blocked accounts), and vault or custody-protected state are strictly refused before any marker is issued; the check reads existing store rows but never initializes the store. Browser pool-add still deliberately rejects duplicate identities; reconnect is not reauthorization.
 
 For vault mode, obtain enrollment approval from the person who manages the Claustrum vault (the vault operator), then use **Use approved Antigravity vault** (`antigravity-vault`). All plugin methods save under **Antigravity**. The vault method is not local OAuth. See [vault activation and disconnection](VAULT.md).
 

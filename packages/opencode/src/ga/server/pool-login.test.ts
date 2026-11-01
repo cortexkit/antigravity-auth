@@ -385,8 +385,6 @@ describe('GA existing local pool reconnect', () => {
       try {
         await f.login()
         const seededRepository = await f.repository()
-        // Rebind a fresh location services instance over the populated store so repositoryPromise is uncached
-        await f.rebind()
         f.mode(mode)
         let bindingsRead = 0
         let opened = 0
@@ -405,7 +403,16 @@ describe('GA existing local pool reconnect', () => {
           'createAccountRepositoryFactory',
         ).mockImplementation((...args) => {
           opened++
-          return factory(...args)
+          const create = factory(...args)
+          return (options) => {
+            const repo = create(options)
+            const origRead = repo.read.bind(repo)
+            repo.read = async () => {
+              reads++
+              return origRead()
+            }
+            return repo
+          }
         })
         const readSpy = spyOn(seededRepository, 'read').mockImplementation(
           async () => {
@@ -414,6 +421,14 @@ describe('GA existing local pool reconnect', () => {
           },
         )
         try {
+          // 1. Pre-bound location services instance (seededRepository is live)
+          await expect(f.reconnect()).rejects.toThrow(FAILED)
+          expect(bindingsRead).toBe(0)
+          expect(opened).toBe(0)
+          expect(reads).toBe(0)
+
+          // 2. Freshly rebound location services instance (repositoryPromise is uncached)
+          await f.rebind()
           await expect(f.reconnect()).rejects.toThrow(FAILED)
           expect(bindingsRead).toBe(0)
           expect(opened).toBe(0)

@@ -1807,6 +1807,14 @@ describe('GA ownership harness preparation (source controls, not native proof)',
       async fetch(request) {
         const url = new URL(request.url)
         calls.push(`${request.method} ${url.pathname}`)
+        if (
+          url.pathname === '/api/integration' ||
+          url.pathname.startsWith('/api/integration/')
+        )
+          expect(url.searchParams.get('location[directory]')).toBe(
+            paths.project,
+          )
+        else expect(url.search).toBe('')
         if (url.pathname === '/api/integration') {
           return Response.json({
             location: { directory: paths.project },

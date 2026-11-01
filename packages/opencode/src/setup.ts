@@ -351,15 +351,30 @@ export async function createSetupPlugin(
       // A standalone OAuth flow here cannot create it and would require a second login.
       if (host === 'opencode' && context.opencodeGeneration === '2') {
         if (!forceLogin) {
-          const source = await deps.accountStore.read(
-            deps.accountStore.legacyPath(),
-          )
-          if (
-            (source.kind === 'store' && source.accounts.length > 0) ||
-            (source.kind === 'legacy' &&
-              ((await deps.loadAccounts())?.accounts ?? []).length > 0)
-          ) {
-            hasLocalPool = true
+          try {
+            const source = await deps.accountStore.read(
+              deps.accountStore.legacyPath(),
+            )
+            const candidateAccounts =
+              source.kind === 'store'
+                ? source.accounts
+                : source.kind === 'legacy'
+                  ? ((await deps.loadAccounts())?.accounts ?? [])
+                  : []
+            if (
+              candidateAccounts.some(
+                (account) =>
+                  account.enabled !== false &&
+                  account.accountIneligible !== true &&
+                  account.verificationRequired !== true &&
+                  typeof account.refreshToken === 'string' &&
+                  account.refreshToken.length > 0,
+              )
+            ) {
+              hasLocalPool = true
+            }
+          } catch {
+            // Treat unreadable/retired store as no local pool so setup falls back to browser login hint
           }
         }
         return
@@ -387,7 +402,19 @@ export async function createSetupPlugin(
         deps.stdout.write(
           `Using existing local Antigravity login for ${host}.\n`,
         )
-        if (host === 'opencode') hasLocalPool = true
+        if (
+          host === 'opencode' &&
+          accounts.some(
+            (account) =>
+              account.enabled !== false &&
+              account.accountIneligible !== true &&
+              account.verificationRequired !== true &&
+              typeof account.refreshToken === 'string' &&
+              account.refreshToken.length > 0,
+          )
+        ) {
+          hasLocalPool = true
+        }
         if (
           host === 'opencode' &&
           claustrum.classifyHostSlot(slot, provider(host)) !== 'login'
