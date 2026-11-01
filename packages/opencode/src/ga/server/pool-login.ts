@@ -1,24 +1,29 @@
 import {
+  ANTIGRAVITY_PROVIDER_ID,
   type AntigravityTokenExchangeResult,
   authorizeAntigravity,
   exchangeAntigravity,
 } from '@cortexkit/antigravity-auth-core'
 import { OPENCODE2_POOL_AUTH_LABEL } from '../../auth-method-labels.ts'
 import type { PoolLoginMethod } from '../../common-auth-embedded/opencode2/index.js'
+import { placeholderCredential } from '../../common-auth-embedded/opencode2/index.js'
 import { type OAuthListener, startOAuthListener } from '../../plugin/server.ts'
 import type { GaPluginOverrides } from './index.ts'
 
 export const GA_POOL_METHOD_ID = 'antigravity-auth-pool-browser'
+export const GA_POOL_RECONNECT_METHOD_ID = 'antigravity-auth-pool-reconnect'
 type LoginResult = Extract<AntigravityTokenExchangeResult, { type: 'success' }>
 
 export interface GaLocalLogin {
   assertAdmission(): Promise<void>
+  assertExistingPool?(admit: () => Promise<void>): Promise<void>
   persist(result: LoginResult, admit: () => Promise<void>): Promise<void>
 }
 
 interface GaPoolLogin {
   readonly method: PoolLoginMethod<LoginResult>
   onLogin(result: LoginResult): Promise<void>
+  connectExisting(): Promise<ReturnType<typeof placeholderCredential>>
   dispose(): Promise<void>
 }
 
@@ -152,6 +157,29 @@ export function createGaPoolLogin(input: {
   }
   return {
     method,
+    connectExisting: () =>
+      track(
+        (async () => {
+          try {
+            await admit()
+            if (!input.local?.assertExistingPool) throw new Error(LOGIN_FAILED)
+            // Track the underlying read too: disposal must wait even if abort
+            // has already refused the marker to the host.
+            await abortable(
+              track(input.local.assertExistingPool(admit)),
+              shutdown.signal,
+            )
+            await admit()
+            return placeholderCredential({
+              integrationID: ANTIGRAVITY_PROVIDER_ID,
+              methodID: GA_POOL_RECONNECT_METHOD_ID,
+              now: Date.now(),
+            })
+          } catch {
+            throw new Error(LOGIN_FAILED)
+          }
+        })(),
+      ),
     onLogin: (result: LoginResult) =>
       track(
         (async () => {

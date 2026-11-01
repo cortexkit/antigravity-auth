@@ -2228,6 +2228,43 @@ export function createGaLocationServicesFactory(
       runtime,
       localLogin: {
         assertAdmission: assertLocal,
+        async assertExistingPool(admit) {
+          await assertLocal()
+          await admit()
+          // No login argument: reconnect must never initialize a store.
+          const repository = await getRepository()
+          await admit()
+          const opened = await repositoryPromise
+          await admit()
+          if (!opened)
+            throw new Error('The local repository was not constructed')
+          await assertServingAdmission(opened, bindings.now)
+          await admit()
+          const read = await repository.read()
+          await admit()
+          if (
+            read.status !== 'ready' ||
+            !read.rows.some(
+              (row) =>
+                row.enabled &&
+                row.usable &&
+                row.credential !== undefined &&
+                !row.torn &&
+                !row.unbound &&
+                row.invalid === undefined &&
+                row.metadata.status === 'present' &&
+                accessBlockOf(row).kind === 'none',
+            )
+          )
+            throw new Error(
+              'The existing local Antigravity pool is unavailable',
+            )
+          // Reuse the original generation, never accept a replacement binding.
+          await assertServingAdmission(opened, bindings.now)
+          await admit()
+          await assertLocal()
+          await admit()
+        },
         async persist(result, admit) {
           await assertLocal()
           await admit()

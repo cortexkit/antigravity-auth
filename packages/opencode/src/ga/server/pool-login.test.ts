@@ -11,8 +11,10 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as core from '@cortexkit/antigravity-auth-core'
 import {
   type AccountRepository,
+  type AccountRow,
   createAccountMigrationFactory,
   loadCommonAuthStoreModules,
   readAccountStoreBinding,
@@ -21,6 +23,7 @@ import type {
   IntegrationEditor,
   IntegrationMethodRegistration,
 } from '@opencode/plugin/promise/integration'
+import { isPlaceholderCredential } from '../../common-auth-embedded/opencode2/index.js'
 import {
   createGaLocationServicesFactory,
   createGaReauthorize,
@@ -35,7 +38,7 @@ import {
 import * as storage from '../../plugin/storage.ts'
 import { registerGaAuthMethods } from './auth.ts'
 import type { GaLocationServices } from './index.ts'
-import { GA_POOL_METHOD_ID } from './pool-login.ts'
+import { GA_POOL_METHOD_ID, GA_POOL_RECONNECT_METHOD_ID } from './pool-login.ts'
 
 function tree(root: string) {
   if (!existsSync(root)) return []
@@ -206,6 +209,20 @@ async function fixture() {
           throw new Error('Expected auto pool login')
         return authorization.callback
       },
+      reconnect: async () => {
+        const method = methods.find(
+          ({ method }) =>
+            method.type === 'oauth' &&
+            method.id === GA_POOL_RECONNECT_METHOD_ID,
+        )
+        if (!method || !('authorize' in method))
+          throw new Error('Reconnect method missing')
+        const authorization = await method.authorize({})
+        expect(authorization.url).toBe('')
+        if (authorization.mode !== 'auto')
+          throw new Error('Expected automatic reconnect')
+        return authorization.callback
+      },
       start: async () => {
         if (!services) throw new Error('Location missing')
         mkdirSync(join(root, '.opencode'), { recursive: true })
@@ -246,6 +263,159 @@ async function rows(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 const FAILED = 'The Antigravity pool login could not be completed.'
+
+describe('GA existing local pool reconnect', () => {
+  it('returns only the public marker without changing seeded pool bytes or refreshing accounts', async () => {
+    const f = await fixture()
+    try {
+      await f.login()
+      const before = tree(f.root)
+      const credential = await f.reconnect()
+      expect(isPlaceholderCredential(credential, 'google')).toBe(true)
+      expect(String(credential.methodID)).toBe(GA_POOL_RECONNECT_METHOD_ID)
+      expect(JSON.stringify(credential)).not.toContain('pool-refresh')
+      expect(JSON.stringify(credential)).not.toContain('pool-access')
+      expect(JSON.stringify(credential)).not.toContain('pool@example.test')
+      expect(f.refreshes()).toBe(0)
+      expect(tree(f.root)).toEqual(before)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('refuses a fresh store without initialization or writes', async () => {
+    const f = await fixture()
+    const initializer = spyOn(storage, 'initializeFreshAccountStoreFor')
+    try {
+      const before = tree(f.root)
+      await expect(f.reconnect()).rejects.toThrow(FAILED)
+      expect(initializer).not.toHaveBeenCalled()
+      expect(tree(f.root)).toEqual(before)
+    } finally {
+      initializer.mockRestore()
+      await f.cleanup()
+    }
+  })
+
+  for (const mode of ['custody', 'unreadable'] as const) {
+    it(`refuses ${mode} after seeding without writes`, async () => {
+      const f = await fixture()
+      try {
+        await f.login()
+        f.mode(mode)
+        const before = tree(f.root)
+        await expect(f.reconnect()).rejects.toThrow(FAILED)
+        expect(tree(f.root)).toEqual(before)
+      } finally {
+        await f.cleanup()
+      }
+    })
+  }
+
+  for (const state of [
+    'empty',
+    'all-disabled',
+    'ineligible',
+    'verification',
+  ] as const) {
+    it(`refuses an actual ${state} store without subsequent writes`, async () => {
+      const f = await fixture()
+      try {
+        await f.login()
+        const repository = await f.repository()
+        const row = (await rows(f))[0]!
+        if (state === 'empty') await repository.remove(row.ref)
+        else if (state === 'all-disabled') {
+          await repository.setEnabled(row.ref, {
+            enabled: false,
+            actor: 'user',
+          })
+        } else {
+          await repository.updateMetadata(row.ref, (current) => ({
+            kind: 'set',
+            metadata: {
+              ...current!,
+              ...(state === 'ineligible'
+                ? { accountIneligible: true }
+                : { verificationRequired: true }),
+            },
+          }))
+        }
+        const before = tree(f.root)
+        await expect(f.reconnect()).rejects.toThrow(FAILED)
+        expect(tree(f.root)).toEqual(before)
+      } finally {
+        await f.cleanup()
+      }
+    })
+  }
+
+  const refused: Record<string, (row: AccountRow) => AccountRow[]> = {
+    empty: () => [],
+    disabled: (row) => [{ ...row, enabled: false }],
+    unusable: (row) => [{ ...row, usable: false }],
+    torn: (row) => [{ ...row, torn: true }],
+    unbound: (row) => [{ ...row, unbound: true }],
+    invalid: (row) => [{ ...row, invalid: 'entry' }],
+    'missing credential': (row) => [{ ...row, credential: undefined }],
+    'absent metadata': (row) => [{ ...row, metadata: { status: 'absent' } }],
+    'dropped metadata': (row) => [
+      { ...row, metadata: { status: 'dropped', reason: 'uncovered' } },
+    ],
+    ineligible: (row) => [
+      {
+        ...row,
+        metadata: {
+          status: 'present',
+          metadata: { addedAt: 1, lastUsed: 2, accountIneligible: true },
+        },
+      },
+    ],
+    verification: (row) => [
+      {
+        ...row,
+        metadata: {
+          status: 'present',
+          metadata: { addedAt: 1, lastUsed: 2, verificationRequired: true },
+        },
+      },
+    ],
+  }
+  for (const [name, project] of Object.entries(refused)) {
+    it(`refuses ${name} rows without writing the actual seeded store`, async () => {
+      let refuse = false
+      const factory = core.createAccountRepositoryFactory
+      const factorySpy = spyOn(
+        core,
+        'createAccountRepositoryFactory',
+      ).mockImplementation((modules) => {
+        const create = factory(modules)
+        return (options) => {
+          const repository = create(options)
+          const read = repository.read.bind(repository)
+          repository.read = async () => {
+            const result = await read()
+            return refuse && result.status === 'ready'
+              ? { ...result, rows: project(result.rows[0]!) }
+              : result
+          }
+          return repository
+        }
+      })
+      const f = await fixture()
+      try {
+        await f.login()
+        refuse = true
+        const before = tree(f.root)
+        await expect(f.reconnect()).rejects.toThrow(FAILED)
+        expect(tree(f.root)).toEqual(before)
+      } finally {
+        factorySpy.mockRestore()
+        await f.cleanup()
+      }
+    })
+  }
+})
 
 describe('GA location pool login', () => {
   it('initializes only the injected resolved path and the next request sees the committed account without restart', async () => {
@@ -348,6 +518,7 @@ describe('GA location pool login', () => {
       try {
         await expect(f.login()).rejects.toThrow(FAILED)
         expect(initializer).not.toHaveBeenCalled()
+        await expect(f.reconnect()).rejects.toThrow(FAILED)
         expect(tree(join(f.root, 'resolved'))).toEqual(before)
       } finally {
         initializer.mockRestore()
