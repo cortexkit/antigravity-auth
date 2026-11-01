@@ -1315,3 +1315,262 @@ describe('gemini-argon quota routing', () => {
     ).toBe(1)
   })
 })
+
+describe('AccountSelector getMinWaitTimeForFamily regression tests', () => {
+  const NOW = 1_700_000_000_000
+
+  it('default call ignores coolingDownUntil (legacy quota-only semantics)', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        coolingDownUntil: NOW + 5_000,
+        touchedForQuota: {},
+      },
+    ])
+    expect(selector.getMinWaitTimeForFamily('gemini')).toBe(0)
+    expect(selector.getMinWaitTimeForFamily('claude')).toBe(0)
+  })
+
+  it('includes coolingDownUntil in getMinWaitTimeForFamily when opt-in includeCooldown is true', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        coolingDownUntil: NOW + 5_000,
+        touchedForQuota: {},
+      },
+    ])
+    expect(selector.getMinWaitTimeForFamily('gemini', null, null, true)).toBe(
+      5_000,
+    )
+    expect(selector.getMinWaitTimeForFamily('claude', null, null, true)).toBe(
+      5_000,
+    )
+  })
+
+  it('calculates max of cooldown and rate-limits per account then min across eligible when includeCooldown is true', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {
+          gemini: NOW + 2_000,
+          'gemini:gemini-3-pro': NOW + 7_000,
+        },
+        coolingDownUntil: NOW + 4_000,
+        touchedForQuota: {},
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { gemini: NOW + 3_000 },
+        coolingDownUntil: NOW + 6_000,
+        touchedForQuota: {},
+      },
+    ])
+    // Account 0: max(2000, 7000, 4000) = 7000
+    // Account 1: max(3000, 0, 6000) = 6000
+    // Pool min: min(7000, 6000) = 6000
+    expect(
+      selector.getMinWaitTimeForFamily('gemini', 'gemini-3-pro', null, true),
+    ).toBe(6_000)
+  })
+
+  it('strictly excludes disabled, ineligible and verificationRequired accounts when eligibleIndexes is provided', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: false,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 1_000 },
+        coolingDownUntil: NOW + 1_000,
+        touchedForQuota: {},
+      },
+      {
+        index: 1,
+        enabled: true,
+        accountIneligible: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 2_000 },
+        coolingDownUntil: NOW + 2_000,
+        touchedForQuota: {},
+      },
+      {
+        index: 2,
+        enabled: true,
+        verificationRequired: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 3_000 },
+        coolingDownUntil: NOW + 3_000,
+        touchedForQuota: {},
+      },
+      {
+        index: 3,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 9_000 },
+        coolingDownUntil: NOW + 9_000,
+        touchedForQuota: {},
+      },
+    ])
+    const eligible = new Set([0, 1, 2, 3])
+    expect(
+      selector.getMinWaitTimeForFamily('claude', null, eligible, true),
+    ).toBe(9_000)
+  })
+
+  it('reports zero wait when at least one eligible account is usable immediately', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 10_000 },
+        coolingDownUntil: NOW + 10_000,
+        touchedForQuota: {},
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: {},
+        touchedForQuota: {},
+      },
+    ])
+    expect(selector.getMinWaitTimeForFamily('claude')).toBe(0)
+  })
+
+  it('reports zero wait when no eligible accounts exist in pool', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: false,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 10_000 },
+        touchedForQuota: {},
+      },
+    ])
+    expect(selector.getMinWaitTimeForFamily('claude')).toBe(0)
+  })
+
+  it('honors eligibleIndexes to exclude killed short timers from pool wait', () => {
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts([
+      {
+        index: 0,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 1_000 },
+        coolingDownUntil: NOW + 1_000,
+        touchedForQuota: {},
+      },
+      {
+        index: 1,
+        enabled: true,
+        lastUsed: 0,
+        rateLimitResetTimes: { claude: NOW + 8_000 },
+        coolingDownUntil: NOW + 8_000,
+        touchedForQuota: {},
+      },
+    ])
+    // Without eligibleIndexes filter, min is 1000
+    expect(selector.getMinWaitTimeForFamily('claude', null, null, true)).toBe(
+      1_000,
+    )
+    // When account 0 is killed/excluded by killswitch (eligible set only contains index 1), min is 8000
+    const eligibleOnly1 = new Set([1])
+    expect(
+      selector.getMinWaitTimeForFamily('claude', null, eligibleOnly1, true),
+    ).toBe(8_000)
+  })
+
+  it('forwards eligibleIndexes and includeCooldown accurately through AccountManager wrapper', async () => {
+    const memory = memoryStore()
+    const manager = new AccountManager(
+      undefined,
+      {
+        version: 4,
+        accounts: [
+          {
+            refreshToken: 'r1',
+            projectId: 'p1',
+            addedAt: 1,
+            lastUsed: 0,
+            rateLimitResetTimes: { claude: NOW + 1_000 },
+            coolingDownUntil: NOW + 4_000,
+          },
+          {
+            refreshToken: 'r2',
+            projectId: 'p2',
+            addedAt: 1,
+            lastUsed: 0,
+            rateLimitResetTimes: { claude: NOW + 8_000 },
+            coolingDownUntil: NOW + 6_000,
+          },
+          {
+            refreshToken: 'r3',
+            projectId: 'p3',
+            addedAt: 1,
+            lastUsed: 0,
+            rateLimitResetTimes: { claude: NOW + 2_000 },
+            coolingDownUntil: NOW + 2_000,
+            accountIneligible: true,
+          },
+        ],
+        activeIndex: 0,
+      },
+      {
+        store: memory,
+        now: () => NOW,
+      },
+    )
+
+    try {
+      // 1. Default (no eligibleIndexes, includeCooldown = false):
+      // Considers only rate limits for enabled accounts: min(1000, 8000, 2000) = 1000
+      expect(manager.getMinWaitTimeForFamily('claude')).toBe(1_000)
+
+      // 2. includeCooldown = true (no eligibleIndexes):
+      // Account 0: max(rateLimit: 1000, cooldown: 4000) = 4000
+      // Account 1: max(rateLimit: 8000, cooldown: 6000) = 8000
+      // Account 2: max(rateLimit: 2000, cooldown: 2000) = 2000
+      // Pool min: min(4000, 8000, 2000) = 2000
+      expect(manager.getMinWaitTimeForFamily('claude', null, null, true)).toBe(
+        2_000,
+      )
+
+      // 3. eligibleIndexes provided (Set([0, 1, 2])):
+      // accountIneligible: true on account 2 causes it to be excluded when eligibleIndexes is passed.
+      // Pool min across {0, 1}: min(account 0: 4000, account 1: 8000) = 4000
+      expect(
+        manager.getMinWaitTimeForFamily(
+          'claude',
+          null,
+          new Set([0, 1, 2]),
+          true,
+        ),
+      ).toBe(4_000)
+
+      // 4. eligibleIndexes restricting to index 1 only:
+      // Pool min across {1}: 8000
+      expect(
+        manager.getMinWaitTimeForFamily('claude', null, new Set([1]), true),
+      ).toBe(8_000)
+    } finally {
+      await manager.dispose()
+    }
+  })
+})

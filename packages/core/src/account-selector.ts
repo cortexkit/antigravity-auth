@@ -1605,19 +1605,40 @@ export class AccountSelector<A extends SelectableAccount> {
     return true
   }
 
-  getMinWaitTimeForFamily(family: ModelFamily, model?: string | null): number {
+  getMinWaitTimeForFamily(
+    family: ModelFamily,
+    model?: string | null,
+    eligibleIndexes?: Set<number> | null,
+    includeCooldown: boolean = false,
+  ): number {
     const now = this.now()
     const waits = this.accounts
-      .filter((a) => a.enabled !== false)
+      .filter((a) => {
+        if (a.enabled === false) return false
+        if (eligibleIndexes !== undefined && eligibleIndexes !== null) {
+          if (a.accountIneligible === true || a.verificationRequired === true) {
+            return false
+          }
+          if (!eligibleIndexes.has(a.index)) return false
+        }
+        return true
+      })
       .map((a) => {
         clearExpiredRateLimits(a, this.now)
         const modelReset = model
           ? a.rateLimitResetTimes[getQuotaKey(family, model)]
           : undefined
+        const cooldownWait =
+          includeCooldown &&
+          a.coolingDownUntil !== undefined &&
+          a.coolingDownUntil > now
+            ? a.coolingDownUntil - now
+            : 0
         return Math.max(
           0,
           (a.rateLimitResetTimes[family] ?? now) - now,
           (modelReset ?? now) - now,
+          cooldownWait,
         )
       })
     return waits.length > 0 ? Math.min(...waits) : 0

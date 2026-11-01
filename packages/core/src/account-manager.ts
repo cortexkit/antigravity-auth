@@ -1657,8 +1657,18 @@ export class AccountManager {
     }
   }
 
-  getMinWaitTimeForFamily(family: ModelFamily, model?: string | null): number {
-    return this.selection.getMinWaitTimeForFamily(family, model)
+  getMinWaitTimeForFamily(
+    family: ModelFamily,
+    model?: string | null,
+    eligibleIndexes?: Set<number> | null,
+    includeCooldown: boolean = false,
+  ): number {
+    return this.selection.getMinWaitTimeForFamily(
+      family,
+      model,
+      eligibleIndexes,
+      includeCooldown,
+    )
   }
 
   getAccounts(): ManagedAccount[] {
