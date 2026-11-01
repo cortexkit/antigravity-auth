@@ -157,8 +157,9 @@ test('routing quota scope maps every pool and known window to the accessor shape
   }
 })
 
-test('routing exhausted: switch off sends nothing even for a dated zero window', async () =>
+test('routing exhausted: a dated zero window reaches the bridge with its pool by default', async () =>
   bridge(async (reports) => {
+    const reset = Date.now() + 3_600_000
     reportVaultExhaustion({
       identity,
       status: 429,
@@ -171,15 +172,24 @@ test('routing exhausted: switch off sends nothing even for a dated zero window',
           {
             window: '5h',
             remainingFraction: 0,
-            resetTime: new Date(Date.now() + 3_600_000).toISOString(),
+            resetTime: new Date(reset).toISOString(),
           },
         ],
       },
     })
-    expect(reports).toEqual([])
+    expect(reports).toEqual([
+      {
+        account_id: identity.accountId,
+        credential_id: identity.credentialId,
+        outcome: 'exhausted',
+        window: '5h',
+        pool: 'gemini',
+        resets_at: reset,
+      },
+    ])
   }))
 
-test('routing exhausted: test-only enablement passes exact structured fields to reportRouting', async () =>
+test('routing exhausted: every pool passes exact structured fields to reportRouting', async () =>
   bridge(async (reports) => {
     const accessorCalls: unknown[] = []
     const reset = Date.now() + 3_600_000
@@ -202,7 +212,6 @@ test('routing exhausted: test-only enablement passes exact structured fields to 
             ],
           },
         },
-        true,
         (input) => {
           accessorCalls.push(input)
           reportRouting(input)
@@ -284,7 +293,7 @@ test('routing exhausted: strict classification rejects quota left, unknown or st
         },
       },
     ])
-      reportVaultExhaustion({ ...valid, ...change }, true, (input) => {
+      reportVaultExhaustion({ ...valid, ...change }, (input) => {
         reports.push(input)
       })
     expect(reports).toEqual([])

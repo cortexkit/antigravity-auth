@@ -5429,6 +5429,87 @@ describe('createRequestExecutor optional vault routing', () => {
       }))
   }
 
+  for (const [label, remainingFraction, expected] of [
+    ['a dated 0% window reports that pool exhausted', 0, true],
+    ['quota still left reports nothing', 0.4, false],
+  ] as const) {
+    it(`a 429 QUOTA_EXHAUSTED with ${label}`, async () =>
+      routing(async (state) => {
+        const pool = makePool(1)
+        const resetsAt = Date.now() + 3_600_000
+        const account = pool.getAccounts()[0]!
+        account.cachedQuota = {
+          gemini: {
+            modelCount: 1,
+            remainingFraction,
+            windows: [
+              {
+                window: '5h',
+                remainingFraction,
+                resetTime: new Date(resetsAt).toISOString(),
+              },
+            ],
+          },
+        }
+        account.cachedQuotaUpdatedAt = Date.now() - 1_000
+        const h = harness({
+          pool,
+          config: { max_account_switches: 0, max_rate_limit_wait_seconds: 0 },
+          respond: async () =>
+            new Response(
+              JSON.stringify({
+                error: {
+                  code: 429,
+                  status: 'RESOURCE_EXHAUSTED',
+                  message: 'quota exhausted',
+                  details: [
+                    {
+                      '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                      reason: 'QUOTA_EXHAUSTED',
+                    },
+                  ],
+                },
+              }),
+              {
+                status: 429,
+                headers: {
+                  'content-type': 'application/json',
+                  'retry-after': '3600',
+                },
+              },
+            ),
+        })
+        const executor = createRequestExecutor(
+          vaultDeps(h, async (vaultAccount) => admission(vaultAccount)),
+        )
+        try {
+          await (
+            await executor.execute(
+              NON_STREAM_URL,
+              CHAT_INIT(),
+              session(`exhausted-${remainingFraction}`),
+            )
+          ).text()
+          expect(state.reports).toEqual(
+            expected
+              ? [
+                  {
+                    account_id: 'identity-0',
+                    credential_id: 'credential-0',
+                    outcome: 'exhausted',
+                    window: '5h',
+                    pool: 'gemini',
+                    resets_at: resetsAt,
+                  },
+                ]
+              : [],
+          )
+        } finally {
+          await executor.dispose()
+        }
+      }))
+  }
+
   it('routing advice is cancelled by the pre-response deadline without a transport or report', async () => {
     const clock = deadlineClock()
     await routing(

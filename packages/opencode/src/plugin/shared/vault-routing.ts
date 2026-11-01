@@ -7,10 +7,6 @@ import {
   reportRouting,
 } from '../../common-auth-embedded/routing-accessor/index.js'
 
-// The external routing relay (THALAMUS) must forward the quota-group pool field
-// before scoped exhaustion is enabled; losing it would block the whole account.
-export const ROUTING_GROUP_SCOPED_EXHAUSTION = false
-
 /** The bridge may arrive or disappear after plugin load; never cache its presence. */
 export function hasVaultRoutingAccessor(): boolean {
   try {
@@ -60,7 +56,11 @@ export function routingExhaustionFields(
   }
 }
 
-/** A refusal alone does not establish exhaustion: large requests can fail while quota remains. */
+/**
+ * A refusal alone does not establish exhaustion: large requests can fail while
+ * quota remains. Each report names its quota pool, so routing blocks only that
+ * pool's window on the account, never the account's other models.
+ */
 export function reportVaultExhaustion(
   input: {
     identity: RoutingIdentity
@@ -71,7 +71,6 @@ export function reportVaultExhaustion(
     observedAt?: number
     signal?: AbortSignal | null
   },
-  groupScopedExhaustion = ROUTING_GROUP_SCOPED_EXHAUSTION,
   report: typeof reportRouting = reportRouting,
 ): void {
   if (
@@ -89,13 +88,12 @@ export function reportVaultExhaustion(
     const scope = routingQuotaScope(input.group, window.window)
     const resetsAt = Date.parse(window.resetTime)
     if (!scope || !Number.isFinite(resetsAt) || resetsAt <= Date.now()) continue
-    if (groupScopedExhaustion)
-      report({
-        ...input.identity,
-        outcome: 'exhausted',
-        ...routingExhaustionFields(scope),
-        resetsAt,
-      })
+    report({
+      ...input.identity,
+      outcome: 'exhausted',
+      ...routingExhaustionFields(scope),
+      resetsAt,
+    })
   }
 }
 
