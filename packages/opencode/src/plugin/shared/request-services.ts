@@ -1354,12 +1354,35 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         // This priority never changes either clock or replenishes the request.
         const quotaWins = remainingWaitMs() <= deadline.remainingMs()
 
+        const eligibleCandidateIndexes = new Set(
+          accountManager
+            .getAccounts()
+            .filter(
+              (entry) =>
+                entry.enabled !== false &&
+                !entry.accountIneligible &&
+                !entry.verificationRequired &&
+                !excludedIndexes?.has(entry.index),
+            )
+            .map((entry) => entry.index),
+        )
+
+        if (eligibleCandidateIndexes.size === 0) {
+          waitPolicy.refusal = () =>
+            createNativeGoogleErrorResponse({
+              status: 412,
+              reason: 'pool_unavailable',
+            })
+          return waitPolicy.refusal()
+        }
+
         if (
           accountManager.areAllAccountsOverSoftQuota(
             family,
             config.soft_quota_threshold_percent,
             softQuotaCacheTtlMs,
             model,
+            eligibleCandidateIndexes,
           )
         ) {
           const threshold = config.soft_quota_threshold_percent
@@ -1368,6 +1391,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             threshold,
             softQuotaCacheTtlMs,
             model,
+            eligibleCandidateIndexes,
           )
           waitPolicy.refusal = quotaWins
             ? () =>
@@ -1410,28 +1434,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
           await sleep(Math.min(softQuotaWaitMs, remainingWaitMs()), abortSignal)
           continue
-        }
-
-        const eligibleCandidateIndexes = new Set(
-          accountManager
-            .getAccounts()
-            .filter(
-              (entry) =>
-                entry.enabled !== false &&
-                !entry.accountIneligible &&
-                !entry.verificationRequired &&
-                !excludedIndexes?.has(entry.index),
-            )
-            .map((entry) => entry.index),
-        )
-
-        if (eligibleCandidateIndexes.size === 0) {
-          waitPolicy.refusal = () =>
-            createNativeGoogleErrorResponse({
-              status: 412,
-              reason: 'pool_unavailable',
-            })
-          return waitPolicy.refusal()
         }
 
         const minWaitMs = accountManager.getMinWaitTimeForFamily(

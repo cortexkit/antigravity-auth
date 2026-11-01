@@ -681,10 +681,25 @@ export class AccountSelector<A extends SelectableAccount> {
     }))
   }
 
-  private getEffectiveSoftQuotaThreshold(thresholdPercent: number): number {
-    // Soft-quota protection only has a purpose when another enabled account
+  private getEligibleAccounts(excludeIndexes?: Set<number>): A[] {
+    return this.accounts.filter(
+      (a) =>
+        a.enabled !== false &&
+        a.accountIneligible !== true &&
+        a.verificationRequired !== true &&
+        !excludeIndexes?.has(a.index),
+    )
+  }
+
+  private getEffectiveSoftQuotaThreshold(
+    thresholdPercent: number,
+    excludeIndexes?: Set<number>,
+  ): number {
+    // Soft-quota protection only has a purpose when another eligible account
     // exists to rotate to. Never block the sole usable account.
-    return this.getEnabledAccounts().length > 1 ? thresholdPercent : 100
+    return this.getEligibleAccounts(excludeIndexes).length > 1
+      ? thresholdPercent
+      : 100
   }
 
   private getRequestSessionState(
@@ -918,6 +933,7 @@ export class AccountSelector<A extends SelectableAccount> {
     const quotaKey = getQuotaKey(family, model)
     const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(
       softQuotaThresholdPercent,
+      excludeIndexes,
     )
 
     // OpenCode may run many root and child sessions concurrently in one plugin
@@ -1101,6 +1117,7 @@ export class AccountSelector<A extends SelectableAccount> {
   ): A | null {
     const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(
       softQuotaThresholdPercent,
+      excludeIndexes,
     )
     const allAvailable = this.accounts.filter((account) => {
       clearExpiredRateLimits(account, this.now)
@@ -1961,11 +1978,18 @@ export class AccountSelector<A extends SelectableAccount> {
     thresholdPercent: number,
     cacheTtlMs: number,
     model?: string | null,
+    eligibleIndexes?: Set<number> | null,
   ): boolean {
     if (thresholdPercent >= 100) return false
-    const enabled = this.accounts.filter((a) => a.enabled !== false)
-    if (enabled.length <= 1) return false
-    return enabled.every((a) =>
+    const eligible = this.accounts.filter(
+      (a) =>
+        a.enabled !== false &&
+        a.accountIneligible !== true &&
+        a.verificationRequired !== true &&
+        (eligibleIndexes == null || eligibleIndexes.has(a.index)),
+    )
+    if (eligible.length <= 1) return false
+    return eligible.every((a) =>
       isOverSoftQuotaThreshold(
         a,
         family,
@@ -1988,15 +2012,22 @@ export class AccountSelector<A extends SelectableAccount> {
     thresholdPercent: number,
     cacheTtlMs: number,
     model?: string | null,
+    eligibleIndexes?: Set<number> | null,
   ): number | null {
     if (thresholdPercent >= 100) return 0
 
-    const enabled = this.accounts.filter((a) => a.enabled !== false)
-    if (enabled.length === 0) return null
-    if (enabled.length === 1) return 0
+    const eligible = this.accounts.filter(
+      (a) =>
+        a.enabled !== false &&
+        a.accountIneligible !== true &&
+        a.verificationRequired !== true &&
+        (eligibleIndexes == null || eligibleIndexes.has(a.index)),
+    )
+    if (eligible.length === 0) return null
+    if (eligible.length === 1) return 0
 
     // If any account is available (not over threshold), no wait needed
-    const available = enabled.filter(
+    const available = eligible.filter(
       (a) =>
         !isOverSoftQuotaThreshold(
           a,
@@ -2016,7 +2047,7 @@ export class AccountSelector<A extends SelectableAccount> {
     const now = this.now()
     const waitTimes: number[] = []
 
-    for (const acc of enabled) {
+    for (const acc of eligible) {
       // Each account waits on the pool the model maps to on that account:
       // an Argon request waits on Argon resets where reported, Gemini
       // resets elsewhere.

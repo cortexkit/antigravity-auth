@@ -2150,12 +2150,14 @@ export class AccountManager {
     thresholdPercent: number,
     cacheTtlMs: number,
     model?: string | null,
+    eligibleIndexes?: Set<number> | null,
   ): boolean {
     return this.selection.areAllAccountsOverSoftQuota(
       family,
       thresholdPercent,
       cacheTtlMs,
       model,
+      eligibleIndexes,
     )
   }
 
@@ -2170,12 +2172,14 @@ export class AccountManager {
     thresholdPercent: number,
     cacheTtlMs: number,
     model?: string | null,
+    eligibleIndexes?: Set<number> | null,
   ): number | null {
     return this.selection.getMinWaitTimeForSoftQuota(
       family,
       thresholdPercent,
       cacheTtlMs,
       model,
+      eligibleIndexes,
     )
   }
 }
