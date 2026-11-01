@@ -2145,6 +2145,10 @@ export class AccountManager {
     return this.selection.getOldestQuotaCacheAge()
   }
 
+  /**
+   * Check whether all eligible accounts (more than 1) are currently over the soft-quota threshold.
+   * Returns false if thresholdPercent >= 100 or if <= 1 eligible account remains.
+   */
   areAllAccountsOverSoftQuota(
     family: ModelFamily,
     thresholdPercent: number,
@@ -2162,10 +2166,12 @@ export class AccountManager {
   }
 
   /**
-   * Get minimum wait time until any account's soft quota resets.
-   * Returns 0 if any account is available (not over threshold).
-   * Returns the minimum resetTime across all over-threshold accounts.
-   * Returns null if no resetTime data is available.
+   * Get minimum wait time until any eligible account's soft quota resets.
+   * Operates over the eligible subset (enabled, non-ineligible, non-verification-required,
+   * and present in `eligibleIndexes` when provided).
+   * Returns null if no eligible accounts remain or no resetTime data is available.
+   * Returns 0 if only 1 eligible account exists or any eligible account is below threshold.
+   * Returns the minimum resetTime across all over-threshold eligible accounts.
    */
   getMinWaitTimeForSoftQuota(
     family: ModelFamily,
