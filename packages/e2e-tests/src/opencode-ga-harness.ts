@@ -5398,14 +5398,13 @@ export async function runGaOwnershipPoolLogin(
       record(reconnected.value).methodID === 'antigravity-auth-pool-reconnect',
     'GA_POOL_RECONNECT_CREDENTIAL_NOT_DISTINCT',
   )
-  const reconnectNonce = newGaNonce()
   const reconnectResult = await harness.run(
     publicGaModel(),
-    `Reply with GA_OK_${reconnectNonce}. Primary nonce ${reconnectNonce}`,
+    undefined,
     false,
     session,
   )
-  assertGaSuccess(reconnectResult, reconnectNonce)
+  assertGaSuccess(reconnectResult, harness.nonce)
   const reconnectPrimary = gaPrimaryRequests(harness).slice(
     reconnectPrimaryOffset,
   )
