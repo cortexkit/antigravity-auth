@@ -13,8 +13,9 @@
 //   OpenCode 1 plugin instances write. Versions before the move wrote it
 //   without a `version`, so such a file blocks.
 //
-// A process counts as running while its pid is alive. Each record must carry
-// its own current-or-newer version: a heartbeat left by a crashed process
+// A process counts as running while its pid is alive and its record is not
+// from before this boot (allowing a margin for clock granularity). Each record
+// must carry its own current-or-newer version: a heartbeat left by a crashed process
 // cannot vouch for a port file written by an older process reusing that pid.
 // The fence fails closed on unreadable records and missing or invalid
 // versions.
@@ -42,9 +43,12 @@
 // ANTIGRAVITY_AUTH_RPC_DIR, or under an empty XDG_STATE_HOME (which the RPC
 // writer treats as a relative path), are outside the folders read here.
 
-import { readdir, readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { readdir, readFile, stat, unlink } from 'node:fs/promises'
+import { homedir, uptime } from 'node:os'
 import { join } from 'node:path'
+import { createLogger } from './plugin/logger.ts'
+
+const log = createLogger('version-fence')
 
 /** One live process that keeps the fence shut. */
 export interface VersionFenceBlocker {
@@ -68,6 +72,9 @@ export interface VersionFenceOptions {
   /** The version that wants to act. */
   currentVersion: string
   isAlive?: (pid: number) => boolean
+  /** Wall-clock milliseconds and OS uptime; injectable for boot-time checks. */
+  now?: () => number
+  uptimeSeconds?: () => number
   /** This process, which never blocks itself. Defaults to `process.pid`. */
   selfPid?: number
   /**
@@ -190,9 +197,11 @@ async function list(dir: string): Promise<Listing> {
 
 type ProcessRecord =
   | { kind: 'gone' }
-  | { kind: 'unreadable' }
+  | { kind: 'unreadable'; text?: string; startedAt?: number }
   | {
       kind: 'ok'
+      text: string
+      startedAt?: number
       version: string
       layouts?: Record<string, unknown>
       stores?: Record<string, unknown>
@@ -211,8 +220,15 @@ async function readProcessRecord(
       return { kind: 'gone' }
     return { kind: 'unreadable' }
   }
+  let startedAt: number | undefined
   try {
     const value: unknown = JSON.parse(text)
+    if (
+      isRecord(value) &&
+      typeof value.startedAt === 'number' &&
+      Number.isFinite(value.startedAt)
+    )
+      startedAt = value.startedAt
     if (
       value !== null &&
       typeof value === 'object' &&
@@ -223,17 +239,65 @@ async function readProcessRecord(
       const stores = (value as { stores?: unknown }).stores
       return {
         kind: 'ok',
+        text,
+        startedAt,
         version: (value as { version: string }).version,
         ...(isRecord(layouts) ? { layouts } : {}),
         ...(isRecord(stores) ? { stores } : {}),
       }
     }
   } catch {}
-  return { kind: 'unreadable' }
+  return { kind: 'unreadable', text, startedAt }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+// Clock and uptime granularity must never make a process started just after
+// boot look stale. The margin only retains possible blockers; it never clears one.
+const BOOT_TIME_MARGIN_MS = 300_000
+
+function bootTime(options: {
+  now?: () => number
+  uptimeSeconds?: () => number
+}): number {
+  try {
+    return (
+      (options.now ?? Date.now)() - (options.uptimeSeconds ?? uptime)() * 1000
+    )
+  } catch {
+    return Number.NaN
+  }
+}
+
+async function staleRecord(
+  path: string,
+  record: Exclude<ProcessRecord, { kind: 'gone' }>,
+  boot: number,
+  heartbeat: boolean,
+): Promise<boolean> {
+  if (record.text === undefined || !Number.isFinite(boot)) return false
+  let start = heartbeat ? record.startedAt : undefined
+  if (start === undefined) {
+    try {
+      start = (await stat(path)).mtimeMs
+    } catch {
+      return false
+    }
+  }
+  if (!Number.isFinite(start) || !(start < boot - BOOT_TIME_MARGIN_MS))
+    return false
+  if (heartbeat) {
+    try {
+      // A new process may have replaced the old pid's heartbeat during the scan.
+      if ((await readFile(path, 'utf8')) === record.text) {
+        await unlink(path)
+        log.debug('Removed stale pre-boot heartbeat', { path })
+      }
+    } catch {}
+  }
+  return true
 }
 
 /**
@@ -245,6 +309,7 @@ export async function versionFenceOpen(
 ): Promise<VersionFenceResult> {
   const isAlive = options.isAlive ?? pidAlive
   const self = options.selfPid ?? process.pid
+  const boot = bootTime(options)
   const blockers = new Map<number | string, VersionFenceBlocker>()
   const block = (entry: VersionFenceBlocker) => {
     const key = entry.pid === 'unknown' ? `dir:${entry.detail}` : entry.pid
@@ -268,7 +333,8 @@ export async function versionFenceOpen(
     const path = join(heartbeatDir, name)
     const heartbeat = await readProcessRecord(path, pid)
     if (heartbeat.kind === 'gone') continue
-    if (!alive(pid)) continue
+    const live = alive(pid)
+    if ((await staleRecord(path, heartbeat, boot, true)) || !live) continue
     if (heartbeat.kind === 'unreadable') {
       block({ pid, version: 'unknown', detail: path })
       continue
@@ -314,6 +380,7 @@ export async function versionFenceOpen(
       const path = join(dir, name)
       const port = await readProcessRecord(path, pid)
       if (port.kind === 'gone') continue
+      if (await staleRecord(path, port, boot, false)) continue
       const version = port.kind === 'ok' ? port.version : 'unknown'
       const order = compareVersions(version, options.currentVersion)
       if (order === undefined || order < 0)
@@ -373,11 +440,14 @@ export async function readStoreAnchors(
     rpcDir?: string
     isAlive?: (pid: number) => boolean
     selfPid?: number
+    now?: () => number
+    uptimeSeconds?: () => number
   },
   key: string,
 ): Promise<StoreAnchorReading> {
   const isAlive = options.isAlive ?? pidAlive
   const self = options.selfPid ?? process.pid
+  const boot = bootTime(options)
   const configFolder: VersionFenceBlocker[] = []
   const unknown: VersionFenceBlocker[] = []
   const alive = (pid: number) => {
@@ -403,7 +473,9 @@ export async function readStoreAnchors(
     const heartbeat = await readProcessRecord(path, pid)
     // A file removed between the listing and the read belongs to a process
     // that has exited.
-    if (heartbeat.kind === 'gone' || !alive(pid)) continue
+    if (heartbeat.kind === 'gone') continue
+    const live = alive(pid)
+    if ((await staleRecord(path, heartbeat, boot, true)) || !live) continue
     if (heartbeat.kind === 'unreadable') {
       unknown.push({ pid, version: 'unknown', detail: path })
       continue
@@ -435,6 +507,7 @@ export async function readStoreAnchors(
       const path = join(dir, name)
       const port = await readProcessRecord(path, pid)
       if (port.kind === 'gone') continue
+      if (await staleRecord(path, port, boot, false)) continue
       unknown.push({
         pid,
         version: port.kind === 'ok' ? port.version : 'unknown',

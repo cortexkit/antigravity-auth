@@ -167,7 +167,7 @@ function heartbeat(
     JSON.stringify({
       pid,
       version: body.version,
-      startedAt: 1,
+      startedAt: Date.now(),
       layouts: { [processConfigFolderKey()]: 'legacy' },
       ...(body.stores === undefined ? {} : { stores: body.stores }),
     }),

@@ -288,7 +288,7 @@ function heartbeat(pid: number, body: Record<string, unknown>) {
   const dir = processHeartbeatDir(join(root, 'state'))
   mkdirSync(dir, { recursive: true })
   const path = join(dir, `${pid}.json`)
-  writeFileSync(path, JSON.stringify({ pid, startedAt: 1, ...body }))
+  writeFileSync(path, JSON.stringify({ pid, startedAt: Date.now(), ...body }))
   return path
 }
 

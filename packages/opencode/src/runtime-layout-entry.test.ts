@@ -341,7 +341,7 @@ it('a live legacy-layout process keeps an OpenCode 1 start on the vault files in
     JSON.stringify({
       pid: process.ppid,
       version: manifest.version,
-      startedAt: 1,
+      startedAt: Date.now(),
       layouts: { [processConfigFolderKey()]: 'legacy' },
     }),
   )

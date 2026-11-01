@@ -66,7 +66,7 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
   'packages/opencode/src/process-heartbeat.test.ts':
     'Heartbeat folder and file modes (0700/0600) and atomic temp-then-rename writes.',
   'packages/opencode/src/version-fence.test.ts':
-    'Unreadable (chmod 000) heartbeat and port files, and heartbeats published by temp-then-rename.',
+    'Unreadable (chmod 000) records, atomic heartbeat publication, and utimes-controlled pre-boot record checks.',
   'packages/opencode/src/store-relocation.test.ts':
     'Account-store relocation: real fenced leases and locks, durable private store files (0600/0700), atomic pointer publication, and child processes that must keep their roots on disk.',
   'packages/opencode/src/runtime-layout.test.ts':
