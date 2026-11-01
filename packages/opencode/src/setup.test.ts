@@ -23,8 +23,10 @@ import {
   win32,
 } from 'node:path'
 import {
+  type AccountRow,
   loadCommonAuthClaustrum,
   loadCommonAuthPiSlot,
+  type RowRef,
 } from '@cortexkit/antigravity-auth-core'
 
 import { runCommand } from '../../../test/support/run-command.ts'
@@ -35,6 +37,10 @@ import {
   type SetupCallbackContext,
   type SetupIO,
 } from './common-auth-embedded/setup/index.js'
+import {
+  isReconnectReadyRow,
+  accessBlockOf as setupAccessBlockOf,
+} from './plugin/account-row-admission.ts'
 import * as setup from './setup.ts'
 import { createSetupPlugin, persistPiSetupLogin } from './setup.ts'
 
@@ -643,7 +649,9 @@ describe('setup plugin callbacks', () => {
       },
     }
     deps.accountStore.read = async () =>
-      kind === 'store' ? { kind, accounts: [] } : { kind }
+      kind === 'store'
+        ? { kind, accounts: [], reconnectReady: false }
+        : { kind }
     deps.accountStore.migrate = mock(async () => {
       throw new Error('existing offline migration invoked')
     })
@@ -1328,6 +1336,7 @@ describe('setup plugin callbacks', () => {
             lastUsed: 1,
           },
         ],
+        reconnectReady: true,
       }))
       const plugin = await createSetupPlugin(deps, async () => 0)
 
@@ -1341,6 +1350,7 @@ describe('setup plugin callbacks', () => {
       } as const
       await plugin.signInLocal('opencode', bothContext)
       await plugin.beforeRegister?.('opencode', 'local', bothContext)
+      await plugin.migrate!('opencode', bothContext)
       expect(output).toContain(
         'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
       )
@@ -1356,6 +1366,7 @@ describe('setup plugin callbacks', () => {
       } as const
       await plugin.signInLocal('opencode', gen2Context)
       await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      await plugin.migrate!('opencode', gen2Context)
       expect(output).toContain(
         'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
       )
@@ -1365,7 +1376,7 @@ describe('setup plugin callbacks', () => {
     }
   })
 
-  it('directs --opencode=both on a fresh store to reconnect after the initial sign-in populates the pool', async () => {
+  it('reuses the same setup plugin instance across ready then empty/unavailable/invalid/pending states without stale reconnect hint', async () => {
     const p = profile()
     Object.assign(process.env, p.env)
     const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
@@ -1379,9 +1390,270 @@ describe('setup plugin callbacks', () => {
           output += value
         },
       }
+      let readyState = true
       deps.accountStore.read = mock(async () => ({
-        kind: 'uninitialized' as const,
+        kind: 'store' as const,
+        accounts: readyState
+          ? [
+              {
+                email: 'existing@example.test',
+                refreshToken: 'existing-refresh',
+                projectId: 'proj',
+                addedAt: 1,
+                lastUsed: 1,
+              },
+            ]
+          : [],
+        reconnectReady: readyState,
       }))
+      const plugin = await createSetupPlugin(deps, async () => 0)
+      const gen2Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+
+      // 1. Initial invocation: store is ready -> gives reconnect hint at end of migrate
+      output = ''
+      await plugin.signInLocal('opencode', gen2Context)
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      await plugin.migrate!('opencode', gen2Context)
+      expect(output).toContain(
+        'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
+      )
+      expect(output).not.toContain('Google (antigravity-auth pool, browser)')
+
+      // 2. Subsequent invocation on same plugin instance: store becomes empty -> fallback to browser login (no stale hint!)
+      output = ''
+      readyState = false
+      await plugin.signInLocal('opencode', gen2Context)
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      await plugin.migrate!('opencode', gen2Context)
+      expect(output).toContain('Google (antigravity-auth pool, browser)')
+      expect(output).not.toContain('Use existing local Antigravity pool')
+
+      // 3. Unavailable store: preserves real failure error without silent catch
+      deps.accountStore.read = mock(async () => ({
+        kind: 'unavailable' as const,
+        reason: 'store journal corrupted',
+      }))
+      await expect(plugin.signInLocal('opencode', gen2Context)).rejects.toThrow(
+        'store journal corrupted',
+      )
+
+      // 4. Invalid / non-ready store: fallback to browser login (no reconnect hint!)
+      output = ''
+      deps.accountStore.read = mock(async () => ({
+        kind: 'store' as const,
+        accounts: [],
+        reconnectReady: false,
+      }))
+      await plugin.signInLocal('opencode', gen2Context)
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      await plugin.migrate!('opencode', gen2Context)
+      expect(output).toContain('Google (antigravity-auth pool, browser)')
+      expect(output).not.toContain('Use existing local Antigravity pool')
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
+  it('checks reconnect readiness against row damage and metadata flags', () => {
+    const genuineRef: RowRef = {
+      id: 'row-genuine-1',
+      credentialEpoch: 1,
+      identity: 'user@example.test',
+    }
+
+    const baseRow: AccountRow = {
+      ref: genuineRef,
+      index: 0,
+      enabled: true,
+      usable: true,
+      storeAddedAt: 1,
+      stamp: 'bound',
+      credential: {
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        expiresAt: Date.now() + 3_600_000,
+      },
+      metadata: {
+        status: 'present',
+        metadata: {
+          addedAt: 1,
+          lastUsed: 1,
+        },
+      },
+      quota: { status: 'absent' },
+    }
+
+    expect(setupAccessBlockOf(baseRow)).toEqual({ kind: 'none' })
+    expect(isReconnectReadyRow(baseRow)).toBe(true)
+
+    // Damaged row conditions
+    expect(isReconnectReadyRow({ ...baseRow, enabled: false })).toBe(false)
+    expect(isReconnectReadyRow({ ...baseRow, usable: false })).toBe(false)
+    expect(isReconnectReadyRow({ ...baseRow, torn: true })).toBe(false)
+    expect(isReconnectReadyRow({ ...baseRow, unbound: true })).toBe(false)
+    expect(isReconnectReadyRow({ ...baseRow, invalid: 'entry' })).toBe(false)
+    expect(isReconnectReadyRow({ ...baseRow, credential: undefined })).toBe(
+      false,
+    )
+    expect(
+      setupAccessBlockOf({
+        ...baseRow,
+        metadata: { status: 'absent' },
+      }),
+    ).toEqual({ kind: 'unknown' })
+    expect(
+      isReconnectReadyRow({
+        ...baseRow,
+        metadata: { status: 'absent' },
+      }),
+    ).toBe(false)
+    expect(
+      setupAccessBlockOf({
+        ...baseRow,
+        metadata: { status: 'dropped', reason: 'uncovered' },
+      }),
+    ).toEqual({ kind: 'unknown' })
+    expect(
+      isReconnectReadyRow({
+        ...baseRow,
+        metadata: { status: 'dropped', reason: 'uncovered' },
+      }),
+    ).toBe(false)
+
+    // Access block flags
+    expect(
+      setupAccessBlockOf({
+        ...baseRow,
+        metadata: {
+          status: 'present',
+          metadata: { addedAt: 1, lastUsed: 1, accountIneligible: true },
+        },
+      }),
+    ).toEqual({ kind: 'ineligible', reason: 'unrecorded' })
+    expect(
+      isReconnectReadyRow({
+        ...baseRow,
+        metadata: {
+          status: 'present',
+          metadata: { addedAt: 1, lastUsed: 1, accountIneligible: true },
+        },
+      }),
+    ).toBe(false)
+    expect(
+      setupAccessBlockOf({
+        ...baseRow,
+        metadata: {
+          status: 'present',
+          metadata: { addedAt: 1, lastUsed: 1, verificationRequired: true },
+        },
+      }),
+    ).toEqual({ kind: 'verification-required', reason: 'unrecorded' })
+    expect(
+      isReconnectReadyRow({
+        ...baseRow,
+        metadata: {
+          status: 'present',
+          metadata: { addedAt: 1, lastUsed: 1, verificationRequired: true },
+        },
+      }),
+    ).toBe(false)
+  })
+
+  it('refuses vault and unreadable custody modes in signInLocal without reading account store', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let reads = 0
+      deps.accountStore.read = mock(async () => {
+        reads++
+        return { kind: 'store' as const, accounts: [], reconnectReady: true }
+      })
+      const plugin = await createSetupPlugin(deps, async () => 0)
+
+      const claustrum = await loadCommonAuthClaustrum()
+      const host = plugin.vault.hosts.opencode
+      const manager = new claustrum.ClaustrumEnrollmentManager({
+        paths: claustrum.hostEnrollmentPaths(host.paths),
+        proposedName: host.name,
+        client: {
+          enrollPropose: async () => ({ requestId: 'synthetic-setup-request' }),
+          enrollPoll: async () => ({
+            status: 'approved',
+            name: host.name,
+            token: 'ab'.repeat(32),
+            tokenGeneration: 1,
+          }),
+        },
+      })
+      expect((await manager.reconcile()).state).toBe('approved')
+
+      const localContext = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+
+      // 1. Approved vault mode refuses local sign-in without reading account store
+      await expect(
+        plugin.signInLocal('opencode', localContext),
+      ).rejects.toThrow('Vault enrollment excludes local sign-in')
+      expect(reads).toBe(0)
+
+      // 2. Unreadable enrollment state refuses local sign-in without reading account store
+      writeFileSync(claustrum.hostEnrollmentPaths(host.paths).statePath, '{')
+      await expect(
+        plugin.signInLocal('opencode', localContext),
+      ).rejects.toThrow('Vault enrollment excludes local sign-in')
+      expect(reads).toBe(0)
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
+  it('provides truthful guidance for both vs 2 on a fresh store with store transition', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      let storeReady = false
+      deps.accountStore.read = mock(async () =>
+        storeReady
+          ? {
+              kind: 'store' as const,
+              accounts: [
+                {
+                  email: 'fresh@example.test',
+                  refreshToken: 'fresh-refresh',
+                  projectId: 'proj',
+                  addedAt: 1,
+                  lastUsed: 1,
+                },
+              ],
+              reconnectReady: true,
+            }
+          : {
+              kind: 'uninitialized' as const,
+            },
+      )
       const loginResult = {
         type: 'success' as const,
         refresh: 'fresh-refresh|proj|',
@@ -1389,9 +1661,31 @@ describe('setup plugin callbacks', () => {
         expires: Date.now() + 3_600_000,
         projectId: 'proj',
       }
-      deps.performLogin = mock(async () => loginResult)
+      deps.performLogin = mock(async () => {
+        storeReady = true
+        return loginResult
+      })
       const plugin = await createSetupPlugin(deps, async () => 0)
 
+      // Case 1: --opencode=2 on fresh store defers OAuth and directs OpenCode 2 to browser login
+      output = ''
+      const gen2Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+      await plugin.signInLocal('opencode', gen2Context)
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      await plugin.migrate!('opencode', gen2Context)
+      expect(deps.performLogin).not.toHaveBeenCalled()
+      expect(output).toContain(
+        'In OpenCode 2, run opencode auth login, select Google, then choose Google (antigravity-auth pool, browser).',
+      )
+      expect(output).not.toContain('Use existing local Antigravity pool')
+
+      // Case 2: --opencode=both on fresh store signs in for OpenCode 1, populating the pool, so OpenCode 2 reconnects
+      output = ''
       const bothContext = {
         hosts: ['opencode'],
         piAgentDir: p.env.PI_CODING_AGENT_DIR,
@@ -1400,10 +1694,47 @@ describe('setup plugin callbacks', () => {
       } as const
       await plugin.signInLocal('opencode', bothContext)
       await plugin.beforeRegister?.('opencode', 'local', bothContext)
+      await plugin.migrate!('opencode', bothContext)
       expect(deps.performLogin).toHaveBeenCalledTimes(1)
       expect(output).toContain(
         'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
       )
+      expect(output).not.toContain('Google (antigravity-auth pool, browser)')
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
+  it('refuses to advise reconnect when offline migration fails', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      deps.accountStore.read = mock(async () => ({ kind: 'legacy' as const }))
+      const failingMigrate = mock(async () => 1) // migration failure
+      const plugin = await createSetupPlugin(deps, failingMigrate)
+
+      const gen2Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+      await plugin.signInLocal('opencode', gen2Context)
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      await expect(plugin.migrate!('opencode', gen2Context)).rejects.toThrow(
+        'Offline Antigravity account migration failed.',
+      )
+      expect(output).not.toContain('Use existing local Antigravity pool')
       expect(output).not.toContain('Google (antigravity-auth pool, browser)')
     } finally {
       fenceSpy.mockRestore()

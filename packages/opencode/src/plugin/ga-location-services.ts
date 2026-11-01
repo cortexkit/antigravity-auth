@@ -76,7 +76,6 @@ import type {
   GaRuntimeCollaborators,
   GaStateRead,
   GaStateSource,
-  HarnessAccessBlock,
   HarnessAccountObservation,
   HarnessMetadataStatus,
   ObserveAccountSnapshot,
@@ -306,45 +305,9 @@ function metadataStatusOf(row: AccountRow): HarnessMetadataStatus {
   return view.reason === 'uncovered' ? 'dropped-uncovered' : 'dropped-invalid'
 }
 
-/**
- * The access block the row's metadata records. Absent or dropped metadata
- * cannot rule a block out, so it is `unknown`, never `none`.
- */
-export function accessBlockOf(row: AccountRow): HarnessAccessBlock {
-  if (row.metadata.status !== 'present') return { kind: 'unknown' }
-  const metadata = row.metadata.metadata
-  const verification = metadata.verificationRequired
-  const ineligible = metadata.accountIneligible
-  const flag = (value: unknown) =>
-    value === undefined || value === null || typeof value === 'boolean'
-  if (!flag(verification) || !flag(ineligible)) return { kind: 'invalid' }
-  if (verification === true && ineligible === true) return { kind: 'invalid' }
-  if (verification === true) {
-    const reason = metadata.verificationRequiredReason
-    return {
-      kind: 'verification-required',
-      reason:
-        reason === undefined || reason === null
-          ? 'unrecorded'
-          : reason === 'validation-required'
-            ? 'validation-required'
-            : 'other',
-    }
-  }
-  if (ineligible === true) {
-    const reason = metadata.accountIneligibleReason
-    return {
-      kind: 'ineligible',
-      reason:
-        reason === undefined || reason === null
-          ? 'unrecorded'
-          : reason === 'account-ineligible'
-            ? 'account-ineligible'
-            : 'other',
-    }
-  }
-  return { kind: 'none' }
-}
+import { accessBlockOf, isReconnectReadyRow } from './account-row-admission.ts'
+
+export { accessBlockOf, isReconnectReadyRow }
 
 function cooldownOf(row: AccountRow): number | null {
   if (row.metadata.status !== 'present') return null
@@ -2072,7 +2035,7 @@ export function createGaLocationServicesFactory(
     // Enrollment selects a binding, not its lifetime. Local files stay unopened
     // until a locally authorized operation needs them, and failures can retry.
     let repositoryPromise: Promise<LocationRepository> | undefined
-    let repositoryPromiseLogin = false
+    let readOnlyOpenPromise: Promise<LocationRepository> | undefined
     let servingRepository: AccountRepository | undefined
     let localPromise: Promise<Serving> | undefined
     let vaultPromise: Promise<Serving> | undefined
@@ -2134,27 +2097,9 @@ export function createGaLocationServicesFactory(
         await refreshVaultBinding?.()
       }
     }
-    const getRepository = async (login?: {
-      readonly admit: () => Promise<void>
-    }): Promise<AccountRepository> => {
-      await assertLocal()
-      if (login && repositoryPromise && !repositoryPromiseLogin) {
-        await repositoryPromise.catch(() => undefined)
-      }
-      if (!repositoryPromise) {
-        repositoryPromiseLogin = Boolean(login)
-        repositoryPromise = openLocationRepository(
-          directory,
-          bindings,
-          overrides,
-          login,
-        ).catch((error) => {
-          repositoryPromise = undefined
-          repositoryPromiseLogin = false
-          throw error
-        })
-      }
-      const repository = (await repositoryPromise).repository
+    const ensureServingRepository = (
+      repository: AccountRepository,
+    ): AccountRepository => {
       if (!servingRepository) {
         const methods = new Map<PropertyKey, unknown>()
         const pendingAdmissions = new Set<Promise<unknown>>()
@@ -2211,6 +2156,72 @@ export function createGaLocationServicesFactory(
       }
       return servingRepository
     }
+    const getRepository = async (login?: {
+      readonly admit: () => Promise<void>
+    }): Promise<AccountRepository> => {
+      await assertLocal()
+      if (closing) throw new Error('The location services are disposed')
+
+      if (repositoryPromise) {
+        const opened = await repositoryPromise
+        if (closing) throw new Error('The location services are disposed')
+        return ensureServingRepository(opened.repository)
+      }
+
+      if (!login) {
+        let currentReadOnly = readOnlyOpenPromise
+        if (!currentReadOnly) {
+          const starting = openLocationRepository(
+            directory,
+            bindings,
+            overrides,
+            undefined,
+          )
+          readOnlyOpenPromise = starting
+          starting.catch(() => {
+            if (readOnlyOpenPromise === starting) {
+              readOnlyOpenPromise = undefined
+            }
+          })
+          currentReadOnly = starting
+        }
+        try {
+          const opened = await currentReadOnly
+          repositoryPromise ??= Promise.resolve(opened)
+          if (closing) throw new Error('The location services are disposed')
+          return ensureServingRepository(opened.repository)
+        } finally {
+          if (readOnlyOpenPromise === currentReadOnly) {
+            readOnlyOpenPromise = undefined
+          }
+        }
+      }
+
+      const capturedReadOnly = readOnlyOpenPromise
+      const loginAttempt = (async (): Promise<LocationRepository> => {
+        if (capturedReadOnly) {
+          try {
+            return await capturedReadOnly
+          } catch {
+            // Non-login open failed, proceed with login open
+          }
+        }
+        await assertLocal()
+        await login.admit()
+        return openLocationRepository(directory, bindings, overrides, login)
+      })()
+
+      repositoryPromise = loginAttempt
+      loginAttempt.catch(() => {
+        if (repositoryPromise === loginAttempt) {
+          repositoryPromise = undefined
+        }
+      })
+
+      const opened = await loginAttempt
+      if (closing) throw new Error('The location services are disposed')
+      return ensureServingRepository(opened.repository)
+    }
     let runtime: GaRuntimeCollaborators
     try {
       const collaborators = bindings.runtime({
@@ -2250,20 +2261,7 @@ export function createGaLocationServicesFactory(
           await admit()
           const read = await repository.read()
           await admit()
-          if (
-            read.status !== 'ready' ||
-            !read.rows.some(
-              (row) =>
-                row.enabled &&
-                row.usable &&
-                row.credential !== undefined &&
-                !row.torn &&
-                !row.unbound &&
-                row.invalid === undefined &&
-                row.metadata.status === 'present' &&
-                accessBlockOf(row).kind === 'none',
-            )
-          )
+          if (read.status !== 'ready' || !read.rows.some(isReconnectReadyRow))
             throw new Error(
               'The existing local Antigravity pool is unavailable',
             )
@@ -2609,6 +2607,7 @@ export function createGaLocationServicesFactory(
             vaultPromise,
             retiredVault,
             repositoryPromise,
+            readOnlyOpenPromise,
           ])
           try {
             const resources = Promise.allSettled([
@@ -2627,7 +2626,9 @@ export function createGaLocationServicesFactory(
             try {
               await custody?.dispose()
             } finally {
-              const opened = await repositoryPromise?.catch(() => undefined)
+              const opened = await (
+                repositoryPromise ?? readOnlyOpenPromise
+              )?.catch(() => undefined)
               await opened?.repository.dispose()
             }
           }

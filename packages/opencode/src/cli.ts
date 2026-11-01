@@ -17,6 +17,7 @@ import {
   createAccountRollbackFactory,
   initializeFreshAccountStore,
   loadCommonAuthStoreModules,
+  readAccountStoreAdmission,
   readAccountStoreBinding,
   refreshAntigravityToken,
 } from '@cortexkit/antigravity-auth-core'
@@ -26,6 +27,7 @@ import type {
   SetupHost,
   SetupIO,
 } from './common-auth-embedded/setup/index.js'
+import { isReconnectReadyRow } from './plugin/account-row-admission.ts'
 import { createLogger } from './plugin/logger'
 import {
   type AntigravityTokenExchangeSuccess,
@@ -143,7 +145,11 @@ export interface AccountStoreOperations {
  * before migration (or after a rollback) the pre-store file still is.
  */
 export type CliAccountsRead =
-  | { kind: 'store'; accounts: AccountMetadataV3[] }
+  | {
+      kind: 'store'
+      accounts: AccountMetadataV3[]
+      reconnectReady: boolean
+    }
   | { kind: 'legacy' }
   | { kind: 'uninitialized' }
   | { kind: 'unavailable'; reason: string }
@@ -905,7 +911,28 @@ async function readAccountStore(legacyPath: string): Promise<CliAccountsRead> {
         reason: `the account store is ${read.status}`,
       }
     }
-    return { kind: 'store', accounts: read.rows.map(cliAccountOf) }
+    const servingAdmission = await readAccountStoreAdmission(
+      legacyPath,
+      modules,
+      Date.now,
+      admission.receipt.id,
+    )
+    if (servingAdmission.status !== 'active') {
+      return {
+        kind: 'unavailable',
+        reason:
+          servingAdmission.status === 'pending'
+            ? 'an account-store operation is still finishing'
+            : servingAdmission.status === 'error'
+              ? servingAdmission.reason
+              : `the account store is ${servingAdmission.status}`,
+      }
+    }
+    return {
+      kind: 'store',
+      accounts: read.rows.map(cliAccountOf),
+      reconnectReady: read.rows.some(isReconnectReadyRow),
+    }
   } finally {
     await repository.dispose()
   }

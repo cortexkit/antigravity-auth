@@ -518,6 +518,7 @@ describe('runCli reads the active account store', () => {
             enabled: false,
           },
         ],
+        reconnectReady: false,
       }),
     })
     expect(await runCli(['list', '--json'], harness.deps)).toBe(0)
@@ -583,6 +584,7 @@ describe('runCli reads the active account store', () => {
             enabled: true,
           },
         ],
+        reconnectReady: true,
       })
     } finally {
       rmSync(root, { recursive: true, force: true })

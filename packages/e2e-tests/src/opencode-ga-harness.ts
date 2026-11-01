@@ -5428,7 +5428,12 @@ export async function runGaOwnershipPoolLogin(
     !harness
       .readWrapperEvents()
       .slice(reconnectEventOffset)
-      .some((event) => event.event === 'oauth.exchange'),
+      .some(
+        (event) =>
+          event.event === 'oauth.authorize' ||
+          event.event === 'oauth.exchange' ||
+          event.event === 'refreshAccessToken',
+      ),
     'GA_POOL_RECONNECT_TRIGGERED_OAUTH_EXCHANGE',
   )
   await assertGaActivePlaceholder(harness.host.url, reconnected)

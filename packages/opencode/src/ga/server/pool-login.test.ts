@@ -23,11 +23,16 @@ import type {
   IntegrationEditor,
   IntegrationMethodRegistration,
 } from '@opencode/plugin/promise/integration'
-import { isPlaceholderCredential } from '../../common-auth-embedded/opencode2/index.js'
 import {
+  isPlaceholderCredential,
+  placeholderSecret,
+} from '../../common-auth-embedded/opencode2/index.js'
+import {
+  createGaLocalRequestPipeline,
   createGaLocationServicesFactory,
   createGaReauthorize,
   createGaRuntimeCollaborators,
+  type GaAccountSlot,
 } from '../../plugin/ga-location-services.ts'
 import { createOperatorSettingsRegistry } from '../../plugin/operator-settings.ts'
 import * as persistence from '../../plugin/persist-account-pool.ts'
@@ -37,7 +42,15 @@ import {
 } from '../../plugin/shared/runtime.ts'
 import * as storage from '../../plugin/storage.ts'
 import { registerGaAuthMethods } from './auth.ts'
-import type { GaLocationServices } from './index.ts'
+import {
+  type GaBridgeJob,
+  type GaHttpRequestEvent,
+  type GaLocationServices,
+  type GaPluginOverrides,
+  GaRequestOwnership,
+  isGaOwnedRequest,
+  rewriteGaHttpRequest,
+} from './index.ts'
 import { GA_POOL_METHOD_ID, GA_POOL_RECONNECT_METHOD_ID } from './pool-login.ts'
 
 function tree(root: string) {
@@ -56,7 +69,7 @@ function tree(root: string) {
     })
 }
 
-async function fixture() {
+async function fixture(options?: { realPipeline?: boolean }) {
   const root = mkdtempSync(join(tmpdir(), 'ga-pool-login-'))
   const previous = {
     OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
@@ -81,8 +94,31 @@ async function fixture() {
     email: 'pool@example.test',
     projectId: 'pool-project',
   }
-  let refreshes = 0
+  let oauthAuthorizeCount = 0
+  let oauthExchangeCount = 0
+  let tokenRefreshCount = 0
+  let poolReloadCount = 0
   const selected: string[][] = []
+  const accountSlot: GaAccountSlot = { current: null, quotaLogger: null }
+  let sendHandler: GaPluginOverrides['send'] | undefined
+  const overrides: GaPluginOverrides = {
+    refreshAccessToken: async (token) => {
+      tokenRefreshCount++
+      return {
+        access: 'refreshed-access',
+        refresh: token,
+        expires: Date.now() + 3_600_000,
+      }
+    },
+    ensureProjectContext: async (auth) => ({
+      auth,
+      effectiveProjectId: 'pool-project',
+    }),
+    send: (input) => {
+      if (sendHandler) return sendHandler(input)
+      throw new Error('No live network')
+    },
+  }
   const factory = createGaLocationServicesFactory({
     resolveAccountFile: () => legacyPath,
     loadStoreModules: async () => modules,
@@ -91,24 +127,27 @@ async function fixture() {
       getRepository = input.getRepository
       return createGaRuntimeCollaborators({
         ...input,
-        accounts: { current: null, quotaLogger: null },
+        accounts: accountSlot,
         now: Date.now,
       })
     },
-    createPipeline: async ({ repository }) => ({
-      execute: async () => {
-        const read = await repository.read()
-        if (read.status !== 'ready') throw new Error(read.status)
-        selected.push(
-          read.rows.map((row) => row.credential?.refreshToken ?? ''),
-        )
-        return new Response('next request uses committed account')
-      },
-      refreshAccounts: async () => {
-        refreshes++
-      },
-      dispose: async () => {},
-    }),
+    createPipeline: options?.realPipeline
+      ? async (pipeline) =>
+          createGaLocalRequestPipeline({ ...pipeline, accounts: accountSlot })
+      : async ({ repository }) => ({
+          execute: async () => {
+            const read = await repository.read()
+            if (read.status !== 'ready') throw new Error(read.status)
+            selected.push(
+              read.rows.map((row) => row.credential?.refreshToken ?? ''),
+            )
+            return new Response('next request uses committed account')
+          },
+          refreshAccounts: async () => {
+            poolReloadCount++
+          },
+          dispose: async () => {},
+        }),
     custody: () => ({
       readMode: async () =>
         mode === 'unreadable'
@@ -160,7 +199,7 @@ async function fixture() {
     }
   }
   try {
-    services = await factory({ directory: root, overrides: {} })
+    services = await factory({ directory: root, overrides })
     registration = await registerGaAuthMethods(
       {
         integration: {
@@ -174,8 +213,19 @@ async function fixture() {
       {
         local: services.localLogin,
         oauth: {
+          authorize: async () => {
+            oauthAuthorizeCount++
+            return {
+              url: 'https://accounts.google.com/o/oauth2/v2/auth?state=pool-state',
+              verifier: 'synthetic-verifier',
+              projectId: 'synthetic-project',
+            }
+          },
           waitForCode: async () => 'code',
-          exchange: async () => result,
+          exchange: async () => {
+            oauthExchangeCount++
+            return result
+          },
         },
       },
     )
@@ -186,7 +236,21 @@ async function fixture() {
       services,
       registration,
       selected,
-      refreshes: () => refreshes,
+      counters: () => ({
+        oauthAuthorize: oauthAuthorizeCount,
+        oauthExchange: oauthExchangeCount,
+        tokenRefresh: tokenRefreshCount,
+        poolReload: poolReloadCount,
+      }),
+      refreshes: () => poolReloadCount,
+      transport: (handler: GaPluginOverrides['send']) => {
+        sendHandler = handler
+      },
+      persist: async (customResult?: Partial<typeof result>) => {
+        if (!services) throw new Error('Location missing')
+        const payload = { ...result, ...customResult }
+        return services.localLogin!.persist(payload, async () => {})
+      },
       mode: (value: typeof mode) => {
         mode = value
       },
@@ -223,7 +287,15 @@ async function fixture() {
           throw new Error('Expected automatic reconnect')
         return authorization.callback
       },
-      start: async () => {
+      start: async (
+        sendOverride?: (input: {
+          envelope: unknown
+          auth: { access: string }
+          endpoint: string
+          signal: AbortSignal
+          kind: string
+        }) => Promise<Response>,
+      ) => {
         if (!services) throw new Error('Location missing')
         mkdirSync(join(root, '.opencode'), { recursive: true })
         writeFileSync(
@@ -241,9 +313,11 @@ async function fixture() {
         return services.start({
           runtime,
           generation: 'pool-login',
-          send: async () => {
-            throw new Error('No live network')
-          },
+          send:
+            sendOverride ??
+            (async () => {
+              throw new Error('No live network')
+            }),
           notify: () => null,
           isConnected: () => false,
         })
@@ -252,7 +326,7 @@ async function fixture() {
         await registration?.dispose()
         await services?.dispose()
         methods.length = 0
-        services = await factory({ directory: root, overrides: {} })
+        services = await factory({ directory: root, overrides })
         registration = await registerGaAuthMethods(
           {
             integration: {
@@ -266,8 +340,19 @@ async function fixture() {
           {
             local: services.localLogin,
             oauth: {
+              authorize: async () => {
+                oauthAuthorizeCount++
+                return {
+                  url: 'https://accounts.google.com/o/oauth2/v2/auth?state=pool-state',
+                  verifier: 'synthetic-verifier',
+                  projectId: 'synthetic-project',
+                }
+              },
               waitForCode: async () => 'code',
-              exchange: async () => result,
+              exchange: async () => {
+                oauthExchangeCount++
+                return result
+              },
             },
           },
         )
@@ -346,6 +431,143 @@ describe('GA existing local pool reconnect', () => {
     }
   })
 
+  it('handles deterministic concurrent reconnect, read, and browser initialization race with repeated no-login arrivals', async () => {
+    const f = await fixture()
+    try {
+      let admitCalls = 0
+      let admitGateResolve: () => void = () => {}
+      const admitGate = new Promise<void>((resolve) => {
+        admitGateResolve = resolve
+      })
+      let loginReservedResolve: () => void = () => {}
+      const loginReserved = new Promise<void>((resolve) => {
+        loginReservedResolve = resolve
+      })
+
+      // Multiple fresh readonly callers start on an uninitialized store
+      const reconnect1 = f.reconnect()
+      const reconnect2 = f.reconnect()
+
+      // Login arrives, captures readonly and reserves repositoryPromise
+      const loggingIn = f.services!.localLogin!.persist(
+        {
+          type: 'success',
+          refresh: 'pool-refresh|pool-project',
+          access: 'pool-access',
+          expires: Date.now() + 3_600_000,
+          email: 'pool@example.test',
+          projectId: 'pool-project',
+        },
+        async () => {
+          admitCalls++
+          if (admitCalls >= 2) {
+            loginReservedResolve()
+            await admitGate
+          }
+        },
+      )
+
+      // Await until login has reserved repositoryPromise and reached loginAttempt's admit
+      await loginReserved
+
+      // New arrival after reservation calls getRepository and joins the authorized loginchain
+      const read3 = f.repository()
+
+      // Release the admit gate so login proceeds with store initialization
+      admitGateResolve()
+
+      const [r1, r2, loginRes, r3] = await Promise.allSettled([
+        reconnect1,
+        reconnect2,
+        loggingIn,
+        read3,
+      ])
+
+      // Original failed fresh readonly callers remain failed
+      expect(r1.status).toBe('rejected')
+      expect(r2.status).toBe('rejected')
+
+      // Authorized login initializes the store and commits the account
+      expect(loginRes.status).toBe('fulfilled')
+
+      // New arrival after reservation joins authorized loginchain and fulfills
+      expect(r3.status).toBe('fulfilled')
+      if (r3.status === 'fulfilled') {
+        const repo = r3.value
+        const read = await repo.read()
+        expect(read.status).toBe('ready')
+        if (read.status === 'ready') {
+          expect(read.rows).toHaveLength(1)
+        }
+      }
+
+      // Subsequent reconnect on the initialized store succeeds
+      const postInitReconnect = await f.reconnect()
+      expect(isPlaceholderCredential(postInitReconnect, 'google')).toBe(true)
+      expect(String(postInitReconnect.methodID)).toBe(
+        GA_POOL_RECONNECT_METHOD_ID,
+      )
+
+      const accountRows = await rows(f)
+      expect(accountRows).toHaveLength(1)
+      expect(accountRows[0]?.credential?.refreshToken).toBe('pool-refresh')
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('allows future retry after a failed login without poisoning subsequent attempts', async () => {
+    const f = await fixture()
+    try {
+      // 1. A login attempt that fails during admit or persist
+      await expect(
+        f.services!.localLogin!.persist(
+          {
+            type: 'success',
+            refresh: 'pool-refresh|pool-project',
+            access: 'pool-access',
+            expires: Date.now() + 3_600_000,
+            email: 'pool@example.test',
+            projectId: 'pool-project',
+          },
+          async () => {
+            throw new Error('admit failed')
+          },
+        ),
+      ).rejects.toThrow('admit failed')
+
+      // 2. Future retry succeeds and initializes cleanly
+      await f.services!.localLogin!.persist(
+        {
+          type: 'success',
+          refresh: 'pool-refresh|pool-project',
+          access: 'pool-access',
+          expires: Date.now() + 3_600_000,
+          email: 'pool@example.test',
+          projectId: 'pool-project',
+        },
+        async () => {},
+      )
+
+      const accountRows = await rows(f)
+      expect(accountRows).toHaveLength(1)
+      expect(accountRows[0]?.credential?.refreshToken).toBe('pool-refresh')
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('disposes once during in-flight opening without resource leaks or errors', async () => {
+    const f = await fixture()
+    const opening = f.repository()
+    const disposing = f.services!.dispose()
+    const [openRes, disposeRes] = await Promise.allSettled([opening, disposing])
+    expect(disposeRes.status).toBe('fulfilled')
+    if (openRes.status === 'rejected') {
+      expect(openRes.reason.message).toContain('disposed')
+    }
+  })
+
   it('returns the public marker and directly serves a request from the existing pool without account refresh', async () => {
     const f = await fixture()
     try {
@@ -374,6 +596,190 @@ describe('GA existing local pool reconnect', () => {
       )
       expect(f.selected).toContainEqual(['pool-refresh'])
       expect(f.refreshes()).toBe(0)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('saves the Antigravity connection on reconnect and primes the real pipeline with expired credentials without subsequent refresh', async () => {
+    const f = await fixture({ realPipeline: true })
+    try {
+      // Seed account that needs refresh on primer request (expired access token)
+      f.result({
+        type: 'success',
+        refresh: 'pool-refresh|pool-project',
+        access: 'initial-expired-access',
+        expires: Date.now() - 60_000,
+        email: 'pool@example.test',
+        projectId: 'pool-project',
+      })
+      await f.login()
+      expect(f.counters().oauthAuthorize).toBe(1)
+      expect(f.counters().oauthExchange).toBe(1)
+      expect(f.counters().tokenRefresh).toBe(0)
+
+      const sends: Array<{
+        kind: string
+        endpoint: string
+        authorization: string
+        envelope: Record<string, unknown>
+      }> = []
+
+      const transportMock = async ({
+        envelope,
+        auth,
+        endpoint,
+        signal: _signal,
+        kind,
+      }: {
+        envelope: unknown
+        auth: { access: string }
+        endpoint: string
+        signal: AbortSignal
+        kind: string
+      }) => {
+        sends.push({
+          kind,
+          endpoint,
+          authorization: `Bearer ${auth.access}`,
+          envelope: envelope as Record<string, unknown>,
+        })
+        return new Response(
+          'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"synthetic-response"}]},"finishReason":"STOP"}]}}\n\n',
+          {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' },
+          },
+        )
+      }
+
+      f.transport(transportMock)
+      const serving = await f.start()
+      const ownership = new GaRequestOwnership()
+      let capturedJob: GaBridgeJob | undefined
+      const bridge = {
+        rewrite: (original: Request, job: GaBridgeJob) => {
+          capturedJob = job
+          return original
+        },
+      }
+
+      // 1. Seed/start primer request through real rewriteGaHttpRequest
+      const primerEvent: GaHttpRequestEvent = {
+        sessionID: 'primer-session',
+        kind: 'primary',
+        model: { id: 'antigravity-gemini-3.5-flash', providerID: 'google' },
+        request: new Request(
+          'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:streamGenerateContent',
+          {
+            method: 'POST',
+            headers: { 'x-goog-api-key': placeholderSecret('google') },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: 'hello' }] }],
+            }),
+          },
+        ),
+      }
+      await rewriteGaHttpRequest(primerEvent, {
+        bridge,
+        isRegisteredModel: (id) => id === 'antigravity-gemini-3.5-flash',
+        env: {},
+        ownership,
+      })
+      expect(isGaOwnedRequest(primerEvent)).toBe(true)
+      expect(capturedJob).toBeDefined()
+
+      const primerResponse = await serving.execute(capturedJob!, {
+        signal: new AbortController().signal,
+        send: async () => new Response('unused'),
+      })
+      expect(primerResponse.status).toBe(200)
+
+      // Assert positive tokenrefresh1 + seeded consent/exchange counts
+      expect(f.counters().oauthAuthorize).toBe(1)
+      expect(f.counters().oauthExchange).toBe(1)
+      expect(f.counters().tokenRefresh).toBe(1)
+      expect(sends).toHaveLength(1)
+      expect(sends[0]?.authorization).toBe('Bearer refreshed-access')
+      expect(sends[0]?.envelope?.project).toBe('pool-project')
+
+      // Baseline AFTER primer
+      const baseline = f.counters()
+      expect(baseline.tokenRefresh).toBe(1)
+      expect(baseline.oauthAuthorize).toBe(1)
+      expect(baseline.oauthExchange).toBe(1)
+
+      // 2. Reconnect
+      const credential = await f.reconnect()
+      expect(isPlaceholderCredential(credential, 'google')).toBe(true)
+      expect(String(credential.methodID)).toBe(GA_POOL_RECONNECT_METHOD_ID)
+      expect(credential.access).toBe(placeholderSecret('google'))
+
+      // 3. Foreign marker control: a request with a foreign/user Google key bypasses Antigravity rewrite
+      capturedJob = undefined
+      const foreignEvent: GaHttpRequestEvent = {
+        sessionID: 'foreign-session',
+        kind: 'primary',
+        model: { id: 'antigravity-gemini-3.5-flash', providerID: 'google' },
+        request: new Request(
+          'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:streamGenerateContent',
+          {
+            method: 'POST',
+            headers: { 'x-goog-api-key': 'foreign-user-key' },
+            body: '{}',
+          },
+        ),
+      }
+      await rewriteGaHttpRequest(foreignEvent, {
+        bridge,
+        isRegisteredModel: (id) => id === 'antigravity-gemini-3.5-flash',
+        env: {},
+        ownership,
+      })
+      expect(isGaOwnedRequest(foreignEvent)).toBe(false)
+      expect(capturedJob).toBeUndefined()
+      expect(ownership.get('foreign-session')).toBe(false)
+
+      // 4. Next marker request carries the reconnected placeholder x-goog-api-key
+      // Note: This asserts the host request rewrite and real pipeline dispatch;
+      // it verifies marker ownership and pipeline execution without claiming to prove a pinned native binary.
+      const reconnectedEvent: GaHttpRequestEvent = {
+        sessionID: 'reconnect-next',
+        kind: 'primary',
+        model: { id: 'antigravity-gemini-3.5-flash', providerID: 'google' },
+        request: new Request(
+          'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:streamGenerateContent',
+          {
+            method: 'POST',
+            headers: { 'x-goog-api-key': String(credential.access) },
+            body: JSON.stringify({ contents: [{ parts: [{ text: 'next' }] }] }),
+          },
+        ),
+      }
+      await rewriteGaHttpRequest(reconnectedEvent, {
+        bridge,
+        isRegisteredModel: (id) => id === 'antigravity-gemini-3.5-flash',
+        env: {},
+        ownership,
+      })
+      expect(isGaOwnedRequest(reconnectedEvent)).toBe(true)
+      expect(ownership.get('reconnect-next')).toBe(true)
+      expect(capturedJob).toBeDefined()
+
+      const nextResponse = await serving.execute(capturedJob!, {
+        signal: new AbortController().signal,
+        send: async () => new Response('unused'),
+      })
+      expect(nextResponse.status).toBe(200)
+
+      // Real pipeline counts unchanged across reconnect + next markerrequest
+      expect(f.counters()).toEqual(baseline)
+
+      // Transport exact real synthetic bearer/project not placeholder
+      expect(sends).toHaveLength(2)
+      expect(sends[1]?.authorization).toBe('Bearer refreshed-access')
+      expect(sends[1]?.authorization).not.toContain('common-auth-placeholder')
+      expect(sends[1]?.envelope?.project).toBe('pool-project')
     } finally {
       await f.cleanup()
     }
