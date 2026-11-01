@@ -1266,6 +1266,9 @@ describe('createRequestExecutor pre-response deadline', () => {
     spyOn(h.pool, 'getMinWaitTimeForFamily').mockReturnValue(
       PRE_RESPONSE_DEADLINE_MS / 4,
     )
+    spyOn(h.pool, 'getMinSelectableWaitTimeForFamily').mockReturnValue(
+      PRE_RESPONSE_DEADLINE_MS / 4,
+    )
     const date = spyOn(Date, 'now').mockImplementation(() => wall)
     const real = globalThis.setTimeout
     const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
@@ -1313,6 +1316,9 @@ describe('createRequestExecutor pre-response deadline', () => {
       Object.assign(h.deps, { preResponseClock: clock })
       spyOn(h.pool, 'getCurrentOrNextForFamily').mockReturnValue(null)
       spyOn(h.pool, 'getMinWaitTimeForFamily').mockReturnValue(
+        PRE_RESPONSE_DEADLINE_MS / 4,
+      )
+      spyOn(h.pool, 'getMinSelectableWaitTimeForFamily').mockReturnValue(
         PRE_RESPONSE_DEADLINE_MS / 4,
       )
       const date = spyOn(Date, 'now').mockImplementation(() => wall)
@@ -1657,6 +1663,10 @@ describe('createRequestExecutor cumulative no-account wait budget', () => {
     const softSpy = spyOn(h.pool, 'getMinWaitTimeForSoftQuota').mockReturnValue(
       400,
     )
+    const selectableSpy = spyOn(
+      h.pool,
+      'getMinSelectableWaitTimeForFamily',
+    ).mockReturnValue(400)
     const saveSpy = spyOn(h.pool, 'requestSaveToDisk').mockImplementation(
       () => {},
     )
@@ -1672,6 +1682,7 @@ describe('createRequestExecutor cumulative no-account wait budget', () => {
           quotaSpy,
           rateSpy,
           softSpy,
+          selectableSpy,
           saveSpy,
         ])
           spy.mockRestore()
@@ -3726,7 +3737,7 @@ describe('createRequestExecutor eligible-pool wait calculation', () => {
     }
   })
 
-  it('factors in cooldown originating from another family or model into pool wait and refusal metadata', async () => {
+  it('factors in cooldown originating from another family or model into pool wait without inventing a quota reset on refusal', async () => {
     const wall = FIXED_NOW
     const date = spyOn(Date, 'now').mockImplementation(() => wall)
     const pool = makePool(1)
@@ -3741,15 +3752,329 @@ describe('createRequestExecutor eligible-pool wait calculation', () => {
     })
     const executor = createRequestExecutor(h.deps)
     try {
-      // Request for gemini: with includeCooldown = true, wait is 8s > 4s max wait -> refused
+      // Request for gemini: wait is 8s > 4s max wait -> refused
       const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
       expect(response.status).toBe(412)
-      expect(response.headers.get('Retry-After')).toBe('8')
+      // Cooldown is not quota: refusal must not invent a quota reset header or clause
+      expect(response.headers.get('Retry-After')).toBeNull()
       const body = (await response.json()) as {
         error: { message: string; status: string }
       }
       expect(body.error.status).toBe('FAILED_PRECONDITION')
-      expect(body.error.message).toContain('Quota resets in 8s.')
+      expect(body.error.message).not.toContain('Quota resets in')
+
+      // Cooldown wait is truthfully visible when querying cooldown-aware helper, but 0 on pure quota helper:
+      expect(pool.getMinWaitTimeForFamily('gemini', null, null, true)).toBe(
+        8_000,
+      )
+      expect(pool.getMinWaitTimeForFamily('gemini', null, null, false)).toBe(0)
+    } finally {
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
+  it('A under/hard10 B soft2 => 2s wait and succeeds upon refreshing quota observation at recovery', async () => {
+    let wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const clock = deadlineClock()
+    const pool = makePool(2)
+    const [account0, account1] = pool.getAccounts() as [
+      ManagedAccount,
+      ManagedAccount,
+    ]
+    // Account 0: under soft quota, hard rate-limited for 10s
+    pool.markRateLimited(account0, 10_000, 'gemini', 'gemini-3-flash')
+    // Account 1: over soft quota (90% >= 80%), reset in 2s (2000ms), no hard timer
+    pool.updateQuotaCache(
+      1,
+      {
+        gemini: {
+          remainingFraction: 0.1,
+          resetTime: new Date(wall + 2_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account1.parts.refreshToken,
+    )
+
+    const delays: number[] = []
+    const real = globalThis.setTimeout
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: () => void,
+      delay: number,
+    ) => {
+      const handle = real(() => {}, 2 ** 30)
+      handle.unref()
+      queueMicrotask(() => {
+        clearTimeout(handle)
+        delays.push(delay)
+        wall += delay
+        clock.advance(delay)
+        // Refresh quota observation at recovery timestamp:
+        pool.updateQuotaCache(
+          1,
+          {
+            gemini: {
+              remainingFraction: 1,
+              modelCount: 1,
+            },
+          },
+          account1.parts.refreshToken,
+        )
+        callback()
+      })
+      return handle
+    }) as typeof setTimeout)
+
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: {
+        max_rate_limit_wait_seconds: 5,
+        soft_quota_threshold_percent: 80,
+      },
+    })
+    Object.assign(h.deps, { preResponseClock: clock })
+    const save = spyOn(h.pool, 'requestSaveToDisk').mockImplementation(() => {})
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(delays).toEqual([2_000])
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      save.mockRestore()
+      timer.mockRestore()
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
+  it('A hard10+soft1h B soft1 => 1s wait and succeeds', async () => {
+    let wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const clock = deadlineClock()
+    const pool = makePool(2)
+    const [account0, account1] = pool.getAccounts() as [
+      ManagedAccount,
+      ManagedAccount,
+    ]
+    // Account 0: rate-limited for 10s AND soft reset in 1 hour
+    pool.markRateLimited(account0, 10_000, 'gemini', 'gemini-3-flash')
+    pool.updateQuotaCache(
+      0,
+      {
+        gemini: {
+          remainingFraction: 0.1,
+          resetTime: new Date(wall + 3_600_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account0.parts.refreshToken,
+    )
+
+    // Account 1: no hard rate-limit, over soft quota with reset in 1s (1000ms)
+    pool.updateQuotaCache(
+      1,
+      {
+        gemini: {
+          remainingFraction: 0.1,
+          resetTime: new Date(wall + 1_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account1.parts.refreshToken,
+    )
+
+    const delays: number[] = []
+    const real = globalThis.setTimeout
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: () => void,
+      delay: number,
+    ) => {
+      const handle = real(() => {}, 2 ** 30)
+      handle.unref()
+      queueMicrotask(() => {
+        clearTimeout(handle)
+        delays.push(delay)
+        wall += delay
+        clock.advance(delay)
+        // Refresh quota observation on account 1 at recovery timestamp:
+        pool.updateQuotaCache(
+          1,
+          {
+            gemini: {
+              remainingFraction: 1,
+              modelCount: 1,
+            },
+          },
+          account1.parts.refreshToken,
+        )
+        callback()
+      })
+      return handle
+    }) as typeof setTimeout)
+
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: {
+        max_rate_limit_wait_seconds: 5,
+        soft_quota_threshold_percent: 80,
+      },
+    })
+    Object.assign(h.deps, { preResponseClock: clock })
+    const save = spyOn(h.pool, 'requestSaveToDisk').mockImplementation(() => {})
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(delays).toEqual([1_000])
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      save.mockRestore()
+      timer.mockRestore()
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
+  it('allsoft A soft2+cooldown8 B soft20 => 8s scheduling/toast and max4 refusal with NO metadata', async () => {
+    const wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const pool = makePool(2)
+    const [account0, account1] = pool.getAccounts() as [
+      ManagedAccount,
+      ManagedAccount,
+    ]
+    // Account 0: over soft quota (reset in 2s), and active cooldown for 8s
+    pool.markAccountCoolingDown(account0, 8_000, 'network-error')
+    pool.updateQuotaCache(
+      0,
+      {
+        gemini: {
+          remainingFraction: 0.1,
+          resetTime: new Date(wall + 2_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account0.parts.refreshToken,
+    )
+    // Account 1: over soft quota (reset in 20s)
+    pool.updateQuotaCache(
+      1,
+      {
+        gemini: {
+          remainingFraction: 0.1,
+          resetTime: new Date(wall + 20_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account1.parts.refreshToken,
+    )
+
+    const toasts: string[] = []
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: {
+        quiet_mode: false,
+        max_rate_limit_wait_seconds: 4,
+        soft_quota_threshold_percent: 80,
+      },
+      notify: async (msg) => {
+        toasts.push(msg)
+      },
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      // Combined delay is min(max(8s, 2s), 20s) = 8s. Max wait is 4s -> refused
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(412)
+      expect(response.headers.get('Retry-After')).toBeNull()
+      const body = (await response.json()) as {
+        error: { message: string; status: string }
+      }
+      expect(body.error.status).toBe('FAILED_PRECONDITION')
+      expect(body.error.message).not.toContain('Quota resets in')
+      expect(toasts.some((t) => t.includes('Resets in unknown.'))).toBe(true)
+    } finally {
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
+  it('under/cooldown8 vs soft1h => refused with NO 1h metadata', async () => {
+    const wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const pool = makePool(2)
+    const [account0, account1] = pool.getAccounts() as [
+      ManagedAccount,
+      ManagedAccount,
+    ]
+    // Account 0: under soft quota, cooling down for 8s
+    pool.markAccountCoolingDown(account0, 8_000, 'network-error')
+    // Account 1: over soft quota with reset in 1 hour
+    pool.updateQuotaCache(
+      1,
+      {
+        gemini: {
+          remainingFraction: 0.1,
+          resetTime: new Date(wall + 3_600_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account1.parts.refreshToken,
+    )
+
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: {
+        max_rate_limit_wait_seconds: 4,
+        soft_quota_threshold_percent: 80,
+      },
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(412)
+      expect(response.headers.get('Retry-After')).toBeNull()
+      const body = (await response.json()) as {
+        error: { message: string }
+      }
+      expect(body.error.message).not.toContain('Quota resets in')
+    } finally {
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
+  it('same account hard2+cooldown8 => refused with NO 2s metadata', async () => {
+    const wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const pool = makePool(1)
+    const [account0] = pool.getAccounts() as [ManagedAccount]
+    pool.markRateLimited(account0, 2_000, 'gemini', 'gemini-3-flash')
+    pool.markAccountCoolingDown(account0, 8_000, 'network-error')
+
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: {
+        max_rate_limit_wait_seconds: 1,
+      },
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(412)
+      expect(response.headers.get('Retry-After')).toBeNull()
+      const body = (await response.json()) as {
+        error: { message: string }
+      }
+      expect(body.error.message).not.toContain('Quota resets in')
     } finally {
       date.mockRestore()
       await executor.dispose()

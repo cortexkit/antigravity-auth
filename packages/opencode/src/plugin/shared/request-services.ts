@@ -216,6 +216,9 @@ export interface RequestAccountPool<A extends RequestAccountRow> {
   getMinWaitTimeForSoftQuota(
     ...args: CoreArgs<'getMinWaitTimeForSoftQuota'>
   ): number | null
+  getMinSelectableWaitTimeForFamily(
+    ...args: CoreArgs<'getMinSelectableWaitTimeForFamily'>
+  ): number | null
   getSessionSummary(): CoreResult<'getSessionSummary'>
   getTotalDailyRequests(...args: CoreArgs<'getTotalDailyRequests'>): number
   isRateLimited(
@@ -1212,10 +1215,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
       if (modelUnavailableIndexes.size > 0) {
         const candidates = accountManager
-          .getEnabledAccounts()
+          .getAccounts()
           .filter(
             (entry) =>
-              eligibleIndexes === null || eligibleIndexes.has(entry.index),
+              entry.enabled !== false &&
+              !entry.accountIneligible &&
+              !entry.verificationRequired &&
+              (eligibleIndexes === null || eligibleIndexes.has(entry.index)),
           )
         if (
           candidates.length > 0 &&
@@ -1276,9 +1282,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           isPrimaryVaultRequest(kind, init?.headers)
         ) {
           const candidates = accountManager
-            .getEnabledAccounts()
+            .getAccounts()
             .filter(
               (row) =>
+                row.enabled !== false &&
+                !row.accountIneligible &&
+                !row.verificationRequired &&
                 !excludedIndexes?.has(row.index) &&
                 !accountManager.isRateLimited(row, family, model) &&
                 !accountManager.isAccountCoolingDown(row) &&
@@ -1288,6 +1297,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   config.soft_quota_threshold_percent,
                   softQuotaCacheTtlMs,
                   model,
+                  excludedIndexes,
                 ),
             )
             .map((row) => ({
@@ -1354,17 +1364,17 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         // This priority never changes either clock or replenishes the request.
         const quotaWins = remainingWaitMs() <= deadline.remainingMs()
 
+        const eligibleCandidates = accountManager
+          .getAccounts()
+          .filter(
+            (entry) =>
+              entry.enabled !== false &&
+              !entry.accountIneligible &&
+              !entry.verificationRequired &&
+              !excludedIndexes?.has(entry.index),
+          )
         const eligibleCandidateIndexes = new Set(
-          accountManager
-            .getAccounts()
-            .filter(
-              (entry) =>
-                entry.enabled !== false &&
-                !entry.accountIneligible &&
-                !entry.verificationRequired &&
-                !excludedIndexes?.has(entry.index),
-            )
-            .map((entry) => entry.index),
+          eligibleCandidates.map((entry) => entry.index),
         )
 
         if (eligibleCandidateIndexes.size === 0) {
@@ -1376,39 +1386,89 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           return waitPolicy.refusal()
         }
 
-        if (
-          accountManager.areAllAccountsOverSoftQuota(
-            family,
-            config.soft_quota_threshold_percent,
-            softQuotaCacheTtlMs,
-            model,
-            eligibleCandidateIndexes,
-          )
-        ) {
-          const threshold = config.soft_quota_threshold_percent
-          const softQuotaWaitMs = accountManager.getMinWaitTimeForSoftQuota(
+        const threshold = config.soft_quota_threshold_percent
+        const combinedDelayMs =
+          accountManager.getMinSelectableWaitTimeForFamily(
             family,
             threshold,
             softQuotaCacheTtlMs,
             model,
             eligibleCandidateIndexes,
           )
+        const waitMs =
+          combinedDelayMs !== null && combinedDelayMs > 0
+            ? combinedDelayMs
+            : 60_000
+
+        const allOverSoftQuota = accountManager.areAllAccountsOverSoftQuota(
+          family,
+          threshold,
+          softQuotaCacheTtlMs,
+          model,
+          eligibleCandidateIndexes,
+        )
+
+        // Emit a reset estimate only when no eligible account has an active
+        // cooldown and every applicable soft-quota reset is known. Otherwise,
+        // omit resetAfterMs rather than presenting a cooldown as a quota reset.
+        const hasActiveCooldown = eligibleCandidates.some((acc) =>
+          accountManager.isAccountCoolingDown(acc),
+        )
+        const applySoftQuota = eligibleCandidates.length > 1 && threshold < 100
+        const hasUnknownSoftReset =
+          applySoftQuota &&
+          eligibleCandidates.some((acc) => {
+            if (
+              !accountManager.isAccountOverSoftQuota(
+                acc,
+                family,
+                threshold,
+                softQuotaCacheTtlMs,
+                model,
+                excludedIndexes,
+              )
+            ) {
+              return false
+            }
+            if (!model && family !== 'claude') return true
+            const quotaGroup = resolveQuotaGroup(family, model, acc.cachedQuota)
+            const groupData = acc.cachedQuota?.[quotaGroup]
+            if (!groupData?.resetTime) return true
+            const ts = Date.parse(groupData.resetTime)
+            return !Number.isFinite(ts) || ts <= Date.now()
+          })
+
+        const resetDeadline =
+          !hasActiveCooldown &&
+          !hasUnknownSoftReset &&
+          combinedDelayMs !== null &&
+          combinedDelayMs > 0
+            ? Date.now() + combinedDelayMs
+            : undefined
+
+        const remainingResetAfterMs = () =>
+          resetDeadline ? Math.max(0, resetDeadline - Date.now()) : undefined
+
+        if (allOverSoftQuota) {
           waitPolicy.refusal = quotaWins
             ? () =>
                 createNativeGoogleErrorResponse({
                   status: 412,
                   reason: 'soft_quota',
-                  resetAfterMs: softQuotaWaitMs,
+                  resetAfterMs: remainingResetAfterMs(),
                 })
             : undefined
+
           if (
-            softQuotaWaitMs === null ||
+            combinedDelayMs === null ||
             remainingWaitMs() <= 0 ||
-            (maxWaitMs > 0 && softQuotaWaitMs > maxWaitMs)
+            (maxWaitMs > 0 && waitMs > maxWaitMs)
           ) {
-            const waitTimeFormatted = softQuotaWaitMs
-              ? formatWaitTime(softQuotaWaitMs)
-              : 'unknown'
+            const resetAfterMs = remainingResetAfterMs()
+            const waitTimeFormatted =
+              resetAfterMs !== undefined && resetAfterMs > 0
+                ? formatWaitTime(resetAfterMs)
+                : 'unknown'
             await showToast(
               `All accounts over ${threshold}% quota threshold. Resets in ${waitTimeFormatted}.`,
               'error',
@@ -1416,39 +1476,32 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             return createNativeGoogleErrorResponse({
               status: 412,
               reason: 'soft_quota',
-              resetAfterMs: softQuotaWaitMs,
+              resetAfterMs,
             })
           }
 
           pushDebug(
-            `all-over-soft-quota family=${family} accounts=${accountCount} waitMs=${softQuotaWaitMs}`,
+            `all-over-soft-quota family=${family} accounts=${accountCount} waitMs=${waitMs}`,
           )
 
           if (!retryState.softQuotaToastShown()) {
             await showToast(
-              `All ${accountCount} account(s) over ${threshold}% quota. Waiting ${formatWaitTime(softQuotaWaitMs)}...`,
+              `All ${accountCount} account(s) over ${threshold}% quota. Waiting ${formatWaitTime(waitMs)}...`,
               'warning',
             )
             retryState.markSoftQuotaToastShown()
           }
 
-          await sleep(Math.min(softQuotaWaitMs, remainingWaitMs()), abortSignal)
+          await sleep(Math.min(waitMs, remainingWaitMs()), abortSignal)
           continue
         }
 
-        const minWaitMs = accountManager.getMinWaitTimeForFamily(
-          family,
-          model,
-          eligibleCandidateIndexes,
-          true,
-        )
-        const waitMs = minWaitMs || 60_000
         waitPolicy.refusal = quotaWins
           ? () =>
               createNativeGoogleErrorResponse({
                 status: 412,
                 reason: 'pool_unavailable',
-                resetAfterMs: minWaitMs > 0 ? minWaitMs : undefined,
+                resetAfterMs: remainingResetAfterMs(),
               })
           : undefined
 
@@ -1476,9 +1529,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           return createNativeGoogleErrorResponse({
             status: 412,
             reason: 'pool_unavailable',
-            // Zero means the account manager has no future reset to report.
-            // The fallback sleep duration above is not a quota reset estimate.
-            resetAfterMs: minWaitMs > 0 ? minWaitMs : undefined,
+            // Fallback sleep duration gets NO reset metadata.
+            resetAfterMs: remainingResetAfterMs(),
           })
         }
 
