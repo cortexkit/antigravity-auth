@@ -61,6 +61,7 @@ import {
   loadGaOverflowFixture,
   loginGaPool,
   prepareGaRoot,
+  reconnectGaPool,
   record,
   refreshGaFixtureCredentials,
   runGaCoreScenario,
@@ -1774,6 +1775,117 @@ describe('GA ownership harness preparation (source controls, not native proof)',
         'GET /api/integration/google/connect/oauth/attempt-real',
       )
       expect(calls.some((call) => call.startsWith('DELETE'))).toBe(false)
+    } finally {
+      await server.stop(true)
+      await listener.stop(true)
+    }
+  })
+
+  it('reconnects an existing local pool through the native integration OAuth API without browser callback or token exchange', async () => {
+    const paths = prepareGaRoot(root())
+    const reconnectValue = {
+      type: 'oauth',
+      methodID: 'antigravity-auth-pool-reconnect',
+      access: 'common-auth-placeholder.google.access',
+      refresh: 'common-auth-placeholder.google.refresh',
+      expires: 4102444800000,
+    }
+    const entries: Array<Record<string, unknown>> = []
+    let browserCallbacks = 0
+    const listener = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 51121,
+      fetch() {
+        browserCallbacks++
+        return new Response('unexpected callback', { status: 500 })
+      },
+    })
+    const calls: string[] = []
+    const server = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url)
+        calls.push(`${request.method} ${url.pathname}`)
+        if (url.pathname === '/api/integration') {
+          return Response.json({
+            location: { directory: paths.project },
+            data: [
+              {
+                id: 'google',
+                name: 'Google',
+                methods: [
+                  { type: 'key' },
+                  {
+                    type: 'oauth',
+                    id: 'antigravity-auth-pool-browser',
+                    label: 'Google (antigravity-auth pool, browser)',
+                  },
+                  {
+                    type: 'oauth',
+                    id: 'antigravity-auth-pool-reconnect',
+                    label: 'Use existing local Antigravity pool',
+                  },
+                ],
+                connections: [],
+              },
+            ],
+          })
+        }
+        if (url.pathname.endsWith('/activate')) {
+          for (const entry of entries)
+            entry.active =
+              url.pathname === `/api/credential/${entry.id}/activate`
+          return new Response(null, { status: 204 })
+        }
+        if (url.pathname === '/api/credential')
+          return Response.json({ data: entries })
+        if (url.pathname.endsWith('/connect/oauth')) {
+          expect(await request.json()).toEqual({
+            methodID: 'antigravity-auth-pool-reconnect',
+          })
+          return Response.json({
+            data: {
+              attemptID: 'attempt-reconnect',
+              url: '',
+            },
+          })
+        }
+        if (url.pathname.endsWith('/connect/oauth/attempt-reconnect')) {
+          entries.push({
+            id: 'reconnect-id',
+            integrationID: 'google',
+            label: 'Antigravity',
+            active: false,
+            value: reconnectValue,
+          })
+          return Response.json({ data: { status: 'complete' } })
+        }
+        expect(url.pathname).toBe('/api/integration/google')
+        return Response.json({
+          data: {
+            methods: [
+              { id: 'antigravity-auth-pool-browser' },
+              { id: 'antigravity-auth-pool-reconnect' },
+            ],
+          },
+        })
+      },
+    })
+    try {
+      const harness = {
+        paths,
+        host: { url: `http://127.0.0.1:${server.port}` },
+      }
+      expect(await reconnectGaPool(harness)).toEqual({
+        id: 'reconnect-id',
+        value: reconnectValue,
+      })
+      expect(browserCallbacks).toBe(0)
+      expect(calls).toContain(
+        'GET /api/integration/google/connect/oauth/attempt-reconnect',
+      )
+      expect(calls).toContain('POST /api/credential/reconnect-id/activate')
     } finally {
       await server.stop(true)
       await listener.stop(true)

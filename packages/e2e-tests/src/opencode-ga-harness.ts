@@ -3504,7 +3504,8 @@ function isGaPoolPlaceholder(entry: Record<string, unknown>): boolean {
     entry.active === true &&
     entry.label === 'Antigravity' &&
     value.type === 'oauth' &&
-    value.methodID === 'antigravity-auth-pool-browser'
+    (value.methodID === 'antigravity-auth-pool-browser' ||
+      value.methodID === 'antigravity-auth-pool-reconnect')
   )
 }
 
@@ -5186,6 +5187,132 @@ export async function loginGaPool(harness: {
   }
 }
 
+export async function reconnectGaPool(harness: {
+  paths: GaPaths
+  host: Pick<GaHostSession, 'url'>
+}): Promise<{ id: string; value: unknown }> {
+  await awaitGaGoogleIntegration(harness)
+  const inventory = record(
+    record(
+      await gaNativeRequest(
+        harness.host.url,
+        'GET',
+        gaIntegrationPath(harness),
+        undefined,
+        200,
+      ),
+    ).data,
+  )
+  requireCondition(
+    Array.isArray(inventory.methods) &&
+      inventory.methods.some(
+        (method) => record(method).id === 'antigravity-auth-pool-reconnect',
+      ),
+    'GA_POOL_RECONNECT_METHOD_MISSING',
+  )
+  const before = new Set(
+    (await gaCredentialEntries(harness.host.url)).map((entry) => entry.id),
+  )
+  const attempt = record(
+    record(
+      await gaNativeRequest(
+        harness.host.url,
+        'POST',
+        gaIntegrationPath(harness, '/connect/oauth'),
+        { methodID: 'antigravity-auth-pool-reconnect' },
+        200,
+      ),
+    ).data,
+  )
+  requireCondition(
+    typeof attempt.attemptID === 'string' && attempt.url === '',
+    'GA_POOL_RECONNECT_ATTEMPT_INVALID',
+  )
+  const attemptPath = gaIntegrationPath(
+    harness,
+    `/connect/oauth/${encodeURIComponent(attempt.attemptID)}`,
+  )
+  let complete = false
+  try {
+    await waitForGaObservation(
+      async () => {
+        const status = record(
+          record(
+            await gaNativeRequest(
+              harness.host.url,
+              'GET',
+              attemptPath,
+              undefined,
+              200,
+            ),
+          ).data,
+        )
+        requireCondition(
+          status.status === 'pending' || status.status === 'complete',
+          `GA_POOL_RECONNECT_FAILED: ${JSON.stringify(status)}`,
+        )
+        return status.status === 'complete'
+      },
+      'public pool reconnect attempt completed',
+      5000,
+    )
+    complete = true
+    const entries = (await gaCredentialEntries(harness.host.url)).filter(
+      (entry) =>
+        !before.has(entry.id) &&
+        entry.integrationID === 'google' &&
+        record(entry.value).methodID === 'antigravity-auth-pool-reconnect',
+    )
+    const entry = entries[0]
+    requireCondition(
+      entries.length === 1 &&
+        entry &&
+        typeof entry.id === 'string' &&
+        entry.label === 'Antigravity',
+      'GA_POOL_RECONNECT_PLACEHOLDER_NOT_PUBLISHED',
+    )
+    const credentials = (await gaCredentialEntries(harness.host.url)).filter(
+      (candidate) => candidate.integrationID === 'google',
+    )
+    requireCondition(
+      credentials.every(
+        (candidate) =>
+          record(candidate.value).access !==
+            'synthetic-ga-reauthorized-access' &&
+          record(candidate.value).refresh !==
+            'synthetic-ga-reauthorized|synthetic-ga-project',
+      ),
+      'GA_POOL_ACCOUNT_LEAKED_TO_HOST',
+    )
+    await gaNativeRequest(
+      harness.host.url,
+      'POST',
+      `/api/credential/${encodeURIComponent(entry.id)}/activate`,
+      undefined,
+      204,
+      true,
+    )
+    const expected = { id: entry.id, value: entry.value }
+    await assertGaActivePlaceholder(harness.host.url, expected)
+    writeFileSync(
+      join(harness.paths.state, 'pool-reconnect.json'),
+      JSON.stringify({ attempt, credential: expected }),
+      { mode: 0o600, flag: 'wx' },
+    )
+    return expected
+  } finally {
+    if (!complete)
+      await gaNativeRequest(
+        harness.host.url,
+        'DELETE',
+        attemptPath,
+        undefined,
+        204,
+        true,
+      )
+  }
+}
+
 async function gaNativeKeyBytes(
   harness: GaHarness,
   id: string,
@@ -5262,6 +5389,30 @@ export async function runGaOwnershipPoolLogin(
   )
   console.error('step=pool-login.active-placeholder')
   await assertGaActivePlaceholder(harness.host.url, placeholder)
+  console.error('step=pool-login.reconnect')
+  const reconnectEventOffset = harness.readWrapperEvents().length
+  const reconnected = await reconnectGaPool(harness)
+  requireCondition(
+    reconnected.id !== placeholder.id &&
+      record(reconnected.value).methodID === 'antigravity-auth-pool-reconnect',
+    'GA_POOL_RECONNECT_CREDENTIAL_NOT_DISTINCT',
+  )
+  const reconnectNonce = newGaNonce()
+  const reconnectResult = await harness.run(
+    publicGaModel(),
+    `Reply with GA_OK_${reconnectNonce}. Primary nonce ${reconnectNonce}`,
+    false,
+    session,
+  )
+  assertGaSuccess(reconnectResult, reconnectNonce)
+  requireCondition(
+    !harness
+      .readWrapperEvents()
+      .slice(reconnectEventOffset)
+      .some((event) => event.event === 'oauth.exchange'),
+    'GA_POOL_RECONNECT_TRIGGERED_OAUTH_EXCHANGE',
+  )
+  await assertGaActivePlaceholder(harness.host.url, reconnected)
   console.error('step=pool-login.native-key-after')
   const nativeAfter = await gaNativeKeyBytes(harness, key.id)
   requireCondition(

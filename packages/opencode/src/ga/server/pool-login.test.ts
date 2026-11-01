@@ -248,6 +248,30 @@ async function fixture() {
           isConnected: () => false,
         })
       },
+      rebind: async () => {
+        await registration?.dispose()
+        await services?.dispose()
+        methods.length = 0
+        services = await factory({ directory: root, overrides: {} })
+        registration = await registerGaAuthMethods(
+          {
+            integration: {
+              transform: async (transform) => {
+                transform(editor)
+                return { dispose: async () => {} }
+              },
+            },
+          },
+          undefined,
+          {
+            local: services.localLogin,
+            oauth: {
+              waitForCode: async () => 'code',
+              exchange: async () => result,
+            },
+          },
+        )
+      },
       cleanup,
     }
   } catch (error) {
@@ -321,6 +345,89 @@ describe('GA existing local pool reconnect', () => {
       await f.cleanup()
     }
   })
+
+  it('saves the Antigravity connection on reconnect and the next request uses the Google placeholder without browser consent or account refresh', async () => {
+    const f = await fixture()
+    try {
+      await f.login()
+      expect(f.refreshes()).toBe(0)
+      const serving = await f.start()
+      const credential = await f.reconnect()
+      expect(isPlaceholderCredential(credential, 'google')).toBe(true)
+      expect(String(credential.methodID)).toBe(GA_POOL_RECONNECT_METHOD_ID)
+      expect(f.refreshes()).toBe(0)
+
+      await serving.execute(
+        {
+          sessionID: 'reconnect-next',
+          parentSessionID: null,
+          kind: 'generate',
+          modelID: 'antigravity-gemini-3.5-flash',
+          variant: null,
+          url: 'https://example.test',
+          body: '{}',
+        },
+        {
+          signal: new AbortController().signal,
+          send: async () => new Response('unused'),
+        },
+      )
+      expect(f.selected).toContainEqual(['pool-refresh'])
+      expect(f.refreshes()).toBe(0)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  for (const mode of ['custody', 'unreadable'] as const) {
+    it(`refuses ${mode} with a populated store without opening or reading the repository`, async () => {
+      const f = await fixture()
+      try {
+        await f.login()
+        const seededRepository = await f.repository()
+        // Rebind a fresh location services instance over the populated store so repositoryPromise is uncached
+        await f.rebind()
+        f.mode(mode)
+        let bindingsRead = 0
+        let opened = 0
+        let reads = 0
+        const readBinding = core.readAccountStoreBinding
+        const bindingSpy = spyOn(
+          core,
+          'readAccountStoreBinding',
+        ).mockImplementation(async (...args) => {
+          bindingsRead++
+          return readBinding(...args)
+        })
+        const factory = core.createAccountRepositoryFactory
+        const factorySpy = spyOn(
+          core,
+          'createAccountRepositoryFactory',
+        ).mockImplementation((...args) => {
+          opened++
+          return factory(...args)
+        })
+        const readSpy = spyOn(seededRepository, 'read').mockImplementation(
+          async () => {
+            reads++
+            throw new Error('repository read must not be reached')
+          },
+        )
+        try {
+          await expect(f.reconnect()).rejects.toThrow(FAILED)
+          expect(bindingsRead).toBe(0)
+          expect(opened).toBe(0)
+          expect(reads).toBe(0)
+        } finally {
+          bindingSpy.mockRestore()
+          factorySpy.mockRestore()
+          readSpy.mockRestore()
+        }
+      } finally {
+        await f.cleanup()
+      }
+    })
+  }
 
   for (const mode of ['custody', 'unreadable'] as const) {
     it(`refuses ${mode} after seeding without writes`, async () => {

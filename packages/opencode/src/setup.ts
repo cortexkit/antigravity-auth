@@ -13,6 +13,7 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 import {
   OPENCODE2_POOL_AUTH_LABEL,
+  OPENCODE2_POOL_RECONNECT_LABEL,
   OPENCODE2_VAULT_AUTH_LABEL,
 } from './auth-method-labels.ts'
 import type { CliDependencies } from './cli.ts'
@@ -272,6 +273,7 @@ export async function createSetupPlugin(
     }
   }
   let openCodeLogin: AntigravityTokenExchangeSuccess | undefined
+  let hasLocalPool = false
   const manifest = JSON.parse(
     await readFile(new URL('../package.json', import.meta.url), 'utf8'),
   ) as { version: string }
@@ -347,7 +349,21 @@ export async function createSetupPlugin(
       await assertLocal(host, context)
       // The OpenCode 2 host login creates its Google integration connection.
       // A standalone OAuth flow here cannot create it and would require a second login.
-      if (host === 'opencode' && context.opencodeGeneration === '2') return
+      if (host === 'opencode' && context.opencodeGeneration === '2') {
+        if (!forceLogin) {
+          const source = await deps.accountStore.read(
+            deps.accountStore.legacyPath(),
+          )
+          if (
+            (source.kind === 'store' && source.accounts.length > 0) ||
+            (source.kind === 'legacy' &&
+              ((await deps.loadAccounts())?.accounts ?? []).length > 0)
+          ) {
+            hasLocalPool = true
+          }
+        }
+        return
+      }
       const slot = (await nativeAuth(host, context))[provider(host)]
       const source =
         host === 'opencode'
@@ -371,6 +387,7 @@ export async function createSetupPlugin(
         deps.stdout.write(
           `Using existing local Antigravity login for ${host}.\n`,
         )
+        if (host === 'opencode') hasLocalPool = true
         if (
           host === 'opencode' &&
           claustrum.classifyHostSlot(slot, provider(host)) !== 'login'
@@ -404,7 +421,10 @@ export async function createSetupPlugin(
         host,
         context,
       )
-      if (host === 'opencode') openCodeLogin = result
+      if (host === 'opencode') {
+        openCodeLogin = result
+        hasLocalPool = true
+      }
     },
     beforeRegister: async (host, mode, context) => {
       const needsOpenCode2 =
@@ -432,7 +452,12 @@ export async function createSetupPlugin(
             },
             context,
           )
-        if (needsOpenCode2) nativeNextStep(OPENCODE2_POOL_AUTH_LABEL)
+        if (needsOpenCode2)
+          nativeNextStep(
+            hasLocalPool
+              ? OPENCODE2_POOL_RECONNECT_LABEL
+              : OPENCODE2_POOL_AUTH_LABEL,
+          )
         return
       }
       if ((await authority(host)) !== 'vault')
