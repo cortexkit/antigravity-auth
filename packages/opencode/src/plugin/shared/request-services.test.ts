@@ -4057,6 +4057,101 @@ describe('createRequestExecutor eligible-pool wait calculation', () => {
     }
   })
 
+  it('waits for combined 8s cooldown-maximized delay across accounts within max wait, shows waiting toast, and succeeds after quota refresh', async () => {
+    let wall = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => wall)
+    const clock = deadlineClock()
+    const pool = makePool(2)
+    const [account0, account1] = pool.getAccounts() as [
+      ManagedAccount,
+      ManagedAccount,
+    ]
+    // Account 0: over soft quota (reset in 2s), and active cooldown for 8s -> delay max(2s, 8s) = 8s
+    pool.markAccountCoolingDown(account0, 8_000, 'network-error')
+    pool.updateQuotaCache(
+      0,
+      {
+        gemini: {
+          remainingFraction: 0.1,
+          resetTime: new Date(wall + 2_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account0.parts.refreshToken,
+    )
+    // Account 1: over soft quota (reset in 20s) -> delay 20s
+    pool.updateQuotaCache(
+      1,
+      {
+        gemini: {
+          remainingFraction: 0.1,
+          resetTime: new Date(wall + 20_000).toISOString(),
+          modelCount: 1,
+        },
+      },
+      account1.parts.refreshToken,
+    )
+    // Combined pool wait: min(max(2s, 8s), 20s) = exact 8s
+
+    const delays: number[] = []
+    const toasts: string[] = []
+    const real = globalThis.setTimeout
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: () => void,
+      delay: number,
+    ) => {
+      const handle = real(() => {}, 2 ** 30)
+      handle.unref()
+      queueMicrotask(() => {
+        clearTimeout(handle)
+        delays.push(delay)
+        wall += delay
+        clock.advance(delay)
+        // Refresh quota observation on recovering account at recovery timestamp:
+        pool.updateQuotaCache(
+          0,
+          {
+            gemini: {
+              remainingFraction: 1,
+              modelCount: 1,
+            },
+          },
+          account0.parts.refreshToken,
+        )
+        callback()
+      })
+      return handle
+    }) as typeof setTimeout)
+
+    const h = harness({
+      pool,
+      respond: async () => okJson(),
+      config: {
+        quiet_mode: false,
+        max_rate_limit_wait_seconds: 10,
+        soft_quota_threshold_percent: 80,
+      },
+      notify: async (msg) => {
+        toasts.push(msg)
+      },
+    })
+    Object.assign(h.deps, { preResponseClock: clock })
+    const save = spyOn(h.pool, 'requestSaveToDisk').mockImplementation(() => {})
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(delays).toEqual([8_000])
+      expect(toasts.some((t) => t.includes('Waiting 8s...'))).toBe(true)
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      save.mockRestore()
+      timer.mockRestore()
+      date.mockRestore()
+      await executor.dispose()
+    }
+  })
+
   it('under/cooldown8 vs soft1h => refused with NO 1h metadata', async () => {
     const wall = FIXED_NOW
     const date = spyOn(Date, 'now').mockImplementation(() => wall)

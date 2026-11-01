@@ -1692,7 +1692,6 @@ describe('AccountSelector soft-quota scoping and selectable wait tests', () => {
   const TTL = 10 * 60 * 1000
 
   it('exempts sole eligible account from soft quota under killswitch / ineligible / verification / disabled exclusions across all selection strategies', () => {
-    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
     const makeAccounts = (): SelectableAccount[] => [
       {
         index: 0,
@@ -1724,58 +1723,135 @@ describe('AccountSelector soft-quota scoping and selectable wait tests', () => {
       },
     ]
 
-    // 1. Killswitch / excludedIndexes excludes account 1:
-    selector.resetAccounts(makeAccounts())
-    const killed1 = new Set([1])
-    // isAccountOverSoftQuota with excludeIndexes sees only 1 eligible account -> exempt (returns false)
-    expect(
-      selector.isAccountOverSoftQuota(
-        selector.getAccounts()[0]!,
-        'gemini',
-        80,
-        TTL,
-        'gemini-3-flash',
-        killed1,
-      ),
-    ).toBe(false)
-    // Selection strategies select account 0 despite high quota:
-    expect(
-      selector.getCurrentOrNextForFamily(
-        'gemini',
-        'gemini-3-flash',
-        'sticky',
-        false,
-        80,
-        TTL,
-        undefined,
-        killed1,
-      )?.index,
-    ).toBe(0)
-    expect(
-      selector.getCurrentOrNextForFamily(
-        'gemini',
-        'gemini-3-flash',
-        'round-robin',
-        false,
-        80,
-        TTL,
-        undefined,
-        killed1,
-      )?.index,
-    ).toBe(0)
-    expect(
-      selector.getCurrentOrNextForFamily(
-        'gemini',
-        'gemini-3-flash',
-        'hybrid',
-        false,
-        80,
-        TTL,
-        undefined,
-        killed1,
-      )?.index,
-    ).toBe(0)
+    // Exclusion scenarios exempt account 0 from soft quota across all selection strategies:
+    const scenarios = [
+      {
+        name: 'killswitch',
+        setup: (accs: SelectableAccount[]) => ({
+          accounts: accs,
+          excludeIndexes: new Set([1]),
+        }),
+      },
+      {
+        name: 'accountIneligible',
+        setup: (accs: SelectableAccount[]) => {
+          accs[1]!.accountIneligible = true
+          return { accounts: accs, excludeIndexes: undefined }
+        },
+      },
+      {
+        name: 'verificationRequired',
+        setup: (accs: SelectableAccount[]) => {
+          accs[1]!.verificationRequired = true
+          return { accounts: accs, excludeIndexes: undefined }
+        },
+      },
+      {
+        name: 'disabled',
+        setup: (accs: SelectableAccount[]) => {
+          accs[1]!.enabled = false
+          return { accounts: accs, excludeIndexes: undefined }
+        },
+      },
+    ] as const
+
+    const strategies: AccountSelectionStrategy[] = [
+      'sticky',
+      'round-robin',
+      'hybrid',
+    ]
+
+    for (const scenario of scenarios) {
+      const { accounts, excludeIndexes } = scenario.setup(makeAccounts())
+      const baseSelector = new AccountSelector<SelectableAccount>({
+        now: () => NOW,
+      })
+      baseSelector.resetAccounts(accounts)
+
+      // isAccountOverSoftQuota sees only 1 eligible account -> exempt (returns false)
+      expect(
+        baseSelector.isAccountOverSoftQuota(
+          baseSelector.getAccounts()[0]!,
+          'gemini',
+          80,
+          TTL,
+          'gemini-3-flash',
+          excludeIndexes,
+        ),
+      ).toBe(false)
+
+      // Cold selection with a fresh selector and session for each strategy:
+      for (const strategy of strategies) {
+        const freshSelector = new AccountSelector<SelectableAccount>({
+          now: () => NOW,
+        })
+        freshSelector.resetAccounts(accounts)
+        const coldSession = { id: `cold-${scenario.name}-${strategy}` }
+        expect(
+          freshSelector.getCurrentOrNextForFamily(
+            'gemini',
+            'gemini-3-flash',
+            strategy,
+            false,
+            80,
+            TTL,
+            coldSession,
+            excludeIndexes,
+          )?.index,
+        ).toBe(0)
+      }
+
+      // Pinned selection: pinned to account 0 remains valid; pinned to account 1 falls through
+      for (const strategy of strategies) {
+        const freshSelector = new AccountSelector<SelectableAccount>({
+          now: () => NOW,
+        })
+        freshSelector.resetAccounts(accounts)
+        const pinned0Session = { id: `pinned0-${scenario.name}-${strategy}` }
+        freshSelector.markSwitched(
+          freshSelector.getAccounts()[0]!,
+          'rotation',
+          'gemini',
+          pinned0Session,
+        )
+        expect(
+          freshSelector.getCurrentOrNextForFamily(
+            'gemini',
+            'gemini-3-flash',
+            strategy,
+            false,
+            80,
+            TTL,
+            pinned0Session,
+            excludeIndexes,
+          )?.index,
+        ).toBe(0)
+
+        const pinned1Session = { id: `pinned1-${scenario.name}-${strategy}` }
+        freshSelector.markSwitched(
+          freshSelector.getAccounts()[1]!,
+          'rotation',
+          'gemini',
+          pinned1Session,
+        )
+        expect(
+          freshSelector.getCurrentOrNextForFamily(
+            'gemini',
+            'gemini-3-flash',
+            strategy,
+            false,
+            80,
+            TTL,
+            pinned1Session,
+            excludeIndexes,
+          )?.index,
+        ).toBe(0)
+      }
+    }
+
     // areAllAccountsOverSoftQuota and getMinWaitTimeForSoftQuota reflect sole-eligible exemption:
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts(makeAccounts())
     expect(
       selector.areAllAccountsOverSoftQuota(
         'gemini',
@@ -1793,78 +1869,6 @@ describe('AccountSelector soft-quota scoping and selectable wait tests', () => {
         'gemini-3-flash',
         new Set([0]),
       ),
-    ).toBe(0)
-
-    // 2. accountIneligible on account 1:
-    const accsIneligible = makeAccounts()
-    accsIneligible[1]!.accountIneligible = true
-    selector.resetAccounts(accsIneligible)
-    expect(
-      selector.isAccountOverSoftQuota(
-        selector.getAccounts()[0]!,
-        'gemini',
-        80,
-        TTL,
-        'gemini-3-flash',
-      ),
-    ).toBe(false)
-    expect(
-      selector.getCurrentOrNextForFamily(
-        'gemini',
-        'gemini-3-flash',
-        'sticky',
-        false,
-        80,
-        TTL,
-      )?.index,
-    ).toBe(0)
-
-    // 3. verificationRequired on account 1:
-    const accsVerification = makeAccounts()
-    accsVerification[1]!.verificationRequired = true
-    selector.resetAccounts(accsVerification)
-    expect(
-      selector.isAccountOverSoftQuota(
-        selector.getAccounts()[0]!,
-        'gemini',
-        80,
-        TTL,
-        'gemini-3-flash',
-      ),
-    ).toBe(false)
-    expect(
-      selector.getCurrentOrNextForFamily(
-        'gemini',
-        'gemini-3-flash',
-        'sticky',
-        false,
-        80,
-        TTL,
-      )?.index,
-    ).toBe(0)
-
-    // 4. disabled on account 1:
-    const accsDisabled = makeAccounts()
-    accsDisabled[1]!.enabled = false
-    selector.resetAccounts(accsDisabled)
-    expect(
-      selector.isAccountOverSoftQuota(
-        selector.getAccounts()[0]!,
-        'gemini',
-        80,
-        TTL,
-        'gemini-3-flash',
-      ),
-    ).toBe(false)
-    expect(
-      selector.getCurrentOrNextForFamily(
-        'gemini',
-        'gemini-3-flash',
-        'sticky',
-        false,
-        80,
-        TTL,
-      )?.index,
     ).toBe(0)
   })
 
@@ -2192,9 +2196,7 @@ describe('AccountSelector soft-quota scoping and selectable wait tests', () => {
   })
 
   it('strictly excludes accountIneligible and verificationRequired accounts across sticky / roundrobin / hybrid / pinned / proactive selection', () => {
-    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
-    const sessionIdentity = { id: 'test-session' }
-    selector.resetAccounts([
+    const makeAccounts = (): SelectableAccount[] => [
       {
         index: 0,
         enabled: true,
@@ -2218,64 +2220,123 @@ describe('AccountSelector soft-quota scoping and selectable wait tests', () => {
         rateLimitResetTimes: {},
         touchedForQuota: {},
       },
-    ])
+    ]
 
-    // Pinned session check:
-    selector.markSwitched(
-      selector.getAccounts()[0]!,
-      'rotation',
-      'gemini',
-      sessionIdentity,
-    )
-    expect(
-      selector.getCurrentAccountForFamily('gemini', sessionIdentity),
-    ).toBeNull()
+    const strategies: AccountSelectionStrategy[] = [
+      'sticky',
+      'round-robin',
+      'hybrid',
+    ]
 
-    // Sticky selection falls through past ineligible 0 and verification 1 to account 2:
-    expect(
-      selector.getCurrentOrNextForFamily(
+    // 1. Cold selection: fresh selector and session for EACH strategy asserts real strategy filtering branches
+    for (const strategy of strategies) {
+      const selector = new AccountSelector<SelectableAccount>({
+        now: () => NOW,
+      })
+      selector.resetAccounts(makeAccounts())
+      const coldSession = { id: `cold-session-${strategy}` }
+      expect(
+        selector.getCurrentAccountForFamily('gemini', coldSession),
+      ).toBeNull()
+      expect(
+        selector.getCurrentOrNextForFamily(
+          'gemini',
+          'gemini-3-flash',
+          strategy,
+          false,
+          100,
+          TTL,
+          coldSession,
+        )?.index,
+      ).toBe(2)
+    }
+
+    // 2. Pinned session verification: pinned ineligible accounts are rejected and fall through to strategy; pinned eligible account is returned
+    for (const strategy of strategies) {
+      const selector = new AccountSelector<SelectableAccount>({
+        now: () => NOW,
+      })
+      selector.resetAccounts(makeAccounts())
+
+      // Ineligible pinned session falls through to strategy:
+      const pinnedIneligible = { id: `pinned-ineligible-${strategy}` }
+      selector.markSwitched(
+        selector.getAccounts()[0]!,
+        'rotation',
         'gemini',
-        'gemini-3-flash',
-        'sticky',
-        false,
-        100,
-        TTL,
-        sessionIdentity,
-      )?.index,
-    ).toBe(2)
+        pinnedIneligible,
+      )
+      expect(
+        selector.getCurrentAccountForFamily('gemini', pinnedIneligible),
+      ).toBeNull()
+      expect(
+        selector.getCurrentOrNextForFamily(
+          'gemini',
+          'gemini-3-flash',
+          strategy,
+          false,
+          100,
+          TTL,
+          pinnedIneligible,
+        )?.index,
+      ).toBe(2)
 
-    // Round-robin selection selects account 2:
-    expect(
-      selector.getCurrentOrNextForFamily(
+      // VerificationRequired pinned session falls through to strategy:
+      const pinnedVerification = { id: `pinned-verification-${strategy}` }
+      selector.markSwitched(
+        selector.getAccounts()[1]!,
+        'rotation',
         'gemini',
-        'gemini-3-flash',
-        'round-robin',
-        false,
-        100,
-        TTL,
-        sessionIdentity,
-      )?.index,
-    ).toBe(2)
+        pinnedVerification,
+      )
+      expect(
+        selector.getCurrentAccountForFamily('gemini', pinnedVerification),
+      ).toBeNull()
+      expect(
+        selector.getCurrentOrNextForFamily(
+          'gemini',
+          'gemini-3-flash',
+          strategy,
+          false,
+          100,
+          TTL,
+          pinnedVerification,
+        )?.index,
+      ).toBe(2)
 
-    // Hybrid selection selects account 2:
-    expect(
-      selector.getCurrentOrNextForFamily(
+      // Eligible pinned session is served:
+      const pinnedEligible = { id: `pinned-eligible-${strategy}` }
+      selector.markSwitched(
+        selector.getAccounts()[2]!,
+        'rotation',
         'gemini',
-        'gemini-3-flash',
-        'hybrid',
-        false,
-        100,
-        TTL,
-        sessionIdentity,
-      )?.index,
-    ).toBe(2)
+        pinnedEligible,
+      )
+      expect(
+        selector.getCurrentAccountForFamily('gemini', pinnedEligible)?.index,
+      ).toBe(2)
+      expect(
+        selector.getCurrentOrNextForFamily(
+          'gemini',
+          'gemini-3-flash',
+          strategy,
+          false,
+          100,
+          TTL,
+          pinnedEligible,
+        )?.index,
+      ).toBe(2)
+    }
 
-    // Proactive rotation skips accounts 0 and 1:
+    // 3. Proactive rotation skips accounts 0 and 1:
+    const selector = new AccountSelector<SelectableAccount>({ now: () => NOW })
+    selector.resetAccounts(makeAccounts())
+    const rotateSession = { id: 'rotate-session' }
     selector.markSwitched(
       selector.getAccounts()[2]!,
       'rotation',
       'gemini',
-      sessionIdentity,
+      rotateSession,
     )
     expect(
       selector.proactivelyRotateForFamily(
@@ -2283,7 +2344,7 @@ describe('AccountSelector soft-quota scoping and selectable wait tests', () => {
         'gemini-3-flash',
         100,
         TTL,
-        sessionIdentity,
+        rotateSession,
       ),
     ).toBeNull()
   })
