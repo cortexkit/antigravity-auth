@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test'
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import {
   chmodSync,
   existsSync,
@@ -35,6 +35,7 @@ import {
   type SetupCallbackContext,
   type SetupIO,
 } from './common-auth-embedded/setup/index.js'
+import * as setup from './setup.ts'
 import { createSetupPlugin, persistPiSetupLogin } from './setup.ts'
 
 const packageRoot = resolve(import.meta.dir, '..')
@@ -438,7 +439,7 @@ describe('real setup CLI entry', () => {
     )
     if (generation !== '1') {
       expect(result.stdout).toContain(
-        'In OpenCode 2, run opencode auth login, select Google, then choose Google (antigravity-auth pool, browser).',
+        'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
       )
       expect(result.stdout).toContain(
         'Setup has not completed the OpenCode 2 native Google connection.',
@@ -1300,5 +1301,112 @@ describe('setup plugin callbacks', () => {
     await expect(plugin.signInLocal('opencode', context)).rejects.toThrow()
     expect(deps.performLogin).not.toHaveBeenCalled()
     expect(snapshot(p.root)).toEqual(before)
+  })
+
+  it('directs already-populated pools and --opencode=both to reconnect rather than browser account-add', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      deps.accountStore.read = mock(async () => ({
+        kind: 'store' as const,
+        accounts: [
+          {
+            email: 'existing@example.test',
+            refreshToken: 'existing-refresh',
+            projectId: 'proj',
+            addedAt: 1,
+            lastUsed: 1,
+          },
+        ],
+      }))
+      const plugin = await createSetupPlugin(deps, async () => 0)
+
+      // Case 1: --opencode=both with existing accounts
+      output = ''
+      const bothContext = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: 'both',
+        mode: 'local',
+      } as const
+      await plugin.signInLocal('opencode', bothContext)
+      await plugin.beforeRegister?.('opencode', 'local', bothContext)
+      expect(output).toContain(
+        'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
+      )
+      expect(output).not.toContain('Google (antigravity-auth pool, browser)')
+
+      // Case 2: --opencode=2 with existing accounts
+      output = ''
+      const gen2Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+      await plugin.signInLocal('opencode', gen2Context)
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      expect(output).toContain(
+        'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
+      )
+      expect(output).not.toContain('Google (antigravity-auth pool, browser)')
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
+  it('directs --opencode=both on a fresh store to reconnect after the initial sign-in populates the pool', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      deps.accountStore.read = mock(async () => ({
+        kind: 'uninitialized' as const,
+      }))
+      const loginResult = {
+        type: 'success' as const,
+        refresh: 'fresh-refresh|proj|',
+        access: 'fresh-access',
+        expires: Date.now() + 3_600_000,
+        projectId: 'proj',
+      }
+      deps.performLogin = mock(async () => loginResult)
+      const plugin = await createSetupPlugin(deps, async () => 0)
+
+      const bothContext = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: 'both',
+        mode: 'local',
+      } as const
+      await plugin.signInLocal('opencode', bothContext)
+      await plugin.beforeRegister?.('opencode', 'local', bothContext)
+      expect(deps.performLogin).toHaveBeenCalledTimes(1)
+      expect(output).toContain(
+        'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
+      )
+      expect(output).not.toContain('Google (antigravity-auth pool, browser)')
+    } finally {
+      fenceSpy.mockRestore()
+    }
   })
 })

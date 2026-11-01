@@ -29,12 +29,30 @@ Do not copy the harness's synthetic Google key or mock `baseURL` into real confi
 1. Start the configured host and run `opencode auth login`.
 2. Select **Google**, then the login method **Google (antigravity-auth pool, browser)** (`antigravity-auth-pool-browser`). If that method is absent, stop and use a plugin build that provides it; a native Google key/login is not a substitute.
 3. Complete Google consent. The listener at `http://localhost:51121/oauth-callback` handles the browser callback and PKCE exchange. Only one login can bind that listener at a time. Use the [callback troubleshooting guide](TROUBLESHOOTING.md#port-already-in-use) for an occupied port or remote browser.
-4. Select the saved **Antigravity** connection. The browser choice above is a **login method**; Antigravity is the **saved connection label**, not a third method.
+4. Select the saved **Antigravity** connection. The browser choice above is a **login method**; Antigravity is the **saved connection label**, not a login method.
 5. Open `/antigravity` to inspect Accounts and Quota, then select a supported `google/antigravity-…` model.
 
 Pool login persists credentials in the plugin's local repository before returning a non-secret common-auth Google placeholder to the host. It may initialize a truly fresh store at the location's resolved account path. If an old `antigravity-accounts.json` account file exists without an active shared store, login refuses until that file is [migrated offline](MIGRATION.md#initialize-or-migrate-before-starting-the-host); it does not overwrite or automatically import it. Additional logins must have distinct identities; use the account reauthorization action to replace an existing account's credentials. Local login is allowed only when the current enrollment state permits local credentials, not while approved vault custody is active.
 
-For vault mode, obtain enrollment approval from the person who manages the Claustrum vault (the vault operator), then use the other Google login method, **Use approved Antigravity vault** (`antigravity-vault`). Both methods save under **Antigravity**. The vault method is not local OAuth. See [vault activation and disconnection](VAULT.md).
+### Reconnect an existing local pool
+
+After offline migration or a host database reset, reconnect the host's **Antigravity** connection using **Use existing local Antigravity pool** (`antigravity-auth-pool-reconnect`):
+
+1. In OpenCode 2 (pinned host `@opencode/cli-linux-x64@2.0.22`), run `opencode auth login`.
+2. Select **Google**, then select **Use existing local Antigravity pool** (`antigravity-auth-pool-reconnect`).
+3. Select the saved **Antigravity** connection.
+
+No browser sign-in or consent is required. Both **Use approved Antigravity vault** (`antigravity-vault`) and **Use existing local Antigravity pool** (`antigravity-auth-pool-reconnect`) register through `@opencode/plugin` as automatic OAuth methods with an empty URL (`mode: 'auto'`, `url: ''`) because the host integration contract exposes only `'key'` and `'oauth'` method types. The host invokes the method's `authorize` callback directly without starting the `localhost:51121` callback listener or performing an OAuth token exchange, and saves only a non-secret Google placeholder credential (`methodID: antigravity-auth-pool-reconnect`) under **Antigravity**. (If a custom client wrapper unconditionally passes `url` to an external browser opener on `mode: 'auto'`, ignore the empty-URL opener warning or use the native HTTP OAuth API below.)
+
+For headless or automated setups on OpenCode 2 (`@opencode/cli-linux-x64@2.0.22`), invoke the native integration OAuth API directly against the running host:
+
+1. Start the attempt: `POST /api/integration/google/connect/oauth?location%5Bdirectory%5D=<urlencoded-project-dir>` with JSON body `{"methodID":"antigravity-auth-pool-reconnect"}` (returns `{"data":{"attemptID":"<id>","url":""}}`).
+2. Poll `GET /api/integration/google/connect/oauth/<attemptID>?location%5Bdirectory%5D=<urlencoded-project-dir>` until `{"data":{"status":"complete"}}`.
+3. Find the new `integrationID: "google"`, `label: "Antigravity"`, `value.methodID: "antigravity-auth-pool-reconnect"` row from `GET /api/credential` and activate it with `POST /api/credential/<credentialID>/activate`.
+
+It never initializes, migrates, exchanges, or refreshes account credentials. A fresh, empty, unreadable, damaged, or unavailable store, a pool with no enabled, usable, unblocked, active account (including ineligible or verification-blocked accounts), and vault or custody-protected state are strictly refused before any marker is issued; the check reads existing store rows but never initializes the store. Browser pool-add still deliberately rejects duplicate identities; reconnect is not reauthorization.
+
+For vault mode, obtain enrollment approval from the person who manages the Claustrum vault (the vault operator), then use **Use approved Antigravity vault** (`antigravity-vault`). All plugin methods save under **Antigravity**. The vault method is not local OAuth. See [vault activation and disconnection](VAULT.md).
 
 ## Request ownership: marker-only support boundary
 

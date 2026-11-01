@@ -2072,6 +2072,7 @@ export function createGaLocationServicesFactory(
     // Enrollment selects a binding, not its lifetime. Local files stay unopened
     // until a locally authorized operation needs them, and failures can retry.
     let repositoryPromise: Promise<LocationRepository> | undefined
+    let repositoryPromiseLogin = false
     let servingRepository: AccountRepository | undefined
     let localPromise: Promise<Serving> | undefined
     let vaultPromise: Promise<Serving> | undefined
@@ -2137,15 +2138,22 @@ export function createGaLocationServicesFactory(
       readonly admit: () => Promise<void>
     }): Promise<AccountRepository> => {
       await assertLocal()
-      repositoryPromise ??= openLocationRepository(
-        directory,
-        bindings,
-        overrides,
-        login,
-      ).catch((error) => {
-        repositoryPromise = undefined
-        throw error
-      })
+      if (login && repositoryPromise && !repositoryPromiseLogin) {
+        await repositoryPromise.catch(() => undefined)
+      }
+      if (!repositoryPromise) {
+        repositoryPromiseLogin = Boolean(login)
+        repositoryPromise = openLocationRepository(
+          directory,
+          bindings,
+          overrides,
+          login,
+        ).catch((error) => {
+          repositoryPromise = undefined
+          repositoryPromiseLogin = false
+          throw error
+        })
+      }
       const repository = (await repositoryPromise).repository
       if (!servingRepository) {
         const methods = new Map<PropertyKey, unknown>()
@@ -2228,6 +2236,43 @@ export function createGaLocationServicesFactory(
       runtime,
       localLogin: {
         assertAdmission: assertLocal,
+        async assertExistingPool(admit) {
+          await assertLocal()
+          await admit()
+          // No login argument: reconnect must never initialize a store.
+          const repository = await getRepository()
+          await admit()
+          const opened = await repositoryPromise
+          await admit()
+          if (!opened)
+            throw new Error('The local repository was not constructed')
+          await assertServingAdmission(opened, bindings.now)
+          await admit()
+          const read = await repository.read()
+          await admit()
+          if (
+            read.status !== 'ready' ||
+            !read.rows.some(
+              (row) =>
+                row.enabled &&
+                row.usable &&
+                row.credential !== undefined &&
+                !row.torn &&
+                !row.unbound &&
+                row.invalid === undefined &&
+                row.metadata.status === 'present' &&
+                accessBlockOf(row).kind === 'none',
+            )
+          )
+            throw new Error(
+              'The existing local Antigravity pool is unavailable',
+            )
+          // Use the binding associated with the opened repository, not a replacement binding.
+          await assertServingAdmission(opened, bindings.now)
+          await admit()
+          await assertLocal()
+          await admit()
+        },
         async persist(result, admit) {
           await assertLocal()
           await admit()

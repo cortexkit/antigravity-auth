@@ -11,8 +11,10 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as core from '@cortexkit/antigravity-auth-core'
 import {
   type AccountRepository,
+  type AccountRow,
   createAccountMigrationFactory,
   loadCommonAuthStoreModules,
   readAccountStoreBinding,
@@ -21,6 +23,7 @@ import type {
   IntegrationEditor,
   IntegrationMethodRegistration,
 } from '@opencode/plugin/promise/integration'
+import { isPlaceholderCredential } from '../../common-auth-embedded/opencode2/index.js'
 import {
   createGaLocationServicesFactory,
   createGaReauthorize,
@@ -35,7 +38,7 @@ import {
 import * as storage from '../../plugin/storage.ts'
 import { registerGaAuthMethods } from './auth.ts'
 import type { GaLocationServices } from './index.ts'
-import { GA_POOL_METHOD_ID } from './pool-login.ts'
+import { GA_POOL_METHOD_ID, GA_POOL_RECONNECT_METHOD_ID } from './pool-login.ts'
 
 function tree(root: string) {
   if (!existsSync(root)) return []
@@ -206,6 +209,20 @@ async function fixture() {
           throw new Error('Expected auto pool login')
         return authorization.callback
       },
+      reconnect: async () => {
+        const method = methods.find(
+          ({ method }) =>
+            method.type === 'oauth' &&
+            method.id === GA_POOL_RECONNECT_METHOD_ID,
+        )
+        if (!method || !('authorize' in method))
+          throw new Error('Reconnect method missing')
+        const authorization = await method.authorize({})
+        expect(authorization.url).toBe('')
+        if (authorization.mode !== 'auto')
+          throw new Error('Expected automatic reconnect')
+        return authorization.callback
+      },
       start: async () => {
         if (!services) throw new Error('Location missing')
         mkdirSync(join(root, '.opencode'), { recursive: true })
@@ -231,6 +248,30 @@ async function fixture() {
           isConnected: () => false,
         })
       },
+      rebind: async () => {
+        await registration?.dispose()
+        await services?.dispose()
+        methods.length = 0
+        services = await factory({ directory: root, overrides: {} })
+        registration = await registerGaAuthMethods(
+          {
+            integration: {
+              transform: async (transform) => {
+                transform(editor)
+                return { dispose: async () => {} }
+              },
+            },
+          },
+          undefined,
+          {
+            local: services.localLogin,
+            oauth: {
+              waitForCode: async () => 'code',
+              exchange: async () => result,
+            },
+          },
+        )
+      },
       cleanup,
     }
   } catch (error) {
@@ -246,6 +287,282 @@ async function rows(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 const FAILED = 'The Antigravity pool login could not be completed.'
+
+describe('GA existing local pool reconnect', () => {
+  it('returns only the public marker without changing seeded pool bytes or refreshing accounts', async () => {
+    const f = await fixture()
+    try {
+      await f.login()
+      const before = tree(f.root)
+      const credential = await f.reconnect()
+      expect(isPlaceholderCredential(credential, 'google')).toBe(true)
+      expect(String(credential.methodID)).toBe(GA_POOL_RECONNECT_METHOD_ID)
+      expect(JSON.stringify(credential)).not.toContain('pool-refresh')
+      expect(JSON.stringify(credential)).not.toContain('pool-access')
+      expect(JSON.stringify(credential)).not.toContain('pool@example.test')
+      expect(f.refreshes()).toBe(0)
+      expect(tree(f.root)).toEqual(before)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('refuses a fresh store without initialization or writes', async () => {
+    const f = await fixture()
+    const initializer = spyOn(storage, 'initializeFreshAccountStoreFor')
+    try {
+      const before = tree(f.root)
+      await expect(f.reconnect()).rejects.toThrow(FAILED)
+      expect(initializer).not.toHaveBeenCalled()
+      expect(tree(f.root)).toEqual(before)
+    } finally {
+      initializer.mockRestore()
+      await f.cleanup()
+    }
+  })
+
+  it('allows concurrent login on a fresh store while reconnect refuses without poisoning initialization', async () => {
+    const f = await fixture()
+    try {
+      const reconnecting = f.reconnect()
+      const loggingIn = f.login()
+      const [reconnectResult, loginResult] = await Promise.allSettled([
+        reconnecting,
+        loggingIn,
+      ])
+      expect(reconnectResult.status).toBe('rejected')
+      if (reconnectResult.status === 'rejected') {
+        expect(reconnectResult.reason.message).toContain(FAILED)
+      }
+      expect(loginResult.status).toBe('fulfilled')
+      if (loginResult.status === 'fulfilled') {
+        expect(isPlaceholderCredential(loginResult.value, 'google')).toBe(true)
+      }
+      const accountRows = await rows(f)
+      expect(accountRows).toHaveLength(1)
+      expect(accountRows[0]?.credential?.refreshToken).toBe('pool-refresh')
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('saves the Antigravity connection on reconnect and the next request uses the Google placeholder without browser consent or account refresh', async () => {
+    const f = await fixture()
+    try {
+      await f.login()
+      expect(f.refreshes()).toBe(0)
+      const serving = await f.start()
+      const credential = await f.reconnect()
+      expect(isPlaceholderCredential(credential, 'google')).toBe(true)
+      expect(String(credential.methodID)).toBe(GA_POOL_RECONNECT_METHOD_ID)
+      expect(f.refreshes()).toBe(0)
+
+      await serving.execute(
+        {
+          sessionID: 'reconnect-next',
+          parentSessionID: null,
+          kind: 'generate',
+          modelID: 'antigravity-gemini-3.5-flash',
+          variant: null,
+          url: 'https://example.test',
+          body: '{}',
+        },
+        {
+          signal: new AbortController().signal,
+          send: async () => new Response('unused'),
+        },
+      )
+      expect(f.selected).toContainEqual(['pool-refresh'])
+      expect(f.refreshes()).toBe(0)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  for (const mode of ['custody', 'unreadable'] as const) {
+    it(`refuses ${mode} with a populated store without opening or reading the repository`, async () => {
+      const f = await fixture()
+      try {
+        await f.login()
+        const seededRepository = await f.repository()
+        f.mode(mode)
+        let bindingsRead = 0
+        let opened = 0
+        let reads = 0
+        const readBinding = core.readAccountStoreBinding
+        const bindingSpy = spyOn(
+          core,
+          'readAccountStoreBinding',
+        ).mockImplementation(async (...args) => {
+          bindingsRead++
+          return readBinding(...args)
+        })
+        const factory = core.createAccountRepositoryFactory
+        const factorySpy = spyOn(
+          core,
+          'createAccountRepositoryFactory',
+        ).mockImplementation((...args) => {
+          opened++
+          const create = factory(...args)
+          return (options) => {
+            const repo = create(options)
+            const origRead = repo.read.bind(repo)
+            repo.read = async () => {
+              reads++
+              return origRead()
+            }
+            return repo
+          }
+        })
+        const readSpy = spyOn(seededRepository, 'read').mockImplementation(
+          async () => {
+            reads++
+            throw new Error('repository read must not be reached')
+          },
+        )
+        try {
+          // 1. Pre-bound location services instance (seededRepository is live)
+          await expect(f.reconnect()).rejects.toThrow(FAILED)
+          expect(bindingsRead).toBe(0)
+          expect(opened).toBe(0)
+          expect(reads).toBe(0)
+
+          // 2. Freshly rebound location services instance (repositoryPromise is uncached)
+          await f.rebind()
+          await expect(f.reconnect()).rejects.toThrow(FAILED)
+          expect(bindingsRead).toBe(0)
+          expect(opened).toBe(0)
+          expect(reads).toBe(0)
+        } finally {
+          bindingSpy.mockRestore()
+          factorySpy.mockRestore()
+          readSpy.mockRestore()
+        }
+      } finally {
+        await f.cleanup()
+      }
+    })
+  }
+
+  for (const mode of ['custody', 'unreadable'] as const) {
+    it(`refuses ${mode} after seeding without writes`, async () => {
+      const f = await fixture()
+      try {
+        await f.login()
+        f.mode(mode)
+        const before = tree(f.root)
+        await expect(f.reconnect()).rejects.toThrow(FAILED)
+        expect(tree(f.root)).toEqual(before)
+      } finally {
+        await f.cleanup()
+      }
+    })
+  }
+
+  for (const state of [
+    'empty',
+    'all-disabled',
+    'ineligible',
+    'verification',
+  ] as const) {
+    it(`refuses an actual ${state} store without subsequent writes`, async () => {
+      const f = await fixture()
+      try {
+        await f.login()
+        const repository = await f.repository()
+        const row = (await rows(f))[0]!
+        if (state === 'empty') await repository.remove(row.ref)
+        else if (state === 'all-disabled') {
+          await repository.setEnabled(row.ref, {
+            enabled: false,
+            actor: 'user',
+          })
+        } else {
+          await repository.updateMetadata(row.ref, (current) => ({
+            kind: 'set',
+            metadata: {
+              ...current!,
+              ...(state === 'ineligible'
+                ? { accountIneligible: true }
+                : { verificationRequired: true }),
+            },
+          }))
+        }
+        const before = tree(f.root)
+        await expect(f.reconnect()).rejects.toThrow(FAILED)
+        expect(tree(f.root)).toEqual(before)
+      } finally {
+        await f.cleanup()
+      }
+    })
+  }
+
+  const refused: Record<string, (row: AccountRow) => AccountRow[]> = {
+    empty: () => [],
+    disabled: (row) => [{ ...row, enabled: false }],
+    unusable: (row) => [{ ...row, usable: false }],
+    torn: (row) => [{ ...row, torn: true }],
+    unbound: (row) => [{ ...row, unbound: true }],
+    invalid: (row) => [{ ...row, invalid: 'entry' }],
+    'missing credential': (row) => [{ ...row, credential: undefined }],
+    'absent metadata': (row) => [{ ...row, metadata: { status: 'absent' } }],
+    'dropped metadata': (row) => [
+      { ...row, metadata: { status: 'dropped', reason: 'uncovered' } },
+    ],
+    ineligible: (row) => [
+      {
+        ...row,
+        metadata: {
+          status: 'present',
+          metadata: { addedAt: 1, lastUsed: 2, accountIneligible: true },
+        },
+      },
+    ],
+    verification: (row) => [
+      {
+        ...row,
+        metadata: {
+          status: 'present',
+          metadata: { addedAt: 1, lastUsed: 2, verificationRequired: true },
+        },
+      },
+    ],
+  }
+  for (const [name, project] of Object.entries(refused)) {
+    it(`refuses ${name} rows without writing the actual seeded store`, async () => {
+      let refuse = false
+      const factory = core.createAccountRepositoryFactory
+      const factorySpy = spyOn(
+        core,
+        'createAccountRepositoryFactory',
+      ).mockImplementation((modules) => {
+        const create = factory(modules)
+        return (options) => {
+          const repository = create(options)
+          const read = repository.read.bind(repository)
+          repository.read = async () => {
+            const result = await read()
+            return refuse && result.status === 'ready'
+              ? { ...result, rows: project(result.rows[0]!) }
+              : result
+          }
+          return repository
+        }
+      })
+      const f = await fixture()
+      try {
+        await f.login()
+        refuse = true
+        const before = tree(f.root)
+        await expect(f.reconnect()).rejects.toThrow(FAILED)
+        expect(tree(f.root)).toEqual(before)
+      } finally {
+        factorySpy.mockRestore()
+        await f.cleanup()
+      }
+    })
+  }
+})
 
 describe('GA location pool login', () => {
   it('initializes only the injected resolved path and the next request sees the committed account without restart', async () => {
@@ -348,6 +665,7 @@ describe('GA location pool login', () => {
       try {
         await expect(f.login()).rejects.toThrow(FAILED)
         expect(initializer).not.toHaveBeenCalled()
+        await expect(f.reconnect()).rejects.toThrow(FAILED)
         expect(tree(join(f.root, 'resolved'))).toEqual(before)
       } finally {
         initializer.mockRestore()

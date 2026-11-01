@@ -13,11 +13,12 @@ import {
   placeholderCredential,
 } from '../../common-auth-embedded/opencode2/index.js'
 import { GA_VAULT_METHOD_ID, registerGaAuthMethods } from './auth.ts'
-import { GA_POOL_METHOD_ID } from './pool-login.ts'
+import { GA_POOL_METHOD_ID, GA_POOL_RECONNECT_METHOD_ID } from './pool-login.ts'
 
 function host() {
   const methods: IntegrationMethodRegistration[] = []
   let disposed = false
+  let disposalCount = 0
   const editor: IntegrationEditor = {
     list: () => [{ id: 'google', name: 'Google' }],
     get: (id) => (id === 'google' ? { id, name: 'Google' } : undefined),
@@ -47,6 +48,7 @@ function host() {
           return {
             dispose: async () => {
               disposed = true
+              disposalCount++
             },
           }
         },
@@ -54,6 +56,7 @@ function host() {
     },
     methods,
     disposed: () => disposed,
+    disposalCount: () => disposalCount,
   }
 }
 
@@ -88,6 +91,221 @@ const login = {
   email: 'pool@example.test',
   projectId: 'project',
 }
+
+function reconnectMethod(
+  methods: IntegrationMethodRegistration[],
+): IntegrationOAuthMethodRegistration {
+  const method = methods.find(
+    ({ method }) =>
+      method.type === 'oauth' && method.id === GA_POOL_RECONNECT_METHOD_ID,
+  )
+  if (!method || !('authorize' in method))
+    throw new Error('Reconnect method missing')
+  return method
+}
+
+describe('GA native existing-pool reconnect', () => {
+  it('uses no OAuth or callback listener and disposes both transforms', async () => {
+    const native = host()
+    let checks = 0
+    let oauth = 0
+    let writes = 0
+    const registration = await registerGaAuthMethods(
+      native.context,
+      undefined,
+      {
+        local: {
+          assertAdmission: async () => {},
+          assertExistingPool: async (admit) => {
+            await admit()
+            checks++
+          },
+          persist: async () => {
+            writes++
+          },
+        },
+        oauth: {
+          authorize: async () => {
+            oauth++
+            throw new Error('No OAuth')
+          },
+          exchange: async () => {
+            oauth++
+            throw new Error('No exchange')
+          },
+          waitForCode: async () => {
+            oauth++
+            throw new Error('No listener')
+          },
+        },
+      },
+    )
+    try {
+      const method = reconnectMethod(native.methods)
+      const authorization = await method.authorize({})
+      expect(authorization.url).toBe('')
+      expect(authorization.instructions).toContain('No browser')
+      if (authorization.mode !== 'auto') throw new Error('Expected auto')
+      const credential = await authorization.callback
+      expect(isPlaceholderCredential(credential, 'google')).toBe(true)
+      expect(String(credential.methodID)).toBe(GA_POOL_RECONNECT_METHOD_ID)
+      expect(method.label?.(credential)).toBe('Antigravity')
+      expect(
+        isPlaceholderCredential(await method.refresh!(credential), 'google'),
+      ).toBe(true)
+      expect(checks).toBe(2)
+      expect(oauth).toBe(0)
+      expect(writes).toBe(0)
+    } finally {
+      await registration.dispose()
+    }
+    expect(native.disposalCount()).toBe(2)
+    await expect(
+      reconnectMethod(native.methods).refresh!(
+        placeholderCredential({
+          integrationID: 'google',
+          methodID: GA_POOL_RECONNECT_METHOD_ID,
+          now: 0,
+        }),
+      ),
+    ).rejects.toThrow('could not be completed')
+  })
+
+  it('refuses native Google, vault, browser and foreign placeholders unchanged on refresh', async () => {
+    const native = host()
+    let checks = 0
+    const registration = await registerGaAuthMethods(
+      native.context,
+      undefined,
+      {
+        local: {
+          assertAdmission: async () => {},
+          assertExistingPool: async () => {
+            checks++
+          },
+          persist: async () => {
+            throw new Error('No write')
+          },
+        },
+      },
+    )
+    try {
+      const credentials = [
+        ...['google-oauth', GA_VAULT_METHOD_ID, GA_POOL_METHOD_ID, 'other'].map(
+          (methodID) =>
+            placeholderCredential({
+              integrationID: 'google',
+              methodID,
+              now: 0,
+            }),
+        ),
+        placeholderCredential({
+          integrationID: 'other',
+          methodID: GA_POOL_RECONNECT_METHOD_ID,
+          now: 0,
+        }),
+        {
+          ...placeholderCredential({
+            integrationID: 'google',
+            methodID: GA_POOL_RECONNECT_METHOD_ID,
+            now: 0,
+          }),
+          access: 'native-access',
+          refresh: 'native-refresh',
+        },
+      ]
+      for (const credential of credentials) {
+        const before = JSON.stringify(credential)
+        await expect(
+          reconnectMethod(native.methods).refresh!(credential),
+        ).rejects.toThrow('only its existing local pool placeholder')
+        expect(JSON.stringify(credential)).toBe(before)
+      }
+      expect(checks).toBe(0)
+    } finally {
+      await registration.dispose()
+    }
+  })
+
+  for (const action of ['revoke', 'dispose', 'fail'] as const) {
+    it(`refuses a marker on mid-check ${action} and waits for pending work`, async () => {
+      const native = host()
+      const entered = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      let allowed = true
+      const registration = await registerGaAuthMethods(
+        native.context,
+        undefined,
+        {
+          local: {
+            assertAdmission: async () => {
+              if (!allowed) throw new Error('revoked')
+            },
+            assertExistingPool: async () => {
+              entered.resolve()
+              await release.promise
+              if (action === 'fail') throw new Error('secret read failure')
+            },
+            persist: async () => {
+              throw new Error('No write')
+            },
+          },
+        },
+      )
+      try {
+        const authorization = await reconnectMethod(native.methods).authorize(
+          {},
+        )
+        if (authorization.mode !== 'auto') throw new Error('Expected auto')
+        const result = authorization.callback.then(
+          () => 'unexpected marker',
+          (error: Error) => error.message,
+        )
+        await entered.promise
+        let disposal: Promise<void> | undefined
+        let disposed = false
+        if (action === 'revoke') allowed = false
+        if (action === 'dispose') {
+          disposal = registration.dispose().then(() => {
+            disposed = true
+          })
+          expect(await result).toBe(
+            'The Antigravity pool login could not be completed.',
+          )
+          expect(disposed).toBe(false)
+        }
+        release.resolve()
+        expect(await result).toBe(
+          'The Antigravity pool login could not be completed.',
+        )
+        await disposal
+      } finally {
+        release.resolve()
+        await registration.dispose()
+      }
+    })
+  }
+
+  it('cleans up the first transform when second registration fails', async () => {
+    const native = host()
+    const transform = native.context.integration.transform
+    let calls = 0
+    native.context.integration.transform = async (callback) => {
+      if (++calls === 2) throw new Error('second transform failed')
+      return transform(callback)
+    }
+    await expect(
+      registerGaAuthMethods(native.context, undefined, {
+        local: {
+          assertAdmission: async () => {},
+          assertExistingPool: async () => {},
+          persist: async () => {},
+        },
+      }),
+    ).rejects.toThrow('second transform failed')
+    expect(native.disposalCount()).toBe(1)
+  })
+})
 
 describe('GA pool browser registration', () => {
   it('persists before issuing only a placeholder to the host', async () => {

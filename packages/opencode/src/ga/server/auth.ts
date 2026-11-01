@@ -6,8 +6,14 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 import type { Plugin } from '@opencode/plugin'
 import type { Registration } from '@opencode/plugin/promise/registration'
-import { OPENCODE2_VAULT_AUTH_LABEL } from '../../auth-method-labels.ts'
-import { registerOpenCode2AuthMethods } from '../../common-auth-embedded/opencode2/index.js'
+import {
+  OPENCODE2_POOL_RECONNECT_LABEL,
+  OPENCODE2_VAULT_AUTH_LABEL,
+} from '../../auth-method-labels.ts'
+import {
+  isPlaceholderCredential,
+  registerOpenCode2AuthMethods,
+} from '../../common-auth-embedded/opencode2/index.js'
 import { getStoragePath } from '../../plugin/storage.ts'
 import {
   OPENCODE_VAULT_ENROLLMENT_NAME,
@@ -15,7 +21,11 @@ import {
 } from '../../plugin/vault-custody.ts'
 import { currentVaultFolder } from '../../vault-folder.ts'
 import type { GaPluginOverrides } from './index.ts'
-import { createGaPoolLogin, type GaLocalLogin } from './pool-login.ts'
+import {
+  createGaPoolLogin,
+  GA_POOL_RECONNECT_METHOD_ID,
+  type GaLocalLogin,
+} from './pool-login.ts'
 
 export const GA_VAULT_METHOD_ID = 'antigravity-vault'
 
@@ -38,33 +48,86 @@ export async function registerGaAuthMethods(
   input: { local?: GaLocalLogin; oauth?: GaPluginOverrides['oauth'] } = {},
 ): Promise<Registration> {
   const pool = createGaPoolLogin(input)
-  const registration = await registerOpenCode2AuthMethods(context, {
-    integrationID: ANTIGRAVITY_PROVIDER_ID,
-    methods: [pool.method],
-    onLogin: pool.onLogin,
-    vault: {
-      method: {
-        id: GA_VAULT_METHOD_ID,
-        type: 'oauth',
-        label: OPENCODE2_VAULT_AUTH_LABEL,
-      },
-      async activate() {
-        if ((await authority()) !== 'vault') {
-          throw new Error(
-            'Approve Antigravity vault access before activating this connection',
-          )
-        }
-      },
-    },
-    label: 'Antigravity',
-  })
+  const registrations: Registration[] = []
+  try {
+    registrations.push(
+      await registerOpenCode2AuthMethods(context, {
+        integrationID: ANTIGRAVITY_PROVIDER_ID,
+        methods: [pool.method],
+        onLogin: pool.onLogin,
+        vault: {
+          method: {
+            id: GA_VAULT_METHOD_ID,
+            type: 'oauth',
+            label: OPENCODE2_VAULT_AUTH_LABEL,
+          },
+          async activate() {
+            if ((await authority()) !== 'vault') {
+              throw new Error(
+                'Approve Antigravity vault access before activating this connection',
+              )
+            }
+          },
+        },
+        label: 'Antigravity',
+      }),
+    )
+    if (input.local?.assertExistingPool) {
+      registrations.push(
+        await context.integration.transform((editor) => {
+          editor.method.update({
+            integrationID: ANTIGRAVITY_PROVIDER_ID,
+            method: {
+              id: GA_POOL_RECONNECT_METHOD_ID,
+              type: 'oauth',
+              label: OPENCODE2_POOL_RECONNECT_LABEL,
+            },
+            authorize: async () => {
+              const callback = pool.connectExisting()
+              void callback.catch(() => {})
+              return {
+                mode: 'auto',
+                url: '',
+                instructions:
+                  'No browser sign-in needed: connect the existing local Antigravity pool without changing its accounts.',
+                callback,
+              }
+            },
+            refresh: async (credential) => {
+              if (
+                !isPlaceholderCredential(credential, ANTIGRAVITY_PROVIDER_ID) ||
+                credential.methodID !== GA_POOL_RECONNECT_METHOD_ID
+              ) {
+                throw new Error(
+                  'This login method refreshes only its existing local pool placeholder.',
+                )
+              }
+              return pool.connectExisting()
+            },
+            label: () => 'Antigravity',
+          })
+        }),
+      )
+    }
+  } catch (error) {
+    const stopping = pool.dispose()
+    await Promise.allSettled(
+      registrations.map((registration) => registration.dispose()),
+    )
+    await stopping
+    throw error
+  }
   let disposal: Promise<void> | undefined
   return {
     dispose() {
       disposal ??= (async () => {
         const stopping = pool.dispose()
         try {
-          await registration.dispose()
+          const results = await Promise.allSettled(
+            registrations.map((registration) => registration.dispose()),
+          )
+          const failure = results.find((result) => result.status === 'rejected')
+          if (failure?.status === 'rejected') throw failure.reason
         } finally {
           await stopping
         }
