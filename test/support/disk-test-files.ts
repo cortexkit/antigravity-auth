@@ -11,6 +11,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Lock-held mutations, concurrent writers, replacement, and mode tightening.',
   'packages/core/src/account-repository.test.ts':
     'Interrupted account replacement recovery with and without transfer files.',
+  'packages/core/src/account-admission-snapshot.test.ts':
+    'Admission snapshot barriers interleave real locked quota saves and durable generation publication.',
   'packages/core/src/account-repository-publication.test.ts':
     'Child-process exits at publication seams followed by store replay and cleanup.',
   'packages/core/src/account-migration-temp-recovery.test.ts':

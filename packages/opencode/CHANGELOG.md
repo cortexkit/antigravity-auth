@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- OpenCode no longer refuses to open a healthy account store, or fails an OpenCode 2 reconnect, when another process saves a quota reading at the same moment.
 - Request waits and soft-quota protection now use only the accounts eligible for that request, including operator and model exclusions, and honor account cooldowns.
 - Waits for a pool that mixes rate-limited, cooling-down and low-quota accounts now use one estimate for the next usable account, and refusals no longer show a reset time that has already partly passed.
 

@@ -27,7 +27,8 @@ import {
   type AccountRepository,
   type AccountRepositoryRead,
   type AccountRow,
-  type AccountStoreBinding,
+  type AccountStoreAdmission,
+  AccountStoreBusyError,
   type AccountStoreModules,
   type AccountTokenExchange,
   ANTIGRAVITY_MENU_COMMAND,
@@ -1110,8 +1111,9 @@ function tokenExchange(overrides: GaPluginOverrides): AccountTokenExchange {
 }
 
 function storeRefusal(
-  status: Exclude<AccountStoreBinding, { status: 'bound' }>,
+  status: Exclude<AccountStoreAdmission, { status: 'active' }>,
 ): Error {
+  if (status.status === 'busy') return new AccountStoreBusyError()
   return new Error(
     status.status === 'initialization-required'
       ? 'The Antigravity account store is not initialized; initialize it with the antigravity-auth CLI.'

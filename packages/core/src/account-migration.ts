@@ -669,7 +669,12 @@ export interface MigrationPoolStore {
   read(): Promise<
     | { status: 'ready'; rows: MigrationPoolRow[] }
     | { status: 'pending-migration' }
-    | { status: 'error'; file: 'config' | 'state'; reason: string }
+    | {
+        status: 'error'
+        file: 'config' | 'state'
+        reason: string
+        kind?: string
+      }
   >
   readSettings(): Promise<
     | {
@@ -1861,6 +1866,8 @@ async function rowsOf(
   store: Pick<MigrationPoolStore, 'read'>,
 ): Promise<MigrationPoolRow[]> {
   const read = await store.read()
+  if (read.status === 'error' && read.kind === 'snapshot-contended')
+    throw new AccountStoreBusyError()
   if (read.status !== 'ready')
     throw new AccountMigrationError('successor is not a ready public store')
   return read.rows
@@ -2276,15 +2283,71 @@ function receipt(journal: AccountMigrationJournal): AccountMigrationReceipt {
       journal.sourceKind !== 'absent' || journal.operation === 'rollback',
   }
 }
+// Quota saves are coalesced, so a few immediate snapshots normally converge.
+// Bound the work instead of taking exclusive save locks on a request path.
+const ADMISSION_SNAPSHOT_ATTEMPTS = 3
+
+export class AccountStoreBusyError extends Error {
+  readonly retryable = true
+  constructor() {
+    super('The Antigravity account store is busy. Try again in a moment.')
+    this.name = 'AccountStoreBusyError'
+  }
+}
+
 async function currentSuccessor(
   store: Pick<MigrationPoolStore, 'read' | 'readSettings'>,
   paths: AccountStorePaths,
   journal: AccountMigrationJournal,
-): Promise<void> {
-  const config = object(
-    jsonBytes(await secureRead(paths.configPath)),
-    'active config',
-  )
+): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt < ADMISSION_SNAPSHOT_ATTEMPTS; attempt++) {
+    // The config's version is a schema version, not a write counter. Hash the exact
+    // config bytes so quota-only saves also invalidate a mixed snapshot.
+    const configBytes = await secureRead(paths.configPath)
+    let snapshot:
+      | {
+          stateBytes: Uint8Array | undefined
+          rows: MigrationPoolRow[]
+          settings: Record<string, unknown>
+        }
+      | undefined
+    let failure: { error: unknown } | undefined
+    try {
+      snapshot = {
+        stateBytes: (await exists(paths.statePath))
+          ? await secureRead(paths.statePath)
+          : undefined,
+        rows: await rowsOf(store),
+        settings: await settingsOf(store),
+      }
+    } catch (error) {
+      failure = { error }
+    }
+    // Defer even read failures until the stamp agrees: a writer can
+    // make individually valid reads disagree without damaging the store.
+    if (digest(configBytes) !== digest(await secureRead(paths.configPath)))
+      continue
+    if (failure) throw failure.error
+    if (!snapshot) throw new AccountMigrationError('active snapshot missing')
+    return validateCurrentSuccessor(
+      journal,
+      configBytes,
+      snapshot.stateBytes,
+      snapshot.rows,
+      snapshot.settings,
+    )
+  }
+  throw new AccountStoreBusyError()
+}
+
+function validateCurrentSuccessor(
+  journal: AccountMigrationJournal,
+  configBytes: Uint8Array,
+  stateBytes: Uint8Array | undefined,
+  rows: MigrationPoolRow[],
+  settings: Record<string, unknown>,
+): Record<string, unknown> {
+  const config = object(jsonBytes(configBytes), 'active config')
   if (config.version !== 1 || !Array.isArray(config.accounts))
     throw new AccountMigrationError('active config lacks its native roster')
   const pool = object(config.commonAuthPool, 'active native pool')
@@ -2316,11 +2379,8 @@ async function currentSuccessor(
       'active native entry/roster presence differs',
     )
   let stateAccounts: Record<string, unknown> = {}
-  if (await exists(paths.statePath)) {
-    const state = object(
-      jsonBytes(await secureRead(paths.statePath)),
-      'active state',
-    )
+  if (stateBytes !== undefined) {
+    const state = object(jsonBytes(stateBytes), 'active state')
     if (state.version !== 1)
       throw new AccountMigrationError('active native state schema differs')
     stateAccounts = object(state.accounts, 'active state accounts')
@@ -2332,7 +2392,6 @@ async function currentSuccessor(
     throw new AccountMigrationError(
       'active state contains orphan or missing credentials',
     )
-  const rows = await rowsOf(store)
   if (
     !isDeepStrictEqual(
       rows.map((row) => row.id),
@@ -2354,7 +2413,6 @@ async function currentSuccessor(
         'active native epoch or quota presence differs from public row',
       )
   })
-  const settings = await settingsOf(store)
   if (
     !isDeepStrictEqual(
       decodeAccountStoreGeneration(
@@ -2367,6 +2425,7 @@ async function currentSuccessor(
       'active generation setting differs from journal',
     )
   decodeRoutingSettings(settings[ROUTING_SETTINGS_KEY])
+  return settings
 }
 
 export type AccountStoreAdmission =
@@ -2382,10 +2441,11 @@ export type AccountStoreAdmission =
     }
   | { status: 'inactive'; id: string }
   | { status: 'initialization-required' }
+  | { status: 'busy'; retryable: true }
   | { status: 'error'; reason: string }
 
 export type AccountStoreBinding =
-  | Exclude<AccountStoreAdmission, { status: 'active' }>
+  | Exclude<AccountStoreAdmission, { status: 'active' | 'busy' }>
   | {
       status: 'bound'
       receipt: AccountMigrationReceipt
@@ -2643,11 +2703,13 @@ export async function readAccountStoreAdmission(
     if (!journal)
       throw new AccountMigrationError('active serving journal missing')
     const store = openAdmissionStore(modules, binding.paths, now)
-    await currentSuccessor(store, binding.paths, journal)
-    if ((await settingsOf(store))[MANAGEMENT_SETTINGS_KEY] !== undefined)
+    const settings = await currentSuccessor(store, binding.paths, journal)
+    if (settings[MANAGEMENT_SETTINGS_KEY] !== undefined)
       return { status: 'pending' }
     return { status: 'active', receipt: binding.receipt, paths: binding.paths }
   } catch (error) {
+    if (error instanceof AccountStoreBusyError)
+      return { status: 'busy', retryable: true }
     return {
       status: 'error',
       reason:
@@ -5622,6 +5684,7 @@ async function initializePrivateEmptyGeneration(
         options.now,
         journal.id,
       )
+      if (admission.status === 'busy') throw new AccountStoreBusyError()
       if (
         admission.status !== 'active' ||
         !isDeepStrictEqual(admission.receipt, receipt(journal))

@@ -1187,6 +1187,60 @@ describe('account store over the genuine public store', () => {
     projectId: '',
   })
 
+  it('refuses exhausted admission snapshots with exact digit-free busy text, not a damage remedy', async () => {
+    const modules = await genuineModules()
+    await initializeFreshAccountStoreFor(modules)
+    const opening = await open()
+    if (opening.status !== 'ready') throw new Error(opening.status)
+    await commitLogins(opening.repository, [
+      success('quota-token', 'quota@example.test'),
+    ])
+    const read = await opening.repository.read()
+    if (read.status !== 'ready' || !read.rows[0]) throw new Error('Missing row')
+    const row = read.rows[0]
+    let writes = 0
+    const changing = {
+      ...modules,
+      store: {
+        ...modules.store,
+        openPoolStore: ((options) => {
+          const store = modules.store.openPoolStore(options)
+          return new Proxy(store, {
+            get(target, key) {
+              if (key === 'read')
+                return async () => {
+                  await opening.repository.recordQuota(row.ref, {
+                    schemaVersion: 1,
+                    cachedQuotaUpdatedAt: ++writes,
+                  })
+                  return target.read()
+                }
+              const value = Reflect.get(target, key, target)
+              return typeof value === 'function' ? value.bind(target) : value
+            },
+          })
+        }) satisfies typeof modules.store.openPoolStore,
+      },
+    }
+    const refused = await openAccountStore({
+      modules: changing,
+      createRepository: () => {
+        throw new Error('Busy admission must not construct a repository')
+      },
+      exchange: async () => {
+        throw new Error('No network')
+      },
+    })
+    expect(refused).toEqual({
+      status: 'refused',
+      admission: { status: 'busy', retryable: true },
+      message: 'The Antigravity account store is busy. Try again in a moment.',
+    })
+    expect(writes).toBe(3)
+    if (refused.status !== 'refused') throw new Error(refused.status)
+    expect(refused.message).not.toMatch(/\d|429|500|502|503|504|524/)
+  })
+
   it('initializes a fresh store only when asked, then serves it and refuses the pool file', async () => {
     const modules = await genuineModules()
     await expect(open()).resolves.toEqual({

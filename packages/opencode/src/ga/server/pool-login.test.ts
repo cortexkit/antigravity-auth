@@ -38,6 +38,7 @@ import {
 import * as storage from '../../plugin/storage.ts'
 import { registerGaAuthMethods } from './auth.ts'
 import type { GaLocationServices } from './index.ts'
+import { gaPreHeaderFailureResponse } from './index.ts'
 import { GA_POOL_METHOD_ID, GA_POOL_RECONNECT_METHOD_ID } from './pool-login.ts'
 
 function tree(root: string) {
@@ -82,10 +83,38 @@ async function fixture() {
     projectId: 'pool-project',
   }
   let refreshes = 0
+  let beforeAdmissionRead: (() => Promise<void>) | undefined
+  const repositoryStores = new WeakSet<object>()
+  const observedModules = {
+    ...modules,
+    store: {
+      ...modules.store,
+      openPoolStore: ((options) => {
+        const store = modules.store.openPoolStore(options)
+        return new Proxy(store, {
+          get(target, key) {
+            const value = Reflect.get(target, key, target)
+            if (typeof value !== 'function') return value
+            if (key === 'add')
+              return (...args: unknown[]) => {
+                repositoryStores.add(target)
+                return Reflect.apply(value, target, args)
+              }
+            if (key === 'read')
+              return async () => {
+                if (!repositoryStores.has(target)) await beforeAdmissionRead?.()
+                return Reflect.apply(value, target, [])
+              }
+            return value.bind(target)
+          },
+        })
+      }) satisfies typeof modules.store.openPoolStore,
+    },
+  }
   const selected: string[][] = []
   const factory = createGaLocationServicesFactory({
     resolveAccountFile: () => legacyPath,
-    loadStoreModules: async () => modules,
+    loadStoreModules: async () => observedModules,
     now: Date.now,
     runtime: (input) => {
       getRepository = input.getRepository
@@ -187,6 +216,9 @@ async function fixture() {
       registration,
       selected,
       refreshes: () => refreshes,
+      gateAdmission: (hook: () => Promise<void>) => {
+        beforeAdmissionRead = hook
+      },
       mode: (value: typeof mode) => {
         mode = value
       },
@@ -289,6 +321,150 @@ async function rows(f: Awaited<ReturnType<typeof fixture>>) {
 const FAILED = 'The Antigravity pool login could not be completed.'
 
 describe('GA existing local pool reconnect', () => {
+  it('reconnects after browser success when quota lands between admission config and row reads', async () => {
+    const f = await fixture()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    let reconnect: ReturnType<typeof f.reconnect> | undefined
+    let observedRefusal: unknown
+    const original = f.services.localLogin!.assertExistingPool!.bind(
+      f.services.localLogin,
+    )
+    const observe = spyOn(
+      f.services.localLogin!,
+      'assertExistingPool',
+    ).mockImplementation(async (admit) => {
+      try {
+        await original(admit)
+      } catch (error) {
+        observedRefusal = error
+        throw error
+      }
+    })
+    try {
+      await f.login()
+      const [row] = await rows(f)
+      if (!row) throw new Error('Missing committed login')
+      expect(isPlaceholderCredential(await f.reconnect(), 'google')).toBe(true)
+      let gated = false
+      f.gateAdmission(async () => {
+        if (gated) return
+        gated = true
+        entered.resolve()
+        await release.promise
+      })
+      reconnect = f.reconnect()
+      await entered.promise
+      await (await f.repository()).recordQuota(row.ref, {
+        schemaVersion: 1,
+        cachedQuotaUpdatedAt: 123,
+      })
+      release.resolve()
+      const result = await reconnect.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      )
+      expect(observedRefusal).toBeUndefined()
+      if ('error' in result) throw result.error
+      expect(isPlaceholderCredential(result.value, 'google')).toBe(true)
+      expect((await rows(f))[0]?.quota).toEqual({
+        status: 'present',
+        quota: { schemaVersion: 1, cachedQuotaUpdatedAt: 123 },
+      })
+    } finally {
+      release.resolve()
+      await reconnect?.catch(() => {})
+      observe.mockRestore()
+      await f.cleanup()
+    }
+  })
+
+  it('surfaces exhausted snapshots as fixed digit-free busy text for reconnect and local serving', async () => {
+    const f = await fixture()
+    const warning = spyOn(console, 'warn').mockImplementation(() => {})
+    const busy = 'The Antigravity account store is busy. Try again in a moment.'
+    try {
+      await f.login()
+      const [row] = await rows(f)
+      if (!row) throw new Error('Missing committed login')
+      const repository = await f.repository()
+      let writes = 0
+      f.gateAdmission(async () => {
+        await repository.recordQuota(row.ref, {
+          schemaVersion: 1,
+          cachedQuotaUpdatedAt: ++writes,
+        })
+      })
+      await expect(f.reconnect()).rejects.toThrow(busy)
+      expect(writes).toBe(3)
+      expect(warning.mock.calls).toEqual([
+        [
+          '[antigravity.pool-login] stage=existing-pool-admission reason=store-busy',
+        ],
+      ])
+      expect(busy).not.toMatch(/\d|429|500|502|503|504|524/)
+      await expect(f.login()).rejects.toThrow(busy)
+      const started = await f.start()
+      const job = {
+        sessionID: 'busy-next',
+        parentSessionID: null,
+        kind: 'generate' as const,
+        modelID: 'antigravity-gemini-3.5-flash',
+        variant: null,
+        url: 'https://example.test',
+        body: '{}',
+      }
+      const context = {
+        signal: new AbortController().signal,
+        send: async () => new Response('unused'),
+      }
+      let refusal: unknown
+      try {
+        await started.execute(job, context)
+      } catch (error) {
+        refusal = error
+      }
+      expect(refusal).toBeInstanceOf(core.AccountStoreBusyError)
+      expect((refusal as Error).message).toBe(busy)
+      const response = gaPreHeaderFailureResponse(refusal)
+      expect(response.status).toBe(502)
+      expect(response.headers.has('retry-after')).toBe(false)
+      expect(await response.json()).toEqual({
+        error: { code: 502, status: 'UNAVAILABLE', message: busy },
+      })
+      // A busy refusal must not prevent a later request from serving.
+      f.gateAdmission(async () => {})
+      const recovered = await started.execute(job, context)
+      expect(await recovered.text()).toBe('next request uses committed account')
+    } finally {
+      warning.mockRestore()
+      await f.cleanup()
+    }
+  })
+
+  it('logs only fixed stage and reason codes before sanitizing a damaged-store refusal', async () => {
+    const f = await fixture()
+    const warning = spyOn(console, 'warn').mockImplementation(() => {})
+    const check = spyOn(
+      f.services.localLogin!,
+      'assertExistingPool',
+    ).mockRejectedValue(
+      new Error('secret-token /private/path row@example.test'),
+    )
+    try {
+      await expect(f.reconnect()).rejects.toThrow(FAILED)
+      expect(warning.mock.calls).toEqual([
+        [
+          '[antigravity.pool-login] stage=existing-pool-admission reason=store-refusal',
+        ],
+      ])
+    } finally {
+      check.mockRestore()
+      warning.mockRestore()
+      await f.cleanup()
+    }
+  })
+
   it('returns only the public marker without changing seeded pool bytes or refreshing accounts', async () => {
     const f = await fixture()
     try {

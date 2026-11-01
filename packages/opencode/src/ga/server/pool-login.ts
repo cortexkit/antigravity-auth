@@ -1,4 +1,5 @@
 import {
+  AccountStoreBusyError,
   ANTIGRAVITY_PROVIDER_ID,
   type AntigravityTokenExchangeResult,
   authorizeAntigravity,
@@ -160,22 +161,36 @@ export function createGaPoolLogin(input: {
     connectExisting: () =>
       track(
         (async () => {
+          let stage = 'initial-admission'
           try {
             await admit()
             if (!input.local?.assertExistingPool) throw new Error(LOGIN_FAILED)
+            stage = 'existing-pool-admission'
             // Track the underlying read too: disposal must wait even if abort
             // has already refused the marker to the host.
             await abortable(
               track(input.local.assertExistingPool(admit)),
               shutdown.signal,
             )
+            stage = 'final-admission'
             await admit()
+            stage = 'placeholder'
             return placeholderCredential({
               integrationID: ANTIGRAVITY_PROVIDER_ID,
               methodID: GA_POOL_RECONNECT_METHOD_ID,
               now: Date.now(),
             })
-          } catch {
+          } catch (error) {
+            const busy = error instanceof AccountStoreBusyError
+            // Only fixed codes cross this diagnostic boundary, never raw errors.
+            try {
+              console.warn(
+                `[antigravity.pool-login] stage=${stage} reason=${busy ? 'store-busy' : 'store-refusal'}`,
+              )
+            } catch {
+              // A failed diagnostic sink must not change the host's fixed refusal.
+            }
+            if (busy) throw new AccountStoreBusyError()
             throw new Error(LOGIN_FAILED)
           }
         })(),
@@ -187,8 +202,10 @@ export function createGaPoolLogin(input: {
             await admit()
             await input.local!.persist(result, admit)
             await admit()
-          } catch {
+          } catch (error) {
             // A durable row is retained even when a later check refuses the host placeholder.
+            if (error instanceof AccountStoreBusyError)
+              throw new AccountStoreBusyError()
             throw new Error(LOGIN_FAILED)
           }
         })(),

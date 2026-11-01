@@ -46,6 +46,7 @@ import {
   type AccountStoreAdmission,
   type AccountStoreAdmissionModules,
   type AccountStoreBinding,
+  AccountStoreBusyError,
   type AccountTokenExchange,
   accountStorePointerPath,
   assertLegacyAccountStorageWritable,
@@ -559,6 +560,8 @@ export interface OpenAccountStoreOptions {
 
 function refusalMessage(admission: NotServing): string {
   switch (admission.status) {
+    case 'busy':
+      return new AccountStoreBusyError().message
     case 'pending':
       return admission.operation === 'rollback'
         ? `An account-store rollback is pending; rerun \`${ROLLBACK_COMMAND}\`.`
