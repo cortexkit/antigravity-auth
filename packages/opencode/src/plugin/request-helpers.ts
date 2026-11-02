@@ -2796,12 +2796,15 @@ export function deriveRetryHeaderPairFromMs(ms: bigint): {
   'retry-after': string
   'retry-after-ms': string
 } {
-  const clampedMs =
-    ms < 0n ? 0n : ms > MAX_FINITE_FORWARDING_MS ? MAX_FINITE_FORWARDING_MS : ms
-  const sec = (clampedMs + 999n) / 1000n
+  if (typeof ms !== 'bigint' || ms < 0n || ms > MAX_FINITE_FORWARDING_MS) {
+    throw new RangeError(
+      `deriveRetryHeaderPairFromMs: ms must be a non-negative BigInt <= MAX_FINITE_FORWARDING_MS (got ${String(ms)})`,
+    )
+  }
+  const sec = (ms + 999n) / 1000n
   return {
     'retry-after': sec.toString(),
-    'retry-after-ms': clampedMs.toString(),
+    'retry-after-ms': ms.toString(),
   }
 }
 
@@ -2809,15 +2812,14 @@ export function deriveRetryHeaderPairFromSeconds(sec: bigint): {
   'retry-after': string
   'retry-after-ms': string
 } {
-  const clampedSec =
-    sec < 0n
-      ? 0n
-      : sec > MAX_FINITE_WAIT_SECONDS
-        ? MAX_FINITE_WAIT_SECONDS
-        : sec
-  const ms = clampedSec * 1000n
+  if (typeof sec !== 'bigint' || sec < 0n || sec > MAX_FINITE_WAIT_SECONDS) {
+    throw new RangeError(
+      `deriveRetryHeaderPairFromSeconds: sec must be a non-negative BigInt <= MAX_FINITE_WAIT_SECONDS (got ${String(sec)})`,
+    )
+  }
+  const ms = sec * 1000n
   return {
-    'retry-after': clampedSec.toString(),
+    'retry-after': sec.toString(),
     'retry-after-ms': ms.toString(),
   }
 }
@@ -2979,7 +2981,24 @@ export interface DurationParserOptions {
 }
 
 export const DURATION_REGEX =
-  /^(?:(\d+(?:\.\d+)?)[ \t]*d)?(?:[ \t]*(\d+(?:\.\d+)?)[ \t]*h)?(?:[ \t]*(\d+(?:\.\d+)?)[ \t]*m(?!s))?(?:[ \t]*(\d+(?:\.\d+)?)[ \t]*s)?(?:[ \t]*(\d+(?:\.\d+)?)[ \t]*ms)?$/i
+  /^(?:(\d+(?:\.\d+)?|\.\d+)[ \t]*d)?(?:[ \t]*(\d+(?:\.\d+)?|\.\d+)[ \t]*h)?(?:[ \t]*(\d+(?:\.\d+)?|\.\d+)[ \t]*m(?!s))?(?:[ \t]*(\d+(?:\.\d+)?|\.\d+)[ \t]*s)?(?:[ \t]*(\d+(?:\.\d+)?|\.\d+)[ \t]*ms)?$/i
+
+function parseDecimalComponent(
+  str: string,
+  multMs: bigint,
+): { intPart: bigint; fracStr: string; mult: bigint } | null {
+  const parts = str.split('.')
+  const intStr = parts[0] ?? ''
+  const fracStr = parts[1] ?? ''
+
+  // Lexical bounds: reject if integer part (ignoring leading zeros) > 15 digits
+  const effectiveIntStr = intStr.replace(/^0+/, '')
+  if (effectiveIntStr.length > 15) return null
+  if (str.length > 60) return null
+
+  const intPart = intStr.length > 0 ? BigInt(intStr) : 0n
+  return { intPart, fracStr, mult: multMs }
+}
 
 /**
  * Strictly ordered whole-string duration grammar:
@@ -2995,8 +3014,8 @@ export function parseDurationToMs(
 ): number | null {
   const big = parseDurationToMsBigInt(duration, options)
   if (big === null) return null
-  const num = Number(big)
-  return Number.isSafeInteger(num) ? num : null
+  if (big > BigInt(Number.MAX_SAFE_INTEGER)) return null
+  return Number(big)
 }
 
 export function parseDurationToMsBigInt(
@@ -3007,22 +3026,18 @@ export function parseDurationToMsBigInt(
   const trimmed = duration.trim()
   if (trimmed.length === 0) return null
 
-  if (options?.allowBareSeconds && /^\d+(?:\.\d+)?$/.test(trimmed)) {
-    const intPart = trimmed.split('.')[0] ?? ''
-    if (intPart.length > 15) return null
-    const val = parseFloat(trimmed)
-    if (!Number.isFinite(val) || val < 0) return null
-    const ms = Math.round(val * 1000)
-    if (ms === 0) {
-      return options.allowZero ? 0n : null
-    }
-    return BigInt(Math.max(1, ms))
-  }
+  let dStr: string | undefined
+  let hStr: string | undefined
+  let mStr: string | undefined
+  let sStr: string | undefined
+  let msStr: string | undefined
 
   const match = trimmed.match(DURATION_REGEX)
-  if (!match) return null
+  if (match) {
+    ;[, dStr, hStr, mStr, sStr, msStr] = match
+  }
 
-  const [, dStr, hStr, mStr, sStr, msStr] = match
+  // If no unit match and allowBareSeconds is enabled, check for bare decimal number
   if (
     dStr === undefined &&
     hStr === undefined &&
@@ -3030,44 +3045,70 @@ export function parseDurationToMsBigInt(
     sStr === undefined &&
     msStr === undefined
   ) {
-    return null
+    if (
+      options?.allowBareSeconds &&
+      /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(trimmed)
+    ) {
+      sStr = trimmed
+    } else {
+      return null
+    }
   }
 
-  let totalMs = 0
-  const parseComponent = (
-    str: string | undefined,
-    multiplier: number,
-  ): boolean => {
-    if (str === undefined) return true
-    const intPart = str.split('.')[0] ?? ''
-    if (intPart.length > 15) return false
-    const val = parseFloat(str)
-    if (!Number.isFinite(val) || val < 0) return false
-    const ms = val * multiplier
-    if (!Number.isFinite(ms)) return false
-    totalMs += ms
-    return true
+  const rawComponents: Array<{ str: string; mult: bigint }> = []
+  if (dStr !== undefined) rawComponents.push({ str: dStr, mult: 86400000n })
+  if (hStr !== undefined) rawComponents.push({ str: hStr, mult: 3600000n })
+  if (mStr !== undefined) rawComponents.push({ str: mStr, mult: 60000n })
+  if (sStr !== undefined) rawComponents.push({ str: sStr, mult: 1000n })
+  if (msStr !== undefined) rawComponents.push({ str: msStr, mult: 1n })
+
+  if (rawComponents.length === 0) return null
+
+  let maxFracDigits = 0
+  const parsedComponents: Array<{
+    intPart: bigint
+    fracStr: string
+    mult: bigint
+  }> = []
+
+  for (const rc of rawComponents) {
+    const parsed = parseDecimalComponent(rc.str, rc.mult)
+    if (!parsed) return null
+    if (parsed.fracStr.length > maxFracDigits) {
+      maxFracDigits = parsed.fracStr.length
+    }
+    parsedComponents.push(parsed)
   }
 
-  if (!parseComponent(dStr, 86400 * 1000)) return null
-  if (!parseComponent(hStr, 3600 * 1000)) return null
-  if (!parseComponent(mStr, 60 * 1000)) return null
-  if (!parseComponent(sStr, 1000)) return null
-  if (!parseComponent(msStr, 1)) return null
+  const commonDenominator = 10n ** BigInt(maxFracDigits)
+  let totalScaledNumerator = 0n
 
-  if (
-    !Number.isFinite(totalMs) ||
-    totalMs < 0 ||
-    totalMs > Number.MAX_SAFE_INTEGER
-  ) {
-    return null
+  for (const c of parsedComponents) {
+    const fracLen = BigInt(c.fracStr.length)
+    const fracVal = c.fracStr.length > 0 ? BigInt(c.fracStr) : 0n
+    const scaleFactor = 10n ** (BigInt(maxFracDigits) - fracLen)
+    const numerator =
+      (c.intPart * commonDenominator + fracVal * scaleFactor) * c.mult
+    totalScaledNumerator += numerator
   }
 
-  if (totalMs === 0) {
+  if (totalScaledNumerator === 0n) {
     return options?.allowZero ? 0n : null
   }
 
-  return BigInt(Math.max(1, Math.round(totalMs)))
+  const quotient = totalScaledNumerator / commonDenominator
+  const remainder = totalScaledNumerator % commonDenominator
+  let rounded = remainder * 2n >= commonDenominator ? quotient + 1n : quotient
+  if (rounded === 0n) {
+    // Any positive supported duration below 1 ms rounds to min 1n
+    rounded = 1n
+  }
+
+  if (rounded > MAX_FINITE_FORWARDING_MS) {
+    return null
+  }
+
+  return rounded
 }
 
 export interface RetryMetadataResult {
@@ -3080,8 +3121,20 @@ export interface ResolveRetryMetadataOptions {
   message?: string
   status?: number
   headers?: Headers | Record<string, string | number | undefined> | null
+  /**
+   * GA server loopback bridge exception fields ONLY (e.g. from pre-header error instances).
+   * Do NOT populate these from ordinary JSON body fields.
+   */
   retryAfterMs?: unknown
+  /**
+   * GA server loopback bridge exception fields ONLY (e.g. from pre-header error instances).
+   * Do NOT populate these from ordinary JSON body fields.
+   */
   resetAfterMs?: unknown
+  /**
+   * GA server loopback bridge exception fields ONLY (e.g. from pre-header error instances).
+   * Do NOT populate these from ordinary JSON body fields.
+   */
   retryAfterSeconds?: unknown
 }
 
@@ -3121,13 +3174,18 @@ export function resolveRetryMetadata(
           if (ms !== null) {
             return { delayMs: ms }
           }
-        } else if (
-          typeof retryDelay === 'number' &&
-          Number.isFinite(retryDelay) &&
-          retryDelay >= 0
-        ) {
-          const ms = BigInt(Math.round(retryDelay * 1000))
-          return { delayMs: ms }
+        } else if (typeof retryDelay === 'number') {
+          if (Number.isFinite(retryDelay) && retryDelay >= 0) {
+            const scaled = retryDelay * 1000
+            if (Number.isFinite(scaled)) {
+              const rounded = Math.round(scaled)
+              if (Number.isSafeInteger(rounded) && rounded >= 0) {
+                const ms = retryDelay === 0 ? 0n : BigInt(Math.max(1, rounded))
+                return { delayMs: ms }
+              }
+            }
+          }
+          // Unsafe or overflow numeric is invalid; continue scanning for later valid RetryInfo/metadata/message/headers
         }
       }
     }

@@ -1769,6 +1769,547 @@ describe('createRequestExecutor quota reset text', () => {
     }
   })
 
+  it('skips invalid numeric 1e308 RetryInfo and marks account with later valid 15s RetryInfo, agreeing with forwarded headers', async () => {
+    const now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const h = harness({
+      pool: makePool(1),
+      config: {
+        switch_on_first_rate_limit: true,
+      },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached.',
+              status: 'RESOURCE_EXHAUSTED',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: 1e308,
+                },
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: '15s',
+                },
+              ],
+            },
+          }),
+          { status: 429, headers: { 'content-type': 'application/json' } },
+        ),
+    })
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(429)
+      expect(mark).toHaveBeenCalledTimes(1)
+      expect(mark).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        15_000,
+        expect.anything(),
+      )
+      expect(response.headers.get('retry-after')).toBe('15')
+      expect(response.headers.get('retry-after-ms')).toBe('15000')
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+      date.mockRestore()
+    }
+  })
+
+  it('skips invalid numeric 1e308 RetryInfo to details metadata.quotaResetDelay 30s over conflicting message, ordinary body fields, and headers', async () => {
+    const now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const h = harness({
+      pool: makePool(1),
+      config: {
+        switch_on_first_rate_limit: true,
+      },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached. Resets in 50s.',
+              status: 'RESOURCE_EXHAUSTED',
+              retryAfterMs: 999999,
+              resetAfterMs: 888888,
+              retryAfterSeconds: 777777,
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: 1e308,
+                },
+                {
+                  metadata: {
+                    quotaResetDelay: '30s',
+                  },
+                },
+              ],
+            },
+          }),
+          {
+            status: 429,
+            headers: {
+              'content-type': 'application/json',
+              'Retry-After': '90',
+            },
+          },
+        ),
+    })
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(429)
+      expect(mark).toHaveBeenCalledTimes(1)
+      expect(mark).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        30_000,
+        expect.anything(),
+      )
+      expect(response.headers.get('retry-after')).toBe('30')
+      expect(response.headers.get('retry-after-ms')).toBe('30000')
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+      date.mockRestore()
+    }
+  })
+
+  it('falls back to message reset duration text when only invalid numeric RetryInfo is present', async () => {
+    const now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const h = harness({
+      pool: makePool(1),
+      config: {
+        switch_on_first_rate_limit: true,
+      },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached. Resets in 25s.',
+              status: 'RESOURCE_EXHAUSTED',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: 1e308,
+                },
+              ],
+            },
+          }),
+          { status: 429, headers: { 'content-type': 'application/json' } },
+        ),
+    })
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(429)
+      expect(mark).toHaveBeenCalledTimes(1)
+      expect(mark).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        25_000,
+        expect.anything(),
+      )
+      expect(response.headers.get('retry-after')).toBe('25')
+      expect(response.headers.get('retry-after-ms')).toBe('25000')
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+      date.mockRestore()
+    }
+  })
+
+  it('falls back to upstream HTTP header when only invalid numeric RetryInfo is present without message reset duration', async () => {
+    const now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const h = harness({
+      pool: makePool(1),
+      config: {
+        switch_on_first_rate_limit: true,
+      },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached.',
+              status: 'RESOURCE_EXHAUSTED',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: 1e308,
+                },
+              ],
+            },
+          }),
+          {
+            status: 429,
+            headers: {
+              'content-type': 'application/json',
+              'Retry-After': '45',
+            },
+          },
+        ),
+    })
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(429)
+      expect(mark).toHaveBeenCalledTimes(1)
+      expect(mark).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        45_000,
+        expect.anything(),
+      )
+      expect(response.headers.get('retry-after')).toBe('45')
+      expect(response.headers.get('retry-after-ms')).toBe('45000')
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+      date.mockRestore()
+    }
+  })
+
+  it('skips unsafe numeric RetryInfo exceeding safe integer ms and preserves numeric 0ms vs 0.0004s rounded to min 1ms', async () => {
+    const now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+
+    // Unsafe numeric (> MAX_SAFE_INTEGER ms) skipped, falls back to message duration 10s
+    const hUnsafe = harness({
+      pool: makePool(1),
+      config: { switch_on_first_rate_limit: true },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached. Resets in 10s.',
+              status: 'RESOURCE_EXHAUSTED',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: 9007199254740992, // > Number.MAX_SAFE_INTEGER
+                },
+              ],
+            },
+          }),
+          { status: 429, headers: { 'content-type': 'application/json' } },
+        ),
+    })
+    const markUnsafe = spyOn(hUnsafe.pool, 'markRateLimitedWithReason')
+    const execUnsafe = createRequestExecutor(hUnsafe.deps)
+    try {
+      const resp = await execUnsafe.execute(url, CHAT_INIT())
+      expect(resp.status).toBe(429)
+      expect(markUnsafe).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        10_000,
+        expect.anything(),
+      )
+      expect(resp.headers.get('retry-after')).toBe('10')
+      expect(resp.headers.get('retry-after-ms')).toBe('10000')
+    } finally {
+      await execUnsafe.dispose()
+      markUnsafe.mockRestore()
+    }
+
+    // Numeric 0 preserved (marks 0ms, headers 0 / 0)
+    const hZero = harness({
+      pool: makePool(1),
+      config: { switch_on_first_rate_limit: true },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached.',
+              status: 'RESOURCE_EXHAUSTED',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: 0,
+                },
+              ],
+            },
+          }),
+          { status: 429, headers: { 'content-type': 'application/json' } },
+        ),
+    })
+    const markZero = spyOn(hZero.pool, 'markRateLimitedWithReason')
+    const execZero = createRequestExecutor(hZero.deps)
+    try {
+      const resp = await execZero.execute(url, CHAT_INIT())
+      expect(resp.status).toBe(429)
+      expect(markZero).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        0,
+        expect.anything(),
+      )
+      expect(resp.headers.get('retry-after')).toBe('0')
+      expect(resp.headers.get('retry-after-ms')).toBe('0')
+    } finally {
+      await execZero.dispose()
+      markZero.mockRestore()
+    }
+
+    // Positive sub-millisecond delay (0.0004s) rounds to minimum 1ms
+    const hSubMs = harness({
+      pool: makePool(1),
+      config: { switch_on_first_rate_limit: true },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached.',
+              status: 'RESOURCE_EXHAUSTED',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: 0.0004,
+                },
+              ],
+            },
+          }),
+          { status: 429, headers: { 'content-type': 'application/json' } },
+        ),
+    })
+    const markSubMs = spyOn(hSubMs.pool, 'markRateLimitedWithReason')
+    const execSubMs = createRequestExecutor(hSubMs.deps)
+    try {
+      const resp = await execSubMs.execute(url, CHAT_INIT())
+      expect(resp.status).toBe(429)
+      expect(markSubMs).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        1,
+        expect.anything(),
+      )
+      expect(resp.headers.get('retry-after')).toBe('1')
+      expect(resp.headers.get('retry-after-ms')).toBe('1')
+    } finally {
+      await execSubMs.dispose()
+      markSubMs.mockRestore()
+    }
+
+    // High-precision string duration forwarding and account marked delay agree
+    const hHighPrec = harness({
+      pool: makePool(1),
+      config: { switch_on_first_rate_limit: true },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached.',
+              status: 'RESOURCE_EXHAUSTED',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: '2.5s',
+                },
+              ],
+            },
+          }),
+          { status: 429, headers: { 'content-type': 'application/json' } },
+        ),
+    })
+    const markHighPrec = spyOn(hHighPrec.pool, 'markRateLimitedWithReason')
+    const execHighPrec = createRequestExecutor(hHighPrec.deps)
+    try {
+      const resp = await execHighPrec.execute(url, CHAT_INIT())
+      expect(resp.status).toBe(429)
+      expect(markHighPrec).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        2500,
+        expect.anything(),
+      )
+      expect(resp.headers.get('retry-after')).toBe('3')
+      expect(resp.headers.get('retry-after-ms')).toBe('2500')
+    } finally {
+      await execHighPrec.dispose()
+      markHighPrec.mockRestore()
+      date.mockRestore()
+    }
+  })
+
+  it('ignores ordinary Google body retryAfterMs/resetAfterMs/retryAfterSeconds and enforces canonical precedence', async () => {
+    const now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+
+    // Precedence 1: RetryInfo (25s) wins over message, headers, and ignores ordinary body fields
+    const hRetryInfo = harness({
+      pool: makePool(1),
+      config: { switch_on_first_rate_limit: true },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached. Resets in 50s.',
+              status: 'RESOURCE_EXHAUSTED',
+              retryAfterMs: 999999,
+              resetAfterMs: 888888,
+              retryAfterSeconds: 777777,
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: '25s',
+                },
+              ],
+            },
+          }),
+          {
+            status: 429,
+            headers: {
+              'content-type': 'application/json',
+              'Retry-After': '90',
+            },
+          },
+        ),
+    })
+    const markRetryInfo = spyOn(hRetryInfo.pool, 'markRateLimitedWithReason')
+    const execRetryInfo = createRequestExecutor(hRetryInfo.deps)
+    try {
+      const resp = await execRetryInfo.execute(url, CHAT_INIT())
+      expect(resp.status).toBe(429)
+      expect(markRetryInfo).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        25_000,
+        expect.anything(),
+      )
+      expect(resp.headers.get('retry-after')).toBe('25')
+      expect(resp.headers.get('retry-after-ms')).toBe('25000')
+    } finally {
+      await execRetryInfo.dispose()
+      markRetryInfo.mockRestore()
+    }
+
+    // Precedence 2: Message reset duration (20s) wins over headers, and ignores ordinary body fields
+    const hMessage = harness({
+      pool: makePool(1),
+      config: { switch_on_first_rate_limit: true },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached. Resets in 20s.',
+              status: 'RESOURCE_EXHAUSTED',
+              retryAfterMs: 999999,
+              resetAfterMs: 888888,
+              retryAfterSeconds: 777777,
+            },
+          }),
+          {
+            status: 429,
+            headers: {
+              'content-type': 'application/json',
+              'Retry-After': '90',
+            },
+          },
+        ),
+    })
+    const markMessage = spyOn(hMessage.pool, 'markRateLimitedWithReason')
+    const execMessage = createRequestExecutor(hMessage.deps)
+    try {
+      const resp = await execMessage.execute(url, CHAT_INIT())
+      expect(resp.status).toBe(429)
+      expect(markMessage).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        20_000,
+        expect.anything(),
+      )
+      expect(resp.headers.get('retry-after')).toBe('20')
+      expect(resp.headers.get('retry-after-ms')).toBe('20000')
+    } finally {
+      await execMessage.dispose()
+      markMessage.mockRestore()
+    }
+
+    // Precedence 3: HTTP headers (45s) win when no RetryInfo or message reset text, ignoring body fields
+    const hHeader = harness({
+      pool: makePool(1),
+      config: { switch_on_first_rate_limit: true },
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 429,
+              message: 'Individual quota reached.',
+              status: 'RESOURCE_EXHAUSTED',
+              retryAfterMs: 999999,
+              resetAfterMs: 888888,
+              retryAfterSeconds: 777777,
+            },
+          }),
+          {
+            status: 429,
+            headers: {
+              'content-type': 'application/json',
+              'Retry-After': '45',
+            },
+          },
+        ),
+    })
+    const markHeader = spyOn(hHeader.pool, 'markRateLimitedWithReason')
+    const execHeader = createRequestExecutor(hHeader.deps)
+    try {
+      const resp = await execHeader.execute(url, CHAT_INIT())
+      expect(resp.status).toBe(429)
+      expect(markHeader).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        45_000,
+        expect.anything(),
+      )
+      expect(resp.headers.get('retry-after')).toBe('45')
+      expect(resp.headers.get('retry-after-ms')).toBe('45000')
+    } finally {
+      await execHeader.dispose()
+      markHeader.mockRestore()
+      date.mockRestore()
+    }
+  })
+
   it('a long individual quota reset does not extend the caller wait budget', async () => {
     let now = FIXED_NOW
     const date = spyOn(Date, 'now').mockImplementation(() => now)

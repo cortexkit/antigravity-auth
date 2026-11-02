@@ -5,7 +5,9 @@ import {
   isGeminiArgonModel,
   isRetiredAgyModel,
   maskSensitiveIdentifier,
+  redactCredentialError,
   redactCredentialResponse,
+  redactCredentialText,
   redactProjectIdText,
 } from '@cortexkit/antigravity-auth-core'
 import {
@@ -2781,10 +2783,44 @@ async function transformAntigravityResponseIn(
     try {
       text = await response.text()
     } catch (readError) {
-      const readMessage =
-        readError instanceof Error ? readError.message : String(readError)
-      const safeMessage = redactProjectIdText(readMessage, projectIds)
-      throw new Error(`Failed to read response body: ${safeMessage}`)
+      const sanitizedCause =
+        readError instanceof Error ||
+        (readError !== null && typeof readError === 'object')
+          ? redactCredentialError(readError, undefined, projectIds)
+          : undefined
+      const safeMessage = sanitizedCause
+        ? sanitizedCause.message
+        : redactCredentialText(String(readError), undefined, projectIds)
+
+      const scrubbedStatusText = redactCredentialText(
+        response.statusText,
+        undefined,
+        projectIds,
+      )
+      const plainHeaders: Record<string, string> = {}
+      for (const [key, value] of headers.entries()) {
+        plainHeaders[key] = redactCredentialText(value, undefined, projectIds)
+      }
+      if (
+        initialForwarded['retry-after'] !== undefined &&
+        initialForwarded['retry-after-ms'] !== undefined
+      ) {
+        plainHeaders['retry-after'] = initialForwarded['retry-after']
+        plainHeaders['retry-after-ms'] = initialForwarded['retry-after-ms']
+        plainHeaders['Retry-After'] = initialForwarded['retry-after']
+      }
+
+      const freshError = new Error(
+        `Failed to read response body: ${safeMessage}`,
+        sanitizedCause ? { cause: sanitizedCause } : undefined,
+      )
+      Object.assign(freshError, {
+        statusCode: response.status,
+        status: response.status,
+        statusText: scrubbedStatusText,
+        headers: plainHeaders,
+      })
+      throw freshError
     }
 
     noteGeminiDumpResponse(dumpContext, response)
@@ -2963,12 +2999,14 @@ async function transformAntigravityResponseIn(
           : rawErrorMessage
         errorRecord.message = normalizedErrorMessage + debugInfo + injectedDebug
 
-        headers.delete('content-length')
+        const responseHeaders = new Headers(headers)
+        responseHeaders.delete('content-length')
+        responseHeaders.set('content-type', 'application/json')
         const finalBody = JSON.stringify(parsedBody)
         const finalResponse = new Response(finalBody, {
           status: response.status,
           statusText: response.statusText,
-          headers,
+          headers: responseHeaders,
         })
         return await redactCredentialResponse(
           finalResponse,
@@ -2979,12 +3017,14 @@ async function transformAntigravityResponseIn(
       }
 
       // JSON without unwrappable error record (e.g. primitive error, error array, non-error JSON on non-2xx)
-      headers.delete('content-length')
+      const responseHeaders = new Headers(headers)
+      responseHeaders.delete('content-length')
+      responseHeaders.set('content-type', 'application/json')
       const finalBody = JSON.stringify(parsedBody)
       const finalResponse = new Response(finalBody, {
         status: response.status,
         statusText: response.statusText,
-        headers,
+        headers: responseHeaders,
       })
       return await redactCredentialResponse(
         finalResponse,
