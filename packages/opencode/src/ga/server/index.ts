@@ -509,6 +509,8 @@ export function gaPreHeaderFailureResponse(error: unknown): Response {
     retryAfterMs: err?.retryAfterMs,
     resetAfterMs: err?.resetAfterMs,
     retryAfterSeconds: err?.retryAfterSeconds,
+    // The bridge may pass on a truthful local wait of zero seconds.
+    allowZero: true,
   })
 
   if (metadata !== null) {

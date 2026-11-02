@@ -2693,7 +2693,12 @@ describe('parseDurationToMs and retry validation', () => {
 
   it('isQuotaError identifies quota conditions and rejects non-quota errors', () => {
     expect(isQuotaError(429, 'rate limit exceeded')).toBe(true)
-    expect(isQuotaError(400, 'Quota exceeded for project')).toBe(true)
+    // A 429 is a quota condition whatever the text says.
+    expect(isQuotaError(429, 'Service temporarily unavailable')).toBe(true)
+    // A quota word plus a reset clause is a quota message.
+    expect(
+      isQuotaError(400, 'Quota exceeded for project. Resets in 30s.'),
+    ).toBe(true)
     expect(isQuotaError(400, 'Session resets in 5m')).toBe(false)
     expect(isQuotaError(500, 'Internal server error')).toBe(false)
     expect(
@@ -2705,6 +2710,43 @@ describe('parseDurationToMs and retry validation', () => {
         {
           '@type': 'type.googleapis.com/google.rpc.RetryInfo',
           retryDelay: '5m',
+        },
+      ]),
+    ).toBe(false)
+  })
+
+  it('isQuotaError needs a reset clause for message text and accepts structured quota reasons', () => {
+    // The bare word "quota" in a 400 is not a quota message: it has no clause.
+    expect(
+      isQuotaError(400, 'Request rejected: API quota audit note for project'),
+    ).toBe(false)
+    // A bare reset clause has no quota word.
+    expect(isQuotaError(503, 'Service resets in 5m.')).toBe(false)
+    // Structured quota reasons count even without message help.
+    expect(
+      isQuotaError(400, 'Something went wrong', [
+        { '@type': 'type.googleapis.com/google.rpc.QuotaFailure' },
+      ]),
+    ).toBe(true)
+    for (const reason of [
+      'QUOTA_EXHAUSTED',
+      'RATE_LIMIT_EXCEEDED',
+      'RESOURCE_EXHAUSTED',
+    ]) {
+      expect(
+        isQuotaError(400, 'Something went wrong', [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            reason,
+          },
+        ]),
+      ).toBe(true)
+    }
+    expect(
+      isQuotaError(400, 'Something went wrong', [
+        {
+          '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+          reason: 'API_KEY_INVALID',
         },
       ]),
     ).toBe(false)
@@ -2747,7 +2789,8 @@ describe('parseDurationToMs and retry validation', () => {
       quotaResetTime: '2026-11-01T12:00:00Z',
     })
 
-    // 3. GA only fields win over message and headers
+    // 3. Fields only the GA (Gemini API) error envelope carries win over
+    //    message and headers
     const meta3 = resolveRetryMetadata({
       retryAfterMs: 45000,
       message: 'Quota exceeded. Resets in 120s.',
@@ -2771,8 +2814,10 @@ describe('parseDurationToMs and retry validation', () => {
     })
     expect(meta5).toEqual({ delayMs: 45000n })
 
-    // Known 0 delay wins
+    // Known 0 delay wins when the caller allows zero waits
     const metaZero = resolveRetryMetadata({
+      allowZero: true,
+      allowBareSeconds: true,
       details: [
         {
           '@type': 'type.googleapis.com/google.rpc.RetryInfo',
@@ -2782,11 +2827,30 @@ describe('parseDurationToMs and retry validation', () => {
     })
     expect(metaZero).toEqual({ delayMs: 0n })
 
-    // Bare seconds supported via resolver
+    // Without allowZero a zero delay is skipped, so the next source wins
+    const metaZeroRejected = resolveRetryMetadata({
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: '0s',
+        },
+      ],
+      headers: { 'retry-after': '300' },
+    })
+    expect(metaZeroRejected).toEqual({ delayMs: 300000n })
+
+    // Bare seconds are read only when the caller allows them
     const metaBare = resolveRetryMetadata({
+      allowBareSeconds: true,
       details: [{ metadata: { quotaResetDelay: '240' } }],
     })
     expect(metaBare).toEqual({ delayMs: 240000n })
+
+    const metaBareRejected = resolveRetryMetadata({
+      details: [{ metadata: { quotaResetDelay: '240' } }],
+      headers: { 'retry-after': '300' },
+    })
+    expect(metaBareRejected).toEqual({ delayMs: 300000n })
 
     // Non-quota message reset clause does NOT resolve
     const metaNonQuota = resolveRetryMetadata({
@@ -2810,6 +2874,26 @@ describe('parseDurationToMs and retry validation', () => {
     const text = await transformed.text()
     expect(text).toContain('Session resets in 5m.')
     expect(text).not.toContain('quota resets in')
+  })
+
+  it('leaves a 400 that merely mentions quota without a reset clause untouched', async () => {
+    // The bare word "quota" is not a quota error: with no reset clause the
+    // host sees the upstream text unchanged and gets no rewritten delay.
+    const message = 'Request rejected: API quota audit note for project'
+    const rawResponse = new Response(
+      JSON.stringify({ error: { code: 400, message } }),
+      {
+        status: 400,
+        headers: { 'content-type': 'application/json', 'retry-after': '600' },
+      },
+    )
+    const transformed = await transformAntigravityResponse(rawResponse, false)
+    const body = (await transformed.json()) as {
+      error: { message: string }
+    }
+    expect(body.error.message).toContain(message)
+    expect(body.error.message).not.toContain('quota resets in')
+    expect(transformed.headers.get('retry-after')).toBe('600')
   })
 
   it('normalizeResetDuration leaves unrelated credential-like tokens unchanged', () => {

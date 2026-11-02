@@ -2884,8 +2884,17 @@ export function collectForwardedHeaders(
 }
 
 /**
- * Check whether an error response or message represents a quota / rate-limit condition.
- * Non-quota errors (such as 400 "Session resets in 5m") must never be normalized with "quota resets in".
+ * Check whether an error response or message represents a quota / rate-limit
+ * condition. A message is a quota message only when:
+ * - the response status is 429; or
+ * - a structured detail names a quota reason (`QuotaFailure`, or an `ErrorInfo`
+ *   reason of QUOTA_EXHAUSTED / RATE_LIMIT_EXCEEDED / RESOURCE_EXHAUSTED); or
+ * - the message carries a reset clause and a quota word, such as
+ *   "Quota exceeded. Resets in 30s.".
+ *
+ * A 400 whose text merely contains the word "quota", and a bare reset clause
+ * such as "Session resets in 5m", are not quota errors: they must never be
+ * rewritten with "quota resets in" or have a delay read from their text.
  */
 export function isQuotaError(
   status: number | undefined,
@@ -2894,30 +2903,44 @@ export function isQuotaError(
 ): boolean {
   if (status === 429) return true
   const lower = (message ?? '').toLowerCase()
-  if (
-    lower.includes('resource_exhausted') ||
-    lower.includes('quota') ||
-    lower.includes('rate_limit') ||
-    lower.includes('rate limit')
-  ) {
-    return true
-  }
-  if (Array.isArray(details)) {
-    return details.some((detail) => {
-      if (!detail || typeof detail !== 'object') return false
-      if (
-        '@type' in detail &&
-        detail['@type'] === 'type.googleapis.com/google.rpc.QuotaFailure'
-      )
-        return true
-      return (
-        'reason' in detail &&
-        (detail.reason === 'QUOTA_EXHAUSTED' ||
-          detail.reason === 'RATE_LIMIT_EXCEEDED')
-      )
-    })
-  }
-  return false
+  if (hasQuotaResetClause(lower)) return true
+  return hasStructuredQuotaReason(details)
+}
+
+const QUOTA_REASON_CODES = new Set([
+  'QUOTA_EXHAUSTED',
+  'RATE_LIMIT_EXCEEDED',
+  'RESOURCE_EXHAUSTED',
+])
+
+/** True when the lowercased message names a quota word and announces a reset. */
+function hasQuotaResetClause(lowerMessage: string): boolean {
+  if (lowerMessage.length === 0) return false
+  if (extractResetDurationFromText(lowerMessage) === null) return false
+  return (
+    lowerMessage.includes('quota') ||
+    lowerMessage.includes('rate limit') ||
+    lowerMessage.includes('rate_limit') ||
+    lowerMessage.includes('resource_exhausted')
+  )
+}
+
+/** True when a structured detail carries a quota reason code or QuotaFailure. */
+function hasStructuredQuotaReason(details: unknown): boolean {
+  if (!Array.isArray(details)) return false
+  return details.some((detail) => {
+    if (!detail || typeof detail !== 'object') return false
+    const record = detail as Record<string, unknown>
+    const type = record['@type']
+    if (typeof type === 'string' && type.includes('google.rpc.QuotaFailure'))
+      return true
+    const reason = record.reason
+    if (typeof reason === 'string' && QUOTA_REASON_CODES.has(reason))
+      return true
+    // QuotaFailure / ErrorInfo details may be nested inside a wrapped detail.
+    const nested = record.details
+    return Array.isArray(nested) ? hasStructuredQuotaReason(nested) : false
+  })
 }
 
 export const RESET_CLAUSE_REGEX =
@@ -2974,7 +2997,19 @@ export function formatResetDuration(waitMs: number): string {
 }
 
 export interface DurationParserOptions {
+  /**
+   * Accept a duration that totals zero (`0s`, `0m0s`) as `0n` instead of
+   * rejecting it. Only the bridge and the response transformer set it, because
+   * they forward truthful local waits, including a local `Retry-After: 0`. The
+   * executor leaves it off so an upstream zero falls through to the configured
+   * default retry, as it did before the resolver was shared.
+   */
   allowZero?: boolean
+  /**
+   * Accept a bare number with no unit (`90`) as seconds. Only the executor sets
+   * it: Google's RetryInfo sometimes omits the unit, and the executor has always
+   * read such a value as 90 seconds.
+   */
   allowBareSeconds?: boolean
 }
 
@@ -3083,13 +3118,25 @@ export interface ResolveRetryMetadataOptions {
   retryAfterMs?: unknown
   resetAfterMs?: unknown
   retryAfterSeconds?: unknown
+  /**
+   * Zero-total durations resolve to `0n` instead of being skipped. The bridge
+   * and the response transformer set it so a truthful local `Retry-After: 0`
+   * is forwarded; the executor never does (see `DurationParserOptions`).
+   */
+  allowZero?: boolean
+  /**
+   * Bare numbers in body fields are read as seconds. The executor sets it for
+   * unitless RetryInfo delays; the bridge and transformer do not.
+   */
+  allowBareSeconds?: boolean
 }
 
 /**
  * Resolves authoritative retry metadata following unified executor precedence:
  * 1. First VALID RetryInfo scanning all entries (invalid first doesn't hide later)
  * 2. First valid metadata.quotaResetDelay (timestamp retained)
- * 3. GA ONLY fields: retryAfterMs -> resetAfterMs -> retryAfterSeconds
+ * 3. Fields only the GA (Gemini API) error envelope carries:
+ *    retryAfterMs -> resetAfterMs -> retryAfterSeconds
  * 4. Quota classified original message reset clause
  * 5. HTTP headers: ms before seconds
  */
@@ -3104,7 +3151,13 @@ export function resolveRetryMetadata(
     retryAfterMs,
     resetAfterMs,
     retryAfterSeconds,
+    allowZero,
+    allowBareSeconds,
   } = options
+  const bodyParserOptions: DurationParserOptions = {
+    allowZero,
+    allowBareSeconds,
+  }
 
   // 1. First VALID RetryInfo scanning all entries
   if (Array.isArray(details)) {
@@ -3114,10 +3167,7 @@ export function resolveRetryMetadata(
       if (typeof type === 'string' && type.includes('google.rpc.RetryInfo')) {
         const retryDelay = (entry as Record<string, unknown>).retryDelay
         if (typeof retryDelay === 'string') {
-          const ms = parseDurationToMsBigInt(retryDelay, {
-            allowZero: true,
-            allowBareSeconds: true,
-          })
+          const ms = parseDurationToMsBigInt(retryDelay, bodyParserOptions)
           if (ms !== null) {
             return { delayMs: ms }
           }
@@ -3144,10 +3194,7 @@ export function resolveRetryMetadata(
         const quotaResetDelay = (metadata as Record<string, unknown>)
           .quotaResetDelay
         if (typeof quotaResetDelay === 'string') {
-          const ms = parseDurationToMsBigInt(quotaResetDelay, {
-            allowZero: true,
-            allowBareSeconds: true,
-          })
+          const ms = parseDurationToMsBigInt(quotaResetDelay, bodyParserOptions)
           if (ms !== null) {
             const quotaResetTime =
               typeof (metadata as Record<string, unknown>)
@@ -3169,7 +3216,8 @@ export function resolveRetryMetadata(
     }
   }
 
-  // 3. GA ONLY fields: retryAfterMs -> resetAfterMs -> retryAfterSeconds
+  // 3. Fields only the GA (Gemini API) error envelope carries:
+  //    retryAfterMs -> resetAfterMs -> retryAfterSeconds
   const validGaMs = validateRetryAfterMsBigInt(retryAfterMs)
   if (validGaMs !== null) {
     return { delayMs: validGaMs }
@@ -3187,10 +3235,7 @@ export function resolveRetryMetadata(
   if (isQuotaError(status, message, details) && typeof message === 'string') {
     const rawDuration = extractResetDurationFromText(message)
     if (rawDuration !== null) {
-      const ms = parseDurationToMsBigInt(rawDuration, {
-        allowZero: true,
-        allowBareSeconds: true,
-      })
+      const ms = parseDurationToMsBigInt(rawDuration, bodyParserOptions)
       if (ms !== null) {
         return { delayMs: ms }
       }

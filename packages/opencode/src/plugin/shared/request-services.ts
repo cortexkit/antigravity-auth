@@ -3298,6 +3298,12 @@ function extractRateLimitBodyInfo(
     message,
     status,
     headers,
+    // The executor keeps its historical reading of Google's body fields: an
+    // upstream zero ("0s") falls through to the configured default retry
+    // instead of retrying immediately, and a unitless delay such as "90"
+    // still means 90 seconds.
+    allowZero: false,
+    allowBareSeconds: true,
   })
 
   const retryDelayMs =

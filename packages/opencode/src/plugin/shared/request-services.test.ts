@@ -1366,6 +1366,346 @@ describe('createRequestExecutor pre-response deadline', () => {
   }
 })
 
+// =============================================================================
+// Executor wait differential table
+//
+// One row per upstream 429/503 input shape. Each row asserts the reason and the
+// wait the executor records for the rate-limited account
+// (`markRateLimitedWithReason`), which is what `serverRetryMs` becomes. Every
+// expected value was measured by running this same table against the v3.0.26
+// executor before the shared retry-metadata resolver was introduced, so a row
+// fails if sharing the resolver changes when or how long the executor waits.
+// Rows marked with a `requestedChange` are the only ones allowed to differ.
+// =============================================================================
+
+interface ExecutorWaitRow {
+  name: string
+  status: number
+  message: string
+  details?: unknown[]
+  headers?: Record<string, string>
+  /** Set when the row takes the one-second first-attempt quick retry. */
+  quickRetry?: true
+  expectedMs: number
+  expectedReason: string
+  /** Set only where a reviewed change intentionally moves the wait off the v3.0.26 value. */
+  requestedChange?: string
+}
+
+const executorWaitRows: ExecutorWaitRow[] = [
+  {
+    name: 'RetryInfo 0s',
+    status: 429,
+    message: 'Resource has been exhausted.',
+    details: [
+      { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0s' },
+    ],
+    headers: { 'retry-after': '300' },
+    expectedMs: 300_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
+    name: 'metadata quotaResetDelay 0s',
+    status: 429,
+    message: 'Resource has been exhausted.',
+    details: [{ metadata: { quotaResetDelay: '0s' } }],
+    headers: { 'retry-after': '300' },
+    expectedMs: 300_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
+    name: 'metadata quotaResetDelay 0m0s',
+    status: 429,
+    message: 'Resource has been exhausted.',
+    details: [
+      {
+        metadata: {
+          quotaResetDelay: '0m0s',
+          quotaResetTimeStamp: '2026-07-22T12:01:00Z',
+        },
+      },
+    ],
+    headers: { 'retry-after': '300' },
+    expectedMs: 300_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
+    name: 'metadata quotaResetDelay 0m',
+    status: 429,
+    message: 'Resource has been exhausted.',
+    details: [{ metadata: { quotaResetDelay: '0m' } }],
+    headers: { 'retry-after': '300' },
+    expectedMs: 300_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+    requestedChange:
+      'v3.0.26 summed no components for a unit-only "0m" and read a 0ms wait; the shared grammar rejects that inconsistency, so a unit-only zero now falls back to the header like every other zero total — the same rule already used by the zero-delay test above this table',
+  },
+  {
+    name: 'RetryInfo bare 90',
+    status: 429,
+    message: 'Resource has been exhausted.',
+    details: [
+      { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '90' },
+    ],
+    headers: { 'retry-after': '300' },
+    expectedMs: 90_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
+    name: 'RetryInfo 1.5s',
+    status: 429,
+    message: 'Resource has been exhausted.',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+        retryDelay: '1.5s',
+      },
+    ],
+    headers: { 'retry-after': '300' },
+    expectedMs: 1_500,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
+    name: 'invalid first RetryInfo then valid 45s',
+    status: 429,
+    message: 'Individual quota reached.',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+        retryDelay: 'invalid',
+      },
+      {
+        '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+        retryDelay: '45s',
+      },
+    ],
+    headers: { 'retry-after': '300' },
+    expectedMs: 45_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+    requestedChange:
+      'the first valid RetryInfo wins even when an earlier entry is invalid (v3.0.26 stopped at the invalid entry and used the 300s header)',
+  },
+  {
+    name: 'metadata quotaResetDelay present',
+    status: 429,
+    message: 'Resource has been exhausted.',
+    details: [
+      {
+        metadata: {
+          quotaResetDelay: '4m',
+          quotaResetTimeStamp: '2026-07-22T12:04:00Z',
+        },
+      },
+    ],
+    headers: { 'retry-after': '600' },
+    expectedMs: 240_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
+    name: 'metadata quotaResetTimeStamp without quotaResetDelay',
+    status: 429,
+    message: 'Resource has been exhausted.',
+    details: [{ metadata: { quotaResetTimeStamp: '2026-07-22T12:04:00Z' } }],
+    headers: { 'retry-after': '600' },
+    expectedMs: 600_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
+    name: 'message reset after 30s',
+    status: 429,
+    message: 'Individual quota reached. reset after 30s.',
+    headers: { 'retry-after': '600' },
+    expectedMs: 30_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
+    name: 'message resets in 4h9m10s',
+    status: 429,
+    message:
+      'Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 4h9m10s.',
+    headers: { 'retry-after': '600' },
+    expectedMs: 14_950_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
+    name: 'message 1m2h components out of order',
+    status: 429,
+    message: 'Individual quota reached. resets in 1m2h.',
+    headers: { 'retry-after': '600' },
+    expectedMs: 600_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+    requestedChange:
+      'the duration grammar we asked for rejects an out-of-order clause, so the row falls through to the 600s header. v3.0.26 is not comparable here: its own body parser read "1m2h" as 2h1m, and the released compound grammar reads the same text as 7,260,000ms, so both are replaced by a rejection',
+  },
+  {
+    name: 'message 1hgarbage partial token',
+    status: 429,
+    message: 'Individual quota reached. resets in 1hgarbage.',
+    headers: { 'retry-after': '600' },
+    expectedMs: 600_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+    requestedChange:
+      'the grammar we asked for rejects a malformed clause instead of reading the hour prefix of "1hgarbage", so the row falls through to the 600s header; v3.0.26 waited 1h from that prefix',
+  },
+  {
+    name: 'headers only retry-after 120',
+    status: 429,
+    quickRetry: true,
+    message: 'Rate limit exceeded.',
+    headers: { 'retry-after': '120' },
+    expectedMs: 120_000,
+    expectedReason: 'RATE_LIMIT_EXCEEDED',
+  },
+  {
+    name: 'headers only retry-after 0',
+    status: 429,
+    quickRetry: true,
+    message: 'Rate limit exceeded.',
+    headers: { 'retry-after': '0' },
+    expectedMs: 60_000,
+    expectedReason: 'RATE_LIMIT_EXCEEDED',
+  },
+  {
+    name: 'headers retry-after-ms 3000',
+    status: 429,
+    quickRetry: true,
+    message: 'Rate limit exceeded.',
+    headers: { 'retry-after-ms': '3000' },
+    expectedMs: 3_000,
+    expectedReason: 'RATE_LIMIT_EXCEEDED',
+  },
+  {
+    name: 'headers retry-after-ms 0',
+    status: 429,
+    quickRetry: true,
+    message: 'Rate limit exceeded.',
+    headers: { 'retry-after-ms': '0' },
+    expectedMs: 60_000,
+    expectedReason: 'RATE_LIMIT_EXCEEDED',
+  },
+  {
+    name: 'headers retry-after-ms 3000 over retry-after 90',
+    status: 429,
+    quickRetry: true,
+    message: 'Rate limit exceeded.',
+    headers: { 'retry-after': '90', 'retry-after-ms': '3000' },
+    expectedMs: 3_000,
+    expectedReason: 'RATE_LIMIT_EXCEEDED',
+  },
+  {
+    name: '429 Rate limited with nothing usable',
+    status: 429,
+    quickRetry: true,
+    message: 'Rate limited',
+    expectedMs: 60_000,
+    expectedReason: 'RATE_LIMIT_EXCEEDED',
+  },
+  {
+    name: '503 with headers only',
+    status: 503,
+    quickRetry: true,
+    message: 'Service unavailable',
+    headers: { 'retry-after': '30' },
+    expectedMs: 60_000,
+    expectedReason: 'MODEL_CAPACITY_EXHAUSTED',
+  },
+]
+
+describe('createRequestExecutor retry metadata differential table', () => {
+  const model = 'gemini-3-flash'
+  const url = NON_STREAM_URL
+
+  for (const row of executorWaitRows) {
+    it(`${row.status} ${row.name}`, async () => {
+      const now = FIXED_NOW
+      const date = spyOn(Date, 'now').mockImplementation(() => now)
+      const h = harness({
+        pool: makePool(2),
+        config: {
+          default_retry_after_seconds: 60,
+          max_backoff_seconds: 120,
+          max_rate_limit_wait_seconds: 1,
+        },
+        respond: async (_call, index) =>
+          index === 0
+            ? new Response(
+                JSON.stringify({
+                  error: {
+                    code: row.status,
+                    message: row.message,
+                    ...(row.details ? { details: row.details } : {}),
+                  },
+                }),
+                {
+                  status: row.status,
+                  headers: {
+                    'content-type': 'application/json',
+                    ...(row.headers ?? {}),
+                  },
+                },
+              )
+            : okJson(),
+      })
+      const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+      const executor = createRequestExecutor(h.deps)
+      try {
+        const response = await executor.execute(url, CHAT_INIT())
+        expect(response.status).toBe(200)
+        if (row.quickRetry) {
+          // No account mark: the row took the one-second first-attempt retry.
+          expect(mark).not.toHaveBeenCalled()
+        } else {
+          expect(mark).toHaveBeenCalledTimes(1)
+          // Arguments 4 and 5 are the rate-limit reason and the server retry
+          // wait, the value the executor stores on the account.
+          expect(mark.mock.calls[0]?.slice(3, 5)).toEqual([
+            row.expectedReason,
+            row.expectedMs,
+          ])
+        }
+        await response.body?.cancel()
+      } finally {
+        await executor.dispose()
+        mark.mockRestore()
+        date.mockRestore()
+      }
+    })
+  }
+
+  it('a 400 whose message merely mentions quota keeps its own status and text', async () => {
+    // The word "quota" alone is not a quota error: the executor must not read a
+    // delay from such a body, and the transformer must not rewrite its text.
+    const h = harness({
+      pool: makePool(2),
+      respond: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 400,
+              message: 'Request rejected: API quota audit note for project',
+            },
+          }),
+          {
+            status: 400,
+            headers: {
+              'content-type': 'application/json',
+              'retry-after': '600',
+            },
+          },
+        ),
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(400)
+      expect(h.calls).toHaveLength(1)
+      await response.body?.cancel()
+    } finally {
+      await executor.dispose()
+    }
+  })
+})
+
 describe('createRequestExecutor quota reset text', () => {
   const model = 'antigravity-gemini-3.8-flash'
   const url = modelUrl(model, 'generateContent')
@@ -1573,7 +1913,11 @@ describe('createRequestExecutor quota reset text', () => {
     )
   })
 
-  it('known zero delay wins over default configured retry and marks 0ms', async () => {
+  it('an upstream zero delay falls back to the configured default retry, not an immediate retry', async () => {
+    // v3.0.26 never read a zero body duration as a wait, and the executor keeps
+    // that: the zero RetryInfo is skipped and the 300s header applies instead of
+    // retrying the account immediately. Only the bridge and transformer forward
+    // a zero (local) wait.
     const now = FIXED_NOW
     const date = spyOn(Date, 'now').mockImplementation(() => now)
     const h = harness({
@@ -1609,20 +1953,35 @@ describe('createRequestExecutor quota reset text', () => {
       const response = await executor.execute(url, CHAT_INIT())
       expect(response.status).toBe(200)
       expect(mark).toHaveBeenCalledTimes(1)
-      expect(mark).toHaveBeenCalledWith(
-        expect.anything(),
-        'gemini',
-        model,
+      // Arguments 4 and 5 are the rate-limit reason and the stored wait: the
+      // header from the same response is used once the body delay is skipped.
+      expect(mark.mock.calls[0]?.slice(3, 5)).toEqual([
         'QUOTA_EXHAUSTED',
-        0,
-        expect.anything(),
-      )
+        300_000,
+      ])
     } finally {
       await executor.dispose()
       mark.mockRestore()
       date.mockRestore()
     }
   })
+
+  for (const [spelling, rawDelay] of [
+    ['0s', '0s'],
+    ['0m0s', '0m0s'],
+    ['0 (unitless)', '0'],
+  ] as const) {
+    it(`an upstream ${spelling} quotaResetDelay waits the default 60s`, async () => {
+      await assertHold('Individual quota reached.', 60_000, [
+        {
+          metadata: {
+            quotaResetDelay: rawDelay,
+            quotaResetTimeStamp: '2026-07-22T12:01:00Z',
+          },
+        },
+      ])
+    })
+  }
 
   it('supports explicit bare seconds in metadata for backwards compatibility', async () => {
     await assertHold(

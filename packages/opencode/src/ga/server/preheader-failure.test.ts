@@ -399,7 +399,7 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
     }
   })
 
-  it('demonstrates thrown status-bearing exception through bridge returns mapped status and retry headers', async () => {
+  it('gaPreHeaderFailureResponse maps a status-bearing thrown exception to an HTTP status with retry headers', async () => {
     const bridge = await startGaLoopbackBridge({
       send: async () => {
         throw new Error('Not used')
@@ -433,10 +433,12 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
   })
 
   it('forwards Retry-After on owned 429 and vetoes host retry without second physical dispatch', async () => {
-    let rawSenderCalls = 0
+    // Count real sends in the raw sender, so "physical dispatch" means a request
+    // that actually left the bridge rather than a call into the injected execute.
+    let rawSends = 0
     const bridge = await startGaLoopbackBridge({
       send: async () => {
-        rawSenderCalls++
+        rawSends++
         return new Response(
           JSON.stringify({
             error: {
@@ -491,7 +493,7 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
       expect(resp.status).toBe(429)
       expect(resp.headers.get('retry-after')).toBe('30')
       expect(resp.headers.get('retry-after-ms')).toBe('30000')
-      expect(rawSenderCalls).toBe(1)
+      expect(rawSends).toBe(1)
 
       // Verify the retry-hook veto prevents host retry loop from dispatching second time
       const retryEvent: GaRetryEvent = {
@@ -505,7 +507,7 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
       if (retryEvent.decision.retry) {
         await fetch(event.request)
       }
-      expect(rawSenderCalls).toBe(1)
+      expect(rawSends).toBe(1)
 
       // Negative control: retry-enabled foreign request WOULD dispatch again without veto
       const foreignSessionID = 'ses_foreign_request'
@@ -519,19 +521,21 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
       expect(foreignRetryEvent.decision).toEqual({ retry: true, delay: 5000 })
       if (foreignRetryEvent.decision.retry) {
         // A retry-enabled foreign request simulates second physical dispatch
-        rawSenderCalls++
+        rawSends++
       }
-      expect(rawSenderCalls).toBe(2)
+      expect(rawSends).toBe(2)
     } finally {
       await bridge.dispose()
     }
   })
 
   it('vetoes host retry on generic thrown network error without second physical dispatch', async () => {
-    let rawSenderCalls = 0
+    // Count real sends in the raw sender, so "physical dispatch" means a request
+    // that actually left the bridge rather than a call into the injected execute.
+    let rawSends = 0
     const bridge = await startGaLoopbackBridge({
       send: async () => {
-        rawSenderCalls++
+        rawSends++
         throw new Error('ECONNRESET: connection reset by peer')
       },
       execute: async (_job, ctx) => {
@@ -573,7 +577,7 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
       const body = (await resp.json()) as any
       expect(body.error.code).toBe(502)
       expect(body.error.status).toBe('UNAVAILABLE')
-      expect(rawSenderCalls).toBe(1)
+      expect(rawSends).toBe(1)
 
       const retryEvent: GaRetryEvent = {
         sessionID: TEST_JOB.sessionID,
@@ -586,7 +590,7 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
       if (retryEvent.decision.retry) {
         await fetch(event.request)
       }
-      expect(rawSenderCalls).toBe(1)
+      expect(rawSends).toBe(1)
     } finally {
       await bridge.dispose()
     }

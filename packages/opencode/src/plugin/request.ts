@@ -2865,6 +2865,8 @@ async function transformAntigravityResponseIn(
             : undefined,
         status: response.status,
         headers,
+        // The transformer may forward a truthful local wait of zero seconds.
+        allowZero: true,
       })
       if (retryMeta !== null) {
         const pair = deriveRetryHeaderPairFromMs(retryMeta.delayMs)
