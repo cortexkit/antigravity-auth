@@ -7,14 +7,15 @@ These are standing rules for workers in this repository. They answer the questio
 - Build and test on Linux with `runon: "linux,8c"`. Add `,net` only when a step installs packages or runs a released npm package. The project needs **Bun 1.4.2** exactly. A local Mac preparation step that fails with "Bun 1.4.4" is expected: ignore it and use the Linux job.
 - Build core before anything that imports it: `bun run --cwd packages/core build`. Never run that build in parallel with another check, because it deletes `packages/core/dist` while it runs.
 - Submit one combined Linux job rather than many small ones. If the runner refuses a job before it starts (capacity or drain), resubmit the same job. Stop after three refusals in a row and report.
-- A file a remote job creates is **not** copied back. To bring generated files back, print them as described under "Regenerated files".
+- A Linux job **cannot change files git tracks**: writing, deleting, renaming, `touch` or `chmod` on one fails with "Operation not permitted". `dist/`, `$TMPDIR`, runner-prepared `node_modules` and new untracked files still work. Make tracked edits in your worktree and commit them before the job.
+- A file a remote job creates is **not** copied back unless you name it. To bring generated files back, follow "Regenerated files".
 
 ## Before you deliver
 
 AFT is the agent tool interface; its `functions.bash` tool submits shell commands to MOTOR using `runon`.
 
 1. **Fast checks:** on the committed, clean tracked tree with Bun 1.4.2, run `bun run prepush --fast` locally.
-2. **Tests for what you changed, and only those:** in one Linux job, build core, typecheck the packages you touched, and run the test files that cover your change. For a bug fix, show once that a new test fails without the fix, and say how you showed it. A filtered run that takes more than about 15 minutes means the filter is too broad: narrow it.
+2. **Tests for what you changed, and only those:** in one Linux job, build core, typecheck the packages you touched, and run the test files that cover your change. For a bug fix, show once that a new test fails without the fix, and say how you showed it. Because tracked files are read-only in the job, show it in a second checkout of the base under `$TMPDIR` (`git worktree add $TMPDIR/base <base>` with your new test copied in), not by restoring a base file in place. A filtered run that takes more than about 15 minutes means the filter is too broad: narrow it.
 3. **Never run a whole suite or the full gate.** Don't run the root `bun run test` or `bun run test:e2e`, a whole package's tests, or `scripts/prepush.sh --full-here`. The parent runs the full suite once on GitHub CI for each batch of merged deliveries.
 4. **A failure that looks unrelated:** rerun that one test by name on your base commit on the same runner, never the suite, and report both results. "Same at base" is a claim to prove, not to assume.
 5. **Don't wait in long watch loops.** Submit the job with `wait: true` and a timeout that fits a filtered run.
@@ -41,13 +42,7 @@ The parent's GitHub CI covers what workers no longer run: both root suites, the 
 
 ## Regenerated files
 
-When a Linux job produces files you need back, print a gzip tar of them as base64 in `REGEN_FRAME_<n>=` lines of at most 20,000 characters each. Then print:
-- `REGEN_FRAME_COUNT=`, equal to the number of frames printed;
-- `REGEN_TAR_SHA256=`;
-- one `CHANGED <path> bytes=<n> sha256=<hex>` line per file;
-- `REGEN_SELF_CHECK=ok`.
-
-Then ask the parent, giving the AFT task id. The parent decodes the frames and writes the files into your worktree.
+When a Linux job must regenerate tracked files (for example the embedding scripts writing `src/common-auth-embedded/` and `source-output.json`), name each output path in the `runon` job's `return_paths` (up to 64 files, 10 MiB in total). Those paths stay writable in the job and replace your worktree's copies when it finishes. Also print one `CHANGED <path> bytes=<n> sha256=<hex>` line per file, so the parent can check what came back. Then review the returned files with `git diff` before you commit.
 
 ## Commits
 
