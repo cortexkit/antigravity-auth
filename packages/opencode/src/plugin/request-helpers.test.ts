@@ -1,14 +1,21 @@
 import { describe, expect, it } from 'bun:test'
+import { redactCredentialResponse } from '@cortexkit/antigravity-auth-core'
 import {
   createThoughtBuffer,
   deduplicateThinkingText,
 } from './core/streaming/transformer'
+import { transformAntigravityResponse } from './request'
 import {
   cleanJSONSchemaForAntigravity,
+  collectForwardedHeaders,
   createNativeGoogleErrorResponse,
   createSyntheticTextResponse,
   DEFAULT_THINKING_BUDGET,
   deepFilterThinkingBlocks,
+  deriveRetryHeaderPairFromMs,
+  deriveRetryHeaderPairFromSeconds,
+  extractAntigravityError,
+  extractResetDurationFromText,
   extractThinkingConfig,
   extractUsageFromSsePayload,
   extractUsageMetadata,
@@ -17,16 +24,26 @@ import {
   filterUnsignedThinkingBlocks,
   findOrphanedToolUseIds,
   fixClaudeToolPairing,
+  formatResetDuration,
   injectParameterSignatures,
   injectToolHardeningInstruction,
+  isQuotaError,
   isThinkingCapableModel,
+  normalizeResetDuration,
   normalizeThinkingConfig,
   parseAntigravityApiBody,
+  parseDurationToMs,
+  parseDurationToMsBigInt,
   recursivelyParseJsonStrings,
+  resolveRetryMetadata,
   resolveThinkingConfig,
   rewriteAntigravityPreviewAccessError,
   transformThinkingParts,
   validateAndFixClaudeToolPairing,
+  validateRetryAfterMs,
+  validateRetryAfterMsBigInt,
+  validateRetryAfterSeconds,
+  validateRetryAfterSecondsBigInt,
 } from './request-helpers'
 
 describe('sanitizeThinkingPart (covered via filtering)', () => {
@@ -2454,5 +2471,442 @@ describe('recursivelyParseJsonStrings', () => {
         },
       },
     })
+  })
+})
+
+describe('parseDurationToMs and retry validation', () => {
+  it('formatResetDuration formats milliseconds as hours, minutes, and seconds', () => {
+    expect(formatResetDuration(10514000)).toBe('2h 55m 14s')
+    expect(formatResetDuration(45000)).toBe('45s')
+    expect(formatResetDuration(3600000)).toBe('1h 0s')
+  })
+
+  it('parseDurationToMs parses compact, spaced, and compound durations', () => {
+    expect(parseDurationToMs('2h55m14s')).toBe(10514000)
+    expect(parseDurationToMs('2h 55m 14s')).toBe(10514000)
+    expect(parseDurationToMs('45s')).toBe(45000)
+    expect(parseDurationToMs('1d 2h')).toBe(93600000)
+    expect(parseDurationToMs('1h0m0s')).toBe(3600000)
+    expect(parseDurationToMs('2m0s')).toBe(120000)
+    expect(parseDurationToMs('5m0.0s')).toBe(300000)
+    expect(parseDurationToMs('1s250ms')).toBe(1250)
+    expect(parseDurationToMs('1s 250ms')).toBe(1250)
+  })
+
+  it('parseDurationToMs never rounds positive submillisecond durations to zero', () => {
+    expect(parseDurationToMs('0.2ms')).toBe(1)
+    expect(parseDurationToMs('0.0004s')).toBe(1)
+  })
+
+  it('parseDurationToMs strictly rejects invalid, out-of-order, partial, and overflow inputs', () => {
+    expect(parseDurationToMs('1hgarbage')).toBeNull()
+    expect(parseDurationToMs('x5s')).toBeNull()
+    expect(parseDurationToMs('1m2h')).toBeNull()
+    expect(parseDurationToMs('5s.')).toBeNull()
+    expect(parseDurationToMs('5s,')).toBeNull()
+    expect(parseDurationToMs(`${'9'.repeat(400)}s`)).toBeNull()
+    expect(parseDurationToMs('0s')).toBeNull()
+    expect(parseDurationToMs('-5s')).toBeNull()
+    expect(parseDurationToMs('')).toBeNull()
+    expect(parseDurationToMs('   ')).toBeNull()
+    expect(parseDurationToMs('invalid')).toBeNull()
+    expect(parseDurationToMs(null as any)).toBeNull()
+    expect(parseDurationToMs(undefined as any)).toBeNull()
+  })
+
+  it('parseDurationToMs supports explicit options for allowZero and allowBareSeconds', () => {
+    expect(parseDurationToMs('0s')).toBeNull()
+    expect(parseDurationToMs('0s', { allowZero: true })).toBe(0)
+    expect(parseDurationToMsBigInt('0s', { allowZero: true })).toBe(0n)
+    expect(parseDurationToMsBigInt('15s')).toBe(15000n)
+    expect(parseDurationToMs('60')).toBeNull()
+    expect(parseDurationToMs('60', { allowBareSeconds: true })).toBe(60000)
+    expect(parseDurationToMsBigInt('60', { allowBareSeconds: true })).toBe(
+      60000n,
+    )
+    expect(parseDurationToMs('240', { allowBareSeconds: true })).toBe(240000)
+    expect(
+      parseDurationToMs('0', { allowBareSeconds: true, allowZero: true }),
+    ).toBe(0)
+    expect(parseDurationToMs('0', { allowBareSeconds: true })).toBeNull()
+  })
+
+  it('extractAntigravityError extracts error records and protects primitives/arrays from coercion', () => {
+    // Normal envelope
+    const normal = {
+      error: { code: 429, message: 'Resource exhausted' },
+      sibling: 123,
+    }
+    const extracted = extractAntigravityError(normal)
+    expect(extracted).not.toBeNull()
+    expect(extracted?.message).toBe('Resource exhausted')
+    // Modifying extracted directly updates inner object and preserves sibling serialization
+    extracted!.message = 'Updated'
+    expect(normal.error.message).toBe('Updated')
+    expect(normal.sibling).toBe(123)
+
+    // Outer array wrapper
+    const arrayWrapper = [{ error: { code: 500, message: 'Server error' } }]
+    const extractedArray = extractAntigravityError(arrayWrapper)
+    expect(extractedArray).not.toBeNull()
+    expect(extractedArray?.message).toBe('Server error')
+
+    // Primitives must NOT be coerced to objects
+    expect(extractAntigravityError({ error: 'Plain error string' })).toBeNull()
+    expect(extractAntigravityError({ error: 429 })).toBeNull()
+    expect(extractAntigravityError({ error: true })).toBeNull()
+    expect(extractAntigravityError({ error: ['err1', 'err2'] })).toBeNull()
+    expect(extractAntigravityError({ error: null })).toBeNull()
+    expect(extractAntigravityError(null)).toBeNull()
+    expect(extractAntigravityError('non-object')).toBeNull()
+    expect(extractAntigravityError([])).toBeNull()
+  })
+
+  it('validateRetryAfterSeconds accepts finite integer seconds including zero and large finite delays', () => {
+    expect(validateRetryAfterSeconds(120)).toBe(120)
+    expect(validateRetryAfterSeconds('120')).toBe(120)
+    expect(validateRetryAfterSecondsBigInt('120')).toBe(120n)
+    expect(validateRetryAfterSeconds(0)).toBe(0)
+    expect(validateRetryAfterSeconds('0')).toBe(0)
+    expect(validateRetryAfterSecondsBigInt('0')).toBe(0n)
+    expect(validateRetryAfterSeconds(50000000)).toBe(50000000)
+    expect(validateRetryAfterSeconds('50000000')).toBe(50000000)
+    expect(validateRetryAfterSecondsBigInt('50000000')).toBe(50000000n)
+    expect(validateRetryAfterSeconds('1.5')).toBeNull()
+    expect(validateRetryAfterSeconds(1.5)).toBeNull()
+    expect(validateRetryAfterSeconds('Infinity')).toBeNull()
+    expect(validateRetryAfterSeconds(Infinity)).toBeNull()
+    expect(validateRetryAfterSeconds(Number.NaN)).toBeNull()
+    expect(validateRetryAfterSeconds(-10)).toBeNull()
+    expect(validateRetryAfterSeconds('-10')).toBeNull()
+    expect(validateRetryAfterSeconds('9'.repeat(400))).toBeNull()
+    expect(validateRetryAfterSeconds('invalid')).toBeNull()
+    expect(validateRetryAfterSeconds('January 1, 2030')).toBeNull()
+    expect(validateRetryAfterSeconds('2030-01-01T00:00:00Z')).toBeNull()
+
+    const futureRfcDate = new Date(Date.now() + 60000).toUTCString()
+    const parsedSec = validateRetryAfterSeconds(futureRfcDate)
+    expect(parsedSec).toBeGreaterThan(0)
+    expect(parsedSec).toBeLessThanOrEqual(60)
+
+    // Calendar HTTP date roundtrip rejects impossible dates and weekday mismatches
+    expect(
+      validateRetryAfterSeconds('Sun, 31 Feb 2028 12:00:00 GMT'),
+    ).toBeNull()
+    // Nov 1 2026 is Sunday, not Monday
+    expect(
+      validateRetryAfterSeconds('Mon, 01 Nov 2026 12:00:00 GMT'),
+    ).toBeNull()
+    // Past RFC date is rejected
+    expect(
+      validateRetryAfterSeconds('Sun, 01 Jan 2023 00:00:00 GMT'),
+    ).toBeNull()
+  })
+
+  it('validateRetryAfterMs accepts finite integer milliseconds including zero and large finite delays', () => {
+    expect(validateRetryAfterMs(50000)).toBe(50000)
+    expect(validateRetryAfterMsBigInt(50000)).toBe(50000n)
+    expect(validateRetryAfterMs('50000')).toBe(50000)
+    expect(validateRetryAfterMsBigInt('50000')).toBe(50000n)
+    expect(validateRetryAfterMs(0)).toBe(0)
+    expect(validateRetryAfterMs('0')).toBe(0)
+    expect(validateRetryAfterMsBigInt('0')).toBe(0n)
+    expect(validateRetryAfterMs(50000000000)).toBe(50000000000)
+    expect(validateRetryAfterMs('50000000000')).toBe(50000000000)
+    expect(validateRetryAfterMsBigInt('50000000000')).toBe(50000000000n)
+    expect(validateRetryAfterMs('Infinity')).toBeNull()
+    expect(validateRetryAfterMs(Infinity)).toBeNull()
+    expect(validateRetryAfterMs(Number.NaN)).toBeNull()
+    expect(validateRetryAfterMs(-10)).toBeNull()
+    expect(validateRetryAfterMs('-10')).toBeNull()
+    expect(validateRetryAfterMs('9'.repeat(400))).toBeNull()
+    expect(validateRetryAfterMs('invalid')).toBeNull()
+    expect(validateRetryAfterMs(1.5)).toBeNull()
+  })
+
+  it('extractResetDurationFromText extracts duration including "reset after" or returns null', () => {
+    expect(extractResetDurationFromText('Quota resets in 45s')).toBe('45s')
+    expect(extractResetDurationFromText('Quota reset after 45s')).toBe('45s')
+    expect(extractResetDurationFromText('Resets after 1s250ms.')).toBe(
+      '1s250ms',
+    )
+    expect(
+      extractResetDurationFromText('quota resets in 2h 55m 14s before retry.'),
+    ).toBe('2h 55m 14s')
+    expect(
+      extractResetDurationFromText('No duration in this message'),
+    ).toBeNull()
+    expect(extractResetDurationFromText('')).toBeNull()
+  })
+
+  it('deriveRetryHeaderPairFromMs and deriveRetryHeaderPairFromSeconds are idempotent and consistent', () => {
+    const pairFromSec = deriveRetryHeaderPairFromSeconds(90n)
+    expect(pairFromSec['retry-after']).toBe('90')
+    expect(pairFromSec['retry-after-ms']).toBe('90000')
+
+    const pairFromMs = deriveRetryHeaderPairFromMs(90000n)
+    expect(pairFromMs['retry-after']).toBe('90')
+    expect(pairFromMs['retry-after-ms']).toBe('90000')
+
+    // Idempotent re-derivation
+    const reDerived = deriveRetryHeaderPairFromSeconds(
+      BigInt(pairFromMs['retry-after']),
+    )
+    expect(reDerived).toEqual(pairFromMs)
+  })
+
+  it('collectForwardedHeaders chooses one authoritative delay and derives consistent headers', () => {
+    // When both headers are present and disagree, retry-after-ms is authoritative
+    const conflicting = collectForwardedHeaders({
+      'retry-after': '90',
+      'retry-after-ms': '60000',
+    })
+    expect(conflicting).toEqual({
+      'retry-after': '60',
+      'retry-after-ms': '60000',
+    })
+
+    // Single seconds header derives milliseconds
+    expect(collectForwardedHeaders({ 'retry-after': '90' })).toEqual({
+      'retry-after': '90',
+      'retry-after-ms': '90000',
+    })
+
+    // Single milliseconds header derives seconds
+    expect(collectForwardedHeaders({ 'retry-after-ms': '45000' })).toEqual({
+      'retry-after': '45',
+      'retry-after-ms': '45000',
+    })
+
+    // Zero delay is preserved
+    expect(collectForwardedHeaders({ 'retry-after': '0' })).toEqual({
+      'retry-after': '0',
+      'retry-after-ms': '0',
+    })
+
+    // Large finite delay > 1 year is preserved
+    expect(collectForwardedHeaders({ 'retry-after': '50000000' })).toEqual({
+      'retry-after': '50000000',
+      'retry-after-ms': '50000000000',
+    })
+  })
+
+  it('isQuotaError identifies quota conditions and rejects non-quota errors', () => {
+    expect(isQuotaError(429, 'rate limit exceeded')).toBe(true)
+    expect(isQuotaError(400, 'Quota exceeded for project')).toBe(true)
+    expect(isQuotaError(400, 'Session resets in 5m')).toBe(false)
+    expect(isQuotaError(500, 'Internal server error')).toBe(false)
+    expect(
+      isQuotaError(403, 'Service resets in 5m', [
+        {
+          '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+          reason: 'SERVICE_DISABLED',
+        },
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: '5m',
+        },
+      ]),
+    ).toBe(false)
+  })
+
+  it('resolveRetryMetadata strictly follows unified precedence and supports bare seconds & zero', () => {
+    // 1. RetryInfo in details wins over everything
+    const meta1 = resolveRetryMetadata({
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 'invalid',
+        }, // invalid doesn't hide later
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: '15s',
+        },
+      ],
+      message: 'Quota exceeded. Resets in 120s.',
+      headers: { 'retry-after': '300' },
+      retryAfterSeconds: 500,
+    })
+    expect(meta1).toEqual({ delayMs: 15000n })
+
+    // 2. Metadata quotaResetDelay wins when RetryInfo absent
+    const meta2 = resolveRetryMetadata({
+      details: [
+        {
+          metadata: {
+            quotaResetDelay: '4m',
+            quotaResetTimeStamp: '2026-11-01T12:00:00Z',
+          },
+        },
+      ],
+      message: 'Quota exceeded. Resets in 120s.',
+      headers: { 'retry-after': '300' },
+    })
+    expect(meta2).toEqual({
+      delayMs: 240000n,
+      quotaResetTime: '2026-11-01T12:00:00Z',
+    })
+
+    // 3. GA only fields win over message and headers
+    const meta3 = resolveRetryMetadata({
+      retryAfterMs: 45000,
+      message: 'Quota exceeded. Resets in 120s.',
+      headers: { 'retry-after': '300' },
+    })
+    expect(meta3).toEqual({ delayMs: 45000n })
+
+    // 4. Message duration wins over headers on quota errors
+    const meta4 = resolveRetryMetadata({
+      status: 429,
+      message: 'Resource exhausted. Quota resets in 30s.',
+      headers: { 'retry-after': '300' },
+    })
+    expect(meta4).toEqual({ delayMs: 30000n })
+
+    // 5. Headers ms before seconds
+    const meta5 = resolveRetryMetadata({
+      status: 429,
+      message: 'Generic rate limit',
+      headers: { 'retry-after': '60', 'retry-after-ms': '45000' },
+    })
+    expect(meta5).toEqual({ delayMs: 45000n })
+
+    // Known 0 delay wins
+    const metaZero = resolveRetryMetadata({
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: '0s',
+        },
+      ],
+    })
+    expect(metaZero).toEqual({ delayMs: 0n })
+
+    // Bare seconds supported via resolver
+    const metaBare = resolveRetryMetadata({
+      details: [{ metadata: { quotaResetDelay: '240' } }],
+    })
+    expect(metaBare).toEqual({ delayMs: 240000n })
+
+    // Non-quota message reset clause does NOT resolve
+    const metaNonQuota = resolveRetryMetadata({
+      status: 400,
+      message: 'Session resets in 5m',
+    })
+    expect(metaNonQuota).toBeNull()
+  })
+
+  it('does not normalize reset duration on non-quota 400 errors', async () => {
+    const rawResponse = new Response(
+      JSON.stringify({
+        error: {
+          code: 400,
+          message: 'Invalid session configuration: Session resets in 5m.',
+        },
+      }),
+      { status: 400, headers: { 'content-type': 'application/json' } },
+    )
+    const transformed = await transformAntigravityResponse(rawResponse, false)
+    const text = await transformed.text()
+    expect(text).toContain('Session resets in 5m.')
+    expect(text).not.toContain('quota resets in')
+  })
+
+  it('normalizeResetDuration leaves unrelated credential-like tokens unchanged', () => {
+    const raw =
+      'Token sk-ant-1d2h3m4s5e-secret was rejected. Resets in 2h55m14s.'
+    const normalized = normalizeResetDuration(raw)
+    expect(normalized).toBe(
+      'Token sk-ant-1d2h3m4s5e-secret was rejected. quota resets in 2h 55m 14s.',
+    )
+    expect(normalized).toContain('sk-ant-1d2h3m4s5e-secret')
+  })
+
+  it('normalizes only duration tokens and preserves prose and following credential-like text', () => {
+    expect(normalizeResetDuration('Resets in 45s before retry.')).toBe(
+      'quota resets in 45s before retry.',
+    )
+    expect(
+      normalizeResetDuration('Quota reset after 1s250ms before retry.'),
+    ).toBe('quota resets in 1s 250ms before retry.')
+    expect(
+      normalizeResetDuration(
+        'Resets in 2h55m14s. 1d2h3m4s5e-synthetic-opaque-credential',
+      ),
+    ).toBe('quota resets in 2h 55m 14s. 1d2h3m4s5e-synthetic-opaque-credential')
+    expect(
+      normalizeResetDuration('Resets in 2h 1m2s-synthetic-opaque-credential'),
+    ).toBe('quota resets in 2h 1m2s-synthetic-opaque-credential')
+  })
+
+  it('composition: transformAntigravityResponse then redactCredentialResponse removes credential', async () => {
+    const syntheticSecret = 'sk-ant-api03-1d2h3m4s5e-secretkey'
+    const rawResponse = new Response(
+      JSON.stringify({
+        error: {
+          code: 429,
+          message: `Request with token ${syntheticSecret} exceeded quota. Resets in 2h55m14s.`,
+        },
+      }),
+      {
+        status: 429,
+        headers: { 'content-type': 'application/json' },
+      },
+    )
+
+    const transformed = await transformAntigravityResponse(rawResponse, false)
+    expect(transformed.status).toBe(429)
+    expect(transformed.headers.get('Retry-After')).toBe('10514')
+    expect(transformed.headers.get('retry-after-ms')).toBe('10514000')
+
+    const redacted = await redactCredentialResponse(transformed, [
+      syntheticSecret,
+    ])
+    const text = await redacted.text()
+    expect(text).not.toContain(syntheticSecret)
+    expect(text).toContain('[credential]')
+    expect(text).toContain('quota resets in 2h 55m 14s')
+  })
+
+  it('composition: leaves an after-clause credential intact for the real redactor', async () => {
+    const syntheticSecret = '1d2h3m4s5e-synthetic-opaque-credential'
+    const rawResponse = new Response(
+      JSON.stringify({
+        error: {
+          code: 429,
+          message: `Resets in 2h55m14s. ${syntheticSecret}`,
+        },
+      }),
+      { status: 429, headers: { 'content-type': 'application/json' } },
+    )
+    const transformed = await transformAntigravityResponse(rawResponse, false)
+    const redacted = await redactCredentialResponse(transformed, [
+      syntheticSecret,
+    ])
+    const text = await redacted.text()
+    expect(text).toContain('[credential]')
+    expect(text).not.toContain(syntheticSecret)
+    expect(text).toContain('quota resets in 2h 55m 14s.')
+  })
+
+  it('composition: does not consume credential suffixes that resemble shorter duration components', async () => {
+    const syntheticSecret = '1m2s-synthetic-opaque-credential'
+    const rawResponse = new Response(
+      JSON.stringify({
+        error: {
+          code: 429,
+          message: `Resets in 2h ${syntheticSecret}`,
+        },
+      }),
+      { status: 429, headers: { 'content-type': 'application/json' } },
+    )
+    const transformed = await transformAntigravityResponse(rawResponse, false)
+    expect(transformed.headers.get('Retry-After')).toBe('7200')
+    const redacted = await redactCredentialResponse(transformed, [
+      syntheticSecret,
+    ])
+    const text = await redacted.text()
+    expect(text).toContain('[credential]')
+    expect(text).not.toContain(syntheticSecret)
   })
 })

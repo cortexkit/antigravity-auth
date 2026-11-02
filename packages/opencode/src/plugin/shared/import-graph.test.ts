@@ -255,7 +255,9 @@ describe('shared request engine import graph', () => {
       '../request-helpers': [
         'createNativeGoogleErrorResponse',
         'createSyntheticTextResponse',
+        'extractAntigravityError',
         'isEmptyResponseBody',
+        'resolveRetryMetadata',
       ],
       '../session-context': [
         'extractOpenCodeSessionIdentity',

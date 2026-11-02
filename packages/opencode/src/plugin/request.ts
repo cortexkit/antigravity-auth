@@ -5,6 +5,7 @@ import {
   isGeminiArgonModel,
   isRetiredAgyModel,
   maskSensitiveIdentifier,
+  redactCredentialResponse,
   redactProjectIdText,
 } from '@cortexkit/antigravity-auth-core'
 import {
@@ -61,7 +62,10 @@ import {
   type AntigravityApiBody,
   applyToolPairingFixes,
   cleanJSONSchemaForAntigravity,
+  collectForwardedHeaders,
   deepFilterThinkingBlocks,
+  deriveRetryHeaderPairFromMs,
+  extractAntigravityError,
   extractThinkingConfig,
   extractUsageFromSsePayload,
   extractUsageMetadata,
@@ -69,9 +73,12 @@ import {
   fixToolResponseGrouping,
   injectParameterSignatures,
   injectToolHardeningInstruction,
+  isQuotaError,
   isThinkingCapableModel,
+  normalizeResetDuration,
   normalizeThinkingConfig,
   parseAntigravityApiBody,
+  resolveRetryMetadata,
   resolveThinkingConfig,
   rewriteAntigravityPreviewAccessError,
   transformThinkingParts,
@@ -2685,10 +2692,12 @@ async function transformAntigravityResponseIn(
   const cacheSignatures = shouldCacheThinkingSignatures(effectiveModel)
 
   if (!isJsonResponse && !isEventStreamResponse) {
-    wire.debug.logAntigravityDebugResponse(debugContext, response, {
-      note: 'Non-JSON response (body omitted)',
-    })
-    return response
+    if (response.ok) {
+      wire.debug.logAntigravityDebugResponse(debugContext, response, {
+        note: 'Non-JSON response (body omitted)',
+      })
+      return response
+    }
   }
 
   // For successful streaming responses, use TransformStream to transform SSE events
@@ -2751,6 +2760,249 @@ async function transformAntigravityResponseIn(
     })
   }
 
+  if (!response.ok) {
+    const projectIds = projectId ? [projectId] : undefined
+    const headers = new Headers(response.headers)
+    const initialForwarded = collectForwardedHeaders(headers)
+    if (
+      initialForwarded['retry-after'] !== undefined &&
+      initialForwarded['retry-after-ms'] !== undefined
+    ) {
+      headers.set('Retry-After', initialForwarded['retry-after'])
+      headers.set('retry-after', initialForwarded['retry-after'])
+      headers.set('retry-after-ms', initialForwarded['retry-after-ms'])
+    } else {
+      headers.delete('Retry-After')
+      headers.delete('retry-after')
+      headers.delete('retry-after-ms')
+    }
+
+    let text: string
+    try {
+      text = await response.text()
+    } catch (readError) {
+      const readMessage =
+        readError instanceof Error ? readError.message : String(readError)
+      const safeMessage = redactProjectIdText(readMessage, projectIds)
+      throw new Error(`Failed to read response body: ${safeMessage}`)
+    }
+
+    noteGeminiDumpResponse(dumpContext, response)
+    appendGeminiDumpResponseText(dumpContext, text)
+
+    const createSafeFallback = (
+      bodyContent: string,
+      contentTypeOverride?: string,
+    ) => {
+      const fallbackHeaders = new Headers(headers)
+      fallbackHeaders.delete('content-length')
+      if (contentTypeOverride) {
+        fallbackHeaders.set('content-type', contentTypeOverride)
+      }
+      const safeText = redactProjectIdText(bodyContent, projectIds)
+      const fallbackResponse = new Response(safeText, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: fallbackHeaders,
+      })
+      return redactCredentialResponse(
+        fallbackResponse,
+        undefined,
+        safeText,
+        projectIds,
+      )
+    }
+
+    try {
+      let parsedBody: unknown = null
+      let isJson = false
+
+      // Try direct JSON parse first
+      try {
+        parsedBody = JSON.parse(text)
+        isJson = true
+      } catch {
+        isJson = false
+      }
+
+      // If SSE failed body, parse JSON first then data: JSON payload
+      if (!isJson && (isEventStreamResponse || text.includes('data:'))) {
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim()
+          if (trimmed.startsWith('data:')) {
+            const payload = trimmed.slice(5).trim()
+            if (payload.length > 0 && payload !== '[DONE]') {
+              try {
+                parsedBody = JSON.parse(payload)
+                isJson = true
+                break
+              } catch {}
+            }
+          }
+        }
+      }
+
+      // If malformed JSON on application/json, preserve original diagnostic behavior
+      if (!isJson && isJsonResponse) {
+        parsedBody = {
+          error: {
+            code: response.status,
+            message: text,
+            status: 'UNAVAILABLE',
+          },
+        }
+        isJson = true
+      }
+
+      const errorRecord = isJson ? extractAntigravityError(parsedBody) : null
+
+      // Resolve shared retry metadata
+      const retryMeta = resolveRetryMetadata({
+        details: errorRecord?.details,
+        message:
+          typeof errorRecord?.message === 'string'
+            ? errorRecord.message
+            : undefined,
+        status: response.status,
+        headers,
+      })
+      if (retryMeta !== null) {
+        const pair = deriveRetryHeaderPairFromMs(retryMeta.delayMs)
+        headers.set('Retry-After', pair['retry-after'])
+        headers.set('retry-after', pair['retry-after'])
+        headers.set('retry-after-ms', pair['retry-after-ms'])
+      } else {
+        headers.delete('Retry-After')
+        headers.delete('retry-after')
+        headers.delete('retry-after-ms')
+      }
+
+      // Determine diagnostic error text for classification across ALL failure formats
+      let diagnosticErrorText = ''
+      if (errorRecord && typeof errorRecord.message === 'string') {
+        diagnosticErrorText = errorRecord.message
+      } else if (
+        parsedBody &&
+        typeof parsedBody === 'object' &&
+        !Array.isArray(parsedBody)
+      ) {
+        const errProp = (parsedBody as Record<string, unknown>).error
+        if (typeof errProp === 'string') {
+          diagnosticErrorText = errProp
+        } else {
+          diagnosticErrorText = text
+        }
+      } else {
+        diagnosticErrorText = text
+      }
+
+      const safeProjectId = maskSensitiveIdentifier(projectId) || 'Unknown'
+      const debugInfo = `\n\n[Debug Info]\nRequested Model: ${requestedModel || 'Unknown'}\nEffective Model: ${effectiveModel || 'Unknown'}\nProject: ${safeProjectId}\nEndpoint: ${endpoint || 'Unknown'}\nStatus: ${response.status}\nRequest ID: ${headers.get('x-request-id') || 'N/A'}${toolDebugMissing !== undefined ? `\nTool Debug Missing: ${toolDebugMissing}` : ''}${toolDebugSummary ? `\nTool Debug Summary: ${toolDebugSummary}` : ''}`
+      const injectedDebug = debugText ? `\n\n${debugText}` : ''
+
+      const safeDiagnosticText = redactProjectIdText(
+        diagnosticErrorText,
+        projectIds,
+      )
+      const errorType = detectErrorType(safeDiagnosticText)
+
+      if (errorType === 'thinking_block_order') {
+        const recoveryError = new Error('THINKING_RECOVERY_NEEDED')
+        ;(recoveryError as any).recoveryType = errorType
+        ;(recoveryError as any).originalError = parsedBody ?? safeDiagnosticText
+        ;(recoveryError as any).debugInfo = debugInfo
+        throw recoveryError
+      }
+
+      const errorMessageLower = safeDiagnosticText.toLowerCase()
+      if (
+        errorMessageLower.includes('prompt is too long') ||
+        errorMessageLower.includes('context length exceeded') ||
+        errorMessageLower.includes('context_length_exceeded') ||
+        errorMessageLower.includes('maximum context length')
+      ) {
+        headers.set('x-antigravity-context-error', 'prompt_too_long')
+      }
+
+      if (
+        errorMessageLower.includes('tool_use') &&
+        errorMessageLower.includes('tool_result') &&
+        (errorMessageLower.includes('without') ||
+          errorMessageLower.includes('immediately after'))
+      ) {
+        headers.set('x-antigravity-context-error', 'tool_pairing')
+      }
+
+      // Early raw diagnostic branch only for non-JSON non-SSE
+      if (!isJson && !isEventStreamResponse) {
+        return await createSafeFallback(text)
+      }
+
+      if (!isJson) {
+        // SSE with non-JSON payload or malformed SSE frame
+        return await createSafeFallback(text)
+      }
+
+      if (errorRecord !== null) {
+        const upstreamErrorMessage =
+          typeof errorRecord.message === 'string' &&
+          errorRecord.message.length > 0
+            ? errorRecord.message
+            : 'Unknown error'
+        const rawErrorMessage = redactProjectIdText(
+          upstreamErrorMessage,
+          projectIds,
+        )
+        const isQuota = isQuotaError(
+          response.status,
+          upstreamErrorMessage,
+          errorRecord.details,
+        )
+        const normalizedErrorMessage = isQuota
+          ? normalizeResetDuration(rawErrorMessage)
+          : rawErrorMessage
+        errorRecord.message = normalizedErrorMessage + debugInfo + injectedDebug
+
+        headers.delete('content-length')
+        const finalBody = JSON.stringify(parsedBody)
+        const finalResponse = new Response(finalBody, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        })
+        return await redactCredentialResponse(
+          finalResponse,
+          undefined,
+          finalBody,
+          projectIds,
+        )
+      }
+
+      // JSON without unwrappable error record (e.g. primitive error, error array, non-error JSON on non-2xx)
+      headers.delete('content-length')
+      const finalBody = JSON.stringify(parsedBody)
+      const finalResponse = new Response(finalBody, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      })
+      return await redactCredentialResponse(
+        finalResponse,
+        undefined,
+        finalBody,
+        projectIds,
+      )
+    } catch (transformError) {
+      if (
+        transformError instanceof Error &&
+        transformError.message === 'THINKING_RECOVERY_NEEDED'
+      ) {
+        throw transformError
+      }
+      return await createSafeFallback(text)
+    }
+  }
+
   const responseFallback = response.clone()
 
   try {
@@ -2758,88 +3010,6 @@ async function transformAntigravityResponseIn(
     const text = await response.text()
     noteGeminiDumpResponse(dumpContext, response)
     appendGeminiDumpResponseText(dumpContext, text)
-
-    if (!response.ok) {
-      let errorBody: { error?: { message?: string; details?: unknown } }
-      try {
-        errorBody = JSON.parse(text)
-      } catch {
-        errorBody = { error: { message: text } }
-      }
-
-      // Inject Debug Info
-      if (errorBody?.error) {
-        const upstreamErrorMessage =
-          typeof errorBody.error.message === 'string' &&
-          errorBody.error.message.length > 0
-            ? errorBody.error.message
-            : 'Unknown error'
-        const rawErrorMessage = redactProjectIdText(upstreamErrorMessage, [
-          projectId ?? '',
-        ])
-        const errorType = detectErrorType(rawErrorMessage)
-        const safeProjectId = maskSensitiveIdentifier(projectId) || 'Unknown'
-        const debugInfo = `\n\n[Debug Info]\nRequested Model: ${requestedModel || 'Unknown'}\nEffective Model: ${effectiveModel || 'Unknown'}\nProject: ${safeProjectId}\nEndpoint: ${endpoint || 'Unknown'}\nStatus: ${response.status}\nRequest ID: ${headers.get('x-request-id') || 'N/A'}${toolDebugMissing !== undefined ? `\nTool Debug Missing: ${toolDebugMissing}` : ''}${toolDebugSummary ? `\nTool Debug Summary: ${toolDebugSummary}` : ''}`
-        const injectedDebug = debugText ? `\n\n${debugText}` : ''
-        errorBody.error.message = rawErrorMessage + debugInfo + injectedDebug
-
-        // Check if this is a recoverable thinking error - throw to trigger retry
-        if (errorType === 'thinking_block_order') {
-          const recoveryError = new Error('THINKING_RECOVERY_NEEDED')
-          ;(recoveryError as any).recoveryType = errorType
-          ;(recoveryError as any).originalError = errorBody
-          ;(recoveryError as any).debugInfo = debugInfo
-          throw recoveryError
-        }
-
-        // Detect context length / prompt too long errors - signal to caller for toast
-        const errorMessage = errorBody.error.message?.toLowerCase() || ''
-        if (
-          errorMessage.includes('prompt is too long') ||
-          errorMessage.includes('context length exceeded') ||
-          errorMessage.includes('context_length_exceeded') ||
-          errorMessage.includes('maximum context length')
-        ) {
-          headers.set('x-antigravity-context-error', 'prompt_too_long')
-        }
-
-        // Detect tool pairing errors - signal to caller for toast
-        if (
-          errorMessage.includes('tool_use') &&
-          errorMessage.includes('tool_result') &&
-          (errorMessage.includes('without') ||
-            errorMessage.includes('immediately after'))
-        ) {
-          headers.set('x-antigravity-context-error', 'tool_pairing')
-        }
-
-        return new Response(JSON.stringify(errorBody), {
-          status: response.status,
-          statusText: response.statusText,
-          headers,
-        })
-      }
-
-      if (errorBody?.error?.details && Array.isArray(errorBody.error.details)) {
-        const retryInfo = errorBody.error.details.find(
-          (detail: any) =>
-            detail['@type'] === 'type.googleapis.com/google.rpc.RetryInfo',
-        )
-
-        if (retryInfo?.retryDelay) {
-          const match = retryInfo.retryDelay.match(/^([\d.]+)s$/)
-          if (match?.[1]) {
-            const retrySeconds = parseFloat(match[1])
-            if (!Number.isNaN(retrySeconds) && retrySeconds > 0) {
-              const retryAfterSec = Math.ceil(retrySeconds).toString()
-              const retryAfterMs = Math.ceil(retrySeconds * 1000).toString()
-              headers.set('Retry-After', retryAfterSec)
-              headers.set('retry-after-ms', retryAfterMs)
-            }
-          }
-        }
-      }
-    }
 
     const init = {
       status: response.status,

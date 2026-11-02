@@ -1535,6 +1535,240 @@ describe('createRequestExecutor quota reset text', () => {
     })
   })
 
+  it('parses spaced compound durations in message reset clause', async () => {
+    await assertHold(
+      'Individual quota reached. resets in 2h 55m 14s.',
+      10_514_000,
+    )
+  })
+
+  it('parses days and hours in message reset clause', async () => {
+    await assertHold('Individual quota reached. resets in 1d 2h.', 93_600_000)
+  })
+
+  it('parses reset after clause with milliseconds', async () => {
+    await assertHold('Individual quota reached. reset after 3s250ms.', 3_250)
+  })
+
+  it('rejects partial and out-of-order durations and falls back to default', async () => {
+    await assertHold('Individual quota reached. resets in 1m2h.', 60_000)
+    await assertHold('Individual quota reached. resets in 1hgarbage.', 60_000)
+  })
+
+  it('invalid first RetryInfo does not hide later valid RetryInfo', async () => {
+    await assertHold(
+      'Individual quota reached.',
+      45_000,
+      [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 'invalid',
+        },
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: '45s',
+        },
+      ],
+      { 'retry-after': '300' },
+    )
+  })
+
+  it('known zero delay wins over default configured retry and marks 0ms', async () => {
+    const now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const h = harness({
+      pool: makePool(2),
+      config: {
+        default_retry_after_seconds: 60,
+        max_backoff_seconds: 2,
+        max_rate_limit_wait_seconds: 1,
+      },
+      respond: async (_call, index) =>
+        index === 0
+          ? new Response(
+              JSON.stringify({
+                error: {
+                  code: 429,
+                  message: 'Individual quota reached.',
+                  status: 'RESOURCE_EXHAUSTED',
+                  details: [
+                    {
+                      '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                      retryDelay: '0s',
+                    },
+                  ],
+                },
+              }),
+              { status: 429, headers: { 'retry-after': '300' } },
+            )
+          : okJson(),
+    })
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(mark).toHaveBeenCalledTimes(1)
+      expect(mark).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        0,
+        expect.anything(),
+      )
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+      date.mockRestore()
+    }
+  })
+
+  it('supports explicit bare seconds in metadata for backwards compatibility', async () => {
+    await assertHold(
+      'Individual quota reached.',
+      240_000,
+      [{ metadata: { quotaResetDelay: '240' } }],
+      { 'retry-after': '300' },
+    )
+  })
+
+  it('accepts valid RFC HTTP dates and rejects impossible dates and weekday mismatches', async () => {
+    const validFuture = new Date(FIXED_NOW + 30_000).toUTCString()
+    await assertHold('Individual quota reached.', 30_000, undefined, {
+      'retry-after': validFuture,
+    })
+
+    // Impossible date falls back to default 60s
+    await assertHold('Individual quota reached.', 60_000, undefined, {
+      'retry-after': 'Sun, 31 Feb 2028 12:00:00 GMT',
+    })
+
+    // Weekday mismatch falls back to default 60s
+    await assertHold('Individual quota reached.', 60_000, undefined, {
+      'retry-after': 'Mon, 01 Nov 2026 12:00:00 GMT',
+    })
+  })
+
+  for (const [shape, bodyFactory] of [
+    ['object', (content: any) => content],
+    ['array', (content: any) => [content]],
+  ] as const) {
+    it(`parses error reason and delay identically for ${shape} envelope`, async () => {
+      const now = FIXED_NOW
+      const date = spyOn(Date, 'now').mockImplementation(() => now)
+      const h = harness({
+        pool: makePool(2),
+        config: {
+          switch_on_first_rate_limit: true,
+          default_retry_after_seconds: 60,
+          max_backoff_seconds: 2,
+          max_rate_limit_wait_seconds: 1,
+        },
+        respond: async (_call, index) =>
+          index === 0
+            ? new Response(
+                JSON.stringify(
+                  bodyFactory({
+                    error: {
+                      code: 429,
+                      message: 'Quota exceeded. resets in 45s.',
+                      status: 'RESOURCE_EXHAUSTED',
+                      details: [
+                        {
+                          '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                          reason: 'RATE_LIMIT_EXCEEDED',
+                        },
+                        {
+                          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                          retryDelay: '30s',
+                        },
+                      ],
+                    },
+                  }),
+                ),
+                { status: 429, headers: { 'retry-after': '60' } },
+              )
+            : okJson(),
+      })
+      const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+      const executor = createRequestExecutor(h.deps)
+      try {
+        const response = await executor.execute(url, CHAT_INIT())
+        expect(response.status).toBe(200)
+        expect(mark).toHaveBeenCalledTimes(1)
+        expect(mark).toHaveBeenCalledWith(
+          expect.anything(),
+          'gemini',
+          model,
+          'RATE_LIMIT_EXCEEDED',
+          30_000, // RetryInfo (30s) overrides message (45s), headers (60s), and default (60s)
+          expect.anything(),
+        )
+      } finally {
+        await executor.dispose()
+        mark.mockRestore()
+        date.mockRestore()
+      }
+    })
+  }
+
+  it('scans and extracts later valid metadata in array wrapper', async () => {
+    const now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const h = harness({
+      pool: makePool(2),
+      config: {
+        default_retry_after_seconds: 60,
+        max_backoff_seconds: 2,
+        max_rate_limit_wait_seconds: 1,
+      },
+      respond: async (_call, index) =>
+        index === 0
+          ? new Response(
+              JSON.stringify([
+                {
+                  error: {
+                    code: 429,
+                    message: 'Quota exceeded.',
+                    status: 'RESOURCE_EXHAUSTED',
+                    details: [
+                      { metadata: { quotaResetDelay: 'invalid' } },
+                      {
+                        metadata: {
+                          quotaResetDelay: '4m',
+                          quotaResetTimeStamp: '2026-11-01T12:00:00Z',
+                        },
+                      },
+                    ],
+                  },
+                },
+              ]),
+              { status: 429, headers: { 'retry-after': '600' } },
+            )
+          : okJson(),
+    })
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(mark).toHaveBeenCalledTimes(1)
+      expect(mark).toHaveBeenCalledWith(
+        expect.anything(),
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        240_000, // 4m = 240,000ms
+        expect.anything(),
+      )
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+      date.mockRestore()
+    }
+  })
+
   it('a long individual quota reset does not extend the caller wait budget', async () => {
     let now = FIXED_NOW
     const date = spyOn(Date, 'now').mockImplementation(() => now)
