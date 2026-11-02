@@ -566,6 +566,115 @@ function rosterSource() {
   return { source, reads, refreshArgs }
 }
 
+describe('display vault roster wait', () => {
+  it('renders accounts from a quick first read without a second refresh', async () => {
+    const clock = rosterClock()
+    const { source, reads } = rosterSource()
+    const committedRoutes = source.routes
+    source.routes = () => []
+    const pool = createVaultAccountPool({ source, ...clock })
+    const display = pool.syncForDisplay()
+    await clock.advance(100)
+    source.routes = committedRoutes
+    reads[0]!.resolve()
+    await display
+    expect(pool.selector.rows).toHaveLength(1)
+    expect(reads).toHaveLength(1)
+    expect(clock.now()).toBe(100)
+    expect(clock.pending()).toBe(0)
+    await pool.syncForDisplay()
+    expect(reads).toHaveLength(1)
+    expect(clock.pending()).toBe(0)
+  })
+
+  it('returns committed routes at two seconds while discovery stays pending and shared', async () => {
+    const clock = rosterClock()
+    const { source, reads, refreshArgs } = rosterSource()
+    const pool = createVaultAccountPool({ source, ...clock })
+    let displayed = false
+    const display = pool.syncForDisplay().then(() => {
+      displayed = true
+    })
+    let requested = false
+    const request = pool.sync().then(() => {
+      requested = true
+    })
+    await clock.advance(1_999)
+    expect(displayed).toBe(false)
+    expect(requested).toBe(false)
+    await clock.advance(1)
+    await display
+    expect(pool.selector.rows).toHaveLength(1)
+    expect(clock.now()).toBe(2_000)
+    expect(requested).toBe(false)
+    expect(reads).toHaveLength(1)
+    expect(refreshArgs).toEqual([[]])
+    expect(clock.pending()).toBe(1)
+
+    // Further sections must not add another short wait to the same menu.
+    const section = pool.syncForDisplay()
+    await clock.advance(0)
+    await section
+    expect(clock.now()).toBe(2_000)
+    expect(requested).toBe(false)
+    expect(reads).toHaveLength(1)
+    await clock.advance(1_000)
+    source.routes = () => []
+    reads[0]!.resolve()
+    await request
+    expect(pool.selector.rows).toHaveLength(0)
+    expect(reads).toHaveLength(1)
+    expect(clock.pending()).toBe(0)
+  })
+
+  it('renders committed routes without throwing on a read error', async () => {
+    const clock = rosterClock()
+    const { source, reads } = rosterSource()
+    const pool = createVaultAccountPool({ source, ...clock })
+    const display = pool.syncForDisplay()
+    reads[0]!.reject(new Error('vault unavailable'))
+    await display
+    expect(pool.selector.rows).toHaveLength(1)
+    expect(clock.now()).toBe(0)
+    expect(clock.pending()).toBe(0)
+    const request = pool.sync()
+    expect(reads).toHaveLength(2)
+    reads[1]!.resolve()
+    await request
+  })
+
+  it('returns immediately on abort without throwing or cancelling shared discovery', async () => {
+    const clock = rosterClock()
+    const { source, reads, refreshArgs } = rosterSource()
+    const pool = createVaultAccountPool({ source, ...clock })
+    const controller = new AbortController()
+    const display = pool.syncForDisplay(controller.signal)
+    await clock.advance(100)
+    controller.abort(new DOMException('Menu closed', 'AbortError'))
+    await display
+    expect(pool.selector.rows).toHaveLength(1)
+    expect(clock.now()).toBe(100)
+    expect(clock.pending()).toBe(0)
+    const request = pool.sync()
+    expect(reads).toHaveLength(1)
+    expect(refreshArgs).toEqual([[]])
+    reads[0]!.resolve()
+    await request
+    expect(clock.pending()).toBe(0)
+  })
+
+  it('renders committed routes for an already aborted display without starting discovery', async () => {
+    const clock = rosterClock()
+    const { source, reads } = rosterSource()
+    const pool = createVaultAccountPool({ source, ...clock })
+    await pool.syncForDisplay(AbortSignal.abort())
+    expect(pool.selector.rows).toHaveLength(1)
+    expect(reads).toHaveLength(0)
+    expect(clock.now()).toBe(0)
+    expect(clock.pending()).toBe(0)
+  })
+})
+
 describe('first vault roster wait', () => {
   it('accepts a first roster settling at 3 seconds', async () => {
     const { source, reads } = rosterSource()

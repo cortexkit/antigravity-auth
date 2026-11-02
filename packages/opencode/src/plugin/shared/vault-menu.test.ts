@@ -33,7 +33,17 @@ describe('vault menu projection', () => {
   it('renders committed routes while a first roster read is pending', async () => {
     const read = Promise.withResolvers<void>()
     let routes: ReturnType<VaultRequestSource['routes']> = []
+    // Expire display waits without wall-clock delays while discovery stays held.
+    let now = 0
     const pool = createVaultAccountPool({
+      now: () => now,
+      schedule: (callback, delayMs) => {
+        const timer = setTimeout(() => {
+          now += delayMs
+          callback()
+        }, 0)
+        return () => clearTimeout(timer)
+      },
       source: {
         refresh: async () => {
           await read.promise
@@ -46,11 +56,11 @@ describe('vault menu projection', () => {
         reportServedStatus: async () => false,
       },
     })
-    const pending = pool.sync()
     const sections = createVaultAccountMenuSections(pool, () => 'opaque-choice')
     try {
       const empty = await sections.accounts.build({ notify: () => {} })
       expect(empty.items).toEqual([])
+      expect(now).toBe(2_000)
       routes = [
         {
           routeId: 'route',
@@ -63,9 +73,10 @@ describe('vault menu projection', () => {
       const quota = await sections.quota.build({ notify: () => {} })
       expect(accounts.items).toHaveLength(1)
       expect(quota.lines).toEqual(['Account 1: no quota reading yet'])
+      expect(now).toBe(2_000)
     } finally {
       read.resolve()
-      await pending
+      await pool.sync()
     }
   })
 

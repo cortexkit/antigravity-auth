@@ -655,7 +655,7 @@ export const createAntigravityPlugin =
         let current: Awaited<ReturnType<typeof currentVaultPool>>
         try {
           current = await currentVaultPool()
-          await current.pool.syncCached()
+          await current.pool.syncForDisplay()
         } catch {
           return showUnavailableVaultMenu()
         }

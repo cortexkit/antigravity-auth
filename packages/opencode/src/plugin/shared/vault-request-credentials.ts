@@ -618,8 +618,10 @@ export interface VaultAccountPool {
    * get their stored state; kept rows keep their in-memory state.
    */
   sync(signal?: AbortSignal): Promise<void>
-  /** Uses only committed routes, without waiting for discovery (menus/sidebar). */
+  /** Uses only committed routes, without starting or waiting for discovery. */
   syncCached(): Promise<void>
+  /** Briefly waits for first discovery, then renders committed routes even on failure. */
+  syncForDisplay(signal?: AbortSignal): Promise<void>
   /** Re-reads the roster from the vault now, then syncs the rows. */
   refresh(signal?: AbortSignal): Promise<void>
   /** Writes pending selection state. */
@@ -632,6 +634,9 @@ export interface VaultAccountPool {
  * the source whose refresh it is (`recycleStalledSource`).
  */
 export const VAULT_REFRESH_STALL_MS = 30_000
+
+// Keeps menus responsive while letting a quick first roster read show up.
+export const VAULT_DISPLAY_ROSTER_WAIT_MS = 2_000
 
 export function createVaultAccountPool(
   options: VaultAccountPoolOptions,
@@ -786,6 +791,25 @@ export function createVaultAccountPool(
       if (pending !== null) await replace()
     },
     syncCached: replace,
+    async syncForDisplay(signal) {
+      try {
+        signal?.throwIfAborted()
+        const read = readOnce()
+        // Menu opening and its sections share one short discovery window,
+        // rather than each waiting another two seconds on the same read.
+        const remaining =
+          firstReadStartedAt === null
+            ? 0
+            : Math.max(
+                0,
+                VAULT_DISPLAY_ROSTER_WAIT_MS - (clock() - firstReadStartedAt),
+              )
+        await waitForRead(read, signal, remaining)
+      } catch {
+        // A display uses committed routes when discovery fails or is cancelled.
+      }
+      await replace()
+    },
     async refresh(signal) {
       const discovering = firstRead === null || firstReadStartedAt !== null
       await waitForFirstRoster(signal)
