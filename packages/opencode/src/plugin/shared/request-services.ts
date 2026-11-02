@@ -16,6 +16,7 @@
  * `RequestWire`, which `createRequestWire` binds to one location's signature
  * cache, debug log and logger; the raw sender is called unchanged.
  */
+import { createHash } from 'node:crypto'
 import {
   type AgyTransportOptions,
   accessTokenExpired,
@@ -127,6 +128,9 @@ import { isPrimaryVaultRequest } from './vault-routing-purpose'
  */
 const FIRST_RETRY_DELAY_MS = 1000
 
+// Re-probe within an hour even when no quota refresh has revealed a new allowance.
+const MODEL_UNAVAILABLE_TTL_MS = 60 * 60 * 1000
+
 /** Raw Antigravity sender: the core CLI transport or a test double. */
 export type RequestTransport = (
   url: string,
@@ -149,6 +153,18 @@ export interface RequestAccountRow {
   }
   readonly cachedQuota?: Partial<Record<QuotaGroup, QuotaGroupSummary>>
   readonly cachedQuotaUpdatedAt?: number
+  readonly capturedTierId?: string
+  readonly capturedPaidTierId?: string
+  readonly ref?: {
+    readonly id: string
+    readonly credentialEpoch: number
+    readonly identity?: string
+  }
+  readonly route?: {
+    readonly routeId: string
+    readonly credentialId: string
+    readonly accountIdentity: string
+  }
 }
 
 type CoreArgs<K extends keyof CoreAccountManager> =
@@ -463,6 +479,8 @@ export type RequestDebug = Pick<
  */
 export interface RequestServicesDeps<A extends RequestAccountRow> {
   readonly preResponseClock?: PreResponseClock
+  /** Wall clock for the process-local model-availability cache. */
+  readonly modelAvailabilityNow?: () => number
   /** Check the persistent account source before each operation that uses credentials. */
   readonly assertAdmission?: (signal: AbortSignal) => Promise<void>
   readonly config: AntigravityConfig
@@ -814,6 +832,123 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
   const retryState: RetryState = createRetryState()
   const warmupState: WarmupState = createWarmupState()
+  // One executor serves every request of its interceptor/location pipeline.
+  // Keep negative capability evidence separate from retry and health state.
+  const modelAvailabilityNow = deps.modelAvailabilityNow ?? Date.now
+  const unavailableModels = new Map<
+    string | A,
+    Map<
+      string,
+      {
+        recordedAt: number
+        quotaUpdatedAt: number | undefined
+        tier: string
+        argonPool: boolean
+        label: string
+      }
+    >
+  >()
+  const accountKey = (account: A): string | A => {
+    if (credentials.domain === 'vault') {
+      const route = account.route
+      return route
+        ? JSON.stringify([
+            'vault',
+            route.routeId,
+            route.credentialId,
+            route.accountIdentity,
+          ])
+        : account
+    }
+    if (account.ref) {
+      const ref = account.ref
+      return JSON.stringify([
+        'local',
+        ref.id,
+        ref.credentialEpoch,
+        ref.identity,
+      ])
+    }
+    // Legacy pool-file accounts have no RowRef. Include their credential so
+    // re-login cannot inherit evidence about the previous login of an email.
+    const refresh = credentials.toAuthDetails(account).refresh
+    return JSON.stringify([
+      'pool-file',
+      account.email?.toLowerCase(),
+      createHash('sha256')
+        .update(parseRefreshParts(refresh).refreshToken)
+        .digest('hex'),
+    ])
+  }
+  const tierOf = (account: A) =>
+    JSON.stringify([account.capturedTierId, account.capturedPaidTierId])
+  const dropModel = (key: string | A, model: string, cause: string) => {
+    const entries = unavailableModels.get(key)
+    const entry = entries?.get(model)
+    if (!entries || !entry) return
+    log.debug('model-unavailable-memory-drop', {
+      account: entry.label,
+      model,
+      cause,
+    })
+    entries.delete(model)
+    if (entries.size === 0) unavailableModels.delete(key)
+  }
+  const rememberedIndexes = (model: string | null | undefined): Set<number> => {
+    const rows = accountManager.getAccounts()
+    const live = new Map(rows.map((row) => [accountKey(row), row]))
+    const indexes = new Set<number>()
+    for (const [key, entries] of unavailableModels) {
+      const row = live.get(key)
+      for (const [exactModel, entry] of entries) {
+        const cause = !row
+          ? 'identity-replaced'
+          : modelAvailabilityNow() - entry.recordedAt >=
+              MODEL_UNAVAILABLE_TTL_MS
+            ? 'expired'
+            : row.cachedQuotaUpdatedAt !== undefined &&
+                row.cachedQuota?.['gemini-argon'] !== undefined &&
+                (!entry.argonPool ||
+                  row.cachedQuotaUpdatedAt !== entry.quotaUpdatedAt)
+              ? 'argon-pool'
+              : row.cachedQuotaUpdatedAt !== undefined &&
+                  row.cachedQuotaUpdatedAt !== entry.quotaUpdatedAt
+                ? 'quota-reading'
+                : tierOf(row) !== entry.tier
+                  ? 'tier-changed'
+                  : undefined
+        if (cause) dropModel(key, exactModel, cause)
+        else if (row && exactModel === model) indexes.add(row.index)
+      }
+    }
+    return indexes
+  }
+  const captureAvailability = (account: A) => ({
+    key: accountKey(account),
+    quotaUpdatedAt: account.cachedQuotaUpdatedAt,
+    tier: tierOf(account),
+    argonPool: account.cachedQuota?.['gemini-argon'] !== undefined,
+    label: `Account ${account.index + 1}`,
+  })
+  const rememberUnavailable = (
+    snapshot: ReturnType<typeof captureAvailability>,
+    model: string,
+  ) => {
+    const { key, ...entry } = snapshot
+    let entries = unavailableModels.get(key)
+    if (!entries) {
+      entries = new Map()
+      unavailableModels.set(key, entries)
+    }
+    entries.set(model, {
+      ...entry,
+      recordedAt: modelAvailabilityNow(),
+    })
+    log.debug('model-unavailable-memory-record', {
+      account: entry.label,
+      model,
+    })
+  }
   const shutdown = new AbortController()
   const inFlight = new Set<Promise<unknown>>()
   const advisoryWork = new Set<Promise<void>>()
@@ -1093,9 +1228,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     let localRecaptureUsed = false
     const maxWaitMs = (config.max_rate_limit_wait_seconds ?? 300) * 1000
     let allAccountsBlockedAt: number | undefined
-    // Accounts whose daily endpoint answered that the requested model does
-    // not exist for them. They are left out of selection for the rest of
-    // this request only; no rate limit, cooldown or failure is recorded.
+    // Retain the request-local skip even if fresh quota evidence drops the
+    // cross-request memory during this request. Neither skip is a penalty.
     const modelUnavailableIndexes = new Set<number>()
     let routingPlacementConsidered = false
 
@@ -1192,7 +1326,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 .filter((index) => !eligibleIndexes.has(index)),
             )
 
-      if (modelUnavailableIndexes.size > 0) {
+      const unavailableIndexes = new Set([
+        ...modelUnavailableIndexes,
+        ...rememberedIndexes(model),
+      ])
+      if (unavailableIndexes.size > 0) {
         const candidates = accountManager
           .getAccounts()
           .filter(
@@ -1204,7 +1342,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           )
         if (
           candidates.length > 0 &&
-          candidates.every((entry) => modelUnavailableIndexes.has(entry.index))
+          candidates.every((entry) => unavailableIndexes.has(entry.index))
         ) {
           // Every account that could serve this request lacks the model.
           // Waiting or retrying cannot change that, so end with a
@@ -1225,9 +1363,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       }
 
       const excludedIndexes =
-        modelUnavailableIndexes.size === 0
+        unavailableIndexes.size === 0
           ? killedIndexes
-          : new Set([...(killedIndexes ?? []), ...modelUnavailableIndexes])
+          : new Set([...(killedIndexes ?? []), ...unavailableIndexes])
 
       const routingPresent =
         credentials.domain === 'vault' && hasVaultRoutingAccessor()
@@ -2021,6 +2159,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           let tokenConsumed = false
           let physicalAttemptStarted = false
           try {
+            // Attribute the answer to the identity and reading used by this
+            // attempt, not a replacement that arrives while the send waits.
+            const availabilitySnapshot = captureAvailability(account)
             // One credential grant per physical send, chosen by domain. Vault:
             // a fresh admission for this send only; its token and project come
             // from that one receipt, and a 401 is reported against its record
@@ -2529,6 +2670,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 })
                 void response.body?.cancel().catch(() => {})
                 modelUnavailableIndexes.add(account.index)
+                if (model) rememberUnavailable(availabilitySnapshot, model)
                 skippedForModelUnavailable = true
                 shouldSwitchAccount = true
                 break
@@ -3060,6 +3202,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       while (advisoryWork.size > 0) await Promise.allSettled([...advisoryWork])
       retryState.dispose()
       warmupState.dispose()
+      for (const [key, entries] of unavailableModels) {
+        for (const model of entries.keys()) dropModel(key, model, 'disposed')
+      }
     })()
     return drainPromise
   }

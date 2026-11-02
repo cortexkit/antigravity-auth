@@ -288,6 +288,24 @@ export function resolveQuotaGroup(
   return family === 'claude' ? 'non-gemini' : 'gemini'
 }
 
+function reportsArgon(account: SelectableAccount): boolean {
+  return (
+    account.cachedQuotaUpdatedAt !== undefined &&
+    account.cachedQuota?.['gemini-argon'] !== undefined
+  )
+}
+
+// Unknown allowances remain usable, but a dated Argon allowance is stronger evidence.
+function preferArgonAccounts<A extends SelectableAccount>(
+  accounts: A[],
+  model?: string | null,
+): A[] {
+  if (!model || getQuotaGroupForModel(model, true) !== 'gemini-argon')
+    return accounts
+  const reporting = accounts.filter(reportsArgon)
+  return reporting.length > 0 ? reporting : accounts
+}
+
 function isOverSoftQuotaThreshold(
   account: SelectableAccount,
   family: ModelFamily,
@@ -1017,13 +1035,22 @@ export class AccountSelector<A extends SelectableAccount> {
       // Get current account index for stickiness
       const currentIndex = this.getActiveIndex(family, identity)
 
-      const selectedIndex = selectHybridAccount(
-        accountsWithMetrics,
-        tokenTracker,
-        currentIndex,
-        50,
-        this.now,
-      )
+      // Prefer the reporting group before scoring, without starving the fallback
+      // group when every reporting account is temporarily unavailable.
+      const preferred = preferArgonAccounts(eligibleAccounts, model)
+      const preferredIndexes = new Set(preferred.map((row) => row.index))
+      const select = (candidates: AccountWithMetrics[]) =>
+        selectHybridAccount(
+          candidates,
+          tokenTracker,
+          currentIndex,
+          50,
+          this.now,
+        )
+      const selectedIndex =
+        select(
+          accountsWithMetrics.filter((row) => preferredIndexes.has(row.index)),
+        ) ?? select(accountsWithMetrics)
       if (selectedIndex !== null) {
         const selected = this.accounts[selectedIndex]
         if (selected) {
@@ -1065,7 +1092,27 @@ export class AccountSelector<A extends SelectableAccount> {
     }
 
     const current = this.getCurrentAccountForFamily(family, identity)
-    if (current && !excludeIndexes?.has(current.index)) {
+    const preferred = preferArgonAccounts(
+      this.accounts.filter(
+        (row) =>
+          row.enabled !== false &&
+          !row.accountIneligible &&
+          !row.verificationRequired &&
+          !excludeIndexes?.has(row.index) &&
+          !isRateLimitedForFamily(row, family, this.now, model) &&
+          !this.isAccountCoolingDown(row) &&
+          !isOverSoftQuotaThreshold(
+            row,
+            family,
+            effectiveSoftQuotaThreshold,
+            softQuotaCacheTtlMs,
+            this.now,
+            model,
+          ),
+      ),
+      model,
+    )
+    if (current && preferred.includes(current)) {
       clearExpiredRateLimits(current, this.now)
       const isLimitedForRequestedStyle = isRateLimitedForFamily(
         current,
@@ -1139,7 +1186,7 @@ export class AccountSelector<A extends SelectableAccount> {
       )
     })
     const available = this.preferAccountOutsideParent(
-      allAvailable,
+      preferArgonAccounts(allAvailable, model),
       family,
       identity,
     )

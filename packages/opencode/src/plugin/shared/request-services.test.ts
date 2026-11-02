@@ -3760,6 +3760,308 @@ describe('createRequestExecutor model unavailable (404 NOT_FOUND)', () => {
     for (const spy of Object.values(spies)) expect(spy).not.toHaveBeenCalled()
   }
 
+  const ARGON_MODEL = 'gemini-4-argon-low'
+  const ARGON_URL = modelUrl(ARGON_MODEL, 'generateContent')
+  const FLASH_MODEL = 'gemini-3.8-flash-low'
+  const FLASH_URL = modelUrl(FLASH_MODEL, 'generateContent')
+
+  function memoryHarness(count = 1) {
+    return harness({
+      pool: makePool(count),
+      refresh: perAccountRefresh,
+      respond: async (call) =>
+        bearer(call) === 'Bearer access-refresh-0' &&
+        JSON.parse(String(call.init?.body)).model.includes('argon')
+          ? modelNotFound()
+          : okJson(),
+    })
+  }
+
+  async function consume(
+    executor: ReturnType<typeof createRequestExecutor>,
+    url = ARGON_URL,
+  ) {
+    const response = await executor.execute(url, CHAT_INIT())
+    await response.text()
+    return response
+  }
+
+  function chooseFree(h: Harness) {
+    h.pool.getCurrentOrNextForFamily(
+      'gemini',
+      FLASH_MODEL,
+      'sticky',
+      false,
+      100,
+      600_000,
+      undefined,
+      new Set([1]),
+    )
+  }
+
+  it('memory: two consecutive Argon requests do not repeat the free account NOT_FOUND', async () => {
+    const h = memoryHarness(2)
+    const free = h.pool.getAccounts()[0]!
+    const pro = h.pool.getAccounts()[1]!
+    free.lastUsed = Date.now()
+    pro.cachedQuota = {
+      'gemini-argon': { modelCount: 1, remainingFraction: 1 },
+    }
+    pro.cachedQuotaUpdatedAt = Date.now()
+    // An existing Flash session can be pinned to a free account before it
+    // switches models. Argon ordering must not override that session pin.
+    const session = { sessionId: 'reporter', parentSessionId: null }
+    h.pool.getCurrentOrNextForFamily(
+      'gemini',
+      FLASH_MODEL,
+      'sticky',
+      false,
+      100,
+      600_000,
+      { id: session.sessionId },
+    )
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const first = await executor.execute(ARGON_URL, CHAT_INIT(), { session })
+      expect(first.status).toBe(200)
+      await first.text()
+      expect(h.calls.map(bearer)).toEqual([
+        'Bearer access-refresh-0',
+        'Bearer access-refresh-1',
+      ])
+      chooseFree(h)
+      const other = { sessionId: 'another-session', parentSessionId: null }
+      h.pool.getCurrentOrNextForFamily(
+        'gemini',
+        FLASH_MODEL,
+        'sticky',
+        false,
+        100,
+        600_000,
+        { id: other.sessionId },
+        new Set([1]),
+      )
+      const second = await executor.execute(ARGON_URL, CHAT_INIT(), {
+        session: other,
+      })
+      expect(second.status).toBe(200)
+      await second.text()
+      expect(h.calls.map(bearer)).toEqual([
+        'Bearer access-refresh-0',
+        'Bearer access-refresh-1',
+        'Bearer access-refresh-1',
+      ])
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('memory: exact model scope leaves Flash and other Argon selectors selectable', async () => {
+    const h = memoryHarness()
+    const executor = createRequestExecutor(h.deps)
+    try {
+      expect((await consume(executor)).status).toBe(412)
+      expect((await consume(executor)).status).toBe(412)
+      expect(h.calls).toHaveLength(1)
+      expect((await consume(executor, FLASH_URL)).status).toBe(200)
+      expect(
+        (
+          await consume(
+            executor,
+            modelUrl('gemini-4-argon-high', 'generateContent'),
+          )
+        ).status,
+      ).toBe(412)
+      expect(h.calls).toHaveLength(3)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('memory: expiry retries the account at one hour using an injected clock', async () => {
+    const h = memoryHarness()
+    let now = FIXED_NOW
+    Object.assign(h.deps, { modelAvailabilityNow: () => now })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      await consume(executor)
+      now += 3_600_000 - 1
+      await consume(executor)
+      expect(h.calls).toHaveLength(1)
+      now += 1
+      await consume(executor)
+      expect(h.calls).toHaveLength(2)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  for (const change of [
+    'quota-reading',
+    'tier-changed',
+    'identity-replaced',
+    're-login',
+  ] as const) {
+    it(`memory: ${change} drops the negative entry`, async () => {
+      const h = memoryHarness()
+      const account = h.pool.getAccounts()[0]!
+      account.cachedQuotaUpdatedAt = FIXED_NOW
+      if (change === 'identity-replaced')
+        account.ref = { id: 'stable-row', credentialEpoch: 1 }
+      const logger = spyOn(h.deps.logger, 'debug')
+      const executor = createRequestExecutor(h.deps)
+      try {
+        await consume(executor)
+        await consume(executor)
+        expect(h.calls).toHaveLength(1)
+        if (change === 'quota-reading')
+          account.cachedQuotaUpdatedAt = FIXED_NOW + 1
+        if (change === 'tier-changed') account.capturedTierId = 'pro'
+        if (change === 'identity-replaced')
+          account.ref = { id: 'stable-row', credentialEpoch: 2 }
+        if (change === 're-login')
+          account.parts.refreshToken = 'replacement-login'
+        await consume(executor)
+        expect(h.calls).toHaveLength(2)
+        expect(logger).toHaveBeenCalledWith('model-unavailable-memory-drop', {
+          account: 'Account 1',
+          model: ARGON_MODEL,
+          cause: change === 're-login' ? 'identity-replaced' : change,
+        })
+      } finally {
+        await executor.dispose()
+      }
+    })
+  }
+
+  it('memory: gaining a dated Argon pool drops the entry and prefers that account', async () => {
+    const h = memoryHarness(2)
+    const executor = createRequestExecutor(h.deps)
+    const logger = spyOn(h.deps.logger, 'debug')
+    try {
+      await consume(executor)
+      chooseFree(h)
+      await consume(executor)
+      expect(h.calls.map(bearer)).toEqual([
+        'Bearer access-refresh-0',
+        'Bearer access-refresh-1',
+        'Bearer access-refresh-1',
+      ])
+      const free = h.pool.getAccounts()[0]!
+      free.cachedQuota = {
+        'gemini-argon': { modelCount: 1, remainingFraction: 1 },
+      }
+      free.cachedQuotaUpdatedAt = FIXED_NOW + 1
+      await consume(executor)
+      expect(h.calls.map(bearer).slice(3)).toEqual([
+        'Bearer access-refresh-0',
+        'Bearer access-refresh-1',
+      ])
+      expect(logger).toHaveBeenCalledWith('model-unavailable-memory-drop', {
+        account: 'Account 1',
+        model: ARGON_MODEL,
+        cause: 'argon-pool',
+      })
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('memory: all remembered accounts refuse immediately without sends, waits, or penalties', async () => {
+    const h = harness({
+      pool: makePool(2),
+      refresh: perAccountRefresh,
+      config: { account_selection_strategy: 'hybrid' },
+      respond: async () => modelNotFound(),
+    })
+    const token = new TokenBucketTracker()
+    const before = accountState(h.pool)
+    const tokens = [token.getTokens(0), token.getTokens(1)]
+    const spies = penaltySpies(h)
+    const wait = spyOn(h.pool, 'getMinWaitTimeForFamily')
+    const executor = createRequestExecutor({
+      ...h.deps,
+      trackers: { ...h.deps.trackers, token },
+    })
+    try {
+      await consume(executor)
+      expect(h.calls).toHaveLength(2)
+      h.calls.length = 0
+      const response = await executor.execute(ARGON_URL, CHAT_INIT())
+      expect(response.status).toBe(412)
+      expect(response.headers.get('retry-after')).toBeNull()
+      expect(await response.json()).toEqual(MODEL_UNAVAILABLE_412)
+      expect(h.calls).toHaveLength(0)
+      expect(wait).not.toHaveBeenCalled()
+      expectNoPenalty(spies)
+      expect(accountState(h.pool)).toEqual(before)
+      expect([token.getTokens(0), token.getTokens(1)]).toEqual(tokens)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('memory: dispose drops all entries without logging account emails', async () => {
+    const h = memoryHarness()
+    const logger = spyOn(h.deps.logger, 'debug')
+    const executor = createRequestExecutor(h.deps)
+    await consume(executor)
+    await consume(executor)
+    expect(h.calls).toHaveLength(1)
+    await executor.dispose()
+    expect(logger).toHaveBeenCalledWith('model-unavailable-memory-drop', {
+      account: 'Account 1',
+      model: ARGON_MODEL,
+      cause: 'disposed',
+    })
+    const memoryLogs = logger.mock.calls.filter(([message]) =>
+      String(message).startsWith('model-unavailable-memory-'),
+    )
+    expect(memoryLogs).toHaveLength(2)
+    expect(JSON.stringify(memoryLogs)).not.toContain(
+      h.pool.getAccounts()[0]!.email!,
+    )
+    const next = createRequestExecutor(h.deps)
+    try {
+      await consume(next)
+      expect(h.calls).toHaveLength(2)
+    } finally {
+      await next.dispose()
+    }
+  })
+
+  it('memory: vault entries follow the vault identity, not the local row or index', async () => {
+    const h = harness({ respond: async () => modelNotFound() })
+    const row = h.pool.getAccounts()[0]!
+    const route = {
+      routeId: 'route-a',
+      credentialId: 'credential-a',
+      accountIdentity: 'vault-a',
+    }
+    Object.assign(row, { route })
+    const deps = vaultDeps(h, async () => ({
+      ...route,
+      recordVersion: 1,
+      accessToken: 'vault-access',
+      projectId: 'vault-project',
+      report401: async () => {},
+    }))
+    const executor = createRequestExecutor(deps)
+    try {
+      await consume(executor)
+      row.ref = { id: 'irrelevant-local-id', credentialEpoch: 2 }
+      Object.assign(row, { route: { ...route } })
+      await consume(executor)
+      expect(h.calls).toHaveLength(1)
+      route.accountIdentity = 'vault-b'
+      Object.assign(row, { route })
+      await consume(executor)
+      expect(h.calls).toHaveLength(2)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
   it('skips an account without the model and serves from the next account on daily only', async () => {
     const h = harness({
       pool: makePool(2),

@@ -1237,6 +1237,125 @@ describe('gemini-argon quota routing', () => {
     }
   }
 
+  const withArgon = () => ({
+    ...freshGemini(1),
+    'gemini-argon': {
+      remainingFraction: 1,
+      modelCount: 1,
+      resetTime: ARGON_RESET,
+    },
+  })
+
+  for (const strategy of ['sticky', 'round-robin', 'hybrid'] as const) {
+    it(`Argon preference: ${strategy} tries a dated reporting account before a non-reporter`, () => {
+      const selector = new AccountSelector({ now: () => ARGON_NOW })
+      const free = argonRow(0, freshGemini(1))
+      const pro = argonRow(1, withArgon())
+      free.lastUsed = ARGON_NOW - 3_600_000
+      pro.lastUsed = ARGON_NOW
+      selector.resetAccounts([free, pro], { gemini: 0, claude: 0 })
+      // Hybrid's score and global stickiness both favour the free account;
+      // capability is a candidate-group preference, not a score bonus.
+      expect(
+        selector.getCurrentOrNextForFamily('gemini', ARGON_MODEL, strategy)
+          ?.index,
+      ).toBe(1)
+    })
+  }
+
+  it('Argon preference: hybrid still scores within the reporting group', () => {
+    const selector = new AccountSelector({ now: () => ARGON_NOW })
+    const rows = [
+      argonRow(0, freshGemini(1)),
+      argonRow(1, withArgon()),
+      argonRow(2, withArgon()),
+    ]
+    rows[0]!.lastUsed = ARGON_NOW - 3_600_000
+    rows[1]!.lastUsed = ARGON_NOW
+    rows[2]!.lastUsed = ARGON_NOW - 3_600_000
+    selector.resetAccounts(rows, { gemini: 0, claude: 0 })
+    expect(
+      selector.getCurrentOrNextForFamily('gemini', ARGON_MODEL, 'hybrid')
+        ?.index,
+    ).toBe(2)
+  })
+
+  it('Argon preference: unknown quota remains a fallback and undated pools do not lead', () => {
+    const selector = new AccountSelector({ now: () => ARGON_NOW })
+    const unknown = argonRow(0, undefined)
+    const undated = argonRow(1, withArgon())
+    delete undated.cachedQuotaUpdatedAt
+    const pro = argonRow(2, withArgon())
+    selector.resetAccounts([unknown, undated, pro], { gemini: 0, claude: 0 })
+    expect(
+      selector.getCurrentOrNextForFamily('gemini', ARGON_MODEL)?.index,
+    ).toBe(2)
+    pro.coolingDownUntil = ARGON_NOW + 60_000
+    expect(selector.getNextForFamily('gemini', ARGON_MODEL)?.index).toBe(0)
+  })
+
+  it('Argon preference: non-Argon models and pools without reporters retain their order', () => {
+    for (const strategy of ['sticky', 'round-robin', 'hybrid'] as const) {
+      for (const model of [ARGON_MODEL, FLASH_MODEL, 'claude-sonnet-5-5-low']) {
+        const selector = new AccountSelector({ now: () => ARGON_NOW })
+        selector.resetAccounts(
+          [
+            argonRow(0, freshGemini(1)),
+            argonRow(1, model === ARGON_MODEL ? undefined : withArgon()),
+          ],
+          { gemini: 0, claude: 0 },
+        )
+        const family = model.includes('claude') ? 'claude' : 'gemini'
+        expect(
+          selector.getCurrentOrNextForFamily(family, model, strategy)?.index,
+        ).toBe(0)
+      }
+    }
+  })
+
+  it('Argon preference: existing session pins remain until explicitly excluded', () => {
+    const selector = new AccountSelector({ now: () => ARGON_NOW })
+    selector.resetAccounts([
+      argonRow(0, freshGemini(1)),
+      argonRow(1, withArgon()),
+    ])
+    const session = { id: 'pinned-free' }
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        FLASH_MODEL,
+        'sticky',
+        false,
+        100,
+        ARGON_TTL,
+        session,
+      )?.index,
+    ).toBe(0)
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        ARGON_MODEL,
+        'hybrid',
+        false,
+        100,
+        ARGON_TTL,
+        session,
+      )?.index,
+    ).toBe(0)
+    expect(
+      selector.getCurrentOrNextForFamily(
+        'gemini',
+        ARGON_MODEL,
+        'hybrid',
+        false,
+        100,
+        ARGON_TTL,
+        session,
+        new Set([0]),
+      )?.index,
+    ).toBe(1)
+  })
+
   it('skips an argon-exhausted Pro account for argon but serves gemini from it', () => {
     const selector = new AccountSelector<SelectableAccount>({
       now: () => ARGON_NOW,

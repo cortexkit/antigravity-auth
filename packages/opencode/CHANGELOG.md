@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Gemini 4 Argon requests no longer try a free account that doesn't offer the model again on every request: the plugin remembers that answer for up to an hour (or until the account's quota reading changes), and tries accounts that report an Argon allowance first. (#63)
+
 ## [3.0.28] - 2026-11-02
 
 ### Changed
