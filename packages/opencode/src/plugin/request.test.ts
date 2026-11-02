@@ -2,6 +2,7 @@ import { describe, expect, it, spyOn } from 'bun:test'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { redactCredentialError } from '@cortexkit/antigravity-auth-core'
 import opusLow from '../../../../test-fixtures/agy-cli-1.3.3/native-opus-low.json'
 import sonnetLow from '../../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
 import schemaDerived from '../../../../test-fixtures/agy-cli-1.3.3/schema-derived-thinking.json'
@@ -3286,20 +3287,15 @@ describe('request.ts', () => {
     })
 
     it('reads chunked body only once and preserves status and diagnostic information', async () => {
-      let readCount = 0
+      const chunk1 = '{"error":{"code":429,"message":"Quota exceeded for '
+      const chunk2 = 'project-secret-123 in region us-central1. '
+      const chunk3 = 'Resets in 15s."}}'
+
       const bodyStream = new ReadableStream({
         start(controller) {
-          readCount++
-          controller.enqueue(
-            new TextEncoder().encode(
-              JSON.stringify({
-                error: {
-                  code: 429,
-                  message: 'Quota exceeded',
-                },
-              }),
-            ),
-          )
+          controller.enqueue(new TextEncoder().encode(chunk1))
+          controller.enqueue(new TextEncoder().encode(chunk2))
+          controller.enqueue(new TextEncoder().encode(chunk3))
           controller.close()
         },
       })
@@ -3312,13 +3308,371 @@ describe('request.ts', () => {
         },
       })
 
-      const trans = await transformAntigravityResponse(resp, false)
-      expect(readCount).toBe(1)
+      let textCallCount = 0
+      const origText = resp.text.bind(resp)
+      resp.text = async () => {
+        textCallCount++
+        if (textCallCount > 1) {
+          throw new Error(
+            'Illegal double consumption: response.text() called more than once',
+          )
+        }
+        return await origText()
+      }
+
+      let cloneCallCount = 0
+      resp.clone = () => {
+        cloneCallCount++
+        throw new Error('Illegal response.clone() called on error response')
+      }
+
+      expect(resp.bodyUsed).toBe(false)
+
+      const trans = await transformAntigravityResponse(
+        resp,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+
+      expect(textCallCount).toBe(1)
+      expect(cloneCallCount).toBe(0)
+      expect(resp.bodyUsed).toBe(true)
       expect(trans.status).toBe(429)
       expect(trans.headers.get('retry-after')).toBe('15')
       expect(trans.headers.get('retry-after-ms')).toBe('15000')
-      const json = await trans.json()
-      expect((json as any).error.message).toContain('Quota exceeded')
+
+      const json = (await trans.json()) as any
+      expect(json.error.message).toContain('Quota exceeded for')
+      expect(json.error.message).toContain('proj****-123')
+      expect(json.error.message).not.toContain('project-secret-123')
+      expect(json.error.message).toContain('quota resets in 15s')
+
+      await expect(resp.text()).rejects.toThrow('Illegal double consumption')
+    })
+
+    it('returns canonical application/json content-type for recognized failed SSE with object error', async () => {
+      const sseText =
+        'data: {"error":{"code":429,"message":"Resource exhausted for project-secret-123. Resets in 10s.","status":"RESOURCE_EXHAUSTED"}}\n\n'
+      const response = new Response(sseText, {
+        status: 429,
+        headers: {
+          'content-type': 'text/event-stream',
+          'x-request-id': 'req-sse-fail-1',
+        },
+      })
+
+      const trans = await transformAntigravityResponse(
+        response,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+
+      expect(trans.status).toBe(429)
+      expect(trans.headers.get('content-type')).toBe('application/json')
+      expect(trans.headers.get('retry-after')).toBe('10')
+      expect(trans.headers.get('retry-after-ms')).toBe('10000')
+      expect(trans.headers.get('x-request-id')).toBe('req-sse-fail-1')
+
+      const json = (await trans.json()) as any
+      expect(json.error.code).toBe(429)
+      expect(json.error.message).toContain('proj****-123')
+      expect(json.error.message).not.toContain('project-secret-123')
+      expect(json.error.message).toContain('quota resets in 10s')
+      expect(json.error.message).toContain('[Debug Info]')
+    })
+
+    it('returns canonical application/json content-type for recognized failed SSE with wrapped error', async () => {
+      const sseText =
+        'data: [{"error":{"code":429,"message":"Quota reached for project-secret-123"}},{"siblingKey":"preserve"}]\n\n'
+      const response = new Response(sseText, {
+        status: 429,
+        headers: {
+          'content-type': 'text/event-stream',
+          'retry-after': '20',
+        },
+      })
+
+      const trans = await transformAntigravityResponse(
+        response,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+
+      expect(trans.status).toBe(429)
+      expect(trans.headers.get('content-type')).toBe('application/json')
+      expect(trans.headers.get('retry-after')).toBe('20')
+      expect(trans.headers.get('retry-after-ms')).toBe('20000')
+
+      const json = (await trans.json()) as any
+      expect(Array.isArray(json)).toBe(true)
+      expect(json[1].siblingKey).toBe('preserve')
+    })
+
+    it('retains text/event-stream content-type and framing on raw/unrecognized SSE fallback', async () => {
+      const rawText =
+        'event: custom_failure\ndata: unparseable non-json raw error for project-secret-123\n\n'
+      const response = new Response(rawText, {
+        status: 500,
+        headers: {
+          'content-type': 'text/event-stream',
+          'x-server': 'test-gateway',
+        },
+      })
+
+      const trans = await transformAntigravityResponse(
+        response,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+
+      expect(trans.status).toBe(500)
+      expect(trans.headers.get('content-type')).toBe('text/event-stream')
+      expect(trans.headers.get('x-server')).toBe('test-gateway')
+      const bodyText = await trans.text()
+      expect(bodyText).toContain('event: custom_failure')
+      expect(bodyText).toContain('proj****-123')
+      expect(bodyText).not.toContain('project-secret-123')
+    })
+
+    it('rejects on body read stream error preserving original status, scrubbed metadata, and plain headers record', async () => {
+      const secretJwt =
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgN'
+      const secretBearer = 'Bearer ya29.a0ARrdaM-secret-bearer-token'
+      const syntheticHeaderSecret = 'opaque-synthetic-header-credential-987'
+
+      const errorStream = new ReadableStream({
+        pull(controller) {
+          controller.error(
+            new Error(
+              `Stream aborted: ${secretBearer} and ${secretJwt} for project-secret-123`,
+            ),
+          )
+        },
+      })
+
+      const resp = new Response(errorStream, {
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: {
+          'content-type': 'application/json',
+          'retry-after': '30',
+          'x-request-id': 'req-read-err-429',
+          'x-auth-secret': syntheticHeaderSecret,
+        },
+      })
+
+      let caughtError: any = null
+      try {
+        await transformAntigravityResponse(
+          resp,
+          false,
+          null,
+          undefined,
+          'project-secret-123',
+        )
+      } catch (err) {
+        caughtError = err
+      }
+
+      expect(caughtError).toBeInstanceOf(Error)
+      expect(caughtError.statusCode).toBe(429)
+      expect(caughtError.status).toBe(429)
+      expect(caughtError.statusText).toBe('Too Many Requests')
+
+      // Plain record headers assertions
+      expect(caughtError.headers).toBeTypeOf('object')
+      expect(Array.isArray(caughtError.headers)).toBe(false)
+      expect(caughtError.headers['retry-after']).toBe('30')
+      expect(caughtError.headers['retry-after-ms']).toBe('30000')
+      expect(caughtError.headers['x-request-id']).toBe('req-read-err-429')
+      expect(caughtError.headers['x-auth-secret']).toBe(syntheticHeaderSecret)
+
+      // Message and cause credential scrubbing assertions
+      expect(caughtError.message).toContain('Failed to read response body:')
+      expect(caughtError.message).toContain('[credential]')
+      expect(caughtError.message).toContain('proj****-123')
+      expect(caughtError.message).not.toContain(secretBearer)
+      expect(caughtError.message).not.toContain(secretJwt)
+      expect(caughtError.message).not.toContain('project-secret-123')
+
+      if (caughtError.cause) {
+        expect(caughtError.cause.message).not.toContain(secretBearer)
+        expect(caughtError.cause.message).not.toContain(secretJwt)
+        expect(caughtError.cause.message).not.toContain('project-secret-123')
+      }
+
+      // Downstream outer credential redactor must scrub synthetic credential from plain header record
+      const safeScrubbed = redactCredentialError(caughtError, [
+        syntheticHeaderSecret,
+      ]) as any
+      expect(safeScrubbed.headers['x-auth-secret']).toBe('[credential]')
+      expect(safeScrubbed.headers['retry-after']).toBe('30')
+      expect(safeScrubbed.headers['x-request-id']).toBe('req-read-err-429')
+    })
+
+    it('rejects on body read stream error for status 503 and removes invalid retry headers', async () => {
+      const errorStream = new ReadableStream({
+        pull(controller) {
+          controller.error(new Error('Backend socket abruptly severed'))
+        },
+      })
+
+      const resp = new Response(errorStream, {
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: {
+          'content-type': 'application/json',
+          'retry-after-ms': '12500',
+          'retry-after': 'invalid-non-numeric-value',
+        },
+      })
+
+      let caughtError: any = null
+      try {
+        await transformAntigravityResponse(resp, false)
+      } catch (err) {
+        caughtError = err
+      }
+
+      expect(caughtError).toBeInstanceOf(Error)
+      expect(caughtError.statusCode).toBe(503)
+      expect(caughtError.status).toBe(503)
+      expect(caughtError.statusText).toBe('Service Unavailable')
+
+      // Validated retry header pair derived from valid ms (12500ms -> 13s)
+      expect(caughtError.headers['retry-after']).toBe('13')
+      expect(caughtError.headers['retry-after-ms']).toBe('12500')
+      expect(caughtError.headers['retry-after']).not.toBe(
+        'invalid-non-numeric-value',
+      )
+    })
+
+    it('negative test: ignores conflicting ordinary error body retry fields in favor of canonical precedence', async () => {
+      // 1. Conflicting error.retryAfterMs/resetAfterMs/retryAfterSeconds with true GoogleRetryInfo
+      const respWithRetryInfo = new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Resource exhausted. Resets in 50s.',
+            retryAfterMs: 999999,
+            resetAfterMs: 888888,
+            retryAfterSeconds: 777777,
+            details: [
+              {
+                '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                retryDelay: '25s',
+              },
+            ],
+          },
+        }),
+        {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': '90',
+          },
+        },
+      )
+      const transInfo = await transformAntigravityResponse(
+        respWithRetryInfo,
+        false,
+      )
+      expect(transInfo.headers.get('retry-after')).toBe('25')
+      expect(transInfo.headers.get('retry-after-ms')).toBe('25000')
+
+      // 2. Conflicting error fields with true details metadata.quotaResetDelay (skipping invalid numeric 1e308 RetryInfo)
+      const respWithMeta = new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Resource exhausted. Resets in 50s.',
+            retryAfterMs: 999999,
+            resetAfterMs: 888888,
+            retryAfterSeconds: 777777,
+            details: [
+              {
+                '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                retryDelay: 1e308,
+              },
+              {
+                metadata: {
+                  quotaResetDelay: '30s',
+                },
+              },
+            ],
+          },
+        }),
+        {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': '90',
+          },
+        },
+      )
+      const transMeta = await transformAntigravityResponse(respWithMeta, false)
+      expect(transMeta.headers.get('retry-after')).toBe('30')
+      expect(transMeta.headers.get('retry-after-ms')).toBe('30000')
+
+      // 3. Conflicting error fields with true message reset clause
+      const respWithMessage = new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Resource exhausted. Resets in 20s.',
+            retryAfterMs: 999999,
+            resetAfterMs: 888888,
+            retryAfterSeconds: 777777,
+          },
+        }),
+        {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': '90',
+          },
+        },
+      )
+      const transMessage = await transformAntigravityResponse(
+        respWithMessage,
+        false,
+      )
+      expect(transMessage.headers.get('retry-after')).toBe('20')
+      expect(transMessage.headers.get('retry-after-ms')).toBe('20000')
+
+      // 3. Conflicting error fields with true upstream Retry-After header
+      const respWithHeader = new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Resource exhausted.',
+            retryAfterMs: 999999,
+            resetAfterMs: 888888,
+            retryAfterSeconds: 777777,
+          },
+        }),
+        {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': '45',
+          },
+        },
+      )
+      const transHeader = await transformAntigravityResponse(
+        respWithHeader,
+        false,
+      )
+      expect(transHeader.headers.get('retry-after')).toBe('45')
+      expect(transHeader.headers.get('retry-after-ms')).toBe('45000')
     })
   })
 })

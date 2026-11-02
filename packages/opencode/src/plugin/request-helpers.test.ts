@@ -2531,6 +2531,56 @@ describe('parseDurationToMs and retry validation', () => {
     expect(parseDurationToMs('0', { allowBareSeconds: true })).toBeNull()
   })
 
+  it('parseDurationToMsBigInt computes exact decimal precision, bare fractions, large numbers, and fractional compounds', () => {
+    // bare '.0004' or '0.0004' allowed positive -> 1n regardless of allowZero
+    expect(parseDurationToMsBigInt('.0004', { allowBareSeconds: true })).toBe(
+      1n,
+    )
+    expect(
+      parseDurationToMsBigInt('.0004', {
+        allowBareSeconds: true,
+        allowZero: false,
+      }),
+    ).toBe(1n)
+    expect(
+      parseDurationToMsBigInt('.0004', {
+        allowBareSeconds: true,
+        allowZero: true,
+      }),
+    ).toBe(1n)
+    expect(parseDurationToMsBigInt('0.0004', { allowBareSeconds: true })).toBe(
+      1n,
+    )
+    expect(
+      parseDurationToMsBigInt('0.0004', {
+        allowBareSeconds: true,
+        allowZero: false,
+      }),
+    ).toBe(1n)
+    expect(
+      parseDurationToMsBigInt('0.0004', {
+        allowBareSeconds: true,
+        allowZero: true,
+      }),
+    ).toBe(1n)
+
+    // bare '999999999999999' -> 999999999999999000n without float precision loss (not ...8976n)
+    expect(
+      parseDurationToMsBigInt('999999999999999', { allowBareSeconds: true }),
+    ).toBe(999999999999999000n)
+
+    // '1.49999999999999999ms' -> 1n (not 2n)
+    expect(parseDurationToMsBigInt('1.49999999999999999ms')).toBe(1n)
+
+    // Fractional compounds total rounding test (sum components exact, then round total once with ties up)
+    // 1.4s (1400ms) + 100.6ms = 1500.6ms -> 1501n
+    expect(parseDurationToMsBigInt('1.4s 100.6ms')).toBe(1501n)
+    expect(parseDurationToMs('1.4s 100.6ms')).toBe(1501)
+    // 1.4s (1400ms) + 100.09ms = 1500.09ms -> 1500n
+    expect(parseDurationToMsBigInt('1.4s 100.09ms')).toBe(1500n)
+    expect(parseDurationToMs('1.4s 100.09ms')).toBe(1500)
+  })
+
   it('extractAntigravityError extracts error records and protects primitives/arrays from coercion', () => {
     // Normal envelope
     const normal = {
@@ -2653,6 +2703,35 @@ describe('parseDurationToMs and retry validation', () => {
       BigInt(pairFromMs['retry-after']),
     )
     expect(reDerived).toEqual(pairFromMs)
+  })
+
+  it('deriveRetryHeaderPairFromMs and deriveRetryHeaderPairFromSeconds reject out-of-range arguments and do not silently clamp', () => {
+    // Negative numbers throw RangeError
+    expect(() => deriveRetryHeaderPairFromMs(-1n)).toThrow(RangeError)
+    expect(() => deriveRetryHeaderPairFromMs(-100n)).toThrow(RangeError)
+    expect(() => deriveRetryHeaderPairFromSeconds(-1n)).toThrow(RangeError)
+
+    // Out-of-bounds numbers throw RangeError
+    const maxValMs = BigInt(Math.ceil(Number.MAX_VALUE))
+    const maxWaitSec = (maxValMs + 999n) / 1000n
+    const maxForwardMs = maxWaitSec * 1000n
+    expect(() => deriveRetryHeaderPairFromMs(maxForwardMs + 1n)).toThrow(
+      RangeError,
+    )
+    expect(() => deriveRetryHeaderPairFromSeconds(maxWaitSec + 1n)).toThrow(
+      RangeError,
+    )
+
+    // Max envelope pair roundtrip
+    const pair = deriveRetryHeaderPairFromSeconds(maxWaitSec)
+    expect(pair['retry-after']).toBe(maxWaitSec.toString())
+    expect(pair['retry-after-ms']).toBe(maxForwardMs.toString())
+    expect(deriveRetryHeaderPairFromMs(maxForwardMs)).toEqual(pair)
+
+    // Valid Number.MAX_VALUE local 412 seconds handling without overclamping
+    const pairMaxVal = deriveRetryHeaderPairFromMs(maxValMs)
+    expect(pairMaxVal['retry-after']).toBe(maxWaitSec.toString())
+    expect(pairMaxVal['retry-after-ms']).toBe(maxValMs.toString())
   })
 
   it('collectForwardedHeaders chooses one authoritative delay and derives consistent headers', () => {
@@ -2858,6 +2937,82 @@ describe('parseDurationToMs and retry validation', () => {
       message: 'Session resets in 5m',
     })
     expect(metaNonQuota).toBeNull()
+  })
+
+  it('resolveRetryMetadata handles numeric RetryInfo safely without throwing on 1e308 or unsafe numbers', () => {
+    // 1. Unsafe/overflow numeric 1e308 does not throw RangeError and falls through to next valid RetryInfo
+    const metaWithLaterValid = resolveRetryMetadata({
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 1e308,
+        },
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: '15s',
+        },
+      ],
+    })
+    expect(metaWithLaterValid).toEqual({ delayMs: 15000n })
+
+    // 2. Unsafe numeric falls through to quota metadata
+    const metaWithMetadata = resolveRetryMetadata({
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 1e308,
+        },
+        {
+          metadata: { quotaResetDelay: '30s' },
+        },
+      ],
+    })
+    expect(metaWithMetadata).toEqual({ delayMs: 30000n })
+
+    // 3. Unsafe numeric falls through to headers
+    const metaWithHeader = resolveRetryMetadata({
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 1e308,
+        },
+      ],
+      headers: { 'retry-after': '60' },
+    })
+    expect(metaWithHeader).toEqual({ delayMs: 60000n })
+
+    // 4. Unsafe numeric alone returns null without throwing
+    const metaAlone = resolveRetryMetadata({
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 1e308,
+        },
+      ],
+    })
+    expect(metaAlone).toBeNull()
+
+    // 5. Numeric 0 is genuinely 0n
+    const metaNumericZero = resolveRetryMetadata({
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 0,
+        },
+      ],
+    })
+    expect(metaNumericZero).toEqual({ delayMs: 0n })
+
+    // 6. Numeric positive below 1 rounds to min 1n (numeric .0004 -> 1n)
+    const metaNumericSmall = resolveRetryMetadata({
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 0.0004,
+        },
+      ],
+    })
+    expect(metaNumericSmall).toEqual({ delayMs: 1n })
   })
 
   it('does not normalize reset duration on non-quota 400 errors', async () => {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test'
+import { redactCredentialError } from '@cortexkit/antigravity-auth-core'
 import { placeholderSecret } from '../../common-auth-embedded/opencode2/index.js'
+import { transformAntigravityResponse } from '../../plugin/request.ts'
 import { createNativeGoogleErrorResponse } from '../../plugin/request-helpers.ts'
 import {
   decideGaRetry,
@@ -220,6 +222,109 @@ describe('gaPreHeaderFailureResponse', () => {
     })
     expect(resp.headers.get('retry-after')).toBeNull()
     expect(resp.headers.get('retry-after-ms')).toBeNull()
+  })
+
+  it('positively accepts GA thrown exception fields between RetryInfo and message duration', () => {
+    // 1. Thrown exception resetAfterMs (25000) overrides message duration (60s)
+    const respWithResetMs = gaPreHeaderFailureResponse({
+      statusCode: 429,
+      message: 'Quota exceeded. Resets in 60s.',
+      resetAfterMs: 25000,
+    })
+    expect(respWithResetMs.headers.get('retry-after')).toBe('25')
+    expect(respWithResetMs.headers.get('retry-after-ms')).toBe('25000')
+
+    // 2. Thrown exception retryAfterMs (18000) overrides message duration (60s)
+    const respWithRetryMs = gaPreHeaderFailureResponse({
+      statusCode: 429,
+      message: 'Quota exceeded. Resets in 60s.',
+      retryAfterMs: 18000,
+    })
+    expect(respWithRetryMs.headers.get('retry-after')).toBe('18')
+    expect(respWithRetryMs.headers.get('retry-after-ms')).toBe('18000')
+
+    // 3. RetryInfo in details still overrides thrown exception fields
+    const respWithBoth = gaPreHeaderFailureResponse({
+      statusCode: 429,
+      message: 'Quota exceeded. Resets in 60s.',
+      retryAfterMs: 18000,
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: '10s',
+        },
+      ],
+    })
+    expect(respWithBoth.headers.get('retry-after')).toBe('10')
+    expect(respWithBoth.headers.get('retry-after-ms')).toBe('10000')
+  })
+
+  it('direct consumer handles overflow and invalid numeric RetryInfo without RangeError, resolving metadata.quotaResetDelay and valid priority', async () => {
+    // 1. Invalid numeric RetryInfo (1e308) skips to metadata.quotaResetDelay (20s) over conflicting message and headers without RangeError
+    const respMeta = gaPreHeaderFailureResponse({
+      statusCode: 429,
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 1e308,
+        },
+        {
+          metadata: {
+            quotaResetDelay: '20s',
+          },
+        },
+      ],
+      message: 'Quota exceeded. Resets in 50s.',
+      headers: {
+        'Retry-After': '90',
+      },
+    })
+    expect(respMeta.status).toBe(429)
+    expect(respMeta.headers.get('retry-after')).toBe('20')
+    expect(respMeta.headers.get('retry-after-ms')).toBe('20000')
+    const bodyMeta = (await respMeta.json()) as any
+    expect(bodyMeta.error.code).toBe(429)
+    expect(bodyMeta.error.status).toBe('RESOURCE_EXHAUSTED')
+    expect(bodyMeta.error.message).toContain('quota resets in 50s.')
+
+    // 2. Unsafe numeric RetryInfo (9007199254740992 > MAX_SAFE_INTEGER) skips to metadata.quotaResetDelay (25s)
+    const respUnsafe = gaPreHeaderFailureResponse({
+      statusCode: 429,
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: 9007199254740992,
+        },
+        {
+          metadata: {
+            quotaResetDelay: '25s',
+          },
+        },
+      ],
+      message: 'Quota exceeded. Resets in 50s.',
+    })
+    expect(respUnsafe.status).toBe(429)
+    expect(respUnsafe.headers.get('retry-after')).toBe('25')
+    expect(respUnsafe.headers.get('retry-after-ms')).toBe('25000')
+    const bodyUnsafe = (await respUnsafe.json()) as any
+    expect(bodyUnsafe.error.code).toBe(429)
+    expect(bodyUnsafe.error.status).toBe('RESOURCE_EXHAUSTED')
+
+    // 3. retryAfterMs='1e308' invalid, resetAfterMs=15000 valid, retryAfterSeconds=Number.MAX_VALUE -> 15s/15000ms
+    // The valid resetAfterMs wins before the lower-priority seconds field is evaluated.
+    const respPriority = gaPreHeaderFailureResponse({
+      statusCode: 429,
+      message: 'Quota exceeded',
+      retryAfterMs: '1e308',
+      resetAfterMs: 15000,
+      retryAfterSeconds: Number.MAX_VALUE,
+    })
+    expect(respPriority.status).toBe(429)
+    expect(respPriority.headers.get('retry-after')).toBe('15')
+    expect(respPriority.headers.get('retry-after-ms')).toBe('15000')
+    const bodyPriority = (await respPriority.json()) as any
+    expect(bodyPriority.error.code).toBe(429)
+    expect(bodyPriority.error.status).toBe('RESOURCE_EXHAUSTED')
   })
 })
 
@@ -591,6 +696,147 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
         await fetch(event.request)
       }
       expect(rawSends).toBe(1)
+    } finally {
+      await bridge.dispose()
+    }
+  })
+
+  it('body read failure in actual transformAntigravityResponse through real GA bridge preserves mapped status 429, retry headers, and scrubs credentials', async () => {
+    const secretJwt =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgN'
+    const secretBearer = 'Bearer ya29.a0ARrdaM-secret-bearer-token'
+    const opaqueHeaderSecret = 'synthetic-opaque-credential-header-secret-999'
+
+    const errorStream = new ReadableStream({
+      pull(controller) {
+        controller.error(
+          new Error(
+            `Stream aborted: ${secretBearer} and ${secretJwt} for project-secret-123`,
+          ),
+        )
+      },
+    })
+
+    const rawResponse = new Response(errorStream, {
+      status: 429,
+      statusText: 'Too Many Requests',
+      headers: {
+        'content-type': 'application/json',
+        'retry-after': '30',
+        'x-request-id': 'req-actual-transform-429',
+        'x-synthetic-secret': opaqueHeaderSecret,
+      },
+    })
+
+    let caughtReadError: any = null
+    const bridge = await startGaLoopbackBridge({
+      send: async () => {
+        throw new Error('Not used')
+      },
+      execute: async () => {
+        try {
+          return await transformAntigravityResponse(
+            rawResponse,
+            false,
+            null,
+            undefined,
+            'project-secret-123',
+          )
+        } catch (err) {
+          caughtReadError = err
+          throw err
+        }
+      },
+    })
+
+    try {
+      const req = bridge.rewrite(
+        new Request(TEST_JOB.url, { method: 'POST', body: TEST_JOB.body }),
+        TEST_JOB,
+        {},
+      )
+      const resp = await fetch(req)
+      expect(resp.status).toBe(429)
+      expect(resp.headers.get('retry-after')).toBe('30')
+      expect(resp.headers.get('retry-after-ms')).toBe('30000')
+
+      const body = (await resp.json()) as any
+      expect(body.error.code).toBe(429)
+      expect(body.error.status).toBe('RESOURCE_EXHAUSTED')
+      expect(body.error.message).toContain('Failed to read response body:')
+      expect(body.error.message).toContain('[credential]')
+      expect(body.error.message).toContain('proj****-123')
+      expect(body.error.message).not.toContain(secretBearer)
+      expect(body.error.message).not.toContain(secretJwt)
+      expect(body.error.message).not.toContain('project-secret-123')
+      expect(body.error.message).not.toContain(opaqueHeaderSecret)
+
+      // Bridge response headers must not leak custom synthetic credential header
+      expect(resp.headers.get('x-synthetic-secret')).toBeNull()
+
+      // The caught actual transformer error must expose plain headers record traversable by shared redactor
+      expect(caughtReadError).toBeInstanceOf(Error)
+      expect(caughtReadError.statusCode).toBe(429)
+      expect(caughtReadError.headers).toBeTypeOf('object')
+      expect(Array.isArray(caughtReadError.headers)).toBe(false)
+      expect(caughtReadError.headers['x-synthetic-secret']).toBe(
+        opaqueHeaderSecret,
+      )
+
+      // Shared outer credential redactor successfully scrubs synthetic header in plain record
+      const safeScrubbed = redactCredentialError(caughtReadError, [
+        opaqueHeaderSecret,
+      ]) as any
+      expect(safeScrubbed.headers['x-synthetic-secret']).toBe('[credential]')
+      expect(safeScrubbed.headers['retry-after']).toBe('30')
+    } finally {
+      await bridge.dispose()
+    }
+  })
+
+  it('body read failure in actual transformAntigravityResponse through real GA bridge preserves mapped status 503 and validated retry headers', async () => {
+    const errorStream = new ReadableStream({
+      pull(controller) {
+        controller.error(new Error('Backend socket terminated abruptly'))
+      },
+    })
+
+    const rawResponse = new Response(errorStream, {
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: {
+        'content-type': 'application/json',
+        'retry-after-ms': '12500',
+        'retry-after': 'invalid-non-numeric',
+      },
+    })
+
+    const bridge = await startGaLoopbackBridge({
+      send: async () => {
+        throw new Error('Not used')
+      },
+      execute: async () => {
+        return await transformAntigravityResponse(rawResponse, false)
+      },
+    })
+
+    try {
+      const req = bridge.rewrite(
+        new Request(TEST_JOB.url, { method: 'POST', body: TEST_JOB.body }),
+        TEST_JOB,
+        {},
+      )
+      const resp = await fetch(req)
+      expect(resp.status).toBe(503)
+      expect(resp.headers.get('retry-after')).toBe('13')
+      expect(resp.headers.get('retry-after-ms')).toBe('12500')
+
+      const body = (await resp.json()) as any
+      expect(body.error.code).toBe(503)
+      expect(body.error.status).toBe('UNAVAILABLE')
+      expect(body.error.message).toContain(
+        'Failed to read response body: Backend socket terminated abruptly',
+      )
     } finally {
       await bridge.dispose()
     }
