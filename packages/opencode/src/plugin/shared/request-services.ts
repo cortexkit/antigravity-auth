@@ -464,7 +464,7 @@ export type RequestDebug = Pick<
 export interface RequestServicesDeps<A extends RequestAccountRow> {
   readonly preResponseClock?: PreResponseClock
   /** Check the persistent account source before each operation that uses credentials. */
-  readonly assertAdmission?: () => Promise<void>
+  readonly assertAdmission?: (signal: AbortSignal) => Promise<void>
   readonly config: AntigravityConfig
   readonly accounts: RequestAccountPool<A>
   readonly credentials: RequestCredentials<A>
@@ -861,7 +861,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     },
   ): Promise<Response> {
     const assertAdmission = async (): Promise<void> => {
-      await deadline.wait(() => deps.assertAdmission?.())
+      await deadline.wait(() => deps.assertAdmission?.(deadline.signal))
     }
     const logResponseBody = (
       ...args: Parameters<typeof debug.logResponseBody>

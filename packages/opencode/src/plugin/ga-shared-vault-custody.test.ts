@@ -45,7 +45,6 @@ import {
 } from './vault-custody.ts'
 
 const TOKEN = 'ab'.repeat(32)
-const ROSTER_UNAVAILABLE = 'The vault roster is not available yet'
 let root: string
 const env: Record<string, string | undefined> = {}
 const cleanups: Array<() => Promise<unknown>> = []
@@ -361,6 +360,49 @@ async function waitUntil(condition: () => boolean, what: string, ms = 3_000) {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe('stall watchdog on the shared vault source', () => {
+  it('waits for the source connect refusal instead of a short roster cutoff', async () => {
+    await approveHost()
+    const vault = fakeVault()
+    vault.hang(1)
+    const factory = hostFactory(vault)
+    const location = await openLocation(factory, 'refused')
+    const started = Date.now()
+    // The request now waits for the source's own outcome instead of a fixed 2 s cutoff (issue #61).
+    expect(await request(location.serving)).toBe(
+      'Claustrum scoped operation unavailable',
+    )
+    const elapsed = Date.now() - started
+    expect(elapsed).toBeGreaterThanOrEqual(9_000)
+    expect(elapsed).toBeLessThan(15_000)
+  }, 20_000)
+
+  it('never recycles a healthy slow read shared by many requests', async () => {
+    await approveHost()
+    const vault = fakeVault()
+    vault.hang(1)
+    let skew = 0
+    const factory = hostFactory(vault, { now: () => Date.now() + skew })
+    const locations = [
+      await openLocation(factory, 'one'),
+      await openLocation(factory, 'two'),
+      await openLocation(factory, 'three'),
+    ]
+    const first = request(locations[0]!.serving)
+    await waitUntil(() => vault.counts.connects === 1, 'first connect')
+    skew = 25_000
+    const concurrent = Array.from({ length: 12 }, (_, index) =>
+      request(locations[index % locations.length]!.serving),
+    )
+    await sleep(100)
+    expect(vault.counts.connects).toBe(1)
+    for (const release of releases.splice(0)) release()
+    for (const outcome of await Promise.all([first, ...concurrent]))
+      expect(outcome).toBe('status 200')
+    expect(vault.counts.connects).toBe(1)
+    expect(vault.counts.closed).toBe(0)
+    expect(vault.live.size).toBe(1)
+  })
+
   it('recycles a source whose first connect hangs, so the next request reconnects and succeeds', async () => {
     await approveHost()
     const vault = fakeVault()
@@ -368,13 +410,14 @@ describe('stall watchdog on the shared vault source', () => {
     let skew = 0
     const factory = hostFactory(vault, { now: () => Date.now() + skew })
     const location = await openLocation(factory, 'stuck')
-    const started = Date.now()
     const first = request(location.serving)
     // The request's roster read has now waited past the stall bound.
     await sleep(200)
     skew = VAULT_REFRESH_STALL_MS
-    expect(await first).toContain(ROSTER_UNAVAILABLE)
-    expect(Date.now() - started).toBeGreaterThanOrEqual(1_900)
+    const recovered = request(location.serving)
+    // The request now waits for the source's own outcome instead of a fixed 2 s cutoff (issue #61).
+    expect(await first).toBe('Claustrum consumer is closed')
+    expect(await recovered).toBe('status 200')
     expect(await request(location.serving)).toBe('status 200')
     // One connect still hangs; the replacement source connected again.
     expect(vault.counts.connects).toBe(2)
@@ -395,12 +438,13 @@ describe('stall watchdog on the shared vault source', () => {
     const first = locations.map((location) => request(location.serving))
     await sleep(200)
     skew = VAULT_REFRESH_STALL_MS
-    // Each request fails: at its own 2 s bound, or when the first location's
-    // watchdog closes the stalled consumer they all wait on.
+    // A new request runs the watchdog while the first requests still wait.
+    // Closing their shared stalled source ends those reads with its own error.
+    const recovered = request(locations[0]!.serving)
+    // The request now waits for the source's own outcome instead of a fixed 2 s cutoff (issue #61).
     for (const outcome of await Promise.all(first))
-      expect(outcome).toMatch(
-        /The vault roster is not available yet|Claustrum consumer is closed/,
-      )
+      expect(outcome).toBe('Claustrum consumer is closed')
+    expect(await recovered).toBe('status 200')
     for (const location of locations)
       expect(await request(location.serving)).toBe('status 200')
     expect(vault.counts.connects).toBe(2)

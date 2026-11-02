@@ -1714,6 +1714,43 @@ describe('createFetchInterceptor', () => {
       }
     })
 
+    for (const stop of ['caller cancellation', 'disposal'] as const) {
+      it(`ends a pending first roster wait on ${stop}`, async () => {
+        const vault = vaultSource()
+        const entered = Promise.withResolvers<void>()
+        const read = Promise.withResolvers<void>()
+        vault.source.refresh = async () => {
+          entered.resolve()
+          await read.promise
+        }
+        const interceptor = await vaultInterceptor(vault.source)
+        const controller = new AbortController()
+        const reason = new DOMException('Request cancelled', 'AbortError')
+        const pending = interceptor.fetch(NON_STREAM_URL, {
+          ...GENERATIVE_INIT,
+          signal: controller.signal,
+        })
+        const outcome = pending.catch((error: unknown) => error)
+        try {
+          await entered.promise
+          if (stop === 'caller cancellation') controller.abort(reason)
+          else await interceptor.dispose()
+          const error = await outcome
+          if (stop === 'caller cancellation') expect(error).toBe(reason)
+          else
+            expect(error).toMatchObject({
+              message: 'The Antigravity request executor is disposed',
+            })
+          expect(vault.admitted).toHaveLength(0)
+          expect(transportMock).not.toHaveBeenCalled()
+        } finally {
+          read.resolve()
+          await interceptor.dispose()
+          await outcome
+        }
+      })
+    }
+
     it("admits every physical attempt and sends with that receipt's token and project", async () => {
       const vault = vaultSource()
       const hostFetch = mock(async () => {

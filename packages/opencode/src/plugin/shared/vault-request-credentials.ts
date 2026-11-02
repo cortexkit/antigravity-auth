@@ -586,6 +586,8 @@ export interface VaultAccountPoolOptions {
     readonly onError?: (error: unknown) => void
   }
   readonly now?: () => number
+  /** Cancellable scheduling on the same clock as `now`. */
+  readonly schedule?: (callback: () => void, delayMs: number) => () => void
   /**
    * The host's message for a request that finds no account, given why the
    * source's roster is empty; undefined keeps the general vault remedy.
@@ -610,14 +612,16 @@ export interface VaultAccountPool {
   readonly state: VaultSelectionState | undefined
   /**
    * Brings the rows up to date with the source's roster: the first call
-   * reads the roster from the vault (a failed read is retried by the next
-   * call, and so is one still pending after `VAULT_REFRESH_STALL_MS`); later
+   * reads the roster from the vault, retrying a stalled read once after
+   * `VAULT_REFRESH_STALL_MS` (a failed read is retried by the next call); later
    * calls take the source's last committed routes. New rows
    * get their stored state; kept rows keep their in-memory state.
    */
-  sync(): Promise<void>
+  sync(signal?: AbortSignal): Promise<void>
+  /** Uses only committed routes, without waiting for discovery (menus/sidebar). */
+  syncCached(): Promise<void>
   /** Re-reads the roster from the vault now, then syncs the rows. */
-  refresh(): Promise<void>
+  refresh(signal?: AbortSignal): Promise<void>
   /** Writes pending selection state. */
   flush(): Promise<void>
 }
@@ -678,6 +682,13 @@ export function createVaultAccountPool(
 
   let firstRead: Promise<void> | null = null
   const clock = options.now ?? Date.now
+  const schedule =
+    options.schedule ??
+    ((callback: () => void, delayMs: number) => {
+      const timer = setTimeout(callback, delayMs)
+      timer.unref?.()
+      return () => clearTimeout(timer)
+    })
   // Numbers each first read, so one abandoned at the stall bound cannot touch
   // the state of the read that superseded it.
   let readGeneration = 0
@@ -701,7 +712,11 @@ export function createVaultAccountPool(
     firstRead = (async () => {
       await source.refresh()
       const rows = await rowsFromSource()
-      if (current()) selector.resetAccounts(rows)
+      if (current())
+        selector.replaceAccounts(rows, {
+          keyOf: vaultAccountRowKey,
+          refresh: refreshVaultAccountRow,
+        })
     })().then(
       () => {
         if (current()) firstReadStartedAt = null
@@ -717,44 +732,64 @@ export function createVaultAccountPool(
     return firstRead
   }
 
-  const waitForFirstRoster = async (): Promise<void> => {
-    let timer: ReturnType<typeof setTimeout> | undefined
+  const waitForRead = async (
+    read: Promise<unknown>,
+    signal?: AbortSignal,
+    remaining?: number,
+  ): Promise<boolean> => {
+    let cancelTimer: (() => void) | undefined
+    let detachAbort: (() => void) | undefined
     try {
-      // Discovery belongs to the source and may be shared with its observer.
-      // Bound the caller's wait without canceling that shared roster discovery.
-      await Promise.race([
-        readOnce(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () =>
-              reject(
-                new Error(
-                  'The vault roster is not available yet. Check vault access and try the request again.',
-                ),
-              ),
-            2_000,
-          )
-          timer.unref?.()
+      // Discovery is shared with other callers. Cancel only this caller's
+      // wait, leaving the read available to other requests.
+      return await Promise.race([
+        read.then(() => true),
+        new Promise<false>((resolve, reject) => {
+          const abort = () => reject(signal?.reason)
+          signal?.addEventListener('abort', abort, { once: true })
+          detachAbort = () => signal?.removeEventListener('abort', abort)
+          if (remaining !== undefined)
+            cancelTimer = schedule(() => resolve(false), remaining)
+          if (signal?.aborted) abort()
         }),
       ])
     } finally {
-      clearTimeout(timer)
+      cancelTimer?.()
+      detachAbort?.()
     }
+  }
+  const waitForFirstRoster = async (signal?: AbortSignal): Promise<void> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      signal?.throwIfAborted()
+      const read = readOnce()
+      const remaining =
+        firstReadStartedAt === null
+          ? VAULT_REFRESH_STALL_MS
+          : Math.max(0, VAULT_REFRESH_STALL_MS - (clock() - firstReadStartedAt))
+      if (await waitForRead(read, signal, remaining)) return
+      // At the first read's absolute stall bound, readOnce abandons it and
+      // starts (or joins) one fresh read using the current source.
+    }
+    throw new Error(
+      'The vault roster is not available yet. Check vault access and try the request again.',
+    )
   }
 
   return {
     selector,
     credentials,
     state,
-    async sync() {
+    async sync(signal) {
       const pending = firstRead
-      await waitForFirstRoster()
+      await waitForFirstRoster(signal)
       // The first read just installed the rows; later calls re-sync.
       if (pending !== null) await replace()
     },
-    async refresh() {
-      await waitForFirstRoster()
-      await source.refresh()
+    syncCached: replace,
+    async refresh(signal) {
+      const discovering = firstRead === null || firstReadStartedAt !== null
+      await waitForFirstRoster(signal)
+      if (!discovering) await waitForRead(source.refresh(), signal)
       await replace()
     },
     flush: async () => {

@@ -231,7 +231,7 @@ export class BackgroundVaultQuotaRefresh {
       outcome.stage = 'roster'
       const { source, pool } = await this.options.currentVaultPool()
       await this.assertActive(controller)
-      await pool.sync()
+      await pool.sync(controller.signal)
       await this.assertActive(controller)
       // Read durable observations inside the fence, including another process's
       // updates. Sidebar publication time must never postpone quota fetching.

@@ -124,6 +124,7 @@ import {
 import { type OAuthListener, startOAuthListener } from './server.ts'
 import { AgySessionRegistry } from './session-context.ts'
 import { createAdvisoryRepositoryOwner } from './shared/advisory-repository.ts'
+import { createRequestCancellation } from './shared/request-cancellation.ts'
 import {
   type AntigravityRequestExecutor,
   createLocalQuotaRefresh,
@@ -1715,10 +1716,15 @@ export async function createGaVaultRequestPipeline(input: {
   readonly runtime: GaStartInput['runtime']
   readonly overrides: GaPluginOverrides
   readonly routes: GaRouteBook
-}): Promise<GaRequestPipeline & { rows(): readonly VaultAccountRow[] }> {
+}): Promise<
+  GaRequestPipeline & {
+    rows(signal: AbortSignal): Promise<readonly VaultAccountRow[]>
+  }
+> {
   const { pool } = input
   await input.assertAdmission?.()
-  await pool.sync()
+  await pool.syncCached()
+  const shutdown = new AbortController()
   const logger = input.runtime.logger.createLogger('request')
   const executor = createRequestExecutor<VaultAccountRow>({
     ...gaEngineCollaborators({
@@ -1728,9 +1734,10 @@ export async function createGaVaultRequestPipeline(input: {
       logger,
     }),
     accounts: pool.selector,
-    ...(input.assertAdmission
-      ? { assertAdmission: input.assertAdmission }
-      : {}),
+    assertAdmission: async (signal) => {
+      await input.assertAdmission?.()
+      await pool.sync(signal)
+    },
     credentials: pool.credentials,
     trackers: {
       health: pool.selector.healthTracker,
@@ -1738,17 +1745,22 @@ export async function createGaVaultRequestPipeline(input: {
     },
   })
   return {
-    execute: async (job, context) => {
-      await input.assertAdmission?.()
-      await pool.sync()
-      return createGaJobExecutor(executor, input.overrides)(job, context)
+    execute: createGaJobExecutor(executor, input.overrides),
+    rows: async (signal) => {
+      const cancellation = createRequestCancellation([signal, shutdown.signal])
+      try {
+        await pool.sync(cancellation.signal)
+        return pool.selector.rows
+      } finally {
+        cancellation.release()
+      }
     },
-    rows: () => pool.selector.rows,
     refreshAccounts: async () => {
       await input.assertAdmission?.()
-      await pool.refresh()
+      await pool.refresh(shutdown.signal)
     },
     async dispose() {
+      shutdown.abort(new Error('The Antigravity request executor is disposed'))
       await executor.dispose()
       await pool.flush()
     },
@@ -1783,7 +1795,7 @@ function vaultSelectors(createSelector: () => string) {
  */
 function createGaVaultStateSource(input: {
   /** The pipeline's current selection rows. */
-  readonly rows: () => readonly VaultAccountRow[]
+  readonly rows: (signal: AbortSignal) => Promise<readonly VaultAccountRow[]>
   /**
    * The vault's stored provider state. Read on each state read, so quota
    * recorded after a row was listed (by any process) reaches that row.
@@ -1803,7 +1815,7 @@ function createGaVaultStateSource(input: {
     // An unreadable state file leaves each row with the quota it was listed with.
     const stored = await input.readState?.().catch(() => undefined)
     if (signal.aborted) throw abortError(signal)
-    const rows = input.rows()
+    const rows = await input.rows(signal)
     const settings = input.settings()
     const route = input.route(scope)
     if (signal.aborted) throw abortError(signal)
@@ -2023,7 +2035,7 @@ async function createGaVaultLocationServices(input: {
       return {
         execute: started.execute,
         state: createGaVaultStateSource({
-          rows: () => started.rows(),
+          rows: (signal) => started.rows(signal),
           readState: () => custody.readState(),
           selectorOf,
           ...(input.nextReadSeq ? { nextReadSeq: input.nextReadSeq } : {}),
@@ -2514,14 +2526,7 @@ export function createGaLocationServicesFactory(
               await created.dispose().catch(() => {})
               throw error
             }
-          })().catch(async (error) => {
-            // A first roster read that timed out may be waiting on a vault
-            // refresh that never settles. Once it has waited past the stall
-            // bound, custody replaces that source, so a later request
-            // connects again instead of joining the stalled refresh.
-            await custody
-              .recycleStalledSource?.(VAULT_REFRESH_STALL_MS)
-              .catch(() => false)
+          })().catch((error) => {
             vaultPromise = undefined
             throw error
           })
@@ -2544,6 +2549,11 @@ export function createGaLocationServicesFactory(
             return recovery
           }
           try {
+            // A previous request may still be discovering accounts. Replace a
+            // stalled source before reusing services built over that source.
+            await custody
+              ?.recycleStalledSource?.(VAULT_REFRESH_STALL_MS)
+              .catch(() => false)
             return await vault()
           } catch (error) {
             if (purpose === 'execute') throw error

@@ -388,7 +388,7 @@ export const createAntigravityPlugin =
       },
       vault: async () => {
         const { pool } = await currentVaultPool()
-        await pool.sync()
+        await pool.syncCached()
         const projection = buildVaultSidebarProjection(
           pool,
           await vaultCustody.readState(),
@@ -655,7 +655,7 @@ export const createAntigravityPlugin =
         let current: Awaited<ReturnType<typeof currentVaultPool>>
         try {
           current = await currentVaultPool()
-          await current.pool.sync()
+          await current.pool.syncCached()
         } catch {
           return showUnavailableVaultMenu()
         }

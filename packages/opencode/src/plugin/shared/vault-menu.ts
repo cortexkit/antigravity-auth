@@ -12,14 +12,15 @@ import type {
 
 /** Show accounts and quotas from the same vault account pool that selects request routes. */
 export function createVaultAccountMenuSections(
-  pool: Pick<VaultAccountPool, 'selector'>,
+  pool: Pick<VaultAccountPool, 'selector' | 'syncCached'>,
   selectorOf: (row: VaultAccountRow) => string,
   checkQuota?: (signal: AbortSignal) => Promise<AntigravityQuotaCheckReport>,
 ): Pick<AntigravityMenuSections, 'accounts' | 'quota'> {
   return {
     accounts: {
       title: 'Accounts',
-      build: () => {
+      build: async () => {
+        await pool.syncCached()
         const rows = pool.selector.rows
         return {
           lines: [
@@ -37,7 +38,8 @@ export function createVaultAccountMenuSections(
     },
     quota: {
       title: 'Quota',
-      build: () => {
+      build: async () => {
+        await pool.syncCached()
         const rows = pool.selector.rows
         return {
           lines:

@@ -30,6 +30,45 @@ function fixture(empty = false) {
 }
 
 describe('vault menu projection', () => {
+  it('renders committed routes while a first roster read is pending', async () => {
+    const read = Promise.withResolvers<void>()
+    let routes: ReturnType<VaultRequestSource['routes']> = []
+    const pool = createVaultAccountPool({
+      source: {
+        refresh: async () => {
+          await read.promise
+          return undefined
+        },
+        routes: () => routes,
+        admit: async () => {
+          throw new Error('rendering must not resolve a credential')
+        },
+        reportServedStatus: async () => false,
+      },
+    })
+    const pending = pool.sync()
+    const sections = createVaultAccountMenuSections(pool, () => 'opaque-choice')
+    try {
+      const empty = await sections.accounts.build({ notify: () => {} })
+      expect(empty.items).toEqual([])
+      routes = [
+        {
+          routeId: 'route',
+          credentialId: 'credential',
+          accountIdentity: 'identity',
+          label: 'Work',
+        },
+      ]
+      const accounts = await sections.accounts.build({ notify: () => {} })
+      const quota = await sections.quota.build({ notify: () => {} })
+      expect(accounts.items).toHaveLength(1)
+      expect(quota.lines).toEqual(['Account 1: no quota reading yet'])
+    } finally {
+      read.resolve()
+      await pending
+    }
+  })
+
   it('renders only the actual vault selector, with opaque choices and no local credential resolution', async () => {
     const pool = fixture()
     await pool.sync()

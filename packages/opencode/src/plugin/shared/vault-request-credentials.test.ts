@@ -19,6 +19,8 @@ import {
   createVaultSelectionState,
   refreshVaultAccountRow,
   VAULT_REFRESH_STALL_MS,
+  type VaultAccountPoolOptions,
+  type VaultRequestSource,
   vaultAccountRowKey,
   vaultAccountRows,
 } from './vault-request-credentials.ts'
@@ -373,48 +375,6 @@ describe('createVaultAccountPool', () => {
     expect(addedB?.lastUsed).toBe(77)
     expect(refreshes).toBe(2)
   })
-
-  it('stops waiting on a first read still pending after the stall bound and reads again', async () => {
-    let now = 1_000
-    let refreshes = 0
-    // The first refresh never settles; the second answers.
-    const pool = createVaultAccountPool({
-      source: {
-        refresh: () => {
-          refreshes++
-          return refreshes === 1
-            ? new Promise<never>(() => {})
-            : Promise.resolve(undefined)
-        },
-        routes: () => [
-          {
-            routeId: 'route',
-            credentialId: 'credential',
-            accountIdentity: 'identity',
-            label: 'Work',
-          },
-        ],
-        admit: async () => {
-          throw new Error('no send')
-        },
-        reportServedStatus: async () => false,
-      },
-      now: () => now,
-    })
-    await expect(pool.sync()).rejects.toThrow(
-      'The vault roster is not available yet',
-    )
-    // Inside the bound the pool keeps waiting on the same read.
-    now += VAULT_REFRESH_STALL_MS - 1
-    await expect(pool.sync()).rejects.toThrow(
-      'The vault roster is not available yet',
-    )
-    expect(refreshes).toBe(1)
-    now += 1
-    await pool.sync()
-    expect(refreshes).toBe(2)
-    expect(pool.selector.rows).toHaveLength(1)
-  }, 10_000)
 })
 
 describe('checkVaultQuota', () => {
@@ -547,43 +507,261 @@ describe('checkVaultQuota', () => {
   })
 })
 
-it('bounds the first roster wait while keeping shared discovery available for the next request', async () => {
-  let finish!: () => void
-  const discovered = new Promise<void>((resolve) => {
-    finish = resolve
-  })
-  let refreshes = 0
-  const pool = createVaultAccountPool({
-    source: {
-      refresh: async () => {
-        refreshes++
-        await discovered
-        return undefined
-      },
-      routes: () => [
-        {
-          routeId: 'route',
-          credentialId: 'credential',
-          accountIdentity: 'identity',
-          label: 'Work',
-        },
-      ],
-      admit: async () => {
-        throw new Error('no send')
-      },
-      reportServedStatus: async () => false,
+async function flushRosterWork(): Promise<void> {
+  for (let i = 0; i < 20; i++) await Promise.resolve()
+}
+
+function rosterClock() {
+  let now = 0
+  const timers = new Set<{ at: number; callback: () => void }>()
+  return {
+    now: () => now,
+    schedule(callback: () => void, delayMs: number) {
+      const timer = { at: now + delayMs, callback }
+      timers.add(timer)
+      return () => {
+        timers.delete(timer)
+      }
     },
-  })
-  try {
-    await expect(pool.sync()).rejects.toThrow(
-      'The vault roster is not available yet',
-    )
-    expect(refreshes).toBe(1)
-    finish()
-    await pool.sync()
-    expect(refreshes).toBe(1)
-    expect(pool.selector.rows).toHaveLength(1)
-  } finally {
-    finish()
+    pending: () => timers.size,
+    async advance(ms: number) {
+      const end = now + ms
+      while (true) {
+        const next = [...timers].sort((a, b) => a.at - b.at)[0]
+        if (!next || next.at > end) break
+        now = next.at
+        timers.delete(next)
+        next.callback()
+        await flushRosterWork()
+      }
+      now = end
+      await flushRosterWork()
+    },
   }
-}, 4_000)
+}
+
+function rosterSource() {
+  const reads: ReturnType<typeof Promise.withResolvers<void>>[] = []
+  const refreshArgs: unknown[][] = []
+  const source: VaultRequestSource = {
+    refresh: async (...args: unknown[]) => {
+      refreshArgs.push(args)
+      const read = Promise.withResolvers<void>()
+      reads.push(read)
+      await read.promise
+    },
+    routes: () => [
+      {
+        routeId: 'route',
+        credentialId: 'credential',
+        accountIdentity: 'identity',
+        label: 'Work',
+      },
+    ],
+    admit: async () => {
+      throw new Error('no send')
+    },
+    reportServedStatus: async () => false,
+  }
+  return { source, reads, refreshArgs }
+}
+
+describe('first vault roster wait', () => {
+  it('accepts a first roster settling at 3 seconds', async () => {
+    const { source, reads } = rosterSource()
+    const pool = createVaultAccountPool({
+      source,
+      now: () => performance.now(),
+    })
+    const pending = pool.sync()
+    const timer = setTimeout(() => reads[0]?.resolve(), 3_000)
+    try {
+      await pending
+      expect(pool.selector.rows).toHaveLength(1)
+      expect(reads).toHaveLength(1)
+    } finally {
+      clearTimeout(timer)
+      reads[0]?.resolve()
+    }
+  })
+
+  it('shares discovery between concurrent first requests and clears their timers', async () => {
+    const clock = rosterClock()
+    const { source, reads } = rosterSource()
+    const pool = createVaultAccountPool({ source, ...clock })
+    const first = pool.sync()
+    const second = pool.sync()
+    await clock.advance(3_000)
+    expect(reads).toHaveLength(1)
+    reads[0]!.resolve()
+    await Promise.all([first, second])
+    expect(pool.selector.rows).toHaveLength(1)
+    expect(clock.pending()).toBe(0)
+  })
+
+  it('renders cached routes without starting or waiting on discovery', async () => {
+    const clock = rosterClock()
+    const { source, reads } = rosterSource()
+    const pool = createVaultAccountPool({ source, ...clock })
+    await pool.syncCached()
+    expect(pool.selector.rows).toHaveLength(1)
+    expect(reads).toHaveLength(0)
+    const pending = pool.sync()
+    await pool.syncCached()
+    expect(reads).toHaveLength(1)
+    expect(clock.now()).toBe(0)
+    reads[0]!.resolve()
+    await pending
+    expect(clock.pending()).toBe(0)
+  })
+
+  it('gives a caller joining at 25 seconds only the remaining 5 seconds before retry', async () => {
+    const clock = rosterClock()
+    const { source, reads } = rosterSource()
+    const pool = createVaultAccountPool({ source, ...clock })
+    const first = pool.sync()
+    await clock.advance(25_000)
+    const late = pool.sync()
+    await clock.advance(4_999)
+    expect(reads).toHaveLength(1)
+    await clock.advance(1)
+    expect(reads).toHaveLength(2)
+    reads[1]!.resolve()
+    await Promise.all([first, late])
+    expect(clock.now()).toBe(30_000)
+    expect(pool.selector.rows).toHaveLength(1)
+    expect(clock.pending()).toBe(0)
+  })
+
+  for (const method of ['sync', 'refresh'] as const) {
+    it(`${method} does not start a read for an already cancelled caller`, async () => {
+      const clock = rosterClock()
+      const { source, reads } = rosterSource()
+      const pool = createVaultAccountPool({ source, ...clock })
+      const controller = new AbortController()
+      controller.abort()
+      await expect(pool[method](controller.signal)).rejects.toBe(
+        controller.signal.reason,
+      )
+      expect(reads).toHaveLength(0)
+      expect(clock.pending()).toBe(0)
+    })
+
+    it(`${method} retries a stalled first read once and accepts the fresh read`, async () => {
+      const clock = rosterClock()
+      const { source, reads } = rosterSource()
+      const pool = createVaultAccountPool({ source, ...clock })
+      const pending = pool[method]()
+      await clock.advance(VAULT_REFRESH_STALL_MS)
+      expect(reads).toHaveLength(2)
+      reads[1]!.resolve()
+      await pending
+      expect(pool.selector.rows).toHaveLength(1)
+      // An abandoned read settling later must not reset the fresh roster.
+      source.routes = () => []
+      reads[0]!.resolve()
+      await flushRosterWork()
+      expect(pool.selector.rows).toHaveLength(1)
+      expect(reads).toHaveLength(2)
+      expect(clock.pending()).toBe(0)
+    })
+
+    it(`${method} refuses after two stalled reads without starting a third`, async () => {
+      const clock = rosterClock()
+      const { source, reads } = rosterSource()
+      const pool = createVaultAccountPool({ source, ...clock })
+      const outcome = pool[method]().catch((error: unknown) => error)
+      await clock.advance(VAULT_REFRESH_STALL_MS)
+      expect(reads).toHaveLength(2)
+      await clock.advance(VAULT_REFRESH_STALL_MS)
+      expect(await outcome).toMatchObject({
+        message:
+          'The vault roster is not available yet. Check vault access and try the request again.',
+      })
+      await clock.advance(VAULT_REFRESH_STALL_MS)
+      expect(reads).toHaveLength(2)
+      expect(clock.pending()).toBe(0)
+    })
+
+    it(`${method} cancels only the caller wait and preserves discovery for a later request`, async () => {
+      const clock = rosterClock()
+      const { source, reads, refreshArgs } = rosterSource()
+      const pool = createVaultAccountPool({ source, ...clock })
+      const controller = new AbortController()
+      const reason = new DOMException('Request cancelled', 'AbortError')
+      const outcome = pool[method](controller.signal).catch(
+        (error: unknown) => error,
+      )
+      await clock.advance(3_000)
+      controller.abort(reason)
+      expect(await outcome).toBe(reason)
+      expect(clock.now()).toBe(3_000)
+      expect(clock.pending()).toBe(0)
+      expect(refreshArgs).toEqual([[]])
+      reads[0]!.resolve()
+      await pool.sync()
+      expect(pool.selector.rows).toHaveLength(1)
+      expect(reads).toHaveLength(1)
+      expect(clock.pending()).toBe(0)
+    })
+  }
+
+  it('cancels a later explicit refresh without cancelling its shared source read', async () => {
+    const clock = rosterClock()
+    const { source, reads, refreshArgs } = rosterSource()
+    const pool = createVaultAccountPool({ source, ...clock })
+    const first = pool.sync()
+    reads[0]!.resolve()
+    await first
+    const controller = new AbortController()
+    const reason = new DOMException('Request cancelled', 'AbortError')
+    const outcome = pool
+      .refresh(controller.signal)
+      .catch((error: unknown) => error)
+    await flushRosterWork()
+    expect(reads).toHaveLength(2)
+    controller.abort(reason)
+    expect(await outcome).toBe(reason)
+    expect(refreshArgs).toEqual([[], []])
+    reads[1]!.resolve()
+    await pool.sync()
+    expect(clock.pending()).toBe(0)
+  })
+
+  it('preserves a read error or refusal immediately without waiting for a timer', async () => {
+    for (const failure of [
+      new Error('vault unavailable'),
+      new Error('vault refused'),
+    ]) {
+      const clock = rosterClock()
+      const { source, reads } = rosterSource()
+      const pool = createVaultAccountPool({ source, ...clock })
+      const outcome = pool.sync().catch((error: unknown) => error)
+      reads[0]!.reject(failure)
+      expect(await outcome).toBe(failure)
+      expect(clock.now()).toBe(0)
+      expect(reads).toHaveLength(1)
+      expect(clock.pending()).toBe(0)
+    }
+  })
+
+  it('returns an empty roster immediately so the engine can report its own refusal', async () => {
+    const clock = rosterClock()
+    const { source, reads } = rosterSource()
+    source.routes = () => []
+    const pool = createVaultAccountPool({
+      source,
+      ...clock,
+      emptyRosterRefusal: () => 'No usable vault account',
+    } satisfies VaultAccountPoolOptions)
+    const pending = pool.sync()
+    reads[0]!.resolve()
+    await pending
+    expect(pool.selector.rows).toHaveLength(0)
+    expect(pool.credentials.emptyRosterRefusal?.()).toBe(
+      'No usable vault account',
+    )
+    expect(clock.now()).toBe(0)
+    expect(clock.pending()).toBe(0)
+  })
+})

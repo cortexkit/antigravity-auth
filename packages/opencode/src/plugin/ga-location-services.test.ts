@@ -1494,6 +1494,71 @@ if (lifetimeControl) {
 }
 
 describe('GA composed transport', () => {
+  for (const stop of ['caller cancellation', 'disposal'] as const) {
+    ownedIt(`ends a pending vault roster wait on ${stop}`, async (scope) => {
+      const entered = Promise.withResolvers<void>()
+      const read = Promise.withResolvers<void>()
+      let admissions = 0
+      const source = {
+        refresh: async () => {
+          entered.resolve()
+          await read.promise
+          return undefined
+        },
+        routes: () => [],
+        admit: async () => {
+          admissions++
+          throw new Error('cancelled request must not admit a credential')
+        },
+        reportServedStatus: async () => false,
+        send: async () => {
+          throw new Error('cancelled request must not send')
+        },
+        attribution: () => {
+          throw new Error('cancelled request has no receipt')
+        },
+        commitState: async () => ({ status: 'unchanged' as const }),
+      }
+      const location = await transportLocation(
+        scope,
+        'vault',
+        {
+          send: async () => {
+            throw new Error('cancelled request must not send')
+          },
+        },
+        1,
+        source,
+      )
+      const controller = scope.controller()
+      const reason = new DOMException('Request cancelled', 'AbortError')
+      const pending = location.serving.execute(transportJob, {
+        signal: controller.signal,
+        send: async () => {
+          throw new Error('legacy sender must not be used')
+        },
+      })
+      const outcome = pending.catch((error: unknown) => error)
+      try {
+        await scope.wait(entered.promise)
+        if (stop === 'caller cancellation') controller.abort(reason)
+        else await location.dispose()
+        const error = await outcome
+        if (stop === 'caller cancellation') expect(error).toBe(reason)
+        else
+          expect(error).toMatchObject({
+            message: 'The Antigravity request executor is disposed',
+          })
+        expect(admissions).toBe(0)
+        expect(networkCalls).toHaveLength(0)
+      } finally {
+        read.resolve()
+        await location.dispose()
+        await outcome
+      }
+    })
+  }
+
   ownedIt(
     'returns a kept receipt 401 without re-admission or retry during a vault outage',
     async (scope) => {

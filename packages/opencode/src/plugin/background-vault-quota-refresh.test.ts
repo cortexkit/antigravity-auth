@@ -422,6 +422,47 @@ describe('BackgroundVaultQuotaRefresh', () => {
 })
 
 describe('vault poller fences and lifecycle', () => {
+  it('cancels its first roster wait on disposal without cancelling discovery', async () => {
+    const f = fixture()
+    const entered = deferred()
+    const read = deferred()
+    const pool = createVaultAccountPool({
+      source: {
+        refresh: async () => {
+          entered.resolve()
+          await read.promise
+        },
+        routes: () => [],
+        admit: async () => {
+          throw new Error('cancelled tick must not admit a credential')
+        },
+        reportServedStatus: async () => false,
+      },
+    })
+    let signal: AbortSignal | undefined
+    const sync = pool.sync
+    pool.sync = (caller) => {
+      signal = caller
+      return sync(caller)
+    }
+    const current = f.options.currentVaultPool
+    f.options.currentVaultPool = async () => ({ ...(await current()), pool })
+    const pending = f.poller.tick()
+    try {
+      await entered.promise
+      expect(signal).toBeInstanceOf(AbortSignal)
+      await f.poller.dispose()
+      await pending
+      expect(signal?.aborted).toBe(true)
+      expect(f.physical).toBe(0)
+    } finally {
+      read.resolve()
+      await pending
+      await f.poller.dispose()
+      await f.cleanup()
+    }
+  })
+
   it('retains the fence until a started commit acknowledges cancellation', async () => {
     const f = fixture()
     const entered = deferred()

@@ -463,7 +463,10 @@ export function createVaultFetchInterceptor(
   const pool = context.pool ?? createVaultAccountPool({ source })
   const selector = pool.selector
   const executor = createRequestExecutor<VaultAccountRow>({
-    assertAdmission: context.assertAdmission,
+    assertAdmission: async (signal) => {
+      await context.assertAdmission?.()
+      await pool.sync(signal)
+    },
     ...openCode1EngineCollaborators({
       ...context,
       transport: agyTransport,
@@ -485,7 +488,6 @@ export function createVaultFetchInterceptor(
   ): Promise<Response> {
     if (!isGenerativeLanguageRequest(input)) return upstreamFetch(input, init)
     if (disposed) throw new Error('The vault request runtime is disposed')
-    await pool.sync()
     return executor.execute(input, init)
   }
 
