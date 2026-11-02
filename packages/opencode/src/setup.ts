@@ -273,7 +273,12 @@ export async function createSetupPlugin(
     }
   }
   let openCodeLogin: AntigravityTokenExchangeSuccess | undefined
-  let hasLocalPool = false
+  const nativeNextStep = (label: string) => {
+    deps.stdout.write(
+      `In OpenCode 2, run opencode auth login, select Google, then choose ${label}.\n` +
+        'Setup has not completed the OpenCode 2 native Google connection.\n',
+    )
+  }
   const manifest = JSON.parse(
     await readFile(new URL('../package.json', import.meta.url), 'utf8'),
   ) as { version: string }
@@ -351,31 +356,10 @@ export async function createSetupPlugin(
       // A standalone OAuth flow here cannot create it and would require a second login.
       if (host === 'opencode' && context.opencodeGeneration === '2') {
         if (!forceLogin) {
-          try {
-            const source = await deps.accountStore.read(
-              deps.accountStore.legacyPath(),
-            )
-            const candidateAccounts =
-              source.kind === 'store'
-                ? source.accounts
-                : source.kind === 'legacy'
-                  ? ((await deps.loadAccounts())?.accounts ?? [])
-                  : []
-            if (
-              candidateAccounts.some(
-                (account) =>
-                  account.enabled !== false &&
-                  account.accountIneligible !== true &&
-                  account.verificationRequired !== true &&
-                  typeof account.refreshToken === 'string' &&
-                  account.refreshToken.length > 0,
-              )
-            ) {
-              hasLocalPool = true
-            }
-          } catch {
-            // Treat unreadable/retired store as no local pool so setup falls back to browser login hint
-          }
+          const source = await deps.accountStore.read(
+            deps.accountStore.legacyPath(),
+          )
+          if (source.kind === 'unavailable') throw new Error(source.reason)
         }
         return
       }
@@ -402,19 +386,6 @@ export async function createSetupPlugin(
         deps.stdout.write(
           `Using existing local Antigravity login for ${host}.\n`,
         )
-        if (
-          host === 'opencode' &&
-          accounts.some(
-            (account) =>
-              account.enabled !== false &&
-              account.accountIneligible !== true &&
-              account.verificationRequired !== true &&
-              typeof account.refreshToken === 'string' &&
-              account.refreshToken.length > 0,
-          )
-        ) {
-          hasLocalPool = true
-        }
         if (
           host === 'opencode' &&
           claustrum.classifyHostSlot(slot, provider(host)) !== 'login'
@@ -450,18 +421,11 @@ export async function createSetupPlugin(
       )
       if (host === 'opencode') {
         openCodeLogin = result
-        hasLocalPool = true
       }
     },
     beforeRegister: async (host, mode, context) => {
       const needsOpenCode2 =
         host === 'opencode' && context.opencodeGeneration !== '1'
-      const nativeNextStep = (label: string) => {
-        deps.stdout.write(
-          `In OpenCode 2, run opencode auth login, select Google, then choose ${label}.\n` +
-            'Setup has not completed the OpenCode 2 native Google connection.\n',
-        )
-      }
       if (mode === 'local') {
         await assertLocal(host, context)
         if (
@@ -478,12 +442,6 @@ export async function createSetupPlugin(
               expires: openCodeLogin.expires,
             },
             context,
-          )
-        if (needsOpenCode2)
-          nativeNextStep(
-            hasLocalPool
-              ? OPENCODE2_POOL_RECONNECT_LABEL
-              : OPENCODE2_POOL_AUTH_LABEL,
           )
         return
       }
@@ -563,11 +521,30 @@ export async function createSetupPlugin(
               await publishedGeneration(stateAnchor),
               stateAnchor,
             )
-          return
+        } else {
+          if ((await migrateOpenCode()) !== 0)
+            throw new Error('Offline Antigravity account migration failed.')
+          await deps.prepareVaultFolder?.()
         }
-        if ((await migrateOpenCode()) !== 0)
-          throw new Error('Offline Antigravity account migration failed.')
-        await deps.prepareVaultFolder?.()
+        if (context.mode === 'local' && context.opencodeGeneration !== '1') {
+          let reconnectReady = false
+          if (!forceLogin || context.opencodeGeneration !== '2') {
+            if (source.kind === 'store') {
+              reconnectReady = source.reconnectReady
+            } else if (source.kind === 'legacy') {
+              const post = await deps.accountStore.read(
+                deps.accountStore.legacyPath(),
+              )
+              if (post.kind === 'unavailable') throw new Error(post.reason)
+              reconnectReady = post.kind === 'store' && post.reconnectReady
+            }
+          }
+          nativeNextStep(
+            reconnectReady
+              ? OPENCODE2_POOL_RECONNECT_LABEL
+              : OPENCODE2_POOL_AUTH_LABEL,
+          )
+        }
       } else {
         deps.stdout.write(
           'Pi uses its native auth.json; no Antigravity account-pool migration is needed.\n',

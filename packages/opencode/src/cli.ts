@@ -143,7 +143,7 @@ export interface AccountStoreOperations {
  * before migration (or after a rollback) the pre-store file still is.
  */
 export type CliAccountsRead =
-  | { kind: 'store'; accounts: AccountMetadataV3[] }
+  | { kind: 'store'; accounts: AccountMetadataV3[]; reconnectReady: boolean }
   | { kind: 'legacy' }
   | { kind: 'uninitialized' }
   | { kind: 'unavailable'; reason: string }
@@ -905,7 +905,23 @@ async function readAccountStore(legacyPath: string): Promise<CliAccountsRead> {
         reason: `the account store is ${read.status}`,
       }
     }
-    return { kind: 'store', accounts: read.rows.map(cliAccountOf) }
+    const reconnectReady = read.rows.some(
+      (row) =>
+        row.enabled &&
+        row.usable &&
+        row.credential !== undefined &&
+        !row.torn &&
+        !row.unbound &&
+        row.invalid === undefined &&
+        row.metadata.status === 'present' &&
+        row.metadata.metadata.verificationRequired !== true &&
+        row.metadata.metadata.accountIneligible !== true,
+    )
+    return {
+      kind: 'store',
+      accounts: read.rows.map(cliAccountOf),
+      reconnectReady,
+    }
   } finally {
     await repository.dispose()
   }

@@ -22,12 +22,18 @@ import {
   sep,
   win32,
 } from 'node:path'
+import * as core from '@cortexkit/antigravity-auth-core'
 import {
+  type AccountRow,
   loadCommonAuthClaustrum,
   loadCommonAuthPiSlot,
 } from '@cortexkit/antigravity-auth-core'
 
 import { runCommand } from '../../../test/support/run-command.ts'
+import {
+  OPENCODE2_POOL_AUTH_LABEL,
+  OPENCODE2_POOL_RECONNECT_LABEL,
+} from './auth-method-labels.ts'
 import { createDefaultCliDependencies, runCli } from './cli.ts'
 import {
   createProcessFence,
@@ -643,7 +649,9 @@ describe('setup plugin callbacks', () => {
       },
     }
     deps.accountStore.read = async () =>
-      kind === 'store' ? { kind, accounts: [] } : { kind }
+      kind === 'store'
+        ? { kind, accounts: [], reconnectReady: false }
+        : { kind }
     deps.accountStore.migrate = mock(async () => {
       throw new Error('existing offline migration invoked')
     })
@@ -1150,6 +1158,7 @@ describe('setup plugin callbacks', () => {
     await plugin.beforeRegister?.('opencode', 'local', context)
     expect(deps.performLogin).not.toHaveBeenCalled()
     expect(deps.accountStore.read).not.toHaveBeenCalled()
+    expect(output).toBe('')
     expect(snapshot(p.root)).toEqual(before)
     await plugin.migrate!('opencode', context)
     expect(migrate).toHaveBeenCalledTimes(1)
@@ -1303,6 +1312,174 @@ describe('setup plugin callbacks', () => {
     expect(snapshot(p.root)).toEqual(before)
   })
 
+  it('gen2 unavailable store during local sign-in rejects with exact reason and no advice or migration', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      deps.accountStore.read = mock(async () => ({
+        kind: 'unavailable' as const,
+        reason: 'store daemon offline',
+      }))
+      const migrate = mock(async () => 0)
+      const plugin = await createSetupPlugin(deps, migrate)
+      const gen2Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+
+      await expect(plugin.signInLocal('opencode', gen2Context)).rejects.toThrow(
+        'store daemon offline',
+      )
+      expect(migrate).not.toHaveBeenCalled()
+      expect(output).not.toContain('In OpenCode 2')
+      expect(output).not.toContain('opencode auth login')
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
+  it.each([
+    { ready: true, expectedLabel: OPENCODE2_POOL_RECONNECT_LABEL },
+    { ready: false, expectedLabel: OPENCODE2_POOL_AUTH_LABEL },
+  ])('migration sequence reads legacy, migrates once, reads store, and gives advice only after migration (ready=$ready)', async ({
+    ready,
+    expectedLabel,
+  }) => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      let readCount = 0
+      deps.accountStore.read = mock(async () => {
+        readCount++
+        if (readCount === 1) return { kind: 'legacy' as const }
+        if (readCount === 2) return { kind: 'legacy' as const }
+        if (readCount === 3)
+          return {
+            kind: 'store' as const,
+            accounts: [
+              {
+                email: 'migrated@example.test',
+                refreshToken: 'refresh-tok',
+                addedAt: 1,
+                lastUsed: 1,
+              },
+            ],
+            reconnectReady: ready,
+          }
+        throw new Error(`unexpected read call ${readCount}`)
+      })
+      let vaultPrepared = false
+      let adviceGivenBeforeVaultPrep = false
+      deps.prepareVaultFolder = mock(async () => {
+        vaultPrepared = true
+        if (output.includes('In OpenCode 2')) {
+          adviceGivenBeforeVaultPrep = true
+        }
+      })
+      const migrate = mock(async () => 0)
+      const plugin = await createSetupPlugin(deps, migrate)
+      const gen2Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+
+      await plugin.signInLocal('opencode', gen2Context)
+      expect(readCount).toBe(1)
+
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      expect(output).not.toContain('In OpenCode 2')
+      expect(output).not.toContain('opencode auth login')
+
+      await plugin.migrate?.('opencode', gen2Context)
+      expect(readCount).toBe(3)
+      expect(migrate).toHaveBeenCalledTimes(1)
+      expect(vaultPrepared).toBe(true)
+      expect(adviceGivenBeforeVaultPrep).toBe(false)
+      expect(output).toContain(expectedLabel)
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
+  it('after migration read 3 unavailable exact count 3 migrate once rejection reason and neither label', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      let readCount = 0
+      deps.accountStore.read = mock(async () => {
+        readCount++
+        if (readCount === 1) return { kind: 'legacy' as const }
+        if (readCount === 2) return { kind: 'legacy' as const }
+        if (readCount === 3)
+          return {
+            kind: 'unavailable' as const,
+            reason: 'post-migrate store unreadable',
+          }
+        throw new Error(`unexpected read call ${readCount}`)
+      })
+      const migrate = mock(async () => 0)
+      const plugin = await createSetupPlugin(deps, migrate)
+      const gen2Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+
+      await plugin.signInLocal('opencode', gen2Context)
+      expect(readCount).toBe(1)
+
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      expect(output).not.toContain('In OpenCode 2')
+
+      await expect(plugin.migrate?.('opencode', gen2Context)).rejects.toThrow(
+        'post-migrate store unreadable',
+      )
+      expect(readCount).toBe(3)
+      expect(migrate).toHaveBeenCalledTimes(1)
+      expect(output).not.toContain('In OpenCode 2')
+      expect(output).not.toContain('opencode auth login')
+      expect(output).not.toContain(OPENCODE2_POOL_RECONNECT_LABEL)
+      expect(output).not.toContain(OPENCODE2_POOL_AUTH_LABEL)
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
   it('directs already-populated pools and --opencode=both to reconnect rather than browser account-add', async () => {
     const p = profile()
     Object.assign(process.env, p.env)
@@ -1328,6 +1505,7 @@ describe('setup plugin callbacks', () => {
             lastUsed: 1,
           },
         ],
+        reconnectReady: true,
       }))
       const plugin = await createSetupPlugin(deps, async () => 0)
 
@@ -1341,6 +1519,8 @@ describe('setup plugin callbacks', () => {
       } as const
       await plugin.signInLocal('opencode', bothContext)
       await plugin.beforeRegister?.('opencode', 'local', bothContext)
+      expect(output).not.toContain('In OpenCode 2')
+      await plugin.migrate?.('opencode', bothContext)
       expect(output).toContain(
         'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
       )
@@ -1356,6 +1536,8 @@ describe('setup plugin callbacks', () => {
       } as const
       await plugin.signInLocal('opencode', gen2Context)
       await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      expect(output).not.toContain('In OpenCode 2')
+      await plugin.migrate?.('opencode', gen2Context)
       expect(output).toContain(
         'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
       )
@@ -1379,9 +1561,24 @@ describe('setup plugin callbacks', () => {
           output += value
         },
       }
-      deps.accountStore.read = mock(async () => ({
-        kind: 'uninitialized' as const,
-      }))
+      let readCall = 0
+      deps.accountStore.read = mock(async () => {
+        readCall++
+        if (readCall === 1) return { kind: 'uninitialized' as const }
+        return {
+          kind: 'store' as const,
+          accounts: [
+            {
+              email: 'fresh@example.test',
+              refreshToken: 'fresh-refresh',
+              projectId: 'proj',
+              addedAt: 1,
+              lastUsed: 1,
+            },
+          ],
+          reconnectReady: true,
+        }
+      })
       const loginResult = {
         type: 'success' as const,
         refresh: 'fresh-refresh|proj|',
@@ -1401,10 +1598,257 @@ describe('setup plugin callbacks', () => {
       await plugin.signInLocal('opencode', bothContext)
       await plugin.beforeRegister?.('opencode', 'local', bothContext)
       expect(deps.performLogin).toHaveBeenCalledTimes(1)
+      expect(output).not.toContain('In OpenCode 2')
+      await plugin.migrate?.('opencode', bothContext)
       expect(output).toContain(
         'In OpenCode 2, run opencode auth login, select Google, then choose Use existing local Antigravity pool.',
       )
       expect(output).not.toContain('Google (antigravity-auth pool, browser)')
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
+  it('forceLogin with --opencode=2 advises BROWSER label even on an already ready store', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      let readCount = 0
+      deps.accountStore.read = mock(async () => {
+        readCount++
+        return {
+          kind: 'store' as const,
+          accounts: [
+            {
+              email: 'existing@example.test',
+              refreshToken: 'tok',
+              addedAt: 1,
+              lastUsed: 1,
+            },
+          ],
+          reconnectReady: true,
+        }
+      })
+      const plugin = await createSetupPlugin(deps, async () => 0, true)
+      const gen2Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+
+      await plugin.signInLocal('opencode', gen2Context)
+      expect(readCount).toBe(0)
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      expect(output).toBe('')
+      await plugin.migrate?.('opencode', gen2Context)
+      expect(readCount).toBe(1)
+      expect(output).toContain(OPENCODE2_POOL_AUTH_LABEL)
+      expect(output).not.toContain(OPENCODE2_POOL_RECONNECT_LABEL)
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
+  it('forceLogin with --opencode=both advises RECONNECT label after populating the pool', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      deps.openBrowser = mock(async () => {})
+      deps.performLogin = mock(async () => ({
+        type: 'success' as const,
+        refresh: 'forced-refresh|proj|',
+        access: 'forced-access',
+        expires: Date.now() + 3_600_000,
+        projectId: 'proj',
+      }))
+      let readCount = 0
+      deps.accountStore.read = mock(async () => {
+        readCount++
+        return {
+          kind: 'store' as const,
+          accounts: [
+            {
+              email: 'forced@example.test',
+              refreshToken: 'tok',
+              addedAt: 1,
+              lastUsed: 1,
+            },
+          ],
+          reconnectReady: true,
+        }
+      })
+      const plugin = await createSetupPlugin(deps, async () => 0, true)
+      const bothContext = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: 'both',
+        mode: 'local',
+      } as const
+
+      await plugin.signInLocal('opencode', bothContext)
+      await plugin.beforeRegister?.('opencode', 'local', bothContext)
+      expect(output).not.toContain('In OpenCode 2')
+      await plugin.migrate?.('opencode', bothContext)
+      expect(readCount).toBe(2)
+      expect(output).toContain(OPENCODE2_POOL_RECONNECT_LABEL)
+      expect(output).not.toContain(OPENCODE2_POOL_AUTH_LABEL)
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
+  it('generation 1 setup performs only 1 store read during migrate without post-read or OpenCode 2 guidance', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      deps.openBrowser = mock(async () => {})
+      deps.performLogin = mock(async () => ({
+        type: 'success' as const,
+        refresh: 'gen1-refresh|proj|',
+        access: 'gen1-access',
+        expires: Date.now() + 3_600_000,
+        projectId: 'proj',
+      }))
+      let readCount = 0
+      deps.accountStore.read = mock(async () => {
+        readCount++
+        return { kind: 'legacy' as const }
+      })
+      const migrate = mock(async () => 0)
+      const plugin = await createSetupPlugin(deps, migrate, false)
+      const gen1Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '1',
+        mode: 'local',
+      } as const
+
+      await plugin.signInLocal('opencode', gen1Context)
+      const readsAfterSignIn = readCount
+      await plugin.beforeRegister?.('opencode', 'local', gen1Context)
+      expect(output).not.toContain('In OpenCode 2')
+      await plugin.migrate?.('opencode', gen1Context)
+      expect(readCount).toBe(readsAfterSignIn + 1)
+      expect(migrate).toHaveBeenCalledTimes(1)
+      expect(output).not.toContain('In OpenCode 2')
+      expect(output).not.toContain('opencode auth login')
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
+
+  it.each([
+    { damage: 'torn', patch: { torn: true as const } },
+    { damage: 'unusable', patch: { usable: false } },
+    { damage: 'unbound', patch: { unbound: true as const } },
+    { damage: 'invalid entry', patch: { invalid: 'entry' as const } },
+  ])('causal setup guidance through real store operations advises browser rather than reconnect for $damage row', async ({
+    patch,
+  }) => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      await deps.accountStore.initialize(deps.accountStore.legacyPath())
+
+      const damagedRow: AccountRow = {
+        ref: {
+          id: 'row-damaged-1',
+          credentialEpoch: 1,
+          identity: 'damaged@example.test',
+        },
+        index: 0,
+        enabled: true,
+        usable: true,
+        credential: {
+          refreshToken: 'valid-refresh-token',
+          accessToken: 'valid-access-token',
+          expiresAt: Date.now() + 3_600_000,
+        },
+        stamp: 'bound',
+        metadata: {
+          status: 'present',
+          metadata: {
+            addedAt: 1000,
+            lastUsed: 2000,
+            email: 'damaged@example.test',
+            verificationRequired: false,
+            accountIneligible: false,
+          },
+        },
+        quota: { status: 'absent' },
+        ...patch,
+      }
+
+      const origFactory = core.createAccountRepositoryFactory
+      const factorySpy = spyOn(
+        core,
+        'createAccountRepositoryFactory',
+      ).mockImplementation((modules) => (options) => {
+        const real = origFactory(modules)(options)
+        real.read = async () => ({ status: 'ready', rows: [damagedRow] })
+        return real
+      })
+      try {
+        const plugin = await createSetupPlugin(deps, async () => 0, false)
+        const gen2Context = {
+          hosts: ['opencode'],
+          piAgentDir: p.env.PI_CODING_AGENT_DIR,
+          opencodeGeneration: '2',
+          mode: 'local',
+        } as const
+
+        await plugin.signInLocal('opencode', gen2Context)
+        await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+        await plugin.migrate?.('opencode', gen2Context)
+
+        // Across the full sequence, candidate gives BROWSER guidance;
+        // BASE lossy projection advises RECONNECT because display fields look healthy.
+        expect(output).toContain(OPENCODE2_POOL_AUTH_LABEL)
+        expect(output).not.toContain(OPENCODE2_POOL_RECONNECT_LABEL)
+      } finally {
+        factorySpy.mockRestore()
+      }
     } finally {
       fenceSpy.mockRestore()
     }
