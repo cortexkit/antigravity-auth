@@ -2791,6 +2791,7 @@ export function createGaLocationServicesForHost(
                       : {}),
                     // The engine reads each send's HTTP status itself.
                     reporterSource: 'direct',
+                    insulaQuota: true,
                   }),
                 ...(vault.quota ? { quota: vault.quota } : {}),
               })

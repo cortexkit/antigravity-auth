@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- On OpenCode 2 in vault mode, background quota checks now read the shared insula cache first, as OpenCode 1 does, and ask Google only when insula has no usable reading. "Check quota now" still asks Google directly.
+
 ### Fixed
 
 - On OpenCode 2 in vault mode, the first request in a newly opened project no longer fails with "The vault roster is not available yet" while the vault is still answering; it waits for the first account list for up to 30 seconds, and stops at once if the request is cancelled. (#61)

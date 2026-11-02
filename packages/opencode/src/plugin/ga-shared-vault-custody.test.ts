@@ -18,7 +18,12 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { VAULT_ACCOUNT_REMEDY } from '@cortexkit/antigravity-auth-core'
+import {
+  loadCommonAuthClaustrum,
+  VAULT_ACCOUNT_REMEDY,
+  type VaultConsumerOptions,
+  type VaultScopedClient,
+} from '@cortexkit/antigravity-auth-core'
 
 import type { GaLocationServices, GaRawSender } from '../ga/server/index.ts'
 import { __resetProcessHeartbeatForTest } from '../process-heartbeat.ts'
@@ -79,17 +84,129 @@ afterEach(async () => {
 const accountFile = () => join(root, 'config', 'antigravity-accounts.json')
 
 const ACCOUNTS = ['a', 'b'] as const
+const NOW = Date.UTC(2026, 9, 21, 12)
+const FETCHED = NOW - 90_000
+type InsulaEntry = Parameters<
+  NonNullable<VaultConsumerOptions['insula']>['normalize']
+>[0]
+
+function insulaEntry(
+  name: string,
+  overrides: Partial<InsulaEntry> = {},
+): InsulaEntry {
+  return {
+    provider: 'antigravity',
+    account: `identity-${name}`,
+    source: 'vault',
+    fetchedAt: new Date(FETCHED).toISOString(),
+    usage: {
+      extraRateWindows: [
+        {
+          id: 'gemini-5h',
+          title: 'arbitrary',
+          window: {
+            usedPercent: 10,
+            resetsAt: '2099-01-01T00:00:00Z',
+            windowMinutes: 300,
+          },
+        },
+      ],
+    },
+    ...overrides,
+  }
+}
+
+/** Use the library's real insula transport over an owned connector, never a daemon. */
+async function fakeInsula(result: InsulaEntry[], complete: boolean) {
+  const claustrum = await loadCommonAuthClaustrum()
+  const counts = { opened: 0, closed: 0, gets: 0, watches: 0, unsubscribed: 0 }
+  const live = new Set<number>()
+  const listeners = new Set<(body: Uint8Array) => void>()
+  const closes: Array<() => void> = []
+  const client = await claustrum.connectClaustrumScopedClient({
+    connectionFile: join(root, 'vault-connection.json'),
+    projectRoot: root,
+    storagePath: accountFile(),
+    connector: async () => {
+      let id: number | undefined
+      let end: (() => void) | undefined
+      const close = () => {
+        end?.()
+        if (id !== undefined && live.delete(id)) counts.closed++
+      }
+      closes.push(close)
+      return {
+        async routeOpen(target: { module_id: string }) {
+          if (target.module_id === 'insula') {
+            id = ++counts.opened
+            live.add(id)
+          }
+          return 1
+        },
+        async request(_route: unknown, request: { method: string }) {
+          expect(request.method).toBe('usage.get')
+          counts.gets++
+          return { result, completeProviders: complete ? ['antigravity'] : [] }
+        },
+        subscribe(
+          _route: unknown,
+          request: { method: string },
+          onNotice: (body: Uint8Array) => void,
+        ) {
+          expect(request.method).toBe('usage.watch')
+          counts.watches++
+          listeners.add(onNotice)
+          let resolve!: () => void
+          const closed = new Promise<void>((done) => {
+            resolve = done
+          })
+          end = () => {
+            listeners.delete(onNotice)
+            resolve()
+          }
+          return {
+            closed,
+            unsubscribe() {
+              counts.unsubscribed++
+              end?.()
+            },
+          }
+        },
+        close,
+      } as never
+    },
+  })
+  const transport = client.insula
+  // The scoped bootstrap only obtains the attached transport; quota sockets open later.
+  client.close()
+  if (!transport) throw new Error('the scoped client has no insula transport')
+  cleanups.push(async () => {
+    for (const close of closes) close()
+  })
+  return {
+    transport,
+    counts,
+    live,
+    announce() {
+      const notice = new TextEncoder().encode(
+        JSON.stringify({ kind: 'ready', epoch: 'owned-epoch', seq: 1 }),
+      )
+      for (const listener of listeners) listener(notice)
+    },
+  }
+}
 
 /**
  * A scoped vault client stand-in serving two accounts. It counts connects
  * and live connections; `hangNext` makes that many next connects wait until
  * the test ends.
  */
-function fakeVault() {
+function fakeVault(insula?: VaultScopedClient['insula']) {
   const counts = { connects: 0, opened: 0, closed: 0, lists: 0 }
   const live = new Set<number>()
   let hangNext = 0
   const client = (id: number) => ({
+    ...(insula ? { insula } : {}),
     listScoped: async () => {
       counts.lists++
       return {
@@ -239,6 +356,31 @@ function hostFactory(
   })
 }
 
+async function insulaHost(
+  entries = ACCOUNTS.map((name) => insulaEntry(name)),
+  complete = true,
+) {
+  await approveHost()
+  const insula = await fakeInsula(entries, complete)
+  const vault = fakeVault(insula.transport)
+  const quota = quotaTransport()
+  const producers: BackgroundVaultQuotaRefresh[] = []
+  const factory = hostFactory(vault, {
+    quota,
+    producers,
+    now: () => NOW,
+    quotaNow: () => NOW,
+  })
+  return {
+    insula,
+    vault,
+    quota,
+    producers,
+    factory,
+    on: { background_quota_refresh: true },
+  }
+}
+
 const SSE =
   'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]},"finishReason":"STOP"}]}}\n\n'
 const send: GaRawSender = async () =>
@@ -326,14 +468,18 @@ async function request(serving: Serving): Promise<string> {
 
 const scope = { kind: 'sessionless' } as const
 
-async function quotaRows(serving: Serving) {
+async function quotaAccountRows(serving: Serving) {
   const read = await serving.state.read({
     scope,
     signal: new AbortController().signal,
   })
   if (read.accounts.kind !== 'complete') throw new Error('over limit')
-  return read.accounts.rows.map(
-    (entry) => entry.row.cachedQuota?.gemini?.remainingFraction,
+  return read.accounts.rows.map((entry) => entry.row)
+}
+
+async function quotaRows(serving: Serving) {
+  return (await quotaAccountRows(serving)).map(
+    (row) => row.cachedQuota?.gemini?.remainingFraction,
   )
 }
 
@@ -648,6 +794,143 @@ describe('one shared custody per process and account file', () => {
 })
 
 describe('background vault quota on OpenCode 2', () => {
+  it('stores the insula vault reading at fetchedAt without calling Google', async () => {
+    const f = await insulaHost()
+    const location = await openLocation(f.factory, 'insula', f.on, f.quota)
+    await waitUntil(() => f.vault.counts.lists >= 2, 'the first source tick')
+    await f.producers[0]?.tick()
+    expect(f.quota.requests).toEqual([])
+    const rows = await quotaAccountRows(location.serving)
+    expect(rows.map((row) => row.cachedQuotaUpdatedAt)).toEqual([
+      FETCHED,
+      FETCHED,
+    ])
+    expect(rows.map((row) => row.cachedQuota?.gemini)).toEqual(
+      ACCOUNTS.map(() => ({
+        modelCount: 0,
+        remainingFraction: 0.9,
+        resetTime: '2099-01-01T00:00:00Z',
+        windows: [
+          {
+            window: '5h',
+            remainingFraction: 0.9,
+            resetTime: '2099-01-01T00:00:00Z',
+          },
+        ],
+      })),
+    )
+  }, 20_000)
+
+  it.each([
+    1, 3,
+  ])('shares one insula poll and watch across %i locations and closes on the last release', async (count) => {
+    const f = await insulaHost()
+    const locations = []
+    for (let index = 0; index < count; index++)
+      locations.push(
+        await openLocation(f.factory, `insula-${index}`, f.on, f.quota),
+      )
+    await waitUntil(() => f.vault.counts.lists >= 2, 'the first source tick')
+    expect(f.producers).toHaveLength(1)
+    await f.producers[0]?.tick()
+    expect(f.quota.requests).toEqual([])
+    expect(f.vault.counts.opened).toBe(1)
+    expect(f.insula.counts).toEqual({
+      opened: 2,
+      closed: 1,
+      gets: 1,
+      watches: 1,
+      unsubscribed: 0,
+    })
+    expect(f.insula.live.size).toBe(1)
+    for (const location of locations)
+      expect(await quotaRows(location.serving)).toEqual([0.9, 0.9])
+
+    // Accepting a watch requests another snapshot, independently of location count.
+    f.insula.announce()
+    await waitUntil(() => f.insula.counts.closed === 2, 'the watch snapshot')
+    expect(f.insula.counts).toEqual({
+      opened: 3,
+      closed: 2,
+      gets: 2,
+      watches: 1,
+      unsubscribed: 0,
+    })
+    for (const location of locations.slice(0, -1)) {
+      await location.dispose()
+      expect(f.insula.live.size).toBe(1)
+      expect(f.insula.counts.unsubscribed).toBe(0)
+    }
+    await locations.at(-1)?.dispose()
+    expect(f.insula.live.size).toBe(0)
+    expect(f.insula.counts.closed).toBe(f.insula.counts.opened)
+    expect(f.insula.counts.unsubscribed).toBe(1)
+    expect(f.vault.live.size).toBe(0)
+  }, 20_000)
+
+  it.each([
+    'cold',
+    'upstream-failed',
+  ] as const)('%s insula cache skips Google and records no quota', async (miss) => {
+    const f = await insulaHost(
+      miss === 'cold'
+        ? []
+        : ACCOUNTS.map((name) =>
+            insulaEntry(name, {
+              errorClass: 'upstream_failed',
+              usage: undefined,
+            }),
+          ),
+      miss !== 'cold',
+    )
+    const location = await openLocation(f.factory, miss, f.on, f.quota)
+    await waitUntil(() => f.vault.counts.lists >= 2, 'the first source tick')
+    await f.producers[0]?.tick()
+    await f.producers[0]?.tick()
+    expect(f.insula.counts.gets).toBe(1)
+    expect(f.quota.requests).toEqual([])
+    const rows = await quotaAccountRows(location.serving)
+    expect(rows.map((row) => row.cachedQuota)).toEqual([undefined, undefined])
+    expect(rows.map((row) => row.cachedQuotaUpdatedAt)).toEqual([
+      undefined,
+      undefined,
+    ])
+  }, 20_000)
+
+  it.each([
+    'oauth echo',
+    'absent entry',
+  ])('%s falls back to Google once for the missing account', async (miss) => {
+    const entries = [insulaEntry('b')]
+    if (miss === 'oauth echo')
+      entries.push(insulaEntry('a', { source: 'oauth' }))
+    const f = await insulaHost(entries)
+    const location = await openLocation(f.factory, 'fallback', f.on, f.quota)
+    await waitUntil(() => f.vault.counts.lists >= 2, 'the first source tick')
+    await f.producers[0]?.tick()
+    expect(f.quota.requests).toEqual([
+      'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
+    ])
+    expect(await quotaRows(location.serving)).toEqual([0.33, 0.9])
+    await f.producers[0]?.tick()
+    expect(f.quota.requests).toHaveLength(1)
+  }, 20_000)
+
+  it('Check quota now calls Google directly even with a usable insula vault cache', async () => {
+    const f = await insulaHost()
+    const location = await openLocation(f.factory, 'manual', f.on, f.quota)
+    await waitUntil(() => f.vault.counts.lists >= 2, 'the first source tick')
+    await f.producers[0]?.tick()
+    expect(f.quota.requests).toEqual([])
+    expect(await quotaRows(location.serving)).toEqual([0.9, 0.9])
+    const gets = f.insula.counts.gets
+    const checked = await checkQuotaNow(location.serving)
+    expect(checked.text).toBe('Quota checked for 2 of 2 accounts')
+    expect(f.quota.requests).toHaveLength(ACCOUNTS.length)
+    expect(await quotaRows(location.serving)).toEqual([0.33, 0.33])
+    expect(f.insula.counts.gets).toBe(gets)
+  }, 20_000)
+
   it('records one reading per account per tick for all locations, shown by the next state read', async () => {
     await approveHost()
     const vault = fakeVault()
