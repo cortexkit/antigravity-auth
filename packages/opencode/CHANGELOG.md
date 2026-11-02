@@ -5,8 +5,13 @@
 ### Fixed
 
 - On OpenCode 2 in vault mode, the first request in a newly opened project no longer fails with "The vault roster is not available yet" while the vault is still answering; it waits for the first account list for up to 30 seconds, and stops at once if the request is cancelled. (#61)
-- OpenCode no longer refuses to open a healthy account store, or fails an OpenCode 2 reconnect, when another process saves a quota reading at the same moment.
 - Retry times from Google are read the same way everywhere, so OpenCode 2 now receives a matching `Retry-After` on quota and rate-limit failures, and a failure thrown before headers keeps its real status.
+
+## [3.0.26] - 2026-11-02
+
+### Fixed
+
+- OpenCode no longer refuses to open a healthy account store, or fails an OpenCode 2 reconnect, when another process saves a quota reading at the same moment.
 
 ### Changed
 
