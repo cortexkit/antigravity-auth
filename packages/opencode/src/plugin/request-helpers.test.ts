@@ -2992,16 +2992,24 @@ describe('parseDurationToMs and retry validation', () => {
     })
     expect(metaAlone).toBeNull()
 
-    // 5. Numeric 0 is genuinely 0n
-    const metaNumericZero = resolveRetryMetadata({
-      details: [
-        {
-          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
-          retryDelay: 0,
-        },
-      ],
-    })
-    expect(metaNumericZero).toEqual({ delayMs: 0n })
+    // 5. A numeric 0 is a truthful zero only for a caller that forwards it
+    // (the bridge and the transformer); the executor skips it like '0s' and
+    // uses the response header instead.
+    const numericZeroDetails = [
+      {
+        '@type': 'type.googleapis.com/google.rpc.RetryInfo' as const,
+        retryDelay: 0,
+      },
+    ]
+    expect(
+      resolveRetryMetadata({ details: numericZeroDetails, allowZero: true }),
+    ).toEqual({ delayMs: 0n })
+    expect(
+      resolveRetryMetadata({
+        details: numericZeroDetails,
+        headers: { 'retry-after': '300' },
+      }),
+    ).toEqual({ delayMs: 300000n })
 
     // 6. Numeric positive below 1 rounds to min 1n (numeric .0004 -> 1n)
     const metaNumericSmall = resolveRetryMetadata({

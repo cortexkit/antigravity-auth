@@ -1452,6 +1452,34 @@ const executorWaitRows: ExecutorWaitRow[] = [
     expectedReason: 'QUOTA_EXHAUSTED',
   },
   {
+    name: 'RetryInfo numeric 0',
+    status: 429,
+    message: 'Resource has been exhausted.',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+        retryDelay: 0,
+      },
+    ],
+    headers: { 'retry-after': '300' },
+    expectedMs: 300_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
+    name: 'RetryInfo numeric 90',
+    status: 429,
+    message: 'Resource has been exhausted.',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+        retryDelay: 90,
+      },
+    ],
+    headers: { 'retry-after': '300' },
+    expectedMs: 90_000,
+    expectedReason: 'QUOTA_EXHAUSTED',
+  },
+  {
     name: 'RetryInfo 1.5s',
     status: 429,
     message: 'Resource has been exhausted.',
@@ -2393,7 +2421,7 @@ describe('createRequestExecutor quota reset text', () => {
       markUnsafe.mockRestore()
     }
 
-    // Numeric 0 preserved (marks 0ms, headers 0 / 0)
+    // Numeric 0 skipped for the executor, so the header applies
     const hZero = harness({
       pool: makePool(1),
       config: { switch_on_first_rate_limit: true },
@@ -2412,7 +2440,13 @@ describe('createRequestExecutor quota reset text', () => {
               ],
             },
           }),
-          { status: 429, headers: { 'content-type': 'application/json' } },
+          {
+            status: 429,
+            headers: {
+              'content-type': 'application/json',
+              'retry-after': '120',
+            },
+          },
         ),
     })
     const markZero = spyOn(hZero.pool, 'markRateLimitedWithReason')
@@ -2420,16 +2454,18 @@ describe('createRequestExecutor quota reset text', () => {
     try {
       const resp = await execZero.execute(url, CHAT_INIT())
       expect(resp.status).toBe(429)
+      // A zero delay is not a wait the executor can act on: the account is
+      // marked with the response's own header value, as for a text '0s'.
       expect(markZero).toHaveBeenCalledWith(
         expect.anything(),
         'gemini',
         model,
         'QUOTA_EXHAUSTED',
-        0,
+        120_000,
         expect.anything(),
       )
-      expect(resp.headers.get('retry-after')).toBe('0')
-      expect(resp.headers.get('retry-after-ms')).toBe('0')
+      expect(resp.headers.get('retry-after')).toBe('120')
+      expect(resp.headers.get('retry-after-ms')).toBe('120000')
     } finally {
       await execZero.dispose()
       markZero.mockRestore()

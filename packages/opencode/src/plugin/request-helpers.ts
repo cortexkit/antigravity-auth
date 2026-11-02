@@ -3001,10 +3001,11 @@ export function formatResetDuration(waitMs: number): string {
 export interface DurationParserOptions {
   /**
    * Accept a duration that totals zero (`0s`, `0m0s`) as `0n` instead of
-   * rejecting it. Only the bridge and the response transformer set it, because
-   * they forward truthful local waits, including a local `Retry-After: 0`. The
-   * executor leaves it off so an upstream zero falls through to the configured
-   * default retry, as it did before the resolver was shared.
+   * rejecting it. Only the GA bridge sets it, because its pre-header failures
+   * can carry a truthful local wait, including `Retry-After: 0`. The executor
+   * and the response transformer leave it off so an upstream zero falls through
+   * to the configured default retry or the response's own header, as it did
+   * before the resolver was shared.
    */
   allowZero?: boolean
   /**
@@ -3170,7 +3171,9 @@ export interface ResolveRetryMetadataOptions {
   /**
    * Zero-total durations resolve to `0n` instead of being skipped. The bridge
    * and the response transformer set it so a truthful local `Retry-After: 0`
-   * is forwarded; the executor never does (see `DurationParserOptions`).
+   * is forwarded; the executor never does (see `DurationParserOptions`). A
+   * numeric RetryInfo delay of zero obeys the same flag: with it off the
+   * executor skips the zero and uses the response's header instead.
    */
   allowZero?: boolean
   /**
@@ -3226,8 +3229,13 @@ export function resolveRetryMetadata(
             if (Number.isFinite(scaled)) {
               const rounded = Math.round(scaled)
               if (Number.isSafeInteger(rounded) && rounded >= 0) {
-                const ms = retryDelay === 0 ? 0n : BigInt(Math.max(1, rounded))
-                return { delayMs: ms }
+                // Only a true zero is a zero delay. A positive value below
+                // 1ms keeps the documented minimum of 1ms, as text does.
+                if (retryDelay === 0) {
+                  if (allowZero) return { delayMs: 0n }
+                } else {
+                  return { delayMs: BigInt(Math.max(1, rounded)) }
+                }
               }
             }
           }
