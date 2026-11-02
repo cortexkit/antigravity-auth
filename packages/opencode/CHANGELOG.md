@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [3.0.28] - 2026-11-02
+
 ### Changed
 
 - On OpenCode 2 in vault mode, background quota checks now read the shared insula cache first, as OpenCode 1 does, and ask Google only when insula has no usable reading. "Check quota now" still asks Google directly.
