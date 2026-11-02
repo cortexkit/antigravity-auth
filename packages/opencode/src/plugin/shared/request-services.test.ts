@@ -1612,7 +1612,6 @@ const executorWaitRows: ExecutorWaitRow[] = [
 ]
 
 describe('createRequestExecutor retry metadata differential table', () => {
-  const model = 'gemini-3-flash'
   const url = NON_STREAM_URL
 
   for (const row of executorWaitRows) {
