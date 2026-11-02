@@ -2,23 +2,323 @@
 
 ## Unreleased
 
+### Fixed
+
+- OpenCode no longer refuses to open a healthy account store, or fails an OpenCode 2 reconnect, when another process saves a quota reading at the same moment.
+- Retry times from Google are read the same way everywhere, so OpenCode 2 now receives a matching `Retry-After` on quota and rate-limit failures, and a failure thrown before headers keeps its real status.
+
+## [3.0.25] - 2026-11-01
+
+### Fixed
+
+- Waits for a pool that mixes rate-limited, cooling-down and low-quota accounts now use one estimate for the next usable account, and refusals no longer show a reset time that has already partly passed.
+
+## [3.0.24] - 2026-11-01
+
 ### Added
 
 - OpenCode 2 can reconnect an existing local Antigravity pool without browser consent, adding accounts, or refreshing their credentials.
 
 ### Fixed
 
-- OpenCode no longer refuses to open a healthy account store, or fails an OpenCode 2 reconnect, when another process saves a quota reading at the same moment.
 - Request waits and soft-quota protection now use only the accounts eligible for that request, including operator and model exclusions, and honor account cooldowns.
-- Waits for a pool that mixes rate-limited, cooling-down and low-quota accounts now use one estimate for the next usable account, and refusals no longer show a reset time that has already partly passed.
-- Retry times from Google are read the same way everywhere, so OpenCode 2 now receives a matching `Retry-After` on quota and rate-limit failures, and a failure thrown before headers keeps its real status.
+
+## [3.0.23] - 2026-11-01
 
 ### Changed
 
 - `OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR` sets one vault folder for several OpenCode hosts, so a runner that starts many hosts needs one approved enrollment instead of one per host.
 - After a crash or power loss, an old plugin's leftover process record no longer blocks the vault or account-store move until an unrelated program with the same process number exits.
+
+## [3.0.22] - 2026-10-31
+
+### Added
+
+- OpenCode vault mode can optionally ask a local CortexKit routing service which account should serve a session's first chat request and report which account served a reply. Titles, summaries and retries do not ask for routing, and requests fall back to the plugin's choice if routing does not answer in time. Pi is unchanged.
+
+### Changed
+
+- Quota windows without a dated reading now stay visible as greyed `no reading` rows, without a bar or percentage. Accounts with no readings keep their quota groups visible.
+
+### Fixed
+
+- Windows now retries brief lock-file sharing errors while waiting for an account-file lock, through common-auth 0.33.0.
+
+## [3.0.21] - 2026-10-31
+
+### Changed
+
+- OpenCode 1 and 2 sidebar quota bars now fill as quota is used, while the percent-left figure stays unchanged. Narrow sidebars shrink bars before dropping reset times.
+- Reading age now has its own `checked … ago` line under each account's quota windows, and group titles use the normal text colour.
+- The sidebar panel now uses its full width without the blank row or side margins.
+- Collapsed account rows now end with the status dot and show their quota summary complete or not at all. Stale accounts and accounts not serving the current session are greyed out.
+- Quota windows without a known reading time are hidden instead of implying quota is available. Accounts without dated readings show "no quota reading yet".
+- `header.label` and `header.showVersion` settings keep working, and the header never substitutes `LIMITED` for the version.
+
+## [3.0.20] - 2026-10-30
+
+### Changed
+
 - The minimum OpenCode 1 version is now 1.18.4, the first release that ships the terminal UI library the sidebar is built for.
 - The sidebar header always shows the plugin version; it no longer switches to LIMITED during quota backoff.
+
+## [3.0.19] - 2026-10-28
+
+### Changed
+
+- Soft quota reserve is now off by default. Existing `soft_quota_threshold_percent` values are kept; set it to `80` in `antigravity.json` to retain the previous 20-percent reserve.
+
+### Fixed
+
+- Soft quota refusals now explain how to set `"soft_quota_threshold_percent": 100`, and quota floor refusals point to `/antigravity → Limits`.
+
+## [3.0.18] - 2026-10-28
+
+### Fixed
+
+- Updating OpenCode 2 from 3.0.16 or earlier to 3.0.17 without restarting no longer breaks Antigravity. A process that ran an older plugin keeps the account store in OpenCode's config folder until restart, logs the deferral once, and moves the store on the next restart.
+
+## [3.0.17] - 2026-10-28
+
+### Changed
+
+- The local account store now moves out of OpenCode's watched config folder into `~/.local/state/cortexkit/antigravity-auth/opencode/`, respecting `XDG_STATE_HOME` and using an `opencode-<16 hex digits>/` folder for other config roots. Accounts, sign-ins and quota move with it; Pi's files do not move.
+- The move waits until every OpenCode using that config folder has restarted on this version, and until local accounts are active. Close every OpenCode before upgrading. If the state folder's path goes through a symbolic link, the store stays where it is; set `XDG_STATE_HOME` to the real path to resolve it.
+- The old store is kept as a backup. Never delete `antigravity-accounts.json.store.pointer.json` in the config folder: older versions need it to find the moved store.
+- Before downgrading to 3.0.15 or earlier, close every OpenCode and run `npx @cortexkit/opencode-antigravity-auth store relocate --back --offline` to replace the backup with current accounts. Downgrading to 3.0.16 needs no extra step.
+
+### Fixed
+
+- Windows vault and account files now work at paths of 260 characters or more instead of timing out on a lock.
+
+## [3.0.16] - 2026-10-27
+
+### Fixed
+
+- Windows now finds stores migrated in the old `%APPDATA%\opencode` folder instead of showing no accounts or starting a second store. If both folders contain a store, the error names both and asks you to keep one.
+
+### Changed
+
+- This release can read a store moved by a later release, so returning to 3.0.16 after that move needs no extra step. No account store moves in this release.
+
+## [3.0.15] - 2026-10-27
+
+### Fixed
+
+- OpenCode 2 now shows background vault quota readings in the sidebar with their age and last-check time instead of "no quota reading yet".
+- Vault quota checks now save all accounts' readings in one write instead of one write per account.
+
+### Changed
+
+- The OpenCode 2 sidebar now matches OpenCode 1, using host theme colours, a versioned `▼`/`▶ ANTIGRAVITY` header, persistent click-to-collapse, Quota and Routing headings and the host's section indent, without the health line.
+
+## [3.0.14] - 2026-10-27
+
+### Changed
+
+- Vault files, the signature cache and new debug logs now move out of OpenCode's watched config folder to `~/.local/state/cortexkit/antigravity-auth/opencode/`, respecting `XDG_STATE_HOME`. Vault enrollment carries over, the signature cache is rebuilt, and old logs stay where they were. The account store does not move yet.
+- Close every OpenCode before upgrading: the move waits while an older plugin is running. Conflicting vault files stop account serving with an error naming both paths, never a fallback to local accounts.
+- To downgrade, close every OpenCode, move vault files back to `antigravity-auth-vault/` in the config folder, and delete `layout.json` from the new folder. Until then, older versions remain in vault mode and refuse requests.
+- `OPENCODE_ANTIGRAVITY_LOG_DIR` now sets the debug log folder and takes precedence over `log_dir`.
+
+### Fixed
+
+- Gemini now accepts nullable tool-schema types such as `["string", "null"]`, sent with `nullable: true`.
+- Builds now work under folders named `antigravity`, `plugin`, `hooks` or `rpc`; the sidebar check no longer matches parent folder names.
+- Windows setup no longer fails when a file lock disappears while another process waits for it.
+- Empty-response errors now say "1 attempt" instead of "1 attempts".
+
+## [3.0.13] - 2026-10-27
+
+### Added
+
+- Paid Pro accounts now show their separate Gemini 4 Argon weekly allowance in an Argon group. Argon account choice uses that allowance without blocking Gemini; accounts without an Argon allowance are unchanged.
+
+### Fixed
+
+- OpenCode 2 now replaces a stalled vault connection after 30 seconds, limits each connection attempt to ten seconds, and shares one connection per process instead of per project.
+- OpenCode 2 background vault quota checks and the manual "Check quota now" action work again, following each project's background refresh setting.
+- Vault grant guidance in OpenCode and Pi now names the approved enrollment when it differs from the default name.
+- OpenCode 2 now reads vault enrollment files far less often while still observing approvals and disconnects on the next read.
+- Unchanged vault account lists no longer rewrite lock files on every check.
+
+## [3.0.12] - 2026-10-26
+
+### Fixed
+
+- Vault menus now explain how to upgrade an incompatible Claustrum vault with `ck upgrade`, or keep using local accounts.
+- Cancelling a request during a vault credential refresh now ends as cancelled instead of reporting the earlier credential as rejected.
+
+## [3.0.11] - 2026-10-23
+
+### Fixed
+
+- Manual quota checks no longer let the separate Gemini 4 Argon allowance overwrite Gemini quota on Pro accounts, or show a suspended five-hour limit as stale.
+- Quota errors with a reset time now hold the account off that model until the stated reset, while other accounts remain usable.
+- Gemini tool schemas no longer keep `items` on non-array types or `properties` on non-object types.
+- Shutdown now runs every cleanup step even if an earlier step fails, and still reports the error.
+- Setup and vault menus now distinguish an incompatible older vault from a vault that is not running.
+
+## [3.0.10] - 2026-10-22
+
+### Fixed
+
+- A model unavailable to one account now moves the request to the next account without a second-server retry or a rate-limit cooldown for the pool.
+- Requests fail immediately with a clear message when none of the configured accounts has the requested model.
+- Google permission refusals are no longer retried on the second server.
+
+## [3.0.9] - 2026-10-21
+
+### Fixed
+
+- Quota checks now use only Google's main Antigravity server, avoiding Gemini allowance from a different pool. If it is unavailable, the sidebar keeps the last good reading and marks it as old.
+
+### Changed
+
+- OpenCode 1 vault mode now uses recent readings from the vault's quota service before asking Google, avoiding duplicate quota requests.
+
+## [3.0.8] - 2026-10-20
+
+### Changed
+
+- When the vault is unreachable, model requests and quota checks keep using each account's last good credential. Rejected credentials are dropped immediately, and revoked accounts stop being served shortly after the vault reconnects.
+- OpenCode 1 now reads vault accounts on connection, reconnect and change notices instead of polling every five seconds. Vaults without change notices retain polling.
+- The collapsed OpenCode 1 sidebar now shows each account's lowest remaining quota window per group, or only its name and status dot when space is too narrow.
+
+### Fixed
+
+- Post-request quota checks no longer delay replies; OpenCode 2 also receives reply headers immediately.
+
+## [3.0.7] - 2026-10-18
+
+### Fixed
+
+- Requests now stop if Antigravity has not started answering within ten minutes across all retries, servers and account switches. Once an answer starts, the limit no longer applies.
+- `max_rate_limit_wait_seconds` now limits total waiting while all accounts are rate-limited or below soft quota, rather than each wait. `0` still means no limit.
+- Error messages now list at most 20 tool names and mask Google project IDs; full requests remain in debug logs only.
+- Empty-vault messages now distinguish missing grants from grants that reach no sign-in, and show the commands to resolve either case when the vault supports this diagnosis.
+- OpenCode 2 quota and route rows now fit narrow sidebars, using the same group names, reset times and reading ages as OpenCode 1.
+- First-time account-store setup now makes fewer disk writes and leaves either no store or a complete store after interruption.
+- Setup now fails immediately when `pi install` cannot start, and Pi keeps its login-file lock held during slow writes.
+
+## [3.0.6] - 2026-10-17
+
+### Added
+
+- Added `setup` to detect installed OpenCode and Pi hosts, register the plugin and guide local sign-in or vault enrollment. Hosts must be stopped first; `setup --dry-run` previews changes.
+
+### Changed
+
+- OpenCode 2 local-pool users must sign in once through Google → Google (antigravity-auth pool, browser) after upgrading. Existing vault connections keep working; native Google and API-key connections now pass through untouched, including session titles.
+- OpenCode 1 quota rows now fit narrow sidebars, show reset times with two units and reading age once per account, and mark windows that reset since the last check.
+- Vault messages now use plainer wording and name the shared folder when a token cannot be saved.
+
+### Fixed
+
+- Escape or Ctrl-C at the vault setup question now cancels without changing files.
+- OpenCode 2 now applies selected Gemini thinking variants, refuses retired models clearly, reports stalled or shutdown stream failures, and rejects pool requests with a custom Google `baseURL`.
+- Custom Google addresses that merely contain Google's host name are no longer taken over.
+- Stuck background vault quota checks no longer prevent later checks; failed or unsaved checks log why.
+- CLI login now saves to an already initialized or migrated store. An occupied sign-in port fails immediately without a later timeout error, and vault enrollment works on Windows.
+
+## [3.0.5] - 2026-10-16
+
+### Removed
+
+- Removed the Gemini CLI request path and its separate quota pool after Google stopped serving consumer accounts. Plugin requests use Antigravity only, without fallback between the pools.
+- Removed the Gemini CLI routing switches and `cli_first`, `quota_fallback`, `quota_style_fallback` and `operator.routing` settings. Old settings are ignored without affecting other configuration or saved accounts.
+
+### Changed
+
+- The Routing menu now shows the account selection strategy and where to configure it, or identifies vault mode. Antigravity server fallback, account rotation and quota protections are unchanged.
+
+### Fixed
+
+- The sidebar writer now leaves newer-format state files untouched. Older plugin processes must be restarted to gain this protection.
+- OpenCode 2 now applies selected Gemini thinking variants and no longer takes over requests made with a user's own Google API key or native login.
+
+## [3.0.4] - 2026-10-14
+
+### Added
+
+- Added `google/antigravity-gemini-4-argon` for Google AI Ultra subscribers, with low, medium and high thinking levels, medium by default, and a separate per-model quota. It accepts 1,048,576 input and 65,536 output tokens, including images and video.
+- Vault enrollment now explains approval and grant commands, empty approved vaults and pending requests in OpenCode and Pi.
+
+### Changed
+
+- Updated the client identity to Antigravity CLI 1.3.5. Argon uses its level-based thinking format without a token budget; only the low request format has been verified against the CLI.
+- Updated common-auth to 0.15.0 and the vault client to Claustrum 0.9.0. Windows account, lock, port and enrollment files are now private to the user, and folders writable by other users are refused.
+
+### Fixed
+
+- Pi no longer offers to forget a pending vault enrollment, which discarded the approval request, or reports the same failure twice.
+
+### Removed
+
+- Removed withdrawn Gemini 3.1 Pro, 3.6 Flash and 3.7 Flash models. Saved requests fail clearly instead of being sent or silently switched; earlier conversations remain readable.
+
+## [3.0.3] - 2026-10-13
+
+### Fixed
+
+- Tool schemas now pass through one shared conversion step for OpenCode, OpenCode 2 and Pi, preventing unsupported schema features from breaking every request.
+- Boolean and numeric constants and enums now retain their real types, with allowed values described to the model. Exclusive bounds become inclusive integer bounds or descriptions.
+- Unsupported schema keywords are converted or dropped, while combined object schemas keep every part's properties. Supported Gemini fields and Claude's stricter handling remain intact.
+
+## [3.0.2] - 2026-10-13
+
+### Added
+
+- Vault quota now refreshes automatically on `background_quota_refresh_interval_minutes`, with only one OpenCode process polling and only when a reading is due.
+
+### Changed
+
+- Sidebar state format 2 adds known account emails, unrounded `remainingFraction` values and reading timestamps for external tools. The sidebar itself still uses ordinal account labels and never displays emails.
+
+### Fixed
+
+- Manual vault quota checks now update the sidebar immediately, and readings retain their real fetch time across OpenCode windows.
+- Switching between local and vault mode now refreshes the menu's accounts and actions immediately.
+- Main-entry type declarations now use resolvable `.js` import paths, matching the OpenCode 2 entry.
+
+## [3.0.1] - 2026-10-12
+
+### Added
+
+- Added Claude Opus 5.5 and Sonnet 5.5 with low, medium and high adaptive effort, a 1,000,000-token context and a 128,000-token output limit.
+
+### Changed
+
+- Refreshed model metadata and client identity from Antigravity CLI 1.3.3, preserving server-offered Gemini 3.5 Flash and Gemini 3.1 Flash Image.
+- Claude requests now use native adaptive-thinking fields and retain explicit output caps, including warmups. Medium and high effort wire behavior is not yet verified.
+
+### Fixed
+
+- Windows migration now opens regular files with write access for flushing, avoiding `EPERM` failures without changing POSIX behavior or ownership checks.
+- Migration after a failed 3.0.0 attempt now starts afresh without adopting or modifying the abandoned backup. Stop every account-writing host first; already-active stores do not need migration again.
+
+### Removed
+
+- Retired Claude 4.6 routes now refuse locally instead of silently switching models. Use `google/antigravity-claude-opus-5-5` or `google/antigravity-claude-sonnet-5-5`.
+
+## [3.0.0] - 2026-10-12
+
+### Added
+
+- One `@cortexkit/opencode-antigravity-auth` package now supports OpenCode 1.17.13 or later in 1.x and OpenCode 2.0.22 or later, with account, quota, routing and vault actions in `/antigravity`.
+- Added approved Claustrum vault accounts for OpenCode and Pi under the same `google/` model names. Vault mode uses fresh vault credentials, leaves local accounts dormant and hides local account-writing actions; an empty or unavailable vault never falls back to local credentials.
+
+### Changed
+
+- Existing OpenCode account pools require offline migration to the new account store. Disable `auto_update` before upgrading, stop every OpenCode and Antigravity process and background timer, run `npx @cortexkit/opencode-antigravity-auth@3.0.0 migrate --offline`, then restart only after migration completes. Fresh installs do not need migration; never run old and new plugins against the same pool.
+- Downgrading a migrated pool requires disconnecting the vault, stopping every host and timer, and running `npx @cortexkit/opencode-antigravity-auth@3.0.0 rollback --offline` before installing the older build. Rollback exports current credentials; do not restore an old account-file backup over them.
+- Pi model selections move from `google-antigravity/...` to `google/...`, with `/login google` for local OAuth. Existing credentials are not moved automatically, and Pi-only users do not run the OpenCode migration. Vault disconnect restores the previous native Google login only while the native Google login file entry still belongs to that vault enrollment.
+- Quota displays now consistently show percent left, reported windows, valid reset countdowns and the age of stale readings. Changing sources does not make old readings appear fresh.
+
+### Fixed
+
+- Reloading OpenCode 1 authentication preserves admitted response streams; final shutdown blocks new work and cancels outstanding I/O.
+- Transport and streaming failures remain native host errors, with selected credentials masked in HTTP/SSE diagnostics, headers and cancellation failures. Successful model and tool content is unchanged.
 
 ## [2.3.0] - 2026-09-17
 
