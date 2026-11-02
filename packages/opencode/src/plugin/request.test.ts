@@ -2865,6 +2865,461 @@ describe('request.ts', () => {
         ),
       ).rejects.toMatchObject({ message: 'THINKING_RECOVERY_NEEDED' })
     })
+
+    it('sanitizes and validates retry headers for non-2xx responses without error envelope', async () => {
+      const response = new Response(
+        JSON.stringify([{ unexpected: 'array-response' }]),
+        {
+          status: 503,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': 'invalid-retry',
+            'retry-after-ms': '50000',
+          },
+        },
+      )
+
+      const transformed = await transformAntigravityResponse(response, false)
+      expect(transformed.status).toBe(503)
+      expect(transformed.headers.get('retry-after')).toBe('50')
+      expect(transformed.headers.get('retry-after-ms')).toBe('50000')
+    })
+
+    it('handles malformed details entries with non-string @type without throwing', async () => {
+      const response = new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Resource exhausted',
+            details: [
+              null,
+              123,
+              { '@type': 456 },
+              {
+                '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                retryDelay: '15s',
+              },
+            ],
+          },
+        }),
+        {
+          status: 429,
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+
+      const transformed = await transformAntigravityResponse(response, false)
+      expect(transformed.status).toBe(429)
+      expect(transformed.headers.get('retry-after')).toBe('15')
+      expect(transformed.headers.get('retry-after-ms')).toBe('15000')
+    })
+
+    it('preserves executor retry timing source precedence (RetryInfo > message > headers)', async () => {
+      // 1. RetryInfo (30s) wins over HTTP headers (60s) and message (2h)
+      const responseWithRetryInfo = new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Quota exceeded. Resets in 2h.',
+            details: [
+              {
+                '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                retryDelay: '30s',
+              },
+            ],
+          },
+        }),
+        {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': '60',
+          },
+        },
+      )
+
+      const transformedRetryInfo = await transformAntigravityResponse(
+        responseWithRetryInfo,
+        false,
+      )
+      expect(transformedRetryInfo.headers.get('retry-after')).toBe('30')
+      expect(transformedRetryInfo.headers.get('retry-after-ms')).toBe('30000')
+
+      // 2. Message duration (45s) wins over headers (60s) when no RetryInfo
+      const responseWithMessage = new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Quota exceeded. Resets in 45s.',
+          },
+        }),
+        {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': '60',
+          },
+        },
+      )
+      const transformedMessage = await transformAntigravityResponse(
+        responseWithMessage,
+        false,
+      )
+      expect(transformedMessage.headers.get('retry-after')).toBe('45')
+      expect(transformedMessage.headers.get('retry-after-ms')).toBe('45000')
+
+      // 3. Upstream headers (60s) win when no RetryInfo or message reset text
+      const responseWithHeaders = new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Quota exceeded.',
+          },
+        }),
+        {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': '60',
+          },
+        },
+      )
+      const transformedHeaders = await transformAntigravityResponse(
+        responseWithHeaders,
+        false,
+      )
+      expect(transformedHeaders.headers.get('retry-after')).toBe('60')
+      expect(transformedHeaders.headers.get('retry-after-ms')).toBe('60000')
+    })
+
+    it('preserves primitive string, boolean, number, and array error fields untouched except redaction', async () => {
+      // String error
+      const respString = new Response(
+        JSON.stringify({ error: 'Permission denied for project-secret-123' }),
+        { status: 403, headers: { 'content-type': 'application/json' } },
+      )
+      const transString = await transformAntigravityResponse(
+        respString,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+      expect(transString.status).toBe(403)
+      const jsonString = await transString.json()
+      expect(jsonString).toEqual({
+        error: 'Permission denied for proj****-123',
+      })
+      expect(JSON.stringify(jsonString)).not.toContain('project-secret-123')
+
+      // Boolean error
+      const respBool = new Response(
+        JSON.stringify({ error: true, status: 'FAILED' }),
+        { status: 500, headers: { 'content-type': 'application/json' } },
+      )
+      const transBool = await transformAntigravityResponse(respBool, false)
+      expect(transBool.status).toBe(500)
+      const jsonBool = await transBool.json()
+      expect(jsonBool).toEqual({ error: true, status: 'FAILED' })
+
+      // Number error
+      const respNum = new Response(JSON.stringify({ error: 429 }), {
+        status: 429,
+        headers: { 'content-type': 'application/json', 'retry-after': '30' },
+      })
+      const transNum = await transformAntigravityResponse(respNum, false)
+      expect(transNum.status).toBe(429)
+      expect(transNum.headers.get('retry-after')).toBe('30')
+      expect(transNum.headers.get('retry-after-ms')).toBe('30000')
+      const jsonNum = await transNum.json()
+      expect(jsonNum).toEqual({ error: 429 })
+
+      // Error array
+      const respArr = new Response(
+        JSON.stringify({
+          error: ['error one in project-secret-123', 'error two'],
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      )
+      const transArr = await transformAntigravityResponse(
+        respArr,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+      expect(transArr.status).toBe(400)
+      const jsonArr = await transArr.json()
+      expect(jsonArr).toEqual({
+        error: ['error one in proj****-123', 'error two'],
+      })
+      expect(JSON.stringify(jsonArr)).not.toContain('project-secret-123')
+    })
+
+    it('rejects with THINKING_RECOVERY_NEEDED on status 400 SSE with thinking error payload', async () => {
+      const sseText =
+        'data: {"error":{"code":400,"message":"Thinking must start with a thinking block before tool use.","status":"INVALID_ARGUMENT"}}\n\n'
+      const response = new Response(sseText, {
+        status: 400,
+        headers: { 'content-type': 'text/event-stream' },
+      })
+      await expect(
+        transformAntigravityResponse(
+          response,
+          false,
+          null,
+          'antigravity-claude-opus-4-6-thinking',
+          'test-project',
+        ),
+      ).rejects.toMatchObject({ message: 'THINKING_RECOVERY_NEEDED' })
+    })
+
+    it('sets prompt_too_long context error header on primitive error string without coercing', async () => {
+      const response = new Response(
+        JSON.stringify({ error: 'Prompt is too long for model context' }),
+        {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+      const transformed = await transformAntigravityResponse(response, false)
+      expect(transformed.status).toBe(400)
+      expect(transformed.headers.get('x-antigravity-context-error')).toBe(
+        'prompt_too_long',
+      )
+      const json = await transformed.json()
+      expect(json).toEqual({ error: 'Prompt is too long for model context' })
+    })
+
+    it('detects thinking recovery and context error on malformed JSON responses', async () => {
+      // Malformed JSON containing thinking error triggers THINKING_RECOVERY_NEEDED
+      const malformedThinking = new Response(
+        '{ malformed json: Thinking must start with a thinking block before tool use.',
+        {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+      await expect(
+        transformAntigravityResponse(malformedThinking, false),
+      ).rejects.toMatchObject({ message: 'THINKING_RECOVERY_NEEDED' })
+
+      // Malformed JSON containing context length sets header
+      const malformedContext = new Response(
+        '{ malformed json: prompt is too long',
+        {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+      const transContext = await transformAntigravityResponse(
+        malformedContext,
+        false,
+      )
+      expect(transContext.headers.get('x-antigravity-context-error')).toBe(
+        'prompt_too_long',
+      )
+    })
+
+    it('consistent real project masking and wrapped RetryInfo headers across error types', async () => {
+      const secret = 'my-project-secret-456'
+      const wrapped = new Response(
+        JSON.stringify([
+          {
+            error: {
+              code: 429,
+              message: `Quota reached for ${secret}. Resets in 2h.`,
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: '25s',
+                },
+              ],
+            },
+            siblingKey: 'preserve-me',
+          },
+        ]),
+        {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': '90',
+          },
+        },
+      )
+      const trans = await transformAntigravityResponse(
+        wrapped,
+        false,
+        null,
+        undefined,
+        secret,
+      )
+      expect(trans.status).toBe(429)
+      expect(trans.headers.get('retry-after')).toBe('25')
+      expect(trans.headers.get('retry-after-ms')).toBe('25000')
+      const json = (await trans.json()) as any
+      expect(Array.isArray(json)).toBe(true)
+      expect(json[0].siblingKey).toBe('preserve-me')
+      expect(json[0].error.message).toContain('my-p****-456')
+      expect(json[0].error.message).not.toContain(secret)
+    })
+
+    it('preserves siblings of wrapped error objects while injecting debug information', async () => {
+      const resp = new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Quota exceeded for project-secret-123',
+          },
+          siblingField: 'preserved-sibling',
+          siblingConfig: { nested: true },
+        }),
+        { status: 429, headers: { 'content-type': 'application/json' } },
+      )
+      const trans = await transformAntigravityResponse(
+        resp,
+        false,
+        null,
+        'gemini-3.5-flash',
+        'project-secret-123',
+      )
+      expect(trans.status).toBe(429)
+      const json = (await trans.json()) as any
+      expect(json.siblingField).toBe('preserved-sibling')
+      expect(json.siblingConfig).toEqual({ nested: true })
+      expect(json.error.code).toBe(429)
+      expect(json.error.message).toContain('proj****-123')
+      expect(json.error.message).not.toContain('project-secret-123')
+      expect(json.error.message).toContain('[Debug Info]')
+    })
+
+    it('preserves non-JSON non-2xx plain text and HTML error responses with redaction', async () => {
+      // Plain text 502
+      const plainResp = new Response(
+        '502 Bad Gateway: Upstream failure for project-secret-123',
+        { status: 502, headers: { 'content-type': 'text/plain' } },
+      )
+      const transPlain = await transformAntigravityResponse(
+        plainResp,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+      expect(transPlain.status).toBe(502)
+      expect(transPlain.headers.get('content-type')).toContain('text/plain')
+      const plainText = await transPlain.text()
+      expect(plainText).toContain(
+        '502 Bad Gateway: Upstream failure for proj****-123',
+      )
+      expect(plainText).not.toContain('project-secret-123')
+
+      // HTML 500
+      const htmlResp = new Response(
+        '<html><body>Internal error in project-secret-123</body></html>',
+        { status: 500, headers: { 'content-type': 'text/html' } },
+      )
+      const transHtml = await transformAntigravityResponse(
+        htmlResp,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+      expect(transHtml.status).toBe(500)
+      expect(transHtml.headers.get('content-type')).toContain('text/html')
+      const htmlText = await transHtml.text()
+      expect(htmlText).toContain('Internal error in proj****-123')
+      expect(htmlText).not.toContain('project-secret-123')
+    })
+
+    it('handles malformed JSON with safe fallback and original buffered body', async () => {
+      const malformedResp = new Response(
+        '{ invalid json with project-secret-123',
+        { status: 500, headers: { 'content-type': 'application/json' } },
+      )
+      const transMalformed = await transformAntigravityResponse(
+        malformedResp,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+      expect(transMalformed.status).toBe(500)
+      const json = (await transMalformed.json()) as any
+      expect(json.error.code).toBe(500)
+      expect(json.error.message).toContain('{ invalid json with proj****-123')
+      expect(json.error.message).not.toContain('project-secret-123')
+    })
+
+    it('resolves conflicting headers and redacts project ID from error message', async () => {
+      const resp = new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Quota exceeded for project-secret-123. Resets in 10s.',
+          },
+        }),
+        {
+          status: 429,
+          headers: {
+            'content-type': 'application/json',
+            'Retry-After': '90',
+            'retry-after-ms': '60000',
+          },
+        },
+      )
+      const trans = await transformAntigravityResponse(
+        resp,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+      expect(trans.status).toBe(429)
+      // Message reset clause (10s) wins over headers per unified precedence
+      expect(trans.headers.get('retry-after')).toBe('10')
+      expect(trans.headers.get('retry-after-ms')).toBe('10000')
+      const body = (await trans.json()) as any
+      expect(body.error.message).toContain('proj****-123')
+      expect(body.error.message).not.toContain('project-secret-123')
+    })
+
+    it('reads chunked body only once and preserves status and diagnostic information', async () => {
+      let readCount = 0
+      const bodyStream = new ReadableStream({
+        start(controller) {
+          readCount++
+          controller.enqueue(
+            new TextEncoder().encode(
+              JSON.stringify({
+                error: {
+                  code: 429,
+                  message: 'Quota exceeded',
+                },
+              }),
+            ),
+          )
+          controller.close()
+        },
+      })
+
+      const resp = new Response(bodyStream, {
+        status: 429,
+        headers: {
+          'content-type': 'application/json',
+          'retry-after': '15',
+        },
+      })
+
+      const trans = await transformAntigravityResponse(resp, false)
+      expect(readCount).toBe(1)
+      expect(trans.status).toBe(429)
+      expect(trans.headers.get('retry-after')).toBe('15')
+      expect(trans.headers.get('retry-after-ms')).toBe('15000')
+      const json = await trans.json()
+      expect((json as any).error.message).toContain('Quota exceeded')
+    })
   })
 })
 

@@ -47,6 +47,13 @@ import { createGaLocationServices } from '../../plugin/ga-location-services.ts'
 import { isCanonicalGoogleOrigin } from '../../plugin/google-origin.ts'
 import type { persistAccountPool } from '../../plugin/persist-account-pool.ts'
 import {
+  collectForwardedHeaders,
+  deriveRetryHeaderPairFromMs,
+  isQuotaError,
+  normalizeResetDuration,
+  resolveRetryMetadata,
+} from '../../plugin/request-helpers.ts'
+import {
   createLocationRuntime,
   type LocationRuntime,
   type LocationRuntimeOptions,
@@ -416,16 +423,109 @@ export interface GaLoopbackBridgeOptions {
   onError?: (message: string) => void
 }
 
-/** The HTTP 502 answer for a terminal failure before upstream headers. */
+/** The HTTP error answer for a terminal failure before upstream headers. */
 export function gaPreHeaderFailureResponse(error: unknown): Response {
+  const err = error as Record<string, unknown> | null
+
+  // Validate numeric status code: only accept finite safe integers in valid HTTP ranges
+  const rawStatusCode =
+    typeof err?.statusCode === 'number' && Number.isSafeInteger(err.statusCode)
+      ? err.statusCode
+      : undefined
+  const rawStatus =
+    typeof err?.status === 'number' && Number.isSafeInteger(err.status)
+      ? err.status
+      : undefined
+  const numericStatus = rawStatusCode ?? rawStatus
+
+  // Map known statuses to Google RPC status strings; all unknown/generic throw 502 UNAVAILABLE
+  let status = 502
+  let statusString = 'UNAVAILABLE'
+
+  if (numericStatus !== undefined) {
+    switch (numericStatus) {
+      case 400:
+        status = 400
+        statusString = 'INVALID_ARGUMENT'
+        break
+      case 401:
+        status = 401
+        statusString = 'UNAUTHENTICATED'
+        break
+      case 403:
+        status = 403
+        statusString = 'PERMISSION_DENIED'
+        break
+      case 404:
+        status = 404
+        statusString = 'NOT_FOUND'
+        break
+      case 412:
+        status = 412
+        statusString = 'FAILED_PRECONDITION'
+        break
+      case 429:
+        status = 429
+        statusString = 'RESOURCE_EXHAUSTED'
+        break
+      case 502:
+      case 503:
+      case 504:
+        status = numericStatus
+        statusString = 'UNAVAILABLE'
+        break
+      default:
+        // Any other arbitrary numeric code defaults to 502 UNAVAILABLE
+        status = 502
+        statusString = 'UNAVAILABLE'
+        break
+    }
+  }
+
   const rawMessage =
     error instanceof Error && error.message
       ? error.message
-      : 'Antigravity request failed before a response arrived'
-  const message = redactProjectIdText(rawMessage)
+      : typeof err?.message === 'string' && err.message
+        ? err.message
+        : 'Antigravity request failed before a response arrived'
+
+  const redacted = redactProjectIdText(rawMessage)
+  // Only normalize duration wording if classified as quota; never turn 400 "Session resets in 5m" into quota
+  const isQuota = isQuotaError(status, rawMessage, err?.details)
+  const message = isQuota ? normalizeResetDuration(redacted) : redacted
+
+  const headers = new Headers({ 'content-type': 'application/json' })
+
+  const metadata = resolveRetryMetadata({
+    details: err?.details,
+    message: rawMessage,
+    status,
+    headers:
+      (err?.headers as
+        | Headers
+        | Record<string, string | number | undefined>
+        | null
+        | undefined) ?? null,
+    retryAfterMs: err?.retryAfterMs,
+    resetAfterMs: err?.resetAfterMs,
+    retryAfterSeconds: err?.retryAfterSeconds,
+  })
+
+  if (metadata !== null) {
+    const pair = deriveRetryHeaderPairFromMs(metadata.delayMs)
+    headers.set('retry-after', pair['retry-after'])
+    headers.set('retry-after-ms', pair['retry-after-ms'])
+  }
+
   return new Response(
-    JSON.stringify({ error: { code: 502, message, status: 'UNAVAILABLE' } }),
-    { status: 502, headers: { 'content-type': 'application/json' } },
+    JSON.stringify({
+      error: {
+        code: status,
+        message,
+        status: statusString,
+      },
+    }),
+    { status, headers },
   )
 }
 
@@ -735,14 +835,18 @@ export function isGaJobId(value: string): boolean {
   return JOB_ID_PATTERN.test(value)
 }
 
+export { collectForwardedHeaders }
+
 function writeResponseHead(
   response: ServerResponse,
   status: number,
   contentType: string,
+  extraHeaders?: Record<string, string>,
 ): void {
   response.writeHead(status, {
     'content-type': contentType,
     'cache-control': 'no-cache',
+    ...extraHeaders,
   })
 }
 
@@ -778,7 +882,8 @@ async function pipeResponse(
     await upstream.body?.cancel().catch(() => {})
     return
   }
-  writeResponseHead(response, upstream.status, contentType)
+  const extraHeaders = collectForwardedHeaders(upstream.headers)
+  writeResponseHead(response, upstream.status, contentType, extraHeaders)
   response.flushHeaders()
   onHandoff()
   if (!upstream.body) {

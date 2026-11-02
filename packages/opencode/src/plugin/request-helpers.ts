@@ -2700,3 +2700,528 @@ export function createNativeGoogleErrorResponse(
     headers,
   })
 }
+
+/**
+ * Extracts a non-null, non-array Antigravity error record from an envelope or
+ * outer array wrapper. Primitives and arrays are not coerced to writable objects.
+ */
+export function extractAntigravityError(
+  body: unknown,
+): Record<string, unknown> | null {
+  if (!body || typeof body !== 'object') return null
+  let target: unknown = body
+  if (Array.isArray(body)) {
+    if (
+      body.length === 0 ||
+      !body[0] ||
+      typeof body[0] !== 'object' ||
+      Array.isArray(body[0])
+    ) {
+      return null
+    }
+    target = body[0]
+  }
+  const candidate = (target as Record<string, unknown>).error
+  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+    return candidate as Record<string, unknown>
+  }
+  return null
+}
+
+const MAX_FINITE_WAIT_MS = BigInt(Math.ceil(Number.MAX_VALUE))
+const MAX_FINITE_WAIT_SECONDS = (MAX_FINITE_WAIT_MS + 999n) / 1000n
+const MAX_FINITE_FORWARDING_MS = MAX_FINITE_WAIT_SECONDS * 1000n
+const RFC_HTTP_DATE_REGEX =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/
+
+export function validateRetryAfterSecondsBigInt(raw: unknown): bigint | null {
+  if (raw === null || raw === undefined) return null
+  if (typeof raw === 'bigint') {
+    return raw >= 0n && raw <= MAX_FINITE_WAIT_SECONDS ? raw : null
+  }
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw) || raw < 0 || !Number.isInteger(raw)) {
+      return null
+    }
+    const b = BigInt(raw)
+    return b <= MAX_FINITE_WAIT_SECONDS ? b : null
+  }
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) return null
+
+  if (/^\d+$/.test(trimmed)) {
+    if (trimmed.length > 309) return null
+    const val = BigInt(trimmed)
+    return val >= 0n && val <= MAX_FINITE_WAIT_SECONDS ? val : null
+  }
+
+  if (RFC_HTTP_DATE_REGEX.test(trimmed)) {
+    const parsedDate = Date.parse(trimmed)
+    if (!Number.isNaN(parsedDate)) {
+      const roundtrip = new Date(parsedDate).toUTCString()
+      if (roundtrip === trimmed) {
+        const diffSec = Math.ceil((parsedDate - Date.now()) / 1000)
+        if (diffSec >= 0 && Number.isSafeInteger(diffSec)) {
+          return BigInt(diffSec)
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+export function validateRetryAfterMsBigInt(raw: unknown): bigint | null {
+  if (raw === null || raw === undefined) return null
+  if (typeof raw === 'bigint') {
+    return raw >= 0n && raw <= MAX_FINITE_FORWARDING_MS ? raw : null
+  }
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw) || raw < 0 || !Number.isInteger(raw)) {
+      return null
+    }
+    const b = BigInt(raw)
+    return b <= MAX_FINITE_FORWARDING_MS ? b : null
+  }
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (trimmed.length === 0 || !/^\d+$/.test(trimmed)) return null
+  if (trimmed.length > 309) return null
+  const val = BigInt(trimmed)
+  return val >= 0n && val <= MAX_FINITE_FORWARDING_MS ? val : null
+}
+
+export function deriveRetryHeaderPairFromMs(ms: bigint): {
+  'retry-after': string
+  'retry-after-ms': string
+} {
+  const clampedMs =
+    ms < 0n ? 0n : ms > MAX_FINITE_FORWARDING_MS ? MAX_FINITE_FORWARDING_MS : ms
+  const sec = (clampedMs + 999n) / 1000n
+  return {
+    'retry-after': sec.toString(),
+    'retry-after-ms': clampedMs.toString(),
+  }
+}
+
+export function deriveRetryHeaderPairFromSeconds(sec: bigint): {
+  'retry-after': string
+  'retry-after-ms': string
+} {
+  const clampedSec =
+    sec < 0n
+      ? 0n
+      : sec > MAX_FINITE_WAIT_SECONDS
+        ? MAX_FINITE_WAIT_SECONDS
+        : sec
+  const ms = clampedSec * 1000n
+  return {
+    'retry-after': clampedSec.toString(),
+    'retry-after-ms': ms.toString(),
+  }
+}
+
+/**
+ * Validate a Retry-After header value as non-negative integer seconds.
+ * Accepts non-negative finite integers, integer numeric strings, and valid RFC HTTP date strings.
+ * Rejects NaN, Infinity, negative values (< 0), floats, and out-of-range numbers.
+ */
+export function validateRetryAfterSeconds(raw: unknown): number | null {
+  const val = validateRetryAfterSecondsBigInt(raw)
+  if (val === null) return null
+  const num = Number(val)
+  return Number.isFinite(num) ? num : null
+}
+
+/**
+ * Validate a retry-after-ms header value as non-negative integer milliseconds.
+ * Accepts non-negative finite integers and integer numeric strings.
+ * Rejects fractions, negative values (< 0), and out-of-range numbers.
+ */
+export function validateRetryAfterMs(raw: unknown): number | null {
+  const val = validateRetryAfterMsBigInt(raw)
+  if (val === null) return null
+  const num = Number(val)
+  return Number.isFinite(num) ? num : null
+}
+
+/**
+ * Extract validated retry headers from source headers (Headers instance or plain record).
+ * Selects ONE authoritative delay (preferring retry-after-ms for millisecond precision)
+ * and derives BOTH 'retry-after' and 'retry-after-ms' from that single value, ensuring
+ * conflicting header pairs (e.g. Retry-After: 90 vs retry-after-ms: 60000) can never disagree.
+ */
+export function collectForwardedHeaders(
+  sourceHeaders?: Headers | Record<string, string | number | undefined> | null,
+): Record<string, string> {
+  if (!sourceHeaders) return {}
+
+  const getHeader = (name: string): unknown => {
+    if (typeof (sourceHeaders as Headers).get === 'function') {
+      return (sourceHeaders as Headers).get(name)
+    }
+    const record = sourceHeaders as Record<string, unknown>
+    for (const [key, value] of Object.entries(record)) {
+      if (key.toLowerCase() === name) return value
+    }
+    return undefined
+  }
+
+  const rawRetryAfterMs = getHeader('retry-after-ms')
+  const validMs = validateRetryAfterMsBigInt(rawRetryAfterMs)
+  if (validMs !== null) {
+    return deriveRetryHeaderPairFromMs(validMs)
+  }
+
+  const rawRetryAfter = getHeader('retry-after')
+  const validSec = validateRetryAfterSecondsBigInt(rawRetryAfter)
+  if (validSec !== null) {
+    return deriveRetryHeaderPairFromSeconds(validSec)
+  }
+
+  return {}
+}
+
+/**
+ * Check whether an error response or message represents a quota / rate-limit condition.
+ * Non-quota errors (such as 400 "Session resets in 5m") must never be normalized with "quota resets in".
+ */
+export function isQuotaError(
+  status: number | undefined,
+  message: string | undefined,
+  details?: unknown,
+): boolean {
+  if (status === 429) return true
+  const lower = (message ?? '').toLowerCase()
+  if (
+    lower.includes('resource_exhausted') ||
+    lower.includes('quota') ||
+    lower.includes('rate_limit') ||
+    lower.includes('rate limit')
+  ) {
+    return true
+  }
+  if (Array.isArray(details)) {
+    return details.some((detail) => {
+      if (!detail || typeof detail !== 'object') return false
+      if (
+        '@type' in detail &&
+        detail['@type'] === 'type.googleapis.com/google.rpc.QuotaFailure'
+      )
+        return true
+      return (
+        'reason' in detail &&
+        (detail.reason === 'QUOTA_EXHAUSTED' ||
+          detail.reason === 'RATE_LIMIT_EXCEEDED')
+      )
+    })
+  }
+  return false
+}
+
+export const RESET_CLAUSE_REGEX =
+  /\b(?:quota\s+)?resets?\s+(?:in|after)\s+(?=\d+(?:\.\d+)?[ \t]*(?:ms|[dhms]))((?:(?:\d+(?:\.\d+)?[ \t]*d)[ \t]*)?(?:(?:\d+(?:\.\d+)?[ \t]*h)[ \t]*)?(?:(?:\d+(?:\.\d+)?[ \t]*m(?!s))[ \t]*)?(?:(?:\d+(?:\.\d+)?[ \t]*s)[ \t]*)?(?:(?:\d+(?:\.\d+)?[ \t]*ms))?)(?![a-zA-Z0-9_-])/gi
+
+/**
+ * Extract the raw duration string from a reset clause if present, without
+ * consuming punctuation, prose, or following credential tokens.
+ */
+export function extractResetDurationFromText(text: string): string | null {
+  if (typeof text !== 'string' || text.length === 0) return null
+  const regex = new RegExp(RESET_CLAUSE_REGEX.source, 'i')
+  const match = text.match(regex)
+  if (!match?.[1]) return null
+  const raw = match[1].trim().replace(/[.,;:]+$/, '')
+  return raw.length > 0 ? raw : null
+}
+
+/**
+ * Normalise only captured reset clauses so unrelated credential-like text is
+ * unchanged before redaction:
+ * - "Resets in 45s before retry." -> "quota resets in 45s before retry."
+ * - "Resets in 2h55m14s. 1d2h3m4s5e-synthetic-opaque-credential" -> "quota resets in 2h 55m 14s. 1d2h3m4s5e-synthetic-opaque-credential"
+ * - Does not touch tokens or numbers outside the reset clause.
+ */
+export function normalizeResetDuration(text: string): string {
+  if (typeof text !== 'string' || text.length === 0) return text
+  return text.replace(RESET_CLAUSE_REGEX, (_match, rawDuration) => {
+    if (!rawDuration) return _match
+    const duration = String(rawDuration).match(/^(.*?)([ \t]*)$/)
+    if (!duration) return _match
+    const spaced = (duration[1] ?? '').replace(
+      /(\d+(?:\.\d+)?)[ \t]*(ms|[dhms])(?=\d)/gi,
+      '$1$2 ',
+    )
+    return `quota resets in ${spaced}${duration[2] ?? ''}`
+  })
+}
+
+/**
+ * Format a positive millisecond wait as a parser-friendly duration string ("2h 55m 14s").
+ * Seconds are rounded up.
+ */
+export function formatResetDuration(waitMs: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(waitMs / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const segments: string[] = []
+  if (hours > 0) segments.push(`${hours}h`)
+  if (minutes > 0) segments.push(`${minutes}m`)
+  segments.push(`${seconds}s`)
+  return segments.join(' ')
+}
+
+export interface DurationParserOptions {
+  allowZero?: boolean
+  allowBareSeconds?: boolean
+}
+
+export const DURATION_REGEX =
+  /^(?:(\d+(?:\.\d+)?)[ \t]*d)?(?:[ \t]*(\d+(?:\.\d+)?)[ \t]*h)?(?:[ \t]*(\d+(?:\.\d+)?)[ \t]*m(?!s))?(?:[ \t]*(\d+(?:\.\d+)?)[ \t]*s)?(?:[ \t]*(\d+(?:\.\d+)?)[ \t]*ms)?$/i
+
+/**
+ * Strictly ordered whole-string duration grammar:
+ * Days -> Hours -> Minutes -> Seconds -> Milliseconds
+ * Components can be compact (2h55m14s) or separated by horizontal whitespace (2h 55m 14s).
+ * Rejects partial tokens ('1hgarbage', 'x5s'), out-of-order components ('1m2h'),
+ * non-positive totals (unless allowZero), non-finite / overflow (400 digits), and unsafe numbers.
+ * Zero components in positive Go durations such as "1h0m0s" remain valid.
+ */
+export function parseDurationToMs(
+  duration: string,
+  options?: DurationParserOptions,
+): number | null {
+  const big = parseDurationToMsBigInt(duration, options)
+  if (big === null) return null
+  const num = Number(big)
+  return Number.isSafeInteger(num) ? num : null
+}
+
+export function parseDurationToMsBigInt(
+  duration: string,
+  options?: DurationParserOptions,
+): bigint | null {
+  if (typeof duration !== 'string') return null
+  const trimmed = duration.trim()
+  if (trimmed.length === 0) return null
+
+  if (options?.allowBareSeconds && /^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const intPart = trimmed.split('.')[0] ?? ''
+    if (intPart.length > 15) return null
+    const val = parseFloat(trimmed)
+    if (!Number.isFinite(val) || val < 0) return null
+    const ms = Math.round(val * 1000)
+    if (ms === 0) {
+      return options.allowZero ? 0n : null
+    }
+    return BigInt(Math.max(1, ms))
+  }
+
+  const match = trimmed.match(DURATION_REGEX)
+  if (!match) return null
+
+  const [, dStr, hStr, mStr, sStr, msStr] = match
+  if (
+    dStr === undefined &&
+    hStr === undefined &&
+    mStr === undefined &&
+    sStr === undefined &&
+    msStr === undefined
+  ) {
+    return null
+  }
+
+  let totalMs = 0
+  const parseComponent = (
+    str: string | undefined,
+    multiplier: number,
+  ): boolean => {
+    if (str === undefined) return true
+    const intPart = str.split('.')[0] ?? ''
+    if (intPart.length > 15) return false
+    const val = parseFloat(str)
+    if (!Number.isFinite(val) || val < 0) return false
+    const ms = val * multiplier
+    if (!Number.isFinite(ms)) return false
+    totalMs += ms
+    return true
+  }
+
+  if (!parseComponent(dStr, 86400 * 1000)) return null
+  if (!parseComponent(hStr, 3600 * 1000)) return null
+  if (!parseComponent(mStr, 60 * 1000)) return null
+  if (!parseComponent(sStr, 1000)) return null
+  if (!parseComponent(msStr, 1)) return null
+
+  if (
+    !Number.isFinite(totalMs) ||
+    totalMs < 0 ||
+    totalMs > Number.MAX_SAFE_INTEGER
+  ) {
+    return null
+  }
+
+  if (totalMs === 0) {
+    return options?.allowZero ? 0n : null
+  }
+
+  return BigInt(Math.max(1, Math.round(totalMs)))
+}
+
+export interface RetryMetadataResult {
+  delayMs: bigint
+  quotaResetTime?: string
+}
+
+export interface ResolveRetryMetadataOptions {
+  details?: unknown
+  message?: string
+  status?: number
+  headers?: Headers | Record<string, string | number | undefined> | null
+  retryAfterMs?: unknown
+  resetAfterMs?: unknown
+  retryAfterSeconds?: unknown
+}
+
+/**
+ * Resolves authoritative retry metadata following unified executor precedence:
+ * 1. First VALID RetryInfo scanning all entries (invalid first doesn't hide later)
+ * 2. First valid metadata.quotaResetDelay (timestamp retained)
+ * 3. GA ONLY fields: retryAfterMs -> resetAfterMs -> retryAfterSeconds
+ * 4. Quota classified original message reset clause
+ * 5. HTTP headers: ms before seconds
+ */
+export function resolveRetryMetadata(
+  options: ResolveRetryMetadataOptions,
+): RetryMetadataResult | null {
+  const {
+    details,
+    message,
+    status,
+    headers,
+    retryAfterMs,
+    resetAfterMs,
+    retryAfterSeconds,
+  } = options
+
+  // 1. First VALID RetryInfo scanning all entries
+  if (Array.isArray(details)) {
+    for (const entry of details) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+      const type = (entry as Record<string, unknown>)['@type']
+      if (typeof type === 'string' && type.includes('google.rpc.RetryInfo')) {
+        const retryDelay = (entry as Record<string, unknown>).retryDelay
+        if (typeof retryDelay === 'string') {
+          const ms = parseDurationToMsBigInt(retryDelay, {
+            allowZero: true,
+            allowBareSeconds: true,
+          })
+          if (ms !== null) {
+            return { delayMs: ms }
+          }
+        } else if (
+          typeof retryDelay === 'number' &&
+          Number.isFinite(retryDelay) &&
+          retryDelay >= 0
+        ) {
+          const ms = BigInt(Math.round(retryDelay * 1000))
+          return { delayMs: ms }
+        }
+      }
+    }
+
+    // 2. First valid metadata.quotaResetDelay (timestamp retained)
+    for (const entry of details) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+      const metadata = (entry as Record<string, unknown>).metadata
+      if (
+        metadata &&
+        typeof metadata === 'object' &&
+        !Array.isArray(metadata)
+      ) {
+        const quotaResetDelay = (metadata as Record<string, unknown>)
+          .quotaResetDelay
+        if (typeof quotaResetDelay === 'string') {
+          const ms = parseDurationToMsBigInt(quotaResetDelay, {
+            allowZero: true,
+            allowBareSeconds: true,
+          })
+          if (ms !== null) {
+            const quotaResetTime =
+              typeof (metadata as Record<string, unknown>)
+                .quotaResetTimeStamp === 'string'
+                ? ((metadata as Record<string, unknown>)
+                    .quotaResetTimeStamp as string)
+                : typeof (metadata as Record<string, unknown>)
+                      .quotaResetTime === 'string'
+                  ? ((metadata as Record<string, unknown>)
+                      .quotaResetTime as string)
+                  : undefined
+            return {
+              delayMs: ms,
+              ...(quotaResetTime !== undefined ? { quotaResetTime } : {}),
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 3. GA ONLY fields: retryAfterMs -> resetAfterMs -> retryAfterSeconds
+  const validGaMs = validateRetryAfterMsBigInt(retryAfterMs)
+  if (validGaMs !== null) {
+    return { delayMs: validGaMs }
+  }
+  const validResetMs = validateRetryAfterMsBigInt(resetAfterMs)
+  if (validResetMs !== null) {
+    return { delayMs: validResetMs }
+  }
+  const validGaSec = validateRetryAfterSecondsBigInt(retryAfterSeconds)
+  if (validGaSec !== null) {
+    return { delayMs: validGaSec * 1000n }
+  }
+
+  // 4. Quota classified original message reset clause
+  if (isQuotaError(status, message, details) && typeof message === 'string') {
+    const rawDuration = extractResetDurationFromText(message)
+    if (rawDuration !== null) {
+      const ms = parseDurationToMsBigInt(rawDuration, {
+        allowZero: true,
+        allowBareSeconds: true,
+      })
+      if (ms !== null) {
+        return { delayMs: ms }
+      }
+    }
+  }
+
+  // 5. HTTP headers: ms before seconds
+  if (headers) {
+    const getHeader = (name: string): unknown => {
+      if (typeof (headers as Headers).get === 'function') {
+        return (headers as Headers).get(name)
+      }
+      const record = headers as Record<string, unknown>
+      for (const [key, value] of Object.entries(record)) {
+        if (key.toLowerCase() === name) return value
+      }
+      return undefined
+    }
+
+    const rawMs = getHeader('retry-after-ms')
+    const validHeaderMs = validateRetryAfterMsBigInt(rawMs)
+    if (validHeaderMs !== null) {
+      return { delayMs: validHeaderMs }
+    }
+
+    const rawSec = getHeader('retry-after')
+    const validHeaderSec = validateRetryAfterSecondsBigInt(rawSec)
+    if (validHeaderSec !== null) {
+      return { delayMs: validHeaderSec * 1000n }
+    }
+  }
+
+  return null
+}
