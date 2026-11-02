@@ -1291,6 +1291,9 @@ describe('gemini-argon quota routing', () => {
       selector.getCurrentOrNextForFamily('gemini', ARGON_MODEL)?.index,
     ).toBe(2)
     pro.coolingDownUntil = ARGON_NOW + 60_000
+    // Selecting Pro advanced the existing cursor. With Pro unavailable, the
+    // undated row comes next, then the account with no quota reading at all.
+    expect(selector.getNextForFamily('gemini', ARGON_MODEL)?.index).toBe(1)
     expect(selector.getNextForFamily('gemini', ARGON_MODEL)?.index).toBe(0)
   })
 

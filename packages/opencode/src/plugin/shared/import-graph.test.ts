@@ -164,6 +164,7 @@ describe('shared request engine import graph', () => {
     }
 
     expect(imports).toEqual({
+      'node:crypto': ['createHash'],
       './after-handoff.ts': [
         'createAfterHandoff',
         'type RegisterResponseHandoff',
