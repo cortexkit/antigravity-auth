@@ -7,6 +7,10 @@
 - OpenCode no longer refuses to open a healthy account store, or fails an OpenCode 2 reconnect, when another process saves a quota reading at the same moment.
 - Retry times from Google are read the same way everywhere, so OpenCode 2 now receives a matching `Retry-After` on quota and rate-limit failures, and a failure thrown before headers keeps its real status.
 
+### Changed
+
+- A failed OpenCode 2 reconnect now logs which step failed, as a fixed code with no account data.
+
 ## [3.0.25] - 2026-11-01
 
 ### Fixed
@@ -27,6 +31,7 @@
 
 ### Changed
 
+- In vault mode, OpenCode now also tells a CortexKit routing service when an account's quota group is used up. A report needs both Google's "quota exhausted" refusal and a dated 0% reading for that group, and only that group is blocked.
 - `OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR` sets one vault folder for several OpenCode hosts, so a runner that starts many hosts needs one approved enrollment instead of one per host.
 - After a crash or power loss, an old plugin's leftover process record no longer blocks the vault or account-store move until an unrelated program with the same process number exits.
 
