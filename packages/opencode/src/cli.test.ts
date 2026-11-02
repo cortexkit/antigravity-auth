@@ -824,26 +824,41 @@ describe('runCli reads the active account store', () => {
           Date.now,
         )
         if (admission.status !== 'active') throw new Error(admission.status)
+        const fixtureNow = Date.now() - 3_600_000
+        const expiredAt = fixtureNow + 60_000
         const repository = createAccountRepositoryFactory(modules)({
           paths: admission.paths,
-          now: Date.now,
+          now: () => fixtureNow,
           exchange: async () => ({
             accessToken: 'refreshed-token',
             refreshToken: 'store-refresh',
-            expiresAt: Date.now() + 3_600_000,
+            expiresAt: expiredAt,
           }),
         })
-        await repository.login({
-          id: crypto.randomUUID(),
-          refreshToken: 'store-refresh',
-          identity: 'expired@example.test',
-          metadata: {
-            email: 'expired@example.test',
-            addedAt: 100,
-            lastUsed: 200,
-          },
-        })
-        await repository.dispose()
+        try {
+          const login = await repository.login({
+            id: crypto.randomUUID(),
+            refreshToken: 'store-refresh',
+            identity: 'expired@example.test',
+            metadata: {
+              email: 'expired@example.test',
+              addedAt: 100,
+              lastUsed: 200,
+            },
+          })
+          const refreshed = await repository.refresh(login.ref)
+          expect(refreshed.status).toBe('rotated')
+          const seeded = await repository.read()
+          expect(seeded.status).toBe('ready')
+          if (seeded.status !== 'ready') throw new Error(seeded.status)
+          expect(seeded.rows[0]?.credential?.accessToken).toBe(
+            'refreshed-token',
+          )
+          expect(seeded.rows[0]?.credential?.expiresAt).toBe(expiredAt)
+          expect(expiredAt).toBeLessThan(Date.now())
+        } finally {
+          await repository.dispose()
+        }
 
         let exchangeCalls = 0
         const refreshSpy = spyOn(
