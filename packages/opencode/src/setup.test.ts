@@ -1740,4 +1740,54 @@ describe('setup plugin callbacks', () => {
       fenceSpy.mockRestore()
     }
   })
+
+  it('refuses to advise reconnect or browser login when post-migration readiness read is unavailable', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      let reads = 0
+      deps.accountStore.read = mock(async () => {
+        reads++
+        // 1. pre-signin read in signInLocal -> legacy
+        // 2. pre-migration read in migrate -> legacy
+        // 3. post-migration readiness read in migrate -> unavailable
+        if (reads >= 3) {
+          return {
+            kind: 'unavailable' as const,
+            reason: 'Corrupt storage vault after migration',
+          }
+        }
+        return { kind: 'legacy' as const }
+      })
+      const migrateOpenCode = mock(async () => 0) // migration succeeds with exit 0
+      const plugin = await createSetupPlugin(deps, migrateOpenCode)
+
+      const gen2Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+      await plugin.signInLocal('opencode', gen2Context)
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      await expect(plugin.migrate!('opencode', gen2Context)).rejects.toThrow(
+        'Corrupt storage vault after migration',
+      )
+      expect(output).not.toContain('Use existing local Antigravity pool')
+      expect(output).not.toContain('Google (antigravity-auth pool, browser)')
+      expect(migrateOpenCode).toHaveBeenCalledTimes(1)
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
 })

@@ -536,6 +536,9 @@ export async function createSetupPlugin(
               const migrated = await deps.accountStore.read(
                 deps.accountStore.legacyPath(),
               )
+              if (migrated.kind === 'unavailable') {
+                throw new Error(migrated.reason)
+              }
               if (migrated.kind === 'store') {
                 isReady = migrated.reconnectReady
               }

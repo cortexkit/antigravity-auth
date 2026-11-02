@@ -69,7 +69,11 @@ function tree(root: string) {
     })
 }
 
-async function fixture(options?: { realPipeline?: boolean }) {
+async function fixture(options?: {
+  realPipeline?: boolean
+  gateOpen?: Promise<void> | (() => Promise<void>)
+  onOpenStarted?: () => void
+}) {
   const root = mkdtempSync(join(tmpdir(), 'ga-pool-login-'))
   const previous = {
     OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
@@ -121,7 +125,17 @@ async function fixture(options?: { realPipeline?: boolean }) {
   }
   const factory = createGaLocationServicesFactory({
     resolveAccountFile: () => legacyPath,
-    loadStoreModules: async () => modules,
+    loadStoreModules: async () => {
+      options?.onOpenStarted?.()
+      if (options?.gateOpen) {
+        if (typeof options.gateOpen === 'function') {
+          await options.gateOpen()
+        } else {
+          await options.gateOpen
+        }
+      }
+      return modules
+    },
     now: Date.now,
     runtime: (input) => {
       getRepository = input.getRepository
@@ -233,8 +247,14 @@ async function fixture(options?: { realPipeline?: boolean }) {
       root,
       legacyPath,
       modules,
-      services,
-      registration,
+      get services(): GaLocationServices {
+        if (!services) throw new Error('Services missing')
+        return services
+      },
+      get registration(): Awaited<ReturnType<typeof registerGaAuthMethods>> {
+        if (!registration) throw new Error('Registration missing')
+        return registration
+      },
       selected,
       counters: () => ({
         oauthAuthorize: oauthAuthorizeCount,
@@ -432,7 +452,19 @@ describe('GA existing local pool reconnect', () => {
   })
 
   it('handles deterministic concurrent reconnect, read, and browser initialization race with repeated no-login arrivals', async () => {
-    const f = await fixture()
+    let readOnlyStartedResolve: () => void = () => {}
+    const readOnlyStarted = new Promise<void>((resolve) => {
+      readOnlyStartedResolve = resolve
+    })
+    let readOnlyReleaseResolve: () => void = () => {}
+    const readOnlyRelease = new Promise<void>((resolve) => {
+      readOnlyReleaseResolve = resolve
+    })
+
+    const f = await fixture({
+      onOpenStarted: () => readOnlyStartedResolve(),
+      gateOpen: readOnlyRelease,
+    })
     try {
       let admitCalls = 0
       let admitGateResolve: () => void = () => {}
@@ -447,6 +479,9 @@ describe('GA existing local pool reconnect', () => {
       // Multiple fresh readonly callers start on an uninitialized store
       const reconnect1 = f.reconnect()
       const reconnect2 = f.reconnect()
+
+      // Deterministic gate: wait until readonly open has actually started before persist arrives
+      await readOnlyStarted
 
       // Login arrives, captures readonly and reserves repositoryPromise
       const loggingIn = f.services!.localLogin!.persist(
@@ -466,6 +501,9 @@ describe('GA existing local pool reconnect', () => {
           }
         },
       )
+
+      // Release readonly open gate so it proceeds
+      readOnlyReleaseResolve()
 
       // Await until login has reserved repositoryPromise and reached loginAttempt's admit
       await loginReserved
@@ -512,14 +550,30 @@ describe('GA existing local pool reconnect', () => {
       expect(accountRows).toHaveLength(1)
       expect(accountRows[0]?.credential?.refreshToken).toBe('pool-refresh')
     } finally {
+      readOnlyReleaseResolve()
       await f.cleanup()
     }
   })
 
   it('allows future retry after a failed login without poisoning subsequent attempts', async () => {
+    let constructed = 0
+    const origFactory = core.createAccountRepositoryFactory
+    const factorySpy = spyOn(
+      core,
+      'createAccountRepositoryFactory',
+    ).mockImplementation((modules) => {
+      const create = origFactory(modules)
+      return (options) => {
+        constructed++
+        return create(options)
+      }
+    })
+
     const f = await fixture()
     try {
-      // 1. A login attempt that fails during admit or persist
+      // 1. A login attempt where admission passes before construction,
+      // but throws AFTER repository construction has occurred
+      let admitCalls = 0
       await expect(
         f.services!.localLogin!.persist(
           {
@@ -531,10 +585,15 @@ describe('GA existing local pool reconnect', () => {
             projectId: 'pool-project',
           },
           async () => {
-            throw new Error('admit failed')
+            admitCalls++
+            if (constructed >= 1 && admitCalls >= 2) {
+              throw new Error('login failed after construction')
+            }
           },
         ),
-      ).rejects.toThrow('admit failed')
+      ).rejects.toThrow('login failed after construction')
+
+      expect(constructed).toBe(1)
 
       // 2. Future retry succeeds and initializes cleanly
       await f.services!.localLogin!.persist(
@@ -553,18 +612,84 @@ describe('GA existing local pool reconnect', () => {
       expect(accountRows).toHaveLength(1)
       expect(accountRows[0]?.credential?.refreshToken).toBe('pool-refresh')
     } finally {
+      factorySpy.mockRestore()
       await f.cleanup()
     }
   })
 
   it('disposes once during in-flight opening without resource leaks or errors', async () => {
-    const f = await fixture()
-    const opening = f.repository()
-    const disposing = f.services!.dispose()
-    const [openRes, disposeRes] = await Promise.allSettled([opening, disposing])
-    expect(disposeRes.status).toBe('fulfilled')
-    if (openRes.status === 'rejected') {
-      expect(openRes.reason.message).toContain('disposed')
+    let gating = false
+    let openStartedResolve: () => void = () => {}
+    const openStarted = new Promise<void>((resolve) => {
+      openStartedResolve = resolve
+    })
+    let openReleaseResolve: () => void = () => {}
+    const openRelease = new Promise<void>((resolve) => {
+      openReleaseResolve = resolve
+    })
+
+    let constructed = 0
+    let disposed = 0
+    const origFactory = core.createAccountRepositoryFactory
+    const factorySpy = spyOn(
+      core,
+      'createAccountRepositoryFactory',
+    ).mockImplementation((modules) => {
+      const create = origFactory(modules)
+      return (options) => {
+        if (gating) {
+          constructed++
+        }
+        const repo = create(options)
+        const origDispose = repo.dispose.bind(repo)
+        repo.dispose = async () => {
+          if (gating) {
+            disposed++
+          }
+          return origDispose()
+        }
+        return repo
+      }
+    })
+
+    const f = await fixture({
+      onOpenStarted: () => {
+        if (gating) openStartedResolve()
+      },
+      gateOpen: async () => {
+        if (gating) await openRelease
+      },
+    })
+
+    try {
+      // 1. Seed store so repository is populated and valid
+      await f.login()
+      await f.rebind()
+
+      // 2. Enable in-flight gating and start read-only opening
+      gating = true
+      const opening = f.repository()
+      await openStarted
+
+      // 3. Dispose while open is in-flight
+      const disposing = f.services!.dispose()
+      openReleaseResolve()
+
+      const [openRes, disposeRes] = await Promise.allSettled([
+        opening,
+        disposing,
+      ])
+      expect(disposeRes.status).toBe('fulfilled')
+      expect(openRes.status).toBe('rejected')
+      if (openRes.status === 'rejected') {
+        expect(openRes.reason.message).toContain('disposed')
+      }
+      expect(constructed).toBe(1)
+      expect(disposed).toBe(1)
+    } finally {
+      openReleaseResolve()
+      factorySpy.mockRestore()
+      await f.cleanup()
     }
   })
 
