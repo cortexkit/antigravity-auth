@@ -12,6 +12,14 @@ export interface AskRoutingInput<Candidate extends RoutingCandidate = RoutingCan
     candidates: readonly Candidate[];
     /** Defaults to 500 ms, clamped to 1–2000 ms. */
     deadlineMs?: number;
+    /**
+     * Longest same-account hold, in seconds, that routing may advise. The
+     * holdWaitMaxS helper from `./limits` caps it by the setting and the current
+     * account's cache expiry, returning 0 when there is no accepted prompt cache
+     * worth waiting for. Fractions are floored and negatives become 0. Omit it to leave
+     * routing's default cap in force.
+     */
+    holdWaitMaxS?: number;
 }
 export interface RoutingHold {
     /** Uncapped advice from routing. The plugin must apply its own hold cap. */
@@ -39,9 +47,11 @@ export type ReportRoutingInput = RoutingReportIdentity & ({
     /** The exhausted quota window; keep scoped quota groups in `pool`. */
     window: '5h' | '7d';
     /**
-     * Scoped quota group, such as `non-gemini`.
-     * Must be a non-empty string without `:`. Omit to block the whole
-     * account; include to block only this pool.
+     * Scoped quota group, such as Antigravity's `3p` or `gemini`.
+     * Must match `^[a-z0-9._-]{1,64}$`. Routing compares names exactly, so
+     * callers must lowercase names from elsewhere (e.g. `Fable` to `fable`).
+     * Names are never rewritten here. Omit or pass `undefined` to block the
+     * whole account; include to block only this pool.
      */
     pool?: string;
     /** Optional reset time in epoch milliseconds. */

@@ -200,7 +200,7 @@ export async function refreshRow(rt, id, provider, options = {}) {
         if (options.onPersisted) {
             try {
                 const persisted = options.onPersisted;
-                await runInsideHook('refresh', () => persisted(id, commit.stored));
+                await runInsideHook('refresh', () => persisted(id, commit.stored), true);
             }
             catch (cause) {
                 throw new PoolOperationError({

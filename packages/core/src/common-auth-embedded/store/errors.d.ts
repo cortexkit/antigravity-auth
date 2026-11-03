@@ -1,6 +1,6 @@
 import type { StoredCredential } from './schema.js';
 /** Every library operation that can fail, as named in the failure value. */
-export type PoolOperation = 'initialize' | 'add' | 'replace' | 'rotate' | 'disable' | 'enable' | 'remove' | 'reorder' | 'updateSettings' | 'recordIdentity' | 'updateProviderState' | 'refresh' | 'pull' | 'publishRoster';
+export type PoolOperation = 'initialize' | 'add' | 'replace' | 'rotate' | 'disable' | 'enable' | 'remove' | 'reorder' | 'updateSettings' | 'updateLimitsNamespace' | 'recordIdentity' | 'updateProviderState' | 'refresh' | 'pull' | 'publishRoster';
 /**
  * How far an operation got before it failed.
  *

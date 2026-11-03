@@ -21,6 +21,11 @@ export declare class PrivateFileError extends Error {
     orphanPath?: string;
     constructor(path: string, stage: string, cause: unknown);
 }
+/** Native sharing and delete-pending errors reveal neither ownership nor expiry. */
+export declare function isWindowsSharingViolation(error: unknown): error is PrivateFileError & {
+    reason: 'io-error';
+    win32Code: 32 | 303;
+};
 export declare function privateOperation<T>(path: string, stage: string, operation: () => Promise<T>): Promise<T>;
 /** Tests only: policy options used by safe-parent checks that pass none. */
 export declare function setSafeParentOptionsForTest(options?: PosixOwnerOnlyPathAsyncOptions): void;

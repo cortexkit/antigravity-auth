@@ -2,8 +2,8 @@ import { OpenCode2AuthError } from './errors.js';
 import { placeholderSecret } from './integration.js';
 import { watchServerSentEvents } from './sse.js';
 export const DEFAULT_MAX_RECORDS = 512;
-/** Bound adapter waits while allowing a 15-minute reset plus session jitter. */
-export const MAX_RETRY_HOLD_MS = 20 * 60 * 1000;
+/** Allow a one-hour cache lifetime plus the maximum session jitter. */
+export const MAX_RETRY_HOLD_MS = 3_621_000;
 /**
  * The request header `model.request` sets to the attempt it started. The
  * host builds the HTTP request and the WebSocket handshake from the headers
@@ -134,6 +134,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
         ownership.credential(headers) === placeholderSecret(providerID);
     const logger = options.logger;
     const maxRecords = Math.max(1, options.maxRecords ?? DEFAULT_MAX_RECORDS);
+    const hostRetryLimit = options.hostRetryLimit ?? 10;
     const forbidden = [
         ...(options.hostCredentials ?? [placeholderSecret(providerID)]),
         // An owned request must replace its placeholder even if a caller customizes
@@ -203,6 +204,21 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
         catch { }
     };
     const describe = (error) => error instanceof Error ? error.message : String(error);
+    const retireRequest = (request) => request.excluded.clear();
+    const exclusions = (request) => request.excluded.size === 0 ? {} : { excluded: [...request.excluded] };
+    const rejectsExcluded = (accountId, input, request) => {
+        if (!options.enforceRequestExclusion ||
+            accountId === undefined ||
+            !request.excluded.has(accountId))
+            return false;
+        warn('opencode2 auth ignored a chooser result for a request-excluded account', {
+            sessionID: input.sessionID,
+            kind: input.kind,
+            phase: input.phase,
+            accountId,
+        });
+        return true;
+    };
     // Adapter choices may enqueue work by session. Serialize their consumption
     // and release so a new choice cannot overtake cleanup, even after forgetting.
     const choiceWork = new Map();
@@ -296,6 +312,11 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
         };
         if (error)
             rec.endError = error;
+        // An error status can end before retry runs, and a limit may have arrived
+        // on an earlier event. Neither is a successful logical request.
+        if (error?.reason === 'cancelled' ||
+            (!error && !rec.limit && (rec.status === undefined || rec.status < 400)))
+            retireRequest(rec.request);
         rec.ended = deliverEnd(rec.attempt, outcome);
     };
     const abandon = (rec, message) => finish(rec, { reason: 'abandoned', message });
@@ -399,10 +420,28 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
     };
     const select = async (scope, hook, assertActive, transport) => {
         const key = keyOf(scope.sessionID, scope.kind);
-        const { input, accountId, sameAccountRetry } = await afterChoiceWork(scope.sessionID, async () => {
+        const { input, accountId, sameAccountRetry, request } = await afterChoiceWork(scope.sessionID, async () => {
             assertActive();
             const retried = pendingRetries.get(key);
             pendingRetries.delete(key);
+            const others = attemptsOf(key);
+            if (retried &&
+                others.some((rec) => rec.id !== retried.attemptId && rec.attempt && !rec.ended))
+                warn('opencode2 auth bound a pending retry to an ambiguous concurrent request; keeping its exclusions', {
+                    sessionID: scope.sessionID,
+                    kind: scope.kind,
+                });
+            if (!retried) {
+                // A failed attempt that the host never retried must not seed the next
+                // logical request. Live attempts keep their own independent tokens.
+                const live = new Set(others
+                    .filter((rec) => rec.attempt && !rec.ended)
+                    .map((rec) => rec.request));
+                for (const rec of others)
+                    if (!live.has(rec.request))
+                        retireRequest(rec.request);
+            }
+            const request = retried?.request ?? { excluded: new Set() };
             const previousAccountId = retried?.accountId ?? newestOf(key)?.accountId;
             supersede(key);
             const next = retried?.next;
@@ -413,13 +452,18 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             const matches = next !== undefined &&
                 next.input.modelID === scope.modelID &&
                 next.input.agent === scope.agent;
+            const wake = retried?.wake;
             const input = {
                 ...scope,
                 phase: 'request',
+                ...exclusions(request),
                 ...(previousAccountId === undefined ? {} : { previousAccountId }),
                 ...(retried?.rerouteFrom ? { rerouteFrom: retried.rerouteFrom } : {}),
+                ...(wake === undefined
+                    ? {}
+                    : { wake, hostAttempt: next?.input.hostAttempt }),
             };
-            if (next && !matches) {
+            if (next && (!matches || wake !== undefined)) {
                 await inChoiceOrder(scope.sessionID, () => releaseChoice(next));
                 assertActive();
             }
@@ -429,11 +473,20 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             }
             const choice = sameRoute
                 ? sameAccount.accountId
-                : matches
+                : matches && wake === undefined
                     ? next.accountId
                     : await adapter.chooseAccount(input);
-            const accountId = typeof choice === 'string' ? choice : undefined;
-            return { input, accountId, sameAccountRetry: sameRoute };
+            let accountId = typeof choice === 'string' ? choice : undefined;
+            if (rejectsExcluded(accountId, input, request)) {
+                const denied = accountId;
+                if (sameRoute && sameAccount)
+                    await inChoiceOrder(scope.sessionID, () => releaseSameAccount(sameAccount));
+                else if (denied !== undefined)
+                    await inChoiceOrder(scope.sessionID, () => releaseChoice(matches && next ? next : { accountId: denied, input }));
+                accountId = undefined;
+                assertActive();
+            }
+            return { input, accountId, sameAccountRetry: sameRoute, request };
         });
         assertActive();
         let headers = {};
@@ -454,6 +507,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             id,
             key,
             scope,
+            request,
             accountId,
             headers,
             attempt: accountId === undefined
@@ -577,6 +631,8 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             noteQuota(rec, transport, verdict.quota);
         if (verdict.outputStarted)
             rec.outputStarted = true;
+        if (verdict.hostRetry === 'veto')
+            rec.hostRetry = 'veto';
         if (verdict.limit)
             noteLimit(rec, verdict.limit, transport);
         if (verdict.error !== undefined)
@@ -747,13 +803,23 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             });
         }
         if (adapter.rewriteResponse) {
-            response =
-                (await adapter.rewriteResponse({
-                    ...account,
-                    request: draft.request,
-                    response,
-                    attempt,
-                })) ?? response;
+            const rewritten = await adapter.rewriteResponse({
+                ...account,
+                request: draft.request,
+                response,
+                attempt,
+            });
+            response = rewritten ?? response;
+        }
+        if (adapter.responseRetry) {
+            const disposition = await adapter.responseRetry({
+                ...account,
+                request: draft.request,
+                response,
+                attempt,
+            });
+            if (disposition === 'veto')
+                rec.hostRetry = 'veto';
         }
         if (response !== original)
             draft.response = response;
@@ -865,6 +931,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             return;
         }
         const rec = picked;
+        const vetoed = () => rec.hostRetry === 'veto';
         await withSelection(rec.scope, async (assertActive) => {
             const checkRetryActive = assertActive;
             const retrySameAccount = adapter.retrySameAccount?.bind(adapter);
@@ -872,6 +939,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             if (retrySameAccount &&
                 handle &&
                 !rec.outputStarted &&
+                (!vetoed() || mixed(draft.sessionID)) &&
                 !rec.sameAccountRetry) {
                 if (rec.ended)
                     await rec.ended;
@@ -884,6 +952,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                         rec.accountId === accountId &&
                         pickForRetry(draft.sessionID) === rec &&
                         !rec.outputStarted &&
+                        (!vetoed() || mixed(draft.sessionID)) &&
                         (!ownership ||
                             latestTransportOwned.get(draft.sessionID) === true);
                     if (!active() || rec.sameAccountRetry)
@@ -940,6 +1009,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                     // Pin only this retry's route: choosing afresh could turn a token
                     // refresh or path recovery into an account switch in a mixed session.
                     pendingRetries.set(rec.key, {
+                        request: rec.request,
                         attemptId: rec.id,
                         sessionID: rec.scope.sessionID,
                         order: ++retryOrder,
@@ -1006,6 +1076,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                 let reason;
                 let rerouteFrom;
                 let next;
+                let wake;
                 if (rec.accountId === undefined || !attempt) {
                     decision = { retry: false };
                     reason = 'no-account';
@@ -1015,6 +1086,12 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                     // send it again.
                     decision = { retry: false };
                     reason = 'output-started';
+                }
+                else if (vetoed()) {
+                    // Refusals formatted by the adapter carry policy on the attributed attempt,
+                    // not in message wording or a session-wide flag.
+                    decision = { retry: false };
+                    reason = 'adapter-veto';
                 }
                 else {
                     if (rec.limit) {
@@ -1032,6 +1109,8 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                         const input = {
                             ...rec.scope,
                             phase: 'retry',
+                            ...exclusions(rec.request),
+                            hostAttempt: draft.attempt,
                             previousAccountId: rec.accountId,
                             rerouteFrom: refused,
                         };
@@ -1046,7 +1125,25 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                                 error: describe(error),
                             });
                         }
-                        const hold = typeof choice === 'object' ? choice.hold : undefined;
+                        const chosenAccount = typeof choice === 'string'
+                            ? choice
+                            : typeof choice === 'object' && 'hold' in choice
+                                ? rec.accountId
+                                : undefined;
+                        if (rejectsExcluded(chosenAccount, input, rec.request)) {
+                            if (chosenAccount !== undefined)
+                                await releaseChoice({ accountId: chosenAccount, input });
+                            choice = undefined;
+                        }
+                        const hold = typeof choice === 'object' && 'hold' in choice
+                            ? choice.hold
+                            : undefined;
+                        const wait = typeof choice === 'object' && 'waitThenReselect' in choice
+                            ? choice.waitThenReselect
+                            : undefined;
+                        const disposition = typeof choice === 'object' && 'hostRetry' in choice
+                            ? choice.hostRetry
+                            : undefined;
                         const accountId = typeof choice === 'string'
                             ? choice
                             : hold
@@ -1073,21 +1170,61 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                                 reason: 'host-decides',
                             };
                         }
-                        if (hold &&
+                        if (vetoed() || disposition === 'veto') {
+                            if (next)
+                                await releaseChoice(next);
+                            next = undefined;
+                            checkRetryActive();
+                            if (mixed(draft.sessionID))
+                                return {
+                                    decision: hostDecision,
+                                    reason: 'host-decides',
+                                };
+                            rec.hostRetry = 'veto';
+                            decision = { retry: false };
+                            reason = 'adapter-veto';
+                        }
+                        else if (!(hostRetryLimit - draft.attempt >= 1)) {
+                            if (next)
+                                await releaseChoice(next);
+                            next = undefined;
+                            reason = 'host-decides-last-account';
+                        }
+                        else if (wait &&
+                            Number.isFinite(wait.delayMs) &&
+                            wait.delayMs >= 0 &&
+                            wait.delayMs <= MAX_RETRY_HOLD_MS) {
+                            // Only the failed attempt's context is kept. No next choice
+                            // exists to dispatch or release when the host wakes or cancels.
+                            decision = { retry: true, delay: Math.ceil(wait.delayMs) };
+                            reason = 'wait-then-reselect';
+                        }
+                        else if (hold &&
                             Number.isFinite(hold.delayMs) &&
-                            hold.delayMs >= 0) {
+                            hold.delayMs >= 0 &&
+                            hold.delayMs <= MAX_RETRY_HOLD_MS) {
                             // A recognised account limit can be recoverable even when
                             // the host treats its provider error as final.
                             decision = {
                                 retry: true,
-                                delay: Math.min(hold.delayMs, MAX_RETRY_HOLD_MS),
+                                delay: Math.ceil(hold.delayMs),
                             };
+                            if (hold.target !== undefined) {
+                                wake = {
+                                    target: hold.target,
+                                    ...(hold.checkpoint === undefined
+                                        ? {}
+                                        : { checkpoint: hold.checkpoint }),
+                                    ...(hold.kind === undefined ? {} : { kind: hold.kind }),
+                                };
+                            }
                             reason = 'hold';
                         }
                         else if (!hold &&
                             accountId !== undefined &&
                             accountId !== rec.accountId) {
                             rec.rerouted = true;
+                            rec.request.excluded.add(rec.accountId);
                             rerouteFrom = refused;
                             // The next attempt takes this choice rather than asking
                             // again, so an account limited between here and the host's
@@ -1121,12 +1258,14 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                     rec.accountId !== undefined &&
                     attempts.has(rec.id)) {
                     pendingRetries.set(rec.key, {
+                        request: rec.request,
                         attemptId: rec.id,
                         sessionID: rec.scope.sessionID,
                         order: ++retryOrder,
                         accountId: rec.accountId,
                         ...(rerouteFrom === undefined ? {} : { rerouteFrom }),
                         ...(next === undefined ? {} : { next }),
+                        ...(wake === undefined ? {} : { wake }),
                     });
                 }
                 else if (next) {
@@ -1134,6 +1273,8 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                     // have been overridden by a reroute to another account.
                     await releaseChoice(next);
                 }
+                if (!decision.retry)
+                    retireRequest(rec.request);
                 return { decision, reason };
             });
             checkRetryActive();
@@ -1166,6 +1307,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             if (rec.scope.sessionID !== sessionID)
                 continue;
             abandon(rec, 'its session was forgotten');
+            retireRequest(rec.request);
             attempts.delete(rec.id);
         }
         for (const [key, pending] of pendingRetries) {
@@ -1192,6 +1334,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                                 if (pending.sessionID === sessionID &&
                                     pending.order < idleOrder) {
                                     pendingRetries.delete(key);
+                                    retireRequest(pending.request);
                                     await releaseRetry(pending);
                                 }
                             }

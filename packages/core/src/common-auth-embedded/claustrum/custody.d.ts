@@ -1,14 +1,15 @@
 import { type ClaustrumClient, type ClaustrumReporterSource, type EnrollmentTokenFile } from '@cortexkit/claustrum-client';
 import { type ClaustrumLogger } from './errors.js';
 import type { InsulaUsageTransport } from './insula.js';
+import { type ClaustrumUsageReading, type ClaustrumUsageReportState, type ScopedUsageSource } from './usage.js';
 import { type ScopedWatchSource, type WatchMode } from './watch.js';
 /**
- * `watchScoped` is present from claustrum-client 0.12.0. Hosts detect it at
- * run time and keep polling without it.
+ * claustrum-client adds watchScoped in 0.12.0 and reportUsageScoped in 0.14.0.
+ * Older clients keep polling and simply do not send reply quota readings.
  */
 export type ClaustrumScopedClient = Pick<ClaustrumClient, 'listScoped' | 'getScoped' | 'reportAuthFailureScoped' | 'close'> & {
     insula?: InsulaUsageTransport;
-} & ScopedWatchSource;
+} & ScopedWatchSource & ScopedUsageSource;
 /** The two credential types a plugin's family can hold; routing differs by type. */
 export type VaultCredentialType = 'oauth' | 'api_key';
 /**
@@ -332,7 +333,18 @@ export declare class ClaustrumScopedCustody {
      * other mode the host keeps its usual list timer.
      */
     watchRoster(options: ClaustrumRosterWatchOptions): ClaustrumRosterWatch;
+    /**
+     * Queue reply quota metadata and return synchronously. Pass rate-limit
+     * headers only, never tokens: the library does not filter header names.
+     * Only credentials served by this custody and retained in its roster report.
+     * Hosts managing their own roster must call retain() when that roster changes.
+     */
+    reportUsage(input: {
+        credentialId: string;
+        reading: ClaustrumUsageReading;
+    }): void;
+    usageReportState(): ClaustrumUsageReportState;
     close(): void;
-    /** Stop immediately; allow token reads 2 s and share an owner's timeout warning. */
+    /** Stop accepting work; give token reads and reply reports one shared 2 s drain. */
     dispose(onTimeout?: (pendingOperations: number) => void): Promise<void>;
 }

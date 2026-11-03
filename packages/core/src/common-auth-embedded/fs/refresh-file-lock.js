@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, open, readFile, rename, rm, stat, } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { createPrivateBytes, createPrivateDirectoryExclusive, ensurePrivateDirectory, PrivateFileError, privateOperation, readPrivateText, verifyPrivate, windowsPrivateFiles, writePrivateAtomic, } from './private-files.js';
+import { createPrivateBytes, createPrivateDirectoryExclusive, ensurePrivateDirectory, isWindowsSharingViolation, PrivateFileError, privateOperation, readPrivateText, verifyPrivate, windowsPrivateFiles, writePrivateAtomic, } from './private-files.js';
 import { LockOwnershipError, lockPathFor } from './with-lock.js';
 /**
  * Create a new owner-only file and write `text` into it, failing with EEXIST if
@@ -367,54 +367,109 @@ export async function acquireRefreshFileLockWithClock(options) {
         else
             await rm(path, { recursive: true, force: true }).catch(() => { });
     }
-    async function releaseEvictionMarker() {
-        if (await ownsEvictionMarker()) {
-            await removeLeaseObject(evictPath);
+    function isRetryableRemoval(error, path) {
+        if (!windowsPrivateFiles ||
+            !(error instanceof PrivateFileError) ||
+            error.stage !== 'remove' ||
+            error.path !== path)
+            return false;
+        // Native sharing/delete-pending errors use isWindowsSharingViolation.
+        // node:fs rm supplies only errno: EBUSY/EPERM can also mean a sharing refusal.
+        return (isWindowsSharingViolation(error) ||
+            (error.win32Code === undefined &&
+                error.reason === undefined &&
+                (error.code === 'EBUSY' || error.code === 'EPERM')));
+    }
+    async function removeOwnedLeaseObject(path, stillOwned, deadline = performance.now() + EVICT_TTL + 1_000) {
+        let original;
+        let delayMs = 5;
+        while (await stillOwned()) {
+            try {
+                await removeLeaseObject(path);
+                return;
+            }
+            catch (error) {
+                if (!isRetryableRemoval(error, path))
+                    throw error;
+                original ??= error;
+            }
+            const remainingMs = deadline - performance.now();
+            if (remainingMs <= 0)
+                throw original;
+            await new Promise((resolve) => setTimeout(resolve, Math.min(delayMs, remainingMs)));
+            if (performance.now() >= deadline)
+                throw original;
+            delayMs = Math.min(delayMs * 2, 50);
         }
+    }
+    async function releaseEvictionMarker(deadline) {
+        let ownedDirectory;
+        await removeOwnedLeaseObject(evictPath, async () => {
+            if (!windowsPrivateFiles)
+                return ownsEvictionMarker();
+            const current = await lstat(evictPath).catch((error) => {
+                if (error.code !== 'ENOENT')
+                    throw error;
+                return undefined;
+            });
+            if (!current ||
+                (ownedDirectory && !sameMarkerDirectory(ownedDirectory, current)))
+                return false;
+            if (await ownsEvictionMarker()) {
+                ownedDirectory = current;
+                return true;
+            }
+            if (!ownedDirectory)
+                return false;
+            // Recursive rm can delete owner.json before the directory delete fails.
+            // Only that same, now-ownerless directory is still ours to clean up.
+            try {
+                await stat(evictOwnerPath);
+                return false;
+            }
+            catch (error) {
+                if (error.code !== 'ENOENT')
+                    throw error;
+                return true;
+            }
+        }, deadline);
     }
     // Returns whether the directory at the marker path was still the one this
     // process created when its owner write failed. Only then is the failure ours
     // to report: a gone or replaced directory is a lost race.
-    async function removeOwnMarkerAfterFailedOwnerWrite(created) {
+    async function removeOwnMarkerAfterFailedOwnerWrite(created, deadline) {
         // Best effort only: never throws, so the original owner-write error below
         // keeps explaining the failure. Removes the directory this process just
         // created when its owner write failed, and leaves a contender's
         // replacement alone when the identities differ.
         if (!created)
             return false;
-        let current;
+        let stillOurs = false;
         try {
-            const st = await lstat(evictPath);
-            current = { dev: st.dev, ino: st.ino, birthtimeMs: st.birthtimeMs };
-        }
-        catch {
-            // Renamed away by a contender's steal: nothing of ours left to clean.
-            return false;
-        }
-        if (!sameMarkerDirectory(created, current))
-            return false;
-        // Remove only an ownerless directory. An owner file that appeared after
-        // our failed write belongs to someone: ours goes through
-        // releaseEvictionMarker in the caller, and a contender's must stay, since
-        // it may be holding the marker right now.
-        try {
-            await stat(evictOwnerPath);
-            return true;
-        }
-        catch (error) {
-            if (error.code !== 'ENOENT')
-                return true;
-        }
-        try {
-            await removeLeaseObject(evictPath);
+            await removeOwnedLeaseObject(evictPath, async () => {
+                stillOurs = false;
+                const st = await lstat(evictPath).catch(() => undefined);
+                if (!st || !sameMarkerDirectory(created, st))
+                    return false;
+                stillOurs = true;
+                // Recheck both identity and absence of an owner before every attempt;
+                // a contender's replacement or newly published owner must stay.
+                try {
+                    await stat(evictOwnerPath);
+                    return false;
+                }
+                catch (error) {
+                    return error.code === 'ENOENT';
+                }
+            }, deadline);
         }
         catch {
             // A removal failure keeps the stale marker recoverable later; it must
             // never mask the original owner-write error.
         }
-        return true;
+        return stillOurs;
     }
-    async function tryAcquireEvictionMarker() {
+    async function tryAcquireEvictionMarker(deadline) {
         if (windowsPrivateFiles)
             await createPrivateDirectoryExclusive(evictPath);
         else
@@ -455,11 +510,11 @@ export async function acquireRefreshFileLockWithClock(options) {
             // A race code while our own directory is still in place is not a lost
             // race but a write that fails here every time: report it, rather than
             // retrying the same failure until a deadline hides the cause.
-            const stillOurs = await removeOwnMarkerAfterFailedOwnerWrite(created);
+            const stillOurs = await removeOwnMarkerAfterFailedOwnerWrite(created, deadline);
             if (isLostMarkerRaceError(error) && !stillOurs)
                 return false;
             try {
-                await releaseEvictionMarker();
+                await releaseEvictionMarker(deadline);
             }
             catch {
                 // Removal must never mask the original owner-write error.
@@ -470,7 +525,7 @@ export async function acquireRefreshFileLockWithClock(options) {
             await options.onStep('eviction-marker-acquired');
         return true;
     }
-    async function recoverStaleEvictionMarker() {
+    async function recoverStaleEvictionMarker(deadline) {
         let evictStat;
         try {
             evictStat = await stat(evictPath);
@@ -529,12 +584,26 @@ export async function acquireRefreshFileLockWithClock(options) {
         }
         if (options.onStep)
             await options.onStep('stale-marker-claimed');
-        await removeLeaseObject(claimedPath);
+        const claimedIdentity = windowsPrivateFiles
+            ? await lstat(claimedPath)
+            : undefined;
+        // The unique renamed claim is ours, not the current marker path where a
+        // successor may already be working.
+        await removeOwnedLeaseObject(claimedPath, async () => {
+            if (!claimedIdentity)
+                return true;
+            const current = await lstat(claimedPath).catch((error) => {
+                if (error.code !== 'ENOENT')
+                    throw error;
+                return undefined;
+            });
+            return !!current && sameMarkerDirectory(claimedIdentity, current);
+        }, deadline);
         return 'recovered';
     }
-    async function withEvictionMarker(action) {
+    async function withEvictionMarker(action, deadline) {
         try {
-            if (!(await tryAcquireEvictionMarker()))
+            if (!(await tryAcquireEvictionMarker(deadline)))
                 return false;
         }
         catch (error) {
@@ -555,12 +624,28 @@ export async function acquireRefreshFileLockWithClock(options) {
             }
             throw error;
         }
+        let actionFailed = false;
+        let actionError;
         try {
             await action();
         }
-        finally {
-            await releaseEvictionMarker();
+        catch (error) {
+            actionFailed = true;
+            actionError = error;
         }
+        try {
+            await releaseEvictionMarker(deadline);
+        }
+        catch (error) {
+            // Cleanup sharing failures must not replace the lock's original
+            // sharing refusal when both removals exhaust the same deadline.
+            if (isRetryableRemoval(actionError, lockPath) &&
+                isRetryableRemoval(error, evictPath))
+                throw actionError;
+            throw error;
+        }
+        if (actionFailed)
+            throw actionError;
         return true;
     }
     // Marker loss after a write may mean another contender has taken over.
@@ -847,6 +932,7 @@ export async function acquireRefreshFileLockWithClock(options) {
             // wall-clock adjustments cannot extend the retry deadline.
             const deadline = performance.now() + EVICT_TTL + 1_000;
             let delayMs = 5;
+            let removalError;
             for (;;) {
                 try {
                     let removalConfirmed = false;
@@ -873,7 +959,7 @@ export async function acquireRefreshFileLockWithClock(options) {
                             return;
                         await removeLeaseObject(lockPath);
                         removalConfirmed = true;
-                    });
+                    }, deadline);
                     if (markerAcquired) {
                         if (windowsPrivateFiles && !removalConfirmed)
                             throw new PrivateFileError(lockPath, 'release-not-confirmed', {
@@ -884,25 +970,34 @@ export async function acquireRefreshFileLockWithClock(options) {
                     }
                     if (signal?.aborted)
                         return;
-                    await recoverStaleEvictionMarker();
+                    await recoverStaleEvictionMarker(deadline);
                 }
                 catch (error) {
-                    if (windowsPrivateFiles)
-                        throw error;
-                    return;
+                    if (!isRetryableRemoval(error, lockPath)) {
+                        if (windowsPrivateFiles)
+                            throw error;
+                        return;
+                    }
+                    // Like rename, a fenced delete can be refused by a reader's Windows
+                    // handle without invalidating ownership. Drop the marker, back off,
+                    // and re-confirm the owner under a new marker before trying again.
+                    removalError ??= error;
                 }
                 const remainingMs = deadline - performance.now();
                 if (remainingMs <= 0)
                     break;
                 await new Promise((resolve) => setTimeout(resolve, Math.min(delayMs, remainingMs)));
+                if (windowsPrivateFiles && performance.now() >= deadline)
+                    break;
                 delayMs = Math.min(delayMs * 2, 50);
             }
             // Do not delete by pathname without the marker: bounded retries leave the
             // lease to expire rather than risking removal of a successor's lock.
             if (windowsPrivateFiles)
-                throw new PrivateFileError(lockPath, 'release-not-confirmed', {
-                    code: 'ETIMEDOUT',
-                });
+                throw (removalError ??
+                    new PrivateFileError(lockPath, 'release-not-confirmed', {
+                        code: 'ETIMEDOUT',
+                    }));
         },
     };
 }

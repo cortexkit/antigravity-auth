@@ -77,9 +77,9 @@ it('admits the complete genuine publication and records every member payload', a
   const fixture = await provisionPublicConsumer()
   try {
     const admitted = await admitPublicConsumer(fixture.root)
-    expect(admitted.receipt.archive.bytes).toBe(394205)
+    expect(admitted.receipt.archive.bytes).toBe(447569)
     expect(admitted.receipt.archive.sha256).toBe(
-      'bba9f56f7fb353c9c712113722c7c9361f0e13e930c73f57314185b13032a24c',
+      '8fa5f1dd6511786b8e4d7c3601eb85424f54763b9c442fef5b47ef5e7d311bbd',
     )
     expect(admitted.entries).toEqual(await admittedPublicArchive())
     const pkg = JSON.parse(
@@ -88,7 +88,7 @@ it('admits the complete genuine publication and records every member payload', a
       ).toString(),
     )
     expect(pkg.name).toBe('@cortexkit/common-auth')
-    expect(pkg.version).toBe('0.33.0')
+    expect(pkg.version).toBe('0.34.0')
     expect(pkg.exports['./store'].import).toBe('./dist/store/index.js')
     expect(pkg.exports['./fs'].import).toBe('./dist/fs/index.js')
   } finally {
@@ -227,7 +227,7 @@ it('refuses missing, truncated and corrupt archives before provisioning', async 
   const archive = await publicFixtureBytes(
     join(
       PUBLIC_CONSUMER_PROJECT_ROOT,
-      'tools/common-auth-build/inputs/cortexkit-common-auth-0.33.0.tgz',
+      'tools/common-auth-build/inputs/cortexkit-common-auth-0.34.0.tgz',
     ),
   )
   expect(() => admitPublicArchiveBytes(archive.subarray(1))).toThrow(

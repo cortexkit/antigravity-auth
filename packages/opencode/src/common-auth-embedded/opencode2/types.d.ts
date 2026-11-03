@@ -1,5 +1,6 @@
 import type { Plugin } from '@opencode/plugin';
 import type { SessionRequestKind, SessionRetryDecision } from '@opencode/plugin/promise/session';
+import type { WaitCheckpoint } from '../limits/decide.js';
 /** The parts of the OpenCode 2 plugin context the installer uses. */
 export type OpenCode2HookContext = {
     readonly session: Pick<Plugin.Context['session'], 'hook'>;
@@ -35,6 +36,8 @@ export interface EventVerdict<Q> {
     readonly outputStarted?: boolean;
     readonly quota?: Q;
     readonly limit?: LimitSignal;
+    /** Applies only to this attempt, after ownership and attribution checks. */
+    readonly hostRetry?: RetryDisposition['hostRetry'];
     /**
      * This is the last event of the response (completed or failed); the
      * attempt ends here. On WebSocket this is the only way an attempt ends
@@ -55,6 +58,16 @@ export type HeaderEdits = Readonly<Record<string, string | null>>;
 export interface ChooseAccountInput extends RequestScope {
     /** The retry hook's advance choice (which may hold), or a request's own choice. */
     readonly phase: 'retry' | 'request';
+    /** Retry hook draft's attempt count; also carried by a consumed hold's wake. */
+    readonly hostAttempt?: number;
+    /** Revalidate the held account before dispatch, even if the target is not due. */
+    readonly wake?: RetryWake;
+    /**
+     * Accounts refused by earlier reroutes of this logical request. Absent means
+     * empty. Holds and wakes do not exclude the held account. A snapshot, not a
+     * live set; supplied whether or not enforcement is enabled.
+     */
+    readonly excluded?: readonly string[];
     /**
      * The account of the attempt this one retries, when the retry hook just
      * asked the host to retry an attempt of this session and kind; otherwise
@@ -75,19 +88,43 @@ export interface ChooseAccountInput extends RequestScope {
 export interface AccountRequest extends RequestScope {
     readonly accountId: string;
 }
+/** The held account is ChooseAccountInput.previousAccountId. */
+export interface RetryWake {
+    readonly target: number;
+    readonly checkpoint?: WaitCheckpoint;
+    /** Terminal quota waits do not require the session's provider prompt-cache TTL. */
+    readonly kind?: 'hold' | 'terminal';
+}
 /** An explicit retry on the refused account, without moving its routing pin. */
 export interface RetryHold {
     readonly hold: {
         /**
          * Adapter-computed wait in milliseconds, including per-session jitter.
-         * Finite, non-negative values are clamped to MAX_RETRY_HOLD_MS (20 minutes).
-         * Invalid values keep the host's decision and release the choice.
+         * Finite, non-negative values up to MAX_RETRY_HOLD_MS (3_621_000) are
+         * accepted. Larger or invalid values keep the host's decision and release
+         * the choice rather than dispatching before the requested wait has elapsed.
          */
+        readonly delayMs: number;
+        /** An absolute wake target; its presence forces a request-phase re-check. */
+        readonly target?: number;
+        readonly checkpoint?: WaitCheckpoint;
+        /** Forwarded to wake.kind so terminal quota waits omit the cache bound. */
+        readonly kind?: RetryWake['kind'];
+    };
+}
+/** Leave the host's retry decision alone, or forbid replay of this attempt. */
+export interface RetryDisposition {
+    readonly hostRetry: 'leave' | 'veto';
+}
+/** Wait through one host retry, then choose afresh without reserving an account. */
+export interface RetryWaitThenReselect {
+    readonly waitThenReselect: {
+        /** Same finite, non-negative delay bound as RetryHold.hold.delayMs. */
         readonly delayMs: number;
     };
 }
-/** Holds are valid only in phase `retry`, with a recognised account limit. */
-export type ChooseAccountResult = string | RetryHold | undefined;
+/** Non-string choices are valid only in phase `retry`, after an account limit. */
+export type ChooseAccountResult = string | RetryHold | RetryDisposition | RetryWaitThenReselect | undefined;
 /**
  * One physical send: created when an account is chosen for a request, and
  * handed back on every hook call and event that belongs to that send, so a
@@ -194,7 +231,7 @@ export interface SameAccountRetryResult {
  * quota reading type; the installer only carries it to the `quota` event.
  * `A` is the plugin's per-attempt value (see `Attempt`).
  * `Choice` defaults to the legacy ID-only result so existing adapters' direct
- * callers still see IDs. Opt into holds with `ChooseAccountResult`.
+ * callers still see IDs. Opt into retry directives with `ChooseAccountResult`.
  */
 export interface OpenCode2AuthAdapter<Q = unknown, A = unknown, Choice extends ChooseAccountResult = string | undefined> {
     /** Every hook is scoped to this provider; other providers are untouched. */
@@ -209,11 +246,24 @@ export interface OpenCode2AuthAdapter<Q = unknown, A = unknown, Choice extends C
      * After a limit before any output, the retry hook makes this call itself,
      * with `phase: 'retry'` and `rerouteFrom` set. Every returned account,
      * including the refused one, is kept for the next attempt of that session
-     * and kind: it does not choose again. Another account retries at once;
+     * and kind: it does not choose again, except for a hold with a target.
+     * Another account retries at once;
      * the refused account keeps the host's decision and wait. `{ hold: { delayMs } }`
      * commits the refused account without changing its pin and replaces the host's
      * wait, even its no-retry decision, only for a recognised account limit before
-     * output in an untainted session. Holds returned in phase `request` cannot
+     * output in a session with no foreign transport. A hold with a target releases its queued
+     * choice and calls again in phase `request` with `wake` and `hostAttempt`
+     * before fetching account headers. The adapter must check that the account
+     * is still eligible, still represents the same login, is still available
+     * from the credential store and has any required provider prompt-cache TTL
+     * remaining, then choose normally if invalid.
+     * A hold without a target takes the queued account as before.
+     * `{ hostRetry: 'veto' }` forbids replay; `'leave'` preserves the host's decision
+     * without reserving an account. `{ waitThenReselect: { delayMs } }` asks for one
+     * delayed host retry, then chooses afresh. It commits no account or routing pin.
+     * Like holds, its delay must fit MAX_RETRY_HOLD_MS and the host retry budget.
+     * These directives obey the same ownership, attribution and output fences.
+     * Non-string choices returned in phase `request` cannot
      * select an account and are treated as undefined. `undefined` or a
      * throw commits nothing: the host decides, and the next attempt chooses
      * with `phase: 'request'`, `previousAccountId` and no `rerouteFrom`.
@@ -222,7 +272,8 @@ export interface OpenCode2AuthAdapter<Q = unknown, A = unknown, Choice extends C
     /**
      * Releases a kept retry choice that will not be used: no retry, a changed
      * model or agent, cancellation of a queued retry (session idle), session forgetting/deletion,
-     * disposal or record eviction. A hold releases the refused account's choice.
+     * disposal, record eviction or a targeted hold's wake re-check. A hold
+     * releases the refused account's choice.
      * Called once with the original choose input plus its returned accountId,
      * never for a used choice. Awaited before any later chooseAccount for the
      * same session; errors are logged and swallowed. A model/agent change
@@ -264,6 +315,21 @@ export interface OpenCode2AuthAdapter<Q = unknown, A = unknown, Choice extends C
         readonly response: Response;
         readonly attempt: Attempt<A>;
     }): Promise<Response | undefined> | Response | undefined;
+    /**
+     * Optional retry policy for the final HTTP response. Runs immediately after
+     * `rewriteResponse` (or on the unchanged response when no rewrite is returned).
+     * Return `veto` to forbid host replay of a refusal the adapter formatted,
+     * even without a recognised limit. A veto is sticky for this attempt.
+     * Ownership and attribution checks still run first: a veto cannot affect a
+     * foreign request, a session with mixed ownership, or a retry whose attempt is
+     * ambiguous. `leave` or `undefined` preserves the existing retry policy,
+     * including an earlier veto.
+     */
+    responseRetry?(input: AccountRequest & {
+        readonly request: Request;
+        readonly response: Response;
+        readonly attempt: Attempt<A>;
+    }): Promise<'leave' | 'veto' | undefined> | 'leave' | 'veto' | undefined;
     /**
      * Optional. For an adapter whose own sender can move a request to another
      * account after `rewriteRequest` (a bridge that answers a 401 or 403 by
@@ -435,6 +501,24 @@ export interface InstallOpenCode2AuthOptions {
     readonly hostCredentials?: readonly string[];
     /** Most attempts kept before the oldest is abandoned and dropped. */
     readonly maxRecords?: number;
+    /**
+     * Host retry budget, default 10. When hostAttempt leaves no retry available,
+     * limit holds and reroutes keep the host's decision and release their choice.
+     */
+    readonly hostRetryLimit?: number;
+    /**
+     * Reject chooser results naming a request-excluded account (default false).
+     * A rejected choice warns and acts like undefined: the host decides in retry,
+     * and request selection stops with no-account. Without this option, chooser
+     * results retain their existing meaning.
+     *
+     * The host supplies no logical request id. The first later attempt of the
+     * same session and kind consumes a queued retry's exclusions. If another
+     * attempt is in flight, that binding warns but keeps the exclusions. A new
+     * concurrent request can therefore inherit them; if it consumes the retry
+     * first, the actual retry instead starts a fresh token without them.
+     */
+    readonly enforceRequestExclusion?: boolean;
     readonly logger?: OpenCode2AuthLogger;
 }
 /**
@@ -449,13 +533,15 @@ export interface InstallOpenCode2AuthOptions {
  *   (its wait, or its refusal to retry) stands and the next attempt may go
  *   to the refused account again;
  * - `hold`: an explicit adapter wait on the refused account, before output;
+ * - `wait-then-reselect`: wait without reserving the next account;
+ * - `adapter-veto`: the attributed adapter disposition forbids host replay;
  * - `same-account`: the adapter requested immediate recovery on the same route,
  *   without account selection, before output;
  * - `host-decides`: no limit was recognised, or the failing call cannot be
  *   attributed safely (ambiguous attempts or mixed ownership in a gated
  *   session), so the host's decision stands.
  */
-export type RetryReason = 'reroute' | 'hold' | 'same-account' | 'output-started' | 'no-account' | 'host-decides-last-account' | 'host-decides';
+export type RetryReason = 'reroute' | 'hold' | 'wait-then-reselect' | 'adapter-veto' | 'same-account' | 'output-started' | 'no-account' | 'host-decides-last-account' | 'host-decides';
 /**
  * The hook that picked an account. Normally `model.request`; a transport hook
  * picks only when the host skipped `model.request` for that request, which a

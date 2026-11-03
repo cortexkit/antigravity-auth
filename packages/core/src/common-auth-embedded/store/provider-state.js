@@ -1,4 +1,4 @@
-import { assertNotInsideHook, runInsideHook } from './hooks.js';
+import { assertNotInsideHook, runInsideCodec, runInsideHook } from './hooks.js';
 import { runOperation, withTransaction } from './mutate.js';
 import { readRow, refusal, requireBound, rowLockSpec, unknownRow, } from './runtime.js';
 import { boundProviderStateDigest, CREDENTIAL_STAMP_KEY, credentialDigest, isCredentialEpoch, isRecord, PROVIDER_STATE_KEY, parseStamp, providerStateDigest, rowLockKey, } from './schema.js';
@@ -21,7 +21,7 @@ export function acceptProviderState(codec, operation, id, value, what = 'the pro
     }
     if (normalized === undefined)
         throw refusal(operation, id, 'invalid-provider-state', `${what} cannot be stored as JSON`);
-    if (!codec.validate(normalized))
+    if (!runInsideCodec(() => codec.validate(normalized)))
         throw refusal(operation, id, 'invalid-provider-state', `the provider-state codec rejected ${what}`);
     return normalized;
 }
@@ -35,7 +35,7 @@ export function mergedProviderState(codec, operation, id, onDisk, incoming) {
         return { kind: 'set', value: incoming };
     return {
         kind: 'set',
-        value: acceptProviderState(codec, operation, id, codec.merge(structuredClone(onDisk), structuredClone(incoming)), 'the merged provider state'),
+        value: acceptProviderState(codec, operation, id, runInsideCodec(() => codec.merge?.(structuredClone(onDisk), structuredClone(incoming))), 'the merged provider state'),
     };
 }
 /**
@@ -48,7 +48,7 @@ export function mergedProviderState(codec, operation, id, onDisk, incoming) {
 export function replacementProviderState(codec, row, credentialEpoch, identity, incoming) {
     const hook = codec?.onReplace;
     const next = hook
-        ? hook(row.providerState === undefined
+        ? runInsideCodec(() => hook(row.providerState === undefined
             ? undefined
             : structuredClone(row.providerState), {
             id: row.id,
@@ -60,7 +60,7 @@ export function replacementProviderState(codec, row, credentialEpoch, identity, 
             ...(incoming !== undefined
                 ? { incoming: structuredClone(incoming) }
                 : {}),
-        })
+        }))
         : incoming;
     if (next === undefined)
         return { kind: 'clear' };

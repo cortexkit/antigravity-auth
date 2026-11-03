@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { runInsideCodec } from './hooks.js';
 /** Top-level key of the config file that holds everything the pool adds. */
 export const POOL_KEY = 'commonAuthPool';
 /** The pool schema this library reads and writes. */
@@ -182,7 +183,9 @@ export function stampFor(credential, credentialEpoch, binding, options = {}) {
  * digest the store writes.
  */
 export function providerStateDigest(codec, value) {
-    const bound = codec?.credentialBound ? codec.credentialBound(value) : value;
+    const bound = codec?.credentialBound
+        ? runInsideCodec(() => codec.credentialBound?.(value))
+        : value;
     return createHash('sha256')
         .update(`provider-state\0${JSON.stringify(bound ?? null)}`)
         .digest('hex');
@@ -420,8 +423,10 @@ function parseEntry(raw, codec) {
         return undefined;
     if ('disabledReason' in raw && typeof raw.disabledReason !== 'string')
         return undefined;
-    const quota = 'quota' in raw && codec.decode ? codec.decode(raw.quota) : raw.quota;
-    if ('quota' in raw && !codec.validate(quota))
+    const quota = 'quota' in raw && codec.decode
+        ? runInsideCodec(() => codec.decode?.(raw.quota))
+        : raw.quota;
+    if ('quota' in raw && !runInsideCodec(() => codec.validate(quota)))
         return undefined;
     if ('staged' in raw && !parseReservation(raw.staged))
         return undefined;
@@ -666,7 +671,7 @@ function providerStateFields(account, credential, credentialEpoch, identity, cod
     const value = account[PROVIDER_STATE_KEY];
     // The value is validated before it is projected, so the projection only
     // ever sees a value of the shape the codec accepts.
-    if (!codec?.validate(value))
+    if (!codec || !runInsideCodec(() => codec.validate(value)))
         return { providerStateDropped: 'invalid' };
     if (providerStateDigest(codec, value) !== digest)
         return { providerStateDropped: 'uncovered' };

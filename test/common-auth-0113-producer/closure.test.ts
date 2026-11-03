@@ -54,7 +54,7 @@ test('producer.native_windows_archive_pin', async () => {
 
 async function archive() {
   const bytes = await readFile(join(root, inputPath))
-  expect(bytes.length).toBe(394205)
+  expect(bytes.length).toBe(447569)
   expect(digest(bytes)).toBe(publication.sha256)
   const entries = readVerifiedArchive(bytes, publication)
   validatePublication(entries)
@@ -162,13 +162,13 @@ test('producer.public_roots_and_exact_closure', async () => {
   const graph = reach(entries, starts)
   expect(graph.files).toEqual(selected)
   expect(graph.externals).toEqual(closure.nonlocalImports)
-  expect(graph.files.length).toBe(195)
+  expect(graph.files.length).toBe(211)
   expect(
     graph.files.reduce(
       (sum, file) => sum + entries.get(`package/dist/${file}`)!.length,
       0,
     ),
-  ).toBe(1247287)
+  ).toBe(1310857)
   expect(graph.files.filter((file) => file.startsWith('routing/'))).toEqual(
     closure.routingFiles,
   )
@@ -245,15 +245,15 @@ test('producer.verbatim_map', async () => {
   const map = JSON.parse(
     await readFile(join(target, outputPath, 'source-output.json'), 'utf8'),
   )
-  expect(map.version).toBe('0.33.0')
-  expect(map.artifactStatus).toBe('published')
+  expect(map.version).toBe('0.34.0')
+  expect(map.artifactStatus).toBe('candidate')
   expect(map.publicRoots).toEqual({
     ...publication.publicRoots,
     './quota-sidebar': publication.sidebarRoot,
     './routing-accessor': publication.routingAccessorRoot,
   })
-  expect(map.canonicalFiles).toBe(199)
-  expect(map.canonicalBytes).toBe(1277160)
+  expect(map.canonicalFiles).toBe(216)
+  expect(map.canonicalBytes).toBe(1341662)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])
@@ -375,9 +375,9 @@ test('producer.shared_core_profile_exact_closure', async () => {
       'utf8',
     ),
   )
-  expect(required.length).toBe(147)
-  expect(map.canonicalFiles).toBe(147)
-  expect(map.canonicalBytes).toBe(1003209)
+  expect(required.length).toBe(151)
+  expect(map.canonicalFiles).toBe(151)
+  expect(map.canonicalBytes).toBe(1028206)
   expect(map.publicRoots).toEqual(profile.publicRoots)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.files.map((file: { output: string }) => file.output)).toEqual(

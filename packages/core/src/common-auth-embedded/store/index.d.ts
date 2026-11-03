@@ -3,6 +3,7 @@ export type { PoolFailureKind, PoolFailurePhase, PoolOperation, } from './errors
 export { PoolOperationError, PoolReentryError } from './errors.js';
 export type { PoolLogger } from './hooks.js';
 export { countUnknownIdentityRows, DUPLICATE_IDENTITY_REASON, } from './identity.js';
+export type { PoolLimitsMutator, PoolLimitsRow } from './limits-namespace.js';
 export type { HoldPoint, InitializeOutcome, WriteStep } from './mutate.js';
 export type { OpenPoolStoreOptions, PoolLoad, PoolStore, } from './pool.js';
 export { openPoolStore } from './pool.js';

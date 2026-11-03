@@ -67,7 +67,7 @@ export const PACKAGE_ROOT = resolve(
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..')
 const TOOL_ROOT = join(REPO_ROOT, 'tools/common-auth-build')
 const LOCK_HASH =
-  'ee62fc91dbf12d2ff7e2ecb11903fffcf0c5df5dce331f9306b2a4f571bd9399'
+  '7d8cc0747b7c22a25789db281b26031c9df6d9dbe9e4327912c4d80fc15227b6'
 export const BUNDLE_EXTERNALS = [
   'zod',
   'jsonc-parser',
@@ -271,7 +271,7 @@ export async function auditGraph(
       !(
         tui
           ? /^(?:(?:rpc\/(?:client|port-file|rpc-client)|logger\/(?:index|engine|capture-sink|redact)|fs\/private-files|quota\/(?:index|codec|format|map|merge|projection))\.js|quota-sidebar\/index\.(?:tsx|js))$/
-          : /^(?:rpc\/(?:index|client|port-file|rpc-client|rpc-server|server-registry|notifications)|logger\/(?:index|engine|capture-sink|redact)|quota\/(?:index|codec|format|map|merge|projection)|(?:auth-menu|claustrum|commands|fs|routing|setup|store)\/[a-z-]+|routing-accessor\/index|util\/any-signal)\.js$/
+          : /^(?:rpc\/(?:index|client|port-file|rpc-client|rpc-server|server-registry|notifications)|logger\/(?:index|engine|capture-sink|redact)|quota\/(?:index|codec|format|map|merge|projection)|(?:auth-menu|claustrum|commands|fs|routing|setup|store)\/[a-z-]+|routing-accessor\/(?:index|handle)|util\/any-signal)\.js$/
       ).test(embedded)
     )
       throw new Error(`graph: forbidden TUI source ${path}`)
@@ -484,7 +484,7 @@ export async function verifyPrerequisites(): Promise<void> {
     )
     const expected =
       name === '@cortexkit/common-auth'
-        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.33.0.tgz'
+        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.34.0.tgz'
         : `${pkg.name}@${pkg.version}`
     if (entry[0] !== expected)
       throw new Error(
@@ -852,6 +852,7 @@ async function admitExistingMap(mapFile: string) {
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.32.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.32.1' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.33.0' &&
+        metadata.compiler !== '@cortexkit/common-auth/tui-build@0.34.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.6')
     )
       throw new Error('build: existing TUI map is not owned generated metadata')

@@ -1,4 +1,5 @@
 import { recordQuota } from './attribution.js';
+import { updatePoolLimitsNamespace, } from './limits-namespace.js';
 import { initializePool, readPool, } from './mutate.js';
 import { updateProviderStateRow, } from './provider-state.js';
 import { publication, publishRoster, } from './publication.js';
@@ -126,6 +127,7 @@ export function openPoolStore(options) {
         reorder: (ids, callOptions) => reorderRows(rt, ids, callOptions),
         readSettings: () => readPoolSettings(rt),
         updateSettings: (mutator, callOptions) => updatePoolSettings(rt, mutator, callOptions),
+        updateLimitsNamespace: (mutator) => updatePoolLimitsNamespace(rt, mutator),
         recordIdentity: (id, identity, attribution, callOptions) => recordRowIdentity(rt, id, identity, attribution, callOptions),
         refresh: (id, provider, callOptions) => refreshRow(rt, id, provider, callOptions),
         recordQuota: record,

@@ -36,12 +36,13 @@ function defineKey(target, key, value) {
 /**
  * The next config: the pool-owned keys exactly as read, every settings key
  * from `next` in its existing position, settings keys `next` dropped left
- * out, and new settings keys appended.
+ * out, and new settings keys appended. The limits envelope is always carried
+ * through from disk; ordinary settings mutators do not own that namespace.
  */
 function composeConfig(config, next) {
     const out = {};
     for (const [key, value] of Object.entries(config)) {
-        if (POOL_OWNED_KEYS.includes(key))
+        if (POOL_OWNED_KEYS.includes(key) || key === 'commonAuthLimits')
             defineKey(out, key, value);
         else if (Object.hasOwn(next, key))
             defineKey(out, key, next[key]);
@@ -82,6 +83,8 @@ export async function readPoolSettings(rt) {
  * pool-owned key refuses (`invalid-input`) with nothing written; a result
  * equal to the current settings writes nothing. The state file is never
  * touched, and the pool-owned keys are written back exactly as read.
+ * commonAuthLimits is also carried through unchanged, even when omitted by
+ * the mutator; an explicit change to it refuses before writing anything.
  */
 export async function updatePoolSettings(rt, mutator, options = {}) {
     assertNotInsideHook('updateSettings');
@@ -109,9 +112,13 @@ export async function updatePoolSettings(rt, mutator, options = {}) {
             const owned = POOL_OWNED_KEYS.filter((key) => Object.hasOwn(next, key));
             if (owned.length > 0)
                 throw settingsRefusal(`settings cannot set the pool-owned key(s) ${owned.join(', ')}`);
-            if (isDeepStrictEqual(next, current))
-                return { settings: current, outcome: 'unchanged' };
+            if (Object.hasOwn(next, 'commonAuthLimits') &&
+                (!Object.hasOwn(current, 'commonAuthLimits') ||
+                    !isDeepStrictEqual(next.commonAuthLimits, current.commonAuthLimits)))
+                throw settingsRefusal('settings cannot alter commonAuthLimits; use updateLimitsNamespace');
             const config = composeConfig(result.config, next);
+            if (isDeepStrictEqual(settingsOf(config), current))
+                return { settings: current, outcome: 'unchanged' };
             const info = { operation: 'updateSettings', rowId: undefined };
             await writeJsonAtomic(ctx.configPath, config, {
                 beforeRename: async () => {

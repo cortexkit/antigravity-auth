@@ -1,15 +1,8 @@
 // Optional THALAMUS routing for vault mode only. Account ids here are vault
 // account ids; local pool rows are not known to the routing engine.
+import { routingHandle } from './handle.js';
 function isObject(value) {
     return typeof value === 'object' && value !== null;
-}
-function routingHandle(sessionId) {
-    // The bridge can load after the auth plugin, so never cache the accessor.
-    const routing = Reflect.get(globalThis, Symbol.for('cortexkit.routing'));
-    if (typeof routing !== 'function')
-        return undefined;
-    const handle = routing(sessionId);
-    return isObject(handle) ? handle : undefined;
 }
 function selectionFor(answer, candidates) {
     if (!isObject(answer))
@@ -56,7 +49,15 @@ export async function askRouting(input) {
             timer = setTimeout(() => resolve(undefined), deadlineMs);
             timer.unref();
         });
-        const pending = accountFor.call(handle, { provider: input.provider, modelId: input.modelId }, { deadlineMs });
+        const request = {
+            provider: input.provider,
+            modelId: input.modelId,
+        };
+        const cap = input.holdWaitMaxS;
+        if (typeof cap === 'number' && Number.isFinite(cap)) {
+            request.hold_wait_max_s = Math.max(0, Math.floor(cap));
+        }
+        const pending = accountFor.call(handle, request, { deadlineMs });
         if (!isObject(pending) || typeof pending.then !== 'function')
             return undefined;
         const answer = await Promise.race([pending, expired]);
@@ -100,7 +101,7 @@ export function reportRouting(input) {
                     return;
                 // An undefined pool means the whole account, as an omitted one does.
                 if (pool !== undefined &&
-                    (typeof pool !== 'string' || pool.length === 0 || pool.includes(':')))
+                    (typeof pool !== 'string' || !/^[a-z0-9._-]{1,64}$/.test(pool)))
                     return;
                 payload = {
                     ...identity,

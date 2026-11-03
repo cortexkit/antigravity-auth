@@ -1,7 +1,36 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { chmod, mkdir, open, readdir, rename, rmdir, stat, unlink, } from 'node:fs/promises';
+import { uptime } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ensurePrivateDirectory, PrivateFileError, readPrivateText, verifyPrivate, windowsPrivateFiles, writePrivateAtomic, } from '../fs/private-files.js';
+function staleBefore(clock) {
+    // A five-minute margin favors keeping a live record when clocks are uncertain.
+    return (clock.now ?? Date.now)() - (clock.uptime ?? uptime)() * 1000 - 300_000;
+}
+function isStalePortFile(entry, info, cutoff) {
+    const time = entry.startedAt === undefined ? info?.mtimeMs : entry.startedAt;
+    return typeof time === 'number' && Number.isFinite(time) && time < cutoff;
+}
+async function removeStalePortFile(path, raw, info, beforeRemove) {
+    if (!info)
+        return;
+    await beforeRemove?.(path);
+    try {
+        // A live PID may have replaced its old record while the sweep was reading it.
+        const current = await readPrivateText(path);
+        const identity = await stat(path);
+        if (current === raw &&
+            identity.dev === info.dev &&
+            identity.ino === info.ino &&
+            identity.mtimeMs === info.mtimeMs &&
+            identity.size === info.size)
+            await unlink(path).catch(() => { });
+    }
+    catch (error) {
+        if (error instanceof PrivateFileError && error.code !== 'ENOENT')
+            throw error;
+    }
+}
 /**
  * A PID a liveness probe may address. `process.kill(0 | negative, 0)` signals
  * a process group rather than a process, and an unsafe integer cannot name a
@@ -117,7 +146,8 @@ export async function writePortFile(dir, entry, options = {}) {
         throw error;
     }
 }
-export async function sweepRpcState(root, activeDir, isManagedDir, log) {
+export async function sweepRpcState(root, activeDir, isManagedDir, log, options = {}) {
+    const cutoff = staleBefore(options);
     let projectDirs;
     try {
         projectDirs = await readdir(root, { withFileTypes: true });
@@ -146,6 +176,7 @@ export async function sweepRpcState(root, activeDir, isManagedDir, log) {
             if (!name.startsWith('port-') || !name.endsWith('.json'))
                 continue;
             const portFile = join(dir, name);
+            const info = await stat(portFile).catch(() => undefined);
             let raw;
             try {
                 raw = await readPrivateText(portFile);
@@ -172,13 +203,16 @@ export async function sweepRpcState(root, activeDir, isManagedDir, log) {
             const entry = parsed;
             if (!pidAlive(entry.pid))
                 await unlink(portFile).catch(() => { });
+            else if (isStalePortFile(entry, info, cutoff))
+                await removeStalePortFile(portFile, raw, info, options.beforeRemove);
         }
         if (resolve(dir) !== active)
             await rmdir(dir).catch(() => { });
     }
 }
 /** Internal cache validation: probe only the selected file and its PID. */
-export async function portFileIdentity(dir, entry) {
+export async function portFileIdentity(dir, entry, options = {}) {
+    const cutoff = staleBefore(options);
     if (!pidAlive(entry.pid))
         return null;
     const path = join(resolve(dir), `port-${entry.pid}.json`);
@@ -186,6 +220,8 @@ export async function portFileIdentity(dir, entry) {
         if (windowsPrivateFiles)
             await verifyPrivate(path, 'file');
         const info = await stat(path);
+        if (isStalePortFile(entry, info, cutoff))
+            return null;
         return `${path}:${info.dev}:${info.ino}:${info.mtimeMs}:${info.size}`;
     }
     catch (error) {
@@ -195,6 +231,7 @@ export async function portFileIdentity(dir, entry) {
     }
 }
 export async function discoverPortFile(dir, expectedPid, options = {}) {
+    const cutoff = staleBefore(options);
     let names;
     try {
         if (windowsPrivateFiles)
@@ -213,8 +250,13 @@ export async function discoverPortFile(dir, expectedPid, options = {}) {
         try {
             const parsed = JSON.parse(await readPrivateText(join(dir, name)));
             if (isUsablePortFileEntry(parsed, name)) {
-                if (pidAlive(parsed.pid))
-                    live.push(parsed);
+                if (pidAlive(parsed.pid)) {
+                    const info = parsed.startedAt === undefined
+                        ? await stat(join(dir, name)).catch(() => undefined)
+                        : undefined;
+                    if (!isStalePortFile(parsed, info, cutoff))
+                        live.push(parsed);
+                }
                 else
                     await unlink(join(dir, name)).catch(() => { });
             }

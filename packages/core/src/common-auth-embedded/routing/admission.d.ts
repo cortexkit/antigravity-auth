@@ -23,11 +23,16 @@ export interface AdmissionInput extends ExclusionInputs {
     scope?: string;
     /** Labels the scope requires an entry for; defaults to `['primary']`. */
     requiredLabels?: readonly string[];
+    /**
+     * One-dispatch exemptions keyed by row; waive only gate 4. The caller first
+     * validates the current account incarnation and checkpointed reset times.
+     */
+    liftedWindows?: ReadonlyMap<string, readonly WindowRef[]>;
     now: number;
     /**
-     * Called synchronously, once per refusal at gates 2 to 4, with the row id.
+     * Called synchronously once per row needing a pull, including lifted windows.
      * Its return value is ignored and never awaited, so a pull the caller
-     * starts from here cannot delay the refusal.
+     * starts from here cannot delay admission or a refusal.
      */
     requestPull?: (rowId: string) => void;
 }

@@ -59,5 +59,7 @@ export declare function readPoolSettings(rt: StoreRuntime): Promise<SettingsRead
  * pool-owned key refuses (`invalid-input`) with nothing written; a result
  * equal to the current settings writes nothing. The state file is never
  * touched, and the pool-owned keys are written back exactly as read.
+ * commonAuthLimits is also carried through unchanged, even when omitted by
+ * the mutator; an explicit change to it refuses before writing anything.
  */
 export declare function updatePoolSettings(rt: StoreRuntime, mutator: SettingsMutator, options?: UpdateSettingsOptions): Promise<UpdateSettingsResult>;

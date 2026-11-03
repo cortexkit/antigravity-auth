@@ -12,6 +12,7 @@ export { acquireInsulaQuotaSource, type InsulaQuotaContext, type InsulaQuotaLook
 export { acceptAccount, type DeclinedAccount, declineAccount, isDeclined, } from './interlock.js';
 export { drainVaultQuota } from './quota-writer.js';
 export { type AccountMapper, acceptVaultRoute, DEFAULT_ROUTE_PREFIX, declineVaultRoute, type MutateVaultRosterOptions, mutateVaultRoster, type ProjectionOptions, projectVaultRoster, type QuotaReceipt, type ReorderVaultRosterOptions, type ReorderVaultRosterResult, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, reorderVaultRoster, resolveVaultPrimary, type VaultPrimary, type VaultPrimaryBinding, type VaultPrimaryUnavailableReason, type VaultRosterFile, type VaultRosterLockContext, type VaultRosterRow, type VaultRosterSeed, vaultRosterSeed, vaultRoutingRows, } from './roster.js';
+export type { ClaustrumUsageReading, ClaustrumUsageReportState, } from './usage.js';
 export { type ChangeNotice, ChangeNoticeReader, RESUBSCRIBE_BACKOFF_MS, SAFETY_POLL_MS, ScopedRosterWatch, type ScopedRosterWatchOptions, type ScopedWatchEnd, type ScopedWatchHandle, type ScopedWatchNoticeShape, type ScopedWatchSource, WATCH_RETRY_MS, type WatchMode, } from './watch.js';
 /** How long `connectClaustrumScopedClient` waits by default. */
 export declare const SCOPED_CONNECT_TIMEOUT_MS = 10000;

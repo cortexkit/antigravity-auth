@@ -6,6 +6,7 @@ import { type ClaustrumLogger } from './errors.js';
 import type { CustodyLease } from './hub.js';
 import { type InsulaQuotaOptions, type InsulaQuotaResult } from './insula.js';
 import { type AccountMapper, type ProjectionOptions, type QuotaReceipt, type ReorderVaultRosterResult, type VaultRosterFile } from './roster.js';
+import type { ClaustrumUsageReading, ClaustrumUsageReportState } from './usage.js';
 import { type WatchMode } from './watch.js';
 export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
     /**
@@ -229,6 +230,17 @@ export declare class ClaustrumConsumer<Q = QuotaObservation> {
      * poll, and a route whose credential or account changed is refused.
      */
     authorize(routeId: string, signal?: AbortSignal): Promise<ClaustrumScopedAttempt>;
+    /**
+     * Queue reply quota metadata without waiting or throwing. Pass rate-limit
+     * headers only, never tokens: the library does not filter header names.
+     * The credential must have been served by this host and still belong to the route.
+     */
+    reportUsage(input: {
+        routeId: string;
+        credentialId: string;
+        reading: ClaustrumUsageReading;
+    }): void;
+    usageReportState(): ClaustrumUsageReportState;
     reportFailure(attempt: ClaustrumScopedAttempt, status: number, source: ClaustrumReporterSource): Promise<void>;
     /**
      * Send on a vault route. `dispatch` builds and sends the request with the

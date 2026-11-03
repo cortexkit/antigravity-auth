@@ -385,16 +385,44 @@ test('graph.routing_accessor_server_only', async () => {
     PACKAGE_ROOT,
     'src/common-auth-embedded/routing-accessor/index.js',
   )
-  expect((await auditGraph(accessor, { tui: false })).files).toEqual([accessor])
+  const serverFiles = [
+    'routing-accessor/handle.js',
+    'routing-accessor/index.js',
+  ].map((path) => join(PACKAGE_ROOT, 'src/common-auth-embedded', path))
+  expect((await auditGraph(accessor, { tui: false })).files).toEqual(
+    serverFiles,
+  )
   const library = await auditGraph(join(PACKAGE_ROOT, 'index.ts'), {
     tui: false,
   })
-  expect(library.files).toContain(accessor)
+  for (const path of serverFiles) expect(library.files).toContain(path)
   await expect(auditGraph(accessor)).rejects.toThrow('forbidden TUI source')
   for (const root of TUI_ROOTS) {
-    expect(
-      (await auditGraph(join(PACKAGE_ROOT, root.entry))).files,
-    ).not.toContain(accessor)
+    const graph = await auditGraph(join(PACKAGE_ROOT, root.entry))
+    for (const path of serverFiles) expect(graph.files).not.toContain(path)
+  }
+})
+
+test('graph.routing_handle_renderer_refused', async () => {
+  const root = await fixture(true)
+  // The routing accessor's server handle must never enter either renderer graph.
+  for (const profile of TUI_ROOTS) {
+    const entry = join(root, profile.entry)
+    const original = await readFile(entry, 'utf8')
+    for (const path of ['routing-accessor/handle.js']) {
+      const specifier = `./${relative(
+        dirname(entry),
+        join(root, 'src/common-auth-embedded', path),
+      )
+        .split('\\')
+        .join('/')}`
+      await writeFile(
+        entry,
+        `${original}\nimport ${JSON.stringify(specifier)}\n`,
+      )
+      await expect(auditGraph(entry)).rejects.toThrow('forbidden TUI source')
+    }
+    await writeFile(entry, original)
   }
 })
 
@@ -652,7 +680,7 @@ test('build.predecessor_0320_maps_are_owned', async () => {
   await buildTuiRoots({ packageRoot: root })
   for (const profile of TUI_ROOTS) {
     const rebuilt = JSON.parse(await readFile(join(root, profile.map), 'utf8'))
-    expect(rebuilt.compiler).toBe('@cortexkit/common-auth/tui-build@0.33.0')
+    expect(rebuilt.compiler).toBe('@cortexkit/common-auth/tui-build@0.34.0')
     expect(rebuilt).not.toHaveProperty('predecessorCanary')
     for (const tree of [profile.raw, profile.runtime])
       expect(await inventory(join(root, tree))).not.toContain(
@@ -669,12 +697,14 @@ test('build.map_admission_valid_generated', async () => {
   const runtime = await hashes(root, 'src/tui-compiled')
   const generated = await readFile(map)
   expect(JSON.parse(generated.toString()).compiler).toBe(
-    '@cortexkit/common-auth/tui-build@0.33.0',
+    '@cortexkit/common-auth/tui-build@0.34.0',
   )
   for (const compiler of [
     '@cortexkit/common-auth/tui-build@0.9.4',
     '@cortexkit/common-auth/tui-build@0.11.4',
     '@cortexkit/common-auth/tui-build@0.31.0',
+    '@cortexkit/common-auth/tui-build@0.32.1',
+    '@cortexkit/common-auth/tui-build@0.33.0',
   ]) {
     const previous = JSON.parse(generated.toString())
     previous.compiler = compiler
@@ -822,7 +852,7 @@ test('graph.ga_roots', async () => {
   ])
   checkGaGraph(source, 'source', product)
   const map = JSON.parse(await readFile(join(product, GA_TUI_ROOT.map), 'utf8'))
-  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.33.0')
+  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.34.0')
   for (const [variant, tree, entry, kind] of [
     [map.raw, GA_TUI_ROOT.raw, GA_TUI_ROOT.rawEntry, 'raw'],
     [map.runtime, GA_TUI_ROOT.runtime, GA_TUI_ROOT.runtimeEntry, 'runtime'],

@@ -209,6 +209,7 @@ export function projectVaultRoster(previous, inventory, options = {}) {
     return {
         version: 1,
         view: inventory.view,
+        ...(previous?.limits !== undefined && { limits: previous.limits }),
         complete,
         ...(!complete && {
             rejected: inventory.skipped.map((record) => ({
@@ -319,6 +320,7 @@ function decodeRoster(value) {
         // that was used whole, so it reads as complete.
         complete: value.complete !== false,
         ...(rejected && { rejected }),
+        ...(value.limits !== undefined && { limits: value.limits }),
         rows,
         declined,
     };

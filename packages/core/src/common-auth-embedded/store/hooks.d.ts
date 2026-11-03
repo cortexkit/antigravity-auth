@@ -1,7 +1,11 @@
 import { type PoolOperation } from './errors.js';
 /** Refuses a row operation or refresh called from inside a hook. */
 export declare function assertNotInsideHook(operation: PoolOperation): void;
-export declare function runInsideHook<T>(operation: PoolOperation, fn: () => Promise<T> | T): Promise<T>;
+/** Namespace writes need only the store locks, not the row lock a hook may retain. */
+export declare function assertLimitsWriteAllowed(): void;
+/** Codecs may run under store locks even when no asynchronous hook is active. */
+export declare function runInsideCodec<T>(fn: () => T): T;
+export declare function runInsideHook<T>(operation: PoolOperation, fn: () => Promise<T> | T, storeLocksReleased?: boolean): Promise<T>;
 export interface PoolLogger {
     warn(message: string, data?: unknown): void;
 }

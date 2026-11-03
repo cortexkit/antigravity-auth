@@ -523,6 +523,14 @@ export class ClaustrumDiscoveryHub {
                 check();
                 return custody.reportFailure(attempt, status, source);
             },
+            reportUsage: (input) => {
+                if (!state.released && !generation.ended)
+                    custody.reportUsage(input);
+            },
+            usageReportState: () => {
+                check();
+                return custody.usageReportState();
+            },
             forget: (credentialId) => {
                 check();
                 custody.forget(credentialId);

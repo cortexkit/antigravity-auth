@@ -1,4 +1,5 @@
 import { PoolOperationError } from './errors.js';
+import { runInsideCodec } from './hooks.js';
 import { toFailure, withTransaction, } from './mutate.js';
 import { LockStack } from './refresh-lock.js';
 import { refusal, requireBound, unknownRow, } from './runtime.js';
@@ -31,8 +32,8 @@ export function assertQuotaRow(id, attribution, row) {
         });
 }
 export function mergedQuota(ctx, id, stored, observation) {
-    const merged = ctx.codec.merge(stored, observation);
-    if (!ctx.codec.validate(merged))
+    const merged = runInsideCodec(() => ctx.codec.merge(stored, observation));
+    if (!runInsideCodec(() => ctx.codec.validate(merged)))
         throw refusal('pull', id, 'invalid-quota', 'the quota codec rejected the merged map');
     return merged;
 }

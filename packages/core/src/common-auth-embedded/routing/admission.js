@@ -14,7 +14,7 @@
 //   3. a required label with no entry is unknown: refused, pull requested;
 //   4. a reading at or beyond 100% whose reset is missing, unparsable or not
 //      after `now` cannot confirm the exhaustion, so the window is unknown:
-//      refused, pull requested;
+//      refused unless lifted for this wake dispatch; either way, pull requested;
 //   5. a reading at or beyond 100% with a future reset is exhausted: refused.
 // Gates 4 and 5 look at every projected limit, not only the required labels.
 // Stage 2 judges the credit budget across the stage-1 survivors: a row whose
@@ -36,7 +36,7 @@ export function exclusionFor(id, inputs, now) {
     }
     return undefined;
 }
-function judgeStageOne(id, projection, requiredLabels, now) {
+function judgeStageOne(id, projection, requiredLabels, now, liftedWindows) {
     if (projection.limits.length === 0) {
         return {
             id,
@@ -60,7 +60,8 @@ function judgeStageOne(id, projection, requiredLabels, now) {
     }
     const exhausted = projection.limits.filter(readsExhausted);
     for (const limit of exhausted) {
-        if (futureResetAt(limit, now) === undefined) {
+        if (futureResetAt(limit, now) === undefined &&
+            !liftedWindows.some((window) => window.scope === limit.scope && window.label === limit.label)) {
             return {
                 id,
                 stage: 1,
@@ -94,6 +95,7 @@ export function admit(input) {
     const excluded = [];
     const refused = [];
     const survivors = [];
+    const needsPull = new Set();
     for (const row of input.rows) {
         const exclusion = exclusionFor(row.id, input, input.now);
         if (exclusion) {
@@ -105,7 +107,12 @@ export function admit(input) {
             continue;
         }
         const projection = projectQuota(row.quota, scope);
-        const refusal = judgeStageOne(row.id, projection, requiredLabels, input.now);
+        const lifted = input.liftedWindows?.get(row.id) ?? [];
+        if (projection.limits.some((limit) => readsExhausted(limit) &&
+            futureResetAt(limit, input.now) === undefined &&
+            lifted.some((window) => window.scope === limit.scope && window.label === limit.label)))
+            needsPull.add(row.id);
+        const refusal = judgeStageOne(row.id, projection, requiredLabels, input.now, lifted);
         if (refusal) {
             refused.push(refusal);
             continue;
@@ -133,9 +140,12 @@ export function admit(input) {
     const order = new Map(input.rows.map((row, index) => [row.id, index]));
     const byInput = (left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0);
     refused.sort(byInput);
-    const pulls = refused
-        .filter((refusal) => 'pullRequested' in refusal)
-        .map((refusal) => refusal.id);
+    for (const refusal of refused)
+        if ('pullRequested' in refusal)
+            needsPull.add(refusal.id);
+    const pulls = input.rows
+        .filter((row) => needsPull.has(row.id))
+        .map((row) => row.id);
     for (const id of pulls)
         input.requestPull?.(id);
     return { admitted, refused, excluded, pulls };

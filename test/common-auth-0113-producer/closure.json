@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "fileIdentityOracle": "test/common-auth-0113-producer/publication.json",
+  "fileIdentityOracle": "test/common-auth-0170-producer/candidate.json",
   "resolution": "Resolve relative .js specifiers from declarations to .d.ts; runtime edges retain .js. Lists are deduplicated. Imports include literal dynamic imports and type imports; the TUI selector has only its caller-selected variable import.",
   "dynamicImports": {
     "tui/index.js": {
@@ -93,6 +93,7 @@
       "./hub.js",
       "./insula.js",
       "./roster.js",
+      "./usage.js",
       "./watch.js",
       "@cortexkit/claustrum-client"
     ],
@@ -112,6 +113,7 @@
     "claustrum/custody.d.ts": [
       "./errors.js",
       "./insula.js",
+      "./usage.js",
       "./watch.js",
       "@cortexkit/claustrum-client"
     ],
@@ -122,6 +124,7 @@
       "./errors.js",
       "./host-slot.js",
       "./shutdown.js",
+      "./usage.js",
       "./watch.js",
       "@cortexkit/claustrum-client",
       "node:diagnostics_channel"
@@ -175,6 +178,7 @@
       "./interlock.js",
       "./quota-writer.js",
       "./roster.js",
+      "./usage.js",
       "./watch.js",
       "@cortexkit/claustrum-client"
     ],
@@ -232,8 +236,9 @@
       "node:fs/promises",
       "node:path"
     ],
+    "claustrum/usage.d.ts": ["./errors.js"],
+    "claustrum/usage.js": ["@cortexkit/claustrum-client"],
     "claustrum/watch.d.ts": ["./errors.js"],
-    "claustrum/watch.js": [],
     "commands/builtins.d.ts": ["../store/index.js", "./model.js", "./seam.js"],
     "commands/builtins.js": [
       "../quota/index.js",
@@ -308,6 +313,31 @@
       "./refresh-file-lock.js",
       "node:path"
     ],
+    "limits/activity.d.ts": ["./signal.js"],
+    "limits/axes.d.ts": ["./families.js", "./marker.js", "./scope.js"],
+    "limits/decide.d.ts": [
+      "./axes.js",
+      "./families.js",
+      "./request-history.js",
+      "./scope.js",
+      "./signal.js",
+      "./terminal.js",
+      "./wake.js"
+    ],
+    "limits/families.d.ts": ["./wording.js"],
+    "limits/marker.d.ts": ["./scope.js", "./signal.js"],
+    "limits/request-history.d.ts": ["./scope.js", "./signal.js"],
+    "limits/signal.d.ts": ["./scope.js"],
+    "limits/terminal.d.ts": [
+      "./activity.js",
+      "./axes.js",
+      "./decide.js",
+      "./request-history.js",
+      "./scope.js",
+      "./signal.js"
+    ],
+    "limits/wake.d.ts": ["./decide.js", "./signal.js"],
+    "limits/wording.d.ts": ["./duration.js"],
     "logger/capture-sink.d.ts": ["./engine.js"],
     "logger/engine.d.ts": ["./capture-sink.js", "./redact.js"],
     "logger/engine.js": [
@@ -340,6 +370,7 @@
       "@opencode/plugin/promise/registration"
     ],
     "opencode2/types.d.ts": [
+      "../limits/decide.js",
       "@opencode/plugin",
       "@opencode/plugin/promise/session"
     ],
@@ -357,8 +388,6 @@
       "node:timers/promises"
     ],
     "quota/codec.js": ["./map.js", "./merge.js"],
-    "quota/commit-interval.d.ts": [],
-    "quota/commit-interval.js": [],
     "quota/format.d.ts": ["./map.js", "./projection.js"],
     "quota/format.js": ["./map.js"],
     "quota/index.d.ts": [
@@ -377,7 +406,6 @@
     ],
     "quota/merge.d.ts": ["./map.js"],
     "quota/merge.js": ["./map.js"],
-    "quota/pending.js": [],
     "quota/projection.d.ts": ["./map.js"],
     "quota/projection.js": ["./map.js"],
     "routing/admission.d.ts": ["../quota/map.js", "../quota/projection.js"],
@@ -431,6 +459,7 @@
       "../fs/private-files.js",
       "node:crypto",
       "node:fs/promises",
+      "node:os",
       "node:path"
     ],
     "rpc/rpc-client.d.ts": ["./notifications.js", "./port-file.js"],
@@ -496,7 +525,6 @@
       "node:timers/promises"
     ],
     "setup/flags.d.ts": ["./types.js"],
-    "setup/flags.js": [],
     "setup/index.d.ts": [
       "./command-error.js",
       "./command.js",
@@ -534,6 +562,7 @@
     "store/attribution.d.ts": ["./mutate.js", "./runtime.js", "./schema.js"],
     "store/attribution.js": [
       "./errors.js",
+      "./hooks.js",
       "./mutate.js",
       "./refresh-lock.js",
       "./runtime.js",
@@ -548,6 +577,7 @@
       "./errors.js",
       "./hooks.js",
       "./identity.js",
+      "./limits-namespace.js",
       "./mutate.js",
       "./pool.js",
       "./provider-state.js",
@@ -568,6 +598,12 @@
       "./refresh-lock.js",
       "./schema.js",
       "./settings.js"
+    ],
+    "store/limits-namespace.d.ts": ["./runtime.js", "./schema.js"],
+    "store/limits-namespace.js": [
+      "../fs/atomic-write.js",
+      "./hooks.js",
+      "./mutate.js"
     ],
     "store/mutate.d.ts": [
       "./errors.js",
@@ -592,6 +628,7 @@
       "./attribution.js",
       "./errors.js",
       "./hooks.js",
+      "./limits-namespace.js",
       "./mutate.js",
       "./provider-state.js",
       "./publication.js",
@@ -604,6 +641,7 @@
     ],
     "store/pool.js": [
       "./attribution.js",
+      "./limits-namespace.js",
       "./mutate.js",
       "./provider-state.js",
       "./publication.js",
@@ -724,7 +762,7 @@
       "./reserved.js",
       "./schema.js"
     ],
-    "store/schema.js": ["node:crypto"],
+    "store/schema.js": ["./hooks.js", "node:crypto"],
     "store/settings.d.ts": ["./errors.js", "./refresh-lock.js", "./runtime.js"],
     "store/settings.js": [
       "../fs/atomic-write.js",

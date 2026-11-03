@@ -48,6 +48,8 @@ export interface VaultRosterFile {
     complete: boolean;
     /** The unusable records of an incomplete reply: a safe id and a fixed reason. */
     rejected?: SkippedVaultRecord[];
+    /** Opaque limits data; roster-only writers preserve even newer schemas. */
+    limits?: unknown;
     rows: VaultRosterRow[];
     declined: DeclinedAccount[];
 }

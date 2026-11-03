@@ -738,6 +738,42 @@ export class ClaustrumConsumer {
             combined.dispose();
         }
     }
+    /**
+     * Queue reply quota metadata without waiting or throwing. Pass rate-limit
+     * headers only, never tokens: the library does not filter header names.
+     * The credential must have been served by this host and still belong to the route.
+     */
+    reportUsage(input) {
+        if (this.#shutdown.signal.aborted)
+            return;
+        try {
+            const row = this.#roster?.rows.find((row) => row.routeId === input.routeId);
+            if (!row?.enabled ||
+                row.state !== 'active' ||
+                (row.credentialId !== input.credentialId &&
+                    !row.aliases?.includes(input.credentialId)))
+                return;
+            if (this.#hub) {
+                if (this.#lease && this.#hub.leaseLive(this.#lease))
+                    this.#lease.custody.reportUsage(input);
+            }
+            else
+                this.#custody?.reportUsage(input);
+        }
+        catch {
+            // Quota bookkeeping must never reject a provider request.
+        }
+    }
+    usageReportState() {
+        try {
+            return ((this.#hub
+                ? this.#lease?.custody
+                : this.#custody)?.usageReportState() ?? { pending: 0, inFlight: false, dropped: 0 });
+        }
+        catch {
+            return { pending: 0, inFlight: false, dropped: 0 };
+        }
+    }
     async reportFailure(attempt, status, source) {
         this.#assertOpen();
         if (this.#hub) {

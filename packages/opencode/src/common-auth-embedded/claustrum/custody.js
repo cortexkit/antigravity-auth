@@ -6,6 +6,7 @@ import { readClaustrumEnrollmentToken } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
 import { CUSTODY_PLACEHOLDER_PREFIX } from './host-slot.js';
 import { drainShutdown, shutdownWarning } from './shutdown.js';
+import { ScopedUsageReporter, } from './usage.js';
 import { ScopedRosterWatch, } from './watch.js';
 /** Only a new version of the same account may replace an in-flight 401. */
 export function isScopedCredentialRotation(served, current) {
@@ -28,6 +29,14 @@ function scopedRetryReason(served, current) {
     return 'rotated';
 }
 const defaultLogger = createLogger('claustrum');
+function checkedEnrollmentToken(value) {
+    if (!/^[0-9a-f]{64}$/.test(value.token) ||
+        !Number.isSafeInteger(value.token_generation) ||
+        value.token_generation < 1) {
+        throw new ClaustrumConsumerError('invalid-token', 'Invalid Claustrum enrollment token');
+    }
+    return value.token;
+}
 // Opt-in diagnostics let tests retain wait phases without logging each vault read.
 const phaseDiagnostics = channel('common-auth.claustrum.phases');
 /**
@@ -183,6 +192,8 @@ export class ClaustrumScopedCustody {
     #reports = new WeakMap();
     #kept = new Map();
     #keptAttempts = new WeakMap();
+    #usage;
+    #usageServed = new Map();
     #setTimeout;
     #clearTimeout;
     #outage = false;
@@ -197,6 +208,7 @@ export class ClaustrumScopedCustody {
     #watches = new Set();
     #tokenReads = new Set();
     #warnShutdown;
+    #onDrainTimeout;
     #disposing;
     constructor(options) {
         const tokenPath = options.tokenPath;
@@ -218,6 +230,14 @@ export class ClaustrumScopedCustody {
         this.#warnShutdown = shutdownWarning(this.#logger);
         this.#setTimeout = options.setTimeoutImpl ?? setTimeout;
         this.#clearTimeout = options.clearTimeoutImpl ?? clearTimeout;
+        this.#usage = new ScopedUsageReporter({
+            client: this.#client,
+            owns: (id) => this.#usageServed.has(id),
+            token: async () => checkedEnrollmentToken(await this.#readToken()),
+            logger: this.#logger,
+            setTimeout: this.#setTimeout,
+            clearTimeout: this.#clearTimeout,
+        });
     }
     /** A watch losing its transport is the same outage as an unreachable read. */
     transportLost(error) {
@@ -303,12 +323,7 @@ export class ClaustrumScopedCustody {
                 });
         }
         this.#check(signal);
-        if (!/^[0-9a-f]{64}$/.test(value.token) ||
-            !Number.isSafeInteger(value.token_generation) ||
-            value.token_generation < 1) {
-            throw new ClaustrumConsumerError('invalid-token', 'Invalid Claustrum enrollment token');
-        }
-        return value.token;
+        return checkedEnrollmentToken(value);
     }
     async #call(operation, signal) {
         this.#check(signal);
@@ -370,6 +385,7 @@ export class ClaustrumScopedCustody {
         }
         catch (error) {
             this.#kept.clear();
+            this.#clearUsageOwnership();
             throw error;
         }
         if (phaseDiagnostics.hasSubscribers)
@@ -473,11 +489,19 @@ export class ClaustrumScopedCustody {
         else {
             this.reachable();
             this.#kept.clear();
+            this.#clearUsageOwnership();
         }
     }
     /** Discard bearer material when a route is removed, declined or rebound. */
     forget(credentialId) {
         this.#kept.delete(credentialId);
+        this.#usageServed.delete(credentialId);
+        this.#usage.forget(credentialId);
+    }
+    #clearUsageOwnership() {
+        for (const id of this.#usageServed.keys())
+            this.#usage.forget(id);
+        this.#usageServed.clear();
     }
     /** Apply an already-held roster; this never fetches credentials or writes it. */
     retain(identities) {
@@ -488,6 +512,14 @@ export class ClaustrumScopedCustody {
                 identity.state !== 'active' ||
                 identity.credentialType !== kept.attempt.credentialType ||
                 identity.accountIdentity !== kept.attempt.expectedAccountIdentity)
+                this.forget(id);
+        }
+        for (const [id, served] of this.#usageServed) {
+            const identity = current.get(id);
+            if (!identity?.enabled ||
+                identity.state !== 'active' ||
+                identity.credentialType !== served.credentialType ||
+                identity.accountIdentity !== served.accountIdentity)
                 this.forget(id);
         }
     }
@@ -527,6 +559,7 @@ export class ClaustrumScopedCustody {
         }
         catch (error) {
             this.#kept.clear();
+            this.#clearUsageOwnership();
             throw error;
         }
         if (this.#outage && kept) {
@@ -536,6 +569,7 @@ export class ClaustrumScopedCustody {
         try {
             const attempt = await this.#authorizeFresh({ credentialId, credentialType, accountIdentity }, token, signal);
             this.#kept.set(credentialId, { attempt, routeId, since: null });
+            this.#usageServed.set(credentialId, { ...identity });
             return attempt;
         }
         catch (error) {
@@ -750,6 +784,25 @@ export class ClaustrumScopedCustody {
             },
         };
     }
+    /**
+     * Queue reply quota metadata and return synchronously. Pass rate-limit
+     * headers only, never tokens: the library does not filter header names.
+     * Only credentials served by this custody and retained in its roster report.
+     * Hosts managing their own roster must call retain() when that roster changes.
+     */
+    reportUsage(input) {
+        if (this.#closed)
+            return;
+        try {
+            this.#usage.report(input.credentialId, input.reading);
+        }
+        catch {
+            // Quota bookkeeping must never reject a provider request.
+        }
+    }
+    usageReportState() {
+        return this.#usage.state();
+    }
     close() {
         if (this.#closed)
             return;
@@ -761,12 +814,24 @@ export class ClaustrumScopedCustody {
             watch.stop();
         this.#watches.clear();
         this.#kept.clear();
-        this.#client.close();
+        const usage = this.#usage.close();
+        if (usage) {
+            this.#tokenReads.add(usage);
+            void usage.then(() => this.#tokenReads.delete(usage));
+        }
+        else
+            this.#client.close();
+        this.#disposing = drainShutdown(this.#tokenReads, (count) => (this.#onDrainTimeout ?? this.#warnShutdown)(count)).finally(() => {
+            this.#usage.drop();
+            this.#usageServed.clear();
+            if (usage)
+                this.#client.close();
+        });
     }
-    /** Stop immediately; allow token reads 2 s and share an owner's timeout warning. */
+    /** Stop accepting work; give token reads and reply reports one shared 2 s drain. */
     async dispose(onTimeout = this.#warnShutdown) {
+        this.#onDrainTimeout = onTimeout;
         this.close();
-        this.#disposing ??= drainShutdown(this.#tokenReads, onTimeout);
         await this.#disposing;
     }
 }

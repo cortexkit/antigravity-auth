@@ -42,6 +42,11 @@ export interface QuotaSectionOptions {
 }
 export interface RoutingSectionOptions {
     /**
+     * Show how long the plugin may wait for the current account's limit to
+     * reset before switching. Opt in only when the plugin supports that policy.
+     */
+    sameAccountWait?: boolean;
+    /**
      * Further `routing.mode` values the plugin routes as `ordered` with the
      * former main row moved (`main-first`, `fallback-first`), offered between
      * `ordered` and `sticky-balanced`.
