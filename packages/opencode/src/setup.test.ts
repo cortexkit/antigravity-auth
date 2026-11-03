@@ -1935,7 +1935,17 @@ describe('setup plugin callbacks', () => {
             },
           },
         )
-        .catch(() => {})
+        .then(
+          () => {
+            throw new Error('replacement fixture did not stop')
+          },
+          (error: unknown) => {
+            expect(error).toMatchObject({
+              message: 'stopped between replace writes',
+              phase: 'after-first-write',
+            })
+          },
+        )
 
       const plugin = await createSetupPlugin(deps, async () => 0, false)
       const gen2Context = {
