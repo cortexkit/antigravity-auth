@@ -23,14 +23,19 @@ import { dirname, join } from 'node:path'
 
 import * as core from '@cortexkit/antigravity-auth-core'
 import {
+  ACCOUNT_STATE_POLICY,
+  ACCOUNT_STORE_PROVIDER,
   type AccountMigrationOutcome,
   type AccountQuotaResult,
   type AccountRow,
   type AccountStorageV4,
   createAccountRepositoryFactory,
+  createProviderStateCodec,
   loadCommonAuthClaustrum,
   loadCommonAuthStoreModules,
+  QUOTA_CODEC,
   readAccountStoreAdmission,
+  readAccountStoreBinding,
 } from '@cortexkit/antigravity-auth-core'
 
 import type {
@@ -758,7 +763,7 @@ describe('runCli reads the active account store', () => {
         expectedReady: true,
       },
       {
-        scenario: 'current bad + other good',
+        scenario: 'disabled row + enabled healthy row',
         rows: [
           { ...baseHealthyRow, enabled: false },
           {
@@ -915,6 +920,316 @@ describe('runCli reads the active account store', () => {
       const parsed = JSON.parse(output)
       expect(parsed).not.toHaveProperty('reconnectReady')
       expect(parsed.accounts?.[0]).not.toHaveProperty('reconnectReady')
+    })
+
+    it('real on-disk mixed fixture with torn row preserves readability but evaluates reconnectReady as false', async () => {
+      const mixedRoot = realpathSync(
+        mkdtempSync(join(tmpdir(), 'cli-store-torn-')),
+      )
+      try {
+        const mixedLegacyPath = join(mixedRoot, 'antigravity-accounts.json')
+        const storeOps = createDefaultAccountStoreOperations()
+        await storeOps.initialize(mixedLegacyPath)
+
+        const modules = await loadCommonAuthStoreModules()
+        const binding = await readAccountStoreBinding(
+          mixedLegacyPath,
+          modules,
+          Date.now,
+        )
+        if (binding.status !== 'bound') throw new Error(binding.status)
+
+        const repoFactory = createAccountRepositoryFactory(modules)
+        const setupRepo = repoFactory({
+          paths: binding.paths,
+          now: Date.now,
+          exchange: async () => {
+            throw new Error('NoNetwork')
+          },
+        })
+        const loginA = await setupRepo.login({
+          id: crypto.randomUUID(),
+          refreshToken: 'refresh-a',
+          identity: 'user-a@example.test',
+          metadata: {
+            email: 'user-a@example.test',
+            addedAt: 100,
+            lastUsed: 200,
+          },
+        })
+        const loginB = await setupRepo.login({
+          id: crypto.randomUUID(),
+          refreshToken: 'refresh-b',
+          identity: 'user-b@example.test',
+          metadata: {
+            email: 'user-b@example.test',
+            addedAt: 300,
+            lastUsed: 400,
+          },
+        })
+        await setupRepo.dispose()
+
+        // Control 1: Healthy both -> serving active + CLI ready true
+        const controlAdmission = await readAccountStoreAdmission(
+          mixedLegacyPath,
+          modules,
+          Date.now,
+          binding.receipt.id,
+        )
+        expect(controlAdmission.status).toBe('active')
+        const controlRead = await storeOps.read(mixedLegacyPath)
+        expect(controlRead.kind).toBe('store')
+        if (controlRead.kind === 'store') {
+          expect(controlRead.reconnectReady).toBe(true)
+          expect(controlRead.accounts).toHaveLength(2)
+        }
+
+        // Control 2: Healthy A + disabled B -> serving admission active and ready true
+        const disableRepo = repoFactory({
+          paths: binding.paths,
+          now: Date.now,
+          exchange: async () => {
+            throw new Error('NoNetwork')
+          },
+        })
+        await disableRepo.setEnabled(loginB.ref, {
+          enabled: false,
+          actor: 'user',
+          reason: 'test disable',
+        })
+        await disableRepo.dispose()
+
+        const disabledAdmission = await readAccountStoreAdmission(
+          mixedLegacyPath,
+          modules,
+          Date.now,
+          binding.receipt.id,
+        )
+        expect(disabledAdmission.status).toBe('active')
+        const disabledRead = await storeOps.read(mixedLegacyPath)
+        expect(disabledRead.kind).toBe('store')
+        if (disabledRead.kind === 'store') {
+          expect(disabledRead.reconnectReady).toBe(true)
+        }
+
+        // Restore B to enabled before poison
+        const reenableRepo = repoFactory({
+          paths: binding.paths,
+          now: Date.now,
+          exchange: async () => {
+            throw new Error('NoNetwork')
+          },
+        })
+        await reenableRepo.setEnabled(loginB.ref, {
+          enabled: true,
+          actor: 'user',
+        })
+        await reenableRepo.dispose()
+
+        // Mirror core/src/account-repository.test.ts raw store torn fixture:
+        // stopping between state write and config write
+        const stoppingStore = modules.store.openPoolStore({
+          provider: ACCOUNT_STORE_PROVIDER,
+          configPath: binding.paths.configPath,
+          statePath: binding.paths.statePath,
+          quota: QUOTA_CODEC,
+          providerState: createProviderStateCodec(ACCOUNT_STATE_POLICY),
+          requireCredentialStamps: true,
+          now: Date.now,
+          onStep: (step, info) => {
+            if (
+              info.operation === 'replace' &&
+              step === 'before-config-write'
+            ) {
+              throw new Error('stopped between replace writes')
+            }
+          },
+        })
+
+        const replaceResult = await stoppingStore
+          .replace(
+            loginB.ref.id,
+            { type: 'oauth', refresh: 'refresh-b-poisoned' },
+            { identity: 'user-b@example.test' },
+            {
+              attribution: {
+                credentialEpoch: loginB.ref.credentialEpoch,
+                identity: 'user-b@example.test',
+              },
+            },
+          )
+          .then(
+            () => 'completed',
+            (err: unknown) => err,
+          )
+        if (!(replaceResult instanceof Error)) {
+          throw new Error('replacement fixture did not stop')
+        }
+        expect(replaceResult.message).toBe('stopped between replace writes')
+        expect('phase' in replaceResult ? replaceResult.phase : undefined).toBe(
+          'after-first-write',
+        )
+
+        // Assert repository read is ready, A eligible true, B broken (torn)
+        const checkRepo = repoFactory({
+          paths: binding.paths,
+          now: Date.now,
+          exchange: async () => {
+            throw new Error('NoNetwork')
+          },
+        })
+        const repoRead = await checkRepo.read()
+        expect(repoRead.status).toBe('ready')
+        if (repoRead.status === 'ready') {
+          const rowA = repoRead.rows.find((r) => r.ref.id === loginA.ref.id)
+          const rowB = repoRead.rows.find((r) => r.ref.id === loginB.ref.id)
+          expect(rowA?.enabled && rowA?.usable && !rowA?.torn).toBe(true)
+          expect(rowB?.torn).toBe(true)
+        }
+        await checkRepo.dispose()
+
+        // Serving admission on same generation is refused (non-active)
+        const serving = await readAccountStoreAdmission(
+          mixedLegacyPath,
+          modules,
+          Date.now,
+          binding.receipt.id,
+        )
+        expect(serving.status).not.toBe('active')
+
+        // Production default store.read returns kind 'store', accounts still readable, reconnectReady: false
+        const tornStoreRead = await storeOps.read(mixedLegacyPath)
+        expect(tornStoreRead.kind).toBe('store')
+        if (tornStoreRead.kind === 'store') {
+          expect(tornStoreRead.accounts).toHaveLength(2)
+          expect(tornStoreRead.reconnectReady).toBe(false)
+        }
+
+        // Verify CLI list and quota commands continue working without error
+        const deps = createDefaultCliDependencies()
+        deps.accountStore = {
+          ...storeOps,
+          legacyPath: () => mixedLegacyPath,
+        }
+        let listJsonOutput = ''
+        deps.stdout = {
+          write: (val) => {
+            listJsonOutput += val
+          },
+        }
+        expect(await runCli(['list', '--json'], deps)).toBe(0)
+        const parsedList = JSON.parse(listJsonOutput)
+        expect(parsedList).not.toHaveProperty('reconnectReady')
+        expect(parsedList.accounts).toHaveLength(2)
+
+        let listOutput = ''
+        deps.stdout = {
+          write: (val) => {
+            listOutput += val
+          },
+        }
+        expect(await runCli(['list'], deps)).toBe(0)
+        expect(listOutput).toContain('user-a@example.test')
+
+        deps.getQuota = mock(async () => [])
+        let quotaOutput = ''
+        deps.stdout = {
+          write: (val) => {
+            quotaOutput += val
+          },
+        }
+        expect(await runCli(['quota'], deps)).toBe(0)
+        expect(deps.getQuota).toHaveBeenCalledTimes(1)
+        expect(typeof quotaOutput).toBe('string')
+      } finally {
+        rmSync(mixedRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('generation flip during repository read causes reconnectReady to evaluate as false', async () => {
+      const flipRoot = realpathSync(
+        mkdtempSync(join(tmpdir(), 'cli-store-flip-')),
+      )
+      try {
+        const flipLegacyPath = join(flipRoot, 'antigravity-accounts.json')
+        writeFileSync(
+          flipLegacyPath,
+          JSON.stringify({
+            version: 4,
+            activeIndex: 0,
+            accounts: [
+              {
+                email: 'flip@example.test',
+                refreshToken: 'flip-tok',
+                addedAt: 1,
+                lastUsed: 1,
+                enabled: true,
+              },
+            ],
+          }),
+          { mode: 0o600 },
+        )
+        const storeOps = createDefaultAccountStoreOperations()
+        await storeOps.migrate(flipLegacyPath)
+
+        const modules = await loadCommonAuthStoreModules()
+        const initialBinding = await readAccountStoreBinding(
+          flipLegacyPath,
+          modules,
+          Date.now,
+        )
+        if (initialBinding.status !== 'bound')
+          throw new Error(initialBinding.status)
+        const gen1Id = initialBinding.receipt.id
+
+        let flipped = false
+        const origFactory = core.createAccountRepositoryFactory
+        const factorySpy = spyOn(
+          core,
+          'createAccountRepositoryFactory',
+        ).mockImplementation((m) => (options) => {
+          const realRepo = origFactory(m)(options)
+          const origRead = realRepo.read.bind(realRepo)
+          realRepo.read = async () => {
+            const result = await origRead()
+            // Legitimate generation flip through public rollback + migrate operations
+            await storeOps.rollback(flipLegacyPath)
+            await storeOps.migrate(flipLegacyPath)
+            flipped = true
+            return result
+          }
+          return realRepo
+        })
+
+        try {
+          const read = await storeOps.read(flipLegacyPath)
+          expect(flipped).toBe(true)
+          expect(read.kind).toBe('store')
+          if (read.kind === 'store') {
+            expect(read.reconnectReady).toBe(false)
+          }
+
+          // Verify new generation is active under its own receipt
+          const newBinding = await readAccountStoreBinding(
+            flipLegacyPath,
+            modules,
+            Date.now,
+          )
+          if (newBinding.status !== 'bound') throw new Error(newBinding.status)
+          expect(newBinding.receipt.id).not.toBe(gen1Id)
+          const newAdmission = await readAccountStoreAdmission(
+            flipLegacyPath,
+            modules,
+            Date.now,
+            newBinding.receipt.id,
+          )
+          expect(newAdmission.status).toBe('active')
+        } finally {
+          factorySpy.mockRestore()
+        }
+      } finally {
+        rmSync(flipRoot, { recursive: true, force: true })
+      }
     })
   })
 })

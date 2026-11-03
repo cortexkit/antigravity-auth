@@ -1853,4 +1853,110 @@ describe('setup plugin callbacks', () => {
       fenceSpy.mockRestore()
     }
   })
+
+  it('causal setup guidance with real on-disk mixed torn pool advises browser rather than reconnect', async () => {
+    const p = profile()
+    Object.assign(process.env, p.env)
+    const fenceSpy = spyOn(setup, 'assertSetupHostsStopped').mockImplementation(
+      async () => {},
+    )
+    try {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      await deps.accountStore.initialize(deps.accountStore.legacyPath())
+
+      const modules = await core.loadCommonAuthStoreModules()
+      const binding = await core.readAccountStoreBinding(
+        deps.accountStore.legacyPath(),
+        modules,
+        Date.now,
+      )
+      if (binding.status !== 'bound') throw new Error(binding.status)
+
+      const repoFactory = core.createAccountRepositoryFactory(modules)
+      const setupRepo = repoFactory({
+        paths: binding.paths,
+        now: Date.now,
+        exchange: async () => {
+          throw new Error('NoNetwork')
+        },
+      })
+      await setupRepo.login({
+        id: crypto.randomUUID(),
+        refreshToken: 'refresh-a',
+        identity: 'healthy-a@example.test',
+        metadata: {
+          email: 'healthy-a@example.test',
+          addedAt: 100,
+          lastUsed: 200,
+        },
+      })
+      const userB = await setupRepo.login({
+        id: crypto.randomUUID(),
+        refreshToken: 'refresh-b',
+        identity: 'torn-b@example.test',
+        metadata: {
+          email: 'torn-b@example.test',
+          addedAt: 300,
+          lastUsed: 400,
+        },
+      })
+      await setupRepo.dispose()
+
+      // Poison row B with torn replace
+      const stoppingStore = modules.store.openPoolStore({
+        provider: core.ACCOUNT_STORE_PROVIDER,
+        configPath: binding.paths.configPath,
+        statePath: binding.paths.statePath,
+        quota: core.QUOTA_CODEC,
+        providerState: core.createProviderStateCodec(core.ACCOUNT_STATE_POLICY),
+        requireCredentialStamps: true,
+        now: Date.now,
+        onStep: (step: string, info: { operation: string }) => {
+          if (info.operation === 'replace' && step === 'before-config-write') {
+            throw new Error('stopped between replace writes')
+          }
+        },
+      })
+      await stoppingStore
+        .replace(
+          userB.ref.id,
+          { type: 'oauth', refresh: 'refresh-b-poisoned' },
+          { identity: 'torn-b@example.test' },
+          {
+            attribution: {
+              credentialEpoch: userB.ref.credentialEpoch,
+              identity: 'torn-b@example.test',
+            },
+          },
+        )
+        .catch(() => {})
+
+      const plugin = await createSetupPlugin(deps, async () => 0, false)
+      const gen2Context = {
+        hosts: ['opencode'],
+        piAgentDir: p.env.PI_CODING_AGENT_DIR,
+        opencodeGeneration: '2',
+        mode: 'local',
+      } as const
+
+      await plugin.signInLocal('opencode', gen2Context)
+      await plugin.beforeRegister?.('opencode', 'local', gen2Context)
+      await plugin.migrate?.('opencode', gen2Context)
+
+      // Across the full sequence:
+      // Even though userA is completely healthy and eligible,
+      // the torn userB in the generation invalidates serving admission.
+      // Candidate advises BROWSER; BASE lossy projection advised RECONNECT.
+      expect(output).toContain(OPENCODE2_POOL_AUTH_LABEL)
+      expect(output).not.toContain(OPENCODE2_POOL_RECONNECT_LABEL)
+    } finally {
+      fenceSpy.mockRestore()
+    }
+  })
 })
