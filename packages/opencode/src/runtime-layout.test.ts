@@ -18,6 +18,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
+import { unlink } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -122,6 +123,32 @@ function writePrivate(path: string, text: string) {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
   writeFileSync(path, text, { mode: 0o600 })
   chmodSync(path, 0o600)
+}
+
+/** Real-file snapshots let comparisons run without Windows sharing races. */
+function snapshotCleanupIO(files: Record<string, string>) {
+  const bytes = new Map<string, Buffer>()
+  for (const dir of [configDir(), runtimeDir()])
+    for (const relative of Object.keys(files)) {
+      const path = join(dir, relative)
+      if (existsSync(path)) bytes.set(path, readFileSync(path))
+    }
+  const reads: string[] = []
+  const unlinks: string[] = []
+  const io = {
+    platform: 'win32' as const,
+    readFile: async (path: string) => {
+      reads.push(path)
+      const snapshot = bytes.get(path)
+      if (!snapshot) throw new Error(`missing cleanup snapshot: ${path}`)
+      return Buffer.from(snapshot)
+    },
+    unlink: async (path: string) => {
+      unlinks.push(path)
+      await unlink(path)
+    },
+  }
+  return { io, bytes, reads, unlinks }
 }
 
 /**
@@ -632,7 +659,8 @@ describe('moving an existing vault folder', () => {
     ['claustrum-roster-write', 'antigravity-auth-vault/opencode-roster.json'],
     ['ceremony', VAULT_STATE],
   ])('clean-up after a crash waits for the %s lock and compares again before it unlinks', async (name, relative) => {
-    seed(configDir(), oldLayout())
+    const files = oldLayout()
+    seed(configDir(), files)
     await prepare({
       steps: {
         afterMarker: () => {
@@ -641,6 +669,7 @@ describe('moving an existing vault folder', () => {
       },
     })
     const old = join(configDir(), relative)
+    const cleanup = snapshotCleanupIO(files)
     // A vault writer holds its own lock on the old file and replaces it.
     const fs = await loadCommonAuthFs()
     const held = await fs.acquireRefreshFileLock({
@@ -651,17 +680,76 @@ describe('moving an existing vault folder', () => {
     expect(held).not.toBeNull()
     resetProcess()
     let settled = false
-    const run = prepare().then((layout) => {
+    const run = prepare({ steps: { oldFileIO: cleanup.io } }).then((layout) => {
       settled = true
       return layout
     })
     await Bun.sleep(300)
     expect(settled).toBe(false)
+    expect(cleanup.reads).toEqual([])
     writePrivate(old, '{"written-under-the-lock":true}\n')
+    // Publish the actual under-lock rewrite to the fault-free reader.
+    cleanup.bytes.set(old, readFileSync(old))
     await held?.release()
     await expect(run).rejects.toThrow(conflictMessage(relative))
+    expect(cleanup.reads).toContain(old)
+    expect(cleanup.unlinks).not.toContain(old)
     expect(readFileSync(old, 'utf8')).toBe('{"written-under-the-lock":true}\n')
     expect(marker()?.oldFilesRemoved).not.toBe(true)
+  })
+
+  it.each([
+    'EBUSY',
+    'EPERM',
+    'EACCES',
+  ])('a Windows %s read throughout crash clean-up keeps a changed old file without unlinking it', async (code) => {
+    const files = oldLayout()
+    seed(configDir(), files)
+    await prepare({
+      steps: {
+        afterMarker: () => {
+          throw new Error('crash')
+        },
+      },
+    })
+    const old = join(configDir(), ROSTER)
+    const next = join(runtimeDir(), ROSTER)
+    const changed = '{"written-under-the-lock":true}\n'
+    writePrivate(old, changed)
+    const cleanup = snapshotCleanupIO(files)
+    const read = cleanup.io.readFile
+    let blocked = true
+    let failedReads = 0
+    cleanup.io.readFile = async (path) => {
+      if (path === old && blocked) {
+        failedReads++
+        throw Object.assign(new Error('sharing violation'), { code })
+      }
+      return read(path)
+    }
+
+    resetProcess()
+    expect(await prepare({ steps: { oldFileIO: cleanup.io } })).toBe(
+      'state-home',
+    )
+    expect(failedReads).toBeGreaterThan(1)
+    expect(readFileSync(old, 'utf8')).toBe(changed)
+    expect(readFileSync(next, 'utf8')).toBe(files[ROSTER] as string)
+    expect(cleanup.unlinks).not.toContain(old)
+    expect(marker()?.oldFilesRemoved).toBeUndefined()
+    expect(cleanupWarnings()).toEqual(oneCleanupWarning(ROSTER))
+
+    // Once readable, the changed bytes must refuse, not reuse an earlier
+    // comparison or treat a deferred cleanup as permission to unlink.
+    blocked = false
+    resetProcess()
+    await expect(prepare({ steps: { oldFileIO: cleanup.io } })).rejects.toThrow(
+      conflictMessage(ROSTER),
+    )
+    expect(readFileSync(old, 'utf8')).toBe(changed)
+    expect(readFileSync(next, 'utf8')).toBe(files[ROSTER] as string)
+    expect(cleanup.unlinks).not.toContain(old)
+    expect(marker()?.oldFilesRemoved).toBeUndefined()
   })
 
   // An old vault file identical to its copy that cannot be removed, as when

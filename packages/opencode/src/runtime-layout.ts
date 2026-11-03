@@ -341,6 +341,12 @@ export interface RuntimeLayoutLogger {
   warn(message: string, meta?: Record<string, unknown>): unknown
 }
 
+interface OldFileCleanupIO {
+  platform: NodeJS.Platform
+  readFile(path: string): Promise<Buffer>
+  unlink(path: string): Promise<void>
+}
+
 export interface RuntimeLayoutOptions {
   /** This build's version, for the version fence. */
   version: string
@@ -360,8 +366,8 @@ export interface RuntimeLayoutOptions {
    */
   destinationPrivate?: (dir: string) => Promise<boolean>
   /**
-   * Test seams, run at one step of the move. A step that throws stands in for
-   * a crash there: nothing after it runs.
+   * Test seams for the move. A step callback that throws stands in for a
+   * crash there: nothing after it runs.
    */
   steps?: {
     afterManifest?: () => void | Promise<void>
@@ -373,6 +379,8 @@ export interface RuntimeLayoutOptions {
      * check that guards it.
      */
     beforeRemove?: (path: string) => void | Promise<void>
+    /** Isolate old-copy comparison/removal from OS sharing races in tests. */
+    oldFileIO?: OldFileCleanupIO
   }
   /** Test seam: how long to wait for the layout lock. */
   layoutLockWaitMs?: number
@@ -1912,8 +1920,11 @@ async function removeOldCopies(
         continue
     }
     if (
-      !(await unlinkIfIdentical(file, location.stateHomeDir, () =>
-        beforeRemove(file.old, layoutLock, input.steps),
+      !(await unlinkIfIdentical(
+        file,
+        location.stateHomeDir,
+        () => beforeRemove(file.old, layoutLock, input.steps),
+        input.steps?.oldFileIO,
       ))
     )
       kept.push(file.old)
@@ -1945,10 +1956,13 @@ async function sameBytes(a: string, b: string): Promise<boolean> {
  * a writer that has not closed it yet) can refuse to be read or removed for a
  * moment. These codes do not say whether the file exists or what it holds.
  */
-function isWindowsSharingError(error: unknown): boolean {
+function isWindowsSharingError(
+  error: unknown,
+  platform: NodeJS.Platform,
+): boolean {
   const code = (error as NodeJS.ErrnoException | null)?.code
   return (
-    process.platform === 'win32' &&
+    platform === 'win32' &&
     (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES')
   )
 }
@@ -1966,13 +1980,14 @@ async function unlinkIfIdentical(
   file: LayoutFile,
   stateDir: string,
   guard: () => Promise<void>,
+  io: OldFileCleanupIO = { platform: process.platform, readFile, unlink },
 ): Promise<boolean> {
   const started = performance.now()
   for (const delay of SHARING_RETRY_DELAYS_MS) {
     if (delay > 0) await new Promise((done) => setTimeout(done, delay))
     let same: boolean
     try {
-      same = (await readFile(file.old)).equals(await readFile(file.next))
+      same = (await io.readFile(file.old)).equals(await io.readFile(file.next))
     } catch (error) {
       if (
         (error as NodeJS.ErrnoException).code === 'ENOENT' &&
@@ -1982,7 +1997,7 @@ async function unlinkIfIdentical(
       // A file Windows holds open is not evidence that the two copies differ:
       // compare again shortly, and past the budget leave the old file for the
       // next start, as when the unlink itself is refused.
-      if (isWindowsSharingError(error)) {
+      if (isWindowsSharingError(error, io.platform)) {
         if (performance.now() - started >= SHARING_RETRY_BUDGET_MS) return false
         continue
       }
@@ -1993,12 +2008,12 @@ async function unlinkIfIdentical(
     if (!same) throw credentialConflict(stateDir, file)
     await guard()
     try {
-      await unlink(file.old)
+      await io.unlink(file.old)
       return true
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true
       if (
-        !isWindowsSharingError(error) ||
+        !isWindowsSharingError(error, io.platform) ||
         performance.now() - started >= SHARING_RETRY_BUDGET_MS
       )
         return false
