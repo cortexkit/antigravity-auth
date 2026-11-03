@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [3.0.30] - 2026-11-03
+
 ### Fixed
 
 - Setup for OpenCode 2 now reports the real error when the account store can't be read, and suggests reconnecting an existing pool only when that pool would actually serve a request. Thanks to @mv2sa (#62).
