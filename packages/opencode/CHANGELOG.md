@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Embedded common-auth 0.34.0: on Windows, releasing a lock file the system briefly holds now retries instead of failing.
+
 ## [3.0.29] - 2026-11-02
 
 ### Fixed
