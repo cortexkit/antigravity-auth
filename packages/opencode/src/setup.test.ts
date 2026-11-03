@@ -1842,8 +1842,8 @@ describe('setup plugin callbacks', () => {
         await plugin.beforeRegister?.('opencode', 'local', gen2Context)
         await plugin.migrate?.('opencode', gen2Context)
 
-        // Across the full sequence, candidate gives BROWSER guidance;
-        // BASE lossy projection advises RECONNECT because display fields look healthy.
+        // Display fields alone look healthy; repository readiness must decide
+        // whether to recommend browser login instead of reconnecting.
         expect(output).toContain(OPENCODE2_POOL_AUTH_LABEL)
         expect(output).not.toContain(OPENCODE2_POOL_RECONNECT_LABEL)
       } finally {
@@ -1949,10 +1949,8 @@ describe('setup plugin callbacks', () => {
       await plugin.beforeRegister?.('opencode', 'local', gen2Context)
       await plugin.migrate?.('opencode', gen2Context)
 
-      // Across the full sequence:
-      // Even though userA is completely healthy and eligible,
-      // the torn userB in the generation invalidates serving admission.
-      // Candidate advises BROWSER; BASE lossy projection advised RECONNECT.
+      // The healthy account cannot make the pool reconnectable while its
+      // sibling has a torn credential binding, so recommend browser login.
       expect(output).toContain(OPENCODE2_POOL_AUTH_LABEL)
       expect(output).not.toContain(OPENCODE2_POOL_RECONNECT_LABEL)
     } finally {

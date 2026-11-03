@@ -813,6 +813,86 @@ describe('runCli reads the active account store', () => {
       }
     })
 
+    it.each([
+      1, 2,
+    ])('keeps accounts readable when admission %i is busy', async (busyRead) => {
+      const modules = await loadCommonAuthStoreModules()
+      const binding = await readAccountStoreBinding(
+        legacyPath,
+        modules,
+        Date.now,
+      )
+      if (binding.status !== 'bound') throw new Error(binding.status)
+      const repository = createAccountRepositoryFactory(modules)({
+        paths: binding.paths,
+        now: Date.now,
+        exchange: async () => {
+          throw new Error('token exchange is not part of this test')
+        },
+      })
+      try {
+        await repository.login({
+          id: crypto.randomUUID(),
+          refreshToken: 'busy-refresh',
+          identity: 'busy@example.test',
+          metadata: { email: 'busy@example.test', addedAt: 10, lastUsed: 20 },
+        })
+      } finally {
+        await repository.dispose()
+      }
+      const control = await storeOps.read(legacyPath)
+      expect(control.kind).toBe('store')
+      if (control.kind !== 'store') throw new Error(control.kind)
+      expect(control.reconnectReady).toBe(true)
+
+      const originalAdmission = core.readAccountStoreAdmission
+      let attempt = 0
+      // Model snapshot contention at either admission boundary, not repository damage.
+      const admissionSpy = spyOn(
+        core,
+        'readAccountStoreAdmission',
+      ).mockImplementation(async (...args) =>
+        ++attempt === busyRead
+          ? { status: 'busy', retryable: true }
+          : originalAdmission(...args),
+      )
+      try {
+        const read = await storeOps.read(legacyPath)
+        expect(read).toEqual({ ...control, reconnectReady: false })
+        expect(admissionSpy).toHaveBeenCalledTimes(busyRead)
+        for (let call = 1; call <= busyRead; call++) {
+          expect(admissionSpy).toHaveBeenNthCalledWith(
+            call,
+            legacyPath,
+            modules,
+            Date.now,
+            binding.receipt.id,
+          )
+        }
+
+        attempt = 0
+        const deps = createDefaultCliDependencies()
+        deps.accountStore = { ...storeOps, legacyPath: () => legacyPath }
+        let output = ''
+        deps.stdout = {
+          write: (value) => {
+            output += value
+          },
+        }
+        deps.stderr = {
+          write: (value) => {
+            throw new Error(value)
+          },
+        }
+        expect(await runCli(['list', '--json'], deps)).toBe(0)
+        expect(JSON.parse(output).accounts).toEqual([
+          { index: 1, email: 'busy@example.test', status: 'active' },
+        ])
+      } finally {
+        admissionSpy.mockRestore()
+      }
+    })
+
     it('unstubbed real repository read with expired access token evaluates reconnectReady without token refresh', async () => {
       const expiredRoot = realpathSync(
         mkdtempSync(join(tmpdir(), 'cli-store-expired-')),

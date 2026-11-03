@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Setup for OpenCode 2 now reports the real error when the account store can't be read, and suggests reconnecting an existing pool only when that pool would actually serve a request. Thanks to @mv2sa (#62).
+
 ### Changed
 
 - Embedded common-auth 0.34.0: on Windows, releasing a lock file the system briefly holds now retries instead of failing.
