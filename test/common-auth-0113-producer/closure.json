@@ -318,6 +318,7 @@
     "limits/decide.d.ts": [
       "./axes.js",
       "./families.js",
+      "./marker.js",
       "./request-history.js",
       "./scope.js",
       "./signal.js",

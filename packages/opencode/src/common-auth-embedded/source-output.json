@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.34.0",
-  "artifactStatus": "published",
+  "version": "0.35.0",
+  "artifactStatus": "candidate",
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -69,15 +69,15 @@
       "import": "./src/quota-sidebar/index.tsx"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.34.0.tgz",
-  "tarballSha256": "381a0a78b6ca4873922ce1be1378c5b891136686a5ba85ffe6d39c6a2624f549",
-  "sri": "sha512-5V9MnqLQPPNNDdHm17Vluzlc2WDiFUJaUUG3Uw/q/tDPfBYd6L1QqTCkFaTrh1dbDrCjwSPsIYBQwUBxSkViSw==",
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.35.0.tgz",
+  "tarballSha256": "a04c98d3f647b2ecabed05e8608ae498a578cab5ccb9f4d17d02bab3b0f2c6d3",
+  "sri": "sha512-RFaZi01CLMEJxByyPuZD+xe4VQl2HDjOA2xqkwZMWnsB5uWRHwr4riofoRgBlvvdgMDvlB/ESaaInL20mLHnyw==",
   "canonicalFiles": 216,
-  "canonicalBytes": 1341662,
+  "canonicalBytes": 1342794,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "905b90777add2c69e77c300f4a63690a612548e419ac5b7e8302edd1c7506774"
+    "sha256": "50b136a945e9f70617fc0c6eb6bc01abca92c04436f8b323e8bc2d9e8e039e61"
   },
   "files": [
     {
@@ -683,17 +683,17 @@
     {
       "source": "package/dist/limits/axes.d.ts",
       "output": "limits/axes.d.ts",
-      "bytes": 2964,
-      "sourceSha256": "28c80f64119d33f4326b20ff4ba845a18c94af9569f98ac8d73aecfb030a0fbc",
-      "outputSha256": "28c80f64119d33f4326b20ff4ba845a18c94af9569f98ac8d73aecfb030a0fbc",
+      "bytes": 3231,
+      "sourceSha256": "42441dd932b966cf53af4e96edb7bc38f53bd7eeac4e73edd4dcc7a3a64d3bc5",
+      "outputSha256": "42441dd932b966cf53af4e96edb7bc38f53bd7eeac4e73edd4dcc7a3a64d3bc5",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/limits/decide.d.ts",
       "output": "limits/decide.d.ts",
-      "bytes": 5082,
-      "sourceSha256": "16b31d095de45ef3a746397b12c47edf4a9305c8e90239d78c40a5347f799170",
-      "outputSha256": "16b31d095de45ef3a746397b12c47edf4a9305c8e90239d78c40a5347f799170",
+      "bytes": 5403,
+      "sourceSha256": "3cb7bf311d69e97f07233dca412eb2650e1ada6afc5a15b579fc14f34cd3e5eb",
+      "outputSha256": "3cb7bf311d69e97f07233dca412eb2650e1ada6afc5a15b579fc14f34cd3e5eb",
       "transform": "verbatim"
     },
     {
@@ -707,25 +707,25 @@
     {
       "source": "package/dist/limits/families.d.ts",
       "output": "limits/families.d.ts",
-      "bytes": 2401,
-      "sourceSha256": "45ed88b40b1a2df79fdd9cac84d566996bee7a812e49b6448569a4d93eeb03e7",
-      "outputSha256": "45ed88b40b1a2df79fdd9cac84d566996bee7a812e49b6448569a4d93eeb03e7",
+      "bytes": 2565,
+      "sourceSha256": "8d4f3cbdd4a3ad62e099419d568a3ff72c4ba22816851bcf0ad4669a24f8f8ca",
+      "outputSha256": "8d4f3cbdd4a3ad62e099419d568a3ff72c4ba22816851bcf0ad4669a24f8f8ca",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/limits/marker.d.ts",
       "output": "limits/marker.d.ts",
-      "bytes": 2590,
-      "sourceSha256": "0db6cb7005e2978699e78c366213e11f2a567e92e96d53eaf833f1de8810709e",
-      "outputSha256": "0db6cb7005e2978699e78c366213e11f2a567e92e96d53eaf833f1de8810709e",
+      "bytes": 2886,
+      "sourceSha256": "9e54243f834f15b734adf7ac23d271da8ec79ac1e924ba4bf9b5455f6d6b5e6c",
+      "outputSha256": "9e54243f834f15b734adf7ac23d271da8ec79ac1e924ba4bf9b5455f6d6b5e6c",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/limits/request-history.d.ts",
       "output": "limits/request-history.d.ts",
-      "bytes": 2788,
-      "sourceSha256": "177b02e918ccb25750d8a1d64fac5451c68f35e558c09513e6d418959e0ba1a2",
-      "outputSha256": "177b02e918ccb25750d8a1d64fac5451c68f35e558c09513e6d418959e0ba1a2",
+      "bytes": 2872,
+      "sourceSha256": "c9591e8472720dd7abdf05c91f3887950ffddea479d25428178e23e95ab0ad6e",
+      "outputSha256": "c9591e8472720dd7abdf05c91f3887950ffddea479d25428178e23e95ab0ad6e",
       "transform": "verbatim"
     },
     {

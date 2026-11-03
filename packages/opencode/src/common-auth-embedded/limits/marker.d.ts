@@ -1,10 +1,12 @@
 import type { Scope } from './scope.js';
 import type { AccountKey, LimitKind, LimitSignal } from './signal.js';
 export type MergeLaw = 'latest-evidence' | 'max-until' | 'overwrite';
+export type LimitMarkCause = 'rate-limit' | 'payment-balance';
 export interface LimitMark {
     readonly scope: Scope;
     readonly until: number;
     readonly mergeLaw: MergeLaw;
+    readonly cause?: LimitMarkCause;
 }
 export interface FailureLadderAxes {
     readonly kind: 'failure-ladder';
@@ -27,6 +29,9 @@ export type MarkerAxes = {
     readonly kind: 'hint';
     readonly mergeLaw: MergeLaw;
     readonly defaultMs: number;
+    readonly defaultMsByKind?: Readonly<Partial<Record<LimitSignal['kind'], number>>>;
+    readonly causes?: readonly LimitMarkCause[];
+    readonly ignoredKinds?: readonly LimitSignal['kind'][];
     readonly minimumMs: number;
     readonly zero: 'accept' | 'skip';
     /** Core absolute dates and host event-relative hints use different samples. */

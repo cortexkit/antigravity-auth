@@ -2820,9 +2820,9 @@ describe('loadAccountManagerFromRepository', () => {
 
 const EMBEDDED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.34.0',
+  version: '0.35.0',
   tarballSha256:
-    '381a0a78b6ca4873922ce1be1378c5b891136686a5ba85ffe6d39c6a2624f549',
+    'a04c98d3f647b2ecabed05e8608ae498a578cab5ccb9f4d17d02bab3b0f2c6d3',
 } as const
 
 async function embeddedFilesBelow(
@@ -2867,12 +2867,13 @@ function genuineModules(): Promise<CommonAuthStoreModules> {
     if (
       receipt.package !== EMBEDDED_COMMON_AUTH.package ||
       receipt.version !== EMBEDDED_COMMON_AUTH.version ||
-      receipt.artifactStatus !== 'published' ||
+      // Require this candidate exactly; restore published when the released archive replaces it.
+      receipt.artifactStatus !== 'candidate' ||
       receipt.tarballSha256 !== EMBEDDED_COMMON_AUTH.tarballSha256 ||
       !Array.isArray(receipt.files)
     ) {
       throw new Error(
-        `source-output.json does not record the published common-auth ${EMBEDDED_COMMON_AUTH.version} archive`,
+        `source-output.json does not record the candidate common-auth ${EMBEDDED_COMMON_AUTH.version} archive`,
       )
     }
     const recorded = receipt.files.filter((file) =>

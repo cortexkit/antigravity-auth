@@ -9,6 +9,7 @@ import type { WakeFacts } from './wake.js';
 export interface TimedBlocker {
     readonly kind: 'hard' | 'cooldown' | 'soft';
     readonly until?: number;
+    readonly cause?: import('./marker.js').LimitMarkCause;
 }
 /**
  * Admission includes the caller's minimum quota thresholds, access checks,
@@ -80,6 +81,8 @@ export interface PolicyFacts {
         readonly retryMs?: number;
     };
     readonly retryHintsMs?: readonly number[];
+    /** Committed unconfirmed retains for the current session, turn and account. */
+    readonly unconfirmedRetainCount?: number;
     readonly hold?: HoldFacts;
     readonly wake?: WakeFacts;
     readonly remainingRetries?: number;
@@ -110,6 +113,8 @@ export type LimitDecision = DecisionBase & ({
     readonly action: 'retain';
     readonly account: AccountKey;
     readonly retryMs?: number;
+    /** Commit once when executing this retain, never when polling the decision. */
+    readonly incrementUnconfirmedRetain?: true;
     /** Exhaustion windows waived for this dispatch only, never persisted. */
     readonly liftedWindows?: readonly string[];
 } | {

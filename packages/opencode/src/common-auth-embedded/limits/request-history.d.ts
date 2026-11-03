@@ -1,5 +1,5 @@
 import type { Scope } from './scope.js';
-import type { AccountKey } from './signal.js';
+import type { AccountKey, LimitKind } from './signal.js';
 export declare function sameAccount(a: AccountKey, b: AccountKey): boolean;
 export interface RequestExclusion {
     readonly account: AccountKey;
@@ -17,6 +17,7 @@ export interface RequestHistory {
     readonly originalUrl: string;
     readonly requestStartedAt: number;
     readonly saw429: boolean;
+    readonly sawPaymentBalance?: boolean;
     readonly lastStatus?: number;
     readonly tried: readonly RequestExclusion[];
     readonly excludedForRequest: readonly RequestExclusion[];
@@ -38,6 +39,7 @@ export type RequestHistoryEvent = {
     readonly account: AccountKey;
     readonly scope: Scope;
     readonly status?: number;
+    readonly kind?: LimitKind;
 } | {
     readonly type: 'retain';
     readonly account: AccountKey;

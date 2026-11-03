@@ -1,9 +1,11 @@
 import { type LimitMessages } from './wording.js';
-export type OpenCode1Family = 'openai-429' | 'claude-429' | 'json-412' | 'claustrum-429' | 'claude-econnreset';
+export type OpenCode1Family = 'openai-429' | 'claude-429' | 'json-412' | 'claustrum-429' | 'claustrum-402' | 'claude-econnreset';
 export type RefusalFamily = OpenCode1Family | 'pi-final';
 export type HostRetry = 'leave' | 'veto';
 export interface RefusalInput {
     readonly family: RefusalFamily;
+    /** Local responses formatted for OpenCode 2 must not be replayed by the host. */
+    readonly host?: 'opencode1' | 'opencode2' | 'pi';
     readonly messageKey: string;
     readonly messages?: LimitMessages;
     readonly parameters?: {
@@ -31,7 +33,7 @@ interface RefusalAttributes {
 }
 export interface HttpRefusal extends RefusalAttributes {
     readonly kind: 'http';
-    readonly status: 412 | 429;
+    readonly status: 402 | 412 | 429;
     readonly headers: Headers;
     readonly body: string;
 }
