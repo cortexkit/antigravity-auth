@@ -17,6 +17,7 @@ import {
   createAccountRollbackFactory,
   initializeFreshAccountStore,
   loadCommonAuthStoreModules,
+  readAccountStoreAdmission,
   readAccountStoreBinding,
   refreshAntigravityToken,
 } from '@cortexkit/antigravity-auth-core'
@@ -143,7 +144,7 @@ export interface AccountStoreOperations {
  * before migration (or after a rollback) the pre-store file still is.
  */
 export type CliAccountsRead =
-  | { kind: 'store'; accounts: AccountMetadataV3[] }
+  | { kind: 'store'; accounts: AccountMetadataV3[]; reconnectReady: boolean }
   | { kind: 'legacy' }
   | { kind: 'uninitialized' }
   | { kind: 'unavailable'; reason: string }
@@ -885,6 +886,7 @@ async function readAccountStore(legacyPath: string): Promise<CliAccountsRead> {
     case 'bound':
       break
   }
+  const generationId = admission.receipt.id
   const repository = createAccountRepositoryFactory(modules)({
     paths: admission.paths,
     now: Date.now,
@@ -898,6 +900,12 @@ async function readAccountStore(legacyPath: string): Promise<CliAccountsRead> {
     },
   })
   try {
+    const servingBefore = await readAccountStoreAdmission(
+      legacyPath,
+      modules,
+      Date.now,
+      generationId,
+    )
     const read = await repository.read()
     if (read.status !== 'ready') {
       return {
@@ -905,7 +913,35 @@ async function readAccountStore(legacyPath: string): Promise<CliAccountsRead> {
         reason: `the account store is ${read.status}`,
       }
     }
-    return { kind: 'store', accounts: read.rows.map(cliAccountOf) }
+    const servingAfter =
+      servingBefore.status === 'active'
+        ? await readAccountStoreAdmission(
+            legacyPath,
+            modules,
+            Date.now,
+            generationId,
+          )
+        : servingBefore
+    const reconnectReady =
+      servingBefore.status === 'active' &&
+      servingAfter.status === 'active' &&
+      read.rows.some(
+        (row) =>
+          row.enabled &&
+          row.usable &&
+          row.credential !== undefined &&
+          !row.torn &&
+          !row.unbound &&
+          row.invalid === undefined &&
+          row.metadata.status === 'present' &&
+          row.metadata.metadata.verificationRequired !== true &&
+          row.metadata.metadata.accountIneligible !== true,
+      )
+    return {
+      kind: 'store',
+      accounts: read.rows.map(cliAccountOf),
+      reconnectReady,
+    }
   } finally {
     await repository.dispose()
   }

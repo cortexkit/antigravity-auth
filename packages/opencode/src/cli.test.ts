@@ -1,4 +1,12 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test'
 import {
   existsSync,
   mkdirSync,
@@ -13,17 +21,28 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import * as core from '@cortexkit/antigravity-auth-core'
 import {
+  ACCOUNT_STATE_POLICY,
+  ACCOUNT_STORE_PROVIDER,
   type AccountMigrationOutcome,
   type AccountQuotaResult,
+  type AccountRow,
   type AccountStorageV4,
   createAccountRepositoryFactory,
+  createProviderStateCodec,
   loadCommonAuthClaustrum,
   loadCommonAuthStoreModules,
+  QUOTA_CODEC,
   readAccountStoreAdmission,
+  readAccountStoreBinding,
 } from '@cortexkit/antigravity-auth-core'
 
-import type { CliAccountsRead, CliDependencies } from './cli'
+import type {
+  AccountStoreOperations,
+  CliAccountsRead,
+  CliDependencies,
+} from './cli'
 import type { OAuthLoginRequest } from './plugin/oauth-methods'
 
 const oauthResult = {
@@ -518,6 +537,7 @@ describe('runCli reads the active account store', () => {
             enabled: false,
           },
         ],
+        reconnectReady: false,
       }),
     })
     expect(await runCli(['list', '--json'], harness.deps)).toBe(0)
@@ -583,10 +603,634 @@ describe('runCli reads the active account store', () => {
             enabled: true,
           },
         ],
+        reconnectReady: true,
       })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  describe('readAccountStore repository row matrix and readiness evaluation', () => {
+    let root = ''
+    let legacyPath = ''
+    let storeOps: AccountStoreOperations
+
+    beforeEach(async () => {
+      root = realpathSync(mkdtempSync(join(tmpdir(), 'cli-store-matrix-')))
+      legacyPath = join(root, 'antigravity-accounts.json')
+      storeOps = createDefaultAccountStoreOperations()
+      await storeOps.initialize(legacyPath)
+    })
+
+    afterEach(() => {
+      if (root) rmSync(root, { recursive: true, force: true })
+    })
+
+    const baseHealthyRow: AccountRow = {
+      ref: {
+        id: 'row-healthy-1',
+        credentialEpoch: 1,
+        identity: 'healthy@example.test',
+      },
+      index: 0,
+      enabled: true,
+      usable: true,
+      credential: {
+        refreshToken: 'valid-refresh-token',
+        accessToken: 'valid-access-token',
+        expiresAt: Date.now() + 3_600_000,
+      },
+      stamp: 'bound',
+      metadata: {
+        status: 'present',
+        metadata: {
+          addedAt: 1000,
+          lastUsed: 2000,
+          email: 'healthy@example.test',
+          verificationRequired: false,
+          accountIneligible: false,
+        },
+      },
+      quota: { status: 'absent' },
+    }
+
+    const matrixCases: Array<{
+      scenario: string
+      rows: AccountRow[]
+      expectedReady: boolean
+    }> = [
+      {
+        scenario: 'fresh canonical store healthy row',
+        rows: [baseHealthyRow],
+        expectedReady: true,
+      },
+      {
+        scenario: 'disabled',
+        rows: [{ ...baseHealthyRow, enabled: false }],
+        expectedReady: false,
+      },
+      {
+        scenario: 'unusable',
+        rows: [{ ...baseHealthyRow, usable: false }],
+        expectedReady: false,
+      },
+      {
+        scenario: 'invalid roster',
+        rows: [{ ...baseHealthyRow, invalid: 'roster' }],
+        expectedReady: false,
+      },
+      {
+        scenario: 'invalid entry',
+        rows: [{ ...baseHealthyRow, invalid: 'entry' }],
+        expectedReady: false,
+      },
+      {
+        scenario: 'torn',
+        rows: [{ ...baseHealthyRow, torn: true }],
+        expectedReady: false,
+      },
+      {
+        scenario: 'unbound',
+        rows: [{ ...baseHealthyRow, unbound: true }],
+        expectedReady: false,
+      },
+      {
+        scenario: 'no credential',
+        rows: [{ ...baseHealthyRow, credential: undefined }],
+        expectedReady: false,
+      },
+      {
+        scenario: 'absent metadata',
+        rows: [{ ...baseHealthyRow, metadata: { status: 'absent' } }],
+        expectedReady: false,
+      },
+      {
+        scenario: 'dropped metadata',
+        rows: [
+          {
+            ...baseHealthyRow,
+            metadata: { status: 'dropped', reason: 'uncovered' },
+          },
+        ],
+        expectedReady: false,
+      },
+      {
+        scenario: 'verification required',
+        rows: [
+          {
+            ...baseHealthyRow,
+            metadata: {
+              status: 'present',
+              metadata: {
+                addedAt: 1000,
+                lastUsed: 2000,
+                verificationRequired: true,
+              },
+            },
+          },
+        ],
+        expectedReady: false,
+      },
+      {
+        scenario: 'account ineligible',
+        rows: [
+          {
+            ...baseHealthyRow,
+            metadata: {
+              status: 'present',
+              metadata: {
+                addedAt: 1000,
+                lastUsed: 2000,
+                accountIneligible: true,
+              },
+            },
+          },
+        ],
+        expectedReady: false,
+      },
+      {
+        scenario: 'expired access otherwise usable refresh',
+        rows: [
+          {
+            ...baseHealthyRow,
+            credential: {
+              refreshToken: 'valid-refresh-token',
+              accessToken: 'expired-access-token',
+              expiresAt: Date.now() - 3600_000,
+            },
+          },
+        ],
+        expectedReady: true,
+      },
+      {
+        scenario: 'disabled row + enabled healthy row',
+        rows: [
+          { ...baseHealthyRow, enabled: false },
+          {
+            ...baseHealthyRow,
+            ref: {
+              id: 'row-healthy-2',
+              credentialEpoch: 1,
+              identity: 'healthy-2@example.test',
+            },
+          },
+        ],
+        expectedReady: true,
+      },
+      {
+        scenario: 'all bad',
+        rows: [
+          { ...baseHealthyRow, enabled: false },
+          { ...baseHealthyRow, torn: true },
+        ],
+        expectedReady: false,
+      },
+    ]
+
+    it.each(
+      matrixCases,
+    )('evaluates reconnectReady as $expectedReady for $scenario', async ({
+      rows,
+      expectedReady,
+    }) => {
+      const origFactory = core.createAccountRepositoryFactory
+      const factorySpy = spyOn(
+        core,
+        'createAccountRepositoryFactory',
+      ).mockImplementation((modules) => (options) => {
+        const real = origFactory(modules)(options)
+        real.read = async () => ({ status: 'ready', rows })
+        return real
+      })
+      try {
+        const result = await storeOps.read(legacyPath)
+        expect(result.kind).toBe('store')
+        if (result.kind === 'store') {
+          expect(result.reconnectReady).toBe(expectedReady)
+        }
+      } finally {
+        factorySpy.mockRestore()
+      }
+    })
+
+    it('unstubbed real repository read with expired access token evaluates reconnectReady without token refresh', async () => {
+      const expiredRoot = realpathSync(
+        mkdtempSync(join(tmpdir(), 'cli-store-expired-')),
+      )
+      try {
+        const expiredLegacyPath = join(expiredRoot, 'antigravity-accounts.json')
+        const store = createDefaultAccountStoreOperations()
+        await store.initialize(expiredLegacyPath)
+
+        const modules = await loadCommonAuthStoreModules()
+        const admission = await readAccountStoreAdmission(
+          expiredLegacyPath,
+          modules,
+          Date.now,
+        )
+        if (admission.status !== 'active') throw new Error(admission.status)
+        const fixtureNow = Date.now() - 3_600_000
+        const expiredAt = fixtureNow + 60_000
+        const repository = createAccountRepositoryFactory(modules)({
+          paths: admission.paths,
+          now: () => fixtureNow,
+          exchange: async () => ({
+            accessToken: 'refreshed-token',
+            refreshToken: 'store-refresh',
+            expiresAt: expiredAt,
+          }),
+        })
+        try {
+          const login = await repository.login({
+            id: crypto.randomUUID(),
+            refreshToken: 'store-refresh',
+            identity: 'expired@example.test',
+            metadata: {
+              email: 'expired@example.test',
+              addedAt: 100,
+              lastUsed: 200,
+            },
+          })
+          const refreshed = await repository.refresh(login.ref)
+          expect(refreshed.status).toBe('rotated')
+          const seeded = await repository.read()
+          expect(seeded.status).toBe('ready')
+          if (seeded.status !== 'ready') throw new Error(seeded.status)
+          expect(seeded.rows[0]?.credential?.accessToken).toBe(
+            'refreshed-token',
+          )
+          expect(seeded.rows[0]?.credential?.expiresAt).toBe(expiredAt)
+          expect(expiredAt).toBeLessThan(Date.now())
+        } finally {
+          await repository.dispose()
+        }
+
+        let exchangeCalls = 0
+        const refreshSpy = spyOn(
+          core,
+          'refreshAntigravityToken',
+        ).mockImplementation(async () => {
+          exchangeCalls++
+          throw new Error('NoNetwork')
+        })
+        try {
+          const read = await store.read(expiredLegacyPath)
+          expect(read.kind).toBe('store')
+          if (read.kind === 'store') {
+            expect(read.reconnectReady).toBe(true)
+            expect(read.accounts).toHaveLength(1)
+            expect(read.accounts[0]?.email).toBe('expired@example.test')
+          }
+          expect(refreshSpy).not.toHaveBeenCalled()
+          expect(exchangeCalls).toBe(0)
+        } finally {
+          refreshSpy.mockRestore()
+        }
+      } finally {
+        rmSync(expiredRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('retains list --json output contract with no readiness leak', async () => {
+      const deps = createDefaultCliDependencies()
+      let output = ''
+      deps.stdout = {
+        write: (value) => {
+          output += value
+        },
+      }
+      deps.accountStore = {
+        ...deps.accountStore,
+        read: async () => ({
+          kind: 'store',
+          accounts: [
+            {
+              email: 'user@example.test',
+              refreshToken: 'tok',
+              addedAt: 1,
+              lastUsed: 2,
+              enabled: true,
+            },
+          ],
+          reconnectReady: true,
+        }),
+      }
+      const exitCode = await runCli(['list', '--json'], deps)
+      expect(exitCode).toBe(0)
+      const parsed = JSON.parse(output)
+      expect(parsed).not.toHaveProperty('reconnectReady')
+      expect(parsed.accounts?.[0]).not.toHaveProperty('reconnectReady')
+    })
+
+    it('real on-disk mixed fixture with torn row preserves readability but evaluates reconnectReady as false', async () => {
+      const mixedRoot = realpathSync(
+        mkdtempSync(join(tmpdir(), 'cli-store-torn-')),
+      )
+      try {
+        const mixedLegacyPath = join(mixedRoot, 'antigravity-accounts.json')
+        const storeOps = createDefaultAccountStoreOperations()
+        await storeOps.initialize(mixedLegacyPath)
+
+        const modules = await loadCommonAuthStoreModules()
+        const binding = await readAccountStoreBinding(
+          mixedLegacyPath,
+          modules,
+          Date.now,
+        )
+        if (binding.status !== 'bound') throw new Error(binding.status)
+
+        const repoFactory = createAccountRepositoryFactory(modules)
+        const setupRepo = repoFactory({
+          paths: binding.paths,
+          now: Date.now,
+          exchange: async () => {
+            throw new Error('NoNetwork')
+          },
+        })
+        const loginA = await setupRepo.login({
+          id: crypto.randomUUID(),
+          refreshToken: 'refresh-a',
+          identity: 'user-a@example.test',
+          metadata: {
+            email: 'user-a@example.test',
+            addedAt: 100,
+            lastUsed: 200,
+          },
+        })
+        const loginB = await setupRepo.login({
+          id: crypto.randomUUID(),
+          refreshToken: 'refresh-b',
+          identity: 'user-b@example.test',
+          metadata: {
+            email: 'user-b@example.test',
+            addedAt: 300,
+            lastUsed: 400,
+          },
+        })
+        await setupRepo.dispose()
+
+        // Control 1: Healthy both -> serving active + CLI ready true
+        const controlAdmission = await readAccountStoreAdmission(
+          mixedLegacyPath,
+          modules,
+          Date.now,
+          binding.receipt.id,
+        )
+        expect(controlAdmission.status).toBe('active')
+        const controlRead = await storeOps.read(mixedLegacyPath)
+        expect(controlRead.kind).toBe('store')
+        if (controlRead.kind === 'store') {
+          expect(controlRead.reconnectReady).toBe(true)
+          expect(controlRead.accounts).toHaveLength(2)
+        }
+
+        // Control 2: Healthy A + disabled B -> serving admission active and ready true
+        const disableRepo = repoFactory({
+          paths: binding.paths,
+          now: Date.now,
+          exchange: async () => {
+            throw new Error('NoNetwork')
+          },
+        })
+        await disableRepo.setEnabled(loginB.ref, {
+          enabled: false,
+          actor: 'user',
+          reason: 'test disable',
+        })
+        await disableRepo.dispose()
+
+        const disabledAdmission = await readAccountStoreAdmission(
+          mixedLegacyPath,
+          modules,
+          Date.now,
+          binding.receipt.id,
+        )
+        expect(disabledAdmission.status).toBe('active')
+        const disabledRead = await storeOps.read(mixedLegacyPath)
+        expect(disabledRead.kind).toBe('store')
+        if (disabledRead.kind === 'store') {
+          expect(disabledRead.reconnectReady).toBe(true)
+        }
+
+        // Restore B to enabled before poison
+        const reenableRepo = repoFactory({
+          paths: binding.paths,
+          now: Date.now,
+          exchange: async () => {
+            throw new Error('NoNetwork')
+          },
+        })
+        await reenableRepo.setEnabled(loginB.ref, {
+          enabled: true,
+          actor: 'user',
+        })
+        await reenableRepo.dispose()
+
+        // Mirror core/src/account-repository.test.ts raw store torn fixture:
+        // stopping between state write and config write
+        const stoppingStore = modules.store.openPoolStore({
+          provider: ACCOUNT_STORE_PROVIDER,
+          configPath: binding.paths.configPath,
+          statePath: binding.paths.statePath,
+          quota: QUOTA_CODEC,
+          providerState: createProviderStateCodec(ACCOUNT_STATE_POLICY),
+          requireCredentialStamps: true,
+          now: Date.now,
+          onStep: (step, info) => {
+            if (
+              info.operation === 'replace' &&
+              step === 'before-config-write'
+            ) {
+              throw new Error('stopped between replace writes')
+            }
+          },
+        })
+
+        const replaceResult = await stoppingStore
+          .replace(
+            loginB.ref.id,
+            { type: 'oauth', refresh: 'refresh-b-poisoned' },
+            { identity: 'user-b@example.test' },
+            {
+              attribution: {
+                credentialEpoch: loginB.ref.credentialEpoch,
+                identity: 'user-b@example.test',
+              },
+            },
+          )
+          .then(
+            () => 'completed',
+            (err: unknown) => err,
+          )
+        if (!(replaceResult instanceof Error)) {
+          throw new Error('replacement fixture did not stop')
+        }
+        expect(replaceResult.message).toBe('stopped between replace writes')
+        expect('phase' in replaceResult ? replaceResult.phase : undefined).toBe(
+          'after-first-write',
+        )
+
+        // Assert repository read is ready, A eligible true, B broken (torn)
+        const checkRepo = repoFactory({
+          paths: binding.paths,
+          now: Date.now,
+          exchange: async () => {
+            throw new Error('NoNetwork')
+          },
+        })
+        const repoRead = await checkRepo.read()
+        expect(repoRead.status).toBe('ready')
+        if (repoRead.status === 'ready') {
+          const rowA = repoRead.rows.find((r) => r.ref.id === loginA.ref.id)
+          const rowB = repoRead.rows.find((r) => r.ref.id === loginB.ref.id)
+          expect(rowA?.enabled && rowA?.usable && !rowA?.torn).toBe(true)
+          expect(rowB?.torn).toBe(true)
+        }
+        await checkRepo.dispose()
+
+        // Serving admission on same generation is refused (non-active)
+        const serving = await readAccountStoreAdmission(
+          mixedLegacyPath,
+          modules,
+          Date.now,
+          binding.receipt.id,
+        )
+        expect(serving.status).not.toBe('active')
+
+        // Production default store.read returns kind 'store', accounts still readable, reconnectReady: false
+        const tornStoreRead = await storeOps.read(mixedLegacyPath)
+        expect(tornStoreRead.kind).toBe('store')
+        if (tornStoreRead.kind === 'store') {
+          expect(tornStoreRead.accounts).toHaveLength(2)
+          expect(tornStoreRead.reconnectReady).toBe(false)
+        }
+
+        // Verify CLI list and quota commands continue working without error
+        const deps = createDefaultCliDependencies()
+        deps.accountStore = {
+          ...storeOps,
+          legacyPath: () => mixedLegacyPath,
+        }
+        let listJsonOutput = ''
+        deps.stdout = {
+          write: (val) => {
+            listJsonOutput += val
+          },
+        }
+        expect(await runCli(['list', '--json'], deps)).toBe(0)
+        const parsedList = JSON.parse(listJsonOutput)
+        expect(parsedList).not.toHaveProperty('reconnectReady')
+        expect(parsedList.accounts).toHaveLength(2)
+
+        let listOutput = ''
+        deps.stdout = {
+          write: (val) => {
+            listOutput += val
+          },
+        }
+        expect(await runCli(['list'], deps)).toBe(0)
+        expect(listOutput).toContain('user-a@example.test')
+
+        deps.getQuota = mock(async () => [])
+        let quotaOutput = ''
+        deps.stdout = {
+          write: (val) => {
+            quotaOutput += val
+          },
+        }
+        expect(await runCli(['quota'], deps)).toBe(0)
+        expect(deps.getQuota).toHaveBeenCalledTimes(1)
+        expect(typeof quotaOutput).toBe('string')
+      } finally {
+        rmSync(mixedRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('generation flip during repository read causes reconnectReady to evaluate as false', async () => {
+      const flipRoot = realpathSync(
+        mkdtempSync(join(tmpdir(), 'cli-store-flip-')),
+      )
+      try {
+        const flipLegacyPath = join(flipRoot, 'antigravity-accounts.json')
+        writeFileSync(
+          flipLegacyPath,
+          JSON.stringify({
+            version: 4,
+            activeIndex: 0,
+            accounts: [
+              {
+                email: 'flip@example.test',
+                refreshToken: 'flip-tok',
+                addedAt: 1,
+                lastUsed: 1,
+                enabled: true,
+              },
+            ],
+          }),
+          { mode: 0o600 },
+        )
+        const storeOps = createDefaultAccountStoreOperations()
+        await storeOps.migrate(flipLegacyPath)
+
+        const modules = await loadCommonAuthStoreModules()
+        const initialBinding = await readAccountStoreBinding(
+          flipLegacyPath,
+          modules,
+          Date.now,
+        )
+        if (initialBinding.status !== 'bound')
+          throw new Error(initialBinding.status)
+        const gen1Id = initialBinding.receipt.id
+
+        let flipped = false
+        const origFactory = core.createAccountRepositoryFactory
+        const factorySpy = spyOn(
+          core,
+          'createAccountRepositoryFactory',
+        ).mockImplementation((m) => (options) => {
+          const realRepo = origFactory(m)(options)
+          const origRead = realRepo.read.bind(realRepo)
+          realRepo.read = async () => {
+            const result = await origRead()
+            // Legitimate generation flip through public rollback + migrate operations
+            await storeOps.rollback(flipLegacyPath)
+            await storeOps.migrate(flipLegacyPath)
+            flipped = true
+            return result
+          }
+          return realRepo
+        })
+
+        try {
+          const read = await storeOps.read(flipLegacyPath)
+          expect(flipped).toBe(true)
+          expect(read.kind).toBe('store')
+          if (read.kind === 'store') {
+            expect(read.reconnectReady).toBe(false)
+          }
+
+          // Verify new generation is active under its own receipt
+          const newBinding = await readAccountStoreBinding(
+            flipLegacyPath,
+            modules,
+            Date.now,
+          )
+          if (newBinding.status !== 'bound') throw new Error(newBinding.status)
+          expect(newBinding.receipt.id).not.toBe(gen1Id)
+          const newAdmission = await readAccountStoreAdmission(
+            flipLegacyPath,
+            modules,
+            Date.now,
+            newBinding.receipt.id,
+          )
+          expect(newAdmission.status).toBe('active')
+        } finally {
+          factorySpy.mockRestore()
+        }
+      } finally {
+        rmSync(flipRoot, { recursive: true, force: true })
+      }
+    })
   })
 })
 
