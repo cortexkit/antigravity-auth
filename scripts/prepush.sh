@@ -132,6 +132,7 @@ run_step lint bun run lint
 run_step disk-test-list bun test --isolate ./test/test-root.test.ts
 run_step import-graph bun test --isolate ./packages/opencode/src/plugin/shared/import-graph.test.ts
 run_step sync-spawn bun test --isolate ./test/sync-spawn-guard.test.ts
+run_step shell-exit bun test --isolate ./test/shell-exit-guard.test.ts
 step=final-identity
 same_commit
 echo "PREPUSH_FAST_OK $commit elapsed=$((SECONDS - started))s"
