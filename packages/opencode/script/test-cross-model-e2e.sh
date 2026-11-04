@@ -18,7 +18,19 @@ LOG_DIR=$(mktemp -d)
 SESSION_FILE="$LOG_DIR/session"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REAL_BUN=$(command -v bun)
-trap 'rm -rf "$LOG_DIR"' EXIT
+# macOS /bin/bash 3.2 runs an EXIT trap with status 0 when `set -u` stops the
+# script, so a run that never reached the summary would report success. The
+# trap keeps any failing status and turns a 0 without `finished=1` into exit 1.
+finished=0
+cleanup() {
+  local status=$?
+  rm -rf "$LOG_DIR"
+  if [ "$status" -eq 0 ] && [ "$finished" -ne 1 ]; then
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -308,5 +320,6 @@ if [ $FAIL -gt 0 ] || [ $RUN_FAILURES -gt 0 ]; then
   exit 1
 else
   echo -e "${GREEN}All tests passed!${NC}"
+  finished=1
   exit 0
 fi

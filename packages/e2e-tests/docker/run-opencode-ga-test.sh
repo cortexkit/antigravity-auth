@@ -40,7 +40,19 @@ fi
 REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid checkout revision' >&2; exit 2; }
 CONTEXT="$(mktemp -d "${TMPDIR:-/tmp}/agy-ga-context.XXXXXXXX")"
-trap 'rm -rf "$CONTEXT"' EXIT
+# macOS /bin/bash 3.2 runs an EXIT trap with status 0 when `set -u` stops the
+# script, so a run that never reached the end would report success. The trap
+# keeps any failing status and turns a 0 without `finished=1` into exit 1.
+finished=0
+cleanup() {
+  local status=$?
+  rm -rf "$CONTEXT"
+  if [[ "$status" -eq 0 && "$finished" -ne 1 ]]; then
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
 # Only committed files enter the build context, so an ignored or untracked
 # local file cannot supply a pin, fixture or measurement.
 git -C "$REPO_ROOT" archive "$REVISION" | tar -x -C "$CONTEXT"
@@ -118,3 +130,5 @@ timeout --signal=TERM --kill-after=10s 1800s docker run --rm --network none --pl
   --env "GA_HOST_TEST_MODE=$HOST_TEST_MODE" \
   --env ANTIGRAVITY_GA_HOST_EXECUTION=1 \
   "$IMAGE"
+
+finished=1
