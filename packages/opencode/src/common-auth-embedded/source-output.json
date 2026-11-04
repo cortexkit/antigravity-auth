@@ -2,7 +2,7 @@
   "schema": 1,
   "package": "@cortexkit/common-auth",
   "version": "0.35.0",
-  "artifactStatus": "candidate",
+  "artifactStatus": "published",
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -70,14 +70,14 @@
     }
   },
   "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.35.0.tgz",
-  "tarballSha256": "a04c98d3f647b2ecabed05e8608ae498a578cab5ccb9f4d17d02bab3b0f2c6d3",
-  "sri": "sha512-RFaZi01CLMEJxByyPuZD+xe4VQl2HDjOA2xqkwZMWnsB5uWRHwr4riofoRgBlvvdgMDvlB/ESaaInL20mLHnyw==",
+  "tarballSha256": "77059ddbda7e1377f86865962e60fe6eb9888f5fae2a1c645f3d0e754cf4abb5",
+  "sri": "sha512-jEV+gy/CXC0zkgvUpG4JZoVla/MUnTds9w/Rax/F1R6ZKGPPsIQhwxECTDZYtfnYIPoNyKe8ZqQp648JjGmBFw==",
   "canonicalFiles": 216,
   "canonicalBytes": 1342794,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "50b136a945e9f70617fc0c6eb6bc01abca92c04436f8b323e8bc2d9e8e039e61"
+    "sha256": "6c373b7c0bf37725e40627039e77f5e7e11eba0fcccf47ac975e997126ec16bc"
   },
   "files": [
     {
