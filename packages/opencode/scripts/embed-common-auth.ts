@@ -12,13 +12,14 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.37.0.tgz'
-export const producerVersion = '0.37.0'
-export const artifactStatus = 'published'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.37.1.tgz'
+export const producerVersion = '0.37.1'
+// Unpublished candidate: publication receipts must not claim released bytes.
+export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '8a2ef7b254e920c4a3c675291cb7bac00c48683988c12627e8741f502af3add2',
-  sri: 'sha512-/h0W1D8ZVcE097x3y5l7mkuZSDUFaFfMXNiI79F3eLCvzqy/vohjc9vtikVdNqzjSiDPB8faLJs5yO6yCQcbUQ==',
+  sha256: '775097c47b387e5c190574c78848159c6ad545b57ef13e8e3bef04c0e03a3dc5',
+  sri: 'sha512-OdLf5SjSLLHGJ6AXpxKKFmGmLI7DAMZiKNJc5SeqDVLIq1MoIxfaKbjf3EPsIlMK0FC1Eg7H+/F23064K8pRlQ==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -321,8 +322,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/roster.js',
-    39485,
-    '7bb50959141396cc5519d352b144b262229412fc44f7e873c1504e75a74c0964',
+    40137,
+    '34578a52a4efe971c0e105d91ff33b2de815b15c02e754a64064ca93528f952b',
   ],
   [
     'claustrum/shutdown.js',
@@ -421,8 +422,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/file-read-cache.js',
-    2121,
-    '484d18996d76c44125c880347b3d3dcd10bb352743acf44c588d0b38e8e0f1a7',
+    2407,
+    'e801af164fbcf7f3574eaefbb5cba932b3fbee68e819bad57442451712f83235',
   ],
   [
     'fs/index.d.ts',
@@ -896,8 +897,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'setup/enroll.js',
-    8557,
-    'dd21599c916733c327bca81c48372034a349a2840e50fac7d2d30b33668a1537',
+    8808,
+    '9424c7b570f6d2ffac03f03488a3a6f70c8091ff1022015ebcd6f7b34301e041',
   ],
   [
     'setup/flags.d.ts',
@@ -1348,7 +1349,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '503abf3775a4ea5941fc46d44bc21b7d35cc60c97fbaed8b2cccbee5999b0abe'
+    'a1d57a1fa20461b8b2de702a4ad92b98dced1f4cbcb142058426e43f1eacfb2b'
   )
     throw new Error('publication: manifest bytes')
 }

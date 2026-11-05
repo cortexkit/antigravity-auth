@@ -1,9 +1,10 @@
-import { lstat } from 'node:fs/promises';
+import { lstat, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
-async function identity(path) {
+async function identity(path, followSymlinks) {
     try {
-        const metadata = await lstat(path);
-        // Do not follow a symlink: its target can change without changing the link.
+        // Match the reader: private readers reject links, while readFile follows
+        // them and needs the target's identity, not the link's identity.
+        const metadata = await (followSymlinks ? stat(path) : lstat(path));
         return metadata.isFile() ? metadata : undefined;
     }
     catch (error) {
@@ -23,11 +24,15 @@ function sameIdentity(left, right) {
 }
 /** Process-local reads, capped at 64 path sets with one value per resolved set. */
 export class FileReadCache {
+    #followSymlinks;
     #entries = new Map();
+    constructor(options = {}) {
+        this.#followSymlinks = options.followSymlinks ?? false;
+    }
     async read(paths, read, validateHit) {
         const resolvedPaths = paths.map((path) => resolve(path));
         const key = JSON.stringify(resolvedPaths);
-        const probed = await Promise.all(resolvedPaths.map(identity));
+        const probed = await Promise.all(resolvedPaths.map((path) => identity(path, this.#followSymlinks)));
         const identities = probed.every((entry) => entry !== undefined)
             ? probed
             : undefined;

@@ -226,6 +226,7 @@
       "./quota-writer.js"
     ],
     "claustrum/roster.js": [
+      "../fs/file-read-cache.js",
       "../fs/index.js",
       "../fs/private-files.js",
       "../quota/index.js",

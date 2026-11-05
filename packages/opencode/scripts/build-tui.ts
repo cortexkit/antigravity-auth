@@ -67,7 +67,7 @@ export const PACKAGE_ROOT = resolve(
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..')
 const TOOL_ROOT = join(REPO_ROOT, 'tools/common-auth-build')
 const LOCK_HASH =
-  'ca717c2952845243509d930d9443e576eed5ee8eb9af5c4d70ede7cf7b071ab4'
+  '58653013178e29af04da16b778065fb17c6c61ff8ea683140236752f928d56e2'
 export const BUNDLE_EXTERNALS = [
   'zod',
   'jsonc-parser',
@@ -484,7 +484,7 @@ export async function verifyPrerequisites(): Promise<void> {
     )
     const expected =
       name === '@cortexkit/common-auth'
-        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.37.0.tgz'
+        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.37.1.tgz'
         : `${pkg.name}@${pkg.version}`
     if (entry[0] !== expected)
       throw new Error(
@@ -856,6 +856,7 @@ async function admitExistingMap(mapFile: string) {
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.35.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.36.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.37.0' &&
+        metadata.compiler !== '@cortexkit/common-auth/tui-build@0.37.1' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.6')
     )
       throw new Error('build: existing TUI map is not owned generated metadata')

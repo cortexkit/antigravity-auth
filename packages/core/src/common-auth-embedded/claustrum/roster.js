@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { FileReadCache } from '../fs/file-read-cache.js';
 import { acquireRefreshFileLock, LockContentionError, LockOwnershipError, lockPathFor, PrivateFileError, withLock, writeJsonAtomic, } from '../fs/index.js';
 import { readPrivateText, windowsPrivateFiles } from '../fs/private-files.js';
 import { decodeQuotaMap, isQuotaObservation, mergeQuotaObservation, } from '../quota/index.js';
@@ -333,7 +334,18 @@ function decodeRoster(value) {
 export function decodedVaultRoster(roster) {
     return decodeRoster(JSON.parse(JSON.stringify(roster)));
 }
+const rosterReadCache = new FileReadCache({
+    followSymlinks: true,
+});
 export async function readVaultRoster(path) {
+    // Windows permission, owner and ancestry checks must still run on every read.
+    if (windowsPrivateFiles)
+        return readFreshVaultRoster(path);
+    const roster = await rosterReadCache.read([path], ([resolvedPath = path]) => readFreshVaultRoster(resolvedPath));
+    // Callers edit rows and nested limits data; none may own the cached objects.
+    return structuredClone(roster);
+}
+async function readFreshVaultRoster(path) {
     let text;
     try {
         text = await readPrivateText(path, windowsPrivateFiles);
@@ -366,7 +378,8 @@ const DISCOVERY_LEASE = { name: 'claustrum-roster', ttlMs: 30_000 };
  */
 export async function mutateVaultRoster(path, change, options = {}) {
     return withLock(path, { ...WRITE_LOCK, signal: options.signal }, async (lock) => {
-        const current = await readVaultRoster(path);
+        // A read-modify-write always observes the file under its write lock.
+        const current = await readFreshVaultRoster(path);
         const { next, result } = await change(current, {
             assertOwned: () => lock.assertOwned(),
         });
