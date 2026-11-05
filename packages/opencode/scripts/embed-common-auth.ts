@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.35.0.tgz'
-export const producerVersion = '0.35.0'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.37.0.tgz'
+export const producerVersion = '0.37.0'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '77059ddbda7e1377f86865962e60fe6eb9888f5fae2a1c645f3d0e754cf4abb5',
-  sri: 'sha512-jEV+gy/CXC0zkgvUpG4JZoVla/MUnTds9w/Rax/F1R6ZKGPPsIQhwxECTDZYtfnYIPoNyKe8ZqQp648JjGmBFw==',
+  sha256: '8a2ef7b254e920c4a3c675291cb7bac00c48683988c12627e8741f502af3add2',
+  sri: 'sha512-/h0W1D8ZVcE097x3y5l7mkuZSDUFaFfMXNiI79F3eLCvzqy/vohjc9vtikVdNqzjSiDPB8faLJs5yO6yCQcbUQ==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -596,13 +596,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'opencode2/install.d.ts',
-    3912,
-    '9d061d564a355dca360b8f4a10185a7004f2ad0578b4af2543dd643e14a3a403',
+    3995,
+    '484ac235de953920bc30164f2b4e814d565b1fe0beca6847c0f65e1d1d42ec08',
   ],
   [
     'opencode2/install.js',
-    61279,
-    '645b51e3d29bfb8957a8a3886bd46dca66e70a78f7b52a7d20f9a43a61b5cc6b',
+    63556,
+    '6fce557ab60073b61298ba0d22a7bea596c0eb02412b0b6f5c25766a44c61473',
   ],
   [
     'opencode2/integration.d.ts',
@@ -626,8 +626,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'opencode2/types.d.ts',
-    31491,
-    '32027ac6e4e71fe40c45ed79d084ee6d98c76a1317557da2404a0ed95bcd45ec',
+    32622,
+    'e7831f9ec39b4060c719c2d6dc1d91b5309c887c6dd9f319ea7b71a6e4c91822',
   ],
   [
     'pi-slot/index.d.ts',
@@ -1336,9 +1336,9 @@ export function validatePublication(
   )
     throw new Error('publication: license')
   if (
-    entries.size !== 317 ||
+    entries.size !== 319 ||
     sha256(`${[...entries.keys()].sort().join('\n')}\n`) !==
-      '83e32a21aefeafdc0361ea03dd80896c4596a152c54449db4d85d0f0d555b323'
+      '2d893d915a61da6a8aafb0091fbf8781ee783b9beb428c79328cfc3b08f9e28a'
   )
     throw new Error('publication: inventory')
   for (const { source, output, bytes, hash } of canonicalEntries('opencode')) {
@@ -1348,7 +1348,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '8a5e0401565bf21a568a310bd080fd5ace22c8c0317ba2a3a4a4123e1be1f11c'
+    '503abf3775a4ea5941fc46d44bc21b7d35cc60c97fbaed8b2cccbee5999b0abe'
   )
     throw new Error('publication: manifest bytes')
 }

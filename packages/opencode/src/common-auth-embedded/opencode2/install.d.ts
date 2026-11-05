@@ -30,7 +30,8 @@ export declare function applyHeaderEdits(target: Record<string, string>, edits: 
  * - `retry` asks the host to retry at once when an account was refused
  *   before any output and `chooseAccount` names another account for the
  *   next attempt, keeps the host's decision when the refused account was the
- *   last one that can serve, and refuses to retry once output has started.
+ *   last one that can serve. After output, only a witnessed HTTP read failure
+ *   with adapter-approved same-account continuation can keep the host's retry.
  *
  * Attribution. A send belongs to the attempt named by the mark
  * `model.request` left on it, so several attempts of one session and kind

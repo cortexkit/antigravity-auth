@@ -221,6 +221,14 @@ export interface SameAccountRetryInput extends AccountRequest {
      * limitFromError is not called before this callback in a mixed session.
      */
     readonly limit?: LimitSignal;
+    /**
+     * Set only when output had already started and our own HTTP body reader saw
+     * the read fail, so the host is offering to continue the step rather than
+     * retry it. The adapter approves by returning the same accountId when the
+     * account and identity are still usable; it has no prepared recovery state
+     * to consume, and `limit` is always absent here.
+     */
+    readonly continuation?: 'interrupted-read';
 }
 /** Request an immediate retry; a different account ID is ignored. */
 export interface SameAccountRetryResult {
@@ -437,7 +445,7 @@ export interface OpenCode2AuthAdapter<Q = unknown, A = unknown, Choice extends C
      * A different accountId is ignored. Never move a routing pin or select another
      * account here: use chooseAccount for failover and holds.
      *
-     * Runs only for an attributable attempt before output, and, when gated, only
+     * Runs for an attributable attempt before output, and, when gated, only
      * while the latest transport is owned. Unlike failover and holds, it also runs
      * in mixed-ownership sessions. The next matching owned request skips selection
      * and calls accountHeaders again for this account, so newer credentials or a
@@ -449,6 +457,12 @@ export interface OpenCode2AuthAdapter<Q = unknown, A = unknown, Choice extends C
      * No choice was committed through chooseAccount; unused recovery state is
      * released through dropSameAccountRetry instead of dropChoice.
      * Errors are logged and treated as declining the retry.
+     * After output it also gates a host-approved continuation when the attributed
+     * HTTP body reader failed, no limit or veto exists, ownership is unmixed and
+     * the host retry budget remains. The host's decision and delay are preserved;
+     * the callback must decline if the account is no longer usable or its identity
+     * changed. Native WebSocket failures and clean but incomplete streams lack
+     * the structured host error fields needed to allow this exception.
      */
     retrySameAccount?(input: SameAccountRetryInput): Promise<SameAccountRetryResult | undefined> | SameAccountRetryResult | undefined;
     /**
@@ -526,7 +540,9 @@ export interface InstallOpenCode2AuthOptions {
  *
  * - `reroute`: refused for a limit before any output, and `chooseAccount`
  *   named another account for the next attempt, so the host retries at once;
- * - `output-started`: output had reached the user, so no retry;
+ * - `output-started`: output reached the user without a safe continuation, so no retry;
+ * - `continue-same-account`: a witnessed HTTP read failure after output, with
+ *   adapter-approved identity preservation; keeps the host's continuation and delay;
  * - `no-account`: the attempt had no account, so no retry;
  * - `host-decides-last-account`: refused for a limit before any output, but
  *   no other account can serve the next attempt, so the host's own decision
@@ -541,7 +557,7 @@ export interface InstallOpenCode2AuthOptions {
  *   attributed safely (ambiguous attempts or mixed ownership in a gated
  *   session), so the host's decision stands.
  */
-export type RetryReason = 'reroute' | 'hold' | 'wait-then-reselect' | 'adapter-veto' | 'same-account' | 'output-started' | 'no-account' | 'host-decides-last-account' | 'host-decides';
+export type RetryReason = 'reroute' | 'hold' | 'wait-then-reselect' | 'adapter-veto' | 'same-account' | 'continue-same-account' | 'output-started' | 'no-account' | 'host-decides-last-account' | 'host-decides';
 /**
  * The hook that picked an account. Normally `model.request`; a transport hook
  * picks only when the host skipped `model.request` for that request, which a
