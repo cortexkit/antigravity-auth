@@ -5,7 +5,7 @@
     "": {
       "name": "opencode-ga-offline-host-fixture",
       "dependencies": {
-        "@cortexkit/claustrum-client": "0.12.0",
+        "@cortexkit/claustrum-client": "0.15.0",
         "@cortexkit/private-files": "0.2.2",
         "@cortexkit/subc-client": "0.22.5",
         "@opencode/cli-linux-x64": "2.0.22",
@@ -16,7 +16,7 @@
     },
   },
   "packages": {
-    "@cortexkit/claustrum-client": ["@cortexkit/claustrum-client@0.12.0", "", { "dependencies": { "@cortexkit/store": "^0.2.1", "@cortexkit/subc-client": "^0.22.0" } }, "sha512-Eqo2V8XgVzbZvolFYn11HX0TMRt21pnc9bWLYkcT4KW6kJ2fFLkzvXGzQ++MOmQpq8Bd3Jl5xA6yKkXTnimDOw=="],
+    "@cortexkit/claustrum-client": ["@cortexkit/claustrum-client@0.15.0", "", { "dependencies": { "@cortexkit/store": "^0.2.1", "@cortexkit/subc-client": "^0.22.0" } }, "sha512-1foTSPsqwB2lyUtK5XWUgONUyi7ef9KNysf1MZxsnuD5LzV2kP9kFDvDuGfdRnQWMWrXnUmdCc1zZcqpFNvUEQ=="],
 
     "@cortexkit/private-files": ["@cortexkit/private-files@0.2.2", "", {}, "sha512-BdRxi4mzPkTUiZxKTlQV/RsESk5f34+sLk0qQLv1QlBQdkq2zw8yc0b3dm1qmZ5RfeChiBKEGgL6Qw31RCSaeA=="],
 
