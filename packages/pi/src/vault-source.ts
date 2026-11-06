@@ -352,7 +352,12 @@ export function createPiVaultRuntime(
       // source for the next session, or create one just to shut it down.
       const pending = pendingSource
       pendingSource = undefined
-      if (pending) await (await pending).dispose()
+      // A source whose creation failed has nothing to drain, and the request
+      // that started it has already reported the failure.
+      await pending?.then(
+        (created) => created.dispose(),
+        () => undefined,
+      )
     },
     requestPath: {
       readMode: async () => {

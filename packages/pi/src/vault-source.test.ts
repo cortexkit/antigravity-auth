@@ -148,6 +148,31 @@ describe('Pi vault runtime shutdown', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('shuts down quietly when creating the source failed', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-vault-failed-'))
+    const modeFile = join(root, 'mode.json')
+    writeFileSync(modeFile, JSON.stringify({ version: 1, mode: 'custody' }))
+    const runtime = createPiVaultRuntime(() => undefined, {
+      vaultDir: root,
+      modeFile,
+      rosterFile: join(root, 'roster.json'),
+      loadClaustrum: async () => {
+        throw new Error('vault library failed to load')
+      },
+    })
+    try {
+      await expect(runtime.requestPath.source()).rejects.toThrow(
+        'vault library failed to load',
+      )
+      const inFlight = runtime.requestPath.source()
+      inFlight.catch(() => {})
+      await runtime.dispose()
+      await expect(inFlight).rejects.toThrow('vault library failed to load')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('Pi vault request path', () => {
