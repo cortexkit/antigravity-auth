@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Embedded common-auth 0.39.0. Nothing changes for antigravity-auth users.
+
 ## [3.0.31] - 2026-11-06
 
 ### Changed

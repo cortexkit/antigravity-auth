@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.38.0.tgz'
-export const producerVersion = '0.38.0'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.39.0.tgz'
+export const producerVersion = '0.39.0'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: 'bbe2dc4c05145544beceac22282c3cc1fde9e6fbfcaa04452790cc9a6cc20557',
-  sri: 'sha512-YDXtwuuj/gz4h/bPO+UAVItjo3ZMYw9DhccEf4DWAk8dr+Rk/uo/cVUeTRbC4xXE7FXTeBr1HaRnyG7drZIg3w==',
+  sha256: 'bc05b06400b7f54a401c8ea86080fff4bbca1ac856f7f7c0672107b68a55cf8f',
+  sri: 'sha512-Qu+04zv5gI5y/jT/sdUM9zW9hQfb8HJVTrfEx4LoQLOjXFbJxSAmnhI7Gh3J14N8YI8zd+DgpVpqOagbmucwwA==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -1201,15 +1201,15 @@ const routingAccessorCanonical: readonly CanonicalEntry[] = [
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.d.ts',
     output: 'routing-accessor/index.d.ts',
-    bytes: 3080,
-    hash: '9cdfea24f5c4a2e20758b3fc934c912aa42d56f14e25cd0e4134660dde9478d5',
+    bytes: 3941,
+    hash: '04f480934ab1cd05585abb816014ac37cca32ccf783e90a98dd101513edf7f04',
   },
   {
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.js',
     output: 'routing-accessor/index.js',
-    bytes: 4904,
-    hash: '92360e9b5d1549f8f6348072554fdf47456dedcaa39b278721cbc341b588a6f5',
+    bytes: 8194,
+    hash: '463329a87f53e4635cc895bbe949d6a07b13573017595da67a3830a8a84634fc',
   },
 ]
 
@@ -1348,7 +1348,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '1703e3c174d9cf56bdd064a463690e2f6e799c1dd9141a2d2c6a905074c504db'
+    'f749715b6bb0ca0f598007b4129e1aea13c9cf9c7a3bf489a7fd96c3021453ae'
   )
     throw new Error('publication: manifest bytes')
 }

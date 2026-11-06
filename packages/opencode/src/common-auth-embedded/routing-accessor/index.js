@@ -1,8 +1,58 @@
-// Optional THALAMUS routing for vault mode only. Account ids here are vault
-// account ids; local pool rows are not known to the routing engine.
+/**
+ * Optional THALAMUS routing for vault mode and advisory turn notes for request
+ * shaping. Account ids are vault account ids, not local pool rows. Nothing is
+ * persisted here; plugins on routes the runner does not serve get no turn notes.
+ */
 import { routingHandle } from './handle.js';
 function isObject(value) {
     return typeof value === 'object' && value !== null;
+}
+/**
+ * Read advisory input for request shaping, in landing order, without persisting
+ * it. If no routing handle is available or the runner does not serve the route,
+ * returns [].
+ */
+export function turnNotes(sessionId) {
+    try {
+        const handle = routingHandle(sessionId);
+        if (!handle)
+            return [];
+        const read = handle.turn_notes;
+        if (typeof read !== 'function')
+            return [];
+        const answer = read.call(handle);
+        if (isObject(answer) && typeof answer.then === 'function') {
+            void Promise.resolve(answer).catch(() => { });
+            return [];
+        }
+        if (!Array.isArray(answer))
+            return [];
+        const notes = [];
+        const encoder = new TextEncoder();
+        for (const entry of answer) {
+            try {
+                if (!isObject(entry) || Array.isArray(entry))
+                    continue;
+                const afterToolUseId = entry.after_tool_use_id;
+                const text = entry.text;
+                if (typeof afterToolUseId !== 'string' ||
+                    afterToolUseId.length === 0 ||
+                    typeof text !== 'string' ||
+                    text.length === 0 ||
+                    encoder.encode(text).byteLength > 16_384)
+                    continue;
+                notes.push({ afterToolUseId, text });
+            }
+            catch {
+                // One unreadable note entry must not hide its valid neighbours.
+            }
+        }
+        return notes;
+    }
+    catch {
+        // Turn notes are optional and must not break request shaping.
+        return [];
+    }
 }
 function selectionFor(answer, candidates) {
     if (!isObject(answer))
@@ -72,9 +122,10 @@ export async function askRouting(input) {
     }
 }
 /**
- * Report a vault request without waiting for routing. Only contract fields are
- * sent, and all accessor failures are ignored. Headers must already be limited
- * to rate-limit headers by the caller; values are not filtered or redacted here.
+ * Report a vault request or turn-note event without waiting for routing. Only
+ * contract fields are sent, and all accessor failures are ignored. Headers must
+ * already be limited to rate-limit headers by the caller; values are not filtered
+ * or redacted here.
  */
 export function reportRouting(input) {
     try {
@@ -84,38 +135,75 @@ export function reportRouting(input) {
         const report = handle.report;
         if (typeof report !== 'function')
             return;
-        const identity = {
-            account_id: input.accountId,
-            ...(input.credentialId !== undefined
-                ? { credential_id: input.credentialId }
-                : {}),
-        };
         let payload;
-        switch (input.outcome) {
-            case 'served':
-                payload = { ...identity, outcome: 'served', headers: input.headers };
-                break;
-            case 'exhausted': {
-                const { window, pool } = input;
-                if (window !== '5h' && window !== '7d')
+        if ('kind' in input) {
+            switch (input.kind) {
+                case 'turn_notes_supported': {
+                    const { model, supported } = input;
+                    if (typeof model !== 'string' ||
+                        model.length === 0 ||
+                        typeof supported !== 'boolean')
+                        return;
+                    payload = {
+                        kind: 'turn_notes_supported',
+                        model,
+                        supported,
+                    };
+                    break;
+                }
+                case 'turn_note_skipped': {
+                    const { after_tool_use_id, reason } = input;
+                    if (typeof after_tool_use_id !== 'string' ||
+                        after_tool_use_id.length === 0 ||
+                        (reason !== 'anchor_missing' &&
+                            reason !== 'before_user_message' &&
+                            reason !== 'unsupported_model' &&
+                            reason !== 'not_oauth'))
+                        return;
+                    payload = {
+                        kind: 'turn_note_skipped',
+                        after_tool_use_id,
+                        reason,
+                    };
+                    break;
+                }
+                default:
                     return;
-                // An undefined pool means the whole account, as an omitted one does.
-                if (pool !== undefined &&
-                    (typeof pool !== 'string' || !/^[a-z0-9._-]{1,64}$/.test(pool)))
-                    return;
-                payload = {
-                    ...identity,
-                    outcome: 'exhausted',
-                    window,
-                    ...(pool ? { pool } : {}),
-                    ...(input.resetsAt !== undefined
-                        ? { resets_at: input.resetsAt }
-                        : {}),
-                };
-                break;
             }
-            default:
-                return;
+        }
+        else {
+            const identity = {
+                account_id: input.accountId,
+                ...(input.credentialId !== undefined
+                    ? { credential_id: input.credentialId }
+                    : {}),
+            };
+            switch (input.outcome) {
+                case 'served':
+                    payload = { ...identity, outcome: 'served', headers: input.headers };
+                    break;
+                case 'exhausted': {
+                    const { window, pool } = input;
+                    if (window !== '5h' && window !== '7d')
+                        return;
+                    // An undefined pool means the whole account, as an omitted one does.
+                    if (pool !== undefined &&
+                        (typeof pool !== 'string' || !/^[a-z0-9._-]{1,64}$/.test(pool)))
+                        return;
+                    payload = {
+                        ...identity,
+                        outcome: 'exhausted',
+                        window,
+                        ...(pool ? { pool } : {}),
+                        ...(input.resetsAt !== undefined
+                            ? { resets_at: input.resetsAt }
+                            : {}),
+                    };
+                    break;
+                }
+                default:
+                    return;
+            }
         }
         // A broken bridge may return a rejected promise despite its void contract.
         const pending = report.call(handle, payload);

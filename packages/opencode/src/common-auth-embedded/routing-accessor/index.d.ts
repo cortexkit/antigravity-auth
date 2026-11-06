@@ -1,3 +1,8 @@
+/**
+ * Optional THALAMUS routing for vault mode and advisory turn notes for request
+ * shaping. Account ids are vault account ids, not local pool rows. Nothing is
+ * persisted here; plugins on routes the runner does not serve get no turn notes.
+ */
 /** An eligible vault route, not a local pool row. */
 export interface RoutingCandidate {
     /** Vault account id, not the plugin's route id. */
@@ -35,7 +40,7 @@ interface RoutingReportIdentity {
     accountId: string;
     credentialId?: string;
 }
-export type ReportRoutingInput = RoutingReportIdentity & ({
+export type ReportRoutingInput = (RoutingReportIdentity & ({
     outcome: 'served';
     /**
      * Pass only rate-limit headers, never the whole response headers.
@@ -56,7 +61,26 @@ export type ReportRoutingInput = RoutingReportIdentity & ({
     pool?: string;
     /** Optional reset time in epoch milliseconds. */
     resetsAt?: number;
-});
+})) | {
+    sessionId: string;
+    kind: 'turn_notes_supported';
+    model: string;
+    supported: boolean;
+} | {
+    sessionId: string;
+    kind: 'turn_note_skipped';
+    after_tool_use_id: string;
+    reason: 'anchor_missing' | 'before_user_message' | 'unsupported_model' | 'not_oauth';
+};
+/**
+ * Read advisory input for request shaping, in landing order, without persisting
+ * it. If no routing handle is available or the runner does not serve the route,
+ * returns [].
+ */
+export declare function turnNotes(sessionId: string): readonly {
+    afterToolUseId: string;
+    text: string;
+}[];
 /**
  * Ask routing for an eligible vault route. Any failure or unfamiliar answer
  * yields undefined so the plugin can keep its own choice. This does not admit
@@ -64,9 +88,10 @@ export type ReportRoutingInput = RoutingReportIdentity & ({
  */
 export declare function askRouting<Candidate extends RoutingCandidate>(input: AskRoutingInput<Candidate>): Promise<RoutingSelection<Candidate> | undefined>;
 /**
- * Report a vault request without waiting for routing. Only contract fields are
- * sent, and all accessor failures are ignored. Headers must already be limited
- * to rate-limit headers by the caller; values are not filtered or redacted here.
+ * Report a vault request or turn-note event without waiting for routing. Only
+ * contract fields are sent, and all accessor failures are ignored. Headers must
+ * already be limited to rate-limit headers by the caller; values are not filtered
+ * or redacted here.
  */
 export declare function reportRouting(input: ReportRoutingInput): void;
 export {};
