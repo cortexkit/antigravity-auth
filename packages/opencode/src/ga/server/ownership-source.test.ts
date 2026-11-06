@@ -1489,16 +1489,24 @@ for (const source of ['cold local', 'unavailable vault'] as const) {
         if (source === 'unavailable vault') await initialConnection.promise
         const before = { connects, storeLoads, sourceLoads, refreshFailures }
         for (const kind of ['primary', 'compaction', 'generate'] as const) {
-          const retired = await dispatch(kind, 'antigravity-gemini-3.1-pro')
-          expect(retired.status).toBe(412)
-          expect(await retired.json()).toEqual({
-            error: {
-              code: 412,
-              status: 'FAILED_PRECONDITION',
-              message:
-                'This Antigravity model is no longer offered. Choose another model.',
-            },
-          })
+          for (const modelID of [
+            'antigravity-gemini-3.5-flash',
+            'gemini-3-flash-agent',
+            'gemini-3.5-flash-low',
+            'gemini-3.5-flash-extra-low',
+            'antigravity-gemini-3.1-pro',
+          ]) {
+            const retired = await dispatch(kind, modelID)
+            expect(retired.status).toBe(412)
+            expect(await retired.json()).toEqual({
+              error: {
+                code: 412,
+                status: 'FAILED_PRECONDITION',
+                message:
+                  'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+              },
+            })
+          }
         }
         expect({ connects, storeLoads, sourceLoads, refreshFailures }).toEqual(
           before,

@@ -31,6 +31,24 @@ import type { PiVaultSeams } from './vault-source.ts'
 import * as vaultSource from './vault-source.ts'
 
 describe('Pi Antigravity model catalog', () => {
+  it('removes only Gemini 3.5 Flash from the Pi text catalog', async () => {
+    const registerProvider = mock()
+    await cortexKitPiAntigravityAuth({
+      registerProvider,
+      registerCommand: mock(),
+    } as never)
+    const config = registerProvider.mock.calls[0]?.[1] as {
+      models: Array<{ id: string }>
+    }
+    expect(config.models.map((model) => model.id).sort()).toEqual([
+      'antigravity-claude-opus-5-5',
+      'antigravity-claude-sonnet-5-5',
+      'antigravity-gemini-3.8-flash',
+      'antigravity-gemini-4-argon',
+      'antigravity-gpt-oss-120b-medium',
+    ])
+  })
+
   it('exposes the live GPT-OSS route but not unsupported image-output chat models', async () => {
     const registerProvider = mock()
     await cortexKitPiAntigravityAuth({

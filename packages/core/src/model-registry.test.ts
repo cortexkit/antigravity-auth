@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'bun:test'
+import { createHash } from 'node:crypto'
 import capturedCatalog from '../../../test-fixtures/agy-cli-1.3.3/current-model-metadata.json'
 import serverCatalog from '../../../test-fixtures/agy-cli-1.3.5/server-model-catalog.json'
 import { getAgyModelEnum } from './agy-request-metadata.ts'
 import {
   AGY_NATIVE_MODEL_DEFINITIONS,
+  getAgyNativeModel,
   getGemini35FlashAntigravityModel,
   getGemini36FlashAntigravityModel,
   getGemini37FlashAntigravityModel,
@@ -48,6 +50,40 @@ const REQUIRED_PUBLIC_MODEL_FIELDS = [
 ] as const
 
 describe('model registry', () => {
+  it('removes only Gemini 3.5 Flash from the baseline public catalog', () => {
+    // Frozen from the full public catalog with only Gemini 3.5 Flash removed.
+    // Hash every field, not just the IDs, to protect all remaining definitions.
+    const digest = createHash('sha256')
+      .update(JSON.stringify(getPublicModelDefinitions()))
+      .digest('hex')
+    expect(digest).toBe(
+      'd191a730e44e99c6ff645385a80c84615b1821412f57866234327a88c4076e5f',
+    )
+  })
+
+  it('retires Gemini 3.5 Flash selectors and routes but not the helper models', () => {
+    for (const suffix of ['', '-low', '-medium', '-high', '-extra-low']) {
+      for (const prefix of ['', 'antigravity-']) {
+        expect(isRetiredAgyModel(`${prefix}gemini-3.5-flash${suffix}`)).toBe(
+          true,
+        )
+      }
+    }
+    for (const route of [
+      'gemini-3-flash-agent',
+      'gemini-3.5-flash-low',
+      'gemini-3.5-flash-extra-low',
+    ]) {
+      expect(isRetiredAgyModel(route)).toBe(true)
+      expect(getAgyNativeModel(route)).toBeUndefined()
+      expect(getResolverAliasMap()).not.toHaveProperty(route)
+    }
+    for (const helper of ['gemini-3.5-flash-lite', 'gemini-3-flash']) {
+      expect(isRetiredAgyModel(helper)).toBe(false)
+      expect(isRetiredAgyModel(`antigravity-${helper}`)).toBe(false)
+    }
+  })
+
   it('is the source of truth for the current public OpenCode model catalog', () => {
     const definitions = getPublicModelDefinitions()
     const modelNames = Object.keys(definitions).sort()

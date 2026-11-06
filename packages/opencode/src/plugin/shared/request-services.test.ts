@@ -4691,6 +4691,28 @@ describe('createRequestExecutor local refresh attribution', () => {
 })
 
 describe('createRequestExecutor request kinds', () => {
+  it('routes unregistered and image title models to the live Gemini 3.8 Flash low route', async () => {
+    expect(TITLE_FALLBACK_MODEL).toBe('gemini-3.8-flash-low')
+    for (const model of ['some-host-model', 'gemini-3.1-flash-image']) {
+      expect(routeTitleModel(modelUrl(model))).toBe(
+        modelUrl('gemini-3.8-flash-low'),
+      )
+    }
+    const h = harness({ respond: async () => okJson() })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      await executor.execute(modelUrl('some-host-model'), CHAT_INIT(), {
+        kind: 'title',
+      })
+      expect(h.calls).toHaveLength(1)
+      const body = JSON.parse(String(h.calls[0]?.init?.body))
+      expect(body.model).toBe('gemini-3.8-flash-low')
+      expect(body.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M320')
+    } finally {
+      await executor.dispose()
+    }
+  })
+
   const TITLE_PROMPT_BODY = JSON.stringify({
     contents: [
       {
@@ -7019,6 +7041,45 @@ describe('OpenCode 1 runtime replacement with admitted streams', () => {
 })
 
 describe('retired Claude admission', () => {
+  for (const model of [
+    'antigravity-gemini-3.5-flash',
+    'gemini-3-flash-agent',
+    'gemini-3.5-flash-low',
+    'gemini-3.5-flash-extra-low',
+  ]) {
+    it(`refuses retired Gemini 3.5 selection ${model} before any send`, async () => {
+      const h = harness({
+        config: { thinking_warmup: true, cache_warmup_on_switch: true },
+        respond: async () => okJson(),
+      })
+      const executor = createRequestExecutor(h.deps)
+      try {
+        const response = await executor.execute(modelUrl(model), CHAT_INIT(), {
+          kind: 'primary',
+        })
+        expect(h.calls).toHaveLength(0)
+        expect(h.refreshed).toHaveLength(0)
+        expect(h.checkedGrants).toHaveLength(0)
+        expect(response.status).toBe(412)
+        const body = await response.json()
+        expect(body).toEqual({
+          error: {
+            code: 412,
+            status: 'FAILED_PRECONDITION',
+            message:
+              'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+          },
+        })
+        expect(body.error.message.replace('Gemini 3.8 Flash', '')).not.toMatch(
+          /\d/,
+        )
+        expect(JSON.stringify(body)).not.toMatch(/429|500|502|503|504|524/)
+      } finally {
+        await executor.dispose()
+      }
+    })
+  }
+
   it('refuses user selections before selection, refresh, warmup or physical send', async () => {
     const h = harness({
       config: { thinking_warmup: true, cache_warmup_on_switch: true },
