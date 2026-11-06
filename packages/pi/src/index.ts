@@ -353,6 +353,9 @@ export async function registerCortexKitPiAntigravity(
       refreshRegistry()
     }
   })
+  pi.on?.('session_shutdown', async () => {
+    await vault.dispose()
+  })
 
   const accounts = createPiVaultAccountsPort(vault.requestPath)
   const extension: PiAntigravityExtension = {

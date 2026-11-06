@@ -55,6 +55,7 @@ export type PiVaultAccountSource = Pick<
   | 'accept'
   | 'grantReach'
   | 'emptyRosterCause'
+  | 'dispose'
 >
 
 type PiVaultRouteRef = VaultRouteRef
@@ -69,7 +70,7 @@ export class PiVaultSendError extends Error {
 export interface PiVaultRequestPathOptions {
   /** Read this host's vault enrollment and account-source choice before each operation; never reuse an earlier request's state. */
   readMode: () => PiVaultModeRead | Promise<PiVaultModeRead>
-  /** The shared vault account source, created once on first use. */
+  /** The shared vault account source, created on first use after each shutdown. */
   source: () => Promise<PiVaultAccountSource>
   /**
    * The enrollment name a no-account error names in its grant command: the
@@ -252,6 +253,7 @@ export interface PiVaultRuntime {
   readMode(): PiVaultModeRead
   readonly requestPath: PiVaultRequestPathOptions
   setup(): Promise<PiVaultSetup>
+  dispose(): Promise<void>
 }
 
 async function claustrumConnectionFile(): Promise<string> {
@@ -288,7 +290,7 @@ export function createPiVaultRuntime(
   const loadClaustrum = seams.loadClaustrum ?? loadCommonAuthClaustrum
   const readMode = () => readPiVaultMode(modeFile)
 
-  const source = memoize(async (): Promise<PiVaultAccountSource> => {
+  const createSource = async (): Promise<PiVaultAccountSource> => {
     const claustrum = await loadClaustrum()
     const { tokenPath } = claustrum.hostEnrollmentPaths({
       stateDir: vaultDir,
@@ -311,7 +313,19 @@ export function createPiVaultRuntime(
       // Pi reads the HTTP status of each send itself.
       reporterSource: 'direct',
     })
-  })
+  }
+  let pendingSource: Promise<PiVaultAccountSource> | undefined
+  const source = async (): Promise<PiVaultAccountSource> => {
+    if (pendingSource) return pendingSource
+    const pending = createSource()
+    pendingSource = pending
+    try {
+      return await pending
+    } catch (error) {
+      if (pendingSource === pending) pendingSource = undefined
+      throw error
+    }
+  }
 
   const setup = memoize(async () => {
     const claustrum = await loadClaustrum()
@@ -333,6 +347,13 @@ export function createPiVaultRuntime(
   return {
     readMode,
     setup,
+    dispose: async () => {
+      // Session replacement also shuts down extensions. Never retain a closed
+      // source for the next session, or create one just to shut it down.
+      const pending = pendingSource
+      pendingSource = undefined
+      if (pending) await (await pending).dispose()
+    },
     requestPath: {
       readMode: async () => {
         const settings = await setup()

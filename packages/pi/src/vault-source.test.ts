@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, mock } from 'bun:test'
 import {
   mkdtempSync,
   readFileSync,
@@ -102,6 +102,7 @@ function harness(): Harness {
     },
     grantReach: () => undefined,
     emptyRosterCause: () => 'unknown',
+    dispose: async () => {},
   }
   h.options = {
     readMode: () => {
@@ -117,6 +118,37 @@ function harness(): Harness {
 }
 
 const ok = () => new Response('ok', { status: 200 })
+
+describe('Pi vault runtime shutdown', () => {
+  it.each([
+    'local',
+    'custody',
+  ] as const)('does not load a source or connect when an unused %s runtime shuts down', async (mode) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-vault-unused-'))
+    const modeFile = join(root, 'mode.json')
+    writeFileSync(modeFile, JSON.stringify({ version: 1, mode }))
+    const loadClaustrum = mock(loadCommonAuthClaustrum)
+    const connect = mock(async () => {
+      throw new Error('Shutdown opened a vault connection')
+    })
+    const runtime = createPiVaultRuntime(() => undefined, {
+      vaultDir: root,
+      modeFile,
+      rosterFile: join(root, 'roster.json'),
+      loadClaustrum,
+      connect,
+      connectEnrollment: connect,
+    })
+    try {
+      expect(runtime.readMode()).toMatchObject({ record: { mode } })
+      await runtime.dispose()
+      expect(loadClaustrum).not.toHaveBeenCalled()
+      expect(connect).not.toHaveBeenCalled()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('Pi vault request path', () => {
   it('sends a kept receipt through the Pi model path during a vault outage', async () => {

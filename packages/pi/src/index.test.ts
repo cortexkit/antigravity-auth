@@ -1,11 +1,13 @@
 import { describe, expect, it, mock, spyOn } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   loadCommonAuthClaustrum,
+  loadCommonAuthFs,
   loadCommonAuthPiSlot,
+  type VaultScopedClient,
 } from '@cortexkit/antigravity-auth-core'
 import {
   type ExtensionAPI,
@@ -29,6 +31,229 @@ import {
 } from './vault-setup.ts'
 import type { PiVaultSeams } from './vault-source.ts'
 import * as vaultSource from './vault-source.ts'
+
+async function shutdownFixture() {
+  const fixture = await recoveryFixture()
+  const createRuntime = vaultSource.createPiVaultRuntime
+  let runtime: vaultSource.PiVaultRuntime | undefined
+  const runtimeSpy = spyOn(
+    vaultSource,
+    'createPiVaultRuntime',
+  ).mockImplementation((...args) => {
+    runtime = createRuntime(...args)
+    return runtime
+  })
+  const handlers = new Map<
+    string,
+    (event: unknown, context: unknown) => Promise<void>
+  >()
+  const client: VaultScopedClient = {
+    listScoped: async () => ({
+      view: 'shutdown-roster',
+      rows: [
+        {
+          id: 'shutdown-credential',
+          accountId: 'shutdown-account',
+          categories: ['antigravity-native'],
+          credentialType: 'oauth',
+          serves: [],
+          providerIds: [],
+          refreshAdapter: 'antigravity',
+          state: 'active',
+          recordVersion: 1,
+          operations: ['read'],
+          createdAtMs: null,
+        },
+      ],
+      grants: undefined,
+      grantTuples: undefined,
+    }),
+    getScoped: async () => ({
+      material: 'shutdown-bearer',
+      recordVersion: 1,
+      expiresAtMs: Date.now() + 3_600_000,
+      credentialId: 'shutdown-credential',
+      projectId: 'shutdown-project',
+      accountId: 'shutdown-account',
+    }),
+    reportAuthFailureScoped: async () => {},
+    close: () => {},
+  }
+  try {
+    await writeFile(
+      fixture.modeFile,
+      JSON.stringify({ version: 1, mode: 'custody' }),
+    )
+    await registerCortexKitPiAntigravity(
+      {
+        registerProvider: mock(),
+        registerCommand: mock(),
+        on: (event: string, handler: never) => handlers.set(event, handler),
+      } as never,
+      {
+        ...fixture.seams,
+        readHostSlot: () => undefined,
+        connect: async () => client,
+        connectEnrollment: async () => ({
+          enrollPropose: async () => ({ requestId: 'shutdown-enrollment' }),
+          enrollPoll: async () => ({
+            status: 'approved',
+            name: PI_ANTIGRAVITY_ENROLLMENT_NAME,
+            token: 'b'.repeat(64),
+            tokenGeneration: 1,
+          }),
+          close: () => {},
+        }),
+      },
+    )
+    if (!runtime) throw new Error('No Pi vault runtime was created')
+    expect((await (await runtime.setup()).connectStep()).state).toBe('approved')
+    return { ...fixture, runtime, handlers }
+  } catch (error) {
+    await rm(fixture.directory, { recursive: true, force: true })
+    throw error
+  } finally {
+    runtimeSpy.mockRestore()
+  }
+}
+
+describe('Pi vault session shutdown', () => {
+  it.each([
+    'quit',
+    'reload',
+    'new',
+    'resume',
+    'fork',
+  ])('awaits the vault source and consumer dispose on %s', async (reason) => {
+    const fixture = await shutdownFixture()
+    const source = await fixture.runtime.requestPath.source()
+    const drain = Promise.withResolvers<void>()
+    const originalDispose =
+      fixture.claustrum.ClaustrumConsumer.prototype.dispose
+    const consumerDispose = spyOn(
+      fixture.claustrum.ClaustrumConsumer.prototype,
+      'dispose',
+    ).mockImplementation(async function (
+      this: InstanceType<typeof fixture.claustrum.ClaustrumConsumer>,
+    ) {
+      await drain.promise
+      await originalDispose.call(this)
+    })
+    const sourceDispose = spyOn(source, 'dispose')
+    try {
+      const shutdown = fixture.handlers.get('session_shutdown')
+      expect(shutdown).toBeDefined()
+      if (!shutdown) throw new Error('No session_shutdown handler registered')
+      let finished = false
+      const pending = shutdown({ type: 'session_shutdown', reason }, {}).then(
+        () => {
+          finished = true
+        },
+      )
+      await Promise.resolve()
+      expect(sourceDispose).toHaveBeenCalledTimes(1)
+      expect(consumerDispose).toHaveBeenCalledTimes(1)
+      expect(finished).toBe(false)
+      drain.resolve()
+      await pending
+      expect(finished).toBe(true)
+    } finally {
+      drain.resolve()
+      sourceDispose.mockRestore()
+      consumerDispose.mockRestore()
+      await source.dispose()
+      await fixture.runtime.dispose?.()
+      await rm(fixture.directory, { recursive: true, force: true })
+    }
+  })
+
+  it('uses a fresh vault source for requests after shutdown and session_start', async () => {
+    const fixture = await shutdownFixture()
+    let first: vaultSource.PiVaultAccountSource | undefined
+    try {
+      const send = vaultSource.createPiVaultSend(fixture.runtime.requestPath)
+      const dispatch = mock(async () => new Response('ok', { status: 200 }))
+      expect((await send(dispatch, new AbortController().signal)).status).toBe(
+        200,
+      )
+      first = await fixture.runtime.requestPath.source()
+      const firstDispose = spyOn(first, 'dispose')
+      const shutdown = fixture.handlers.get('session_shutdown')
+      expect(shutdown).toBeDefined()
+      if (!shutdown) throw new Error('No session_shutdown handler registered')
+      await shutdown({ type: 'session_shutdown', reason: 'new' }, {})
+      expect(firstDispose).toHaveBeenCalledTimes(1)
+      firstDispose.mockRestore()
+      const start = fixture.handlers.get('session_start')
+      if (!start) throw new Error('No session_start handler registered')
+      await start(
+        { type: 'session_start', reason: 'new' },
+        { modelRegistry: { refresh: mock() } },
+      )
+      expect((await send(dispatch, new AbortController().signal)).status).toBe(
+        200,
+      )
+      expect(await fixture.runtime.requestPath.source()).not.toBe(first)
+      expect(dispatch).toHaveBeenCalledTimes(2)
+    } finally {
+      await first?.dispose()
+      await fixture.runtime.dispose?.()
+      await rm(fixture.directory, { recursive: true, force: true })
+    }
+  })
+
+  it('saves a pending coalesced quota write and leaves no roster lock after shutdown', async () => {
+    const fixture = await shutdownFixture()
+    const rosterPath = fixture.seams.rosterFile
+    if (!rosterPath) throw new Error('No fixture roster path')
+    let source: vaultSource.PiVaultAccountSource | undefined
+    try {
+      const send = vaultSource.createPiVaultSend(fixture.runtime.requestPath)
+      await send(async () => new Response('ok'), new AbortController().signal)
+      source = await fixture.runtime.requestPath.source()
+      const route = source.routes()[0]
+      if (!route) throw new Error('No fixture vault route')
+      const observation = {
+        checkedAt: Date.now(),
+        readings: [{ label: 'all', usedPercent: 10 }],
+      }
+      expect(
+        await fixture.claustrum.recordVaultAccountQuota(rosterPath, {
+          routeId: route.routeId,
+          accountIdentity: route.accountIdentity,
+          observation,
+        }),
+      ).toBe(true)
+      expect(
+        JSON.parse(readFileSync(rosterPath, 'utf8')).rows[0].quota,
+      ).toBeUndefined()
+      const shutdown = fixture.handlers.get('session_shutdown')
+      expect(shutdown).toBeDefined()
+      if (!shutdown) throw new Error('No session_shutdown handler registered')
+      await shutdown({ type: 'session_shutdown', reason: 'quit' }, {})
+      const fs = await loadCommonAuthFs()
+      expect(
+        existsSync(fs.lockPathFor(rosterPath, 'claustrum-roster-write')),
+      ).toBe(false)
+      const persisted = JSON.parse(await readFile(rosterPath, 'utf8'))
+      expect(persisted.rows[0].quota).toEqual({
+        limits: [
+          {
+            scope: 'all',
+            label: 'all',
+            kind: 'reading',
+            checkedAt: observation.checkedAt,
+            usedPercent: 10,
+          },
+        ],
+      })
+    } finally {
+      await source?.dispose()
+      await fixture.runtime.dispose?.()
+      await rm(fixture.directory, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('Pi Antigravity model catalog', () => {
   it('removes only Gemini 3.5 Flash from the Pi text catalog', async () => {
