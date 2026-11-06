@@ -2,10 +2,13 @@
 
 ## Unreleased
 
+## [3.0.31] - 2026-11-06
+
 ### Changed
 
-- Gemini 3.5 Flash is removed because Antigravity no longer offers it; use Gemini 3.8 Flash instead.
-- Embedded common-auth 0.37.0. Nothing changes for antigravity-auth users.
+- Gemini 3.5 Flash is removed because Antigravity no longer offers it; use Gemini 3.8 Flash instead. Title requests for a model the plugin doesn't serve now go to Gemini 3.8 Flash Low.
+- The refusal for a retired model now names current models: Gemini 3.8 Flash, or Claude Sonnet 5.5 or Opus 5.5.
+- Embedded common-auth 0.38.0 and claustrum-client 0.15.0. Nothing changes for antigravity-auth users.
 
 ## [3.0.30] - 2026-11-03
 
