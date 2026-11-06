@@ -2539,7 +2539,7 @@ describe('GA native oracle fixtures (synthetic records, not native proof)', () =
                   f.requests.push({
                     kind: 'primary',
                     body: JSON.stringify({
-                      model: 'gemini-3.5-flash',
+                      model: 'gemini-3.8-flash',
                       request: {
                         contents: [
                           {
@@ -2613,7 +2613,7 @@ describe('GA native oracle fixtures (synthetic records, not native proof)', () =
       f.selected.push(model)
       f.requests.push(
         { kind: 'primary', body: JSON.stringify(wire(model)) },
-        { kind: 'title', body: '{"model":"gemini-3.5-flash-extra-low"}' },
+        { kind: 'title', body: '{"model":"gemini-3.8-flash-low"}' },
       )
       return f.success as Awaited<ReturnType<GaHarness['run']>>
     }
@@ -2623,7 +2623,6 @@ describe('GA native oracle fixtures (synthetic records, not native proof)', () =
     ).toEqual(
       [
         'google/antigravity-gemini-4-argon',
-        'google/antigravity-gemini-3.5-flash',
         'google/antigravity-gemini-3.1-flash-image',
         'google/antigravity-gemini-3.8-flash',
         'google/antigravity-claude-sonnet-5-5',
@@ -2646,9 +2645,10 @@ describe('GA native oracle fixtures (synthetic records, not native proof)', () =
     it(`${id} requires two ordered physical attempts and real 400 observations`, async () => {
       const f = fixture()
       f.requests.push(
-        ...['gemini-3.5-flash-extra-low', 'gemini-3.8-flash-medium'].map(
-          (model) => ({ kind: 'title', body: JSON.stringify({ model }) }),
-        ),
+        ...['gemini-3.8-flash-low', 'gemini-3.8-flash-medium'].map((model) => ({
+          kind: 'title',
+          body: JSON.stringify({ model }),
+        })),
       )
       f.events.push(
         ...['gemini-flash-lite-latest', 'antigravity-gemini-3.8-flash'].map(

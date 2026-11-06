@@ -295,7 +295,7 @@ export function extractAccountAccessErrorDetails(bodyText: string): {
 export function buildAccountAccessProbeRequest(
   projectId: string,
 ): Record<string, unknown> {
-  const wireModel = 'gemini-3.5-flash-low'
+  const wireModel = 'gemini-3.8-flash-low'
   const request: Record<string, unknown> = {
     contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
     generationConfig: { maxOutputTokens: 1, temperature: 0 },

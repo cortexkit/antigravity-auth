@@ -55,7 +55,7 @@ describe('account eligibility recovery', () => {
 
     expect(body).toMatchObject({
       project: 'project-a',
-      model: 'gemini-3.5-flash-low',
+      model: 'gemini-3.8-flash-low',
       request: {
         sessionId: '-3750763034362895579',
         labels: {

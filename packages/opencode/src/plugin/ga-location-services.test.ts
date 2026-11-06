@@ -832,9 +832,9 @@ const transportJob: GaBridgeJob = {
   sessionID: 'transport-session',
   parentSessionID: null,
   kind: 'generate',
-  modelID: 'antigravity-gemini-3.5-flash',
+  modelID: 'antigravity-gemini-3.8-flash',
   variant: null,
-  url: 'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:streamGenerateContent?alt=sse',
+  url: 'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.8-flash:streamGenerateContent?alt=sse',
   body: JSON.stringify({
     contents: [{ role: 'user', parts: [{ text: 'Exact transport bytes: é' }] }],
   }),
@@ -1917,7 +1917,7 @@ describe('GA vault request when the approved vault serves no accounts', () => {
     headers: {
       'content-type': 'application/json',
       'x-antigravity-error-type': 'no_accounts',
-      'x-antigravity-requested-model': 'antigravity-gemini-3.5-flash',
+      'x-antigravity-requested-model': 'antigravity-gemini-3.8-flash',
     },
     body: { error: { code: 401, message, status: 'UNAUTHENTICATED' } },
   })
@@ -2019,7 +2019,7 @@ describe('GA composed request context', () => {
         expect(response.status).toBe(200)
         expect(text).toContain('transport reached')
         expect(physicalBody(networkCalls.length - 1).model).toBe(
-          'gemini-3.5-flash-extra-low',
+          'gemini-3.8-flash-low',
         )
       }
       expect(networkCalls).toHaveLength(3)

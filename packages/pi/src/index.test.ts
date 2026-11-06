@@ -147,7 +147,6 @@ it('replaces the native Google catalog and reads only the google OAuth credentia
     expect(models.map((model) => model.id).sort()).toEqual([
       'antigravity-claude-opus-5-5',
       'antigravity-claude-sonnet-5-5',
-      'antigravity-gemini-3.5-flash',
       'antigravity-gemini-3.8-flash',
       'antigravity-gemini-4-argon',
       'antigravity-gpt-oss-120b-medium',

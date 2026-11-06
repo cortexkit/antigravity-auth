@@ -48,14 +48,13 @@ The extension registers the Antigravity model catalog under the
 
 - `antigravity-gemini-3.8-flash`
 - `antigravity-gemini-4-argon`
-- `antigravity-gemini-3.5-flash`
 - `antigravity-claude-sonnet-5-5`
 - `antigravity-claude-opus-5-5`
 
 Claude 5.5 supports low, medium and high effort, a 1,000,000-token context and
 128,000-token output limit. Retired Claude 4.6 requests refuse before credential
 acquisition or transport; they are not redirected to 5.5.
-Gemini 3.1 Pro, Gemini 3.6/3.7 Flash and `gemini-pro-agent` were withdrawn by
+Gemini 3.1 Pro, Gemini 3.5/3.6/3.7 Flash and `gemini-pro-agent` were withdrawn by
 Antigravity. Their grouped and native tier selectors also refuse before
 credential acquisition or transport, without aliases; history stays readable.
 

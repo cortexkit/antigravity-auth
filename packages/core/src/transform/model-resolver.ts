@@ -186,7 +186,7 @@ export function resolveModelWithTier(requestedModel: string): ResolvedModel {
   // Match server IDs before interpreting a suffix as a host variant option;
   // the suffix can belong to the wire ID itself, as with GPT-OSS medium.
   const native = getAgyNativeModel(modelWithoutQuota)
-  // The public Gemini 3.5 tier suffix names an effort, not the server's
+  // The historical public Gemini 3.5 tier suffix names an effort, not the server's
   // differently named wire route (public low maps to wire extra-low).
   const groupedGemini35Tier =
     isAntigravity &&
@@ -215,8 +215,8 @@ export function resolveModelWithTier(requestedModel: string): ResolvedModel {
   const skipAlias = isAntigravity && isGemini3
 
   // For older Antigravity Gemini 3 models without explicit tier, append the
-  // tier to the model id. Gemini 3.5, 3.6, 3.7, and 3.8 Flash use live-catalog
-  // route maps with numeric thinking budgets instead.
+  // tier to the model id. Gemini 3.5, 3.6, 3.7, and 3.8 Flash use captured
+  // route maps with numeric thinking budgets, including retired history.
   const isGemini3Pro = isGemini3ProModel(modelWithoutQuota)
   const isGemini3Flash = isGemini3FlashModel(modelWithoutQuota)
   const isGemini31Pro = /^gemini-3\.1-pro/i.test(baseName)
@@ -482,6 +482,7 @@ export function resolveModelWithVariant(
       .replace(/^antigravity-/i, '')
       .replace(TIER_REGEX, '')
     const isGemini35FlashAlias =
+      // Historical effort parsing only; request admission rejects this family.
       isGemini35FlashModel(requestedBase) ||
       base.actualModel === 'gemini-3-flash-agent' ||
       base.actualModel === 'gemini-3.5-flash-low'

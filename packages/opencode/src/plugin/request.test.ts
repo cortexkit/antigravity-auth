@@ -1878,9 +1878,9 @@ describe('request.ts', () => {
       )
 
       const wrapped = JSON.parse(result.init.body as string)
-      expect(result.effectiveModel).toBe('gemini-3.5-flash-low')
-      expect(wrapped.model).toBe('gemini-3.5-flash-low')
-      expect(wrapped.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M20')
+      expect(result.effectiveModel).toBe('gemini-3.8-flash-low')
+      expect(wrapped.model).toBe('gemini-3.8-flash-low')
+      expect(wrapped.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M320')
       expect(wrapped.request.generationConfig?.imageConfig).toBeUndefined()
     })
 
@@ -2486,7 +2486,7 @@ describe('request.ts', () => {
         expect(serialized).toContain('[Continue]')
       })
 
-      it('maps Gemini 3.5 Flash medium variant to the live Antigravity medium-tier model', () => {
+      it('parses the historical Gemini 3.5 Flash medium variant', () => {
         const result = prepareAntigravityRequest(
           'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:generateContent',
           {

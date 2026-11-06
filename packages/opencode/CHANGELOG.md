@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Gemini 3.5 Flash is removed because Antigravity no longer offers it; use Gemini 3.8 Flash instead.
 - Embedded common-auth 0.37.0. Nothing changes for antigravity-auth users.
 
 ## [3.0.30] - 2026-11-03

@@ -25,12 +25,6 @@ describe('OPENCODE_MODEL_DEFINITIONS', () => {
       high: { thinkingLevel: 'high' },
     })
 
-    expect(getModel('antigravity-gemini-3.5-flash').variants).toEqual({
-      low: { thinkingLevel: 'low' },
-      medium: { thinkingLevel: 'medium' },
-      high: { thinkingLevel: 'high' },
-    })
-
     expect(getModel('antigravity-gemini-3.8-flash').variants).toEqual({
       low: { thinkingLevel: 'low' },
       medium: { thinkingLevel: 'medium' },

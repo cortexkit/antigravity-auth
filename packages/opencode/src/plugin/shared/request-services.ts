@@ -556,7 +556,7 @@ export type RequestKind = 'primary' | 'compaction' | 'title' | 'generate'
  * The model a title request is sent to when the host selected one this
  * plugin does not serve as text: an unregistered model or an image model.
  */
-export const TITLE_FALLBACK_MODEL = 'gemini-3.5-flash-low'
+export const TITLE_FALLBACK_MODEL = 'gemini-3.8-flash-low'
 
 /**
  * Routes a title request: a registered text model is kept; any other model

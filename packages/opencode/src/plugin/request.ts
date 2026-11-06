@@ -217,6 +217,7 @@ function getAgyMaxOutputTokens(model: string): number | undefined {
   const native = getAgyNativeModel(model)
   if (native) return native.maxOutputTokens
   const lower = model.toLowerCase()
+  // Keep output limits when reading old requests, including retired routes.
   if (
     lower === 'gemini-3.5-flash-low' ||
     lower === 'gemini-3.5-flash-extra-low' ||
@@ -1766,8 +1767,8 @@ function prepareAntigravityRequestIn(
           // OpenCode runs title generation through the active model. Route that
           // text-only helper call away from image generation to avoid consuming
           // image quota and writing unrelated image files.
-          effectiveModel = 'gemini-3.5-flash-low'
-          tierThinkingBudget = 4000
+          effectiveModel = 'gemini-3.8-flash-low'
+          tierThinkingBudget = 1000
           tierThinkingLevel = undefined
         }
         const rawGenerationConfig = requestPayload.generationConfig as

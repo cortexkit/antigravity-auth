@@ -54,7 +54,7 @@ const {
   updateUsage,
 } = await import('./stream.ts')
 
-function fakeModel(id = 'antigravity-gemini-3.5-flash'): Model<Api> {
+function fakeModel(id = 'antigravity-gemini-3.8-flash'): Model<Api> {
   return {
     id,
     api: 'google-generative-ai',
@@ -69,7 +69,7 @@ function emptyOutput(): AssistantMessage {
     content: [],
     api: 'google-generative-ai',
     provider: 'google',
-    model: 'antigravity-gemini-3.5-flash',
+    model: 'antigravity-gemini-3.8-flash',
     usage: {
       input: 0,
       output: 0,
@@ -962,7 +962,7 @@ describe('finalizePiAntigravityRequest', () => {
 
     const requestId = finalizePiAntigravityRequest(
       request,
-      'gemini-3-flash-agent',
+      'gemini-3.8-flash-high',
       {
         session: {
           conversationId: 'conversation-id',
@@ -981,7 +981,7 @@ describe('finalizePiAntigravityRequest', () => {
     })
     expect(request.labels).toEqual({
       last_step_index: '1',
-      model_enum: 'MODEL_PLACEHOLDER_M84',
+      model_enum: 'MODEL_PLACEHOLDER_M318',
       trajectory_id: 'trajectory-id',
       used_claude: 'false',
       used_claude_conservative: 'false',
@@ -1231,7 +1231,7 @@ describe('streamCortexKitAntigravity', () => {
     )
     expect(observed.result.stopReason).toBe('error')
     expect(observed.result.errorMessage).toBe(
-      'This Antigravity model is no longer offered. Choose another model.',
+      'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
     )
     expect(fetchWithAgyCliTransportMock).not.toHaveBeenCalled()
   })
@@ -1982,7 +1982,7 @@ describe('retired Claude requests', () => {
           )
           expect(observed.result.stopReason).toBe('error')
           expect(observed.result.errorMessage).toBe(
-            'This Antigravity model is no longer offered. Choose another model.',
+            'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
           )
         }
       }
@@ -2001,7 +2001,7 @@ describe('retired Claude requests', () => {
     )
     expect(observed.result.stopReason).toBe('error')
     expect(observed.result.errorMessage).toBe(
-      'This Antigravity model is no longer offered. Choose another model.',
+      'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
     )
     expect(ensureProjectContextMock).not.toHaveBeenCalled()
     expect(fetchWithAgyCliTransportMock).not.toHaveBeenCalled()
@@ -2024,7 +2024,7 @@ describe('retired Claude requests', () => {
     )
     expect(observed.result.stopReason).toBe('error')
     expect(observed.result.errorMessage).toBe(
-      'This Antigravity model is no longer offered. Choose another model.',
+      'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
     )
     expect(send).not.toHaveBeenCalled()
     expect(ensureProjectContextMock).not.toHaveBeenCalled()

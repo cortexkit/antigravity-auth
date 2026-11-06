@@ -13,7 +13,9 @@ import {
   createQuotaManager,
   type EnrollmentAuthority,
   fetchWithAgyCliTransport,
+  getAgyNativeModel,
   HealthScoreTracker,
+  isRetiredAgyModel,
   type ManagedAccount,
   type OAuthAuthDetails,
   PRE_RESPONSE_DEADLINE_MS,
@@ -4693,6 +4695,8 @@ describe('createRequestExecutor local refresh attribution', () => {
 describe('createRequestExecutor request kinds', () => {
   it('routes unregistered and image title models to the live Gemini 3.8 Flash low route', async () => {
     expect(TITLE_FALLBACK_MODEL).toBe('gemini-3.8-flash-low')
+    expect(getAgyNativeModel(TITLE_FALLBACK_MODEL)).toBeDefined()
+    expect(isRetiredAgyModel(TITLE_FALLBACK_MODEL)).toBe(false)
     for (const model of ['some-host-model', 'gemini-3.1-flash-image']) {
       expect(routeTitleModel(modelUrl(model))).toBe(
         modelUrl('gemini-3.8-flash-low'),
@@ -4750,7 +4754,7 @@ describe('createRequestExecutor request kinds', () => {
   })
 
   it('keeps a registered text model for a title request', () => {
-    const url = modelUrl('gemini-3.5-flash-low', 'generateContent')
+    const url = modelUrl('gemini-3.8-flash-low', 'generateContent')
     expect(routeTitleModel(url)).toBe(url)
     expect(routeTitleModel(modelUrl('gemini-3.1-flash-image'))).toBe(
       modelUrl(TITLE_FALLBACK_MODEL),
@@ -7054,26 +7058,30 @@ describe('retired Claude admission', () => {
       })
       const executor = createRequestExecutor(h.deps)
       try {
-        const response = await executor.execute(modelUrl(model), CHAT_INIT(), {
-          kind: 'primary',
-        })
-        expect(h.calls).toHaveLength(0)
-        expect(h.refreshed).toHaveLength(0)
-        expect(h.checkedGrants).toHaveLength(0)
-        expect(response.status).toBe(412)
-        const body = await response.json()
-        expect(body).toEqual({
-          error: {
-            code: 412,
-            status: 'FAILED_PRECONDITION',
-            message:
-              'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
-          },
-        })
-        expect(body.error.message.replace('Gemini 3.8 Flash', '')).not.toMatch(
-          /\d/,
-        )
-        expect(JSON.stringify(body)).not.toMatch(/429|500|502|503|504|524/)
+        for (const options of [{}, { kind: 'primary' as const }]) {
+          const response = await executor.execute(
+            modelUrl(model),
+            CHAT_INIT(),
+            options,
+          )
+          expect(h.calls).toHaveLength(0)
+          expect(h.refreshed).toHaveLength(0)
+          expect(h.checkedGrants).toHaveLength(0)
+          expect(response.status).toBe(412)
+          const body = await response.json()
+          expect(body).toEqual({
+            error: {
+              code: 412,
+              status: 'FAILED_PRECONDITION',
+              message:
+                'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+            },
+          })
+          expect(
+            body.error.message.replace('Gemini 3.8 Flash', ''),
+          ).not.toMatch(/\d/)
+          expect(JSON.stringify(body)).not.toMatch(/429|500|502|503|504|524/)
+        }
       } finally {
         await executor.dispose()
       }
@@ -7115,7 +7123,7 @@ describe('retired Claude admission', () => {
             code: 412,
             status: 'FAILED_PRECONDITION',
             message:
-              'This Antigravity model is no longer offered. Choose another model.',
+              'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
           },
         })
         expect(body).not.toMatch(/429|500|502|503|504|524/)
@@ -7143,8 +7151,8 @@ describe('retired Claude admission', () => {
       const call = h.calls[0]
       if (!call?.init) throw new Error('Missing title dispatch')
       const body = JSON.parse(String(call.init.body))
-      expect(body.model).toBe('gemini-3.5-flash-extra-low')
-      expect(body.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M187')
+      expect(body.model).toBe('gemini-3.8-flash-low')
+      expect(body.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M320')
     } finally {
       await executor.dispose()
     }

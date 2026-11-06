@@ -1136,7 +1136,7 @@ export function bodyHasPrimaryNonce(body: string, nonce: string): boolean {
     const envelope = record(JSON.parse(body))
     if (
       typeof envelope.model !== 'string' ||
-      envelope.model === 'gemini-3.5-flash-extra-low'
+      envelope.model === 'gemini-3.8-flash-low'
     )
       return false
     const contents = record(envelope.request).contents
@@ -1925,7 +1925,7 @@ export async function startGaMock(
             cloudaicompanionProject: 'synthetic-ga-project',
             currentTier: { id: 'free-tier' },
             models: {
-              'gemini-3.5-flash': {
+              'gemini-3.8-flash': {
                 quotaInfo: {
                   remainingFraction: 0.75,
                   resetTime: new Date(Date.now() + 3600000).toISOString(),
@@ -3445,7 +3445,7 @@ export function gaDriverTypeFixture(): string {
   return `import { OpenCode } from '@opencode/client/promise'
 const client = OpenCode.make({ baseUrl: 'http://127.0.0.1:1' })
 export async function verifyTypes(sessionID: string, directory: string) {
-  await client.session.create({ location: { directory }, model: { id: 'antigravity-gemini-3.5-flash', providerID: 'google' } })
+  await client.session.create({ location: { directory }, model: { id: 'antigravity-gemini-3.8-flash', providerID: 'google' } })
   await client.session.prompt({ sessionID, text: 'synthetic source-only prompt' })
   await client.session.compact({ sessionID })
   await client.session.command({ sessionID, name: 'antigravity', text: '' })
@@ -4442,7 +4442,6 @@ export async function runGaCoreScenario(
         JSON.stringify(
           [
             'antigravity-gemini-4-argon',
-            'antigravity-gemini-3.5-flash',
             'antigravity-gemini-3.1-flash-image',
             'antigravity-gemini-3.8-flash',
             'antigravity-claude-sonnet-5-5',
@@ -4477,8 +4476,7 @@ export async function runGaCoreScenario(
         .filter((request) => request.kind === 'title')
         .every(
           (request) =>
-            record(JSON.parse(request.body)).model ===
-            'gemini-3.5-flash-extra-low',
+            record(JSON.parse(request.body)).model === 'gemini-3.8-flash-low',
         ),
       'Title route changed or public title fallthrough occurred',
     )
@@ -5981,8 +5979,8 @@ export async function runGaTitleScenario(
     ) ===
       JSON.stringify(
         id === 'title-off-catalog'
-          ? ['gemini-3.5-flash-extra-low']
-          : ['gemini-3.5-flash-extra-low', 'gemini-3.8-flash-medium'],
+          ? ['gemini-3.8-flash-low']
+          : ['gemini-3.8-flash-low', 'gemini-3.8-flash-medium'],
       ),
     'Native titles did not use the exact expected AGY title wire models in order',
   )

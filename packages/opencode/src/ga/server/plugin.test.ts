@@ -121,7 +121,7 @@ function sendInput(signal: AbortSignal): GaSendInput {
       project: 'fake-project',
       requestId: 'req-1',
       request: { contents: [] },
-      model: 'gemini-3.5-flash-low',
+      model: 'gemini-3.8-flash-low',
       userAgent: 'antigravity',
       requestType: 'agent',
     },
@@ -229,7 +229,7 @@ const JOB: GaBridgeJob = {
   sessionID: 'ses_child',
   parentSessionID: 'ses_parent',
   kind: 'title',
-  modelID: 'antigravity-gemini-3.5-flash',
+  modelID: 'antigravity-gemini-3.8-flash',
   variant: null,
   url: 'https://generativelanguage.googleapis.com/v1beta/models/x:streamGenerateContent?alt=sse',
   body: '{"contents":[]}',
@@ -505,7 +505,7 @@ describe('hook bodies', () => {
   })
 
   const registered = (modelID: string) =>
-    modelID === 'antigravity-gemini-3.5-flash'
+    modelID === 'antigravity-gemini-3.8-flash'
 
   function requestEvent(
     kind: GaHttpRequestEvent['kind'],
@@ -554,7 +554,7 @@ describe('hook bodies', () => {
     for (const credentialHeaders of preparedCredentials) {
       for (const [kind, id] of [
         ['title', 'gemini-off-catalog-title-model'],
-        ['primary', 'antigravity-gemini-3.5-flash'],
+        ['primary', 'antigravity-gemini-3.8-flash'],
         ['generate', 'antigravity-gemini-3.1-pro'],
       ] as const) {
         const original = new Request(JOB.url, {
@@ -603,7 +603,7 @@ describe('hook bodies', () => {
         'generate',
       ] as const) {
         const original = new Request(
-          `${baseURL}/models/antigravity-gemini-3.5-flash:streamGenerateContent`,
+          `${baseURL}/models/antigravity-gemini-3.8-flash:streamGenerateContent`,
           {
             method: 'POST',
             headers: { 'x-goog-api-key': placeholderSecret('google') },
@@ -613,7 +613,7 @@ describe('hook bodies', () => {
         const clone = spyOn(original, 'clone')
         const event = requestEvent(
           kind,
-          'antigravity-gemini-3.5-flash',
+          'antigravity-gemini-3.8-flash',
           original,
         )
         await expect(
@@ -688,7 +688,7 @@ describe('hook bodies', () => {
   it('bridges owned canonical Google origins normally', async () => {
     const execute = mock(async (_job: GaBridgeJob) => new Response('{}'))
     const active = await startBridge(execute)
-    const event = requestEvent('primary', 'antigravity-gemini-3.5-flash')
+    const event = requestEvent('primary', 'antigravity-gemini-3.8-flash')
     const original = event.request
     await server.rewriteGaHttpRequest(event, {
       bridge: active,
@@ -712,7 +712,7 @@ describe('hook bodies', () => {
   it('bridges registered kinds, retired IDs and every title', async () => {
     const active = await startBridge()
     const cases: Array<[GaHttpRequestEvent['kind'], string, boolean]> = [
-      ['primary', 'antigravity-gemini-3.5-flash', true],
+      ['primary', 'antigravity-gemini-3.8-flash', true],
       ['primary', 'antigravity-gemini-3.1-pro', true],
       ['primary', 'gemini-3.1-pro-low', true],
       ['primary', 'gemini-3.1-pro-high', true],
@@ -726,8 +726,8 @@ describe('hook bodies', () => {
       ['primary', 'gemini-3.7-flash-medium', true],
       ['primary', 'gemini-3.7-flash-high', true],
       ['title', 'gemini-off-catalog-title-model', true],
-      ['compaction', 'antigravity-gemini-3.5-flash', true],
-      ['generate', 'antigravity-gemini-3.5-flash', true],
+      ['compaction', 'antigravity-gemini-3.8-flash', true],
+      ['generate', 'antigravity-gemini-3.8-flash', true],
     ]
     for (const [kind, modelID, rewritten] of cases) {
       const event = requestEvent(kind, modelID)
@@ -747,8 +747,8 @@ describe('hook bodies', () => {
   it('leaves another provider’s requests alone, even for a catalog model id', async () => {
     const active = await startBridge()
     const event = {
-      ...requestEvent('title', 'antigravity-gemini-3.5-flash'),
-      model: { id: 'antigravity-gemini-3.5-flash', providerID: 'openrouter' },
+      ...requestEvent('title', 'antigravity-gemini-3.8-flash'),
+      model: { id: 'antigravity-gemini-3.8-flash', providerID: 'openrouter' },
     }
     const original = event.request
     await server.rewriteGaHttpRequest(event, {
@@ -760,7 +760,7 @@ describe('hook bodies', () => {
     expect(event.request).toBe(original)
     const retry: GaRetryEvent = {
       sessionID: 'ses_child',
-      model: { id: 'antigravity-gemini-3.5-flash', providerID: 'openrouter' },
+      model: { id: 'antigravity-gemini-3.8-flash', providerID: 'openrouter' },
       decision: { retry: true, delay: 2_000 },
     }
     server.decideGaRetry(retry, ownership)
@@ -818,7 +818,7 @@ describe('hook bodies', () => {
     await (await fetch(withParent.request)).text()
     const noParent = requestEvent(
       'primary',
-      'antigravity-gemini-3.5-flash',
+      'antigravity-gemini-3.8-flash',
       new Request(JOB.url, {
         method: 'POST',
         headers: { 'x-goog-api-key': placeholderSecret('google') },
@@ -840,7 +840,7 @@ describe('hook bodies', () => {
     ])
     const parented = requestEvent(
       'primary',
-      'antigravity-gemini-3.5-flash',
+      'antigravity-gemini-3.8-flash',
       new Request(JOB.url, {
         method: 'POST',
         body: JOB.body,
@@ -884,7 +884,7 @@ describe('hook bodies', () => {
 
   it('throws on a proxy refusal without replacing or consuming the request', async () => {
     const active = await startBridge()
-    const event = requestEvent('primary', 'antigravity-gemini-3.5-flash')
+    const event = requestEvent('primary', 'antigravity-gemini-3.8-flash')
     const original = event.request
     await expect(
       server.rewriteGaHttpRequest(event, {
@@ -1058,7 +1058,7 @@ describe('hook bodies', () => {
   it('tracks interleaved sessions and both ownership switch directions before retry', async () => {
     const active = await startBridge()
     const transport = async (sessionID: string, owned: boolean) => {
-      const event = requestEvent('primary', 'antigravity-gemini-3.5-flash')
+      const event = requestEvent('primary', 'antigravity-gemini-3.8-flash')
       const prepared = event.request
       if (!owned) prepared.headers.set('x-goog-api-key', 'native-key')
       await server.rewriteGaHttpRequest(
@@ -1094,7 +1094,7 @@ describe('hook bodies', () => {
       env: NO_PROXY_ENV,
     })
     expect(retryFor(title.sessionID).decision).toEqual({ retry: false })
-    const primary = requestEvent('primary', 'antigravity-gemini-3.5-flash')
+    const primary = requestEvent('primary', 'antigravity-gemini-3.8-flash')
     await server.rewriteGaHttpRequest(primary, {
       bridge: active,
       ownership,
@@ -1156,7 +1156,7 @@ describe('hook bodies', () => {
     ownership.record('unowned', false)
     const own: GaRetryEvent = {
       sessionID: 'owned',
-      model: { id: 'antigravity-gemini-3.5-flash', providerID: 'google' },
+      model: { id: 'antigravity-gemini-3.8-flash', providerID: 'google' },
       decision: { retry: true, delay: 2_000 },
     }
     const other: GaRetryEvent = {
@@ -1380,7 +1380,7 @@ describe('setup against a host context', () => {
   function preparedEvent(key: string): SessionHttpRequest {
     return {
       ...JSON.parse(
-        '{"sessionID":"ses_prepared","agent":"build","kind":"primary","model":{"id":"antigravity-gemini-3.5-flash","providerID":"google"}}',
+        '{"sessionID":"ses_prepared","agent":"build","kind":"primary","model":{"id":"antigravity-gemini-3.8-flash","providerID":"google"}}',
       ),
       request: new Request(JOB.url, {
         method: 'POST',
@@ -1392,7 +1392,7 @@ describe('setup against a host context', () => {
 
   async function hostRetry(hooks: HookCallbacks): Promise<SessionRetry> {
     const retry: SessionRetry = JSON.parse(
-      '{"sessionID":"ses_prepared","agent":"build","model":{"id":"antigravity-gemini-3.5-flash","providerID":"google"},"attempt":1,"error":{},"decision":{"retry":true,"delay":1234}}',
+      '{"sessionID":"ses_prepared","agent":"build","model":{"id":"antigravity-gemini-3.8-flash","providerID":"google"},"attempt":1,"error":{},"decision":{"retry":true,"delay":1234}}',
     )
     await hooks.retry?.(retry)
     return retry

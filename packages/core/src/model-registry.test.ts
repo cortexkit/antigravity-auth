@@ -30,9 +30,6 @@ const EXPECTED_NATIVE_IDS = [
   'claude-sonnet-5-5-medium',
   'claude-sonnet-5-5-high',
   'gpt-oss-120b-medium',
-  'gemini-3.5-flash-extra-low',
-  'gemini-3.5-flash-low',
-  'gemini-3-flash-agent',
   'gemini-3.1-flash-image',
 ].sort()
 
@@ -92,7 +89,6 @@ describe('model registry', () => {
       'antigravity-claude-opus-5-5',
       'antigravity-claude-sonnet-5-5',
       'antigravity-gemini-3.1-flash-image',
-      'antigravity-gemini-3.5-flash',
       'antigravity-gemini-3.8-flash',
       'antigravity-gemini-4-argon',
       'antigravity-gpt-oss-120b-medium',
@@ -105,7 +101,7 @@ describe('model registry', () => {
     }
   })
 
-  it('preserves server-offered Gemini 3.5 routes', () => {
+  it('preserves historical Gemini 3.5 effort parsing without authorizing admission', () => {
     expect(getGemini35FlashAntigravityModel()).toBe('gemini-3-flash-agent')
     expect(getGemini35FlashAntigravityModel('high')).toBe(
       'gemini-3-flash-agent',
@@ -218,17 +214,13 @@ describe('model registry', () => {
     }
   })
 
-  it('keeps native IDs intact except the explicit grouped Gemini 3.5 effort selector', () => {
+  it('keeps native IDs intact', () => {
     expect(Object.keys(AGY_NATIVE_MODEL_DEFINITIONS).sort()).toEqual(
       EXPECTED_NATIVE_IDS,
     )
     for (const id of EXPECTED_NATIVE_IDS) {
       expect(resolveModelWithTier(id).actualModel).toBe(id)
-      const publicWire =
-        id === 'gemini-3.5-flash-low' ? 'gemini-3.5-flash-extra-low' : id
-      expect(resolveModelWithTier(`antigravity-${id}`).actualModel).toBe(
-        publicWire,
-      )
+      expect(resolveModelWithTier(`antigravity-${id}`).actualModel).toBe(id)
     }
   })
 
@@ -327,7 +319,7 @@ describe('server catalog authority', () => {
   it('applies Antigravity admission to historical preview aliases', () => {
     expect(isRetiredAgyModel('gemini-3.1-pro-preview')).toBe(true)
     expect(isRetiredAgyModel('gemini-3.1-pro-preview-customtools')).toBe(true)
-    expect(isRetiredAgyModel('gemini-3.5-flash-preview')).toBe(false)
+    expect(isRetiredAgyModel('gemini-3.5-flash-preview')).toBe(true)
   })
 
   it('refuses absent historical Claude routes without treating offered Gemini routes as retired', () => {
@@ -342,11 +334,7 @@ describe('server catalog authority', () => {
         }
       }
     }
-    for (const route of [
-      'gemini-3.5-flash-low',
-      'gemini-3-flash-agent',
-      'gemini-3.1-flash-image',
-    ]) {
+    for (const route of ['gemini-3.8-flash-low', 'gemini-3.1-flash-image']) {
       expect(isRetiredAgyModel(route)).toBe(false)
       expect(Object.hasOwn(serverCatalog.models, route)).toBe(true)
     }

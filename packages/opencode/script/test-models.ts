@@ -53,14 +53,6 @@ const MODELS: ModelTest[] = [
     model: 'google/antigravity-gemini-3.1-pro-high',
     category: 'antigravity-gemini',
   },
-  {
-    model: 'google/antigravity-gemini-3.5-flash-high',
-    category: 'antigravity-gemini',
-  },
-  {
-    model: 'google/antigravity-gemini-3.5-flash-medium',
-    category: 'antigravity-gemini',
-  },
 
   // Antigravity Claude
   {

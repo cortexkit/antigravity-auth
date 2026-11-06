@@ -592,7 +592,7 @@ it(
         }
         const sendCount = sends.length
         const original = new Request(
-          'http://127.0.0.1:1234/direct/v1/models/antigravity-gemini-3.5-flash:streamGenerateContent',
+          'http://127.0.0.1:1234/direct/v1/models/antigravity-gemini-3.8-flash:streamGenerateContent',
           {
             method: 'POST',
             headers: { 'x-goog-api-key': placeholderSecret('google') },
@@ -602,7 +602,7 @@ it(
         const event: GaHttpRequestEvent = {
           sessionID: 'ses_custom_origin',
           kind: 'primary',
-          model: { id: 'antigravity-gemini-3.5-flash', providerID: 'google' },
+          model: { id: 'antigravity-gemini-3.8-flash', providerID: 'google' },
           request: original,
         }
         await expect(
@@ -626,7 +626,7 @@ it(
         expect(event.request).toBe(original)
       }
       await refuseCustomOrigin()
-      const pool = await dispatch('primary', 'antigravity-gemini-3.5-flash')
+      const pool = await dispatch('primary', 'antigravity-gemini-3.8-flash')
       expect(pool.status).toBe(200)
       await fixture.step('response.pool.body', () => pool.text())
       expect(localCalls).toBe(1)
@@ -640,7 +640,7 @@ it(
       )
       mode = 'custody'
       await refuseCustomOrigin()
-      const vault = await dispatch('primary', 'antigravity-gemini-3.5-flash')
+      const vault = await dispatch('primary', 'antigravity-gemini-3.8-flash')
       expect(vault.status).toBe(200)
       expect(
         await fixture.step('response.vault.body', () => vault.text()),
@@ -659,7 +659,7 @@ it(
           code: 412,
           status: 'FAILED_PRECONDITION',
           message:
-            'This Antigravity model is no longer offered. Choose another model.',
+            'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
         },
       })
       expect(sends).toHaveLength(beforeRetired)
@@ -667,7 +667,7 @@ it(
       const title = await dispatch('title', 'antigravity-gemini-3.1-pro')
       expect(title.status).toBe(200)
       await fixture.step('response.title.body', () => title.text())
-      expect(sends.at(-1)?.envelope.model).toBe('gemini-3.5-flash-extra-low')
+      expect(sends.at(-1)?.envelope.model).toBe('gemini-3.8-flash-low')
       expect(sends.at(-1)?.kind).toBe('title')
     } catch (error) {
       clocks.fail()
@@ -1048,9 +1048,9 @@ for (const scenario of [
           const event: GaHttpRequestEvent = {
             sessionID: 'ses_advisory_source',
             kind: 'primary',
-            model: { id: 'antigravity-gemini-3.5-flash', providerID: 'google' },
+            model: { id: 'antigravity-gemini-3.8-flash', providerID: 'google' },
             request: new Request(
-              'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:streamGenerateContent?alt=sse',
+              'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.8-flash:streamGenerateContent?alt=sse',
               {
                 method: 'POST',
                 headers: { 'x-goog-api-key': placeholderSecret('google') },
@@ -1518,7 +1518,7 @@ for (const source of ['cold local', 'unavailable vault'] as const) {
         // refresh vault credentials, unlike retired non-title selections.
         for (const [kind, modelID] of [
           ['title', 'antigravity-gemini-3.1-pro'],
-          ['primary', 'antigravity-gemini-3.5-flash'],
+          ['primary', 'antigravity-gemini-3.8-flash'],
         ] as const) {
           const control = await dispatch(kind, modelID)
           expect(control.status).toBe(502)

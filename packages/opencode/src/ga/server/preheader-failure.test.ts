@@ -18,9 +18,9 @@ const TEST_JOB: GaBridgeJob = {
   sessionID: 'ses_bridge_preheader_test',
   parentSessionID: null,
   kind: 'primary',
-  modelID: 'antigravity-gemini-3.5-flash',
+  modelID: 'antigravity-gemini-3.8-flash',
   variant: null,
-  url: 'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:streamGenerateContent?alt=sse',
+  url: 'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.8-flash:streamGenerateContent?alt=sse',
   body: '{}',
 }
 

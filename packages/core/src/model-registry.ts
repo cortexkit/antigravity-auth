@@ -224,30 +224,6 @@ export const AGY_NATIVE_MODEL_DEFINITIONS: Readonly<
     supportsThinking: true,
     vertexModelId: 'openai/gpt-oss-120b-maas',
   },
-  'gemini-3.5-flash-extra-low': {
-    displayName: 'Gemini 3.5 Flash (Low)',
-    maxTokens: 1048576,
-    maxOutputTokens: 65536,
-    model: 'MODEL_PLACEHOLDER_M187',
-    thinkingBudget: 1000,
-    supportsThinking: true,
-  },
-  'gemini-3.5-flash-low': {
-    displayName: 'Gemini 3.5 Flash (Medium)',
-    maxTokens: 1048576,
-    maxOutputTokens: 65536,
-    model: 'MODEL_PLACEHOLDER_M20',
-    thinkingBudget: 4000,
-    supportsThinking: true,
-  },
-  'gemini-3-flash-agent': {
-    displayName: 'Gemini 3.5 Flash (High)',
-    maxTokens: 1048576,
-    maxOutputTokens: 65536,
-    model: 'MODEL_PLACEHOLDER_M84',
-    thinkingBudget: -1,
-    supportsThinking: true,
-  },
   'gemini-3.1-flash-image': {
     displayName: 'Gemini 3.1 Flash Image',
     model: 'MODEL_PLACEHOLDER_M21',
@@ -261,7 +237,7 @@ export function getAgyNativeModel(
 }
 
 export const RETIRED_AGY_MODEL_MESSAGE =
-  'This Antigravity model is no longer offered. Choose another model.'
+  'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.'
 
 /** Withdrawn names remain readable in history, but cannot serve new requests. */
 export function isRetiredAgyModel(model: string): boolean {
@@ -275,7 +251,9 @@ export function isRetiredAgyModel(model: string): boolean {
       route,
     ) ||
       /^gemini-3\.1-pro(?:-(?:low|high))?$/.test(route) ||
+      /^gemini-3\.5-flash(?:-(?:low|medium|high|extra-low))?$/.test(route) ||
       /^gemini-3\.[67]-flash(?:-(?:low|medium|high|tiered))?$/.test(route) ||
+      route === 'gemini-3-flash-agent' ||
       route === 'gemini-pro-agent') &&
     getAgyNativeModel(route) === undefined
   )
@@ -284,17 +262,6 @@ export function isRetiredAgyModel(model: string): boolean {
 const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
   'antigravity-gemini-4-argon': defineModel('antigravity-gemini-4-argon', {
     name: 'Gemini 4 Argon (Antigravity)',
-    reasoning: true,
-    limit: { context: 1048576, output: 65536 },
-    modalities: DEFAULT_MODALITIES,
-    variants: {
-      low: { thinkingLevel: 'low' },
-      medium: { thinkingLevel: 'medium' },
-      high: { thinkingLevel: 'high' },
-    },
-  }),
-  'antigravity-gemini-3.5-flash': defineModel('antigravity-gemini-3.5-flash', {
-    name: 'Gemini 3.5 Flash (Antigravity)',
     reasoning: true,
     limit: { context: 1048576, output: 65536 },
     modalities: DEFAULT_MODALITIES,
@@ -369,7 +336,6 @@ const RESOLVER_ALIASES: Record<string, string> = {
   'gemini-3-flash-low': 'gemini-3-flash',
   'gemini-3-flash-medium': 'gemini-3-flash',
   'gemini-3-flash-high': 'gemini-3-flash',
-  'gemini-3.5-flash-low': 'gemini-3.5-flash',
   'gemini-3.5-flash-medium': 'gemini-3.5-flash',
   'gemini-3.5-flash-high': 'gemini-3.5-flash',
   'gemini-3.6-flash-low': 'gemini-3.6-flash',
@@ -396,6 +362,7 @@ const RESOLVER_ALIASES: Record<string, string> = {
   'gpt-oss-120b': 'gpt-oss-120b-medium',
 }
 
+// Preserve old transcript effort mappings; admission rejects these retired routes.
 const GEMINI_35_FLASH_ROUTES: GeminiFlashRouteMetadata = {
   antigravity: {
     defaultModel: 'gemini-3-flash-agent',
@@ -444,9 +411,6 @@ const QUOTA_GROUP_BY_MODEL_ID: Record<string, ModelQuotaGroup> = {
   'gemini-3.1-pro-low': 'gemini',
   'gemini-3.1-pro-high': 'gemini',
   'gemini-3-flash': 'gemini',
-  'gemini-3-flash-agent': 'gemini',
-  'gemini-3.5-flash-low': 'gemini',
-  'gemini-3.5-flash-extra-low': 'gemini',
   'gemini-3.6-flash-low': 'gemini',
   'gemini-3.6-flash-medium': 'gemini',
   'gemini-3.6-flash-high': 'gemini',
@@ -467,7 +431,6 @@ const QUOTA_GROUP_BY_MODEL_ID: Record<string, ModelQuotaGroup> = {
 const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
   'antigravity-gemini-4-argon',
   'antigravity-gemini-3.8-flash',
-  'antigravity-gemini-3.5-flash',
   'antigravity-gemini-3.1-flash-image',
   'antigravity-claude-sonnet-5-5',
   'antigravity-claude-opus-5-5',

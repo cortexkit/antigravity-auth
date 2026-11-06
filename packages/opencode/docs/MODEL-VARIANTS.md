@@ -10,7 +10,6 @@ The table lists the public picker models from the canonical [model registry](../
 | --- | --- | --- |
 | `antigravity-gemini-4-argon` | `low`, `medium` (default), `high` | Per-model readings; whether usage shares a weekly quota allowance with other models, and which allowance, is unverified |
 | `antigravity-gemini-3.8-flash` | `low`, `medium`, `high` | `gemini-flash` |
-| `antigravity-gemini-3.5-flash` | `low`, `medium`, `high` | `gemini-flash` |
 | `antigravity-gemini-3.1-flash-image` | — | `gemini-flash` |
 | `antigravity-claude-sonnet-5-5` | `low`, `medium`, `high` | `claude` |
 | `antigravity-claude-opus-5-5` | `low`, `medium`, `high` | `claude` |
@@ -52,7 +51,7 @@ examples do not define a supported Claude 5.5 effort.
 
 ## Gemini
 
-The grouped `antigravity-gemini-3.5-flash`, `antigravity-gemini-3.8-flash` and
+The grouped `antigravity-gemini-3.8-flash` and
 `antigravity-gemini-4-argon` entries expose low, medium and high variants.
 These selectors retain the
 plugin's family-specific routing; do not infer a wire model or token budget solely
@@ -67,9 +66,11 @@ whole Argon family; MEDIUM/HIGH omission remains unverified live.
 
 Argon's remaining quota and reset time are reported per model. It is unverified whether Argon uses the same weekly quota allowance as other models, or which shared weekly allowance would apply.
 
-Gemini 3.1 Pro, Gemini 3.6/3.7 Flash and `gemini-pro-agent` were withdrawn by
+Gemini 3.1 Pro, Gemini 3.5/3.6/3.7 Flash and `gemini-pro-agent` were withdrawn by
 Antigravity. Grouped and native tier selectors refuse without aliases or
-redirects. Historical transcripts remain readable.
+redirects. Use Gemini 3.8 Flash instead. Historical transcripts remain readable.
+The Gemini 3.5 Flash routes left the server model map on November 6, 2026;
+the helper routes `gemini-3-flash` and `gemini-3.5-flash-lite` are not retired.
 
 ```bash
 opencode run "Hello" --model=google/antigravity-gemini-3.8-flash --variant=medium
@@ -82,7 +83,8 @@ The resolver also accepts native tier-suffixed names, including
 `antigravity-gemini-3.8-flash-medium`. The grouped catalog entries with variants
 are the normal picker interface.
 
-The current catalog comes from the official CLI server model-list evidence linked above. An ID omitted
-from the CLI picker is not necessarily retired: Gemini 3.5 Flash and Gemini 3.1
-Flash Image remain offered by the server. Captured catalog data and low-effort
-Claude probes do not establish complete wire parity for every model and effort.
+The catalog uses the official CLI server model-list evidence linked above, with
+subsequent withdrawals removed. An ID omitted from the CLI picker is not
+necessarily retired: Gemini 3.1 Flash Image remains offered by the server.
+Captured catalog data and low-effort Claude probes do not confirm the server
+route and token budget for every model and effort.

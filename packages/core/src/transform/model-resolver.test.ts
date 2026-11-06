@@ -47,7 +47,7 @@ describe('resolveModelWithTier', () => {
     })
   })
 
-  describe('Gemini 3.5 Flash Antigravity aliases', () => {
+  describe('historical Gemini 3.5 Flash Antigravity aliases', () => {
     it('antigravity-gemini-3.5-flash uses the captured agy medium model', () => {
       const result = resolveModelWithTier('antigravity-gemini-3.5-flash')
       expect(result.actualModel).toBe('gemini-3.5-flash-low')
@@ -55,14 +55,14 @@ describe('resolveModelWithTier', () => {
       expect(result.thinkingLevel).toBeUndefined()
     })
 
-    it('antigravity-gemini-3.5-flash-high uses the live high-tier Antigravity model', () => {
+    it('antigravity-gemini-3.5-flash-high retains the historical high-tier route', () => {
       const result = resolveModelWithTier('antigravity-gemini-3.5-flash-high')
       expect(result.actualModel).toBe('gemini-3-flash-agent')
       expect(result.thinkingBudget).toBe(-1)
       expect(result.thinkingLevel).toBeUndefined()
     })
 
-    it('antigravity-gemini-3.5-flash-medium uses the live medium-tier Antigravity model', () => {
+    it('antigravity-gemini-3.5-flash-medium retains the historical medium-tier route', () => {
       const result = resolveModelWithTier('antigravity-gemini-3.5-flash-medium')
       expect(result.actualModel).toBe('gemini-3.5-flash-low')
       expect(result.thinkingBudget).toBe(4000)
