@@ -7078,7 +7078,10 @@ describe('retired Claude admission', () => {
             },
           })
           expect(
-            body.error.message.replace('Gemini 3.8 Flash', ''),
+            body.error.message.replace(
+              /Gemini 3\.8 Flash|Claude Sonnet 5\.5|Opus 5\.5/g,
+              '',
+            ),
           ).not.toMatch(/\d/)
           expect(JSON.stringify(body)).not.toMatch(/429|500|502|503|504|524/)
         }
