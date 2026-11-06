@@ -1231,7 +1231,7 @@ describe('streamCortexKitAntigravity', () => {
     )
     expect(observed.result.stopReason).toBe('error')
     expect(observed.result.errorMessage).toBe(
-      'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+      'This Antigravity model is no longer offered. Use Gemini 3.8 Flash, or Claude Sonnet 5.5 or Opus 5.5.',
     )
     expect(fetchWithAgyCliTransportMock).not.toHaveBeenCalled()
   })
@@ -1982,7 +1982,7 @@ describe('retired Claude requests', () => {
           )
           expect(observed.result.stopReason).toBe('error')
           expect(observed.result.errorMessage).toBe(
-            'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+            'This Antigravity model is no longer offered. Use Gemini 3.8 Flash, or Claude Sonnet 5.5 or Opus 5.5.',
           )
         }
       }
@@ -2001,7 +2001,7 @@ describe('retired Claude requests', () => {
     )
     expect(observed.result.stopReason).toBe('error')
     expect(observed.result.errorMessage).toBe(
-      'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+      'This Antigravity model is no longer offered. Use Gemini 3.8 Flash, or Claude Sonnet 5.5 or Opus 5.5.',
     )
     expect(ensureProjectContextMock).not.toHaveBeenCalled()
     expect(fetchWithAgyCliTransportMock).not.toHaveBeenCalled()
@@ -2024,7 +2024,7 @@ describe('retired Claude requests', () => {
     )
     expect(observed.result.stopReason).toBe('error')
     expect(observed.result.errorMessage).toBe(
-      'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+      'This Antigravity model is no longer offered. Use Gemini 3.8 Flash, or Claude Sonnet 5.5 or Opus 5.5.',
     )
     expect(send).not.toHaveBeenCalled()
     expect(ensureProjectContextMock).not.toHaveBeenCalled()

@@ -236,8 +236,11 @@ export function getAgyNativeModel(
   return AGY_NATIVE_MODEL_DEFINITIONS[model.toLowerCase()]
 }
 
+// Shared by every retired Gemini and Claude route, so it names a current model
+// of each family. It stays free of 429/5xx-style digit runs, which OpenCode 1
+// would read as retryable.
 export const RETIRED_AGY_MODEL_MESSAGE =
-  'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.'
+  'This Antigravity model is no longer offered. Use Gemini 3.8 Flash, or Claude Sonnet 5.5 or Opus 5.5.'
 
 /** Withdrawn names remain readable in history, but cannot serve new requests. */
 export function isRetiredAgyModel(model: string): boolean {

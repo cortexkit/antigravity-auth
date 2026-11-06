@@ -7074,7 +7074,7 @@ describe('retired Claude admission', () => {
               code: 412,
               status: 'FAILED_PRECONDITION',
               message:
-                'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+                'This Antigravity model is no longer offered. Use Gemini 3.8 Flash, or Claude Sonnet 5.5 or Opus 5.5.',
             },
           })
           expect(
@@ -7123,7 +7123,7 @@ describe('retired Claude admission', () => {
             code: 412,
             status: 'FAILED_PRECONDITION',
             message:
-              'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+              'This Antigravity model is no longer offered. Use Gemini 3.8 Flash, or Claude Sonnet 5.5 or Opus 5.5.',
           },
         })
         expect(body).not.toMatch(/429|500|502|503|504|524/)

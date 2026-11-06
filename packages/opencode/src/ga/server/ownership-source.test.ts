@@ -659,7 +659,7 @@ it(
           code: 412,
           status: 'FAILED_PRECONDITION',
           message:
-            'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+            'This Antigravity model is no longer offered. Use Gemini 3.8 Flash, or Claude Sonnet 5.5 or Opus 5.5.',
         },
       })
       expect(sends).toHaveLength(beforeRetired)
@@ -1503,7 +1503,7 @@ for (const source of ['cold local', 'unavailable vault'] as const) {
                 code: 412,
                 status: 'FAILED_PRECONDITION',
                 message:
-                  'This Antigravity model is no longer offered. Use Gemini 3.8 Flash instead.',
+                  'This Antigravity model is no longer offered. Use Gemini 3.8 Flash, or Claude Sonnet 5.5 or Opus 5.5.',
               },
             })
           }
