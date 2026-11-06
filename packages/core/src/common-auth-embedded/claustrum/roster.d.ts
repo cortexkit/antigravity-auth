@@ -120,6 +120,8 @@ export interface VaultRosterLockContext {
 }
 export interface MutateVaultRosterOptions {
     signal?: AbortSignal;
+    /** Runs under the roster lock once published, even if a later step fails. Must not throw. */
+    onPublished?: () => void;
     /**
      * Runs when the new roster is fully staged on disk, immediately before the
      * rename that publishes it, so a caller can confirm a lease of its own at

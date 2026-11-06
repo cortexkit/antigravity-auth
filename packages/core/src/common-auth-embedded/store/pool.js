@@ -127,7 +127,7 @@ export function openPoolStore(options) {
         reorder: (ids, callOptions) => reorderRows(rt, ids, callOptions),
         readSettings: () => readPoolSettings(rt),
         updateSettings: (mutator, callOptions) => updatePoolSettings(rt, mutator, callOptions),
-        updateLimitsNamespace: (mutator) => updatePoolLimitsNamespace(rt, mutator),
+        updateLimitsNamespace: (mutator, options) => updatePoolLimitsNamespace(rt, mutator, options),
         recordIdentity: (id, identity, attribution, callOptions) => recordRowIdentity(rt, id, identity, attribution, callOptions),
         refresh: (id, provider, callOptions) => refreshRow(rt, id, provider, callOptions),
         recordQuota: record,

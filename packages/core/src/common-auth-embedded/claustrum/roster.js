@@ -387,13 +387,24 @@ export async function mutateVaultRoster(path, change, options = {}) {
             await lock.assertOwned();
             // Staging the file takes several awaited steps; check both the caller's
             // lease and this lock again at the last moment before the rename.
-            await writeJsonAtomic(path, next, {
-                beforeRename: async () => {
-                    await options.beforePublish?.();
-                    options.signal?.throwIfAborted();
-                    await lock.assertOwned();
-                },
-            });
+            try {
+                await writeJsonAtomic(path, next, {
+                    beforeRename: async () => {
+                        await options.beforePublish?.();
+                        options.signal?.throwIfAborted();
+                        await lock.assertOwned();
+                    },
+                });
+            }
+            catch (error) {
+                if (error &&
+                    typeof error === 'object' &&
+                    'published' in error &&
+                    error.published === true)
+                    options.onPublished?.();
+                throw error;
+            }
+            options.onPublished?.();
         }
         return result;
     });

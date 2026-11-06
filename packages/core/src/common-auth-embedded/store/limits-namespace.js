@@ -2,7 +2,7 @@ import { writeJsonAtomic } from '../fs/atomic-write.js';
 import { assertLimitsWriteAllowed, runInsideHook } from './hooks.js';
 import { notReadyError, readPool, runOperation } from './mutate.js';
 /** A namespace merge and its check of current row bindings share one locked config snapshot. */
-export async function updatePoolLimitsNamespace(rt, mutator) {
+export async function updatePoolLimitsNamespace(rt, mutator, options = {}) {
     assertLimitsWriteAllowed();
     const { ctx } = rt;
     await runOperation(ctx, 'updateLimitsNamespace', undefined, undefined, async (locks, progress) => {
@@ -22,13 +22,25 @@ export async function updatePoolLimitsNamespace(rt, mutator) {
             operation: 'updateLimitsNamespace',
             rowId: undefined,
         };
-        await writeJsonAtomic(ctx.configPath, config, {
-            beforeRename: async () => {
-                await ctx.onStep?.('before-config-write', info);
-                await locks.assertAll();
-            },
-        });
+        try {
+            await writeJsonAtomic(ctx.configPath, config, {
+                beforeRename: async () => {
+                    await ctx.onStep?.('before-config-write', info);
+                    await locks.assertAll();
+                    options.beforePublish?.();
+                },
+            });
+        }
+        catch (error) {
+            if (error &&
+                typeof error === 'object' &&
+                'published' in error &&
+                error.published === true)
+                options.onPublished?.();
+            throw error;
+        }
         progress.writes++;
+        options.onPublished?.();
         await ctx.onStep?.('after-config-write', info);
     });
 }

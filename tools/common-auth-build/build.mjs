@@ -142,6 +142,7 @@ async function inspectDestination(packageRoot, path, kind) {
           '@cortexkit/common-auth/tui-build@0.35.0',
           '@cortexkit/common-auth/tui-build@0.36.0',
           '@cortexkit/common-auth/tui-build@0.37.0',
+          '@cortexkit/common-auth/tui-build@0.37.1',
           `@cortexkit/common-auth/tui-build@${producerVersion}`,
         ].includes(map.compiler)
       )

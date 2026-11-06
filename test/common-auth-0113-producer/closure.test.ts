@@ -54,7 +54,7 @@ test('producer.native_windows_archive_pin', async () => {
 
 async function archive() {
   const bytes = await readFile(join(root, inputPath))
-  expect(bytes.length).toBe(453336)
+  expect(bytes.length).toBe(455807)
   expect(digest(bytes)).toBe(publication.sha256)
   const entries = readVerifiedArchive(bytes, publication)
   validatePublication(entries)
@@ -145,6 +145,18 @@ test('producer.public_roots_and_exact_closure', async () => {
         [...text.matchAll(/\bimport\s*\(([^)]+)\)/g)].map((match) => match[1]),
       ).toEqual(['"./schema.js"'])
       expect(text).toMatch(/^import [^\n]* from '\.\/schema\.js';$/m)
+    } else if (file === 'store/pool.d.ts') {
+      // This erased option type references an already statically imported
+      // namespace module; pin its spelling without allowing runtime imports.
+      expect(
+        [...text.matchAll(/\bimport\s*\(([^)]+)\)/g)].map((match) => match[1]),
+      ).toEqual(["'./limits-namespace.js'"])
+      expect(text).toMatch(
+        /^\s+updateLimitsNamespace\?\(mutator: PoolLimitsMutator, options\?: import\('\.\/limits-namespace\.js'\)\.PoolLimitsWriteOptions\): Promise<void>;$/m,
+      )
+      expect(text).toMatch(
+        /^import \{ type PoolLimitsMutator \} from '\.\/limits-namespace\.js';$/m,
+      )
     } else if (file === 'limits/decide.d.ts') {
       // This declaration-only cause references an already embedded type;
       // pin the exact erased import without admitting dynamic runtime imports.
@@ -177,7 +189,7 @@ test('producer.public_roots_and_exact_closure', async () => {
       (sum, file) => sum + entries.get(`package/dist/${file}`)!.length,
       0,
     ),
-  ).toBe(1316669)
+  ).toBe(1318007)
   expect(graph.files.filter((file) => file.startsWith('routing/'))).toEqual(
     closure.routingFiles,
   )
@@ -254,15 +266,15 @@ test('producer.verbatim_map', async () => {
   const map = JSON.parse(
     await readFile(join(target, outputPath, 'source-output.json'), 'utf8'),
   )
-  expect(map.version).toBe('0.37.1')
-  expect(map.artifactStatus).toBe('published')
+  expect(map.version).toBe('0.38.0')
+  expect(map.artifactStatus).toBe('candidate')
   expect(map.publicRoots).toEqual({
     ...publication.publicRoots,
     './quota-sidebar': publication.sidebarRoot,
     './routing-accessor': publication.routingAccessorRoot,
   })
   expect(map.canonicalFiles).toBe(216)
-  expect(map.canonicalBytes).toBe(1347474)
+  expect(map.canonicalBytes).toBe(1348812)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])
@@ -386,7 +398,7 @@ test('producer.shared_core_profile_exact_closure', async () => {
   )
   expect(required.length).toBe(151)
   expect(map.canonicalFiles).toBe(151)
-  expect(map.canonicalBytes).toBe(1029144)
+  expect(map.canonicalBytes).toBe(1030482)
   expect(map.publicRoots).toEqual(profile.publicRoots)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.files.map((file: { output: string }) => file.output)).toEqual(
