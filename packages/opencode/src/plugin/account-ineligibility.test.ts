@@ -59,7 +59,7 @@ describe('account eligibility recovery', () => {
       request: {
         sessionId: '-3750763034362895579',
         labels: {
-          model_enum: 'MODEL_PLACEHOLDER_M20',
+          model_enum: 'MODEL_PLACEHOLDER_M320',
           last_step_index: '1',
         },
       },
