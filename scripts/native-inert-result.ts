@@ -5,6 +5,15 @@ import { join } from 'node:path'
 export const INVENTORY_PATH =
   'packages/e2e-tests/docker/native-inert-inventory.json'
 export const RECORD_PATH = '.cortexkit/release-gates/native-inert.json'
+// Written for a failing run, beside the passing record and never in its
+// place, so a failure stays on disk even when the caller's output was
+// filtered. release.sh reads only RECORD_PATH.
+export const FAILURE_RECORD_PATH =
+  '.cortexkit/release-gates/native-inert-failed.json'
+// The gate writes every run's result here on the machine it runs on. A remote
+// run brings it back with `return_paths`.
+export const LAST_RUN_PATH =
+  '.cortexkit/release-gates/native-inert-last-run.json'
 export const RESULT_PREFIX = 'NATIVE_INERT_GATE_RESULT='
 export const STAGE_NAMES = [
   'bun-version',

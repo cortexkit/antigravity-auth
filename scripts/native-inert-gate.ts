@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import {
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readlinkSync,
@@ -7,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   type GateFailure,
   type GatePlacement,
@@ -15,6 +16,7 @@ import {
   git,
   INVENTORY_PATH,
   inventory,
+  LAST_RUN_PATH,
   object,
   qualifiedPlacement,
   RESULT_PREFIX,
@@ -342,6 +344,21 @@ export async function nativeInertGate(): Promise<number> {
     for (const failure of result.failures ?? [])
       console.log(`NATIVE_INERT_GATE_FAILURE=${JSON.stringify(failure)}`)
     console.log(`${RESULT_PREFIX}${JSON.stringify(result)}`)
+    // Keep every run's result on the machine that ran it, pass or fail, so a
+    // lost or filtered output still leaves the failed tests on disk. The
+    // folder is ignored by git, so the clean-tree check above is unaffected.
+    try {
+      mkdirSync(join(root, dirname(LAST_RUN_PATH)), { recursive: true })
+      writeFileSync(
+        join(root, LAST_RUN_PATH),
+        `${JSON.stringify(result, null, 2)}\n`,
+        { mode: 0o600 },
+      )
+    } catch (error) {
+      console.error(
+        `NATIVE_INERT_GATE_LAST_RUN_UNWRITTEN=${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
   }
   return result.pass ? 0 : 1
 }

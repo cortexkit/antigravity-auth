@@ -7,11 +7,36 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
+  FAILURE_RECORD_PATH,
   RECORD_PATH,
   RESULT_PREFIX,
   sha256,
   validateResult,
 } from './native-inert-result.ts'
+
+/**
+ * Keep a failing run's result line on disk, with its failed tests, so the
+ * failure can be read after the caller's output is gone. It never becomes a
+ * passing record: release.sh reads only RECORD_PATH.
+ */
+function keepFailedRun(root: string, raw: Buffer, line: string | undefined) {
+  if (line === undefined) return
+  let result: Record<string, unknown>
+  try {
+    result = JSON.parse(line.slice(RESULT_PREFIX.length))
+  } catch {
+    return
+  }
+  if (result.pass !== false) return
+  const failed = join(root, FAILURE_RECORD_PATH)
+  mkdirSync(dirname(failed), { recursive: true })
+  writeFileSync(
+    failed,
+    `${JSON.stringify({ ...result, stdoutSha256: sha256(raw) }, null, 2)}\n`,
+    { mode: 0o600 },
+  )
+  console.error(`Kept the failing run in ${FAILURE_RECORD_PATH}`)
+}
 
 export function recordNativeInertGate(
   stdoutPath: string,
@@ -27,6 +52,7 @@ export function recordNativeInertGate(
       .filter((line) => line.startsWith(RESULT_PREFIX))
     if (lines.length !== 1)
       throw new Error('expected exactly one NATIVE_INERT_GATE_RESULT line')
+    keepFailedRun(root, raw, lines[0])
     const result = validateResult(
       JSON.parse((lines[0] ?? '').slice(RESULT_PREFIX.length)),
       root,

@@ -168,6 +168,46 @@ test(
   TEST_TIMEOUT_MS,
 )
 
+test(
+  'native-inert record writer keeps a failing run beside the record, never as it',
+  async () => {
+    const { root, result, record } = await fixture()
+    mkdirSync(join(root, '.cortexkit/release-gates'), { recursive: true })
+    writeFileSync(record, JSON.stringify(result))
+    const failed = {
+      ...result,
+      pass: false,
+      failingStage: 'motor-suite',
+      error: 'motor-suite exited 1',
+      failures: [
+        {
+          stage: 'motor-suite',
+          name: 'GA fixtures > slow case',
+          error: 'timed out',
+        },
+      ],
+    }
+    const stdout = join(root, '.cortexkit/stdout')
+    const text = `NATIVE_INERT_GATE_RESULT=${JSON.stringify(failed)}\n`
+    writeFileSync(stdout, text)
+    const written = await run(root, 'record-native-inert-gate.ts', stdout)
+    expect(written.exitCode).toBe(1)
+    expect(existsSync(record)).toBe(false)
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(root, '.cortexkit/release-gates/native-inert-failed.json'),
+          'utf8',
+        ),
+      ),
+    ).toEqual({
+      ...failed,
+      stdoutSha256: createHash('sha256').update(text).digest('hex'),
+    })
+  },
+  TEST_TIMEOUT_MS,
+)
+
 for (const invalid of [
   'pass false',
   'missing stage',
