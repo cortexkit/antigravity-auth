@@ -1644,8 +1644,8 @@ export function isGaOwnedRequest(
 }
 
 export const GA_RETRY_OWNERSHIP_LIMIT = 512
-export const GA_UNSUPPORTED_REQUEST_MESSAGE =
-  'This request cannot use Antigravity. Choose a supported Antigravity model.'
+export const GA_NON_CONTENT_REQUEST_MESSAGE =
+  "This Google request isn't a model reply that Antigravity can serve."
 export const GA_CUSTOM_GOOGLE_ORIGIN_MESSAGE =
   'Antigravity pool requests need the default Google base URL. Remove the custom baseURL from the Google provider settings.'
 
@@ -1701,7 +1701,7 @@ export async function rewriteGaHttpRequest(
   if (!owned) return
   const original = event.request
   if (!isGaGoogleContentRequest(original)) {
-    throw new Error(GA_UNSUPPORTED_REQUEST_MESSAGE)
+    throw new Error(GA_NON_CONTENT_REQUEST_MESSAGE)
   }
   if (!isCanonicalGoogleOrigin(original.url)) {
     throw new Error(GA_CUSTOM_GOOGLE_ORIGIN_MESSAGE)
@@ -1712,7 +1712,17 @@ export async function rewriteGaHttpRequest(
     !input.isRegisteredModel(event.model.id) &&
     !isRetiredAgyModel(event.model.id)
   ) {
-    throw new Error(GA_UNSUPPORTED_REQUEST_MESSAGE)
+    const modelID = event.model.id
+    const antigravityModelID = modelID.startsWith('antigravity-')
+      ? null
+      : `antigravity-${modelID}`
+    const suggestion =
+      antigravityModelID !== null && input.isRegisteredModel(antigravityModelID)
+        ? `Use google/${antigravityModelID}.`
+        : 'Choose a google/antigravity- model.'
+    throw new Error(
+      `This request cannot use Antigravity: google/${modelID} is not an Antigravity model. ${suggestion}`,
+    )
   }
   const job: GaBridgeJob = {
     sessionID: event.sessionID,

@@ -62,6 +62,8 @@ Ownership is checked before title, model, retirement, or body handling. It does 
 
 For owned content requests, title routing precedes primary model checks; supported primary, compaction, and generate requests use the loopback bridge and shared executor. Owned unsupported/non-content paths or off-catalog models refuse locally instead of sending a placeholder to an external provider. An empty or unavailable pool produces a native error, not fabricated HTTP 200 assistant success or a fallback to an ordinary Google credential. When the freshly read enrollment state selects an approved vault, requests use vault credentials and never fall back to the local pool.
 
+While Google is connected through the Antigravity pool or vault, every `google/*` request comes to the plugin. Only the `google/antigravity-…` models are served. OpenCode's other Google models remain in the picker but are refused with a message naming the matching Antigravity model to use, or suggesting the `google/antigravity-` prefix when no match exists. Model IDs are not remapped.
+
 The host retry API identifies the session but not the exact HTTP attempt. The plugin remembers whether each session's latest Google transport was owned (up to 512 entries). If it was owned, the plugin tells OpenCode not to retry the failed request; the plugin's own account rotation and retry handling remain separate. If the latest transport was unowned, or its entry is missing or evicted, OpenCode keeps its normal retry decision. Session cleanup and teardown retire entries. Mixed-ownership concurrency within one session remains a heuristic limitation, not a promise of exact attempt attribution. Response adaptation remains tied to the actual request/bridge record.
 
 ## UI and evidence limits

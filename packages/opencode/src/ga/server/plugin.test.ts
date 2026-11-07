@@ -793,7 +793,11 @@ describe('hook bodies', () => {
           },
           env: NO_PROXY_ENV,
         }),
-      ).rejects.toThrow(server.GA_UNSUPPORTED_REQUEST_MESSAGE)
+      ).rejects.toEqual(
+        new Error(
+          "This Google request isn't a model reply that Antigravity can serve.",
+        ),
+      )
       expect(ownership.get(event.sessionID)).toBe(true)
       expect(retryFor(event.sessionID).decision).toEqual({ retry: false })
       expect(event.request).toBe(request)
@@ -1127,11 +1131,73 @@ describe('hook bodies', () => {
           isRegisteredModel: registered,
           env: NO_PROXY_ENV,
         }),
-      ).rejects.toThrow(server.GA_UNSUPPORTED_REQUEST_MESSAGE)
+      ).rejects.toEqual(
+        new Error(
+          'This request cannot use Antigravity: google/gemini-off-catalog is not an Antigravity model. Choose a google/antigravity- model.',
+        ),
+      )
       expect(original.bodyUsed).toBe(false)
       expect(event.request).toBe(original)
       expect(active.pendingJobs()).toBe(0)
       expect(retryFor(event.sessionID).decision).toEqual({ retry: false })
+    }
+  })
+
+  for (const [name, modelID, message] of [
+    [
+      'names an unknown model and its registered Antigravity twin',
+      'gemini-3.8-flash',
+      'This request cannot use Antigravity: google/gemini-3.8-flash is not an Antigravity model. Use google/antigravity-gemini-3.8-flash.',
+    ],
+    [
+      'names an unknown model without a twin and suggests the Antigravity prefix',
+      'gemini-off-catalog',
+      'This request cannot use Antigravity: google/gemini-off-catalog is not an Antigravity model. Choose a google/antigravity- model.',
+    ],
+    [
+      'names an unknown Antigravity-prefixed model without doubling the prefix',
+      'antigravity-off-catalog',
+      'This request cannot use Antigravity: google/antigravity-off-catalog is not an Antigravity model. Choose a google/antigravity- model.',
+    ],
+  ] as const) {
+    it(name, async () => {
+      const active = await startBridge()
+      const event = requestEvent('primary', modelID)
+      await expect(
+        server.rewriteGaHttpRequest(event, {
+          bridge: active,
+          ownership,
+          isRegisteredModel: registered,
+          env: NO_PROXY_ENV,
+        }),
+      ).rejects.toEqual(new Error(message))
+    })
+  }
+
+  it('keeps ordinary-model and non-content refusal text free of host retry digit runs', async () => {
+    const active = await startBridge()
+    const nonContent = new Request(
+      'https://generativelanguage.googleapis.com/v1beta/models/x:countTokens',
+      {
+        method: 'POST',
+        headers: { 'x-goog-api-key': placeholderSecret('google') },
+        body: '{}',
+      },
+    )
+    for (const event of [
+      requestEvent('primary', 'gemini-3.8-flash'),
+      requestEvent('primary', 'gemini-3.8-flash', nonContent),
+    ]) {
+      const error: unknown = await server
+        .rewriteGaHttpRequest(event, {
+          bridge: active,
+          ownership,
+          isRegisteredModel: registered,
+          env: NO_PROXY_ENV,
+        })
+        .catch((error: unknown) => error)
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).not.toMatch(/429|500|502|503|504|524/)
     }
   })
 
