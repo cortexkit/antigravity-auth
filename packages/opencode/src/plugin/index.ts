@@ -652,8 +652,7 @@ export const createAntigravityPlugin =
     > => {
       const authority = await readAuthority()
       if (authority !== 'local') {
-        if (authority !== 'vault' && authority !== 'host')
-          return showUnavailableVaultMenu()
+        if (authority !== 'vault') return showUnavailableVaultMenu()
         let current: Awaited<ReturnType<typeof currentVaultPool>>
         try {
           current = await currentVaultPool()

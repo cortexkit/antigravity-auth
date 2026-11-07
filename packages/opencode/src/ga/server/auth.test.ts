@@ -9,10 +9,10 @@ import {
   OPENCODE2_POOL_AUTH_LABEL,
   OPENCODE2_VAULT_AUTH_LABEL,
 } from '../../auth-method-labels.ts'
-import { placeholderSecret } from '../../common-auth-embedded/claustrum/index.js'
 import {
   isPlaceholderCredential,
   placeholderCredential,
+  placeholderSecret,
 } from '../../common-auth-embedded/opencode2/index.js'
 import { GA_VAULT_METHOD_ID, registerGaAuthMethods } from './auth.ts'
 import { GA_POOL_METHOD_ID, GA_POOL_RECONNECT_METHOD_ID } from './pool-login.ts'

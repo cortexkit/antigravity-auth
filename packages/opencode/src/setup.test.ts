@@ -352,7 +352,7 @@ describe('real setup CLI entry', () => {
     async () => {
       const p = profile()
       seedLocal(p)
-      p.env.CORTEXKIT_VAULT_HOST = 'thalamus'
+      Object.assign(p.env, { CORTEXKIT_VAULT_HOST: 'thalamus' })
       p.env.SUBC_CONNECTION_FILE = join(p.root, 'missing-connection.json')
       const before = snapshot(p.root)
       const result = await cli(p, '--claustrum', '--yes')

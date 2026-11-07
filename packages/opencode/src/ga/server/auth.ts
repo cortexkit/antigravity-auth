@@ -55,7 +55,7 @@ export async function registerGaAuthMethods(
           local: {
             ...local,
             assertAdmission: async () => {
-              if ((await loadCommonAuthClaustrum()).hasVaultHost())
+              if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
                 throw new Error('Vault authority excludes local sign-in.')
               await local.assertAdmission()
             },

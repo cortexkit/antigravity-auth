@@ -1395,7 +1395,7 @@ export function createGaRpcActivation(
       : Math.max(acknowledged, queue.evictedThrough)
     const claustrum = await loadCommonAuthClaustrum()
     const output: AntigravityStateOutput = {
-      ...(claustrum.hasVaultHost()
+      ...(process.env.CORTEXKIT_VAULT_HOST === 'thalamus'
         ? { vaultHostStatus: claustrum.VAULT_HOST_STATUS }
         : {}),
       version: ANTIGRAVITY_RPC_VERSION,
