@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [3.0.34] - 2026-11-07
+
+### Fixed
+
 - On OpenCode 2, refusing a Google model that Antigravity doesn't serve now names the model and the matching Antigravity model; a refused non-model request has its own message (#65).
 
 ## [3.0.33] - 2026-11-07
