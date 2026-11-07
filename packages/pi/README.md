@@ -46,9 +46,11 @@ every native auth record when changing plugin versions.
 Thalamus provides Pi's vault accounts. No `setup --claustrum` is needed; setup
 and Pi's vault connection action refuse because Thalamus owns the connection.
 The `/antigravity` Vault section shows **Served by Thalamus**, without Connect or
-Disconnect. Pi saves its native Google login and installs the non-secret vault
-marker while holding Pi's `auth.json` lock; leaving Thalamus restores the login
-only if the slot still matches. Outside Thalamus, nothing changes.
+Disconnect. Pi saves its native Google login and puts the non-secret vault
+marker in Pi's `google` slot in `auth.json`, while holding that file's lock.
+When Pi later runs outside Thalamus, it restores the saved login only if the
+`google` slot still holds that marker, the same rule as for disconnecting an
+enrolled vault. Otherwise nothing changes outside Thalamus.
 
 ## Models
 
