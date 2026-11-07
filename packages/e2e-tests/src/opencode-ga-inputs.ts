@@ -413,7 +413,7 @@ export async function seedOwnedCurrentStore(
     const onBoundary = async (boundary: string) => {
       await interval?.()
       const pair = boundary.match(
-        /^(public:[^:]+:)?(before|after)-(capture|build|verify|retire|activate|directory-sync|state-write|config-write)$/,
+        /^(public:[^:]+:)?(before|after)-(capture|build|verify|retire|activate|directory-sync|state-write|config-write|journal-write|(?:file-sync|exclusive-write):[a-z-]+)$/,
       )
       if (pair) {
         const name = `${pair[1] ?? ''}${pair[3]}`
@@ -428,8 +428,8 @@ export async function seedOwnedCurrentStore(
       }
       // Adjacent-boundary intervals also account for journal persistence and
       // pointer publication outside the five named migration steps. Public
-      // write spans include their observer's file and directory syncs; these
-      // are not individual syscall timings.
+      // write spans include nested file and directory syncs. Reopened-file sync
+      // spans include open/close and permission-checked reads around the sync.
       interval = begin(`interval.${step}.${boundary}`)
     }
     if (phase) interval = begin('interval.between-steps.start')

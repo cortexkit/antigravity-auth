@@ -1673,7 +1673,12 @@ function jsonBytes(bytes: Uint8Array): unknown {
     throw new AccountMigrationError('malformed or non-UTF8 durable JSON')
   }
 }
-async function syncFile(path: string): Promise<void> {
+async function syncFile(
+  path: string,
+  boundary?: AccountMigrationOptions['onBoundary'],
+  role = 'recovery-copy',
+): Promise<void> {
+  if (boundary) await boundary(`before-file-sync:${role}`)
   await secureRead(path)
   // Windows FlushFileBuffers requires write access even when no bytes change.
   const access =
@@ -1685,6 +1690,7 @@ async function syncFile(path: string): Promise<void> {
     await handle.close()
   }
   await secureRead(path)
+  if (boundary) await boundary(`after-file-sync:${role}`)
 }
 export function accountMigrationDurability(
   platform: NodeJS.Platform = process.platform,
@@ -1713,7 +1719,9 @@ async function exclusiveBytes(
   expectedHash: string,
   boundary?: AccountMigrationOptions['onBoundary'],
   pointerStage = false,
+  role = 'recovery-copy',
 ): Promise<void> {
+  if (boundary) await boundary(`before-exclusive-write:${role}`)
   let handle: Awaited<ReturnType<typeof open>> | undefined
   try {
     if (windowsPrivateFiles) {
@@ -1731,7 +1739,9 @@ async function exclusiveBytes(
   if (handle !== undefined) {
     try {
       await handle.writeFile(bytes)
+      if (boundary) await boundary(`before-file-sync:${role}`)
       await handle.sync()
+      if (boundary) await boundary(`after-file-sync:${role}`)
     } finally {
       await handle.close()
     }
@@ -1744,8 +1754,10 @@ async function exclusiveBytes(
   // A new POSIX pointer stage was synced through its write handle. A stage the
   // Windows private writer created has no handle here, so it is synced like
   // reused stages and every backup, bootstrap, retired and export copy.
-  if (handle === undefined || !pointerStage) await syncFile(path)
+  if (handle === undefined || !pointerStage)
+    await syncFile(path, boundary, role)
   await syncDirectory(dirname(path), boundary)
+  if (boundary) await boundary(`after-exclusive-write:${role}`)
 }
 async function readJournal(
   paths: AccountStorePaths,
@@ -1780,6 +1792,7 @@ async function saveJournal(
   initial: boolean | string = false,
   boundary?: AccountMigrationOptions['onBoundary'],
 ): Promise<void> {
+  if (boundary) await boundary('before-journal-write')
   decodeAccountMigrationJournal(journalJson(journal))
   const stage = journal.id
   const journalTemp = `${paths.migrationPath}.${stage}.tmp`
@@ -1809,11 +1822,15 @@ async function saveJournal(
         throw new AccountMigrationError(
           'journal ownership changed before write',
         )
-      await syncFile(`${paths.migrationPath}.${stage}.tmp`)
+      await syncFile(
+        `${paths.migrationPath}.${stage}.tmp`,
+        boundary,
+        'journal-stage',
+      )
       await lease.assertOwned()
     },
   })
-  await syncFile(paths.migrationPath)
+  await syncFile(paths.migrationPath, boundary, 'journal')
   await syncDirectory(paths.storeDir, boundary)
   const reopened = await readJournal(paths)
   if (
@@ -1822,6 +1839,7 @@ async function saveJournal(
   )
     throw new AccountMigrationError('journal readback differs')
   await lease.assertOwned()
+  if (boundary) await boundary('after-journal-write')
 }
 function openMigrationStore(
   modules: AccountMigrationModules,
@@ -2159,9 +2177,9 @@ async function synchronizedSnapshot(
   paths: AccountStorePaths,
   boundary?: AccountMigrationOptions['onBoundary'],
 ): Promise<{ config: Buffer; state?: Buffer }> {
-  await syncFile(paths.configPath)
+  await syncFile(paths.configPath, boundary, 'config')
   const statePresent = await exists(paths.statePath)
-  if (statePresent) await syncFile(paths.statePath)
+  if (statePresent) await syncFile(paths.statePath, boundary, 'state')
   await syncDirectory(paths.storeDir, boundary)
   return {
     config: await secureRead(paths.configPath),
@@ -2782,6 +2800,8 @@ async function capture(
         bytes,
         sourceSha256,
         options.onBoundary,
+        false,
+        'backup',
       )
       const journal: AccountMigrationJournal = {
         schemaVersion: 1,
@@ -2809,6 +2829,8 @@ async function capture(
         captureBytes,
         journal.captureSha256,
         options.onBoundary,
+        false,
+        'capture-record',
       )
       await accountsLease.assertOwned()
       await lease.assertOwned()
@@ -2823,6 +2845,8 @@ async function capture(
           archived,
           digest(archived),
           options.onBoundary,
+          false,
+          'archived-journal',
         )
       }
       await saveJournal(
@@ -2857,6 +2881,8 @@ async function build(
       bootstrap,
       digest(bootstrap),
       options.onBoundary,
+      false,
+      'config',
     )
   }
   await store.initialize()
@@ -3208,6 +3234,7 @@ export function createAccountMigrationFactory(
               options.legacyPath,
               prior,
               parentLease,
+              options.onBoundary,
             )
           let paths = prior
             ? generationPaths(options.legacyPath, prior.id)
@@ -3752,14 +3779,14 @@ async function replaceRelocationPointer(
           throw new AccountMigrationError(
             'source pointer changed before rename',
           )
-        await syncFile(stage)
+        await syncFile(stage, boundary, 'pointer-stage')
         await boundary?.(`${prefix}:before-rename`)
       },
     })
     await boundary?.(`${prefix}:after-rename-before-sync`)
   }
   // Also finish these barriers when recovering a rename that preceded a crash.
-  await syncFile(path)
+  await syncFile(path, boundary, 'pointer')
   await syncDirectory(dirname(anchor))
   if (!isDeepStrictEqual(await readPointerRecord(anchor), next))
     throw new AccountMigrationError('relocation pointer readback differs')
@@ -3807,6 +3834,7 @@ export function createAccountRelocationFactory(
                   options.legacyPath,
                   sourceRecord,
                   sourceParent,
+                  options.onBoundary,
                 )
               const source = generationPaths(
                 options.legacyPath,
@@ -3840,6 +3868,7 @@ export function createAccountRelocationFactory(
                           options.targetPath,
                           prior,
                           targetParent,
+                          options.onBoundary,
                         )
                       let paths = prior
                         ? generationPaths(options.targetPath, prior.id)
@@ -4475,10 +4504,18 @@ async function reverseRelocation(
                       stageName: () => journal.id,
                       beforeRename: async () => {
                         await lease.assertOwned()
-                        await syncFile(stage)
+                        await syncFile(
+                          stage,
+                          options.onBoundary,
+                          'reverse-progress-stage',
+                        )
                       },
                     })
-                    await syncFile(progressPath)
+                    await syncFile(
+                      progressPath,
+                      options.onBoundary,
+                      'reverse-progress',
+                    )
                     await syncDirectory(paths.transfersDir)
                     if (
                       !isDeepStrictEqual(
@@ -4555,7 +4592,11 @@ async function reverseRelocation(
                               )
                               await assertOwned()
                               await rename(stage, path)
-                              await syncFile(path)
+                              await syncFile(
+                                path,
+                                options.onBoundary,
+                                'restored-copy',
+                              )
                               await syncDirectory(original.storeDir)
                             }
                             // Native files are copied, never exported through the lossy V4 representation.
@@ -4595,6 +4636,8 @@ async function reverseRelocation(
                             step.includes('config')
                               ? original.configPath
                               : original.statePath,
+                            options.onBoundary,
+                            step.includes('config') ? 'config' : 'state',
                           )
                           await syncDirectory(original.storeDir)
                         }
@@ -5294,6 +5337,7 @@ export async function initializeFreshAccountStore(
             options.legacyPath,
             pointer,
             parentLease,
+            options.onBoundary,
           )
         const physical = pointer
           ? generationPaths(options.legacyPath, pointer.id)
@@ -5614,9 +5658,9 @@ async function initializePrivateEmptyGeneration(
         Buffer.from(`${JSON.stringify(journalJson(journal), null, 2)}\n`),
       )
       await boundary?.('empty-stage:after-journal')
-      await syncFile(paths.configPath)
+      await syncFile(paths.configPath, boundary, 'config')
       await boundary?.('empty-stage:after-config-sync')
-      await syncFile(paths.migrationPath)
+      await syncFile(paths.migrationPath, boundary, 'journal')
       await boundary?.('empty-stage:after-journal-sync')
       for (const [name, path] of [
         ['backups', paths.backupsDir],
@@ -5652,14 +5696,16 @@ async function initializePrivateEmptyGeneration(
       if (stageHandle) {
         try {
           await stageHandle.writeFile(bytes)
+          if (boundary) await boundary('before-file-sync:pointer-stage')
           await stageHandle.sync()
+          if (boundary) await boundary('after-file-sync:pointer-stage')
         } finally {
           await stageHandle.close()
         }
       }
       if (!(await secureRead(stage)).equals(bytes))
         throw new AccountMigrationError('exclusive pointer stage differs')
-      if (!stageHandle) await syncFile(stage)
+      if (!stageHandle) await syncFile(stage, boundary, 'pointer-stage')
       await boundary?.('empty-stage:after-pointer-stage')
       await syncDirectory(dirname(path))
       await boundary?.('empty-stage:after-parent-prelink-sync')
@@ -5753,7 +5799,7 @@ async function publishGenerationPointer(
   // Callers without a still-held save-owner opt-in retain both barriers rather
   // than infer that the canonical journal was persisted by an earlier operation.
   if (journalSavedBy !== managementLease) {
-    await syncFile(paths.migrationPath)
+    await syncFile(paths.migrationPath, boundary, 'journal')
     await syncDirectory(paths.storeDir)
   }
   const pointer: AccountStorePointer = {
@@ -5765,7 +5811,14 @@ async function publishGenerationPointer(
   if (prior === undefined) {
     const stage = `${path}.${journal.id}.tmp`
     const bytes = Buffer.from(`${JSON.stringify(pointer, null, 2)}\n`)
-    await exclusiveBytes(stage, bytes, digest(bytes), undefined, true)
+    await exclusiveBytes(
+      stage,
+      bytes,
+      digest(bytes),
+      boundary,
+      true,
+      'pointer-stage',
+    )
     await parentLease.assertOwned()
     await managementLease.assertOwned()
     await boundary?.('pointer:before-link')
@@ -5834,10 +5887,10 @@ async function publishGenerationPointer(
           throw new AccountMigrationError(
             'inactive pointer changed before transition',
           )
-        await syncFile(`${path}.${stageName}.tmp`)
+        await syncFile(`${path}.${stageName}.tmp`, boundary, 'pointer-stage')
       },
     })
-    await syncFile(path)
+    await syncFile(path, boundary, 'pointer')
     await syncDirectory(dirname(path))
   }
   await parentLease.assertOwned()
@@ -5877,6 +5930,8 @@ function writeObserver(
       // Random native staging files are private residue, not recovery evidence.
       await syncFile(
         step.includes('config') ? paths.configPath : paths.statePath,
+        boundary,
+        step.includes('config') ? 'config' : 'state',
       )
       await syncDirectory(paths.storeDir, boundary)
     }
@@ -5890,9 +5945,10 @@ async function finishPointerPublication(
   legacyPath: string,
   pointer: AccountStorePointer,
   lease: MigrationLease,
+  boundary?: AccountMigrationOptions['onBoundary'],
 ): Promise<void> {
   const path = accountStorePointerPath(legacyPath)
-  await syncFile(path)
+  await syncFile(path, boundary, 'pointer')
   await syncDirectory(dirname(path))
   if (await cleanupPointerStage(legacyPath, pointer, lease))
     await syncDirectory(dirname(path))

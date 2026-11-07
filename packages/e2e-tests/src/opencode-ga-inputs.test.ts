@@ -53,7 +53,9 @@ type PhaseRunner = <T>(name: string, action: () => Promise<T>) => Promise<T>
 type RecordedPhase = {
   name: string
   startedAt: number
+  cpuStartedAt: NodeJS.CpuUsage
   finishedAt?: number
+  cpuFinishedAt?: NodeJS.CpuUsage
 }
 
 type FixtureClockOptions = {
@@ -61,6 +63,7 @@ type FixtureClockOptions = {
   startedAt?: number
   write?: (line: string) => void
   schedule?: (callback: () => void, delayMs: number) => () => void
+  cpuUsage?: () => NodeJS.CpuUsage
 }
 
 function createFixturePhaseClock(
@@ -70,6 +73,7 @@ function createFixturePhaseClock(
 ) {
   const startedAt = options.startedAt ?? performance.now()
   const now = () => performance.now()
+  const cpuUsage = options.cpuUsage ?? (() => process.cpuUsage())
   const phases: RecordedPhase[] = []
   const openPhases: RecordedPhase[] = []
   const write = options.write ?? ((line: string) => console.error(line))
@@ -80,6 +84,7 @@ function createFixturePhaseClock(
     if (emitted) return
     emitted = true
     const at = now()
+    const cpuAt = cpuUsage()
     const report = {
       testName,
       fixtureId,
@@ -87,6 +92,15 @@ function createFixturePhaseClock(
         name: phase.name,
         startOffsetMs: elapsedMs(phase.startedAt - startedAt),
         durationMs: elapsedMs((phase.finishedAt ?? at) - phase.startedAt),
+        // CPU is process-wide, not exclusive to this fixture or nested span.
+        cpuUserMs: elapsedMs(
+          ((phase.cpuFinishedAt ?? cpuAt).user - phase.cpuStartedAt.user) /
+            1000,
+        ),
+        cpuSystemMs: elapsedMs(
+          ((phase.cpuFinishedAt ?? cpuAt).system - phase.cpuStartedAt.system) /
+            1000,
+        ),
       })),
       openPhase: openPhases.at(-1)?.name ?? null,
     }
@@ -104,13 +118,18 @@ function createFixturePhaseClock(
   const cancelTimer = schedule(emit, Math.max(0, options.budgetMs))
 
   const phase: PhaseRunner = async (name, action) => {
-    const record: RecordedPhase = { name, startedAt: now() }
+    const record: RecordedPhase = {
+      name,
+      startedAt: now(),
+      cpuStartedAt: cpuUsage(),
+    }
     phases.push(record)
     openPhases.push(record)
     try {
       return await action()
     } finally {
       record.finishedAt = now()
+      record.cpuFinishedAt = cpuUsage()
       const index = openPhases.lastIndexOf(record)
       if (index >= 0) openPhases.splice(index, 1)
     }
@@ -858,6 +877,42 @@ describe('GA current-store fixture admission', () => {
     expect(reports.every((report) => report.openPhase === null)).toBe(true)
   })
 
+  it('phase clocks sample CPU deltas for completed and still-open phases', async () => {
+    const lines: string[] = []
+    const samples = [
+      { user: 1000, system: 2000 },
+      { user: 5000, system: 7000 },
+      { user: 8000, system: 9000 },
+      { user: 11000, system: 15000 },
+    ]
+    const clock = createFixturePhaseClock('CPU samples', 'fixture', {
+      budgetMs: 4000,
+      write: (line) => lines.push(line),
+      schedule: () => () => undefined,
+      cpuUsage: () => {
+        const sample = samples.shift()
+        if (!sample) throw new Error('unexpected CPU sample')
+        return sample
+      },
+    })
+    try {
+      await clock.phase('completed', async () => undefined)
+      void clock.phase('open', () => new Promise<never>(() => undefined))
+      clock.emit()
+      const report = JSON.parse(
+        (lines[0] ?? '').slice('GA_STORE_FIXTURE_PHASES='.length),
+      )
+      expect(report.phases).toMatchObject([
+        { name: 'completed', cpuUserMs: 4, cpuSystemMs: 5 },
+        { name: 'open', cpuUserMs: 3, cpuSystemMs: 6 },
+      ])
+      expect(report.openPhase).toBe('open')
+      expect(samples).toHaveLength(0)
+    } finally {
+      clock.close()
+    }
+  })
+
   it('phase clocks report a never-resolving phase once at the fake budget', async () => {
     const lines: string[] = []
     let fireBudget: (() => void) | undefined
@@ -1094,10 +1149,26 @@ describe('GA current-store fixture admission', () => {
           const paths = await phase('prepareGaRoot', async () =>
             prepareGaRoot(root),
           )
+          const migrationPhases = new Set<string>()
           await phase('seedOwnedCurrentStore', () =>
-            seedOwnedCurrentStore(paths, id, (name, action) =>
-              phase(`seedOwnedCurrentStore.${name}`, action),
-            ),
+            seedOwnedCurrentStore(paths, id, (name, action) => {
+              migrationPhases.add(name)
+              return phase(`seedOwnedCurrentStore.${name}`, action)
+            }),
+          )
+          expect([...migrationPhases]).toEqual(
+            expect.arrayContaining([
+              'migration.file-sync:backup',
+              'migration.file-sync:capture-record',
+              'migration.file-sync:journal-stage',
+              'migration.file-sync:journal',
+              'migration.file-sync:pointer-stage',
+              'migration.file-sync:config',
+              'migration.file-sync:state',
+              'migration.exclusive-write:backup',
+              'migration.exclusive-write:capture-record',
+              'migration.journal-write',
+            ]),
           )
           await phase('assertOwnedCurrentStoreInput', () =>
             assertOwnedCurrentStoreInput(paths, id),
