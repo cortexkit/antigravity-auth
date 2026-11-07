@@ -46,6 +46,7 @@ import {
   type FetchAccountQuota,
   fetchWithAgyCliTransport,
   formatRefreshParts,
+  loadCommonAuthClaustrum,
   loadCommonAuthCommands,
   loadCommonAuthStoreModules,
   type ManagedAccount,
@@ -2310,7 +2311,7 @@ export function createGaLocationServicesFactory(
       local: {
         ...localLogin,
         async assertAdmission() {
-          if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+          if ((await loadCommonAuthClaustrum()).hasVaultHost())
             throw new Error('Vault authority excludes local sign-in.')
           await localLogin.assertAdmission()
         },

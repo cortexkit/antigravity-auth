@@ -28,6 +28,7 @@ import {
   type ClaustrumEnrollmentPaths,
   type ClaustrumEnrollmentStatus,
   type HostSlotContent,
+  hasVaultHost,
   VAULT_HOST_STATUS,
 } from '@cortexkit/antigravity-auth-core/common-auth/claustrum'
 import type {
@@ -221,7 +222,7 @@ export class PiVaultSetup {
   /** Read vault approval and local/vault settings without opening Pi's Google credentials. */
   async sourceStatus(): Promise<Omit<PiVaultSetupStatus, 'hostSlot'>> {
     const mode = readPiVaultMode(this.#options.modeFile)
-    if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+    if (hasVaultHost())
       return {
         hosted: true,
         mode: 'custody',
@@ -300,7 +301,7 @@ export class PiVaultSetup {
    * blocked request before starting again. Only setup actions call this method.
    */
   async connectStep(): Promise<ClaustrumEnrollmentStatus> {
-    if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+    if (hasVaultHost())
       throw new PiVaultSetupError(
         this.#options.claustrum.VAULT_HOST_CONNECT_REFUSAL,
       )
@@ -337,7 +338,7 @@ export class PiVaultSetup {
    * returning, so provider registration cannot race it.
    */
   async useVault(routeId?: string): Promise<PiVaultModeRecord> {
-    const hosted = process.env.CORTEXKIT_VAULT_HOST === 'thalamus'
+    const hosted = hasVaultHost()
     const enrollment = hosted
       ? undefined
       : await this.#options.claustrum.readClaustrumEnrollmentStatus(
@@ -383,7 +384,7 @@ export class PiVaultSetup {
    * revokes it there.
    */
   async disconnect(): Promise<void> {
-    if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+    if (hasVaultHost())
       throw new PiVaultSetupError(
         this.#options.claustrum.VAULT_HOST_CONNECT_REFUSAL,
       )

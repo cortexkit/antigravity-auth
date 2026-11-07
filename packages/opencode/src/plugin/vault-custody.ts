@@ -390,7 +390,7 @@ export function createOpenCodeVaultCustody(
   const readEnrollment = async (): Promise<EnrollmentStatus> => {
     if (layoutRefusal !== undefined) return unsettled
     const claustrum = await loadClaustrum()
-    if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+    if (claustrum.hasVaultHost())
       return {
         state: 'unavailable',
         code: 'host',
@@ -438,7 +438,7 @@ export function createOpenCodeVaultCustody(
   const readEnrollmentSnapshot = async (): Promise<EnrollmentSnapshot> => {
     if (layoutRefusal !== undefined)
       return { authority: 'unreadable', status: unsettled }
-    if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+    if ((await loadClaustrum()).hasVaultHost())
       return { authority: 'host', status: await readEnrollment() }
     const enrollment = await enrollmentPaths()
     const identity = await enrollmentFilesIdentity(enrollment)
@@ -755,7 +755,7 @@ export function createOpenCodeVaultCustody(
 
     async requestAccess() {
       const claustrum = await loadClaustrum()
-      if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+      if (claustrum.hasVaultHost())
         throw new OpenCodeVaultCustodyError(
           claustrum.VAULT_HOST_CONNECT_REFUSAL,
         )
@@ -764,7 +764,7 @@ export function createOpenCodeVaultCustody(
 
     async useVault() {
       refuseUnsettled()
-      if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus') return
+      if ((await loadClaustrum()).hasVaultHost()) return
       const enrollment = await readEnrollment()
       if (enrollment.state !== 'approved')
         throw new OpenCodeVaultCustodyError(
@@ -777,7 +777,7 @@ export function createOpenCodeVaultCustody(
     async useLocal() {
       refuseUnsettled()
       const claustrum = await loadClaustrum()
-      if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+      if (claustrum.hasVaultHost())
         throw new OpenCodeVaultCustodyError(
           claustrum.VAULT_HOST_CONNECT_REFUSAL,
         )
@@ -818,7 +818,7 @@ export function createOpenCodeVaultCustody(
           if (layoutRefusal !== undefined)
             return { lines: [`Vault: ${layoutRefusal}`], actions: [] }
           const claustrum = await loadClaustrum()
-          if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+          if (claustrum.hasVaultHost())
             return { lines: [claustrum.VAULT_HOST_STATUS], actions: [] }
           const status = await custody.status()
           const lines = statusLines(status)

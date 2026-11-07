@@ -562,7 +562,7 @@ export async function runPluginSetup(
   io: SetupIO = {},
 ): Promise<void> {
   const claustrum = await loadCommonAuthClaustrum()
-  if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+  if (claustrum.hasVaultHost())
     throw new Error(claustrum.VAULT_HOST_CONNECT_REFUSAL)
   const plugin = await createSetupPlugin(
     deps,
