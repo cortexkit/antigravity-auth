@@ -7,6 +7,7 @@ import { FileReadCache } from '../fs/file-read-cache.js';
 import { acquireRefreshFileLock } from '../fs/index.js';
 import { ensurePrivateDirectory as ensureWindowsDirectory, PrivateFileError, readPrivateText, verifySafeDirectory, windowsPrivateFiles, writePrivateAtomic, } from '../fs/private-files.js';
 import { ClaustrumConsumerError } from './errors.js';
+import { hasVaultHost } from './host.js';
 const ENROLLMENT_SCHEMA = 1;
 const ENROLLMENT_FILE_MAX_BYTES = 16 * 1024;
 const ENROLLMENT_LOCK_TTL_MS = 30_000;
@@ -499,6 +500,12 @@ export async function enrollmentAuthority(paths, proposedName) {
         return 'vault';
     }
     return 'local';
+}
+/** Host authority takes precedence without reading any plugin enrollment files. */
+export async function vaultAuthority(paths, proposedName) {
+    if (hasVaultHost())
+        return 'host';
+    return enrollmentAuthority(paths, proposedName);
 }
 /**
  * Read fresh bearer material for one scoped operation; never publish it.

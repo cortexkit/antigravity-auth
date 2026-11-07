@@ -13,7 +13,7 @@ export interface RunCommandOptions {
   /** Required: how long the command may run before it is killed and the call throws. */
   deadlineMs: number
   cwd?: string
-  /** Replaces the child's whole environment when given; undefined values are dropped. */
+  /** Defaults to current process.env; explicit replacements drop undefined values. */
   env?: Record<string, string | undefined>
   stdin?: string | Uint8Array
 }
@@ -74,13 +74,14 @@ async function spawnCollect(
     throw new Error(
       `runCommand needs a positive deadline for ${describe(argv)}`,
     )
+  // Bun's implicit child environment can retain the vault marker cleared by test/setup.ts.
   const env = options.env
     ? Object.fromEntries(
         Object.entries(options.env).filter(
           (entry): entry is [string, string] => entry[1] !== undefined,
         ),
       )
-    : undefined
+    : process.env
   const child = Bun.spawn([...argv], {
     cwd: options.cwd,
     env,

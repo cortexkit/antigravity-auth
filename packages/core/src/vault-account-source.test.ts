@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -885,6 +885,43 @@ describe('real public consumer with a local vault transport', () => {
     expect(vault.closed).toBe(1)
   })
 
+  it('ignores an installed vault host accessor without the marker for discovery and send', async () => {
+    const key = Symbol.for('cortexkit.vault')
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key)
+    const accessor = mock(() => {
+      throw new Error('unmarked host accessor must not be called')
+    })
+    expect(process.env.CORTEXKIT_VAULT_HOST).toBeUndefined()
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      value: accessor,
+    })
+    let src: AntigravityVaultAccountSource | undefined
+    try {
+      const vault = localVault()
+      const real = await realSource(vault)
+      src = real.src
+      expect(vault.listTokens).toEqual([ENROLLMENT_TOKEN])
+      vault.served.push(servedCredential(1))
+      const sent = await src.send(
+        real.ref,
+        async (admission) => {
+          expect(admission.accessToken).toBe('test-access-v1')
+          return response(200)
+        },
+        { site: 'model' },
+      )
+      expect(sent.status).toBe(200)
+      expect(vault.gets).toHaveLength(1)
+      expect(vault.gets[0]?.enrollmentToken).toBe(ENROLLMENT_TOKEN)
+      expect(accessor).not.toHaveBeenCalled()
+    } finally {
+      src?.close()
+      if (previous) Object.defineProperty(globalThis, key, previous)
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  })
+
   it('serves every physical send from its own fresh receipt', async () => {
     const vault = localVault()
     const { src, ref } = await realSource(vault)
@@ -1159,6 +1196,7 @@ console.log(JSON.stringify({ before, after: loads, path }))
     )
     const child = Bun.spawn([process.execPath, probe], {
       cwd: dir,
+      env: process.env,
       stdout: 'pipe',
       stderr: 'pipe',
     })

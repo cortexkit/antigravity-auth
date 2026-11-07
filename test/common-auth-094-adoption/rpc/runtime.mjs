@@ -791,7 +791,7 @@ if (mode?.startsWith('lifetime:')) {
       const child = spawn(
         process.execPath,
         [process.argv[1], root, `lifetime:${kind}`],
-        { stdio: ['ignore', 'pipe', 'pipe'] },
+        { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] },
       )
       let stdout = '',
         stderr = ''

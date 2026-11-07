@@ -21,6 +21,7 @@ import { createHubMember, DEFAULT_CONNECT_TIMEOUT_MS, } from './consumer.js';
 import { ClaustrumScopedCustody, } from './custody.js';
 import { ensureClaustrumPrivateDirectory } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
+import { connectVaultHost, hasVaultHost } from './host.js';
 import { DEFAULT_ROUTE_PREFIX, decodedVaultRoster, forgetPendingVaultDiscovery, isVaultRosterLockRefusal, readVaultRoster, refreshVaultRoster, vaultRosterSeed, } from './roster.js';
 import { drainShutdown, shutdownWarning } from './shutdown.js';
 import { SAFETY_POLL_MS } from './watch.js';
@@ -383,7 +384,9 @@ export class ClaustrumDiscoveryHub {
         // that never settles would otherwise hold them all for the hub's life.
         const connectTimeoutMs = this.#options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
         let timer;
-        const connect = this.#options.connect().then((client) => {
+        const connect = (!hasVaultHost() && this.#options.connect
+            ? this.#options.connect()
+            : Promise.resolve().then(() => connectVaultHost(this.#options.pluginId))).then((client) => {
             // A connect resolves into its generation only while that generation
             // is current and still wanted; otherwise its client never serves.
             if (entry.timedOut) {
@@ -567,7 +570,7 @@ export class ClaustrumDiscoveryHub {
      * runs the inactive transition; nothing else does.
      */
     async #readAuthority() {
-        const active = (await this.#options.isCustodyActive?.()) ?? true;
+        const active = hasVaultHost() || ((await this.#options.isCustodyActive?.()) ?? true);
         if (this.#shutdown.signal.aborted)
             return false;
         const was = this.#active;

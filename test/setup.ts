@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTestRoot } from './support/test-root.ts'
 
+// Vault authority must be selected by a test, not inherited from its launcher.
+delete process.env.CORTEXKIT_VAULT_HOST
+
 const root = createTestRoot({
   env: process.env,
   testFile: Bun.main,

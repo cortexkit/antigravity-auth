@@ -21,6 +21,41 @@ describe('test environment isolation', () => {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
   if (!root) throw new Error('ANTIGRAVITY_TEST_ROOT not set by preload')
 
+  it('clears an inherited vault host marker before test imports', async () => {
+    const result = await runCommand(
+      [
+        process.execPath,
+        'test',
+        '--isolate',
+        fileURLToPath(import.meta.url),
+        '-t',
+        'has no inherited vault host authority',
+      ],
+      {
+        env: { ...process.env, CORTEXKIT_VAULT_HOST: 'thalamus' },
+        deadlineMs: 10_000,
+      },
+    )
+    if (result.exitCode !== 0) throw new Error(result.stderr)
+    expect(result.stderr).toContain('1 pass')
+  })
+
+  it('has no inherited vault host authority', async () => {
+    expect(process.env.CORTEXKIT_VAULT_HOST).toBeUndefined()
+    const child = await runCommand(
+      [
+        process.execPath,
+        '-e',
+        'console.log(process.env.CORTEXKIT_VAULT_HOST ?? "unset")',
+      ],
+      { deadlineMs: 10_000 },
+    )
+    expect({ status: child.exitCode, marker: child.stdout.trim() }).toEqual({
+      status: 0,
+      marker: 'unset',
+    })
+  })
+
   it('exposes ANTIGRAVITY_TEST_ROOT as a temp dir', () => {
     expect(root.startsWith(require('node:os').tmpdir())).toBe(true)
     expect(root).toContain('antigravity-auth-test-')

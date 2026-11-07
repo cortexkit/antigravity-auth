@@ -4,6 +4,7 @@ import { ClaustrumUnreachableError } from './availability.js';
 import { ClaustrumScopedCustody, decideScopedRetryAfter401, } from './custody.js';
 import { readClaustrumEnrollmentToken } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
+import { connectVaultHost, hasVaultHost } from './host.js';
 import { acquireInsulaQuotaSource, } from './insula.js';
 import { pendingVaultQuota, retainVaultQuotaWriter } from './quota-writer.js';
 import { acceptVaultRoute, applyVaultQuota, declineVaultRoute, forgetPendingVaultDiscovery, readVaultRoster, recordVaultAccountQuota, recordVaultQuota, refreshVaultRoster, reorderVaultRoster, vaultRoutingRows, } from './roster.js';
@@ -98,6 +99,8 @@ export class ClaustrumConsumer {
         return pending;
     }
     async #active() {
+        if (hasVaultHost())
+            return true;
         return (await this.#options.isCustodyActive?.()) ?? true;
     }
     #wait(pending, signal) {
@@ -153,7 +156,9 @@ export class ClaustrumConsumer {
     #boundedConnect(attempt) {
         const setTimer = this.#options.setTimeoutImpl ?? setTimeout;
         const clearTimer = this.#options.clearTimeoutImpl ?? clearTimeout;
-        const pending = this.#options.connect().then((client) => {
+        const pending = (!hasVaultHost() && this.#options.connect
+            ? this.#options.connect()
+            : Promise.resolve().then(() => connectVaultHost(this.#options.pluginId))).then((client) => {
             if (this.#shutdown.signal.aborted || attempt.timedOut) {
                 client.close();
                 if (!attempt.timedOut)
@@ -429,7 +434,8 @@ export class ClaustrumConsumer {
             !(await this.#active()))
             return;
         try {
-            await readClaustrumEnrollmentToken(this.#options.tokenPath);
+            if (!hasVaultHost())
+                await readClaustrumEnrollmentToken(this.#options.tokenPath);
             await this.#getCustody();
             await this.#insula?.source.refresh((this.#options.now ?? Date.now)());
         }
@@ -449,7 +455,8 @@ export class ClaustrumConsumer {
             !(await this.#active()))
             return undefined;
         try {
-            await readClaustrumEnrollmentToken(this.#options.tokenPath);
+            if (!hasVaultHost())
+                await readClaustrumEnrollmentToken(this.#options.tokenPath);
             return this.#normalizeInsulaQuota(receipt.assertedAccountIdentity);
         }
         catch {
@@ -467,7 +474,8 @@ export class ClaustrumConsumer {
             !(await this.#active()))
             return undefined;
         try {
-            await readClaustrumEnrollmentToken(this.#options.tokenPath);
+            if (!hasVaultHost())
+                await readClaustrumEnrollmentToken(this.#options.tokenPath);
             const roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
             const row = roster?.rows.find((entry) => entry.routeId === routeId);
             return this.#normalizeInsulaQuota(row?.accountIdentity);
@@ -482,7 +490,8 @@ export class ClaustrumConsumer {
         if (!options || this.#shutdown.signal.aborted || !(await this.#active()))
             return { miss: 'unreachable' };
         try {
-            await readClaustrumEnrollmentToken(this.#options.tokenPath);
+            if (!hasVaultHost())
+                await readClaustrumEnrollmentToken(this.#options.tokenPath);
             const roster = pendingVaultQuota(this.#options.rosterPath, await readVaultRoster(this.#options.rosterPath));
             const account = roster?.rows.find((row) => row.routeId === routeId)?.accountIdentity;
             if (!account || !this.#insula)

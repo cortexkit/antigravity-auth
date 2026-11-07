@@ -67,7 +67,7 @@ export interface VaultBackgroundQuotaReading {
 export type VaultConsumerOptions =
   ConstructorParameters<ClaustrumConsumerClass>[0]
 export type VaultScopedClient = Awaited<
-  ReturnType<VaultConsumerOptions['connect']>
+  ReturnType<NonNullable<VaultConsumerOptions['connect']>>
 >
 export type VaultScopedReceipt = Awaited<
   ReturnType<ClaustrumConsumerInstance['authorize']>

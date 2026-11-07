@@ -42,6 +42,7 @@
       "./terminal.js"
     ],
     "auth-menu/accounts.js": [
+      "../claustrum/host.js",
       "../quota/index.js",
       "../store/index.js",
       "./doctor.js",
@@ -104,6 +105,7 @@
       "./custody.js",
       "./enrollment.js",
       "./errors.js",
+      "./host.js",
       "./insula.js",
       "./quota-writer.js",
       "./roster.js",
@@ -123,6 +125,7 @@
       "./enrollment.js",
       "./errors.js",
       "./host-slot.js",
+      "./host.js",
       "./shutdown.js",
       "./usage.js",
       "./watch.js",
@@ -135,6 +138,7 @@
       "../fs/index.js",
       "../fs/private-files.js",
       "./errors.js",
+      "./host.js",
       "@cortexkit/claustrum-client",
       "node:crypto",
       "node:fs",
@@ -142,6 +146,8 @@
       "node:path"
     ],
     "claustrum/host-slot.js": ["./errors.js"],
+    "claustrum/host.d.ts": ["./custody.js"],
+    "claustrum/host.js": ["./availability.js", "@cortexkit/claustrum-client"],
     "claustrum/hub.d.ts": [
       "../quota/index.js",
       "./consumer.js",
@@ -158,6 +164,7 @@
       "./custody.js",
       "./enrollment.js",
       "./errors.js",
+      "./host.js",
       "./roster.js",
       "./shutdown.js",
       "./watch.js",
@@ -173,6 +180,7 @@
       "./enrollment.js",
       "./errors.js",
       "./host-slot.js",
+      "./host.js",
       "./hub.js",
       "./insula.js",
       "./interlock.js",
@@ -189,6 +197,7 @@
       "./enrollment.js",
       "./errors.js",
       "./host-slot.js",
+      "./host.js",
       "./hub.js",
       "./insula.js",
       "./interlock.js",
@@ -491,6 +500,7 @@
       "../auth-menu/select.js",
       "../auth-menu/terminal.js",
       "../claustrum/enrollment.js",
+      "../claustrum/host.js",
       "./command-error.js",
       "./command-runner.js",
       "./detect.js",
@@ -522,6 +532,7 @@
     "setup/enroll.js": [
       "../auth-menu/terminal.js",
       "../claustrum/enrollment.js",
+      "../claustrum/host.js",
       "./process-fence.js",
       "@cortexkit/claustrum-client",
       "node:timers/promises"

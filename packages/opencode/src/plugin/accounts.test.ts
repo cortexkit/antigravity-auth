@@ -2820,9 +2820,9 @@ describe('loadAccountManagerFromRepository', () => {
 
 const EMBEDDED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.39.1',
+  version: '0.40.0',
   tarballSha256:
-    '7d4eae5c55f007b6ca1838d0e85552685cc0dac0080594d108da63f69d1c9577',
+    'fdd6626e3a9a6b15fd358ce902d75de1ca86d0d82a1db6c556908a280d1b4ad2',
 } as const
 
 async function embeddedFilesBelow(
@@ -2867,7 +2867,7 @@ function genuineModules(): Promise<CommonAuthStoreModules> {
     if (
       receipt.package !== EMBEDDED_COMMON_AUTH.package ||
       receipt.version !== EMBEDDED_COMMON_AUTH.version ||
-      receipt.artifactStatus !== 'published' ||
+      receipt.artifactStatus !== 'candidate' ||
       receipt.tarballSha256 !== EMBEDDED_COMMON_AUTH.tarballSha256 ||
       !Array.isArray(receipt.files)
     ) {

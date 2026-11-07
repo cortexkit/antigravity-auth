@@ -249,16 +249,19 @@ export declare const SERVING_MARGIN_MS = 300000;
 export declare const KEPT_RECEIPT_MARGIN_MS = 60000;
 /**
  * Reads this consumer's vault credentials (list, fetch, 401 report), with the
- * enrollment token as authorization. Used by every host of a plugin. Every
- * physical send asks the vault first while reachable. Only an unreachable vault permits
- * reuse of the last validated receipt, in memory and bounded by its expiry.
- * The enrollment token is re-read per operation so revocation and disconnect
- * still take effect without a process restart.
+ * enrollment token or the host's grant as authorization. Used by every host of a
+ * plugin. Every physical send asks the vault first while reachable. Only an
+ * unreachable vault permits reuse of the last validated receipt, in memory and
+ * bounded by its expiry. Outside host authority the enrollment token is re-read
+ * per operation so revocation and disconnect still take effect without a restart.
  */
 export declare class ClaustrumScopedCustody {
     #private;
     constructor(options: {
-        client: ClaustrumScopedClient;
+        /** While hosted, only a client returned by connectVaultHost is accepted. */
+        client?: ClaustrumScopedClient;
+        /** Enrollment-name prefix, required when using the default host client. */
+        pluginId?: string;
         family: ClaustrumFamilyInput;
         tokenPath?: string;
         readToken?: () => Promise<EnrollmentTokenFile>;
@@ -309,8 +312,8 @@ export declare class ClaustrumScopedCustody {
      * Report that a send this consumer actually made was rejected. Only a 401
      * is reported (the vault refuses 429, 402 and 5xx reports), addressed by
      * credential id with the exact record version that send was served, and
-     * signed with the enrollment token that authorized it. A receipt this
-     * custody did not issue is refused rather than reported.
+     * sent through the client and enrollment token that authorized it. A receipt
+     * this custody did not issue is refused rather than reported.
      */
     reportFailure(attempt: ClaustrumScopedAttempt, status: number, reporterSource: ClaustrumReporterSource): Promise<void>;
     /**

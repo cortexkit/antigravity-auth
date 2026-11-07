@@ -4,6 +4,7 @@ import { createLogger } from '../logger/index.js';
 import { ClaustrumUnreachableError, classifyVaultFailure, } from './availability.js';
 import { readClaustrumEnrollmentToken } from './enrollment.js';
 import { ClaustrumConsumerError } from './errors.js';
+import { connectVaultHost, hasVaultHost, isVaultHostClient } from './host.js';
 import { CUSTODY_PLACEHOLDER_PREFIX } from './host-slot.js';
 import { drainShutdown, shutdownWarning } from './shutdown.js';
 import { ScopedUsageReporter, } from './usage.js';
@@ -174,11 +175,11 @@ function grantReachOf(listed) {
 }
 /**
  * Reads this consumer's vault credentials (list, fetch, 401 report), with the
- * enrollment token as authorization. Used by every host of a plugin. Every
- * physical send asks the vault first while reachable. Only an unreachable vault permits
- * reuse of the last validated receipt, in memory and bounded by its expiry.
- * The enrollment token is re-read per operation so revocation and disconnect
- * still take effect without a process restart.
+ * enrollment token or the host's grant as authorization. Used by every host of a
+ * plugin. Every physical send asks the vault first while reachable. Only an
+ * unreachable vault permits reuse of the last validated receipt, in memory and
+ * bounded by its expiry. Outside host authority the enrollment token is re-read
+ * per operation so revocation and disconnect still take effect without a restart.
  */
 export class ClaustrumScopedCustody {
     #client;
@@ -211,6 +212,8 @@ export class ClaustrumScopedCustody {
     #onDrainTimeout;
     #disposing;
     constructor(options) {
+        if (hasVaultHost() && options.client && !isVaultHostClient(options.client))
+            throw new ClaustrumUnreachableError();
         const tokenPath = options.tokenPath;
         if (options.readToken) {
             this.#readToken = options.readToken;
@@ -218,10 +221,15 @@ export class ClaustrumScopedCustody {
         else if (tokenPath) {
             this.#readToken = () => readClaustrumEnrollmentToken(tokenPath);
         }
+        else if (hasVaultHost()) {
+            this.#readToken = async () => {
+                throw new ClaustrumConsumerError('not-enrolled', 'Claustrum enrollment token path is required');
+            };
+        }
         else {
             throw new ClaustrumConsumerError('not-enrolled', 'Claustrum enrollment token path is required');
         }
-        this.#client = options.client;
+        this.#client = options.client ?? connectVaultHost(options.pluginId);
         this.#family = options.family;
         this.#parseIdentity = options.parseIdentity;
         this.#requireAssertion = options.requireAssertion ?? false;
@@ -233,7 +241,7 @@ export class ClaustrumScopedCustody {
         this.#usage = new ScopedUsageReporter({
             client: this.#client,
             owns: (id) => this.#usageServed.has(id),
-            token: async () => checkedEnrollmentToken(await this.#readToken()),
+            token: async () => hasVaultHost() ? '' : checkedEnrollmentToken(await this.#readToken()),
             logger: this.#logger,
             setTimeout: this.#setTimeout,
             clearTimeout: this.#clearTimeout,
@@ -303,6 +311,9 @@ export class ClaustrumScopedCustody {
     }
     async #token(signal) {
         this.#check(signal);
+        // The host ignores this empty argument; it never reaches a vault as a token.
+        if (hasVaultHost())
+            return '';
         if (phaseDiagnostics.hasSubscribers)
             phaseDiagnostics.publish({
                 logger: this.#logger,
@@ -592,7 +603,7 @@ export class ClaustrumScopedCustody {
         if (kept.since === null)
             kept.since = this.#now();
         const attempt = Object.freeze(Object.defineProperty({ ...kept.attempt, fromKeptReceipt: true }, 'accessToken', { value: kept.attempt.accessToken, enumerable: false }));
-        this.#provenance.set(attempt, token);
+        this.#provenance.set(attempt, this.#provenance.get(kept.attempt) ?? { token, client: this.#client });
         this.#keptAttempts.set(attempt, routeId);
         return attempt;
     }
@@ -673,22 +684,22 @@ export class ClaustrumScopedCustody {
             recordVersion: served.recordVersion,
             expiresAtMs,
         }, 'accessToken', { value: accessToken, enumerable: false }));
-        this.#provenance.set(attempt, token);
+        this.#provenance.set(attempt, { token, client: this.#client });
         return attempt;
     }
     /**
      * Report that a send this consumer actually made was rejected. Only a 401
      * is reported (the vault refuses 429, 402 and 5xx reports), addressed by
      * credential id with the exact record version that send was served, and
-     * signed with the enrollment token that authorized it. A receipt this
-     * custody did not issue is refused rather than reported.
+     * sent through the client and enrollment token that authorized it. A receipt
+     * this custody did not issue is refused rather than reported.
      */
     async reportFailure(attempt, status, reporterSource) {
         if (status !== 401)
             return;
         this.#check();
-        const token = this.#provenance.get(attempt);
-        if (!token)
+        const provenance = this.#provenance.get(attempt);
+        if (!provenance)
             throw new ClaustrumConsumerError('no-receipt', 'Claustrum failure report requires an original dispatch receipt');
         const keptRoute = this.#keptAttempts.get(attempt);
         if (keptRoute !== undefined) {
@@ -708,9 +719,9 @@ export class ClaustrumScopedCustody {
         const pending = this.#reports.get(attempt);
         if (pending)
             return pending;
-        const report = this.#call(() => this.#client.reportAuthFailureScoped({
+        const report = this.#call(() => provenance.client.reportAuthFailureScoped({
             credentialId: attempt.credentialId,
-            enrollmentToken: token,
+            enrollmentToken: provenance.token,
             providerStatus: 401,
             recordVersion: attempt.recordVersion,
             reporterSource,
