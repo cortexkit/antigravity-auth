@@ -1821,7 +1821,6 @@ describe('OpenCode 1 notification dispatch', () => {
 })
 
 const SEL_A = `sel-${'a'.repeat(32)}`
-const SEL_B = `sel-${'b'.repeat(32)}`
 
 function gaAccount(overrides: Record<string, unknown> = {}) {
   return {
@@ -1886,10 +1885,23 @@ function gaApplied(result: Record<string, unknown>) {
 }
 
 const KILLSWITCH_APPLIED = {
-  command: 'antigravity-killswitch',
-  status: 'applied',
+  command: 'antigravity',
+  ok: true,
   text: 'Killswitch updated.',
-  killswitch: { enabled: true, minimumRemainingPercent: 5 },
+  menu: {
+    command: 'antigravity',
+    title: 'Antigravity',
+    sections: [
+      {
+        id: 'limits',
+        slot: 'limits',
+        title: 'Limits',
+        lines: [],
+        items: [],
+        actions: [{ id: 'set', label: 'Change limits', knobs: [] }],
+      },
+    ],
+  },
 }
 
 describe('GA location client', () => {
@@ -2040,8 +2052,12 @@ describe('GA location client', () => {
       location: LOCATION,
     })
     const body = {
-      command: 'antigravity-killswitch',
-      arguments: 'enabled=true',
+      request: {
+        command: 'antigravity',
+        sectionId: 'limits',
+        actionId: 'set',
+        values: { enabled: true },
+      },
     } as const
     await expect(client.apply(SCOPE_A, body)).rejects.toBeInstanceOf(
       GaStaleError,
@@ -2053,8 +2069,7 @@ describe('GA location client', () => {
       version: 1,
       generation: 'gen-1',
       scope: SCOPE_A,
-      command: 'antigravity-killswitch',
-      arguments: 'enabled=true',
+      request: body.request,
     })
     await expect(client.apply(SCOPE_A, body)).rejects.toBeInstanceOf(
       GaStaleError,
@@ -2117,95 +2132,100 @@ describe('GA menu over native state', () => {
     expect(JSON.stringify(menu)).not.toContain('acct-0')
   })
 
-  it('names an account only by its selector and sends explicit values', async () => {
-    const { gaApplyBody } = await import('./ga/tui/host-ga')
-    expect(
-      gaApplyBody({
-        command: 'antigravity',
-        sectionId: 'accounts',
-        itemId: `account:${SEL_B}`,
-        actionId: 'select-claude',
-        values: {},
-      }),
-    ).toEqual({
-      command: 'antigravity-account',
-      action: { kind: 'select', selector: SEL_B, target: 'claude' },
-    })
-    expect(
-      gaApplyBody({
-        command: 'antigravity',
-        sectionId: 'limits',
-        actionId: 'killswitch-on',
-        values: {},
-      }),
-    ).toEqual({ command: 'antigravity-killswitch', arguments: 'enabled=true' })
-    expect(
-      gaApplyBody({
-        command: 'antigravity',
-        sectionId: 'limits',
-        actionId: 'killswitch-minimum',
-        values: { percent: 30 },
-      }),
-    ).toEqual({
-      command: 'antigravity-killswitch',
-      arguments: 'minimum_remaining_percent=30',
-    })
-  })
-
-  it('refuses an index, an ordinal id, an unconfirmed remove and out-of-range input', async () => {
-    const { gaApplyBody, GaMenuChoiceError } = await import('./ga/tui/host-ga')
-    const base = {
+  it('binds presentation choices to server-issued item ids and explicit values', async () => {
+    const { presentGaMenu } = await import('./ga/tui/host-ga')
+    const source = {
+      command: 'antigravity',
+      title: 'Antigravity',
+      sections: [
+        {
+          id: 'accounts',
+          slot: 'accounts' as const,
+          title: 'Accounts',
+          lines: [],
+          actions: [],
+          items: [
+            {
+              id: 'opaque-menu-item',
+              label: 'Account 1',
+              actions: [
+                { id: 'select', label: 'Use this account', knobs: [] },
+                {
+                  id: 'remove',
+                  label: 'Remove',
+                  knobs: [],
+                  confirm: {
+                    message: 'Server confirmation',
+                    irreversible: true,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const shown = presentGaMenu(gaSnapshot().output as never, 0, source)
+    const request = shown.request({
       command: 'antigravity',
       sectionId: 'accounts',
+      itemId: 'opaque-menu-item',
+      actionId: 'select-claude',
       values: {},
-    } as const
-    for (const itemId of ['account:0', 'account:acct-0', 'acct-0', '0']) {
-      expect(() =>
-        gaApplyBody({ ...base, itemId, actionId: 'disable' }),
-      ).toThrow(GaMenuChoiceError)
-    }
+    })
+    expect(request).toEqual({
+      command: 'antigravity',
+      sectionId: 'accounts',
+      itemId: 'opaque-menu-item',
+      actionId: 'select',
+      values: { target: 'claude' },
+    })
+    expect(
+      shown.menu.sections[0]?.items[0]?.actions.at(-1)?.confirm?.message,
+    ).toBe('Server confirmation')
+    expect(JSON.stringify(request)).not.toContain(SEL_A)
+  })
+
+  it('refuses choices absent from the issued menu instead of deriving an item from a selector', async () => {
+    const { presentGaMenu, GaMenuChoiceError } = await import(
+      './ga/tui/host-ga'
+    )
+    const shown = presentGaMenu(gaSnapshot().output as never, 0, {
+      command: 'antigravity',
+      title: 'Antigravity',
+      sections: [],
+    })
     expect(() =>
-      gaApplyBody({ ...base, itemId: `account:${SEL_A}`, actionId: 'remove' }),
-    ).toThrow(GaMenuChoiceError)
-    expect(() =>
-      gaApplyBody({
+      shown.request({
         command: 'antigravity',
-        sectionId: 'limits',
-        actionId: 'killswitch-minimum',
-        values: { percent: 101 },
+        sectionId: 'accounts',
+        itemId: `account:${SEL_A}`,
+        actionId: 'remove',
+        values: {},
+        confirmed: true,
       }),
     ).toThrow(GaMenuChoiceError)
   })
 
-  it('reports a stale target as not done, and a sign-in link without a paste step', async () => {
-    const { buildGaMenu, gaMenuResult } = await import('./ga/tui/host-ga')
-    const menu = buildGaMenu(gaSnapshot().output as never, 0)
-    const stale = gaMenuResult(
+  it('reads menu refusals and automatic sign-in text from the real menu result shape', async () => {
+    const { parseGaApplyAnswer } = await import('./ga/tui/host-ga')
+    for (const result of [
       {
-        command: 'antigravity-account',
-        status: 'applied',
-        text: 'ok',
-        authorizationUrl: null,
-        targetOutcome: 'stale-target',
+        ...KILLSWITCH_APPLIED,
+        ok: false,
+        code: 'stale-account',
+        text: 'That account changed; nothing was changed.',
       },
-      menu,
-    )
-    expect(stale.ok).toBe(false)
-    expect(stale.code).toBe('stale-target')
-    expect(stale.text).toContain('nothing was changed')
-    const add = gaMenuResult(
       {
-        command: 'antigravity-account',
-        status: 'applied',
-        text: 'Sign in',
-        authorizationUrl: 'https://accounts.google.com/o/oauth2/auth?x=1',
-        targetOutcome: null,
+        ...KILLSWITCH_APPLIED,
+        text: 'Open https://accounts.google.com/o/oauth2/auth in your browser; there is nothing to paste.',
       },
-      menu,
-    )
-    expect(add.ok).toBe(true)
-    expect(add.text).toContain('https://accounts.google.com/o/oauth2/auth?x=1')
-    expect(add.text).toContain('nothing to paste')
+    ]) {
+      const parsed = parseGaApplyAnswer(gaApplied(result))
+      expect(parsed.ok).toBe(true)
+      if (parsed.ok && parsed.value.kind === 'applied')
+        expect(parsed.value.result).toEqual(result)
+    }
   })
 })
 
@@ -2284,9 +2304,7 @@ describe('GA TUI setup', () => {
     notifications: [
       {
         cursor: 1,
-        type: 'open-dialog',
-        command: 'antigravity-killswitch',
-        text: 'Antigravity limits',
+        payload: { command: 'antigravity', menu: KILLSWITCH_APPLIED.menu },
       },
     ],
     route: {
@@ -2302,7 +2320,7 @@ describe('GA TUI setup', () => {
 
   it('opens the drawer on the notified section, draws the sidebar, and stops completely on cleanup', async () => {
     const { setupGaTui } = await import('./ga/tui/host-ga')
-    const fake = fakeContext([NOTIFIED])
+    const fake = fakeContext([NOTIFIED], ['Limits'])
     let tick: () => void = () => undefined
     let stopped = 0
     const cleanup = setupGaTui(fake.context as never, {
@@ -2314,14 +2332,15 @@ describe('GA TUI setup', () => {
       },
     })
     await settle0()
-    expect(fake.selects[0]?.title).toBe('Limits')
-    expect(fake.selects[0]?.options.map((option) => option.title)).toEqual([
+    expect(fake.selects[0]?.title).toBe('Antigravity')
+    expect(fake.selects[1]?.title).toBe('Limits')
+    expect(fake.selects[1]?.options.map((option) => option.title)).toEqual([
       'Turn killswitch on',
       'Set minimum remaining quota',
       'Back',
     ])
-    expect(fake.selects[0]?.options[0]?.category).toContain('Killswitch: off')
-    expect(fake.selects[0]?.options[0]?.category).toContain(
+    expect(fake.selects[1]?.options[0]?.category).toContain('Killswitch: off')
+    expect(fake.selects[1]?.options[0]?.category).toContain(
       'Minimum remaining quota: 10%',
     )
 
@@ -2403,7 +2422,7 @@ describe('GA TUI setup', () => {
     })
     const fake = fakeContext(
       [NOTIFIED, gaApplied(KILLSWITCH_APPLIED), fresh],
-      ['Turn killswitch on'],
+      ['Limits', 'Turn killswitch on'],
     )
     const cleanup = setupGaTui(fake.context as never, {
       schedule: () => () => undefined,
@@ -2418,8 +2437,12 @@ describe('GA TUI setup', () => {
       version: 1,
       generation: 'gen-1',
       scope: { kind: 'session', sessionID: 'ses_a' },
-      command: 'antigravity-killswitch',
-      arguments: 'enabled=true',
+      request: {
+        command: 'antigravity',
+        sectionId: 'limits',
+        actionId: 'set',
+        values: { enabled: true },
+      },
     })
     expect(fake.toasts).toEqual([
       { message: 'Killswitch updated.', variant: 'info' },

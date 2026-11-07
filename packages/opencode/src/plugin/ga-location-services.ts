@@ -82,6 +82,10 @@ import type {
   HarnessMetadataStatus,
   ObserveAccountSnapshot,
 } from '../ga/server/index.ts'
+import {
+  createGaPoolLogin,
+  type GaLocalLogin,
+} from '../ga/server/pool-login.ts'
 import type {
   SidebarAccountRedactionInput,
   SidebarRoutingEntry,
@@ -670,6 +674,7 @@ export function createGaLocationMenu(input: {
   >
   readonly refreshQuota?: AntigravityRepositoryMenuOptions['refreshQuota']
   readonly reauthorize?: AntigravityRepositoryMenuOptions['reauthorize']
+  readonly login?: AntigravityRepositoryMenuOptions['login']
   /** The Vault section, when the location has vault custody available. */
   readonly vault?: GaMenuExtraSection
 }): GaCommandMenu {
@@ -693,6 +698,7 @@ export function createGaLocationMenu(input: {
     }),
     ...(input.refreshQuota ? { refreshQuota: input.refreshQuota } : {}),
     ...(input.reauthorize ? { reauthorize: input.reauthorize } : {}),
+    ...(input.login ? { login: input.login } : {}),
     ...(input.vault ? { extras: [input.vault] } : {}),
   })
 }
@@ -2246,68 +2252,75 @@ export function createGaLocationServicesFactory(
       await custody?.dispose().catch(() => {})
       throw error
     }
-    return {
-      runtime,
-      localLogin: {
-        assertAdmission: assertLocal,
-        async assertExistingPool(admit) {
-          await assertLocal()
-          await admit()
-          // No login argument: reconnect must never initialize a store.
-          const repository = await getRepository()
-          await admit()
-          const opened = await repositoryPromise
-          await admit()
-          if (!opened)
-            throw new Error('The local repository was not constructed')
-          await assertServingAdmission(opened, bindings.now)
-          await admit()
-          const read = await repository.read()
-          await admit()
-          if (
-            read.status !== 'ready' ||
-            !read.rows.some(
-              (row) =>
-                row.enabled &&
-                row.usable &&
-                row.credential !== undefined &&
-                !row.torn &&
-                !row.unbound &&
-                row.invalid === undefined &&
-                row.metadata.status === 'present' &&
-                accessBlockOf(row).kind === 'none',
-            )
+    const localLogin: GaLocalLogin = {
+      assertAdmission: assertLocal,
+      async assertExistingPool(admit) {
+        await assertLocal()
+        await admit()
+        // No login argument: reconnect must never initialize a store.
+        const repository = await getRepository()
+        await admit()
+        const opened = await repositoryPromise
+        await admit()
+        if (!opened) throw new Error('The local repository was not constructed')
+        await assertServingAdmission(opened, bindings.now)
+        await admit()
+        const read = await repository.read()
+        await admit()
+        if (
+          read.status !== 'ready' ||
+          !read.rows.some(
+            (row) =>
+              row.enabled &&
+              row.usable &&
+              row.credential !== undefined &&
+              !row.torn &&
+              !row.unbound &&
+              row.invalid === undefined &&
+              row.metadata.status === 'present' &&
+              accessBlockOf(row).kind === 'none',
           )
-            throw new Error(
-              'The existing local Antigravity pool is unavailable',
-            )
-          // Use the binding associated with the opened repository, not a replacement binding.
-          await assertServingAdmission(opened, bindings.now)
-          await admit()
-          await assertLocal()
-          await admit()
-        },
-        async persist(result, admit) {
-          await assertLocal()
-          await admit()
-          const repository = await getRepository({ admit })
-          await admit()
-          const opened = await repositoryPromise
-          await admit()
-          if (!opened)
-            throw new Error('The local repository was not constructed')
-          await assertServingAdmission(opened, bindings.now)
-          await admit()
-          const committed = await commitLogins(repository, [result])
-          await admit()
-          if (committed.length !== 1 || committed[0]?.status !== 'committed')
-            throw new Error(
-              'The Antigravity pool login could not be completed.',
-            )
-          await localPipeline?.refreshAccounts()
-          await admit()
+        )
+          throw new Error('The existing local Antigravity pool is unavailable')
+        // Recheck admission for the same repository before accepting its existing logins.
+        await assertServingAdmission(opened, bindings.now)
+        await admit()
+        await assertLocal()
+        await admit()
+      },
+      async persist(result, admit) {
+        await assertLocal()
+        await admit()
+        const repository = await getRepository({ admit })
+        await admit()
+        const opened = await repositoryPromise
+        await admit()
+        if (!opened) throw new Error('The local repository was not constructed')
+        await assertServingAdmission(opened, bindings.now)
+        await admit()
+        const committed = await commitLogins(repository, [result])
+        await admit()
+        if (committed.length !== 1 || committed[0]?.status !== 'committed')
+          throw new Error('The Antigravity pool login could not be completed.')
+        await localPipeline?.refreshAccounts()
+        await admit()
+      },
+    }
+    const menuLogin = createGaPoolLogin({
+      local: {
+        ...localLogin,
+        async assertAdmission() {
+          if (process.env.CORTEXKIT_VAULT_HOST === 'thalamus')
+            throw new Error('Vault authority excludes local sign-in.')
+          await localLogin.assertAdmission()
         },
       },
+      oauth: overrides.oauth,
+    })
+    const loginCompletions = new Set<Promise<void>>()
+    return {
+      runtime,
+      localLogin,
       async start(input) {
         if (closing) throw new Error('The location services are disposed')
         if (started) throw new Error('The location services already started')
@@ -2430,6 +2443,37 @@ export function createGaLocationServicesFactory(
                 repository,
                 runtime: location,
                 reauthorize: pendingReauthorization,
+                login: {
+                  async run(invocation) {
+                    const authorization = await menuLogin.method.authorize({})
+                    if (authorization.mode !== 'auto')
+                      throw new Error(
+                        'Antigravity sign-in needs a local browser callback.',
+                      )
+                    const completion = authorization.callback
+                      .then((result) => menuLogin.onLogin(result))
+                      .then(
+                        () => {
+                          invocation.notify({
+                            message: 'Account added.',
+                            kind: 'info',
+                          })
+                        },
+                        () => {
+                          invocation.notify({
+                            message: 'Antigravity sign-in did not complete.',
+                            kind: 'error',
+                          })
+                        },
+                      )
+                      .catch(() => {})
+                    loginCompletions.add(completion)
+                    void completion.finally(() =>
+                      loginCompletions.delete(completion),
+                    )
+                    return `Open ${authorization.url} in your browser and sign in.\nThe account is added when the browser returns here; there is nothing to paste.`
+                  },
+                },
                 ...(custody ? { vault: custody.menuSection() } : {}),
                 ...(checkQuota
                   ? {
@@ -2624,6 +2668,9 @@ export function createGaLocationServicesFactory(
           ])
           try {
             const resources = Promise.allSettled([
+              menuLogin
+                .dispose()
+                .then(() => Promise.allSettled([...loginCompletions])),
               reauthorize?.dispose(),
               localPipeline?.dispose(),
               vaultServices?.dispose(),

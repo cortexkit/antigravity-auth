@@ -28,6 +28,7 @@ import {
   createAccountRepositoryFactory,
   createQuotaManager,
   initializeFreshAccountStore,
+  loadCommonAuthCommands,
   loadCommonAuthStoreModules,
   type RowRef,
   readAccountStoreAdmission,
@@ -53,7 +54,9 @@ import type {
   HarnessAccountsObservation,
 } from '../ga/server/index.ts'
 import {
+  createGaRpcActivation,
   GaRequestOwnership,
+  type GaRpcActivation,
   rewriteGaHttpRequest,
   startGaLoopbackBridge,
 } from '../ga/server/index.ts'
@@ -283,6 +286,7 @@ const {
   createGaHostSlotReader,
   createGaJobExecutor,
   createGaLocalCredentials,
+  createGaLocalRequestPipeline,
   createGaLocationServices,
   createGaLocationServicesFactory,
   createGaMenuCommandService,
@@ -850,6 +854,7 @@ async function transportLocation(
   accountCount = 1,
   /** The vault location's source in place of the stand-in. */
   vaultSource?: import('./ga-location-services.ts').GaVaultCustodySource,
+  authority?: { mode: 'local' | 'custody' | 'unreadable' },
 ) {
   let services: GaLocationServices | undefined
   let runtime: LocationRuntime | undefined
@@ -962,10 +967,11 @@ async function transportLocation(
     commitState: async () => ({ status: 'unchanged' as const }),
   }
   const factory =
-    domain === 'local'
+    domain === 'local' && !authority
       ? createGaLocationServices
       : createGaLocationServicesFactory({
           loadStoreModules: async () => {
+            if (authority) return loadCommonAuthStoreModules()
             throw new Error('vault must not open a local store')
           },
           resolveAccountFile: () => join(root, 'config', GA_ACCOUNTS_FILE),
@@ -976,20 +982,30 @@ async function transportLocation(
               accounts: { current: null, quotaLogger: null },
               now: Date.now,
             }),
-          createPipeline: async () => {
+          createPipeline: async (input) => {
+            if (authority) return createGaLocalRequestPipeline(input)
             throw new Error('vault must not construct a local pipeline')
           },
           custody: () => ({
-            readMode: async () => ({
-              ok: true,
-              record: { version: 1, mode: 'custody' },
-            }),
+            readMode: async () =>
+              authority?.mode === 'unreadable'
+                ? { ok: false, reason: 'unreadable fixture authority' }
+                : {
+                    ok: true,
+                    record: { version: 1, mode: authority?.mode ?? 'custody' },
+                  },
             custodySource: async () => vaultSource ?? source,
             readState: async () => ({ schemaVersion: 1, accounts: {} }),
             menuSection: () => ({
-              id: 'vault',
+              id:
+                process.env.CORTEXKIT_VAULT_HOST === 'thalamus'
+                  ? 'host'
+                  : 'vault',
               title: 'Vault',
-              build: () => ({ lines: [], actions: [] }),
+              build: () =>
+                process.env.CORTEXKIT_VAULT_HOST === 'thalamus'
+                  ? { lines: ['Served by Thalamus'], actions: [] }
+                  : { lines: [], actions: [] },
             }),
             dispose: async () => {},
           }),
@@ -1021,6 +1037,7 @@ async function transportLocation(
   // This debug method receives the prepared body and headers before the engine sends them.
   const prepared = spyOn(locationRuntime.debug, 'startAntigravityDebugRequest')
   restorePrepared = () => prepared.mockRestore()
+  let notify: GaRpcActivation['notify'] = () => null
   const serving = await scope.step(() =>
     configured.start({
       runtime: locationRuntime,
@@ -1028,12 +1045,16 @@ async function transportLocation(
       send: async () => {
         throw new Error('legacy send plumbing must stay unused')
       },
-      notify: () => null,
+      notify: (...args) => notify(...args),
       isConnected: () => false,
     }),
   )
   networkCalls.length = 0
   return {
+    root,
+    bindNotify: (next: GaRpcActivation['notify']) => {
+      notify = next
+    },
     serving,
     services: configured,
     runtime: locationRuntime,
@@ -3959,4 +3980,490 @@ describe('GA browser action lifetime', () => {
       await fixture.cleanup()
     }
   })
+})
+
+describe('GA drawer account actions through native RPC', () => {
+  async function drawer(
+    scope: GaTestCase,
+    fixture: Awaited<ReturnType<typeof transportLocation>>,
+  ) {
+    const host = await import('../ga/tui/host-ga')
+    const commands = await loadCommonAuthCommands()
+    const rpc = createGaRpcActivation({
+      generation: 'transport-generation',
+      state: fixture.serving.state,
+      commands: fixture.serving.commands,
+      parseApplyRequest: commands.parseApplyRequest,
+    })
+    scope.defer(() => rpc.dispose())
+    const completed = Promise.withResolvers<void>()
+    fixture.bindNotify((scope, payload) => {
+      if ('notify' in payload && payload.notify.message === 'Account added.')
+        completed.resolve()
+      return rpc.notify(scope, payload)
+    })
+    const client = host.createGaLocationClient({
+      location: undefined,
+      call: async ({ method, input }) => ({
+        output: await rpc.handlers[method](input),
+      }),
+    })
+    const read = await client.pull(sessionless)
+    if (read.kind !== 'snapshot') throw new Error('Missing snapshot')
+    await fixture.serving.commands.open({
+      scope: sessionless,
+      signal: new AbortController().signal,
+    })
+    const opened = await client.pull(sessionless)
+    if (opened.kind !== 'snapshot') throw new Error('Missing opened snapshot')
+    const payload = opened.snapshot.notifications[0]?.payload
+    if (!payload || !('menu' in payload)) throw new Error('Missing server menu')
+    const view = host.presentGaMenu(opened.snapshot, 0, payload.menu)
+    return {
+      client,
+      rpc,
+      view,
+      snapshot: opened.snapshot,
+      source: payload.menu,
+      completed: completed.promise,
+    }
+  }
+
+  function scripted(picks: string[], confirmation: boolean) {
+    const confirms: string[] = []
+    const notices: string[] = []
+    const pages: string[] = []
+    const ui: import('../tui/host-api').MenuUi = {
+      async select(input) {
+        pages.push(
+          `${input.title}\n${input.options.map((option) => option.title).join('\n')}`,
+        )
+        const wanted = picks.shift()
+        return input.options.find((option) => option.title === wanted)?.value
+      },
+      async prompt() {
+        return undefined
+      },
+      async confirm(input) {
+        confirms.push(input.message)
+        return confirmation
+      },
+      async alert(input) {
+        notices.push(input.message)
+      },
+      toast(text) {
+        notices.push(text)
+      },
+      clear() {},
+    }
+    return { ui, confirms, notices, pages }
+  }
+
+  ownedIt(
+    'drawer Add starts native local sign-in through strict RPC and shared menu dispatch',
+    async (scope) => {
+      let oauthCalls = 0
+      const callback = Promise.withResolvers<string>()
+      const fixture = await transportLocation(scope, 'local', {
+        oauth: {
+          authorize: async () => {
+            oauthCalls++
+            return {
+              url: 'https://accounts.google.com/signin?state=drawer',
+              verifier: 'test',
+              projectId: '',
+            }
+          },
+          waitForCode: () => callback.promise,
+          exchange: async () => ({
+            type: 'success',
+            refresh: 'new-drawer-refresh',
+            access: 'new-drawer-access',
+            expires: Date.now() + 3_600_000,
+            email: 'drawer@example.test',
+            projectId: 'drawer-project',
+          }),
+        },
+      })
+      const { client, view, completed } = await drawer(scope, fixture)
+      const { openAntigravityMenu } = await import('../tui/command-dialogs')
+      const ui = scripted(['Accounts', 'Add account'], true)
+      const applied: import('../tui/host-api').MenuApplyRequest[] = []
+      await openAntigravityMenu(
+        {
+          ui: ui.ui,
+          apply: async (choice) => {
+            const request = view.request(choice)
+            applied.push(request)
+            return client.apply(sessionless, { request })
+          },
+        },
+        { command: 'antigravity', menu: view.menu },
+      )
+      expect(oauthCalls).toBe(1)
+      expect(applied).toEqual([
+        {
+          command: 'antigravity',
+          sectionId: 'accounts',
+          actionId: 'add',
+          values: {},
+        },
+      ])
+      expect(ui.notices.join('\n')).toContain(
+        'https://accounts.google.com/signin?state=drawer',
+      )
+      expect(ui.notices.join('\n')).toContain('nothing to paste')
+      expect(ui.confirms).toEqual([])
+      callback.resolve('browser-code')
+      await scope.wait(completed)
+      const after = await fixture.serving.state.read({
+        scope: sessionless,
+        signal: new AbortController().signal,
+      })
+      if (after.accounts.kind !== 'complete')
+        throw new Error('Missing accounts')
+      expect(after.accounts.rows).toHaveLength(2)
+    },
+  )
+
+  ownedIt(
+    'drawer Remove confirms and removes exactly the selected credential through strict RPC',
+    async (scope) => {
+      const fixture = await transportLocation(scope, 'local', {}, 2)
+      const { client, view } = await drawer(scope, fixture)
+      const signal = new AbortController().signal
+      const before = await fixture.serving.state.read({
+        scope: sessionless,
+        signal,
+      })
+      if (before.accounts.kind !== 'complete')
+        throw new Error('Missing accounts')
+      const second = view.menu.sections.find(
+        (section) => section.id === 'accounts',
+      )?.items[1]
+      if (!second) throw new Error('Missing second account')
+      const request = view.request({
+        command: 'antigravity',
+        sectionId: 'accounts',
+        itemId: second.id,
+        actionId: 'remove',
+        values: {},
+      })
+      const unconfirmed = await client.apply(sessionless, { request })
+      expect(unconfirmed.ok).toBe(false)
+      expect(unconfirmed.needsConfirmation).toBe(true)
+      expect(
+        (await fixture.serving.state.read({ scope: sessionless, signal }))
+          .accounts,
+      ).toEqual(before.accounts)
+      const { openAntigravityMenu } = await import('../tui/command-dialogs')
+      const cancelled = scripted(['Accounts', 'Account 2', 'Remove'], false)
+      let sent = 0
+      const apply = async (
+        choice: import('../tui/host-api').MenuApplyRequest,
+      ) => {
+        sent++
+        return client.apply(sessionless, { request: view.request(choice) })
+      }
+      await openAntigravityMenu(
+        { ui: cancelled.ui, apply },
+        { command: 'antigravity', menu: view.menu },
+      )
+      expect(sent).toBe(0)
+      const confirmed = scripted(['Accounts', 'Account 2', 'Remove'], true)
+      await openAntigravityMenu(
+        { ui: confirmed.ui, apply },
+        { command: 'antigravity', menu: view.menu },
+      )
+      expect(sent).toBe(1)
+      expect(confirmed.confirms).toEqual([
+        'Remove account 2? Its saved login is deleted.',
+      ])
+      const after = await fixture.serving.state.read({
+        scope: sessionless,
+        signal,
+      })
+      if (after.accounts.kind !== 'complete')
+        throw new Error('Missing accounts')
+      expect(after.accounts.rows).toHaveLength(1)
+      expect(after.accounts.rows[0]?.selector).toBe(
+        before.accounts.rows[0]?.selector,
+      )
+      expect(
+        after.accounts.rows.some(
+          (row) => row.selector === before.accounts.rows[1]?.selector,
+        ),
+      ).toBe(false)
+    },
+  )
+
+  ownedIt(
+    'drawer account routing and settings controls dispatch the issued server actions',
+    async (scope) => {
+      const fixture = await transportLocation(scope, 'local', {}, 2)
+      const wired = await drawer(scope, fixture)
+      let view = wired.view
+      const host = await import('../ga/tui/host-ga')
+      const choices = [
+        ['accounts', 'disable', {}, 'disable', {}],
+        ['accounts', 'enable', {}, 'enable', {}],
+        ['accounts', 'select-active', {}, 'select', { target: 'active' }],
+        ['accounts', 'select-claude', {}, 'select', { target: 'claude' }],
+        ['accounts', 'select-gemini', {}, 'select', { target: 'gemini' }],
+        ['limits', 'killswitch-on', {}, 'set', { enabled: true }],
+        [
+          'limits',
+          'killswitch-minimum',
+          { percent: 30 },
+          'set',
+          { minimumRemainingPercent: 30 },
+        ],
+        ['limits', 'killswitch-off', {}, 'set', { enabled: false }],
+        [
+          'diagnostics',
+          'log-level',
+          { level: 'debug' },
+          'logging',
+          { level: 'debug' },
+        ],
+        ['diagnostics', 'dump-on', {}, 'dump', {}],
+        ['diagnostics', 'dump-off', {}, 'dump', {}],
+      ] as const
+      for (const [
+        sectionId,
+        actionId,
+        values,
+        expectedId,
+        expectedValues,
+      ] of choices) {
+        const item =
+          sectionId === 'accounts'
+            ? view.menu.sections.find((section) => section.id === 'accounts')
+                ?.items[1]
+            : undefined
+        const request = view.request({
+          command: 'antigravity',
+          sectionId,
+          actionId,
+          values,
+          ...(item ? { itemId: item.id } : {}),
+        })
+        expect(request.actionId).toBe(expectedId)
+        expect(request.values).toEqual(expectedValues)
+        const result = await wired.client.apply(sessionless, { request })
+        expect(result.ok).toBe(true)
+        const fresh = await wired.client.pull(sessionless)
+        if (fresh.kind !== 'snapshot')
+          throw new Error('Missing refreshed snapshot')
+        view = host.presentGaMenu(fresh.snapshot, 0, result.menu)
+      }
+      expect(fixture.runtime.operatorSettings.get().killswitch).toMatchObject({
+        enabled: false,
+        minimum_remaining_percent: 30,
+      })
+      expect(fixture.runtime.operatorSettings.get().log_level).toBe('debug')
+      expect(fixture.runtime.dump.isEnabled()).toBe(false)
+      const quota = view.request({
+        command: 'antigravity',
+        sectionId: 'quota',
+        actionId: 'refresh',
+        values: {},
+      })
+      expect(quota).toEqual({
+        command: 'antigravity',
+        sectionId: 'quota',
+        actionId: 'refresh',
+        values: {},
+      })
+    },
+  )
+
+  for (const mode of ['vault', 'host', 'unreadable'] as const) {
+    ownedIt(
+      `drawer ${mode} omits local actions and refuses stale Add/Remove before OAuth or writes`,
+      async (scope) => {
+        let oauthCalls = 0
+        const authority: { mode: 'local' | 'custody' | 'unreadable' } = {
+          mode: 'local',
+        }
+        const fixture = await transportLocation(
+          scope,
+          'local',
+          {
+            oauth: {
+              authorize: async () => {
+                oauthCalls++
+                throw new Error('OAuth must not start')
+              },
+            },
+          },
+          2,
+          undefined,
+          authority,
+        )
+        const { client, view } = await drawer(scope, fixture)
+        const item = view.menu.sections.find(
+          (section) => section.id === 'accounts',
+        )?.items[1]
+        if (!item) throw new Error('Missing local account')
+        const stale = ['add', 'remove'].map((actionId) =>
+          view.request({
+            command: 'antigravity',
+            sectionId: 'accounts',
+            actionId,
+            ...(actionId === 'remove'
+              ? { itemId: item.id, confirmed: true as const }
+              : {}),
+            values: {},
+          }),
+        )
+        const bytes = () =>
+          [
+            ...new Bun.Glob('**/*').scanSync({
+              cwd: join(fixture.root, 'config'),
+              onlyFiles: true,
+              dot: true,
+            }),
+          ]
+            .sort()
+            .map((path) => [
+              path,
+              readFileSync(join(fixture.root, 'config', path)).toString('hex'),
+            ])
+        const before = bytes()
+        authority.mode = mode === 'unreadable' ? 'unreadable' : 'custody'
+        const restricted = async () => {
+          for (const request of stale) {
+            const answer = await client.apply(sessionless, { request })
+            expect(answer.ok).toBe(false)
+            const snapshot = await client.pull(sessionless)
+            if (snapshot.kind !== 'snapshot')
+              throw new Error('Missing restricted snapshot')
+            const host = await import('../ga/tui/host-ga')
+            const shown = host.presentGaMenu(
+              snapshot.snapshot,
+              0,
+              answer.menu,
+            ).menu
+            const accounts = shown.sections.find(
+              (section) => section.id === 'accounts',
+            )
+            expect(accounts?.actions).toEqual([])
+            expect(accounts?.items.flatMap((entry) => entry.actions)).toEqual(
+              [],
+            )
+            expect(
+              answer.menu.sections.find((section) => section.id === 'accounts')
+                ?.actions,
+            ).toEqual([])
+            if (mode === 'host')
+              expect(
+                shown.sections.find((section) => section.id === 'host')?.lines,
+              ).toEqual(['Served by Thalamus'])
+          }
+          expect(oauthCalls).toBe(0)
+          expect(bytes()).toEqual(before)
+          await expect(
+            fixture.services.localLogin?.assertAdmission(),
+          ).rejects.toThrow()
+        }
+        if (mode === 'host')
+          await withVaultHost('thalamus', undefined, restricted)
+        else await restricted()
+      },
+    )
+  }
+
+  for (const mode of ['local', 'vault', 'host'] as const)
+    ownedIt(
+      `drawer option-text capture for ${mode} (not a host screenshot)`,
+      async (scope) => {
+        const host = await import('../ga/tui/host-ga')
+        const { sectionListOptions, sectionOptions, itemOptions } =
+          await import('../tui/command-dialogs')
+        const capture = async (mode: 'local' | 'vault' | 'host') => {
+          const fixture = await transportLocation(
+            scope,
+            mode === 'local' ? 'local' : 'vault',
+            {},
+            1,
+          )
+          let source: import('../tui/host-api').MenuModel | undefined
+          fixture.bindNotify((_scope, payload) => {
+            if ('menu' in payload)
+              source = payload.menu as import('../tui/host-api').MenuModel
+            return null
+          })
+          const commands = await loadCommonAuthCommands()
+          const rpc = createGaRpcActivation({
+            generation: 'transport-generation',
+            state: fixture.serving.state,
+            commands: fixture.serving.commands,
+            parseApplyRequest: commands.parseApplyRequest,
+          })
+          scope.defer(() => rpc.dispose())
+          const client = host.createGaLocationClient({
+            location: undefined,
+            call: async ({ method, input }) => ({
+              output: await rpc.handlers[method](input),
+            }),
+          })
+          const read = await client.pull(sessionless)
+          if (read.kind !== 'snapshot')
+            throw new Error('Missing frame snapshot')
+          await fixture.serving.commands.open({
+            scope: sessionless,
+            signal: new AbortController().signal,
+          })
+          if (!source) throw new Error('Missing frame menu')
+          const menu =
+            process.env.GA_DRAWER_FRAME_BASE === '1'
+              ? host.buildGaMenu(read.snapshot, 0)
+              : host.presentGaMenu(read.snapshot, 0, source).menu
+          const lines: string[] = [
+            `OPTION-TEXT ${mode} (not a host screenshot)`,
+          ]
+          const page = (
+            name: string,
+            options: readonly import('../tui/host-api').MenuSelectOption[],
+          ) => {
+            lines.push(`[${name}]`)
+            for (const option of options) {
+              if (option.category) lines.push(`  ${option.category}`)
+              lines.push(
+                `  ${option.title}${option.description ? ` — ${option.description}` : ''}${option.footer ? ` — ${option.footer}` : ''}`,
+              )
+            }
+          }
+          page(menu.title, sectionListOptions(menu))
+          for (const section of menu.sections) {
+            page(section.title, sectionOptions(section))
+            for (const item of section.items)
+              if (item.actions.length)
+                page(`${section.title} / ${item.label}`, itemOptions(item))
+            for (const action of [
+              ...section.actions,
+              ...section.items.flatMap((item) => item.actions),
+            ]) {
+              for (const knob of action.knobs)
+                lines.push(
+                  `[${action.label} / ${knob.label}] ${JSON.stringify(knob)}`,
+                )
+              if (action.confirm)
+                lines.push(
+                  `[${action.label} / confirm] ${action.confirm.message}`,
+                )
+            }
+          }
+          console.log(`${lines.join('\n')}\nEND OPTION-TEXT ${mode}`)
+          expect(
+            menu.sections.map((section) => section.title).slice(0, 5),
+          ).toEqual(['Accounts', 'Quota', 'Routing', 'Limits', 'Diagnostics'])
+          await fixture.dispose()
+        }
+        if (mode === 'host')
+          await withVaultHost('thalamus', undefined, () => capture(mode))
+        else await capture(mode)
+      },
+    )
 })

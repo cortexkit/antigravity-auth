@@ -31,11 +31,10 @@
  * not match is refused and logged by field name only.
  *
  * The wire shapes mirror the facade's `ga/rpc/protocol.ts` (clean v1:
- * accounts carry opaque `selector`s, typed account actions name accounts
- * only by selector, every snapshot carries the location's settings). GA
- * notifications name a dialog command only, so this host builds the
- * `/antigravity` menu from the latest snapshot and the shared drawer renders
- * it; after every apply the menu is rebuilt from a fresh `state` read.
+ * accounts carry opaque `selector`s and every snapshot carries the location's
+ * settings). Notifications and apply answers carry the server's shared menu.
+ * The drawer keeps its presentation while submitting the issued menu item
+ * and action ids, never a sidebar selector or an account position.
  *
  * Nothing here imports account storage, tokens, OAuth, the vault client or
  * server code, and nothing writes to the terminal or forces a theme.
@@ -59,10 +58,15 @@ import {
   type MenuAction,
   type MenuApplyRequest,
   type MenuApplyResult,
+  type MenuDialogPayload,
   type MenuModel,
+  type MenuNotifyPayload,
   type MenuParseResult,
   type MenuSection,
   type MenuUi,
+  parseMenuApplyResult,
+  parseMenuDialogPayload,
+  parseMenuNotifyPayload,
 } from '../../tui/host-api'
 import {
   AntigravitySidebar,
@@ -186,16 +190,6 @@ export type GaScope =
   | { readonly kind: 'session'; readonly sessionID: string }
   | { readonly kind: 'sessionless' }
 
-/** The dialog commands the server names in notifications and text applies. */
-export const GA_COMMANDS = [
-  'antigravity-quota',
-  'antigravity-account',
-  'antigravity-killswitch',
-  'antigravity-dump',
-  'antigravity-logging',
-] as const
-export type GaCommand = (typeof GA_COMMANDS)[number]
-
 export const GA_LOG_LEVELS = [
   'error',
   'warn',
@@ -207,9 +201,7 @@ export type GaLogLevel = (typeof GA_LOG_LEVELS)[number]
 
 export interface GaNotification {
   readonly cursor: number
-  readonly type: 'open-dialog'
-  readonly command: GaCommand
-  readonly text: string
+  readonly payload: MenuDialogPayload | MenuNotifyPayload
 }
 
 /** A redacted account plus the opaque selector that names its credential. */
@@ -254,39 +246,9 @@ export type GaStateOutput =
   | GaSnapshot
   | { readonly kind: 'disposed'; readonly generation: string }
 
-/** A typed account action; accounts are named only by selector. */
-export type GaAccountAction =
-  | {
-      readonly kind: 'select'
-      readonly selector: string
-      readonly target: 'active' | 'claude' | 'gemini'
-    }
-  | { readonly kind: 'enable'; readonly selector: string }
-  | { readonly kind: 'disable'; readonly selector: string }
-  | { readonly kind: 'remove'; readonly selector: string }
-
 /** What the client sends besides version, generation and scope. */
-export type GaApplyBody =
-  | { readonly command: GaCommand; readonly arguments: string }
-  | {
-      readonly command: 'antigravity-account'
-      readonly action: GaAccountAction
-    }
-
-export type GaTargetOutcome =
-  | 'applied'
-  | 'stale-target'
-  | 'unknown-target'
-  | 'unsupported-index-action'
-  | 'failed'
-
-/** The command result fields this TUI reads; the rest are validated only. */
-export interface GaCommandResult {
-  readonly command: GaCommand
-  readonly status: 'applied' | 'rejected' | 'failed'
-  readonly text: string
-  readonly authorizationUrl?: string | null
-  readonly targetOutcome?: GaTargetOutcome | null
+export interface GaApplyBody {
+  readonly request: MenuApplyRequest
 }
 
 export type GaApplyOutput =
@@ -294,7 +256,7 @@ export type GaApplyOutput =
       readonly kind: 'applied'
       readonly generation: string
       readonly scope: GaScope
-      readonly result: GaCommandResult
+      readonly result: MenuApplyResult
     }
   | { readonly kind: 'stale-generation'; readonly generation: string }
   | { readonly kind: 'disposed'; readonly generation: string }
@@ -304,13 +266,6 @@ const SESSION_ID = /^[\x21-\x7e]{1,256}$/
 const ACCOUNT_ID = /^acct-(0|[1-9][0-9]{0,5})$/
 const ACCOUNT_LABEL = /^Account [1-9][0-9]{0,5}$/
 const SELECTOR = /^sel-[A-Za-z0-9_-]{32}$/
-const TARGET_OUTCOMES: readonly GaTargetOutcome[] = [
-  'applied',
-  'stale-target',
-  'unknown-target',
-  'unsupported-index-action',
-  'failed',
-]
 
 type Issues = string[]
 
@@ -587,17 +542,16 @@ function checkNotification(value: unknown, path: string, issues: Issues) {
     issues.push(`${path}: expected a notification`)
     return
   }
-  keys(value, ['cursor', 'type', 'command', 'text'], [], path, issues)
+  keys(value, ['cursor', 'payload'], [], path, issues)
   if (!isCursor(value.cursor) || value.cursor < 1) {
     issues.push(`${path}.cursor: expected a positive cursor`)
   }
-  if (value.type !== 'open-dialog') {
-    issues.push(`${path}.type: unknown notification type`)
-  }
-  if (!GA_COMMANDS.includes(value.command as GaCommand)) {
-    issues.push(`${path}.command: unknown command`)
-  }
-  if (typeof value.text !== 'string') issues.push(`${path}.text: expected text`)
+  const parsed =
+    isRecord(value.payload) && Object.hasOwn(value.payload, 'notify')
+      ? parseMenuNotifyPayload(value.payload)
+      : parseMenuDialogPayload(value.payload)
+  if (!parsed.ok)
+    issues.push(...parsed.issues.map((issue) => `${path}.payload: ${issue}`))
 }
 
 function checkBool(value: unknown, path: string, issues: Issues) {
@@ -669,77 +623,6 @@ function checkAccountsStatus(value: unknown, path: string, issues: Issues) {
     return
   }
   issues.push(`${path}.kind: unknown accounts status`)
-}
-
-function checkAccountList(value: unknown, path: string, issues: Issues) {
-  if (value === null) return
-  if (!Array.isArray(value) || value.length > 64) {
-    issues.push(`${path}: expected at most 64 accounts`)
-    return
-  }
-  value.forEach((entry, index) => {
-    checkAccount(entry, `${path}.${index}`, issues)
-  })
-}
-
-/** One command result, with the closed field list of its command. */
-function checkCommandResult(value: unknown, path: string, issues: Issues) {
-  if (!isRecord(value)) {
-    issues.push(`${path}: expected a command result`)
-    return
-  }
-  const base = ['command', 'status', 'text']
-  if (
-    value.status !== 'applied' &&
-    value.status !== 'rejected' &&
-    value.status !== 'failed'
-  ) {
-    issues.push(`${path}.status: unknown status`)
-  }
-  if (typeof value.text !== 'string') issues.push(`${path}.text: expected text`)
-  switch (value.command) {
-    case 'antigravity-quota':
-      keys(value, [...base, 'accounts'], [], path, issues)
-      checkAccountList(value.accounts, `${path}.accounts`, issues)
-      return
-    case 'antigravity-account':
-      keys(
-        value,
-        [...base, 'accounts', 'authorizationUrl', 'targetOutcome'],
-        [],
-        path,
-        issues,
-      )
-      checkAccountList(value.accounts, `${path}.accounts`, issues)
-      if (
-        value.authorizationUrl !== null &&
-        !(
-          typeof value.authorizationUrl === 'string' &&
-          /^https:\/\//.test(value.authorizationUrl) &&
-          value.authorizationUrl.length <= 4096
-        )
-      ) {
-        issues.push(`${path}.authorizationUrl: expected an https link or null`)
-      }
-      if (
-        value.targetOutcome !== null &&
-        !TARGET_OUTCOMES.includes(value.targetOutcome as GaTargetOutcome)
-      ) {
-        issues.push(`${path}.targetOutcome: unknown outcome`)
-      }
-      return
-    case 'antigravity-killswitch':
-      keys(value, [...base, 'killswitch'], [], path, issues)
-      return
-    case 'antigravity-dump':
-      keys(value, [...base, 'dump'], [], path, issues)
-      return
-    case 'antigravity-logging':
-      keys(value, [...base, 'logLevel'], [], path, issues)
-      return
-    default:
-      issues.push(`${path}.command: unknown command`)
-  }
 }
 
 /** Unwraps the host's `{ output }` answer. */
@@ -870,7 +753,8 @@ export function parseGaApplyAnswer(
   )
   checkGeneration(output.generation, 'output.generation', issues)
   checkScope(output.scope, 'output.scope', issues)
-  checkCommandResult(output.result, 'output.result', issues)
+  const result = parseMenuApplyResult(output.result)
+  if (!result.ok) issues.push(...result.issues)
   return finish(output, issues)
 }
 
@@ -912,7 +796,7 @@ export interface GaLocationClient {
   /** The next cursor this client sends for `scope`. */
   cursor(scope: GaScope): number
   pull(scope: GaScope): Promise<GaPullResult>
-  apply(scope: GaScope, body: GaApplyBody): Promise<GaCommandResult>
+  apply(scope: GaScope, body: GaApplyBody): Promise<MenuApplyResult>
   dispose(): void
   disposed(): boolean
 }
@@ -1032,26 +916,6 @@ export function createGaLocationClient(options: {
 
 // ── Menu over the native state ──────────────────────────────────────────────
 
-/**
- * GA notifications name only a dialog command, so this host builds the
- * `/antigravity` menu itself from the latest `state` answer: the accounts
- * with their opaque selectors and the location's settings, both read fresh
- * for that answer. The shared drawer renders it like the OpenCode 1 menu.
- * Each item and action id encodes what the action sends; an account is named
- * only by its selector, never by position or `acct-<n>` id.
- */
-const SECTION_FOR_COMMAND: Readonly<Record<GaCommand, string>> = {
-  'antigravity-account': 'accounts',
-  'antigravity-quota': 'quota',
-  'antigravity-killswitch': 'limits',
-  'antigravity-dump': 'diagnostics',
-  'antigravity-logging': 'diagnostics',
-}
-
-export function sectionForCommand(command: GaCommand): string {
-  return SECTION_FOR_COMMAND[command]
-}
-
 const ACCOUNT_ITEM_PREFIX = 'account:'
 
 function onOff(value: boolean): string {
@@ -1130,7 +994,8 @@ export function buildGaMenu(snapshot: GaSnapshot, now: number): MenuModel {
               'Use for Gemini',
               'Make this the current Gemini account.',
             ),
-            ...(snapshot.vaultHostStatus
+            ...(snapshot.vaultHostStatus ||
+            settings.selectionStrategy === 'vault'
               ? []
               : [
                   {
@@ -1147,16 +1012,17 @@ export function buildGaMenu(snapshot: GaSnapshot, now: number): MenuModel {
           ],
         }
       }),
-      actions: snapshot.vaultHostStatus
-        ? []
-        : [
-            {
-              id: 'add',
-              label: 'Add account',
-              description: 'Sign in with Google in your browser.',
-              knobs: [],
-            },
-          ],
+      actions:
+        snapshot.vaultHostStatus || settings.selectionStrategy === 'vault'
+          ? []
+          : [
+              {
+                id: 'add',
+                label: 'Add account',
+                description: 'Sign in with Google in your browser.',
+                knobs: [],
+              },
+            ],
     },
     {
       id: 'quota',
@@ -1285,7 +1151,7 @@ export function buildGaMenu(snapshot: GaSnapshot, now: number): MenuModel {
   }
 }
 
-/** Why a drawer choice could not be turned into a native apply. */
+/** A displayed choice is no longer present in the server-issued menu. */
 export class GaMenuChoiceError extends Error {
   constructor(message: string) {
     super(message)
@@ -1293,130 +1159,144 @@ export class GaMenuChoiceError extends Error {
   }
 }
 
-const TEXT_ACTIONS: Readonly<Record<string, GaApplyBody>> = {
-  'accounts/add': {
-    command: 'antigravity-account',
-    arguments: 'add-oauth-start',
-  },
-  'quota/refresh': { command: 'antigravity-quota', arguments: 'refresh' },
-  'limits/killswitch-on': {
-    command: 'antigravity-killswitch',
-    arguments: 'enabled=true',
-  },
-  'limits/killswitch-off': {
-    command: 'antigravity-killswitch',
-    arguments: 'enabled=false',
-  },
-  'diagnostics/dump-on': { command: 'antigravity-dump', arguments: 'on' },
-  'diagnostics/dump-off': { command: 'antigravity-dump', arguments: 'off' },
+export interface GaMenuPresentation {
+  readonly menu: MenuModel
+  readonly source: MenuModel
+  request(choice: MenuApplyRequest): MenuApplyRequest
 }
 
 /**
- * The native apply for one drawer choice. Explicit target values are sent
- * ("turn on"), never a toggle, so a repeated or late choice cannot flip a
- * setting back. An account item sends its selector exactly as the server
- * issued it; a malformed one is refused here rather than guessed at.
+ * Keep the drawer's labels and order, but bind every choice to an action
+ * actually issued by the server. Snapshot selectors are display data, not
+ * shared-menu item ids. The bindings retain the server's exact item id even
+ * when the roster changes before a choice arrives.
  */
-export function gaApplyBody(request: MenuApplyRequest): GaApplyBody {
-  const key = `${request.sectionId}/${request.actionId}`
-  if (request.sectionId === 'accounts' && request.itemId !== undefined) {
-    if (!request.itemId.startsWith(ACCOUNT_ITEM_PREFIX)) {
-      throw new GaMenuChoiceError('That account entry is not valid.')
-    }
-    const selector = request.itemId.slice(ACCOUNT_ITEM_PREFIX.length)
-    if (!SELECTOR.test(selector)) {
-      throw new GaMenuChoiceError('That account entry is not valid.')
-    }
-    const action: GaAccountAction | undefined =
-      request.actionId === 'enable'
-        ? { kind: 'enable', selector }
-        : request.actionId === 'disable'
-          ? { kind: 'disable', selector }
-          : request.actionId === 'remove'
-            ? { kind: 'remove', selector }
-            : request.actionId === 'select-active'
-              ? { kind: 'select', selector, target: 'active' }
-              : request.actionId === 'select-claude'
-                ? { kind: 'select', selector, target: 'claude' }
-                : request.actionId === 'select-gemini'
-                  ? { kind: 'select', selector, target: 'gemini' }
-                  : undefined
-    if (!action) throw new GaMenuChoiceError('Unknown account action.')
-    if (action.kind === 'remove' && request.confirmed !== true) {
-      throw new GaMenuChoiceError('Removing an account needs a confirmation.')
-    }
-    return { command: 'antigravity-account', action }
-  }
-  if (request.itemId !== undefined) {
-    throw new GaMenuChoiceError('Unknown menu entry.')
-  }
-  const fixed = TEXT_ACTIONS[key]
-  if (fixed) return fixed
-  if (key === 'limits/killswitch-minimum') {
-    const percent = request.values.percent
-    if (
-      typeof percent !== 'number' ||
-      !Number.isInteger(percent) ||
-      percent < 0 ||
-      percent > 100
-    ) {
-      throw new GaMenuChoiceError(
-        'The minimum must be a whole number from 0 to 100.',
-      )
-    }
+export function presentGaMenu(
+  snapshot: GaSnapshot,
+  now: number,
+  source: MenuModel,
+): GaMenuPresentation {
+  const bindings = new Map<
+    string,
+    (choice: MenuApplyRequest) => MenuApplyRequest
+  >()
+  const key = (
+    sectionId: string,
+    itemId: string | undefined,
+    actionId: string,
+  ) => JSON.stringify([sectionId, itemId, actionId])
+  const bind = (
+    sectionId: string,
+    itemId: string | undefined,
+    display: MenuAction,
+    action: MenuAction,
+    values: (
+      choice: MenuApplyRequest['values'],
+    ) => MenuApplyRequest['values'] = (choice) => choice,
+  ): MenuAction => {
+    bindings.set(key(sectionId, itemId, display.id), (choice) => ({
+      command: source.command,
+      sectionId,
+      ...(itemId === undefined ? {} : { itemId }),
+      actionId: action.id,
+      values: values(choice.values),
+      ...(choice.confirmed ? { confirmed: true } : {}),
+    }))
     return {
-      command: 'antigravity-killswitch',
-      arguments: `minimum_remaining_percent=${percent}`,
+      ...display,
+      ...(action.confirm ? { confirm: action.confirm } : {}),
     }
   }
-  if (key === 'diagnostics/log-level') {
-    const level = request.values.level
-    if (!GA_LOG_LEVELS.includes(level as GaLogLevel)) {
-      throw new GaMenuChoiceError('Unknown log level.')
-    }
-    return { command: 'antigravity-logging', arguments: String(level) }
-  }
-  throw new GaMenuChoiceError('Unknown menu action.')
-}
-
-const TARGET_TEXT: Readonly<
-  Record<Exclude<GaTargetOutcome, 'applied'>, string>
-> = {
-  'stale-target':
-    'That account changed since the list was shown; nothing was changed. Choose it again from the refreshed list.',
-  'unknown-target':
-    'That account is no longer known; nothing was changed. Choose it again from the refreshed list.',
-  'unsupported-index-action':
-    'Accounts can only be chosen from the list; nothing was changed.',
-  failed: 'The account action did not complete.',
-}
-
-/**
- * Turns a native command result into the drawer's result. `ok` is true only
- * when the command applied and, for an account action, its target applied.
- * A sign-in link is shown in full: on GA the browser returns to this
- * machine's sign-in listener, so there is nothing to paste.
- */
-export function gaMenuResult(
-  result: GaCommandResult,
-  menu: MenuModel,
-): MenuApplyResult {
-  const outcome = result.targetOutcome ?? null
-  const ok =
-    result.status === 'applied' && (outcome === null || outcome === 'applied')
-  let text = result.text
-  if (outcome !== null && outcome !== 'applied') {
-    text = `${TARGET_TEXT[outcome]}`
-  }
-  if (result.authorizationUrl) {
-    text = `Open ${result.authorizationUrl} in your browser and sign in.\nThe account is added when the browser returns here; there is nothing to paste.`
+  const display = buildGaMenu(snapshot, now)
+  const sections = display.sections
+    .filter((section) => section.slot !== 'extra')
+    .flatMap((section) => {
+      const actual = source.sections.find(
+        (candidate) => candidate.id === section.id,
+      )
+      if (!actual) return []
+      const actions = section.actions.flatMap((action) => {
+        const id =
+          section.id === 'limits'
+            ? 'set'
+            : action.id === 'log-level'
+              ? 'logging'
+              : action.id.startsWith('dump-')
+                ? 'dump'
+                : action.id
+        const offered = actual.actions.find((candidate) => candidate.id === id)
+        if (!offered) return []
+        const values =
+          section.id !== 'limits'
+            ? undefined
+            : action.id === 'killswitch-minimum'
+              ? (input: MenuApplyRequest['values']) => ({
+                  minimumRemainingPercent: input.percent ?? null,
+                })
+              : () => ({ enabled: action.id === 'killswitch-on' })
+        return [bind(actual.id, undefined, action, offered, values)]
+      })
+      const items = actual.items.map((item) => {
+        const projected = section.items.find(
+          (candidate) => candidate.label === item.label,
+        )
+        if (!projected) return { ...item, actions: [] }
+        return {
+          ...projected,
+          id: item.id,
+          actions: projected.actions.flatMap((action) => {
+            const target = action.id.startsWith('select-')
+              ? action.id.slice('select-'.length)
+              : undefined
+            const offered = item.actions.find(
+              (candidate) => candidate.id === (target ? 'select' : action.id),
+            )
+            if (!offered) return []
+            return [
+              bind(
+                actual.id,
+                item.id,
+                action,
+                offered,
+                target ? () => ({ target }) : undefined,
+              ),
+            ]
+          }),
+        }
+      })
+      return [{ ...section, items, actions }]
+    })
+  // Enrollment and hosted status remain the server's own sections, including
+  // their authority-dependent Connect/Disconnect actions and read-only host.
+  for (const section of source.sections.filter(
+    (candidate) => candidate.slot === 'extra',
+  )) {
+    sections.push({
+      ...section,
+      actions: section.actions.map((action) =>
+        bind(section.id, undefined, action, action),
+      ),
+      items: section.items.map((item) => ({
+        ...item,
+        actions: item.actions.map((action) =>
+          bind(section.id, item.id, action, action),
+        ),
+      })),
+    })
   }
   return {
-    command: ANTIGRAVITY_MENU_COMMAND,
-    ok,
-    text,
-    ...(ok ? {} : { code: outcome ?? result.status }),
-    menu,
+    menu: { ...display, sections },
+    source,
+    request(choice) {
+      const resolve = bindings.get(
+        key(choice.sectionId, choice.itemId, choice.actionId),
+      )
+      if (choice.command !== source.command || !resolve)
+        throw new GaMenuChoiceError(
+          'That action is no longer offered. Open the menu again.',
+        )
+      return resolve(choice)
+    },
   }
 }
 
@@ -1701,7 +1581,7 @@ export function setupGaTui(
     ),
   })
 
-  // The latest snapshot per scope; the drawer's menu is built from it.
+  // Sidebar readings and presentation are scoped to the menu's own session.
   const latest = new Map<string, GaSnapshot>()
 
   const showSnapshot = (snapshot: GaSnapshot) => {
@@ -1717,45 +1597,42 @@ export function setupGaTui(
   }
 
   /**
-   * Pulls fresh state for `scope` and returns the menu built from it. Any
+   * Pulls fresh state for `scope`. Any
    * notifications the pull carries are handled like a poll tick's.
    */
-  const freshMenu = async (scope: GaScope): Promise<MenuModel | undefined> => {
-    let fresh: GaSnapshot | undefined
+  const refresh = async (scope: GaScope): Promise<void> => {
     await pollGaOnce({
       client,
       scope: () => scope,
       onSnapshot: (snapshot) => {
-        fresh = snapshot
         showSnapshot(snapshot)
       },
       onNotification,
       ...(logger ? { logger } : {}),
     })
-    return fresh ? buildGaMenu(fresh, now()) : undefined
   }
 
   const applyChoice = async (
     scope: GaScope,
     request: MenuApplyRequest,
-    shown: () => MenuModel,
+    shown: GaMenuPresentation,
   ): Promise<MenuApplyResult> => {
     const refused = async (text: string, code: string) => ({
       command: ANTIGRAVITY_MENU_COMMAND,
       ok: false,
       text,
       code,
-      menu: (await freshMenu(scope)) ?? shown(),
+      menu: shown.source,
     })
     let body: GaApplyBody
     try {
-      body = gaApplyBody(request)
+      body = { request: shown.request(request) }
     } catch (error) {
       if (error instanceof GaMenuChoiceError)
         return refused(error.message, 'invalid-choice')
       throw error
     }
-    let result: GaCommandResult
+    let result: MenuApplyResult
     try {
       result = await client.apply(scope, body)
     } catch (error) {
@@ -1763,23 +1640,30 @@ export function setupGaTui(
         return refused(error.message, error.reason)
       throw error
     }
-    // Settings and accounts shown next come from a fresh read, not from the
-    // apply's answer.
-    const menu = (await freshMenu(scope)) ?? shown()
-    return gaMenuResult(result, menu)
+    await refresh(scope)
+    return result
   }
 
   function onNotification(notification: GaNotification, scope: GaScope) {
+    const payload = notification.payload
+    if ('notify' in payload) {
+      ui.toast(payload.notify.message, payload.notify.kind)
+      return
+    }
     const snapshot = latest.get(scopeKey(scope))
     if (!snapshot) return
-    let shown = buildGaMenu(snapshot, now())
+    let shown = presentGaMenu(snapshot, now(), payload.menu)
     void openAntigravityMenu(
       {
         ui,
         apply: async (request) => {
-          const result = await applyChoice(scope, request, () => shown)
-          shown = result.menu
-          return result
+          const result = await applyChoice(scope, request, shown)
+          shown = presentGaMenu(
+            latest.get(scopeKey(scope)) ?? snapshot,
+            now(),
+            result.menu,
+          )
+          return { ...result, menu: shown.menu }
         },
         ...(context.renderer?.copyToClipboardOSC52
           ? {
@@ -1788,9 +1672,8 @@ export function setupGaTui(
             }
           : {}),
         onError: (message, detail) => logger?.warn(message, detail),
-        startSection: sectionForCommand(notification.command),
       },
-      { command: ANTIGRAVITY_MENU_COMMAND, menu: shown },
+      { command: ANTIGRAVITY_MENU_COMMAND, menu: shown.menu },
     ).catch((error: unknown) => {
       logger?.warn('menu-drawer-failed', {
         error: error instanceof Error ? error.name : typeof error,
