@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.39.0.tgz'
-export const producerVersion = '0.39.0'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.39.1.tgz'
+export const producerVersion = '0.39.1'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: 'bc05b06400b7f54a401c8ea86080fff4bbca1ac856f7f7c0672107b68a55cf8f',
-  sri: 'sha512-Qu+04zv5gI5y/jT/sdUM9zW9hQfb8HJVTrfEx4LoQLOjXFbJxSAmnhI7Gh3J14N8YI8zd+DgpVpqOagbmucwwA==',
+  sha256: '7d4eae5c55f007b6ca1838d0e85552685cc0dac0080594d108da63f69d1c9577',
+  sri: 'sha512-Oap+vs4zKFLdFA8iUgvS3X1iOI/xZaXQyhYoDSlUBsjsCutcZZ0M0bXY9C0a16fBFgmmcReXb3Pn3+P9Bebjng==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -456,13 +456,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/refresh-file-lock.d.ts',
-    3052,
-    '31c23ba9135ddc57ea0196ad56280bd12eab2c9524d33bd43d78112da27214d2',
+    3402,
+    'fefff72fcbbcedd80d96cea0f15d7a367220af76ea8c4dfea3f81f83b9931ab1',
   ],
   [
     'fs/refresh-file-lock.js',
-    42093,
-    'a91c34ec1dcac86a816a70359a16e27bf5f8a52cb12f9e1d8162548bbcd69d4e',
+    43780,
+    'fa0200d4f4a759a8d4380aa2535cf07d98898650cc919031b0742d241662d96f',
   ],
   [
     'fs/with-lock.d.ts',
@@ -1208,8 +1208,8 @@ const routingAccessorCanonical: readonly CanonicalEntry[] = [
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.js',
     output: 'routing-accessor/index.js',
-    bytes: 8194,
-    hash: '463329a87f53e4635cc895bbe949d6a07b13573017595da67a3830a8a84634fc',
+    bytes: 8290,
+    hash: 'ea80ae669e1f65555e88e5c56383d6e1a5ee813de532ffade61011bb4eeea16d',
   },
 ]
 
@@ -1348,7 +1348,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    'f749715b6bb0ca0f598007b4129e1aea13c9cf9c7a3bf489a7fd96c3021453ae'
+    '74c88ab2d7f225fbeee3d1ca9db6c4324dbd7d30523d41eda0ddd02ed746b55c'
   )
     throw new Error('publication: manifest bytes')
 }

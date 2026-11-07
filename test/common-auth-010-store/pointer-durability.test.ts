@@ -59,7 +59,13 @@ async function observe(body: (events: Event[]) => Promise<void>) {
   })
   const linked = spyOn(fs, 'link').mockImplementation(async (...args) => {
     await actualLink(...args)
-    events.push({ kind: 'link', path: String(args[1]) })
+    // Lease publication also links a UUID staging alias, not a store pointer.
+    const leaseStage =
+      /^(.+\.lock)\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/.exec(
+        String(args[0]),
+      )
+    if (leaseStage?.[1] !== String(args[1]))
+      events.push({ kind: 'link', path: String(args[1]) })
   })
   try {
     await body(events)
@@ -94,6 +100,35 @@ async function stagePaths(legacyPath: string) {
 describe.skipIf(process.platform === 'win32')(
   'pointer publication durability',
   () => {
+    it('observes pointer links but excludes only matching UUID lease stages', async () => {
+      await withMigrationFixtures(async (create) => {
+        const fixture = await create()
+        const uuid = '00000000-0000-4000-8000-000000000091'
+        const lease = join(fixture.root, 'pool.accounts.lock')
+        const stage = `${lease}.${uuid}.tmp`
+        const pointer = join(fixture.root, 'pool.store.pointer.json')
+        const pointerStage = `${pointer}.${uuid}.tmp`
+        const malformed = `${lease}.not-a-uuid.tmp`
+        const unrelated = join(fixture.root, 'unrelated.lock')
+        await Promise.all(
+          [stage, pointerStage, malformed].map((path) =>
+            fs.writeFile(path, 'staged bytes', { mode: 0o600 }),
+          ),
+        )
+        await observe(async (events) => {
+          await fs.link(stage, lease)
+          await fs.link(pointerStage, pointer)
+          await fs.link(malformed, `${lease}.malformed`)
+          await fs.link(stage, unrelated)
+          expect(events).toEqual([
+            { kind: 'link', path: pointer },
+            { kind: 'link', path: `${lease}.malformed` },
+            { kind: 'link', path: unrelated },
+          ])
+        })
+      })
+    })
+
     for (const owner of ['topology', 'management', 'accounts'] as const)
       it(`returns pending after losing the private ${owner} lease without resetting residue`, async () => {
         await withMigrationFixtures(async (create) => {

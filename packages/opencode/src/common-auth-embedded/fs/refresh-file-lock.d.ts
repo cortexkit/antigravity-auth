@@ -1,3 +1,9 @@
+type LeaseCreationTestHooks = {
+    beforeWrite?: (path: string) => void | Promise<void>;
+    beforeLink?: (tempPath: string, lockPath: string) => void | Promise<void>;
+};
+/** Test-only creation faults; not re-exported from the public fs entry point. */
+export declare function setLeaseCreationTestHooksForTest(hooks?: LeaseCreationTestHooks): void;
 export declare function isLostMarkerRaceError(error: unknown): boolean;
 /** Test-only fault injection between marker mkdir and owner.json write. */
 export interface EvictionMarkerTestHooks {

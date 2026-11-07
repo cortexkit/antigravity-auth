@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Embedded common-auth 0.39.1: a lock file is now created in one step, so a crash while taking a lock can no longer leave an empty lock that blocks the next start.
+
 ## [3.0.32] - 2026-11-06
 
 ### Fixed

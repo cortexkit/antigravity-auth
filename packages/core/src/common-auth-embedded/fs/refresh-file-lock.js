@@ -1,8 +1,50 @@
 import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, open, readFile, rename, rm, stat, } from 'node:fs/promises';
+import { link, lstat, mkdir, open, readFile, rename, rm, stat, } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createPrivateBytes, createPrivateDirectoryExclusive, ensurePrivateDirectory, isWindowsSharingViolation, PrivateFileError, privateOperation, readPrivateText, verifyPrivate, windowsPrivateFiles, writePrivateAtomic, } from './private-files.js';
 import { LockOwnershipError, lockPathFor } from './with-lock.js';
+let leaseCreationTestHooks;
+/** Test-only creation faults; not re-exported from the public fs entry point. */
+export function setLeaseCreationTestHooksForTest(hooks) {
+    leaseCreationTestHooks = hooks;
+}
+async function createExclusiveText(path, text) {
+    // Publish only a complete owner record. A crash before link leaves at most
+    // an orphaned staging file, never an ownerless lease at the lock path.
+    const tempPath = `${path}.${randomUUID()}.tmp`;
+    let handle;
+    try {
+        handle = await open(tempPath, 'wx', 0o600);
+        try {
+            if (leaseCreationTestHooks?.beforeWrite)
+                await leaseCreationTestHooks.beforeWrite(tempPath);
+            await handle.writeFile(text, 'utf8');
+        }
+        finally {
+            await handle.close();
+        }
+        try {
+            if (leaseCreationTestHooks?.beforeLink)
+                await leaseCreationTestHooks.beforeLink(tempPath, path);
+            await link(tempPath, path);
+        }
+        catch (error) {
+            const code = error.code;
+            if (code !== 'EPERM' &&
+                code !== 'ENOTSUP' &&
+                code !== 'EOPNOTSUPP' &&
+                code !== 'EXDEV')
+                throw error;
+            // Filesystems without hard links still use exclusive create then write.
+            // A crash can leave an incomplete lease there, but locking stays available.
+            await writeExclusiveText(path, text);
+        }
+    }
+    finally {
+        if (handle)
+            await rm(tempPath, { force: true }).catch(() => { });
+    }
+}
 /**
  * Create a new owner-only file and write `text` into it, failing with EEXIST if
  * the file already exists. Writing through the handle rather than path-based
@@ -11,7 +53,7 @@ import { LockOwnershipError, lockPathFor } from './with-lock.js';
  * that redundant ftruncate stalls for hundreds of milliseconds, inside every
  * lock acquisition.
  */
-async function createExclusiveText(path, text) {
+async function writeExclusiveText(path, text) {
     const handle = await open(path, 'wx', 0o600);
     let createdStat;
     try {
@@ -21,6 +63,8 @@ async function createExclusiveText(path, text) {
         createdStat = undefined;
     }
     try {
+        if (leaseCreationTestHooks?.beforeWrite)
+            await leaseCreationTestHooks.beforeWrite(path);
         await handle.writeFile(text, 'utf8');
     }
     catch (error) {
@@ -491,7 +535,7 @@ export async function acquireRefreshFileLockWithClock(options) {
             if (windowsPrivateFiles)
                 await createPrivateBytes(evictOwnerPath, bytes);
             else
-                await createExclusiveText(evictOwnerPath, bytes);
+                await writeExclusiveText(evictOwnerPath, bytes);
         }
         catch (error) {
             // A competing contender can rename our just-created marker directory

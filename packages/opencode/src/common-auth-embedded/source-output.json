@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.39.0",
+  "version": "0.39.1",
   "artifactStatus": "published",
   "publicRoots": {
     "./rpc": {
@@ -69,15 +69,15 @@
       "import": "./src/quota-sidebar/index.tsx"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.39.0.tgz",
-  "tarballSha256": "bc05b06400b7f54a401c8ea86080fff4bbca1ac856f7f7c0672107b68a55cf8f",
-  "sri": "sha512-Qu+04zv5gI5y/jT/sdUM9zW9hQfb8HJVTrfEx4LoQLOjXFbJxSAmnhI7Gh3J14N8YI8zd+DgpVpqOagbmucwwA==",
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.39.1.tgz",
+  "tarballSha256": "7d4eae5c55f007b6ca1838d0e85552685cc0dac0080594d108da63f69d1c9577",
+  "sri": "sha512-Oap+vs4zKFLdFA8iUgvS3X1iOI/xZaXQyhYoDSlUBsjsCutcZZ0M0bXY9C0a16fBFgmmcReXb3Pn3+P9Bebjng==",
   "canonicalFiles": 216,
-  "canonicalBytes": 1352963,
+  "canonicalBytes": 1355096,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "e4e733c5bd3d3c4a7696d761da2971b5d47c4c73fc9d568222384c66631b70d6"
+    "sha256": "c6a4180f5d873855ea5abaeeeaea39e2beba2309da75dfb20c4cc3d485eda38f"
   },
   "files": [
     {
@@ -643,17 +643,17 @@
     {
       "source": "package/dist/fs/refresh-file-lock.d.ts",
       "output": "fs/refresh-file-lock.d.ts",
-      "bytes": 3052,
-      "sourceSha256": "31c23ba9135ddc57ea0196ad56280bd12eab2c9524d33bd43d78112da27214d2",
-      "outputSha256": "31c23ba9135ddc57ea0196ad56280bd12eab2c9524d33bd43d78112da27214d2",
+      "bytes": 3402,
+      "sourceSha256": "fefff72fcbbcedd80d96cea0f15d7a367220af76ea8c4dfea3f81f83b9931ab1",
+      "outputSha256": "fefff72fcbbcedd80d96cea0f15d7a367220af76ea8c4dfea3f81f83b9931ab1",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/fs/refresh-file-lock.js",
       "output": "fs/refresh-file-lock.js",
-      "bytes": 42093,
-      "sourceSha256": "a91c34ec1dcac86a816a70359a16e27bf5f8a52cb12f9e1d8162548bbcd69d4e",
-      "outputSha256": "a91c34ec1dcac86a816a70359a16e27bf5f8a52cb12f9e1d8162548bbcd69d4e",
+      "bytes": 43780,
+      "sourceSha256": "fa0200d4f4a759a8d4380aa2535cf07d98898650cc919031b0742d241662d96f",
+      "outputSha256": "fa0200d4f4a759a8d4380aa2535cf07d98898650cc919031b0742d241662d96f",
       "transform": "verbatim"
     },
     {
@@ -1803,9 +1803,9 @@
     {
       "source": "package/dist/routing-accessor/index.js",
       "output": "routing-accessor/index.js",
-      "bytes": 8194,
-      "sourceSha256": "463329a87f53e4635cc895bbe949d6a07b13573017595da67a3830a8a84634fc",
-      "outputSha256": "463329a87f53e4635cc895bbe949d6a07b13573017595da67a3830a8a84634fc",
+      "bytes": 8290,
+      "sourceSha256": "ea80ae669e1f65555e88e5c56383d6e1a5ee813de532ffade61011bb4eeea16d",
+      "outputSha256": "ea80ae669e1f65555e88e5c56383d6e1a5ee813de532ffade61011bb4eeea16d",
       "transform": "verbatim"
     }
   ],

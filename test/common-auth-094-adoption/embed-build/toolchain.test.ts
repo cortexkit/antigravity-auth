@@ -43,7 +43,7 @@ test('build.private_toolchain', async () => {
   for (const path of [
     'package.json',
     'bun.lock',
-    'inputs/cortexkit-common-auth-0.39.0.tgz',
+    'inputs/cortexkit-common-auth-0.39.1.tgz',
   ]) {
     await mkdir(dirname(join(target, path)), { recursive: true })
     await cp(join(root, prefix, path), join(target, path))
@@ -51,7 +51,7 @@ test('build.private_toolchain', async () => {
   const before = digest(await readFile(join(target, 'bun.lock')))
   // Check the lockfile digest before installation to verify all transitive dependency integrity values separately from the install.
   expect(before).toBe(
-    '3eef413529c335c7b798f441dadee0a9026e184ff4022211e7a8eec03f639133',
+    '3fd2e888e8f631989ab31eb25112baa3cf5a5024820206bc678daf4e876f8222',
   )
   const installed = await run(target, [
     'install',
@@ -68,7 +68,7 @@ test('build.private_toolchain', async () => {
     await readFile(join(target, 'package.json'), 'utf8'),
   )
   expect(manifest.dependencies).toEqual({
-    '@cortexkit/common-auth': 'file:inputs/cortexkit-common-auth-0.39.0.tgz',
+    '@cortexkit/common-auth': 'file:inputs/cortexkit-common-auth-0.39.1.tgz',
     '@opentui/core': '0.5.14',
     '@opentui/solid': '0.5.14',
     'solid-js': '1.9.12',
@@ -103,12 +103,12 @@ test('build.private_toolchain', async () => {
     const pkg = JSON.parse(await readFile(packageFile, 'utf8'))
     expect(entry[0]).toBe(
       name === '@cortexkit/common-auth'
-        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.39.0.tgz'
+        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.39.1.tgz'
         : `${pkg.name}@${pkg.version}`,
     )
   }
   for (const [name, version] of Object.entries({
-    '@cortexkit/common-auth': '0.39.0',
+    '@cortexkit/common-auth': '0.39.1',
     '@opentui/core': '0.5.14',
     '@opentui/solid': '0.5.14',
     'solid-js': '1.9.12',
@@ -182,7 +182,7 @@ test('build.private_public_contract', async () => {
     'opentui:runtime-module:',
   )
   const map = JSON.parse(await readFile(join(target, 'map.json'), 'utf8'))
-  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.39.0')
+  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.39.1')
   // Check each manifest record's path, hash and byte count against the emitted
   // regular file itself, rather than crosschecking two self-reported fields.
   for (const tree of [map.raw, map.runtime]) {
