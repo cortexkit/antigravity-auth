@@ -38,7 +38,8 @@ export function turnNotes(sessionId) {
                 if (typeof afterToolUseId !== 'string' ||
                     afterToolUseId.length === 0 ||
                     typeof text !== 'string' ||
-                    text.length === 0 ||
+                    // A whitespace-only note says nothing and a provider may refuse it.
+                    text.trim().length === 0 ||
                     encoder.encode(text).byteLength > 16_384)
                     continue;
                 notes.push({ afterToolUseId, text });
