@@ -1872,7 +1872,7 @@ function gaSnapshot(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function gaApplied(result: Record<string, unknown>) {
+function gaApplied(result: unknown) {
   return {
     output: {
       version: 1,
@@ -1884,7 +1884,7 @@ function gaApplied(result: Record<string, unknown>) {
   }
 }
 
-const KILLSWITCH_APPLIED = {
+const KILLSWITCH_APPLIED: import('./tui/host-api').MenuApplyResult = {
   command: 'antigravity',
   ok: true,
   text: 'Killswitch updated.',
@@ -1893,12 +1893,44 @@ const KILLSWITCH_APPLIED = {
     title: 'Antigravity',
     sections: [
       {
+        id: 'accounts',
+        slot: 'accounts',
+        title: 'Accounts',
+        lines: [],
+        items: [],
+        actions: [],
+      },
+      {
+        id: 'quota',
+        slot: 'quota',
+        title: 'Quota',
+        lines: [],
+        items: [],
+        actions: [],
+      },
+      {
+        id: 'routing',
+        slot: 'routing',
+        title: 'Routing',
+        lines: [],
+        items: [],
+        actions: [],
+      },
+      {
         id: 'limits',
         slot: 'limits',
         title: 'Limits',
         lines: [],
         items: [],
         actions: [{ id: 'set', label: 'Change limits', knobs: [] }],
+      },
+      {
+        id: 'diagnostics',
+        slot: 'diagnostics',
+        title: 'Diagnostics',
+        lines: [],
+        items: [],
+        actions: [],
       },
     ],
   },

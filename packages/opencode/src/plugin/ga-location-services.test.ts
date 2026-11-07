@@ -966,6 +966,10 @@ async function transportLocation(
     attribution: () => ({ ...route, recordVersion: 1 }),
     commitState: async () => ({ status: 'unchanged' as const }),
   }
+  const accounts: import('./ga-location-services.ts').GaAccountSlot = {
+    current: null,
+    quotaLogger: null,
+  }
   const factory =
     domain === 'local' && !authority
       ? createGaLocationServices
@@ -979,11 +983,12 @@ async function transportLocation(
           runtime: (input) =>
             createGaRuntimeCollaborators({
               ...input,
-              accounts: { current: null, quotaLogger: null },
+              accounts,
               now: Date.now,
             }),
           createPipeline: async (input) => {
-            if (authority) return createGaLocalRequestPipeline(input)
+            if (authority)
+              return createGaLocalRequestPipeline({ ...input, accounts })
             throw new Error('vault must not construct a local pipeline')
           },
           custody: () => ({
@@ -4004,9 +4009,11 @@ describe('GA drawer account actions through native RPC', () => {
     })
     const client = host.createGaLocationClient({
       location: undefined,
-      call: async ({ method, input }) => ({
-        output: await rpc.handlers[method](input),
-      }),
+      call: async ({ method, input }) => {
+        if (method !== 'state' && method !== 'apply')
+          throw new Error('Unexpected RPC method')
+        return { output: await rpc.handlers[method](input) }
+      },
     })
     const read = await client.pull(sessionless)
     if (read.kind !== 'snapshot') throw new Error('Missing snapshot')
@@ -4189,10 +4196,9 @@ describe('GA drawer account actions through native RPC', () => {
       expect(after.accounts.rows[0]?.selector).toBe(
         before.accounts.rows[0]?.selector,
       )
+      const removedSelector = before.accounts.rows[1]?.selector
       expect(
-        after.accounts.rows.some(
-          (row) => row.selector === before.accounts.rows[1]?.selector,
-        ),
+        after.accounts.rows.some((row) => row.selector === removedSelector),
       ).toBe(false)
     },
   )
@@ -4404,9 +4410,11 @@ describe('GA drawer account actions through native RPC', () => {
           scope.defer(() => rpc.dispose())
           const client = host.createGaLocationClient({
             location: undefined,
-            call: async ({ method, input }) => ({
-              output: await rpc.handlers[method](input),
-            }),
+            call: async ({ method, input }) => {
+              if (method !== 'state' && method !== 'apply')
+                throw new Error('Unexpected RPC method')
+              return { output: await rpc.handlers[method](input) }
+            },
           })
           const read = await client.pull(sessionless)
           if (read.kind !== 'snapshot')

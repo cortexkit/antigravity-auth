@@ -2454,16 +2454,13 @@ export function createGaLocationServicesFactory(
                       .then((result) => menuLogin.onLogin(result))
                       .then(
                         () => {
-                          invocation.notify({
-                            message: 'Account added.',
-                            kind: 'info',
-                          })
+                          invocation.notify('Account added.', 'info')
                         },
                         () => {
-                          invocation.notify({
-                            message: 'Antigravity sign-in did not complete.',
-                            kind: 'error',
-                          })
+                          invocation.notify(
+                            'Antigravity sign-in did not complete.',
+                            'error',
+                          )
                         },
                       )
                       .catch(() => {})
