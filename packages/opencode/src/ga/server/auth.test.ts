@@ -4,7 +4,11 @@ import type {
   IntegrationMethodRegistration,
   IntegrationOAuthMethodRegistration,
 } from '@opencode/plugin/promise/integration'
-import { withVaultHost } from '../../../../../test/support/vault-host.ts'
+import {
+  createVaultHostRelay,
+  emptyVaultHostClient,
+  withVaultHost,
+} from '../../../../../test/support/vault-host.ts'
 import {
   OPENCODE2_POOL_AUTH_LABEL,
   OPENCODE2_VAULT_AUTH_LABEL,
@@ -533,33 +537,37 @@ describe('GA pool browser registration', () => {
 
 describe('GA native vault activation', () => {
   it('[hosted] installs the Google placeholder without enrollment and refuses pool sign-in', async () => {
-    await withVaultHost(
-      'thalamus',
-      () => ({}),
-      async () => {
-        const native = host()
-        const admission = mock(async () => {})
-        const registration = await registerGaAuthMethods(
-          native.context,
-          async () => 'host',
-          { local: { assertAdmission: admission, persist: async () => {} } },
+    const relay = createVaultHostRelay(emptyVaultHostClient)
+    await withVaultHost('thalamus', relay.accessor, async () => {
+      const native = host()
+      const admission = mock(async () => {})
+      const registration = await registerGaAuthMethods(
+        native.context,
+        async () => 'host',
+        { local: { assertAdmission: admission, persist: async () => {} } },
+      )
+      try {
+        const authorization = await vaultMethod(native.methods).authorize({})
+        if (authorization.mode !== 'auto')
+          throw new Error('Expected automatic vault activation')
+        const credential = await authorization.callback
+        expect(credential.refresh).toBe(placeholderSecret('google'))
+        expect(isPlaceholderCredential(credential, 'google')).toBe(true)
+        expect(relay.calls.map((call) => [call.pluginId, call.closes])).toEqual(
+          [['antigravity-auth', 1]],
         )
-        try {
-          const authorization = await vaultMethod(native.methods).authorize({})
-          if (authorization.mode !== 'auto')
-            throw new Error('Expected automatic vault activation')
-          const credential = await authorization.callback
-          expect(credential.refresh).toBe(placeholderSecret('google'))
-          expect(isPlaceholderCredential(credential, 'google')).toBe(true)
-          await expect(
-            poolMethod(native.methods).authorize({}),
-          ).rejects.toThrow()
-          expect(admission).not.toHaveBeenCalled()
-        } finally {
-          await registration.dispose()
-        }
-      },
-    )
+        await expect(poolMethod(native.methods).authorize({})).rejects.toThrow()
+        expect(admission).not.toHaveBeenCalled()
+        Reflect.deleteProperty(globalThis, Symbol.for('cortexkit.vault'))
+        const unavailable = await vaultMethod(native.methods).authorize({})
+        if (unavailable.mode !== 'auto')
+          throw new Error('Expected automatic vault activation')
+        await expect(unavailable.callback).rejects.toThrow()
+        expect(relay.calls).toHaveLength(1)
+      } finally {
+        await registration.dispose()
+      }
+    })
   })
   it('registers exactly the pool browser and vault methods under Antigravity and activates without a local login', async () => {
     const native = host()

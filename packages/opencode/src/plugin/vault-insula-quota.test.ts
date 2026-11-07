@@ -10,7 +10,10 @@ import {
   type VaultConsumerOptions,
   type VaultScopedClient,
 } from '@cortexkit/antigravity-auth-core'
-import { withVaultHost } from '../../../../test/support/vault-host.ts'
+import {
+  createVaultHostRelay,
+  withVaultHost,
+} from '../../../../test/support/vault-host.ts'
 import { BackgroundVaultQuotaRefresh } from './background-vault-quota-refresh'
 import { fetchVaultAccountQuota } from './quota'
 import { createVaultAccountPool } from './shared/vault-request-credentials'
@@ -145,9 +148,10 @@ async function fixture(
       throw new Error('hosted quota must not open a native route')
     return client
   })
+  const relay = createVaultHostRelay(() => ({ ...client }))
   const accessor = mock((id: string) => {
     expect(id).toBe('antigravity-auth')
-    return client
+    return relay.accessor(id)
   })
   if (options.hosted)
     Object.defineProperty(globalThis, Symbol.for('cortexkit.vault'), {
@@ -228,6 +232,7 @@ async function fixture(
     dir,
     native,
     accessor,
+    relay,
     get usageCalls() {
       return usageCalls
     },
@@ -278,6 +283,7 @@ describe('insula vault quota', () => {
         } finally {
           await f.close()
         }
+        expect(f.relay.calls.map((call) => call.closes)).toEqual([1])
       })
     })
   it('tick stores all four ID-matched windows at fetchedAt without Google', async () => {

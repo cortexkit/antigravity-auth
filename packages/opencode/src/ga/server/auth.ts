@@ -77,10 +77,20 @@ export async function registerGaAuthMethods(
             label: OPENCODE2_VAULT_AUTH_LABEL,
           },
           async activate() {
-            if (!['host', 'vault'].includes(await authority())) {
+            const current = await authority()
+            if (!['host', 'vault'].includes(current)) {
               throw new Error(
                 'Approve Antigravity vault access before activating this connection',
               )
+            }
+            if (current === 'host') {
+              const client = (await loadCommonAuthClaustrum()).connectVaultHost(
+                'antigravity-auth',
+              )
+              // Activation only probes the relay; serving owns a different client.
+              await Promise.resolve(client.close()).catch(() => undefined)
+              if ((await authority()) !== 'host')
+                throw new Error('Vault authority changed during activation.')
             }
           },
         },

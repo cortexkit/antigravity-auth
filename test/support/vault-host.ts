@@ -24,3 +24,42 @@ export async function withVaultHost<T>(
     else process.env.CORTEXKIT_VAULT_HOST = previousMarker
   }
 }
+
+/** Each accessor call creates a fresh client; track its close calls separately. */
+export function createVaultHostRelay<
+  T extends { close(): void | Promise<void> },
+>(createClient: () => T) {
+  const calls: { pluginId: string; client: T; closes: number }[] = []
+  return {
+    calls,
+    accessor(pluginId: string): T {
+      const client = createClient()
+      if (calls.some((call) => call.client === client))
+        throw new Error(
+          'The test relay must create a fresh client for each call.',
+        )
+      const close = client.close.bind(client)
+      const call = { pluginId, client, closes: 0 }
+      client.close = () => {
+        call.closes++
+        return close()
+      }
+      calls.push(call)
+      return client
+    },
+  }
+}
+
+/** Probe fixture with no accounts; wrap it in createVaultHostRelay to track ownership. */
+export function emptyVaultHostClient() {
+  return {
+    async listScoped() {
+      return { view: 'empty', rows: [] }
+    },
+    async getScoped() {
+      throw new Error('An empty relay cannot serve a credential.')
+    },
+    async reportAuthFailureScoped() {},
+    close() {},
+  }
+}

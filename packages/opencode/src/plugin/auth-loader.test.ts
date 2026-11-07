@@ -19,7 +19,11 @@ import {
   vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import { createOpencodeClient } from '@opencode-ai/sdk'
-import { withVaultHost } from '../../../../test/support/vault-host.ts'
+import {
+  createVaultHostRelay,
+  emptyVaultHostClient,
+  withVaultHost,
+} from '../../../../test/support/vault-host.ts'
 
 import { AccountManager } from './accounts'
 import { createAuthLoader } from './auth-loader'
@@ -1586,6 +1590,85 @@ describe('enrollment authority at loader and request start', () => {
         await custody.dispose()
         rmSync(root, { recursive: true, force: true })
       }
+    })
+  })
+
+  it('[hosted] keeps one owned serving client through reload and closes it once on disposal', async () => {
+    const relay = createVaultHostRelay(emptyVaultHostClient)
+    await withVaultHost('thalamus', relay.accessor, async () => {
+      const root = realpathSync(
+        mkdtempSync(join(tmpdir(), 'v1-hosted-reload-')),
+      )
+      const claustrum = await loadCommonAuthClaustrum()
+      const { lifecycle } = createOwnedLifecycle()
+      const local = mock(() => {
+        throw new Error('local account work must stay dormant')
+      })
+      const custody = createOpenCodeVaultCustody({
+        vaultDir: join(root, 'vault'),
+        accountFile: join(root, 'accounts.json'),
+        readHostSlot: local,
+        connectionFile: local,
+        connect: local,
+        reporterSource: 'direct',
+      })
+      const loader = createAuthLoader({
+        client: {} as never,
+        providerId: 'google',
+        config: DEFAULT_CONFIG,
+        lifecycle,
+        publishSidebar: local,
+        createFetch: local,
+        readAuthority: () =>
+          vaultAuthority(
+            claustrum.hostEnrollmentPaths({
+              stateDir: join(root, 'vault'),
+              host: 'opencode',
+            }),
+            'antigravity-auth-opencode',
+            claustrum,
+          ),
+        createVaultFetch: async () => {
+          const source = await custody.custodySource()
+          await source.refresh()
+          return { fetch: async () => new Response('vault'), dispose() {} }
+        },
+        dependencies: {
+          openAccountStore: local,
+          loadAccounts: local,
+          clearAccounts: local,
+          loadAccountManager: local,
+          createRefreshQueue: local,
+          createStoreRefreshQueue: local,
+          isDebugEnabled: () => false,
+        },
+      })
+      try {
+        const loaded = await loader(local, { models: {} } as never)
+        if (typeof loaded.fetch !== 'function')
+          throw new Error('Missing hosted fetch')
+        for (let i = 0; i < 3; i++) {
+          expect(
+            await (
+              await loaded.fetch(
+                'https://generativelanguage.googleapis.com/example',
+              )
+            ).text(),
+          ).toBe('vault')
+          await loader.reload(local)
+        }
+        expect(relay.calls.map((call) => [call.pluginId, call.closes])).toEqual(
+          [['antigravity-auth', 0]],
+        )
+        expect(local).not.toHaveBeenCalled()
+      } finally {
+        await lifecycle.dispose()
+        await custody.dispose()
+        rmSync(root, { recursive: true, force: true })
+      }
+      expect(relay.calls.map((call) => call.closes)).toEqual([1])
+      await custody.dispose()
+      expect(relay.calls.map((call) => call.closes)).toEqual([1])
     })
   })
 

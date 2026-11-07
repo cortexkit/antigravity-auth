@@ -63,8 +63,15 @@ export function createV1VaultActivationMethod(input: {
           // Only explicit setup reads the host slot. OpenCode persists this
           // non-secret result; serving never reads or replaces an existing login.
           const claustrum = await loadCommonAuthClaustrum()
-          if (!['host', 'vault'].includes(await input.readAuthority()))
-            return { type: 'failed' }
+          const current = await input.readAuthority()
+          if (!['host', 'vault'].includes(current)) return { type: 'failed' }
+          if (current === 'host') {
+            const client = claustrum.connectVaultHost('antigravity-auth')
+            // Activation only probes the relay; serving owns a different client.
+            await Promise.resolve(client.close()).catch(() => undefined)
+            if ((await input.readAuthority()) !== 'host')
+              return { type: 'failed' }
+          }
           return {
             ...claustrum.custodyPlaceholder(input.providerId),
             type: 'success',

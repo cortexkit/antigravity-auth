@@ -21,7 +21,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadCommonAuthClaustrum } from '@cortexkit/antigravity-auth-core'
 import { ClaustrumClient } from '@cortexkit/claustrum-client'
-import { withVaultHost } from '../../../../test/support/vault-host.ts'
+import {
+  createVaultHostRelay,
+  withVaultHost,
+} from '../../../../test/support/vault-host.ts'
 
 import { createVaultAccountPool } from './shared/vault-request-credentials.ts'
 import {
@@ -179,9 +182,10 @@ describe('openCodeVaultPaths and the mode file', () => {
 describe('createOpenCodeVaultCustody', () => {
   it('[hosted] constructs one consumer without native files and shows only Thalamus status', async () => {
     const vault = fakeObservationClient(false)
+    const relay = createVaultHostRelay(() => ({ ...vault.client }))
     const accessor = mock((id: string) => {
       expect(id).toBe('antigravity-auth')
-      return vault.client
+      return relay.accessor(id)
     })
     await withVaultHost('thalamus', accessor, async () => {
       const local = mock(async () => {
@@ -224,6 +228,11 @@ describe('createOpenCodeVaultCustody', () => {
       ).toBe(false)
       expect(local).not.toHaveBeenCalled()
       expect(native).not.toHaveBeenCalled()
+      expect(relay.calls.map((call) => call.closes)).toEqual([0])
+      await custody.dispose()
+      expect(relay.calls.map((call) => call.closes)).toEqual([1])
+      await custody.dispose()
+      expect(relay.calls.map((call) => call.closes)).toEqual([1])
     })
   })
 

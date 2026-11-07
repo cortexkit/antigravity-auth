@@ -3,7 +3,10 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { withVaultHost } from '../../../test/support/vault-host.ts'
+import {
+  createVaultHostRelay,
+  withVaultHost,
+} from '../../../test/support/vault-host.ts'
 
 import {
   loadCommonAuthClaustrum,
@@ -847,9 +850,10 @@ async function realSource(vault: LocalVault, hosted = false) {
     },
   }
   const rosterPath = join(dir, 'roster.json')
+  const relay = createVaultHostRelay(() => ({ ...client }))
   const hostAccessor = mock((pluginId: string) => {
     expect(pluginId).toBe('antigravity-auth')
-    return client
+    return relay.accessor(pluginId)
   })
   if (hosted)
     Object.defineProperty(globalThis, Symbol.for('cortexkit.vault'), {
@@ -871,14 +875,14 @@ async function realSource(vault: LocalVault, hosted = false) {
   await src.refresh()
   const [ref] = src.routes()
   if (!ref) throw new Error('the real roster produced no route')
-  return { src, ref, claustrum, rosterPath, hostAccessor }
+  return { src, ref, claustrum, rosterPath, hostAccessor, relay }
 }
 
 describe('real public consumer with a local vault transport', () => {
   it('[hosted] serves receipts and reports the final unauthorized send to the same client without native files', async () => {
     await withVaultHost('thalamus', undefined, async () => {
       const vault = localVault()
-      const { src, ref, hostAccessor } = await realSource(vault, true)
+      const { src, ref, hostAccessor, relay } = await realSource(vault, true)
       try {
         expect(vault.listTokens).toEqual([''])
         vault.served.push(servedCredential(5), servedCredential(5))
@@ -898,6 +902,10 @@ describe('real public consumer with a local vault transport', () => {
       } finally {
         await src.dispose()
       }
+      expect(relay.calls.map((call) => call.closes)).toEqual([1])
+      expect(vault.closed).toBe(1)
+      await src.dispose()
+      expect(relay.calls.map((call) => call.closes)).toEqual([1])
     })
   })
   it('routes only the Antigravity OAuth record and never an API key', async () => {

@@ -24,6 +24,11 @@ import {
   type VaultConsumerOptions,
   type VaultScopedClient,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  createVaultHostRelay,
+  emptyVaultHostClient,
+  withVaultHost,
+} from '../../../../test/support/vault-host.ts'
 
 import type { GaLocationServices, GaRawSender } from '../ga/server/index.ts'
 import { __resetProcessHeartbeatForTest } from '../process-heartbeat.ts'
@@ -599,6 +604,53 @@ describe('stall watchdog on the shared vault source', () => {
 })
 
 describe('the shared custody lease', () => {
+  it('[hosted] owns one serving client until the last location releases it and reacquires a fresh client', async () => {
+    const relay = createVaultHostRelay(emptyVaultHostClient)
+    await withVaultHost('thalamus', relay.accessor, async () => {
+      const acquire = () => {
+        const lease = acquireGaVaultCustody({
+          vaultDir: join(root, 'hosted-vault'),
+          accountFile: join(root, 'accounts.json'),
+          readHostSlot: async () => {
+            throw new Error('Local credentials must stay dormant.')
+          },
+          create: (input) =>
+            createOpenCodeVaultCustody({
+              ...input,
+              reporterSource: 'direct',
+              connectionFile: async () => {
+                throw new Error(
+                  'A hosted client must not resolve a native connection.',
+                )
+              },
+            }),
+        })
+        cleanups.push(() => lease.dispose())
+        return lease
+      }
+      const first = acquire()
+      const second = acquire()
+      const source = await first.custodySource()
+      await source.refresh()
+      expect(await second.custodySource()).toBe(source)
+      expect(relay.calls.map((call) => [call.pluginId, call.closes])).toEqual([
+        ['antigravity-auth', 0],
+      ])
+      await first.dispose()
+      await first.dispose()
+      await source.refresh()
+      expect(relay.calls.map((call) => call.closes)).toEqual([0])
+      await second.dispose()
+      await second.dispose()
+      expect(relay.calls.map((call) => call.closes)).toEqual([1])
+      const next = acquire()
+      await (await next.custodySource()).refresh()
+      expect(relay.calls.map((call) => call.closes)).toEqual([1, 0])
+      expect(relay.calls[0]?.client).not.toBe(relay.calls[1]?.client)
+      await next.dispose()
+      expect(relay.calls.map((call) => call.closes)).toEqual([1, 1])
+    })
+  })
   it('forwards the approved enrollment name, so the request-path refusal names it', async () => {
     // Only the two members this test reaches are real; the rest are unused.
     const custody = {
