@@ -2,7 +2,15 @@
 
 ## Unreleased
 
-- The vault keeps serving when the vault service is briefly too busy.
+## [3.0.37] - 2026-11-08
+
+### Fixed
+
+- In vault mode, a short busy refusal from the CortexKit vault service no longer drops the last good credential, so requests keep being served. The vault client libraries move to claustrum-client 0.16 and subc-client 0.24, which can report that busy state.
+
+### Changed
+
+- Embedded common-auth 0.42.0. Nothing else changes for antigravity-auth users.
 
 ## [3.0.36] - 2026-11-07
 
