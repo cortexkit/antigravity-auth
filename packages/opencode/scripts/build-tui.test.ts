@@ -386,6 +386,7 @@ test('graph.routing_accessor_server_only', async () => {
     'src/common-auth-embedded/routing-accessor/index.js',
   )
   const serverFiles = [
+    'routing-accessor/cache-policy.js',
     'routing-accessor/handle.js',
     'routing-accessor/index.js',
   ].map((path) => join(PACKAGE_ROOT, 'src/common-auth-embedded', path))
@@ -405,11 +406,15 @@ test('graph.routing_accessor_server_only', async () => {
 
 test('graph.routing_handle_renderer_refused', async () => {
   const root = await fixture(true)
-  // Vault host connections and the routing handle belong only to server/library graphs.
+  // Vault host connections and routing accessors belong only to server/library graphs.
   for (const profile of TUI_ROOTS) {
     const entry = join(root, profile.entry)
     const original = await readFile(entry, 'utf8')
-    for (const path of ['routing-accessor/handle.js', 'claustrum/host.js']) {
+    for (const path of [
+      'routing-accessor/handle.js',
+      'routing-accessor/cache-policy.js',
+      'claustrum/host.js',
+    ]) {
       const specifier = `./${relative(
         dirname(entry),
         join(root, 'src/common-auth-embedded', path),
