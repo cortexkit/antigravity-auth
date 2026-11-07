@@ -4,6 +4,7 @@
 
 - On OpenCode 2, the drawer's Add account and Remove now work for local accounts, and are no longer shown in vault mode.
 - In vault and Thalamus mode, the OpenCode 2 drawer also hides the unavailable local Enable/Disable, Use for all models, Use for Claude and Use for Gemini controls.
+- The OpenCode 2 drawer now shows the existing server-owned Vault controls in local and enrolled-vault mode and uses the server's Remove confirmation.
 
 ## [3.0.35] - 2026-11-07
 
