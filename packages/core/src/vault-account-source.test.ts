@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test'
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +19,7 @@ import {
 import {
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
+  loadCommonAuthStore,
 } from './common-auth-runtime.ts'
 import {
   type AntigravityVaultAccountSource,
@@ -768,6 +777,7 @@ interface LocalVault {
   closed: number
   /** When this promise is set, `getScoped` waits for it before answering. */
   hold?: Promise<void>
+  refusal?: Error
 }
 
 function vaultRow(overrides: Partial<ScopedRow> = {}): ScopedRow {
@@ -838,6 +848,7 @@ async function realSource(vault: LocalVault, hosted = false) {
     async getScoped(input) {
       vault.gets.push(input)
       if (vault.hold) await vault.hold
+      if (vault.refusal) throw vault.refusal
       const next = vault.served.shift()
       if (!next) throw new Error('no served credential queued')
       return next
@@ -963,6 +974,61 @@ describe('real public consumer with a local vault transport', () => {
       src?.close()
       if (previous) Object.defineProperty(globalThis, key, previous)
       else Reflect.deleteProperty(globalThis, key)
+    }
+  })
+
+  it('keeps serving the last-good receipt after route_busy without reading local accounts', async () => {
+    const store = await loadCommonAuthStore()
+    const localAccounts = spyOn(store, 'openPoolStore').mockImplementation(
+      () => {
+        throw new Error('Vault sends must not open local account storage')
+      },
+    )
+    const vault = localVault()
+    let src: AntigravityVaultAccountSource | undefined
+    try {
+      const real = await realSource(vault)
+      src = real.src
+      const { ref, claustrum } = real
+      vault.served.push(servedCredential(1))
+      const admissions: VaultSendAdmission[] = []
+      const dispatch = async (admission: VaultSendAdmission) => {
+        admissions.push(admission)
+        return response(200)
+      }
+      expect((await src.send(ref, dispatch, { site: 'model' })).status).toBe(
+        200,
+      )
+      vault.refusal = new claustrum.ClaustrumCredentialError(
+        'route_busy',
+        'transient',
+        'retry',
+      )
+      for (let attempt = 0; attempt < 2; attempt++)
+        expect((await src.send(ref, dispatch, { site: 'model' })).status).toBe(
+          200,
+        )
+      expect(admissions.map((admission) => admission.fromKeptReceipt)).toEqual([
+        undefined,
+        true,
+        true,
+      ])
+      for (const admission of admissions)
+        expect({
+          token: admission.accessToken,
+          project: admission.projectId,
+          version: admission.recordVersion,
+        }).toEqual({
+          token: 'test-access-v1',
+          project: 'test-project-v1',
+          version: 1,
+        })
+      expect(vault.gets).toHaveLength(3)
+      expect(vault.reports).toEqual([])
+      expect(localAccounts).not.toHaveBeenCalled()
+    } finally {
+      src?.close()
+      localAccounts.mockRestore()
     }
   })
 

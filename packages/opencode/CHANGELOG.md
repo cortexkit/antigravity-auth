@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The vault keeps serving when the vault service is briefly too busy.
+
 ## [3.0.36] - 2026-11-07
 
 ### Fixed
