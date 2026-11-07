@@ -182,7 +182,9 @@ describe('openCodeVaultPaths and the mode file', () => {
 describe('createOpenCodeVaultCustody', () => {
   it('[hosted] constructs one consumer without native files and shows only Thalamus status', async () => {
     const vault = fakeObservationClient(false)
-    const relay = createVaultHostRelay(() => ({ ...vault.client }))
+    const client: import('@cortexkit/antigravity-auth-core').VaultScopedClient =
+      vault.client
+    const relay = createVaultHostRelay(() => ({ ...client }))
     const accessor = mock((id: string) => {
       expect(id).toBe('antigravity-auth')
       return relay.accessor(id)
