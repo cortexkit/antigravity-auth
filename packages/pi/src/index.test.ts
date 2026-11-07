@@ -642,11 +642,10 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
     it(`[hosted] locks and stashes the native slot, refuses a missing bridge, then ${conflict ? 'preserves a changed slot' : 'restores the login'} on leaving host mode`, async () => {
       await withVaultHost('thalamus', undefined, async () => {
         const fixture = await recoveryFixture()
-        const network = spyOn(globalThis, 'fetch').mockImplementation(
-          async () => {
-            throw new Error('hosted test must not fetch')
-          },
-        )
+        const fetchImpl = Object.assign(async () => {
+          throw new Error('hosted test must not fetch')
+        }, globalThis.fetch)
+        const network = spyOn(globalThis, 'fetch').mockImplementation(fetchImpl)
         const handlers = new Map<
           string,
           (event: unknown, context: unknown) => Promise<void>
