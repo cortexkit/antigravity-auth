@@ -2,9 +2,18 @@
 
 ## Unreleased
 
-- On OpenCode 2, the drawer's Add account and Remove now work for local accounts, and are no longer shown in vault mode.
-- In vault and Thalamus mode, the OpenCode 2 drawer also hides the unavailable local Enable/Disable, Use for all models, Use for Claude and Use for Gemini controls.
-- The OpenCode 2 drawer now shows the existing server-owned Vault controls in local and enrolled-vault mode and uses the server's Remove confirmation.
+## [3.0.36] - 2026-11-07
+
+### Fixed
+
+- On OpenCode 2, every action in the Antigravity side menu works again. Since 3.0.0 the server had refused all of them (Add account, Remove, Enable/Disable, the three "Use for" choices, Check quota now, the killswitch, log level and wire dump) because the menu sent an old request format. Each one now goes through the server's own menu actions, with the same labels and order.
+
+### Changed
+
+- On OpenCode 2, Remove asks "Remove account N? Its saved login is deleted.", the same confirmation as OpenCode 1.
+- On OpenCode 2, the side menu shows the Vault section in local and vault mode, as OpenCode 1's `/antigravity` menu already does.
+- In vault and Thalamus mode, the OpenCode 2 side menu hides the local account buttons that the server doesn't offer there (Add account, Remove, Enable/Disable and the three "Use for" choices).
+- "Add account" on OpenCode 2 needs the browser to reach this machine. If the sign-in doesn't return within 5 minutes it stops with "Antigravity sign-in did not complete." and saves nothing. OpenCode 1 also accepts a pasted sign-in link.
 
 ## [3.0.35] - 2026-11-07
 
