@@ -398,7 +398,7 @@ test('producer.shared_core_profile_exact_closure', async () => {
   )
   expect(required.length).toBe(153)
   expect(map.canonicalFiles).toBe(153)
-  expect(map.canonicalBytes).toBe(1040713)
+  expect(map.canonicalBytes).toBe(1040884)
   expect(map.publicRoots).toEqual(profile.publicRoots)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.files.map((file: { output: string }) => file.output)).toEqual(

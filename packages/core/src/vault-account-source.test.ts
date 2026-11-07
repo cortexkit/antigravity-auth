@@ -1023,7 +1023,8 @@ describe('real public consumer with a local vault transport', () => {
           project: 'test-project-v1',
           version: 1,
         })
-      expect(vault.gets).toHaveLength(3)
+      // The busy refusal latches the outage, so the next send needs no vault read.
+      expect(vault.gets).toHaveLength(2)
       expect(vault.reports).toEqual([])
       expect(localAccounts).not.toHaveBeenCalled()
     } finally {

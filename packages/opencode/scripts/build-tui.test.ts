@@ -716,7 +716,6 @@ test('build.map_admission_valid_generated', async () => {
   const runtime = await hashes(root, 'src/tui-compiled')
   const generated = await readFile(map)
   expect(JSON.parse(generated.toString()).compiler).toBe(
-    '@cortexkit/common-auth/tui-build@0.40.0',
     '@cortexkit/common-auth/tui-build@0.42.0',
   )
   for (const compiler of [
@@ -733,6 +732,7 @@ test('build.map_admission_valid_generated', async () => {
     '@cortexkit/common-auth/tui-build@0.38.0',
     '@cortexkit/common-auth/tui-build@0.39.0',
     '@cortexkit/common-auth/tui-build@0.39.1',
+    '@cortexkit/common-auth/tui-build@0.40.0',
   ]) {
     const previous = JSON.parse(generated.toString())
     previous.compiler = compiler
