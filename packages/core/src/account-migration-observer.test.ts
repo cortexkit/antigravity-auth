@@ -1,4 +1,5 @@
 import { describe, expect, it, spyOn } from 'bun:test'
+import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 import { withMigrationFixtures } from '../../../test/common-auth-010-store/migration-child.ts'
@@ -129,7 +130,22 @@ describe('migration file-sync observer', () => {
       expect(unobserved.calls).toEqual(observed.calls)
       if (process.env.MIGRATION_FILE_SYNC_TRACE === '1')
         console.log(
-          `MIGRATION_FILE_SYNC_TRACE=${JSON.stringify(unobserved.calls)}`,
+          `MIGRATION_FILE_SYNC_TRACE=${JSON.stringify({
+            sha256: createHash('sha256')
+              .update(JSON.stringify(unobserved.calls))
+              .digest('hex'),
+            calls: unobserved.calls.length,
+            fileSyncs: unobserved.syncs.length,
+            operations: Object.fromEntries(
+              ['open', 'write', 'sync', 'close', 'rename', 'link'].map(
+                (kind) => [
+                  kind,
+                  unobserved.calls.filter((call) => call.startsWith(`${kind}:`))
+                    .length,
+                ],
+              ),
+            ),
+          })}`,
         )
     })
   })
