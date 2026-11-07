@@ -79,7 +79,6 @@ export function assertGaFixturePins(repo: string): void {
     '@cortexkit/claustrum-client',
     '@cortexkit/private-files',
     '@cortexkit/store',
-    '@cortexkit/store/@cortexkit/private-files',
     '@cortexkit/subc-client',
     'jsonc-parser',
     'xdg-basedir',

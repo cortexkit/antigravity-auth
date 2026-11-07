@@ -128,8 +128,8 @@
     "zod-to-json-schema": "^3.25.1"
   },
   "dependencies": {
-    "@cortexkit/claustrum-client": "0.15.0",
-    "@cortexkit/subc-client": "0.22.5",
+    "@cortexkit/claustrum-client": "0.16.0",
+    "@cortexkit/subc-client": "0.24.0",
     "@cortexkit/antigravity-auth-core": "3.0.36",
     "@cortexkit/private-files": "0.2.2",
     "jsonc-parser": "^3.3.1",
