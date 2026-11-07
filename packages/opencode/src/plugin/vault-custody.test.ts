@@ -5,7 +5,7 @@
  * is under a temporary directory; nothing connects to a real vault.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import {
   chmodSync,
   existsSync,
@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadCommonAuthClaustrum } from '@cortexkit/antigravity-auth-core'
 import { ClaustrumClient } from '@cortexkit/claustrum-client'
+import { withVaultHost } from '../../../../test/support/vault-host.ts'
 
 import { createVaultAccountPool } from './shared/vault-request-credentials.ts'
 import {
@@ -176,6 +177,90 @@ describe('openCodeVaultPaths and the mode file', () => {
 })
 
 describe('createOpenCodeVaultCustody', () => {
+  it('[hosted] constructs one consumer without native files and shows only Thalamus status', async () => {
+    const vault = fakeObservationClient(false)
+    const accessor = mock((id: string) => {
+      expect(id).toBe('antigravity-auth')
+      return vault.client
+    })
+    await withVaultHost('thalamus', accessor, async () => {
+      const local = mock(async () => {
+        throw new Error('local slot must stay dormant')
+      })
+      const native = mock(async () => {
+        throw new Error('native connection must stay dormant')
+      })
+      const { custody } = custodyWith(local, undefined, {
+        connectionFile: native,
+        connect: native,
+      })
+      expect(await custody.readMode()).toEqual({
+        ok: true,
+        record: { version: 1, mode: 'custody' },
+      })
+      const source = await custody.custodySource()
+      await source.refresh()
+      expect(source.routes()).toHaveLength(1)
+      expect(await custody.custodySource()).toBe(source)
+      expect(accessor).toHaveBeenCalledTimes(1)
+      expect(await custody.menuSection().build({} as never)).toEqual({
+        lines: ['Served by Thalamus'],
+        actions: [],
+      })
+      const claustrum = await loadCommonAuthClaustrum()
+      await expect(custody.requestAccess()).rejects.toThrow(
+        claustrum.VAULT_HOST_CONNECT_REFUSAL,
+      )
+      await expect(custody.useLocal()).rejects.toThrow(
+        claustrum.VAULT_HOST_CONNECT_REFUSAL,
+      )
+      expect(
+        existsSync(
+          claustrum.hostEnrollmentPaths({
+            stateDir: vaultDir,
+            host: 'opencode',
+          }).tokenPath,
+        ),
+      ).toBe(false)
+      expect(local).not.toHaveBeenCalled()
+      expect(native).not.toHaveBeenCalled()
+    })
+  })
+
+  it('[hosted] refuses a missing bridge without consulting the dormant host slot', async () => {
+    await withVaultHost('thalamus', undefined, async () => {
+      const local = mock(async () => {
+        throw new Error('local slot must stay dormant')
+      })
+      const { custody } = custodyWith(local)
+      expect((await custody.status()).mode).toBe('custody')
+      const source = await custody.custodySource()
+      await expect(source.refresh()).rejects.toThrow()
+      expect(source.routes()).toEqual([])
+      expect(local).not.toHaveBeenCalled()
+    })
+  })
+
+  it('[hosted] ignores an unmarked accessor while OpenCode uses native custody', async () => {
+    const accessor = mock(() => {
+      throw new Error('unmarked accessor must not run')
+    })
+    await withVaultHost(undefined, accessor, async () => {
+      const vault = fakeObservationClient(false)
+      const native = mock(async () => vault.client)
+      const { custody, service } = custodyWith(
+        async () => undefined,
+        undefined,
+        { connect: native },
+      )
+      service.approveNext()
+      await custody.requestAccess()
+      await (await custody.custodySource()).refresh()
+      expect(vault.listCalls).toBe(1)
+      expect(native).toHaveBeenCalledTimes(1)
+      expect(accessor).not.toHaveBeenCalled()
+    })
+  })
   it('with an unsettled vault folder reads and writes no vault file, serves neither source, and says why', async () => {
     const refusal =
       'antigravity-auth cannot start: vault files conflict between /old/opencode-roster.json and /new/opencode-roster.json. Keep the newer one, delete the other, then restart OpenCode.'
@@ -981,8 +1066,8 @@ it('starts vault-authority discovery when the request joins an old local observa
   const { custody, service } = custodyWith(async () => undefined, undefined, {
     loadClaustrum: async () => ({
       ...claustrum,
-      enrollmentAuthority: async (paths, name) => {
-        const authority = await claustrum.enrollmentAuthority(paths, name)
+      vaultAuthority: async (paths, name) => {
+        const authority = await claustrum.vaultAuthority(paths, name)
         if (firstRead) {
           firstRead = false
           entered()
@@ -1266,11 +1351,11 @@ describe('remembered enrollment reads', () => {
       reads,
       load: async () => ({
         ...claustrum,
-        enrollmentAuthority: async (
-          ...args: Parameters<typeof claustrum.enrollmentAuthority>
+        vaultAuthority: async (
+          ...args: Parameters<typeof claustrum.vaultAuthority>
         ) => {
           reads.authority++
-          return claustrum.enrollmentAuthority(...args)
+          return claustrum.vaultAuthority(...args)
         },
         readClaustrumEnrollmentStatus: async (
           ...args: Parameters<typeof claustrum.readClaustrumEnrollmentStatus>

@@ -101,7 +101,10 @@ async function custodyAccounts(
   reach?: VaultGrantReach
   problem?: string
 }> {
-  if (status.mode !== 'custody' || status.enrollment.state !== 'approved')
+  if (
+    status.mode !== 'custody' ||
+    (!status.hosted && status.enrollment.state !== 'approved')
+  )
     return { list: [] }
   try {
     const port = options.accounts()

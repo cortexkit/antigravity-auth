@@ -1,8 +1,8 @@
 import {
   ANTIGRAVITY_PROVIDER_ID,
   type EnrollmentAuthority,
-  enrollmentAuthority,
   loadCommonAuthClaustrum,
+  vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import type { Plugin } from '@opencode/plugin'
 import type { Registration } from '@opencode/plugin/promise/registration'
@@ -38,7 +38,7 @@ async function readAuthority(): Promise<EnrollmentAuthority> {
     stateDir: folder.vaultDir,
     host: OPENCODE_VAULT_HOST,
   })
-  return enrollmentAuthority(paths, OPENCODE_VAULT_ENROLLMENT_NAME, claustrum)
+  return vaultAuthority(paths, OPENCODE_VAULT_ENROLLMENT_NAME, claustrum)
 }
 
 /** Adds pool and vault methods without modifying Google's native login methods. */
@@ -47,7 +47,22 @@ export async function registerGaAuthMethods(
   authority: () => Promise<EnrollmentAuthority> = readAuthority,
   input: { local?: GaLocalLogin; oauth?: GaPluginOverrides['oauth'] } = {},
 ): Promise<Registration> {
-  const pool = createGaPoolLogin(input)
+  const local = input.local
+  const pool = createGaPoolLogin({
+    ...input,
+    ...(local
+      ? {
+          local: {
+            ...local,
+            assertAdmission: async () => {
+              if ((await loadCommonAuthClaustrum()).hasVaultHost())
+                throw new Error('Vault authority excludes local sign-in.')
+              await local.assertAdmission()
+            },
+          },
+        }
+      : {}),
+  })
   const registrations: Registration[] = []
   try {
     registrations.push(
@@ -62,7 +77,7 @@ export async function registerGaAuthMethods(
             label: OPENCODE2_VAULT_AUTH_LABEL,
           },
           async activate() {
-            if ((await authority()) !== 'vault') {
+            if (!['host', 'vault'].includes(await authority())) {
               throw new Error(
                 'Approve Antigravity vault access before activating this connection',
               )

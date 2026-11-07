@@ -669,7 +669,7 @@ export function createAuthLoader({
           // built or sent after admission closes, even while disposal drains.
           assertOpen()
           if (authority === 'unreadable') throw new Error(unavailableMessage)
-          if (authority === 'vault') {
+          if (authority === 'vault' || authority === 'host') {
             currentRequestSource = 'vault'
             if (!createVaultFetch) throw new Error(unavailableMessage)
             vaultFetchRuntime ??= createVaultFetch().catch((error) => {

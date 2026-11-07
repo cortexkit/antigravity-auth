@@ -15,6 +15,7 @@ import {
   type VaultRouteRef,
   type VaultSendAdmission,
 } from '@cortexkit/antigravity-auth-core'
+import { withVaultHost } from '../../../test/support/vault-host.ts'
 import {
   keptReceipts,
   outageVault,
@@ -176,6 +177,60 @@ describe('Pi vault runtime shutdown', () => {
 })
 
 describe('Pi vault request path', () => {
+  it('[hosted] ignores an unmarked accessor while Pi sends its native enrollment token', async () => {
+    const accessor = mock(() => {
+      throw new Error('unmarked accessor must not run')
+    })
+    await withVaultHost(undefined, accessor, async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), 'pi-native-vault-')))
+      const tokens: (string | undefined)[] = []
+      const native = mock(async () => ({
+        listScoped: async (token?: string) => {
+          tokens.push(token)
+          return {
+            view: 'native',
+            rows: [],
+            grants: undefined,
+            grantTuples: undefined,
+          }
+        },
+        getScoped: async () => {
+          throw new Error('empty native roster')
+        },
+        reportAuthFailureScoped: async () => {},
+        close() {},
+      }))
+      const runtime = createPiVaultRuntime(() => undefined, {
+        vaultDir: root,
+        modeFile: join(root, 'pi-mode.json'),
+        rosterFile: join(root, 'roster.json'),
+        connect: native,
+        connectEnrollment: async () => ({
+          enrollPropose: async () => ({ requestId: 'native' }),
+          enrollPoll: async () => ({
+            status: 'approved',
+            name: 'antigravity-auth-pi',
+            token: 'ab'.repeat(32),
+            tokenGeneration: 1,
+          }),
+          close() {},
+        }),
+      })
+      try {
+        await (await runtime.setup()).connectStep()
+        expect(await runtime.requestPath.readMode()).toMatchObject({
+          record: { mode: 'custody' },
+        })
+        await (await runtime.requestPath.source()).refresh()
+        expect(tokens).toEqual(['ab'.repeat(32)])
+        expect(native).toHaveBeenCalledTimes(1)
+        expect(accessor).not.toHaveBeenCalled()
+      } finally {
+        await runtime.dispose()
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+  })
   it('sends a kept receipt through the Pi model path during a vault outage', async () => {
     const vault = await outageVault('pi')
     const send = createPiVaultSend({

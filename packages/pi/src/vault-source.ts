@@ -17,10 +17,10 @@ import {
   type CommonAuthPiSlotModule,
   createAntigravityVaultAccountSource,
   type EmptyVaultRosterCause,
-  enrollmentAuthority,
   loadCommonAuthClaustrum,
   type VaultGrantReach,
   type VaultRouteRef,
+  vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import type {
   ClaustrumEnrollmentConnection,
@@ -292,7 +292,7 @@ export function createPiVaultRuntime(
 
   const createSource = async (): Promise<PiVaultAccountSource> => {
     const claustrum = await loadClaustrum()
-    const { tokenPath } = claustrum.hostEnrollmentPaths({
+    const paths = claustrum.hostEnrollmentPaths({
       stateDir: vaultDir,
       host: PI_ANTIGRAVITY_VAULT_HOST,
     })
@@ -300,16 +300,25 @@ export function createPiVaultRuntime(
       claustrum,
       host: PI_ANTIGRAVITY_VAULT_HOST,
       rosterPath: rosterFile,
-      tokenPath,
+      tokenPath: paths.tokenPath,
       connect:
         seams.connect ??
         (async () =>
           claustrum.connectClaustrumScopedClient({
             connectionFile: await claustrumConnectionFile(),
           })),
-      // The vault serves this host only once setup has stored an approved
-      // enrollment token; Pi's own send path also requires custody mode.
-      isCustodyActive: () => existsSync(tokenPath),
+      // Re-read authority for every admission, including when no token is needed.
+      isCustodyActive: async () => {
+        const authority = await vaultAuthority(
+          paths,
+          PI_ANTIGRAVITY_ENROLLMENT_NAME,
+          claustrum,
+        )
+        return (
+          authority === 'host' ||
+          (authority === 'vault' && existsSync(paths.tokenPath))
+        )
+      },
       // Pi reads the HTTP status of each send itself.
       reporterSource: 'direct',
     })
@@ -363,7 +372,7 @@ export function createPiVaultRuntime(
       readMode: async () => {
         const settings = await setup()
         const status = await settings.sourceStatus()
-        const authority = await enrollmentAuthority(
+        const authority = await vaultAuthority(
           settings.paths,
           PI_ANTIGRAVITY_ENROLLMENT_NAME,
         )

@@ -2064,6 +2064,29 @@ describe('GA location client', () => {
 })
 
 describe('GA menu over native state', () => {
+  it('[hosted] parses the server status and shows Thalamus without local account actions', async () => {
+    const { buildGaMenu, parseGaStateAnswer } = await import('./ga/tui/host-ga')
+    const parsed = parseGaStateAnswer(
+      gaSnapshot({ vaultHostStatus: 'Served by Thalamus' }),
+    )
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok || parsed.value.kind !== 'snapshot')
+      throw new Error('Expected hosted snapshot')
+    const menu = buildGaMenu(parsed.value, 0)
+    const vault = menu.sections.find((section) => section.id === 'vault')
+    expect(vault?.lines).toEqual(['Served by Thalamus'])
+    expect(vault?.actions).toEqual([])
+    const accounts = menu.sections.find((section) => section.id === 'accounts')
+    expect(accounts?.actions).toEqual([])
+    expect(
+      accounts?.items
+        .flatMap((item) => item.actions)
+        .map((action) => action.id),
+    ).not.toContain('remove')
+    expect(menu.sections.some((section) => section.id === 'diagnostics')).toBe(
+      true,
+    )
+  })
   it('builds every section from the snapshot, settings included', async () => {
     const { buildGaMenu } = await import('./ga/tui/host-ga')
     const snapshot = gaSnapshot({

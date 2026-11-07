@@ -9,12 +9,13 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { withVaultHost } from '../../../test/support/vault-host.ts'
 
 import { UNSUPPORTED_ENROLLMENT_CODE } from './common-auth-embedded/claustrum/enrollment.js'
 import { loadCommonAuthClaustrum } from './common-auth-runtime.ts'
 import {
-  enrollmentAuthority,
   UNSUPPORTED_VAULT_CODE,
+  vaultAuthority,
 } from './vault-enrollment-authority.ts'
 
 const proposedName = 'antigravity-auth-opencode'
@@ -64,11 +65,16 @@ async function fixture(name = proposedName, approved = false) {
 }
 
 describe('enrollment source authority', () => {
+  it('[hosted] selects exclusive host authority without enrollment or an accessor', async () => {
+    await withVaultHost('thalamus', undefined, async () => {
+      expect(await vaultAuthority(syntheticPaths, proposedName)).toBe('host')
+    })
+  })
   for (const authority of ['local', 'vault', 'unreadable'] as const)
     it(`preserves the public library's ${authority} result and consumer binding`, async () => {
       expect(
-        await enrollmentAuthority(syntheticPaths, proposedName, {
-          enrollmentAuthority: async (paths, name) => {
+        await vaultAuthority(syntheticPaths, proposedName, {
+          vaultAuthority: async (paths, name) => {
             expect(paths).toBe(syntheticPaths)
             expect(name).toBe(proposedName)
             return authority
@@ -79,8 +85,8 @@ describe('enrollment source authority', () => {
 
   it('a failed public authority read cannot authorize local work', async () => {
     expect(
-      await enrollmentAuthority(syntheticPaths, proposedName, {
-        enrollmentAuthority: async () => {
+      await vaultAuthority(syntheticPaths, proposedName, {
+        vaultAuthority: async () => {
           throw new Error('synthetic read failure')
         },
       }),
@@ -89,7 +95,7 @@ describe('enrollment source authority', () => {
 
   it('a pending native ceremony leaves local accounts available', async () => {
     const { paths } = await fixture()
-    expect(await enrollmentAuthority(paths, proposedName)).toBe('local')
+    expect(await vaultAuthority(paths, proposedName)).toBe('local')
   })
 
   for (const code of ['superseded', 'not_found', 'already_consumed'])
@@ -100,30 +106,30 @@ describe('enrollment source authority', () => {
         paths.statePath,
         JSON.stringify({ ...state, phase: 'blocked', errorCode: code }),
       )
-      expect(await enrollmentAuthority(paths, proposedName)).toBe('local')
+      expect(await vaultAuthority(paths, proposedName)).toBe('local')
     })
 
   for (const approved of [false, true])
     it(`refuses another consumer's ${approved ? 'approved' : 'pending'} native ceremony`, async () => {
       const { paths } = await fixture('synthetic-foreign-consumer', approved)
-      expect(await enrollmentAuthority(paths, proposedName)).toBe('unreadable')
+      expect(await vaultAuthority(paths, proposedName)).toBe('unreadable')
     })
 
   it('approved enrollment excludes local accounts even if its token disappears or corrupts', async () => {
     const { paths } = await fixture(proposedName, true)
-    expect(await enrollmentAuthority(paths, proposedName)).toBe('vault')
+    expect(await vaultAuthority(paths, proposedName)).toBe('vault')
     const token = readFileSync(paths.tokenPath)
     unlinkSync(paths.tokenPath)
-    expect(await enrollmentAuthority(paths, proposedName)).toBe('vault')
+    expect(await vaultAuthority(paths, proposedName)).toBe('vault')
     writeFileSync(paths.tokenPath, '{', { mode: 0o600 })
-    expect(await enrollmentAuthority(paths, proposedName)).toBe('vault')
+    expect(await vaultAuthority(paths, proposedName)).toBe('vault')
     writeFileSync(paths.tokenPath, token)
-    expect(await enrollmentAuthority(paths, proposedName)).toBe('vault')
+    expect(await vaultAuthority(paths, proposedName)).toBe('vault')
   })
 
   it('a malformed native ceremony never authorizes local work', async () => {
     const { paths } = await fixture()
     writeFileSync(paths.statePath, '{')
-    expect(await enrollmentAuthority(paths, proposedName)).toBe('unreadable')
+    expect(await vaultAuthority(paths, proposedName)).toBe('unreadable')
   })
 })

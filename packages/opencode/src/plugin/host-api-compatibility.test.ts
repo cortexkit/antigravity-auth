@@ -88,7 +88,7 @@ describe('v1 host API compatibility', () => {
         host: OPENCODE_VAULT_HOST,
       })
       expect(
-        await claustrum.enrollmentAuthority(
+        await claustrum.vaultAuthority(
           enrollment,
           OPENCODE_VAULT_ENROLLMENT_NAME,
         ),

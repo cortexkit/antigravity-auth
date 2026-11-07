@@ -322,7 +322,7 @@ describe('selected credential boundary', () => {
       ensureProjectContextMock.mockImplementationOnce(async () => {
         expect((await setup.connectStep()).state).toBe('approved')
         expect(
-          await actualCore.enrollmentAuthority(
+          await actualCore.vaultAuthority(
             setup.paths,
             PI_ANTIGRAVITY_ENROLLMENT_NAME,
             claustrum,

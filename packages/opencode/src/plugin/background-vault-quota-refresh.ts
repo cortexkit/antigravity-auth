@@ -195,7 +195,7 @@ export class BackgroundVaultQuotaRefresh {
   private async assertActive(controller: AbortController): Promise<void> {
     controller.signal.throwIfAborted()
     if (this.disposed) controller.abort()
-    else if ((await this.options.readAuthority()) !== 'vault')
+    else if (!['host', 'vault'].includes(await this.options.readAuthority()))
       controller.abort({ kind: 'not-active' })
     controller.signal.throwIfAborted()
   }

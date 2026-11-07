@@ -279,7 +279,8 @@ export const createAntigravityPlugin =
       // which decides whether its served credential needs replacement.
       reporterSource: 'direct',
       onAuthorityChanged: (authority) => {
-        if (authority !== 'vault') vaultQuotaPoller?.abortTick()
+        if (authority !== 'vault' && authority !== 'host')
+          vaultQuotaPoller?.abortTick()
         scheduleSidebarPublication()
       },
       onRosterChanged: () => scheduleSidebarPublication(),
@@ -651,7 +652,8 @@ export const createAntigravityPlugin =
     > => {
       const authority = await readAuthority()
       if (authority !== 'local') {
-        if (authority !== 'vault') return showUnavailableVaultMenu()
+        if (authority !== 'vault' && authority !== 'host')
+          return showUnavailableVaultMenu()
         let current: Awaited<ReturnType<typeof currentVaultPool>>
         try {
           current = await currentVaultPool()
@@ -842,7 +844,7 @@ export const createAntigravityPlugin =
         const { source, pool } = await currentVaultPool()
         return createVaultFetchInterceptor({
           assertAdmission: async () => {
-            if ((await readAuthority()) !== 'vault')
+            if (!['host', 'vault'].includes(await readAuthority()))
               throw new Error(unavailableMessage)
           },
           client,

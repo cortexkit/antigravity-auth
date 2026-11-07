@@ -4,6 +4,7 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   realpath,
   rm,
@@ -26,6 +27,7 @@ import type {
   PluginExtraSection,
   SectionContent,
 } from '@cortexkit/antigravity-auth-core/common-auth/commands'
+import { withVaultHost } from '../../../test/support/vault-host.ts'
 
 import {
   createPiVaultSection,
@@ -170,6 +172,28 @@ describe('Pi vault mode file', () => {
 })
 
 describe('Pi vault setup', () => {
+  it('[hosted] refuses setup before enrollment and leaves disk unchanged while the menu names Thalamus', async () => {
+    await withVaultHost('thalamus', undefined, async () => {
+      const endpoint = enrollmentEndpoint(['approved'])
+      const setup = makeSetup(endpoint)
+      await writeFile(join(dir, 'sentinel'), 'unchanged')
+      const before = await readdir(dir)
+      await expect(setup.connectStep()).rejects.toThrow(
+        claustrum.VAULT_HOST_CONNECT_REFUSAL,
+      )
+      await expect(setup.disconnect()).rejects.toThrow(
+        claustrum.VAULT_HOST_CONNECT_REFUSAL,
+      )
+      expect(endpoint.calls.opened).toBe(0)
+      expect(await readdir(dir)).toEqual(before)
+      expect(await readFile(join(dir, 'sentinel'), 'utf8')).toBe('unchanged')
+      const section = createPiVaultSection({ setup: async () => setup })
+      const content = await build(section)
+      expect(content.lines).toEqual(['Served by Thalamus'])
+      expect(content.actions ?? []).toEqual([])
+      expect(modeChanges).toEqual([])
+    })
+  })
   it('enrolls under the antigravity-auth-pi host name with the library host paths', () => {
     const setup = makeSetup()
     expect(PI_ANTIGRAVITY_ENROLLMENT_NAME).toBe('antigravity-auth-pi')

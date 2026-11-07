@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { withVaultHost } from '../../../test/support/vault-host.ts'
 
 import {
   loadCommonAuthClaustrum,
@@ -809,15 +810,16 @@ function localVault(rows: ScopedRow[] = [vaultRow()]): LocalVault {
   }
 }
 
-async function realSource(vault: LocalVault) {
+async function realSource(vault: LocalVault, hosted = false) {
   const claustrum = await loadCommonAuthClaustrum()
   const fs = await loadCommonAuthFs()
   const tokenPath = join(dir, 'enrollment-token.json')
-  await writeFile(
-    tokenPath,
-    JSON.stringify({ token: ENROLLMENT_TOKEN, token_generation: 1 }),
-    { mode: 0o600 },
-  )
+  if (!hosted)
+    await writeFile(
+      tokenPath,
+      JSON.stringify({ token: ENROLLMENT_TOKEN, token_generation: 1 }),
+      { mode: 0o600 },
+    )
   const client: VaultScopedClient = {
     async listScoped(enrollmentToken) {
       vault.listTokens.push(enrollmentToken)
@@ -845,6 +847,15 @@ async function realSource(vault: LocalVault) {
     },
   }
   const rosterPath = join(dir, 'roster.json')
+  const hostAccessor = mock((pluginId: string) => {
+    expect(pluginId).toBe('antigravity-auth')
+    return client
+  })
+  if (hosted)
+    Object.defineProperty(globalThis, Symbol.for('cortexkit.vault'), {
+      configurable: true,
+      value: hostAccessor,
+    })
   const src = createAntigravityVaultAccountSource({
     claustrum,
     host: 'pi',
@@ -860,10 +871,35 @@ async function realSource(vault: LocalVault) {
   await src.refresh()
   const [ref] = src.routes()
   if (!ref) throw new Error('the real roster produced no route')
-  return { src, ref, claustrum, rosterPath }
+  return { src, ref, claustrum, rosterPath, hostAccessor }
 }
 
 describe('real public consumer with a local vault transport', () => {
+  it('[hosted] serves receipts and reports the final unauthorized send to the same client without native files', async () => {
+    await withVaultHost('thalamus', undefined, async () => {
+      const vault = localVault()
+      const { src, ref, hostAccessor } = await realSource(vault, true)
+      try {
+        expect(vault.listTokens).toEqual([''])
+        vault.served.push(servedCredential(5), servedCredential(5))
+        const sent = await src.send(
+          ref,
+          async (admission) => {
+            expect(admission.accessToken).toBe('test-access-v5')
+            return response(401)
+          },
+          { site: 'model' },
+        )
+        expect(sent.status).toBe(401)
+        expect(vault.reports).toHaveLength(1)
+        expect(vault.reports[0]?.recordVersion).toBe(5)
+        expect(hostAccessor).toHaveBeenCalledTimes(1)
+        expect(await readdir(dir)).toEqual(['roster.json'])
+      } finally {
+        await src.dispose()
+      }
+    })
+  })
   it('routes only the Antigravity OAuth record and never an API key', async () => {
     const vault = localVault([
       vaultRow(),

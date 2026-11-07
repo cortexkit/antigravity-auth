@@ -41,6 +41,15 @@ If another process changed the slot, the extension keeps the backup and refuses
 to overwrite that change; re-login may be needed. This is not a promise to restore
 every native auth record when changing plugin versions.
 
+### Inside Thalamus
+
+Thalamus provides Pi's vault accounts. No `setup --claustrum` is needed; setup
+and Pi's vault connection action refuse because Thalamus owns the connection.
+The `/antigravity` Vault section shows **Served by Thalamus**, without Connect or
+Disconnect. Pi saves its native Google login and installs the non-secret vault
+marker while holding Pi's `auth.json` lock; leaving Thalamus restores the login
+only if the slot still matches. Outside Thalamus, nothing changes.
+
 ## Models
 
 The extension registers the Antigravity model catalog under the

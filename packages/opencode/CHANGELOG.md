@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Embedded common-auth 0.40.0: OpenCode and Pi hosts inside Thalamus use its vault accounts without plugin enrollment; outside Thalamus, vault and local-account behavior is unchanged.
+
 ## [3.0.34] - 2026-11-07
 
 ### Fixed

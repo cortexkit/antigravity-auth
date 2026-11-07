@@ -22,10 +22,10 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  enrollmentAuthority,
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
   VAULT_ACCOUNT_REMEDY,
+  vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import { createDefaultCliDependencies, runCliProcess } from './cli'
 import { startMenuVaultFixture } from './plugin/__fixtures__/vault-menu-daemon.test'
@@ -210,7 +210,7 @@ async function enrollInConfigFolder(
 
 async function authorityAt(vaultDir: string) {
   const claustrum = await loadCommonAuthClaustrum()
-  return enrollmentAuthority(
+  return vaultAuthority(
     claustrum.hostEnrollmentPaths({ stateDir: vaultDir, host: 'opencode' }),
     OPENCODE_VAULT_ENROLLMENT_NAME,
   )

@@ -48,6 +48,21 @@ async function flow() {
 }
 
 describe('OpenCode 1 vault activation', () => {
+  it('[hosted] activates the empty host slot without enrollment but never overwrites a dormant login', async () => {
+    authority = 'host'
+    const claustrum = await loadCommonAuthClaustrum()
+    expect(await (await flow()).callback()).toEqual({
+      ...claustrum.custodyPlaceholder('google'),
+      type: 'success',
+    })
+    expect(existsSync(authFile)).toBe(false)
+    const bytes = JSON.stringify({
+      google: { type: 'oauth', refresh: 'dormant-login' },
+    })
+    writeFileSync(authFile, bytes)
+    expect(await (await flow()).callback()).toEqual({ type: 'failed' })
+    expect(readFileSync(authFile, 'utf8')).toBe(bytes)
+  })
   it('uses the native data-directory path, treating an empty XDG override as unset', () => {
     expect(
       nativeOpenCodeAuthPath({ XDG_DATA_HOME: '/owned/data' }, '/owned/home'),

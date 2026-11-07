@@ -30,7 +30,6 @@ import {
   type EmptyVaultRosterCause,
   type EnrollmentAuthority,
   emptyVaultRosterCause,
-  enrollmentAuthority,
   getAntigravityVaultEnrollmentName,
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
@@ -46,6 +45,7 @@ import {
   type VaultProviderStateFile,
   type VaultReporterSource,
   type VaultScopedClient,
+  vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import { writeJsonAtomic } from '@cortexkit/antigravity-auth-core/atomic-write'
 
@@ -390,6 +390,12 @@ export function createOpenCodeVaultCustody(
   const readEnrollment = async (): Promise<EnrollmentStatus> => {
     if (layoutRefusal !== undefined) return unsettled
     const claustrum = await loadClaustrum()
+    if (claustrum.hasVaultHost())
+      return {
+        state: 'unavailable',
+        code: 'host',
+        proposedName: OPENCODE_VAULT_ENROLLMENT_NAME,
+      }
     const status = await claustrum
       .readClaustrumEnrollmentStatus(
         await enrollmentPaths(),
@@ -432,6 +438,8 @@ export function createOpenCodeVaultCustody(
   const readEnrollmentSnapshot = async (): Promise<EnrollmentSnapshot> => {
     if (layoutRefusal !== undefined)
       return { authority: 'unreadable', status: unsettled }
+    if ((await loadClaustrum()).hasVaultHost())
+      return { authority: 'host', status: await readEnrollment() }
     const enrollment = await enrollmentPaths()
     const identity = await enrollmentFilesIdentity(enrollment)
     if (identity) {
@@ -444,7 +452,7 @@ export function createOpenCodeVaultCustody(
     const promise = (async (): Promise<EnrollmentSnapshot> => {
       // The mode stays the vault library's own decision, which treats a
       // corrupt or missing token specially; the status adds the approval.
-      const authority = await enrollmentAuthority(
+      const authority = await vaultAuthority(
         enrollment,
         OPENCODE_VAULT_ENROLLMENT_NAME,
         await loadClaustrum(),
@@ -529,6 +537,7 @@ export function createOpenCodeVaultCustody(
             observedAuthority = authority
             options.onAuthorityChanged?.(authority)
           }
+          if (authority === 'host') return true
           if (authority !== 'vault') return false
           return status.state === 'approved'
         },
@@ -708,7 +717,10 @@ export function createOpenCodeVaultCustody(
         return { ok: false, reason: VAULT_ACCOUNT_REMEDY }
       return {
         ok: true,
-        record: authority === 'vault' ? CUSTODY_MODE : LOCAL_MODE,
+        record:
+          authority === 'vault' || authority === 'host'
+            ? CUSTODY_MODE
+            : LOCAL_MODE,
       }
     },
 
@@ -742,11 +754,17 @@ export function createOpenCodeVaultCustody(
     },
 
     async requestAccess() {
+      const claustrum = await loadClaustrum()
+      if (claustrum.hasVaultHost())
+        throw new OpenCodeVaultCustodyError(
+          claustrum.VAULT_HOST_CONNECT_REFUSAL,
+        )
       return connectStep(true)
     },
 
     async useVault() {
       refuseUnsettled()
+      if ((await loadClaustrum()).hasVaultHost()) return
       const enrollment = await readEnrollment()
       if (enrollment.state !== 'approved')
         throw new OpenCodeVaultCustodyError(
@@ -759,6 +777,10 @@ export function createOpenCodeVaultCustody(
     async useLocal() {
       refuseUnsettled()
       const claustrum = await loadClaustrum()
+      if (claustrum.hasVaultHost())
+        throw new OpenCodeVaultCustodyError(
+          claustrum.VAULT_HOST_CONNECT_REFUSAL,
+        )
       const disconnected = await claustrum.disconnectClaustrumEnrollment(
         await enrollmentPaths(),
         OPENCODE_VAULT_ENROLLMENT_NAME,
@@ -795,6 +817,9 @@ export function createOpenCodeVaultCustody(
           // and offer nothing that would touch them.
           if (layoutRefusal !== undefined)
             return { lines: [`Vault: ${layoutRefusal}`], actions: [] }
+          const claustrum = await loadClaustrum()
+          if (claustrum.hasVaultHost())
+            return { lines: [claustrum.VAULT_HOST_STATUS], actions: [] }
           const status = await custody.status()
           const lines = statusLines(status)
           if (status.enrollment.state === 'approved')

@@ -34,6 +34,7 @@ import {
   sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
 
+import { withVaultHost } from '../../../../test/support/vault-host.ts'
 import {
   keptReceipts,
   outageVault,
@@ -73,6 +74,7 @@ import {
   createMemoryQuotaSnapshots,
   type LocationRuntime,
 } from './shared/runtime.ts'
+import { createOpenCodeVaultCustody } from './vault-custody'
 
 const activeCases = new Set<GaTestCase>()
 
@@ -3115,6 +3117,78 @@ describe('createGaLocationServices (production factory)', () => {
 })
 
 describe('GA vault custody location', () => {
+  it('[hosted] refuses unavailable hosted custody without opening or producing local account state', async () => {
+    await withVaultHost('thalamus', undefined, async () => {
+      const root = realpathSync(
+        mkdtempSync(join(tmpdir(), 'ga-hosted-unavailable-')),
+      )
+      const previous = {
+        OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
+        XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      }
+      process.env.OPENCODE_CONFIG_DIR = join(root, 'config')
+      process.env.XDG_CONFIG_HOME = join(root, 'xdg')
+      const local = mock(() => {
+        throw new Error('local work must stay dormant')
+      })
+      const custody = createOpenCodeVaultCustody({
+        vaultDir: join(root, 'vault'),
+        accountFile: join(root, 'accounts.json'),
+        readHostSlot: local,
+        connectionFile: local,
+        connect: local,
+        reporterSource: 'direct',
+      })
+      const factory = createGaLocationServicesFactory({
+        loadStoreModules: local,
+        resolveAccountFile: () => join(root, 'accounts.json'),
+        now: Date.now,
+        runtime: (input) =>
+          createGaRuntimeCollaborators({
+            ...input,
+            accounts: { current: null, quotaLogger: null },
+            now: Date.now,
+          }),
+        createPipeline: local,
+        custody: () => custody,
+        fetchVaultQuota: local,
+      })
+      const services = await factory({
+        directory: root,
+        overrides: { send: local, refreshAccessToken: local },
+      })
+      const runtime = await createLocationRuntime({
+        ...services.runtime,
+        directory: root,
+        operatorSettingsRegistry: createOperatorSettingsRegistry(),
+      })
+      try {
+        const serving = await services.start({
+          runtime,
+          generation: 'hosted',
+          send: local,
+          notify: () => null,
+          isConnected: () => false,
+        })
+        const claustrum = await realCore.loadCommonAuthClaustrum()
+        await expect(
+          serving.execute(transportJob, {
+            signal: new AbortController().signal,
+            send: local,
+          }),
+        ).rejects.toBeInstanceOf(claustrum.ClaustrumUnreachableError)
+        expect(local).not.toHaveBeenCalled()
+      } finally {
+        await runtime.dispose()
+        await services.dispose()
+        for (const [key, value] of Object.entries(previous)) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+  })
   it("serves the vault's accounts without a local store, with settings and the Vault section", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'ga-vault-')))
     const previous = {
@@ -3719,9 +3793,9 @@ describe('GA vault state reads and the enrollment files', () => {
             connectionFile: () => join(root, 'vault-connection.json'),
             loadClaustrum: async () => ({
               ...claustrum,
-              enrollmentAuthority: async (...args) => {
+              vaultAuthority: async (...args) => {
                 libraryReads.authority++
-                return claustrum.enrollmentAuthority(...args)
+                return claustrum.vaultAuthority(...args)
               },
               readClaustrumEnrollmentStatus: async (...args) => {
                 libraryReads.status++

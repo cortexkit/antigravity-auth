@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'bun:test'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { describe, expect, it, mock } from 'bun:test'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -10,6 +10,7 @@ import {
   type VaultConsumerOptions,
   type VaultScopedClient,
 } from '@cortexkit/antigravity-auth-core'
+import { withVaultHost } from '../../../../test/support/vault-host.ts'
 import { BackgroundVaultQuotaRefresh } from './background-vault-quota-refresh'
 import { fetchVaultAccountQuota } from './quota'
 import { createVaultAccountPool } from './shared/vault-request-credentials'
@@ -67,6 +68,8 @@ async function fixture(
     wrongAdmission?: boolean
     refuseAdmission?: boolean
     wrongReadingAccount?: boolean
+    hosted?: boolean
+    withoutInsula?: boolean
   } = {},
 ) {
   let now = NOW
@@ -75,19 +78,22 @@ async function fixture(
   const fs = await loadCommonAuthFs()
   const statePath = join(dir, 'provider-state.json')
   const tokenPath = join(dir, 'enrollment.json')
-  await writeFile(
-    tokenPath,
-    JSON.stringify({ token: 'ab'.repeat(32), token_generation: 1 }),
-    { mode: 0o600 },
-  )
+  if (!options.hosted)
+    await writeFile(
+      tokenPath,
+      JSON.stringify({ token: 'ab'.repeat(32), token_generation: 1 }),
+      { mode: 0o600 },
+    )
   let admissions = 0
   const requests: string[] = []
   const outcomes: VaultQuotaOutcome[] = []
   const skips: unknown[] = []
   let publishes = 0
+  let usageCalls = 0
   const insula = {
     connectionFile: join(dir, 'connection.json'),
     async getUsage() {
+      usageCalls++
       if (options.unreachable) throw new Error('owned unavailable daemon')
       return {
         result,
@@ -96,7 +102,7 @@ async function fixture(
     },
   }
   const client: VaultScopedClient = {
-    insula,
+    ...(options.withoutInsula ? {} : { insula }),
     async listScoped() {
       return {
         view: 'v1',
@@ -134,12 +140,26 @@ async function fixture(
     async reportAuthFailureScoped() {},
     close() {},
   }
+  const native = mock(async () => {
+    if (options.hosted)
+      throw new Error('hosted quota must not open a native route')
+    return client
+  })
+  const accessor = mock((id: string) => {
+    expect(id).toBe('antigravity-auth')
+    return client
+  })
+  if (options.hosted)
+    Object.defineProperty(globalThis, Symbol.for('cortexkit.vault'), {
+      configurable: true,
+      value: accessor,
+    })
   const source = createAntigravityVaultAccountSource({
     claustrum,
     host: 'opencode',
     rosterPath: join(dir, 'roster.json'),
     tokenPath,
-    connect: async () => client,
+    connect: native,
     isCustodyActive: () => true,
     reporterSource: 'direct',
     state: { path: statePath, fs },
@@ -160,9 +180,11 @@ async function fixture(
       },
     },
   })
-  const shared = claustrum.acquireInsulaQuotaSource(insula, tokenPath)
+  const shared = options.withoutInsula
+    ? undefined
+    : claustrum.acquireInsulaQuotaSource(insula, tokenPath)
   await source.refresh()
-  await shared.source.refresh(now)
+  await shared?.source.refresh(now)
   const readState = () => readVaultProviderState(statePath)
   const pool = createVaultAccountPool({
     source,
@@ -203,6 +225,12 @@ async function fixture(
     onOutcome: (_level, outcome) => outcomes.push(outcome),
   })
   return {
+    dir,
+    native,
+    accessor,
+    get usageCalls() {
+      return usageCalls
+    },
     source,
     pool,
     poller,
@@ -215,7 +243,7 @@ async function fixture(
       now += ms
     },
     refreshUsage() {
-      return shared.source.refresh(now)
+      return shared?.source.refresh(now)
     },
     get admissions() {
       return admissions
@@ -226,13 +254,32 @@ async function fixture(
     async close() {
       await poller.dispose()
       source.close()
-      shared.release()
+      shared?.release()
       await rm(dir, { recursive: true, force: true })
     },
   }
 }
 
 describe('insula vault quota', () => {
+  for (const withoutInsula of [false, true])
+    it(`[hosted] ${withoutInsula ? 'falls back to daily-host receipts when insula is absent' : 'shares the host insula transport without a native route'}`, async () => {
+      await withVaultHost('thalamus', undefined, async () => {
+        const f = await fixture([entry()], { hosted: true, withoutInsula })
+        try {
+          await f.poller.tick()
+          expect(f.accessor).toHaveBeenCalledTimes(1)
+          expect(f.native).not.toHaveBeenCalled()
+          expect(f.requests.length).toBe(withoutInsula ? 1 : 0)
+          expect(f.usageCalls).toBe(withoutInsula ? 0 : 1)
+          expect(f.admissions).toBeGreaterThan(0)
+          const files = await readdir(f.dir)
+          expect(files).not.toContain('connection.json')
+          expect(files).not.toContain('enrollment.json')
+        } finally {
+          await f.close()
+        }
+      })
+    })
   it('tick stores all four ID-matched windows at fetchedAt without Google', async () => {
     const f = await fixture()
     try {

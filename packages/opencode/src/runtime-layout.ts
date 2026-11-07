@@ -125,12 +125,12 @@ import {
   type CommonAuthClaustrumModule,
   type CommonAuthFsModule,
   createAccountRelocationFactory,
-  enrollmentAuthority,
   initializeFreshAccountStore,
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
   loadCommonAuthStoreModules,
   readAccountStoreBinding,
+  vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import { createLogger } from './plugin/logger'
 import { accountFileForVault } from './plugin/storage'
@@ -755,7 +755,7 @@ export async function localAccountStoreAuthorized(): Promise<boolean> {
       ? stateHomeVaultDir(location)
       : legacyVaultDir(accountFileForVault(location.configDir))
   return (
-    (await enrollmentAuthority(
+    (await vaultAuthority(
       claustrum.hostEnrollmentPaths({
         stateDir: vaultDir,
         host: OPENCODE_VAULT_HOST,
@@ -1666,7 +1666,7 @@ function vaultStateFile(files: LayoutFiles): LayoutFile {
 /**
  * The SHA-256 of the enrollment state file this move copied, when that state
  * keeps a host in vault mode without its token: approved, or blocked because
- * the token is missing. common-auth's `enrollmentAuthority` reads either one
+ * the token is missing. common-auth's `vaultAuthority` reads either one
  * as 'vault' when no token is next to it, so leaving it in the old vault
  * folder keeps an older version in vault mode. Any other state (pending,
  * denied, unreadable) protects nothing, and the old copy is removed as usual.

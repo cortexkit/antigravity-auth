@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from 'bun:test'
 import { loadCommonAuthCommands } from '@cortexkit/antigravity-auth-core'
+import { withVaultHost } from '../../../../../test/support/vault-host.ts'
 import type {
   CommandApplyResult,
   RpcNotificationPayload,
@@ -229,6 +230,28 @@ function expectPlainJson(value: unknown): void {
 }
 
 describe('JSON-safe state projection', () => {
+  it('[hosted] supplies the public menu status from the server marker per state operation', async () => {
+    await withVaultHost('thalamus', undefined, async () => {
+      const activation = activate({
+        state: makeState(),
+        commands: makeCommands(),
+        generation: 'gen',
+      })
+      try {
+        const hosted = snapshot(
+          await activation.handlers.state(stateInput(null, SESSION_A, 0)),
+        )
+        expect(hosted.vaultHostStatus).toBe('Served by Thalamus')
+        delete process.env.CORTEXKIT_VAULT_HOST
+        const native = snapshot(
+          await activation.handlers.state(stateInput(null, SESSION_A, 0)),
+        )
+        expect(Object.hasOwn(native, 'vaultHostStatus')).toBe(false)
+      } finally {
+        await activation.dispose()
+      }
+    })
+  })
   it('state returns JSON-safe fresh-account DTOs without own undefined optional fields', async () => {
     const activation = activate({
       state: makeState({}, (read) => ({

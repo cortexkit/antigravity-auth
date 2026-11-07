@@ -1,5 +1,13 @@
 # Claustrum vault custody
 
+## Inside Thalamus
+
+Thalamus provides the vault accounts for its OpenCode and Pi hosts. No
+`setup --claustrum` is needed; setup refuses because Thalamus owns the vault
+connection. The `/antigravity` Vault section shows **Served by Thalamus**, with
+no Connect or Disconnect action. Local accounts remain dormant even when the
+hosted vault is unavailable. Outside Thalamus, nothing changes.
+
 Vault custody uses approved Claustrum credentials instead of the local OpenCode pool or Pi's native Google login. Enrollment authority is the freshly read choice between local and approved vault operation; do not hand-edit mode files, copy credentials, or overwrite a host slot to bypass a refusal.
 
 ## Enroll and activate

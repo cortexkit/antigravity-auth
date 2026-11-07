@@ -305,6 +305,7 @@ export const ANTIGRAVITY_STATE_RESETS = [
 ] as const satisfies readonly AntigravityStateReset[]
 
 export interface AntigravityStateSnapshot {
+  readonly vaultHostStatus?: 'Served by Thalamus'
   readonly version: typeof ANTIGRAVITY_RPC_VERSION
   readonly kind: 'snapshot'
   readonly generation: string
@@ -1545,12 +1546,17 @@ function validateStateOutput(value: unknown, issues: Issues): void {
         'status',
         'settings',
       ],
-      ['reset', 'route'],
+      ['reset', 'route', 'vaultHostStatus'],
     )
   ) {
     return
   }
   checkNullableKeysPresent(value, ['reset', 'route'], path, issues)
+  if (
+    present(value, 'vaultHostStatus') &&
+    value.vaultHostStatus !== 'Served by Thalamus'
+  )
+    issues.add(['vaultHostStatus'], 'expected the hosted vault status')
   checkVersion(value, path, issues)
   if (present(value, 'generation')) {
     checkGeneration(value.generation, ['generation'], issues)

@@ -22,9 +22,9 @@ import { unlink } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  enrollmentAuthority,
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
+  vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 
 import { OPENCODE_VAULT_ENROLLMENT_NAME } from './plugin/vault-custody'
@@ -302,7 +302,7 @@ function marker(dir = runtimeDir()) {
 
 async function authorityAt(vaultDir: string) {
   const claustrum = await loadCommonAuthClaustrum()
-  return enrollmentAuthority(
+  return vaultAuthority(
     claustrum.hostEnrollmentPaths({ stateDir: vaultDir, host: 'opencode' }),
     NAME,
   )

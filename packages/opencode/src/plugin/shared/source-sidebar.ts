@@ -37,7 +37,7 @@ export function createSourceSidebarPublisher(options: SourceSidebarOptions) {
         const authority = await options.readAuthority()
         let projection: SidebarMachineState
         if (authority === 'local') projection = await options.local()
-        else if (authority === 'vault') {
+        else if (authority === 'vault' || authority === 'host') {
           try {
             projection = await options.vault()
           } catch {

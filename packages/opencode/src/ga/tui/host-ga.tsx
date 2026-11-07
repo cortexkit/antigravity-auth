@@ -233,6 +233,7 @@ export type GaAccountsStatus =
   | { readonly kind: 'over-limit'; readonly count: number; readonly limit: 64 }
 
 export interface GaSnapshot {
+  readonly vaultHostStatus?: 'Served by Thalamus'
   readonly kind: 'snapshot'
   readonly generation: string
   readonly scope: GaScope
@@ -794,11 +795,16 @@ export function parseGaStateAnswer(
       'status',
       'settings',
     ],
-    [],
+    ['vaultHostStatus'],
     'output',
     issues,
   )
   if (!isCursor(output.readSeq)) issues.push('output.readSeq: expected a count')
+  if (
+    Object.hasOwn(output, 'vaultHostStatus') &&
+    output.vaultHostStatus !== 'Served by Thalamus'
+  )
+    issues.push('output.vaultHostStatus: expected the hosted vault status')
   checkAccountsStatus(output.accountsStatus, 'output.accountsStatus', issues)
   checkSettings(output.settings, 'output.settings', issues)
   checkGeneration(output.generation, 'output.generation', issues)
@@ -1124,27 +1130,33 @@ export function buildGaMenu(snapshot: GaSnapshot, now: number): MenuModel {
               'Use for Gemini',
               'Make this the current Gemini account.',
             ),
-            {
-              id: 'remove',
-              label: 'Remove',
-              description: 'Delete this account from this machine.',
-              knobs: [],
-              confirm: {
-                message: `Remove ${account.label}? This cannot be undone.`,
-                irreversible: true,
-              },
-            },
+            ...(snapshot.vaultHostStatus
+              ? []
+              : [
+                  {
+                    id: 'remove',
+                    label: 'Remove',
+                    description: 'Delete this account from this machine.',
+                    knobs: [],
+                    confirm: {
+                      message: `Remove ${account.label}? This cannot be undone.`,
+                      irreversible: true,
+                    },
+                  },
+                ]),
           ],
         }
       }),
-      actions: [
-        {
-          id: 'add',
-          label: 'Add account',
-          description: 'Sign in with Google in your browser.',
-          knobs: [],
-        },
-      ],
+      actions: snapshot.vaultHostStatus
+        ? []
+        : [
+            {
+              id: 'add',
+              label: 'Add account',
+              description: 'Sign in with Google in your browser.',
+              knobs: [],
+            },
+          ],
     },
     {
       id: 'quota',
@@ -1257,7 +1269,19 @@ export function buildGaMenu(snapshot: GaSnapshot, now: number): MenuModel {
   return {
     command: ANTIGRAVITY_MENU_COMMAND,
     title: ANTIGRAVITY_MENU_TITLE,
-    sections,
+    sections: snapshot.vaultHostStatus
+      ? [
+          ...sections,
+          {
+            id: 'vault',
+            slot: 'extra',
+            title: 'Vault',
+            lines: [snapshot.vaultHostStatus],
+            items: [],
+            actions: [],
+          },
+        ]
+      : sections,
   }
 }
 

@@ -36,7 +36,7 @@ export function createV1VaultActivationMethod(input: {
         'Vault access is approved. Activate it without signing in to Google.',
       callback: async () => {
         try {
-          if ((await input.readAuthority()) !== 'vault')
+          if (!['host', 'vault'].includes(await input.readAuthority()))
             return { type: 'failed' }
           try {
             const value: unknown = JSON.parse(
@@ -63,7 +63,7 @@ export function createV1VaultActivationMethod(input: {
           // Only explicit setup reads the host slot. OpenCode persists this
           // non-secret result; serving never reads or replaces an existing login.
           const claustrum = await loadCommonAuthClaustrum()
-          if ((await input.readAuthority()) !== 'vault')
+          if (!['host', 'vault'].includes(await input.readAuthority()))
             return { type: 'failed' }
           return {
             ...claustrum.custodyPlaceholder(input.providerId),

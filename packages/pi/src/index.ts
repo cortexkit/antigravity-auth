@@ -2,11 +2,11 @@ import { join } from 'node:path'
 import {
   ANTIGRAVITY_PROVIDER_ID,
   authorizeAntigravity,
-  enrollmentAuthority,
   exchangeAntigravity,
   getPublicModelDefinitions,
   loadCommonAuthPiSlot,
   refreshAntigravityToken,
+  vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import type { PluginExtraSection } from '@cortexkit/antigravity-auth-core/common-auth/commands'
 import type {
@@ -261,7 +261,7 @@ export async function registerCortexKitPiAntigravity(
   const currentMode = async (): Promise<PiVaultModeRecord> => {
     const setup = await vault.setup()
     const status = await setup.sourceStatus()
-    const authority = await enrollmentAuthority(
+    const authority = await vaultAuthority(
       setup.paths,
       PI_ANTIGRAVITY_ENROLLMENT_NAME,
     )
@@ -270,7 +270,7 @@ export async function registerCortexKitPiAntigravity(
         'Vault enrollment or source settings cannot be read. Local credentials remain unavailable.',
       )
     }
-    if (authority === 'vault')
+    if (authority === 'vault' || authority === 'host')
       return {
         version: 1,
         mode: 'custody',

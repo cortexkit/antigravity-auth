@@ -13,7 +13,6 @@ import {
   ANTIGRAVITY_PROVIDER_ID,
   type EmptyVaultRosterCause,
   emptyVaultRosterCause,
-  enrollmentAuthority,
   sharedVaultTokenFolder,
   sharedVaultTokenFolderOutcome,
   sharedVaultTokenFolderText,
@@ -21,13 +20,15 @@ import {
   VAULT_RECLASSIFY_COMMAND,
   VAULT_STATUS_COMMAND,
   type VaultGrantReach,
+  vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import { writeJsonAtomic } from '@cortexkit/antigravity-auth-core/atomic-write'
-import type {
-  ClaustrumEnrollmentConnection,
-  ClaustrumEnrollmentPaths,
-  ClaustrumEnrollmentStatus,
-  HostSlotContent,
+import {
+  type ClaustrumEnrollmentConnection,
+  type ClaustrumEnrollmentPaths,
+  type ClaustrumEnrollmentStatus,
+  type HostSlotContent,
+  VAULT_HOST_STATUS,
 } from '@cortexkit/antigravity-auth-core/common-auth/claustrum'
 import type {
   ActionDefinition,
@@ -164,6 +165,7 @@ export interface PiVaultAccountsPort {
 // ---------------------------------------------------------------------------
 
 export interface PiVaultSetupStatus {
+  readonly hosted?: true
   readonly mode: PiAntigravityMode | 'unreadable'
   readonly modeProblem?: string
   readonly selectedRouteId?: string
@@ -219,6 +221,19 @@ export class PiVaultSetup {
   /** Read vault approval and local/vault settings without opening Pi's Google credentials. */
   async sourceStatus(): Promise<Omit<PiVaultSetupStatus, 'hostSlot'>> {
     const mode = readPiVaultMode(this.#options.modeFile)
+    if (this.#options.claustrum.hasVaultHost())
+      return {
+        hosted: true,
+        mode: 'custody',
+        ...(mode.ok && mode.record.routeId !== undefined
+          ? { selectedRouteId: mode.record.routeId }
+          : {}),
+        enrollment: {
+          state: 'unavailable',
+          code: 'host',
+          proposedName: PI_ANTIGRAVITY_ENROLLMENT_NAME,
+        },
+      }
     const enrollment = await this.#options.claustrum
       .readClaustrumEnrollmentStatus(this.paths, PI_ANTIGRAVITY_ENROLLMENT_NAME)
       .catch(
@@ -229,7 +244,7 @@ export class PiVaultSetup {
         }),
       )
     this.#remember(enrollment)
-    const authority = await enrollmentAuthority(
+    const authority = await vaultAuthority(
       this.paths,
       PI_ANTIGRAVITY_ENROLLMENT_NAME,
       this.#options.claustrum,
@@ -238,7 +253,7 @@ export class PiVaultSetup {
       ...(authority !== 'local'
         ? {
             mode:
-              authority === 'vault'
+              authority === 'vault' || authority === 'host'
                 ? ('custody' as const)
                 : ('unreadable' as const),
             ...(mode.ok &&
@@ -285,6 +300,10 @@ export class PiVaultSetup {
    * blocked request before starting again. Only setup actions call this method.
    */
   async connectStep(): Promise<ClaustrumEnrollmentStatus> {
+    if (this.#options.claustrum.hasVaultHost())
+      throw new PiVaultSetupError(
+        this.#options.claustrum.VAULT_HOST_CONNECT_REFUSAL,
+      )
     const client = await this.#options.connectEnrollment()
     try {
       const manager = new this.#options.claustrum.ClaustrumEnrollmentManager({
@@ -318,12 +337,14 @@ export class PiVaultSetup {
    * returning, so provider registration cannot race it.
    */
   async useVault(routeId?: string): Promise<PiVaultModeRecord> {
-    const enrollment =
-      await this.#options.claustrum.readClaustrumEnrollmentStatus(
-        this.paths,
-        PI_ANTIGRAVITY_ENROLLMENT_NAME,
-      )
-    if (enrollment.state !== 'approved')
+    const hosted = this.#options.claustrum.hasVaultHost()
+    const enrollment = hosted
+      ? undefined
+      : await this.#options.claustrum.readClaustrumEnrollmentStatus(
+          this.paths,
+          PI_ANTIGRAVITY_ENROLLMENT_NAME,
+        )
+    if (!hosted && enrollment?.state !== 'approved')
       throw new PiVaultSetupError(
         "Pi doesn't have vault access yet. Choose Request vault access and wait for the vault operator to approve it.",
       )
@@ -341,7 +362,7 @@ export class PiVaultSetup {
   /** Use Pi's local login only after vault enrollment has been disconnected. */
   async useLocal(): Promise<PiVaultModeRecord> {
     if (
-      (await enrollmentAuthority(
+      (await vaultAuthority(
         this.paths,
         PI_ANTIGRAVITY_ENROLLMENT_NAME,
         this.#options.claustrum,
@@ -362,6 +383,10 @@ export class PiVaultSetup {
    * revokes it there.
    */
   async disconnect(): Promise<void> {
+    if (this.#options.claustrum.hasVaultHost())
+      throw new PiVaultSetupError(
+        this.#options.claustrum.VAULT_HOST_CONNECT_REFUSAL,
+      )
     const result = await this.#options.claustrum.disconnectClaustrumEnrollment(
       this.paths,
       PI_ANTIGRAVITY_ENROLLMENT_NAME,
@@ -710,8 +735,10 @@ export function createPiVaultSection(
     build: async () => {
       const setup = await options.setup()
       const status = await setup.status()
-      const approved = status.enrollment.state === 'approved'
-      const lines = formatPiVaultSetupStatus(status)
+      const approved = status.hosted || status.enrollment.state === 'approved'
+      const lines = status.hosted
+        ? [VAULT_HOST_STATUS]
+        : formatPiVaultSetupStatus(status)
       const items: ItemDefinition[] = []
       const port = approved ? options.accounts?.() : undefined
       if (port) {
@@ -767,7 +794,7 @@ export function createPiVaultSection(
                   ],
             })
           }
-          if (listed.length === 0)
+          if (listed.length === 0 && !status.hosted)
             lines.push(
               ...piNoVaultAccountsGuidance(
                 port.grantReach(),
@@ -785,6 +812,7 @@ export function createPiVaultSection(
         }
       }
 
+      if (status.hosted) return { lines, items, actions: [] }
       const actions: ActionDefinition[] = []
       if (!approved)
         actions.push({

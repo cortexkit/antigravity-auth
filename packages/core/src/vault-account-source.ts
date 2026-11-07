@@ -488,6 +488,7 @@ export function createAntigravityVaultAccountSource(
 ): AntigravityVaultAccountSource {
   const { claustrum } = options
   const consumer = new claustrum.ClaustrumConsumer({
+    pluginId: 'antigravity-auth',
     rosterPath: options.rosterPath,
     tokenPath: options.tokenPath,
     family: { ...ANTIGRAVITY_VAULT_FAMILY },

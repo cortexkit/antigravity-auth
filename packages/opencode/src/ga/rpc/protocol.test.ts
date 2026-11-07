@@ -510,6 +510,21 @@ describe('apply input', () => {
 })
 
 describe('state output', () => {
+  it('[hosted] accepts only the public hosted vault status in a snapshot', () => {
+    expect(
+      AntigravityStateOutputSchema.parse({
+        ...SNAPSHOT,
+        vaultHostStatus: 'Served by Thalamus',
+      }).ok,
+    ).toBe(true)
+    for (const value of [undefined, 'Connect', {}, null])
+      expect(
+        AntigravityStateOutputSchema.parse({
+          ...SNAPSHOT,
+          vaultHostStatus: value,
+        }).ok,
+      ).toBe(false)
+  })
   it('accepts a complete snapshot and the disposed answer', () => {
     expect(AntigravityStateOutputSchema.parse(SNAPSHOT).ok).toBe(true)
     expect(

@@ -13,12 +13,13 @@ import {
   AccountManager as CoreAccountManager,
   createAccountRepositoryFactory,
   type EnrollmentAuthority,
-  enrollmentAuthority,
   initializeFreshAccountStore,
   loadCommonAuthClaustrum,
   loadCommonAuthStoreModules,
+  vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import { createOpencodeClient } from '@opencode-ai/sdk'
+import { withVaultHost } from '../../../../test/support/vault-host.ts'
 
 import { AccountManager } from './accounts'
 import { createAuthLoader } from './auth-loader'
@@ -32,6 +33,7 @@ import {
 import { type AccountStorageV4, openAccountStore } from './storage'
 import type { GetAuth, Provider } from './types'
 import { createV1VaultActivationMethod } from './vault-activation'
+import { createOpenCodeVaultCustody } from './vault-custody'
 
 function storedAccounts(): AccountStorageV4 {
   return {
@@ -1488,7 +1490,7 @@ describe('enrollment authority at loader and request start', () => {
         providerId: 'google',
         config: DEFAULT_CONFIG,
         lifecycle,
-        readAuthority: () => enrollmentAuthority(paths, name, claustrum),
+        readAuthority: () => vaultAuthority(paths, name, claustrum),
         createFetch: () => {
           throw new Error('local runtime constructed')
         },
@@ -1518,6 +1520,73 @@ describe('enrollment authority at loader and request start', () => {
       await lifecycle.dispose()
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('[hosted] refuses a missing bridge without local reads, refresh, warmup, quota or sidebar work', async () => {
+    await withVaultHost('thalamus', undefined, async () => {
+      const root = realpathSync(
+        mkdtempSync(join(tmpdir(), 'v1-hosted-unavailable-')),
+      )
+      const claustrum = await loadCommonAuthClaustrum()
+      const { lifecycle, replacements } = createOwnedLifecycle()
+      const local = mock(() => {
+        throw new Error('local account work must stay dormant')
+      })
+      const custody = createOpenCodeVaultCustody({
+        vaultDir: join(root, 'vault'),
+        accountFile: join(root, 'accounts.json'),
+        readHostSlot: local,
+        connectionFile: local,
+        connect: local,
+        reporterSource: 'direct',
+      })
+      const loader = createAuthLoader({
+        client: {} as never,
+        providerId: 'google',
+        config: DEFAULT_CONFIG,
+        lifecycle,
+        publishSidebar: local,
+        createFetch: local,
+        readAuthority: () =>
+          vaultAuthority(
+            claustrum.hostEnrollmentPaths({
+              stateDir: join(root, 'vault'),
+              host: 'opencode',
+            }),
+            'antigravity-auth-opencode',
+            claustrum,
+          ),
+        createVaultFetch: async () => {
+          const source = await custody.custodySource()
+          await source.refresh()
+          return { fetch: local, dispose() {} }
+        },
+        dependencies: {
+          openAccountStore: local,
+          loadAccounts: local,
+          clearAccounts: local,
+          loadAccountManager: local,
+          createRefreshQueue: local,
+          createStoreRefreshQueue: local,
+          isDebugEnabled: () => false,
+        },
+      })
+      try {
+        const loaded = await loader(local, { models: {} } as never)
+        await loader.reload(local)
+        if (typeof loaded.fetch !== 'function')
+          throw new Error('Missing hosted fetch')
+        await expect(
+          loaded.fetch('https://generativelanguage.googleapis.com/example'),
+        ).rejects.toBeInstanceOf(claustrum.ClaustrumUnreachableError)
+        expect(local).not.toHaveBeenCalled()
+        expect(replacements).toEqual([])
+      } finally {
+        await lifecycle.dispose()
+        await custody.dispose()
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
   })
 
   it('does not open local accounts or read the native login while vault authority is active', async () => {

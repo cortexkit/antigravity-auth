@@ -30,6 +30,7 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 
 import { runCommand } from '../../../test/support/run-command.ts'
+import { withVaultHost } from '../../../test/support/vault-host.ts'
 import {
   OPENCODE2_POOL_AUTH_LABEL,
   OPENCODE2_POOL_RECONNECT_LABEL,
@@ -347,6 +348,23 @@ function seedLocal(p: ReturnType<typeof profile>) {
 
 describe('real setup CLI entry', () => {
   it(
+    '[hosted] setup refuses before detection or any filesystem change',
+    async () => {
+      const p = profile()
+      seedLocal(p)
+      p.env.CORTEXKIT_VAULT_HOST = 'thalamus'
+      p.env.SUBC_CONNECTION_FILE = join(p.root, 'missing-connection.json')
+      const before = snapshot(p.root)
+      const result = await cli(p, '--claustrum', '--yes')
+      expect(result.status).toBe(1)
+      expect(result.stderr.trim()).toBe(
+        "This host gets its vault accounts from Thalamus, so it can't connect to the vault itself.",
+      )
+      expect(snapshot(p.root)).toEqual(before)
+    },
+    CLI_TEST_TIMEOUT_MS,
+  )
+  it(
     'dry-run alone without a terminal reports plans without any filesystem changes',
     async () => {
       const p = profile()
@@ -583,6 +601,28 @@ describe('real setup CLI entry', () => {
 })
 
 describe('setup plugin callbacks', () => {
+  it('[hosted] refuses before the wrapper resolves a native connection path', async () => {
+    await withVaultHost('thalamus', undefined, async () => {
+      const connection = spyOn(
+        core,
+        'resolveClaustrumConnectionPath',
+      ).mockRejectedValue(new Error('native resolution must stay dormant'))
+      try {
+        await expect(
+          setup.runPluginSetup(
+            ['--claustrum', '--yes'],
+            {} as never,
+            async () => 0,
+          ),
+        ).rejects.toThrow(
+          "This host gets its vault accounts from Thalamus, so it can't connect to the vault itself.",
+        )
+        expect(connection).not.toHaveBeenCalled()
+      } finally {
+        connection.mockRestore()
+      }
+    })
+  })
   const context = {
     hosts: ['opencode', 'pi'],
     get piAgentDir() {

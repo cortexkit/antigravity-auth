@@ -122,7 +122,7 @@ export async function assertLocalOpenCodeLogin(
 ): Promise<void> {
   const claustrum = await loadCommonAuthClaustrum()
   if (
-    (await claustrum.enrollmentAuthority(
+    (await claustrum.vaultAuthority(
       claustrum.hostEnrollmentPaths({
         stateDir: openCodeVaultDir(legacyPath),
         host: 'opencode',
@@ -171,7 +171,7 @@ async function writeNativeSlot(
             ? openCodeVaultDir(resolve(accountFileForVault()))
             : getPiAntigravityVaultDir()
         if (
-          (await claustrum.enrollmentAuthority(
+          (await claustrum.vaultAuthority(
             claustrum.hostEnrollmentPaths({ stateDir, host }),
             `antigravity-auth-${host}`,
           )) !== expectedAuthority
@@ -233,7 +233,7 @@ export async function createSetupPlugin(
     },
   }
   const authority = (host: SetupHost) =>
-    claustrum.enrollmentAuthority(
+    claustrum.vaultAuthority(
       claustrum.hostEnrollmentPaths(hosts[host].paths),
       hosts[host].name,
     )
@@ -445,7 +445,7 @@ export async function createSetupPlugin(
           )
         return
       }
-      if ((await authority(host)) !== 'vault')
+      if (!['host', 'vault'].includes(await authority(host)))
         throw new Error('Vault access must be approved before activation.')
       if (host === 'opencode') {
         if (context.opencodeGeneration === '2') {
@@ -480,7 +480,7 @@ export async function createSetupPlugin(
     },
     migrate: async (host, context) => {
       if (context.mode === 'local') await assertLocal(host, context)
-      else if ((await authority(host)) !== 'vault')
+      else if (!['host', 'vault'].includes(await authority(host)))
         throw new Error('Vault access must remain approved during setup.')
       if (host === 'opencode') {
         // Vault activation must not import dormant local credentials into a store.
@@ -561,6 +561,9 @@ export async function runPluginSetup(
   migrateOpenCode: () => Promise<number>,
   io: SetupIO = {},
 ): Promise<void> {
+  const claustrum = await loadCommonAuthClaustrum()
+  if (claustrum.hasVaultHost())
+    throw new Error(claustrum.VAULT_HOST_CONNECT_REFUSAL)
   const plugin = await createSetupPlugin(
     deps,
     migrateOpenCode,

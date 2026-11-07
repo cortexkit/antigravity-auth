@@ -15,6 +15,7 @@ import {
   ModelRuntime,
   type ProviderConfig,
 } from '@earendil-works/pi-coding-agent'
+import { withVaultHost } from '../../../test/support/vault-host.ts'
 
 import cortexKitPiAntigravityAuth, {
   CUSTODY_PROVIDER_KEY_MARKER,
@@ -637,6 +638,87 @@ async function refusal(
 }
 
 describe('Pi startup when the credential slot cannot be synchronized', () => {
+  for (const conflict of [false, true])
+    it(`[hosted] locks and stashes the native slot, refuses a missing bridge, then ${conflict ? 'preserves a changed slot' : 'restores the login'} on leaving host mode`, async () => {
+      await withVaultHost('thalamus', undefined, async () => {
+        const fixture = await recoveryFixture()
+        const network = spyOn(globalThis, 'fetch').mockImplementation(
+          async () => {
+            throw new Error('hosted test must not fetch')
+          },
+        )
+        const handlers = new Map<
+          string,
+          (event: unknown, context: unknown) => Promise<void>
+        >()
+        const registerProvider = mock()
+        try {
+          await writeFile(fixture.authPath, NATIVE_AUTH, { mode: 0o600 })
+          const extension = await registerCortexKitPiAntigravity(
+            {
+              registerProvider,
+              registerCommand: mock(),
+              on: (event: string, handler: never) =>
+                handlers.set(event, handler),
+            } as never,
+            fixture.seams,
+          )
+          expect(
+            JSON.parse(await readFile(fixture.authPath, 'utf8')).google,
+          ).toEqual({ type: 'api_key', key: CUSTODY_PROVIDER_KEY_MARKER })
+          expect(await readFile(fixture.stashPath, 'utf8')).toContain(
+            'synthetic-native-refresh',
+          )
+          const [, config] = registerProvider.mock.calls.at(-1) as unknown as [
+            string,
+            ProviderConfig,
+          ]
+          expect(config.oauth).toBeUndefined()
+          for (const apiKey of [
+            CUSTODY_PROVIDER_KEY_MARKER,
+            'synthetic-native-access',
+          ]) {
+            const result = await refusal(config, apiKey)
+            expect(result.stopReason).toBe('error')
+          }
+          const content = await extension.vaultSection.build({
+            sessionId: 'hosted',
+            notify: () => {},
+          })
+          expect(content.lines?.[0]).toBe('Served by Thalamus')
+          expect(content.actions ?? []).toEqual([])
+          expect(network).not.toHaveBeenCalled()
+          expect(existsSync(fixture.enrollment.tokenPath)).toBe(false)
+          if (conflict)
+            await writeFile(
+              fixture.authPath,
+              NATIVE_AUTH.replace(
+                'synthetic-native-access',
+                'new-native-access',
+              ),
+            )
+          delete process.env.CORTEXKIT_VAULT_HOST
+          const synchronize = handlers.get('session_start')
+          expect(synchronize).toBeDefined()
+          const changing = synchronize?.(
+            {},
+            { modelRegistry: { refresh: mock() } },
+          )
+          if (conflict)
+            await expect(changing).rejects.toThrow(
+              'native Google login changed',
+            )
+          else await changing
+          expect(
+            JSON.parse(await readFile(fixture.authPath, 'utf8')).google.access,
+          ).toBe(conflict ? 'new-native-access' : 'synthetic-native-access')
+        } finally {
+          network.mockRestore()
+          await handlers.get('session_shutdown')?.({}, {})
+          await rm(fixture.directory, { recursive: true, force: true })
+        }
+      })
+    })
   for (const lockout of LOCKOUTS)
     it(`registers the menu and a refusing google provider for ${lockout.name}`, async () => {
       const fixture = await recoveryFixture()

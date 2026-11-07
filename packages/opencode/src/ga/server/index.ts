@@ -25,6 +25,7 @@ import {
   fetchWithAgyCliTransport,
   getPublicModelDefinitions,
   isRetiredAgyModel,
+  loadCommonAuthClaustrum,
   loadCommonAuthCommands,
   type loadManagedProject,
   type OpencodeModelDefinition,
@@ -1392,7 +1393,11 @@ export function createGaRpcActivation(
     const cursor = last
       ? last.cursor
       : Math.max(acknowledged, queue.evictedThrough)
+    const claustrum = await loadCommonAuthClaustrum()
     const output: AntigravityStateOutput = {
+      ...(claustrum.hasVaultHost()
+        ? { vaultHostStatus: claustrum.VAULT_HOST_STATUS }
+        : {}),
       version: ANTIGRAVITY_RPC_VERSION,
       kind: 'snapshot',
       generation,
