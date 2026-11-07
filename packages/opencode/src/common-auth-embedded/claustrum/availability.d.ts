@@ -15,6 +15,7 @@ export declare const VAULT_FAILURE_CLASSES: Readonly<{
     unavailable: "unreachable";
     timeout: "unreachable";
     route_closed: "unreachable";
+    route_busy: "unreachable";
     daemon_draining: "unreachable";
     connection_closed: "unreachable";
     connection_dropped: "unreachable";

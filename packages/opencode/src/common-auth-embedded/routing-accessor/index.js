@@ -4,6 +4,7 @@
  * persisted here; plugins on routes the runner does not serve get no turn notes.
  */
 import { routingHandle } from './handle.js';
+export { reportCacheTouch, reportCacheWarmStopped, sessionCachePolicy, sessionToolWait, } from './cache-policy.js';
 function isObject(value) {
     return typeof value === 'object' && value !== null;
 }

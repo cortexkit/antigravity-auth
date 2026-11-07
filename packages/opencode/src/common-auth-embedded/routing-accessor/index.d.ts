@@ -3,6 +3,8 @@
  * shaping. Account ids are vault account ids, not local pool rows. Nothing is
  * persisted here; plugins on routes the runner does not serve get no turn notes.
  */
+export type { CacheTouchInput, CacheWarmStoppedInput, CacheWarmStopReason, SessionCacheHours, SessionCachePolicy, SessionCacheTtl, SessionKeepWarmMode, SessionToolWait, } from './cache-policy.js';
+export { reportCacheTouch, reportCacheWarmStopped, sessionCachePolicy, sessionToolWait, } from './cache-policy.js';
 /** An eligible vault route, not a local pool row. */
 export interface RoutingCandidate {
     /** Vault account id, not the plugin's route id. */
@@ -94,4 +96,3 @@ export declare function askRouting<Candidate extends RoutingCandidate>(input: As
  * or redacted here.
  */
 export declare function reportRouting(input: ReportRoutingInput): void;
-export {};

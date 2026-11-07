@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.40.0",
+  "version": "0.42.0",
   "artifactStatus": "published",
   "publicRoots": {
     "./store": {
@@ -37,15 +37,15 @@
       "import": "./dist/pi-slot/index.js"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.40.0.tgz",
-  "tarballSha256": "c1346992a2f15355b9304e729ff2ff47de9bf07d578563b9f0c6f83b969253b4",
-  "sri": "sha512-P0rfQ+fRXTBhAAG0rWkcP2CXkDb32Zplo37qpQx6TINHi78yzp8kNEnHSSwSeEReH5imh7hptg9L69AYCg4Jdw==",
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.42.0.tgz",
+  "tarballSha256": "c3f1c832fe8391529be331c1e2f5577b60eaa7a1c848e97f6668aca06118af04",
+  "sri": "sha512-LAZ67qRdJA+9SmglIyDRtEd2Wz+6X2dDRTC+qXt6HryQzir87LIiY+sWWllWT707agUA9rxOocCCP6e+mwoZyA==",
   "canonicalFiles": 153,
-  "canonicalBytes": 1040713,
+  "canonicalBytes": 1040884,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "3d9e00d8b43c67a911c6b14648432aad4d43c85d210c9dc5a3e9524cf67aff3c"
+    "sha256": "225a77c54d91e241bbece24dc289ce479330d00c20304ff8508ceb59975728c4"
   },
   "files": [
     {
@@ -211,17 +211,17 @@
     {
       "source": "package/dist/claustrum/availability.d.ts",
       "output": "claustrum/availability.d.ts",
-      "bytes": 3375,
-      "sourceSha256": "eba8ff78abed434be6194715d214a53322f4414a28e6a7389fe14f8a52b772ac",
-      "outputSha256": "eba8ff78abed434be6194715d214a53322f4414a28e6a7389fe14f8a52b772ac",
+      "bytes": 3406,
+      "sourceSha256": "a77a53ae0220230273b124b7793e2d8842ab3841bfab1d987309411752f7b80a",
+      "outputSha256": "a77a53ae0220230273b124b7793e2d8842ab3841bfab1d987309411752f7b80a",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/claustrum/availability.js",
       "output": "claustrum/availability.js",
-      "bytes": 4107,
-      "sourceSha256": "4bfb03de131ed7d036631a6d6455cc6f465ab7a9ea61575a7378d2f447c7cf67",
-      "outputSha256": "4bfb03de131ed7d036631a6d6455cc6f465ab7a9ea61575a7378d2f447c7cf67",
+      "bytes": 4219,
+      "sourceSha256": "07fe16b372bb3dbf5870725b4ea8e2b4c3e50e5d7394fa365de789f72ff01b04",
+      "outputSha256": "07fe16b372bb3dbf5870725b4ea8e2b4c3e50e5d7394fa365de789f72ff01b04",
       "transform": "verbatim"
     },
     {
@@ -339,17 +339,17 @@
     {
       "source": "package/dist/claustrum/index.d.ts",
       "output": "claustrum/index.d.ts",
-      "bytes": 4923,
-      "sourceSha256": "17fe239561e9a3c8769cef79b08ca279b6d359ab9946fe03e40f1f285edadf03",
-      "outputSha256": "17fe239561e9a3c8769cef79b08ca279b6d359ab9946fe03e40f1f285edadf03",
+      "bytes": 4937,
+      "sourceSha256": "9270d05fd212b2e4b38afe6fc1021b0763ced055921de03943fec1992c871aa3",
+      "outputSha256": "9270d05fd212b2e4b38afe6fc1021b0763ced055921de03943fec1992c871aa3",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/claustrum/index.js",
       "output": "claustrum/index.js",
-      "bytes": 4048,
-      "sourceSha256": "9f50749354dbcf643a3cddc9ff994824c603fac288f50015703ca6e1f730ca08",
-      "outputSha256": "9f50749354dbcf643a3cddc9ff994824c603fac288f50015703ca6e1f730ca08",
+      "bytes": 4062,
+      "sourceSha256": "72f0f4bd7c17b82aa7abc3f196e1499d5a3d51173a456fbd7c3b72425ffaba48",
+      "outputSha256": "72f0f4bd7c17b82aa7abc3f196e1499d5a3d51173a456fbd7c3b72425ffaba48",
       "transform": "verbatim"
     },
     {

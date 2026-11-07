@@ -16,6 +16,8 @@ export const VAULT_FAILURE_CLASSES = Object.freeze({
     unavailable: 'unreachable',
     timeout: 'unreachable',
     route_closed: 'unreachable',
+    // The daemon refused before forwarding, so the vault never saw the request.
+    route_busy: 'unreachable',
     daemon_draining: 'unreachable',
     connection_closed: 'unreachable',
     connection_dropped: 'unreachable',

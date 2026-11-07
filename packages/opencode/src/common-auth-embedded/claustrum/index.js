@@ -12,7 +12,7 @@ export { ClaustrumConsumer, DEFAULT_CONNECT_TIMEOUT_MS, } from './consumer.js';
 export { ClaustrumScopedCustody, decideScopedRetryAfter401, isScopedCredentialRotation, KEPT_RECEIPT_MARGIN_MS, SERVING_MARGIN_MS, } from './custody.js';
 export { ClaustrumEnrollmentManager, classifyEnrollmentError, connectClaustrumEnrollmentClient, disconnectClaustrumEnrollment, enrollmentAuthority, enrollmentName, getClaustrumEnrollmentPaths, hostEnrollmentPaths, RETRYABLE_ENROLLMENT_CODES, readClaustrumEnrollmentStatus, readClaustrumEnrollmentToken, resetClaustrumEnrollmentState, TERMINAL_ENROLLMENT_CODES, vaultAuthority, } from './enrollment.js';
 export { ClaustrumConsumerError, } from './errors.js';
-export { connectVaultHost, VAULT_HOST_CONNECT_REFUSAL, VAULT_HOST_STATUS, } from './host.js';
+export { connectVaultHost, hasVaultHost, VAULT_HOST_CONNECT_REFUSAL, VAULT_HOST_STATUS, } from './host.js';
 export { assertHostSlotMatchesMode, assertNotCustodyPlaceholder, CUSTODY_PLACEHOLDER_PREFIX, classifyHostSlot, custodyPlaceholder, custodyPlaceholderKey, isCustodyPlaceholder, isCustodyPlaceholderValue, } from './host-slot.js';
 export { ClaustrumDiscoveryHub, } from './hub.js';
 export { acquireInsulaQuotaSource, } from './insula.js';
