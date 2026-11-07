@@ -406,7 +406,9 @@ test('graph.routing_accessor_server_only', async () => {
 
 test('graph.routing_handle_renderer_refused', async () => {
   const root = await fixture(true)
-  // Vault host connections and routing accessors belong only to server/library graphs.
+  // The Claustrum host-mode client (`claustrum/host.js`) and the routing
+  // accessors reach credential and routing services, so only the server and
+  // library graphs may import them; both renderer roots must refuse them.
   for (const profile of TUI_ROOTS) {
     const entry = join(root, profile.entry)
     const original = await readFile(entry, 'utf8')
