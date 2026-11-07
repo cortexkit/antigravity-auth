@@ -370,34 +370,81 @@ export async function seedOwnedCurrentStore(
       : 1
   // The old-format account file is only input to the offline migration; the
   // host serves only the store generation that migration publishes.
-  writeFileSync(
-    legacyPath,
-    JSON.stringify({
-      version: 4,
-      accounts: ['A', 'B'].slice(0, count).map((label, index) => ({
-        refreshToken: `synthetic-ga-refresh-${label}`,
-        email: `synthetic-${label}@example.invalid`,
-        label: `Synthetic fixture ${label}`,
-        projectId: 'synthetic-ga-project',
-        managedProjectId: 'synthetic-ga-project',
-        enabled: true,
-        addedAt: index + 1,
-        lastUsed: 0,
-        rateLimitResetTimes: {},
-      })),
-      activeIndex: 0,
-      activeIndexByFamily: { claude: 0, gemini: 0 },
-    }),
-    { mode: 0o600, flag: 'wx' },
-  )
-  const modules = await loadCommonAuthStoreModules()
-  const outcome = await inPhase('migration', () =>
-    createAccountMigrationFactory(modules)({
+  await inPhase('legacyFile.write', async () =>
+    writeFileSync(
       legacyPath,
-      offline: { processesStopped: true },
-      now: Date.now,
-    }),
+      JSON.stringify({
+        version: 4,
+        accounts: ['A', 'B'].slice(0, count).map((label, index) => ({
+          refreshToken: `synthetic-ga-refresh-${label}`,
+          email: `synthetic-${label}@example.invalid`,
+          label: `Synthetic fixture ${label}`,
+          projectId: 'synthetic-ga-project',
+          managedProjectId: 'synthetic-ga-project',
+          enabled: true,
+          addedAt: index + 1,
+          lastUsed: 0,
+          rateLimitResetTimes: {},
+        })),
+        activeIndex: 0,
+        activeIndexByFamily: { claude: 0, gemini: 0 },
+      }),
+      { mode: 0o600, flag: 'wx' },
+    ),
   )
+  const modules = await inPhase('loadCommonAuthStoreModules', () =>
+    loadCommonAuthStoreModules(),
+  )
+  const outcome = await inPhase('migration', async () => {
+    const open = new Map<string, () => Promise<void>>()
+    let interval: (() => Promise<void>) | undefined
+    let step = 'between-steps'
+    const begin = (name: string) => {
+      let finish: () => void = () => undefined
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      const recorded = inPhase(`migration.${name}`, () => pending)
+      return async () => {
+        finish()
+        await recorded
+      }
+    }
+    const onBoundary = async (boundary: string) => {
+      await interval?.()
+      const pair = boundary.match(
+        /^(public:[^:]+:)?(before|after)-(capture|build|verify|retire|activate|directory-sync|state-write|config-write)$/,
+      )
+      if (pair) {
+        const name = `${pair[1] ?? ''}${pair[3]}`
+        if (pair[2] === 'before') {
+          if (/^(capture|build|verify|retire|activate)$/.test(name)) step = name
+          open.set(name, begin(name))
+        } else {
+          await open.get(name)?.()
+          open.delete(name)
+          if (name === step) step = 'between-steps'
+        }
+      }
+      // Adjacent-boundary intervals also account for journal persistence and
+      // pointer publication outside the five named migration steps. Public
+      // write spans include their observer's file and directory syncs; these
+      // are not individual syscall timings.
+      interval = begin(`interval.${step}.${boundary}`)
+    }
+    if (phase) interval = begin('interval.between-steps.start')
+    try {
+      return await createAccountMigrationFactory(modules)({
+        legacyPath,
+        offline: { processesStopped: true },
+        now: Date.now,
+        ...(phase ? { onBoundary } : {}),
+      })
+    } finally {
+      await interval?.()
+      for (const finish of open.values()) await finish()
+    }
+  })
   assertInput(
     outcome.status === 'completed',
     'Real owned migration did not complete',
