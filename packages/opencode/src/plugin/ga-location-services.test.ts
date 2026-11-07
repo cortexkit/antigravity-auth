@@ -855,6 +855,7 @@ async function transportLocation(
   /** The vault location's source in place of the stand-in. */
   vaultSource?: import('./ga-location-services.ts').GaVaultCustodySource,
   authority?: { mode: 'local' | 'custody' | 'unreadable' },
+  captureMenu = false,
 ) {
   let services: GaLocationServices | undefined
   let runtime: LocationRuntime | undefined
@@ -966,6 +967,38 @@ async function transportLocation(
     attribution: () => ({ ...route, recordVersion: 1 }),
     commitState: async () => ({ status: 'unchanged' as const }),
   }
+  let enrolled: ReturnType<typeof createOpenCodeVaultCustody> | undefined
+  if (
+    captureMenu &&
+    domain === 'vault' &&
+    process.env.CORTEXKIT_VAULT_HOST !== 'thalamus'
+  ) {
+    const { OPENCODE_VAULT_ENROLLMENT_NAME } = await import('./vault-custody')
+    enrolled = createOpenCodeVaultCustody({
+      vaultDir: join(root, 'vault'),
+      accountFile: join(root, 'config', GA_ACCOUNTS_FILE),
+      readHostSlot: async () => undefined,
+      reporterSource: 'direct',
+      connectionFile: () => join(root, 'vault-connection.json'),
+      connectEnrollment: async () => ({
+        enrollPropose: async () => ({ requestId: 'option-capture-request' }),
+        enrollPoll: async () => ({
+          status: 'approved' as const,
+          name: OPENCODE_VAULT_ENROLLMENT_NAME,
+          token: 'ab'.repeat(32),
+          tokenGeneration: 1,
+        }),
+        close() {},
+      }),
+      connect: async () => {
+        throw new Error('Option captures never connect to a vault')
+      },
+    })
+    const custody = enrolled
+    scope.defer(() => custody.dispose())
+    await scope.step(() => custody.requestAccess())
+    await scope.step(() => custody.useVault())
+  }
   const accounts: import('./ga-location-services.ts').GaAccountSlot = {
     current: null,
     quotaLogger: null,
@@ -991,6 +1024,13 @@ async function transportLocation(
               return createGaLocalRequestPipeline({ ...input, accounts })
             throw new Error('vault must not construct a local pipeline')
           },
+          ...(captureMenu
+            ? {
+                fetchVaultQuota: async () => {
+                  throw new Error('Option captures never fetch quota')
+                },
+              }
+            : {}),
           custody: () => ({
             readMode: async () =>
               authority?.mode === 'unreadable'
@@ -1001,18 +1041,21 @@ async function transportLocation(
                   },
             custodySource: async () => vaultSource ?? source,
             readState: async () => ({ schemaVersion: 1, accounts: {} }),
-            menuSection: () => ({
-              id:
-                process.env.CORTEXKIT_VAULT_HOST === 'thalamus'
-                  ? 'host'
-                  : 'vault',
-              title: 'Vault',
-              build: () =>
-                process.env.CORTEXKIT_VAULT_HOST === 'thalamus'
-                  ? { lines: ['Served by Thalamus'], actions: [] }
-                  : { lines: [], actions: [] },
-            }),
-            dispose: async () => {},
+            menuSection: () =>
+              enrolled?.menuSection() ?? {
+                id:
+                  process.env.CORTEXKIT_VAULT_HOST === 'thalamus'
+                    ? 'host'
+                    : 'vault',
+                title: 'Vault',
+                build: () =>
+                  process.env.CORTEXKIT_VAULT_HOST === 'thalamus'
+                    ? { lines: ['Served by Thalamus'], actions: [] }
+                    : { lines: [], actions: [] },
+              },
+            dispose: async () => {
+              await enrolled?.dispose()
+            },
           }),
         })
   const configured = await scope.step(async () => {
@@ -4393,6 +4436,9 @@ describe('GA drawer account actions through native RPC', () => {
             mode === 'local' ? 'local' : 'vault',
             {},
             1,
+            undefined,
+            undefined,
+            true,
           )
           let source: import('../tui/host-api').MenuModel | undefined
           fixture.bindNotify((_scope, payload) => {
