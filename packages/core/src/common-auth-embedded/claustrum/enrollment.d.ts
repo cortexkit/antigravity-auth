@@ -124,6 +124,8 @@ export declare function readClaustrumEnrollmentStatus(paths: ClaustrumEnrollment
  * owner-only, as every private-file read there does.
  */
 export declare function enrollmentAuthority(paths: ClaustrumEnrollmentPaths, proposedName: string): Promise<'vault' | 'local' | 'unreadable'>;
+/** Host authority takes precedence without reading any plugin enrollment files. */
+export declare function vaultAuthority(paths: ClaustrumEnrollmentPaths, proposedName: string): Promise<'host' | 'vault' | 'local' | 'unreadable'>;
 /**
  * Read fresh bearer material for one scoped operation; never publish it.
  * Re-reading per operation is what lets an operator reissue a token on disk.

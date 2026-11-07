@@ -18,7 +18,10 @@ export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
     /** This host's enrollment token, written by setup. */
     tokenPath: string;
     family: ClaustrumFamily;
-    connect: () => Promise<ClaustrumScopedClient>;
+    /** Enrollment-name prefix, required by the default host connection. */
+    pluginId?: string;
+    /** Used outside host authority; hosted connections always use the relay. */
+    connect?: () => Promise<ClaustrumScopedClient>;
     /**
      * How long one `connect()` attempt may take before this consumer treats the
      * vault as unreachable (default 10 s). A connect that never settles would
@@ -31,6 +34,7 @@ export interface ClaustrumConsumerOptions<Q = QuotaObservation> {
      * Whether the plugin currently takes its accounts from the vault (custody
      * mode) rather than from local logins. Checked before every discovery,
      * commit and dispatch; false closes the vault connection and refuses sends.
+     * Host authority always selects custody and does not call this callback.
      */
     isCustodyActive?: () => boolean | Promise<boolean>;
     /** Ids of the plugin's local pool rows; no vault route id may equal one. */

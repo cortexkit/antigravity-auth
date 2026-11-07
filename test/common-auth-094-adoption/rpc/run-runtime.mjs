@@ -17,6 +17,7 @@ function runChild(file, args, deadlineMs) {
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, {
       cwd: repository,
+      env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''

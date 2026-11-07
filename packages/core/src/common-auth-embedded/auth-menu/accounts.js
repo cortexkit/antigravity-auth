@@ -1,3 +1,4 @@
+import { hasVaultHost, VAULT_HOST_STATUS } from '../claustrum/host.js';
 import { formatQuota, isQuotaMap, projectQuota, quotaTextParts, } from '../quota/index.js';
 import { PoolOperationError, } from '../store/index.js';
 import { doctorAction } from './doctor.js';
@@ -339,7 +340,7 @@ export function deleteAllAction(options) {
  * quotas, doctor and the extras; nothing that adds, signs in or removes.
  */
 export async function accountMenuActions(options) {
-    return actionsFor(options, (await options.custody?.()) === true);
+    return actionsFor(options, hasVaultHost() || (await options.custody?.()) === true);
 }
 function actionsFor(options, custody) {
     const doctor = options.doctor?.length
@@ -369,7 +370,8 @@ function actionsFor(options, custody) {
 }
 /** Shows the account menu once and runs the chosen action. */
 export async function runAccountMenu(options) {
-    const custody = (await options.custody?.()) === true;
+    const hosted = hasVaultHost();
+    const custody = hosted || (await options.custody?.()) === true;
     const actions = actionsFor(options, custody);
     const [read, status] = await Promise.all([
         readRows(options.store),
@@ -380,7 +382,11 @@ export async function runAccountMenu(options) {
         subtitle: custody
             ? 'Accounts come from the vault; select an action'
             : 'Select an account action',
-        status: [...status, ...accountLines(read)],
+        status: [
+            ...status,
+            ...(hosted ? [VAULT_HOST_STATUS] : []),
+            ...accountLines(read),
+        ],
         actions,
         ...(options.terminal ? { terminal: options.terminal } : {}),
     });

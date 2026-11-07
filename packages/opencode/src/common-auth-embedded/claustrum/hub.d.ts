@@ -46,7 +46,10 @@ export interface ClaustrumDiscoveryHubOptions {
      * member for any row and is refused.
      */
     family: ClassifyingClaustrumFamily<string>;
-    connect: () => Promise<ClaustrumScopedClient>;
+    /** Enrollment-name prefix, required by the default host connection. */
+    pluginId?: string;
+    /** Used outside host authority; hosted connections always use the relay. */
+    connect?: () => Promise<ClaustrumScopedClient>;
     /**
      * How long one `connect()` attempt may take before the hub treats the vault
      * as unreachable (default 10 s, as `ClaustrumConsumerOptions`). The hub's
@@ -60,6 +63,7 @@ export interface ClaustrumDiscoveryHubOptions {
      * state only, never from the vault: on every hub tick, and when a member
      * refreshes or authorizes. The first false read revokes every lease,
      * closes the connection and clears every member.
+     * Host authority always selects custody and does not call this callback.
      */
     isCustodyActive?: () => boolean | Promise<boolean>;
     parseIdentity?: IdentityParser;

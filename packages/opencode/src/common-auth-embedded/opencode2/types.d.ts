@@ -487,6 +487,8 @@ export interface OpenCode2AuthAdapter<Q = unknown, A = unknown, Choice extends C
 }
 export interface OpenCode2AuthLogger {
     warn(message: string, data?: unknown): void;
+    /** Retry decisions, without account details or provider error contents. */
+    info?(message: string, data?: unknown): void;
 }
 export interface InstallOpenCode2AuthOptions {
     /**
@@ -541,7 +543,7 @@ export interface InstallOpenCode2AuthOptions {
  * - `reroute`: refused for a limit before any output, and `chooseAccount`
  *   named another account for the next attempt, so the host retries at once;
  * - `output-started`: output reached the user without a safe continuation, so no retry;
- * - `continue-same-account`: a witnessed HTTP read failure after output, with
+ * - `continue-same-account`: a witnessed transport read failure after output, with
  *   adapter-approved identity preservation; keeps the host's continuation and delay;
  * - `no-account`: the attempt had no account, so no retry;
  * - `host-decides-last-account`: refused for a limit before any output, but

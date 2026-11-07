@@ -290,6 +290,27 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             }
         }));
     };
+    const emitRetry = async (payload) => {
+        const transports = new Set([...attempts.values()]
+            .filter((rec) => rec.scope.sessionID === payload.sessionID)
+            .map((rec) => rec.transport)
+            .filter((transport) => transport !== undefined));
+        const transport = payload.handle?.transport ??
+            (transports.size === 1 ? [...transports][0] : 'unknown');
+        try {
+            logger?.info?.('opencode2 auth retry decision', {
+                sessionID: payload.sessionID,
+                transport,
+                attempt: payload.attempt,
+                reason: payload.reason === 'host-decides' && mixed(payload.sessionID)
+                    ? 'mixed-session'
+                    : payload.reason,
+                retry: payload.decision.retry,
+            });
+        }
+        catch { }
+        await emit('retry', payload);
+    };
     const deliverEnd = async (attempt, outcome) => {
         try {
             await adapter.onAttemptEnd?.(attempt, outcome);
@@ -805,7 +826,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             }
             response = new Response(trackBody(body, (error) => {
                 if (error?.reason === 'failed')
-                    rec.httpReadFailed = true;
+                    rec.readFailed = true;
                 finish(rec, error);
             }), {
                 status: original.status,
@@ -915,7 +936,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
         if (ownership && latestTransportOwned.get(draft.sessionID) !== true)
             return;
         const hostDecision = draft.decision;
-        const hostDecides = () => emit('retry', {
+        const hostDecides = () => emitRetry({
             sessionID: draft.sessionID,
             attempt: draft.attempt,
             reason: 'host-decides',
@@ -932,7 +953,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
         if (picked === 'ambiguous') {
             // Nothing tells which open attempt failed: keep the host's
             // decision and leave every attempt as it is.
-            await emit('retry', {
+            await emitRetry({
                 sessionID: draft.sessionID,
                 attempt: draft.attempt,
                 reason: 'host-decides',
@@ -948,8 +969,18 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             const retrySameAccount = adapter.retrySameAccount?.bind(adapter);
             const handle = rec.attempt;
             const afterOutput = rec.outputStarted;
+            if (rec.transport === 'ws' &&
+                afterOutput &&
+                !rec.ended &&
+                !rec.limit &&
+                !(rec.status !== undefined && rec.status >= 400) &&
+                !(draft.error.status !== undefined && draft.error.status >= 400) &&
+                draft.error.type === 'provider.transport') {
+                rec.readFailed = true;
+                finish(rec, { reason: 'failed', message: draft.error.message });
+            }
             if (afterOutput &&
-                rec.httpReadFailed &&
+                rec.readFailed &&
                 retrySameAccount &&
                 handle &&
                 !mixed(draft.sessionID)) {
@@ -964,9 +995,11 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                     await rec.limit.delivered;
                 checkRetryActive();
             }
-            // The host drops read-operation metadata from its retry error. Only
-            // our attributed body reader can prove a read failed; wording cannot.
-            const canContinue = () => rec.httpReadFailed === true &&
+            // The host drops read-operation metadata from its retry error. HTTP
+            // needs our body reader's failure; WebSocket needs inspected output
+            // without a terminal frame, since the host only sends before reading.
+            // Ending the socket attempt above also excludes any late frames.
+            const canContinue = () => rec.readFailed === true &&
                 draft.error.type === 'provider.transport' &&
                 hostDecision.retry &&
                 hostRetryLimit - draft.attempt >= 1 &&
@@ -1072,7 +1105,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                 });
                 checkRetryActive();
                 if (retried) {
-                    await emit('retry', {
+                    await emitRetry({
                         sessionID: draft.sessionID,
                         accountId: rec.accountId,
                         kind: rec.scope.kind,
@@ -1327,7 +1360,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                 return { decision, reason };
             });
             checkRetryActive();
-            await emit('retry', {
+            await emitRetry({
                 sessionID: draft.sessionID,
                 ...(rec.accountId === undefined
                     ? {}

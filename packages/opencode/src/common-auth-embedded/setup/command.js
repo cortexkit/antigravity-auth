@@ -1,6 +1,7 @@
 import { select } from '../auth-menu/select.js';
 import { isInteractive, printLine, processTerminal, } from '../auth-menu/terminal.js';
-import { enrollmentAuthority, hostEnrollmentPaths, } from '../claustrum/enrollment.js';
+import { hostEnrollmentPaths, vaultAuthority } from '../claustrum/enrollment.js';
+import { hasVaultHost, VAULT_HOST_CONNECT_REFUSAL } from '../claustrum/host.js';
 import { recordSetupEnrollment, setupEnrollmentLine } from './command-error.js';
 import { defaultCommandRunner } from './command-runner.js';
 import { detectHosts } from './detect.js';
@@ -27,7 +28,7 @@ function validatePlugin(plugin) {
  * Turn what setup recorded into one outcome per selected host, in setup order.
  * A host setup never reached was never asked to enroll. Only a host whose
  * enrollment was in flight when setup failed is checked on disk, by reading its
- * enrollment files once with `enrollmentAuthority`; if that read fails it stays
+ * authority once with `vaultAuthority`; if that read fails it stays
  * `unknown`.
  */
 async function enrollmentReport(plugin, hosts, recorded) {
@@ -36,8 +37,8 @@ async function enrollmentReport(plugin, hosts, recorded) {
         let outcome = recorded.get(host) ?? 'not-enrolled';
         if (outcome === 'unknown') {
             const { name, paths } = plugin.vault.hosts[host];
-            const authority = await enrollmentAuthority(hostEnrollmentPaths(paths), name).catch(() => 'unreadable');
-            if (authority === 'vault')
+            const authority = await vaultAuthority(hostEnrollmentPaths(paths), name).catch(() => 'unreadable');
+            if (authority === 'vault' || authority === 'host')
                 outcome = 'enrolled';
             else if (authority === 'local')
                 outcome = 'not-enrolled';
@@ -48,6 +49,9 @@ async function enrollmentReport(plugin, hosts, recorded) {
 }
 export async function runSetup(plugin, argv = [], io = {}) {
     const options = parseSetupFlags(argv);
+    // Hosted sign-in belongs to Thalamus, never to a plugin's local setup.
+    if (hasVaultHost())
+        throw new Error(VAULT_HOST_CONNECT_REFUSAL);
     validatePlugin(plugin);
     const terminal = io.terminal ?? processTerminal();
     const detection = await detectHosts(plugin, io);

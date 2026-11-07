@@ -44,6 +44,7 @@ async function runBoundedChild(childScript: string): Promise<{
   stderr: string
 }> {
   const child = Bun.spawn([process.execPath, '-e', childScript], {
+    env: process.env,
     stdout: 'pipe',
     stderr: 'pipe',
   })
@@ -92,6 +93,7 @@ test('startOAuthListener clears its callback timer when startup fails', async ()
       }
     `
     const spawned = Bun.spawn([process.execPath, '-e', childScript], {
+      env: process.env,
       stdout: 'pipe',
       stderr: 'pipe',
     })

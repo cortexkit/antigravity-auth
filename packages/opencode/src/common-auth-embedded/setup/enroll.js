@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { writeEnrollmentTokenFile } from '@cortexkit/claustrum-client';
 import { printLine } from '../auth-menu/terminal.js';
 import { ClaustrumEnrollmentManager, connectClaustrumEnrollmentClient, hostEnrollmentPaths, UNSUPPORTED_ENROLLMENT_CODE, } from '../claustrum/enrollment.js';
+import { hasVaultHost, VAULT_HOST_CONNECT_REFUSAL } from '../claustrum/host.js';
 import { ProcessFenceViolationError, ProcessInspectionError, } from './process-fence.js';
 const ENROLLMENT_INCOMPLETE_MESSAGE = 'Claustrum enrollment did not complete. Inspect and approve with ck, then rerun setup.';
 /** Fixed text: no version, host or account detail, so it is safe to print anywhere. */
@@ -51,6 +52,8 @@ function approveCommand(requestId, name) {
 }
 /** Enroll an independently revocable host; plugin callbacks choose its credential store and account permissions. */
 export async function connectSetupHost(plugin, host, io, terminal, fence) {
+    if (hasVaultHost())
+        throw new Error(VAULT_HOST_CONNECT_REFUSAL);
     const { name, paths: input } = plugin.vault.hosts[host];
     const paths = hostEnrollmentPaths(input);
     await fence();
