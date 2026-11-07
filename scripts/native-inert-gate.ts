@@ -9,6 +9,7 @@ import {
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  type GateFailure,
   type GatePlacement,
   type GateResult,
   git,
@@ -53,6 +54,41 @@ export function createScopedBiomeConfig(root: string, temporary: string) {
 
 export function scopedBiomeCheckArgs(config: string) {
   return ['check', '--config-path', config, ...SOURCE_PATHS]
+}
+
+const FAILURE_ERROR_LIMIT = 4000
+const FAILURE_LIMIT = 20
+
+/**
+ * Every failed test in one Bun test stage, with the error text Bun printed
+ * before its `(fail)` line. Bun lists failures again in its closing summary
+ * with no error text, so a name keeps the longest error seen for it.
+ */
+export function failedTests(stage: string, report: string): GateFailure[] {
+  const failures = new Map<string, string>()
+  let since: string[] = []
+  for (const line of report.split(/\r?\n/)) {
+    const failed = /^\(fail\) (.+?)(?: \[[^\]\n]+\])?$/.exec(line)
+    if (failed) {
+      const name = failed[1] as string
+      const text = since.join('\n').trim()
+      const error =
+        text.length > FAILURE_ERROR_LIMIT
+          ? text.slice(text.length - FAILURE_ERROR_LIMIT)
+          : text
+      if (error.length >= (failures.get(name)?.length ?? 0))
+        failures.set(name, error)
+      since = []
+    } else if (
+      /^\((?:pass|skip|todo)\) /.test(line) ||
+      /\.test\.tsx?:$/.test(line)
+    )
+      since = []
+    else since.push(line)
+  }
+  return [...failures]
+    .slice(0, FAILURE_LIMIT)
+    .map(([name, error]) => ({ stage, name, error }))
 }
 
 export function reconcileMotor(
@@ -270,6 +306,12 @@ export async function nativeInertGate(): Promise<number> {
       )
       process.stderr.write(stage.stdout)
       process.stderr.write(stage.stderr)
+      const failed = failedTests(
+        activeStage,
+        `${stage.stdout}\n${stage.stderr}`,
+      )
+      if (failed.length > 0)
+        result.failures = [...(result.failures ?? []), ...failed]
       if (stage.exit !== 0)
         throw new Error(`${activeStage} exited ${stage.exit}`)
       if (i === 0) result.bunVersion = stage.stdout.trim()
@@ -295,6 +337,10 @@ export async function nativeInertGate(): Promise<number> {
   } finally {
     if (temporary) rmSync(temporary, { recursive: true, force: true })
     result.endedUtc = new Date().toISOString()
+    // Repeat each failure on its own line just before the result line, so it
+    // is readable at the end of the output however long the stage output was.
+    for (const failure of result.failures ?? [])
+      console.log(`NATIVE_INERT_GATE_FAILURE=${JSON.stringify(failure)}`)
     console.log(`${RESULT_PREFIX}${JSON.stringify(result)}`)
   }
   return result.pass ? 0 : 1

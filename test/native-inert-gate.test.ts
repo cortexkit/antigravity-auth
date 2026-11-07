@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path'
 
 import {
   createScopedBiomeConfig,
+  failedTests,
   reconcileMotor,
   SOURCE_PATHS,
   scopedBiomeCheckArgs,
@@ -337,6 +338,44 @@ test('motor reconciliation requires each frozen registration, entry and framewor
   expect(() =>
     reconcileMotor(stdout, `${stderr}(skip) other case\n`, names),
   ).toThrow()
+})
+
+test('failed tests are named with the error Bun printed before each', () => {
+  const report = [
+    'packages/e2e-tests/src/opencode-ga-inputs.test.ts:',
+    '(pass) first case [1.00ms]',
+    'error: Test "slow case" timed out after 5000ms',
+    '      at <anonymous> (fixture.ts:12:3)',
+    '(fail) GA fixtures > slow case [5001.00ms]',
+    '(pass) third case [2.00ms]',
+    'expect(received).toBe(expected)',
+    'Expected: 1',
+    'Received: 2',
+    '(fail) GA fixtures > wrong value',
+    '',
+    ' 2 tests failed:',
+    '(fail) GA fixtures > slow case [5001.00ms]',
+    '(fail) GA fixtures > wrong value',
+    '',
+    ' 2 pass',
+    ' 2 fail',
+  ].join('\n')
+  expect(failedTests('motor-suite', report)).toEqual([
+    {
+      stage: 'motor-suite',
+      name: 'GA fixtures > slow case',
+      error:
+        'error: Test "slow case" timed out after 5000ms\n      at <anonymous> (fixture.ts:12:3)',
+    },
+    {
+      stage: 'motor-suite',
+      name: 'GA fixtures > wrong value',
+      error: 'expect(received).toBe(expected)\nExpected: 1\nReceived: 2',
+    },
+  ])
+  expect(
+    failedTests('motor-suite', '(pass) only case\n 1 pass\n 0 fail\n'),
+  ).toEqual([])
 })
 
 test('native-inert source lint covers every gate source and is wired into lint scripts and pre-commit', () => {

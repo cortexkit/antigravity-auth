@@ -46,6 +46,16 @@ export interface GateResult {
   endedUtc: string
   failingStage?: string
   error?: string
+  // Every failed test in a failing run, with Bun's own error text. It is
+  // carried in the result line itself, so a caller that keeps only that line
+  // still learns which test failed and why.
+  failures?: GateFailure[]
+}
+
+export interface GateFailure {
+  stage: string
+  name: string
+  error: string
 }
 
 export function sha256(raw: string | Uint8Array): string {
@@ -227,7 +237,11 @@ export function validateResult(value: unknown, root: string): GateResult {
     Date.parse(String(result.endedUtc)) < Date.parse(String(result.startedUtc))
   )
     throw new Error('invalid UTC times')
-  if (result.failingStage !== undefined || result.error !== undefined)
+  if (
+    result.failingStage !== undefined ||
+    result.error !== undefined ||
+    result.failures !== undefined
+  )
     throw new Error('passing result contains a failure')
   return result as unknown as GateResult
 }
