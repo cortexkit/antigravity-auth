@@ -238,14 +238,39 @@ export class ClaustrumScopedCustody {
         this.#warnShutdown = shutdownWarning(this.#logger);
         this.#setTimeout = options.setTimeoutImpl ?? setTimeout;
         this.#clearTimeout = options.clearTimeoutImpl ?? clearTimeout;
+        const currentClient = () => this.#client;
         this.#usage = new ScopedUsageReporter({
-            client: this.#client,
+            client: {
+                // Queued readings follow a replacement without losing client capability checks.
+                get reportUsageScoped() {
+                    const client = currentClient();
+                    return client.reportUsageScoped?.bind(client);
+                },
+            },
             owns: (id) => this.#usageServed.has(id),
             token: async () => hasVaultHost() ? '' : checkedEnrollmentToken(await this.#readToken()),
             logger: this.#logger,
             setTimeout: this.#setTimeout,
             clearTimeout: this.#clearTimeout,
         });
+    }
+    /**
+     * Replace the connection to the same vault without discarding receipts or
+     * their enrollment tokens. Open roster watches restart on the new client;
+     * their existing handles remain usable. Passing the current client does nothing.
+     * Neither client is closed here: the caller closes the old one, and custody's
+     * close()/dispose() still closes the client it holds at shutdown.
+     * While hosted, next must come from connectVaultHost, as in the constructor.
+     */
+    replaceClient(next) {
+        this.#check();
+        if (next === this.#client)
+            return;
+        if (hasVaultHost() && !isVaultHostClient(next))
+            throw new ClaustrumUnreachableError();
+        this.#client = next;
+        for (const watch of this.#watches)
+            watch.restart();
     }
     /** A watch losing its transport is the same outage as an unreachable read. */
     transportLost(error) {
@@ -603,7 +628,7 @@ export class ClaustrumScopedCustody {
         if (kept.since === null)
             kept.since = this.#now();
         const attempt = Object.freeze(Object.defineProperty({ ...kept.attempt, fromKeptReceipt: true }, 'accessToken', { value: kept.attempt.accessToken, enumerable: false }));
-        this.#provenance.set(attempt, this.#provenance.get(kept.attempt) ?? { token, client: this.#client });
+        this.#provenance.set(attempt, this.#provenance.get(kept.attempt) ?? { token });
         this.#keptAttempts.set(attempt, routeId);
         return attempt;
     }
@@ -684,15 +709,15 @@ export class ClaustrumScopedCustody {
             recordVersion: served.recordVersion,
             expiresAtMs,
         }, 'accessToken', { value: accessToken, enumerable: false }));
-        this.#provenance.set(attempt, { token, client: this.#client });
+        this.#provenance.set(attempt, { token });
         return attempt;
     }
     /**
      * Report that a send this consumer actually made was rejected. Only a 401
      * is reported (the vault refuses 429, 402 and 5xx reports), addressed by
      * credential id with the exact record version that send was served, and
-     * sent through the client and enrollment token that authorized it. A receipt
-     * this custody did not issue is refused rather than reported.
+     * sent through the current client with the enrollment token that authorized
+     * it. A receipt this custody did not issue is refused rather than reported.
      */
     async reportFailure(attempt, status, reporterSource) {
         if (status !== 401)
@@ -719,7 +744,7 @@ export class ClaustrumScopedCustody {
         const pending = this.#reports.get(attempt);
         if (pending)
             return pending;
-        const report = this.#call(() => provenance.client.reportAuthFailureScoped({
+        const report = this.#call(() => this.#client.reportAuthFailureScoped({
             credentialId: attempt.credentialId,
             enrollmentToken: provenance.token,
             providerStatus: 401,
@@ -761,36 +786,67 @@ export class ClaustrumScopedCustody {
      */
     watchRoster(options) {
         this.#check();
-        const watch = new ScopedRosterWatch({
-            client: this.#client,
-            enrollmentToken: () => this.#token(),
-            view: options.view ?? (() => this.#discoveredView),
-            discover: async (view) => {
-                await options.onView(view);
+        const currentView = options.view ?? (() => this.#discoveredView);
+        let discovering;
+        let watch;
+        const create = (resubscribed = false) => {
+            const opened = new ScopedRosterWatch({
+                client: this.#client,
+                enrollmentToken: () => this.#token(),
+                // Nothing observed the gap between clients, even if the view is unchanged.
+                view: () => (resubscribed ? undefined : currentView()),
+                discover: async (view) => {
+                    // An old watch's discovery may still be committing the host's roster.
+                    while (discovering)
+                        await discovering.catch(() => { });
+                    if (watch !== opened)
+                        return;
+                    resubscribed = false;
+                    discovering = Promise.resolve().then(() => options.onView(view));
+                    try {
+                        await discovering;
+                    }
+                    finally {
+                        discovering = undefined;
+                    }
+                },
+                onRefused: (error) => {
+                    // Apply a refused watch as discover() applies a refused account
+                    // listing: every kept receipt is dropped.
+                    this.listFailed(error);
+                    options.onRefused?.(error);
+                },
+                onTransportLost: () => this.transportLost(),
+                onReachable: () => this.reachable(),
+                onError: options.onError,
+                onMode: options.onMode,
+                logger: this.#logger,
+                now: this.#now,
+                setTimeoutImpl: this.#setTimeout,
+                clearTimeoutImpl: this.#clearTimeout,
+            });
+            return opened;
+        };
+        watch = create();
+        const tracked = {
+            restart: () => {
+                const previousMode = watch.mode;
+                watch.stop();
+                watch = create(true);
+                if (previousMode !== watch.mode)
+                    options.onMode?.(watch.mode);
+                watch.start();
             },
-            onRefused: (error) => {
-                // Apply a refused watch as discover() applies a refused account
-                // listing: every kept receipt is dropped.
-                this.listFailed(error);
-                options.onRefused?.(error);
-            },
-            onTransportLost: () => this.transportLost(),
-            onReachable: () => this.reachable(),
-            onError: options.onError,
-            onMode: options.onMode,
-            logger: this.#logger,
-            now: this.#now,
-            setTimeoutImpl: this.#setTimeout,
-            clearTimeoutImpl: this.#clearTimeout,
-        });
-        this.#watches.add(watch);
+            stop: () => watch.stop(),
+        };
+        this.#watches.add(tracked);
         watch.start();
         return {
             get mode() {
                 return watch.mode;
             },
             close: () => {
-                this.#watches.delete(watch);
+                this.#watches.delete(tracked);
                 watch.stop();
             },
         };

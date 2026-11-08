@@ -279,6 +279,15 @@ export declare class ClaustrumScopedCustody {
         setTimeoutImpl?: typeof setTimeout;
         clearTimeoutImpl?: typeof clearTimeout;
     });
+    /**
+     * Replace the connection to the same vault without discarding receipts or
+     * their enrollment tokens. Open roster watches restart on the new client;
+     * their existing handles remain usable. Passing the current client does nothing.
+     * Neither client is closed here: the caller closes the old one, and custody's
+     * close()/dispose() still closes the client it holds at shutdown.
+     * While hosted, next must come from connectVaultHost, as in the constructor.
+     */
+    replaceClient(next: ClaustrumScopedClient): void;
     /** A watch losing its transport is the same outage as an unreachable read. */
     transportLost(error?: unknown): void;
     /** Any vault answer ends transport fallback, even when it refuses access. */
@@ -312,8 +321,8 @@ export declare class ClaustrumScopedCustody {
      * Report that a send this consumer actually made was rejected. Only a 401
      * is reported (the vault refuses 429, 402 and 5xx reports), addressed by
      * credential id with the exact record version that send was served, and
-     * sent through the client and enrollment token that authorized it. A receipt
-     * this custody did not issue is refused rather than reported.
+     * sent through the current client with the enrollment token that authorized
+     * it. A receipt this custody did not issue is refused rather than reported.
      */
     reportFailure(attempt: ClaustrumScopedAttempt, status: number, reporterSource: ClaustrumReporterSource): Promise<void>;
     /**

@@ -701,7 +701,7 @@ test('build.predecessor_0320_maps_are_owned', async () => {
   await buildTuiRoots({ packageRoot: root })
   for (const profile of TUI_ROOTS) {
     const rebuilt = JSON.parse(await readFile(join(root, profile.map), 'utf8'))
-    expect(rebuilt.compiler).toBe('@cortexkit/common-auth/tui-build@0.42.0')
+    expect(rebuilt.compiler).toBe('@cortexkit/common-auth/tui-build@0.43.0')
     expect(rebuilt).not.toHaveProperty('predecessorCanary')
     for (const tree of [profile.raw, profile.runtime])
       expect(await inventory(join(root, tree))).not.toContain(
@@ -718,7 +718,7 @@ test('build.map_admission_valid_generated', async () => {
   const runtime = await hashes(root, 'src/tui-compiled')
   const generated = await readFile(map)
   expect(JSON.parse(generated.toString()).compiler).toBe(
-    '@cortexkit/common-auth/tui-build@0.42.0',
+    '@cortexkit/common-auth/tui-build@0.43.0',
   )
   for (const compiler of [
     '@cortexkit/common-auth/tui-build@0.9.4',
@@ -735,6 +735,7 @@ test('build.map_admission_valid_generated', async () => {
     '@cortexkit/common-auth/tui-build@0.39.0',
     '@cortexkit/common-auth/tui-build@0.39.1',
     '@cortexkit/common-auth/tui-build@0.40.0',
+    '@cortexkit/common-auth/tui-build@0.42.0',
   ]) {
     const previous = JSON.parse(generated.toString())
     previous.compiler = compiler
@@ -882,7 +883,7 @@ test('graph.ga_roots', async () => {
   ])
   checkGaGraph(source, 'source', product)
   const map = JSON.parse(await readFile(join(product, GA_TUI_ROOT.map), 'utf8'))
-  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.42.0')
+  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.43.0')
   for (const [variant, tree, entry, kind] of [
     [map.raw, GA_TUI_ROOT.raw, GA_TUI_ROOT.rawEntry, 'raw'],
     [map.runtime, GA_TUI_ROOT.runtime, GA_TUI_ROOT.runtimeEntry, 'runtime'],
