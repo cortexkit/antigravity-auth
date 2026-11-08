@@ -126,7 +126,11 @@ export interface AntigravityRepositoryMenuOptions
    */
   readonly login?: {
     readonly label?: string
-    run(invocation: CommandInvocation): Promise<string | ActionOutcome>
+    readonly knobs?: ActionDefinition['knobs']
+    run(
+      invocation: CommandInvocation,
+      values: Parameters<ActionDefinition['run']>[0]['values'],
+    ): Promise<string | ActionOutcome>
   }
   /**
    * Per-account quota floors the host keeps. Without it the account items
@@ -390,9 +394,10 @@ function accountsSection(
             {
               id: 'add',
               label: options.login.label ?? 'Add account',
-              run: ({ invocation }) =>
+              ...(options.login.knobs ? { knobs: options.login.knobs } : {}),
+              run: ({ invocation, values }) =>
                 options.login
-                  ? options.login.run(invocation)
+                  ? options.login.run(invocation, values)
                   : Promise.resolve(
                       failure('Login is unavailable.', 'refused'),
                     ),

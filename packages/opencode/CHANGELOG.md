@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Add account on OpenCode 2 now also takes a pasted redirect URL, so it works over SSH.
+
 ## [3.0.37] - 2026-11-08
 
 ### Fixed

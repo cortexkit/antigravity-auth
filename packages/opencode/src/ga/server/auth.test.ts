@@ -11,6 +11,7 @@ import {
 } from '../../../../../test/support/vault-host.ts'
 import {
   OPENCODE2_POOL_AUTH_LABEL,
+  OPENCODE2_POOL_PASTE_AUTH_LABEL,
   OPENCODE2_VAULT_AUTH_LABEL,
 } from '../../auth-method-labels.ts'
 import {
@@ -585,6 +586,7 @@ describe('GA native vault activation', () => {
       ),
     ).toEqual([
       ['antigravity-auth-pool-browser', OPENCODE2_POOL_AUTH_LABEL],
+      ['antigravity-auth-pool-paste', OPENCODE2_POOL_PASTE_AUTH_LABEL],
       [GA_VAULT_METHOD_ID, OPENCODE2_VAULT_AUTH_LABEL],
     ])
     for (const method of native.methods) {

@@ -6,7 +6,12 @@
  * provider state, storage, debug streams or OAuth code.
  */
 export function isProviderSecretKey(normalizedKey: string): boolean {
-  return /token|refresh|access|project|fingerprint|deviceid|sessionid|sessiontoken|secret|password|apikey|clientsecret/.test(
+  return /token|refresh|access|project|fingerprint|deviceid|sessionid|sessiontoken|secret|password|apikey|clientsecret|callback|redirecturl|authorizationcode/.test(
     normalizedKey,
   )
 }
+
+/** Redirect URLs carry short-lived credentials even when their codes do not look like tokens. */
+export const OAUTH_REDIRECT_VALUE_PATTERNS = [
+  /https?:\/\/[^\s<>"']*[?&](?:code|state)=[^\s<>"']*/gi,
+]

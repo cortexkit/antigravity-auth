@@ -21,7 +21,10 @@
 
 import { setLogSink } from '@cortexkit/antigravity-auth-core'
 import { createLoggerInstance } from '../common-auth-embedded/logger/index.js'
-import { isProviderSecretKey } from '../logging/provider-key-policy'
+import {
+  isProviderSecretKey,
+  OAUTH_REDIRECT_VALUE_PATTERNS,
+} from '../logging/provider-key-policy'
 import type { OperatorSettings } from './config/operator-settings-schema'
 import { isDebugTuiEnabled } from './debug'
 import { isTruthyFlag, writeConsoleLog } from './logging-utils'
@@ -127,6 +130,7 @@ export function createLocationLogger(
   const engine = createLoggerInstance({
     level: () => configuredLevel,
     extraSecretKeys: isProviderSecretKey,
+    extraValuePatterns: OAUTH_REDIRECT_VALUE_PATTERNS,
     captureSink: ({ channel, level, message, data }) => {
       const extra =
         data !== null && typeof data === 'object' && !Array.isArray(data)

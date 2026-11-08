@@ -9,6 +9,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as core from '@cortexkit/antigravity-auth-core'
@@ -23,12 +24,19 @@ import type {
   IntegrationEditor,
   IntegrationMethodRegistration,
 } from '@opencode/plugin/promise/integration'
+
+import {
+  createVaultHostRelay,
+  emptyVaultHostClient,
+  withVaultHost,
+} from '../../../../../test/support/vault-host.ts'
 import { isPlaceholderCredential } from '../../common-auth-embedded/opencode2/index.js'
 import {
   createGaLocationServicesFactory,
   createGaReauthorize,
   createGaRuntimeCollaborators,
 } from '../../plugin/ga-location-services.ts'
+import { createLocationLogger } from '../../plugin/logger.ts'
 import { createOperatorSettingsRegistry } from '../../plugin/operator-settings.ts'
 import * as persistence from '../../plugin/persist-account-pool.ts'
 import {
@@ -37,9 +45,16 @@ import {
 } from '../../plugin/shared/runtime.ts'
 import * as storage from '../../plugin/storage.ts'
 import { registerGaAuthMethods } from './auth.ts'
-import type { GaLocationServices } from './index.ts'
+import type { GaLocationServices, GaPluginOverrides } from './index.ts'
 import { gaPreHeaderFailureResponse } from './index.ts'
-import { GA_POOL_METHOD_ID, GA_POOL_RECONNECT_METHOD_ID } from './pool-login.ts'
+import * as poolLogin from './pool-login.ts'
+import {
+  createGaPoolLogin,
+  GA_POOL_METHOD_ID,
+  GA_POOL_RECONNECT_METHOD_ID,
+} from './pool-login.ts'
+
+const GA_POOL_PASTE_METHOD_ID = poolLogin.GA_POOL_PASTE_METHOD_ID
 
 function tree(root: string) {
   if (!existsSync(root)) return []
@@ -57,7 +72,7 @@ function tree(root: string) {
     })
 }
 
-async function fixture() {
+async function fixture(oauth?: GaPluginOverrides['oauth']) {
   const root = mkdtempSync(join(tmpdir(), 'ga-pool-login-'))
   const previous = {
     OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
@@ -205,6 +220,7 @@ async function fixture() {
         oauth: {
           waitForCode: async () => 'code',
           exchange: async () => result,
+          ...oauth,
         },
       },
     )
@@ -213,6 +229,12 @@ async function fixture() {
       legacyPath,
       modules,
       services,
+      authorize: async (id: string) => {
+        const method = methods.find(({ method }) => method.id === id)
+        if (!method || !('authorize' in method))
+          throw new Error('Pool method missing')
+        return method.authorize({})
+      },
       registration,
       selected,
       refreshes: () => refreshes,
@@ -319,6 +341,273 @@ async function rows(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 const FAILED = 'The Antigravity pool login could not be completed.'
+
+describe('GA redirect URL pool login', () => {
+  async function flow() {
+    const exchanged: { code: string; state: string }[] = []
+    const f = await fixture()
+    const pool = createGaPoolLogin({
+      local: f.services.localLogin,
+      oauth: {
+        exchange: async (code, state) => {
+          exchanged.push({ code, state })
+          return {
+            type: 'success',
+            refresh: 'redirect-refresh',
+            access: 'redirect-access',
+            expires: Date.now() + 3_600_000,
+            email: 'redirect@example.test',
+          }
+        },
+      },
+    })
+    try {
+      const attempt = await pool.start()
+      const state = new URL(attempt.url).searchParams.get('state')!
+      const url = new URL(core.ANTIGRAVITY_REDIRECT_URI)
+      url.searchParams.set('state', state)
+      url.searchParams.set('code', 'redirect-secret-code')
+      return {
+        f,
+        pool,
+        attempt,
+        state,
+        url: url.href,
+        exchanged,
+        cleanup: async () => {
+          await pool.dispose()
+          await f.cleanup()
+        },
+      }
+    } catch (error) {
+      await pool.dispose()
+      await f.cleanup()
+      throw error
+    }
+  }
+
+  it('auto-return alone exchanges the same PKCE state and persists through the shared pool flow', async () => {
+    const f = await flow()
+    try {
+      const response = await fetch(f.url)
+      expect(response.ok).toBe(true)
+      const result = await f.attempt.completion
+      await f.pool.onLogin(result)
+      expect(f.exchanged).toEqual([
+        { code: 'redirect-secret-code', state: f.state },
+      ])
+      expect((await rows(f.f))[0]?.credential?.refreshToken).toBe(
+        'redirect-refresh',
+      )
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('paste-only host method never binds the callback port and persists before returning its placeholder', async () => {
+    const occupied = createServer()
+    await new Promise<void>((resolve, reject) => {
+      occupied.once('error', reject)
+      occupied.listen(51121, resolve)
+    })
+    const f = await fixture({ waitForCode: undefined })
+    try {
+      const auth = await f.authorize(GA_POOL_PASTE_METHOD_ID)
+      expect(auth.mode).toBe('code')
+      expect(auth.instructions).toBe(
+        "Paste the redirect URL from your browser's address bar",
+      )
+      if (auth.mode !== 'code') throw new Error('Expected paste method')
+      const url = new URL(core.ANTIGRAVITY_REDIRECT_URI)
+      url.searchParams.set(
+        'state',
+        new URL(auth.url).searchParams.get('state')!,
+      )
+      url.searchParams.set('code', 'paste-only-secret')
+      const credential = await auth.callback(url.href)
+      expect(isPlaceholderCredential(credential, 'google')).toBe(true)
+      expect(await rows(f)).toHaveLength(1)
+      await expect(auth.callback(url.href)).rejects.toThrow(FAILED)
+    } finally {
+      await f.cleanup()
+      await new Promise<void>((resolve) => occupied.close(() => resolve()))
+    }
+  })
+
+  it('listener first refuses a later paste and closes the listener after one exchange', async () => {
+    const f = await flow()
+    try {
+      await fetch(f.url)
+      await f.attempt.completion
+      await expect(f.attempt.paste(f.url)).rejects.toThrow(FAILED)
+      expect(f.exchanged).toHaveLength(1)
+      await expect(fetch(f.url)).rejects.toThrow()
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('paste first refuses a later listener callback after one exchange', async () => {
+    const f = await flow()
+    try {
+      await f.attempt.paste(f.url)
+      await expect(fetch(f.url)).rejects.toThrow()
+      expect(f.exchanged).toEqual([
+        { code: 'redirect-secret-code', state: f.state },
+      ])
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('an empty paste waits for the listener instead of failing', async () => {
+    const f = await flow()
+    try {
+      let settled = false
+      const result = f.attempt.paste('').then((value) => {
+        settled = true
+        return value
+      })
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(settled).toBe(false)
+      await fetch(f.url)
+      expect(await result).toEqual(await f.attempt.completion)
+      expect(f.exchanged).toHaveLength(1)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  for (const invalid of ['origin', 'path', 'state', 'code'] as const) {
+    it(`refuses a pasted redirect with wrong or missing ${invalid} without echoing it`, async () => {
+      const f = await flow()
+      try {
+        const url = new URL(f.url)
+        if (invalid === 'origin') url.hostname = 'example.test'
+        if (invalid === 'path') url.pathname = '/elsewhere'
+        if (invalid === 'state')
+          url.searchParams.set('state', 'wrong-secret-state')
+        if (invalid === 'code') url.searchParams.delete('code')
+        const error = await f.attempt
+          .paste(url.href)
+          .catch((error: unknown) => error)
+        expect(error).toBeInstanceOf(Error)
+        expect(String(error)).toBe(`Error: ${FAILED}`)
+        expect(f.exchanged).toHaveLength(0)
+      } finally {
+        await f.cleanup()
+      }
+    })
+  }
+
+  it('keeps a pasted URL and upstream errors out of captured logs and host errors', async () => {
+    const secret =
+      'http://localhost:51121/oauth-callback?state=private-state&code=private-code'
+    const output: unknown[][] = []
+    const spies = (['warn', 'error', 'log', 'info', 'debug'] as const).map(
+      (key) =>
+        spyOn(console, key).mockImplementation((...args: unknown[]) => {
+          output.push(args)
+        }),
+    )
+    const f = await fixture({
+      exchange: async () => {
+        throw new Error(secret)
+      },
+    })
+    try {
+      const records: unknown[] = []
+      createLocationLogger({
+        sinkEnabled: () => true,
+        sink: (record) => {
+          records.push(record)
+        },
+      })
+        .createLogger('oauth')
+        .warn(`Failed callback ${secret}`, {
+          callback: secret,
+          error: new Error(secret),
+        })
+      expect(records).toHaveLength(1)
+      expect(JSON.stringify(records)).not.toContain(secret)
+      expect(JSON.stringify(records)).not.toContain('private-code')
+      const auth = await f.authorize(GA_POOL_PASTE_METHOD_ID)
+      if (auth.mode !== 'code') throw new Error('Expected paste method')
+      const url = new URL(secret)
+      url.searchParams.set(
+        'state',
+        new URL(auth.url).searchParams.get('state')!,
+      )
+      const error = await auth
+        .callback(url.href)
+        .catch((error: unknown) => error)
+      expect(String(error)).toBe(`Error: ${FAILED}`)
+      expect(JSON.stringify({ output, error: String(error) })).not.toContain(
+        secret,
+      )
+      expect(JSON.stringify(output)).not.toContain(url.href)
+      expect(JSON.stringify(output)).not.toContain('private-code')
+    } finally {
+      await f.cleanup()
+      for (const spy of spies) spy.mockRestore()
+    }
+  })
+
+  for (const authority of ['custody', 'unreadable', 'host'] as const) {
+    it(`refuses paste login under ${authority} before OAuth or any store write`, async () => {
+      let calls = 0
+      const f = await fixture({
+        authorize: async () => {
+          calls++
+          throw new Error('OAuth must not start')
+        },
+        exchange: async () => {
+          calls++
+          throw new Error('Exchange must not start')
+        },
+      })
+      try {
+        // Seed actual local store files before changing authority.
+        const seed = createGaPoolLogin({
+          local: f.services.localLogin,
+          oauth: {
+            waitForCode: async () => 'seed',
+            exchange: async () => ({
+              type: 'success',
+              refresh: 'seed-refresh',
+              access: 'seed-access',
+              expires: Date.now() + 3_600_000,
+            }),
+          },
+        })
+        try {
+          const auth = await seed.method.authorize({})
+          if (auth.mode !== 'auto') throw new Error('Expected auto')
+          await seed.onLogin(await auth.callback)
+        } finally {
+          await seed.dispose()
+        }
+        const before = tree(f.root)
+        const refuse = async () => {
+          await expect(f.authorize(GA_POOL_PASTE_METHOD_ID)).rejects.toThrow(
+            FAILED,
+          )
+        }
+        if (authority === 'host') {
+          const relay = createVaultHostRelay(emptyVaultHostClient)
+          await withVaultHost('thalamus', relay.accessor, refuse)
+        } else {
+          f.mode(authority)
+          await refuse()
+        }
+        expect(calls).toBe(0)
+        expect(tree(f.root)).toEqual(before)
+      } finally {
+        await f.cleanup()
+      }
+    })
+  }
+})
 
 describe('GA existing local pool reconnect', () => {
   it('reconnects after browser success when quota lands between admission config and row reads', async () => {

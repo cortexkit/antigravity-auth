@@ -1302,6 +1302,46 @@ export function presentGaMenu(
 
 // ── Dialogs ─────────────────────────────────────────────────────────────────
 
+/** The drawer owns this prompt, so a browser callback can dismiss it. */
+export async function runGaDrawerLogin(input: {
+  ui: MenuUi
+  request: MenuApplyRequest
+  apply(request: MenuApplyRequest): Promise<MenuApplyResult>
+  completed: Promise<boolean>
+}): Promise<MenuApplyResult> {
+  const started = await input.apply(input.request)
+  if (!started.ok) return started
+  let promptOpen = true
+  const completed = input.completed.then((ok) => {
+    if (promptOpen) input.ui.clear()
+    return {
+      ...started,
+      ok,
+      text: ok
+        ? 'Account added.'
+        : 'The Antigravity pool login could not be completed.',
+    }
+  })
+  const answer = input.ui
+    .prompt({
+      title: 'Add account',
+      description: started.text,
+      placeholder: "Paste the redirect URL from your browser's address bar",
+    })
+    .then((value) => ({ value }))
+  const winner = await Promise.race([completed, answer])
+  promptOpen = false
+  if (!('value' in winner)) return winner
+  if (winner.value === undefined) {
+    return input.apply({ ...input.request, values: { cancel: true } })
+  }
+  if (!winner.value.trim()) return completed
+  return Promise.race([
+    input.apply({ ...input.request, values: { callback: winner.value } }),
+    completed,
+  ])
+}
+
 /**
  * `MenuUi` over the GA dialog API. After `isActive()` turns false every call
  * is inert: a select resolves as dismissed and nothing is shown.
@@ -1612,7 +1652,7 @@ export function setupGaTui(
     })
   }
 
-  const applyChoice = async (
+  const applyRequest = async (
     scope: GaScope,
     request: MenuApplyRequest,
     shown: GaMenuPresentation,
@@ -1644,9 +1684,46 @@ export function setupGaTui(
     return result
   }
 
+  let pendingLogin: { scope: string; finish(ok: boolean): void } | undefined
+  const applyChoice = async (
+    scope: GaScope,
+    request: MenuApplyRequest,
+    shown: GaMenuPresentation,
+  ) => {
+    if (
+      request.sectionId !== 'accounts' ||
+      request.actionId !== 'add' ||
+      request.itemId !== undefined
+    )
+      return applyRequest(scope, request, shown)
+    const completed = Promise.withResolvers<boolean>()
+    const pending = { scope: scopeKey(scope), finish: completed.resolve }
+    pendingLogin = pending
+    try {
+      return await runGaDrawerLogin({
+        ui,
+        request,
+        completed: completed.promise,
+        apply: (next) => applyRequest(scope, next, shown),
+      })
+    } finally {
+      if (pendingLogin === pending) pendingLogin = undefined
+    }
+  }
+
   function onNotification(notification: GaNotification, scope: GaScope) {
     const payload = notification.payload
     if ('notify' in payload) {
+      if (
+        pendingLogin?.scope === scopeKey(scope) &&
+        [
+          'Account added.',
+          'The Antigravity pool login could not be completed.',
+        ].includes(payload.notify.message)
+      ) {
+        pendingLogin.finish(payload.notify.kind !== 'error')
+        return
+      }
       ui.toast(payload.notify.message, payload.notify.kind)
       return
     }
@@ -1702,6 +1779,7 @@ export function setupGaTui(
   return async () => {
     if (cleaned) return
     cleaned = true
+    pendingLogin?.finish(false)
     stop()
     client.dispose()
     releaseSlot()

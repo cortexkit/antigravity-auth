@@ -24,7 +24,10 @@ import {
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createLoggerInstance } from '../common-auth-embedded/logger/index.js'
-import { isProviderSecretKey } from '../logging/provider-key-policy'
+import {
+  isProviderSecretKey,
+  OAUTH_REDIRECT_VALUE_PATTERNS,
+} from '../logging/provider-key-policy'
 
 export type TuiLogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -141,6 +144,7 @@ function createFileLogger(options: FileLoggerOptions): TuiLogger {
   const instance = createLoggerInstance({
     level: 'debug',
     extraSecretKeys: isProviderSecretKey,
+    extraValuePatterns: OAUTH_REDIRECT_VALUE_PATTERNS,
     captureSink: ({ level, message, data }) => {
       const extra =
         data !== null && typeof data === 'object' && !Array.isArray(data)

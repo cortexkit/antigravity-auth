@@ -63,6 +63,8 @@ import {
   type VaultProviderStateFile,
   type VaultRouteRef,
 } from '@cortexkit/antigravity-auth-core'
+
+import { GA_POOL_PASTE_PROMPT } from '../auth-method-labels.ts'
 import type {
   AntigravityRpcScope,
   AntigravitySettingsDto,
@@ -86,6 +88,7 @@ import type {
 import {
   createGaPoolLogin,
   type GaLocalLogin,
+  type GaPoolLoginAttempt,
 } from '../ga/server/pool-login.ts'
 import type {
   SidebarAccountRedactionInput,
@@ -2319,6 +2322,14 @@ export function createGaLocationServicesFactory(
       oauth: overrides.oauth,
     })
     const loginCompletions = new Set<Promise<void>>()
+    const drawerLogins = new Map<
+      string,
+      {
+        attempt: GaPoolLoginAttempt
+        completion: Promise<boolean>
+        cancelled: boolean
+      }
+    >()
     return {
       runtime,
       localLogin,
@@ -2445,31 +2456,92 @@ export function createGaLocationServicesFactory(
                 runtime: location,
                 reauthorize: pendingReauthorization,
                 login: {
-                  async run(invocation) {
-                    const authorization = await menuLogin.method.authorize({})
-                    if (authorization.mode !== 'auto')
-                      throw new Error(
-                        'Antigravity sign-in needs a local browser callback.',
-                      )
-                    const completion = authorization.callback
-                      .then((result) => menuLogin.onLogin(result))
+                  knobs: [
+                    {
+                      kind: 'text',
+                      id: 'callback',
+                      label: GA_POOL_PASTE_PROMPT,
+                      masked: true,
+                    },
+                    {
+                      kind: 'toggle',
+                      id: 'cancel',
+                      label: 'Cancel sign-in',
+                      value: false,
+                    },
+                  ],
+                  async run(invocation, values) {
+                    await assertLocal()
+                    const key = invocation.sessionId ?? ''
+                    const previous = drawerLogins.get(key)
+                    const failure = () => ({
+                      ok: false as const,
+                      text: 'The Antigravity pool login could not be completed.',
+                      code: 'refused',
+                    })
+                    if (values.cancel === true) {
+                      if (previous) {
+                        previous.cancelled = true
+                        await previous.attempt.cancel()
+                        drawerLogins.delete(key)
+                      }
+                      return 'Sign-in cancelled.'
+                    }
+                    if (typeof values.callback === 'string') {
+                      if (!previous) return failure()
+                      try {
+                        await previous.attempt.paste(values.callback)
+                        return (await previous.completion)
+                          ? 'Account added.'
+                          : failure()
+                      } catch {
+                        return failure()
+                      }
+                    }
+                    if (previous) {
+                      previous.cancelled = true
+                      await previous.attempt.cancel()
+                    }
+                    const attempt = await menuLogin.start()
+                    const entry = {
+                      attempt,
+                      cancelled: false,
+                      completion: Promise.resolve(false),
+                    }
+                    entry.completion = attempt.completion
+                      .then((result) => {
+                        if (entry.cancelled)
+                          throw new Error(
+                            'The Antigravity pool login could not be completed.',
+                          )
+                        return menuLogin.onLogin(result)
+                      })
                       .then(
                         () => {
-                          invocation.notify('Account added.', 'info')
+                          if (!entry.cancelled)
+                            invocation.notify('Account added.', 'info')
+                          return true
                         },
                         () => {
-                          invocation.notify(
-                            'Antigravity sign-in did not complete.',
-                            'error',
-                          )
+                          if (!entry.cancelled)
+                            invocation.notify(
+                              'The Antigravity pool login could not be completed.',
+                              'error',
+                            )
+                          return false
                         },
                       )
-                      .catch(() => {})
+                      .finally(() => {
+                        if (drawerLogins.get(key) === entry)
+                          drawerLogins.delete(key)
+                      })
+                    drawerLogins.set(key, entry)
+                    const completion = entry.completion.then(() => {})
                     loginCompletions.add(completion)
                     void completion.finally(() =>
                       loginCompletions.delete(completion),
                     )
-                    return `Open ${authorization.url} in your browser and sign in.\nThe account is added when the browser returns here; there is nothing to paste.`
+                    return `Open ${attempt.url} in your browser and sign in.\n${GA_POOL_PASTE_PROMPT}, or wait for the browser to finish.`
                   },
                 },
                 ...(custody ? { vault: custody.menuSection() } : {}),

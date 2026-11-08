@@ -4162,7 +4162,9 @@ describe('GA drawer account actions through native RPC', () => {
       expect(ui.notices.join('\n')).toContain(
         'https://accounts.google.com/signin?state=drawer',
       )
-      expect(ui.notices.join('\n')).toContain('nothing to paste')
+      expect(ui.notices.join('\n')).toContain(
+        "Paste the redirect URL from your browser's address bar, or wait for the browser to finish.",
+      )
       expect(ui.confirms).toEqual([])
       callback.resolve('browser-code')
       await scope.wait(completed)
@@ -4175,6 +4177,95 @@ describe('GA drawer account actions through native RPC', () => {
       expect(after.accounts.rows).toHaveLength(2)
     },
   )
+
+  for (const winner of ['listener', 'paste', 'empty'] as const) {
+    ownedIt(
+      `drawer redirect prompt ${winner} completes through native RPC and closes without a second exchange`,
+      async (scope) => {
+        let exchanges = 0
+        const callback = Promise.withResolvers<string>()
+        const fixture = await transportLocation(scope, 'local', {
+          oauth: {
+            authorize: async () => ({
+              url: 'https://accounts.google.com/signin?state=drawer-redirect',
+              verifier: 'drawer-verifier',
+              projectId: '',
+            }),
+            waitForCode: () => callback.promise,
+            exchange: async () => {
+              exchanges++
+              return {
+                type: 'success',
+                refresh: 'drawer-redirect-refresh',
+                access: 'drawer-access',
+                expires: Date.now() + 3_600_000,
+                email: 'redirect@example.test',
+              }
+            },
+          },
+        })
+        const { client, view, completed } = await drawer(scope, fixture)
+        const host = await import('../ga/tui/host-ga')
+        const prompt = Promise.withResolvers<string | undefined>()
+        const opened = Promise.withResolvers<void>()
+        let clears = 0
+        const ui = scripted([], true).ui
+        ui.prompt = async (input) => {
+          expect(input.title).toBe('Add account')
+          expect(input.description).toContain(
+            'https://accounts.google.com/signin?state=drawer-redirect',
+          )
+          expect(input.placeholder).toBe(
+            "Paste the redirect URL from your browser's address bar",
+          )
+          opened.resolve()
+          return prompt.promise
+        }
+        ui.clear = () => {
+          clears++
+          prompt.resolve(undefined)
+        }
+        const request = {
+          command: 'antigravity',
+          sectionId: 'accounts',
+          actionId: 'add',
+          values: {},
+        }
+        const result = host.runGaDrawerLogin({
+          ui,
+          request,
+          completed: completed.then(() => true),
+          apply: (choice) =>
+            client.apply(sessionless, { request: view.request(choice) }),
+        })
+        await scope.wait(opened.promise)
+        if (winner === 'paste')
+          prompt.resolve(
+            'http://localhost:51121/oauth-callback?state=drawer-redirect&code=drawer-paste-secret',
+          )
+        else {
+          if (winner === 'empty') {
+            prompt.resolve('')
+            await new Promise((resolve) => setImmediate(resolve))
+            expect(exchanges).toBe(0)
+          }
+          callback.resolve('drawer-listener-code')
+        }
+        expect((await scope.wait(result)).text).toBe('Account added.')
+        expect(clears).toBe(winner === 'listener' ? 1 : 0)
+        callback.resolve('late-code')
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(exchanges).toBe(1)
+        const after = await fixture.serving.state.read({
+          scope: sessionless,
+          signal: new AbortController().signal,
+        })
+        if (after.accounts.kind !== 'complete')
+          throw new Error('Missing account state')
+        expect(after.accounts.rows).toHaveLength(2)
+      },
+    )
+  }
 
   ownedIt(
     'drawer Remove confirms and removes exactly the selected credential through strict RPC',

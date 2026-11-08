@@ -68,7 +68,7 @@ export async function registerGaAuthMethods(
     registrations.push(
       await registerOpenCode2AuthMethods(context, {
         integrationID: ANTIGRAVITY_PROVIDER_ID,
-        methods: [pool.method],
+        methods: [pool.method, pool.pasteMethod],
         onLogin: pool.onLogin,
         vault: {
           method: {
