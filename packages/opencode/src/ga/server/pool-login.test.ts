@@ -230,7 +230,9 @@ async function fixture(oauth?: GaPluginOverrides['oauth']) {
       modules,
       services,
       authorize: async (id: string) => {
-        const method = methods.find(({ method }) => method.id === id)
+        const method = methods.find(
+          ({ method }) => method.type === 'oauth' && method.id === id,
+        )
         if (!method || !('authorize' in method))
           throw new Error('Pool method missing')
         return method.authorize({})
@@ -363,6 +365,7 @@ describe('GA redirect URL pool login', () => {
             access: 'redirect-access',
             expires: Date.now() + 3_600_000,
             email: 'redirect@example.test',
+            projectId: '',
           }
         },
       },
@@ -577,6 +580,7 @@ describe('GA redirect URL pool login', () => {
               refresh: 'seed-refresh',
               access: 'seed-access',
               expires: Date.now() + 3_600_000,
+              projectId: '',
             }),
           },
         })

@@ -4200,6 +4200,7 @@ describe('GA drawer account actions through native RPC', () => {
                 access: 'drawer-access',
                 expires: Date.now() + 3_600_000,
                 email: 'redirect@example.test',
+                projectId: '',
               }
             },
           },
