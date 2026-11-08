@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-### Fixed
+## [3.0.38] - 2026-11-08
 
-- Add account on OpenCode 2 now also takes a pasted redirect URL, so it works over SSH.
+### Added
+
+- Add account on OpenCode 2 now also takes a pasted redirect URL, so it works over SSH. The sign-in list gains "Google (antigravity-auth pool, paste redirect URL)", which asks for the address your browser ends on and never waits for the browser to return. The side menu's Add account shows a paste box and finishes on whichever comes first: the pasted address or the browser returning.
 
 ## [3.0.37] - 2026-11-08
 
