@@ -343,6 +343,12 @@ async function rows(f: Awaited<ReturnType<typeof fixture>>) {
 const FAILED = 'The Antigravity pool login could not be completed.'
 
 describe('GA redirect URL pool login', () => {
+  function oauthState(url: string) {
+    const state = new URL(url).searchParams.get('state')
+    if (!state) throw new Error('Authorization state missing')
+    return state
+  }
+
   async function flow() {
     const exchanged: { code: string; state: string }[] = []
     const f = await fixture()
@@ -363,7 +369,7 @@ describe('GA redirect URL pool login', () => {
     })
     try {
       const attempt = await pool.start()
-      const state = new URL(attempt.url).searchParams.get('state')!
+      const state = oauthState(attempt.url)
       const url = new URL(core.ANTIGRAVITY_REDIRECT_URI)
       url.searchParams.set('state', state)
       url.searchParams.set('code', 'redirect-secret-code')
@@ -419,10 +425,7 @@ describe('GA redirect URL pool login', () => {
       )
       if (auth.mode !== 'code') throw new Error('Expected paste method')
       const url = new URL(core.ANTIGRAVITY_REDIRECT_URI)
-      url.searchParams.set(
-        'state',
-        new URL(auth.url).searchParams.get('state')!,
-      )
+      url.searchParams.set('state', oauthState(auth.url))
       url.searchParams.set('code', 'paste-only-secret')
       const credential = await auth.callback(url.href)
       expect(isPlaceholderCredential(credential, 'google')).toBe(true)
@@ -534,10 +537,7 @@ describe('GA redirect URL pool login', () => {
       const auth = await f.authorize(GA_POOL_PASTE_METHOD_ID)
       if (auth.mode !== 'code') throw new Error('Expected paste method')
       const url = new URL(secret)
-      url.searchParams.set(
-        'state',
-        new URL(auth.url).searchParams.get('state')!,
-      )
+      url.searchParams.set('state', oauthState(auth.url))
       const error = await auth
         .callback(url.href)
         .catch((error: unknown) => error)
