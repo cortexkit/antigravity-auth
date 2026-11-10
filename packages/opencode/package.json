@@ -117,6 +117,7 @@
     }
   },
   "devDependencies": {
+    "@cortexkit/opencode-sidebar": "0.1.0",
     "@opencode-ai/sdk": "1.17.13",
     "@opencode/plugin": "2.0.22",
     "@opentui/core-ga": "npm:@opentui/core@0.5.14",

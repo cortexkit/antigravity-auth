@@ -2,7 +2,7 @@
 
 /**
  * Full-frame captures of the OpenCode 1 sidebar at the widths the host
- * sidebar actually has (32, 38 and 48 columns). Each scenario renders with a
+ * sidebar actually has, including 36, 37 and 42 columns. Each scenario renders with a
  * fixed clock so the reset countdowns and reading ages are deterministic.
  *
  * Every quota window must stay on one line at every width, the window names
@@ -44,8 +44,10 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 const NOW = Date.UTC(2026, 0, 10, 12, 0, 0)
-const WIDTHS = [32, 38, 48] as const
-const COLLAPSED_WIDTHS = [20, 26, 27, 28, 29, 30, 31, 32, 38, 48] as const
+const WIDTHS = [32, 36, 37, 38, 42, 48] as const
+const COLLAPSED_WIDTHS = [
+  20, 26, 27, 28, 29, 30, 31, 32, 36, 37, 38, 42, 48,
+] as const
 
 const HOST_THEME: FrameTheme = {
   text: '#e5e7eb',
@@ -318,7 +320,7 @@ async function capture(
   try {
     await setup.flush()
     await setup.flush()
-    return trimFrame(setup.captureCharFrame())
+    return trimFrame(setup.captureCharFrame(), width)
   } finally {
     setup.renderer.destroy()
   }
@@ -356,7 +358,7 @@ async function captureWithSpans(
     await setup.flush()
     await setup.flush()
     return {
-      frame: trimFrame(setup.captureCharFrame()),
+      frame: trimFrame(setup.captureCharFrame(), width),
       spans: setup.captureSpans(),
     }
   } finally {
@@ -364,7 +366,9 @@ async function captureWithSpans(
   }
 }
 
-function trimFrame(frame: string): string {
+function trimFrame(frame: string, width?: number): string {
+  if (process.env.AGY_RECORD_RAW_FRAMES === '1' && width !== undefined)
+    console.log(`RAW_FRAME ${JSON.stringify({ host: 'v1', width, frame })}`)
   const lines = frame.split('\n').map((line) => line.replace(/\s+$/, ''))
   while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
   return lines.join('\n')

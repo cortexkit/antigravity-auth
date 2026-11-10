@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { link, lstat, mkdir, open, readFile, rename, rm, stat, } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { DisappearedLockRecordError, isWindowsAccessDeniedCreate, isWindowsAccessDeniedRead, readLockRecord, } from './lock-record.js';
 import { createPrivateBytes, createPrivateDirectoryExclusive, ensurePrivateDirectory, isWindowsSharingViolation, PrivateFileError, privateOperation, readPrivateText, verifyPrivate, windowsPrivateFiles, writePrivateAtomic, } from './private-files.js';
 import { LockOwnershipError, lockPathFor } from './with-lock.js';
 let leaseCreationTestHooks;
@@ -192,17 +193,22 @@ export async function acquireRefreshFileLockWithClock(options) {
     const evictOwnerId = randomUUID();
     const EVICT_TTL = 5_000;
     const MAX_STEAL_ATTEMPTS = 8;
+    function isChangingLockCreate(error) {
+        return (windowsPrivateFiles &&
+            (isWindowsAccessDeniedCreate(error, [lockPath], 'create') ||
+                isWindowsAccessDeniedCreate(error, [evictPath], 'directory-create')));
+    }
     async function readOwner() {
         if (windowsPrivateFiles) {
             try {
-                return JSON.parse(await readPrivateText(lockPath, true));
+                return JSON.parse(await readLockRecord(lockPath, () => readPrivateText(lockPath, true)));
             }
             catch (error) {
                 if (error.code !== 'EISDIR' &&
                     error.reason !== 'wrong-kind')
                     throw error;
-                await verifyPrivate(lockPath, 'directory', true);
-                return JSON.parse(await readPrivateText(legacyOwnerPath, true));
+                await readLockRecord(lockPath, () => verifyPrivate(lockPath, 'directory', true));
+                return JSON.parse(await readLockRecord(legacyOwnerPath, () => readPrivateText(legacyOwnerPath, true)));
             }
         }
         try {
@@ -280,8 +286,8 @@ export async function acquireRefreshFileLockWithClock(options) {
                 await options.onStep('lease-contention-read-ready');
             try {
                 if (code === 'EISDIR') {
-                    await verifyPrivate(lockPath, 'directory', true);
-                    await readPrivateText(legacyOwnerPath, true);
+                    await readLockRecord(lockPath, () => verifyPrivate(lockPath, 'directory', true));
+                    await readLockRecord(legacyOwnerPath, () => readPrivateText(legacyOwnerPath, true));
                 }
                 else
                     await readOwner();
@@ -337,6 +343,10 @@ export async function acquireRefreshFileLockWithClock(options) {
             owner = await readOwner();
         }
         catch (error) {
+            // A delete-pending owner that disappeared is a create opportunity,
+            // never an ownerless legacy directory eligible for stale eviction.
+            if (error instanceof DisappearedLockRecordError)
+                return { status: 'missing' };
             if (windowsPrivateFiles &&
                 error.code !== 'ENOENT')
                 throw error;
@@ -395,7 +405,7 @@ export async function acquireRefreshFileLockWithClock(options) {
     // Fail-closed: any read error means we do NOT own the marker.
     async function ownsEvictionMarker() {
         try {
-            const owner = JSON.parse(await readPrivateText(evictOwnerPath, windowsPrivateFiles));
+            const owner = JSON.parse(await readLockRecord(evictOwnerPath, () => readPrivateText(evictOwnerPath, windowsPrivateFiles)));
             return owner?.ownerId === evictOwnerId;
         }
         catch (error) {
@@ -581,7 +591,7 @@ export async function acquireRefreshFileLockWithClock(options) {
         }
         if (windowsPrivateFiles) {
             try {
-                await verifyPrivate(evictPath, 'directory', true);
+                await readLockRecord(evictPath, () => verifyPrivate(evictPath, 'directory', true));
             }
             catch (error) {
                 // The marker's holder can remove it between the stat above and this
@@ -654,8 +664,8 @@ export async function acquireRefreshFileLockWithClock(options) {
             if (error.code === 'EEXIST') {
                 if (windowsPrivateFiles) {
                     try {
-                        await verifyPrivate(evictPath, 'directory', true);
-                        await readPrivateText(evictOwnerPath, true);
+                        await readLockRecord(evictPath, () => verifyPrivate(evictPath, 'directory', true));
+                        await readLockRecord(evictOwnerPath, () => readPrivateText(evictOwnerPath, true));
                     }
                     catch (ownerError) {
                         // A marker removed by its holder after the failed create is free:
@@ -681,10 +691,16 @@ export async function acquireRefreshFileLockWithClock(options) {
             await releaseEvictionMarker(deadline);
         }
         catch (error) {
-            // Cleanup sharing failures must not replace the lock's original
-            // sharing refusal when both removals exhaust the same deadline.
-            if (isRetryableRemoval(actionError, lockPath) &&
-                isRetryableRemoval(error, evictPath))
+            // Cleanup IO failures must not replace the original lock refusal when
+            // both operations use the same deadline.
+            if ((isRetryableRemoval(actionError, lockPath) ||
+                isWindowsAccessDeniedRead(actionError, [
+                    lockPath,
+                    legacyOwnerPath,
+                    evictOwnerPath,
+                ])) &&
+                (isRetryableRemoval(error, evictPath) ||
+                    isWindowsAccessDeniedRead(error, [evictOwnerPath])))
                 throw actionError;
             throw error;
         }
@@ -705,7 +721,8 @@ export async function acquireRefreshFileLockWithClock(options) {
                 owner = await readOwner();
             }
             catch (error) {
-                if (windowsPrivateFiles)
+                if (windowsPrivateFiles &&
+                    !(error instanceof DisappearedLockRecordError))
                     throw error;
                 return;
             }
@@ -789,7 +806,9 @@ export async function acquireRefreshFileLockWithClock(options) {
                     }
                 }
                 catch (error) {
-                    if (windowsPrivateFiles && error instanceof PrivateFileError) {
+                    if (windowsPrivateFiles &&
+                        error instanceof PrivateFileError &&
+                        !isChangingLockCreate(error)) {
                         terminalIOError = error;
                         recordLoss('renewal-failed');
                         shouldReschedule = false;
@@ -844,90 +863,112 @@ export async function acquireRefreshFileLockWithClock(options) {
         }
         return null;
     }
-    let acquired = await tryAcquire();
+    let acquired = false;
+    let changingCreateError;
+    try {
+        acquired = await tryAcquire();
+    }
+    catch (error) {
+        if (!isChangingLockCreate(error))
+            throw error;
+        changingCreateError = error;
+    }
     if (!acquired) {
         for (let attempt = 0; attempt < MAX_STEAL_ATTEMPTS; attempt++) {
-            acquired = await tryAcquire();
-            if (acquired)
-                break;
-            const observed = await readLockState();
-            if (observed.status === 'live')
-                return contended();
-            // Absence is a create opportunity, never evidence of an expired lease.
-            if (observed.status === 'missing')
-                continue;
-            if (options.onStep)
-                await options.onStep('stale-lock-observed');
             try {
-                if (!(await tryAcquireEvictionMarker())) {
+                acquired = await tryAcquire();
+                if (acquired)
+                    break;
+                const observed = await readLockState();
+                if (observed.status === 'live')
+                    return contended();
+                // Absence is a create opportunity, never evidence of an expired lease.
+                if (observed.status === 'missing')
+                    continue;
+                if (options.onStep)
+                    await options.onStep('stale-lock-observed');
+                try {
+                    if (!(await tryAcquireEvictionMarker())) {
+                        await backoff();
+                        continue;
+                    }
+                }
+                catch (evictError) {
+                    const code = evictError.code;
+                    if (code !== 'EEXIST')
+                        throw evictError;
+                    const recovered = await recoverStaleEvictionMarker();
+                    if (recovered === 'fresh')
+                        return null;
                     await backoff();
                     continue;
                 }
-            }
-            catch (evictError) {
-                const code = evictError.code;
-                if (code !== 'EEXIST')
-                    throw evictError;
-                const recovered = await recoverStaleEvictionMarker();
-                if (recovered === 'fresh')
-                    return null;
-                await backoff();
-                continue;
-            }
-            try {
-                const confirmed = await readLockState();
-                if (confirmed.status === 'live')
-                    return contended();
-                if (!sameStaleLock(observed.identity, confirmed))
-                    continue;
-                // Verify marker ownership before removing a lock found not live.
-                if (!(await ownsEvictionMarker()))
-                    return null;
-                if (options.onStep)
-                    await options.onStep('stale-lock-confirmed');
-                // The onStep callback can pause while another contender renames
-                // our marker, so verify ownership again after the callback.
-                if (!(await ownsEvictionMarker()))
-                    return null;
-                // Do not await a callback between this ownership check and the lock read.
-                const current = await readLockState(false);
-                if (!sameStaleLock(observed.identity, current))
-                    continue;
-                // The final read and removal are not atomic. While this stale file
-                // exists, wx cannot create a successor; the marker excludes other
-                // evictors and release/renewal. An expired holder cannot renew: renewal
-                // rechecks expiry and marker ownership immediately before publishing.
-                // With the marker still owned, cooperating users cannot replace it in
-                // this window. Arbitrary suspension across marker expiry or filesystem
-                // changes still need a kernel lock for an atomic guarantee.
-                await removeLeaseObject(lockPath);
-                // Fence check 3: re-verify ownership after removing the stale lock.
-                if (!(await ownsEvictionMarker()))
-                    return null;
-                if (options.onStep)
-                    await options.onStep('stale-lock-removed');
-                acquired = await tryAcquire();
-                if (!acquired)
-                    return null;
-                if (options.onStep)
-                    await options.onStep('stale-lock-recreated');
-                // Fence check 4: re-verify ownership after acquiring the lock. If the
-                // marker was stolen between tryAcquire and this check, release the
-                // just-acquired lock and return null (fail-closed).
-                if (!(await ownsEvictionMarker())) {
-                    await relinquishLockAfterMarkerLoss();
-                    acquired = false;
-                    return null;
+                try {
+                    const confirmed = await readLockState();
+                    if (confirmed.status === 'live')
+                        return contended();
+                    if (!sameStaleLock(observed.identity, confirmed))
+                        continue;
+                    // Verify marker ownership before removing a lock found not live.
+                    if (!(await ownsEvictionMarker()))
+                        return null;
+                    if (options.onStep)
+                        await options.onStep('stale-lock-confirmed');
+                    // The onStep callback can pause while another contender renames
+                    // our marker, so verify ownership again after the callback.
+                    if (!(await ownsEvictionMarker()))
+                        return null;
+                    // Do not await a callback between this ownership check and the lock read.
+                    const current = await readLockState(false);
+                    if (!sameStaleLock(observed.identity, current))
+                        continue;
+                    // The final read and removal are not atomic. While this stale file
+                    // exists, exclusive creation cannot publish a successor; the marker
+                    // excludes other evictors and release/renewal. An expired holder cannot
+                    // renew: renewal rechecks expiry and marker ownership before publishing.
+                    // With the marker still owned, cooperating users cannot replace it in
+                    // this window. Arbitrary suspension across marker expiry or filesystem
+                    // changes still need a kernel lock for an atomic guarantee.
+                    await removeLeaseObject(lockPath);
+                    // Fence check 3: re-verify ownership after removing the stale lock.
+                    if (!(await ownsEvictionMarker()))
+                        return null;
+                    if (options.onStep)
+                        await options.onStep('stale-lock-removed');
+                    acquired = await tryAcquire();
+                    if (!acquired)
+                        return null;
+                    if (options.onStep)
+                        await options.onStep('stale-lock-recreated');
+                    // Fence check 4: re-verify ownership after acquiring the lock. If the
+                    // marker was stolen between tryAcquire and this check, release the
+                    // just-acquired lock and return null (fail-closed).
+                    if (!(await ownsEvictionMarker())) {
+                        await relinquishLockAfterMarkerLoss();
+                        acquired = false;
+                        return null;
+                    }
+                    break;
                 }
-                break;
+                finally {
+                    await releaseEvictionMarker();
+                }
             }
-            finally {
-                await releaseEvictionMarker();
+            catch (error) {
+                if (!isChangingLockCreate(error))
+                    throw error;
+                // A refused create is busy, not stale. Retry exclusive creation before
+                // any owner read or eviction, retaining the first persistent refusal.
+                changingCreateError ??= error;
+                await backoff();
             }
         }
     }
-    if (!acquired)
+    if (!acquired) {
+        if (changingCreateError)
+            throw changingCreateError;
         return null;
+    }
     scheduleRenewal();
     return {
         ownerId,
@@ -977,6 +1018,7 @@ export async function acquireRefreshFileLockWithClock(options) {
             const deadline = performance.now() + EVICT_TTL + 1_000;
             let delayMs = 5;
             let removalError;
+            let changingRecordError;
             for (;;) {
                 try {
                     let removalConfirmed = false;
@@ -1004,6 +1046,7 @@ export async function acquireRefreshFileLockWithClock(options) {
                         await removeLeaseObject(lockPath);
                         removalConfirmed = true;
                     }, deadline);
+                    changingRecordError = undefined;
                     if (markerAcquired) {
                         if (windowsPrivateFiles && !removalConfirmed)
                             throw new PrivateFileError(lockPath, 'release-not-confirmed', {
@@ -1017,15 +1060,27 @@ export async function acquireRefreshFileLockWithClock(options) {
                     await recoverStaleEvictionMarker(deadline);
                 }
                 catch (error) {
-                    if (!isRetryableRemoval(error, lockPath)) {
+                    const changingRecord = windowsPrivateFiles &&
+                        (isChangingLockCreate(error) ||
+                            isWindowsAccessDeniedRead(error, [
+                                lockPath,
+                                legacyOwnerPath,
+                                evictPath,
+                                evictOwnerPath,
+                            ]));
+                    if (!isRetryableRemoval(error, lockPath) && !changingRecord) {
                         if (windowsPrivateFiles)
                             throw error;
                         return;
                     }
-                    // Like rename, a fenced delete can be refused by a reader's Windows
-                    // handle without invalidating ownership. Drop the marker, back off,
-                    // and re-confirm the owner under a new marker before trying again.
-                    removalError ??= error;
+                    // Neither a refused delete nor an ambiguous record read or create
+                    // establishes loss or expiry. Back off under the release deadline and
+                    // re-confirm ownership before any removal; keep the original error
+                    // if the refusal persists.
+                    if (changingRecord)
+                        changingRecordError ??= error;
+                    else
+                        removalError ??= error;
                 }
                 const remainingMs = deadline - performance.now();
                 if (remainingMs <= 0)
@@ -1038,7 +1093,8 @@ export async function acquireRefreshFileLockWithClock(options) {
             // Do not delete by pathname without the marker: bounded retries leave the
             // lease to expire rather than risking removal of a successor's lock.
             if (windowsPrivateFiles)
-                throw (removalError ??
+                throw (changingRecordError ??
+                    removalError ??
                     new PrivateFileError(lockPath, 'release-not-confirmed', {
                         code: 'ETIMEDOUT',
                     }));

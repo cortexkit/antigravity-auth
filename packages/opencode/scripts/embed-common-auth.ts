@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.42.0.tgz'
-export const producerVersion = '0.42.0'
-export const artifactStatus = 'published'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.43.0-r2.tgz'
+export const producerVersion = '0.43.0'
+export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: 'c3f1c832fe8391529be331c1e2f5577b60eaa7a1c848e97f6668aca06118af04',
-  sri: 'sha512-LAZ67qRdJA+9SmglIyDRtEd2Wz+6X2dDRTC+qXt6HryQzir87LIiY+sWWllWT707agUA9rxOocCCP6e+mwoZyA==',
+  sha256: 'f1a8491419b1f30c0c5a0acdbd4f7981134159cee972eb21372e86f8f0e9ee31',
+  sri: 'sha512-BAThCJ0ZZePtz/Q4cdcrC1DsXdYdEDndpaj5kYgOyfHmEi4P9Gli9orcWGTbCSB0zem+A2IllO5qhyVlZx9bAQ==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -206,13 +206,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/availability.d.ts',
-    3406,
-    'a77a53ae0220230273b124b7793e2d8842ab3841bfab1d987309411752f7b80a',
+    3781,
+    '3f87160823d131bf6e60e0bfd2398f10f3799ce45912c5480b327b59892b7157',
   ],
   [
     'claustrum/availability.js',
-    4219,
-    '07fe16b372bb3dbf5870725b4ea8e2b4c3e50e5d7394fa365de789f72ff01b04',
+    4615,
+    '11eaa35ab38ab433f249b4b11b9e284fac5ab7e785c965fe070aef8cde593089',
   ],
   [
     'claustrum/consumer.d.ts',
@@ -226,13 +226,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/custody.d.ts',
-    17299,
-    '70c5f7f40cde58a614c79b280c2129f9a228238342f69eac42237b8621ecfa59',
+    17862,
+    'ea33c127942652259ddf467d377da872cabfab1407339cc774c0e79ca5f83742',
   ],
   [
     'claustrum/custody.js',
-    34857,
-    'cadbce8e39cb51c9c6756c01d0d8ebe9a328cf4f3bb70e081ffe26c4773bc5f1',
+    37468,
+    'e73ca575f9a97a20723e3371ff63be99a8cfea95bbe54ab694c298bebc30e853',
   ],
   [
     'claustrum/enrollment.d.ts',
@@ -271,8 +271,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/host.js',
-    4403,
-    '7baae6af599ee02066c6ff3c238bcade9f701846505ec4d497e78e429bb7eea2',
+    4610,
+    'c2eba15f35b996993ba7f0ec849ce84312d5f08e9b15e8f6458c6d8a0e03ae7b',
   ],
   [
     'claustrum/hub.d.ts',
@@ -455,6 +455,16 @@ const canonical: readonly (readonly [string, number, string])[] = [
     'cd60090325fa8c4c17dddfc216a4ed326f2a6e48525e724a4dd260bf88041231',
   ],
   [
+    'fs/lock-record.d.ts',
+    1200,
+    '611a3b621f61aae27a866f5a4c309c2ae956ca65acb73b0f5c6bc56e9f2f0ead',
+  ],
+  [
+    'fs/lock-record.js',
+    2253,
+    '18468ed6c58d8a989164b566c3653dbeea0d46b3031b49bc8f23bc4028ae5ff3',
+  ],
+  [
     'fs/private-files.d.ts',
     3632,
     '5d8cabba3b26becd458e201309802e57dffa371b1026468a06edf770ed4f0a4e',
@@ -471,8 +481,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/refresh-file-lock.js',
-    43780,
-    'fa0200d4f4a759a8d4380aa2535cf07d98898650cc919031b0742d241662d96f',
+    46870,
+    'fb2d2c236e468a1c38b28d2d628f5b01e246e6d34165d844b1ba8faf2f692b37',
   ],
   [
     'fs/with-lock.d.ts',
@@ -481,8 +491,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/with-lock.js',
-    2855,
-    '25f4789fc118e10a72f7e687f083eb1212eca06d4fe2c7bfe6f0d773f2abf351',
+    3278,
+    '3036b3e1cf9d80d33feebced3bdc14bbfd841ce69a8e784957be984d3c94a461',
   ],
   [
     'limits/activity.d.ts',
@@ -1187,15 +1197,15 @@ const sidebarCanonical: readonly CanonicalEntry[] = [
     kind: 'dist',
     source: 'package/dist/quota-sidebar/index.d.ts',
     output: 'quota-sidebar/index.d.ts',
-    bytes: 2658,
-    hash: 'a2f94067970c25ce042febadc87a1afdd5c43c75a5100fa8446a783a53ce2815',
+    bytes: 1672,
+    hash: '238637fa4ae89e0ce90d78a1151850020d8949c7fabba93788abccfa6d9c6010',
   },
   {
     kind: 'source',
     source: 'package/src/quota-sidebar/index.tsx',
     output: 'quota-sidebar/index.tsx',
-    bytes: 19762,
-    hash: 'f35e4fd7b218110756bd04357c5b8c4bbb64be5012aefc7d7a7c1ab303d483ae',
+    bytes: 2802,
+    hash: '6fb50d1f7c050aeaac1fbf24d032de3a49461ef186489580b8b779f6a98ef480',
   },
 ]
 
@@ -1360,9 +1370,9 @@ export function validatePublication(
   )
     throw new Error('publication: license')
   if (
-    entries.size !== 329 ||
+    entries.size !== 331 ||
     sha256(`${[...entries.keys()].sort().join('\n')}\n`) !==
-      'cc72096bbd30af627caada159636d0eecb9694a37c4e477e45fa2798184fd5b4'
+      'ac70aa45ad17d0f261af46e10d9de34699695875d2dae476858d33be4e4282dd'
   )
     throw new Error('publication: inventory')
   for (const { source, output, bytes, hash } of canonicalEntries('opencode')) {
@@ -1372,7 +1382,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '50efba0ce13da998dd7f260bf84f56cc713973649fbf1b7719441cabea453082'
+    '2d9ce0b32945609d99f13422bd1eac2708f8d243f0c913c298f1815617d4df87'
   )
     throw new Error('publication: manifest bytes')
 }

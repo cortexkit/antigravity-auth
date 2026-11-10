@@ -87,9 +87,17 @@ export const VAULT_FAILURE_CLASSES = Object.freeze({
  * kind stays `unavailable` for callers handling ClaustrumConsumerError.
  */
 export class ClaustrumUnreachableError extends ClaustrumConsumerError {
-    constructor() {
+    /**
+     * Non-secret host connection diagnostic. A missing accessor can recover
+     * once the host bridge installs; a failed accessor could not provide a client.
+     * Other unreachable failures leave this unset. Never use adapter error text.
+     */
+    reason;
+    constructor(reason) {
         super('unavailable', 'Claustrum scoped operation unavailable');
         this.name = 'ClaustrumUnreachableError';
+        if (reason === 'host-accessor-missing' || reason === 'host-accessor-failed')
+            this.reason = reason;
     }
 }
 export function classifyVaultFailure(error) {

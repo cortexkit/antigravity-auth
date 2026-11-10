@@ -61,6 +61,7 @@
         "zod": "^4.0.0",
       },
       "devDependencies": {
+        "@cortexkit/opencode-sidebar": "0.1.0",
         "@opencode-ai/sdk": "1.17.13",
         "@opencode/plugin": "2.0.22",
         "@opentui/core-ga": "npm:@opentui/core@0.5.14",
@@ -257,6 +258,8 @@
     "@cortexkit/claustrum-client": ["@cortexkit/claustrum-client@0.16.0", "", { "dependencies": { "@cortexkit/store": "^0.2.3", "@cortexkit/subc-client": "^0.24.0" } }, "sha512-K2iY0j0pJscnmjs3Z5cXxL2sJPuAuf/EnaYM1/6CCmMGgenibp8yaaPu0ijxOztWxxyJwtzIrHCdVKtzMtdmSw=="],
 
     "@cortexkit/opencode-antigravity-auth": ["@cortexkit/opencode-antigravity-auth@workspace:packages/opencode"],
+
+    "@cortexkit/opencode-sidebar": ["@cortexkit/opencode-sidebar@0.1.0", "", { "peerDependencies": { "@opentui/core": ">=0.4.5", "@opentui/solid": ">=0.4.5", "solid-js": ">=1.9.12 <2" } }, "sha512-Dqon2Yuz9HBXDwsupm6RhLV9uwTeThQZtfje8Oz+A+lq0ej7dVHoeBS/qHCtBWnvNADTJokiwxiBWqhyQHSEpg=="],
 
     "@cortexkit/pi-antigravity-auth": ["@cortexkit/pi-antigravity-auth@workspace:packages/pi"],
 

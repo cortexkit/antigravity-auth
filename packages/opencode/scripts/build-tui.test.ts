@@ -9,6 +9,7 @@ import {
   readdir,
   readFile,
   readlink,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -701,7 +702,7 @@ test('build.predecessor_0320_maps_are_owned', async () => {
   await buildTuiRoots({ packageRoot: root })
   for (const profile of TUI_ROOTS) {
     const rebuilt = JSON.parse(await readFile(join(root, profile.map), 'utf8'))
-    expect(rebuilt.compiler).toBe('@cortexkit/common-auth/tui-build@0.42.0')
+    expect(rebuilt.compiler).toBe('@cortexkit/common-auth/tui-build@0.43.0')
     expect(rebuilt).not.toHaveProperty('predecessorCanary')
     for (const tree of [profile.raw, profile.runtime])
       expect(await inventory(join(root, tree))).not.toContain(
@@ -718,7 +719,7 @@ test('build.map_admission_valid_generated', async () => {
   const runtime = await hashes(root, 'src/tui-compiled')
   const generated = await readFile(map)
   expect(JSON.parse(generated.toString()).compiler).toBe(
-    '@cortexkit/common-auth/tui-build@0.42.0',
+    '@cortexkit/common-auth/tui-build@0.43.0',
   )
   for (const compiler of [
     '@cortexkit/common-auth/tui-build@0.9.4',
@@ -848,6 +849,22 @@ test('graph.authored_sidebar_both_roots_keep_host_externals', async () => {
       expect(sidebar).toBeDefined()
       expect(after.files).toContain(join(root, sidebar.output))
       expect(
+        admitted[variant].files.filter((file: { source: string }) =>
+          file.source.endsWith('/@cortexkit/opencode-sidebar/src/index.tsx'),
+        ),
+      ).toHaveLength(1)
+      for (const host of ['solid-js', '@opentui/core', '@opentui/solid']) {
+        expect(
+          admitted[variant].files.filter((file: { source: string }) =>
+            file.source.includes(`/node_modules/${host}/`),
+          ),
+        ).toHaveLength(0)
+        if (variant === 'raw')
+          expect(
+            admitted.raw.externals.filter((name: string) => name === host),
+          ).toHaveLength(1)
+      }
+      expect(
         admitted[variant].files
           .filter((file: { source: string }) =>
             file.source.includes('node_modules/'),
@@ -866,7 +883,16 @@ test('graph.authored_sidebar_both_roots_keep_host_externals', async () => {
 
 test('graph.ga_roots', async () => {
   const source = await auditGraph(join(product, GA_TUI_ROOT.entry))
-  expect(source.files.map((path) => relative(product, path)).sort()).toEqual([
+  const frame = await realpath(
+    Bun.resolveSync('@cortexkit/opencode-sidebar', PACKAGE_ROOT),
+  )
+  expect(source.files).toContain(frame)
+  expect(
+    source.files
+      .filter((path) => path !== frame)
+      .map((path) => relative(product, path))
+      .sort(),
+  ).toEqual([
     'src/common-auth-embedded/quota-sidebar/index.tsx',
     ...['codec', 'format', 'index', 'map', 'merge', 'projection'].map(
       (name) => `src/common-auth-embedded/quota/${name}.js`,
@@ -882,7 +908,7 @@ test('graph.ga_roots', async () => {
   ])
   checkGaGraph(source, 'source', product)
   const map = JSON.parse(await readFile(join(product, GA_TUI_ROOT.map), 'utf8'))
-  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.42.0')
+  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.43.0')
   for (const [variant, tree, entry, kind] of [
     [map.raw, GA_TUI_ROOT.raw, GA_TUI_ROOT.rawEntry, 'raw'],
     [map.runtime, GA_TUI_ROOT.runtime, GA_TUI_ROOT.runtimeEntry, 'runtime'],
@@ -905,6 +931,57 @@ test('graph.ga_roots', async () => {
         'opentui:runtime-module:%40opentui%2Fsolid',
         'opentui:runtime-module:solid-js',
       ])
+  }
+})
+
+test('graph.sidebar_package_exact_source_only', async () => {
+  const root = await fixture()
+  const frame = await realpath(
+    Bun.resolveSync('@cortexkit/opencode-sidebar', PACKAGE_ROOT),
+  )
+  for (const profile of TUI_ROOTS) {
+    const entry = join(root, profile.entry)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(
+      entry,
+      "export { SidebarFrame } from '@cortexkit/opencode-sidebar'\n",
+    )
+    for (const types of [false, true]) {
+      const graph = await auditGraph(entry, { packageRoot: root, types })
+      expect(
+        graph.files.filter((path) =>
+          path.includes('/@cortexkit/opencode-sidebar/'),
+        ),
+      ).toEqual([frame])
+      expect(graph.externals).not.toContain('@cortexkit/opencode-sidebar')
+      if (profile.name === 'ga') checkGaGraph(graph, 'source', root)
+    }
+    for (const specifier of [
+      '@cortexkit/opencode-sidebar/src/index.tsx',
+      '@cortexkit/opencode-sidebar/src/other.tsx',
+      '@cortexkit/opencode-sidebar/dist/index.js',
+      '@cortexkit/opencode-sidebar?copy',
+    ]) {
+      await writeFile(entry, `export * from '${specifier}'\n`)
+      for (const types of [false, true])
+        await expect(
+          auditGraph(entry, { packageRoot: root, types }),
+        ).rejects.toThrow('graph: forbidden sidebar import')
+    }
+    const other = join(
+      root,
+      'node_modules/@cortexkit/opencode-sidebar/src/other.tsx',
+    )
+    await mkdir(dirname(other), { recursive: true })
+    await writeFile(other, 'export const forbidden = true\n')
+    await writeFile(
+      entry,
+      `export * from './${relative(dirname(entry), other).replaceAll('\\', '/')}'\n`,
+    )
+    for (const types of [false, true])
+      await expect(
+        auditGraph(entry, { packageRoot: root, types }),
+      ).rejects.toThrow('graph: forbidden sidebar source')
   }
 })
 

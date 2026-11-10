@@ -1,8 +1,8 @@
 /** @jsxImportSource @opentui/solid */
 
 /**
- * Full-frame captures of the OpenCode 2 (GA) sidebar at 20, 26, 32, 38 and
- * 48 columns. The GA sidebar draws the same frame as the OpenCode 1 sidebar
+ * Full-frame captures of the OpenCode 2 (GA) sidebar at narrow widths,
+ * including 36, 37 and 42 columns. It draws the same frame as the OpenCode 1 sidebar
  * (`tui/sidebar-frame.tsx`): the bordered panel, the `▼`/`▶ ANTIGRAVITY`
  * badge with the version at the right, the `Quota` and `Routing` headings,
  * one line per account when collapsed and no health line. It is fed from
@@ -42,7 +42,7 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 const NOW = Date.UTC(2026, 0, 10, 12, 0, 0)
-const WIDTHS = [20, 26, 32, 38, 48] as const
+const WIDTHS = [20, 26, 32, 36, 37, 38, 42, 48] as const
 const SELECTOR = `sel-${'a'.repeat(32)}`
 
 type Account = Record<string, unknown>
@@ -413,7 +413,7 @@ async function render(
   return {
     setup,
     mounts: () => mounts,
-    frame: () => trimFrame(setup.captureCharFrame()),
+    frame: () => trimFrame(setup.captureCharFrame(), width),
     async close() {
       setup.renderer.destroy()
       await cleanup()
@@ -434,7 +434,9 @@ async function capture(
   }
 }
 
-function trimFrame(frame: string): string {
+function trimFrame(frame: string, width?: number): string {
+  if (process.env.AGY_RECORD_RAW_FRAMES === '1' && width !== undefined)
+    console.log(`RAW_FRAME ${JSON.stringify({ host: 'ga', width, frame })}`)
   const lines = frame.split('\n').map((line) => line.replace(/\s+$/, ''))
   while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
   return lines.join('\n')

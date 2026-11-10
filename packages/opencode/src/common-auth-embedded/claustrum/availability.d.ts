@@ -85,6 +85,12 @@ export declare const VAULT_FAILURE_CLASSES: Readonly<{
  * kind stays `unavailable` for callers handling ClaustrumConsumerError.
  */
 export declare class ClaustrumUnreachableError extends ClaustrumConsumerError {
-    constructor();
+    /**
+     * Non-secret host connection diagnostic. A missing accessor can recover
+     * once the host bridge installs; a failed accessor could not provide a client.
+     * Other unreachable failures leave this unset. Never use adapter error text.
+     */
+    readonly reason?: 'host-accessor-missing' | 'host-accessor-failed';
+    constructor(reason?: ClaustrumUnreachableError['reason']);
 }
 export declare function classifyVaultFailure(error: unknown): VaultFailureClass;

@@ -67,7 +67,7 @@ export const PACKAGE_ROOT = resolve(
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..')
 const TOOL_ROOT = join(REPO_ROOT, 'tools/common-auth-build')
 const LOCK_HASH =
-  '77dca3f7030153b7c3262ee94709004df0c8535af2bc5d97c879cc662341251b'
+  'd1c11f7276ee0000d710f42a748d279a4186ae12ba50a3323e084a754759ca67'
 export const BUNDLE_EXTERNALS = [
   'zod',
   'jsonc-parser',
@@ -98,6 +98,26 @@ interface VariantMap {
   }[]
 }
 const portable = (path: string) => path.split('\\').join('/')
+
+// The frame is build-time source, not a renderer external. Admit only the
+// pinned package's authored entry; no other file in its package is renderer code.
+function sidebarSource(): string {
+  const source = realpathSync(
+    Bun.resolveSync('@cortexkit/opencode-sidebar', PACKAGE_ROOT),
+  )
+  const root = dirname(dirname(source))
+  const manifest = ts.readConfigFile(
+    join(root, 'package.json'),
+    ts.sys.readFile,
+  )
+  if (
+    source !== join(root, 'src/index.tsx') ||
+    manifest.config?.name !== '@cortexkit/opencode-sidebar' ||
+    manifest.config?.version !== '0.1.0'
+  )
+    throw new Error('graph: unexpected sidebar source')
+  return source
+}
 
 /**
  * One compiled TUI root: a source entry and the raw and runtime trees the
@@ -162,6 +182,7 @@ export function checkGaGraph(
   packageRoot: string = PACKAGE_ROOT,
 ) {
   for (const path of graph.files) {
+    if (path === sidebarSource()) continue
     const rel = relative(packageRoot, path)
     if (
       rel === '' ||
@@ -212,6 +233,8 @@ function checkExternal(specifier: string, tui: boolean, types: boolean) {
   const name = specifier.startsWith('opentui:runtime-module:')
     ? decodeURIComponent(specifier.slice('opentui:runtime-module:'.length))
     : specifier
+  if (name.startsWith('@cortexkit/opencode-sidebar'))
+    throw new Error(`graph: forbidden sidebar import ${specifier}`)
   if (name.startsWith('node:')) return
   if (
     name.startsWith('@cortexkit/common-auth') ||
@@ -262,6 +285,11 @@ export async function auditGraph(
   async function visit(path: string): Promise<void> {
     path = realpathSync(path)
     if (files.has(path)) return
+    if (
+      portable(path).includes('/@cortexkit/opencode-sidebar/') &&
+      path !== sidebarSource()
+    )
+      throw new Error(`graph: forbidden sidebar source ${path}`)
     const rel = relative(rootDir, path)
     const candidate = `/${portable(rel)}`
     const embedded = candidate.split('/common-auth-embedded/')[1]
@@ -402,6 +430,8 @@ export async function auditGraph(
             `graph: missing relative import ${specifier} in ${path}`,
           )
         await buildPhase(`auditGraph.visit ${target}`, () => visit(target))
+      } else if (specifier === '@cortexkit/opencode-sidebar') {
+        await visit(sidebarSource())
       } else {
         if (isAbsolute(specifier) || specifier.startsWith('file:'))
           throw new Error(`graph: absolute import ${specifier}`)
@@ -484,7 +514,7 @@ export async function verifyPrerequisites(): Promise<void> {
     )
     const expected =
       name === '@cortexkit/common-auth'
-        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.42.0.tgz'
+        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.43.0-r2.tgz'
         : `${pkg.name}@${pkg.version}`
     if (entry[0] !== expected)
       throw new Error(
@@ -862,6 +892,7 @@ async function admitExistingMap(mapFile: string) {
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.39.1' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.40.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.42.0' &&
+        metadata.compiler !== '@cortexkit/common-auth/tui-build@0.43.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.6')
     )
       throw new Error('build: existing TUI map is not owned generated metadata')
