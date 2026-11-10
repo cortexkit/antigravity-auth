@@ -397,6 +397,9 @@ async function render(
     ...(options.version !== undefined ? { version: options.version } : {}),
   })
   const claim = await fake.claimed
+  // The first poll on a session route waits for the host's session lookup.
+  // Let it settle, so a first-render check sees the snapshot without a flush.
+  if (options.firstRenderOnly) await new Promise((done) => setTimeout(done, 0))
   let mounts = 0
   const setup = await testRender(
     () => {
