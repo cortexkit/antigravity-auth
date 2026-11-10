@@ -8,6 +8,7 @@ The table lists the public picker models from the canonical [model registry](../
 
 | Model ID (under `google/`) | Variants | Quota |
 | --- | --- | --- |
+| `antigravity-gemini-4-carbon` | `low`, `medium` (default), `high` | Gemini pool until a Carbon quota bucket is observed |
 | `antigravity-gemini-4-argon` | `low`, `medium` (default), `high` | Per-model readings; whether usage shares a weekly quota allowance with other models, and which allowance, is unverified |
 | `antigravity-gemini-3.8-flash` | `low`, `medium`, `high` | `gemini-flash` |
 | `antigravity-gemini-3.1-flash-image` | — | `gemini-flash` |
@@ -15,7 +16,7 @@ The table lists the public picker models from the canonical [model registry](../
 | `antigravity-claude-opus-5-5` | `low`, `medium`, `high` | `claude` |
 | `antigravity-gpt-oss-120b-medium` | — | `gpt-oss` |
 
-The catalog uses a [model-list projection](../../../test-fixtures/agy-cli-1.3.5/server-model-catalog.json) of the official Antigravity CLI 1.3.5 `fetchAvailableModels` server response; see the [redacted capture's provenance](../../../test-fixtures/agy-cli-1.3.5/README.md). Gemini 3.8 Flash Cyber is absent from that catalog and is not exposed. Gemini 3.5 Flash Lite is a helper route, not a public picker entry; Gemini 3.5 Flash Cyber remains restricted to the limited-access CodeMender pilot. Catalog presence does not prove live entitlement.
+The catalog uses a [model-list projection](../../../test-fixtures/agy-cli-1.3.5/server-model-catalog.json) of the official Antigravity CLI 1.3.5 `fetchAvailableModels` server response; see the [redacted capture's provenance](../../../test-fixtures/agy-cli-1.3.5/README.md). Carbon's three routes were added from the [CLI 1.5.5 server-map projection](../../../test-fixtures/agy-cli-1.5.5/carbon-model-metadata.json), read on November 10, 2026. Gemini 3.8 Flash Cyber is absent from that catalog and is not exposed. Gemini 3.5 Flash Lite is a helper route, not a public picker entry; Gemini 3.5 Flash Cyber remains restricted to the limited-access CodeMender pilot. Catalog presence does not prove live entitlement.
 
 ## Claude 5.5
 
@@ -51,11 +52,20 @@ examples do not define a supported Claude 5.5 effort.
 
 ## Gemini
 
-The grouped `antigravity-gemini-3.8-flash` and
-`antigravity-gemini-4-argon` entries expose low, medium and high variants.
+The grouped `antigravity-gemini-3.8-flash`, `antigravity-gemini-4-argon` and
+`antigravity-gemini-4-carbon` entries expose low, medium and high variants.
 These selectors retain the
 plugin's family-specific routing; do not infer a wire model or token budget solely
 from the variant's display name.
+
+Gemini 4 Carbon defaults to medium and advertises the same 1,048,576-token
+context as Argon, with 262,144 output tokens; a caller's output cap still wins.
+The [native CLI 1.5.5 Low capture](../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json)
+observes `thinkingLevel: "LOW"`, `includeThoughts: true`, no thinking budget and
+no `toolConfig`. MEDIUM/HIGH use the server-map enums and follow Argon's tier
+mapping and toolConfig omission; those two efforts are inferred, not captured.
+Carbon counts against the ordinary Gemini quota pool until a Carbon bucket is
+observed; no Carbon-specific allowance is assumed.
 
 Gemini 4 Argon requires **Google AI Ultra** and defaults to medium, matching the
 official CLI. It sends an uppercase thinking level with no thinking budget and

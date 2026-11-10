@@ -6,6 +6,7 @@ import { redactCredentialError } from '@cortexkit/antigravity-auth-core'
 import opusLow from '../../../../test-fixtures/agy-cli-1.3.3/native-opus-low.json'
 import sonnetLow from '../../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
 import schemaDerived from '../../../../test-fixtures/agy-cli-1.3.3/schema-derived-thinking.json'
+import carbonLow from '../../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json'
 import { SKIP_THOUGHT_SIGNATURE } from '../constants'
 import * as config from './config'
 import { DEFAULT_CONFIG } from './config'
@@ -1931,6 +1932,92 @@ describe('request.ts', () => {
         properties: { prompt: { type: 'STRING', description: 'minLength: 1' } },
         required: ['prompt'],
       })
+    })
+
+    it('sends Carbon tiers and grouped variants with native Low shaping and no toolConfig', () => {
+      for (const [model, tier, modelEnum] of [
+        ['gemini-4-carbon-low', 'low', 'MODEL_PLACEHOLDER_M438'],
+        ['gemini-4-carbon-medium', 'medium', 'MODEL_PLACEHOLDER_M437'],
+        ['gemini-4-carbon-high', 'high', 'MODEL_PLACEHOLDER_M427'],
+        ['antigravity-gemini-4-carbon', 'medium', 'MODEL_PLACEHOLDER_M437'],
+      ] as const) {
+        for (const wrapped of [false, true]) {
+          const request = {
+            contents: [{ role: 'user', parts: [{ text: 'Use read' }] }],
+            tools: [
+              {
+                functionDeclarations: [
+                  {
+                    name: 'read',
+                    description: 'Read a file',
+                    parameters: { type: 'OBJECT', properties: {} },
+                  },
+                ],
+              },
+            ],
+            toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+          }
+          const result = prepareAntigravityRequest(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+            {
+              method: 'POST',
+              body: JSON.stringify(
+                wrapped ? { project: mockProjectId, model, request } : request,
+              ),
+            },
+            mockAccessToken,
+            mockProjectId,
+            undefined,
+          )
+          const body = JSON.parse(String(result.init.body))
+          expect(body.model).toBe(`gemini-4-carbon-${tier}`)
+          expect(body.request.labels.model_enum).toBe(modelEnum)
+          expect(body.request.generationConfig).toEqual({
+            maxOutputTokens: 262144,
+            thinkingConfig: {
+              includeThoughts: true,
+              thinkingLevel: tier.toUpperCase(),
+            },
+          })
+          expect(body.request).not.toHaveProperty('toolConfig')
+          expect(Object.keys(body)).toEqual(carbonLow.envelope_keys)
+          expect(Object.keys(body.request.tools[0])).toEqual([
+            'functionDeclarations',
+          ])
+          if (tier === 'low') {
+            for (const captured of carbonLow.requests) {
+              expect(body.request.generationConfig).toEqual(
+                captured.native_generation_config,
+              )
+              expect(body.request.labels.model_enum).toBe(
+                captured.native_labels.model_enum,
+              )
+            }
+          }
+          if (!wrapped) {
+            const variant = prepareAntigravityRequest(
+              'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-4-carbon-low:generateContent',
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  ...request,
+                  providerOptions: { google: { thinkingLevel: tier } },
+                }),
+              },
+              mockAccessToken,
+              mockProjectId,
+              undefined,
+            )
+            const variantBody = JSON.parse(String(variant.init.body))
+            expect(variantBody.model).toBe(`gemini-4-carbon-${tier}`)
+            expect(variantBody.request.labels.model_enum).toBe(modelEnum)
+            expect(variantBody.request.generationConfig).toEqual(
+              body.request.generationConfig,
+            )
+            expect(variantBody.request).not.toHaveProperty('toolConfig')
+          }
+        }
+      }
     })
 
     it('omits toolConfig for every Argon route and grouped selector but keeps VALIDATED for other Gemini', () => {

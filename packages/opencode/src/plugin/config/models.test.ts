@@ -12,6 +12,18 @@ const getModel = (name: string) => {
 }
 
 describe('OPENCODE_MODEL_DEFINITIONS', () => {
+  it('includes Carbon with the native output limit and three variants', () => {
+    expect(getModel('antigravity-gemini-4-carbon')).toMatchObject({
+      name: 'Gemini 4 Carbon (Antigravity)',
+      limit: { context: 1048576, output: 262144 },
+      variants: {
+        low: { thinkingLevel: 'low' },
+        medium: { thinkingLevel: 'medium' },
+        high: { thinkingLevel: 'high' },
+      },
+    })
+  })
+
   it('includes the full set of configured models', () => {
     const modelNames = Object.keys(OPENCODE_MODEL_DEFINITIONS).sort()
 

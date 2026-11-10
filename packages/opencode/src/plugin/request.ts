@@ -3,6 +3,7 @@ import {
   applyAgyNativeGenerationConfig,
   getAgyNativeModel,
   isGeminiArgonModel,
+  isGeminiCarbonModel,
   isRetiredAgyModel,
   maskSensitiveIdentifier,
   redactCredentialError,
@@ -717,6 +718,7 @@ function configureAntigravityToolCalling(
 ): void {
   if (
     isGeminiArgonModel(wireModel) ||
+    isGeminiCarbonModel(wireModel) ||
     !Array.isArray(payload.tools) ||
     payload.tools.length === 0
   ) {
@@ -1799,6 +1801,7 @@ function prepareAntigravityRequestIn(
           variantConfig?.thinkingLevel &&
           (isGemini3 ||
             isGeminiArgonModel(effectiveModel) ||
+            isGeminiCarbonModel(effectiveModel) ||
             getAgyNativeModel(effectiveModel)?.supportsAdaptiveThinking)
         ) {
           // Host effort variants select the corresponding native wire route.

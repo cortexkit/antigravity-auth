@@ -1878,6 +1878,14 @@ describe('setup against a host context', () => {
 describe('model registration', () => {
   const catalog = server.gaCatalogModels()
 
+  it('registers Carbon on OpenCode 2 with all effort variants and its output limit', () => {
+    expect(catalog.get('antigravity-gemini-4-carbon')).toMatchObject({
+      name: 'Gemini 4 Carbon (Antigravity)',
+      variants: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }],
+      limit: { context: 1048576, output: 262144 },
+    })
+  })
+
   it('registers every public catalog id on the Google provider with only enabled variants', () => {
     expect(catalog.has('antigravity-gemini-4-argon')).toBe(true)
     for (const id of [

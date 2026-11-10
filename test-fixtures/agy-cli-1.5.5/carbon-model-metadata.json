@@ -1,0 +1,25 @@
+{
+  "source": "Antigravity CLI 1.5.5 fetchAvailableModels",
+  "readAt": "2026-11-10T19:51Z",
+  "projection": "Only the three Carbon rows are retained from the server model map.",
+  "models": {
+    "gemini-4-carbon-high": {
+      "displayName": "Gemini 4 Carbon (High)",
+      "model": "MODEL_PLACEHOLDER_M427",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-4-carbon-low": {
+      "displayName": "Gemini 4 Carbon (Low)",
+      "model": "MODEL_PLACEHOLDER_M438",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-4-carbon-medium": {
+      "displayName": "Gemini 4 Carbon (Medium)",
+      "model": "MODEL_PLACEHOLDER_M437",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    }
+  }
+}

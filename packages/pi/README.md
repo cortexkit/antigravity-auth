@@ -59,8 +59,10 @@ The extension registers the Antigravity model catalog under the
 
 - `antigravity-gemini-3.8-flash`
 - `antigravity-gemini-4-argon`
+- `antigravity-gemini-4-carbon`
 - `antigravity-claude-sonnet-5-5`
 - `antigravity-claude-opus-5-5`
+- `antigravity-gpt-oss-120b-medium`
 
 Claude 5.5 supports low, medium and high effort, a 1,000,000-token context and
 128,000-token output limit. Retired Claude 4.6 requests refuse before credential
@@ -74,7 +76,12 @@ effort (medium by default), with 1,048,576 context and 65,536 output tokens.
 It uses Antigravity only. Argon's per-model remaining quota and reset time are
 reported separately because the redacted quota summary does not identify an
 Argon weekly shared-quota bucket; weekly pool attribution remains unverified.
-- `antigravity-gpt-oss-120b-medium`
+
+Gemini 4 Carbon supports low, medium and high effort (medium by default), with
+1,048,576 context and 262,144 output tokens. Its native CLI 1.5.5 Low capture
+uses an uppercase thinking level without a thinking budget or `toolConfig`;
+Medium/High follow Argon's tier mapping and are inferred, not captured.
+Carbon counts against the ordinary Gemini pool until a Carbon quota bucket is observed.
 
 The image-generation model is currently OpenCode-only because Pi's provider event
 protocol does not expose image-output stream events.

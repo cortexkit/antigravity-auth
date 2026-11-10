@@ -25,6 +25,7 @@ import { ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent'
 import opusLow from '../../../test-fixtures/agy-cli-1.3.3/native-opus-low.json'
 import sonnetLow from '../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
 import schemaDerived from '../../../test-fixtures/agy-cli-1.3.3/schema-derived-thinking.json'
+import carbonLow from '../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json'
 import { rememberPackedRefresh } from './credential-cache.ts'
 
 const ensureProjectContextMock = mock(async () => ({
@@ -714,6 +715,55 @@ afterEach(() => {
 })
 
 describe('resolvePiAntigravityModel', () => {
+  it('sends Carbon with medium default, native Low shaping and inferred Medium/High', async () => {
+    for (const effort of [undefined, 'low', 'medium', 'high'] as const) {
+      for (const cap of [undefined, 2048]) {
+        fetchWithAgyCliTransportMock.mockImplementationOnce(async () =>
+          sseResponse([
+            'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}]}}\n\n',
+          ]),
+        )
+        const model = {
+          ...fakeModel('antigravity-gemini-4-carbon'),
+          reasoning: true,
+        }
+        const result = await collectStream(
+          streamCortexKitAntigravity(model, userContext(), {
+            apiKey: 'test-token',
+            reasoning: effort,
+            maxTokens: cap,
+            sessionId: `carbon-${effort}-${cap}`,
+          }),
+        )
+        expect(result.result.stopReason).toBe('stop')
+        const call = fetchWithAgyCliTransportMock.mock.calls.at(-1)
+        const body = JSON.parse(String(call?.[1]?.body))
+        const tier = effort ?? 'medium'
+        expect(body.model).toBe(`gemini-4-carbon-${tier}`)
+        expect(body.request.generationConfig).toEqual({
+          maxOutputTokens: cap ?? 262144,
+          thinkingConfig: {
+            includeThoughts: true,
+            thinkingLevel: tier.toUpperCase(),
+          },
+        })
+        expect(body.request.labels.model_enum).toBe(
+          {
+            low: 'MODEL_PLACEHOLDER_M438',
+            medium: 'MODEL_PLACEHOLDER_M437',
+            high: 'MODEL_PLACEHOLDER_M427',
+          }[tier],
+        )
+        expect(body.request).not.toHaveProperty('toolConfig')
+        expect(Object.keys(body)).toEqual(carbonLow.envelope_keys)
+        if (tier === 'low' && cap === undefined)
+          expect(body.request.generationConfig).toEqual(
+            carbonLow.requests[0]!.native_generation_config,
+          )
+      }
+    }
+  })
+
   it('sends grouped Argon with medium default and all requested levels without budgets', async () => {
     for (const effort of [undefined, 'low', 'medium', 'high'] as const) {
       for (const cap of [undefined, 2048]) {
@@ -911,6 +961,36 @@ describe('resolvePiAntigravityModel', () => {
 })
 
 describe('finalizePiAntigravityRequest', () => {
+  it('omits toolConfig for every Carbon tier and grouped selector even with tools', () => {
+    for (const model of [
+      'gemini-4-carbon-low',
+      'gemini-4-carbon-medium',
+      'gemini-4-carbon-high',
+      'antigravity-gemini-4-carbon',
+    ]) {
+      const request: Record<string, unknown> = {
+        contents: [{ role: 'user', parts: [{ text: 'Use read' }] }],
+        tools: [
+          {
+            functionDeclarations: [
+              { name: 'read', parameters: { type: 'OBJECT' } },
+            ],
+          },
+        ],
+        toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+      }
+      finalizePiAntigravityRequest(request, model, {
+        session: {
+          conversationId: 'synthetic-conversation',
+          trajectoryId: 'synthetic-trajectory',
+          numericSessionId: '1',
+        },
+        timestamp: 1,
+      })
+      expect(request).not.toHaveProperty('toolConfig')
+    }
+  })
+
   it('omits toolConfig for every Argon route and grouped selector but keeps VALIDATED for other Gemini', () => {
     for (const model of [
       'gemini-4-argon-low',

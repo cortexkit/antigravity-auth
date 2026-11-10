@@ -12,8 +12,10 @@ import {
   getGemini37FlashAntigravityModel,
   getGemini38FlashAntigravityModel,
   getGeminiArgonAntigravityModel,
+  getGeminiCarbonAntigravityModel,
   getResolverAliasMap,
   isGeminiArgonModel,
+  isGeminiCarbonModel,
 } from '../model-registry.ts'
 import type {
   GoogleSearchConfig,
@@ -73,6 +75,7 @@ function supportsThinkingTiers(model: string): boolean {
   const lower = model.toLowerCase()
   return (
     isGeminiArgonModel(lower) ||
+    isGeminiCarbonModel(lower) ||
     lower.includes('gemini-3') ||
     lower.includes('gemini-2.5') ||
     (lower.includes('claude') &&
@@ -173,10 +176,13 @@ export function resolveModelWithTier(requestedModel: string): ResolvedModel {
 
   const isImageModel = IMAGE_GENERATION_MODELS.test(modelWithoutQuota)
   const isArgon = isGeminiArgonModel(modelWithoutQuota)
+  const isCarbon = isGeminiCarbonModel(modelWithoutQuota)
 
-  if (isArgon) {
+  if (isArgon || isCarbon) {
     return {
-      actualModel: getGeminiArgonAntigravityModel(tier),
+      actualModel: isCarbon
+        ? getGeminiCarbonAntigravityModel(tier)
+        : getGeminiArgonAntigravityModel(tier),
       thinkingLevel: tier ?? 'medium',
       tier: tier ?? 'medium',
       isThinkingModel: true,
@@ -452,6 +458,7 @@ export function resolveModelWithVariant(
 
   if (
     isGeminiArgonModel(base.actualModel) ||
+    isGeminiCarbonModel(base.actualModel) ||
     getAgyNativeModel(base.actualModel)?.supportsAdaptiveThinking
   ) {
     if (!variantConfig.thinkingLevel) return base

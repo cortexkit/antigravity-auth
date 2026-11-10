@@ -1,0 +1,298 @@
+{
+  "endpoint": "/v1internal:streamGenerateContent",
+  "http_version": "HTTP/2.0",
+  "header_order": [
+    "user-agent",
+    "content-type",
+    "authorization",
+    "accept-encoding"
+  ],
+  "user_agent": "antigravity/cli/1.5.5 (aidev_client; os_type=darwin; arch=arm64; cl=1017970541; auth_method=consumer)",
+  "envelope_keys": [
+    "project",
+    "requestId",
+    "request",
+    "model",
+    "userAgent",
+    "requestType"
+  ],
+  "requests": [
+    {
+      "model": "gemini-4-carbon-low",
+      "request_keys": [
+        "contents",
+        "systemInstruction",
+        "tools",
+        "labels",
+        "generationConfig",
+        "sessionId"
+      ],
+      "native_generation_config": {
+        "maxOutputTokens": 262144,
+        "thinkingConfig": {
+          "includeThoughts": true,
+          "thinkingLevel": "LOW"
+        }
+      },
+      "native_tool_config": null,
+      "contents_shape": [
+        {
+          "role": "user",
+          "parts_keys": [
+            [
+              "text"
+            ]
+          ]
+        }
+      ],
+      "label_keys": [
+        "cascade_id",
+        "last_step_index",
+        "model_enum",
+        "request_id",
+        "root_cascade_id",
+        "trajectory_id",
+        "used_claude",
+        "used_claude_conservative",
+        "used_non_gemini_model"
+      ],
+      "native_labels": {
+        "last_step_index": "0",
+        "model_enum": "MODEL_PLACEHOLDER_M438",
+        "used_claude": "false",
+        "used_claude_conservative": "false",
+        "used_non_gemini_model": "false"
+      }
+    },
+    {
+      "model": "gemini-4-carbon-low",
+      "request_keys": [
+        "contents",
+        "systemInstruction",
+        "tools",
+        "labels",
+        "generationConfig",
+        "sessionId"
+      ],
+      "native_generation_config": {
+        "maxOutputTokens": 262144,
+        "thinkingConfig": {
+          "includeThoughts": true,
+          "thinkingLevel": "LOW"
+        }
+      },
+      "native_tool_config": null,
+      "contents_shape": [
+        {
+          "role": "user",
+          "parts_keys": [
+            [
+              "text"
+            ]
+          ]
+        }
+      ],
+      "label_keys": [
+        "cascade_id",
+        "last_step_index",
+        "model_enum",
+        "request_id",
+        "root_cascade_id",
+        "trajectory_id",
+        "used_claude",
+        "used_claude_conservative",
+        "used_non_gemini_model"
+      ],
+      "native_labels": {
+        "last_step_index": "0",
+        "model_enum": "MODEL_PLACEHOLDER_M438",
+        "used_claude": "false",
+        "used_claude_conservative": "false",
+        "used_non_gemini_model": "false"
+      }
+    },
+    {
+      "model": "gemini-4-carbon-low",
+      "request_keys": [
+        "contents",
+        "systemInstruction",
+        "tools",
+        "labels",
+        "generationConfig",
+        "sessionId"
+      ],
+      "native_generation_config": {
+        "maxOutputTokens": 262144,
+        "thinkingConfig": {
+          "includeThoughts": true,
+          "thinkingLevel": "LOW"
+        }
+      },
+      "native_tool_config": null,
+      "contents_shape": [
+        {
+          "role": "user",
+          "parts_keys": [
+            [
+              "text"
+            ]
+          ]
+        },
+        {
+          "role": "model",
+          "parts_keys": [
+            [
+              "functionCall",
+              "thoughtSignature"
+            ]
+          ]
+        },
+        {
+          "role": "model",
+          "parts_keys": [
+            [
+              "functionResponse"
+            ]
+          ]
+        }
+      ],
+      "label_keys": [
+        "cascade_id",
+        "last_step_index",
+        "model_enum",
+        "request_id",
+        "root_cascade_id",
+        "trajectory_id",
+        "used_claude",
+        "used_claude_conservative",
+        "used_non_gemini_model"
+      ],
+      "native_labels": {
+        "last_step_index": "2",
+        "model_enum": "MODEL_PLACEHOLDER_M438",
+        "used_claude": "false",
+        "used_claude_conservative": "false",
+        "used_non_gemini_model": "false"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "family": "gemini-4-carbon",
+      "http_status": 200,
+      "finish_reasons": [
+        "STOP"
+      ],
+      "response_text_is_ok": true,
+      "response_text_chars": 2,
+      "usage": [
+        {
+          "promptTokenCount": 9083,
+          "candidatesTokenCount": 1,
+          "totalTokenCount": 9084
+        },
+        {
+          "promptTokenCount": 10088,
+          "candidatesTokenCount": 5,
+          "totalTokenCount": 10093
+        }
+      ],
+      "body_ends_with_frame_separator": true,
+      "response_envelope_keys": [
+        "candidates",
+        "modelVersion",
+        "responseId",
+        "usageMetadata"
+      ],
+      "response_part_key_sets": [
+        [
+          "text"
+        ],
+        [
+          "text",
+          "thoughtSignature"
+        ]
+      ]
+    },
+    {
+      "family": "gemini-4-carbon",
+      "http_status": 200,
+      "finish_reasons": [
+        "STOP"
+      ],
+      "response_text_is_ok": false,
+      "response_text_chars": 0,
+      "usage": [
+        {
+          "promptTokenCount": 8346,
+          "candidatesTokenCount": 68,
+          "totalTokenCount": 8414
+        },
+        {
+          "promptTokenCount": 9342,
+          "candidatesTokenCount": 74,
+          "totalTokenCount": 9416
+        }
+      ],
+      "body_ends_with_frame_separator": true,
+      "response_envelope_keys": [
+        "candidates",
+        "modelVersion",
+        "responseId",
+        "usageMetadata"
+      ],
+      "response_part_key_sets": [
+        [
+          "functionCall",
+          "thoughtSignature"
+        ],
+        [
+          "text"
+        ]
+      ]
+    },
+    {
+      "family": "gemini-4-carbon",
+      "http_status": 200,
+      "finish_reasons": [
+        "STOP"
+      ],
+      "response_text_is_ok": false,
+      "response_text_chars": 19,
+      "usage": [
+        {
+          "promptTokenCount": 8492,
+          "candidatesTokenCount": 4,
+          "totalTokenCount": 8496
+        },
+        {
+          "promptTokenCount": 8492,
+          "candidatesTokenCount": 5,
+          "totalTokenCount": 8497
+        },
+        {
+          "promptTokenCount": 9510,
+          "candidatesTokenCount": 9,
+          "totalTokenCount": 9519,
+          "cachedContentTokenCount": 7288
+        }
+      ],
+      "body_ends_with_frame_separator": true,
+      "response_envelope_keys": [
+        "candidates",
+        "modelVersion",
+        "responseId",
+        "usageMetadata"
+      ],
+      "response_part_key_sets": [
+        [
+          "text"
+        ],
+        [
+          "text",
+          "thoughtSignature"
+        ]
+      ]
+    }
+  ]
+}

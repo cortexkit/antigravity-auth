@@ -833,6 +833,7 @@ describe('transform/gemini', () => {
       it.each([
         'antigravity-gemini-3.8-flash',
         'antigravity-gemini-4-argon',
+        'antigravity-gemini-4-carbon',
       ])('serializes the real knowledge-tool nullable fields for %s', (model) => {
         const properties = {
           kind: { type: 'string', enum: ['note', 'todo', 'plan'] },

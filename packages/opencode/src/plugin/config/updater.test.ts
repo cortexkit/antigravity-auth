@@ -73,6 +73,9 @@ describe('updateOpencodeConfig', () => {
       writtenConfig.provider.google.models['antigravity-gemini-4-argon'],
     ).toBeDefined()
     expect(
+      writtenConfig.provider.google.models['antigravity-gemini-4-carbon'],
+    ).toBeDefined()
+    expect(
       writtenConfig.provider.google.models['antigravity-claude-sonnet-5-5'],
     ).toBeDefined()
   })
@@ -281,6 +284,9 @@ describe('updateOpencodeConfig', () => {
     expect(writtenConfig.provider.google.region).toBe('us-central1')
     expect(
       writtenConfig.provider.google.models['antigravity-gemini-4-argon'],
+    ).toBeDefined()
+    expect(
+      writtenConfig.provider.google.models['antigravity-gemini-4-carbon'],
     ).toBeDefined()
   })
   test('prefers existing opencode.jsonc when using default config path', async () => {

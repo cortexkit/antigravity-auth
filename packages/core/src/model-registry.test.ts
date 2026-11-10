@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
 import capturedCatalog from '../../../test-fixtures/agy-cli-1.3.3/current-model-metadata.json'
 import serverCatalog from '../../../test-fixtures/agy-cli-1.3.5/server-model-catalog.json'
+import carbonMetadata from '../../../test-fixtures/agy-cli-1.5.5/carbon-model-metadata.json'
 import { getAgyModelEnum } from './agy-request-metadata.ts'
 import {
   AGY_NATIVE_MODEL_DEFINITIONS,
@@ -17,6 +18,9 @@ import {
 import { resolveModelWithTier } from './transform/model-resolver.ts'
 
 const EXPECTED_NATIVE_IDS = [
+  'gemini-4-carbon-low',
+  'gemini-4-carbon-medium',
+  'gemini-4-carbon-high',
   'gemini-4-argon-low',
   'gemini-4-argon-medium',
   'gemini-4-argon-high',
@@ -47,11 +51,16 @@ const REQUIRED_PUBLIC_MODEL_FIELDS = [
 ] as const
 
 describe('model registry', () => {
-  it('removes only Gemini 3.5 Flash from the baseline public catalog', () => {
-    // Frozen from the full public catalog with only Gemini 3.5 Flash removed.
-    // Hash every field, not just the IDs, to protect all remaining definitions.
+  it('preserves the pre-Carbon public catalog after Gemini 3.5 Flash removal', () => {
+    // Keep the old catalog's frozen hash: the additive Carbon definition has
+    // separate contract tests, while every field of older models stays pinned.
+    const baseline = Object.fromEntries(
+      Object.entries(getPublicModelDefinitions()).filter(
+        ([id]) => id !== 'antigravity-gemini-4-carbon',
+      ),
+    )
     const digest = createHash('sha256')
-      .update(JSON.stringify(getPublicModelDefinitions()))
+      .update(JSON.stringify(baseline))
       .digest('hex')
     expect(digest).toBe(
       'd191a730e44e99c6ff645385a80c84615b1821412f57866234327a88c4076e5f',
@@ -91,6 +100,7 @@ describe('model registry', () => {
       'antigravity-gemini-3.1-flash-image',
       'antigravity-gemini-3.8-flash',
       'antigravity-gemini-4-argon',
+      'antigravity-gemini-4-carbon',
       'antigravity-gpt-oss-120b-medium',
     ])
 
@@ -200,11 +210,19 @@ describe('model registry', () => {
     )
     for (const id of EXPECTED_NATIVE_IDS) {
       const metadata = AGY_NATIVE_MODEL_DEFINITIONS[id]!
-      const observed = Object.entries(serverCatalog.models).find(
-        ([key]) => key === id,
-      )?.[1]
+      const observed = Object.entries({
+        ...serverCatalog.models,
+        ...carbonMetadata.models,
+      }).find(([key]) => key === id)?.[1]
       expect(observed).toBeDefined()
-      expect(observed).toMatchObject(metadata)
+      // The Carbon map projection records routes and enums, not token limits.
+      // Its Low output cap is pinned separately to the native request capture.
+      if (Object.hasOwn(carbonMetadata.models, id))
+        expect(observed).toMatchObject({
+          displayName: metadata.displayName,
+          model: metadata.model,
+        })
+      else expect(observed).toMatchObject(metadata)
       expect(getAgyModelEnum(id)).toBe(metadata.model)
     }
     for (const id of ['claude-sonnet-4-6', 'claude-opus-4-6-thinking']) {
@@ -231,6 +249,7 @@ describe('model registry', () => {
       'claude-sonnet-5-5',
       'gemini-3.8-flash',
       'gemini-4-argon',
+      'gemini-4-carbon',
     ]) {
       const efforts = ['low', 'medium', 'high']
       const definition = definitions[`antigravity-${family}`]!
@@ -304,7 +323,12 @@ describe('server catalog authority', () => {
       for (const effort of ['', ...efforts]) {
         const selector = `${definition.id}${effort ? `-${effort}` : ''}`
         const wire = resolveModelWithTier(selector).actualModel
-        expect(Object.hasOwn(serverCatalog.models, wire)).toBe(true)
+        expect(
+          Object.hasOwn(
+            { ...serverCatalog.models, ...carbonMetadata.models },
+            wire,
+          ),
+        ).toBe(true)
         expect(isRetiredAgyModel(selector)).toBe(false)
       }
     }

@@ -257,6 +257,25 @@ describe('Pi vault session shutdown', () => {
 })
 
 describe('Pi Antigravity model catalog', () => {
+  it('publishes Carbon with reasoning and the native output limit', async () => {
+    const registerProvider = mock()
+    await cortexKitPiAntigravityAuth({
+      registerProvider,
+      registerCommand: mock(),
+    } as never)
+    const config = registerProvider.mock.calls[0]?.[1] as {
+      models: Array<{ id: string }>
+    }
+    expect(
+      config.models.find((model) => model.id === 'antigravity-gemini-4-carbon'),
+    ).toMatchObject({
+      name: 'Gemini 4 Carbon (Antigravity)',
+      reasoning: true,
+      contextWindow: 1048576,
+      maxTokens: 262144,
+    })
+  })
+
   it('removes only Gemini 3.5 Flash from the Pi text catalog', async () => {
     const registerProvider = mock()
     await cortexKitPiAntigravityAuth({
@@ -271,6 +290,7 @@ describe('Pi Antigravity model catalog', () => {
       'antigravity-claude-sonnet-5-5',
       'antigravity-gemini-3.8-flash',
       'antigravity-gemini-4-argon',
+      'antigravity-gemini-4-carbon',
       'antigravity-gpt-oss-120b-medium',
     ])
   })
@@ -375,6 +395,7 @@ it('replaces the native Google catalog and reads only the google OAuth credentia
       'antigravity-claude-sonnet-5-5',
       'antigravity-gemini-3.8-flash',
       'antigravity-gemini-4-argon',
+      'antigravity-gemini-4-carbon',
       'antigravity-gpt-oss-120b-medium',
     ])
     for (const family of ['opus', 'sonnet']) {

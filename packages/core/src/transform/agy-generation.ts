@@ -1,4 +1,8 @@
-import { getAgyNativeModel, isGeminiArgonModel } from '../model-registry.ts'
+import {
+  getAgyNativeModel,
+  isGeminiArgonModel,
+  isGeminiCarbonModel,
+} from '../model-registry.ts'
 
 const ADAPTIVE_LEVELS: Readonly<Record<number, string>> = {
   1: 'LOW',
@@ -20,9 +24,14 @@ export function applyAgyNativeGenerationConfig(
   }
   delete generationConfig.max_output_tokens
 
-  if (isGeminiArgonModel(wireModel) && native.thinkingLevel !== undefined) {
-    // The 1.3.5 native-argon-low fixture observes LOW without thinkingBudget;
-    // MEDIUM/HIGH are inferred from the server catalog's numeric efforts.
+  if (
+    (isGeminiArgonModel(wireModel) || isGeminiCarbonModel(wireModel)) &&
+    native.thinkingLevel !== undefined
+  ) {
+    // Native Argon Low (CLI 1.3.5) and Carbon Low (CLI 1.5.5) captures observe
+    // LOW without thinkingBudget. Carbon MEDIUM/HIGH are inferred from its
+    // server-map routes following Argon's tier mapping, not captured traffic;
+    // Argon MEDIUM/HIGH are inferred from the server catalog's numeric efforts.
     generationConfig.thinkingConfig = {
       includeThoughts: true,
       thinkingLevel: ADAPTIVE_LEVELS[native.thinkingLevel],

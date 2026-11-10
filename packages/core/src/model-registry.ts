@@ -104,6 +104,33 @@ export interface AgyNativeModelDefinition {
 export const AGY_NATIVE_MODEL_DEFINITIONS: Readonly<
   Record<string, AgyNativeModelDefinition>
 > = {
+  'gemini-4-carbon-low': {
+    displayName: 'Gemini 4 Carbon (Low)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M438',
+    thinkingLevel: 1,
+    thinkingBudget: -1,
+    supportsThinking: true,
+  },
+  'gemini-4-carbon-medium': {
+    displayName: 'Gemini 4 Carbon (Medium)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M437',
+    thinkingLevel: 2,
+    thinkingBudget: -1,
+    supportsThinking: true,
+  },
+  'gemini-4-carbon-high': {
+    displayName: 'Gemini 4 Carbon (High)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M427',
+    thinkingLevel: 3,
+    thinkingBudget: -1,
+    supportsThinking: true,
+  },
   'gemini-4-argon-low': {
     displayName: 'Gemini 4 Argon (Low)',
     maxTokens: 1048576,
@@ -274,6 +301,17 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
       high: { thinkingLevel: 'high' },
     },
   }),
+  'antigravity-gemini-4-carbon': defineModel('antigravity-gemini-4-carbon', {
+    name: 'Gemini 4 Carbon (Antigravity)',
+    reasoning: true,
+    limit: { context: 1048576, output: 262144 },
+    modalities: DEFAULT_MODALITIES,
+    variants: {
+      low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
+      high: { thinkingLevel: 'high' },
+    },
+  }),
   'antigravity-gemini-3.1-flash-image': defineModel(
     'antigravity-gemini-3.1-flash-image',
     {
@@ -331,6 +369,9 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
 }
 
 const RESOLVER_ALIASES: Record<string, string> = {
+  'gemini-4-carbon-low': 'gemini-4-carbon',
+  'gemini-4-carbon-medium': 'gemini-4-carbon',
+  'gemini-4-carbon-high': 'gemini-4-carbon',
   'gemini-4-argon-low': 'gemini-4-argon',
   'gemini-4-argon-medium': 'gemini-4-argon',
   'gemini-4-argon-high': 'gemini-4-argon',
@@ -433,6 +474,7 @@ const QUOTA_GROUP_BY_MODEL_ID: Record<string, ModelQuotaGroup> = {
 
 const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
   'antigravity-gemini-4-argon',
+  'antigravity-gemini-4-carbon',
   'antigravity-gemini-3.8-flash',
   'antigravity-gemini-3.1-flash-image',
   'antigravity-claude-sonnet-5-5',
@@ -498,6 +540,8 @@ export function getQuotaGroupForModel(
   hasArgonPool = false,
 ): ModelQuotaGroup | undefined {
   const normalized = modelId.toLowerCase()
+  // Carbon counts against the Gemini pool until a Carbon quota bucket is observed.
+  if (isGeminiCarbonModel(normalized)) return 'gemini'
   // Argon per-model quota is retained separately: the model alone does not
   // identify an Argon weekly pool, so without evidence that this account
   // reports one the model stays ungrouped and callers fall back to the
@@ -523,6 +567,27 @@ export function getQuotaGroupForModel(
 export function isGeminiArgonModel(model: string): boolean {
   return /^(?:antigravity-)?gemini-4-argon(?:-(?:low|medium|high))?$/.test(
     model.toLowerCase(),
+  )
+}
+
+/** Recognize Carbon selectors without assigning an unobserved quota pool. */
+export function isGeminiCarbonModel(model: string): boolean {
+  return /^(?:antigravity-)?gemini-4-carbon(?:-(?:low|medium|high))?$/.test(
+    model.toLowerCase(),
+  )
+}
+
+export function getGeminiCarbonAntigravityModel(tier?: ThinkingTier): string {
+  return getTieredAntigravityModel(
+    {
+      defaultModel: 'gemini-4-carbon-medium',
+      byTier: {
+        low: 'gemini-4-carbon-low',
+        medium: 'gemini-4-carbon-medium',
+        high: 'gemini-4-carbon-high',
+      },
+    },
+    tier,
   )
 }
 

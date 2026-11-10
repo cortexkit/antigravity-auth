@@ -2623,6 +2623,7 @@ describe('GA native oracle fixtures (synthetic records, not native proof)', () =
     ).toEqual(
       [
         'google/antigravity-gemini-4-argon',
+        'google/antigravity-gemini-4-carbon',
         'google/antigravity-gemini-3.1-flash-image',
         'google/antigravity-gemini-3.8-flash',
         'google/antigravity-claude-sonnet-5-5',

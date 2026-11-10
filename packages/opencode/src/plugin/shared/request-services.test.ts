@@ -4761,6 +4761,19 @@ describe('createRequestExecutor request kinds', () => {
     )
   })
 
+  it('keeps Carbon text selectors for titles without changing the fallback model', () => {
+    expect(TITLE_FALLBACK_MODEL).toBe('gemini-3.8-flash-low')
+    for (const model of [
+      'antigravity-gemini-4-carbon',
+      'gemini-4-carbon-low',
+      'gemini-4-carbon-medium',
+      'gemini-4-carbon-high',
+    ]) {
+      const url = modelUrl(model, 'generateContent')
+      expect(routeTitleModel(url)).toBe(url)
+    }
+  })
+
   it('answers an image-model title locally only for the title kind', async () => {
     const h = harness({ respond: async () => okJson() })
     const executor = createRequestExecutor(h.deps)

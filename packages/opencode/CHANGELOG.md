@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Gemini 4 Carbon (Low, Medium, High) is available on OpenCode and Pi.
+
 ### Changed
 
 - Vault approval requests from setup now show "Antigravity sign-in for OpenCode" or "Antigravity sign-in for Pi".

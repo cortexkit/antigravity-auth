@@ -4,7 +4,7 @@ One package for OpenCode 1.x (V1) and OpenCode 2.x general availability (GA), wi
 
 > Using this plugin or any proxy for Antigravity violates Google's Terms of Service. Account holders have reported suspensions, bans, and shadow-bans. The project is not endorsed by Google; use it at your own risk. Never include credentials, account files, or raw request/response dumps in Git or support reports.
 
-This guide describes the current source tree, not an announcement that an unreleased version is available on npm. See the [project overview](../../README.md) and [current models and evidence caveats](docs/MODEL-VARIANTS.md): Gemini 4 Argon's MEDIUM/HIGH thinking levels and toolConfig omission remain unverified live.
+This guide describes the current source tree, not an announcement that an unreleased version is available on npm. See the [project overview](../../README.md) and [current models and evidence caveats](docs/MODEL-VARIANTS.md): Gemini 4 Carbon and Argon offer Low, Medium and High; their MEDIUM/HIGH thinking levels and toolConfig omission remain unverified live. Carbon defaults to 262,144 output tokens and uses the ordinary Gemini quota pool until a Carbon bucket is observed.
 
 ## Host requirements and entries
 
