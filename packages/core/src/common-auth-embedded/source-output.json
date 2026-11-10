@@ -40,12 +40,12 @@
   "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.43.0-r2.tgz",
   "tarballSha256": "f1a8491419b1f30c0c5a0acdbd4f7981134159cee972eb21372e86f8f0e9ee31",
   "sri": "sha512-BAThCJ0ZZePtz/Q4cdcrC1DsXdYdEDndpaj5kYgOyfHmEi4P9Gli9orcWGTbCSB0zem+A2IllO5qhyVlZx9bAQ==",
-  "canonicalFiles": 155,
-  "canonicalBytes": 1052002,
+  "canonicalFiles": 154,
+  "canonicalBytes": 1050802,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "185c6733e9ed95bd5759203aba3883fb9ad237ee296638c6da9e36c17ab52dda"
+    "sha256": "485c4affab008f14045e09d0c5cebc516c097d652bdbb92e448ca9f2ef22789d"
   },
   "files": [
     {
@@ -606,14 +606,6 @@
       "bytes": 336,
       "sourceSha256": "cd60090325fa8c4c17dddfc216a4ed326f2a6e48525e724a4dd260bf88041231",
       "outputSha256": "cd60090325fa8c4c17dddfc216a4ed326f2a6e48525e724a4dd260bf88041231",
-      "transform": "verbatim"
-    },
-    {
-      "source": "package/dist/fs/lock-record.d.ts",
-      "output": "fs/lock-record.d.ts",
-      "bytes": 1200,
-      "sourceSha256": "611a3b621f61aae27a866f5a4c309c2ae956ca65acb73b0f5c6bc56e9f2f0ead",
-      "outputSha256": "611a3b621f61aae27a866f5a4c309c2ae956ca65acb73b0f5c6bc56e9f2f0ead",
       "transform": "verbatim"
     },
     {

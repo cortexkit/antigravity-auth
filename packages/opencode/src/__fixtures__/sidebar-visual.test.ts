@@ -30,7 +30,10 @@ export const COLLAPSED_ROWS: Record<
     30: '… Ge 7d 62% · Ot 7d 48% left ●',
     31: 'A… Ge 7d 62% · Ot 7d 48% left ●',
     32: 'Ac… Ge 7d 62% · Ot 7d 48% left ●',
+    36: 'Accoun… Ge 7d 62% · Ot 7d 48% left ●',
+    37: 'Account… Ge 7d 62% · Ot 7d 48% left ●',
     38: 'Account 1 Ge 7d 62% · Ot 7d 48% left ●',
+    42: 'Account 1     Ge 7d 62% · Ot 7d 48% left ●',
     48: 'Account 1           Ge 7d 62% · Ot 7d 48% left ●',
   },
   stale: {
@@ -42,7 +45,10 @@ export const COLLAPSED_ROWS: Record<
     30: 'Ac… Ge 7d 9% · Ot 7d 0% left ●',
     31: 'Acc… Ge 7d 9% · Ot 7d 0% left ●',
     32: 'Acco… Ge 7d 9% · Ot 7d 0% left ●',
+    36: 'Account 1 Ge 7d 9% · Ot 7d 0% left ●',
+    37: 'Account 1  Ge 7d 9% · Ot 7d 0% left ●',
     38: 'Account 1   Ge 7d 9% · Ot 7d 0% left ●',
+    42: 'Account 1       Ge 7d 9% · Ot 7d 0% left ●',
     48: 'Account 1             Ge 7d 9% · Ot 7d 0% left ●',
   },
   empty: {
@@ -54,7 +60,10 @@ export const COLLAPSED_ROWS: Record<
     30: 'Accoun… no quota reading yet ●',
     31: 'Account… no quota reading yet ●',
     32: 'Account 1 no quota reading yet ●',
+    36: 'Account 1     no quota reading yet ●',
+    37: 'Account 1      no quota reading yet ●',
     38: 'Account 1       no quota reading yet ●',
+    42: 'Account 1           no quota reading yet ●',
     48: 'Account 1                 no quota reading yet ●',
   },
 }

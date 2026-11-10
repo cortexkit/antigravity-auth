@@ -7,8 +7,8 @@
   "manifestSha256": "2d9ce0b32945609d99f13422bd1eac2708f8d243f0c913c298f1815617d4df87",
   "inventorySha256": "ac70aa45ad17d0f261af46e10d9de34699695875d2dae476858d33be4e4282dd",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
-  "canonicalFiles": 215,
-  "canonicalBytes": 1341556,
+  "canonicalFiles": 214,
+  "canonicalBytes": 1340356,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -471,11 +471,6 @@
       "fs/lock-constants.js",
       336,
       "cd60090325fa8c4c17dddfc216a4ed326f2a6e48525e724a4dd260bf88041231"
-    ],
-    [
-      "fs/lock-record.d.ts",
-      1200,
-      "611a3b621f61aae27a866f5a4c309c2ae956ca65acb73b0f5c6bc56e9f2f0ead"
     ],
     [
       "fs/lock-record.js",

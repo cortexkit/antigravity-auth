@@ -42,7 +42,8 @@ export async function loadVerifiedStoreModules() {
   if (
     receipt.package !== PIN.package ||
     receipt.version !== PIN.version ||
-    !['published', 'candidate'].includes(receipt.artifactStatus) ||
+    (receipt.artifactStatus !== 'published' &&
+      receipt.artifactStatus !== 'candidate') ||
     receipt.tarballSha256 !== PIN.tarballSha256 ||
     !Array.isArray(receipt.files)
   ) {

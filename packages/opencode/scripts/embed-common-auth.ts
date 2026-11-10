@@ -455,11 +455,6 @@ const canonical: readonly (readonly [string, number, string])[] = [
     'cd60090325fa8c4c17dddfc216a4ed326f2a6e48525e724a4dd260bf88041231',
   ],
   [
-    'fs/lock-record.d.ts',
-    1200,
-    '611a3b621f61aae27a866f5a4c309c2ae956ca65acb73b0f5c6bc56e9f2f0ead',
-  ],
-  [
     'fs/lock-record.js',
     2253,
     '18468ed6c58d8a989164b566c3653dbeea0d46b3031b49bc8f23bc4028ae5ff3',

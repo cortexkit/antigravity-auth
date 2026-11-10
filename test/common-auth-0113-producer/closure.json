@@ -302,6 +302,7 @@
       "./refresh-file-lock.js",
       "./with-lock.js"
     ],
+    "fs/lock-record.js": ["./private-files.js", "node:path"],
     "fs/private-files.d.ts": ["@cortexkit/private-files", "node:fs/promises"],
     "fs/private-files.js": [
       "@cortexkit/private-files",
@@ -311,6 +312,7 @@
       "node:path"
     ],
     "fs/refresh-file-lock.js": [
+      "./lock-record.js",
       "./private-files.js",
       "./with-lock.js",
       "node:crypto",
@@ -319,6 +321,7 @@
     ],
     "fs/with-lock.d.ts": ["./refresh-file-lock.js"],
     "fs/with-lock.js": [
+      "./lock-record.js",
       "./private-files.js",
       "./refresh-file-lock.js",
       "node:path"

@@ -183,13 +183,13 @@ test('producer.public_roots_and_exact_closure', async () => {
   const graph = reach(entries, starts)
   expect(graph.files).toEqual(selected)
   expect(graph.externals).toEqual(closure.nonlocalImports)
-  expect(graph.files.length).toBe(215)
+  expect(graph.files.length).toBe(214)
   expect(
     graph.files.reduce(
       (sum, file) => sum + entries.get(`package/dist/${file}`)!.length,
       0,
     ),
-  ).toBe(1341556)
+  ).toBe(1340356)
   expect(graph.files.filter((file) => file.startsWith('routing/'))).toEqual(
     closure.routingFiles,
   )
@@ -273,8 +273,8 @@ test('producer.verbatim_map', async () => {
     './quota-sidebar': publication.sidebarRoot,
     './routing-accessor': publication.routingAccessorRoot,
   })
-  expect(map.canonicalFiles).toBe(222)
-  expect(map.canonicalBytes).toBe(1367957)
+  expect(map.canonicalFiles).toBe(221)
+  expect(map.canonicalBytes).toBe(1366757)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])
@@ -396,9 +396,9 @@ test('producer.shared_core_profile_exact_closure', async () => {
       'utf8',
     ),
   )
-  expect(required.length).toBe(155)
-  expect(map.canonicalFiles).toBe(155)
-  expect(map.canonicalBytes).toBe(1052002)
+  expect(required.length).toBe(154)
+  expect(map.canonicalFiles).toBe(154)
+  expect(map.canonicalBytes).toBe(1050802)
   expect(map.publicRoots).toEqual(profile.publicRoots)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.files.map((file: { output: string }) => file.output)).toEqual(
