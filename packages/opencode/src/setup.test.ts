@@ -42,6 +42,7 @@ import {
   type SetupCallbackContext,
   type SetupIO,
 } from './common-auth-embedded/setup/index.js'
+import { startMenuVaultFixture } from './plugin/__fixtures__/vault-menu-daemon.test.ts'
 import * as setup from './setup.ts'
 import { createSetupPlugin, persistPiSetupLogin } from './setup.ts'
 
@@ -927,6 +928,53 @@ describe('setup plugin callbacks', () => {
     expect(plugin.signInLocal).not.toHaveBeenCalled()
     expect(plugin.beforeRegister).not.toHaveBeenCalled()
     expect(plugin.migrate).not.toHaveBeenCalled()
+  })
+
+  it('real Claustrum setup wire carries both sign-in display names', async () => {
+    for (const [host, name, displayName] of [
+      [
+        'opencode',
+        'antigravity-auth-opencode',
+        'Antigravity sign-in for OpenCode',
+      ],
+      ['pi', 'antigravity-auth-pi', 'Antigravity sign-in for Pi'],
+    ] as const) {
+      const p = profile()
+      fakeHostCommands(p)
+      const daemon = await startMenuVaultFixture(p.root, undefined, {
+        enrollmentName: name,
+      })
+      try {
+        daemon.approve()
+        p.env.SUBC_CONNECTION_FILE = daemon.connectionFile
+        p.env.CLAUSTRUM_SUBC_CONNECTION = daemon.connectionFile
+        Object.assign(process.env, p.env)
+        const plugin = await createSetupPlugin(
+          createDefaultCliDependencies(),
+          async () => 0,
+        )
+        plugin.beforeSignIn = mock(async () => {})
+        // Leave SetupIO.connect unset so common-auth opens the installed transport.
+        const result = await runSetup(
+          plugin,
+          ['--yes', '--enroll-only', `--host=${host}`, '--opencode=2'],
+          { env: p.env },
+        )
+        expect(result.hosts).toEqual([host])
+        expect(daemon.proposalFrames).toHaveLength(1)
+        expect(JSON.parse(daemon.proposalFrames[0]!)).toMatchObject({
+          method: 'auth.enroll_propose',
+          params: {
+            proposed_name: name,
+            display_name: displayName,
+            request_secret_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          },
+        })
+        expect(daemon.errors).toEqual([])
+      } finally {
+        await daemon.close()
+      }
+    }
   })
 
   it.each([

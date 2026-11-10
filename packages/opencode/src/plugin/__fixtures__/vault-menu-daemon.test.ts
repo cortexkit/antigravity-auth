@@ -22,7 +22,7 @@ export function expectedInsulaReset(
 export async function startMenuVaultFixture(
   root: string,
   credential?: { accessToken: string; projectId: string },
-  options: { unsupportedEnrollment?: boolean } = {},
+  options: { unsupportedEnrollment?: boolean; enrollmentName?: string } = {},
 ) {
   // Node needs --experimental-import-meta-resolve to honor the client as the parent.
   const clientEntry =
@@ -43,6 +43,9 @@ export async function startMenuVaultFixture(
   let switchingToLocal = false
   const errors: string[] = []
   const calls: string[] = []
+  const proposalFrames: string[] = []
+  const enrollmentName =
+    options.enrollmentName ?? OPENCODE_VAULT_ENROLLMENT_NAME
   let approved = false
   let requestSecretHash: unknown
   const respond = (
@@ -74,7 +77,7 @@ export async function startMenuVaultFixture(
     if (method) calls.push(method)
     if (
       method === 'auth.enroll_propose' &&
-      params.proposed_name === OPENCODE_VAULT_ENROLLMENT_NAME
+      params.proposed_name === enrollmentName
     ) {
       requestSecretHash = params.request_secret_hash
       return { result: { request_id: 'synthetic-menu-request' } }
@@ -95,7 +98,7 @@ export async function startMenuVaultFixture(
       return {
         result: {
           status: approved ? 'approved' : 'pending',
-          name: OPENCODE_VAULT_ENROLLMENT_NAME,
+          name: enrollmentName,
           token,
           token_generation: 1,
         },
@@ -242,6 +245,9 @@ export async function startMenuVaultFixture(
             params?: Record<string, unknown>
             target?: { kind?: string; module_id?: string }
           }
+          // Keep the actual socket request body, not a reconstructed client input.
+          if (request.method === 'auth.enroll_propose')
+            proposalFrames.push(body.toString())
           if (header.channel === 0) {
             if (request.op === 'route.open') {
               routeChannel = 7
@@ -325,6 +331,7 @@ export async function startMenuVaultFixture(
   return {
     connectionFile,
     calls,
+    proposalFrames,
     errors,
     usage,
     get activeUsageConnections() {

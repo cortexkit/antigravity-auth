@@ -25,7 +25,7 @@ describe('packed vault-client copies', () => {
     [
       '@cortexkit/claustrum-client',
       '@cortexkit/claustrum-client',
-      '0.16.0',
+      '0.17.0',
       {},
       {},
     ],
@@ -164,7 +164,7 @@ const candidate = () => [
     '2.2.1',
     {
       [core]: '2.2.1',
-      '@cortexkit/claustrum-client': '0.16.0',
+      '@cortexkit/claustrum-client': '0.17.0',
       '@cortexkit/private-files': '0.2.2',
       '@cortexkit/subc-client': '0.24.0',
       zod: '^4.0.0',
@@ -229,7 +229,7 @@ describe('packed consumer graph comparison', () => {
         '3.0.0',
         {
           [core]: '3.0.0',
-          '@cortexkit/claustrum-client': '0.16.0',
+          '@cortexkit/claustrum-client': '0.17.0',
           '@cortexkit/private-files': '0.2.2',
           '@cortexkit/subc-client': '0.24.0',
           zod: '^4.0.0',
@@ -257,7 +257,7 @@ describe('packed consumer graph comparison', () => {
         '3.0.0',
         {
           [core]: '3.0.1',
-          '@cortexkit/claustrum-client': '0.16.0',
+          '@cortexkit/claustrum-client': '0.17.0',
           '@cortexkit/private-files': '0.2.2',
           '@cortexkit/subc-client': '0.24.0',
           zod: '^4.0.0',
@@ -290,7 +290,7 @@ describe('packed consumer graph comparison', () => {
         product,
         '2.2.1',
         {
-          '@cortexkit/claustrum-client': '0.16.0',
+          '@cortexkit/claustrum-client': '0.17.0',
           '@cortexkit/private-files': '0.2.2',
           '@cortexkit/subc-client': '0.24.0',
           zod: '^4.0.0',
